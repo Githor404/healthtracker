@@ -1,19 +1,20 @@
 'use strict';
 /* ===========================================================================
-   HealthTracker — data layer
+   HealthTracker — data layer + export/import escape hatch
    ---------------------------------------------------------------------------
-   Scope of THIS file today (Phase 0, first slice): persistence only.
-     • storage adapter: localStorage -> memory, truthful status/badge
+   Scope of THIS file (Phase 0 so far):
+     • storage adapter: localStorage -> memory, truthful status/badge (rule #5)
      • versioned schema (internal `version`), stable key (DECISIONS.md D1)
-     • one-time migration of the predecessor's `uha-log-v1` (DECISIONS.md D2)
-   NOT here yet (built after review): ingest, export/copy-out, destructive
-   import/restore + pre-restore backup (D3), history UI, service worker, manifest.
+     • one-time migration of the predecessor's `uha-log-v1` (D2)
+     • export / copy-out, and destructive import-restore with the D3 pre-restore
+       backup, forward-version guard, and round-trip contract (D5)
+   NOT here yet: four-shape Ingest merge (Phase 1), history view, SW + manifest.
    Every value written to the DOM goes through esc() — no exceptions.
    =========================================================================== */
 
 // ---- keys & schema --------------------------------------------------------
 const STORE_KEY      = 'healthtracker-log';            // D1: version-stable key
-const PRERESTORE_KEY = 'healthtracker-log-prerestore'; // D3 (used by restore, not yet built)
+const PRERESTORE_KEY = 'healthtracker-log-prerestore'; // D3: pre-restore backup
 const LEGACY_KEY     = 'uha-log-v1';                   // predecessor key — read-only
 const SCHEMA_VERSION = 1;
 
@@ -31,6 +32,14 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
 // later) additionally clamp to >= 0 at their boundary.
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const clampNonNeg = (v) => Math.max(0, num(v));
+
+// Pasted JSON may arrive from a chat app: normalize smart quotes / non-breaking
+// spaces before JSON.parse so a clean-looking paste isn't rejected as "Bad JSON".
+const cleanJSON = (s) => String(s == null ? '' : s)
+  .replace(/[“”„‟″‶]/g, '"')
+  .replace(/[‘’‚‛′‵]/g, "'")
+  .replace(/[   ]/g, ' ')
+  .trim();
 
 function localDate(d) {
   d = d || new Date();
@@ -71,7 +80,9 @@ const Store = (() => {
   }
 
   return {
-    init() { tier = probe() ? 'local' : 'memory'; return tier; },
+    // Fresh probe each load resets the write-health flag: a new page session has
+    // no evidence of failure until a write actually fails in it.
+    init() { lastWriteOk = true; tier = probe() ? 'local' : 'memory'; return tier; },
     get tier() { return tier; },
     readRaw,
 
@@ -84,6 +95,14 @@ const Store = (() => {
       tier = 'memory';
       memoryBlob = blob;
       return false;
+    },
+
+    // D3: durable single-slot pre-restore backup. Returns false if it can't be
+    // made durable (memory tier or write failure) so the caller degrades honestly.
+    // Never flips the primary tier — the following saveState reports write health.
+    backup(blob) {
+      if (tier !== 'local') return false;
+      return writeRaw(PRERESTORE_KEY, JSON.stringify(blob));
     },
 
     // Truthful status for the badge. ok=false => user must export to be safe.
@@ -183,7 +202,7 @@ function migrateLegacy(legacy, nowISO) {
 
 // ---- boot -----------------------------------------------------------------
 let APP_STATE = null;
-let APP_SOURCE = 'empty';   // 'store' | 'migrated' | 'empty'
+let APP_SOURCE = 'empty';   // 'store' | 'migrated' | 'empty' | 'restored'
 
 function boot() {
   Store.init();
@@ -229,6 +248,100 @@ function boot() {
   return { state, source, status: Store.status() };
 }
 
+// ---- export / import-restore (DECISIONS.md D5) ----------------------------
+// Export is read-only and local: the full log state only, pretty-printed.
+function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
+
+// Validate + route a pasted blob WITHOUT mutating anything. Returns
+// { ok, state, kind } or { ok:false, error }. Routing precedence: an internal
+// numeric `version` means new-schema, full stop (even if `days` is present);
+// legacy (migrateLegacy) applies only when `version` is absent. A blob whose
+// version exceeds our schema is rejected outright — we migrate up, never down.
+function parseImport(raw) {
+  const text = cleanJSON(raw);
+  if (!text) return { ok: false, error: 'Nothing to import.' };
+  let o;
+  try { o = JSON.parse(text); }
+  catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !o.days || typeof o.days !== 'object')
+    return { ok: false, error: 'Not a HealthTracker log (no "days").' };
+  if (typeof o.version === 'number' && o.version > SCHEMA_VERSION)
+    return { ok: false, error: 'This export is from a newer version of the app.' };
+  if (typeof o.version === 'number') {
+    // New-schema (same or lower known version). A lower version would run the
+    // in-place migrator when one exists; at v1 there is none, so accept as-is —
+    // verbatim, no added stamp — to preserve the export -> import round-trip.
+    return { ok: true, state: o, kind: 'restore' };
+  }
+  // No version -> legacy uha-log-v1 shape. Reuse the proven, stamped migrator.
+  return { ok: true, state: migrateLegacy(o, new Date().toISOString()), kind: 'legacy' };
+}
+
+function showPrerestore(json) {
+  const el = document.getElementById('prerestoreBox');
+  const wrap = document.getElementById('prerestoreWrap');
+  if (el) el.value = json;
+  if (wrap) wrap.style.display = 'block';
+}
+
+// Destructive full replace. Nothing is mutated until a valid replacement is in
+// hand. The pre-restore backup (D3) is attempted BEFORE the confirm so the prompt
+// can tell the truth about whether a backup exists. Applies to legacy pastes too.
+function restore(raw) {
+  const parsed = parseImport(raw);
+  if (!parsed.ok) return { ok: false, error: parsed.error };
+
+  const prev = APP_STATE;
+  showPrerestore(JSON.stringify(prev, null, 2));   // visible copyable surface (persists)
+  const backedUp = Store.backup(prev);             // durable single rolling slot (D3)
+
+  const msg = backedUp
+    ? 'Replace ALL current data with the imported data?\n\nYour previous data has been backed up (shown on the page) and can be recovered — proceed?'
+    : 'Replace ALL current data?\n\n⚠ Storage could NOT keep a backup. Copy the "previous data" text shown on the page FIRST, then proceed anyway?';
+  if (!window.confirm(msg)) return { ok: false, aborted: true, backedUp: backedUp };
+
+  APP_STATE = parsed.state;
+  normalizeStatuses(APP_STATE);                    // same normalization path as boot
+  ensureCurrentDay(APP_STATE);
+  const saved = Store.saveState(APP_STATE);
+  APP_SOURCE = parsed.kind === 'legacy' ? 'migrated' : 'restored';
+  refresh();
+  return { ok: true, kind: parsed.kind, backedUp: backedUp, saved: saved };
+}
+
+// ---- DOM handlers ---------------------------------------------------------
+function copyOut() {
+  const json = exportJSON();
+  const box = document.getElementById('exportBox');
+  if (box) { box.value = json; box.focus(); box.select(); try { box.setSelectionRange(0, json.length); } catch (e) {} }
+  let done = false;
+  try { done = document.execCommand('copy'); } catch (e) {}
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(json).then(function () { toast('Copied — paste to Claude'); }).catch(function () {});
+  }
+  toast(done ? 'Copied — paste to Claude' : 'Select-all + copy the text above');
+}
+
+function doRestore() {
+  const box = document.getElementById('importBox');
+  const raw = box ? box.value : '';
+  if (!raw.trim()) { toast('Paste a log export first'); return; }
+  const r = restore(raw);
+  if (!r.ok) { toast(r.aborted ? 'Restore cancelled' : (r.error || 'Restore failed')); return; }
+  if (box) box.value = '';
+  toast(r.saved ? ('Restored (' + r.kind + ')') : 'Restored to memory — export to be safe');
+}
+
+let _toastT;
+function toast(m) {
+  const e = document.getElementById('toast');
+  if (!e) return;
+  e.textContent = m;
+  e.classList.add('show');
+  clearTimeout(_toastT);
+  _toastT = setTimeout(function () { e.classList.remove('show'); }, 1900);
+}
+
 // ---- Phase 0 observation harness (minimal; not the real UI) ---------------
 function renderBadge() {
   const el = document.getElementById('storeBadge');
@@ -264,9 +377,10 @@ function main() {
   refresh();
 }
 
-// Console seam for review/testing the gate without a UI for it yet.
+// Console seam for review/testing the gate without a full UI.
 window.HT = {
   Store, boot, migrateLegacy, refresh,
+  exportJSON, parseImport, restore,
   keys: { STORE_KEY, PRERESTORE_KEY, LEGACY_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
