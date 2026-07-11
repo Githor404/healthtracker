@@ -1,118 +1,100 @@
-# HealthTracker — Agent Brief (v3)
+# HealthTracker — Agent Brief (v4)
 
-You are building a food/health logging web app in this repo, from scratch. It succeeds an existing app (**health-log**) whose proven design decisions are distilled below. This brief is the **spec of record**.
+**This version reframes the product.** v3 described a personal successor to an older app; v4 describes a **distributable app for other people**: fresh start, no legacy data, no personal calibrations baked in. Where v3 and v4 disagree, v4 wins. The Phase 0 data layer, its gates, and decisions D1/D3/D5/D6 all stand. D2 and D4 are **retired** (superseded — mark them so in DECISIONS.md; never delete log entries).
 
-**Status:** The one-time analysis of the predecessor source has been completed and its findings are absorbed into this version. Do not fetch or consult the original again — where memory of the original and this brief disagree, the brief wins.
+## Product definition
 
-**Storage ruling (decided):** localStorage is the primary tier for the day log — single versioned key, memory fallback for private-mode/write-failure cases, truthful badge. The Phase 2 OFF product cache is a separate storage decision, made in Phase 2 (capped localStorage key vs small IndexedDB store); it is rebuildable data and does not need the log's durability guarantees.
+A mobile-first, fully client-side nutrition and price tracker. No backend, no accounts, no analytics; all data lives on the device; export is always available. Distribution target: ordinary users, not just the author.
 
-## Product concept
+Four capabilities:
 
-A mobile-first daily food log with two input paths landing in the same data structure:
+1. **Scan → nutrients.** Barcode scan → OpenFoodFacts lookup → macros *and* labeled micronutrients → portion picker → one-tap log at `measured` confidence.
+2. **Photo → nutrients via AI paste.** For restaurant/cooked meals: the app provides a copyable prompt template; the user sends it with their meal photo to their AI assistant (Claude or any other), pastes the returned JSON into Ingest. Macros only — see the honesty rule below. No API keys, no in-app AI calls.
+3. **Daily log vs goals.** Daily totals of every tracked nutrient, displayed against user-configured goals (floors for things like protein and fiber, ceilings for things like sodium and kcal if the user wants them).
+4. **Price intelligence.** Optional price + store capture at scan time builds a personal price history per product per store; the app also reads the crowdsourced Open Prices database (read-only) to show nearby prices for a scanned product. No contribution flow in v1.
 
-- **Scan path** (new, primary for packaged foods): barcode scan → OpenFoodFacts nutriments → portion picker → one-tap log at `measured` confidence. No AI round-trip.
-- **Claude path** (carried forward, for cooked/plated meals): user photographs a meal, sends it to Claude in a chat, pastes the returned JSON into the app's Ingest box. Periodically the full state is copied out and pasted back to Claude for analysis.
+**Honesty rule (ruled):** micronutrients enter the log only from *labeled* sources — the OFF scan path or explicit manual entry from a package label. The AI photo path produces macro estimates at `eyeballed` confidence and never micros; the in-app prompt template must not request micros. A vision model cannot see the iron in a stew, and daily micro totals must never be fiction wearing decimals. Days whose items lack micro data show micro totals as "from N of M items" so partial coverage is visible, not implied-complete.
 
-## Data contract (stable — extend, never break)
+## Multi-user rules (all new in v4)
 
-Item fields: `name, meal, time, kcal, protein_g, fat_g, carb_g, fiber_g, soluble_fiber_g, confidence, notes`, plus optional `barcode` (scan path) and optional `water_l`.
+- **No personal calibrations in code.** The auto-supplement is now a user setting: **off by default**, configurable (name, kcal, per-nutrient amounts); when enabled it persists into each new day as a flagged, non-deletable item, exactly as the old behavior. Quick-add presets ship **empty**; users create their own (name + nutrient amounts + default portion). Seed data is zero days, zero presets.
+- **First-run experience.** An empty state that teaches the two input paths, prompts goal setup (skippable), and exposes the copyable AI prompt template. No feature assumes the user knows the JSON contract — the app teaches it.
+- **Privacy is a stated feature.** README + in-app about line: all data local, no accounts, no telemetry, export-is-yours. Device location is used only when the user invokes nearby-price comparison, is sent only as an Open Prices query parameter, and is never stored.
+- **License:** add one before distribution (default MIT unless the user rules otherwise — open ruling).
+- **OFF etiquette:** every OpenFoodFacts / Open Prices request carries a custom User-Agent identifying the app (`HealthTracker/<version> (<repo URL>)`). Cache-first lookups are the rate-limit courtesy.
+- Repo stays history-free and now fixture-synthetic forever; it is public-facing.
+
+## Data contract (schema v2)
+
+Item fields: `name, meal, time, kcal, protein_g, fat_g, carb_g, fiber_g, soluble_fiber_g, confidence, notes`, plus optional `barcode`, optional `micros`, and `source`.
 - `meal` ∈ breakfast | lunch | dinner | snack | drink | supplement
 - `confidence` ∈ eyeballed | weighed | measured
-- Numbers are numbers. `soluble_fiber_g` is always present (0 when unknown) on every path that creates items — ingest normalizer, manual add, scan path, presets. No path may emit an item without it.
+- `source` ∈ scan | ai-paste | manual | preset | supplement
+- `micros` is an optional flat map of canonical keys → numbers: `sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, vitamin_a_ug, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, folate_ug, saturated_fat_g, sugars_g, cholesterol_mg` (extensible; unknown keys tolerated on ingest, preserved, not displayed until recognized). Only scan/manual items may carry micros per the honesty rule; ingest strips `micros` from `ai-paste` items and says so in the ingest report.
+- `soluble_fiber_g` always present (0 when unknown) on every creation path.
 
-Day shape: `{ status: "in_progress" | "complete", items: [], water_l }`, keyed by local date `YYYY-MM-DD`.
+Day shape unchanged: `{ status, items[], water_l }` keyed by `YYYY-MM-DD` (keys validated at every paste boundary). Water source of truth: `day.water_l`.
 
-**Water source of truth:** `day.water_l` drives all display and totals. Water-type items (e.g. a "Water 1L" preset) are timestamped log records that increment `day.water_l` when added; they are never independently summed. One truth, no double counting.
+New top-level state:
+- `settings`: `{ goals: { <nutrientKey>: {value, direction: "min"|"max"} }, supplement: {enabled:false, name, nutrients}, presets: [] }`
+- `priceLog`: `{ <barcode>: { name, entries: [{price, currency, store, date}] } }` — independent of the food log (a product can be price-checked without being eaten).
 
-**New schema versioning:** the stored blob carries an internal `version` field. The legacy blob (`uha-log-v1` key) has no internal version — migration detects it by key/shape. Legacy shape: `{ days: {date: day}, known: [], current }`; it must import losslessly, preserving `water_l`, statuses, and every item field.
+**Versioning:** blob carries `version: 2`. The existing v1→v2 migration is **in-place under the stable key** — this is the versioning machinery doing the job it was built for (first real exercise of it). v1 blobs gain empty `settings`/`priceLog`, items gain `source` (inferred: `supplement` if `_auto`, else `manual`). Forward-version guard now rejects `version > 2`.
 
-**Two import mechanisms, both present, clearly labeled:**
-- **Ingest** = non-destructive merge. Accepts four shapes: `{items:[...]}` with optional top-level `date`; a bare array; a single item; a full `{days:...}` export. Full-days merge fills only days that are locally missing or empty — never overwrites a day that has items; merges `known` deduped by name. Item-level `date` overrides top-level `date` overrides today.
-- **Import/restore** = destructive full replace, confirm-gated (the predecessor lacked the confirm — add it).
+**Legacy `uha-log-v1` support: removed.** Strip `migrateLegacy`, the legacy-paste restore route, and their harness cases (fresh start, no legacy users exist). The restore boundary accepts schema v1/v2 blobs only.
 
-All ingest paths — including the full-days shape — route every item through the same per-item coercion (numbers coerced, clamped ≥ 0) and escaping. Pasted JSON is normalized before parsing: smart quotes → straight, non-breaking spaces → spaces.
+**Ingest (four shapes) and import/restore semantics carry forward** from v3/D5, with version routing amended for schema v2 (version-absent → reject; v1 → in-place migrate; v2 → as-is; > 2 → reject — see the D5 amendment): non-destructive merge never overwrites non-empty days; destructive restore is confirm-gated with the D3 pre-restore backup and degraded path; per-item coercion (numbers coerced, clamped ≥ 0) and escaping at every untrusted boundary (paste, OFF, Open Prices). Escaper covers `& < > " '`.
 
-## Design decisions carried forward (all mandatory)
+## The AI prompt template (shipped in-app, copyable)
 
-- **Per-item confidence tag** rendered on every item.
-- **Manual day-close discipline**: new days are `in_progress`; the user explicitly closes them (and can reopen); only `complete` days enter any average or statistic; in-progress days are visibly flagged wherever they appear.
-- **Auto-applied daily supplement item** (kcal ≈ 5, soluble fiber ≈ 4 g, flagged, non-deletable) — persisted into the day's items at day creation, so displayed and exported totals are always identical.
-- **Arbitrary-day navigation and editing**: ‹ / › navigation across all logged days; the ring, item list, totals, close/reopen, and clear-day all operate on the selected day, not just today.
-- **Tap-to-cycle meal**: tapping an item's meal chip cycles through the six meal values.
-- **Confirm-gated "Clear this day"**: wipes the selected day's items and water (for re-importing a clean full-day JSON).
-- **7-day average = complete days within the last 7 calendar days** (not "the last 7 closed days"). This is intentional: it answers "how am I eating lately," and logging gaps should visibly thin the sample rather than reach back to stale days. All-time average = all complete days.
-- Soluble/insoluble fiber split display; macro-composition ring with %-of-calories and grams modes; stacked P/F/C daily history chart with in-progress days marked; per-meal grouping with group subtotals; water quick-add (+0.25/+0.5 L); pinned quick-add presets whose values are calibrated and never re-estimated; copy-full-state-to-clipboard with graceful fallback when the Clipboard API is unavailable.
-- **History-free repo**: day logs are personal data. No real history in seeds, fixtures, or commits — synthetic data only.
+A short instruction block the user pastes into any AI assistant along with their meal photo. It must request: JSON only, straight quotes, the item schema above **without micros**, `confidence: "eyeballed"`, honest portion assumptions in `notes`, `soluble_fiber_g` present (0 if unknown). The template is versioned with the schema and lives in one place in the code.
 
-## Proven patterns to re-implement (patterns, not pasted code — every line here is justified by this brief, not by the predecessor)
+## Goals display
 
-- `cleanJSON` paste normalization (smart quotes, non-breaking spaces).
-- Dual clipboard strategy: Clipboard API with a select-and-copy fallback surface.
-- CSS custom-property token palette — extended with a dark scheme via `prefers-color-scheme` (the predecessor had none).
+- The daily ring becomes progress-vs-goal for a primary nutrient (user-selectable, default kcal), with a compact goal strip for the rest: current / target, direction-aware (a ceiling at 80% is good; a floor at 80% is short).
+- Daily summary rolls up all macros + all micros present, each micro annotated with its coverage ("from N of M items").
+- Averages keep the calendar-window definition and complete-days-only discipline.
 
-## Baseline quality rules (the predecessor's defects, inverted)
+## Scanner spec — unchanged from v3 (follow it exactly)
 
-1. Auto-items persist; display and export never disagree.
-2. **Every** interpolated value is escaped — including pasted JSON and OpenFoodFacts responses (community-sourced, untrusted). The escaper covers `& < > " '` (the predecessor missed `'`).
-3. Offline-capable from Phase 0: service worker + web app manifest. No render-blocking third-party resources — **system font stack only, no web fonts** (the predecessor loaded Google Fonts, which breaks offline and adds a dependency).
-4. Known foods are a real feature (Phase 2): seeded from presets + product cache, surfaced in manual add.
-5. The storage badge always tells the truth and **reacts to write failures at write time** — a quota error after load must visibly degrade to memory mode and warn the user to export, not keep claiming "saved."
-6. Viewport: keep `viewport-fit=cover` for safe areas; do **not** set `maximum-scale` (pinch-zoom stays available).
+Preconditions (https/localhost, getUserMedia support), the getUserMedia constraints and error-message matrix by `err.name`, two-tier detection (native BarcodeDetector with format intersection + readyState-gated rAF loop; ZXing UMD CDN fallback with 100 ms poll / ~6 s timeout), ~1.5 s debounce, vibrate, full teardown, 8–14 digit hygiene, manual barcode field alongside the camera.
 
-## Scanner spec (distilled from a proven on-device implementation — follow closely)
-
-**Preconditions, checked in order before opening the camera:**
-- Require `https:` (allow `localhost` / `127.0.0.1`); otherwise: camera only works on a secure page.
-- Require `navigator.mediaDevices?.getUserMedia`; otherwise: browser doesn't support camera access.
-
-**Camera:** `getUserMedia({ video: { facingMode: {ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio: false })`. Map failures by `err.name`:
-- `NotAllowedError` / `PermissionDeniedError` → permission blocked; allow camera in browser settings and reload.
-- `NotFoundError` / `OverconstrainedError` → no camera on this device.
-- `NotReadableError` → another app is using the camera.
-- anything else → surface the error message.
-
-Video element: `playsinline`, muted, autoplay; `.play()` wrapped in try/catch.
-
-**Detection, two tiers:**
-1. If `'BarcodeDetector' in window`: `getSupportedFormats()`, intersect with `['ean_13','ean_8','upc_a','upc_e','code_128','code_39']`; if non-empty, run a `requestAnimationFrame` loop calling `detector.detect(video)` only when `video.readyState >= 2`, swallowing per-frame errors.
-2. Fallback: lazy-load the ZXing UMD browser build from CDN (the only permitted external dependency), poll for `window.ZXingBrowser` every 100 ms with ~6 s timeout; on timeout, error cleanly ("check your connection") and stop. On success use `BrowserMultiFormatReader.decodeFromVideoElement`.
-
-**On hit:** debounce ~1.5 s between accepted reads, `navigator.vibrate(50)` if available, stop the scan (stop all stream tracks, release the reader, clear the detector-active flag), then run the lookup.
-
-**Barcode hygiene:** accept 8–14 digits after stripping non-digits; validate before lookup. A hand-typed barcode field with a Look-up button exists alongside the camera.
-
-## OpenFoodFacts integration
+## OpenFoodFacts integration (extended for micros)
 
 `GET https://world.openfoodfacts.org/api/v2/product/{barcode}.json?fields=product_name,brands,quantity,serving_size,serving_quantity,nutriments`
+- Map nutriments to the schema: macros from `energy-kcal_100g, proteins_100g, fat_100g, carbohydrates_100g, fiber_100g`; micros from their `_100g` keys where present (sodium, salt→sodium conversion, calcium, iron, potassium, vitamins, saturated fat, sugars). Missing micros are simply absent — never zero-filled (absence ≠ zero on a label).
+- Portion picker (per serving / per 100 g / custom grams) scales macros and micros together.
+- Cache every successful lookup (barcode → product + nutriments + fetched-at); cache-first on rescan; offline-capable.
+- All OFF strings escaped, all numbers coerced and clamped. Custom User-Agent on every request.
+- Product missing / offline: keep the barcode, offer manual entry; never lose the code.
 
-- Use per-100 g nutriments (`energy-kcal_100g`, `proteins_100g`, `fat_100g`, `carbohydrates_100g`, `fiber_100g`) and per-serving where present.
-- Portion picker: per serving / per 100 g / custom grams, live-computed macros; logging writes a complete item at `measured` confidence with `barcode` set.
-- Cache every successful lookup (barcode → name, brand, nutriments, fetched-at). Repeat scans resolve from cache first and work offline.
-- Missing product / network failure degrades gracefully: keep the barcode, offer manual macro entry or defer to the Claude photo flow. Never lose the scanned code.
-- OFF data is untrusted: escape all strings, coerce and clamp all numbers.
+## Price capture & Open Prices (read-only)
 
-## Architecture constraints
+- After a successful scan (or manual barcode lookup), an **optional, skippable** price prompt: price + store name (store names autocomplete from the user's own history). Writes to `priceLog`. Skipping must cost zero taps beyond dismissal.
+- Personal comparison view per product: entries grouped by store, latest price per store, simple trend.
+- **Nearby prices:** on user request (never automatically), ask for device location, query Open Prices for the product's recent prices, rank by proximity, display store / price / date / distance, cache results briefly. Degrade gracefully: no permission → personal history only, no error; offline → cached or personal only.
+- Implementation detail deferred to the phase: verify the current Open Prices API surface at https://prices.openfoodfacts.org/api/docs at build time (query-by-barcode + location filtering), and pre-register the exact endpoint/params in DECISIONS.md before coding. Read-only; no OFF account.
 
-- Static app, no build step, GitHub-Pages-deployable. Vanilla HTML/CSS/JS across a handful of files (index.html, app.js, sw.js, manifest.json). No frameworks, no bundlers, no npm. Only external dependency: the lazy-loaded ZXing fallback.
-- Mobile-first (~480 px column), safe-area insets, light + dark schemes via CSS tokens and `prefers-color-scheme`.
-- Versioned storage schema with a migration path; full JSON export/import always available as the escape hatch regardless of storage tier.
+## Architecture constraints (unchanged, restated)
 
-## Phase plan (gated — a phase does not start until the previous gate passes, with evidence pre-registered)
+Static, no build step, GitHub-Pages-deployable; vanilla HTML/CSS/JS in a handful of files; only external dependency is the lazy-loaded ZXing fallback; localStorage primary with truthful badge and memory fallback (D1); SW per D6 (cache-first atomic shell, prefix-scoped cleanup, no skipWaiting, passive update hint, localhost network-first, `?prod=1` override); mobile-first, light+dark tokens, safe-area insets, no web fonts, no `maximum-scale`.
 
-**Phase 0 — Scaffold & data layer.** localStorage adapter with truthful badge and memory fallback, versioned schema (internal `version` field), JSON export/import, `uha-log-v1` migration, service worker + manifest, day model with status discipline.
-*Gate:* a real legacy export imports losslessly (item counts, per-day totals, statuses, `water_l` all match); the app loads and displays imported history with networking disabled; the badge correctly reflects each tier including a forced write failure occurring after load.
+## Phase plan (gated; evidence pre-registered and re-runnable, as established)
 
-**Phase 1 — Logging parity.** Day view grouped by meal, day navigation, totals with persisted auto-supplement, macro ring, fiber split, history chart, averages (calendar-window definition), manual add, tap-to-cycle meal, clear-day, quick-add presets, Claude JSON ingest (all four shapes, paste normalization), confirm-gated import/restore, copy-data-out.
-*Gate:* displayed and exported day totals comprise the same item set with the same underlying numeric values (persisted supplement in both) — compared numerically, not as display-rounded strings; all four ingest shapes behave per the Data contract; a sweep confirms every rendered field passes through the escaper, including the full-days ingest path.
+**Phase R — Reframe.** Strip legacy migration + its tests; retire D2/D4 in DECISIONS.md; schema v2 with in-place v1→v2 migration; settings (goals, supplement-off-default, empty presets); `priceLog` scaffold; seed emptied of personal data.
+*Gate:* full harness green after the strip (no orphaned cases); a v1 blob migrates in place under the stable key with items gaining correct `source`; new-user boot yields zero days'-worth of fabricated intake (no supplement unless configured); forward-version guard rejects v3+.
 
-**Phase 2 — Scan-to-log.** Full scanner spec, OFF lookup, portion picker, product cache (storage decision made and ruled on here), known-foods list surfaced in manual add.
-*Gate:* a scanned real product logs with correct computed macros at a custom gram amount; the same barcode rescanned offline resolves from cache; an unknown barcode degrades to manual entry without losing the code; camera-denied and no-camera paths show the correct messages.
+**Phase 1 — Logging core, multi-user.** Day view (meal grouping, day nav, tap-to-cycle, clear-day), goals setup + progress display + daily summary with micro coverage annotation, averages, manual add (with optional label-micros entry), preset CRUD, supplement setting, four-shape Ingest incl. the ai-paste micro-strip rule, first-run flow + in-app AI prompt template, README (privacy stance) + license.
+*Gate:* displayed and exported totals are the same numeric item set; all four ingest shapes per contract; ai-paste micros are stripped and reported; goal direction math correct for min and max cases; every rendered field escaped (incl. goal names, preset names, store names); first-run on a clean profile reaches a logged day via the prompt-template path without external instructions.
 
-**Phase 3 — Expansion (propose, don't assume).** Candidates: weight/biometrics tracking, targets on the ring, week-view analytics, shopping-list features. Present options with effort estimates and let the user rank them before building anything.
+**Phase 2 — Scan + price capture.** Full scanner spec, OFF lookup with micros mapping, portion picker, product cache (storage ruling made here per D-log), optional price+store prompt, personal price comparison view.
+*Gate:* scanned real product logs correct macros+micros at a custom gram amount; absence-≠-zero verified (a product with no labeled iron shows no iron, not 0); rescan offline resolves from cache; unknown barcode degrades without losing the code; camera-denied/no-camera messages correct; price entries recorded, grouped by store, skippable at zero cost.
 
-## Working rules
+**Phase 3 — Nearby prices.** Open Prices read integration per the deferred-verification rule; location permission flow; proximity ranking; caching; graceful degradation.
+*Gate:* scanned product with location permission shows nearby community prices with store/date/distance; permission denied → personal-only with no error surface; offline → cached/personal; the API contract used is recorded in DECISIONS.md with a dated verification note.
 
-- Small, single-purpose commits. Before any change to storage, ingest, export, or migration code, state the data-loss implications explicitly and wait for approval. No bulk approvals.
-- Ruled implementation contracts live in DECISIONS.md and bind equally.
-- Pre-register each gate's test evidence before claiming the gate passes.
-- Ask before adding any scope not listed here. When two patterns in this brief could conflict in practice, name the conflict and propose a resolution rather than silently picking one.
+**Phase 4 — Expansion (propose, don't assume).** Candidates: Open Prices contribute-back (OFF account + proof photos), BYOK in-app AI vision, biometrics/weight, week analytics, shareable shopping lists. Options with effort estimates; user ranks.
+
+## Working rules (unchanged)
+
+Small single-purpose commits; data-loss implications stated and ruled before touching storage/ingest/export/migration; pre-registered, re-runnable gate evidence; ruled contracts live in DECISIONS.md and bind equally; ask before adding scope; name conflicts between patterns rather than silently resolving them.

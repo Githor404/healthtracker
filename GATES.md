@@ -40,10 +40,12 @@ The data never enters the repo.
 4. Confirm the **History** card renders every migrated day with the correct status and water.
 
 **Attestation**
-- Attester: _pending_
-- Date: _pending_
-- Migrated day count: _pending_  ·  (also feeds the D4 supplement-backfill decision)
-- Item counts / per-day totals / statuses / water all match: _pending_
-- Discrepancies: _pending_
+- Attester: Thomas Seiler (repo author)
+- Date: 2026-07-11
+- Migrated day count: **34**
+- Item counts / per-day totals / statuses / water all match: **YES** (export-to-export)
+- Discrepancies: none
 
-**Status: PENDING real-export attestation.  Machinery: CERTIFIED.**
+**Status: MET — machinery CERTIFIED and real export verified (34 days, full match).**
+
+_Note: legacy `uha-log-v1` support was retired by v4 (2026-07-11) **after** this gate was met. "Gate met, then feature retired" is the historical truth; the evidence stands. Phase R strips the legacy code and moves the data-layer harness to schema v2 — see the Phase R gate below._
