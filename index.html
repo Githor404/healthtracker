@@ -6,17 +6,19 @@
 <title>HealthTracker</title>
 <meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#12161c" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
   /* Token palette — light default, dark via prefers-color-scheme. The full UI
      palette lands with the render phase; this is the scaffold subset. */
   :root{
     --bg:#f4f6fa; --panel:#ffffff; --line:#e4e9f0;
-    --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b;
+    --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b; --accent:#2fb3a3;
   }
   @media (prefers-color-scheme: dark){
     :root{
       --bg:#12161c; --panel:#1b212b; --line:#2a323f;
-      --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484;
+      --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484; --accent:#3fbfae;
     }
   }
   *{box-sizing:border-box}
@@ -55,6 +57,8 @@
   .hdate{font-weight:700;font-variant-numeric:tabular-nums}
   .flag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px}
   .hmeta{font-size:12px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+  #updateBar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;align-items:center;justify-content:center;gap:12px;background:var(--accent);color:#fff;padding:10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));font-weight:700;font-size:14px}
+  #updateBar button{background:#fff;color:#12303a;border:none;font-weight:800;padding:8px 14px;border-radius:10px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -97,6 +101,27 @@
     </div>
   </div>
   <div class="toast" id="toast"></div>
+  <div id="updateBar"><span>Update ready</span><button onclick="location.reload()">Reload</button></div>
   <script src="app.js"></script>
+  <script>
+  // Service worker registration + passive "update ready" hint (DECISIONS.md D6).
+  // No auto-reload: the user reloads between entries; the new SW applies next launch.
+  (function () {
+    if (!('serviceWorker' in navigator)) return;           // e.g. file:// — app still works
+    var forceProd = new URLSearchParams(location.search).get('prod') === '1';
+    navigator.serviceWorker.register('sw.js' + (forceProd ? '?prod=1' : '')).then(function (reg) {
+      reg.addEventListener('updatefound', function () {
+        var nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', function () {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            var b = document.getElementById('updateBar');
+            if (b) b.style.display = 'flex';               // an update is waiting
+          }
+        });
+      });
+    }).catch(function () { /* SW optional; offline just won't be available */ });
+  })();
+  </script>
 </body>
 </html>

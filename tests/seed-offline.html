@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>seed</title><body>
+<script>
+// Test-only: seed a synthetic legacy export into localStorage for the offline
+// gate, then signal done. Never precached, never shipped. Synthetic data only.
+localStorage.setItem('uha-log-v1', JSON.stringify({
+  days: {
+    '2026-07-08': { status: 'complete', items: [
+      { name: 'Eggs', meal: 'breakfast', time: '08:00', kcal: 180, protein_g: 12, fat_g: 14, carb_g: 1, fiber_g: 0, confidence: 'weighed', notes: '' }
+    ], water_l: 1.5 }
+  },
+  known: [], current: '2026-07-08'
+}));
+document.title = 'SEEDED';
+</script>
+</body>

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Opaque background fills the whole square: safe for iOS (no transparency)
+       and for maskable crops. Content stays within the central safe zone. -->
+  <rect width="512" height="512" fill="#2fb3a3"/>
+  <!-- Macro-ring motif (the app's signature), centred and well inside the safe zone. -->
+  <circle cx="256" cy="256" r="118" fill="none" stroke="#ffffff" stroke-opacity="0.30" stroke-width="36"/>
+  <circle cx="256" cy="256" r="118" fill="none" stroke="#ffffff" stroke-width="36"
+          stroke-linecap="round" stroke-dasharray="520 222" transform="rotate(-90 256 256)"/>
+  <circle cx="256" cy="256" r="34" fill="#ffffff"/>
+</svg>

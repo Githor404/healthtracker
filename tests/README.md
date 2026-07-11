@@ -33,3 +33,34 @@ Requires Chrome or Edge. To eyeball it, open `tests/data-layer.test.html` in a
 browser directly.
 
 All fixtures are **synthetic** — no real history, per the history-free-repo rule.
+
+## Service worker (Phase 0)
+
+Two checks back the "loads offline" gate (DECISIONS.md D6):
+
+### `check-precache.sh` — precache list is honest
+
+```sh
+bash tests/check-precache.sh
+```
+
+Parses `PRECACHE` out of `sw.js` and fails if any listed path is missing on
+disk. A 404 in `cache.addAll` rejects the whole SW install *silently* and
+disables offline — this makes that failure class loud.
+
+### `offline-gate.ps1` — the prod path actually serves offline
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/offline-gate.ps1
+```
+
+Canonical offline evidence. A PowerShell `HttpListener` serves the repo on
+`127.0.0.1`; headless Chrome/Edge with a persistent profile is forced onto the
+**production** cache-first path via `?prod=1` (not the localhost network-first
+dev branch). It seeds synthetic history, loads with the server up (SW registers +
+precaches), **stops the server**, then reloads — and asserts the shell + seeded
+day still render with the origin unreachable. Exit 0 on PASS.
+
+Manual fallback: open the app over `http://localhost`, then DevTools →
+Application → Service Workers → check **Offline** → reload → confirm history
+renders.
