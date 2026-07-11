@@ -1,0 +1,5 @@
+# Local reference material is deliberately kept out of the repo. CLAUDE.md is the
+# spec of record, and its scanner-spec section is the distillation of any
+# predecessor/reference source — keeping originals in-tree invites a future
+# session to consult them instead of the brief. That's the drift we closed off.
+reference/
