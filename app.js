@@ -274,6 +274,10 @@ function parseImport(raw) {
   catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
   if (!o || typeof o !== 'object' || Array.isArray(o) || !o.days || typeof o.days !== 'object')
     return { ok: false, error: 'Not a HealthTracker log (no "days").' };
+  // Reject crafted day keys at the paste boundary: a non-date key is markup
+  // waiting for an unescaped render. Applies to new-schema and legacy alike. (D5)
+  if (!Object.keys(o.days).every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)))
+    return { ok: false, error: 'Invalid day key — dates must be YYYY-MM-DD.' };
   if (typeof o.version === 'number' && o.version > SCHEMA_VERSION)
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (typeof o.version === 'number') {
@@ -389,7 +393,37 @@ function renderDataStatus() {
   ).join('');
 }
 
-function refresh() { renderBadge(); renderDataStatus(); }
+// Per-day display totals (Phase 0: sums the day's items as stored — the Phase-1
+// auto-supplement is not part of this slice).
+const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
+function dayTotals(day) {
+  const t = { kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0 };
+  (day.items || []).forEach((i) => DISP_FIELDS.forEach((f) => { t[f] += num(i[f]); }));
+  return t;
+}
+const rDisp = (v) => { v = num(v); return Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1); };
+
+// Read-only history: one row per stored day, in-progress flagged. EVERY rendered
+// value — day keys included — routes through esc(). Day keys are the injection
+// surface for pasted/loaded logs, so there are no exceptions (baseline rule #2).
+function renderHistory() {
+  const el = document.getElementById('history');
+  if (!el || !APP_STATE) return;
+  const keys = Object.keys(APP_STATE.days || {}).sort();
+  if (!keys.length) { el.innerHTML = '<div class="note">No days yet.</div>'; return; }
+  el.innerHTML = keys.map((d) => {
+    const day = APP_STATE.days[d];
+    const t = dayTotals(day);
+    const flag = day.status !== 'complete' ? '<span class="flag">in progress</span>' : '';
+    const items = String((day.items || []).length);
+    return `<div class="hrow">
+        <div class="hd"><span class="hdate">${esc(d)}</span>${flag}</div>
+        <div class="hmeta">${esc(rDisp(t.kcal))} kcal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L</div>
+      </div>`;
+  }).join('');
+}
+
+function refresh() { renderBadge(); renderDataStatus(); renderHistory(); }
 
 function main() {
   boot();

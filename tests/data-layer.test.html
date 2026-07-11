@@ -53,6 +53,10 @@ window.setLS({});   // empty store for app.js's auto-boot at load
   }
   window.__confirm = true;
   window.confirm = function () { return window.__confirm; };
+  // Render targets so the escaping backstop (renderHistory) actually renders.
+  ['storeBadge', 'dataStatus', 'history'].forEach(function (id) {
+    if (!document.getElementById(id)) { var el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
+  });
 
   var legacy = {
     days: {
@@ -224,6 +228,26 @@ window.setLS({});   // empty store for app.js's auto-boot at load
   var smart = '{“version”: 1,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“known”:[],“current”:“2026-07-08”}';
   var r15 = HT.restore(smart);
   res(r15.ok && !!HT.state().days['2026-07-08'], '15: smart-quoted + nbsp JSON normalized and restored');
+
+  // ---- Flag 2: render-layer escaping + day-key validation ---------------
+  // R1. Render backstop: a hostile day key loaded from the store (boot does NOT
+  // validate keys — only the paste boundary does) must be escaped by renderHistory.
+  var hostileKey = '<img src=x onerror=alert(1)>';
+  var hostile = { version: 1, days: {}, known: [], current: td };
+  hostile.days[hostileKey] = { status: 'complete', items: [], water_l: 0 };
+  hostile.days[td] = { status: 'in_progress', items: [], water_l: 0 };
+  setLS({ 'healthtracker-log': JSON.stringify(hostile) }); HT.boot(); HT.refresh();
+  var histHTML = document.getElementById('history').innerHTML;
+  res(histHTML.indexOf('<img src=x') === -1, 'R1: hostile day key not rendered as raw markup');
+  res(histHTML.indexOf('&lt;img') >= 0, 'R1: hostile day key rendered escaped');
+
+  // R2. parseImport rejects non-date day keys at the paste boundary
+  setLS({}); HT.boot(); window.__confirm = true;
+  var badNew = JSON.stringify({ version: 1, days: { '<script>x': { status: 'complete', items: [], water_l: 0 } }, known: [], current: 'x' });
+  var rr2 = HT.restore(badNew);
+  res(!rr2.ok && /YYYY-MM-DD/i.test(rr2.error || ''), 'R2: hostile day key rejected (new-schema paste)');
+  var badLegacy = JSON.stringify({ days: { 'not-a-date': { status: 'complete', items: [], water_l: 0 } }, known: [], current: 'x' });
+  res(!HT.restore(badLegacy).ok, 'R2: bad day key rejected (legacy paste too)');
 
   // ---- Flag 1: declined restore is a true no-op for the undo slot -------
   setLS({}); HT.boot(); window.__confirm = true;

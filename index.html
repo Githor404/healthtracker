@@ -49,6 +49,12 @@
   .btn.danger{border-color:var(--bad);color:var(--bad)}
   .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:800;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;max-width:90%;text-align:center}
   .toast.show{opacity:1}
+  .hrow{padding:9px 0;border-top:1px solid var(--line)}
+  .hrow:first-child{border-top:none}
+  .hd{display:flex;align-items:center;gap:8px}
+  .hdate{font-weight:700;font-variant-numeric:tabular-nums}
+  .flag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px}
+  .hmeta{font-size:12px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -64,6 +70,12 @@
         are below; the four-shape Ingest merge (Phase&nbsp;1), history view, service worker
         and manifest come next.
       </div>
+    </div>
+
+    <div class="card">
+      <h2>History</h2>
+      <div id="history"></div>
+      <div class="note">Read-only. Complete days count toward averages; in-progress days are flagged. (The rich day view is Phase&nbsp;1.)</div>
     </div>
 
     <div class="card">
