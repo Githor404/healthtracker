@@ -105,6 +105,15 @@ const Store = (() => {
       return writeRaw(PRERESTORE_KEY, JSON.stringify(blob));
     },
 
+    // Snapshot / revert the single undo slot so a DECLINED restore is a true
+    // no-op: it must never consume the one level of undo from a PRIOR restore (D5).
+    peekBackup() { return readRaw(PRERESTORE_KEY); },
+    revertBackup(snapshot) {
+      if (tier !== 'local') return;
+      if (snapshot == null) { try { localStorage.removeItem(PRERESTORE_KEY); } catch (e) {} }
+      else writeRaw(PRERESTORE_KEY, snapshot);
+    },
+
     // Truthful status for the badge. ok=false => user must export to be safe.
     status() {
       if (tier === 'memory' && lastWriteOk) {
@@ -284,6 +293,11 @@ function showPrerestore(json) {
   if (wrap) wrap.style.display = 'block';
 }
 
+function hidePrerestore() {
+  const wrap = document.getElementById('prerestoreWrap');
+  if (wrap) wrap.style.display = 'none';
+}
+
 // Destructive full replace. Nothing is mutated until a valid replacement is in
 // hand. The pre-restore backup (D3) is attempted BEFORE the confirm so the prompt
 // can tell the truth about whether a backup exists. Applies to legacy pastes too.
@@ -293,12 +307,17 @@ function restore(raw) {
 
   const prev = APP_STATE;
   showPrerestore(JSON.stringify(prev, null, 2));   // visible copyable surface (persists)
-  const backedUp = Store.backup(prev);             // durable single rolling slot (D3)
+  const priorSlot = Store.peekBackup();            // snapshot existing undo slot (D5)
+  const backedUp = Store.backup(prev);             // overwrite single rolling slot (D3)
 
   const msg = backedUp
     ? 'Replace ALL current data with the imported data?\n\nYour previous data has been backed up (shown on the page) and can be recovered — proceed?'
     : 'Replace ALL current data?\n\n⚠ Storage could NOT keep a backup. Copy the "previous data" text shown on the page FIRST, then proceed anyway?';
-  if (!window.confirm(msg)) return { ok: false, aborted: true, backedUp: backedUp };
+  if (!window.confirm(msg)) {
+    Store.revertBackup(priorSlot);                 // decline = true no-op for the undo slot
+    hidePrerestore();
+    return { ok: false, aborted: true };
+  }
 
   APP_STATE = parsed.state;
   normalizeStatuses(APP_STATE);                    // same normalization path as boot

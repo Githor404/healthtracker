@@ -225,6 +225,22 @@ window.setLS({});   // empty store for app.js's auto-boot at load
   var r15 = HT.restore(smart);
   res(r15.ok && !!HT.state().days['2026-07-08'], '15: smart-quoted + nbsp JSON normalized and restored');
 
+  // ---- Flag 1: declined restore is a true no-op for the undo slot -------
+  setLS({}); HT.boot(); window.__confirm = true;
+  var stateA = JSON.stringify(HT.state());
+  HT.restore(JSON.stringify(S2));                          // first restore: slot := A
+  var slotA = window.__ls._get('healthtracker-log-prerestore');
+  res(slotA === stateA, 'R3: first restore backs up prior state');
+  window.__confirm = false;
+  HT.restore(JSON.stringify(S1));                          // declined second restore
+  res(window.__ls._get('healthtracker-log-prerestore') === slotA, 'R3: declined restore preserves the prior undo slot');
+  window.__confirm = true;
+  // Declined FIRST-ever restore leaves no slot at all
+  setLS({}); HT.boot(); window.__confirm = false;
+  HT.restore(JSON.stringify(S2));
+  res(!window.__ls._has('healthtracker-log-prerestore'), 'R3: declined first-ever restore leaves no undo slot');
+  window.__confirm = true;
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);
