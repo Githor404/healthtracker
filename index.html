@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>HealthTracker</title>
+<meta name="theme-color" content="#f4f6fa" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#12161c" media="(prefers-color-scheme: dark)">
+<style>
+  /* Token palette — light default, dark via prefers-color-scheme. The full UI
+     palette lands with the render phase; this is the scaffold subset. */
+  :root{
+    --bg:#f4f6fa; --panel:#ffffff; --line:#e4e9f0;
+    --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --panel:#1b212b; --line:#2a323f;
+      --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52;
+    }
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:var(--bg);color:var(--txt);
+    font:16px/1.5 ui-rounded,'SF Pro Rounded',-apple-system,Segoe UI,Roboto,sans-serif;
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+  .top{
+    position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);
+    padding:calc(10px + env(safe-area-inset-top)) 14px 10px;
+  }
+  .top h1{font-size:16px;margin:0;font-weight:700}
+  #storeBadge{
+    text-align:center;font-size:12px;padding:6px 12px;
+    background:var(--panel);border-bottom:1px solid var(--line);color:var(--muted);
+  }
+  .wrap{max-width:480px;margin:0 auto;padding:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+  .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+  .kv:first-child{border-top:none}
+  .kv .k{color:var(--muted)}
+  .kv .v{text-align:right;word-break:break-word;font-weight:600}
+  .note{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.45}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+</style>
+</head>
+<body>
+  <div class="top"><h1>HealthTracker</h1></div>
+  <div id="storeBadge">…</div>
+  <div class="wrap">
+    <div class="card">
+      <h2>Data layer · Phase 0</h2>
+      <div id="dataStatus"></div>
+      <div class="note">
+        Scaffold only: storage adapter (localStorage&nbsp;→&nbsp;memory) with a truthful badge,
+        versioned schema, and one-time <code>uha-log-v1</code> migration.
+        Ingest, export/copy-out, import/restore, history UI, service worker and manifest
+        are built after review.
+      </div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

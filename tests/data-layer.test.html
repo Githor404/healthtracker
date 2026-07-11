@@ -1,0 +1,121 @@
+<!doctype html><meta charset="utf-8"><title>HealthTracker · data-layer gate</title><body>
+<!--
+  Re-runnable Phase 0 gate. Self-contained: synthetic fixtures inline, a
+  swappable fake localStorage per scenario (each case isolated, incl. "storage
+  blocked"). Exercises the REAL ../app.js. Run: bash tests/run-data-layer.sh
+  (or just open this file in a browser). Synthetic data only — no real history.
+-->
+<script>
+function makeFake(seed, failWrites){
+  var m = Object.assign({}, seed || {});
+  return {
+    getItem: function(k){ return Object.prototype.hasOwnProperty.call(m,k) ? m[k] : null; },
+    setItem: function(k,v){ if(failWrites) throw new Error('QuotaExceededError'); m[k] = String(v); },
+    removeItem: function(k){ delete m[k]; },
+    _get: function(k){ return Object.prototype.hasOwnProperty.call(m,k) ? m[k] : null; },
+    _has: function(k){ return Object.prototype.hasOwnProperty.call(m,k); }
+  };
+}
+window.__ls = null;
+window.setLS = function(seed, failWrites){
+  window.__ls = makeFake(seed, failWrites);
+  Object.defineProperty(window, 'localStorage', { value: window.__ls, configurable: true });
+};
+window.setLS({});   // empty store for app.js's auto-boot at load
+</script>
+<script src="../app.js"></script>
+<script>
+(function(){
+  var pass = 0, fail = 0;
+  function res(cond, name, extra){
+    var p = document.createElement('p'); p.className = 'r';
+    p.textContent = (cond ? 'PASS  ' : 'FAIL  ') + name + (!cond && extra ? '  :: ' + extra : '');
+    document.body.appendChild(p);
+    if (cond) pass++; else fail++;
+  }
+  function today(){ var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+  var kcalOf = function(day){ return day.items.reduce(function(a,i){ return a + i.kcal; }, 0); };
+  var isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+  var legacy = {
+    days: {
+      '2026-07-08': { status:'complete', items:[
+        { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, confidence:'weighed', notes:'' },
+        { name:'Latte', meal:'drink', time:'08:30', kcal:65, protein_g:6.8, fat_g:3.5, carb_g:1.6, fiber_g:0.2, soluble_fiber_g:0, confidence:'measured', notes:'x' }
+      ], water_l:1.5 },
+      '2026-07-09': { status:'in_progress', items:[
+        { name:'Salad', meal:'lunch', time:'12:00', kcal:415, protein_g:32, fat_g:29, carb_g:9, fiber_g:6, confidence:'eyeballed', notes:'' }
+      ], water_l:0.75 }
+    },
+    known: [{ name:'Blueberries 100g', meal:'snack', kcal:57, protein_g:0.7, fat_g:0.3, carb_g:14.5, fiber_g:2.4, confidence:'weighed' }],
+    current: '2026-07-09'
+  };
+  var legacyJSON = JSON.stringify(legacy);
+
+  // 1. Empty boot
+  setLS({}); HT.boot();
+  var s = HT.state();
+  res(HT.Store.tier === 'local', '1: tier is local');
+  res(s.version === 1 && s.current === today(), '1: version 1, current = today');
+  res(!!s.days[today()] && s.days[today()].status === 'in_progress', "1: today created, in_progress");
+  res(HT.Store.status().ok === true, '1: badge ok/saved');
+
+  // 2. Lossless migration
+  setLS({ 'uha-log-v1': legacyJSON }); HT.boot();
+  s = HT.state();
+  res(s.migratedFrom === 'uha-log-v1', '2: migratedFrom stamped');
+  res(isoRe.test(s.migratedAt || ''), '2: migratedAt is ISO', s.migratedAt);
+  res(!!s.days['2026-07-08'] && !!s.days['2026-07-09'], '2: both legacy days present');
+  res(s.days['2026-07-08'].items.length === 2 && s.days['2026-07-09'].items.length === 1, '2: item counts match (2,1)');
+  res(kcalOf(s.days['2026-07-08']) === 245 && kcalOf(s.days['2026-07-09']) === 415, '2: per-day kcal totals match (245,415)');
+  res(s.days['2026-07-08'].status === 'complete' && s.days['2026-07-09'].status === 'in_progress', '2: statuses preserved');
+  res(s.days['2026-07-08'].water_l === 1.5 && s.days['2026-07-09'].water_l === 0.75, '2: water_l preserved (1.5,0.75)');
+  res(s.days['2026-07-08'].items.every(function(i){ return typeof i.soluble_fiber_g === 'number'; }) &&
+      s.days['2026-07-09'].items.every(function(i){ return typeof i.soluble_fiber_g === 'number'; }), '2: soluble_fiber_g present on every item');
+  res(s.known.length === 1, '2: known preserved (len 1)');
+  res(!!s.days[today()], "2: today's day also created");
+  res(window.__ls._has('healthtracker-log'), '2: new key written');
+  res(window.__ls._get('uha-log-v1') === legacyJSON, '2: legacy blob byte-identical (untouched)');
+
+  // 3. D2 precedence — new key wins, never re-migrates
+  var newBlob = JSON.stringify({ version:1, days:{ '2026-01-01': { status:'complete', items:[
+    { name:'Marker', meal:'snack', time:'00:00', kcal:10, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'' }
+  ], water_l:0 } }, known:[], current:'2026-01-01' });
+  setLS({ 'healthtracker-log': newBlob, 'uha-log-v1': legacyJSON }); HT.boot();
+  s = HT.state();
+  res(!!s.days['2026-01-01'], '3: marker day from new key present');
+  res(!s.days['2026-07-08'] && !s.days['2026-07-09'], '3: legacy-only days NOT resurrected');
+  res(!s.migratedFrom, '3: no migration stamp (never migrated)');
+
+  // 4. Idempotency — second boot loads from store
+  setLS({ 'uha-log-v1': legacyJSON });
+  HT.boot(); var firstAt = HT.state().migratedAt;
+  var r2 = HT.boot();
+  res(!!firstAt, '4: first boot migrated');
+  res(r2.source === 'store', '4: second boot source = store');
+  res(HT.state().migratedAt === firstAt, '4: migratedAt unchanged (no re-migrate)');
+
+  // 5. Forced write failure AFTER load -> truthful degrade
+  setLS({}); HT.boot();
+  res(HT.Store.tier === 'local' && HT.Store.status().ok === true, '5: starts local/ok');
+  HT.Store.forceWriteFailure(true);
+  var wrote = HT.resave();
+  res(wrote === false, '5: save reports failure');
+  res(HT.Store.tier === 'memory', '5: tier degraded to memory');
+  res(HT.Store.status().ok === false, '5: badge now NOT ok');
+  res(/export/i.test(HT.Store.status().message), '5: badge warns to export');
+
+  // 6. Storage entirely blocked (private mode) -> memory tier, no migration
+  HT.Store.forceWriteFailure(false);
+  setLS({ 'uha-log-v1': legacyJSON }, true); HT.boot();
+  res(HT.Store.tier === 'memory', '6: tier is memory');
+  res(HT.Store.status().ok === false, '6: badge NOT ok');
+  res(!HT.state().migratedFrom, '6: migration did NOT run (legacy unreadable)');
+
+  var sm = document.createElement('p'); sm.className = 's';
+  sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
+  document.body.appendChild(sm);
+})();
+</script>
+</body>
