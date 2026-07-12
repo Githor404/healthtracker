@@ -106,4 +106,18 @@ Day view: meal grouping, per-item delete / tap-to-cycle-meal, confidence dot, so
 
 **License:** MIT (ruled) — `LICENSE` added.
 
-**Remaining for the Phase 1 gate:** manual add (label micros); preset CRUD; supplement config UI; averages (7-day calendar-window + all-time); first-run + AI prompt template; README (privacy stance).
+### Manual add + presets slice (D9) — MET
+
+| Gate requirement | Evidence |
+|---|---|
+| Manual item `source: manual`; selectable confidence honored (weighed); micros carried + clamped ≥ 0 | data-layer test M2 |
+| Micro field → canonical key → unit, **no cross-wiring**; units rendered | M1 |
+| Sane-range warnings fire and are **non-blocking** (item still added) | M3 |
+| Manual add onto a `complete` day reopens it | M4 |
+| Save-as-preset writes a preset (micros + descriptive portion); preset-log is `source: preset` with micros | M5 |
+| Preset delete never touches already-logged copies | M6 |
+| Duplicate preset names allowed (id-keyed) | M7 |
+
+`bash tests/run-data-layer.sh` → **106/106**; offline + precache green. Micros behind a labeled disclosure with a filled-count header (fork C); Add / Save-as-preset are independent (fork D).
+
+**Remaining for the Phase 1 gate:** supplement config UI; averages (7-day calendar-window + all-time); first-run + AI prompt template; README (privacy stance).

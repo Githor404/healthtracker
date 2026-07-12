@@ -115,6 +115,21 @@
   .btn.close{background:var(--accent);color:#fff;border-color:var(--accent)}
   .btn.reopen{background:var(--bg);color:var(--good);border-color:var(--good)}
   .clrday{width:100%;margin-top:8px;background:none;border:none;color:var(--bad);font-size:13px;font-weight:700;cursor:pointer}
+  .mafield{margin-bottom:8px}
+  .uinput{display:flex;align-items:center;gap:6px}
+  .uinput input{flex:1}
+  .unit{font-size:12px;color:var(--muted);min-width:34px;font-weight:700}
+  .warn{font-size:12px;color:var(--warn);padding:3px 0}
+  #maWarn{margin-bottom:4px}
+  .micros{margin-top:10px}
+  .micros>summary{font-size:13px;color:var(--txt);font-weight:600}
+  .presetrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+  .presetrow:first-child{border-top:none}
+  .pmain{flex:1;min-width:0}.pname{font-weight:600}
+  .pmeta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .presetrow .btn{padding:7px 12px;font-size:13px}
+  .prm{color:#e67a7a;background:none;border:none;font-size:20px;padding:0 4px;width:auto;cursor:pointer}
+  .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -136,6 +151,43 @@
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Goals appear on the ring and strip above.</div>
       </details>
+    </div>
+
+    <div class="card">
+      <details open>
+        <summary>Add manually</summary>
+        <div id="maWarn"></div>
+        <label>Name</label><input id="maName" placeholder="e.g. Greek yogurt 150g">
+        <div class="row">
+          <div><label>Meal</label><select id="maMeal"><option>breakfast</option><option>lunch</option><option>dinner</option><option selected>snack</option><option>drink</option><option>supplement</option></select></div>
+          <div><label>Time</label><input id="maTime" type="time"></div>
+          <div><label>Confidence</label><select id="maConf"><option value="eyeballed" selected>eyeballed</option><option value="weighed">weighed</option><option value="measured">measured</option></select></div>
+        </div>
+        <div class="row">
+          <div><label>kcal</label><input id="maKcal" type="number" inputmode="decimal"></div>
+          <div><label>P (g)</label><input id="maP" type="number" inputmode="decimal"></div>
+          <div><label>F (g)</label><input id="maF" type="number" inputmode="decimal"></div>
+          <div><label>C (g)</label><input id="maC" type="number" inputmode="decimal"></div>
+        </div>
+        <div class="row">
+          <div><label>Fiber (g)</label><input id="maFib" type="number" inputmode="decimal"></div>
+          <div><label>Soluble (g)</label><input id="maSol" type="number" inputmode="decimal"></div>
+          <div><label>Portion (label)</label><input id="maPortion" placeholder="e.g. 125 ml"></div>
+        </div>
+        <details class="micros">
+          <summary>Micronutrients (from label)<span id="maMicroCount"></span></summary>
+          <div id="maMicros"></div>
+        </details>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" onclick="addManualItem()">Add to day</button>
+          <button class="btn" onclick="saveAsPreset()">Save as preset</button>
+        </div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>Presets</h2>
+      <div id="presetList"></div>
     </div>
 
     <div class="card">

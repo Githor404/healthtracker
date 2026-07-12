@@ -752,6 +752,169 @@ function setGoalFromForm() {
   toast('Goal set');
 }
 
+// ---- manual add + presets (DECISIONS.md D9) -------------------------------
+// One table drives the micro form fields, their units, the sane-range warnings,
+// AND the read-back — generation and reading key off the same canonical key, so
+// field <-> key can't cross-wire. (mcg = micrograms, kept ASCII.)
+const MICRO_SPEC = [
+  { key: 'sodium_mg', label: 'Sodium', unit: 'mg', warn: 10000 },
+  { key: 'potassium_mg', label: 'Potassium', unit: 'mg', warn: 10000 },
+  { key: 'calcium_mg', label: 'Calcium', unit: 'mg', warn: 5000 },
+  { key: 'iron_mg', label: 'Iron', unit: 'mg', warn: 100 },
+  { key: 'magnesium_mg', label: 'Magnesium', unit: 'mg', warn: 1000 },
+  { key: 'zinc_mg', label: 'Zinc', unit: 'mg', warn: 100 },
+  { key: 'cholesterol_mg', label: 'Cholesterol', unit: 'mg', warn: 5000 },
+  { key: 'vitamin_a_ug', label: 'Vitamin A', unit: 'mcg', warn: 10000 },
+  { key: 'vitamin_c_mg', label: 'Vitamin C', unit: 'mg', warn: 5000 },
+  { key: 'vitamin_d_ug', label: 'Vitamin D', unit: 'mcg', warn: 1250 },
+  { key: 'vitamin_b12_ug', label: 'Vitamin B12', unit: 'mcg', warn: 5000 },
+  { key: 'folate_ug', label: 'Folate', unit: 'mcg', warn: 2000 },
+  { key: 'saturated_fat_g', label: 'Saturated fat', unit: 'g', warn: 200 },
+  { key: 'sugars_g', label: 'Sugars', unit: 'g', warn: 500 },
+];
+const MICRO_LABEL = MICRO_SPEC.reduce((m, s) => { m[s.key] = s; return m; }, {});
+const MACRO_WARN = { kcal: 10000, protein_g: 1000, fat_g: 1000, carb_g: 1000, fiber_g: 1000, soluble_fiber_g: 1000 };
+const MACRO_LABEL = { kcal: 'kcal', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber', soluble_fiber_g: 'soluble fiber' };
+
+// Non-blocking sane-range warnings — catch unit/typo errors, never reject.
+function manualWarnings(raw) {
+  const w = [];
+  Object.keys(MACRO_WARN).forEach((k) => {
+    if (num(raw[k]) > MACRO_WARN[k]) w.push(MACRO_LABEL[k] + ' ' + num(raw[k]) + ' looks high (> ' + MACRO_WARN[k] + ')');
+  });
+  const micros = raw.micros || {};
+  MICRO_SPEC.forEach((s) => {
+    const v = micros[s.key];
+    if (v != null && String(v) !== '' && num(v) > s.warn)
+      w.push(s.label + ' ' + num(v) + ' ' + s.unit + ' looks high (> ' + s.warn + ' ' + s.unit + ') — check the unit');
+  });
+  return w;
+}
+
+// Core (DOM-free, testable): build + append a manual item to the selected day.
+function addManualEntry(raw) {
+  if (!raw || !raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Name required' };
+  const warnings = manualWarnings(raw);
+  const item = normalizeItem(Object.assign({}, raw, { source: 'manual' }), true);
+  const day = curDay(); if (!day) return { ok: false, error: 'No current day' };
+  if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
+  day.items.push(item);
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, warnings: warnings, item: item };
+}
+
+let _presetSeq = 0;
+function newPresetId() { _presetSeq++; return 'p' + Date.now().toString(36) + '_' + _presetSeq; }
+
+// Core (DOM-free, testable): save a preset from raw form values.
+function saveManualPreset(raw, portion) {
+  if (!raw || !raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Name required' };
+  const item = normalizeItem(Object.assign({}, raw, { source: 'preset' }), true);
+  const preset = {
+    id: newPresetId(), name: item.name, meal: item.meal, confidence: item.confidence,
+    kcal: item.kcal, protein_g: item.protein_g, fat_g: item.fat_g, carb_g: item.carb_g,
+    fiber_g: item.fiber_g, soluble_fiber_g: item.soluble_fiber_g,
+  };
+  if (item.micros) preset.micros = item.micros;
+  if (portion && String(portion).trim()) preset.portion = String(portion).trim();   // descriptive label only (fork A)
+  if (!Array.isArray(APP_STATE.settings.presets)) APP_STATE.settings.presets = [];
+  APP_STATE.settings.presets.push(preset);
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, preset: preset };
+}
+
+// Log a preset as a fresh copy (source preset) — a copy, never a reference (D9).
+function logPreset(id) {
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  const p = presets.find((x) => x.id === id);
+  if (!p) return { ok: false };
+  const item = normalizeItem({
+    name: p.name, meal: p.meal, time: nowTime(), confidence: p.confidence,
+    kcal: p.kcal, protein_g: p.protein_g, fat_g: p.fat_g, carb_g: p.carb_g,
+    fiber_g: p.fiber_g, soluble_fiber_g: p.soluble_fiber_g, source: 'preset', micros: p.micros,
+  }, true);
+  const day = curDay(); if (!day) return { ok: false };
+  if (day.status === 'complete') day.status = 'in_progress';
+  day.items.push(item);
+  Store.saveState(APP_STATE); refresh();
+  toast('Logged ' + p.name);
+  return { ok: true, item: item };
+}
+// Delete a preset only — already-logged copies are untouched (D9).
+function deletePreset(id) {
+  if (!APP_STATE.settings.presets) return;
+  APP_STATE.settings.presets = APP_STATE.settings.presets.filter((x) => x.id !== id);
+  Store.saveState(APP_STATE); refresh();
+}
+
+// ---- manual-add DOM (form generation, read-back, handlers) ----------------
+function renderMicroFields() {
+  const host = document.getElementById('maMicros');
+  if (!host || host.childElementCount) return;   // static; build once
+  host.innerHTML = MICRO_SPEC.map((s) =>
+    `<div class="mafield"><label>${esc(s.label)}</label>` +
+    `<div class="uinput"><input id="ma_micro_${esc(s.key)}" type="number" inputmode="decimal" oninput="updateMicroCount()">` +
+    `<span class="unit">${esc(s.unit)}</span></div></div>`).join('');
+}
+function readMicroFields() {
+  const micros = {};
+  MICRO_SPEC.forEach((s) => { const el = document.getElementById('ma_micro_' + s.key); if (el && el.value.trim() !== '') micros[s.key] = el.value; });
+  return micros;
+}
+function updateMicroCount() {
+  const el = document.getElementById('maMicroCount'); if (!el) return;
+  let n = 0;
+  MICRO_SPEC.forEach((s) => { const i = document.getElementById('ma_micro_' + s.key); if (i && i.value.trim() !== '') n++; });
+  el.textContent = n ? ' (' + n + ' entered)' : '';
+}
+function readManualForm() {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const raw = {
+    name: g('maName'), meal: g('maMeal'), time: g('maTime') || nowTime(), confidence: g('maConf'),
+    kcal: g('maKcal'), protein_g: g('maP'), fat_g: g('maF'), carb_g: g('maC'),
+    fiber_g: g('maFib'), soluble_fiber_g: g('maSol'),
+  };
+  const micros = readMicroFields();
+  if (Object.keys(micros).length) raw.micros = micros;
+  return raw;
+}
+function clearManualForm() {
+  ['maName', 'maKcal', 'maP', 'maF', 'maC', 'maFib', 'maSol', 'maTime', 'maPortion'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  MICRO_SPEC.forEach((s) => { const el = document.getElementById('ma_micro_' + s.key); if (el) el.value = ''; });
+  updateMicroCount(); showManualWarnings([]);
+}
+function showManualWarnings(warns) {
+  const el = document.getElementById('maWarn'); if (!el) return;
+  el.innerHTML = (warns && warns.length) ? warns.map((w) => `<div class="warn">${esc(w)}</div>`).join('') : '';
+}
+function addManualItem() {
+  const raw = readManualForm();
+  const r = addManualEntry(raw);
+  if (!r.ok) { toast(r.error || 'Could not add'); return; }
+  clearManualForm();
+  showManualWarnings(r.warnings);
+  toast(r.warnings.length ? 'Added — see warnings' : 'Added');
+}
+function saveAsPreset() {
+  const raw = readManualForm();
+  const portion = (document.getElementById('maPortion') || {}).value;
+  const r = saveManualPreset(raw, portion);
+  if (!r.ok) { toast(r.error || 'Could not save preset'); return; }
+  showManualWarnings(manualWarnings(raw));            // advisory, form kept (fork D)
+  toast('Saved preset "' + r.preset.name + '" — form kept');
+}
+function renderPresets() {
+  const el = document.getElementById('presetList'); if (!el) return;
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  if (!presets.length) { el.innerHTML = '<div class="note">No presets yet. Fill the form above and tap "Save as preset."</div>'; return; }
+  el.innerHTML = presets.map((p) =>
+    `<div class="presetrow"><div class="pmain"><div class="pname">${esc(p.name)}</div>` +
+    `<div class="pmeta">${esc(rDisp(p.kcal))} kcal · P ${esc(rDisp(p.protein_g))} F ${esc(rDisp(p.fat_g))} C ${esc(rDisp(p.carb_g))}` +
+    `${p.portion ? ' · ' + esc(p.portion) : ''}${p.micros ? ' · micros' : ''}</div></div>` +
+    `<button class="btn" onclick="logPreset('${esc(p.id)}')">Log</button>` +
+    `<button class="prm" onclick="deletePreset('${esc(p.id)}')" title="delete preset">×</button></div>`).join('');
+}
+
 // ---- per-day totals + read-only history -----------------------------------
 const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 function dayTotals(day) {
@@ -808,9 +971,9 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderDay(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderDay(); renderPresets(); renderHistory(); renderDataStatus(); }
 
-function main() { boot(); refresh(); }
+function main() { boot(); renderMicroFields(); refresh(); }
 
 // Console seam for review/testing.
 window.HT = {
@@ -818,6 +981,8 @@ window.HT = {
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable,
   goalProgress, microRollup, dayTotals, setGoal,
+  manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
+  renderMicroFields, readMicroFields, MICRO_SPEC,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
