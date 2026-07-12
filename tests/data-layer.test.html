@@ -537,6 +537,26 @@ window.setLS({});
   var sMicros = HT.readMicroFields('sup_micro_');
   res(HT.MICRO_SPEC.every(function(s, i){ return sMicros[s.key] === String((i+1)*2); }), 'S7: supplement micro form maps field->key (shared component)');
 
+  // ---- Phase 1 close: escaping coverage + first-run E2E -----------------
+  // P1. hostile preset name escaped in the preset list
+  setLS({}); HT.boot();
+  var pl = document.createElement('div'); pl.id = 'presetList'; document.body.appendChild(pl);
+  HT.saveManualPreset({ name:'<img src=x onerror=alert(1)>', kcal:1 }, '');
+  HT.refresh();
+  var plHTML = document.getElementById('presetList').innerHTML;
+  res(plHTML.indexOf('<img src=x') === -1 && plHTML.indexOf('&lt;img') >= 0, 'P1: hostile preset name escaped in the preset list');
+
+  // P2. first-run -> prompt-template path -> logged day (onboarding recedes)
+  setLS({}); HT.boot();
+  if (!document.getElementById('onboarding')) { var ob3 = document.createElement('div'); ob3.id = 'onboarding'; document.body.appendChild(ob3); }
+  HT.refresh();
+  var onboardShown = document.getElementById('onboarding').innerHTML.indexOf('Welcome') >= 0;
+  HT.ingest(HT.AI_PROMPT_SAMPLE);
+  var logged = HT.state().days[td].items.some(function(i){ return i.source === 'ai-paste'; });
+  HT.refresh();
+  var onboardGone = document.getElementById('onboarding').innerHTML === '';
+  res(onboardShown && logged && onboardGone, 'P2: first-run -> prompt-template ingest -> logged day (onboarding recedes)');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

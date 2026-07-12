@@ -144,6 +144,8 @@
   #promptTemplate{min-height:150px}
   .checkline{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--txt);margin:8px 0}
   .checkline input{width:auto}
+  .about{font-size:11px;color:var(--muted);text-align:center;padding:16px 6px;line-height:1.6}
+  .about a{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -275,6 +277,7 @@
         <textarea id="prerestoreBox" readonly></textarea>
       </div>
     </div>
+    <div class="about">HealthTracker — all data stays on this device. No accounts, no telemetry; your export is yours. <a href="https://github.com/Githor404/healthtracker">Source</a> · MIT.</div>
   </div>
   <div class="toast" id="toast"></div>
   <div id="updateBar"><span>Update ready</span><button onclick="location.reload()">Reload</button></div>
