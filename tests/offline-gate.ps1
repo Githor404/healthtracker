@@ -132,8 +132,10 @@ try {
   Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1" } | Out-Null
   Start-Sleep -Seconds 2
 
-  # 3. verify the SW is ready and the shell is actually precached
-  $precached = Eval "navigator.serviceWorker.ready.then(function(){return caches.open('healthtracker-shell-v1')}).then(function(c){return c.match('./index.html')}).then(function(m){return !!m}).catch(function(){return false})" $true
+  # 3. verify the SW is ready and the shell is actually precached. The cache name
+  #    is content-derived (D6), so find any healthtracker-shell-* cache rather than
+  #    hardcoding a version.
+  $precached = Eval "navigator.serviceWorker.ready.then(function(){return caches.keys()}).then(function(keys){var k=keys.filter(function(x){return x.indexOf('healthtracker-shell-')===0;})[0];return k?caches.open(k).then(function(c){return c.match('./index.html')}).then(function(m){return !!m}):false;}).catch(function(){return false})" $true
 
   # 4. reload online so the SW takes control and history renders
   Invoke-CDP 'Page.reload' $null | Out-Null
