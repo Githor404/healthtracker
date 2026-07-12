@@ -92,4 +92,18 @@ Legacy `uha-log-v1` support removed; the restore boundary accepts schema v1/v2 b
 
 `bash tests/run-data-layer.sh` → **strip check PASS · 83/83 PASS**; offline + precache gates still green.
 
-**Remaining for the Phase 1 gate:** day view + displayed==exported; goals setup + direction math + summary with micro coverage; manual add (label micros); preset CRUD; supplement config UI; first-run + AI prompt template; README + license.
+### Day view + goals slice — MET
+
+| Gate requirement | Evidence |
+|---|---|
+| Displayed day totals == exported totals (sum persisted items, no phantom additions) | data-layer test G4 |
+| Goal direction math correct (floor short/met, ceiling good/over) | G1, G2 |
+| Daily summary micro coverage ("from N of M items") | G3 |
+| Every rendered field escaped (hostile item name in the day view) | G5 |
+| Goals persist (value + direction) | G6 |
+
+Day view: meal grouping, per-item delete / tap-to-cycle-meal, confidence dot, source, meal subtotals, day totals, close/reopen, clear-day, water quick-add, day nav. Goals: progress-vs-goal ring (selectable primary, default kcal), direction-aware goal strip, micro-coverage summary, minimal goals setup. `bash tests/run-data-layer.sh` → **93/93**; offline + precache green.
+
+**License:** MIT (ruled) — `LICENSE` added.
+
+**Remaining for the Phase 1 gate:** manual add (label micros); preset CRUD; supplement config UI; averages (7-day calendar-window + all-time); first-run + AI prompt template; README (privacy stance).

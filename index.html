@@ -63,6 +63,58 @@
   .ireport{font-size:12px;color:var(--muted);padding:5px 0;border-top:1px solid var(--line);line-height:1.4}
   .ireport:first-child{border-top:none}
   .ireport.bad{color:var(--bad)}
+  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px}
+  input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font-size:15px}
+  .row{display:flex;gap:8px}.row>div{flex:1;min-width:0}
+  details>summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:14px;list-style:none}
+  details>summary::-webkit-details-marker{display:none}
+  .daynav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px}
+  .navbtn{width:40px;padding:6px 0;font-size:20px;font-weight:800;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--accent);cursor:pointer}
+  .navbtn:disabled{opacity:.3}
+  .daysel{text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
+  .dstat{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px;vertical-align:2px}
+  .dstat.done{color:var(--good);border-color:var(--good)}
+  .ringbox{position:relative;width:180px;height:180px;margin:6px auto 0}
+  .ring{width:180px;height:180px;display:block}
+  .ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .ringval b{font-size:32px;font-weight:800;line-height:1.05}
+  .ringval span{font-size:11px;color:var(--muted)}
+  .gpct{margin-top:3px;font-weight:700}
+  .gpct.short,.gpct.over{color:var(--warn)}.gpct.met,.gpct.good{color:var(--good)}
+  .primsel{display:flex;gap:4px;justify-content:center;margin:8px 0}
+  .primsel button{width:auto;font-size:11px;font-weight:700;padding:5px 9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .primsel button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .goalstrip{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .goalcell{position:relative;flex:1 1 calc(50% - 6px);min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:7px 9px}
+  .goalcell.short,.goalcell.over{border-color:var(--warn)}.goalcell.met,.goalcell.good{border-color:var(--good)}
+  .goalcell span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+  .goalcell b{font-size:15px;font-variant-numeric:tabular-nums}
+  .goalcell small{display:block;font-size:10px;color:var(--muted)}
+  .grm{position:absolute;top:4px;right:6px;background:none;border:none;color:var(--muted);font-size:14px;padding:0;width:auto;cursor:pointer}
+  .summary{margin:8px 0}
+  .sumhead{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:2px}
+  .sumrow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .mealgrp{margin-top:12px}
+  .mealhead{display:flex;justify-content:space-between;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:2px}
+  .mitem{display:flex;align-items:flex-start;gap:8px;padding:9px 0;border-top:1px solid var(--line)}
+  .mmain{flex:1;min-width:0}
+  .mname{font-size:15px;font-weight:600}
+  .mmeta{font-size:11.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+  .src{font-size:10px;text-transform:uppercase;letter-spacing:.04em;opacity:.75}
+  .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px;vertical-align:1px}
+  .dot.good{background:var(--good)}.dot.accent{background:var(--accent)}.dot.warn{background:var(--warn)}.dot.muted{background:var(--muted)}
+  .mkcal{font-size:15px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .mkcal small{font-size:11px;color:var(--muted);font-weight:400}
+  .rm{color:#e67a7a;background:none;border:none;font-size:20px;padding:0 4px;width:auto;cursor:pointer}
+  .mealchip{display:inline-block;width:auto;margin-top:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;background:var(--bg);color:var(--accent);border:1px solid var(--line);text-transform:capitalize;cursor:pointer}
+  .daytot{display:flex;justify-content:space-between;font-weight:700;padding:9px 0 4px;border-top:2px solid var(--line);margin-top:6px}
+  .waterrow{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin:8px 0}
+  .wbtns{display:flex;gap:6px}
+  .wbtns button{width:auto;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;cursor:pointer}
+  .btn.big{width:100%;padding:13px;font-size:15px;margin-top:8px}
+  .btn.close{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .btn.reopen{background:var(--bg);color:var(--good);border-color:var(--good)}
+  .clrday{width:100%;margin-top:8px;background:none;border:none;color:var(--bad);font-size:13px;font-weight:700;cursor:pointer}
 </style>
 </head>
 <body>
@@ -70,20 +122,26 @@
   <div id="storeBadge">…</div>
   <div class="wrap">
     <div class="card">
-      <h2>Data layer · Phase 0</h2>
-      <div id="dataStatus"></div>
-      <div class="note">
-        Storage adapter (localStorage&nbsp;→&nbsp;memory) with a truthful badge, versioned
-        schema, and one-time <code>uha-log-v1</code> migration. Export and import/restore
-        are below; the four-shape Ingest merge (Phase&nbsp;1), history view, service worker
-        and manifest come next.
-      </div>
+      <div id="dayView"></div>
     </div>
 
     <div class="card">
-      <h2>History</h2>
+      <details>
+        <summary>Goals</summary>
+        <div class="row" style="margin-top:10px">
+          <div><label>Nutrient</label><select id="goalNutrient"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></select></div>
+          <div><label>Target</label><input id="goalValue" type="number" inputmode="decimal"></div>
+          <div><label>Direction</label><select id="goalDir"><option value="min">floor (min)</option><option value="max">ceiling (max)</option></select></div>
+        </div>
+        <button class="btn" onclick="setGoalFromForm()">Set goal</button>
+        <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Goals appear on the ring and strip above.</div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h2>All days</h2>
       <div id="history"></div>
-      <div class="note">Read-only. Complete days count toward averages; in-progress days are flagged. (The rich day view is Phase&nbsp;1.)</div>
+      <div class="note">Overview of every day. Complete days count toward averages; in-progress days are flagged.</div>
     </div>
 
     <div class="card">

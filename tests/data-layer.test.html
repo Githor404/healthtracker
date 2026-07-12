@@ -48,7 +48,7 @@ window.setLS({});
   }
   window.__confirm = true;
   window.confirm = function(){ return window.__confirm; };
-  ['storeBadge','dataStatus','history'].forEach(function(id){
+  ['storeBadge','dataStatus','history','dayView'].forEach(function(id){
     if (!document.getElementById(id)) { var el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
   });
   var td = today();
@@ -317,6 +317,42 @@ window.setLS({});
   HT.ingest(JSON.stringify({ version:2, days:{ '2025-11-01': { status:'complete', items:[], water_l:0 } }, current:'x', settings:{ goals:{ fiber_g:{ value:30, direction:'min' } } }, priceLog:{ incoming:{ name:'I', entries:[] } } }));
   res(HT.state().settings.goals.protein_g && !HT.state().settings.goals.fiber_g, 'I15: ingest does NOT merge settings');
   res(HT.state().priceLog.existing && !HT.state().priceLog.incoming, 'I15: ingest does NOT merge priceLog');
+
+  // ---- Day view + goals (Phase 1) ---------------------------------------
+  // G1. floor (min) direction math
+  var gpMinShort = HT.goalProgress(80, { value:120, direction:'min' });
+  res(gpMinShort.status === 'short' && gpMinShort.pct === 67, 'G1: floor under target -> short (67%)');
+  res(HT.goalProgress(130, { value:120, direction:'min' }).status === 'met', 'G1: floor at/over target -> met');
+  // G2. ceiling (max) direction math
+  res(HT.goalProgress(1800, { value:2000, direction:'max' }).status === 'good', 'G2: ceiling under limit -> good');
+  res(HT.goalProgress(2200, { value:2000, direction:'max' }).status === 'over', 'G2: ceiling over limit -> over');
+
+  // G3. micro rollup coverage (from N of M items)
+  var mr = HT.microRollup({ items:[ { name:'a', micros:{ iron_mg:2, sodium_mg:100 } }, { name:'b', micros:{ iron_mg:1 } }, { name:'c' } ] });
+  res(mr.iron_mg.total === 3 && mr.iron_mg.n === 2 && mr.iron_mg.m === 3, 'G3: iron from 2 of 3 items');
+  res(mr.sodium_mg.n === 1 && mr.sodium_mg.m === 3, 'G3: sodium from 1 of 3 items');
+
+  // G4. displayed == exported: totals sum persisted items only (no phantom additions)
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify({ items:[{ name:'X', kcal:100, protein_g:10 }, { name:'Y', kcal:50, protein_g:5 }], date: td }));
+  var expState = JSON.parse(HT.exportJSON());
+  var shown = HT.dayTotals(HT.state().days[td]);
+  var fromExport = HT.dayTotals(expState.days[td]);
+  res(shown.kcal === fromExport.kcal && shown.protein_g === fromExport.protein_g, 'G4: displayed day totals == exported totals');
+  res(shown.kcal === 150, 'G4: totals sum persisted items only (150 kcal)');
+
+  // G5. render escaping: hostile item name escaped in the day view
+  setLS({}); HT.boot();
+  HT.state().days[td].items.push({ name:'<img src=x onerror=alert(1)>', meal:'snack', time:'', kcal:1, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' });
+  HT.refresh();
+  var dv = document.getElementById('dayView').innerHTML;
+  res(dv.indexOf('<img src=x') === -1 && dv.indexOf('&lt;img') >= 0, 'G5: hostile item name escaped in day view');
+
+  // G6. setGoal persists value + direction
+  setLS({}); HT.boot();
+  HT.setGoal('protein_g', 120, 'min');
+  var pg = HT.state().settings.goals.protein_g;
+  res(pg && pg.value === 120 && pg.direction === 'min', 'G6: setGoal persists value + direction');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');

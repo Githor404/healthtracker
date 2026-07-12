@@ -562,6 +562,196 @@ function doIngest() {
   else toast(report.error || 'Ingest failed');
 }
 
+// ---- day view + goals (Phase 1) -------------------------------------------
+let PRIMARY_NUTRIENT = 'kcal';
+const RING_NUTRIENTS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
+const NUTRIENT_LABELS = { kcal: 'kcal', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber' };
+const CONF_DOT = { weighed: 'good', measured: 'accent', eyeballed: 'warn' };
+
+function curDay() { return APP_STATE && APP_STATE.days[APP_STATE.current]; }
+
+// Direction-aware goal progress: floor ('min') is short when under; ceiling
+// ('max') is over when above. (v4 Goals display.)
+function goalProgress(current, goal) {
+  const cur = num(current), target = num(goal && goal.value);
+  const pct = target > 0 ? Math.round((cur / target) * 100) : 0;
+  const dir = (goal && goal.direction === 'max') ? 'max' : 'min';
+  const status = dir === 'max' ? (cur > target ? 'over' : 'good') : (cur >= target ? 'met' : 'short');
+  return { current: cur, target: target, pct: pct, direction: dir, status: status };
+}
+
+// Micro rollup with coverage: per micro key present, total + N items carrying it of M.
+function microRollup(day) {
+  const items = (day && day.items) || [];
+  const out = {};
+  items.forEach((it) => {
+    if (it.micros) Object.keys(it.micros).forEach((k) => {
+      if (!out[k]) out[k] = { total: 0, n: 0 };
+      out[k].total += num(it.micros[k]);
+      out[k].n += 1;
+    });
+  });
+  Object.keys(out).forEach((k) => { out[k].m = items.length; });
+  return out;
+}
+
+function ringSVG(frac, status) {
+  const R = 74, C = 2 * Math.PI * R, L = C * Math.max(Math.min(frac, 1), 0);
+  const color = (status === 'over' || status === 'short') ? 'var(--warn)'
+    : (status === 'none' ? 'var(--muted)' : 'var(--accent)');
+  return `<svg viewBox="0 0 180 180" class="ring">
+      <circle cx="90" cy="90" r="${R}" fill="none" stroke="var(--line)" stroke-width="14"/>
+      <circle cx="90" cy="90" r="${R}" fill="none" stroke="${color}" stroke-width="14" stroke-linecap="round"
+        stroke-dasharray="${L} ${C - L}" transform="rotate(-90 90 90)"/>
+    </svg>`;
+}
+
+function renderGoalsHTML(t, day) {
+  const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
+  const prim = PRIMARY_NUTRIENT;
+  const primVal = num(t[prim]);
+  const primGoal = goals[prim];
+  let frac, inner, status;
+  if (primGoal) {
+    const gp = goalProgress(primVal, primGoal);
+    frac = gp.pct / 100; status = gp.status;
+    inner = `<b>${esc(rDisp(primVal))}</b><span>of ${esc(rDisp(gp.target))} ${esc(NUTRIENT_LABELS[prim] || prim)}</span><span class="gpct ${esc(gp.status)}">${esc(gp.pct)}%</span>`;
+  } else {
+    frac = 0; status = 'none';
+    inner = `<b>${esc(rDisp(primVal))}</b><span>${esc(NUTRIENT_LABELS[prim] || prim)}</span><span class="gpct">set a goal</span>`;
+  }
+  let html = `<div class="ringbox">${ringSVG(frac, status)}<div class="ringval">${inner}</div></div>`;
+  html += `<div class="primsel">` + RING_NUTRIENTS.map((k) =>
+    `<button class="${k === prim ? 'on' : ''}" onclick="setPrimary('${k}')">${esc(NUTRIENT_LABELS[k] || k)}</button>`).join('') + `</div>`;
+  const gk = Object.keys(goals);
+  if (gk.length) {
+    html += `<div class="goalstrip">` + gk.map((k) => {
+      const gp = goalProgress(num(t[k]), goals[k]);
+      return `<div class="goalcell ${esc(gp.status)}"><span>${esc(NUTRIENT_LABELS[k] || k)}</span>` +
+        `<b>${esc(rDisp(gp.current))}/${esc(rDisp(gp.target))}</b>` +
+        `<small>${esc(gp.direction === 'max' ? 'ceiling' : 'floor')} · ${esc(gp.pct)}%</small>` +
+        `<button class="grm" onclick="removeGoal('${esc(k)}')" title="remove goal">×</button></div>`;
+    }).join('') + `</div>`;
+  }
+  const micros = microRollup(day);
+  const mk = Object.keys(micros);
+  if (mk.length) {
+    html += `<div class="summary"><div class="sumhead">Micros present</div>` + mk.map((k) => {
+      const mv = micros[k];
+      return `<div class="sumrow"><span>${esc(k)}</span><span>${esc(rDisp(mv.total))} <small>from ${esc(mv.n)} of ${esc(mv.m)} items</small></span></div>`;
+    }).join('') + `</div>`;
+  }
+  return html;
+}
+
+function renderDay() {
+  const host = document.getElementById('dayView');
+  if (!host || !APP_STATE) return;
+  const dk = APP_STATE.current;
+  const day = APP_STATE.days[dk];
+  if (!day) { host.innerHTML = ''; return; }
+  const dates = Object.keys(APP_STATE.days).sort();
+  const di = dates.indexOf(dk);
+  const complete = day.status === 'complete';
+  const t = dayTotals(day);
+
+  let html = `<div class="daynav">
+      <button class="navbtn" onclick="stepDay(-1)" ${di <= 0 ? 'disabled' : ''}>‹</button>
+      <div class="daysel">${esc(dk)}${dk === localDate() ? ' · today' : ''} <span class="dstat ${complete ? 'done' : ''}">${esc(day.status.replace('_', ' '))}</span></div>
+      <button class="navbtn" onclick="stepDay(1)" ${di < 0 || di >= dates.length - 1 ? 'disabled' : ''}>›</button>
+    </div>`;
+
+  html += renderGoalsHTML(t, day);
+
+  const groups = {};
+  day.items.forEach((it, idx) => { const m = MEALS.indexOf(it.meal) >= 0 ? it.meal : 'other'; (groups[m] = groups[m] || []).push({ it: it, idx: idx }); });
+  MEALS.concat('other').forEach((m) => {
+    if (!groups[m]) return;
+    const gt = dayTotals({ items: groups[m].map((x) => x.it) });
+    html += `<div class="mealgrp"><div class="mealhead"><span>${esc(m)}</span><span>${esc(rDisp(gt.kcal))} kcal</span></div>`;
+    groups[m].forEach((row) => {
+      const it = row.it, idx = row.idx;
+      const dot = CONF_DOT[it.confidence] || 'muted';
+      const rm = it._auto ? '' : `<button class="rm" onclick="deleteItem(${idx})" title="delete">×</button>`;
+      const chip = it._auto ? '' : `<button class="mealchip" onclick="cycleMeal(${idx})" title="change meal">${esc(it.meal)}</button>`;
+      html += `<div class="mitem"><div class="mmain">
+          <div class="mname">${esc(it.name)}</div>
+          <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib · <span class="src">${esc(it.source || '')}</span></div>
+          ${chip}
+        </div><div class="mkcal">${esc(rDisp(it.kcal))}<small> kcal</small></div>${rm}</div>`;
+    });
+    html += `</div>`;
+  });
+
+  html += `<div class="daytot"><span>Total (est.)</span><span>${esc(rDisp(t.kcal))} kcal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>`;
+  const w = day.water_l || 0;
+  html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
+      <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
+  html += `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'End &amp; complete this day'}</button>`;
+  html += `<button class="clrday" onclick="clearDay()">Clear this day</button>`;
+
+  host.innerHTML = html;
+}
+
+// ---- day / goal interactions ----------------------------------------------
+function stepDay(dir) {
+  const dates = Object.keys(APP_STATE.days).sort();
+  const j = dates.indexOf(APP_STATE.current) + dir;
+  if (j < 0 || j >= dates.length) return;
+  APP_STATE.current = dates[j];
+  Store.saveState(APP_STATE); refresh();
+}
+function setPrimary(k) { PRIMARY_NUTRIENT = k; refresh(); }
+function deleteItem(idx) {
+  const day = curDay(); if (!day) return;
+  const it = day.items[idx];
+  if (!it || it._auto) return;               // supplement is non-deletable
+  day.items.splice(idx, 1);
+  Store.saveState(APP_STATE); refresh();
+}
+function cycleMeal(idx) {
+  const day = curDay(); if (!day) return;
+  const it = day.items[idx]; if (!it || it._auto) return;
+  it.meal = MEALS[(MEALS.indexOf(it.meal) + 1) % MEALS.length];
+  Store.saveState(APP_STATE); refresh();
+}
+function toggleDayStatus() {
+  const day = curDay(); if (!day) return;
+  day.status = day.status === 'complete' ? 'in_progress' : 'complete';
+  Store.saveState(APP_STATE); refresh();
+  toast(day.status === 'complete' ? 'Day completed' : 'Day reopened');
+}
+function clearDay() {
+  const day = curDay(); if (!day) return;
+  if (!window.confirm('Clear all items and water for ' + APP_STATE.current + '? This cannot be undone.')) return;
+  day.items = []; day.water_l = 0;
+  Store.saveState(APP_STATE); refresh();
+  toast('Day cleared');
+}
+function addWater(delta) {
+  const day = curDay(); if (!day) return;
+  day.water_l = Math.max(0, Math.round(((day.water_l || 0) + delta) * 100) / 100);
+  Store.saveState(APP_STATE); refresh();
+}
+function setGoal(key, value, direction) {
+  if (!APP_STATE.settings.goals) APP_STATE.settings.goals = {};
+  APP_STATE.settings.goals[key] = { value: clampNonNeg(value), direction: direction === 'max' ? 'max' : 'min' };
+  Store.saveState(APP_STATE); refresh();
+}
+function removeGoal(key) {
+  if (APP_STATE.settings.goals) delete APP_STATE.settings.goals[key];
+  Store.saveState(APP_STATE); refresh();
+}
+function setGoalFromForm() {
+  const k = document.getElementById('goalNutrient').value;
+  const v = document.getElementById('goalValue').value;
+  const d = document.getElementById('goalDir').value;
+  if (!v) { toast('Enter a target value'); return; }
+  setGoal(k, v, d);
+  document.getElementById('goalValue').value = '';
+  toast('Goal set');
+}
+
 // ---- per-day totals + read-only history -----------------------------------
 const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 function dayTotals(day) {
@@ -618,7 +808,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderDataStatus(); renderHistory(); }
+function refresh() { renderBadge(); renderDay(); renderHistory(); renderDataStatus(); }
 
 function main() { boot(); refresh(); }
 
@@ -627,6 +817,7 @@ window.HT = {
   Store, boot, migrateV1toV2, normalizeState, refresh,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable,
+  goalProgress, microRollup, dayTotals, setGoal,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
