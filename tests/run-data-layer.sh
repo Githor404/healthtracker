@@ -19,6 +19,15 @@ if grep -nE "$STRIP_RE" "$DIR/../app.js" >/dev/null 2>&1; then
 fi
 echo "strip check: app.js is legacy-free"
 
+# SW cache name must track the shell (D6): fail if sw.js SHELL_HASH is stale, so
+# a shell change can never ship without the SW seeing it.
+if ! bash "$DIR/check-sw-hash.sh" >/dev/null 2>&1; then
+  bash "$DIR/check-sw-hash.sh"
+  echo "SW-HASH CHECK: FAIL"
+  exit 1
+fi
+echo "sw-hash check: sw.js cache name tracks the shell"
+
 # Convert the POSIX path to a file:// URL Chrome understands on Windows.
 if command -v cygpath >/dev/null 2>&1; then
   URL="file:///$(cygpath -m "$HTML")"

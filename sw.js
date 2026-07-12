@@ -3,9 +3,15 @@
    Caches the app SHELL only. Data lives in localStorage and is never cached here.
    Offline = shell from cache + the data layer reading localStorage. */
 
-const VERSION = 1;                            // bump on any shell change
+// Cache name is content-derived (DECISIONS.md D6 amendment): SHELL_HASH is the
+// hash of the precached shell (index.html, app.js, manifest.json, icons),
+// stamped in by `bash tests/check-sw-hash.sh --fix` and enforced by the gate.
+// Any shell change flips the hash -> new sw.js bytes -> the browser installs a
+// new SW -> new cache -> the "update ready" hint can fire. No serve-time build;
+// sw.js's own edits are self-detecting (its bytes change directly).
+const SHELL_HASH = '203c88a38151';
 const SHELL_PREFIX = 'healthtracker-shell-';
-const SHELL_CACHE = SHELL_PREFIX + 'v' + VERSION;
+const SHELL_CACHE = SHELL_PREFIX + SHELL_HASH;
 
 // Relative paths so scope works at a GitHub Pages subpath AND at localhost root.
 // Every entry is gate-checked by tests/check-precache.sh — a 404 here rejects
