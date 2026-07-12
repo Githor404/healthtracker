@@ -447,6 +447,14 @@ window.setLS({});
   var a6 = HT.averageOver(HT.completeDaysInWindow('week'));
   res(a6.macros.kcal === 105 && a6.macros.soluble_fiber_g === 4, 'A6: persisted supplement included (105 kcal, 4g soluble)');
 
+  // H1. honesty label on both micro blocks (daily summary + averages)
+  setLS({}); HT.boot();
+  HT.state().days[td].items.push(mkItem({ name:'m', kcal:1, micros:{ iron_mg:2 } }));
+  HT.state().days[dayOffset(-1)] = mkDay([ mkItem({ name:'m2', kcal:1, micros:{ iron_mg:2 } }) ]);
+  HT.refresh();
+  res(document.getElementById('dayView').innerHTML.indexOf('labeled intake only') >= 0, 'H1: daily summary micro block carries the honesty label');
+  res(document.getElementById('averages').innerHTML.indexOf('labeled intake only') >= 0, 'H1: averages micro block carries the honesty label');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

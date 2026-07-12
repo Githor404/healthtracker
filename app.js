@@ -636,7 +636,7 @@ function renderGoalsHTML(t, day) {
   const micros = microRollup(day);
   const mk = Object.keys(micros);
   if (mk.length) {
-    html += `<div class="summary"><div class="sumhead">Micros present</div>` + mk.map((k) => {
+    html += `<div class="summary"><div class="sumhead">Micronutrients — labeled intake only</div>` + mk.map((k) => {
       const mv = micros[k];
       return `<div class="sumrow"><span>${esc(k)}</span><span>${esc(rDisp(mv.total))} <small>from ${esc(mv.n)} of ${esc(mv.m)} items</small></span></div>`;
     }).join('') + `</div>`;
@@ -956,7 +956,7 @@ function avgBlockHTML(label, a) {
   html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> kcal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)</div>`;
   const mk = Object.keys(a.micros);
   if (mk.length) {
-    html += `<div class="avgmicros">` + mk.map((K) => {
+    html += `<div class="avgmicros"><div class="sumhead">Micronutrients — labeled intake only</div>` + mk.map((K) => {
       const spec = MICRO_LABEL[K];
       const m = a.micros[K];
       return `<div class="avgmrow"><span>${esc(spec ? spec.label : K)}</span><span>${esc(rDisp(m.avg))} ${esc(spec ? spec.unit : '')} <small>from ${esc(m.nK)} of ${esc(m.m)} days</small></span></div>`;
