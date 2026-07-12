@@ -166,10 +166,17 @@ function normalizeItem(it, clampMacros) {
 
 function normalizeSupplement(sup) {
   sup = (sup && typeof sup === 'object' && !Array.isArray(sup)) ? sup : {};
+  const rawN = (sup.nutrients && typeof sup.nutrients === 'object' && !Array.isArray(sup.nutrients)) ? sup.nutrients : {};
+  const nutrients = {};
+  ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'].forEach((k) => {
+    if (rawN[k] != null && rawN[k] !== '') nutrients[k] = clampNonNeg(rawN[k]);   // coerce + clamp (D12 hardening)
+  });
+  const micros = normalizeMicros(rawN.micros);
+  if (micros) nutrients.micros = micros;
   return {
     enabled: sup.enabled === true,
     name: typeof sup.name === 'string' ? sup.name : '',
-    nutrients: (sup.nutrients && typeof sup.nutrients === 'object' && !Array.isArray(sup.nutrients)) ? sup.nutrients : {},
+    nutrients: nutrients,
   };
 }
 function normalizeSettings(s) {
@@ -438,6 +445,65 @@ function maybeInjectSupplement(state, dayKey) {
   if (!day || day.items.some((i) => i._auto)) return false;
   day.items.push(buildSupplementItem(sup));
   return true;
+}
+
+// Unified day-scope application (D12): the setting governs today-while-in_progress
+// + future creations; a settled (complete) day — today-once-closed or past — is
+// never rewritten. Config is not a log action.
+function applySupplementToToday() {
+  const today = APP_STATE.days[localDate()];
+  if (!today || today.status !== 'in_progress') return;   // settled/absent: never touch
+  const sup = APP_STATE.settings.supplement || {};
+  const hasAuto = today.items.some((i) => i._auto);
+  if (sup.enabled) {
+    if (hasAuto) today.items = today.items.map((i) => (i._auto ? buildSupplementItem(sup) : i));   // edit: rebuild in place
+    else today.items.push(buildSupplementItem(sup));                                                // enable: inject
+  } else if (hasAuto) {
+    today.items = today.items.filter((i) => !i._auto);                                              // disable: remove standing dose
+  }
+}
+
+// Testable core: set the supplement config and apply the day-scope rule.
+function setSupplement(enabled, name, nutrients) {
+  APP_STATE.settings.supplement = normalizeSupplement({ enabled: enabled, name: name, nutrients: nutrients });
+  applySupplementToToday();
+  Store.saveState(APP_STATE); refresh();
+  return APP_STATE.settings.supplement;
+}
+
+function readSupplementForm() {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const nutrients = {
+    kcal: g('supKcal'), protein_g: g('supP'), fat_g: g('supF'), carb_g: g('supC'),
+    fiber_g: g('supFib'), soluble_fiber_g: g('supSol'),
+  };
+  const micros = readMicroFields('sup_micro_');
+  if (Object.keys(micros).length) nutrients.micros = micros;
+  return { name: g('supName'), nutrients: nutrients };
+}
+function showSupplementWarnings(warns) {
+  const el = document.getElementById('supWarn'); if (!el) return;
+  el.innerHTML = (warns && warns.length) ? warns.map((w) => `<div class="warn">${esc(w)}</div>`).join('') : '';
+}
+function saveSupplement() {
+  const form = readSupplementForm();
+  const enabled = !!(document.getElementById('supEnabled') || {}).checked;
+  const warns = manualWarnings(form.nutrients);
+  setSupplement(enabled, form.name, form.nutrients);
+  showSupplementWarnings(warns);
+  toast(enabled ? 'Supplement saved & enabled' : 'Supplement disabled');
+}
+function renderSupplementForm() {
+  const sup = (APP_STATE.settings && APP_STATE.settings.supplement) || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); };
+  const en = document.getElementById('supEnabled'); if (en) en.checked = !!sup.enabled;
+  set('supName', sup.name || '');
+  const n = sup.nutrients || {};
+  set('supKcal', n.kcal); set('supP', n.protein_g); set('supF', n.fat_g); set('supC', n.carb_g);
+  set('supFib', n.fiber_g); set('supSol', n.soluble_fiber_g);
+  const micros = n.micros || {};
+  MICRO_SPEC.forEach((s) => { const el = document.getElementById('sup_micro_' + s.key); if (el) el.value = (micros[s.key] == null ? '' : micros[s.key]); });
+  updateMicroCount('sup_micro_', 'supMicroCount');
 }
 
 function blankReport() {
@@ -848,23 +914,26 @@ function deletePreset(id) {
 }
 
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
-function renderMicroFields() {
-  const host = document.getElementById('maMicros');
-  if (!host || host.childElementCount) return;   // static; build once
+// One micro component, shared by the manual-add and supplement forms (D12).
+// Fields are id'd `<prefix><canonical key>`; generation and read-back use the
+// same MICRO_SPEC + prefix, so field <-> key can't cross-wire in either form.
+function renderMicroFields(hostId, prefix, countId) {
+  const host = document.getElementById(hostId);
+  if (!host || host.childElementCount) return;   // build once
   host.innerHTML = MICRO_SPEC.map((s) =>
     `<div class="mafield"><label>${esc(s.label)}</label>` +
-    `<div class="uinput"><input id="ma_micro_${esc(s.key)}" type="number" inputmode="decimal" oninput="updateMicroCount()">` +
+    `<div class="uinput"><input id="${esc(prefix)}${esc(s.key)}" type="number" inputmode="decimal" oninput="updateMicroCount('${esc(prefix)}','${esc(countId)}')">` +
     `<span class="unit">${esc(s.unit)}</span></div></div>`).join('');
 }
-function readMicroFields() {
+function readMicroFields(prefix) {
   const micros = {};
-  MICRO_SPEC.forEach((s) => { const el = document.getElementById('ma_micro_' + s.key); if (el && el.value.trim() !== '') micros[s.key] = el.value; });
+  MICRO_SPEC.forEach((s) => { const el = document.getElementById(prefix + s.key); if (el && el.value.trim() !== '') micros[s.key] = el.value; });
   return micros;
 }
-function updateMicroCount() {
-  const el = document.getElementById('maMicroCount'); if (!el) return;
+function updateMicroCount(prefix, countId) {
+  const el = document.getElementById(countId); if (!el) return;
   let n = 0;
-  MICRO_SPEC.forEach((s) => { const i = document.getElementById('ma_micro_' + s.key); if (i && i.value.trim() !== '') n++; });
+  MICRO_SPEC.forEach((s) => { const i = document.getElementById(prefix + s.key); if (i && i.value.trim() !== '') n++; });
   el.textContent = n ? ' (' + n + ' entered)' : '';
 }
 function readManualForm() {
@@ -874,14 +943,14 @@ function readManualForm() {
     kcal: g('maKcal'), protein_g: g('maP'), fat_g: g('maF'), carb_g: g('maC'),
     fiber_g: g('maFib'), soluble_fiber_g: g('maSol'),
   };
-  const micros = readMicroFields();
+  const micros = readMicroFields('ma_micro_');
   if (Object.keys(micros).length) raw.micros = micros;
   return raw;
 }
 function clearManualForm() {
   ['maName', 'maKcal', 'maP', 'maF', 'maC', 'maFib', 'maSol', 'maTime', 'maPortion'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   MICRO_SPEC.forEach((s) => { const el = document.getElementById('ma_micro_' + s.key); if (el) el.value = ''; });
-  updateMicroCount(); showManualWarnings([]);
+  updateMicroCount('ma_micro_', 'maMicroCount'); showManualWarnings([]);
 }
 function showManualWarnings(warns) {
   const el = document.getElementById('maWarn'); if (!el) return;
@@ -1099,7 +1168,14 @@ function renderDataStatus() {
 }
 function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderHistory(); renderDataStatus(); }
 
-function main() { boot(); renderMicroFields(); renderPromptCard(); refresh(); }
+function main() {
+  boot();
+  renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
+  renderMicroFields('supMicros', 'sup_micro_', 'supMicroCount');
+  renderSupplementForm();
+  renderPromptCard();
+  refresh();
+}
 
 // Console seam for review/testing.
 window.HT = {
@@ -1111,6 +1187,7 @@ window.HT = {
   renderMicroFields, readMicroFields, MICRO_SPEC,
   averageOver, completeDaysInWindow,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
+  setSupplement, applySupplementToToday, normalizeSupplement,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

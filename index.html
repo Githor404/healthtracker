@@ -142,6 +142,8 @@
   .oblist b{color:var(--txt)}
   .pver{font-size:11px;color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
   #promptTemplate{min-height:150px}
+  .checkline{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--txt);margin:8px 0}
+  .checkline input{width:auto}
 </style>
 </head>
 <body>
@@ -163,6 +165,32 @@
         </div>
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Goals appear on the ring and strip above.</div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details id="supDetails">
+        <summary>Daily supplement</summary>
+        <div id="supWarn"></div>
+        <label class="checkline"><input type="checkbox" id="supEnabled"> Enable — auto-add to each new day</label>
+        <label>Name</label><input id="supName" placeholder="e.g. Psyllium + D3 + B12">
+        <div class="row">
+          <div><label>kcal</label><input id="supKcal" type="number" inputmode="decimal"></div>
+          <div><label>P (g)</label><input id="supP" type="number" inputmode="decimal"></div>
+          <div><label>F (g)</label><input id="supF" type="number" inputmode="decimal"></div>
+          <div><label>C (g)</label><input id="supC" type="number" inputmode="decimal"></div>
+        </div>
+        <div class="row">
+          <div><label>Fiber (g)</label><input id="supFib" type="number" inputmode="decimal"></div>
+          <div><label>Soluble (g)</label><input id="supSol" type="number" inputmode="decimal"></div>
+          <div></div>
+        </div>
+        <details class="micros">
+          <summary>Micronutrients (from the supplement label)<span id="supMicroCount"></span></summary>
+          <div id="supMicros"></div>
+        </details>
+        <button class="btn primary" onclick="saveSupplement()">Save supplement</button>
+        <div class="note">Off by default. When enabled, a flagged non-deletable item is added to today (if open) and every new day; disable to stop. Past days keep their record.</div>
       </details>
     </div>
 

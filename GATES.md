@@ -145,4 +145,18 @@ Day view: meal grouping, per-item delete / tap-to-cycle-meal, confidence dot, so
 
 `bash tests/run-data-layer.sh` → **129/129**; offline + precache green.
 
-**Remaining for the Phase 1 gate:** supplement config UI; README (privacy stance).
+### Supplement config slice (D12) — MET
+
+| Gate requirement | Evidence |
+|---|---|
+| Enable (today `in_progress`) injects `_auto` with nutrients incl micros | data-layer test S1 |
+| Disable removes today's `_auto` (standing dose) | S2 |
+| Edit rebuilds today's `_auto` in place | S3 |
+| Complete-today never rewritten / reopened by config | S4 |
+| Past complete day never touched | S5 |
+| `normalizeSupplement` coerces + clamps nutrients (restore hardening) | S6 |
+| Shared micro component, no cross-wiring across **both** forms | S7 (+ M1) |
+
+`bash tests/run-data-layer.sh` → **138/138**; offline + precache green. One micro component mounted in both the manual-add and supplement forms.
+
+**Remaining for the Phase 1 gate:** README (privacy stance).

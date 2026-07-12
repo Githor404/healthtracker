@@ -357,9 +357,9 @@ window.setLS({});
   // ---- Manual add + presets (D9) ----------------------------------------
   // M1. micro field <-> canonical key mapping (no cross-wiring) + units rendered
   var mm = document.createElement('div'); mm.id = 'maMicros'; document.body.appendChild(mm);
-  HT.renderMicroFields();
+  HT.renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
   HT.MICRO_SPEC.forEach(function(s, i){ document.getElementById('ma_micro_' + s.key).value = String((i+1) * 3); });
-  var readMicros = HT.readMicroFields();
+  var readMicros = HT.readMicroFields('ma_micro_');
   res(HT.MICRO_SPEC.every(function(s, i){ return readMicros[s.key] === String((i+1)*3); }), 'M1: every micro field maps to its exact canonical key (no cross-wiring)');
   res((mm.innerHTML.match(/<span class="unit">/g)||[]).length === HT.MICRO_SPEC.length, 'M1: every micro field has a unit label');
 
@@ -490,6 +490,52 @@ window.setLS({});
   res(['breakfast','lunch','dinner','snack','drink','supplement'].every(function(m){ return tmpl.indexOf(m) >= 0; }), 'F7: template spells out the full meal enum');
   // F8. template version exposed
   res(typeof HT.AI_TEMPLATE_VERSION === 'number', 'F8: template version exposed');
+
+  // ---- Supplement config (D12) ------------------------------------------
+  // S1. enable (today in_progress) -> today gets the _auto item with nutrients incl micros
+  setLS({}); HT.boot();
+  HT.setSupplement(true, 'Stack', { kcal:5, fiber_g:4, soluble_fiber_g:4, micros:{ vitamin_d_ug:25, vitamin_b12_ug:500 } });
+  var sItem = HT.state().days[td].items.find(function(i){ return i._auto; });
+  res(sItem && sItem.source === 'supplement' && sItem.name === 'Stack' && sItem.fiber_g === 4, 'S1: enable injects _auto supplement into today with nutrients');
+  res(sItem.micros && sItem.micros.vitamin_d_ug === 25 && sItem.micros.vitamin_b12_ug === 500, 'S1: supplement carries configured micros (label attestation)');
+
+  // S2. disable (today in_progress) -> today _auto removed (standing dose)
+  HT.setSupplement(false, 'Stack', { kcal:5 });
+  res(!HT.state().days[td].items.some(function(i){ return i._auto; }), 'S2: disable removes today _auto item');
+
+  // S3. edit -> today _auto rebuilt in place (one item, new values)
+  setLS({}); HT.boot();
+  HT.setSupplement(true, 'Stack', { kcal:5, fiber_g:4 });
+  HT.setSupplement(true, 'Stack v2', { kcal:8, fiber_g:6 });
+  var edited = HT.state().days[td].items.filter(function(i){ return i._auto; });
+  res(edited.length === 1 && edited[0].name === 'Stack v2' && edited[0].kcal === 8, 'S3: edit rebuilds today _auto in place');
+
+  // S4. complete-today edge: settled day never rewritten / reopened by config
+  setLS({}); HT.boot();
+  HT.setSupplement(true, 'Stack', { kcal:5 });
+  HT.state().days[td].status = 'complete';
+  var beforeItems = HT.state().days[td].items.length;
+  HT.setSupplement(false, 'Stack', { kcal:5 });
+  res(HT.state().days[td].items.some(function(i){ return i._auto; }) && HT.state().days[td].items.length === beforeItems, 'S4: config change does not rewrite a complete today');
+  res(HT.state().days[td].status === 'complete', 'S4: complete today not reopened by config change');
+
+  // S5. past complete day never touched by enable
+  setLS({}); HT.boot();
+  var past = dayOffset(-3);
+  HT.state().days[past] = mkDay([ mkItem({ name:'food', kcal:100 }) ]);
+  HT.setSupplement(true, 'Stack', { kcal:5 });
+  res(!HT.state().days[past].items.some(function(i){ return i._auto; }), 'S5: enable never injects into a past complete day');
+
+  // S6. restore hardening: normalizeSupplement coerces + clamps nutrients (macros + micros)
+  var ns = HT.normalizeSupplement({ enabled:true, name:'X', nutrients:{ kcal:-5, protein_g:'10', micros:{ iron_mg:-3, sodium_mg:200 } } });
+  res(ns.nutrients.kcal === 0 && ns.nutrients.protein_g === 10 && ns.nutrients.micros.iron_mg === 0 && ns.nutrients.micros.sodium_mg === 200, 'S6: normalizeSupplement coerces + clamps nutrients');
+
+  // S7. shared micro component: supplement form maps field -> key (no cross-wiring)
+  var sm2 = document.createElement('div'); sm2.id = 'supMicros'; document.body.appendChild(sm2);
+  HT.renderMicroFields('supMicros', 'sup_micro_', 'supMicroCount');
+  HT.MICRO_SPEC.forEach(function(s, i){ document.getElementById('sup_micro_' + s.key).value = String((i+1)*2); });
+  var sMicros = HT.readMicroFields('sup_micro_');
+  res(HT.MICRO_SPEC.every(function(s, i){ return sMicros[s.key] === String((i+1)*2); }), 'S7: supplement micro form maps field->key (shared component)');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
