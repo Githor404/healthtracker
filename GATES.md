@@ -120,4 +120,17 @@ Day view: meal grouping, per-item delete / tap-to-cycle-meal, confidence dot, so
 
 `bash tests/run-data-layer.sh` → **106/106**; offline + precache green. Micros behind a labeled disclosure with a filled-count header (fork C); Add / Save-as-preset are independent (fork D).
 
-**Remaining for the Phase 1 gate:** supplement config UI; averages (7-day calendar-window + all-time); first-run + AI prompt template; README (privacy stance).
+### Averages slice (D10) — MET
+
+| Gate requirement | Evidence |
+|---|---|
+| 7-day = calendar window (day-3 in, day-8 out); in-progress excluded | data-layer test A1 |
+| All-time = every complete day | A2 |
+| Macro mean = Σ/M; a fasting complete day counts as 0-intake | A3 |
+| Micro **per-nutrient** coverage; **absence ≠ zero**; "N_K of M" | A4 |
+| Honest empty state at M=0 (not zeros) | A5 |
+| Persisted supplement included (no render-time addition) | A6 |
+
+`bash tests/run-data-layer.sh` → **115/115**; offline + precache green.
+
+**Remaining for the Phase 1 gate:** supplement config UI; first-run + AI prompt template; README (privacy stance).

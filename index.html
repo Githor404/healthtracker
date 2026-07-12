@@ -130,6 +130,12 @@
   .presetrow .btn{padding:7px 12px;font-size:13px}
   .prm{color:#e67a7a;background:none;border:none;font-size:20px;padding:0 4px;width:auto;cursor:pointer}
   .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .avgblock{padding:8px 0;border-top:1px solid var(--line)}
+  .avgblock:first-child{border-top:none}
+  .avghead{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:3px}
+  .avgmacros{font-size:14px;font-variant-numeric:tabular-nums}
+  .avgmicros{margin-top:4px}
+  .avgmrow{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -151,6 +157,12 @@
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Goals appear on the ring and strip above.</div>
       </details>
+    </div>
+
+    <div class="card">
+      <h2>Averages</h2>
+      <div id="averages"></div>
+      <div class="note">Complete days only. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
     </div>
 
     <div class="card">

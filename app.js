@@ -915,6 +915,63 @@ function renderPresets() {
     `<button class="prm" onclick="deletePreset('${esc(p.id)}')" title="delete preset">×</button></div>`).join('');
 }
 
+// ---- averages (DECISIONS.md D10) ------------------------------------------
+// Complete days in the window. 'week' = calendar window (>= today-6 days);
+// 'all' = every complete day. In-progress days never qualify.
+function completeDaysInWindow(kind) {
+  const complete = Object.keys(APP_STATE.days).filter((d) => APP_STATE.days[d].status === 'complete');
+  if (kind === 'all') return complete.sort();
+  const cut = new Date(localDate() + 'T00:00:00');
+  cut.setDate(cut.getDate() - 6);
+  const cutKey = localDate(cut);
+  return complete.filter((d) => d >= cutKey).sort();
+}
+
+// Macro mean = Σ/M (full coverage). Micro mean = Σ over days-carrying-K / N_K
+// (absence ≠ zero), with per-nutrient coverage N_K of M.
+function averageOver(dateKeys) {
+  const M = dateKeys.length;
+  const macros = { kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0 };
+  const microSum = {}, microN = {};
+  dateKeys.forEach((d) => {
+    const day = APP_STATE.days[d];
+    (day.items || []).forEach((it) => { Object.keys(macros).forEach((k) => { macros[k] += num(it[k]); }); });
+    const mr = microRollup(day);   // {K:{total, n(items carrying K), m}}
+    Object.keys(mr).forEach((K) => {
+      if (mr[K].n > 0) { microSum[K] = (microSum[K] || 0) + mr[K].total; microN[K] = (microN[K] || 0) + 1; }
+    });
+  });
+  const macroAvg = {};
+  Object.keys(macros).forEach((k) => { macroAvg[k] = M ? macros[k] / M : 0; });
+  const microAvg = {};
+  Object.keys(microSum).forEach((K) => { microAvg[K] = { avg: microSum[K] / microN[K], nK: microN[K], m: M }; });
+  return { n: M, macros: macroAvg, micros: microAvg };
+}
+
+function avgBlockHTML(label, a) {
+  if (a.n === 0) {
+    return `<div class="avgblock"><div class="avghead">${esc(label)}</div><div class="note">No complete days yet — close a day to see averages.</div></div>`;
+  }
+  let html = `<div class="avgblock"><div class="avghead">${esc(label)} <small>n=${esc(a.n)}</small></div>`;
+  html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> kcal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)</div>`;
+  const mk = Object.keys(a.micros);
+  if (mk.length) {
+    html += `<div class="avgmicros">` + mk.map((K) => {
+      const spec = MICRO_LABEL[K];
+      const m = a.micros[K];
+      return `<div class="avgmrow"><span>${esc(spec ? spec.label : K)}</span><span>${esc(rDisp(m.avg))} ${esc(spec ? spec.unit : '')} <small>from ${esc(m.nK)} of ${esc(m.m)} days</small></span></div>`;
+    }).join('') + `</div>`;
+  }
+  return html + `</div>`;
+}
+
+function renderAverages() {
+  const el = document.getElementById('averages');
+  if (!el || !APP_STATE) return;
+  el.innerHTML = avgBlockHTML('7-day', averageOver(completeDaysInWindow('week'))) +
+                 avgBlockHTML('All-time', averageOver(completeDaysInWindow('all')));
+}
+
 // ---- per-day totals + read-only history -----------------------------------
 const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 function dayTotals(day) {
@@ -971,7 +1028,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderDay(); renderPresets(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderDay(); renderAverages(); renderPresets(); renderHistory(); renderDataStatus(); }
 
 function main() { boot(); renderMicroFields(); refresh(); }
 
@@ -983,6 +1040,7 @@ window.HT = {
   goalProgress, microRollup, dayTotals, setGoal,
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
+  averageOver, completeDaysInWindow,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

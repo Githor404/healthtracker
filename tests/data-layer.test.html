@@ -48,7 +48,7 @@ window.setLS({});
   }
   window.__confirm = true;
   window.confirm = function(){ return window.__confirm; };
-  ['storeBadge','dataStatus','history','dayView'].forEach(function(id){
+  ['storeBadge','dataStatus','history','dayView','averages'].forEach(function(id){
     if (!document.getElementById(id)) { var el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
   });
   var td = today();
@@ -401,6 +401,51 @@ window.setLS({});
   HT.saveManualPreset({ name:'Dup', kcal:1 }, '');
   HT.saveManualPreset({ name:'Dup', kcal:1 }, '');
   res(HT.state().settings.presets.filter(function(p){ return p.name==='Dup'; }).length === 2, 'M7: duplicate preset names allowed (id-keyed)');
+
+  // ---- Averages (D10) ---------------------------------------------------
+  function dayOffset(n){ var d = new Date(); d.setDate(d.getDate() + n); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function mkDay(items){ return { status:'complete', items: items, water_l:0 }; }
+  function mkItem(o){ return Object.assign({ name:'x', meal:'snack', time:'', kcal:0, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }, o); }
+
+  // A1. 7-day calendar window: day-3 in, day-8 out; in-progress excluded
+  setLS({}); HT.boot();
+  var d3 = dayOffset(-3), d8 = dayOffset(-8), d2 = dayOffset(-2);
+  HT.state().days[d3] = mkDay([ mkItem({ name:'a', kcal:200 }) ]);
+  HT.state().days[d8] = mkDay([ mkItem({ name:'b', kcal:1000 }) ]);
+  HT.state().days[d2] = { status:'in_progress', items:[ mkItem({ name:'c', kcal:5000 }) ], water_l:0 };
+  var wkKeys = HT.completeDaysInWindow('week');
+  res(wkKeys.indexOf(d3) >= 0 && wkKeys.indexOf(d8) < 0, 'A1: 7-day window includes day-3, excludes day-8');
+  res(wkKeys.indexOf(d2) < 0, 'A1: in-progress day excluded from window');
+
+  // A2. all-time = all complete days (regardless of window)
+  var allKeys = HT.completeDaysInWindow('all');
+  res(allKeys.indexOf(d3) >= 0 && allKeys.indexOf(d8) >= 0 && allKeys.indexOf(d2) < 0, 'A2: all-time = every complete day');
+
+  // A3. macro mean = sum/M; a fasting complete day counts as a real 0-intake day
+  setLS({}); HT.boot();
+  HT.state().days[dayOffset(-1)] = mkDay([ mkItem({ kcal:100 }) ]);
+  HT.state().days[dayOffset(-2)] = mkDay([]);   // fasting complete day
+  var a3 = HT.averageOver(HT.completeDaysInWindow('week'));
+  res(a3.n === 2 && a3.macros.kcal === 50, 'A3: macro mean = sum/M incl fasting day (100/2 = 50)');
+
+  // A4. micro per-nutrient coverage + absence != zero
+  setLS({}); HT.boot();
+  HT.state().days[dayOffset(-1)] = mkDay([ mkItem({ name:'ironbar', kcal:10, micros:{ iron_mg:4 } }) ]);
+  HT.state().days[dayOffset(-2)] = mkDay([ mkItem({ name:'plain', kcal:10 }) ]);
+  var a4 = HT.averageOver(HT.completeDaysInWindow('week'));
+  res(a4.micros.iron_mg && a4.micros.iron_mg.avg === 4 && a4.micros.iron_mg.nK === 1 && a4.micros.iron_mg.m === 2, 'A4: iron avg over days-carrying-it (4 from 1 of 2; absence != zero)');
+  res(!a4.micros.sodium_mg, 'A4: iron-only day creates no sodium coverage (per-nutrient)');
+
+  // A5. empty state: no complete days -> n=0, empty-state text (not zeros)
+  setLS({}); HT.boot(); HT.refresh();
+  res(HT.averageOver(HT.completeDaysInWindow('week')).n === 0, 'A5: no complete days -> n=0');
+  res(document.getElementById('averages').innerHTML.indexOf('No complete days') >= 0, 'A5: empty-state rendered (not zeros)');
+
+  // A6. persisted supplement is included in averages (no render-time addition)
+  setLS({}); HT.boot();
+  HT.state().days[dayOffset(-1)] = mkDay([ mkItem({ name:'food', kcal:100 }), mkItem({ name:'supp', kcal:5, fiber_g:4, soluble_fiber_g:4, source:'supplement', _auto:true, meal:'supplement' }) ]);
+  var a6 = HT.averageOver(HT.completeDaysInWindow('week'));
+  res(a6.macros.kcal === 105 && a6.macros.soluble_fiber_g === 4, 'A6: persisted supplement included (105 kcal, 4g soluble)');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
