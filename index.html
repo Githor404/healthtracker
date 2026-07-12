@@ -59,6 +59,10 @@
   .hmeta{font-size:12px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
   #updateBar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:30;align-items:center;justify-content:center;gap:12px;background:var(--accent);color:#fff;padding:10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));font-weight:700;font-size:14px}
   #updateBar button{background:#fff;color:#12303a;border:none;font-weight:800;padding:8px 14px;border-radius:10px;cursor:pointer}
+  #ingestReport{margin-top:10px}
+  .ireport{font-size:12px;color:var(--muted);padding:5px 0;border-top:1px solid var(--line);line-height:1.4}
+  .ireport:first-child{border-top:none}
+  .ireport.bad{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -80,6 +84,14 @@
       <h2>History</h2>
       <div id="history"></div>
       <div class="note">Read-only. Complete days count toward averages; in-progress days are flagged. (The rich day view is Phase&nbsp;1.)</div>
+    </div>
+
+    <div class="card">
+      <h2>Ingest · paste JSON</h2>
+      <textarea id="ingestBox" placeholder="Paste JSON from your AI assistant (items) — or a full export to merge days. Non-destructive."></textarea>
+      <button class="btn" onclick="doIngest()">Ingest</button>
+      <div id="ingestReport"></div>
+      <div class="note">Never overwrites a day that has items. AI-paste items are macros-only (micros stripped) at eyeballed confidence.</div>
     </div>
 
     <div class="card">

@@ -71,3 +71,25 @@ _Note: legacy `uha-log-v1` support was retired by v4 (2026-07-11) **after** this
 Legacy `uha-log-v1` support removed; the restore boundary accepts schema v1/v2 blobs only (D5 amendment, D7).
 
 **Status: MET.**
+
+---
+
+## Phase 1 — Logging core, multi-user (IN PROGRESS)
+
+**Gate (from the brief):** displayed and exported totals are the same numeric item set; all four ingest shapes per contract; ai-paste micros stripped and reported; goal direction math correct (min/max); every rendered field escaped (incl. goal/preset/store names); first-run on a clean profile reaches a logged day via the prompt-template path. Built slice-by-slice (ingest first, per the ruled sequencing); evidence accrues here.
+
+### Ingest slice (D8) — MET
+
+| Gate requirement | Evidence |
+|---|---|
+| All four ingest shapes per contract (`{items}`+date, array, single, full-days) | data-layer tests I1–I8 |
+| ai-paste micros stripped **and reported** | I1 |
+| full-days merge non-destructive; tightened fillable (complete / water-only preserved) | I6, I7 |
+| full-days version-routed via the D7 front-end (v1 migrate, absent/>2 reject) | I8 |
+| complete-day append reopens + reports; duplicates accepted; rejects reported | I9, I10, I11 |
+| supplement injection at device-side creation; wholesale days as-is | I12, I13, I14 |
+| ingest merges days only (settings/priceLog untouched); report fields escaped | I15 |
+
+`bash tests/run-data-layer.sh` → **strip check PASS · 83/83 PASS**; offline + precache gates still green.
+
+**Remaining for the Phase 1 gate:** day view + displayed==exported; goals setup + direction math + summary with micro coverage; manual add (label micros); preset CRUD; supplement config UI; first-run + AI prompt template; README + license.

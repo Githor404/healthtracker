@@ -199,7 +199,11 @@ function normalizeStatuses(state) {
 function ensureCurrentDay(state) {
   let changed = false;
   const today = localDate();
-  if (!state.days[today]) { state.days[today] = blankDay(); changed = true; }
+  if (!state.days[today]) {
+    state.days[today] = blankDay();
+    maybeInjectSupplement(state, today);   // device-side day creation (D8/4)
+    changed = true;
+  }
   if (state.current !== today) { state.current = today; changed = true; }
   return changed;
 }
@@ -398,6 +402,166 @@ function toast(m) {
   _toastT = setTimeout(function () { e.classList.remove('show'); }, 1900);
 }
 
+// ---- supplement + ingest (DECISIONS.md D8) --------------------------------
+function nowTime() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+
+// A day is fillable by a full-days merge only if it holds no real information:
+// no items AND no water AND still in_progress. A complete day (even empty — a
+// deliberately-closed fast) or a water-only day is never overwritten (D8/1).
+function fillable(day) {
+  return day.items.length === 0 && day.water_l === 0 && day.status === 'in_progress';
+}
+
+// Build the configured supplement as a flagged, non-deletable item. Nutrients are
+// user-attested label amounts, so micros are allowed (source 'supplement').
+function buildSupplementItem(sup) {
+  const n = (sup && sup.nutrients) || {};
+  return normalizeItem({
+    name: (sup && sup.name) || 'Daily supplement',
+    meal: 'supplement', time: nowTime(),
+    kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
+    fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g,
+    confidence: 'measured', notes: 'auto-applied daily supplement',
+    source: 'supplement', _auto: true, micros: n.micros,
+  }, true);
+}
+
+// Inject the supplement at device-side day creation, if enabled and absent (D8/4).
+// Wholesale-arriving days (full-days merge / restore) do NOT call this.
+function maybeInjectSupplement(state, dayKey) {
+  const sup = (state.settings && state.settings.supplement) || {};
+  if (!sup.enabled) return false;
+  const day = state.days[dayKey];
+  if (!day || day.items.some((i) => i._auto)) return false;
+  day.items.push(buildSupplementItem(sup));
+  return true;
+}
+
+function blankReport() {
+  return { ok: true, added: [], created: [], supplemented: [], reopened: [], stripped: 0, skipped: [], mergedDays: [], rejectedItems: 0 };
+}
+function bumpAdded(report, d) {
+  const e = report.added.find((x) => x.date === d);
+  if (e) e.count++; else report.added.push({ date: d, count: 1 });
+}
+function finalizeIngest(report) {
+  normalizeStatuses(APP_STATE);
+  report.saved = Store.saveState(APP_STATE);
+  refresh();
+  return report;
+}
+
+// AI-paste channel: force source/confidence, strip micros — the boundary can't
+// verify intent, so it never honors a self-declared source (D8/2).
+function toAiPasteItem(raw) {
+  const clean = Object.assign({}, raw);
+  delete clean.micros;
+  clean.source = 'ai-paste';
+  clean.confidence = 'eyeballed';
+  return normalizeItem(clean, true);
+}
+
+// Four-shape non-destructive ingest. Returns a structured report (D8/5).
+function ingest(raw) {
+  const text = cleanJSON(raw);
+  if (!text) return { ok: false, error: 'Nothing to ingest.' };
+  let o;
+  try { o = JSON.parse(text); }
+  catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
+  const report = blankReport();
+  if (o && typeof o === 'object' && !Array.isArray(o) && o.days && typeof o.days === 'object') {
+    return ingestFullDays(o, report);   // full-days merge (own-data channel)
+  }
+  return ingestItems(o, report);        // item shapes (AI-paste channel)
+}
+
+// Full-days: same validation + version guard as restore (D8/6), then a
+// non-destructive DAY merge (days only; settings/priceLog untouched).
+function ingestFullDays(o, report) {
+  if (!Object.keys(o.days).every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)))
+    return { ok: false, error: 'Invalid day key — dates must be YYYY-MM-DD.' };
+  const v = o.version;
+  if (typeof v !== 'number') return { ok: false, error: 'Unrecognized log format (no version).' };
+  if (v > SCHEMA_VERSION) return { ok: false, error: 'This export is from a newer version of the app.' };
+  const incoming = (v === 1) ? migrateV1toV2(o, new Date().toISOString()) : normalizeState(o);
+  Object.keys(incoming.days).forEach((d) => {
+    const local = APP_STATE.days[d];
+    if (!local || fillable(local)) {
+      APP_STATE.days[d] = incoming.days[d];   // wholesale, as-is — no supplement injection
+      report.mergedDays.push(d);
+    } else {
+      report.skipped.push(d);
+    }
+  });
+  return finalizeIngest(report);
+}
+
+function ensureIngestDay(d, report) {
+  if (!APP_STATE.days[d]) {
+    APP_STATE.days[d] = blankDay();
+    report.created.push(d);
+    if (maybeInjectSupplement(APP_STATE, d)) report.supplemented.push(d);   // device-side creation (D8/4)
+  }
+}
+function ingestItems(o, report) {
+  let arr;
+  if (Array.isArray(o)) arr = o;
+  else if (o && Array.isArray(o.items)) arr = o.items;
+  else if (o && typeof o === 'object' && o.name != null) arr = [o];
+  else return { ok: false, error: 'Not a recognized ingest shape.' };
+
+  const topDate = (o && !Array.isArray(o) && typeof o.date === 'string') ? o.date : null;
+  const today = localDate();
+
+  arr.forEach((raw) => {
+    if (!raw || typeof raw !== 'object' || raw.name == null || String(raw.name) === '') { report.rejectedItems++; return; }
+    const d = (typeof raw.date === 'string') ? raw.date : (topDate || today);   // item.date > top.date > today
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { report.rejectedItems++; return; }
+    if (raw.micros) report.stripped++;
+    const existed = !!APP_STATE.days[d];
+    ensureIngestDay(d, report);
+    const day = APP_STATE.days[d];
+    if (existed && day.status === 'complete') {
+      day.status = 'in_progress';
+      if (report.reopened.indexOf(d) < 0) report.reopened.push(d);   // append reopens (D8/1)
+    }
+    day.items.push(toAiPasteItem(raw));
+    bumpAdded(report, d);
+  });
+  return finalizeIngest(report);
+}
+
+// Persistent honesty panel — the app explaining what it did to the data (D8/5).
+function renderIngestReport(report) {
+  const el = document.getElementById('ingestReport');
+  if (!el) return;
+  if (!report.ok) { el.innerHTML = `<div class="ireport bad">${esc(report.error)}</div>`; return; }
+  const L = [];
+  const totalAdded = report.added.reduce((a, x) => a + x.count, 0);
+  if (totalAdded) L.push('Added ' + totalAdded + ' item(s): ' + report.added.map((x) => esc(x.date) + ' (' + x.count + ')').join(', '));
+  if (report.mergedDays.length) L.push('Merged ' + report.mergedDays.length + ' day(s): ' + report.mergedDays.map(esc).join(', '));
+  if (report.created.length) L.push('Created ' + report.created.length + ' new day(s): ' + report.created.map(esc).join(', '));
+  if (report.supplemented.length) L.push('Supplement injected: ' + report.supplemented.map(esc).join(', '));
+  if (report.reopened.length) L.push('Reopened (was complete): ' + report.reopened.map(esc).join(', '));
+  if (report.stripped) L.push('Stripped micros from ' + report.stripped + ' AI-paste item(s) — honesty rule');
+  if (report.skipped.length) L.push('Skipped ' + report.skipped.length + ' populated day(s): ' + report.skipped.map(esc).join(', '));
+  if (report.rejectedItems) L.push('Rejected ' + report.rejectedItems + ' item(s) (no name / bad date)');
+  if (!L.length) L.push('Nothing to add.');
+  el.innerHTML = L.map((line) => `<div class="ireport">${line}</div>`).join('');
+}
+function doIngest() {
+  const box = document.getElementById('ingestBox');
+  const raw = box ? box.value : '';
+  if (!raw.trim()) { toast('Paste JSON to ingest first'); return; }
+  const report = ingest(raw);
+  renderIngestReport(report);
+  if (report.ok) { if (box) box.value = ''; toast('Ingested'); }
+  else toast(report.error || 'Ingest failed');
+}
+
 // ---- per-day totals + read-only history -----------------------------------
 const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 function dayTotals(day) {
@@ -462,6 +626,7 @@ function main() { boot(); refresh(); }
 window.HT = {
   Store, boot, migrateV1toV2, normalizeState, refresh,
   exportJSON, parseImport, restore,
+  ingest, maybeInjectSupplement, buildSupplementItem, fillable,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

@@ -217,6 +217,107 @@ window.setLS({});
   res(typeof HT.migrateLegacy === 'undefined', '17: migrateLegacy removed from API');
   res(typeof HT.migrateV1toV2 === 'function', '17: migrateV1toV2 present');
 
+  // ---- Ingest slice (D8) ------------------------------------------------
+  // I1. {items} + top date; item shapes forced to ai-paste/eyeballed, micros stripped
+  setLS({}); HT.boot();
+  var repI1 = HT.ingest(JSON.stringify({ items:[{ name:'Stew', meal:'dinner', kcal:400, protein_g:20, fat_g:15, carb_g:30, fiber_g:5, confidence:'weighed', source:'scan', micros:{ iron_mg:3, sodium_mg:500 } }], date:'2026-02-01' }));
+  var itI1 = HT.state().days['2026-02-01'].items[0];
+  res(repI1.ok && itI1.source === 'ai-paste' && itI1.confidence === 'eyeballed', 'I1: item shape forced ai-paste/eyeballed (no self-declared source)');
+  res(itI1.micros === undefined && repI1.stripped === 1, 'I1: micros stripped + reported');
+
+  // I2/I3. bare array and single item -> today
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify([{ name:'Arr', kcal:1 }]));
+  res(HT.state().days[td].items.some(function(i){ return i.name==='Arr'; }), 'I2: bare array -> today');
+  HT.ingest(JSON.stringify({ name:'Single', meal:'snack', kcal:1 }));
+  res(HT.state().days[td].items.some(function(i){ return i.name==='Single'; }), 'I3: single item -> today');
+
+  // I4. date precedence: item.date > top.date > today
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify({ items:[{ name:'A', kcal:1, date:'2026-01-01' }, { name:'B', kcal:1 }], date:'2026-01-02' }));
+  res(!!HT.state().days['2026-01-01'] && HT.state().days['2026-01-02'].items.some(function(i){ return i.name==='B'; }), 'I4: item.date > top.date resolution');
+
+  // I5. full-days items PRESERVE micros/source (own-data channel)
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify({ version:2, days:{ '2026-02-05': { status:'complete', items:[{ name:'Bar', meal:'snack', kcal:200, protein_g:10, fat_g:8, carb_g:20, fiber_g:3, soluble_fiber_g:1, confidence:'measured', source:'scan', micros:{ iron_mg:2 } }], water_l:0 } }, current:'x', settings:{}, priceLog:{} }));
+  var itI5 = HT.state().days['2026-02-05'].items[0];
+  res(itI5.source === 'scan' && itI5.micros && itI5.micros.iron_mg === 2, 'I5: full-days items preserve source + micros');
+
+  // I6. non-destructive: fills missing, skips populated
+  setLS({}); HT.boot();
+  HT.state().days['2026-03-01'] = { status:'in_progress', items:[{ name:'Existing', meal:'snack', kcal:50, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 };
+  var repI6 = HT.ingest(JSON.stringify({ version:2, days:{
+    '2026-03-01': { status:'in_progress', items:[{ name:'New', meal:'snack', kcal:1, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 },
+    '2026-03-02': { status:'complete', items:[{ name:'Filled', meal:'snack', kcal:2, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 }
+  }, current:'x', settings:{}, priceLog:{} }));
+  res(repI6.skipped.indexOf('2026-03-01')>=0 && repI6.mergedDays.indexOf('2026-03-02')>=0, 'I6: fills missing, skips populated');
+  res(HT.state().days['2026-03-01'].items[0].name === 'Existing', 'I6: populated day not overwritten');
+
+  // I7. fillable tightened: complete-empty + water-only days NOT overwritten (added case)
+  setLS({}); HT.boot();
+  HT.state().days['2026-04-01'] = { status:'complete', items:[], water_l:0 };
+  HT.state().days['2026-04-02'] = { status:'in_progress', items:[], water_l:0.5 };
+  var repI7 = HT.ingest(JSON.stringify({ version:2, days:{
+    '2026-04-01': { status:'in_progress', items:[{ name:'Sneaky', meal:'snack', kcal:999, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 },
+    '2026-04-02': { status:'in_progress', items:[{ name:'Sneaky2', meal:'snack', kcal:888, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 }
+  }, current:'x', settings:{}, priceLog:{} }));
+  res(repI7.skipped.indexOf('2026-04-01')>=0 && repI7.skipped.indexOf('2026-04-02')>=0, 'I7: complete-empty + water-only NOT fillable');
+  res(HT.state().days['2026-04-01'].items.length===0 && HT.state().days['2026-04-02'].water_l===0.5, 'I7: closed-empty + water-only preserved');
+
+  // I8. full-days version routing (v1 migrate, absent/>2 reject)
+  setLS({}); HT.boot();
+  var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
+  res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement', 'I8: v1 full-days migrated (source inferred) then merged');
+  res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:3, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>2 full-days rejected');
+
+  // I9. complete-day append -> reopens + reports
+  setLS({}); HT.boot();
+  HT.state().days['2026-01-10'] = { status:'complete', items:[{ name:'Lunch', meal:'lunch', kcal:400, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 };
+  var repI9 = HT.ingest(JSON.stringify({ items:[{ name:'Snack', meal:'snack', kcal:100 }], date:'2026-01-10' }));
+  res(HT.state().days['2026-01-10'].status === 'in_progress' && repI9.reopened.indexOf('2026-01-10')>=0, 'I9: complete-day append reopens + reports');
+  res(HT.state().days['2026-01-10'].items.length === 2, 'I9: item appended');
+
+  // I10. duplicate double-adds (accept-with-delete)
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify({ items:[{ name:'Dup', kcal:1 }], date: td }));
+  HT.ingest(JSON.stringify({ items:[{ name:'Dup', kcal:1 }], date: td }));
+  res(HT.state().days[td].items.filter(function(i){ return i.name==='Dup'; }).length === 2, 'I10: duplicate paste double-logs');
+
+  // I11. rejects: no name / bad date
+  setLS({}); HT.boot();
+  var repI11 = HT.ingest(JSON.stringify({ items:[{ name:'Good', kcal:1 }, { kcal:5 }, { name:'BadDate', kcal:1, date:'not-a-date' }], date: td }));
+  res(repI11.rejectedItems === 2 && repI11.added.length >= 1, 'I11: no-name + bad-date rejected, good added');
+
+  // I12. supplement enabled -> injected into today at boot day-creation
+  var supBlob = { version:2, days:{}, current:'2020-01-01', settings:{ goals:{}, supplement:{ enabled:true, name:'Psyllium', nutrients:{ kcal:5, fiber_g:4, soluble_fiber_g:4 } }, presets:[] }, priceLog:{} };
+  setLS({ 'healthtracker-log': JSON.stringify(supBlob) }); HT.boot();
+  var tdDay = HT.state().days[td];
+  res(tdDay && tdDay.items.length === 1 && tdDay.items[0]._auto && tdDay.items[0].source === 'supplement', 'I12: supplement injected into today at boot');
+  res(tdDay.items[0].fiber_g === 4, 'I12: supplement carries configured nutrients');
+
+  // I13. supplement at item-ingest new-day creation (added case)
+  setLS({}); HT.boot();
+  HT.state().settings.supplement = { enabled:true, name:'Psyllium', nutrients:{ kcal:5, fiber_g:4 } };
+  var repI13 = HT.ingest(JSON.stringify({ items:[{ name:'Bar', meal:'snack', kcal:200 }], date:'2026-06-01' }));
+  var dI13 = HT.state().days['2026-06-01'];
+  res(repI13.created.indexOf('2026-06-01')>=0 && repI13.supplemented.indexOf('2026-06-01')>=0, 'I13: item-paste fresh date creates day + injects supplement + reports');
+  res(dI13.items.length === 2 && dI13.items.some(function(i){ return i._auto; }) && dI13.items.some(function(i){ return i.source==='ai-paste'; }), 'I13: supplement + ai-paste item both present');
+
+  // I14. full-days merge of a supplement-less day stays supplement-less (added case)
+  setLS({}); HT.boot();
+  HT.state().settings.supplement = { enabled:true, name:'Psyllium', nutrients:{ kcal:5 } };
+  HT.ingest(JSON.stringify({ version:2, days:{ '2026-05-01': { status:'complete', items:[{ name:'X', meal:'snack', kcal:10, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }], water_l:0 } }, current:'x', settings:{}, priceLog:{} }));
+  res(!HT.state().days['2026-05-01'].items.some(function(i){ return i._auto; }), 'I14: full-days-merged day stays supplement-less (taken as-is)');
+
+  // I15. ingest merges DAYS only — local settings/priceLog untouched
+  setLS({}); HT.boot();
+  HT.state().settings.goals = { protein_g: { value:100, direction:'min' } };
+  HT.state().priceLog = { existing: { name:'E', entries:[] } };
+  HT.ingest(JSON.stringify({ version:2, days:{ '2025-11-01': { status:'complete', items:[], water_l:0 } }, current:'x', settings:{ goals:{ fiber_g:{ value:30, direction:'min' } } }, priceLog:{ incoming:{ name:'I', entries:[] } } }));
+  res(HT.state().settings.goals.protein_g && !HT.state().settings.goals.fiber_g, 'I15: ingest does NOT merge settings');
+  res(HT.state().priceLog.existing && !HT.state().priceLog.incoming, 'I15: ingest does NOT merge priceLog');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);
