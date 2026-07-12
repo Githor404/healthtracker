@@ -8,6 +8,17 @@ set -uo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 HTML="$DIR/data-layer.test.html"
 
+# Phase R (D5/D7): the legacy path must be fully stripped from app.js. Match code
+# (the migrator/constant identifiers and quoted 'uha-log-v1' string usage) — a
+# doc comment mentioning the removed key in backticks is fine.
+STRIP_RE="migrateLegacy|LEGACY_KEY|['\"]uha-log-v1['\"]"
+if grep -nE "$STRIP_RE" "$DIR/../app.js" >/dev/null 2>&1; then
+  echo "STRIP CHECK: FAIL — legacy code remains in app.js:"
+  grep -nE "$STRIP_RE" "$DIR/../app.js"
+  exit 1
+fi
+echo "strip check: app.js is legacy-free"
+
 # Convert the POSIX path to a file:// URL Chrome understands on Windows.
 if command -v cygpath >/dev/null 2>&1; then
   URL="file:///$(cygpath -m "$HTML")"

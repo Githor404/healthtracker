@@ -1,44 +1,52 @@
 'use strict';
 /* ===========================================================================
-   HealthTracker — data layer + export/import escape hatch
+   HealthTracker — data layer (schema v2)
    ---------------------------------------------------------------------------
-   Scope of THIS file (Phase 0 so far):
+   Fully client-side nutrition + price tracker; a distributable app (v4). This
+   file is the data layer + export/import escape hatch:
      • storage adapter: localStorage -> memory, truthful status/badge (rule #5)
-     • versioned schema (internal `version`), stable key (DECISIONS.md D1)
-     • one-time migration of the predecessor's `uha-log-v1` (D2)
-     • export / copy-out, and destructive import-restore with the D3 pre-restore
-       backup, forward-version guard, and round-trip contract (D5)
-   NOT here yet: four-shape Ingest merge (Phase 1), history view, SW + manifest.
-   Every value written to the DOM goes through esc() — no exceptions.
+     • versioned schema v2 (internal `version`), stable key (D1)
+     • in-place v1 -> v2 migration with a retained pre-migration snapshot (D7)
+     • export / copy-out, destructive import-restore with the D3 pre-restore
+       backup, forward-version guard, and round-trip contract (D5 + amendment)
+   Legacy `uha-log-v1` support is REMOVED (v4). Producers of micros/prices
+   (scan / manual / ai-paste / price capture) land in later phases; this layer
+   is honest about the schema now — every untrusted boundary coerces + escapes.
    =========================================================================== */
 
 // ---- keys & schema --------------------------------------------------------
-const STORE_KEY      = 'healthtracker-log';            // D1: version-stable key
-const PRERESTORE_KEY = 'healthtracker-log-prerestore'; // D3: pre-restore backup
-const LEGACY_KEY     = 'uha-log-v1';                   // predecessor key — read-only
-const SCHEMA_VERSION = 1;
+const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
+const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
+const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
+const SCHEMA_VERSION   = 2;
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
+const SOURCES     = ['scan', 'ai-paste', 'manual', 'preset', 'supplement'];
+// Canonical micro keys (for future display). Ingest tolerates + preserves
+// unknown keys; it does not restrict to this list.
+const MICRO_KEYS  = ['sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg', 'magnesium_mg',
+  'zinc_mg', 'vitamin_a_ug', 'vitamin_c_mg', 'vitamin_d_ug', 'vitamin_b12_ug', 'folate_ug',
+  'saturated_fat_g', 'sugars_g', 'cholesterol_mg'];
 
 // ---- small helpers --------------------------------------------------------
-// Escaper covers & < > " ' (the predecessor missed '). Baseline rule #2.
+// Escaper covers & < > " ' (baseline rule #2).
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
-// num(): pure numeric coercion (invalid -> 0), lossless for valid numbers.
-// Used for trusted migration data. Untrusted paths (OFF / pasted JSON, built
-// later) additionally clamp to >= 0 at their boundary.
+// num(): pure coercion (invalid -> 0). clampNonNeg(): coerce + clamp >= 0 for
+// untrusted boundaries (paste, OFF). The in-place migrator uses num (own trusted
+// data, byte-preserved); the restore boundary uses clamp.
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const clampNonNeg = (v) => Math.max(0, num(v));
 
 // Pasted JSON may arrive from a chat app: normalize smart quotes / non-breaking
 // spaces before JSON.parse so a clean-looking paste isn't rejected as "Bad JSON".
 const cleanJSON = (s) => String(s == null ? '' : s)
-  .replace(/[“”„‟″‶]/g, '"')
-  .replace(/[‘’‚‛′‵]/g, "'")
-  .replace(/[   ]/g, ' ')
+  .replace(new RegExp('[' + String.fromCharCode(0x201C, 0x201D, 0x201E, 0x201F, 0x2033, 0x2036) + ']', 'g'), '"')
+  .replace(new RegExp('[' + String.fromCharCode(0x2018, 0x2019, 0x201A, 0x201B, 0x2032, 0x2035) + ']', 'g'), "'")
+  .replace(new RegExp('[' + String.fromCharCode(0xA0, 0x2007, 0x202F) + ']', 'g'), ' ')
   .trim();
 
 function localDate(d) {
@@ -49,64 +57,49 @@ function localDate(d) {
 }
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
-function emptyState() { return { version: SCHEMA_VERSION, days: {}, known: [], current: '' }; }
+function defaultSettings() {
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [] };
+}
+function emptyState() {
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {} };
+}
 
 // ---- storage adapter: localStorage -> memory ------------------------------
-// The status() object is the single source of truth for the badge. It reacts
-// to write failures AT WRITE TIME (baseline rule #5): a quota error after load
-// flips the tier to memory so the UI can never keep claiming "saved".
 const Store = (() => {
   let tier = 'unknown';     // 'local' | 'memory'
   let lastWriteOk = true;   // false only after a real write failure on 'local'
-  let memoryBlob = null;    // in-memory copy when durable storage is unavailable
+  let memoryBlob = null;
   let forceFail = false;    // test seam — see HT.Store.forceWriteFailure()
 
   function probe() {
-    try {
-      localStorage.setItem('__ht_probe__', '1');
-      localStorage.removeItem('__ht_probe__');
-      return true;
-    } catch (e) { return false; }
+    try { localStorage.setItem('__ht_probe__', '1'); localStorage.removeItem('__ht_probe__'); return true; }
+    catch (e) { return false; }
   }
-
   function readRaw(key) {
-    if (tier === 'memory') return null;          // durable storage unavailable
+    if (tier === 'memory') return null;
     try { return localStorage.getItem(key); } catch (e) { return null; }
   }
-
   function writeRaw(key, value) {
-    if (forceFail) return false;                 // simulate quota/denied writes
+    if (forceFail) return false;
     try { localStorage.setItem(key, value); return true; } catch (e) { return false; }
   }
 
   return {
-    // Fresh probe each load resets the write-health flag: a new page session has
-    // no evidence of failure until a write actually fails in it.
     init() { lastWriteOk = true; tier = probe() ? 'local' : 'memory'; return tier; },
     get tier() { return tier; },
     readRaw,
 
-    // Persist the primary blob. On failure, degrade to memory tier and keep the
-    // data in memory so the session isn't lost — but the badge now tells the truth.
     saveState(blob) {
       const json = JSON.stringify(blob);
       if (tier === 'local' && writeRaw(STORE_KEY, json)) { lastWriteOk = true; return true; }
-      lastWriteOk = false;
-      tier = 'memory';
-      memoryBlob = blob;
-      return false;
+      lastWriteOk = false; tier = 'memory'; memoryBlob = blob; return false;
     },
 
-    // D3: durable single-slot pre-restore backup. Returns false if it can't be
-    // made durable (memory tier or write failure) so the caller degrades honestly.
-    // Never flips the primary tier — the following saveState reports write health.
+    // D3: durable single-slot pre-restore backup.
     backup(blob) {
       if (tier !== 'local') return false;
       return writeRaw(PRERESTORE_KEY, JSON.stringify(blob));
     },
-
-    // Snapshot / revert the single undo slot so a DECLINED restore is a true
-    // no-op: it must never consume the one level of undo from a PRIOR restore (D5).
     peekBackup() { return readRaw(PRERESTORE_KEY); },
     revertBackup(snapshot) {
       if (tier !== 'local') return;
@@ -114,52 +107,82 @@ const Store = (() => {
       else writeRaw(PRERESTORE_KEY, snapshot);
     },
 
-    // Truthful status for the badge. ok=false => user must export to be safe.
+    // D7: one-time retained pre-migration snapshot of the untouched v1 blob.
+    // Never auto-read; never overwritten once written.
+    snapshotPremigration(rawV1) {
+      if (tier !== 'local') return false;
+      if (readRaw(PREMIGRATION_KEY) != null) return true;
+      return writeRaw(PREMIGRATION_KEY, rawV1);
+    },
+
     status() {
       if (tier === 'memory' && lastWriteOk) {
-        return { tier: 'memory', ok: false,
-          message: '⚠ NOT saved (private mode / storage blocked) — export before closing' };
+        return { tier: 'memory', ok: false, message: '⚠ NOT saved (private mode / storage blocked) — export before closing' };
       }
       if (!lastWriteOk) {
-        return { tier: 'memory', ok: false,
-          message: '⚠ storage write FAILED — data is only in memory; export now' };
+        return { tier: 'memory', ok: false, message: '⚠ storage write FAILED — data is only in memory; export now' };
       }
       return { tier: 'local', ok: true, message: '✓ saved in this browser' };
     },
-
-    // Test seam for the Phase 0 gate (forced write failure after load).
     forceWriteFailure(on) { forceFail = !!on; },
   };
 })();
 
-// ---- schema normalization (data-layer; not the "ingest" feature) ----------
-// Coerces a legacy/persisted item to the stable contract. Lossless for valid
-// data; guarantees soluble_fiber_g is always present; preserves optional
-// barcode / water_l / _auto. Numbers are coerced (not clamped) here because the
-// source is the user's own trusted export.
-function normalizeItem(it) {
+// ---- schema normalization -------------------------------------------------
+// Coerces an item to the stable contract. `clampMacros` clamps macro numbers >= 0
+// (untrusted paste boundary); the migrator passes false to byte-preserve trusted
+// data. Micros are always coerced + clamped >= 0; unknown micro keys are preserved.
+// `source` is validated against the enum, fallback `manual`.
+function normalizeMicros(micros) {
+  if (!micros || typeof micros !== 'object' || Array.isArray(micros)) return null;
+  const out = {};
+  Object.keys(micros).forEach((k) => { out[k] = clampNonNeg(micros[k]); });
+  return Object.keys(out).length ? out : null;
+}
+function normalizeItem(it, clampMacros) {
+  const N = clampMacros ? clampNonNeg : num;
   it = it || {};
   const out = {
     name:            String(it.name == null ? '' : it.name),
     meal:            MEALS.includes(it.meal) ? it.meal : 'snack',
     time:            String(it.time == null ? '' : it.time),
-    kcal:            num(it.kcal),
-    protein_g:       num(it.protein_g),
-    fat_g:           num(it.fat_g),
-    carb_g:          num(it.carb_g),
-    fiber_g:         num(it.fiber_g),
-    soluble_fiber_g: num(it.soluble_fiber_g),   // always present, even at 0
+    kcal:            N(it.kcal),
+    protein_g:       N(it.protein_g),
+    fat_g:           N(it.fat_g),
+    carb_g:          N(it.carb_g),
+    fiber_g:         N(it.fiber_g),
+    soluble_fiber_g: N(it.soluble_fiber_g),   // always present, even at 0
     confidence:      CONFIDENCES.includes(it.confidence) ? it.confidence : 'eyeballed',
     notes:           String(it.notes == null ? '' : it.notes),
+    source:          SOURCES.includes(it.source) ? it.source : 'manual',
   };
   if (it.barcode != null && String(it.barcode) !== '') out.barcode = String(it.barcode);
-  if (it.water_l != null) out.water_l = num(it.water_l);
+  if (it.water_l != null) out.water_l = N(it.water_l);
   if (it._auto === true) out._auto = true;
+  const micros = normalizeMicros(it.micros);
+  if (micros) out.micros = micros;
   return out;
 }
 
-// Enforce status discipline across every stored day. Returns true if it changed
-// anything (so boot knows whether a re-save is warranted). Idempotent.
+function normalizeSupplement(sup) {
+  sup = (sup && typeof sup === 'object' && !Array.isArray(sup)) ? sup : {};
+  return {
+    enabled: sup.enabled === true,
+    name: typeof sup.name === 'string' ? sup.name : '',
+    nutrients: (sup.nutrients && typeof sup.nutrients === 'object' && !Array.isArray(sup.nutrients)) ? sup.nutrients : {},
+  };
+}
+function normalizeSettings(s) {
+  s = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
+  return {
+    goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
+    supplement: normalizeSupplement(s.supplement),
+    presets: Array.isArray(s.presets) ? s.presets : [],
+  };
+}
+
+// Enforce status discipline across every stored day. Idempotent; returns true if
+// it changed anything.
 function normalizeStatuses(state) {
   let changed = false;
   const days = state.days || {};
@@ -172,8 +195,7 @@ function normalizeStatuses(state) {
   return changed;
 }
 
-// Ensure today's day exists (in_progress) and is the selected day. Never
-// overwrites an existing day. Returns true if it changed anything.
+// Ensure today's day exists (in_progress) and is selected. Never overwrites.
 function ensureCurrentDay(state) {
   let changed = false;
   const today = localDate();
@@ -182,90 +204,111 @@ function ensureCurrentDay(state) {
   return changed;
 }
 
-// ---- migration (DECISIONS.md D2: idempotent, one-directional) --------------
-// Legacy shape: { days:{date:day}, known:[], current }. Preserve everything —
-// item counts, per-day totals, statuses, water — and stamp the audit trail.
-// NOTE: historical days are migrated exactly as exported (transport layer — no
-// editorializing). The auto-supplement is NOT retro-injected here; that would
-// break the lossless gate. The resulting fiber/kcal undercount and the optional,
-// separate backfill utility that would address it are recorded in DECISIONS.md D4.
-function migrateLegacy(legacy, nowISO) {
-  const days = {};
-  Object.keys(legacy.days || {}).forEach((d) => {
-    const src = legacy.days[d] || {};
-    days[d] = {
+// ---- migration (D7): in-place v1 -> v2, add-only, byte-preserving ---------
+function migrateItemV1toV2(it) {
+  it = it || {};
+  const source = (it._auto === true) ? 'supplement' : 'manual';   // inferred (v1 has no source)
+  return normalizeItem(Object.assign({}, it, { source: source }), false);  // coerce, do NOT clamp
+}
+function migrateV1toV2(v1, nowISO) {
+  const out = {
+    version: 2,
+    days: {},
+    current: typeof v1.current === 'string' ? v1.current : '',
+    settings: defaultSettings(),
+    priceLog: {},
+    migratedAt: nowISO,
+  };
+  Object.keys(v1.days || {}).forEach((d) => {
+    const src = v1.days[d] || {};
+    out.days[d] = {
       status:  src.status === 'complete' ? 'complete' : 'in_progress',
-      items:   Array.isArray(src.items) ? src.items.map(normalizeItem) : [],
-      water_l: num(src.water_l),
+      items:   Array.isArray(src.items) ? src.items.map(migrateItemV1toV2) : [],
+      water_l: num(src.water_l),   // byte-preserve (own data)
     };
   });
-  return {
-    version:      SCHEMA_VERSION,
-    days:         days,
-    known:        Array.isArray(legacy.known) ? legacy.known.slice() : [],  // Phase-2 shape; preserved as-is
-    current:      typeof legacy.current === 'string' ? legacy.current : '',
-    migratedFrom: LEGACY_KEY,
-    migratedAt:   nowISO,
+  const knownCount = Array.isArray(v1.known) ? v1.known.length : 0;
+  if (knownCount > 0) out.knownDropped = knownCount;   // R2: dropped, count recorded
+  return out;
+}
+
+// Coerce an untrusted v2 blob into a clean v2 state (restore boundary). Idempotent
+// on a clean export (so v2 round-trip holds); clamps + sanitizes a hostile paste.
+function normalizeState(o) {
+  const s = {
+    version: SCHEMA_VERSION,
+    days: {},
+    current: typeof o.current === 'string' ? o.current : '',
+    settings: normalizeSettings(o.settings),
+    priceLog: (o.priceLog && typeof o.priceLog === 'object' && !Array.isArray(o.priceLog)) ? o.priceLog : {},
   };
+  Object.keys(o.days || {}).forEach((d) => {
+    const src = o.days[d] || {};
+    s.days[d] = {
+      status:  src.status === 'complete' ? 'complete' : 'in_progress',
+      items:   Array.isArray(src.items) ? src.items.map((it) => normalizeItem(it, true)) : [],
+      water_l: clampNonNeg(src.water_l),   // untrusted -> clamp
+    };
+  });
+  if (typeof o.migratedAt === 'string') s.migratedAt = o.migratedAt;      // preserve stamps (round-trip)
+  if (typeof o.knownDropped === 'number') s.knownDropped = o.knownDropped;
+  return s;
 }
 
 // ---- boot -----------------------------------------------------------------
 let APP_STATE = null;
-let APP_SOURCE = 'empty';   // 'store' | 'migrated' | 'empty' | 'restored'
+let APP_SOURCE = 'empty';   // 'store' | 'migrated' | 'restored' | 'empty' | 'future'
 
 function boot() {
   Store.init();
   const nowISO = new Date().toISOString();
-  let state = null;
-  let source = 'empty';
-  let dirty = false;
+  let state = null, source = 'empty', dirty = false;
 
-  // D2: the new key wins UNCONDITIONALLY when present. No legacy read, no merge.
-  const rawNew = Store.readRaw(STORE_KEY);
-  if (rawNew) {
+  const raw = Store.readRaw(STORE_KEY);
+  if (raw) {
     try {
-      const parsed = JSON.parse(rawNew);
-      if (parsed && typeof parsed === 'object') { state = parsed; source = 'store'; }
-    } catch (e) { state = null; }   // corrupt new-key blob: fall through, do NOT touch legacy
-  }
-
-  // Only when the new key is ABSENT do we consult legacy, migrate, and persist.
-  if (!state) {
-    const rawLegacy = Store.readRaw(LEGACY_KEY);
-    if (rawLegacy) {
-      try {
-        const legacy = JSON.parse(rawLegacy);
-        if (legacy && legacy.days) { state = migrateLegacy(legacy, nowISO); source = 'migrated'; dirty = true; }
-      } catch (e) { state = null; }
-    }
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && parsed.days) {
+        const v = parsed.version;
+        if (typeof v === 'number' && v > SCHEMA_VERSION) {
+          // Newer app wrote this — never migrate or overwrite it (D7).
+          APP_STATE = parsed; APP_SOURCE = 'future';
+          return { state: parsed, source: 'future', status: Store.status() };
+        }
+        if (v === SCHEMA_VERSION) {
+          state = parsed; source = 'store';
+        } else {
+          // version 1 (or version-absent, defensively) -> in-place v1 -> v2 (D7)
+          Store.snapshotPremigration(raw);
+          state = migrateV1toV2(parsed, nowISO);
+          source = 'migrated'; dirty = true;
+        }
+      }
+    } catch (e) { state = null; }   // corrupt blob: fall through to a fresh state
   }
 
   if (!state) { state = emptyState(); source = 'empty'; dirty = true; }
 
-  // Schema-forward shape guards (idempotent; future version bumps chain here).
+  // Shape guards (idempotent).
   if (typeof state.version !== 'number') { state.version = SCHEMA_VERSION; dirty = true; }
   if (!state.days || typeof state.days !== 'object') { state.days = {}; dirty = true; }
-  if (!Array.isArray(state.known)) { state.known = []; dirty = true; }
+  if (!state.settings || typeof state.settings !== 'object') { state.settings = defaultSettings(); dirty = true; }
+  if (!state.priceLog || typeof state.priceLog !== 'object') { state.priceLog = {}; dirty = true; }
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
 
-  if (dirty) Store.saveState(state);   // legacy key is never written to
+  if (dirty) Store.saveState(state);
 
-  APP_STATE = state;
-  APP_SOURCE = source;
+  APP_STATE = state; APP_SOURCE = source;
   return { state, source, status: Store.status() };
 }
 
-// ---- export / import-restore (DECISIONS.md D5) ----------------------------
-// Export is read-only and local: the full log state only, pretty-printed.
+// ---- export / import-restore (D5 + amendment) -----------------------------
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
-// Validate + route a pasted blob WITHOUT mutating anything. Returns
-// { ok, state, kind } or { ok:false, error }. Routing precedence: an internal
-// numeric `version` means new-schema, full stop (even if `days` is present);
-// legacy (migrateLegacy) applies only when `version` is absent. A blob whose
-// version exceeds our schema is rejected outright — we migrate up, never down.
+// Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amendment):
+// absent -> reject; 1 -> in-place migrate; 2 -> as-is; > 2 -> reject.
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -274,20 +317,16 @@ function parseImport(raw) {
   catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
   if (!o || typeof o !== 'object' || Array.isArray(o) || !o.days || typeof o.days !== 'object')
     return { ok: false, error: 'Not a HealthTracker log (no "days").' };
-  // Reject crafted day keys at the paste boundary: a non-date key is markup
-  // waiting for an unescaped render. Applies to new-schema and legacy alike. (D5)
   if (!Object.keys(o.days).every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k)))
     return { ok: false, error: 'Invalid day key — dates must be YYYY-MM-DD.' };
-  if (typeof o.version === 'number' && o.version > SCHEMA_VERSION)
+  const v = o.version;
+  if (typeof v !== 'number')
+    return { ok: false, error: 'Unrecognized log format (no version).' };   // legacy/absent rejected
+  if (v > SCHEMA_VERSION)
     return { ok: false, error: 'This export is from a newer version of the app.' };
-  if (typeof o.version === 'number') {
-    // New-schema (same or lower known version). A lower version would run the
-    // in-place migrator when one exists; at v1 there is none, so accept as-is —
-    // verbatim, no added stamp — to preserve the export -> import round-trip.
-    return { ok: true, state: o, kind: 'restore' };
-  }
-  // No version -> legacy uha-log-v1 shape. Reuse the proven, stamped migrator.
-  return { ok: true, state: migrateLegacy(o, new Date().toISOString()), kind: 'legacy' };
+  if (v === 1)
+    return { ok: true, state: migrateV1toV2(o, new Date().toISOString()), kind: 'migrated' };
+  return { ok: true, state: normalizeState(o), kind: 'restore' };
 }
 
 function showPrerestore(json) {
@@ -296,21 +335,18 @@ function showPrerestore(json) {
   if (el) el.value = json;
   if (wrap) wrap.style.display = 'block';
 }
-
 function hidePrerestore() {
   const wrap = document.getElementById('prerestoreWrap');
   if (wrap) wrap.style.display = 'none';
 }
 
-// Destructive full replace. Nothing is mutated until a valid replacement is in
-// hand. The pre-restore backup (D3) is attempted BEFORE the confirm so the prompt
-// can tell the truth about whether a backup exists. Applies to legacy pastes too.
+// Destructive full replace. Nothing mutates until a valid replacement is in hand.
 function restore(raw) {
   const parsed = parseImport(raw);
   if (!parsed.ok) return { ok: false, error: parsed.error };
 
   const prev = APP_STATE;
-  showPrerestore(JSON.stringify(prev, null, 2));   // visible copyable surface (persists)
+  showPrerestore(JSON.stringify(prev, null, 2));
   const priorSlot = Store.peekBackup();            // snapshot existing undo slot (D5)
   const backedUp = Store.backup(prev);             // overwrite single rolling slot (D3)
 
@@ -324,10 +360,10 @@ function restore(raw) {
   }
 
   APP_STATE = parsed.state;
-  normalizeStatuses(APP_STATE);                    // same normalization path as boot
+  normalizeStatuses(APP_STATE);
   ensureCurrentDay(APP_STATE);
   const saved = Store.saveState(APP_STATE);
-  APP_SOURCE = parsed.kind === 'legacy' ? 'migrated' : 'restored';
+  APP_SOURCE = parsed.kind === 'migrated' ? 'migrated' : 'restored';
   refresh();
   return { ok: true, kind: parsed.kind, backedUp: backedUp, saved: saved };
 }
@@ -340,61 +376,29 @@ function copyOut() {
   let done = false;
   try { done = document.execCommand('copy'); } catch (e) {}
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(json).then(function () { toast('Copied — paste to Claude'); }).catch(function () {});
+    navigator.clipboard.writeText(json).then(function () { toast('Copied — paste to your AI or a safe place'); }).catch(function () {});
   }
-  toast(done ? 'Copied — paste to Claude' : 'Select-all + copy the text above');
+  toast(done ? 'Copied' : 'Select-all + copy the text above');
 }
-
 function doRestore() {
   const box = document.getElementById('importBox');
   const raw = box ? box.value : '';
-  if (!raw.trim()) { toast('Paste a log export first'); return; }
+  if (!raw.trim()) { toast('Paste an export first'); return; }
   const r = restore(raw);
   if (!r.ok) { toast(r.aborted ? 'Restore cancelled' : (r.error || 'Restore failed')); return; }
   if (box) box.value = '';
   toast(r.saved ? ('Restored (' + r.kind + ')') : 'Restored to memory — export to be safe');
 }
-
 let _toastT;
 function toast(m) {
   const e = document.getElementById('toast');
   if (!e) return;
-  e.textContent = m;
-  e.classList.add('show');
+  e.textContent = m; e.classList.add('show');
   clearTimeout(_toastT);
   _toastT = setTimeout(function () { e.classList.remove('show'); }, 1900);
 }
 
-// ---- Phase 0 observation harness (minimal; not the real UI) ---------------
-function renderBadge() {
-  const el = document.getElementById('storeBadge');
-  if (!el) return;
-  const s = Store.status();
-  el.textContent = s.message;                       // status messages are static strings
-  el.style.color = s.ok ? 'var(--good)' : 'var(--warn)';
-}
-
-function renderDataStatus() {
-  const el = document.getElementById('dataStatus');
-  if (!el || !APP_STATE) return;
-  const dayKeys = Object.keys(APP_STATE.days || {}).sort();
-  const rows = [
-    ['storage tier',   Store.tier],
-    ['schema version', APP_STATE.version],
-    ['load source',    APP_SOURCE],
-    ['migrated from',  APP_STATE.migratedFrom || '—'],
-    ['migrated at',    APP_STATE.migratedAt || '—'],
-    ['current day',    APP_STATE.current || '—'],
-    ['days stored',    String(dayKeys.length)],
-    ['known foods',    String((APP_STATE.known || []).length)],
-  ];
-  el.innerHTML = rows.map(([k, v]) =>
-    `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
-  ).join('');
-}
-
-// Per-day display totals (Phase 0: sums the day's items as stored — the Phase-1
-// auto-supplement is not part of this slice).
+// ---- per-day totals + read-only history -----------------------------------
 const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 function dayTotals(day) {
   const t = { kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0 };
@@ -403,9 +407,7 @@ function dayTotals(day) {
 }
 const rDisp = (v) => { v = num(v); return Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1); };
 
-// Read-only history: one row per stored day, in-progress flagged. EVERY rendered
-// value — day keys included — routes through esc(). Day keys are the injection
-// surface for pasted/loaded logs, so there are no exceptions (baseline rule #2).
+// EVERY rendered value — day keys included — routes through esc() (rule #2).
 function renderHistory() {
   const el = document.getElementById('history');
   if (!el || !APP_STATE) return;
@@ -423,18 +425,44 @@ function renderHistory() {
   }).join('');
 }
 
+// ---- observation harness (minimal; not the real UI) -----------------------
+function renderBadge() {
+  const el = document.getElementById('storeBadge');
+  if (!el) return;
+  const s = Store.status();
+  el.textContent = s.message;
+  el.style.color = s.ok ? 'var(--good)' : 'var(--warn)';
+}
+function renderDataStatus() {
+  const el = document.getElementById('dataStatus');
+  if (!el || !APP_STATE) return;
+  const st = APP_STATE.settings || {};
+  const sup = st.supplement || {};
+  const rows = [
+    ['storage tier',   Store.tier],
+    ['schema version', APP_STATE.version],
+    ['load source',    APP_SOURCE],
+    ['migrated at',    APP_STATE.migratedAt || '—'],
+    ['current day',    APP_STATE.current || '—'],
+    ['days stored',    String(Object.keys(APP_STATE.days || {}).length)],
+    ['supplement',     sup.enabled ? 'on' : 'off'],
+    ['goals set',      String(Object.keys(st.goals || {}).length)],
+    ['presets',        String((st.presets || []).length)],
+    ['price entries',  String(Object.keys(APP_STATE.priceLog || {}).length)],
+  ];
+  el.innerHTML = rows.map(([k, v]) =>
+    `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
+  ).join('');
+}
 function refresh() { renderBadge(); renderDataStatus(); renderHistory(); }
 
-function main() {
-  boot();
-  refresh();
-}
+function main() { boot(); refresh(); }
 
-// Console seam for review/testing the gate without a full UI.
+// Console seam for review/testing.
 window.HT = {
-  Store, boot, migrateLegacy, refresh,
+  Store, boot, migrateV1toV2, normalizeState, refresh,
   exportJSON, parseImport, restore,
-  keys: { STORE_KEY, PRERESTORE_KEY, LEGACY_KEY },
+  keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
 };

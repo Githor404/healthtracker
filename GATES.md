@@ -49,3 +49,25 @@ The data never enters the repo.
 **Status: MET — machinery CERTIFIED and real export verified (34 days, full match).**
 
 _Note: legacy `uha-log-v1` support was retired by v4 (2026-07-11) **after** this gate was met. "Gate met, then feature retired" is the historical truth; the evidence stands. Phase R strips the legacy code and moves the data-layer harness to schema v2 — see the Phase R gate below._
+
+---
+
+## Phase R — Reframe (schema v2)
+
+**Gate (from the brief):** full harness green after the strip (no orphaned cases); a v1 blob migrates in place under the stable key with items gaining correct `source`; new-user boot yields zero days'-worth of fabricated intake (no supplement unless configured); forward-version guard rejects v3+.
+
+### Committed machinery evidence (re-runnable, synthetic fixtures)
+
+| Gate requirement | How to re-run | Result |
+|---|---|---|
+| Full harness green after the strip; `app.js` legacy-free (no orphaned cases) | `bash tests/run-data-layer.sh` | strip check PASS · **59/59 PASS** |
+| v1 blob migrates in place; items gain correct `source`; days/water byte-preserved; `known` dropped + stamped; pre-migration snapshot retained | data-layer tests 2, 3 | PASS |
+| New-user boot: zero fabricated intake (no supplement unless configured) | data-layer test 1 | PASS |
+| Forward-version guard rejects v3+ (boot protects the blob; restore rejects) | data-layer tests 4, 9 | PASS |
+| Restore boundary: v1→migrate, v2→as-is, absent→reject, micros/source coerced | data-layer tests 9, 10 | PASS |
+| Offline load still works — now also exercising v1→v2 migration offline | `powershell -File tests/offline-gate.ps1` | PASS |
+| Precache list honest | `bash tests/check-precache.sh` | PASS |
+
+Legacy `uha-log-v1` support removed; the restore boundary accepts schema v1/v2 blobs only (D5 amendment, D7).
+
+**Status: MET.**

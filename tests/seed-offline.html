@@ -1,8 +1,10 @@
 <!doctype html><meta charset="utf-8"><title>seed</title><body>
 <script>
-// Test-only: seed a synthetic legacy export into localStorage for the offline
-// gate, then signal done. Never precached, never shipped. Synthetic data only.
-localStorage.setItem('uha-log-v1', JSON.stringify({
+// Test-only: seed a synthetic v1-schema blob under the stable key so the app's
+// in-place v1->v2 migration produces history for the offline gate. Runs no app.js,
+// so it can't create a v2 blob first. Never precached, never shipped. Synthetic only.
+localStorage.setItem('healthtracker-log', JSON.stringify({
+  version: 1,
   days: {
     '2026-07-08': { status: 'complete', items: [
       { name: 'Eggs', meal: 'breakfast', time: '08:00', kcal: 180, protein_g: 12, fat_g: 14, carb_g: 1, fiber_g: 0, confidence: 'weighed', notes: '' }

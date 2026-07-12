@@ -1,9 +1,10 @@
-<!doctype html><meta charset="utf-8"><title>HealthTracker · data-layer gate</title><body>
+<!doctype html><meta charset="utf-8"><title>HealthTracker · data-layer gate (schema v2)</title><body>
 <!--
-  Re-runnable Phase 0 gate. Self-contained: synthetic fixtures inline, a
-  swappable fake localStorage per scenario (each case isolated, incl. "storage
-  blocked"). Exercises the REAL ../app.js. Run: bash tests/run-data-layer.sh
-  (or just open this file in a browser). Synthetic data only — no real history.
+  Re-runnable data-layer gate (schema v2). Self-contained: synthetic fixtures
+  inline, a swappable fake localStorage per scenario (each case isolated, incl.
+  "storage blocked"). Exercises the REAL ../app.js. Run: bash tests/run-data-layer.sh
+  Legacy uha-log-v1 support is removed (v4) — this suite covers v1->v2 in-place
+  migration, new-user zero-fabrication, forward-guard, and v2 restore semantics.
 -->
 <script>
 function makeFake(seed, failWrites){
@@ -21,7 +22,7 @@ window.setLS = function(seed, failWrites){
   window.__ls = makeFake(seed, failWrites);
   Object.defineProperty(window, 'localStorage', { value: window.__ls, configurable: true });
 };
-window.setLS({});   // empty store for app.js's auto-boot at load
+window.setLS({});
 </script>
 <script src="../app.js"></script>
 <script>
@@ -37,233 +38,184 @@ window.setLS({});   // empty store for app.js's auto-boot at load
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
   var kcalOf = function(day){ return day.items.reduce(function(a,i){ return a + i.kcal; }, 0); };
   var isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
-
-  // D5 helpers: order-independent deep equality + a controllable confirm().
-  function deepEqual(a, b) {
+  function deepEqual(a, b){
     if (a === b) return true;
     if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return a === b;
     var ka = Object.keys(a), kb = Object.keys(b);
     if (ka.length !== kb.length) return false;
-    for (var i = 0; i < ka.length; i++) {
-      var k = ka[i];
-      if (!Object.prototype.hasOwnProperty.call(b, k)) return false;
-      if (!deepEqual(a[k], b[k])) return false;
-    }
+    for (var i=0;i<ka.length;i++){ var k=ka[i]; if(!Object.prototype.hasOwnProperty.call(b,k)) return false; if(!deepEqual(a[k],b[k])) return false; }
     return true;
   }
   window.__confirm = true;
-  window.confirm = function () { return window.__confirm; };
-  // Render targets so the escaping backstop (renderHistory) actually renders.
-  ['storeBadge', 'dataStatus', 'history'].forEach(function (id) {
+  window.confirm = function(){ return window.__confirm; };
+  ['storeBadge','dataStatus','history'].forEach(function(id){
     if (!document.getElementById(id)) { var el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
   });
+  var td = today();
 
-  var legacy = {
-    days: {
-      '2026-07-08': { status:'complete', items:[
-        { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, confidence:'weighed', notes:'' },
-        { name:'Latte', meal:'drink', time:'08:30', kcal:65, protein_g:6.8, fat_g:3.5, carb_g:1.6, fiber_g:0.2, soluble_fiber_g:0, confidence:'measured', notes:'x' }
-      ], water_l:1.5 },
-      '2026-07-09': { status:'in_progress', items:[
-        { name:'Salad', meal:'lunch', time:'12:00', kcal:415, protein_g:32, fat_g:29, carb_g:9, fiber_g:6, confidence:'eyeballed', notes:'' }
-      ], water_l:0.75 }
-    },
-    known: [{ name:'Blueberries 100g', meal:'snack', kcal:57, protein_g:0.7, fat_g:0.3, carb_g:14.5, fiber_g:2.4, confidence:'weighed' }],
-    current: '2026-07-09'
-  };
-  var legacyJSON = JSON.stringify(legacy);
-
-  // 1. Empty boot
+  // 1. New-user boot: v2, zero fabricated intake
   setLS({}); HT.boot();
   var s = HT.state();
-  res(HT.Store.tier === 'local', '1: tier is local');
-  res(s.version === 1 && s.current === today(), '1: version 1, current = today');
-  res(!!s.days[today()] && s.days[today()].status === 'in_progress', "1: today created, in_progress");
-  res(HT.Store.status().ok === true, '1: badge ok/saved');
+  res(HT.Store.tier === 'local', '1: tier local');
+  res(s.version === 2 && s.current === td, '1: schema v2, current = today');
+  res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
+  res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
+  res(s.settings && s.settings.supplement.enabled === false, '1: supplement off by default');
+  res(s.settings.presets.length === 0 && Object.keys(s.settings.goals).length === 0, '1: zero presets, zero goals');
+  res(s.priceLog && Object.keys(s.priceLog).length === 0, '1: empty priceLog');
+  res(HT.Store.status().ok === true, '1: badge ok');
 
-  // 2. Lossless migration
-  setLS({ 'uha-log-v1': legacyJSON }); HT.boot();
+  // 2. v1 -> v2 in-place migration
+  var v1 = { version: 1, days: {
+    '2026-07-08': { status:'complete', items: [
+      { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, confidence:'weighed', notes:'' },
+      { name:'Supp', meal:'supplement', time:'09:00', kcal:5, protein_g:0, fat_g:0, carb_g:0, fiber_g:4, soluble_fiber_g:4, confidence:'measured', notes:'', _auto:true }
+    ], water_l:1.5 }
+  }, known: [{ name:'Blueberries' }], current:'2026-07-08' };
+  var v1json = JSON.stringify(v1);
+  setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.migratedFrom === 'uha-log-v1', '2: migratedFrom stamped');
-  res(isoRe.test(s.migratedAt || ''), '2: migratedAt is ISO', s.migratedAt);
-  res(!!s.days['2026-07-08'] && !!s.days['2026-07-09'], '2: both legacy days present');
-  res(s.days['2026-07-08'].items.length === 2 && s.days['2026-07-09'].items.length === 1, '2: item counts match (2,1)');
-  res(kcalOf(s.days['2026-07-08']) === 245 && kcalOf(s.days['2026-07-09']) === 415, '2: per-day kcal totals match (245,415)');
-  res(s.days['2026-07-08'].status === 'complete' && s.days['2026-07-09'].status === 'in_progress', '2: statuses preserved');
-  res(s.days['2026-07-08'].water_l === 1.5 && s.days['2026-07-09'].water_l === 0.75, '2: water_l preserved (1.5,0.75)');
-  res(s.days['2026-07-08'].items.every(function(i){ return typeof i.soluble_fiber_g === 'number'; }) &&
-      s.days['2026-07-09'].items.every(function(i){ return typeof i.soluble_fiber_g === 'number'; }), '2: soluble_fiber_g present on every item');
-  res(s.known.length === 1, '2: known preserved (len 1)');
-  res(!!s.days[today()], "2: today's day also created");
-  res(window.__ls._has('healthtracker-log'), '2: new key written');
-  res(window.__ls._get('uha-log-v1') === legacyJSON, '2: legacy blob byte-identical (untouched)');
+  res(s.version === 2, '2: version bumped to 2');
+  res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
+  res(!!s.settings && !!s.priceLog, '2: settings + priceLog added');
+  res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
+  res(kcalOf(s.days['2026-07-08']) === 185, '2: per-day kcal byte-preserved (180+5)');
+  res(s.days['2026-07-08'].water_l === 1.5, '2: water preserved');
+  res(s.days['2026-07-08'].items[0].source === 'manual' && s.days['2026-07-08'].items[1].source === 'supplement', '2: source inferred (manual / _auto->supplement)');
+  res(s.known === undefined && s.knownDropped === 1, '2: known dropped, count stamped');
+  res(window.__ls._get('healthtracker-log-premigration') === v1json, '2: pre-migration snapshot retained (untouched v1)');
+  res(!!s.days[td], '2: today created');
 
-  // 3. D2 precedence — new key wins, never re-migrates
-  var newBlob = JSON.stringify({ version:1, days:{ '2026-01-01': { status:'complete', items:[
-    { name:'Marker', meal:'snack', time:'00:00', kcal:10, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'' }
-  ], water_l:0 } }, known:[], current:'2026-01-01' });
-  setLS({ 'healthtracker-log': newBlob, 'uha-log-v1': legacyJSON }); HT.boot();
-  s = HT.state();
-  res(!!s.days['2026-01-01'], '3: marker day from new key present');
-  res(!s.days['2026-07-08'] && !s.days['2026-07-09'], '3: legacy-only days NOT resurrected');
-  res(!s.migratedFrom, '3: no migration stamp (never migrated)');
+  // 3. Migration idempotent (second boot loads v2 store)
+  var firstMigAt = s.migratedAt;
+  var r3 = HT.boot();
+  res(r3.source === 'store', '3: second boot loads from store (no re-migrate)');
+  res(HT.state().migratedAt === firstMigAt, '3: migratedAt unchanged');
 
-  // 4. Idempotency — second boot loads from store
-  setLS({ 'uha-log-v1': legacyJSON });
-  HT.boot(); var firstAt = HT.state().migratedAt;
-  var r2 = HT.boot();
-  res(!!firstAt, '4: first boot migrated');
-  res(r2.source === 'store', '4: second boot source = store');
-  res(HT.state().migratedAt === firstAt, '4: migratedAt unchanged (no re-migrate)');
+  // 4. Forward-version blob in storage is protected
+  var futureBlob = JSON.stringify({ version: 3, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, futureField: 1 });
+  setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
+  res(r4.source === 'future', '4: forward blob -> source future');
+  res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
+  res(!window.__ls._has('healthtracker-log-premigration'), '4: no snapshot taken for forward blob');
 
-  // 5. Forced write failure AFTER load -> truthful degrade
+  // 5. Forced write failure after load -> memory
   setLS({}); HT.boot();
   res(HT.Store.tier === 'local' && HT.Store.status().ok === true, '5: starts local/ok');
   HT.Store.forceWriteFailure(true);
-  var wrote = HT.resave();
-  res(wrote === false, '5: save reports failure');
-  res(HT.Store.tier === 'memory', '5: tier degraded to memory');
-  res(HT.Store.status().ok === false, '5: badge now NOT ok');
-  res(/export/i.test(HT.Store.status().message), '5: badge warns to export');
-
-  // 6. Storage entirely blocked (private mode) -> memory tier, no migration
+  res(HT.resave() === false, '5: save reports failure');
+  res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '5: degraded to memory, badge warns');
+  res(/export/i.test(HT.Store.status().message), '5: badge says export');
   HT.Store.forceWriteFailure(false);
-  setLS({ 'uha-log-v1': legacyJSON }, true); HT.boot();
-  res(HT.Store.tier === 'memory', '6: tier is memory');
-  res(HT.Store.status().ok === false, '6: badge NOT ok');
-  res(!HT.state().migratedFrom, '6: migration did NOT run (legacy unreadable)');
 
-  // ---- D5: export / import-restore --------------------------------------
-  var td = today();
+  // 6. Storage blocked (private mode) -> memory
+  setLS({}, true); HT.boot();
+  res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
-  // 7. Round-trip, source INCLUDES today -> byte-identical (zero permissible deltas)
-  var S1 = { version: 1, days: {}, known: [{ name: 'K', meal: 'snack', kcal: 5 }], current: td };
-  S1.days['2026-07-08'] = { status: 'complete', items: [
-    { name: 'Eggs', meal: 'breakfast', time: '08:00', kcal: 180, protein_g: 12, fat_g: 14, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0, confidence: 'weighed', notes: '' }
-  ], water_l: 1.5 };
-  S1.days[td] = { status: 'in_progress', items: [], water_l: 0 };
+  // ---- v2 round-trip fixtures ----
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }] };
+  var S1 = { version: 2, days: {}, current: td, settings: goalState, priceLog: { '000': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } } };
+  S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
+  S1.days[td] = { status:'in_progress', items:[], water_l:0 };
+
+  // 7. v2 round-trip WITH today -> identical (settings + priceLog preserved)
   setLS({ 'healthtracker-log': JSON.stringify(S1) }); HT.boot();
   var exp1 = HT.exportJSON();
   setLS({}); HT.boot(); window.__confirm = true;
   var r7 = HT.restore(exp1);
-  res(r7.ok && r7.kind === 'restore', '7: round-trip import ok (new-schema)');
-  res(deepEqual(HT.state(), S1), '7: source WITH today -> identical, zero deltas');
-  res(!HT.state().migratedFrom, '7: no stamp added on new-schema import');
+  res(r7.ok && r7.kind === 'restore', '7: v2 round-trip import ok');
+  res(deepEqual(HT.state(), S1), '7: source WITH today -> identical incl settings + priceLog');
 
-  // 8. Round-trip, source LACKS today -> only permissible deltas (added today + current)
-  var S2 = { version: 1, days: {
-    '2026-07-08': { status: 'complete', items: [
-      { name: 'Eggs', meal: 'breakfast', time: '08:00', kcal: 180, protein_g: 12, fat_g: 14, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0, confidence: 'weighed', notes: '' }
-    ], water_l: 1.5 },
-    '2026-07-09': { status: 'in_progress', items: [
-      { name: 'Salad', meal: 'lunch', time: '12:00', kcal: 415, protein_g: 32, fat_g: 29, carb_g: 9, fiber_g: 6, soluble_fiber_g: 0, confidence: 'eyeballed', notes: '' }
-    ], water_l: 0.75 }
-  }, known: [], current: '2026-07-09' };
+  // 8. v2 round-trip WITHOUT today -> only permissible deltas
+  var S2 = { version: 2, days: {
+    '2026-07-08': { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 }
+  }, current:'2026-07-08', settings: goalState, priceLog: {} };
   setLS({}); HT.boot(); window.__confirm = true;
-  var r8 = HT.restore(JSON.stringify(S2));
+  HT.restore(JSON.stringify(S2));
   var st8 = HT.state();
-  res(r8.ok, '8: restore ok');
-  res(deepEqual(st8.days['2026-07-08'], S2.days['2026-07-08']) && deepEqual(st8.days['2026-07-09'], S2.days['2026-07-09']), '8: every source day matches exactly');
-  var extra = Object.keys(st8.days).filter(function (k) { return k !== '2026-07-08' && k !== '2026-07-09'; });
+  res(deepEqual(st8.days['2026-07-08'], S2.days['2026-07-08']), '8: source day matches exactly');
+  var extra = Object.keys(st8.days).filter(function (k) { return k !== '2026-07-08'; });
   res(extra.length === 1 && extra[0] === td, '8: exactly one extra day == today');
-  var tday = st8.days[td];
-  res(tday && tday.status === 'in_progress' && tday.items.length === 0 && tday.water_l === 0, '8: added today is empty in_progress');
-  res(st8.current === td, '8: current pointer moved to today');
-  res(st8.version === 1 && deepEqual(st8.known, S2.known), '8: version + known otherwise unchanged');
+  res(st8.days[td].items.length === 0 && st8.days[td].status === 'in_progress', '8: added today empty in_progress');
+  res(st8.current === td, '8: current -> today');
+  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog), '8: settings + priceLog preserved');
 
-  // 9. Legacy paste through restore -> migrate, with FULL D3 treatment
+  // 9. Restore routing: v1 migrates; version-absent rejected; >2 rejected
   setLS({}); HT.boot(); window.__confirm = true;
-  var r9 = HT.restore(legacyJSON);
-  res(r9.ok && r9.kind === 'legacy', '9: legacy paste routed through migrator');
-  res(r9.backedUp === true, '9: pre-restore backup taken (D3 applies to legacy paste)');
-  res(window.__ls._has('healthtracker-log-prerestore'), '9: prerestore key written');
-  var st9 = HT.state();
-  res(st9.migratedFrom === 'uha-log-v1' && kcalOf(st9.days['2026-07-08']) === 245, '9: legacy migrated losslessly + stamped');
+  var r9a = HT.restore(v1json);
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 2, '9: v1 paste -> migrated to v2');
+  res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
+  setLS({}); HT.boot();
+  var before9 = JSON.stringify(HT.state());
+  var r9b = HT.restore(JSON.stringify({ days: { '2026-07-08': { status:'complete', items:[], water_l:0 } }, current:'x' }));
+  res(!r9b.ok && /Unrecognized|version/i.test(r9b.error || ''), '9: version-absent paste REJECTED (legacy removed)');
+  var r9c = HT.restore(futureBlob);
+  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>2 paste rejected');
+  res(JSON.stringify(HT.state()) === before9, '9: state untouched by rejected pastes');
 
-  // 10. Forward-version rejection -> abort, state untouched
-  setLS({ 'healthtracker-log': JSON.stringify(S1) }); HT.boot(); window.__confirm = true;
-  var before10 = JSON.stringify(HT.state());
-  var future = JSON.stringify({ version: 999, days: { '2030-01-01': { status: 'complete', items: [], water_l: 0 } }, known: [], current: '2030-01-01' });
-  var r10 = HT.restore(future);
-  res(!r10.ok && /newer version/i.test(r10.error || ''), '10: forward-version blob rejected');
-  res(JSON.stringify(HT.state()) === before10, '10: state untouched on forward-version reject');
-  res(!HT.state().days['2030-01-01'], '10: future day not loaded');
-
-  // 11. Shape precedence: internal version => new-schema (no migration stamp)
+  // 10. Restore v2: micros coerced/clamped, unknown key preserved, source validated
   setLS({}); HT.boot(); window.__confirm = true;
-  var vblob = JSON.stringify({ version: 1, days: { '2026-07-08': { status: 'complete', items: [], water_l: 0 } }, known: [], current: '2026-07-08' });
-  var r11 = HT.restore(vblob);
-  res(r11.ok && r11.kind === 'restore', '11: version present -> new-schema route');
-  res(!HT.state().migratedFrom, '11: no migration stamp for versioned blob');
+  var microBlob = JSON.stringify({ version:2, days:{ '2026-07-08': { status:'complete', items:[
+    { name:'Bar', meal:'snack', time:'10:00', kcal:200, protein_g:10, fat_g:8, carb_g:20, fiber_g:3, soluble_fiber_g:1, confidence:'measured', notes:'', source:'bogus',
+      micros: { sodium_mg: -50, iron_mg: 2.5, made_up_key: 7 } }
+  ], water_l:0 } }, current:'2026-07-08', settings:{}, priceLog:{} });
+  HT.restore(microBlob);
+  var it10 = HT.state().days['2026-07-08'].items[0];
+  res(it10.source === 'manual', '10: invalid source -> manual');
+  res(it10.micros.sodium_mg === 0, '10: negative micro clamped to 0');
+  res(it10.micros.iron_mg === 2.5, '10: valid micro preserved');
+  res(it10.micros.made_up_key === 7, '10: unknown micro key preserved');
 
-  // 12. Degraded backup path: backup write fails -> restore still applies (to memory)
+  // 11. Degraded backup path (restore under write failure)
   setLS({}); HT.boot(); window.__confirm = true;
   HT.Store.forceWriteFailure(true);
-  var r12 = HT.restore(JSON.stringify(S2));
-  res(r12.ok && r12.backedUp === false, '12: restore proceeds, backup NOT durable (degraded)');
-  res(!window.__ls._has('healthtracker-log-prerestore'), '12: prerestore key NOT written under failure');
-  res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '12: tier degraded to memory, badge honest');
-  res(deepEqual(HT.state().days['2026-07-08'], S2.days['2026-07-08']), '12: restored data held in memory');
+  var r11 = HT.restore(JSON.stringify(S2));
+  res(r11.ok && r11.backedUp === false, '11: restore proceeds, backup not durable');
+  res(!window.__ls._has('healthtracker-log-prerestore'), '11: prerestore not written under failure');
+  res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '11: tier degraded, badge honest');
   HT.Store.forceWriteFailure(false);
 
-  // 13. Confirm decline -> abort, state untouched
-  setLS({ 'healthtracker-log': JSON.stringify(S1) }); HT.boot();
-  var before13 = JSON.stringify(HT.state());
-  window.__confirm = false;
-  var r13 = HT.restore(JSON.stringify(S2));
-  res(!r13.ok && r13.aborted, '13: decline aborts restore');
-  res(JSON.stringify(HT.state()) === before13, '13: state untouched on decline');
-  window.__confirm = true;
-
-  // 14. Invalid pastes rejected, state untouched
-  setLS({ 'healthtracker-log': JSON.stringify(S1) }); HT.boot();
-  var before14 = JSON.stringify(HT.state());
-  res(!HT.restore('{ not json ]').ok, '14: bad JSON rejected');
-  res(!HT.restore('{"foo":1}').ok, '14: non-log (no days) rejected');
-  res(JSON.stringify(HT.state()) === before14, '14: state untouched on invalid paste');
-
-  // 15. Export carries version; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version"') >= 0, '15: export carries version');
-  setLS({}); HT.boot(); window.__confirm = true;
-  var smart = '{“version”: 1,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“known”:[],“current”:“2026-07-08”}';
-  var r15 = HT.restore(smart);
-  res(r15.ok && !!HT.state().days['2026-07-08'], '15: smart-quoted + nbsp JSON normalized and restored');
-
-  // ---- Flag 2: render-layer escaping + day-key validation ---------------
-  // R1. Render backstop: a hostile day key loaded from the store (boot does NOT
-  // validate keys — only the paste boundary does) must be escaped by renderHistory.
-  var hostileKey = '<img src=x onerror=alert(1)>';
-  var hostile = { version: 1, days: {}, known: [], current: td };
-  hostile.days[hostileKey] = { status: 'complete', items: [], water_l: 0 };
-  hostile.days[td] = { status: 'in_progress', items: [], water_l: 0 };
-  setLS({ 'healthtracker-log': JSON.stringify(hostile) }); HT.boot(); HT.refresh();
-  var histHTML = document.getElementById('history').innerHTML;
-  res(histHTML.indexOf('<img src=x') === -1, 'R1: hostile day key not rendered as raw markup');
-  res(histHTML.indexOf('&lt;img') >= 0, 'R1: hostile day key rendered escaped');
-
-  // R2. parseImport rejects non-date day keys at the paste boundary
-  setLS({}); HT.boot(); window.__confirm = true;
-  var badNew = JSON.stringify({ version: 1, days: { '<script>x': { status: 'complete', items: [], water_l: 0 } }, known: [], current: 'x' });
-  var rr2 = HT.restore(badNew);
-  res(!rr2.ok && /YYYY-MM-DD/i.test(rr2.error || ''), 'R2: hostile day key rejected (new-schema paste)');
-  var badLegacy = JSON.stringify({ days: { 'not-a-date': { status: 'complete', items: [], water_l: 0 } }, known: [], current: 'x' });
-  res(!HT.restore(badLegacy).ok, 'R2: bad day key rejected (legacy paste too)');
-
-  // ---- Flag 1: declined restore is a true no-op for the undo slot -------
+  // 12. Declined restore is a true no-op for the undo slot
   setLS({}); HT.boot(); window.__confirm = true;
   var stateA = JSON.stringify(HT.state());
-  HT.restore(JSON.stringify(S2));                          // first restore: slot := A
-  var slotA = window.__ls._get('healthtracker-log-prerestore');
-  res(slotA === stateA, 'R3: first restore backs up prior state');
-  window.__confirm = false;
-  HT.restore(JSON.stringify(S1));                          // declined second restore
-  res(window.__ls._get('healthtracker-log-prerestore') === slotA, 'R3: declined restore preserves the prior undo slot');
-  window.__confirm = true;
-  // Declined FIRST-ever restore leaves no slot at all
-  setLS({}); HT.boot(); window.__confirm = false;
   HT.restore(JSON.stringify(S2));
-  res(!window.__ls._has('healthtracker-log-prerestore'), 'R3: declined first-ever restore leaves no undo slot');
+  var slotA = window.__ls._get('healthtracker-log-prerestore');
+  res(slotA === stateA, '12: first restore backs up prior state');
+  window.__confirm = false;
+  HT.restore(JSON.stringify(S1));
+  res(window.__ls._get('healthtracker-log-prerestore') === slotA, '12: declined restore preserves prior undo slot');
   window.__confirm = true;
+
+  // 13. Invalid pastes rejected, state untouched
+  setLS({ 'healthtracker-log': JSON.stringify(S1) }); HT.boot();
+  var before13 = JSON.stringify(HT.state());
+  res(!HT.restore('{ not json ]').ok, '13: bad JSON rejected');
+  res(!HT.restore('{"foo":1}').ok, '13: non-log (no days) rejected');
+  res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
+
+  // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
+  res(HT.exportJSON().indexOf('"version": 2') >= 0, '14: export carries version 2');
+  setLS({}); HT.boot(); window.__confirm = true;
+  var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
+  res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
+
+  // 15. Render-layer escaping backstop (hostile day key loaded from store)
+  var hostileKey = '<img src=x onerror=alert(1)>';
+  var hostile = { version:2, days:{}, current: td, settings:{}, priceLog:{} };
+  hostile.days[hostileKey] = { status:'complete', items:[], water_l:0 };
+  hostile.days[td] = { status:'in_progress', items:[], water_l:0 };
+  setLS({ 'healthtracker-log': JSON.stringify(hostile) }); HT.boot(); HT.refresh();
+  var histHTML = document.getElementById('history').innerHTML;
+  res(histHTML.indexOf('<img src=x') === -1, '15: hostile day key not raw markup');
+  res(histHTML.indexOf('&lt;img') >= 0, '15: hostile day key escaped');
+
+  // 16. Day-key rejection at the paste boundary
+  setLS({}); HT.boot(); window.__confirm = true;
+  res(!HT.restore(JSON.stringify({ version:2, days:{ '<script>': { status:'complete', items:[], water_l:0 } }, current:'x', settings:{}, priceLog:{} })).ok, '16: hostile day key rejected at paste');
+
+  // 17. Legacy strip: migrateLegacy gone, migrateV1toV2 present
+  res(typeof HT.migrateLegacy === 'undefined', '17: migrateLegacy removed from API');
+  res(typeof HT.migrateV1toV2 === 'function', '17: migrateV1toV2 present');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
