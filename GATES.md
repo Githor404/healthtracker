@@ -133,4 +133,16 @@ Day view: meal grouping, per-item delete / tap-to-cycle-meal, confidence dot, so
 
 `bash tests/run-data-layer.sh` → **115/115**; offline + precache green.
 
-**Remaining for the Phase 1 gate:** supplement config UI; first-run + AI prompt template; README (privacy stance).
+### First-run + AI prompt template slice (D11) — MET
+
+| Gate requirement | Evidence |
+|---|---|
+| First-run **derived from state**, no stored flag | data-layer tests F1, F2, F2b, F3 |
+| Onboarding renders iff first-run, auto-recedes | F5 |
+| Template↔ingest self-consistency (ai-paste, eyeballed, no micros, soluble present) | F6 |
+| Template-text invariants incl **full meal enum** | F7 |
+| Template version exposed + shown on the card | F8 + smoke ("template v2") |
+
+`bash tests/run-data-layer.sh` → **129/129**; offline + precache green.
+
+**Remaining for the Phase 1 gate:** supplement config UI; README (privacy stance).

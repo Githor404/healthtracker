@@ -136,18 +136,25 @@
   .avgmacros{font-size:14px;font-variant-numeric:tabular-nums}
   .avgmicros{margin-top:4px}
   .avgmrow{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;font-variant-numeric:tabular-nums}
+  #onboarding h2{margin-top:0}
+  .obtext{font-size:13px;color:var(--muted);margin:6px 0;line-height:1.5}
+  .oblist{font-size:13px;color:var(--muted);margin:6px 0;padding-left:18px;line-height:1.55}
+  .oblist b{color:var(--txt)}
+  .pver{font-size:11px;color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
+  #promptTemplate{min-height:150px}
 </style>
 </head>
 <body>
   <div class="top"><h1>HealthTracker</h1></div>
   <div id="storeBadge">…</div>
   <div class="wrap">
+    <div id="onboarding" class="card" style="display:none"></div>
     <div class="card">
       <div id="dayView"></div>
     </div>
 
     <div class="card">
-      <details>
+      <details id="goalsDetails">
         <summary>Goals</summary>
         <div class="row" style="margin-top:10px">
           <div><label>Nutrient</label><select id="goalNutrient"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></select></div>
@@ -206,6 +213,13 @@
       <h2>All days</h2>
       <div id="history"></div>
       <div class="note">Overview of every day. Complete days count toward averages; in-progress days are flagged.</div>
+    </div>
+
+    <div class="card">
+      <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
+      <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
+      <textarea id="promptTemplate" readonly></textarea>
+      <div class="note">Send this to your AI assistant with a meal photo, then paste its JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
     </div>
 
     <div class="card">

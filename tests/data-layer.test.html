@@ -455,6 +455,42 @@ window.setLS({});
   res(document.getElementById('dayView').innerHTML.indexOf('labeled intake only') >= 0, 'H1: daily summary micro block carries the honesty label');
   res(document.getElementById('averages').innerHTML.indexOf('labeled intake only') >= 0, 'H1: averages micro block carries the honesty label');
 
+  // ---- First-run + AI prompt template (D11) -----------------------------
+  // F1. pristine boot -> first run (state-derived, no flag)
+  setLS({}); HT.boot();
+  res(HT.isFirstRun() === true, 'F1: pristine boot -> first run');
+  // F2. a logged non-auto item ends first run
+  HT.state().days[td].items.push(mkItem({ name:'food', kcal:1 }));
+  res(HT.isFirstRun() === false, 'F2: a logged item ends first run');
+  // F2b. supplement-only (_auto) does NOT end first run
+  setLS({}); HT.boot();
+  HT.state().days[td].items.push(mkItem({ name:'supp', kcal:5, _auto:true, source:'supplement', meal:'supplement' }));
+  res(HT.isFirstRun() === true, 'F2b: supplement-only (_auto) does not end first run');
+  // F3. a goal or a preset ends first run
+  setLS({}); HT.boot(); HT.setGoal('protein_g', 100, 'min');
+  res(HT.isFirstRun() === false, 'F3: setting a goal ends first run');
+  setLS({}); HT.boot(); HT.saveManualPreset({ name:'p', kcal:1 }, '');
+  res(HT.isFirstRun() === false, 'F3: creating a preset ends first run');
+  // F5. onboarding renders iff first-run (no stored flag, auto-recedes)
+  setLS({}); HT.boot();
+  var ob = document.createElement('div'); ob.id = 'onboarding'; document.body.appendChild(ob);
+  HT.refresh();
+  res(document.getElementById('onboarding').innerHTML.indexOf('Welcome') >= 0, 'F5: onboarding rendered on first run');
+  HT.state().days[td].items.push(mkItem({ name:'food', kcal:1 })); HT.refresh();
+  res(document.getElementById('onboarding').innerHTML === '', 'F5: onboarding auto-hides after first log');
+  // F6. template <-> ingest self-consistency
+  setLS({}); HT.boot();
+  var rF6 = HT.ingest(HT.AI_PROMPT_SAMPLE);
+  var si = HT.state().days[td].items.find(function(i){ return i.source === 'ai-paste'; });
+  res(rF6.ok && si && si.confidence === 'eyeballed' && si.micros === undefined && typeof si.soluble_fiber_g === 'number', 'F6: template sample -> ai-paste, eyeballed, no micros, soluble_fiber_g present');
+  // F7. template-text invariants (incl full meal enum)
+  var tmpl = HT.AI_PROMPT_TEMPLATE;
+  res(tmpl.indexOf('micros') < 0 && HT.MICRO_SPEC.every(function(s){ return tmpl.indexOf(s.key) < 0; }), 'F7: template does not request micros');
+  res(tmpl.indexOf('eyeballed') >= 0 && tmpl.indexOf('straight quotes') >= 0 && tmpl.indexOf('soluble_fiber_g') >= 0, 'F7: template mentions eyeballed / straight quotes / soluble_fiber_g');
+  res(['breakfast','lunch','dinner','snack','drink','supplement'].every(function(m){ return tmpl.indexOf(m) >= 0; }), 'F7: template spells out the full meal enum');
+  // F8. template version exposed
+  res(typeof HT.AI_TEMPLATE_VERSION === 'number', 'F8: template version exposed');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

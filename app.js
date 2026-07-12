@@ -972,6 +972,75 @@ function renderAverages() {
                  avgBlockHTML('All-time', averageOver(completeDaysInWindow('all')));
 }
 
+// ---- first-run onboarding + AI prompt template (DECISIONS.md D11) ---------
+const AI_TEMPLATE_VERSION = 2;   // tied to schema v2 — bump when the item contract changes
+
+// One canonical template. It requests macros only (no micros — a photo can't
+// show them), eyeballed confidence, soluble_fiber_g present, and the exact meal
+// enum so an assistant can't invent values. Straight quotes only.
+const AI_PROMPT_TEMPLATE =
+'You are helping me log a meal from a photo into a nutrition tracker.\n' +
+'Reply with JSON ONLY - no prose, no markdown, straight quotes only.\n\n' +
+'Format:\n' +
+'{"items":[\n' +
+'  {"name":"<food + portion>","meal":"<breakfast|lunch|dinner|snack|drink|supplement>","kcal":<n>,"protein_g":<n>,"fat_g":<n>,"carb_g":<n>,"fiber_g":<n>,"soluble_fiber_g":<n>,"confidence":"eyeballed","notes":"<portion assumptions>"}\n' +
+']}\n\n' +
+'Rules:\n' +
+'- Estimate macros only. Do not include vitamins or minerals - a photo cannot show them.\n' +
+'- "confidence" is always "eyeballed".\n' +
+'- Always include "soluble_fiber_g" (use 0 if unknown).\n' +
+'- "meal" must be exactly one of: breakfast, lunch, dinner, snack, drink, supplement.\n' +
+'- State portion assumptions honestly in "notes".';
+
+// Adjacent sample that obeys the template — gated against real ingest() so the
+// two can't drift apart.
+const AI_PROMPT_SAMPLE =
+'{"items":[{"name":"Grilled chicken salad, ~350g","meal":"lunch","kcal":420,"protein_g":38,"fat_g":22,"carb_g":14,"fiber_g":5,"soluble_fiber_g":1,"confidence":"eyeballed","notes":"assumed 150g chicken, olive-oil dressing"}]}';
+
+// First-run derived from state — no stored flag (D11).
+function isFirstRun() {
+  if (!APP_STATE) return true;
+  const days = APP_STATE.days || {};
+  const hasItem = Object.keys(days).some((d) => (days[d].items || []).some((it) => !it._auto));
+  const s = APP_STATE.settings || {};
+  const hasPreset = (s.presets || []).length > 0;
+  const hasGoal = Object.keys(s.goals || {}).length > 0;
+  return !hasItem && !hasPreset && !hasGoal;
+}
+
+function renderOnboarding() {
+  const el = document.getElementById('onboarding');
+  if (!el) return;
+  if (!isFirstRun()) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  el.style.display = 'block';
+  el.innerHTML = `<h2>Welcome</h2>
+    <p class="obtext">Two ways to log food:</p>
+    <ul class="oblist">
+      <li><b>AI photo:</b> copy the prompt (below), send it to your AI assistant with a meal photo, then paste the JSON it returns into <b>Ingest</b>.</li>
+      <li><b>Manual:</b> type it in under <b>Add manually</b> — also where package-label micronutrients go.</li>
+    </ul>
+    <p class="obtext"><a href="#" onclick="scrollToGoals();return false">Set a daily goal</a> to light up the ring (optional). All data stays on this device — export anytime.</p>`;
+}
+
+function renderPromptCard() {
+  const box = document.getElementById('promptTemplate');
+  if (box) box.value = AI_PROMPT_TEMPLATE;
+  const ver = document.getElementById('promptVersion');
+  if (ver) ver.textContent = 'template v' + AI_TEMPLATE_VERSION;
+}
+function copyPrompt() {
+  const box = document.getElementById('promptTemplate');
+  if (box) { box.value = AI_PROMPT_TEMPLATE; box.focus(); box.select(); try { box.setSelectionRange(0, AI_PROMPT_TEMPLATE.length); } catch (e) {} }
+  let done = false;
+  try { done = document.execCommand('copy'); } catch (e) {}
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(AI_PROMPT_TEMPLATE).then(function () { toast('Prompt copied'); }).catch(function () {});
+  toast(done ? 'Prompt copied' : 'Select-all + copy the prompt');
+}
+function scrollToGoals() {
+  const d = document.getElementById('goalsDetails'); if (d) d.open = true;
+  const el = document.getElementById('goalNutrient'); if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 // ---- per-day totals + read-only history -----------------------------------
 const DISP_FIELDS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 function dayTotals(day) {
@@ -1028,9 +1097,9 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderDay(); renderAverages(); renderPresets(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderHistory(); renderDataStatus(); }
 
-function main() { boot(); renderMicroFields(); refresh(); }
+function main() { boot(); renderMicroFields(); renderPromptCard(); refresh(); }
 
 // Console seam for review/testing.
 window.HT = {
@@ -1041,6 +1110,7 @@ window.HT = {
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
   averageOver, completeDaysInWindow,
+  isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
