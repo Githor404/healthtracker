@@ -1122,11 +1122,24 @@ function offURL(barcode) {
   return OFF_BASE + encodeURIComponent(barcode) + '.json?fields=' + encodeURIComponent(OFF_FIELDS) +
     '&app_name=HealthTracker&app_version=' + encodeURIComponent(APP_VERSION);
 }
+// OFF signals an unknown barcode with HTTP 404 (NOT 200 + status:0), so a 404 is
+// a NOT-FOUND result, not a network failure. Only genuine failures (5xx / 429 /
+// fetch reject) become 'offline'. Pure seam so the status->outcome mapping is
+// testable — the live path the OF16 synthetic test could never reach (D14 amend).
+function offStatusKind(status) {
+  if (status === 404) return 'missing';
+  if (status >= 200 && status < 300) return 'ok';
+  return 'error';
+}
 function fetchOff(barcode) {
   // Header set defensively — browsers drop User-Agent (Forbidden Header); the
   // app_name/app_version query params (offURL) are the browser-safe identity (D14).
-  return fetch(offURL(barcode), { headers: { 'User-Agent': OFF_UA } })
-    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); });
+  return fetch(offURL(barcode), { headers: { 'User-Agent': OFF_UA } }).then((res) => {
+    const kind = offStatusKind(res.status);
+    if (kind === 'missing') return { status: 0 };            // 404 -> finishLookup 'missing' branch
+    if (kind === 'error') throw new Error('HTTP ' + res.status);
+    return res.json();
+  });
 }
 // Pure, synchronous decision from a settled fetch outcome — the tested unit.
 // outcome = { ok:true, json } | { ok:false } (network failure / offline).
@@ -1134,11 +1147,11 @@ function finishLookup(bc, outcome) {
   if (!outcome || !outcome.ok) {
     const cached = ProductCache.get(bc);
     return cached ? { found: true, record: cached, barcode: bc, source: 'cache' }
-      : { found: false, barcode: bc, offline: true, error: 'Offline - barcode kept; add it manually or retry.' };
+      : { found: false, barcode: bc, offline: true, error: "Can't reach OpenFoodFacts (are you online?) — retry, or enter the details manually." };
   }
   const json = outcome.json;
   if (!json || json.status === 0 || !json.product)
-    return { found: false, barcode: bc, source: 'missing', error: 'Product not found - barcode kept; add it manually.' };
+    return { found: false, barcode: bc, source: 'missing', error: 'Not in OpenFoodFacts — enter the details manually.' };
   const rec = mapOffProduct(json, bc);
   ProductCache.put(rec);
   return { found: true, record: rec, barcode: bc, source: 'network' };
@@ -1158,12 +1171,20 @@ function lookupBarcode(barcode, opts) {
 // ---- scan DOM (barcode lookup, portion picker, add) -----------------------
 let SCAN = null;   // transient UI state: { record, mode, grams, meal, source }
 
+// One lookup path for BOTH the manual button and the camera handoff: show the
+// "Looking up" pending state and scroll it into view, so a scan visibly advances
+// (no silent gap that reads as "it didn't fire"), then lookup -> render.
+function runLookup(code, opts) {
+  const host = document.getElementById('scanResult');
+  if (host) {
+    host.innerHTML = `<div class="note" style="margin-top:8px">Looking up ${esc(code)}…</div>`;
+    if (host.scrollIntoView) host.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  lookupBarcode(code, opts || {}).then(applyLookup);
+}
 function doBarcodeLookup(isRefresh) {
   const box = document.getElementById('scanBarcode');
-  const bc = box ? box.value.trim() : '';
-  const host = document.getElementById('scanResult');
-  if (host) host.innerHTML = `<div class="note" style="margin-top:8px">Looking up ${esc(bc)}…</div>`;
-  lookupBarcode(bc, { refresh: !!isRefresh }).then(applyLookup);
+  runLookup(box ? box.value.trim() : '', { refresh: !!isRefresh });
 }
 function applyLookup(res) {
   if (!res.found) { SCAN = null; renderScanMessage(res); return; }
@@ -1345,7 +1366,7 @@ function onScanCode(session, raw) {
   try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) {}
   stopScanner(session); showScanView(false);
   const box = document.getElementById('scanBarcode'); if (box) box.value = code;
-  lookupBarcode(code).then(applyLookup);
+  runLookup(code);                                     // shared path: visible pending + scroll (auto-advance)
 }
 
 function runNativeDetect(session, video) {
@@ -1725,7 +1746,7 @@ window.HT = {
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
   buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode,
-  guardBarcode, offURL, OFF_UA, APP_VERSION, PRODUCT_CACHE_VERSION,
+  guardBarcode, offURL, offStatusKind, OFF_UA, APP_VERSION, PRODUCT_CACHE_VERSION,
   // Phase 2 Slice 2 — camera scanner + ZXing (D15)
   cameraPrecondition, detectorTier, cameraErrorMessage, intersectFormats,
   scanGate, stopScanner, loadZXing, startScan, cancelScan,

@@ -686,6 +686,16 @@ window.setLS({});
   res(u.indexOf('app_name=HealthTracker')>=0 && u.indexOf('app_version=0.2.0')>=0, 'OF18: offURL carries app identification params');
   res(HT.OFF_UA==='HealthTracker/0.2.0 (https://github.com/Githor404/healthtracker)', 'OF18: OFF_UA is the ruled identifier string');
 
+  // OF19: OFF 404 (unknown barcode) is NOT-FOUND, never mislabeled offline (D14 amendment)
+  PC._reset();
+  res(HT.offStatusKind(404)==='missing' && HT.offStatusKind(200)==='ok' && HT.offStatusKind(204)==='ok', 'OF19: offStatusKind 404->missing, 2xx->ok');
+  res(HT.offStatusKind(500)==='error' && HT.offStatusKind(429)==='error' && HT.offStatusKind(0)==='error', 'OF19: offStatusKind 5xx/429/other->error');
+  var missRes = HT.finishLookup('11111111', { ok:true, json:{ status:0 } });
+  var offRes  = HT.finishLookup('22222222', { ok:false });
+  res(missRes.source==='missing' && offRes.offline===true && missRes.error!==offRes.error, 'OF19: not-found vs offline are distinct outcomes');
+  res(missRes.error.indexOf('OpenFoodFacts')>=0 && missRes.error.indexOf('manually')>=0 && missRes.error.indexOf('reach')<0, 'OF19: not-found reads "not in OpenFoodFacts ... manually" (not offline)');
+  res(offRes.error.indexOf('reach')>=0 || offRes.error.indexOf('online')>=0, 'OF19: offline message reads as a connectivity problem');
+
   // ===== Phase 2 Slice 2: camera scanner pure logic (D15) =====
   // CAM1: err.name -> message; EVERY message ends in the literal manual escape hatch
   var hatch = 'by hand below.';
