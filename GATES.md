@@ -210,3 +210,41 @@ Committed, re-runnable synthetic-fixture cases in `tests/data-layer.test.html` (
 **Live attestation (uncommitted, one-time):** a real barcode fetched from live OFF maps to correct macros + micros at a custom gram amount, verified by the user against the on-package label; absence≠zero confirmed on a product lacking a given micro. Only the attestation is recorded (history-free-repo rule). Build-time API verification is dated in DECISIONS.md **D14 (2026-07-16)**: endpoint + `fields` + `app_name`/`app_version` params → HTTP 200; nutriment `_100g` g-normalization and the salt→sodium precedence confirmed on Nutella / Coca-Cola / Ovomaltine / mineral-water products.
 
 **Status: Slice 1 machinery CERTIFIED (182/182; offline + precache + sw-hash green; live-lookup smoke verified). Awaiting user review + the one-time live attestation against a real package label.**
+
+### Slice 2 — camera scanner: two-tier detection + ZXing sourcing/caching (D15)
+
+The pure decision logic is committed (`CAM` cases); the live camera flow is on-device attested (A1–A7). Gate clause closed here: *"camera-denied / no-camera messages correct"* = `CAM1`/`CAM2` (committed) + `A2`/`A3`/`A-NR` (attested).
+
+**Committed machinery (`CAM`-prefixed, synthetic/injected — no camera):**
+
+| Case | Asserts |
+|---|---|
+| CAM1 | `cameraErrorMessage` for each `err.name` (NotAllowed, NotFound, Overconstrained, NotReadable, Security, TypeError, Abort, unknown) → correct message, **each ending in the literal manual escape hatch** |
+| CAM2 | `cameraPrecondition(env)` → ok / insecure / unsupported (injected env); gates the Scan button |
+| CAM3 | `intersectFormats(desired, supported)` = desired ∩ supported; empty supported → empty |
+| CAM4 | `scanGate(state, code, nowMs)` injected clock: first accept, second within 1.5 s reject, after 1.5 s accept |
+| CAM5 | detected code → `guardBarcode` → lookup handoff (valid fires stubbed lookup; 7-digit/non-numeric rejected) |
+| CAM6 | `stopScanner(session)` idempotent — called twice, no throw, tracks `.stop()`'d, state cleared |
+| CAM7 | `detectorTier(env)` → native / zxing by injected `BarcodeDetector` presence |
+| CAMZ | ZXING single-SoT: `ZXING.url` contains `ZXING.version`; `loadZXing` reads the constant; `check-zxing.sh` present |
+
+**Machine-checked gates (network / SW):**
+- `tests/check-zxing.sh` — consistency (offline) + **SRI hash-vs-file (network): fetches the pinned URL, sha384 must match `ZXING.integrity`**, else fails; `--fix` stamps. Wired into `run-data-layer.sh`.
+- `tests/offline-gate.ps1` **extended** — online `loadZXing()` caches the script → network cut → reload → `loadZXing()` resolves from `healthtracker-runtime` (ZXing global appears offline).
+
+**Attested on-device (uncommitted; user signs, like Phase 0 Part 2):**
+
+| Ref | Procedure |
+|---|---|
+| A1 | permission granted → live-scan a real product barcode → `lookupBarcode` → portion picker → logged `measured` |
+| A2 | permission **denied** → exact denied message + manual field usable in the same view (no dead end) |
+| A3 | **no camera** (device without one / DevTools override) → no-camera message + manual field |
+| A-NR | **`NotReadableError` / camera-in-use** (ruled addition) → camera-in-use message + manual field |
+| A4 | ZXing fallback **on a real iOS device** (ruled — the genuine BarcodeDetector-absent path) → lazy-loads, detects within timeout |
+| A5 | teardown → closing/navigating away turns the camera indicator off; no lingering stream |
+| A6 | `vibrate` fires on detection (device-dependent) |
+| A7 | ZXing-from-cache: after one online scan, go offline → ZXing still loads (also machine-checked by the extended offline gate) |
+
+Live sourcing verification dated in **D15 (2026-07-16)**: `@zxing/library@0.23.0` UMD, global `ZXing`, SRI `sha384-0ASr…WZW9`, SRI+CORS `<script>` load succeeded headless; `BarcodeDetector` Chromium/Android-only.
+
+**Status: Slice 2 PRE-REGISTERED — building.**

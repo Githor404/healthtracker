@@ -141,6 +141,13 @@ try {
   Invoke-CDP 'Page.reload' $null | Out-Null
   Start-Sleep -Milliseconds 1500
 
+  # 4b. Prime the ZXing runtime cache while ONLINE (D15): loadZXing() fetches the
+  #     pinned CDN script; the SW caches it into healthtracker-runtime. This is the
+  #     ONLY scanner path on iOS Safari / Firefox, so it must survive offline.
+  $zxOnline = Eval "(window.HT&&HT.loadZXing?HT.loadZXing():Promise.reject()).then(function(){return typeof window.ZXing==='object'}).catch(function(){return false})" $true
+  $zxCached = Eval "caches.open('healthtracker-runtime').then(function(c){return c.keys()}).then(function(k){return k.length>0}).catch(function(){return false})" $true
+  Start-Sleep -Milliseconds 300
+
   # 5. cut the network for real (CDP), then reload — the SW must serve from cache
   Invoke-CDP 'Network.emulateNetworkConditions' @{ offline = $true; latency = 0; downloadThroughput = -1; uploadThroughput = -1 } | Out-Null
   Invoke-CDP 'Page.reload' $null | Out-Null
@@ -148,6 +155,11 @@ try {
 
   $raw = Eval "JSON.stringify({hrows: document.querySelectorAll('.hrow').length, seeded: document.body.innerHTML.indexOf('2026-07-08')>=0, badge: ((document.getElementById('storeBadge')||{}).textContent||'')})"
   $d = $raw | ConvertFrom-Json
+
+  # 6. ZXing must still load OFFLINE from healthtracker-runtime (D15): the fresh
+  #    offline page has no window.ZXing; loadZXing() injects the <script>, the SW
+  #    serves it from the runtime cache with the network cut, SRI re-validates.
+  $zxOffline = Eval "(window.HT&&HT.loadZXing?HT.loadZXing():Promise.reject()).then(function(){return typeof window.ZXing==='object'}).catch(function(){return false})" $true
 
   $hasHistory = $d.hrows -gt 0
   $hasSeeded = [bool]$d.seeded
@@ -158,10 +170,12 @@ try {
   Write-Host ("  history rendered offline (.hrow rows):  {0} ({1})" -f $hasHistory, $d.hrows)
   Write-Host ("  seeded day present (2026-07-08):        {0}" -f $hasSeeded)
   Write-Host ("  app.js ran (badge):                     {0} ('{1}')" -f $appRan, $d.badge)
+  Write-Host ("  ZXing primed online + runtime-cached:   {0} / {1}" -f [bool]$zxOnline, [bool]$zxCached)
+  Write-Host ("  ZXing loads OFFLINE from cache (D15):    {0}" -f [bool]$zxOffline)
   Write-Host "-----------------------------------------"
 
-  if ($precached -and $hasHistory -and $hasSeeded -and $appRan) {
-    Write-Host "OFFLINE GATE: PASS (prod cache-first path served the shell with the network cut)"
+  if ($precached -and $hasHistory -and $hasSeeded -and $appRan -and $zxOffline) {
+    Write-Host "OFFLINE GATE: PASS (prod cache-first path served the shell + ZXing with the network cut)"
     Cleanup; exit 0
   }
   Write-Host "OFFLINE GATE: FAIL"

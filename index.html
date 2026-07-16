@@ -154,6 +154,10 @@
   .scanmuted{color:var(--muted);font-size:12px}
   .linklike{background:none;border:none;color:var(--accent);font-weight:700;font-size:13px;padding:8px 0 0;width:auto;cursor:pointer}
   .scanmsg{margin-top:8px}
+  .scancam{margin-top:10px}
+  .scanvidwrap{position:relative;border-radius:12px;overflow:hidden;background:#000}
+  .scanvidwrap video{width:100%;max-height:300px;object-fit:cover;display:block}
+  .scanreticle{position:absolute;left:10%;right:10%;top:50%;height:64px;transform:translateY(-50%);border:2px solid var(--accent);border-radius:8px;opacity:.75;pointer-events:none}
 </style>
 </head>
 <body>
@@ -212,13 +216,19 @@
 
     <div class="card">
       <details open id="scanDetails">
-        <summary>Barcode lookup</summary>
+        <summary>Scan or enter a barcode</summary>
         <div class="row" style="margin-top:10px;align-items:flex-end">
           <div style="flex:3"><label>Barcode (8-14 digits)</label><input id="scanBarcode" inputmode="numeric" placeholder="e.g. 3017620422003"></div>
           <div style="flex:1"><button class="btn primary" style="width:100%" onclick="doBarcodeLookup()">Look up</button></div>
         </div>
+        <button id="scanOpenBtn" class="btn" style="width:100%;margin-top:8px;display:none" onclick="startScan()">📷 Scan with camera</button>
+        <div id="scanCamera" class="scancam" style="display:none">
+          <div class="scanvidwrap"><video id="scanVideo" playsinline muted autoplay></video><div class="scanreticle"></div></div>
+          <button class="btn" style="width:100%;margin-top:8px" onclick="cancelScan()">Cancel</button>
+        </div>
+        <div id="scanCamMsg"></div>
         <div id="scanResult"></div>
-        <div class="note">Looks up OpenFoodFacts, cache-first. Camera scanning arrives in the next update — enter or paste a barcode for now. Nutrition is community data — verify it against the package label.</div>
+        <div class="note">Point the camera at a product barcode, or type it in. Looks up OpenFoodFacts, cache-first. Nutrition is community data — verify it against the package label.</div>
       </details>
     </div>
 

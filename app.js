@@ -1234,6 +1234,207 @@ function prefillManual(bc) {
   toast('Barcode ' + bc + ' — add the product manually');
 }
 
+// ---- camera scanner: two-tier detection + ZXing fallback (D15) -------------
+// Pure decision logic below is committed (CAM cases); the live getUserMedia /
+// detection flow is on-device attested (A1-A7). iOS Safari + Firefox have no
+// BarcodeDetector -> ZXing is their ONLY scanner, so it is runtime-cached (D6
+// amendment, sw.js). ZXING is the single source of truth for version/url/hash;
+// tests/check-zxing.sh fails on a stale SRI hash.
+const ZXING = {
+  version: '0.23.0',
+  url: 'https://cdn.jsdelivr.net/npm/@zxing/library@0.23.0/umd/index.min.js',
+  integrity: 'sha384-0ASr5PEWAMtTnWsn0PzKmioHVDA4+QqFiJr94io/0DCrGP6E1gRAmbO6O8y5WZW9',
+  global: 'ZXing',
+};
+const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'itf'];   // retail 1D, no 2D
+const SCAN_DEBOUNCE_MS = 1500;
+
+// Pure: precondition -> which path to offer. Only 'ok' renders the Scan button.
+function cameraPrecondition(env) {
+  env = env || {};
+  const secure = ('secureContext' in env) ? env.secureContext
+    : (typeof window !== 'undefined' && window.isSecureContext);
+  const hasGUM = ('hasGetUserMedia' in env) ? env.hasGetUserMedia
+    : !!(typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  if (!secure) return 'insecure';
+  if (!hasGUM) return 'unsupported';
+  return 'ok';
+}
+// Pure: native BarcodeDetector if present, else the ZXing fallback.
+function detectorTier(env) {
+  env = env || {};
+  const has = ('hasBarcodeDetector' in env) ? env.hasBarcodeDetector
+    : (typeof window !== 'undefined' && 'BarcodeDetector' in window);
+  return has ? 'native' : 'zxing';
+}
+// Pure: err.name -> message. EVERY message ends in the literal manual escape
+// hatch (the manual field is visible in the same card — D15 ruling).
+function cameraErrorMessage(err) {
+  const tail = ' — enter the barcode by hand below.';
+  switch ((err && err.name) || '') {
+    case 'NotAllowedError': case 'PermissionDeniedError':
+      return 'Camera permission denied — enable it in your browser settings, or enter the barcode by hand below.';
+    case 'NotFoundError': case 'DevicesNotFoundError': case 'OverconstrainedError': case 'ConstraintNotSatisfiedError':
+      return 'No camera found' + tail;
+    case 'NotReadableError': case 'TrackStartError':
+      return 'The camera is in use by another app — close it and retry, or enter the barcode by hand below.';
+    case 'SecurityError':
+      return 'Camera blocked on an insecure page' + tail;
+    case 'TypeError':
+      return "This browser can't open the camera here" + tail;
+    default:
+      return 'Could not open the camera' + tail;
+  }
+}
+// Pure: desired formats intersected with what the detector supports.
+function intersectFormats(desired, supported) {
+  const sup = supported || [];
+  return desired.filter((f) => sup.indexOf(f) >= 0);
+}
+// Pure (injected clock): time-based ~1.5 s debounce. Guards the detection burst
+// before teardown; a successful scan auto-stops the camera anyway.
+function scanGate(state, code, nowMs) {
+  state = state || { until: 0 };
+  if (nowMs < state.until) return { accept: false, state: state };
+  return { accept: true, state: { until: nowMs + SCAN_DEBOUNCE_MS } };
+}
+// Idempotent teardown: safe to call twice. Stops tracks, cancels loops/timers,
+// resets the ZXing reader, detaches the stream.
+function stopScanner(session) {
+  if (!session) return;
+  if (session.raf) { try { cancelAnimationFrame(session.raf); } catch (e) {} session.raf = 0; }
+  if (session.timer) { clearTimeout(session.timer); session.timer = 0; }
+  if (session.reader && session.reader.reset) { try { session.reader.reset(); } catch (e) {} }
+  session.reader = null;
+  if (session.stream) { try { session.stream.getTracks().forEach((t) => t.stop()); } catch (e) {} session.stream = null; }
+  if (session.video) { try { session.video.srcObject = null; } catch (e) {} }
+  session.active = false;
+}
+
+// Lazy-load ZXing from the pinned CDN with SRI + CORS (D15). 100 ms poll / ~6 s
+// timeout (scanner spec). Exposed as a seam so the offline gate can prime the
+// runtime cache without a camera. Cached in healthtracker-runtime by the SW.
+let _zxingPromise = null;
+function loadZXing() {
+  if (typeof window !== 'undefined' && window.ZXing) return Promise.resolve(window.ZXing);
+  if (_zxingPromise) return _zxingPromise;
+  _zxingPromise = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = ZXING.url; s.crossOrigin = 'anonymous'; s.integrity = ZXING.integrity; s.async = true;
+    let waited = 0;
+    const poll = setInterval(() => {
+      if (window.ZXing) { clearInterval(poll); resolve(window.ZXing); }
+      else if ((waited += 100) >= 6000) { clearInterval(poll); _zxingPromise = null; reject(new Error('ZXing load timeout')); }
+    }, 100);
+    s.onerror = () => { clearInterval(poll); _zxingPromise = null; reject(new Error('ZXing load failed (integrity/network)')); };
+    document.head.appendChild(s);
+  });
+  return _zxingPromise;
+}
+
+let SCAN_SESSION = null;
+const scanConstraints = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } } };
+
+// A valid detection: debounce -> digit hygiene -> vibrate -> auto-stop -> lookup.
+function onScanCode(session, raw) {
+  const g = scanGate(session.gate, String(raw), Date.now());
+  session.gate = g.state;
+  if (!g.accept) return;
+  const code = String(raw).trim();
+  if (!/^\d{8,14}$/.test(code)) return;                 // hygiene (Slice-1 guard shape)
+  try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) {}
+  stopScanner(session); showScanView(false);
+  const box = document.getElementById('scanBarcode'); if (box) box.value = code;
+  lookupBarcode(code).then(applyLookup);
+}
+
+function runNativeDetect(session, video) {
+  const start = (formats) => {
+    let det;
+    try { det = new window.BarcodeDetector({ formats: formats.length ? formats : SCAN_FORMATS }); }
+    catch (e) { renderScanCamMessage(cameraErrorMessage(e)); stopScanner(session); showScanView(false); return; }
+    const tick = () => {
+      if (!session.active) return;
+      if (video.readyState >= 2) {                       // readyState-gated (HAVE_CURRENT_DATA)
+        det.detect(video).then((codes) => {
+          if (codes && codes.length && codes[0].rawValue) onScanCode(session, codes[0].rawValue);
+        }).catch(() => {});
+      }
+      session.raf = requestAnimationFrame(tick);
+    };
+    session.raf = requestAnimationFrame(tick);
+  };
+  (window.BarcodeDetector.getSupportedFormats
+    ? window.BarcodeDetector.getSupportedFormats().then((sup) => intersectFormats(SCAN_FORMATS, sup)).catch(() => SCAN_FORMATS)
+    : Promise.resolve(SCAN_FORMATS)
+  ).then(start);
+}
+
+function runZxingDetect(session, video) {
+  loadZXing().then((ZX) => {
+    if (!session.active) return;
+    const hints = new Map();
+    try {
+      hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [
+        ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8, ZX.BarcodeFormat.UPC_A,
+        ZX.BarcodeFormat.UPC_E, ZX.BarcodeFormat.CODE_128, ZX.BarcodeFormat.ITF,
+      ]);
+    } catch (e) {}
+    const reader = new ZX.BrowserMultiFormatReader(hints);
+    session.reader = reader;
+    reader.decodeFromConstraints(scanConstraints, video, (result, err) => {
+      if (result && result.text) onScanCode(session, result.text);
+    }).catch((e) => { renderScanCamMessage(cameraErrorMessage(e)); stopScanner(session); showScanView(false); });
+  }).catch(() => {
+    renderScanCamMessage('Barcode scanner failed to load — enter the barcode by hand below.');
+    stopScanner(session); showScanView(false);
+  });
+}
+
+// Live camera flow (attested A1-A7). Native tier owns the stream; the ZXing tier
+// lets ZXing acquire it via decodeFromConstraints (single stream per tier).
+function startScan() {
+  const pc = cameraPrecondition();
+  if (pc !== 'ok') {
+    renderScanCamMessage(pc === 'insecure'
+      ? 'Camera needs a secure (https) connection — enter the barcode by hand below.'
+      : "This browser doesn't support camera capture — enter the barcode by hand below.");
+    return;
+  }
+  renderScanCamMessage('');
+  showScanView(true);
+  const video = document.getElementById('scanVideo');
+  const session = { active: true, gate: { until: 0 } };
+  SCAN_SESSION = session;
+  session.video = video;
+  if (detectorTier() === 'zxing') { runZxingDetect(session, video); return; }
+  navigator.mediaDevices.getUserMedia(scanConstraints).then((stream) => {
+    if (!session.active) { stream.getTracks().forEach((t) => t.stop()); return; }
+    session.stream = stream; video.srcObject = stream;
+    const p = video.play(); if (p && p.catch) p.catch(() => {});
+    runNativeDetect(session, video);
+  }).catch((e) => { stopScanner(session); showScanView(false); renderScanCamMessage(cameraErrorMessage(e)); });
+}
+function cancelScan() { stopScanner(SCAN_SESSION); showScanView(false); }
+
+function showScanView(on) {
+  const v = document.getElementById('scanCamera');
+  if (v) v.style.display = on ? 'block' : 'none';
+  const btn = document.getElementById('scanOpenBtn');
+  if (btn) btn.style.display = on ? 'none' : '';
+}
+function renderScanCamMessage(msg) {
+  const el = document.getElementById('scanCamMsg');
+  if (el) el.innerHTML = msg ? `<div class="warn" style="padding:6px 0">${esc(msg)}</div>` : '';
+}
+// Render the Scan button only when the camera is actually usable (precondition
+// ok). Otherwise the manual field is the whole card — the escape hatch is default.
+function renderScanButton() {
+  const host = document.getElementById('scanOpenBtn');
+  if (!host) return;
+  host.style.display = (cameraPrecondition() === 'ok') ? '' : 'none';
+}
+
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
 // One micro component, shared by the manual-add and supplement forms (D12).
 // Fields are id'd `<prefix><canonical key>`; generation and read-back use the
@@ -1487,7 +1688,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 function main() {
   boot();
@@ -1513,6 +1714,10 @@ window.HT = {
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
   buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode,
   guardBarcode, offURL, OFF_UA, APP_VERSION, PRODUCT_CACHE_VERSION,
+  // Phase 2 Slice 2 — camera scanner + ZXing (D15)
+  cameraPrecondition, detectorTier, cameraErrorMessage, intersectFormats,
+  scanGate, stopScanner, loadZXing, startScan, cancelScan,
+  ZXING, SCAN_FORMATS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

@@ -686,6 +686,43 @@ window.setLS({});
   res(u.indexOf('app_name=HealthTracker')>=0 && u.indexOf('app_version=0.2.0')>=0, 'OF18: offURL carries app identification params');
   res(HT.OFF_UA==='HealthTracker/0.2.0 (https://github.com/Githor404/healthtracker)', 'OF18: OFF_UA is the ruled identifier string');
 
+  // ===== Phase 2 Slice 2: camera scanner pure logic (D15) =====
+  // CAM1: err.name -> message; EVERY message ends in the literal manual escape hatch
+  var hatch = 'by hand below.';
+  [['NotAllowedError','permission denied'],['NotFoundError','No camera'],['OverconstrainedError','No camera'],
+   ['NotReadableError','in use'],['SecurityError','insecure'],['TypeError',"can't open"],
+   ['AbortError','Could not'],['WeirdUnknownError','Could not']].forEach(function(p){
+    var m = HT.cameraErrorMessage({ name:p[0] });
+    res(m.indexOf(p[1])>=0 && m.slice(-hatch.length)===hatch, 'CAM1: '+p[0]+' -> message + manual escape hatch');
+  });
+  // CAM2: precondition classifier (gates the Scan button)
+  res(HT.cameraPrecondition({secureContext:true, hasGetUserMedia:true})==='ok', 'CAM2: secure + getUserMedia -> ok');
+  res(HT.cameraPrecondition({secureContext:false, hasGetUserMedia:true})==='insecure', 'CAM2: insecure context');
+  res(HT.cameraPrecondition({secureContext:true, hasGetUserMedia:false})==='unsupported', 'CAM2: no getUserMedia');
+  // CAM3: format intersection (retail 1D ∩ supported)
+  res(HT.intersectFormats(['ean_13','ean_8','upc_a'],['ean_13','qr_code','upc_a']).join(',')==='ean_13,upc_a', 'CAM3: desired ∩ supported');
+  res(HT.intersectFormats(['ean_13'],[]).length===0, 'CAM3: empty supported -> empty');
+  // CAM4: debounce with injected clock
+  var g1 = HT.scanGate({until:0}, '3017620422003', 1000);
+  res(g1.accept===true && g1.state.until===2500, 'CAM4: first detection accepted (until = now + 1500)');
+  res(HT.scanGate(g1.state, '3017620422003', 2000).accept===false, 'CAM4: second within 1.5s rejected');
+  res(HT.scanGate(g1.state, '3017620422003', 2600).accept===true, 'CAM4: after 1.5s accepted');
+  // CAM5: detected code -> guard (reuses the Slice-1 8-14 digit hygiene)
+  res(HT.guardBarcode('3017620422003')===null && HT.guardBarcode('123')!==null && HT.guardBarcode('12a45678')!==null, 'CAM5: detected-code guard (valid vs short/non-numeric)');
+  // CAM6: stopScanner idempotent - tracks stopped, safe to call twice
+  var stopped = 0;
+  var fakeSession = { active:true, raf:0, video:{}, reader:{ reset:function(){} },
+    stream:{ getTracks:function(){ return [{ stop:function(){ stopped++; } }]; } } };
+  HT.stopScanner(fakeSession);
+  res(stopped===1 && fakeSession.active===false && fakeSession.stream===null, 'CAM6: stopScanner stops tracks + clears state');
+  var threw = false; try { HT.stopScanner(fakeSession); } catch(e){ threw = true; }
+  res(!threw, 'CAM6: stopScanner idempotent (second call no throw)');
+  // CAM7: detector tier
+  res(HT.detectorTier({hasBarcodeDetector:true})==='native' && HT.detectorTier({hasBarcodeDetector:false})==='zxing', 'CAM7: detectorTier native/zxing');
+  // CAMZ: ZXing single source of truth
+  res(HT.ZXING.url.indexOf('@zxing/library@'+HT.ZXING.version+'/')>=0, 'CAMZ: ZXING.url pins ZXING.version');
+  res(HT.ZXING.integrity.indexOf('sha384-')===0 && HT.ZXING.global==='ZXing', 'CAMZ: ZXING integrity sha384 + global ZXing');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

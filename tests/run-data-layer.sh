@@ -28,6 +28,14 @@ if ! bash "$DIR/check-sw-hash.sh" >/dev/null 2>&1; then
 fi
 echo "sw-hash check: sw.js cache name tracks the shell"
 
+# ZXing sourcing drift (D15): the ZXING single-SoT constant's SRI hash must match
+# the pinned CDN file (online), and version/host stay consistent (offline). A
+# stale hash is a silent "scanner won't load" -- same class as the SW-hash trap.
+if ! bash "$DIR/check-zxing.sh"; then
+  echo "ZXING CHECK: FAIL"
+  exit 1
+fi
+
 # Convert the POSIX path to a file:// URL Chrome understands on Windows.
 if command -v cygpath >/dev/null 2>&1; then
   URL="file:///$(cygpath -m "$HTML")"

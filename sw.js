@@ -9,9 +9,17 @@
 // Any shell change flips the hash -> new sw.js bytes -> the browser installs a
 // new SW -> new cache -> the "update ready" hint can fire. No serve-time build;
 // sw.js's own edits are self-detecting (its bytes change directly).
-const SHELL_HASH = '0f7e1335def5';
+const SHELL_HASH = 'b3c0f80046e4';
 const SHELL_PREFIX = 'healthtracker-shell-';
 const SHELL_CACHE = SHELL_PREFIX + SHELL_HASH;
+
+// D15: the ZXing UMD (the app's one third-party runtime dep) is cache-first in a
+// SEPARATE runtime cache. Matched by HOST (+ @zxing path), NOT the pinned version
+// -> a ZXing version bump needs no SW edit. Amendment A shields this cache from
+// shell cleanup. The <script> is crossorigin=anonymous (SRI), so the response is
+// CORS (non-opaque): cacheable AND SRI-re-verifiable on every offline load.
+const RUNTIME_CACHE = 'healthtracker-runtime';
+const ZXING_HOST = 'cdn.jsdelivr.net';
 
 // Relative paths so scope works at a GitHub Pages subpath AND at localhost root.
 // Every entry is gate-checked by tests/check-precache.sh — a 404 here rejects
@@ -53,8 +61,23 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;                     // never cache writes
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return;      // cross-origin passthrough
-                                                        //   (Phase-2 ZXing runtime cache hooks here)
+
+  // D15: ZXing UMD -> cache-first in the runtime cache (offline scanning for
+  // BarcodeDetector-less browsers: iOS Safari, Firefox). Host-matched, version-
+  // agnostic. Only cache successful CORS responses.
+  if (url.hostname === ZXING_HOST && url.pathname.indexOf('@zxing/') >= 0) {
+    event.respondWith(
+      caches.open(RUNTIME_CACHE).then((cache) =>
+        cache.match(req).then((hit) => hit || fetch(req).then((res) => {
+          if (res && res.ok) cache.put(req, res.clone());
+          return res;
+        }))
+      )
+    );
+    return;
+  }
+
+  if (url.origin !== self.location.origin) return;      // other cross-origin passthrough
 
   // Navigations resolve to the shell's index regardless of query string, so
   // '/', '/index.html' and '/?prod=1' all load offline.
