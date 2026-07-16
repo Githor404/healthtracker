@@ -252,3 +252,17 @@ Prompted by a real on-device event: **DuckDuckGo on iOS granted the camera then 
 - **Capability guidance, not a blocklist.** One about/README line: *on iOS, use Safari or Add to Home Screen for reliable offline use and camera scanning.* Guidance the user acts on — not detection, not a gate.
 
 Committed evidence: `requestPersistentStorage()` **never throws** even where `navigator.storage` is absent (the boot-safety contract), asserted in the harness. Its own single-purpose commit (boot + about-line), separate from Slice 3.
+
+## D17 — Strategic positioning: free public good, optionality preserved (2026-07-16)
+
+A governance decision, not an implementation contract — it **binds future rulings** (Phase 4 especially), so it lives here with the rest.
+
+**HealthTracker is a free, MIT, local-only public good.** It is positioned as a **consulting-credibility and lead-generation asset** — a portfolio-grade reference implementation that demonstrates the author's engineering judgment (the honesty rules, truthful badges, gated evidence, local-first sovereignty) — **not a product business.** The architecture already reflects this: no backend, no accounts, no telemetry, export-is-yours, forkable core. Those choices strip the conventional monetization levers and moats *by design*, and that is accepted, because the trust story **is** the asset.
+
+**Monetization is NOT pursued now, but optionality is deliberately preserved.** Preserving the option — and never spending it prematurely — means three standing rules:
+
+- **(a) Copyright ownership stays clear.** Solo-authored, or a **CLA/DCO in place before accepting any outside contribution.** A future dual-license or commercial path is only possible if provenance is unambiguous; a single un-tracked outside patch can foreclose it. This is the cheapest option to keep open and the most expensive to recover, so it is kept open from the start.
+- **(b) No server / accounts / telemetry scaffolding is added speculatively.** The trust story is the *current* asset; it must never be compromised for a *hypothetical* future. Building backend hooks "in case we monetize later" spends the asset now for a maybe — forbidden. If a commercial layer is ever built, it is built then, deliberately, not scaffolded ahead.
+- **(c) Any future commercial path is drawn LATER, against the finished clean core.** Open-core (a paid optional server tier — sync / backup / hosted vision), B2B white-label customization, or dual-licensing are all **still available later** and lose nothing by the app staying local now. The clean local core is the best possible substrate to draw that line against; drawing it early only constrains the core.
+
+**Phase 4 consequence (binding):** the Phase-4 candidates build **local / bring-your-own** — BYOK in-app AI vision uses the user's own key/compute (no hosted inference), nearby prices read the community Open Prices API (no proprietary aggregation server). The open-core line is **deferred, not pre-drawn.** Any proposal to add a server, an account, telemetry, or a hosted paid service is out of scope for the current roadmap and would require re-opening this decision explicitly.
