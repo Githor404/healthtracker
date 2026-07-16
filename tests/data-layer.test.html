@@ -557,6 +557,135 @@ window.setLS({});
   var onboardGone = document.getElementById('onboarding').innerHTML === '';
   res(onboardShown && logged && onboardGone, 'P2: first-run -> prompt-template ingest -> logged day (onboarding recedes)');
 
+  // ===== Phase 2 Slice 1: OFF lookup + micros mapping + portion + cache (D13, D14) =====
+  setLS({}); HT.boot();
+  var PC = HT.ProductCache; PC._reset();
+  function mkrec(bc){ return { barcode:bc, name:'p'+bc, per100:{kcal:1,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0}, cacheVersion:HT.PRODUCT_CACHE_VERSION }; }
+
+  // Synthetic OFF product: both sodium & salt, minerals + vitamins in grams (as OFF returns).
+  var offFull = { status:1, product:{
+    product_name:'Test Spread', brands:'BrandCo', quantity:'400 g',
+    serving_size:'15 g', serving_quantity:15,
+    nutriments:{
+      'energy-kcal_100g':539, 'proteins_100g':6.3, 'fat_100g':30.9, 'carbohydrates_100g':57.5, 'fiber_100g':3.4,
+      'sugars_100g':56.3, 'saturated-fat_100g':10.6,
+      'sodium_100g':0.0428, 'sodium_unit':'g', 'salt_100g':0.107, 'salt_unit':'g',
+      'calcium_100g':0.25, 'calcium_unit':'g', 'iron_100g':0.00003, 'iron_unit':'g',
+      'vitamin-c_100g':0.0264, 'vitamin-c_unit':'g', 'vitamin-a_100g':0.0002, 'vitamin-a_unit':'g'
+    }
+  }};
+  var rec = HT.mapOffProduct(offFull, '3017620422003');
+  // OF1: macros from _100g; serving + strings captured; stamps
+  res(rec.per100.kcal===539 && rec.per100.protein_g===6.3 && rec.per100.fat_g===30.9 && rec.per100.carb_g===57.5, 'OF1: macros mapped from _100g');
+  res(rec.serving_g===15 && rec.name==='Test Spread' && rec.brands==='BrandCo', 'OF1: serving + name/brands captured');
+  res(rec.cacheVersion===HT.PRODUCT_CACHE_VERSION && rec.barcode==='3017620422003', 'OF1: cacheVersion + barcode stamped');
+  // OF3: sodium prefers sodium_100g (single source, 42.8 mg — not double-counted with salt)
+  res(Math.abs(rec.micros.sodium_mg - 42.8) < 0.01, 'OF3: sodium from sodium_100g = 42.8 mg (no double count)', String(rec.micros.sodium_mg));
+  // OF4: unit conversions g->mg (x1000), g->ug (x1e6)
+  res(Math.abs(rec.micros.calcium_mg-250)<0.01 && Math.abs(rec.micros.iron_mg-0.03)<0.0001, 'OF4: minerals g->mg x1000');
+  res(Math.abs(rec.micros.vitamin_c_mg-26.4)<0.01 && Math.abs(rec.micros.vitamin_a_ug-200)<0.01, 'OF4: vitamin-c g->mg, vitamin-a g->ug x1e6');
+  // OF3: salt-only -> derive; both present -> sodium wins
+  res(Math.abs(HT.mapOffProduct({status:1,product:{product_name:'S',nutriments:{'salt_100g':0.107,'salt_unit':'g'}}},'1').micros.sodium_mg - 42.8) < 0.01, 'OF3: salt-only -> sodium derived (salt/2.5)');
+  res(Math.abs(HT.mapOffProduct({status:1,product:{product_name:'B',nutriments:{'sodium_100g':0.05,'sodium_unit':'g','salt_100g':999,'salt_unit':'g'}}},'1').micros.sodium_mg - 50) < 0.01, 'OF3: sodium present wins (salt ignored)');
+  // OF4: kJ->kcal fallback
+  res(Math.abs(HT.mapOffProduct({status:1,product:{product_name:'K',nutriments:{'energy_100g':2252}}},'1').per100.kcal - 2252/4.184) < 0.1, 'OF4: energy kJ->kcal fallback');
+
+  // OF2: absence != zero
+  res('iron_mg' in rec.micros && 'sugars_g' in rec.micros, 'OF2: (control) present micros mapped');
+  var recNoMicros = HT.mapOffProduct({status:1,product:{product_name:'Plain',nutriments:{'energy-kcal_100g':100,'proteins_100g':2}}}, '2');
+  res(!('micros' in recNoMicros), 'OF2: zero labeled micros -> micros omitted (not {}-of-zeros)');
+  var recNoIron = HT.mapOffProduct({status:1,product:{product_name:'Calc',nutriments:{'calcium_100g':0.1,'calcium_unit':'g'}}}, '3');
+  res(recNoIron.micros && !('iron_mg' in recNoIron.micros) && ('calcium_mg' in recNoIron.micros), 'OF2: no iron key -> no iron_mg (absence != zero)');
+
+  // OF7: portion scaling — macros AND micros by one factor
+  var per100 = HT.scalePortion(rec, 'per_100g', 100);
+  res(per100.kcal===539 && Math.abs(per100.micros.calcium_mg-250)<0.01, 'OF7: per_100g == base');
+  var perServ = HT.scalePortion(rec, 'per_serving', 0);
+  res(Math.abs(perServ.kcal-539*0.15)<0.01 && Math.abs(perServ.micros.calcium_mg-250*0.15)<0.01, 'OF7: per_serving scales macros+micros (serving/100)');
+  var perCustom = HT.scalePortion(rec, 'custom', 250);
+  res(Math.abs(perCustom.kcal-539*2.5)<0.01 && Math.abs(perCustom.micros.iron_mg-0.03*2.5)<0.0001, 'OF7: custom grams scales by g/100');
+  // OF8: absence stays absent under scaling
+  res(HT.scalePortion(recNoIron,'custom',250).micros && !('iron_mg' in HT.scalePortion(recNoIron,'custom',250).micros), 'OF8: scaling never introduces an absent micro');
+  // OF9: serving fallback + no NaN
+  res(recNoIron.serving_g===0 && HT.portionGrams(recNoIron,'per_serving',0)===100, 'OF9: no serving -> per_serving falls back to 100 g');
+  res(HT.portionGrams(rec,'custom',0)===0 && !isNaN(HT.scalePortion(rec,'custom',0).kcal), 'OF9: custom 0 g -> zero item, no NaN');
+  res(HT.guardBarcode('123')!==null && HT.guardBarcode('abcdefgh')!==null && HT.guardBarcode('3017620422003')===null, 'OF9: barcode guard (8-14 digits)');
+
+  // OF10: buildScanItem -> scan/measured/barcode/soluble present/only-present micros
+  var item = HT.buildScanItem(rec, 'custom', 250, 'lunch');
+  res(item.source==='scan' && item.confidence==='measured' && item.barcode==='3017620422003', 'OF10: scan item source/confidence/barcode');
+  res(item.meal==='lunch' && item.soluble_fiber_g===0 && Math.abs(item.kcal-539*2.5)<0.01, 'OF10: meal honored; soluble present (0); kcal scaled');
+  res(item.micros && Math.abs(item.micros.calcium_mg-625)<0.01 && !('zinc_mg' in item.micros), 'OF10: micros scaled + only-present (no absent zinc)');
+
+  // OF5: hostile string escaped at render; negatives clamped
+  var recH = HT.mapOffProduct({status:1,product:{product_name:'<img src=x onerror=alert(1)>',nutriments:{'energy-kcal_100g':-50,'iron_100g':-1,'iron_unit':'g'}}}, '80000001');
+  res(recH.per100.kcal===0 && recH.micros.iron_mg===0, 'OF5: negative kcal + micro clamped to 0');
+  setLS({}); HT.boot(); HT.logScanItem(recH, 'per_100g', 100, 'snack'); HT.refresh();
+  var dvHTML = document.getElementById('dayView').innerHTML;
+  res(dvHTML.indexOf('<img src=x')<0 && dvHTML.indexOf('&lt;img')>=0, 'OF5: hostile product name escaped in day view');
+
+  // OF6: unknown OFF keys ignored; missing nutriments -> valid record
+  res(HT.mapOffProduct({status:1,product:{product_name:'U',nutriments:{'energy-kcal_100g':100,'weirdnutrient_100g':42}}}, '9').per100.kcal===100 &&
+      !HT.mapOffProduct({status:1,product:{product_name:'U',nutriments:{'energy-kcal_100g':100,'weirdnutrient_100g':42}}}, '9').micros, 'OF6: unknown OFF keys ignored');
+  var recE = HT.mapOffProduct({status:1,product:{product_name:'Empty'}}, '90000002');
+  res(recE.per100.kcal===0 && recE.per100.protein_g===0 && !recE.micros && recE.name==='Empty', 'OF6: missing nutriments -> macros 0, micros omitted, name kept');
+
+  // OF11: cache round-trip + offline resolves from cache
+  setLS({}); HT.boot(); PC._reset();
+  PC.put(rec);
+  var got = PC.get('3017620422003');
+  res(got && got.per100.kcal===539 && !!got.fetchedAt, 'OF11: cache put -> get round-trip (fetchedAt stamped)');
+  res(PC.get('0000000000')===null, 'OF11: cache miss -> null');
+  var offlineHit = HT.finishLookup('3017620422003', { ok:false });
+  res(offlineHit.found===true && offlineHit.source==='cache', 'OF11: offline (ok:false) resolves from cache');
+
+  // OF12: own key, excluded from export; survives export + destructive restore
+  res(HT.keys.PRODUCTS_KEY==='healthtracker-products', 'OF12: product cache has its own key');
+  var expObj = JSON.parse(HT.exportJSON());
+  res(!('products' in expObj) && !('healthtracker-products' in expObj), 'OF12: export excludes the product cache');
+  res(PC.has('3017620422003'), 'OF12: cache survives export (independent of the log)');
+  window.__confirm = true;
+  HT.restore(JSON.stringify({ version:2, days:{}, current:'', settings:{}, priceLog:{} }));
+  res(PC.has('3017620422003'), 'OF12: destructive restore leaves the product cache intact');
+
+  // OF13: count-cap eviction (earliest evicted) + byte-ceiling eviction
+  PC._reset(); PC._setCaps(3, 1024*1024);
+  ['30000001','30000002','30000003','30000004'].forEach(function(b){ PC.put(mkrec(b)); });
+  res(PC.count()===3 && !PC.has('30000001') && PC.has('30000004'), 'OF13: count cap 3 -> earliest evicted, newest kept');
+  PC._reset(); PC._setCaps(500, 300);
+  ['40000001','40000002','40000003'].forEach(function(b){ PC.put(mkrec(b)); });
+  res(PC.count() < 3, 'OF13: byte ceiling forces eviction');
+  PC._reset();
+
+  // OF14: cache write failure is a benign no-op; storage badge NOT flipped
+  setLS({}); HT.boot(); PC._reset();
+  var badgeBefore = HT.Store.status().ok;
+  HT.Store.forceWriteFailure(true);
+  var putRes = PC.put(mkrec('50000001'));
+  var badgeAfter = HT.Store.status().ok;
+  HT.Store.forceWriteFailure(false);
+  res(putRes===false && badgeBefore===true && badgeAfter===true, 'OF14: cache write failure benign (put false, badge ok)');
+
+  // OF15: stale cacheVersion treated as a miss (re-fetch)
+  setLS({}); HT.boot(); PC._reset();
+  PC.put(mkrec('60000001'));
+  var mp = JSON.parse(window.__ls._get('healthtracker-products'));
+  mp['60000001'].cacheVersion = 999; window.__ls.setItem('healthtracker-products', JSON.stringify(mp));
+  res(PC.get('60000001')===null, 'OF15: cacheVersion mismatch -> miss (re-fetch)');
+  PC._reset();
+
+  // OF16 / OF17: degradation keeps the barcode
+  var miss = HT.finishLookup('70000001', { ok:true, json:{ status:0 } });
+  res(miss.found===false && miss.barcode==='70000001' && miss.source==='missing', 'OF16: unknown barcode degrades, code kept');
+  var offNoCache = HT.finishLookup('70000002', { ok:false });
+  res(offNoCache.found===false && offNoCache.offline===true && offNoCache.barcode==='70000002', 'OF17: offline no-cache degrades, code kept');
+
+  // OF18: identifier transport
+  var u = HT.offURL('3017620422003');
+  res(u.indexOf('/api/v2/product/3017620422003.json')>=0 && u.indexOf('fields=')>=0, 'OF18: offURL endpoint + fields');
+  res(u.indexOf('app_name=HealthTracker')>=0 && u.indexOf('app_version=0.2.0')>=0, 'OF18: offURL carries app identification params');
+  res(HT.OFF_UA==='HealthTracker/0.2.0 (https://github.com/Githor404/healthtracker)', 'OF18: OFF_UA is the ruled identifier string');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

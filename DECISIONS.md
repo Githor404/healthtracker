@@ -172,3 +172,50 @@ The supplement is a single user setting (`settings.supplement = {enabled, name, 
 **Micros — one component, two forms.** The supplement form is a human reading a supplement label (manual attestation, D8), so `nutrients` may carry micros (where a real stack's vitamin D / B12 live). The existing micro component is generalized — `renderMicroFields(hostId, prefix, countId)` / `readMicroFields(prefix)` — and mounted in both the manual-add form and the supplement form: same `MICRO_SPEC`, units, sane-range warnings, and no-cross-wiring guarantee. **No second micro form.**
 
 **Restore hardening:** `normalizeSupplement` coerces + clamps the `nutrients` map (macros and micros, ≥ 0) at the restore boundary, so a hostile paste can't seed negative/huge config values; the form's displayed values are escaped. (The built item was already clamped; this protects the stored config and its display — a surface that was previously passthrough.)
+
+## D13 — Product cache: capped localStorage key, disposable mirror (2026-07-16)
+
+Phase 2 Slice 1. The OFF product cache (barcode → product + nutriments + fetched-at) was deferred from Phase 0 to be decided with Phase 2's needs in view. **Ruled: a capped localStorage key, not IndexedDB.**
+
+- **Storage:** a single dedicated key `healthtracker-products`, a JSON map `{ <barcode>: <record> }`, read/written through the **existing D1 `Store` adapter** (localStorage → memory tier, same probe). No second storage subsystem, no async — the cache stays **synchronously testable** by the committed harness. IndexedDB is the **Phase-4 escalation only**, if product volume ever outgrows the localStorage budget.
+- **Nature: a disposable, rebuildable mirror — not user data.** Losing it costs a re-fetch, never data. Three consequences follow:
+  1. **Excluded from export/import.** Export serializes the log only (D5); the product cache is machinery like `-prerestore`/`-premigration` — never exported, never restored, never merged by ingest. A round-trip neither reads nor writes it.
+  2. **A cache write failure is a benign no-op, NOT a badge event.** The truthful badge (D1) speaks for *your log*; a failed cache put (memory mode / quota) just means the next lookup re-fetches. The lookup still returns the freshly-mapped record from the in-flight fetch. Cache failure never flips the storage badge to a warning (distinct from a log-write failure, which does).
+  3. **In memory tier the cache simply doesn't persist** — every lookup is a fetch. Correct, not a bug (mirror, not truth).
+- **Entry shape: the *mapped* record, not raw OFF (ruled).** Each entry is the normalized per-100g product record `{ barcode, name, brands, quantity, serving_g, per100:{macros}, micros:{present canonical keys only}, fetchedAt, cacheVersion }` — the trust boundary (escape-safe strings, coerced+clamped numbers, absence≠zero micros) is crossed **once, at fetch time** (D14), so every rescan reads already-clean data. The rejected alternative (cache raw OFF, map on read) re-runs the boundary each read and can serve wrongly-shaped data after a mapper change.
+- **`cacheVersion` stamp:** each entry carries the mapper's schema version. On read, an entry whose `cacheVersion` ≠ current is treated as a **miss** (ignored, re-fetched, overwritten) — a mapper change can never serve stale-shaped cached data. Bump `cacheVersion` whenever `mapOffProduct`'s output shape changes.
+- **Eviction — LRU, cache yields first.** Count cap **500** products and a serialized byte ceiling **~512 KB** (well under the ~5 MB localStorage budget, leaving ample room for the log). Each entry records `lastAccess`; a `put` that would breach either cap evicts oldest-access first until it fits. The cache never grows unbounded and always yields storage to the log.
+- **Refresh — pure cache-first, no auto-TTL (ruled).** A cached product resolves without a network call (OFF's 15 req/min/IP courtesy, D14; nutriments rarely change). Staleness is handled by an **explicit, manual** "refresh from OpenFoodFacts" affordance — **never automatic**, never a background revalidate.
+- **Cache taxonomy — three distinct caches, do not conflate:** (1) `healthtracker-shell-<hash>` — SW Cache Storage, app shell (D6); (2) `healthtracker-runtime` — SW Cache Storage, ZXing UMD (later camera slice, D6 forward note); (3) `healthtracker-products` — **localStorage**, this cache. #3 is **not** a Cache Storage cache; the SW never touches it (D6: data lives in localStorage, which the SW never caches), so D6-Amendment-A shell cleanup can never evict it.
+
+## D14 — OpenFoodFacts integration: lookup, micros mapping, identifier transport (2026-07-16)
+
+Phase 2 Slice 1, the data-layer half of the scan path — **no camera** (getUserMedia is a later, on-device-attested slice). The pipeline is a DOM-free, synchronously-testable core (`mapOffProduct`, `scalePortion`, `buildScanItem`, `finishLookup`, `ProductCache`) behind a thin async fetch edge (`fetchOff`/`lookupBarcode`), triggered in this slice by the **manual barcode field** (the camera-free trigger from the scanner spec); the camera later wires into the same `lookupBarcode`.
+
+**Endpoint.** `GET https://world.openfoodfacts.org/api/v2/product/{barcode}.json?fields=product_name,brands,quantity,serving_size,serving_quantity,nutriments`. Barcode hygiene 8–14 digits before any request. Missing product / offline: keep the barcode, offer manual entry — **never lose the code**.
+
+**Identifier transport — the Forbidden-Header resolution (ruled).** `APP_VERSION = '0.2.0'`; identifier string `OFF_UA = 'HealthTracker/0.2.0 (https://github.com/Githor404/healthtracker)'` — repo URL as contact, **no personal email** (the UA reaches a third party on every request from every distributed user; per v4's privacy stance it names the app, never a person). A browser **cannot** set `User-Agent` (WHATWG Forbidden Header — `fetch()` silently drops it), which collides with the brief's "custom User-Agent on every request." Resolution: (i) pass OFF's own documented app-identification **query params** `&app_name=HealthTracker&app_version=0.2.0` on every request (browser-safe identification); (ii) set the `User-Agent` header **defensively** too (a no-op in browsers, correct if ever proxied/native). **Live verification 2026-07-16:** the product endpoint returns **HTTP 200** with those query params attached — confirmed. (OFF documents `app_name`/`app_version`/`app_uuid` for *write* ops; on reads they are benign and are the best identification a browser can send. `app_uuid` is deliberately omitted — a per-install UUID is a tracking identifier, contrary to the privacy stance.)
+
+**Rate limit — the real courtesy.** OFF read limit is **15 req/min/IP** for `GET /api/v*/product` (the `/search` endpoint is stricter — observed 503s under light use, so Slice 1 never uses search). Cache-first (D13) is how we honor it; there is no server to absorb bursts.
+
+**Micros mapping — units + absence≠zero (verified 2026-07-16 on live products).** OFF normalizes every nutriment `_100g` value to the **SI base unit (grams)**, reported in `<key>_unit`. The mapper is **unit-aware**: it converts from the reported `_unit` (g/mg/mcg/µg/kg → target), defaulting to grams when `_unit` is absent — so a factor is *derived*, never hardcoded, and a product that ever deviates still maps correctly. Verified factors:
+
+| Schema key | OFF nutriment | target | verified on real data |
+|---|---|---|---|
+| kcal | `energy-kcal_100g` (kcal); else `energy_100g` kJ ÷ 4.184 | kcal | Nutella 539, Coca-Cola 42 |
+| protein_g / fat_g / carb_g / fiber_g | `proteins_/fat_/carbohydrates_/fiber_100g` (g) | g ×1 | Nutella, Coca-Cola |
+| soluble_fiber_g | `soluble-fiber_100g` if present, else **0** | g ×1 | contract: always present |
+| **sodium_mg** | **prefer `sodium_100g`; else `salt_100g` ÷ 2.5** | mg | **Nutella: sodium 0.0428 g & salt 0.107 g (ratio 2.5) → both paths 42.8 mg, no double-count** |
+| potassium/calcium/iron/magnesium/zinc/cholesterol_mg | `*_100g` (g) | mg (×1000 from g) | calcium 0.267→267, iron 3e-5→0.03, K/Mg/Zn (mineral waters) |
+| vitamin_a_ug / vitamin_d_ug / vitamin_b12_ug / folate_ug | `vitamin-a_/vitamin-d_/vitamin-b12_/vitamin-b9_100g` (g) | µg (×1e6 from g) | **vitamin-a 0.0002 g → 200 µg (Ovomaltine)**; b9=folate |
+| vitamin_c_mg | `vitamin-c_100g` (g) | mg (×1000 from g) | **0.0264 g → 26.4 mg (Ovomaltine)** |
+| saturated_fat_g / sugars_g | `saturated-fat_/sugars_100g` (g) | g ×1 | Nutella 10.6 / 56.3 |
+
+- **Absence ≠ zero:** a micro enters the record **only** when OFF returns its key; a missing nutrient is **omitted**, never zero-filled. A product with zero mapped micros carries **no** `micros` key (not `{}`-of-zeros). Numbers are coerced + clamped ≥ 0; strings kept raw for escaped render (day-view escaping proven, G5/P1).
+- **The scanned item** is `source: scan`, `confidence: measured`, retains `barcode`, `soluble_fiber_g` always present, and only the present micros — logged via the honesty rule's labeled-source path. `buildScanItem` runs through `normalizeItem`, so it is contract-clean by construction.
+
+**Portion picker.** OFF per-100g is the base. Modes: **per 100 g** (×1), **per serving** (× `serving_quantity`/100; unavailable/omitted when `serving_quantity` is absent or ≤ 0 — no divide-by-zero), **custom grams** (× g/100). Macros **and** micros scale by the one factor together; an absent micro stays absent at every portion. Full precision stored; rounding is display-only (`rDisp`).
+
+**Cross-origin + SW.** OFF is cross-origin, so the D6 fetch handler passes it through untouched (no shell/runtime cache involvement). Slice 1 changes no SW logic; only `SHELL_HASH` re-stamps because `index.html`/`app.js` content changed.
+
+**Deferred to later Slice 2/3 (recorded so the split is explicit):** camera/getUserMedia + the `err.name` message matrix + BarcodeDetector/ZXing (Slice 2, on-device attested like the update bar); optional price+store capture and the personal comparison view (Slice 3). Open Prices / nearby prices stay Phase 3 under the deferred-verification rule.

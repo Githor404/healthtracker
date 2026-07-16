@@ -146,6 +146,14 @@
   .checkline input{width:auto}
   .about{font-size:11px;color:var(--muted);text-align:center;padding:16px 6px;line-height:1.6}
   .about a{color:var(--accent)}
+  .scanhead{margin:10px 0 4px;font-size:15px}
+  .scanbrand{color:var(--muted);font-size:12px;font-weight:400}
+  .scansrc{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:1px 6px;vertical-align:2px}
+  .scanmodes{margin:8px 0}
+  .scanmodes button:disabled{opacity:.4;cursor:default}
+  .scanmuted{color:var(--muted);font-size:12px}
+  .linklike{background:none;border:none;color:var(--accent);font-weight:700;font-size:13px;padding:8px 0 0;width:auto;cursor:pointer}
+  .scanmsg{margin-top:8px}
 </style>
 </head>
 <body>
@@ -200,6 +208,18 @@
       <h2>Averages</h2>
       <div id="averages"></div>
       <div class="note">Complete days only. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
+    </div>
+
+    <div class="card">
+      <details open id="scanDetails">
+        <summary>Barcode lookup</summary>
+        <div class="row" style="margin-top:10px;align-items:flex-end">
+          <div style="flex:3"><label>Barcode (8-14 digits)</label><input id="scanBarcode" inputmode="numeric" placeholder="e.g. 3017620422003"></div>
+          <div style="flex:1"><button class="btn primary" style="width:100%" onclick="doBarcodeLookup()">Look up</button></div>
+        </div>
+        <div id="scanResult"></div>
+        <div class="note">Looks up OpenFoodFacts, cache-first. Camera scanning arrives in the next update — enter or paste a barcode for now. Nutrition is community data — verify it against the package label.</div>
+      </details>
     </div>
 
     <div class="card">

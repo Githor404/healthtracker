@@ -19,6 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 2;
+const APP_VERSION      = '0.2.0';                           // D14: OFF User-Agent version token
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -125,6 +126,19 @@ const Store = (() => {
       return { tier: 'local', ok: true, message: '✓ saved in this browser' };
     },
     forceWriteFailure(on) { forceFail = !!on; },
+
+    // D13: auxiliary keys (the product cache) — persisted only on the local tier.
+    // A failure is a benign no-op and NEVER flips the log's badge (lastWriteOk):
+    // the cache is a disposable mirror, not user data. writeRaw already swallows
+    // errors -> false, and honors the forceFail test seam.
+    writeAux(key, value) {
+      if (tier !== 'local') return false;
+      return writeRaw(key, value);
+    },
+    removeAux(key) {
+      if (tier !== 'local') return;
+      try { localStorage.removeItem(key); } catch (e) {}
+    },
   };
 })();
 
@@ -913,6 +927,313 @@ function deletePreset(id) {
   Store.saveState(APP_STATE); refresh();
 }
 
+// ---- OpenFoodFacts lookup + micros mapping + product cache (D13, D14) ------
+// Data-layer half of the scan path: a DOM-free, synchronously-testable core
+// (mapOffProduct / scalePortion / buildScanItem / finishLookup / ProductCache)
+// behind a thin async fetch edge. Camera (getUserMedia) is a later slice; the
+// manual barcode field is this slice's camera-free trigger.
+const OFF_BASE   = 'https://world.openfoodfacts.org/api/v2/product/';
+const OFF_FIELDS = 'product_name,brands,quantity,serving_size,serving_quantity,nutriments';
+const OFF_UA     = 'HealthTracker/' + APP_VERSION + ' (https://github.com/Githor404/healthtracker)';
+
+const PRODUCTS_KEY          = 'healthtracker-products';   // D13: capped localStorage mirror
+const PRODUCT_CACHE_VERSION = 1;                          // bump when mapOffProduct's output shape changes
+
+// OFF normalizes every nutriment _100g to grams, reported in <key>_unit (verified
+// 2026-07-16). Convert from the REPORTED unit to the canonical target — the factor
+// is derived, never hardcoded — defaulting to grams when _unit is absent.
+function offUnitToG(u) {
+  u = String(u == null ? 'g' : u).trim().toLowerCase();
+  if (u === 'mg') return 1e-3;
+  if (u === 'ug' || u === 'mcg' || u.charCodeAt(0) === 0xb5) return 1e-6;   // ug / mcg / micro-sign (0xB5) g
+  if (u === 'kg') return 1e3;
+  return 1;   // g, or unknown -> grams (OFF's _100g normalization)
+}
+const G_TO_TARGET = { g: 1, mg: 1e3, ug: 1e6 };
+function offToTarget(value, srcUnit, targetUnit) {
+  return clampNonNeg(num(value) * offUnitToG(srcUnit) * (G_TO_TARGET[targetUnit] || 1));
+}
+
+// energy: prefer the kcal key; else convert kJ -> kcal.
+function offEnergyKcal(n) {
+  if (n['energy-kcal_100g'] != null) return clampNonNeg(n['energy-kcal_100g']);
+  if (n['energy_100g'] != null)      return clampNonNeg(num(n['energy_100g']) / 4.184);
+  return 0;
+}
+
+// OFF nutriment base -> canonical micro key + target unit. Sodium is special
+// (sodium OR salt-derived) and handled outside this table.
+const OFF_MICRO_MAP = [
+  { off: 'potassium',     key: 'potassium_mg',    unit: 'mg' },
+  { off: 'calcium',       key: 'calcium_mg',      unit: 'mg' },
+  { off: 'iron',          key: 'iron_mg',         unit: 'mg' },
+  { off: 'magnesium',     key: 'magnesium_mg',    unit: 'mg' },
+  { off: 'zinc',          key: 'zinc_mg',         unit: 'mg' },
+  { off: 'cholesterol',   key: 'cholesterol_mg',  unit: 'mg' },
+  { off: 'vitamin-a',     key: 'vitamin_a_ug',    unit: 'ug' },
+  { off: 'vitamin-c',     key: 'vitamin_c_mg',    unit: 'mg' },
+  { off: 'vitamin-d',     key: 'vitamin_d_ug',    unit: 'ug' },
+  { off: 'vitamin-b12',   key: 'vitamin_b12_ug',  unit: 'ug' },
+  { off: 'vitamin-b9',    key: 'folate_ug',       unit: 'ug' },   // OFF calls folate vitamin-b9
+  { off: 'saturated-fat', key: 'saturated_fat_g', unit: 'g'  },
+  { off: 'sugars',        key: 'sugars_g',        unit: 'g'  },
+];
+
+// Absence != zero: a micro is included ONLY when OFF returns its _100g key.
+function mapOffMicros(n) {
+  const micros = {};
+  if (n['sodium_100g'] != null && n['sodium_100g'] !== '')
+    micros.sodium_mg = offToTarget(n['sodium_100g'], n['sodium_unit'], 'mg');
+  else if (n['salt_100g'] != null && n['salt_100g'] !== '')
+    micros.sodium_mg = offToTarget(n['salt_100g'], n['salt_unit'], 'mg') / 2.5;   // salt -> sodium, single source
+  OFF_MICRO_MAP.forEach((m) => {
+    const v = n[m.off + '_100g'];
+    if (v != null && v !== '') micros[m.key] = offToTarget(v, n[m.off + '_unit'], m.unit);
+  });
+  return micros;
+}
+
+// OFF product JSON -> normalized per-100g record. Trust boundary crossed once
+// here: numbers coerced + clamped, strings kept raw (escaped at render), micros
+// absence-preserving. cacheVersion-stamped (D13).
+function mapOffProduct(json, barcode) {
+  const p = (json && json.product && typeof json.product === 'object') ? json.product : {};
+  const n = (p.nutriments && typeof p.nutriments === 'object' && !Array.isArray(p.nutriments)) ? p.nutriments : {};
+  const per100 = {
+    kcal:            offEnergyKcal(n),
+    protein_g:       clampNonNeg(n['proteins_100g']),
+    fat_g:           clampNonNeg(n['fat_100g']),
+    carb_g:          clampNonNeg(n['carbohydrates_100g']),
+    fiber_g:         clampNonNeg(n['fiber_100g']),
+    soluble_fiber_g: clampNonNeg(n['soluble-fiber_100g']),   // usually absent -> 0 (contract: always present)
+  };
+  const sq = num(p.serving_quantity);
+  const rec = {
+    barcode:      String(barcode == null ? '' : barcode),
+    name:         String(p.product_name == null ? '' : p.product_name),
+    brands:       String(p.brands == null ? '' : p.brands),
+    quantity:     String(p.quantity == null ? '' : p.quantity),
+    serving_size: String(p.serving_size == null ? '' : p.serving_size),
+    serving_g:    sq > 0 ? sq : 0,
+    per100:       per100,
+    cacheVersion: PRODUCT_CACHE_VERSION,
+  };
+  const micros = mapOffMicros(n);
+  if (Object.keys(micros).length) rec.micros = micros;   // absence -> omit the key entirely
+  return rec;
+}
+
+// Portion math: macros AND micros scale by the one factor; absent micros stay absent.
+function portionGrams(rec, mode, customGrams) {
+  if (mode === 'per_serving') return rec.serving_g > 0 ? rec.serving_g : 100;   // fallback if no serving
+  if (mode === 'custom')      return clampNonNeg(customGrams);
+  return 100;   // per_100g
+}
+function scalePortion(rec, mode, customGrams) {
+  const grams = portionGrams(rec, mode, customGrams);
+  const f = grams / 100;
+  const out = {
+    grams:           grams,
+    kcal:            rec.per100.kcal * f,
+    protein_g:       rec.per100.protein_g * f,
+    fat_g:           rec.per100.fat_g * f,
+    carb_g:          rec.per100.carb_g * f,
+    fiber_g:         rec.per100.fiber_g * f,
+    soluble_fiber_g: rec.per100.soluble_fiber_g * f,
+  };
+  if (rec.micros) {
+    const m = {};
+    Object.keys(rec.micros).forEach((k) => { m[k] = rec.micros[k] * f; });   // absent key never appears
+    out.micros = m;
+  }
+  return out;
+}
+
+// A scanned item is a labeled source (honesty rule): source 'scan', confidence
+// 'measured', barcode retained. Runs through normalizeItem -> contract-clean.
+function buildScanItem(rec, mode, customGrams, meal) {
+  const s = scalePortion(rec, mode, customGrams);
+  return normalizeItem({
+    name: rec.name || ('Product ' + rec.barcode),
+    meal: MEALS.indexOf(meal) >= 0 ? meal : 'snack',
+    time: nowTime(),
+    kcal: s.kcal, protein_g: s.protein_g, fat_g: s.fat_g, carb_g: s.carb_g,
+    fiber_g: s.fiber_g, soluble_fiber_g: s.soluble_fiber_g,
+    confidence: 'measured', source: 'scan', barcode: rec.barcode,
+    notes: 'scanned ' + rDisp(s.grams) + ' g',
+    micros: s.micros,
+  }, true);
+}
+function logScanItem(rec, mode, customGrams, meal) {
+  const item = buildScanItem(rec, mode, customGrams, meal);
+  const day = curDay(); if (!day) return { ok: false };
+  if (day.status === 'complete') day.status = 'in_progress';   // reopen (same rule as manual/ingest)
+  day.items.push(item);
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, item: item };
+}
+
+// Product cache: capped localStorage mirror, LRU, benign on write failure (D13).
+let _cacheMax = 500, _cacheBytes = 512 * 1024;   // overridable via ProductCache._setCaps (test seam)
+const ProductCache = (() => {
+  function readAll() {
+    const raw = Store.readRaw(PRODUCTS_KEY);
+    if (!raw) return {};
+    try { const o = JSON.parse(raw); return (o && typeof o === 'object' && !Array.isArray(o)) ? o : {}; }
+    catch (e) { return {}; }
+  }
+  function writeAll(map) { return Store.writeAux(PRODUCTS_KEY, JSON.stringify(map)); }   // false = benign no-op
+  function oldestKey(map) { return Object.keys(map).sort((a, b) => (map[a].lastAccess || 0) - (map[b].lastAccess || 0))[0]; }
+  function evict(map) {
+    while (Object.keys(map).length > _cacheMax) delete map[oldestKey(map)];
+    while (Object.keys(map).length > 1 && JSON.stringify(map).length > _cacheBytes) delete map[oldestKey(map)];
+  }
+  return {
+    get(barcode) {
+      const map = readAll();
+      const rec = map[barcode];
+      if (!rec || rec.cacheVersion !== PRODUCT_CACHE_VERSION) return null;   // miss on absent / stale shape
+      rec.lastAccess = Date.now();
+      map[barcode] = rec; writeAll(map);   // best-effort LRU bump (failure ignored)
+      return rec;
+    },
+    put(rec) {
+      if (!rec || !rec.barcode) return false;
+      const map = readAll();
+      rec.fetchedAt = rec.fetchedAt || new Date().toISOString();
+      rec.lastAccess = Date.now();
+      map[rec.barcode] = rec;
+      evict(map);
+      return writeAll(map);
+    },
+    has(barcode) { return Object.prototype.hasOwnProperty.call(readAll(), barcode); },
+    count() { return Object.keys(readAll()).length; },
+    _all: readAll,
+    _setCaps(max, bytes) { _cacheMax = max; _cacheBytes = bytes; },   // test seam
+    _reset() { _cacheMax = 500; _cacheBytes = 512 * 1024; Store.removeAux(PRODUCTS_KEY); },
+  };
+})();
+
+// Thin async fetch edge + a pure, synchronous decision core (finishLookup).
+function guardBarcode(bc) {
+  return /^\d{8,14}$/.test(bc) ? null : { found: false, barcode: bc, error: 'Enter an 8-14 digit barcode.' };
+}
+function offURL(barcode) {
+  return OFF_BASE + encodeURIComponent(barcode) + '.json?fields=' + encodeURIComponent(OFF_FIELDS) +
+    '&app_name=HealthTracker&app_version=' + encodeURIComponent(APP_VERSION);
+}
+function fetchOff(barcode) {
+  // Header set defensively — browsers drop User-Agent (Forbidden Header); the
+  // app_name/app_version query params (offURL) are the browser-safe identity (D14).
+  return fetch(offURL(barcode), { headers: { 'User-Agent': OFF_UA } })
+    .then((res) => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); });
+}
+// Pure, synchronous decision from a settled fetch outcome — the tested unit.
+// outcome = { ok:true, json } | { ok:false } (network failure / offline).
+function finishLookup(bc, outcome) {
+  if (!outcome || !outcome.ok) {
+    const cached = ProductCache.get(bc);
+    return cached ? { found: true, record: cached, barcode: bc, source: 'cache' }
+      : { found: false, barcode: bc, offline: true, error: 'Offline - barcode kept; add it manually or retry.' };
+  }
+  const json = outcome.json;
+  if (!json || json.status === 0 || !json.product)
+    return { found: false, barcode: bc, source: 'missing', error: 'Product not found - barcode kept; add it manually.' };
+  const rec = mapOffProduct(json, bc);
+  ProductCache.put(rec);
+  return { found: true, record: rec, barcode: bc, source: 'network' };
+}
+// Async orchestrator (thin): guard -> cache-first -> fetch -> finishLookup.
+function lookupBarcode(barcode, opts) {
+  opts = opts || {};
+  const bc = String(barcode == null ? '' : barcode).trim();
+  const bad = guardBarcode(bc); if (bad) return Promise.resolve(bad);
+  if (!opts.refresh) { const c = ProductCache.get(bc); if (c) return Promise.resolve({ found: true, record: c, barcode: bc, source: 'cache' }); }
+  const fetcher = opts.fetchImpl || fetchOff;
+  return Promise.resolve().then(() => fetcher(bc))
+    .then((json) => finishLookup(bc, { ok: true, json: json }))
+    .catch(() => finishLookup(bc, { ok: false }));
+}
+
+// ---- scan DOM (barcode lookup, portion picker, add) -----------------------
+let SCAN = null;   // transient UI state: { record, mode, grams, meal, source }
+
+function doBarcodeLookup(isRefresh) {
+  const box = document.getElementById('scanBarcode');
+  const bc = box ? box.value.trim() : '';
+  const host = document.getElementById('scanResult');
+  if (host) host.innerHTML = `<div class="note" style="margin-top:8px">Looking up ${esc(bc)}…</div>`;
+  lookupBarcode(bc, { refresh: !!isRefresh }).then(applyLookup);
+}
+function applyLookup(res) {
+  if (!res.found) { SCAN = null; renderScanMessage(res); return; }
+  SCAN = { record: res.record, mode: res.record.serving_g > 0 ? 'per_serving' : 'per_100g', grams: 100, meal: 'snack', source: res.source };
+  renderScan();
+}
+function scanSummaryHTML(s) {
+  let h = `<div class="sumrow"><span>at ${esc(rDisp(s.grams))} g</span><span><b>${esc(rDisp(s.kcal))}</b> kcal</span></div>` +
+    `<div class="sumrow"><span>P / F / C</span><span>${esc(rDisp(s.protein_g))} / ${esc(rDisp(s.fat_g))} / ${esc(rDisp(s.carb_g))} g</span></div>` +
+    `<div class="sumrow"><span>fiber</span><span>${esc(rDisp(s.fiber_g))} g (${esc(rDisp(s.soluble_fiber_g))} sol)</span></div>`;
+  if (s.micros) {
+    Object.keys(s.micros).forEach((k) => {
+      const spec = MICRO_LABEL[k];
+      h += `<div class="sumrow"><span>${esc(spec ? spec.label : k)}</span><span>${esc(rDisp(s.micros[k]))} ${esc(spec ? spec.unit : '')}</span></div>`;
+    });
+  } else {
+    h += `<div class="sumrow"><span class="scanmuted">no labeled micronutrients on this product</span></div>`;
+  }
+  return h;
+}
+function renderScan() {
+  const host = document.getElementById('scanResult'); if (!host) return;
+  if (!SCAN) { host.innerHTML = ''; return; }
+  const rec = SCAN.record, s = scalePortion(rec, SCAN.mode, SCAN.grams);
+  const hasServe = rec.serving_g > 0;
+  let h = `<div class="scanhead"><b>${esc(rec.name || ('Product ' + rec.barcode))}</b>` +
+    (rec.brands ? ` <span class="scanbrand">${esc(rec.brands)}</span>` : '') +
+    ` <small class="scansrc">${esc(SCAN.source === 'cache' ? 'cached' : 'openfoodfacts')}</small></div>`;
+  h += `<div class="primsel scanmodes">` +
+    `<button class="${SCAN.mode === 'per_serving' ? 'on' : ''}" ${hasServe ? '' : 'disabled'} onclick="setScanMode('per_serving')">serving${hasServe ? ' · ' + esc(rDisp(rec.serving_g)) + ' g' : ''}</button>` +
+    `<button class="${SCAN.mode === 'per_100g' ? 'on' : ''}" onclick="setScanMode('per_100g')">100 g</button>` +
+    `<button class="${SCAN.mode === 'custom' ? 'on' : ''}" onclick="setScanMode('custom')">custom</button></div>`;
+  if (SCAN.mode === 'custom')
+    h += `<label>Grams</label><input id="scanGrams" type="number" inputmode="decimal" value="${esc(SCAN.grams)}" oninput="setScanGrams(this.value)">`;
+  h += `<div class="summary" id="scanSummary">${scanSummaryHTML(s)}</div>`;
+  h += `<div class="row" style="align-items:flex-end;margin-top:10px">` +
+    `<div><label>Meal</label><select id="scanMeal" onchange="setScanMeal(this.value)">` +
+    MEALS.filter((m) => m !== 'supplement').map((m) => `<option value="${esc(m)}"${m === SCAN.meal ? ' selected' : ''}>${esc(m)}</option>`).join('') +
+    `</select></div>` +
+    `<div><button class="btn primary" style="width:100%" onclick="addScanToDay()">Add to day</button></div></div>`;
+  h += `<button class="linklike" onclick="doBarcodeLookup(true)">↻ Refresh from OpenFoodFacts</button>`;
+  host.innerHTML = h;
+}
+function renderScanMessage(res) {
+  const host = document.getElementById('scanResult'); if (!host) return;
+  const bc = esc(res.barcode || '');
+  host.innerHTML = `<div class="scanmsg"><div class="warn" style="padding:6px 0">${esc(res.error || 'Lookup failed.')}</div>` +
+    (res.barcode ? `<div class="note" style="margin-top:0">Barcode <code>${bc}</code> kept. <a href="#" onclick="prefillManual('${bc}');return false">Add it manually →</a></div>` : '') +
+    `</div>`;
+}
+function setScanMode(m) { if (!SCAN) return; SCAN.mode = m; renderScan(); }
+function setScanGrams(v) {
+  if (!SCAN) return;
+  SCAN.grams = clampNonNeg(v);
+  const el = document.getElementById('scanSummary');
+  if (el) el.innerHTML = scanSummaryHTML(scalePortion(SCAN.record, SCAN.mode, SCAN.grams));   // update preview, keep focus
+}
+function setScanMeal(m) { if (SCAN) SCAN.meal = m; }
+function addScanToDay() {
+  if (!SCAN) return;
+  const r = logScanItem(SCAN.record, SCAN.mode, SCAN.grams, SCAN.meal);
+  if (r.ok) toast('Added ' + (SCAN.record.name || SCAN.record.barcode));
+}
+function prefillManual(bc) {
+  const name = document.getElementById('maName');
+  if (name && name.scrollIntoView) name.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  if (name) name.focus();
+  toast('Barcode ' + bc + ' — add the product manually');
+}
+
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
 // One micro component, shared by the manual-add and supplement forms (D12).
 // Fields are id'd `<prefix><canonical key>`; generation and read-back use the
@@ -1166,7 +1487,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderScan(); renderHistory(); renderDataStatus(); }
 
 function main() {
   boot();
@@ -1188,7 +1509,11 @@ window.HT = {
   averageOver, completeDaysInWindow,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   setSupplement, applySupplementToToday, normalizeSupplement,
-  keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY },
+  // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
+  mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
+  buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode,
+  guardBarcode, offURL, OFF_UA, APP_VERSION, PRODUCT_CACHE_VERSION,
+  keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
 };
