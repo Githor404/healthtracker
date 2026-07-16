@@ -1690,8 +1690,19 @@ function renderDataStatus() {
 }
 function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
+// D16: ask the browser to make storage persistent (resist eviction). Best-effort
+// and SILENT by contract: feature-detected, fire-and-forget (never awaited),
+// never throws, and a declined prompt never blocks boot. Export (D5) is the real
+// durability guarantee against a data-clearing browser; this only lowers the odds.
+function requestPersistentStorage() {
+  try {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+  } catch (e) { /* never blocks boot */ }
+}
+
 function main() {
   boot();
+  requestPersistentStorage();
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
   renderMicroFields('supMicros', 'sup_micro_', 'supMicroCount');
   renderSupplementForm();
@@ -1710,6 +1721,7 @@ window.HT = {
   averageOver, completeDaysInWindow,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   setSupplement, applySupplementToToday, normalizeSupplement,
+  requestPersistentStorage,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
   buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode,

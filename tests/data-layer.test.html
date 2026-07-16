@@ -723,6 +723,10 @@ window.setLS({});
   res(HT.ZXING.url.indexOf('@zxing/library@'+HT.ZXING.version+'/')>=0, 'CAMZ: ZXING.url pins ZXING.version');
   res(HT.ZXING.integrity.indexOf('sha384-')===0 && HT.ZXING.global==='ZXing', 'CAMZ: ZXING integrity sha384 + global ZXing');
 
+  // D16: storage.persist() request is boot-safe — never throws (silent contract)
+  var persistOk = true; try { HT.requestPersistentStorage(); } catch(e){ persistOk = false; }
+  res(persistOk, 'D16: requestPersistentStorage() never throws (boot-safe)');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

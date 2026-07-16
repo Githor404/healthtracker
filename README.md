@@ -26,6 +26,11 @@ tap away.
 - **No accounts, no telemetry, no analytics.**
 - **Your data is yours.** Export the full JSON anytime; import it back on any
   device. A truthful storage badge tells you when a save actually happened.
+- **Your export is your backup.** Because everything is local, a browser that
+  clears site data clears *your* data. The app requests persistent storage where
+  supported, but the real safeguard is export — do it regularly. Some privacy
+  browsers (e.g. DuckDuckGo) clear data aggressively; on iOS, use Safari or Add
+  to Home Screen for reliable offline use and camera scanning.
 - **Location** is used only when you explicitly ask for nearby prices, is sent
   only as an Open Prices query parameter, and is **never stored**.
 - Data from OpenFoodFacts / Open Prices is community-sourced and treated as
