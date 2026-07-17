@@ -271,3 +271,32 @@ Personal price history only (Open Prices/nearby = Phase 3). Fully offline — en
 `bash tests/run-data-layer.sh` → **234/234**; offline + precache + sw-hash + check-zxing green. Real-browser smoke: found product → portion picker + inline price field + comparison render.
 
 **Status: Slice 3 machinery CERTIFIED (234/234; render path now committed-tested). Light UX attestation only — the inline field is ignorable.**
+
+### Phase 2 gate claim
+
+Walking the v4 Phase 2 gate against committed, re-runnable evidence plus signed on-device attestations — same discipline as the Phase 0 claim (machinery certified + real-world attested; the history-free-repo rule keeps real data out, so only the attestation is recorded). `bash tests/run-data-layer.sh` → **234/234**; `check-precache`, `check-sw-hash`, `check-zxing`, `offline-gate.ps1` all green.
+
+| v4 Phase 2 criterion | Committed evidence | On-device | Status |
+|---|---|---|---|
+| Scanned real product logs correct macros+micros at a **custom gram amount** | **OF1** map · **OF7** portion scale (macros+micros, one factor) · **OF10** scan item (`scan`/`measured`/barcode); live-edge smoke on real OFF (Nutella 539 kcal, **sodium 42.8 mg**) | **A1** — real product scanned → OFF → correct data → logged (iOS) | **MET** |
+| **Absence ≠ zero** (no labeled iron → no iron, not 0) | **OF2** missing micro omitted; zero micros → no `micros` key · **OF8** absent stays absent under scaling | property proven by machinery; A1 real product | **MET** |
+| Rescan **offline** resolves from cache | **OF11** cache-first (`finishLookup` offline→cache); `offline-gate.ps1` (shell + ZXing offline) | **A7** — offline scan on device | **MET** |
+| **Unknown barcode** degrades without losing the code | **OF16/OF17/OF19** (OFF 404 = not-found, not offline; barcode kept); live not-found smoke (`070074679259` → `missing`) | not-found re-check — reads **"Not in OpenFoodFacts"** | **MET** |
+| **Camera-denied / no-camera** messages correct | **CAM1** `err.name` matrix (every message ends in the literal manual escape hatch) · **CAM2** precondition gates the Scan button | **A2** denied — signed; **A3** no-camera — **N/A** (below); **A-NR** camera-in-use — **N/A** (below) | **Message logic MET (committed); A3/A-NR conditions N/A on iOS** |
+| **Price entries** recorded, grouped by store, **skippable at zero cost** | **PR1–PR10** (independent of food log; zero-cost skip; (store,currency) grouping, currency-safe trend; escaped; round-trip) · **SR1–SR4** render · real-browser smoke (price field + comparison) | light UX — the inline field is ignorable; covered by committed + smoke | **MET** |
+
+Also attested on device: **A4** (ZXing on real iOS — the genuine BarcodeDetector-absent path), **A5** (teardown — camera indicator off), and the **auto-advance** scan→lookup handoff re-check (no manual tap). The SW content-hash / no-`skipWaiting` update lifecycle is validated in production (D6); its home-screen delivery latency for distributed users is a recorded **Phase-4** candidate (D6 forward note), not a Phase-2 gap.
+
+**Three attestations recorded N/A — honestly, not as MET, not as fails.** Each is an iOS/hardware constraint, not a defect; the underlying logic is committed-tested where one exists:
+- **A6 (vibrate) — N/A.** iOS does not implement the Vibration API. The call is feature-detected (`if (navigator.vibrate)`) inside a try/catch, so it no-ops silently; **detection is unaffected**. Confirmed in code.
+- **A-NR (camera-in-use / `NotReadableError`) — N/A.** iOS hands the camera to the foreground app rather than refusing, so `NotReadableError` does not surface (opening the Camera app then scanning in HealthTracker still scanned fine). The message *logic* is committed (**CAM1**); the *condition* can't be forced on iOS.
+- **A3 (no-camera device) — N/A.** Awkward to force on the attesting hardware; skipped and noted. The precondition/message logic is committed (**CAM2/CAM1**).
+
+**Attestation**
+- Attester: Thomas Seiler (repo author)
+- Date: 2026-07-17
+- Device: iOS home-screen PWA (WKWebView → ZXing-only detection path)
+- Passed: A1, A2, A4, A5, A7 + scan-flow re-checks (not-found message; auto-advance handoff)
+- N/A (with reasons): A3 (no-camera hardware), A-NR (iOS foreground camera hand-off), A6 (no iOS Vibration API)
+
+**Phase 2 gate: MET** — machinery CERTIFIED (234/234 + offline/precache/sw-hash/check-zxing) and on-device attested. Three attestations are N/A by iOS/hardware constraint (flagged above, not counted as MET); every gate criterion's logic is committed-tested, and the reachable-on-iOS attestations all passed.
