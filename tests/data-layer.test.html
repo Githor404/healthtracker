@@ -113,8 +113,8 @@ window.setLS({});
   res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
   // ---- v2 round-trip fixtures ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }] };
-  var S1 = { version: 2, days: {}, current: td, settings: goalState, priceLog: { '000': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } } };
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '' };
+  var S1 = { version: 2, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
@@ -736,6 +736,108 @@ window.setLS({});
   // D16: storage.persist() request is boot-safe — never throws (silent contract)
   var persistOk = true; try { HT.requestPersistentStorage(); } catch(e){ persistOk = false; }
   res(persistOk, 'D16: requestPersistentStorage() never throws (boot-safe)');
+
+  // ===== Phase 2 Slice 3: personal price capture (D18) =====
+  // PR1: addPriceEntry creates bucket+name, coerces/clamps, trims, defaults date
+  setLS({}); HT.boot();
+  var r1 = HT.addPriceEntry('3017620422003', 'Nutella', { price:'-2.50', currency:' USD ', store:' Tesco ', date:'bad' });
+  var e1 = HT.state().priceLog['3017620422003'].entries[0];
+  res(r1.ok && HT.state().priceLog['3017620422003'].name==='Nutella', 'PR1: bucket + name created');
+  res(e1.price===0 && e1.currency==='USD' && e1.store==='Tesco' && /^\d{4}-\d{2}-\d{2}$/.test(e1.date), 'PR1: price clamped>=0, store/currency trimmed, date defaulted');
+  res(HT.addPriceEntry('3017620422003','x',{price:''}).ok===false, 'PR1: empty price rejected');
+  res(HT.addPriceEntry('123','x',{price:'1'}).ok===false, 'PR1: invalid barcode rejected');
+
+  // PR2: independent of the food log — no day/item created or modified
+  setLS({}); HT.boot(); var td2 = today();
+  var itemsBefore = HT.state().days[td2].items.length;
+  HT.addPriceEntry('3017620422003','N',{price:'3',currency:'USD',store:'A'});
+  res(HT.state().days[td2].items.length===itemsBefore && Object.keys(HT.state().priceLog).length===1, 'PR2: price entry writes only priceLog (no day item)');
+
+  // PR3: skippable at zero cost — logging a scan item touches no priceLog
+  setLS({}); HT.boot();
+  HT.logScanItem(HT.mapOffProduct({status:1,product:{product_name:'P',nutriments:{'energy-kcal_100g':100}}},'3017620422003'),'per_100g',100,'snack');
+  res(Object.keys(HT.state().priceLog).length===0, 'PR3: logging a scan item leaves priceLog empty (zero-cost skip)');
+
+  // PR4: grouped by (store,currency); currency-safe trend (no cross-currency)
+  setLS({}); HT.boot();
+  HT.addPriceEntry('3017620422003','N',{price:'2.80',currency:'GBP',store:'Tesco',date:'2026-02-01'});
+  HT.addPriceEntry('3017620422003','N',{price:'2.50',currency:'GBP',store:'Tesco',date:'2026-02-05'});
+  HT.addPriceEntry('3017620422003','N',{price:'3.00',currency:'EUR',store:'Tesco',date:'2026-02-06'});
+  var cmp = HT.priceComparison(HT.state().priceLog, '3017620422003');
+  var gbp = cmp.groups.filter(function(g){return g.currency==='GBP';})[0];
+  var eur = cmp.groups.filter(function(g){return g.currency==='EUR';})[0];
+  res(cmp.groups.length===2, 'PR4: (store,currency) grouping -> 2 segmented rows (one store, two currencies)');
+  res(gbp.latest===2.5 && gbp.trend==='down' && gbp.count===2, 'PR4: within-GBP latest 2.50, trend down');
+  res(eur.latest===3 && eur.trend==='none', 'PR4: EUR single entry -> trend none (never compared across currencies)');
+
+  // PR5: storeHistory distinct sorted
+  res(HT.storeHistory(HT.state().priceLog).join(',')==='Tesco', 'PR5: storeHistory distinct sorted');
+  HT.addPriceEntry('3017620422003','N',{price:'1',currency:'GBP',store:'Aldi'});
+  res(HT.storeHistory(HT.state().priceLog).join(',')==='Aldi,Tesco', 'PR5: multiple stores sorted');
+
+  // PR6: hostile store name escaped in the comparison render
+  setLS({}); HT.boot();
+  HT.addPriceEntry('3017620422003','N',{price:'2',currency:'USD',store:'<img src=x onerror=alert(1)>'});
+  var pcHtml = HT.priceCaptureHTML('3017620422003','N');
+  res(pcHtml.indexOf('<img src=x')<0 && pcHtml.indexOf('&lt;img')>=0, 'PR6: hostile store name escaped in comparison render');
+
+  // PR7: normalizePriceLog restore hardening + v2 round-trip exact
+  var np = HT.normalizePriceLog({
+    '3017620422003': { name:'N', entries:[{price:'-5',currency:'USD',store:'<b>S</b>',date:'bad'},{price:'2.5',currency:'GBP',store:'Tesco',date:'2026-02-01'}] },
+    'notabarcode': { name:'x', entries:[{price:'1'}] },
+    '99': { name:'y', entries:[] }
+  });
+  res(Object.keys(np).length===1 && !!np['3017620422003'], 'PR7: non-8-14-digit barcode keys dropped');
+  res(np['3017620422003'].entries[0].price===0 && np['3017620422003'].entries[0].store==='<b>S</b>' && np['3017620422003'].entries[0].date==='', 'PR7: price clamped, store kept raw (escaped at render), bad date blanked (entry kept)');
+  setLS({}); HT.boot();
+  HT.addPriceEntry('3017620422003','N',{price:'2.5',currency:'USD',store:'Tesco',date:'2026-02-01'});
+  var plBefore = JSON.stringify(HT.state().priceLog);
+  window.__confirm = true; HT.restore(HT.exportJSON());
+  res(JSON.stringify(HT.state().priceLog)===plBefore, 'PR7: v2 export->import round-trips priceLog exactly');
+
+  // PR8: ingest never touches priceLog (D8/6)
+  setLS({}); HT.boot();
+  HT.addPriceEntry('3017620422003','N',{price:'2',currency:'USD',store:'A'});
+  var plStr = JSON.stringify(HT.state().priceLog);
+  HT.ingest(JSON.stringify({ version:2, days:{ '2026-03-01': { status:'complete', items:[{name:'x',meal:'snack',kcal:1}], water_l:0 } }, current:'x', settings:{}, priceLog:{ '9999999999999':{name:'z',entries:[{price:9,store:'Z'}]} } }));
+  res(JSON.stringify(HT.state().priceLog)===plStr, 'PR8: ingest (full-days) leaves priceLog untouched');
+
+  // PR9: export includes priceLog + settings.currency
+  setLS({}); HT.boot();
+  HT.addPriceEntry('3017620422003','N',{price:'2',currency:'CHF',store:'A'});
+  var expObj = JSON.parse(HT.exportJSON());
+  res(!!(expObj.priceLog && expObj.priceLog['3017620422003']), 'PR9: export includes priceLog');
+  res(expObj.settings.currency==='CHF', 'PR9: settings.currency round-trips (last-used)');
+
+  // PR10: currency default empty; last-used remembered; per-entry stored
+  setLS({}); HT.boot();
+  res((HT.state().settings.currency||'')==='', 'PR10: currency default empty (no locale sniffing)');
+  HT.addPriceEntry('3017620422003','N',{price:'2',currency:'EUR',store:'A'});
+  res(HT.state().settings.currency==='EUR' && HT.state().priceLog['3017620422003'].entries[0].currency==='EUR', 'PR10: currency remembered + stored per-entry');
+
+  // ===== Scan render: unified renderScan (Slice-1/2/3 refactor, D18) =====
+  // The scan render path (found + not-found) had NO prior committed coverage —
+  // it was attested-only, so the refactor re-ran green without exercising it.
+  // Drive applyLookup (synchronous: sets SCAN -> renderScan) and assert #scanResult.
+  setLS({}); HT.boot();
+  if (!document.getElementById('scanResult')) { var sre=document.createElement('div'); sre.id='scanResult'; document.body.appendChild(sre); }
+  var srHost = document.getElementById('scanResult');
+  // SR1: found -> name + portion picker + inline price field
+  var srRec = HT.mapOffProduct({status:1,product:{product_name:'Craisins',serving_quantity:40,nutriments:{'energy-kcal_100g':325}}}, '3017620422003');
+  HT.applyLookup({ found:true, record: srRec, source:'network' });
+  var sr1 = srHost.innerHTML;
+  res(sr1.indexOf('Craisins')>=0 && sr1.indexOf('100 g')>=0 && sr1.indexOf('Price (optional)')>=0, 'SR1: found render -> name + portion picker + price field');
+  // SR2: not-found (valid barcode) -> message + barcode kept + manual link + price field (D18 nod)
+  HT.applyLookup({ found:false, barcode:'3017620422003', error:'Not in OpenFoodFacts — enter the details manually.' });
+  var sr2 = srHost.innerHTML;
+  res(sr2.indexOf('Not in OpenFoodFacts')>=0 && sr2.indexOf('kept')>=0 && sr2.indexOf('Add it manually')>=0 && sr2.indexOf('Price (optional)')>=0, 'SR2: not-found (valid barcode) -> message + kept + manual link + price capture');
+  // SR3: not-found (invalid barcode) -> message, NO price field
+  HT.applyLookup({ found:false, barcode:'123', error:'Enter an 8-14 digit barcode.' });
+  var sr3 = srHost.innerHTML;
+  res(sr3.indexOf('Enter an 8-14')>=0 && sr3.indexOf('Price (optional)')<0, 'SR3: not-found (invalid barcode) -> no price capture');
+  // SR4: hostile barcode escaped in the not-found render
+  HT.applyLookup({ found:false, barcode:'<img src=x onerror=alert(1)>', error:'nope' });
+  res(srHost.innerHTML.indexOf('<img src=x')<0, 'SR4: hostile barcode escaped in not-found render');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');

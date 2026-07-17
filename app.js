@@ -59,7 +59,7 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [] };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '' };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {} };
@@ -199,7 +199,29 @@ function normalizeSettings(s) {
     goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
     supplement: normalizeSupplement(s.supplement),
     presets: Array.isArray(s.presets) ? s.presets : [],
+    currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
   };
+}
+
+// D18: restore-boundary hardening for priceLog (was passthrough). Barcode keys
+// validated 8-14 digits (a crafted key is markup waiting to render -> dropped);
+// price clamped >= 0; store/currency/name kept RAW (escaped at render); a bad
+// date is blanked but the entry kept (less lossy than dropping the price).
+function normalizePriceLog(o) {
+  const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const out = {};
+  Object.keys(src).forEach((bc) => {
+    if (!/^\d{8,14}$/.test(bc)) return;                            // drop non-barcode keys
+    const b = src[bc];
+    if (!b || typeof b !== 'object' || Array.isArray(b)) return;
+    const entries = (Array.isArray(b.entries) ? b.entries : []).map((e) => {
+      e = e || {};
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(e.date)) ? String(e.date) : '';
+      return { price: clampNonNeg(e.price), currency: String(e.currency == null ? '' : e.currency), store: String(e.store == null ? '' : e.store), date: date };
+    });
+    out[bc] = { name: String(b.name == null ? '' : b.name), entries: entries };
+  });
+  return out;
 }
 
 // Enforce status discipline across every stored day. Idempotent; returns true if
@@ -265,7 +287,7 @@ function normalizeState(o) {
     days: {},
     current: typeof o.current === 'string' ? o.current : '',
     settings: normalizeSettings(o.settings),
-    priceLog: (o.priceLog && typeof o.priceLog === 'object' && !Array.isArray(o.priceLog)) ? o.priceLog : {},
+    priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
   };
   Object.keys(o.days || {}).forEach((d) => {
     const src = o.days[d] || {};
@@ -1169,7 +1191,7 @@ function lookupBarcode(barcode, opts) {
 }
 
 // ---- scan DOM (barcode lookup, portion picker, add) -----------------------
-let SCAN = null;   // transient UI state: { record, mode, grams, meal, source }
+let SCAN = null;   // transient UI state: {found:true, record, mode, grams, meal, source} | {found:false, barcode, error}
 
 // One lookup path for BOTH the manual button and the camera handoff: show the
 // "Looking up" pending state and scroll it into view, so a scan visibly advances
@@ -1187,8 +1209,10 @@ function doBarcodeLookup(isRefresh) {
   runLookup(box ? box.value.trim() : '', { refresh: !!isRefresh });
 }
 function applyLookup(res) {
-  if (!res.found) { SCAN = null; renderScanMessage(res); return; }
-  SCAN = { record: res.record, mode: res.record.serving_g > 0 ? 'per_serving' : 'per_100g', grams: 100, meal: 'snack', source: res.source };
+  // Unified SCAN state (found | not-found) so renderScan owns both and a refresh
+  // (e.g. after saving a price) re-renders correctly instead of clearing it.
+  if (!res.found) { SCAN = { found: false, barcode: res.barcode || '', error: res.error || 'Lookup failed.' }; renderScan(); return; }
+  SCAN = { found: true, record: res.record, mode: res.record.serving_g > 0 ? 'per_serving' : 'per_100g', grams: 100, meal: 'snack', source: res.source };
   renderScan();
 }
 function scanSummaryHTML(s) {
@@ -1208,6 +1232,15 @@ function scanSummaryHTML(s) {
 function renderScan() {
   const host = document.getElementById('scanResult'); if (!host) return;
   if (!SCAN) { host.innerHTML = ''; return; }
+  if (!SCAN.found) {
+    const valid = /^\d{8,14}$/.test(SCAN.barcode);
+    let h = `<div class="scanmsg"><div class="warn" style="padding:6px 0">${esc(SCAN.error)}</div>` +
+      (SCAN.barcode ? `<div class="note" style="margin-top:0">Barcode <code>${esc(SCAN.barcode)}</code> kept. <a href="#" onclick="prefillManual('${esc(SCAN.barcode)}');return false">Add it manually →</a></div>` : '') +
+      `</div>`;
+    if (valid) h += priceCaptureHTML(SCAN.barcode, SCAN.barcode);   // price capture allowed for not-found (D18 nod)
+    host.innerHTML = h;
+    return;
+  }
   const rec = SCAN.record, s = scalePortion(rec, SCAN.mode, SCAN.grams);
   const hasServe = rec.serving_g > 0;
   let h = `<div class="scanhead"><b>${esc(rec.name || ('Product ' + rec.barcode))}</b>` +
@@ -1225,26 +1258,20 @@ function renderScan() {
     MEALS.filter((m) => m !== 'supplement').map((m) => `<option value="${esc(m)}"${m === SCAN.meal ? ' selected' : ''}>${esc(m)}</option>`).join('') +
     `</select></div>` +
     `<div><button class="btn primary" style="width:100%" onclick="addScanToDay()">Add to day</button></div></div>`;
+  h += priceCaptureHTML(rec.barcode, rec.name);   // D18: optional price capture, inline
   h += `<button class="linklike" onclick="doBarcodeLookup(true)">↻ Refresh from OpenFoodFacts</button>`;
   host.innerHTML = h;
 }
-function renderScanMessage(res) {
-  const host = document.getElementById('scanResult'); if (!host) return;
-  const bc = esc(res.barcode || '');
-  host.innerHTML = `<div class="scanmsg"><div class="warn" style="padding:6px 0">${esc(res.error || 'Lookup failed.')}</div>` +
-    (res.barcode ? `<div class="note" style="margin-top:0">Barcode <code>${bc}</code> kept. <a href="#" onclick="prefillManual('${bc}');return false">Add it manually →</a></div>` : '') +
-    `</div>`;
-}
-function setScanMode(m) { if (!SCAN) return; SCAN.mode = m; renderScan(); }
+function setScanMode(m) { if (!SCAN || !SCAN.found) return; SCAN.mode = m; renderScan(); }
 function setScanGrams(v) {
-  if (!SCAN) return;
+  if (!SCAN || !SCAN.found) return;
   SCAN.grams = clampNonNeg(v);
   const el = document.getElementById('scanSummary');
   if (el) el.innerHTML = scanSummaryHTML(scalePortion(SCAN.record, SCAN.mode, SCAN.grams));   // update preview, keep focus
 }
-function setScanMeal(m) { if (SCAN) SCAN.meal = m; }
+function setScanMeal(m) { if (SCAN && SCAN.found) SCAN.meal = m; }
 function addScanToDay() {
-  if (!SCAN) return;
+  if (!SCAN || !SCAN.found) return;
   const r = logScanItem(SCAN.record, SCAN.mode, SCAN.grams, SCAN.meal);
   if (r.ok) toast('Added ' + (SCAN.record.name || SCAN.record.barcode));
 }
@@ -1454,6 +1481,99 @@ function renderScanButton() {
   const host = document.getElementById('scanOpenBtn');
   if (!host) return;
   host.style.display = (cameraPrecondition() === 'ok') ? '' : 'none';
+}
+
+// ---- personal price capture + comparison (D18) ----------------------------
+// priceLog is INDEPENDENT of the food log (a product can be price-checked
+// without being eaten). Personal only; nearby/community prices are Phase 3.
+
+// Append a price entry. Never creates/touches a day or item. Duplicates append
+// (accept, like D8/3). Remembers the currency as settings.currency (last-used).
+function addPriceEntry(barcode, name, raw) {
+  const bc = String(barcode == null ? '' : barcode).trim();
+  if (!/^\d{8,14}$/.test(bc)) return { ok: false, error: 'Need a valid barcode.' };
+  raw = raw || {};
+  if (raw.price == null || String(raw.price).trim() === '') return { ok: false, error: 'Enter a price.' };
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date)) ? String(raw.date) : localDate();
+  const entry = {
+    price: clampNonNeg(raw.price),
+    currency: String(raw.currency == null ? '' : raw.currency).trim(),
+    store: String(raw.store == null ? '' : raw.store).trim(),
+    date: date,
+  };
+  if (!APP_STATE.priceLog || typeof APP_STATE.priceLog !== 'object') APP_STATE.priceLog = {};
+  const bucket = APP_STATE.priceLog[bc] || { name: String(name == null ? '' : name), entries: [] };
+  if (!bucket.name && name) bucket.name = String(name);
+  bucket.entries.push(entry);
+  APP_STATE.priceLog[bc] = bucket;
+  if (entry.currency) APP_STATE.settings.currency = entry.currency;   // remember last-used
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, entry: entry };
+}
+
+// Grouped by (store, currency) so a trend is NEVER computed across mismatched
+// currencies (D18 ruling). Latest per group by date; trend = latest vs previous
+// within the SAME group.
+function priceComparison(priceLog, barcode) {
+  const bucket = (priceLog && priceLog[barcode]) || null;
+  if (!bucket || !Array.isArray(bucket.entries) || !bucket.entries.length) return { name: bucket ? bucket.name : '', groups: [] };
+  const byKey = {};
+  bucket.entries.forEach((e) => {
+    const store = String(e.store == null ? '' : e.store);
+    const currency = String(e.currency == null ? '' : e.currency);
+    const k = store + '\u0000' + currency;   // NUL-joined so store/currency can't collide
+    (byKey[k] = byKey[k] || { store: store, currency: currency, entries: [] }).entries.push({ price: num(e.price), date: String(e.date || '') });
+  });
+  const groups = Object.keys(byKey).map((k) => {
+    const g = byKey[k];
+    g.entries.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));   // oldest -> newest
+    const n = g.entries.length, latest = g.entries[n - 1], prev = n >= 2 ? g.entries[n - 2] : null;
+    const trend = !prev ? 'none' : (latest.price > prev.price ? 'up' : (latest.price < prev.price ? 'down' : 'flat'));
+    return { store: g.store, currency: g.currency, latest: latest.price, latestDate: latest.date, count: n, trend: trend };
+  });
+  groups.sort((a, b) => (a.store < b.store ? -1 : a.store > b.store ? 1 : (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0)));
+  return { name: bucket.name, groups: groups };
+}
+
+// Distinct store names across the whole priceLog (own history -> autocomplete).
+function storeHistory(priceLog) {
+  const set = {};
+  Object.keys(priceLog || {}).forEach((bc) => {
+    const b = priceLog[bc];
+    if (b && Array.isArray(b.entries)) b.entries.forEach((e) => { const s = String(e.store == null ? '' : e.store).trim(); if (s) set[s] = 1; });
+  });
+  return Object.keys(set).sort();
+}
+
+// Inline optional price field + comparison (escaped). PRICE_CTX carries the
+// barcode/name for saveScanPrice (works for found AND valid not-found barcodes).
+let PRICE_CTX = null;
+function priceCaptureHTML(barcode, name) {
+  PRICE_CTX = { barcode: barcode, name: name || '' };
+  const cur = (APP_STATE.settings && APP_STATE.settings.currency) || '';
+  const stores = storeHistory(APP_STATE.priceLog).map((st) => `<option value="${esc(st)}"></option>`).join('');
+  let h = `<div class="pricecap"><div class="sumhead">Price (optional)</div>`
+    + `<div class="row" style="align-items:flex-end">`
+    + `<div style="flex:2"><label>Price</label><input id="scanPrice" type="number" inputmode="decimal"></div>`
+    + `<div style="flex:1"><label>Cur.</label><input id="scanCurrency" value="${esc(cur)}" placeholder="USD"></div>`
+    + `<div style="flex:2"><label>Store</label><input id="scanStore" list="storeList" placeholder="store"><datalist id="storeList">${stores}</datalist></div>`
+    + `</div><button class="btn" style="width:100%;margin-top:6px" onclick="saveScanPrice()">Save price</button></div>`;
+  const cmp = priceComparison(APP_STATE.priceLog, barcode);
+  if (cmp.groups.length) {
+    h += `<div class="summary"><div class="sumhead">Your prices</div>` + cmp.groups.map((g) => {
+      const arrow = g.trend === 'up' ? '↑' : g.trend === 'down' ? '↓' : (g.trend === 'flat' ? '→' : '');
+      return `<div class="sumrow"><span>${esc(g.store || '(no store)')}${g.currency ? ' · ' + esc(g.currency) : ''}</span>`
+        + `<span>${esc(rDisp(g.latest))} ${arrow} <small>${esc(g.count)}x</small></span></div>`;
+    }).join('') + `</div>`;
+  }
+  return h;
+}
+function saveScanPrice() {
+  if (!PRICE_CTX) return;
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const r = addPriceEntry(PRICE_CTX.barcode, PRICE_CTX.name, { price: g('scanPrice'), currency: g('scanCurrency'), store: g('scanStore') });
+  if (!r.ok) { toast(r.error || 'Enter a price'); return; }
+  toast('Price saved');
 }
 
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
@@ -1745,12 +1865,14 @@ window.HT = {
   requestPersistentStorage,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
-  buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode,
+  buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode, applyLookup,
   guardBarcode, offURL, offStatusKind, OFF_UA, APP_VERSION, PRODUCT_CACHE_VERSION,
   // Phase 2 Slice 2 — camera scanner + ZXing (D15)
   cameraPrecondition, detectorTier, cameraErrorMessage, intersectFormats,
   scanGate, stopScanner, loadZXing, startScan, cancelScan,
   ZXING, SCAN_FORMATS,
+  // Phase 2 Slice 3 — personal price capture (D18)
+  addPriceEntry, priceComparison, storeHistory, normalizePriceLog, priceCaptureHTML,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

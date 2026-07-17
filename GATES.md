@@ -248,3 +248,26 @@ The pure decision logic is committed (`CAM` cases); the live camera flow is on-d
 Live sourcing verification dated in **D15 (2026-07-16)**: `@zxing/library@0.23.0` UMD, global `ZXing`, SRI `sha384-0ASr…WZW9`, SRI+CORS `<script>` load succeeded headless; `BarcodeDetector` Chromium/Android-only.
 
 **Status: Slice 2 PRE-REGISTERED — building.**
+
+### Slice 3 — personal price capture + comparison (D18)
+
+Personal price history only (Open Prices/nearby = Phase 3). Fully offline — entirely committed, light UX attestation only. Closes the Phase-1 deferred "store names escaped" item. Gate clause: *"price entries recorded, grouped by store, skippable at zero cost."*
+
+| Case | Asserts |
+|---|---|
+| PR1 | `addPriceEntry` → bucket + `name` created; price coerced/clamped ≥0; store/currency raw+trimmed; date validated (default today) |
+| PR2 | price capture is **independent of the food log** — no day/item created or modified |
+| PR3 | **skippable at zero cost** — logging a scan item without the price field leaves `priceLog` untouched (no phantom entry); empty price → not saved |
+| PR4 | `priceComparison` groups by **(store, currency)**, latest-per-group by date, trend within-group; **cross-currency pair → segmented rows, no shared trend** (£ vs € never compared) |
+| PR5 | `storeHistory` → distinct sorted store names (autocomplete source) |
+| PR6 | **hostile store name escaped** in the comparison render (closes Phase-1 store-names item; same audit as D12 `normalizeSupplement`) |
+| PR7 | restore `normalizePriceLog` coerces (neg price clamped, hostile store kept-raw, bad date blanked/entry-kept, non-8–14 barcode key dropped, unknown keys tolerated); **v2 round-trip exact** |
+| PR8 | **ingest leaves `priceLog` untouched** (full-days merge — D8/6) |
+| PR9 | export includes `priceLog`; `settings.currency` round-trips |
+| PR10 | currency default applied + per-entry stored + **last-used remembered** in `settings.currency` |
+
+| SR1–SR4 | **scan-render coverage** (new): the unified `renderScan` (found + not-found) had no prior committed test — attested-only, so the D18 render refactor re-ran green without exercising it. `applyLookup` drives it now: SR1 found → name + portion + price field; SR2 not-found (valid barcode) → message + kept + manual link + price capture; SR3 invalid barcode → no price capture; SR4 hostile barcode escaped |
+
+`bash tests/run-data-layer.sh` → **234/234**; offline + precache + sw-hash + check-zxing green. Real-browser smoke: found product → portion picker + inline price field + comparison render.
+
+**Status: Slice 3 machinery CERTIFIED (234/234; render path now committed-tested). Light UX attestation only — the inline field is ignorable.**
