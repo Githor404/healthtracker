@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 2;
-const APP_VERSION      = '0.2.0';                           // D14: OFF User-Agent version token
+const APP_VERSION      = '0.3.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1841,9 +1841,67 @@ function requestPersistentStorage() {
   } catch (e) { /* never blocks boot */ }
 }
 
+// ---- app version + post-update changelog notice (D6 force-and-notify) ------
+// The SW forces the current version on load (skipWaiting, sw.js); this shows a
+// dismissible notice AFTER the fact. APP_VERSION bumps every release (gated by
+// check-version.sh) and doubles as the OFF UA version (D14). VERSION_LOG is the
+// single per-release changelog — one line each, like AI_TEMPLATE_VERSION lives
+// in one place. Newest entry last; its version must equal APP_VERSION.
+const VERSION_LOG = [
+  { v: '0.2.0', note: 'Barcode scanning, OpenFoodFacts lookup, and price capture.' },
+  { v: '0.3.0', note: 'Automatic updates with this changelog, so new versions arrive without a manual refresh.' },
+];
+const VERSION_KEY = 'healthtracker-version';
+
+// Numeric compare so '0.2.0' < '0.10.0' (not string order). -1 | 0 | 1.
+function cmpVersion(a, b) {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x < y) return -1;
+    if (x > y) return 1;
+  }
+  return 0;
+}
+// Accumulated changelog for versions in (fromV, toV] — handles multi-version
+// jumps (a user who skipped releases). fromV falsy -> just the toV line.
+function versionNotesBetween(fromV, toV) {
+  return VERSION_LOG.filter((e) => (fromV ? cmpVersion(e.v, fromV) > 0 : e.v === toV) && cmpVersion(e.v, toV) <= 0);
+}
+// Pure: given the stored version, the notice to show (null = no change / downgrade).
+function versionNotice(stored) {
+  stored = stored || null;
+  if (stored && cmpVersion(stored, APP_VERSION) >= 0) return null;   // unchanged or downgrade
+  return { from: stored, to: APP_VERSION, notes: versionNotesBetween(stored, APP_VERSION) };
+}
+
+function checkVersionNotice() {
+  let stored = null;
+  try { stored = Store.readRaw(VERSION_KEY); } catch (e) {}
+  const notice = versionNotice(stored);
+  Store.writeAux(VERSION_KEY, APP_VERSION);              // persist running version so the notice fires once
+  if (!notice) return;
+  if (!stored && isFirstRun()) return;                  // fresh install -> no spurious "updated" notice
+  renderVersionNotice(notice);
+}
+function renderVersionNotice(notice) {
+  const el = document.getElementById('versionNotice');
+  if (!el) return;
+  const head = notice.from ? 'Updated from v' + esc(notice.from) + ' to v' + esc(notice.to) : 'Now on v' + esc(notice.to);
+  const lines = (notice.notes || []).map((e) => `<div class="vnrow"><b>v${esc(e.v)}</b> — ${esc(e.note)}</div>`).join('');
+  el.innerHTML = `<div class="vnhead"><span>${head}</span><button class="vnx" onclick="dismissVersionNotice()" title="dismiss">×</button></div>${lines}`;
+  el.style.display = 'block';
+}
+function dismissVersionNotice() {
+  const el = document.getElementById('versionNotice');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
 function main() {
   boot();
   requestPersistentStorage();
+  checkVersionNotice();
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
   renderMicroFields('supMicros', 'sup_micro_', 'supMicroCount');
   renderSupplementForm();
@@ -1863,6 +1921,8 @@ window.HT = {
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   setSupplement, applySupplementToToday, normalizeSupplement,
   requestPersistentStorage,
+  // D6 force-and-notify: version + changelog notice
+  VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
   buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode, applyLookup,

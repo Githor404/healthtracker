@@ -683,8 +683,8 @@ window.setLS({});
   // OF18: identifier transport
   var u = HT.offURL('3017620422003');
   res(u.indexOf('/api/v2/product/3017620422003.json')>=0 && u.indexOf('fields=')>=0, 'OF18: offURL endpoint + fields');
-  res(u.indexOf('app_name=HealthTracker')>=0 && u.indexOf('app_version=0.2.0')>=0, 'OF18: offURL carries app identification params');
-  res(HT.OFF_UA==='HealthTracker/0.2.0 (https://github.com/Githor404/healthtracker)', 'OF18: OFF_UA is the ruled identifier string');
+  res(u.indexOf('app_name=HealthTracker')>=0 && u.indexOf('app_version='+HT.APP_VERSION)>=0, 'OF18: offURL carries app identification params');
+  res(HT.OFF_UA==='HealthTracker/'+HT.APP_VERSION+' (https://github.com/Githor404/healthtracker)', 'OF18: OFF_UA is the ruled identifier string');
 
   // OF19: OFF 404 (unknown barcode) is NOT-FOUND, never mislabeled offline (D14 amendment)
   PC._reset();
@@ -838,6 +838,35 @@ window.setLS({});
   // SR4: hostile barcode escaped in the not-found render
   HT.applyLookup({ found:false, barcode:'<img src=x onerror=alert(1)>', error:'nope' });
   res(srHost.innerHTML.indexOf('<img src=x')<0, 'SR4: hostile barcode escaped in not-found render');
+
+  // ===== Post-update changelog notice (D6 force-and-notify) =====
+  // VN1: numeric version compare (0.2.0 < 0.10.0, not string order)
+  res(HT.cmpVersion('0.2.0','0.10.0')<0 && HT.cmpVersion('0.3.0','0.3.0')===0 && HT.cmpVersion('1.0.0','0.9.9')>0, 'VN1: cmpVersion numeric');
+  // VN2: notice fires on upgrade; null on unchanged / downgrade
+  res(HT.versionNotice(HT.APP_VERSION)===null, 'VN2: same version -> no notice');
+  var vnUp = HT.versionNotice('0.2.0');
+  res(vnUp && vnUp.from==='0.2.0' && vnUp.to===HT.APP_VERSION, 'VN2: upgrade -> notice with from->to');
+  res(HT.versionNotice('9.9.9')===null, 'VN2: downgrade -> no notice');
+  // VN3: no stored version -> notice shows just the current line (fresh/returning)
+  var vnFresh = HT.versionNotice(null);
+  res(vnFresh && vnFresh.from===null && vnFresh.notes.length===1 && vnFresh.notes[0].v===HT.APP_VERSION, 'VN3: no stored version -> current line only');
+  // VN4: MULTI-version jump -> accumulated changelog, not just the latest
+  var jump = HT.versionNotesBetween('0.1.0','0.3.0');
+  res(jump.length===2 && jump[0].v==='0.2.0' && jump[1].v==='0.3.0', 'VN4: multi-version jump accumulates every skipped version');
+  var one = HT.versionNotesBetween('0.2.0','0.3.0');
+  res(one.length===1 && one[0].v==='0.3.0', 'VN4: single-step jump -> just that version');
+  // VN5: newest VERSION_LOG entry == APP_VERSION (changelog completeness)
+  res(HT.VERSION_LOG[HT.VERSION_LOG.length-1].v===HT.APP_VERSION, 'VN5: newest VERSION_LOG entry == APP_VERSION');
+  // VN6: checkVersionNotice RENDERS the notice into #versionNotice on a version change
+  setLS({ 'healthtracker-version': '0.2.0' }); HT.boot();
+  if (!document.getElementById('versionNotice')) { var vnEl=document.createElement('div'); vnEl.id='versionNotice'; document.body.appendChild(vnEl); }
+  HT.checkVersionNotice();
+  var vnHtml = document.getElementById('versionNotice').innerHTML;
+  res(vnHtml.indexOf('Updated from v0.2.0 to v'+HT.APP_VERSION)>=0, 'VN6: notice renders from->to on version change');
+  res((window.__ls._get('healthtracker-version'))===HT.APP_VERSION, 'VN6: stored version updated to running (notice fires once)');
+  // VN6: unchanged version -> no notice rendered
+  HT.boot(); document.getElementById('versionNotice').innerHTML=''; HT.checkVersionNotice();
+  res(document.getElementById('versionNotice').innerHTML==='', 'VN6: same version -> no notice rendered');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');

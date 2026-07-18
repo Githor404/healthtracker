@@ -7,9 +7,9 @@
 // hash of the precached shell (index.html, app.js, manifest.json, icons),
 // stamped in by `bash tests/check-sw-hash.sh --fix` and enforced by the gate.
 // Any shell change flips the hash -> new sw.js bytes -> the browser installs a
-// new SW -> new cache -> the "update ready" hint can fire. No serve-time build;
-// sw.js's own edits are self-detecting (its bytes change directly).
-const SHELL_HASH = '90c087b2edf8';
+// new SW -> force-and-notify activates it on load and the app shows the changelog
+// notice. No serve-time build; sw.js's own edits are self-detecting.
+const SHELL_HASH = 'b3bcd0ed7832';
 const SHELL_PREFIX = 'healthtracker-shell-';
 const SHELL_CACHE = SHELL_PREFIX + SHELL_HASH;
 
@@ -42,19 +42,26 @@ const HOST = self.location.hostname;
 const IS_DEV = !FORCE_PROD && (HOST === 'localhost' || HOST === '127.0.0.1');
 
 self.addEventListener('install', (event) => {
-  // No skipWaiting: a new SW waits and activates on next launch (D6).
+  // Force-and-notify (D6 amendment, supersedes no-skipWaiting): activate the new
+  // version immediately instead of waiting for all clients to close, so the next
+  // load is always current. The atomic shell keeps the swap skew-free; the page
+  // shows a post-update changelog notice after the fact.
+  self.skipWaiting();
   event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(PRECACHE)));
 });
 
 self.addEventListener('activate', (event) => {
-  // Amendment A: delete only stale SHELL caches — never other app caches
-  // (e.g. the Phase-2 healthtracker-runtime ZXing cache).
-  event.waitUntil(
+  event.waitUntil(Promise.all([
+    // Take control of already-open clients so the update applies on this load
+    // (paired with the page's controllerchange reload) — force-and-notify.
+    self.clients.claim(),
+    // Amendment A: delete only stale SHELL caches — never other app caches
+    // (e.g. the Phase-2 healthtracker-runtime ZXing cache).
     caches.keys().then((keys) => Promise.all(
       keys.filter((k) => k.startsWith(SHELL_PREFIX) && k !== SHELL_CACHE)
           .map((k) => caches.delete(k))
-    ))
-  );
+    )),
+  ]));
 });
 
 self.addEventListener('fetch', (event) => {

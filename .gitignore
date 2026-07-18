@@ -3,3 +3,7 @@
 # predecessor/reference source — keeping originals in-tree invites a future
 # session to consult them instead of the brief. That's the drift we closed off.
 reference/
+
+# Transient test-harness artifacts (created + removed by the gates; never committed).
+tests/.swbump
+tests/.zxing.tmp

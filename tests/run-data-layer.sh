@@ -36,6 +36,13 @@ if ! bash "$DIR/check-zxing.sh"; then
   exit 1
 fi
 
+# APP_VERSION drift (D6 force-and-notify): APP_VERSION must carry a changelog line
+# and bump whenever the shell changes, so an update can't ship without a notice.
+if ! bash "$DIR/check-version.sh"; then
+  echo "VERSION CHECK: FAIL"
+  exit 1
+fi
+
 # Convert the POSIX path to a file:// URL Chrome understands on Windows.
 if command -v cygpath >/dev/null 2>&1; then
   URL="file:///$(cygpath -m "$HTML")"
