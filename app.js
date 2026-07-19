@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 3;
-const APP_VERSION      = '0.4.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.4.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1747,6 +1747,21 @@ function signalUnitDefault(type) {
   const spec = SIGNAL_BY_TYPE[type];
   return remembered || (spec ? spec.unit : '');
 }
+// The unit field is a picker, not free text: tapping it offers the type's
+// alternatives (weight kg/lb, glucose mg/dL·mmol/L, breath ketones ppm·mmol/L). A
+// native <select> is the only reliably-tappable picker on iOS (datalist is not),
+// and constraining to the SIGNAL_SPEC set feeds the Layer-2 trend pin (normalize a
+// type's records to one unit before comparing). A remembered non-spec unit is kept
+// as an extra option so nothing already logged is lost.
+function fillUnitOptions(type, isBP) {
+  const sel = document.getElementById('sigUnit'); if (!sel) return;
+  const spec = SIGNAL_BY_TYPE[type];
+  const units = isBP ? ['mmHg'] : ((spec && spec.units && spec.units.length) ? spec.units.slice() : ['']);
+  const want = isBP ? 'mmHg' : signalUnitDefault(type);
+  if (want && units.indexOf(want) < 0) units.unshift(want);
+  sel.innerHTML = units.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`).join('');
+  sel.value = want;
+}
 function renderSignalForm() {
   const sel = document.getElementById('sigType');
   if (sel && !sel.childElementCount) {
@@ -1764,7 +1779,7 @@ function onSignalTypeChange() {
   const sel = document.getElementById('sigType'); if (!sel) return;
   const isBP = sel.value === 'bp';
   const spec = SIGNAL_BY_TYPE[sel.value];
-  const unit = document.getElementById('sigUnit'); if (unit) unit.value = isBP ? 'mmHg' : signalUnitDefault(sel.value);
+  fillUnitOptions(sel.value, isBP);
   const vl = document.getElementById('sigValLabel'); if (vl) vl.textContent = isBP ? 'Systolic' : ((spec && spec.kind === 'event') ? 'Duration (opt.)' : 'Value');
   const diaWrap = document.getElementById('sigDiaWrap'); if (diaWrap) diaWrap.style.display = isBP ? '' : 'none';
   const notes = document.getElementById('sigNotes'); if (notes) notes.placeholder = (sel.value === 'other') ? 'what was it?' : 'notes (optional)';
@@ -2149,6 +2164,7 @@ const VERSION_LOG = [
   { v: '0.3.0', note: 'Automatic updates with this changelog, so new versions arrive without a manual refresh.' },
   { v: '0.4.0', note: 'Log weight, biometrics (HRV, resting HR, glucose, sleep, steps, mood), and events (sauna, cold plunge, yoga, ...) on one daily timeline alongside food.' },
   { v: '0.4.1', note: 'Faster logging: tap a chip (weight, glucose, HRV, sauna, ...) to jump straight to the value box.' },
+  { v: '0.4.2', note: 'Tap the unit to switch it — kg/lb, mg/dL vs mmol/L, ppm vs mmol/L.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

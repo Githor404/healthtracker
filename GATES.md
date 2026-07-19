@@ -344,7 +344,10 @@ Forks ruled: **fixed-curated order now** (adaptive → Layer 2); **event chips i
 | Case | Asserts |
 |---|---|
 | TL14 | chip order = curated default with no goals; a goal-set type (hrv, bp) floats first in curated order (no dupes/drops); a non-goal type stays after; strip renders one `<button>` per curated signal; **`pickSignal` sets the type and creates NO record (prefill only)**; **chip-logged record `JSON.stringify`-IDENTICAL to dropdown-logged** — one `normalizeSignal`/`addSignal` contract, never a second code path |
+| TL15 | **unit picker** (v0.4.2): the unit field is a native `<select>` offering the type's `SIGNAL_SPEC` alternatives (breath_ketones → ppm + mmol/L; weight → kg + lb); single-unit types show one; BP forced to mmHg; last-used unit pre-selected next time |
 
-`bash tests/run-data-layer.sh` → **279/279 ALL PASS**; real-browser smoke (14 chips, Weight first, chip→focus on the value box, BP chip reveals the diastolic pair); `APP_VERSION → 0.4.1` (check-version); offline + precache + sw-hash + check-zxing green.
+Unit-picker note (v0.4.2): the free-text unit input became a per-type `<select>` — tap it to switch kg/lb, mg/dL·mmol/L, ppm·mmol/L. A native select is the only reliably-tappable picker on iOS (datalist is not); this drops free-typing a custom unit, which the sanctioned per-type set makes unnecessary and which helps the Layer-2 trend-normalization pin (a remembered non-spec unit is still preserved as an option, so nothing logged is lost).
 
-**Status: MET — committed, deploys as v0.4.1 (also the 0.4.0 → 0.4.1 force-and-notify test).**
+`bash tests/run-data-layer.sh` → **284/284 ALL PASS**; real-browser smoke (14 chips, Weight first, chip→focus on the value box, BP chip reveals the diastolic pair; unit select renders kg/lb for the default type); `APP_VERSION → 0.4.2` (check-version); offline + precache + sw-hash + check-zxing green.
+
+**Status: MET — v0.4.1 committed + deployed; unit picker follows as v0.4.2 (each also a force-and-notify test).**

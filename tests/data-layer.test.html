@@ -986,7 +986,7 @@ window.setLS({});
   if (!document.getElementById('sigType')) {
     var fh = document.createElement('div');
     fh.innerHTML = '<select id="sigType"></select><label id="sigValLabel"></label><input id="sigValue">'
-      + '<div id="sigDiaWrap"><input id="sigDia"></div><input id="sigUnit"><input id="sigTime"><input id="sigNotes">'
+      + '<div id="sigDiaWrap"><input id="sigDia"></div><select id="sigUnit"></select><input id="sigTime"><input id="sigNotes">'
       + '<div id="sigChips"></div><div id="sigWarn"></div>';
     document.body.appendChild(fh);
   }
@@ -1003,6 +1003,24 @@ window.setLS({});
   setLS({}); HT.boot();
   var dropRec = HT.addSignal({ type:'weight', value:'82', unit:'kg', time:'07:00', notes:'' }).record;
   res(JSON.stringify(chipRec)===JSON.stringify(dropRec), 'TL14: chip-logged record IDENTICAL to dropdown-logged (one normalizeSignal/addSignal path)');
+
+  // TL15: unit picker -- tapping the unit offers the type's alternatives (native
+  // <select>, reliable on iOS); single-unit types show one; BP forced to mmHg;
+  // last-used unit pre-selected next time (per-record + remembered default, D20).
+  var uvals = function(){ return Array.prototype.map.call(document.getElementById('sigUnit').options, function(o){ return o.value; }).join(','); };
+  setLS({}); HT.boot(); HT.renderSignalForm();
+  HT.pickSignal('breath_ketones');
+  res(document.getElementById('sigUnit').tagName==='SELECT' && uvals()==='ppm,mmol/L' && document.getElementById('sigUnit').value==='ppm', 'TL15: breath_ketones unit picker offers ppm + mmol/L (default ppm)');
+  HT.pickSignal('weight');
+  res(uvals()==='kg,lb' && document.getElementById('sigUnit').value==='kg', 'TL15: weight offers kg + lb');
+  HT.pickSignal('steps');
+  res(document.getElementById('sigUnit').options.length===1 && document.getElementById('sigUnit').value==='count', 'TL15: single-unit type (steps) offers one option');
+  HT.pickSignal('bp');
+  res(document.getElementById('sigUnit').value==='mmHg', 'TL15: BP forced to mmHg');
+  setLS({}); HT.boot();
+  HT.addSignal({ type:'weight', value:'80', unit:'lb', time:'07:00' });                 // remember lb
+  HT.pickSignal('weight');
+  res(document.getElementById('sigUnit').value==='lb', 'TL15: last-used unit (lb) pre-selected next time');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
