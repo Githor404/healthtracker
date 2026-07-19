@@ -971,6 +971,39 @@ window.setLS({});
   res(al.ok && al.record.kind==='event' && al.record.value===3 && al.record.notes==='wine', 'TL13: alcohol event logs count + notes');
   res(HT.state().days[tdT].items.length===0 && HT.dayTotals(HT.state().days[tdT]).kcal===kb13, 'TL13: alcohol creates no food item, day totals unmoved');
 
+  // TL14: quick-log chips (D21 Layer-1 adherence) -- goals-derived order + the
+  // contract invariant: a chip is a faster PATH INTO the existing form, never a
+  // second code path (chip-logged record IDENTICAL to a dropdown-logged one).
+  setLS({}); HT.boot();
+  res(HT.chipOrder().join(',') === HT.CHIP_DEFAULT.join(','), 'TL14: chip order = curated default when no goals');
+  HT.setGoal('hrv','60','min'); HT.setGoal('bp_systolic','120','max');       // BP goal keys off bp_systolic; forward-ready (goals are nutrient-only in the UI today)
+  var co = HT.chipOrder();
+  res(co[0]==='hrv' && co[1]==='bp' && co.slice().sort().join(',')===HT.CHIP_DEFAULT.slice().sort().join(','),
+      'TL14: goal-set types (hrv, bp) float first in curated order; rest follow; no dupes/drops');
+  res(HT.chipOrder().indexOf('weight') > 1, 'TL14: a non-goal type (weight) sits after the floated ones -- no live reshuffle from readings, only goals');
+  // Build the signal form DOM (as TL9 builds the overlay) to exercise the real path.
+  setLS({}); HT.boot();
+  if (!document.getElementById('sigType')) {
+    var fh = document.createElement('div');
+    fh.innerHTML = '<select id="sigType"></select><label id="sigValLabel"></label><input id="sigValue">'
+      + '<div id="sigDiaWrap"><input id="sigDia"></div><input id="sigUnit"><input id="sigTime"><input id="sigNotes">'
+      + '<div id="sigChips"></div><div id="sigWarn"></div>';
+    document.body.appendChild(fh);
+  }
+  HT.renderSignalForm(); HT.renderSignalChips();
+  var chipsEl = document.getElementById('sigChips');
+  res(chipsEl.children.length===HT.CHIP_DEFAULT.length && chipsEl.children[0].tagName==='BUTTON', 'TL14: chip strip renders one button per curated signal');
+  var tlBefore14 = (HT.state().timeline[tdT]||[]).length;
+  HT.pickSignal('weight');
+  res(document.getElementById('sigType').value==='weight' && (HT.state().timeline[tdT]||[]).length===tlBefore14, 'TL14: pickSignal sets the type and creates NO record (prefill only)');
+  document.getElementById('sigValue').value='82'; document.getElementById('sigUnit').value='kg';
+  document.getElementById('sigTime').value='07:00'; document.getElementById('sigNotes').value='';
+  HT.addSignalFromForm();
+  var tlArr14 = HT.state().timeline[tdT]; var chipRec = tlArr14[tlArr14.length-1];
+  setLS({}); HT.boot();
+  var dropRec = HT.addSignal({ type:'weight', value:'82', unit:'kg', time:'07:00', notes:'' }).record;
+  res(JSON.stringify(chipRec)===JSON.stringify(dropRec), 'TL14: chip-logged record IDENTICAL to dropdown-logged (one normalizeSignal/addSignal path)');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

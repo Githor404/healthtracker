@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 3;
-const APP_VERSION      = '0.4.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.4.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1769,6 +1769,45 @@ function onSignalTypeChange() {
   const diaWrap = document.getElementById('sigDiaWrap'); if (diaWrap) diaWrap.style.display = isBP ? '' : 'none';
   const notes = document.getElementById('sigNotes'); if (notes) notes.placeholder = (sel.value === 'other') ? 'what was it?' : 'notes (optional)';
 }
+
+// Quick-log chips (D21 Layer-1 adherence: ease-of-logging is the mechanism of
+// action). A curated, audience-tuned strip that is a faster PATH INTO the existing
+// form -- pickSignal only sets the type + focuses the value box, never creates a
+// record; logging still funnels through addSignalFromForm -> addSignal, so a
+// chip-logged record is identical to a dropdown-logged one (one contract, one path).
+const CHIP_DEFAULT = ['weight', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep_hours', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
+function chipLabel(type) { return type === 'bp' ? 'BP' : (SIGNAL_BY_TYPE[type] ? SIGNAL_BY_TYPE[type].label : type); }
+// Goals-derived precedence (D21): a signal type the user set a goal on has been
+// declared to matter, so it floats into the unscrolled prime real estate; the
+// curated default orders the rest. Reads ONLY settings.goals -- the order recomputes
+// on a deliberate goal add/remove, never a live reshuffle from logging a reading
+// (no inference from readings -- that is clinical judgment, barred by the guidance
+// gate). Adaptive most-logged ordering is deferred to Layer 2 (trend data).
+function chipHasGoal(type) {
+  const goals = (APP_STATE && APP_STATE.settings && APP_STATE.settings.goals) || {};
+  if (type === 'bp') return !!(goals.bp_systolic || goals.bp_diastolic);
+  return !!goals[type];
+}
+function chipOrder() {
+  return CHIP_DEFAULT.filter(chipHasGoal).concat(CHIP_DEFAULT.filter((t) => !chipHasGoal(t)));
+}
+function renderSignalChips() {
+  const el = document.getElementById('sigChips'); if (!el) return;
+  const order = chipOrder(), sig = order.join(',');
+  if (el.dataset.order === sig) return;                                     // re-render only when order changes (goal add/remove) -- no reshuffle on every log
+  el.dataset.order = sig;
+  el.innerHTML = order.map((t) => `<button type="button" class="chip" onclick="pickSignal('${t}')">${esc(chipLabel(t))}</button>`).join('');
+}
+// A faster path INTO the form, NOT a second code path: set the type, run the
+// existing handler (unit/label/BP-pair), focus the value box. The user then types +
+// taps the same Log button -> addSignalFromForm -> addSignal. No record made here.
+function pickSignal(type) {
+  const sel = document.getElementById('sigType'); if (!sel) return;
+  sel.value = type;
+  onSignalTypeChange();
+  const v = document.getElementById('sigValue');
+  if (v) { try { v.focus(); if (v.select) v.select(); } catch (e) {} }
+}
 function addSignalFromForm() {
   const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
   const type = g('sigType');
@@ -2087,7 +2126,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderTimelineOverlay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderTimelineOverlay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -2109,6 +2148,7 @@ const VERSION_LOG = [
   { v: '0.2.0', note: 'Barcode scanning, OpenFoodFacts lookup, and price capture.' },
   { v: '0.3.0', note: 'Automatic updates with this changelog, so new versions arrive without a manual refresh.' },
   { v: '0.4.0', note: 'Log weight, biometrics (HRV, resting HR, glucose, sleep, steps, mood), and events (sauna, cold plunge, yoga, ...) on one daily timeline alongside food.' },
+  { v: '0.4.1', note: 'Faster logging: tap a chip (weight, glucose, HRV, sauna, ...) to jump straight to the value box.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2176,6 +2216,8 @@ window.HT = {
   // Phase 4 Slice T — timeline substrate (D20)
   SIGNAL_SPEC, SIGNAL_KINDS, MED_DOSE_UNITS, MED_FORMS, MED_ROUTES,
   normalizeSignal, normalizeTimeline, signalWarnings, addSignal, logBP, timelineForDay,
+  // Phase 4 Layer-1 adherence — quick-log chips (D21)
+  chipOrder, CHIP_DEFAULT, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable,
   goalProgress, microRollup, dayTotals, setGoal,

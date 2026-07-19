@@ -331,4 +331,20 @@ Fully local — entirely committed, no attestation. Schema v3 (the data-safety b
 
 `bash tests/run-data-layer.sh` → **target: all PASS**; `APP_VERSION → 0.4.0` (check-version); offline + precache + sw-hash + check-zxing green.
 
-**Status: Slice T PRE-REGISTERED — building.**
+**Status: Slice T MET — 273/273 (TL1–TL13); committed + deployed as v0.4.0.**
+
+### Quick-log chips — Layer-1 adherence (D21) — MET
+
+Layer-1 adherence per D21 (**ease-of-logging is the mechanism of action**): a curated, horizontal-scroll chip strip at the top of the signal card — now moved **directly under the day view**. One tap sets the type + unit, reveals the BP pair when relevant, and **focuses the value box** → tap, type, Log. Fully local — committed, no attestation.
+
+Forks ruled: **fixed-curated order now** (adaptive → Layer 2); **event chips included**; **horizontal-scroll, no cap**; card **directly under the day view**. Goals-derived precedence — a signal type with a goal floats to the unscrolled front (curated order among floated, then the rest), recomputed **only on goal add/remove**, never a live reshuffle from readings.
+
+> **Wired-but-dormant (ruled (A), forward-ready):** the goals-float mechanism reads `settings.goals`, but goals are **nutrient-only in the UI today**, so signal-type goals aren't settable and the float **cannot fire yet** — every user gets the pure curated order. It lights up when Layer-2 makes signal goals settable. Deliberately **not** forced into the food ring/strip to fire early: signal targets are a **different shape** (latest-reading / trend, not summed intake) that belongs to Layer-2 mirror work; wiring them into `goalProgress`/`dayTotals` would be the force-into-the-wrong-schema mistake the project refuses. The dormant mechanism costs nothing and Layer 2 inherits it working.
+
+| Case | Asserts |
+|---|---|
+| TL14 | chip order = curated default with no goals; a goal-set type (hrv, bp) floats first in curated order (no dupes/drops); a non-goal type stays after; strip renders one `<button>` per curated signal; **`pickSignal` sets the type and creates NO record (prefill only)**; **chip-logged record `JSON.stringify`-IDENTICAL to dropdown-logged** — one `normalizeSignal`/`addSignal` contract, never a second code path |
+
+`bash tests/run-data-layer.sh` → **279/279 ALL PASS**; real-browser smoke (14 chips, Weight first, chip→focus on the value box, BP chip reveals the diastolic pair); `APP_VERSION → 0.4.1` (check-version); offline + precache + sw-hash + check-zxing green.
+
+**Status: MET — committed, deploys as v0.4.1 (also the 0.4.0 → 0.4.1 force-and-notify test).**
