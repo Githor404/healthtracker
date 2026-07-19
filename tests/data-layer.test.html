@@ -57,12 +57,12 @@ window.setLS({});
   setLS({}); HT.boot();
   var s = HT.state();
   res(HT.Store.tier === 'local', '1: tier local');
-  res(s.version === 3 && s.current === td, '1: schema v3, current = today');
+  res(s.version === 4 && s.current === td, '1: schema v4, current = today');
   res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
   res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
   res(s.settings && s.settings.supplement.enabled === false, '1: supplement off by default');
   res(s.settings.presets.length === 0 && Object.keys(s.settings.goals).length === 0, '1: zero presets, zero goals');
-  res(s.priceLog && Object.keys(s.priceLog).length === 0 && s.timeline && Object.keys(s.timeline).length === 0, '1: empty priceLog + timeline');
+  res(s.priceLog && Object.keys(s.priceLog).length === 0 && s.timeline && Object.keys(s.timeline).length === 0 && s.fastLog && Object.keys(s.fastLog).length === 0, '1: empty priceLog + timeline + fastLog');
   res(HT.Store.status().ok === true, '1: badge ok');
 
   // 2. v1 -> v3 chained in-place migration
@@ -75,9 +75,9 @@ window.setLS({});
   var v1json = JSON.stringify(v1);
   setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.version === 3, '2: version bumped to 3 (chained v1->v2->v3)');
+  res(s.version === 4, '2: version bumped to 4 (chained v1->v2->v3->v4)');
   res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
-  res(!!s.settings && !!s.priceLog && !!s.timeline, '2: settings + priceLog + timeline added');
+  res(!!s.settings && !!s.priceLog && !!s.timeline && !!s.fastLog, '2: settings + priceLog + timeline + fastLog added');
   res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
   res(kcalOf(s.days['2026-07-08']) === 185, '2: per-day kcal byte-preserved (180+5)');
   res(s.days['2026-07-08'].water_l === 1.5, '2: water preserved');
@@ -92,8 +92,8 @@ window.setLS({});
   res(r3.source === 'store', '3: second boot loads from store (no re-migrate)');
   res(HT.state().migratedAt === firstMigAt, '3: migratedAt unchanged');
 
-  // 4. Forward-version blob in storage is protected (now > 3)
-  var futureBlob = JSON.stringify({ version: 4, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, futureField: 1 });
+  // 4. Forward-version blob in storage is protected (now > 4)
+  var futureBlob = JSON.stringify({ version: 5, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, futureField: 1 });
   setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
   res(r4.source === 'future', '4: forward blob -> source future');
   res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
@@ -112,9 +112,9 @@ window.setLS({});
   setLS({}, true); HT.boot();
   res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
-  // ---- v3 round-trip fixtures (settings gained signalUnits, blob gained timeline) ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {} };
-  var S1 = { version: 3, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] } };
+  // ---- v4 round-trip fixtures (settings gained signalUnits + fasting; blob gained timeline + fastLog) ----
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 } };
+  var S1 = { version: 4, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {} };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
@@ -123,13 +123,13 @@ window.setLS({});
   var exp1 = HT.exportJSON();
   setLS({}); HT.boot(); window.__confirm = true;
   var r7 = HT.restore(exp1);
-  res(r7.ok && r7.kind === 'restore', '7: v3 round-trip import ok');
-  res(deepEqual(HT.state(), S1), '7: source WITH today -> identical incl settings + priceLog + timeline');
+  res(r7.ok && r7.kind === 'restore', '7: v4 round-trip import ok');
+  res(deepEqual(HT.state(), S1), '7: source WITH today -> identical incl settings + priceLog + timeline + fastLog');
 
-  // 8. v3 round-trip WITHOUT today -> only permissible deltas
-  var S2 = { version: 3, days: {
+  // 8. v4 round-trip WITHOUT today -> only permissible deltas
+  var S2 = { version: 4, days: {
     '2026-07-08': { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 }
-  }, current:'2026-07-08', settings: goalState, priceLog: {}, timeline: {} };
+  }, current:'2026-07-08', settings: goalState, priceLog: {}, timeline: {}, fastLog: {} };
   setLS({}); HT.boot(); window.__confirm = true;
   HT.restore(JSON.stringify(S2));
   var st8 = HT.state();
@@ -138,19 +138,19 @@ window.setLS({});
   res(extra.length === 1 && extra[0] === td, '8: exactly one extra day == today');
   res(st8.days[td].items.length === 0 && st8.days[td].status === 'in_progress', '8: added today empty in_progress');
   res(st8.current === td, '8: current -> today');
-  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog) && deepEqual(st8.timeline, S2.timeline), '8: settings + priceLog + timeline preserved');
+  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog) && deepEqual(st8.timeline, S2.timeline) && deepEqual(st8.fastLog, S2.fastLog), '8: settings + priceLog + timeline + fastLog preserved');
 
-  // 9. Restore routing: v1/v2 migrate; version-absent rejected; >3 rejected
+  // 9. Restore routing: v1/v2/v3 migrate; version-absent rejected; >4 rejected
   setLS({}); HT.boot(); window.__confirm = true;
   var r9a = HT.restore(v1json);
-  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 3, '9: v1 paste -> migrated to v3');
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 4, '9: v1 paste -> migrated to v4');
   res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
   setLS({}); HT.boot();
   var before9 = JSON.stringify(HT.state());
   var r9b = HT.restore(JSON.stringify({ days: { '2026-07-08': { status:'complete', items:[], water_l:0 } }, current:'x' }));
   res(!r9b.ok && /Unrecognized|version/i.test(r9b.error || ''), '9: version-absent paste REJECTED (legacy removed)');
   var r9c = HT.restore(futureBlob);
-  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>3 paste rejected');
+  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>4 paste rejected');
   res(JSON.stringify(HT.state()) === before9, '9: state untouched by rejected pastes');
 
   // 10. Restore v2: micros coerced/clamped, unknown key preserved, source validated
@@ -194,7 +194,7 @@ window.setLS({});
   res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
 
   // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version": 3') >= 0, '14: export carries version 3');
+  res(HT.exportJSON().indexOf('"version": 4') >= 0, '14: export carries version 4');
   setLS({}); HT.boot(); window.__confirm = true;
   var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
   res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
@@ -269,7 +269,7 @@ window.setLS({});
   var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
   res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement', 'I8: v1 full-days migrated (source inferred) then merged');
   res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
-  res(!HT.ingest(JSON.stringify({ version:4, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>3 full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:5, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>4 full-days rejected');
 
   // I9. complete-day append -> reopens + reports
   setLS({}); HT.boot();
@@ -906,8 +906,10 @@ window.setLS({});
   // TL6: schema v3 migration chain (guard/boot covered by tests 2/4/9)
   var m2 = HT.migrateV2toV3({ version:2, days:{}, current:'', settings:{}, priceLog:{} }, '2026-07-18T00:00:00Z');
   res(m2.version===3 && !!m2.timeline && Object.keys(m2.timeline).length===0, 'TL6: migrateV2toV3 adds empty timeline, version 3');
+  var m34 = HT.migrateV3toV4({ version:3, days:{}, current:'', settings:{}, priceLog:{}, timeline:{} }, '2026-07-18T00:00:00Z');
+  res(m34.version===4 && !!m34.fastLog && Object.keys(m34.fastLog).length===0 && !!m34.timeline, 'TL6: migrateV3toV4 adds empty fastLog, version 4');
   var m1 = HT.migrateToLatest({ version:1, days:{}, current:'' }, '2026-07-18T00:00:00Z');
-  res(m1.version===3 && !!m1.settings && !!m1.priceLog && !!m1.timeline, 'TL6: migrateToLatest chains v1->v2->v3');
+  res(m1.version===4 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog, 'TL6: migrateToLatest chains v1->v2->v3->v4');
 
   // TL7: normalizeTimeline restore hardening (incl. hostile medication) + round-trip
   var nt = HT.normalizeTimeline({
@@ -1021,6 +1023,128 @@ window.setLS({});
   HT.addSignal({ type:'weight', value:'80', unit:'lb', time:'07:00' });                 // remember lb
   HT.pickSignal('weight');
   res(document.getElementById('sigUnit').value==='lb', 'TL15: last-used unit (lb) pre-selected next time');
+
+  // ===== Slice X — fasting candidates + undo (D22) =====
+  // Helper: set the day store to a set of fast-breaking food events (keeps an empty
+  // today so refresh() has a current day). defs: [{date,time,kcal?,_auto?}].
+  function fdays(defs){ var st=HT.state(); st.days={}; st.days[td]={status:'in_progress',items:[],water_l:0};
+    defs.forEach(function(d){ (st.days[d.date]=st.days[d.date]||{status:d.status||'in_progress',items:[],water_l:0}).items.push({name:d.name||'m',meal:'lunch',time:d.time,kcal:(d.kcal==null?500:d.kcal),soluble_fiber_g:0,_auto:d._auto}); }); }
+
+  // FX1: gap-detection boundaries
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'12:00'}]);        // 16h exactly
+  var f16=HT.detectFastCandidates();
+  res(f16.length===1 && f16[0].start==='2026-06-01T20:00' && f16[0].end==='2026-06-02T12:00' && f16[0].hours===16, 'FX1: 16h gap -> 1 candidate {start,end,hours}');
+  fdays([{date:'2026-06-01',time:'20:01'},{date:'2026-06-02',time:'12:00'}]);        // 15h59
+  res(HT.detectFastCandidates().length===0, 'FX1: 15h59 gap -> 0 candidates');
+  fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'07:00'}]);        // 11h overnight
+  res(HT.detectFastCandidates().length===0, 'FX1: 11h overnight -> 0 (threshold handles sleep)');
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-03',time:'11:00'}]);        // 40h multi-day
+  res(HT.detectFastCandidates().length===1 && HT.detectFastCandidates()[0].hours===40, 'FX1: 40h multi-day -> 1 candidate');
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'},{date:'2026-06-02',time:'22:00'},{date:'2026-06-03',time:'20:00'}]);
+  res(HT.detectFastCandidates().length===2, 'FX1: two qualifying gaps -> 2 candidates');   // 18h + 22h; the 9h between is skipped
+  fdays([{date:'2026-06-05',time:'12:00'}]);                                          // lone item, nothing after
+  res(HT.detectFastCandidates().length===0, 'FX1: trailing/lone item -> 0 (bounded-gap, no in-progress candidate)');
+
+  // FX2: kcal>0 breaks a fast; 0-kcal drink + _auto supplement are exempt
+  fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'02:00',kcal:0},{date:'2026-06-02',time:'12:00'}]);
+  res(HT.detectFastCandidates().length===1 && HT.detectFastCandidates()[0].hours===16, 'FX2: 0-kcal drink mid-gap does NOT break the fast');
+  fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'02:00',kcal:5,_auto:true},{date:'2026-06-02',time:'12:00'}]);
+  res(HT.detectFastCandidates().length===1, 'FX2: _auto supplement mid-gap does NOT break the fast');
+  fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'02:00',kcal:300},{date:'2026-06-02',time:'12:00'}]);
+  res(HT.detectFastCandidates().length===0, 'FX2: a real kcal>0 item mid-gap DOES break the fast (6h + 10h)');
+
+  // FX3: three-state discipline — only fasted counts; pending/denied excluded
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'}]);        // 18h candidate
+  res(HT.confirmedFasts().length===0, 'FX3: unresolved (pending) candidate NOT in confirmedFasts');
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'ate_didnt_log');
+  res(HT.confirmedFasts().length===0 && HT.detectFastCandidates()[0].state==='ate_didnt_log', 'FX3: ate_didnt_log excluded from confirmedFasts');
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'fasted');
+  res(HT.confirmedFasts().length===1 && HT.confirmedFasts()[0].hours===18, 'FX3: fasted -> counted in confirmedFasts');
+  // averages byte-identical with vs without fastLog (fasting never touches food totals)
+  setLS({}); HT.boot();
+  var sta=HT.state(); sta.days={}; sta.days[td]={status:'in_progress',items:[],water_l:0};
+  sta.days['2026-06-01']={status:'complete',items:[{name:'a',meal:'lunch',time:'12:00',kcal:600,protein_g:30,fat_g:20,carb_g:50,fiber_g:5,soluble_fiber_g:1}],water_l:0};
+  sta.days['2026-06-02']={status:'complete',items:[{name:'b',meal:'lunch',time:'12:00',kcal:800,protein_g:40,fat_g:25,carb_g:70,fiber_g:6,soluble_fiber_g:2}],water_l:0};
+  var avgBefore=JSON.stringify(HT.averageOver(HT.completeDaysInWindow('all')));
+  HT.resolveFast('2026-06-01T12:00','2026-06-02T12:00',24,'fasted');
+  res(avgBefore===JSON.stringify(HT.averageOver(HT.completeDaysInWindow('all'))), 'FX3: macro averages byte-identical with vs without fastLog');
+
+  // FX4: resolution round-trip + normalizeFastLog hardening + biometric tolerated
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'}]);
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'fasted');
+  var expF=JSON.parse(HT.exportJSON());
+  var fe=expF.fastLog && expF.fastLog['2026-06-01T19:00'];
+  res(fe && fe.state==='fasted' && fe.resolved_by==='user' && fe.end==='2026-06-02T13:00' && fe.hours===18, 'FX4: resolution exported {state,resolved_by,start,end,hours}');
+  setLS({}); HT.boot(); window.__confirm=true;
+  HT.restore(JSON.stringify(expF));
+  res(HT.state().fastLog['2026-06-01T19:00'] && HT.state().fastLog['2026-06-01T19:00'].state==='fasted', 'FX4: fastLog survives export->restore exact');
+  var nf=HT.normalizeFastLog({ 'bad':{start:'bad',state:'pending'}, '2026-06-01T19:00':{start:'2026-06-01T19:00',end:'2026-06-02T13:00',hours:-5,state:'fasted',resolved_by:'biometric'} });
+  res(!nf['bad'] && nf['2026-06-01T19:00'] && nf['2026-06-01T19:00'].hours===0 && nf['2026-06-01T19:00'].resolved_by==='biometric', 'FX4: normalizeFastLog drops pending/bad-key, clamps hours, tolerates biometric (Pin-2 seam)');
+
+  // FX5: ingest never touches fastLog
+  setLS({}); HT.boot();
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'fasted');
+  var flBefore=JSON.stringify(HT.state().fastLog);
+  HT.ingest(JSON.stringify([{name:'X',meal:'snack',kcal:100,date:td}]));
+  res(JSON.stringify(HT.state().fastLog)===flBefore, 'FX5: ingest leaves fastLog untouched (restore’s job)');
+
+  // FX6: schema v4 migration end-to-end (a v3 blob gains fastLog on boot)
+  setLS({'healthtracker-log': JSON.stringify({version:3,days:{'2026-06-01':{status:'complete',items:[],water_l:0}},current:'2026-06-01',settings:{},priceLog:{},timeline:{}})}); HT.boot();
+  res(HT.state().version===4 && !!HT.state().fastLog, 'FX6: a v3 blob migrates on boot -> gains fastLog + version 4');
+
+  // FX7: tolerance-matched identity + inert orphan
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'}]);
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'fasted');
+  fdays([{date:'2026-06-01',time:'19:05'},{date:'2026-06-02',time:'13:00'}]);        // shift boundary meal 5 min
+  res(HT.detectFastCandidates()[0].state==='fasted', 'FX7: resolution survives a <15min boundary shift (tolerance match)');
+  fdays([]);                                                                          // no food -> no candidates
+  res(HT.confirmedFasts().length===0 && !!HT.state().fastLog['2026-06-01T19:00'], 'FX7: orphaned resolution kept INERT (retained in state, not counted)');
+
+  // FX8: config + off-switch
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'}]);        // 18h
+  res(HT.detectFastCandidates().length===1, 'FX8: default enabled -> candidate detected');
+  HT.state().settings.fasting={enabled:false,minHours:16};
+  res(HT.detectFastCandidates().length===0, 'FX8: enabled:false -> off (no candidates)');
+  HT.state().settings.fasting={enabled:true,minHours:20};
+  res(HT.detectFastCandidates().length===0, 'FX8: minHours 20 -> the 18h gap no longer qualifies');
+
+  // UN1: undo removes the just-created record BY REFERENCE (incl. BP -> both)
+  setLS({}); HT.boot();
+  var stU=HT.state(); stU.days[td].items.push({name:'Oops',meal:'snack',time:'10:00',kcal:200,soluble_fiber_g:0});
+  var oref=stU.days[td].items[stU.days[td].items.length-1];
+  HT.offerUndo('Logged Oops', HT.undoRemove(stU.days[td].items,[oref]));
+  HT.doUndo();
+  res(HT.state().days[td].items.indexOf(oref)<0, 'UN1: doUndo removes the just-created food record by reference');
+  setLS({}); HT.boot();
+  var bp=HT.logBP('120','80','09:00');
+  res((HT.state().timeline[td]||[]).length===2, 'UN1: BP created two timeline records');
+  HT.offerUndo('Logged BP', HT.undoRemove(HT.state().timeline[td],[bp.systolic,bp.diastolic]));
+  HT.doUndo();
+  res((HT.state().timeline[td]||[]).length===0, 'UN1: undo removes BOTH BP records');
+
+  // UN2: fast-context undo -> candidate recomputes to pre-log state (no repair logic)
+  setLS({}); HT.boot();
+  var stF=HT.state(); stF.days={}; stF.days[td]={status:'in_progress',items:[],water_l:0};
+  stF.days['2026-06-01']={status:'complete',items:[{name:'Dinner',meal:'dinner',time:'19:00',kcal:600,soluble_fiber_g:0}],water_l:0};
+  stF.days['2026-06-02']={status:'in_progress',items:[],water_l:0};
+  var lunch={name:'Lunch',meal:'lunch',time:'13:00',kcal:500,soluble_fiber_g:0};
+  stF.days['2026-06-02'].items.push(lunch);
+  res(HT.detectFastCandidates().length===1 && HT.detectFastCandidates()[0].end==='2026-06-02T13:00', 'UN2: logging the meal created a candidate ending at it');
+  res(HT.fastEndedByItem('2026-06-02','13:00')===18, 'UN2: fastEndedByItem reports the 18h fast the log ended');
+  HT.offerUndo('x', HT.undoRemove(stF.days['2026-06-02'].items,[lunch]));
+  HT.doUndo();
+  res(HT.detectFastCandidates().length===0, 'UN2: undo removes the meal -> candidate recomputes away (no repair logic)');
+
+  // UN3: logging is instant — no confirmation gate, record present immediately
+  setLS({}); HT.boot();
+  var beforeU=(HT.state().timeline[td]||[]).length;
+  var rU=HT.addSignal({type:'weight',value:'80',time:'07:00'});
+  res(rU.ok && (HT.state().timeline[td]||[]).length===beforeU+1, 'UN3: log is instant (no confirmation gate) — record present immediately');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');

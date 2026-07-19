@@ -357,3 +357,29 @@ Reachability gate — **`tests/chip-layout-gate.ps1`** (CDP, real `index.html`).
 `bash tests/run-data-layer.sh` → **284/284 ALL PASS**; `pwsh tests/chip-layout-gate.ps1` → PASS (A mouse/narrow wrapped 0-clipped, B touch scroll, C mouse/wide wrapped); real-browser smoke (14 chips, Weight first, chip→focus on the value box, BP chip reveals the diastolic pair; unit select renders kg/lb); `APP_VERSION → 0.4.3` (check-version); offline + precache + sw-hash + check-zxing green.
 
 **Status: MET — v0.4.1/0.4.2 committed + deployed; desktop-scroll fix follows as v0.4.3 (each also a force-and-notify test).**
+
+### Slice X — fasting candidates + universal undo (D22) — PRE-REGISTERED
+
+Three-state fasting per D19/D22: derived candidates, persisted resolutions (only human judgment stored), pending = absence, mirror-never-nag. Plus a universal **undo** on every log path (protection is undo, not confirmation). New capability → **`APP_VERSION → 0.5.0`**; new top-level store `fastLog` → **schema v4** (same cross-version-safety reasoning as v3/D20).
+
+**Flagged fixture edits (legitimate schema evolution, not silent):** the v3 data-layer fixtures move to **v4** — version `3 → 4`, blob gains `fastLog`, forward-guard `>3 → >4` (future-blob cases become `version 5`), `settings` gains `fasting`, `migrateV3toV4` chained. All pre-existing assertions keep their meaning; only the version number and the added store change.
+
+| Case | Asserts |
+|---|---|
+| FX1 | gap boundaries: 15h59 → 0; **16h → 1** `{start,end,hours}`; 11h overnight → 0; **18h cross-midnight → 1** correct span; 40h multi-day → 1; two qualifying gaps → 2; a trailing/lone item (no food after) → **0** (bounded-gap, no in-progress candidate) |
+| FX2 | **`kcal>0` breaks a fast**; a 0-kcal drink mid-gap does **not**; the **`_auto` supplement mid-gap does not** (candidate persists); a real `kcal>0` item mid-gap **does** (splits the gap) |
+| FX3 | **three-state discipline**: a pending candidate (no `fastLog`) and an `ate_didnt_log` are both excluded from `confirmedFasts()`; only `fasted` counts; **macro averages (`averageOver`) byte-identical** with vs. without `fastLog` data (fasting never touches food totals) |
+| FX4 | **resolution round-trip**: resolve → `exportJSON` → `parseImport`/`restore` → `fastLog` entry `{state, resolved_by, start, end, hours}` exact; `normalizeFastLog` drops non-resolved / bad-key entries (pending = absence), clamps `hours≥0`; **`resolved_by:'biometric'` tolerated** (Pin-2 seam) |
+| FX5 | **`ingest` never touches `fastLog`** (restore's job, D8/D20) |
+| FX6 | **schema v4**: `migrateV3toV4` adds empty `fastLog`, version 4; `migrateToLatest` chains v1→…→v4; forward-guard rejects `>4` (v5); a v3 blob migrates → gains `fastLog` + version 4 |
+| FX7 | **tolerance-matched identity + inert orphan**: a resolution survives a ±<15 min boundary-meal shift (still matched); an orphaned resolution (no matching candidate) is retained in state (round-trips) but **not** in `confirmedFasts()` (inert, not deleted) |
+| FX8 | **config + off-switch**: default `{enabled:true, minHours:16}`; `enabled:false` → `detectFastCandidates()` returns `[]`; a `minHours` change alters detection |
+| UN1 | **undo seam**: `doUndo()` within the window removes the just-created record **by reference** (food item from `day.items`; a signal from `timeline[date]`; **BP removes both**); state saved; nothing else changed |
+| UN2 | **fast-context undo**: a food log ending a ≥minHours gap creates a candidate ending at that item; undo removes the item → `detectFastCandidates()` recomputes to the pre-log state (candidate gone), **no repair logic** |
+| UN3 | happy path: instant add, **no confirmation dialog** on any log path; after the undo window the record persists and stays removable the normal way |
+
+`bash tests/run-data-layer.sh` → **315/315 ALL PASS** (FX1–FX8, UN1–UN3; v3→v4 fixtures updated — tests 1/2/4/7/8/9/14/I8/TL6); real-browser smoke (candidate row + 2 resolve buttons on the end day; resolve → `fasted` → row shows done; `confirmedFasts()`=1; fasting settings form; toast renders a working Undo button); `APP_VERSION → 0.5.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green.
+
+**Ingest-undo scope (flagged):** undo covers the five single-record log paths in full; ingest gets a **batch undo on the AI-paste item channel** (removes the pushed item refs). The **full-days merge channel** (wholesale day replace) has **no toast-undo** (it's a restore-like bulk merge with its own report), and undo removes only the records — not ingest's day-create/reopen side-effects. Deliberate: ingest is a non-reflexive deliberate paste; the amendment's reflexive-mis-entry target is the single-record paths.
+
+**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.5.0.**

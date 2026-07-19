@@ -185,6 +185,16 @@
   @media (min-width:600px){ .chipstrip{flex-wrap:wrap;overflow-x:visible} }
   .chip{flex:0 0 auto;width:auto;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--txt);font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer}
   .chip:active{background:var(--accent);border-color:var(--accent);color:#fff}
+  .tundo{pointer-events:auto;width:auto;background:none;border:none;color:#fff;font-weight:800;text-decoration:underline;font-size:13px;padding:0 0 0 6px;cursor:pointer}
+  .fcand{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .fcand .fmain{flex:1;min-width:150px}
+  .fcand .fmain small{color:var(--muted);margin-left:6px}
+  .fcand.done .fmain{color:var(--good)}
+  .fcand.denied .fmain{color:var(--muted)}
+  .fbtns{display:flex;gap:6px;flex:0 0 auto}
+  .fbtns button{width:auto;font-size:12px;font-weight:700;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);cursor:pointer}
+  .fundo{width:auto;background:none;border:none;color:var(--accent);font-weight:700;font-size:12px;cursor:pointer}
+  .flong{color:var(--warn);font-weight:700;font-size:11px}
 </style>
 </head>
 <body>
@@ -220,6 +230,7 @@
     <div class="card">
       <details open>
         <summary>Timeline (food · events · biometrics)</summary>
+        <div id="fastCandidates"></div>
         <div id="timelineOverlay" style="margin-top:10px"></div>
       </details>
     </div>
@@ -256,6 +267,18 @@
         </div>
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Goals appear on the ring and strip above.</div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Fasting</summary>
+        <label class="checkline"><input type="checkbox" id="fastEnabled" checked> Show fasting candidates</label>
+        <div class="row" style="margin-top:8px">
+          <div style="flex:0 0 130px"><label>Min hours</label><input id="fastMinHours" type="number" inputmode="decimal"></div>
+        </div>
+        <button class="btn" onclick="setFastingFromForm()">Save</button>
+        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-kcal drinks and the daily supplement don't break a fast.</div>
       </details>
     </div>
 

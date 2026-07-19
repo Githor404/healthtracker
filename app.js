@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 3;
-const APP_VERSION      = '0.4.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 4;
+const APP_VERSION      = '0.5.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -59,10 +59,10 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {} };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 } };
 }
 function emptyState() {
-  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {} };
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {} };
 }
 
 // ---- storage adapter: localStorage -> memory ------------------------------
@@ -201,7 +201,15 @@ function normalizeSettings(s) {
     presets: Array.isArray(s.presets) ? s.presets : [],
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
     signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
+    fasting: normalizeFasting(s.fasting),   // D22: fasting detection config
   };
+}
+// D22: fasting config. enabled defaults true (always-on-but-silent — only real
+// >= minHours gaps ever surface); minHours default 16 (16:8), clamped > 0.
+function normalizeFasting(f) {
+  f = (f && typeof f === 'object' && !Array.isArray(f)) ? f : {};
+  const mh = num(f.minHours);
+  return { enabled: f.enabled !== false, minHours: mh > 0 ? mh : 16 };
 }
 
 // D18: restore-boundary hardening for priceLog (was passthrough). Barcode keys
@@ -295,13 +303,30 @@ function migrateV2toV3(v2, nowISO) {
   if (typeof v2.knownDropped === 'number') out.knownDropped = v2.knownDropped;
   return out;
 }
-// Chain the in-place migrators to the latest schema (D7/D20). version-absent is
+// D22 add-only v3 -> v4: introduce the empty fastLog store (days/settings/
+// priceLog/timeline byte-preserved). Same shape as migrateV2toV3.
+function migrateV3toV4(v3, nowISO) {
+  const out = {
+    version: 4,
+    days: (v3.days && typeof v3.days === 'object') ? v3.days : {},
+    current: typeof v3.current === 'string' ? v3.current : '',
+    settings: (v3.settings && typeof v3.settings === 'object') ? v3.settings : defaultSettings(),
+    priceLog: (v3.priceLog && typeof v3.priceLog === 'object') ? v3.priceLog : {},
+    timeline: (v3.timeline && typeof v3.timeline === 'object') ? v3.timeline : {},
+    fastLog: {},   // add-only
+    migratedAt: typeof v3.migratedAt === 'string' ? v3.migratedAt : nowISO,
+  };
+  if (typeof v3.knownDropped === 'number') out.knownDropped = v3.knownDropped;
+  return out;
+}
+// Chain the in-place migrators to the latest schema (D7/D20/D22). version-absent is
 // treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
   let out = blob;
   const v = (typeof blob.version === 'number') ? blob.version : 1;
   if (v < 2) out = migrateV1toV2(out, nowISO);
   if ((out.version || 2) < 3) out = migrateV2toV3(out, nowISO);
+  if ((out.version || 3) < 4) out = migrateV3toV4(out, nowISO);
   return out;
 }
 
@@ -315,6 +340,7 @@ function normalizeState(o) {
     settings: normalizeSettings(o.settings),
     priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
     timeline: normalizeTimeline(o.timeline),   // D20: source-agnostic signal store
+    fastLog: normalizeFastLog(o.fastLog),      // D22: persisted fasting resolutions
   };
   Object.keys(o.days || {}).forEach((d) => {
     const src = o.days[d] || {};
@@ -327,6 +353,34 @@ function normalizeState(o) {
   if (typeof o.migratedAt === 'string') s.migratedAt = o.migratedAt;      // preserve stamps (round-trip)
   if (typeof o.knownDropped === 'number') s.knownDropped = o.knownDropped;
   return s;
+}
+
+// D22 restore-boundary hardening for fastLog (like normalizeTimeline). Only
+// RESOLVED states persist (fasted | ate_didnt_log) — pending = absence, so a
+// stored 'pending'/unknown state or a bad key is dropped. Keyed by a valid start
+// ISO; hours clamped >= 0; resolved_by kept as a string (tolerates a future
+// 'biometric' resolver — Pin 2). Round-trips a resolved entry exactly.
+function normalizeFastLog(o) {
+  const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  const out = {};
+  Object.keys(src).forEach((k) => {
+    const e = src[k] || {};
+    const state = (e.state === 'fasted' || e.state === 'ate_didnt_log') ? e.state : null;
+    const start = String(e.start == null ? k : e.start);
+    if (!state || !isoRe.test(start)) return;                              // pending/unknown/bad-key -> dropped
+    const rec = {
+      start: start,
+      end: isoRe.test(String(e.end)) ? String(e.end) : '',
+      hours: clampNonNeg(e.hours),
+      state: state,
+      resolved_by: (typeof e.resolved_by === 'string' && e.resolved_by) ? e.resolved_by : 'user',
+      resolved_at: typeof e.resolved_at === 'string' ? e.resolved_at : '',
+    };
+    if (e.notes != null && String(e.notes) !== '') rec.notes = String(e.notes);
+    out[start] = rec;
+  });
+  return out;
 }
 
 // ---- boot -----------------------------------------------------------------
@@ -370,6 +424,8 @@ function boot() {
   if (!state.settings || typeof state.settings !== 'object') { state.settings = defaultSettings(); dirty = true; }
   if (!state.priceLog || typeof state.priceLog !== 'object') { state.priceLog = {}; dirty = true; }
   if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
+  if (!state.fastLog || typeof state.fastLog !== 'object') { state.fastLog = {}; dirty = true; }       // D22
+  if (!state.settings.fasting || typeof state.settings.fasting !== 'object') { state.settings.fasting = { enabled: true, minHours: 16 }; dirty = true; }   // D22
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
@@ -474,6 +530,46 @@ function toast(m) {
   _toastT = setTimeout(function () { e.classList.remove('show'); }, 1900);
 }
 
+// ---- undo on logging (D22 amendment): the protection is UNDO, not confirmation.
+// Each log handler registers offerUndo(label, fn) after its INSTANT add; fn removes
+// the just-created record(s) BY REFERENCE. Because fasting candidates are derived,
+// removing the record recomputes the gap with no special-case repair. No confirm
+// dialogs anywhere on the log paths — undo protects only where the failure is.
+let _undoFn = null, _undoT = null;
+function offerUndo(label, fn) {
+  _undoFn = fn;
+  const e = document.getElementById('toast'); if (!e) return;
+  e.innerHTML = esc(label) + ' <button type="button" class="tundo" onclick="doUndo()">Undo</button>';
+  e.classList.add('show');
+  clearTimeout(_undoT);
+  _undoT = setTimeout(function () { e.classList.remove('show'); e.textContent = ''; _undoFn = null; }, 7000);
+}
+function doUndo() {
+  const fn = _undoFn; _undoFn = null;
+  clearTimeout(_undoT);
+  const e = document.getElementById('toast'); if (e) { e.classList.remove('show'); e.textContent = ''; }
+  if (typeof fn === 'function') { fn(); toast('Undone'); }
+}
+// Remove created record(s) by reference (survives array reordering), persist, refresh.
+function undoRemove(arr, refs) {
+  return function () {
+    (Array.isArray(refs) ? refs : [refs]).forEach(function (r) {
+      if (Array.isArray(arr)) { const i = arr.indexOf(r); if (i >= 0) arr.splice(i, 1); }
+    });
+    Store.saveState(APP_STATE); refresh();
+  };
+}
+// Food log: the label carries FAST CONTEXT (D22 amendment 3) — a log that ended a
+// >= minHours fast says so; undo removes the item and the candidate recomputes away.
+function offerFoodUndo(dateKey, item) {
+  const arr = (APP_STATE.days[dateKey] && APP_STATE.days[dateKey].items) || [];
+  const h = fastEndedByItem(dateKey, item.time);
+  offerUndo('Logged ' + item.name + (h ? (' — this ended a ' + rDisp(h) + 'h fast') : ''), undoRemove(arr, [item]));
+}
+function offerSignalUndo(records, label) {
+  offerUndo(label, undoRemove(APP_STATE.timeline[localDate()] || [], records));
+}
+
 // ---- supplement + ingest (DECISIONS.md D8) --------------------------------
 function nowTime() {
   const d = new Date();
@@ -572,7 +668,7 @@ function renderSupplementForm() {
 }
 
 function blankReport() {
-  return { ok: true, added: [], created: [], supplemented: [], reopened: [], stripped: 0, skipped: [], mergedDays: [], rejectedItems: 0 };
+  return { ok: true, added: [], created: [], supplemented: [], reopened: [], stripped: 0, skipped: [], mergedDays: [], rejectedItems: 0, itemRefs: [] };
 }
 function bumpAdded(report, d) {
   const e = report.added.find((x) => x.date === d);
@@ -659,7 +755,9 @@ function ingestItems(o, report) {
       day.status = 'in_progress';
       if (report.reopened.indexOf(d) < 0) report.reopened.push(d);   // append reopens (D8/1)
     }
-    day.items.push(toAiPasteItem(raw));
+    const aiItem = toAiPasteItem(raw);
+    day.items.push(aiItem);
+    report.itemRefs.push({ d: d, it: aiItem });   // D22 undo: refs for a batch undo of the AI-paste channel
     bumpAdded(report, d);
   });
   return finalizeIngest(report);
@@ -689,7 +787,13 @@ function doIngest() {
   if (!raw.trim()) { toast('Paste JSON to ingest first'); return; }
   const report = ingest(raw);
   renderIngestReport(report);
-  if (report.ok) { if (box) box.value = ''; toast('Ingested'); }
+  if (report.ok) {
+    if (box) box.value = '';
+    const refs = report.itemRefs || [];   // AI-paste channel only; full-days merge has no per-item refs (see report)
+    if (refs.length) offerUndo('Ingested ' + refs.length + ' item' + (refs.length > 1 ? 's' : ''),
+      function () { refs.forEach(function (x) { const a = APP_STATE.days[x.d] && APP_STATE.days[x.d].items; if (a) { const i = a.indexOf(x.it); if (i >= 0) a.splice(i, 1); } }); Store.saveState(APP_STATE); refresh(); });
+    else toast('Ingested');
+  }
   else toast(report.error || 'Ingest failed');
 }
 
@@ -968,7 +1072,7 @@ function logPreset(id) {
   if (day.status === 'complete') day.status = 'in_progress';
   day.items.push(item);
   Store.saveState(APP_STATE); refresh();
-  toast('Logged ' + p.name);
+  offerFoodUndo(APP_STATE.current, item);
   return { ok: true, item: item };
 }
 // Delete a preset only — already-logged copies are untouched (D9).
@@ -1302,7 +1406,7 @@ function setScanMeal(m) { if (SCAN && SCAN.found) SCAN.meal = m; }
 function addScanToDay() {
   if (!SCAN || !SCAN.found) return;
   const r = logScanItem(SCAN.record, SCAN.mode, SCAN.grams, SCAN.meal);
-  if (r.ok) toast('Added ' + (SCAN.record.name || SCAN.record.barcode));
+  if (r.ok) offerFoodUndo(APP_STATE.current, r.item);
 }
 function prefillManual(bc) {
   const name = document.getElementById('maName');
@@ -1852,7 +1956,11 @@ function addSignalFromForm() {
   if (!r.ok) { toast(r.error || 'Could not log'); return; }
   ['sigValue', 'sigDia', 'sigNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   showSignalWarnings(r.warnings || []);
-  toast((r.warnings && r.warnings.length) ? 'Logged — see warnings' : 'Logged');
+  const spec = SIGNAL_BY_TYPE[type];
+  const lbl = (type === 'bp')
+    ? ('Logged BP ' + rDisp(r.systolic.value) + '/' + rDisp(r.diastolic.value))
+    : ('Logged ' + (spec ? spec.label : type) + (r.record.value != null ? ' ' + rDisp(r.record.value) : '') + (r.record.unit ? ' ' + r.record.unit : ''));
+  offerSignalUndo((type === 'bp') ? [r.systolic, r.diastolic] : [r.record], lbl);
 }
 
 // Medication form (its own detailed entry — D20 addendum). Closed enums populate
@@ -1878,7 +1986,7 @@ function addMedicationFromForm() {
   if (!r.ok) { toast(r.error || 'Enter the medication name'); return; }
   ['medName', 'medDose', 'medPrescriber', 'medReason', 'medNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   const sc = document.getElementById('medScheduled'); if (sc) sc.checked = false;
-  toast('Medication logged');
+  offerSignalUndo([r.record], 'Logged ' + (r.record.name || 'medication'));
 }
 function showSignalWarnings(warns) {
   const el = document.getElementById('sigWarn'); if (!el) return;
@@ -1902,6 +2010,45 @@ function renderTimelineOverlay() {
     const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
     return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain">${esc(spec ? spec.label : r.type)}${val}${note}</span></div>`;
   }).join('');
+}
+
+// ---- fasting candidates DOM (D22): passive, inline resolve, mirror-never-nag --
+// Surface candidates that ENDED on the viewed day (Fork 6); silent when none (no
+// badge/count/nag). Resolve buttons write through the same resolveFast contract.
+function fmtSpan(iso) {                                   // 'YYYY-MM-DDTHH:MM'
+  const d = iso.slice(0, 10), t = iso.slice(11);
+  return (d === APP_STATE.current ? '' : (d.slice(5) + ' ')) + t;   // omit date if same day
+}
+function renderFastCandidates() {
+  const el = document.getElementById('fastCandidates'); if (!el || !APP_STATE) return;
+  const cands = detectFastCandidates().filter((c) => c.end.slice(0, 10) === APP_STATE.current);
+  if (!cands.length) { el.innerHTML = ''; return; }                // silent when none
+  el.innerHTML = cands.map((c) => {
+    const span = `<small>${esc(fmtSpan(c.start) + ' → ' + fmtSpan(c.end))}</small>`;
+    const lng = c.tooLong ? ' <span class="flong">long — check</span>' : '';
+    const undo = `<button type="button" class="fundo" onclick="resolveFastAt('${c.start}','${c.end}',${c.hours},'pending')">undo</button>`;
+    if (c.state === 'fasted')
+      return `<div class="fcand done"><span class="fmain">Fast · ${esc(rDisp(c.hours))}h ✓${lng} ${span}</span>${undo}</div>`;
+    if (c.state === 'ate_didnt_log')
+      return `<div class="fcand denied"><span class="fmain">${esc(rDisp(c.hours))}h gap · ate, didn't log ${span}</span>${undo}</div>`;
+    return `<div class="fcand"><span class="fmain">Possible fast · ${esc(rDisp(c.hours))}h${lng} ${span}</span>`
+      + `<span class="fbtns"><button type="button" onclick="resolveFastAt('${c.start}','${c.end}',${c.hours},'fasted')">Fasted</button>`
+      + `<button type="button" onclick="resolveFastAt('${c.start}','${c.end}',${c.hours},'ate_didnt_log')">Ate, didn't log</button></span></div>`;
+  }).join('');
+}
+function resolveFastAt(start, end, hours, state) { resolveFast(start, end, hours, state); }
+function renderFastingForm() {
+  const f = (APP_STATE.settings && APP_STATE.settings.fasting) || { enabled: true, minHours: 16 };
+  const en = document.getElementById('fastEnabled'); if (en) en.checked = f.enabled !== false;
+  const mh = document.getElementById('fastMinHours'); if (mh && !mh.value) mh.value = f.minHours || 16;
+}
+function setFastingFromForm() {
+  const en = document.getElementById('fastEnabled');
+  const mh = document.getElementById('fastMinHours');
+  const v = mh ? num(mh.value) : 16;
+  APP_STATE.settings.fasting = { enabled: !(en && !en.checked), minHours: v > 0 ? v : 16 };
+  Store.saveState(APP_STATE); refresh();
+  toast('Fasting settings saved');
 }
 
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
@@ -1953,7 +2100,7 @@ function addManualItem() {
   if (!r.ok) { toast(r.error || 'Could not add'); return; }
   clearManualForm();
   showManualWarnings(r.warnings);
-  toast(r.warnings.length ? 'Added — see warnings' : 'Added');
+  offerFoodUndo(APP_STATE.current, r.item);
 }
 function saveAsPreset() {
   const raw = readManualForm();
@@ -2006,6 +2153,88 @@ function averageOver(dateKeys) {
   const microAvg = {};
   Object.keys(microSum).forEach((K) => { microAvg[K] = { avg: microSum[K] / microN[K], nK: microN[K], m: M }; });
   return { n: M, macros: macroAvg, micros: microAvg };
+}
+
+// ---- fasting candidates (D22): derived detection, persisted resolutions ----
+// A fast-breaking food EVENT is any item with kcal > 0 that isn't the auto-
+// supplement (Fork 1b: kcal>0 is a protocol stance; the ~5 kcal _auto daily
+// supplement is exempt). Events are (date + time) across ALL days, chronological
+// — fasting is cross-day (dinner -> next-day lunch spans two date keys).
+function fastEvents() {
+  const evs = [];
+  Object.keys(APP_STATE.days).forEach((d) => {
+    (APP_STATE.days[d].items || []).forEach((it) => {
+      if (num(it.kcal) > 0 && it._auto !== true && /^\d{2}:\d{2}$/.test(String(it.time)))
+        evs.push(d + 'T' + it.time);
+    });
+  });
+  return evs.sort();
+}
+// A candidate = the span between two CONSECUTIVE events >= minHours (bounded on
+// both ends; the trailing open gap is never a candidate — it's an in-progress
+// fast). Derived every call; resolutions matched in from fastLog, default pending.
+function detectFastCandidates() {
+  const cfg = (APP_STATE.settings && APP_STATE.settings.fasting) || {};
+  if (cfg.enabled === false) return [];                                  // off-switch (Fork 7)
+  const minH = num(cfg.minHours) > 0 ? num(cfg.minHours) : 16;
+  const evs = fastEvents();
+  const out = [];
+  for (let i = 1; i < evs.length; i++) {
+    const start = evs[i - 1], end = evs[i];
+    if (start === end) continue;
+    const hrs = (Date.parse(end) - Date.parse(start)) / 3600000;
+    if (hrs >= minH) {
+      const res = matchResolution(start, end);
+      out.push({ id: start, start: start, end: end, hours: Math.round(hrs * 10) / 10,
+                 tooLong: hrs > 48, state: res.state, resolved_by: res.resolved_by });
+    }
+  }
+  return out;
+}
+// Match a derived candidate to a persisted resolution: exact start key first, then
+// tolerance (±15 min on start AND end) so a small boundary-meal edit doesn't orphan
+// a confirmation. No match -> pending (the absence IS the pending state).
+const FAST_TOL_MS = 15 * 60000;
+function matchResolution(start, end) {
+  const fl = (APP_STATE.fastLog && typeof APP_STATE.fastLog === 'object') ? APP_STATE.fastLog : {};
+  if (fl[start]) return { state: fl[start].state, resolved_by: fl[start].resolved_by || 'user' };
+  const ks = Object.keys(fl);
+  for (let i = 0; i < ks.length; i++) {
+    const e = fl[ks[i]];
+    if (Math.abs(Date.parse(e.start) - Date.parse(start)) <= FAST_TOL_MS &&
+        Math.abs(Date.parse(e.end || '') - Date.parse(end)) <= FAST_TOL_MS)
+      return { state: e.state, resolved_by: e.resolved_by || 'user' };
+  }
+  return { state: 'pending', resolved_by: null };
+}
+// The SOLE surface any average/analysis/correlation reads (Pin 1): confirmed fasts
+// only. Pending (absence) and ate_didnt_log are excluded by construction.
+function confirmedFasts() {
+  return detectFastCandidates().filter((c) => c.state === 'fasted');
+}
+// Resolve a candidate. Only resolved states persist; 'pending' deletes the record
+// (pending = absence). A future biometric resolver writes resolved_by:'biometric'.
+function resolveFast(start, end, hours, state, resolvedBy) {
+  if (state !== 'fasted' && state !== 'ate_didnt_log' && state !== 'pending') return { ok: false };
+  if (!APP_STATE.fastLog || typeof APP_STATE.fastLog !== 'object') APP_STATE.fastLog = {};
+  if (state === 'pending') { delete APP_STATE.fastLog[start]; }
+  else {
+    APP_STATE.fastLog[start] = {
+      start: start, end: String(end || ''), hours: clampNonNeg(hours), state: state,
+      resolved_by: resolvedBy || 'user', resolved_at: new Date().toISOString(),
+    };
+  }
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+// Did the food event at (dateKey, timeStr) END a >= minHours fast? Reuses the
+// detector (DRY): a candidate ending exactly here means this log closed a fast.
+// Returns the fast length in hours, or 0. (Only food can end a fast.)
+function fastEndedByItem(dateKey, timeStr) {
+  if (!/^\d{2}:\d{2}$/.test(String(timeStr))) return 0;
+  const target = dateKey + 'T' + timeStr;
+  const c = detectFastCandidates().filter((x) => x.end === target)[0];
+  return c ? c.hours : 0;
 }
 
 function avgBlockHTML(label, a) {
@@ -2157,7 +2386,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderTimelineOverlay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -2182,6 +2411,7 @@ const VERSION_LOG = [
   { v: '0.4.1', note: 'Faster logging: tap a chip (weight, glucose, HRV, sauna, ...) to jump straight to the value box.' },
   { v: '0.4.2', note: 'Tap the unit to switch it — kg/lb, mg/dL vs mmol/L, ppm vs mmol/L.' },
   { v: '0.4.3', note: 'Fix: on a mouse/desktop the quick-log chips now wrap to rows so every chip is reachable (they only scrolled by touch before).' },
+  { v: '0.5.0', note: 'Fasting: long gaps between meals surface as candidates you resolve (fasted / ate-didn\'t-log) — pending never counts. Plus Undo on every log.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2240,13 +2470,18 @@ function main() {
   renderSignalForm();
   renderMedForm();
   renderPromptCard();
+  renderFastingForm();
   wireChipStripWheel();
   refresh();
 }
 
 // Console seam for review/testing.
 window.HT = {
-  Store, boot, migrateV1toV2, migrateV2toV3, migrateToLatest, normalizeState, refresh,
+  Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateToLatest, normalizeState, refresh,
+  // Phase 4 Slice X — fasting candidates + undo (D22)
+  detectFastCandidates, confirmedFasts, resolveFast, matchResolution, fastEvents, fastEndedByItem,
+  normalizeFastLog, normalizeFasting, offerUndo, doUndo, undoRemove,
+  renderFastCandidates, renderFastingForm, setFastingFromForm, resolveFastAt, addManualItem, addMedicationFromForm, doIngest,
   // Phase 4 Slice T — timeline substrate (D20)
   SIGNAL_SPEC, SIGNAL_KINDS, MED_DOSE_UNITS, MED_FORMS, MED_ROUTES,
   normalizeSignal, normalizeTimeline, signalWarnings, addSignal, logBP, timelineForDay,
