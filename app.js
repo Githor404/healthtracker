@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 4;
-const APP_VERSION      = '0.5.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.5.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2412,6 +2412,7 @@ const VERSION_LOG = [
   { v: '0.4.2', note: 'Tap the unit to switch it — kg/lb, mg/dL vs mmol/L, ppm vs mmol/L.' },
   { v: '0.4.3', note: 'Fix: on a mouse/desktop the quick-log chips now wrap to rows so every chip is reachable (they only scrolled by touch before).' },
   { v: '0.5.0', note: 'Fasting: long gaps between meals surface as candidates you resolve (fasted / ate-didn\'t-log) — pending never counts. Plus Undo on every log.' },
+  { v: '0.5.1', note: 'Updates now also apply when you reopen the app from the switcher, not only on a full launch.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

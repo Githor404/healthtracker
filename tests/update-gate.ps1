@@ -80,13 +80,17 @@ $server = Start-Job -ArgumentList $repo, $port, $marker -ScriptBlock {
       if ([string]::IsNullOrEmpty($rel)) { $rel = 'index.html' }
       $full = Join-Path $repo $rel
       if (Test-Path $full -PathType Leaf) {
-        $bumped = Test-Path $marker
-        if ($rel -eq 'sw.js' -and $bumped) {
+        # Two bump levels via marker CONTENT: 'bump' (v2, one token) and 'bump2'
+        # (v3, distinct bytes + a second token) so the gate can apply on LOAD then
+        # apply a FURTHER change on RESUME without any navigation.
+        $level = if (Test-Path $marker) { ([string](Get-Content $marker -Raw)).Trim() } else { '' }
+        if ($rel -eq 'sw.js' -and $level) {
           $bytes = [System.IO.File]::ReadAllBytes($full)
-          $bytes += [System.Text.Encoding]::UTF8.GetBytes("`n// update-gate bump v2`n")
-        } elseif ($rel -eq 'index.html' -and $bumped) {
+          $bytes += [System.Text.Encoding]::UTF8.GetBytes("`n// update-gate bump $level`n")
+        } elseif ($rel -eq 'index.html' -and $level) {
           $txt = [System.IO.File]::ReadAllText($full)
-          $txt = $txt.Replace('</body>', '<!--UPDGATE-TOKEN--></body>')
+          $inject = if ($level -eq 'bump2') { '<!--UPDGATE-TOKEN--><!--UPDGATE-TOKEN2--></body>' } else { '<!--UPDGATE-TOKEN--></body>' }
+          $txt = $txt.Replace('</body>', $inject)
           $bytes = [System.Text.Encoding]::UTF8.GetBytes($txt)
         } else {
           $bytes = [System.IO.File]::ReadAllBytes($full)
@@ -134,34 +138,45 @@ try {
   Invoke-CDP 'Page.enable' $null    | Out-Null
   Invoke-CDP 'Runtime.enable' $null | Out-Null
 
-  # 1. v1 registers + activates (prod path forced so it isn't the localhost dev branch)
-  Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1" } | Out-Null
+  # 1. v1 registers + activates (prod path forced so it isn't the localhost dev branch;
+  #    swnow=1 zeroes the resume-check throttle — a test seam like prod=1).
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1&swnow=1" } | Out-Null
   Start-Sleep -Seconds 2
   $v1state = Eval "navigator.serviceWorker.ready.then(function(){return navigator.serviceWorker.getRegistration()}).then(function(r){return JSON.stringify({active:!!r.active,waiting:!!r.waiting})}).catch(function(e){return '{}'})" $true
   $d1 = $v1state | ConvertFrom-Json
   $v1active = [bool]$d1.active
 
-  # 2. shell changes; re-navigate (a LOAD) with NO gesture -> new SW must AUTO-activate
-  #    (skipWaiting+claim) and the new shell (token) must go live, client still open.
-  Set-Content -Path $marker -Value 'bump' -Encoding utf8
-  Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1" } | Out-Null
-  $autoUpdated = $false; $lingerWait = $true
+  # 2. LOAD-applies: shell -> v2; re-navigate (a LOAD) with NO gesture -> new SW must
+  #    AUTO-activate (skipWaiting+claim) and the new shell (token) go live.
+  Set-Content -Path $marker -Value 'bump' -Encoding ascii
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1&swnow=1" } | Out-Null
+  $loadApplied = $false
   for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Milliseconds 600
-    $tok = Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN')>=0)"
-    if ([bool]$tok) { $autoUpdated = $true }
-    $wt = Eval "navigator.serviceWorker.getRegistration().then(function(r){return r?!!r.waiting:false}).catch(function(){return false})" $true
-    if (-not [bool]$wt) { $lingerWait = $false }
-    if ($autoUpdated -and -not $lingerWait) { break }
+    if ([bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN')>=0)")) { $loadApplied = $true; break }
+  }
+
+  # 3. RESUME-applies (v0.5.1 refinement): the page is now controlled + on v2. Bump the
+  #    shell AGAIN (v3, a distinct token) and fire a visibilitychange with NO navigation.
+  #    The throttled resume-check calls reg.update(), which force-applies + reloads
+  #    through the SAME controllerchange path a load uses. This is the iOS switcher case.
+  $controlled = [bool](Eval "!!navigator.serviceWorker.controller")
+  Set-Content -Path $marker -Value 'bump2' -Encoding ascii
+  Eval "document.dispatchEvent(new Event('visibilitychange'))" | Out-Null
+  $resumeApplied = $false
+  for ($i = 0; $i -lt 30; $i++) {
+    Start-Sleep -Milliseconds 600
+    if ([bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN2')>=0)")) { $resumeApplied = $true; break }
   }
 
   Write-Host "SW update lifecycle (CDP, prod path forced, NO gesture):"
-  Write-Host ("  1. v1 registers + activates:                              {0}" -f $v1active)
-  Write-Host ("  2. shell change -> new SW auto-activates on load (token):  {0}  [force-and-notify]" -f $autoUpdated)
-  Write-Host ("     no waiting worker lingered (didn't wait for a close):   {0}" -f (-not $lingerWait))
+  Write-Host ("  1. v1 registers + activates:                          {0}" -f $v1active)
+  Write-Host ("  2. shell change -> auto-applies on LOAD (token):      {0}  [force-and-notify]" -f $loadApplied)
+  Write-Host ("  3. page controlled before resume:                     {0}" -f $controlled)
+  Write-Host ("  4. shell change -> auto-applies on RESUME (token2):   {0}  [v0.5.1 visibilitychange, no navigation]" -f $resumeApplied)
   Write-Host "-----------------------------------------"
-  if ($v1active -and $autoUpdated -and (-not $lingerWait)) {
-    Write-Host "UPDATE GATE: PASS (shell change auto-activated on load, no gesture, client stayed open)"
+  if ($v1active -and $loadApplied -and $controlled -and $resumeApplied) {
+    Write-Host "UPDATE GATE: PASS (auto-applies on both load and app-switcher resume; no gesture)"
     Cleanup; exit 0
   }
   Write-Host "UPDATE GATE: FAIL"

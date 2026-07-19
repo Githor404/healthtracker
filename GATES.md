@@ -382,4 +382,12 @@ Three-state fasting per D19/D22: derived candidates, persisted resolutions (only
 
 **Ingest-undo scope (flagged):** undo covers the five single-record log paths in full; ingest gets a **batch undo on the AI-paste item channel** (removes the pushed item refs). The **full-days merge channel** (wholesale day replace) has **no toast-undo** (it's a restore-like bulk merge with its own report), and undo removes only the records — not ingest's day-create/reopen side-effects. Deliberate: ingest is a non-reflexive deliberate paste; the amendment's reflexive-mis-entry target is the single-record paths.
 
-**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.5.0.**
+**Status: MET — committed + deployed as v0.5.0.**
+
+### Resume-check — "resumes count as loads" (D6 amendment refinement) — MET
+
+On-device gap (v0.5.0): the force-and-notify apply check runs on **load**, but an iOS home-screen PWA resumed from the app switcher never navigates, so an old version lingers until a real launch. Fix (v0.5.1): a **throttled `visibilitychange` resume-check** — on becoming visible (~5 min throttle), `reg.update()`; a new SW then force-applies + notices through the **same** `controllerchange`→reload path a load uses. Not the rejected gesture-bar (no bar/button/message); `swnow=1` zeroes the throttle as a test seam. Bootstrap caveat: the check ships *in* v0.5.1, so v0.5.1 arrives on a real launch; releases after it can arrive on a resume.
+
+`tests/update-gate.ps1` extended: a two-level shell bump proves auto-apply on **LOAD** (token) **and on RESUME** (token2 via a dispatched `visibilitychange`, **no navigation**, page controlled). Gate PASS (v1 active · load-applies · controlled · resume-applies); `APP_VERSION → 0.5.1` (check-version); data-layer 315/315 + offline + precache + sw-hash + check-zxing + chip-layout green.
+
+**Status: MET — awaiting review before commit/deploy as v0.5.1.**

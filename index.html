@@ -418,7 +418,8 @@
   // ONCE to the new shell. app.js then shows a post-update changelog notice.
   (function () {
     if (!('serviceWorker' in navigator)) return;           // e.g. file:// — app still works
-    var forceProd = new URLSearchParams(location.search).get('prod') === '1';
+    var params = new URLSearchParams(location.search);
+    var forceProd = params.get('prod') === '1';
 
     // Reload-once guard: trips BEFORE reload and never resets, so a partial or
     // failed activation can never loop — at most one reload per page life.
@@ -430,7 +431,22 @@
         if (reloading) return; reloading = true; location.reload();
       });
     }
-    navigator.serviceWorker.register('sw.js' + (forceProd ? '?prod=1' : '')).catch(function () {
+    navigator.serviceWorker.register('sw.js' + (forceProd ? '?prod=1' : '')).then(function (reg) {
+      // iOS gap (D6 amendment REFINEMENT): a home-screen PWA RESUMED from the app
+      // switcher never navigates, so the apply-on-load check can't run and a resident
+      // old version lingers until a real launch. Treat a resume as a load: on becoming
+      // visible (throttled ~5 min), ask the browser to re-check sw.js; a new SW then
+      // force-applies + notices through the SAME controllerchange path as a load. Safe
+      // because the amendment already accepted the mid-use swap deliberately.
+      var throttleMs = params.get('swnow') === '1' ? 0 : 5 * 60 * 1000;   // swnow=1: test seam (like prod=1)
+      var lastCheck = Date.now();
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState !== 'visible') return;
+        if (Date.now() - lastCheck < throttleMs) return;                 // throttle resume-checks
+        lastCheck = Date.now();
+        if (reg && reg.update) { try { reg.update(); } catch (e) {} }    // -> updatefound -> claim -> controllerchange -> reload
+      });
+    }).catch(function () {
       /* SW optional; offline just won't be available */
     });
   })();
