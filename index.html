@@ -162,6 +162,15 @@
   .scanvidwrap video{width:100%;max-height:300px;object-fit:cover;display:block}
   .scanreticle{position:absolute;left:10%;right:10%;top:50%;height:64px;transform:translateY(-50%);border:2px solid var(--accent);border-radius:8px;opacity:.75;pointer-events:none}
   .pricecap{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+  .tlrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+  .tlrow:first-child{border-top:none}
+  .tltime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:12px}
+  .tltag{font-size:9px;text-transform:uppercase;letter-spacing:.04em;font-weight:800;border-radius:6px;padding:1px 5px;min-width:58px;text-align:center;flex:0 0 auto}
+  .tltag.food{background:var(--accent);color:#fff}
+  .tltag.event{border:1px solid var(--warn);color:var(--warn)}
+  .tltag.biometric{border:1px solid var(--good);color:var(--good)}
+  .tltag.medication{border:1px solid var(--bad);color:var(--bad)}
+  .tlmain{flex:1;min-width:0}.tlmain small{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -172,6 +181,54 @@
     <div id="onboarding" class="card" style="display:none"></div>
     <div class="card">
       <div id="dayView"></div>
+    </div>
+
+    <div class="card">
+      <details open>
+        <summary>Timeline (food · events · biometrics)</summary>
+        <div id="timelineOverlay" style="margin-top:10px"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details open>
+        <summary>Log a biometric or event</summary>
+        <div id="sigWarn"></div>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:2"><label>Type</label><select id="sigType" onchange="onSignalTypeChange()"></select></div>
+          <div><label id="sigValLabel">Value</label><input id="sigValue" type="number" inputmode="decimal"></div>
+          <div id="sigDiaWrap" style="flex:1;display:none"><label>Diastolic</label><input id="sigDia" type="number" inputmode="decimal"></div>
+          <div style="flex:0 0 64px"><label>Unit</label><input id="sigUnit"></div>
+        </div>
+        <div class="row">
+          <div><label>Time</label><input id="sigTime" type="time"></div>
+          <div style="flex:2"><label>Notes</label><input id="sigNotes" placeholder="notes (optional)"></div>
+        </div>
+        <button class="btn primary" style="margin-top:10px" onclick="addSignalFromForm()">Log to timeline</button>
+        <div class="note">Weight, HRV, glucose, breath ketones, sleep, mood, energy, steps, BP; sauna, cold plunge, red light, HBOT, alcohol, … — on your daily timeline, never mixed into food totals.</div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details open>
+        <summary>Log a medication or supplement</summary>
+        <label>Name</label><input id="medName" placeholder="e.g. Metformin, Vitamin D3">
+        <div class="row">
+          <div><label>Dose</label><input id="medDose" type="number" inputmode="decimal"></div>
+          <div><label>Unit</label><select id="medDoseUnit"></select></div>
+          <div><label>Form</label><select id="medForm"></select></div>
+          <div><label>Route</label><select id="medRoute"></select></div>
+        </div>
+        <div class="row">
+          <div><label>Time</label><input id="medTime" type="time"></div>
+          <div><label>Prescriber</label><input id="medPrescriber" placeholder="optional"></div>
+          <div><label>Reason</label><input id="medReason" placeholder="optional"></div>
+        </div>
+        <label class="checkline"><input type="checkbox" id="medScheduled"> Standing / recurring dose (marks intent — no reminders yet)</label>
+        <label>Notes</label><input id="medNotes" placeholder="optional">
+        <button class="btn primary" style="margin-top:10px" onclick="addMedicationFromForm()">Log medication</button>
+        <div class="note">Name is enough for a quick log; dose and the rest are optional. Kept structured (not buried in notes) so it can be correlated later.</div>
+      </details>
     </div>
 
     <div class="card">

@@ -300,3 +300,35 @@ Also attested on device: **A4** (ZXing on real iOS — the genuine BarcodeDetect
 - N/A (with reasons): A3 (no-camera hardware), A-NR (iOS foreground camera hand-off), A6 (no iOS Vibration API)
 
 **Phase 2 gate: MET** — machinery CERTIFIED (234/234 + offline/precache/sw-hash/check-zxing) and on-device attested. Three attestations are N/A by iOS/hardware constraint (flagged above, not counted as MET); every gate criterion's logic is committed-tested, and the reachable-on-iOS attestations all passed.
+
+---
+
+## Phase 4 — Expansion (correlation-engine destination, D19)
+
+### Slice G — force-and-notify updates (D6 amendment) — MET (machinery); on-device attestation pending
+
+Replaced the rejected gesture-bar design. `tests/update-gate.ps1` (CDP): a shell change → the new SW **auto-activates on load** (skipWaiting+claim), the new shell goes live with **no gesture**, and the client stayed open. `tests/check-version.sh`: `APP_VERSION` carries a `VERSION_LOG` line and a shell change since the last commit without a bump fails. Notice logic (from→to, multi-version accumulation, downgrade-safe, fresh-install suppression) + render committed as **VN1–VN6**. Harness → 245/245; offline + precache green; real-browser notice smoke verified. **On-device (signed after deploy by reopening):** "Updated to vX" with the changelog, no force-quit — one-time transition may show the old bar once.
+
+### Slice T — timeline substrate + manual biometric / event adapters (D20) — PRE-REGISTERED
+
+Fully local — entirely committed, no attestation. Schema v3 (the data-safety bump). Gate clause: the generic source-agnostic store, its zeroth (manual) adapter, and the day overlay, with cross-version safety and no food-log double-count.
+
+| Case | Asserts |
+|---|---|
+| TL1 | `addSignal` → normalized record in `timeline[date]`; `value` clamped ≥0; `source:manual` forced; time/type/kind coerced |
+| TL2 | **events ≠ food items** — a signal creates no `day.item` and doesn't change `dayTotals` (no double-count) |
+| TL3 | `normalizeSignal` contract: raw→canonical; unknown `type` tolerated+preserved; `source` tolerated as string |
+| TL4 | `SIGNAL_SPEC` 1:1 `type→unit`, no cross-wiring (incl. `breath_ketones`/`steps`/`mood`/`energy`/`red_light`/`hbot`); `kind` biometric/event/**medication**; `other` uses `notes` for its label |
+| TL5 | `timelineForDay` merges food + events + biometrics + medication **time-sorted** |
+| TL6 | **schema v3**: v2→v3 adds empty `timeline`; **v1→v2→v3 chain**; forward-guard rejects `>3` (boot protects, restore rejects); pre-migration snapshot retained |
+| TL7 | restore `normalizeTimeline` hardens (bad date key dropped, `value`/`dose` clamped, hostile `notes`/`type`/**medication `name`/`prescriber`** kept-raw, unknown keys tolerated); **v3 round-trip exact incl. a full-detail medication record** |
+| TL8 | export includes `timeline`; **ingest leaves `timeline` untouched** (D8/6) |
+| TL9 | hostile `notes`/`type` **and medication `name`/`prescriber`** escaped in the overlay render |
+| TL10 | units **per-record** + last-used default remembered in `settings.signalUnits`; sane-range soft warning fires non-blocking |
+| TL11 | **medication kind**: `name` required; `dose` clamped ≥0; `dose_unit`/`form`/`route` closed-enum validated with tolerant fallback (no cross-wiring, M1-style); quick path (name only) valid; full-detail round-trips exact |
+| TL12 | **BP paired entry**: `logBP(120,80,t)` → two records (`bp_systolic`=120, `bp_diastolic`=80) at the same `time`, correctly separated, no cross-wiring |
+| TL13 | **alcohol** event: optional count + notes; creates no `day.item`; `dayTotals` unmoved |
+
+`bash tests/run-data-layer.sh` → **target: all PASS**; `APP_VERSION → 0.4.0` (check-version); offline + precache + sw-hash + check-zxing green.
+
+**Status: Slice T PRE-REGISTERED — building.**

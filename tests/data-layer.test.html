@@ -53,19 +53,19 @@ window.setLS({});
   });
   var td = today();
 
-  // 1. New-user boot: v2, zero fabricated intake
+  // 1. New-user boot: v3, zero fabricated intake
   setLS({}); HT.boot();
   var s = HT.state();
   res(HT.Store.tier === 'local', '1: tier local');
-  res(s.version === 2 && s.current === td, '1: schema v2, current = today');
+  res(s.version === 3 && s.current === td, '1: schema v3, current = today');
   res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
   res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
   res(s.settings && s.settings.supplement.enabled === false, '1: supplement off by default');
   res(s.settings.presets.length === 0 && Object.keys(s.settings.goals).length === 0, '1: zero presets, zero goals');
-  res(s.priceLog && Object.keys(s.priceLog).length === 0, '1: empty priceLog');
+  res(s.priceLog && Object.keys(s.priceLog).length === 0 && s.timeline && Object.keys(s.timeline).length === 0, '1: empty priceLog + timeline');
   res(HT.Store.status().ok === true, '1: badge ok');
 
-  // 2. v1 -> v2 in-place migration
+  // 2. v1 -> v3 chained in-place migration
   var v1 = { version: 1, days: {
     '2026-07-08': { status:'complete', items: [
       { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, confidence:'weighed', notes:'' },
@@ -75,9 +75,9 @@ window.setLS({});
   var v1json = JSON.stringify(v1);
   setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.version === 2, '2: version bumped to 2');
+  res(s.version === 3, '2: version bumped to 3 (chained v1->v2->v3)');
   res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
-  res(!!s.settings && !!s.priceLog, '2: settings + priceLog added');
+  res(!!s.settings && !!s.priceLog && !!s.timeline, '2: settings + priceLog + timeline added');
   res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
   res(kcalOf(s.days['2026-07-08']) === 185, '2: per-day kcal byte-preserved (180+5)');
   res(s.days['2026-07-08'].water_l === 1.5, '2: water preserved');
@@ -92,8 +92,8 @@ window.setLS({});
   res(r3.source === 'store', '3: second boot loads from store (no re-migrate)');
   res(HT.state().migratedAt === firstMigAt, '3: migratedAt unchanged');
 
-  // 4. Forward-version blob in storage is protected
-  var futureBlob = JSON.stringify({ version: 3, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, futureField: 1 });
+  // 4. Forward-version blob in storage is protected (now > 3)
+  var futureBlob = JSON.stringify({ version: 4, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, futureField: 1 });
   setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
   res(r4.source === 'future', '4: forward blob -> source future');
   res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
@@ -112,24 +112,24 @@ window.setLS({});
   setLS({}, true); HT.boot();
   res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
-  // ---- v2 round-trip fixtures ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '' };
-  var S1 = { version: 2, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } } };
+  // ---- v3 round-trip fixtures (settings gained signalUnits, blob gained timeline) ----
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {} };
+  var S1 = { version: 3, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
-  // 7. v2 round-trip WITH today -> identical (settings + priceLog preserved)
+  // 7. v3 round-trip WITH today -> identical (settings + priceLog + timeline preserved)
   setLS({ 'healthtracker-log': JSON.stringify(S1) }); HT.boot();
   var exp1 = HT.exportJSON();
   setLS({}); HT.boot(); window.__confirm = true;
   var r7 = HT.restore(exp1);
-  res(r7.ok && r7.kind === 'restore', '7: v2 round-trip import ok');
-  res(deepEqual(HT.state(), S1), '7: source WITH today -> identical incl settings + priceLog');
+  res(r7.ok && r7.kind === 'restore', '7: v3 round-trip import ok');
+  res(deepEqual(HT.state(), S1), '7: source WITH today -> identical incl settings + priceLog + timeline');
 
-  // 8. v2 round-trip WITHOUT today -> only permissible deltas
-  var S2 = { version: 2, days: {
+  // 8. v3 round-trip WITHOUT today -> only permissible deltas
+  var S2 = { version: 3, days: {
     '2026-07-08': { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 }
-  }, current:'2026-07-08', settings: goalState, priceLog: {} };
+  }, current:'2026-07-08', settings: goalState, priceLog: {}, timeline: {} };
   setLS({}); HT.boot(); window.__confirm = true;
   HT.restore(JSON.stringify(S2));
   var st8 = HT.state();
@@ -138,19 +138,19 @@ window.setLS({});
   res(extra.length === 1 && extra[0] === td, '8: exactly one extra day == today');
   res(st8.days[td].items.length === 0 && st8.days[td].status === 'in_progress', '8: added today empty in_progress');
   res(st8.current === td, '8: current -> today');
-  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog), '8: settings + priceLog preserved');
+  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog) && deepEqual(st8.timeline, S2.timeline), '8: settings + priceLog + timeline preserved');
 
-  // 9. Restore routing: v1 migrates; version-absent rejected; >2 rejected
+  // 9. Restore routing: v1/v2 migrate; version-absent rejected; >3 rejected
   setLS({}); HT.boot(); window.__confirm = true;
   var r9a = HT.restore(v1json);
-  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 2, '9: v1 paste -> migrated to v2');
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 3, '9: v1 paste -> migrated to v3');
   res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
   setLS({}); HT.boot();
   var before9 = JSON.stringify(HT.state());
   var r9b = HT.restore(JSON.stringify({ days: { '2026-07-08': { status:'complete', items:[], water_l:0 } }, current:'x' }));
   res(!r9b.ok && /Unrecognized|version/i.test(r9b.error || ''), '9: version-absent paste REJECTED (legacy removed)');
   var r9c = HT.restore(futureBlob);
-  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>2 paste rejected');
+  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>3 paste rejected');
   res(JSON.stringify(HT.state()) === before9, '9: state untouched by rejected pastes');
 
   // 10. Restore v2: micros coerced/clamped, unknown key preserved, source validated
@@ -194,7 +194,7 @@ window.setLS({});
   res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
 
   // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version": 2') >= 0, '14: export carries version 2');
+  res(HT.exportJSON().indexOf('"version": 3') >= 0, '14: export carries version 3');
   setLS({}); HT.boot(); window.__confirm = true;
   var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
   res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
@@ -269,7 +269,7 @@ window.setLS({});
   var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
   res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement', 'I8: v1 full-days migrated (source inferred) then merged');
   res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
-  res(!HT.ingest(JSON.stringify({ version:3, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>2 full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:4, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>3 full-days rejected');
 
   // I9. complete-day append -> reopens + reports
   setLS({}); HT.boot();
@@ -867,6 +867,109 @@ window.setLS({});
   // VN6: unchanged version -> no notice rendered
   HT.boot(); document.getElementById('versionNotice').innerHTML=''; HT.checkVersionNotice();
   res(document.getElementById('versionNotice').innerHTML==='', 'VN6: same version -> no notice rendered');
+
+  // ===== Phase 4 Slice T: timeline substrate (D20) =====
+  setLS({}); HT.boot(); var tdT = today();
+  // TL1: addSignal -> normalized record in timeline[date]; value clamped; source manual
+  var t1 = HT.addSignal({ type:'weight', value:'-82.1', unit:'kg', time:'07:00', notes:'am' });
+  var tl1 = HT.state().timeline[tdT][0];
+  res(t1.ok && tl1 && tl1.kind==='biometric' && tl1.type==='weight' && tl1.value===0 && tl1.unit==='kg' && tl1.source==='manual' && tl1.time==='07:00', 'TL1: addSignal normalized; value clamped >=0; source manual');
+
+  // TL2: events != food items -- no day item, dayTotals unchanged (no double-count)
+  setLS({}); HT.boot();
+  var beforeItems = HT.state().days[tdT].items.length, beforeKcal = HT.dayTotals(HT.state().days[tdT]).kcal;
+  HT.addSignal({ type:'sauna', value:'20', time:'08:00' });
+  res(HT.state().days[tdT].items.length===beforeItems && HT.dayTotals(HT.state().days[tdT]).kcal===beforeKcal && HT.state().timeline[tdT].length===1, 'TL2: signal -> timeline only, no day item, dayTotals unmoved');
+
+  // TL3: normalizeSignal contract -- unknown type + source tolerated; kind fallback
+  var ns = HT.normalizeSignal({ type:'weird_signal', value:5, unit:'x', source:'oura', time:'09:00', notes:'n' });
+  res(ns.type==='weird_signal' && ns.value===5 && ns.source==='oura' && ns.kind==='event', 'TL3: unknown type + source tolerated; kind fallback');
+  res(HT.normalizeSignal({ type:'weight' }).source==='manual', 'TL3: absent source -> manual');
+
+  // TL4: SIGNAL_SPEC 1:1 type->unit (incl. new signals); kinds; other uses notes
+  var byT = {}; HT.SIGNAL_SPEC.forEach(function(s){ byT[s.type]=s; });
+  res(byT.weight.unit==='kg' && byT.breath_ketones.unit==='ppm' && byT.steps.unit==='count' && byT.mood.unit==='/5' && byT.energy.unit==='/5' && byT.red_light.unit==='min' && byT.hbot.unit==='min' && byT.alcohol.unit==='drinks', 'TL4: type->unit 1:1 (breath_ketones/steps/mood/energy/red_light/hbot/alcohol)');
+  res(HT.SIGNAL_KINDS.join(',')==='biometric,event,medication', 'TL4: three kinds');
+  res(HT.normalizeSignal({ type:'other', kind:'event', notes:'breathwork' }).notes==='breathwork', 'TL4: other event carries free-text label in notes');
+
+  // TL5: timelineForDay merges food + biometric + medication + event, time-sorted
+  setLS({}); HT.boot();
+  HT.logScanItem(HT.mapOffProduct({status:1,product:{product_name:'Lunch',nutriments:{'energy-kcal_100g':100}}},'3017620422003'),'per_100g',100,'lunch');
+  HT.state().days[tdT].items[HT.state().days[tdT].items.length-1].time='12:00';
+  HT.addSignal({ type:'weight', value:'80', time:'07:00' });
+  HT.addSignal({ type:'sauna', value:'15', time:'18:00' });
+  HT.addSignal({ kind:'medication', name:'D3', dose:'2000', dose_unit:'IU', time:'08:00' });
+  var merged = HT.timelineForDay(tdT);
+  res(merged.length===4 && merged[0].time==='07:00' && merged[3].time==='18:00', 'TL5: food+bio+med+event merged, time-sorted');
+  res(merged.map(function(r){return r.row;}).sort().join(',')==='biometric,event,food,medication', 'TL5: all four row kinds present');
+
+  // TL6: schema v3 migration chain (guard/boot covered by tests 2/4/9)
+  var m2 = HT.migrateV2toV3({ version:2, days:{}, current:'', settings:{}, priceLog:{} }, '2026-07-18T00:00:00Z');
+  res(m2.version===3 && !!m2.timeline && Object.keys(m2.timeline).length===0, 'TL6: migrateV2toV3 adds empty timeline, version 3');
+  var m1 = HT.migrateToLatest({ version:1, days:{}, current:'' }, '2026-07-18T00:00:00Z');
+  res(m1.version===3 && !!m1.settings && !!m1.priceLog && !!m1.timeline, 'TL6: migrateToLatest chains v1->v2->v3');
+
+  // TL7: normalizeTimeline restore hardening (incl. hostile medication) + round-trip
+  var nt = HT.normalizeTimeline({
+    '2026-07-08': [ { time:'07:00', kind:'biometric', type:'weight', value:'-5', unit:'kg' },
+      { kind:'medication', name:'<b>Metf</b>', dose:'-500', dose_unit:'bogus', form:'nope', route:'x', prescriber:'<b>Dr</b>', notes:'n' } ],
+    'bad-key': [ { type:'weight', value:1 } ], '2026-07-09': 'notanarray'
+  });
+  res(Object.keys(nt).length===1 && !!nt['2026-07-08'] && nt['2026-07-08'][0].value===0, 'TL7: bad date key/shape dropped; value clamped');
+  var med7 = nt['2026-07-08'][1];
+  res(med7.kind==='medication' && med7.name==='<b>Metf</b>' && med7.dose===0 && med7.dose_unit==='' && med7.form==='' && med7.route==='' && med7.prescriber==='<b>Dr</b>', 'TL7: medication hardened (name/prescriber raw, dose clamped, enums fallback)');
+  setLS({}); HT.boot(); window.__confirm=true;
+  HT.addSignal({ kind:'medication', name:'Metformin', dose:'500', dose_unit:'mg', form:'tablet', route:'oral', scheduled:true, prescriber:'Dr X', reason:'T2D', time:'08:00', notes:'am' });
+  var tlBeforeT = JSON.stringify(HT.state().timeline);
+  HT.restore(HT.exportJSON());
+  res(JSON.stringify(HT.state().timeline)===tlBeforeT, 'TL7: v3 round-trips timeline incl full-detail medication exactly');
+
+  // TL8: export includes timeline; ingest leaves timeline untouched
+  setLS({}); HT.boot();
+  HT.addSignal({ type:'weight', value:'80', time:'07:00' });
+  var tlStr = JSON.stringify(HT.state().timeline);
+  res(!!(JSON.parse(HT.exportJSON()).timeline && Object.keys(JSON.parse(HT.exportJSON()).timeline).length), 'TL8: export includes timeline');
+  HT.ingest(JSON.stringify({ version:3, days:{ '2026-03-01': { status:'complete', items:[{name:'x',meal:'snack',kcal:1}], water_l:0 } }, current:'x', settings:{}, priceLog:{}, timeline:{ '2026-03-01':[{type:'weight',value:999}] } }));
+  res(JSON.stringify(HT.state().timeline)===tlStr, 'TL8: ingest leaves timeline untouched');
+
+  // TL9: hostile notes + medication name escaped in overlay render
+  setLS({}); HT.boot();
+  if (!document.getElementById('timelineOverlay')) { var tlo=document.createElement('div'); tlo.id='timelineOverlay'; document.body.appendChild(tlo); }
+  HT.addSignal({ type:'weight', value:'80', time:'07:00', notes:'<img src=x onerror=alert(1)>' });
+  HT.addSignal({ kind:'medication', name:'<b>bad</b>', dose:'1', dose_unit:'mg', time:'08:00' });
+  HT.refresh();
+  var tlHtml = document.getElementById('timelineOverlay').innerHTML;
+  res(tlHtml.indexOf('<img src=x')<0 && tlHtml.indexOf('<b>bad')<0 && tlHtml.indexOf('&lt;')>=0, 'TL9: hostile notes + medication name escaped in overlay');
+
+  // TL10: units per-record + remembered default; sane-range warning non-blocking
+  setLS({}); HT.boot();
+  HT.addSignal({ type:'weight', value:'180', unit:'lb', time:'07:00' });
+  res(HT.state().settings.signalUnits.weight==='lb', 'TL10: last-used unit remembered per type');
+  var mw = HT.addSignal({ type:'mood', value:'9', time:'08:00' });
+  res(mw.ok && mw.warnings.length>0 && HT.state().timeline[tdT].some(function(r){return r.type==='mood';}), 'TL10: sane-range warning fires; signal still logged (non-blocking)');
+
+  // TL11: medication kind -- name required; dose clamped; closed enums validated
+  setLS({}); HT.boot();
+  res(HT.addSignal({ kind:'medication' }).ok===false, 'TL11: medication requires a name');
+  res(HT.addSignal({ kind:'medication', name:'Aspirin' }).ok===true, 'TL11: quick path (name only) valid');
+  var medOk = HT.normalizeSignal({ kind:'medication', name:'M', dose:'-5', dose_unit:'mg', form:'tablet', route:'oral' });
+  res(medOk.dose===0 && medOk.dose_unit==='mg' && medOk.form==='tablet' && medOk.route==='oral', 'TL11: dose clamped; valid enums pass');
+  var medBad = HT.normalizeSignal({ kind:'medication', name:'M', dose_unit:'zzz', form:'zzz', route:'zzz' });
+  res(medBad.dose_unit==='' && medBad.form==='' && medBad.route==='', 'TL11: closed enums fallback to unset');
+  res(HT.MED_DOSE_UNITS.indexOf('mg')>=0 && HT.MED_FORMS.indexOf('tablet')>=0 && HT.MED_ROUTES.indexOf('oral')>=0 && HT.MED_FORMS.indexOf('mg')<0, 'TL11: dose_unit/form/route distinct closed enums (no cross-wiring)');
+
+  // TL12: BP paired entry -> two records, one timestamp, separated, no cross-wiring
+  setLS({}); HT.boot();
+  var bp = HT.logBP('120','80','09:30');
+  res(bp.ok && bp.systolic.type==='bp_systolic' && bp.systolic.value===120 && bp.diastolic.type==='bp_diastolic' && bp.diastolic.value===80, 'TL12: BP pair -> systolic 120 / diastolic 80, no cross-wiring');
+  res(bp.systolic.time==='09:30' && bp.diastolic.time==='09:30', 'TL12: both BP records at the same timestamp');
+
+  // TL13: alcohol event -- count + notes; no food item; day totals unmoved
+  setLS({}); HT.boot();
+  var kb13 = HT.dayTotals(HT.state().days[tdT]).kcal;
+  var al = HT.addSignal({ type:'alcohol', value:'3', unit:'drinks', time:'20:00', notes:'wine' });
+  res(al.ok && al.record.kind==='event' && al.record.value===3 && al.record.notes==='wine', 'TL13: alcohol event logs count + notes');
+  res(HT.state().days[tdT].items.length===0 && HT.dayTotals(HT.state().days[tdT]).kcal===kb13, 'TL13: alcohol creates no food item, day totals unmoved');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');

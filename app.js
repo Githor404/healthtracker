@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 2;
-const APP_VERSION      = '0.3.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 3;
+const APP_VERSION      = '0.4.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -59,10 +59,10 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '' };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {} };
 }
 function emptyState() {
-  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {} };
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {} };
 }
 
 // ---- storage adapter: localStorage -> memory ------------------------------
@@ -200,6 +200,7 @@ function normalizeSettings(s) {
     supplement: normalizeSupplement(s.supplement),
     presets: Array.isArray(s.presets) ? s.presets : [],
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
+    signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
   };
 }
 
@@ -279,6 +280,31 @@ function migrateV1toV2(v1, nowISO) {
   return out;
 }
 
+// D20: add-only in-place v2 -> v3 (add empty timeline). Days/settings/priceLog/
+// current byte-preserved. migratedAt preserved if present, else stamped now.
+function migrateV2toV3(v2, nowISO) {
+  const out = {
+    version: 3,
+    days: (v2.days && typeof v2.days === 'object') ? v2.days : {},
+    current: typeof v2.current === 'string' ? v2.current : '',
+    settings: (v2.settings && typeof v2.settings === 'object') ? v2.settings : defaultSettings(),
+    priceLog: (v2.priceLog && typeof v2.priceLog === 'object') ? v2.priceLog : {},
+    timeline: {},   // add-only
+    migratedAt: typeof v2.migratedAt === 'string' ? v2.migratedAt : nowISO,
+  };
+  if (typeof v2.knownDropped === 'number') out.knownDropped = v2.knownDropped;
+  return out;
+}
+// Chain the in-place migrators to the latest schema (D7/D20). version-absent is
+// treated as v1 defensively (our key). The same migrator serves boot + restore.
+function migrateToLatest(blob, nowISO) {
+  let out = blob;
+  const v = (typeof blob.version === 'number') ? blob.version : 1;
+  if (v < 2) out = migrateV1toV2(out, nowISO);
+  if ((out.version || 2) < 3) out = migrateV2toV3(out, nowISO);
+  return out;
+}
+
 // Coerce an untrusted v2 blob into a clean v2 state (restore boundary). Idempotent
 // on a clean export (so v2 round-trip holds); clamps + sanitizes a hostile paste.
 function normalizeState(o) {
@@ -288,6 +314,7 @@ function normalizeState(o) {
     current: typeof o.current === 'string' ? o.current : '',
     settings: normalizeSettings(o.settings),
     priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
+    timeline: normalizeTimeline(o.timeline),   // D20: source-agnostic signal store
   };
   Object.keys(o.days || {}).forEach((d) => {
     const src = o.days[d] || {};
@@ -325,9 +352,10 @@ function boot() {
         if (v === SCHEMA_VERSION) {
           state = parsed; source = 'store';
         } else {
-          // version 1 (or version-absent, defensively) -> in-place v1 -> v2 (D7)
+          // version 1 or 2 (or version-absent, defensively) -> chained in-place
+          // migration to the latest schema (D7 / D20). Snapshot the untouched blob first.
           Store.snapshotPremigration(raw);
-          state = migrateV1toV2(parsed, nowISO);
+          state = migrateToLatest(parsed, nowISO);
           source = 'migrated'; dirty = true;
         }
       }
@@ -341,6 +369,7 @@ function boot() {
   if (!state.days || typeof state.days !== 'object') { state.days = {}; dirty = true; }
   if (!state.settings || typeof state.settings !== 'object') { state.settings = defaultSettings(); dirty = true; }
   if (!state.priceLog || typeof state.priceLog !== 'object') { state.priceLog = {}; dirty = true; }
+  if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
@@ -354,8 +383,8 @@ function boot() {
 // ---- export / import-restore (D5 + amendment) -----------------------------
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
-// Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amendment):
-// absent -> reject; 1 -> in-place migrate; 2 -> as-is; > 2 -> reject.
+// Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
+// absent -> reject; 1/2 -> in-place migrate to latest; 3 -> as-is; > 3 -> reject.
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -372,8 +401,8 @@ function parseImport(raw) {
   if (v > SCHEMA_VERSION)
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
-    return { ok: true, state: migrateV1toV2(o, new Date().toISOString()), kind: 'migrated' };
-  return { ok: true, state: normalizeState(o), kind: 'restore' };
+    return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // v2 -> upgrade; v3 -> as-is
 }
 
 function showPrerestore(json) {
@@ -1576,6 +1605,235 @@ function saveScanPrice() {
   toast('Price saved');
 }
 
+// ---- timeline substrate: biometrics + events (D20) ------------------------
+// A source-agnostic store the food log is correlated against. ONE record shape,
+// ONE adapter contract (normalizeSignal + addSignal); manual entry is the zeroth
+// adapter, a future cloud/native adapter satisfies the same contract with no
+// substrate rebuild. Events are timeline records, NOT food items (no double-count).
+// One SIGNAL_SPEC table drives forms, labels, units, warnings (like MICRO_SPEC).
+const SIGNAL_SPEC = [
+  { type: 'weight',         kind: 'biometric', label: 'Weight',        unit: 'kg',    units: ['kg', 'lb'],        warn: 500 },
+  { type: 'resting_hr',     kind: 'biometric', label: 'Resting HR',    unit: 'bpm',   units: ['bpm'],             warn: 300 },
+  { type: 'hrv',            kind: 'biometric', label: 'HRV',           unit: 'ms',    units: ['ms'],              warn: 500 },
+  { type: 'glucose',        kind: 'biometric', label: 'Glucose',       unit: 'mg/dL', units: ['mg/dL', 'mmol/L'], warn: 1000 },
+  { type: 'breath_ketones', kind: 'biometric', label: 'Breath ketones', unit: 'ppm', units: ['ppm', 'mmol/L'],   warn: 100 },
+  { type: 'bp_systolic',    kind: 'biometric', label: 'BP systolic',   unit: 'mmHg',  units: ['mmHg'],            warn: 300 },
+  { type: 'bp_diastolic',   kind: 'biometric', label: 'BP diastolic',  unit: 'mmHg',  units: ['mmHg'],            warn: 250 },
+  { type: 'sleep_hours',    kind: 'biometric', label: 'Sleep',         unit: 'h',     units: ['h'],               warn: 24 },
+  { type: 'steps',          kind: 'biometric', label: 'Steps',         unit: 'count', units: ['count'],           warn: 100000 },
+  { type: 'mood',           kind: 'biometric', label: 'Mood',          unit: '/5',    units: ['/5'],              warn: 5 },
+  { type: 'energy',         kind: 'biometric', label: 'Energy',        unit: '/5',    units: ['/5'],              warn: 5 },
+  { type: 'sauna',        kind: 'event', label: 'Sauna',       unit: 'min',    units: ['min'],    warn: 600 },
+  { type: 'cold_plunge',  kind: 'event', label: 'Cold plunge', unit: 'min',    units: ['min'],    warn: 120 },
+  { type: 'yoga',         kind: 'event', label: 'Yoga',        unit: 'min',    units: ['min'],    warn: 600 },
+  { type: 'workout',      kind: 'event', label: 'Workout',     unit: 'min',    units: ['min'],    warn: 600 },
+  { type: 'walk',         kind: 'event', label: 'Walk',        unit: 'min',    units: ['min'],    warn: 1440 },
+  { type: 'meditation',   kind: 'event', label: 'Meditation',  unit: 'min',    units: ['min'],    warn: 600 },
+  { type: 'red_light',    kind: 'event', label: 'Red light (RLT)', unit: 'min', units: ['min'],   warn: 120 },
+  { type: 'hbot',         kind: 'event', label: 'HBOT',        unit: 'min',    units: ['min'],    warn: 300 },
+  { type: 'alcohol',      kind: 'event', label: 'Alcohol',     unit: 'drinks', units: ['drinks'], warn: 30 },
+  { type: 'other',        kind: 'event', label: 'Other',       unit: 'min',    units: ['min'],    warn: 1440 },
+];
+const SIGNAL_BY_TYPE = SIGNAL_SPEC.reduce((m, s) => { m[s.type] = s; return m; }, {});
+const SIGNAL_KINDS = ['biometric', 'event', 'medication'];   // D20 addendum: medication is a first-class kind
+// Medication closed enums (name is open-ended free text; these drive form controls,
+// no cross-wiring — MICRO_SPEC/M1 discipline).
+const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'drop', 'puff', 'unit'];
+const MED_FORMS  = ['tablet', 'capsule', 'liquid', 'injection', 'topical', 'inhaler', 'patch', 'drops', 'other'];
+const MED_ROUTES = ['oral', 'sublingual', 'topical', 'inhaled', 'injected', 'nasal', 'other'];
+
+// Coerce a raw signal (from ANY adapter) to the canonical record. value clamped
+// >= 0; kind validated; unknown type tolerated + preserved; source tolerated as a
+// string (extensible). date is the map key, not stored in the record.
+function normalizeSignal(raw) {
+  raw = raw || {};
+  const spec = SIGNAL_BY_TYPE[raw.type];
+  const kind = SIGNAL_KINDS.indexOf(raw.kind) >= 0 ? raw.kind
+    : (spec ? spec.kind : ((raw.name != null && String(raw.name) !== '') ? 'medication' : 'event'));
+  const rec = {
+    time:   String(raw.time == null ? '' : raw.time),
+    kind:   kind,
+    type:   kind === 'medication' ? 'medication' : String(raw.type == null ? '' : raw.type),
+    source: (raw.source == null || String(raw.source) === '') ? 'manual' : String(raw.source),
+    notes:  String(raw.notes == null ? '' : raw.notes),
+  };
+  if (kind === 'medication') {
+    // Extended record (D20 addendum). name/prescriber/reason free text (escaped at
+    // render); dose clamped; dose_unit/form/route closed-enum with tolerant fallback.
+    rec.name = String(raw.name == null ? '' : raw.name);
+    if (raw.dose != null && String(raw.dose) !== '') rec.dose = clampNonNeg(raw.dose);
+    rec.dose_unit = MED_DOSE_UNITS.indexOf(raw.dose_unit) >= 0 ? raw.dose_unit : '';
+    rec.form  = MED_FORMS.indexOf(raw.form)  >= 0 ? raw.form  : '';
+    rec.route = MED_ROUTES.indexOf(raw.route) >= 0 ? raw.route : '';
+    if (raw.scheduled === true) rec.scheduled = true;                        // intent only (no scheduling built)
+    if (raw.prescriber != null && String(raw.prescriber) !== '') rec.prescriber = String(raw.prescriber);
+    if (raw.reason != null && String(raw.reason) !== '') rec.reason = String(raw.reason);
+  } else {
+    rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
+    if (raw.value != null && String(raw.value) !== '') rec.value = clampNonNeg(raw.value);
+  }
+  return rec;
+}
+
+// Restore-boundary hardening (like normalizePriceLog): validate date keys, coerce
+// each record, tolerate unknown keys.
+function normalizeTimeline(o) {
+  const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const out = {};
+  Object.keys(src).forEach((d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !Array.isArray(src[d])) return;   // drop bad date keys / shapes
+    out[d] = src[d].map(normalizeSignal);
+  });
+  return out;
+}
+
+// Sane-range soft warnings, non-blocking (D9 discipline) — catch unit/typo errors.
+function signalWarnings(raw) {
+  const spec = SIGNAL_BY_TYPE[raw.type];
+  const w = [];
+  if (spec && raw.value != null && String(raw.value) !== '' && num(raw.value) > spec.warn)
+    w.push(spec.label + ' ' + num(raw.value) + ' ' + (raw.unit || spec.unit) + ' looks high (> ' + spec.warn + ') — check the value/unit');
+  return w;
+}
+
+// The zeroth adapter: file a MANUAL signal under timeline[date]. Writes ONLY the
+// timeline (never a day item) — events are not food (D20). Remembers the unit.
+function addSignal(raw) {
+  raw = raw || {};
+  const spec = SIGNAL_BY_TYPE[raw.type];
+  const kind = SIGNAL_KINDS.indexOf(raw.kind) >= 0 ? raw.kind : (spec ? spec.kind : null);
+  if (kind === 'medication') {
+    if (!raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Enter the medication name.' };
+  } else {
+    if (!raw.type || String(raw.type).trim() === '') return { ok: false, error: 'Choose a signal type.' };
+    if (spec && spec.kind === 'biometric' && (raw.value == null || String(raw.value).trim() === ''))
+      return { ok: false, error: 'Enter a value.' };
+  }
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date)) ? String(raw.date) : localDate();
+  const warnings = signalWarnings(raw);
+  const rec = normalizeSignal(Object.assign({}, raw, { source: 'manual' }));   // manual adapter forces source
+  if (!APP_STATE.timeline || typeof APP_STATE.timeline !== 'object') APP_STATE.timeline = {};
+  (APP_STATE.timeline[date] = APP_STATE.timeline[date] || []).push(rec);
+  if (!APP_STATE.settings.signalUnits) APP_STATE.settings.signalUnits = {};   // remember last-used unit
+  if (rec.kind === 'medication') { if (rec.dose_unit) APP_STATE.settings.signalUnits.medication = rec.dose_unit; }
+  else if (rec.type && rec.unit) APP_STATE.settings.signalUnits[rec.type] = rec.unit;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, record: rec, warnings: warnings };
+}
+
+// BP is entered as ONE paired action (D20 addendum) -> two records at one time.
+function logBP(sys, dia, time, notes) {
+  const t = time || nowTime();
+  const rs = addSignal({ type: 'bp_systolic', value: sys, unit: 'mmHg', time: t, notes: notes });
+  const rd = addSignal({ type: 'bp_diastolic', value: dia, unit: 'mmHg', time: t, notes: notes });
+  return { ok: !!(rs.ok && rd.ok), systolic: rs.record, diastolic: rd.record };
+}
+
+// Overlay (read-only): a day's food items + timeline signals, merged + time-sorted.
+function timelineForDay(date) {
+  const rows = [];
+  const day = (APP_STATE.days && APP_STATE.days[date]) || null;
+  if (day) (day.items || []).forEach((it) => rows.push({ time: it.time || '', row: 'food', name: it.name, kcal: it.kcal }));
+  ((APP_STATE.timeline && APP_STATE.timeline[date]) || []).forEach((s) =>
+    rows.push({ time: s.time || '', row: s.kind, type: s.type, value: s.value, unit: s.unit, notes: s.notes,
+                name: s.name, dose: s.dose, dose_unit: s.dose_unit }));
+  rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
+  return rows;
+}
+
+// ---- timeline DOM (signal entry + day overlay) ----------------------------
+function signalUnitDefault(type) {
+  const remembered = APP_STATE.settings && APP_STATE.settings.signalUnits && APP_STATE.settings.signalUnits[type];
+  const spec = SIGNAL_BY_TYPE[type];
+  return remembered || (spec ? spec.unit : '');
+}
+function renderSignalForm() {
+  const sel = document.getElementById('sigType');
+  if (sel && !sel.childElementCount) {
+    const bio = [], ev = [];
+    SIGNAL_SPEC.forEach((s) => {
+      if (s.type === 'bp_diastolic') return;                                  // paired under one "bp" option
+      if (s.type === 'bp_systolic') { bio.push(`<option value="bp">Blood pressure</option>`); return; }
+      (s.kind === 'biometric' ? bio : ev).push(`<option value="${esc(s.type)}">${esc(s.label)}</option>`);
+    });
+    sel.innerHTML = `<optgroup label="Biometrics">${bio.join('')}</optgroup><optgroup label="Events">${ev.join('')}</optgroup>`;
+  }
+  onSignalTypeChange();
+}
+function onSignalTypeChange() {
+  const sel = document.getElementById('sigType'); if (!sel) return;
+  const isBP = sel.value === 'bp';
+  const spec = SIGNAL_BY_TYPE[sel.value];
+  const unit = document.getElementById('sigUnit'); if (unit) unit.value = isBP ? 'mmHg' : signalUnitDefault(sel.value);
+  const vl = document.getElementById('sigValLabel'); if (vl) vl.textContent = isBP ? 'Systolic' : ((spec && spec.kind === 'event') ? 'Duration (opt.)' : 'Value');
+  const diaWrap = document.getElementById('sigDiaWrap'); if (diaWrap) diaWrap.style.display = isBP ? '' : 'none';
+  const notes = document.getElementById('sigNotes'); if (notes) notes.placeholder = (sel.value === 'other') ? 'what was it?' : 'notes (optional)';
+}
+function addSignalFromForm() {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const type = g('sigType');
+  let r;
+  if (type === 'bp') {   // paired entry -> logBP (two records, one timestamp)
+    if (String(g('sigValue')).trim() === '' || String(g('sigDia')).trim() === '') { toast('Enter systolic and diastolic'); return; }
+    r = logBP(g('sigValue'), g('sigDia'), g('sigTime') || nowTime(), g('sigNotes'));
+  } else {
+    r = addSignal({ type: type, value: g('sigValue'), unit: g('sigUnit'), time: g('sigTime') || nowTime(), notes: g('sigNotes') });
+  }
+  if (!r.ok) { toast(r.error || 'Could not log'); return; }
+  ['sigValue', 'sigDia', 'sigNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  showSignalWarnings(r.warnings || []);
+  toast((r.warnings && r.warnings.length) ? 'Logged — see warnings' : 'Logged');
+}
+
+// Medication form (its own detailed entry — D20 addendum). Closed enums populate
+// the selects; quick path = name (+ optional dose); everything else optional.
+function renderMedForm() {
+  const fill = (id, arr) => {
+    const el = document.getElementById(id);
+    if (el && !el.childElementCount) el.innerHTML = '<option value=""></option>' + arr.map((x) => `<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  };
+  fill('medDoseUnit', MED_DOSE_UNITS); fill('medForm', MED_FORMS); fill('medRoute', MED_ROUTES);
+  const du = document.getElementById('medDoseUnit');
+  const remembered = APP_STATE.settings && APP_STATE.settings.signalUnits && APP_STATE.settings.signalUnits.medication;
+  if (du && !du.value && remembered) du.value = remembered;
+}
+function addMedicationFromForm() {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const checked = (id) => { const el = document.getElementById(id); return !!(el && el.checked); };
+  const r = addSignal({
+    kind: 'medication', name: g('medName'), dose: g('medDose'), dose_unit: g('medDoseUnit'),
+    form: g('medForm'), route: g('medRoute'), scheduled: checked('medScheduled'),
+    prescriber: g('medPrescriber'), reason: g('medReason'), time: g('medTime') || nowTime(), notes: g('medNotes'),
+  });
+  if (!r.ok) { toast(r.error || 'Enter the medication name'); return; }
+  ['medName', 'medDose', 'medPrescriber', 'medReason', 'medNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const sc = document.getElementById('medScheduled'); if (sc) sc.checked = false;
+  toast('Medication logged');
+}
+function showSignalWarnings(warns) {
+  const el = document.getElementById('sigWarn'); if (!el) return;
+  el.innerHTML = (warns && warns.length) ? warns.map((w) => `<div class="warn">${esc(w)}</div>`).join('') : '';
+}
+function renderTimelineOverlay() {
+  const el = document.getElementById('timelineOverlay');
+  if (!el || !APP_STATE) return;
+  const rows = timelineForDay(APP_STATE.current);
+  if (!rows.length) { el.innerHTML = '<div class="note" style="margin:0">Nothing yet — log food, an event, or a biometric to see them on one timeline.</div>'; return; }
+  el.innerHTML = rows.map((r) => {
+    const t = r.time ? esc(r.time) : '—';
+    const note = r.notes ? ` <small>${esc(r.notes)}</small>` : '';
+    if (r.row === 'food')
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(rDisp(r.kcal))} kcal</small></span></div>`;
+    if (r.row === 'medication') {
+      const dose = (r.dose != null) ? ' ' + esc(rDisp(r.dose)) + ' ' + esc(r.dose_unit || '') : '';
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain">${esc(r.name)}${dose}${note}</span></div>`;
+    }
+    const spec = SIGNAL_BY_TYPE[r.type];
+    const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
+    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain">${esc(spec ? spec.label : r.type)}${val}${note}</span></div>`;
+  }).join('');
+}
+
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
 // One micro component, shared by the manual-add and supplement forms (D12).
 // Fields are id'd `<prefix><canonical key>`; generation and read-back use the
@@ -1829,7 +2087,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderTimelineOverlay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -1850,6 +2108,7 @@ function requestPersistentStorage() {
 const VERSION_LOG = [
   { v: '0.2.0', note: 'Barcode scanning, OpenFoodFacts lookup, and price capture.' },
   { v: '0.3.0', note: 'Automatic updates with this changelog, so new versions arrive without a manual refresh.' },
+  { v: '0.4.0', note: 'Log weight, biometrics (HRV, resting HR, glucose, sleep, steps, mood), and events (sauna, cold plunge, yoga, ...) on one daily timeline alongside food.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -1905,13 +2164,18 @@ function main() {
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
   renderMicroFields('supMicros', 'sup_micro_', 'supMicroCount');
   renderSupplementForm();
+  renderSignalForm();
+  renderMedForm();
   renderPromptCard();
   refresh();
 }
 
 // Console seam for review/testing.
 window.HT = {
-  Store, boot, migrateV1toV2, normalizeState, refresh,
+  Store, boot, migrateV1toV2, migrateV2toV3, migrateToLatest, normalizeState, refresh,
+  // Phase 4 Slice T — timeline substrate (D20)
+  SIGNAL_SPEC, SIGNAL_KINDS, MED_DOSE_UNITS, MED_FORMS, MED_ROUTES,
+  normalizeSignal, normalizeTimeline, signalWarnings, addSignal, logBP, timelineForDay,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable,
   goalProgress, microRollup, dayTotals, setGoal,
