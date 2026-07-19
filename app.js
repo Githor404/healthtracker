@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 3;
-const APP_VERSION      = '0.4.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.4.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1823,6 +1823,22 @@ function pickSignal(type) {
   const v = document.getElementById('sigValue');
   if (v) { try { v.focus(); if (v.select) v.select(); } catch (e) {} }
 }
+// Belt-and-suspenders for any residual horizontal-scroll case with a mouse
+// (a narrow window where the wrap media queries didn't apply): translate a
+// vertical wheel to horizontal scroll, but only while the strip actually
+// overflows and isn't at an edge — otherwise the page scrolls normally.
+function wireChipStripWheel() {
+  const el = document.getElementById('sigChips'); if (!el || el.dataset.wheelWired) return;
+  el.dataset.wheelWired = '1';
+  el.addEventListener('wheel', function (e) {
+    if (el.scrollWidth <= el.clientWidth) return;                 // wrapped / no overflow — let the page scroll
+    const dy = e.deltaY; if (!dy) return;
+    const atStart = el.scrollLeft <= 0;
+    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1;
+    if ((dy < 0 && atStart) || (dy > 0 && atEnd)) return;         // at an edge — hand the scroll back to the page
+    el.scrollLeft += dy; e.preventDefault();
+  }, { passive: false });
+}
 function addSignalFromForm() {
   const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
   const type = g('sigType');
@@ -2165,6 +2181,7 @@ const VERSION_LOG = [
   { v: '0.4.0', note: 'Log weight, biometrics (HRV, resting HR, glucose, sleep, steps, mood), and events (sauna, cold plunge, yoga, ...) on one daily timeline alongside food.' },
   { v: '0.4.1', note: 'Faster logging: tap a chip (weight, glucose, HRV, sauna, ...) to jump straight to the value box.' },
   { v: '0.4.2', note: 'Tap the unit to switch it — kg/lb, mg/dL vs mmol/L, ppm vs mmol/L.' },
+  { v: '0.4.3', note: 'Fix: on a mouse/desktop the quick-log chips now wrap to rows so every chip is reachable (they only scrolled by touch before).' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2223,6 +2240,7 @@ function main() {
   renderSignalForm();
   renderMedForm();
   renderPromptCard();
+  wireChipStripWheel();
   refresh();
 }
 

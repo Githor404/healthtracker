@@ -171,8 +171,18 @@
   .tltag.biometric{border:1px solid var(--good);color:var(--good)}
   .tltag.medication{border:1px solid var(--bad);color:var(--bad)}
   .tlmain{flex:1;min-width:0}.tlmain small{color:var(--muted)}
-  .chipstrip{display:flex;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 1px 8px;margin:8px 0 2px}
+  .chipstrip{display:flex;flex-wrap:nowrap;gap:8px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px 1px 8px;margin:8px 0 2px}
   .chipstrip::-webkit-scrollbar{height:0}
+  /* Mouse/hover devices can't swipe: WRAP to rows so every chip is one click away,
+     no hidden horizontal scroll. Pointer-based (not a width breakpoint) so narrow
+     desktop windows wrap too — the strip is 480px-capped either way (.wrap). */
+  @media (hover:hover) and (pointer:fine){
+    .chipstrip{flex-wrap:wrap;overflow-x:visible}
+    .chipstrip::-webkit-scrollbar{height:8px}
+    .chipstrip::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+  }
+  /* Wide viewports wrap as well (belt-and-suspenders for wide non-hover screens). */
+  @media (min-width:600px){ .chipstrip{flex-wrap:wrap;overflow-x:visible} }
   .chip{flex:0 0 auto;width:auto;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--txt);font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer}
   .chip:active{background:var(--accent);border-color:var(--accent);color:#fff}
 </style>
