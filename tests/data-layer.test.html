@@ -1238,6 +1238,76 @@ window.setLS({});
   HT.renderTrends();
   res(trendsHtml().indexOf('<b>x</b>')<0 && trendsHtml().indexOf('&lt;b&gt;x&lt;/b&gt;')>=0, 'M8: rendered unit escaped');
 
+  // ===== Signal goals — biometric targets + chip-float (D24) =====
+  // SG1: routing + the mixed-namespace filter, proven BYTE-IDENTICALLY on the food ring
+  setLS({}); HT.boot();
+  HT.setGoal('protein_g', 120, 'min');                                   // nutrient goal
+  var sgDay = HT.state().days[td];
+  var ringBefore = HT.renderGoalsHTML(HT.dayTotals(sgDay), sgDay);
+  HT.setGoal('weight', 80, 'max', 'kg');                                 // signal goal (carries unit)
+  res(HT.state().settings.goals.weight.unit==='kg' && HT.state().settings.goals.weight.direction==='max' && !('unit' in HT.state().settings.goals.protein_g), 'SG1: signal goal stores unit; nutrient goal has none');
+  var ringAfter = HT.renderGoalsHTML(HT.dayTotals(sgDay), sgDay);
+  res(ringBefore===ringAfter, 'SG1: food ring BYTE-IDENTICAL with vs without a signal goal (filter proven by output equality, not asserted)');
+  res(ringAfter.indexOf("removeGoal('weight')")<0 && ringAfter.indexOf('protein')>=0, 'SG1: food ring shows the nutrient goal only, never the signal goal');
+
+  // SG2: a signal goal WAKES the chip-float
+  setLS({}); HT.boot();
+  res(HT.chipOrder()[0]==='weight' && HT.chipOrder().indexOf('hrv')>1, 'SG2: no signal goal -> curated default order');
+  HT.setGoal('hrv', 60, 'min', 'ms');
+  res(HT.chipOrder()[0]==='hrv', 'SG2: a signal goal wakes the chip-float (hrv floats to the front)');
+
+  // SG3: Mirror reference line + factual target, unit-normalized; non-convertible surfaces
+  setLS({}); HT.boot();
+  var sg3=HT.state(); sg3.timeline={};
+  [dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg3.timeline[d]=[{time:'07:00',kind:'biometric',type:'weight',value:82-i,unit:'kg',source:'manual'}]; });
+  HT.setGoal('weight', 176.37, 'max', 'lb');                             // lb goal on a kg-normalized series -> 80 kg line
+  HT.renderTrends();
+  var t3=trendsHtml();
+  res(t3.indexOf('<line class="tref"')>=0 && t3.indexOf('target')>=0 && t3.indexOf('80 kg')>=0, 'SG3: goal reference line + factual "target ... 80 kg" (goal lb -> series kg)');
+  setLS({}); HT.boot();
+  var sg3b=HT.state(); sg3b.timeline={}; sg3b.settings.signalUnits={breath_ketones:'mmol/L'};
+  [dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg3b.timeline[d]=[{time:'06:00',kind:'biometric',type:'breath_ketones',value:1+i*0.2,unit:'mmol/L',source:'manual'}]; });
+  HT.setGoal('breath_ketones', 20, 'min', 'ppm');                        // ppm goal vs mmol/L series -> not comparable
+  HT.renderTrends();
+  var t3b=trendsHtml();
+  res(t3b.indexOf('not comparable')>=0 && t3b.indexOf('<line class="tref"')<0, 'SG3: non-convertible goal unit surfaces the mismatch, no line (never force-converts)');
+
+  // SG4: latest-reading direction-aware basis correct; no status WORD rendered
+  res(HT.goalProgress(78,{value:80,direction:'max'}).status==='good' && HT.goalProgress(82,{value:80,direction:'max'}).status==='over' && HT.goalProgress(55,{value:60,direction:'min'}).status==='short', 'SG4: latest-reading direction-aware basis (ceiling/floor) correct');
+  setLS({}); HT.boot();
+  var sg4=HT.state(); sg4.timeline={};
+  [dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg4.timeline[d]=[{time:'07:00',kind:'biometric',type:'weight',value:82-i,unit:'kg',source:'manual'}]; });
+  HT.setGoal('weight',80,'max','kg'); HT.renderTrends();
+  var t4=trendsHtml().toLowerCase();
+  res(t4.indexOf('goalcell')<0 && t4.indexOf(' short')<0 && t4.indexOf(' met ')<0, 'SG4: Mirror goal is factual — no status word/cell');
+
+  // SG5: round-trip (signal goal incl. unit + nutrient goal)
+  setLS({}); HT.boot();
+  HT.setGoal('weight', 80, 'max', 'kg'); HT.setGoal('protein_g', 120, 'min');
+  var sgExp=JSON.parse(HT.exportJSON());
+  res(sgExp.settings.goals.weight.value===80 && sgExp.settings.goals.weight.unit==='kg' && sgExp.settings.goals.weight.direction==='max' && !('unit' in sgExp.settings.goals.protein_g), 'SG5: signal goal (incl unit) + nutrient goal exported');
+  setLS({}); HT.boot(); window.__confirm=true;
+  HT.restore(JSON.stringify(sgExp));
+  res(HT.state().settings.goals.weight.unit==='kg' && HT.state().settings.goals.weight.value===80, 'SG5: signal goal survives export->restore exact');
+
+  // SG6: hostile goal unit escaped in the Mirror
+  setLS({}); HT.boot();
+  var sg6=HT.state(); sg6.timeline={};
+  [dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg6.timeline[d]=[{time:'07:00',kind:'biometric',type:'weight',value:80,unit:'kg',source:'manual'}]; });
+  HT.setGoal('weight', 80, 'max', '<b>x</b>');
+  HT.renderTrends();
+  var t6=trendsHtml();
+  res(t6.indexOf('<b>x</b>')<0 && t6.indexOf('&lt;b&gt;x&lt;/b&gt;')>=0, 'SG6: hostile goal unit escaped in the Mirror');
+
+  // SG7: safety invariant holds WITH a signal goal present (extends M7)
+  setLS({}); HT.boot();
+  var sg7=HT.state(); sg7.timeline={};
+  [dk(-4),dk(-3),dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg7.timeline[d]=[{time:'07:00',kind:'biometric',type:'weight',value:82-i*0.3,unit:'kg',source:'manual'}]; });
+  HT.setGoal('weight', 80, 'max', 'kg'); HT.renderTrends();
+  var t7=trendsHtml().toLowerCase();
+  var banned7=['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  res(banned7.filter(function(w){return t7.indexOf(w)>=0;}).length===0, 'SG7: safety invariant holds with a signal goal present (no evaluative vocabulary)');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

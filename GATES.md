@@ -409,4 +409,22 @@ The *feedback* half (D21): descriptive self-trends that make the baseline visibl
 
 `bash tests/run-data-layer.sh` → **328/328 ALL PASS** (M1–M8); real-browser smoke (2 sparklines weight+energy; window 90d→30d switch; fasting streak; "complete days only" label; transparency note); `APP_VERSION → 0.6.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green.
 
-**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.6.0.**
+**Status: MET — committed + deployed as v0.6.0.**
+
+### Signal goals — biometric targets + chip-float awakened (D24) — PRE-REGISTERED
+
+Biometric goals settable → the D21 wired-but-dormant chip-float wakes at zero churn (it already reads `settings.goals`). **No schema change.** `APP_VERSION → 0.6.1`. `settings.goals` becomes a **mixed namespace** (nutrient keys = daily-sum goals on the food ring; signal-type keys = latest-reading goals on the Mirror + float) under a **mandatory-filter contract** (D24). Mirror goal display is **fully neutral** — factual text + neutral dashed reference line, **no met/unmet color** (a color cue is "good" re-encoded past the M7 grep).
+
+| Case | Asserts |
+|---|---|
+| SG1 | `setGoalFromForm` routes a signal type → `settings.goals[type]` `{value,direction,unit}`; a nutrient → `{value,direction}`; **food ring/strip renders ONLY nutrient goals** — and its rendered output is **BYTE-IDENTICAL with vs. without a signal goal present** (the filter proven by output equality, FX3 pattern — not merely "filtered") |
+| SG2 | **chip-float wakes** — a signal type with a goal floats to the unscrolled front; no goal → curated default (extends TL14) |
+| SG3 | Mirror renders the goal **reference line + factual "target ≤/≥ V unit · latest L"**, **unit-normalized** (kg goal ↔ lb series); a **non-convertible** goal unit (ppm goal vs mmol/L series) surfaces the mismatch, **not force-converted / not drawn** |
+| SG4 | **latest-reading, direction-aware** basis (floor short-when-under, ceiling over-when-above) correct; **no evaluative status word** rendered |
+| SG5 | round-trip — a signal goal (incl. `unit`) survives export/restore exact |
+| SG6 | escaping — a hostile goal unit escaped in the Mirror render |
+| SG7 | **safety invariant holds with goals present** — Mirror with a signal goal contains no banned/evaluative vocabulary (extends M7) |
+
+`bash tests/run-data-layer.sh` → **341/341 ALL PASS** (SG1–SG7; **zero existing-fixture edits**); real-browser smoke (2 reference lines weight+HRV, factual targets, HRV chip floated, unit hint, no evaluative text; real index.html has the Biometrics optgroup); `APP_VERSION → 0.6.1` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green.
+
+**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.6.1.**

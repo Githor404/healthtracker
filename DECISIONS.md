@@ -487,3 +487,21 @@ Same principle as D22's absence-≠-zero and the honesty rule: **the app present
 **Deferred (flagged):** Tier-2 juxtaposition (fast-follow, user-selected only); **signal-type goals + the dormant chip-float awakening** (its own slice — goal-vs-trend display has distinct latest-reading/direction semantics); week-over-week deltas; chart export.
 
 **Sequencing (for the record).** The **device-integration strategic gate (D19) is DEFERRED, not skipped** — still owed before any integration work. Mirror needs **no** ruling from it: read-only, fully local, no data egress.
+
+## D24 — Signal goals: biometric targets + the chip-float awakened (Phase-4, 2026-07-20)
+
+Makes biometric goals settable (weight ≤ 80 kg, HRV ≥ 60, glucose ≤ 100), **waking the wired-but-dormant chip-float** (D21): a signal type with a goal floats to the unscrolled front of the quick-log strip. Extends the goals + Mirror machinery; **no schema change.** `APP_VERSION → 0.6.1`.
+
+**`settings.goals` is now a MIXED NAMESPACE — mandatory-filter contract (binds every consumer).** The map holds two semantically different goal kinds, discriminated by key:
+- **nutrient goals** — `{value, direction}`, keyed by a food nutrient (`kcal, protein_g, fat_g, carb_g, fiber_g`); evaluated against a **daily SUM** (`dayTotals`); shown on the food ring/strip.
+- **signal goals** — `{value, direction, unit}`, keyed by a **signal type** (`weight, hrv, glucose, bp_systolic, …`); evaluated against the **LATEST reading**; shown on the Mirror trend + the chip-float. **Never on the food ring.**
+
+The two key namespaces are **closed and disjoint** (no nutrient/signal-type collision). **Contract (mandatory — written for the next consumer's author, six months out): any code reading `settings.goals` MUST filter to the kind it means.** The food ring/strip (`renderGoalsHTML`) filters to nutrient keys; a signal goal rendered there would be `dayTotals[weight]` = 0 → food-summed nonsense (the D21 "wrong-schema" trap). Gated **byte-identically** (SG1): the food ring's rendered output is **identical with vs. without a signal goal present** — the filter proven by output equality, not merely asserted (the FX3 pattern). Chosen over a separate `settings.signalGoals` store because it **cashes in D21's forward-ready float** (already reads `settings.goals`) at **zero churn** — no new store, no float rewire, no existing-fixture edits — but the mixed namespace is a real hazard, recorded here so it isn't rediscovered as a bug.
+
+**Fully neutral goal display (ruled — an M7 refinement, not a loophole).** The Mirror shows a signal goal as **factual text only** — "target ≤ 80 kg · latest 78" — plus a **neutral dashed reference line**. **No met/unmet color, ever.** A green "under your ceiling" line is the evaluative word "good" **re-encoded past the text grep** — an honesty invariant satisfiable by changing the encoding is not an invariant. It is also **more correct**: the direction-of-good is **personal** for several signals (mood, weight mid-cut, HRV) — the user declared the target, the user judges the gap. If lived use later argues for a cue, that is a **deliberate, recorded M7 amendment**, never a default.
+
+**Latest-reading basis (deliberately simple).** A signal goal is evaluated against the most recent reading, direction-aware (floor short-when-under, ceiling over-when-above) — reusing `goalProgress` arithmetic but rendering **no** evaluative status word. A **rolling-average basis** for noisy signals (mood, HRV) is **deferred, not rejected**.
+
+**Unit (the pin, again).** A signal goal stores its unit (the signal's current display unit at set-time); the Mirror **normalizes the goal to the series unit** before drawing the line (kg goal ↔ lb series). A goal whose unit is **not inter-convertible** with the series (a ppm ketone goal against an mmol/L series) **surfaces the mismatch honestly and is not drawn** — the same never-force-convert rule as the trend (D23).
+
+**Set UX + scope.** Set via the existing Goals form (a "Biometrics" optgroup; `setGoalFromForm` routes signal types, storing the unit). **Biometrics only** — weight, resting HR, HRV, glucose, breath ketones, BP systolic + diastolic (separately), sleep, steps, mood, energy. **Events excluded** (a "sauna goal" is a frequency target — different shape, deferred).

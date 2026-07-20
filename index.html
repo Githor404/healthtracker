@@ -204,7 +204,10 @@
   .spark{display:block;width:100%;height:40px;margin:6px 0 4px}
   .spark polyline{stroke:var(--accent);fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
   .spark circle{fill:var(--accent)}
+  .spark line.tref{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
   .tsum{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tgoal{color:var(--muted);font-weight:600}
+  .thint{color:var(--muted);font-weight:600}
 </style>
 </head>
 <body>
@@ -278,12 +281,15 @@
       <details id="goalsDetails">
         <summary>Goals</summary>
         <div class="row" style="margin-top:10px">
-          <div><label>Nutrient</label><select id="goalNutrient"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></select></div>
-          <div><label>Target</label><input id="goalValue" type="number" inputmode="decimal"></div>
+          <div style="flex:1.4"><label>Nutrient / biometric</label><select id="goalNutrient" onchange="onGoalTypeChange()">
+            <optgroup label="Nutrients"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></optgroup>
+            <optgroup label="Biometrics"><option value="weight">Weight</option><option value="resting_hr">Resting HR</option><option value="hrv">HRV</option><option value="glucose">Glucose</option><option value="breath_ketones">Breath ketones</option><option value="bp_systolic">BP systolic</option><option value="bp_diastolic">BP diastolic</option><option value="sleep_hours">Sleep</option><option value="steps">Steps</option><option value="mood">Mood</option><option value="energy">Energy</option></optgroup>
+          </select></div>
+          <div><label>Target <span id="goalUnitHint" class="thint"></span></label><input id="goalValue" type="number" inputmode="decimal"></div>
           <div><label>Direction</label><select id="goalDir"><option value="min">floor (min)</option><option value="max">ceiling (max)</option></select></div>
         </div>
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
-        <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Goals appear on the ring and strip above.</div>
+        <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
       </details>
     </div>
 

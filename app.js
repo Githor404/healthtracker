@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 4;
-const APP_VERSION      = '0.6.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.6.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -858,7 +858,7 @@ function renderGoalsHTML(t, day) {
   let html = `<div class="ringbox">${ringSVG(frac, status)}<div class="ringval">${inner}</div></div>`;
   html += `<div class="primsel">` + RING_NUTRIENTS.map((k) =>
     `<button class="${k === prim ? 'on' : ''}" onclick="setPrimary('${k}')">${esc(NUTRIENT_LABELS[k] || k)}</button>`).join('') + `</div>`;
-  const gk = Object.keys(goals);
+  const gk = Object.keys(goals).filter(isNutrientGoal);   // D24: food ring is nutrient goals ONLY (mixed-namespace filter contract)
   if (gk.length) {
     html += `<div class="goalstrip">` + gk.map((k) => {
       const gp = goalProgress(num(t[k]), goals[k]);
@@ -968,9 +968,15 @@ function addWater(delta) {
   day.water_l = Math.max(0, Math.round(((day.water_l || 0) + delta) * 100) / 100);
   Store.saveState(APP_STATE); refresh();
 }
-function setGoal(key, value, direction) {
+// settings.goals is a MIXED NAMESPACE (D24): nutrient keys = daily-sum goals (food
+// ring); signal-type keys = latest-reading goals (Mirror + chip-float). Signal goals
+// carry a `unit`. Every consumer MUST filter to the kind it means (isNutrientGoal).
+function isNutrientGoal(key) { return RING_NUTRIENTS.indexOf(key) >= 0; }
+function setGoal(key, value, direction, unit) {
   if (!APP_STATE.settings.goals) APP_STATE.settings.goals = {};
-  APP_STATE.settings.goals[key] = { value: clampNonNeg(value), direction: direction === 'max' ? 'max' : 'min' };
+  const g = { value: clampNonNeg(value), direction: direction === 'max' ? 'max' : 'min' };
+  if (unit) g.unit = String(unit);                       // signal goals only
+  APP_STATE.settings.goals[key] = g;
   Store.saveState(APP_STATE); refresh();
 }
 function removeGoal(key) {
@@ -982,9 +988,15 @@ function setGoalFromForm() {
   const v = document.getElementById('goalValue').value;
   const d = document.getElementById('goalDir').value;
   if (!v) { toast('Enter a target value'); return; }
-  setGoal(k, v, d);
+  const unit = SIGNAL_BY_TYPE[k] ? signalUnitDefault(k) : '';   // signal type -> store its current display unit
+  setGoal(k, v, d, unit);
   document.getElementById('goalValue').value = '';
   toast('Goal set');
+}
+function onGoalTypeChange() {
+  const sel = document.getElementById('goalNutrient'); if (!sel) return;
+  const hint = document.getElementById('goalUnitHint'); if (!hint) return;
+  hint.textContent = SIGNAL_BY_TYPE[sel.value] ? signalUnitDefault(sel.value) : '';
 }
 
 // ---- manual add + presets (DECISIONS.md D9) -------------------------------
@@ -2346,19 +2358,24 @@ function fastingStats(days) {
     streak: streak, pending: pendingInWin,
   };
 }
-// Hand-rolled inline SVG sparkline (theme-aware via CSS; no deps).
-function sparklineSVG(points) {
+// Hand-rolled inline SVG sparkline (theme-aware via CSS; no deps). Optional refVal
+// draws a NEUTRAL dashed goal line (D24: no met/unmet color — the goal is factual,
+// the user judges the gap); the value range expands to keep the line visible.
+function sparklineSVG(points, refVal) {
   const W = 240, H = 40, pad = 3;
   if (!points.length) return '';
   const vs = points.map((p) => p.v);
-  const mn = Math.min.apply(null, vs), mx = Math.max.apply(null, vs), span = (mx - mn) || 1, n = points.length;
+  let mn = Math.min.apply(null, vs), mx = Math.max.apply(null, vs);
+  if (refVal != null) { mn = Math.min(mn, refVal); mx = Math.max(mx, refVal); }
+  const span = (mx - mn) || 1, n = points.length;
+  const yFor = (v) => H - pad - ((v - mn) / span) * (H - 2 * pad);
   const pts = points.map((p, i) => {
     const x = n === 1 ? W / 2 : pad + (i / (n - 1)) * (W - 2 * pad);
-    const y = H - pad - ((p.v - mn) / span) * (H - 2 * pad);
-    return (Math.round(x * 10) / 10) + ',' + (Math.round(y * 10) / 10);
+    return (Math.round(x * 10) / 10) + ',' + (Math.round(yFor(p.v) * 10) / 10);
   }).join(' ');
-  const dot = n === 1 ? `<circle cx="${W / 2}" cy="${H / 2}" r="2.5"/>` : '';
-  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/>${dot}</svg>`;
+  const dot = n === 1 ? `<circle cx="${W / 2}" cy="${refVal != null ? Math.round(yFor(vs[0]) * 10) / 10 : H / 2}" r="2.5"/>` : '';
+  const ref = refVal != null ? `<line class="tref" x1="${pad}" y1="${Math.round(yFor(refVal) * 10) / 10}" x2="${W - pad}" y2="${Math.round(yFor(refVal) * 10) / 10}"/>` : '';
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${ref}<polyline points="${pts}"/>${dot}</svg>`;
 }
 function setTrendWindow(d) { TREND_WINDOW = d; renderTrends(); }
 function renderTrends() {
@@ -2374,7 +2391,17 @@ function renderTrends() {
     if (s.points.length < TREND_MIN_POINTS) return;          // min-data
     const sm = seriesSummary(s);
     const cov = s.excluded > 0 ? ` <small class="tcov">${esc(s.total - s.excluded)} of ${esc(s.total)} in ${esc(s.unit)}</small>` : '';
-    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}</div>${sparklineSVG(s.points)}`
+    // D24 signal goal: factual target + a neutral reference line (fully neutral — no
+    // met/unmet color/word). Normalize the goal to the series unit; a non-convertible
+    // goal unit surfaces the mismatch and is not drawn (same never-force rule as D23).
+    const goal = (APP_STATE.settings.goals || {})[sp.type];
+    let goalStr = '', refVal = null;
+    if (goal && goal.value != null) {
+      const gv = convertUnit(sp.type, goal.value, goal.unit || s.unit, s.unit);
+      if (gv == null) goalStr = ` <small class="tcov">target set in ${esc(goal.unit || '?')} — not comparable to ${esc(s.unit)}</small>`;
+      else { refVal = gv; goalStr = ` <small class="tgoal">target ${goal.direction === 'max' ? '&le;' : '&ge;'} ${esc(rDisp(gv))} ${esc(s.unit)}</small>`; }
+    }
+    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}${goalStr}</div>${sparklineSVG(s.points, refVal)}`
       + `<div class="tsum">latest ${esc(rDisp(sm.latest))} · avg ${esc(rDisp(sm.avg))} · ${esc(rDisp(sm.min))}–${esc(rDisp(sm.max))} · &Delta; ${sm.delta >= 0 ? '+' : ''}${esc(rDisp(sm.delta))} · n=${esc(sm.n)}</div></div>`;
   });
   html += bio;
@@ -2559,6 +2586,7 @@ const VERSION_LOG = [
   { v: '0.5.0', note: 'Fasting: long gaps between meals surface as candidates you resolve (fasted / ate-didn\'t-log) — pending never counts. Plus Undo on every log.' },
   { v: '0.5.1', note: 'Updates now also apply when you reopen the app from the switcher, not only on a full launch.' },
   { v: '0.6.0', note: 'Trends: see your own weight, biometrics, fasting streak, and energy over time — figures only, your data, no interpretation.' },
+  { v: '0.6.1', note: 'Set targets on biometrics (weight, HRV, glucose, BP, …): they show as a line on your trend and float that signal to the front of the quick-log chips.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2618,6 +2646,7 @@ function main() {
   renderMedForm();
   renderPromptCard();
   renderFastingForm();
+  onGoalTypeChange();
   wireChipStripWheel();
   refresh();
 }
@@ -2638,7 +2667,7 @@ window.HT = {
   chipOrder, CHIP_DEFAULT, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable,
-  goalProgress, microRollup, dayTotals, setGoal,
+  goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
   averageOver, completeDaysInWindow,
