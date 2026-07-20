@@ -1146,6 +1146,98 @@ window.setLS({});
   var rU=HT.addSignal({type:'weight',value:'80',time:'07:00'});
   res(rU.ok && (HT.state().timeline[td]||[]).length===beforeU+1, 'UN3: log is instant (no confirmation gate) — record present immediately');
 
+  // ===== Layer 2 — Mirror self-trends (D23) =====
+  function dk(off){ var d=new Date(td+'T00:00:00'); d.setDate(d.getDate()+off); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  if (!document.getElementById('trends')) { var trd=document.createElement('div'); trd.id='trends'; document.body.appendChild(trd); }
+  var trendsHtml = function(){ return document.getElementById('trends').innerHTML; };
+
+  // M1: unit normalization (the pin) — mixed convertible units collapse; non-convertible excluded
+  setLS({}); HT.boot();
+  var stM=HT.state(); stM.timeline={};
+  stM.timeline['2026-06-01']=[{time:'07:00',kind:'biometric',type:'weight',value:80,unit:'kg',source:'manual'}];
+  stM.timeline['2026-06-02']=[{time:'07:00',kind:'biometric',type:'weight',value:176.37,unit:'lb',source:'manual'}];   // = ~80kg
+  var ws=HT.signalSeries('weight','all');
+  res(ws.unit==='kg' && ws.points.length===2 && Math.abs(ws.points[0].v-80)<0.1 && Math.abs(ws.points[1].v-80)<0.1, 'M1: weight kg+lb collapses to one unit (lb -> kg)');
+  stM.timeline={}; stM.timeline['2026-06-01']=[{time:'08:00',kind:'biometric',type:'glucose',value:90,unit:'mg/dL',source:'manual'}];
+  stM.timeline['2026-06-02']=[{time:'08:00',kind:'biometric',type:'glucose',value:5,unit:'mmol/L',source:'manual'}];    // = ~90.09 mg/dL
+  var gs=HT.signalSeries('glucose','all');
+  res(gs.unit==='mg/dL' && gs.points.length===2 && Math.abs(gs.points[1].v-90.09)<0.5, 'M1: glucose mmol/L -> mg/dL');
+  stM.timeline={}; stM.timeline['2026-06-01']=[{time:'06:00',kind:'biometric',type:'breath_ketones',value:20,unit:'ppm',source:'manual'},{time:'06:05',kind:'biometric',type:'breath_ketones',value:2,unit:'mmol/L',source:'manual'}];
+  var bs=HT.signalSeries('breath_ketones','all');
+  res(bs.unit==='ppm' && bs.points.length===1 && bs.excluded===1 && bs.total===2, 'M1: breath-ketones mmol/L EXCLUDED from a ppm series (not force-converted), coverage counted');
+
+  // M2: trend assembly + factual summary
+  setLS({}); HT.boot();
+  var st2=HT.state(); st2.timeline={};
+  st2.timeline['2026-06-01']=[{time:'07:00',kind:'biometric',type:'weight',value:82,unit:'kg',source:'manual'}];
+  st2.timeline['2026-06-03']=[{time:'07:00',kind:'biometric',type:'weight',value:80,unit:'kg',source:'manual'}];
+  st2.timeline['2026-06-02']=[{time:'07:00',kind:'biometric',type:'weight',value:81,unit:'kg',source:'manual'}];
+  var s2=HT.signalSeries('weight','all');
+  res(s2.points.map(function(p){return p.v;}).join(',')==='82,81,80', 'M2: series time-ordered across days');
+  var sm2=HT.seriesSummary(s2);
+  res(sm2.latest===80 && sm2.min===80 && sm2.max===82 && sm2.avg===81 && sm2.delta===-2 && sm2.n===3, 'M2: factual summary latest/min/max/avg/delta/n');
+
+  // M3: fasting stats from confirmed only
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'}]);
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'fasted');
+  var fst=HT.fastingStats('all');
+  res(fst.count===1 && fst.avg===18 && fst.longest===18, 'M3: fasting stats computed from confirmedFasts only');
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'},{date:'2026-06-02',time:'20:00'},{date:'2026-06-03',time:'18:00'}]);
+  HT.resolveFast('2026-06-01T19:00','2026-06-02T13:00',18,'fasted');    // confirm only the first; second stays pending
+  var fst2=HT.fastingStats('all');
+  res(fst2.count===1 && fst2.pending===1, 'M3: a pending candidate never moves a stat; surfaced as pending');
+
+  // M4: streak (pin) — consecutive confirmed days; pending surfaced, never inflates
+  setLS({}); HT.boot();
+  fdays([{date:dk(-2),time:'19:00'},{date:dk(-1),time:'13:00'},{date:dk(-1),time:'20:00'},{date:dk(0),time:'13:00'}]);
+  HT.resolveFast(dk(-2)+'T19:00',dk(-1)+'T13:00',18,'fasted');
+  HT.resolveFast(dk(-1)+'T20:00',dk(0)+'T13:00',17,'fasted');
+  var s4=HT.fastingStats('all');
+  res(s4.streak===2 && s4.pending===0, 'M4: streak counts consecutive confirmed-fast days (today + yesterday)');
+  setLS({}); HT.boot();                                                 // fresh fastLog — don't inherit the confirmations above
+  fdays([{date:dk(-2),time:'19:00'},{date:dk(-1),time:'13:00'},{date:dk(-1),time:'20:00'},{date:dk(0),time:'13:00'}]);
+  HT.resolveFast(dk(-2)+'T19:00',dk(-1)+'T13:00',18,'fasted');          // confirm yesterday only; today's stays pending
+  var s4b=HT.fastingStats('all');
+  res(s4b.streak===1 && s4b.pending===1, 'M4: a pending day surfaces "N unresolved", never inflates the streak (pending != fasted)');
+
+  // M5: macro trend — complete days only
+  setLS({}); HT.boot();
+  var st5=HT.state(); st5.days={};
+  st5.days['2026-06-01']={status:'complete',items:[{name:'a',meal:'lunch',time:'12:00',kcal:600,soluble_fiber_g:0}],water_l:0};
+  st5.days['2026-06-02']={status:'in_progress',items:[{name:'b',meal:'lunch',time:'12:00',kcal:9999,soluble_fiber_g:0}],water_l:0};
+  st5.days['2026-06-03']={status:'complete',items:[{name:'c',meal:'lunch',time:'12:00',kcal:800,soluble_fiber_g:0}],water_l:0};
+  var mac=HT.macroSeries('kcal','all');
+  res(mac.points.length===2 && mac.points.map(function(p){return p.v;}).join(',')==='600,800', 'M5: macro trend = complete days only (in-progress excluded)');
+
+  // M6: min-data -> honest empty state, no fabricated trend
+  setLS({}); HT.boot();
+  var st6=HT.state(); st6.timeline={};
+  st6.timeline['2026-06-01']=[{time:'07:00',kind:'biometric',type:'weight',value:80,unit:'kg',source:'manual'}];
+  st6.timeline['2026-06-02']=[{time:'07:00',kind:'biometric',type:'weight',value:81,unit:'kg',source:'manual'}];   // only 2 < TREND_MIN_POINTS
+  HT.renderTrends();
+  res(trendsHtml().indexOf('<svg')<0 && /Keep logging/i.test(trendsHtml()), 'M6: below min-points -> no sparkline, honest "keep logging" empty state');
+
+  // M7: safety invariant (grep-able) — no evaluative/prescriptive vocabulary
+  setLS({}); HT.boot();
+  var st7=HT.state(); st7.timeline={}; st7.days={};
+  [dk(-4),dk(-3),dk(-2),dk(-1),dk(0)].forEach(function(d,i){ st7.timeline[d]=[{time:'07:00',kind:'biometric',type:'weight',value:80-i*0.3,unit:'kg',source:'manual'}]; });
+  st7.days[dk(-2)]={status:'complete',items:[{name:'a',meal:'lunch',time:'12:00',kcal:600,soluble_fiber_g:0}],water_l:0};
+  st7.days[dk(-1)]={status:'complete',items:[{name:'b',meal:'lunch',time:'12:00',kcal:800,soluble_fiber_g:0}],water_l:0};
+  st7.days[dk(0)]={status:'complete',items:[{name:'c',meal:'lunch',time:'12:00',kcal:700,soluble_fiber_g:0}],water_l:0};
+  HT.renderTrends();
+  var mh=trendsHtml().toLowerCase();
+  var banned=['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  var hit=banned.filter(function(w){return mh.indexOf(w)>=0;});
+  res(hit.length===0, 'M7: safety invariant — no evaluative/prescriptive vocabulary in the Mirror render' + (hit.length?(' ['+hit.join(',')+']'):''));
+
+  // M8: escaping — a hostile display unit is escaped
+  setLS({}); HT.boot();
+  var st8=HT.state(); st8.timeline={}; st8.settings.signalUnits={weight:'<b>x</b>'};
+  [dk(-2),dk(-1),dk(0)].forEach(function(d){ st8.timeline[d]=[{time:'07:00',kind:'biometric',type:'weight',value:80,unit:'<b>x</b>',source:'manual'}]; });
+  HT.renderTrends();
+  res(trendsHtml().indexOf('<b>x</b>')<0 && trendsHtml().indexOf('&lt;b&gt;x&lt;/b&gt;')>=0, 'M8: rendered unit escaped');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

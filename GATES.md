@@ -390,4 +390,23 @@ On-device gap (v0.5.0): the force-and-notify apply check runs on **load**, but a
 
 `tests/update-gate.ps1` extended: a two-level shell bump proves auto-apply on **LOAD** (token) **and on RESUME** (token2 via a dispatched `visibilitychange`, **no navigation**, page controlled). Gate PASS (v1 active · load-applies · controlled · resume-applies); `APP_VERSION → 0.5.1` (check-version); data-layer 315/315 + offline + precache + sw-hash + check-zxing + chip-layout green.
 
-**Status: MET — awaiting review before commit/deploy as v0.5.1.**
+**Status: MET — committed + deployed as v0.5.1.**
+
+### Layer 2 — Mirror slice (D23) — PRE-REGISTERED
+
+The *feedback* half (D21): descriptive self-trends that make the baseline visible. **Read-only** over food/timeline/fastLog → **no schema change, no migration.** `APP_VERSION → 0.6.0`. v1 = single-variable trends (Tier 1); the Mirror/Advise line runs through **who initiates the pairing** (user-selected juxtaposition = mirror; app-initiated = a Layer-4 hypothesis). Factual summaries only — **no evaluative/prescriptive language.**
+
+| Case | Asserts |
+|---|---|
+| M1 | **unit normalization (the pin):** a weight series mixing kg + lb collapses to ONE unit (converted, not mixed); glucose mg/dL↔mmol/L converts; **non-convertible** units (breath-ketones ppm vs mmol/L) are **excluded** from the off-unit series with a coverage note, never force-converted |
+| M2 | **trend assembly:** time-ordered series per type over a window (30/90/all); factual summary latest/min/max/avg/delta/n correct |
+| M3 | **fasting stats:** count/avg/longest from `confirmedFasts()` **only** — a pending or `ate_didnt_log` candidate never moves a stat |
+| M4 | **fasting streak (pin):** consecutive **confirmed**-fast days; a pending day in the window surfaces **"N unresolved — resolve to update"**, never silently inflating (pending≠fasted) or hiding that resolving could change it |
+| M5 | **macro trend:** complete-days-only (agrees with `averageOver` semantics; in-progress days excluded); labeled **"complete days only"** |
+| M6 | **min-data/empty:** below the point threshold → honest empty state, no fabricated trend |
+| M7 | **safety invariant (grep-able):** the rendered Mirror contains **no** evaluative/prescriptive vocabulary and (v1) **no** asserted cross-variable relationship — structural, like the honesty gates |
+| M8 | **escaping:** every rendered label/value through `esc()` |
+
+`bash tests/run-data-layer.sh` → **328/328 ALL PASS** (M1–M8); real-browser smoke (2 sparklines weight+energy; window 90d→30d switch; fasting streak; "complete days only" label; transparency note); `APP_VERSION → 0.6.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green.
+
+**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.6.0.**

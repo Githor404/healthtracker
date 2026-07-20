@@ -195,6 +195,16 @@
   .fbtns button{width:auto;font-size:12px;font-weight:700;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);cursor:pointer}
   .fundo{width:auto;background:none;border:none;color:var(--accent);font-weight:700;font-size:12px;cursor:pointer}
   .flong{color:var(--warn);font-weight:700;font-size:11px}
+  .twin{display:flex;gap:6px;margin-bottom:6px}
+  .twin button{width:auto;font-size:12px;font-weight:700;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .twin button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .trow{padding:10px 0;border-top:1px solid var(--line)}
+  .thead{font-size:13px;font-weight:700}.thead small{color:var(--muted);font-weight:600;font-size:11px}
+  .tcov{color:var(--warn)}
+  .spark{display:block;width:100%;height:40px;margin:6px 0 4px}
+  .spark polyline{stroke:var(--accent);fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+  .spark circle{fill:var(--accent)}
+  .tsum{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -232,6 +242,13 @@
         <summary>Timeline (food · events · biometrics)</summary>
         <div id="fastCandidates"></div>
         <div id="timelineOverlay" style="margin-top:10px"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details open>
+        <summary>Trends</summary>
+        <div id="trends" style="margin-top:10px"></div>
       </details>
     </div>
 

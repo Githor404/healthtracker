@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 4;
-const APP_VERSION      = '0.5.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.6.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2254,6 +2254,151 @@ function avgBlockHTML(label, a) {
   return html + `</div>`;
 }
 
+// ---- Mirror (Layer 2, D23): descriptive self-trends, READ-ONLY ---------------
+// The feedback half — the person's own data over a window, figures only, no
+// interpretation. WHO-INITIATES-THE-PAIRING line: v1 is single-variable only.
+const TREND_MIN_POINTS = 3;                                 // never draw a 2-point "trend"
+let TREND_WINDOW = 90;                                      // UI state (non-persisted, v1)
+// Finite per-type unit conversion (the D20/D22 pin). Only truly inter-convertible
+// units; a type absent here has single/non-convertible units (a record is kept only
+// if its unit already matches the target — e.g. breath-ketones ppm vs mmol/L measure
+// DIFFERENT things and must never be force-converted).
+const UNIT_CONVERT = {
+  weight:  { 'kg>lb': function (v) { return v * 2.2046226; }, 'lb>kg': function (v) { return v / 2.2046226; } },
+  glucose: { 'mg/dL>mmol/L': function (v) { return v / 18.0182; }, 'mmol/L>mg/dL': function (v) { return v * 18.0182; } },
+};
+function convertUnit(type, value, fromU, toU) {
+  if (fromU === toU) return num(value);
+  const tbl = UNIT_CONVERT[type];
+  const fn = tbl && tbl[fromU + '>' + toU];
+  return fn ? fn(num(value)) : null;                        // null = not convertible -> excluded from this series
+}
+function windowCutoff(days) {
+  if (!days || days === 'all') return '0000-00-00';         // include everything
+  const c = new Date(localDate() + 'T00:00:00');
+  c.setDate(c.getDate() - (days - 1));
+  return localDate(c);
+}
+// A biometric series in ONE unit over a window: every reading, time-ordered,
+// normalized to the type's current display unit; off-unit non-convertible readings
+// EXCLUDED (counted for an honest coverage note — absence != fabrication).
+function signalSeries(type, days) {
+  const spec = SIGNAL_BY_TYPE[type];
+  const targetUnit = signalUnitDefault(type);
+  const cut = windowCutoff(days);
+  const pts = []; let excluded = 0, total = 0;
+  Object.keys(APP_STATE.timeline || {}).forEach((d) => {
+    if (d < cut) return;
+    (APP_STATE.timeline[d] || []).forEach((r) => {
+      if (r.type !== type || r.value == null) return;
+      total++;
+      const v = convertUnit(type, r.value, r.unit || targetUnit, targetUnit);
+      if (v == null) { excluded++; return; }
+      pts.push({ t: d + 'T' + (r.time || '00:00'), v: Math.round(v * 100) / 100 });
+    });
+  });
+  pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+  return { type: type, label: spec ? spec.label : type, unit: targetUnit, points: pts, excluded: excluded, total: total };
+}
+// Factual summary only (no interpretation): latest, min, max, avg, delta, n.
+function seriesSummary(s) {
+  const vals = s.points.map((p) => p.v);
+  const n = vals.length;
+  if (!n) return { n: 0 };
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return { n: n, latest: vals[n - 1], min: Math.min.apply(null, vals), max: Math.max.apply(null, vals),
+           avg: r2(sum / n), delta: r2(vals[n - 1] - vals[0]) };
+}
+// Macro trend: daily total of a nutrient over the window, COMPLETE DAYS ONLY (D10).
+function macroSeries(nutrient, days) {
+  const cut = windowCutoff(days);
+  const pts = [];
+  Object.keys(APP_STATE.days || {}).forEach((d) => {
+    if (d < cut) return;
+    const day = APP_STATE.days[d];
+    if (!day || day.status !== 'complete') return;          // complete days only (labeled in the view)
+    pts.push({ t: d, v: Math.round(num(dayTotals(day)[nutrient]) * 10) / 10 });
+  });
+  pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
+  return { nutrient: nutrient, points: pts };
+}
+// Fasting stats over a window, CONFIRMED only (D22). Streak = consecutive days
+// (ending today, else yesterday) with a confirmed fast; pending candidates in-window
+// are surfaced ("N unresolved") — never inflate (pending != fasted) nor silently hide
+// that resolving could change it (the streak pin).
+function fastingStats(days) {
+  const cut = windowCutoff(days);
+  const cands = detectFastCandidates();
+  const confirmed = cands.filter((c) => c.state === 'fasted' && c.end.slice(0, 10) >= cut);
+  const pendingInWin = cands.filter((c) => c.state === 'pending' && c.end.slice(0, 10) >= cut).length;
+  const hrs = confirmed.map((c) => c.hours);
+  const confirmedDays = {};
+  confirmed.forEach((c) => { confirmedDays[c.end.slice(0, 10)] = true; });
+  let streak = 0;
+  const cur = new Date(localDate() + 'T00:00:00');
+  if (!confirmedDays[localDate(cur)]) cur.setDate(cur.getDate() - 1);   // a fast completed yesterday still counts as current
+  while (confirmedDays[localDate(cur)]) { streak++; cur.setDate(cur.getDate() - 1); }
+  return {
+    count: confirmed.length,
+    avg: hrs.length ? Math.round((hrs.reduce((a, b) => a + b, 0) / hrs.length) * 10) / 10 : 0,
+    longest: hrs.length ? Math.max.apply(null, hrs) : 0,
+    streak: streak, pending: pendingInWin,
+  };
+}
+// Hand-rolled inline SVG sparkline (theme-aware via CSS; no deps).
+function sparklineSVG(points) {
+  const W = 240, H = 40, pad = 3;
+  if (!points.length) return '';
+  const vs = points.map((p) => p.v);
+  const mn = Math.min.apply(null, vs), mx = Math.max.apply(null, vs), span = (mx - mn) || 1, n = points.length;
+  const pts = points.map((p, i) => {
+    const x = n === 1 ? W / 2 : pad + (i / (n - 1)) * (W - 2 * pad);
+    const y = H - pad - ((p.v - mn) / span) * (H - 2 * pad);
+    return (Math.round(x * 10) / 10) + ',' + (Math.round(y * 10) / 10);
+  }).join(' ');
+  const dot = n === 1 ? `<circle cx="${W / 2}" cy="${H / 2}" r="2.5"/>` : '';
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}"/>${dot}</svg>`;
+}
+function setTrendWindow(d) { TREND_WINDOW = d; renderTrends(); }
+function renderTrends() {
+  const el = document.getElementById('trends'); if (!el || !APP_STATE) return;
+  const win = TREND_WINDOW;
+  const winLabel = win === 'all' ? 'all time' : ('last ' + win + ' days');
+  let html = '<div class="twin">' + [30, 90, 'all'].map((w) =>
+    `<button type="button" class="${w === win ? 'on' : ''}" onclick="setTrendWindow(${w === 'all' ? "'all'" : w})">${w === 'all' ? 'All' : w + 'd'}</button>`).join('') + '</div>';
+  let bio = '';
+  SIGNAL_SPEC.forEach((sp) => {
+    if (sp.kind !== 'biometric') return;
+    const s = signalSeries(sp.type, win);
+    if (s.points.length < TREND_MIN_POINTS) return;          // min-data
+    const sm = seriesSummary(s);
+    const cov = s.excluded > 0 ? ` <small class="tcov">${esc(s.total - s.excluded)} of ${esc(s.total)} in ${esc(s.unit)}</small>` : '';
+    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}</div>${sparklineSVG(s.points)}`
+      + `<div class="tsum">latest ${esc(rDisp(sm.latest))} · avg ${esc(rDisp(sm.avg))} · ${esc(rDisp(sm.min))}–${esc(rDisp(sm.max))} · &Delta; ${sm.delta >= 0 ? '+' : ''}${esc(rDisp(sm.delta))} · n=${esc(sm.n)}</div></div>`;
+  });
+  html += bio;
+  const fs = fastingStats(win);
+  if (fs.count > 0 || fs.pending > 0) {
+    const pend = fs.pending > 0 ? ` <small class="tcov">${esc(fs.pending)} unresolved — resolve to update</small>` : '';
+    html += `<div class="trow"><div class="thead">Fasting</div><div class="tsum">streak ${esc(fs.streak)} day${fs.streak === 1 ? '' : 's'}${pend} · ${esc(fs.count)} confirmed · avg ${esc(rDisp(fs.avg))}h · longest ${esc(rDisp(fs.longest))}h</div></div>`;
+  }
+  const ms = macroSeries('kcal', win);
+  let macroShown = false;
+  if (ms.points.length >= TREND_MIN_POINTS) {
+    macroShown = true;
+    const mv = ms.points.map((p) => p.v);
+    const avg = Math.round(mv.reduce((a, b) => a + b, 0) / mv.length);
+    html += `<div class="trow"><div class="thead">Energy <small>kcal · complete days only</small></div>${sparklineSVG(ms.points)}`
+      + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}</div></div>`;
+  }
+  if (!bio && fs.count === 0 && fs.pending === 0 && !macroShown)
+    html += `<div class="note" style="margin:8px 0 0">Keep logging — trends appear here once you have a few days of data (${esc(winLabel)}).</div>`;
+  else
+    html += `<div class="note" style="margin:10px 0 0">Your own data over ${esc(winLabel)} — figures only, no interpretation.</div>`;
+  el.innerHTML = html;
+}
+
 function renderAverages() {
   const el = document.getElementById('averages');
   if (!el || !APP_STATE) return;
@@ -2386,7 +2531,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -2413,6 +2558,7 @@ const VERSION_LOG = [
   { v: '0.4.3', note: 'Fix: on a mouse/desktop the quick-log chips now wrap to rows so every chip is reachable (they only scrolled by touch before).' },
   { v: '0.5.0', note: 'Fasting: long gaps between meals surface as candidates you resolve (fasted / ate-didn\'t-log) — pending never counts. Plus Undo on every log.' },
   { v: '0.5.1', note: 'Updates now also apply when you reopen the app from the switcher, not only on a full launch.' },
+  { v: '0.6.0', note: 'Trends: see your own weight, biometrics, fasting streak, and energy over time — figures only, your data, no interpretation.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2483,6 +2629,8 @@ window.HT = {
   detectFastCandidates, confirmedFasts, resolveFast, matchResolution, fastEvents, fastEndedByItem,
   normalizeFastLog, normalizeFasting, offerUndo, doUndo, undoRemove,
   renderFastCandidates, renderFastingForm, setFastingFromForm, resolveFastAt, addManualItem, addMedicationFromForm, doIngest,
+  // Phase 4 Slice — Mirror / Layer 2 self-trends (D23)
+  signalSeries, seriesSummary, macroSeries, fastingStats, convertUnit, windowCutoff, sparklineSVG, renderTrends, setTrendWindow, UNIT_CONVERT,
   // Phase 4 Slice T — timeline substrate (D20)
   SIGNAL_SPEC, SIGNAL_KINDS, MED_DOSE_UNITS, MED_FORMS, MED_ROUTES,
   normalizeSignal, normalizeTimeline, signalWarnings, addSignal, logBP, timelineForDay,
