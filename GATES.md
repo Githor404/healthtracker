@@ -427,4 +427,24 @@ Biometric goals settable → the D21 wired-but-dormant chip-float wakes at zero 
 
 `bash tests/run-data-layer.sh` → **341/341 ALL PASS** (SG1–SG7; **zero existing-fixture edits**); real-browser smoke (2 reference lines weight+HRV, factual targets, HRV chip floated, unit hint, no evaluative text; real index.html has the Biometrics optgroup); `APP_VERSION → 0.6.1` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green.
 
-**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.6.1.**
+**Status: MET — committed + deployed as v0.6.1.**
+
+### Layer 3 — Nudge slice (D25) — PRE-REGISTERED
+
+Paced, **established-practice-only** good-habit nudges, unlocked by an **engagement** milestone (never by reading content — that's Layer 4). Delivery machinery is code; the **curriculum is content** (`NUDGE_CURRICULUM`, builder-authored). State in `settings.nudges` → **no schema change**. `APP_VERSION → 0.7.0`. Accept = a **current focus with a factual adherence line** (occurrence counts/dates of an optional `linkedType`, never values; absence never a lapse) — the wear-indicator, not the scold (Fork B override).
+
+| Case | Asserts |
+|---|---|
+| **NG-safety-offer** | the **offered** nudge + readiness are **BYTE-IDENTICAL under a wholesale swap of all reading values** (day count held constant) — the offer keys on engagement, never on what the data says (Pin 1, FX3-style) |
+| **NG-safety-focus** | the **focus adherence line** reads the linked type's occurrence **timestamps only** — **byte-identical when the linked records' values are swapped** (counts/dates unchanged) |
+| NG1 | **readiness (engagement-only):** silent before 7 distinct logged days + 7 days elapsed; the auto-supplement doesn't count; first eligible habit offered at threshold |
+| NG2 | **pacing:** one at a time, curriculum order; after a resolution the next is silent until the interval elapses |
+| NG3 | **accept = focus + factual adherence:** counts/dates only, no %/streak/color, **no compliance capture**; unlinked habit → no line; 0 occurrences → neutral (never a lapse); no new offer while a focus is active |
+| NG4 | **decline permanent:** never re-offered by the engine; snooze re-eligible only after the window; **browse view lets the user re-activate any habit themselves** |
+| NG5 | **off switch:** `enabled:false` → fully silent |
+| NG6 | **round-trip preserves markers:** `settings.nudges` (states + **`at` timestamps**) survives export/restore **exact**; `normalizeNudges` hardens bad input; a decline survives (never resurfaces) |
+| NG7 | **language safety (extends M7/SG7 to the nudge surface):** no evaluative-about-the-user vocabulary, no user-data reference, absence-never-a-lapse; all curriculum text escaped |
+
+`bash tests/run-data-layer.sh` → **363/363 ALL PASS** (NG1–NG7 + both split byte-identical safety invariants); real-browser smoke (ready → offer "A short walk after dinner" → accept → focus with "walk logged 2 times in the last 7 days · last: Sun" → browse shows all 7); `APP_VERSION → 0.7.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green. **No schema change; only the flagged `settings.nudges` addition to the S1/S2 fixtures.**
+
+**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.7.0.**

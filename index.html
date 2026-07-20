@@ -208,6 +208,15 @@
   .tsum{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
   .tgoal{color:var(--muted);font-weight:600}
   .thint{color:var(--muted);font-weight:600}
+  .nudgeoffer,.nudgefocus{padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+  .nudgetitle{font-weight:700;font-size:14px}
+  .nudgewhy{color:var(--muted);font-size:13px;margin-top:4px;line-height:1.45}
+  .nudgeadh{color:var(--muted);font-size:12px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .nudgebtns{display:flex;align-items:center;gap:12px;margin-top:10px}
+  .nbrowsewrap{margin-top:8px}
+  .nbrowse{margin-top:6px;border-top:1px solid var(--line)}
+  .nbrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .nbtitle small{color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:.04em;font-weight:800;margin-left:6px}
 </style>
 </head>
 <body>
@@ -252,6 +261,15 @@
       <details open>
         <summary>Trends</summary>
         <div id="trends" style="margin-top:10px"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details open>
+        <summary>Habits</summary>
+        <label class="checkline"><input type="checkbox" id="nudgeEnabled" onchange="setNudgesEnabled(this.checked)"> Suggest one established habit at a time</label>
+        <div id="nudge" style="margin-top:8px"></div>
+        <div class="note">After a couple of weeks of tracking, one widely-recommended habit is offered at a time — never a notification, always one tap to pass, and permanent when you decline. Accepting keeps it as a quiet focus.</div>
       </details>
     </div>
 

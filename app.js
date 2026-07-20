@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 4;
-const APP_VERSION      = '0.6.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.7.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -59,7 +59,7 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 } };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} } };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {} };
@@ -202,6 +202,7 @@ function normalizeSettings(s) {
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
     signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
     fasting: normalizeFasting(s.fasting),   // D22: fasting detection config
+    nudges: normalizeNudges(s.nudges),      // D25: nudge state (load-bearing markers)
   };
 }
 // D22: fasting config. enabled defaults true (always-on-but-silent — only real
@@ -210,6 +211,20 @@ function normalizeFasting(f) {
   f = (f && typeof f === 'object' && !Array.isArray(f)) ? f : {};
   const mh = num(f.minHours);
   return { enabled: f.enabled !== false, minHours: mh > 0 ? mh : 16 };
+}
+// D25 restore hardening. PRESERVES state + `at` timestamps EXACTLY (load-bearing
+// intervention markers). Unknown/invalid state dropped; any habit id kept (curriculum
+// may evolve — old decisions survive); enabled defaults true.
+function normalizeNudges(n) {
+  n = (n && typeof n === 'object' && !Array.isArray(n)) ? n : {};
+  const src = (n.habits && typeof n.habits === 'object' && !Array.isArray(n.habits)) ? n.habits : {};
+  const habits = {};
+  Object.keys(src).forEach((id) => {
+    const e = src[id] || {};
+    if (['accepted', 'declined', 'snoozed', 'retired'].indexOf(e.state) < 0) return;
+    habits[id] = { state: e.state, at: typeof e.at === 'string' ? e.at : '' };
+  });
+  return { enabled: n.enabled !== false, habits: habits };
 }
 
 // D18: restore-boundary hardening for priceLog (was passthrough). Barcode keys
@@ -426,6 +441,7 @@ function boot() {
   if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
   if (!state.fastLog || typeof state.fastLog !== 'object') { state.fastLog = {}; dirty = true; }       // D22
   if (!state.settings.fasting || typeof state.settings.fasting !== 'object') { state.settings.fasting = { enabled: true, minHours: 16 }; dirty = true; }   // D22
+  if (!state.settings.nudges || typeof state.settings.nudges !== 'object') { state.settings.nudges = { enabled: true, habits: {} }; dirty = true; }         // D25
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
@@ -2426,6 +2442,131 @@ function renderTrends() {
   el.innerHTML = html;
 }
 
+// ---- Nudge (Layer 3, D25): paced, established-practice-only good habits --------
+// Curriculum is CONTENT (builder-authored); list order = offer order. Delivery
+// machinery only. Readiness + offer key on ENGAGEMENT (days logged), never on what
+// the readings SAY. Accept = a current focus with a factual wear-indicator (linked
+// occurrence counts/dates, never values). No check-ins, no scoring, no scold.
+const NUDGE_CURRICULUM = [
+  { id: 'walk_after_dinner',   title: 'A short walk after dinner',         rationale: 'Many people find a 10-minute walk after dinner an easy add.',        category: 'movement',  linkedType: 'walk' },
+  { id: 'veg_at_lunch',        title: 'A vegetable at lunch',              rationale: 'Adding one vegetable to lunch is a small, repeatable change.',       category: 'nutrition' },
+  { id: 'water_before_coffee', title: 'Water before your first coffee',    rationale: 'A glass of water on waking, before your coffee.',                   category: 'hydration' },
+  { id: 'protein_breakfast',   title: 'Some protein at breakfast',         rationale: 'Front-loading a little protein at breakfast works for many.',        category: 'nutrition' },
+  { id: 'morning_daylight',    title: 'A few minutes of morning daylight', rationale: 'A short spell of outdoor daylight early in the day.',                category: 'circadian' },
+  { id: 'winddown_before_bed', title: 'A wind-down before bed',            rationale: 'Dimming screens ~30 min before bed is a common wind-down.',          category: 'sleep' },
+  { id: 'stand_hourly',        title: 'Stand and stretch hourly',          rationale: 'A brief stand or stretch once an hour breaks up long sitting.',      category: 'movement' },
+];
+const NUDGE_BY_ID = NUDGE_CURRICULUM.reduce((m, h) => { m[h.id] = h; return m; }, {});
+const NUDGE_MIN_DAYS = 7, NUDGE_MIN_ELAPSED = 7, NUDGE_INTERVAL_DAYS = 5, NUDGE_SNOOZE_DAYS = 7, NUDGE_ADHERENCE_DAYS = 7;
+const NUDGE_WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+let NUDGE_BROWSE_OPEN = false;
+
+function dateDaysAgo(n) { const c = new Date(localDate() + 'T00:00:00'); c.setDate(c.getDate() - n); return localDate(c); }
+function nudgeState() { const n = APP_STATE.settings && APP_STATE.settings.nudges; return (n && typeof n === 'object') ? n : { enabled: true, habits: {} }; }
+function nudgeLinkLabel(lt) { const s = SIGNAL_BY_TYPE[lt]; return s ? s.label.toLowerCase() : lt; }
+
+// ENGAGEMENT ONLY: distinct calendar days the user actively logged (a non-_auto food
+// item, or any timeline record). Reads only THAT a day has a log, never WHAT.
+function loggedDays() {
+  const s = {};
+  Object.keys(APP_STATE.days || {}).forEach((d) => { if ((APP_STATE.days[d].items || []).some((i) => !i._auto)) s[d] = 1; });
+  Object.keys(APP_STATE.timeline || {}).forEach((d) => { if ((APP_STATE.timeline[d] || []).length) s[d] = 1; });
+  return Object.keys(s).sort();
+}
+function nudgeReady() {
+  const days = loggedDays();
+  if (days.length < NUDGE_MIN_DAYS) return false;
+  return Math.floor((Date.parse(localDate() + 'T00:00:00') - Date.parse(days[0] + 'T00:00:00')) / 86400000) >= NUDGE_MIN_ELAPSED;
+}
+// One focus, else (ready + interval elapsed) the next eligible habit in curriculum
+// order, else nothing. Depends ONLY on engagement (day COUNT) + persisted state.
+function currentNudge() {
+  const cfg = nudgeState();
+  if (cfg.enabled === false) return { kind: 'off' };
+  const habits = cfg.habits || {};
+  const focus = NUDGE_CURRICULUM.map((h) => h.id).filter((id) => habits[id] && habits[id].state === 'accepted')[0];
+  if (focus) return { kind: 'focus', id: focus };
+  if (!nudgeReady()) return { kind: 'none' };
+  const resolved = Object.keys(habits).filter((id) => ['declined', 'snoozed', 'retired'].indexOf(habits[id].state) >= 0)
+    .map((id) => String(habits[id].at || '').slice(0, 10)).filter(Boolean).sort();
+  const last = resolved.length ? resolved[resolved.length - 1] : '';
+  if (last && last > dateDaysAgo(NUDGE_INTERVAL_DAYS)) return { kind: 'none' };   // quiet interval since last resolution
+  const next = NUDGE_CURRICULUM.filter((h) => {
+    const st = habits[h.id];
+    if (!st) return true;
+    if (st.state === 'snoozed') return String(st.at || '').slice(0, 10) <= dateDaysAgo(NUDGE_SNOOZE_DAYS);
+    return false;                                                                 // accepted/declined/retired -> not eligible
+  })[0];
+  return next ? { kind: 'offer', id: next.id } : { kind: 'none' };
+}
+// The wear-indicator (D25): counts the linkedType's timeline OCCURRENCES (dates only,
+// NEVER values) since acceptance, within the window. Value-blind by construction.
+function focusAdherence(id) {
+  const h = NUDGE_BY_ID[id]; const st = nudgeState().habits[id];
+  if (!h || !h.linkedType || !st) return null;
+  const since = String(st.at || '').slice(0, 10);
+  const dates = [];
+  Object.keys(APP_STATE.timeline || {}).forEach((d) => {
+    if (since && d < since) return;
+    (APP_STATE.timeline[d] || []).forEach((r) => { if (r.type === h.linkedType) dates.push(d); });   // occurrence, not value
+  });
+  dates.sort();
+  const recent = dates.filter((d) => d >= dateDaysAgo(NUDGE_ADHERENCE_DAYS - 1));
+  return { type: h.linkedType, count: recent.length, last: dates.length ? dates[dates.length - 1] : '' };
+}
+function setNudge(id, state) {
+  if (!NUDGE_BY_ID[id]) return { ok: false };
+  if (!APP_STATE.settings.nudges) APP_STATE.settings.nudges = { enabled: true, habits: {} };
+  const habits = APP_STATE.settings.nudges.habits = APP_STATE.settings.nudges.habits || {};
+  if (state === 'accepted') Object.keys(habits).forEach((k) => { if (habits[k].state === 'accepted') habits[k] = { state: 'retired', at: new Date().toISOString() }; });   // one focus at a time
+  habits[id] = { state: state, at: new Date().toISOString() };
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+function acceptNudge(id) { return setNudge(id, 'accepted'); }
+function declineNudge(id) { return setNudge(id, 'declined'); }
+function snoozeNudge(id) { return setNudge(id, 'snoozed'); }
+function retireNudge(id) { return setNudge(id, 'retired'); }
+function setNudgesEnabled(on) {
+  if (!APP_STATE.settings.nudges) APP_STATE.settings.nudges = { enabled: true, habits: {} };
+  APP_STATE.settings.nudges.enabled = !!on;
+  Store.saveState(APP_STATE); refresh();
+}
+function toggleNudgeBrowse() { NUDGE_BROWSE_OPEN = !NUDGE_BROWSE_OPEN; renderNudge(); }
+function renderNudgeBrowse() {
+  const habits = nudgeState().habits || {};
+  return '<div class="nbrowse">' + NUDGE_CURRICULUM.map((h) => {
+    const st = habits[h.id];
+    const lbl = st ? (st.state === 'accepted' ? 'focus' : st.state) : '';
+    const act = (!st || st.state !== 'accepted') ? `<button type="button" class="linklike" onclick="acceptNudge('${h.id}')">Focus on this</button>` : '';
+    return `<div class="nbrow"><span class="nbtitle">${esc(h.title)}${lbl ? ` <small>${esc(lbl)}</small>` : ''}</span>${act}</div>`;
+  }).join('') + '</div>';
+}
+function renderNudge() {
+  const el = document.getElementById('nudge'); if (!el || !APP_STATE) return;
+  const en = document.getElementById('nudgeEnabled'); if (en) en.checked = nudgeState().enabled !== false;
+  const cur = currentNudge();
+  if (cur.kind === 'off') { el.innerHTML = ''; return; }
+  let html = '';
+  if (cur.kind === 'offer') {
+    const h = NUDGE_BY_ID[cur.id];
+    html += `<div class="nudgeoffer"><div class="nudgetitle">${esc(h.title)}</div><div class="nudgewhy">${esc(h.rationale)}</div>`
+      + (h.howTo ? `<div class="nudgewhy">${esc(h.howTo)}</div>` : '')
+      + `<div class="nudgebtns"><button type="button" class="btn" onclick="acceptNudge('${h.id}')">Worth trying</button>`
+      + `<button type="button" class="linklike" onclick="snoozeNudge('${h.id}')">Not now</button>`
+      + `<button type="button" class="linklike" onclick="declineNudge('${h.id}')">Not for me</button></div></div>`;
+  } else if (cur.kind === 'focus') {
+    const h = NUDGE_BY_ID[cur.id]; const ad = focusAdherence(cur.id);
+    let adh = '';
+    if (ad) adh = ad.count > 0
+      ? `<div class="nudgeadh">${esc(nudgeLinkLabel(ad.type))} logged ${esc(ad.count)} time${ad.count === 1 ? '' : 's'} in the last ${NUDGE_ADHERENCE_DAYS} days${ad.last ? ' · last: ' + esc(NUDGE_WD[new Date(ad.last + 'T00:00:00').getDay()]) : ''}</div>`
+      : `<div class="nudgeadh">no ${esc(nudgeLinkLabel(ad.type))} logged in the last ${NUDGE_ADHERENCE_DAYS} days</div>`;
+    html += `<div class="nudgefocus"><div class="nudgetitle">Current focus: ${esc(h.title)}</div>${adh}<button type="button" class="linklike" onclick="retireNudge('${h.id}')">Got it — retire</button></div>`;
+  }
+  html += `<div class="nbrowsewrap"><button type="button" class="linklike" onclick="toggleNudgeBrowse()">${NUDGE_BROWSE_OPEN ? 'Hide all habits' : 'Browse all habits'}</button>${NUDGE_BROWSE_OPEN ? renderNudgeBrowse() : ''}</div>`;
+  el.innerHTML = html;
+}
+
 function renderAverages() {
   const el = document.getElementById('averages');
   if (!el || !APP_STATE) return;
@@ -2558,7 +2699,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -2587,6 +2728,7 @@ const VERSION_LOG = [
   { v: '0.5.1', note: 'Updates now also apply when you reopen the app from the switcher, not only on a full launch.' },
   { v: '0.6.0', note: 'Trends: see your own weight, biometrics, fasting streak, and energy over time — figures only, your data, no interpretation.' },
   { v: '0.6.1', note: 'Set targets on biometrics (weight, HRV, glucose, BP, …): they show as a line on your trend and float that signal to the front of the quick-log chips.' },
+  { v: '0.7.0', note: 'Habits: after a couple of weeks of tracking, the app can gently suggest one established good habit at a time — always optional, one tap to pass, off in settings.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2660,6 +2802,8 @@ window.HT = {
   renderFastCandidates, renderFastingForm, setFastingFromForm, resolveFastAt, addManualItem, addMedicationFromForm, doIngest,
   // Phase 4 Slice — Mirror / Layer 2 self-trends (D23)
   signalSeries, seriesSummary, macroSeries, fastingStats, convertUnit, windowCutoff, sparklineSVG, renderTrends, setTrendWindow, UNIT_CONVERT,
+  // Phase 4 Slice — Nudge / Layer 3 (D25)
+  NUDGE_CURRICULUM, loggedDays, nudgeReady, currentNudge, focusAdherence, acceptNudge, declineNudge, snoozeNudge, retireNudge, setNudgesEnabled, normalizeNudges, renderNudge, toggleNudgeBrowse,
   // Phase 4 Slice T — timeline substrate (D20)
   SIGNAL_SPEC, SIGNAL_KINDS, MED_DOSE_UNITS, MED_FORMS, MED_ROUTES,
   normalizeSignal, normalizeTimeline, signalWarnings, addSignal, logBP, timelineForDay,
