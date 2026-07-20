@@ -529,3 +529,35 @@ Realizes **D21 Layer 3 (NUDGE)** — the "gradually introduce better habits" lay
 **Curriculum is content (Pin 4), the builder's.** `NUDGE_CURRICULUM = [{ id, title, rationale, howTo?, category, linkedType? }]` in code (like `SIGNAL_SPEC`), sequenced by the builder = the offer order. v1 baseline **approved** (walk-after-dinner `linkedType: walk`; veg/water/protein/daylight/wind-down/stand); the builder personalizes entries in later passes — it's cheap-to-evolve code content, shipping on the builder's sign-off.
 
 **Language/safety (Pin 5).** Nudge copy is invitational + hedged ("many people find…", "worth trying?") — note "try" is the mechanism here, *allowed* on the nudge surface (unlike the Mirror). The grep-able safety invariant extends to the nudge surface: **no evaluative-about-the-user vocabulary, no user-data reference**; every rendered curriculum string escaped; the byte-identical-under-value-swap gates are the structural teeth.
+
+## D26 — Scope policy: primary-user-first; generality is not a goal (governance, 2026-07-20)
+
+Per the builder's explicit ruling — sharpening **D21's audience note into operative scope policy**: the app is built around the **primary user's actual usage and needs. Generality is not a goal.** When a fork offers "general / flexible / serve-a-hypothetical-user" vs **"what the primary user actually does," default to the primary user's real protocol** unless generality is nearly free. **Features nobody present uses don't ship.**
+
+This is a **strength, not a limitation** (D21): a sharp, opinionated tool shaped by a real user beats a diluted generic one. The public/open posture (**D17**) still holds — the public gets the opinionated tool; scope decisions are anchored to real use, not imagined users.
+
+**Bound:** scope policy governs **which** features/forks ship, **not** the safety layers. A primary-user desire for personalized advice is still **Layer 4** (D21/D25), gated — primary-user-first never licenses crossing a governance boundary.
+
+## D27 — Regimen: a named timeline template for a repeating day (Phase-4, 2026-07-20)
+
+Layer-1 adherence (D21 day-40 test), scoped to the primary user's real protocol (**D26**). A **regimen** is a **named timeline template** — composition over existing machinery (presets / the medication kind / event types), **never a fourth record system**. `APP_VERSION → 0.8.0`; **schema v5**.
+
+**Never auto-log (Pin 1).** A regimen **never writes a record by itself** — instantiation is always user-confirmed. The template pre-fills; the human confirms. Gated: rendering the checklist, day-switch, day-boundary, and boot write **zero** records.
+
+**Byte-identical instantiation (Pin 2).** Food = a **preset reference** → `buildPresetItem(preset, time)` (the same builder the manual `logPreset` uses); medication = `addSignal({kind:'medication',…})`; event = `addSignal({type,…})`. Instantiated records carry **no regimen tag** — byte-identical to the equivalent manual log at the same time (gated). A regimen is composition, not a record system.
+
+**Scheduled-time default + surfaced-lateness (Fork B, tap-time leaning reversed).** The record's time **pre-fills to the entry's scheduled time** (for a *followed* regimen that is the truthful time; tap-time would systematically falsify it to whenever the app was opened); confirm attests, adjust deviates. **Refinement (ruled):** when the tap is **grossly late (> ~2 h from scheduled)**, the confirm **surfaces the time** ("Log at 04:30 (scheduled) · adjust?") rather than silently backfilling — a deviant day must not launder itself to protocol-time by reflex. Gated (`isGrosslyLate`; a late log needs confirmation).
+
+**Storage — top-level `regimens` store, schema v5 (Fork A).** User-authored content with **real recreation cost** sits on the **`fastLog` side** of the D20/D22 line, not the nudges side — an older app silently dropping authored protocols on re-export is genuine data loss. The **fulfillment log rides in the same store** (attestation history must also survive cross-version). `regimens = { active, list:[ {id,name,window?,entries:[…]} ], log:{ "<date>":{ "<entryId>": "template"|"substituted" } } }`. Add-only **v4→v5 migration**; forward-guard rejects `>5`; snapshot retained; `normalizeRegimens` hardens; export exact; ingest never touches it.
+
+**Weekday-mapped rotation (Fork D/5).** Each entry has an optional `days:[0..6]` (Sun=0); absent = every day. "Today's regimen" = entries matching today's weekday, time-sorted — subsumes A/B alternation with no separate variant concept.
+
+**Window = metadata, decoupled from fasting (Pin 4).** The declared eating window is **display-only** on the checklist; it **never** feeds `detectFastCandidates` — candidates stay derived from actual food timestamps (D22). Gated (candidates identical with/without a window).
+
+**Substitution — fulfillment by acknowledgment (Fork G, the addendum).** A checklist row has **three affordances**: **Log** (instantiate → record + a `template` fulfillment flag), **Logged elsewhere** (attest a substitution → a `substituted` flag, **no record** — the real intake exists via ingest/scan/manual), **Skip** (neutral, no state). **No auto-match** — ingest/scan/manual logging sets **no** flag (inferring fulfillment from timing/content is content-guessing, prohibited); the user attests, same grammar as fasting resolution. Never-auto-log holds (acknowledge writes a **flag, not intake**). **No double-log** — tapping a fulfilled row **asks**, never silently adds; **undo-removes-both** (the Log undo toast removes the record **and** its flag); un-acknowledging a substitution same-day clears the flag. The `template`/`substituted`/unfulfilled kinds are recorded as **markers** for a future adherence surface (not built now — like the nudge markers).
+
+**Authoring — JSON paste (Fork C, D26).** v1 authors by pasting JSON (a form builder is a fast-follow for a second author). `parseRegimen` runs `cleanJSON` + validation with **specific per-entry rejection messages** (which entry, why). An **in-app copyable authoring template + sample** ships (the `AI_PROMPT_TEMPLATE` pattern), **self-consistency-gated** the same way: the shipped `REGIMEN_SAMPLE` must `parseRegimen`-clean — so author-via-AI works out of the box.
+
+**Edits never touch history (Fork E).** Instantiated records are independent copies; editing/deleting a regimen or entry never touches logged records (the preset-deletion precedent). **Multiple regimens, one active (Fork F).**
+
+**Cadence items are OUT (Fork D).** The 72–96 h fast every 14–21 days needs **no representation** — `detectFastCandidates` already catches it (D22's no-cap ruling was made for exactly these). Weekday-fixed recurrence fits via `days`; genuine interval/quota cadence is deferred. **User-authored only (Pin 6)** — no suggested/recommended regimens (app-recommended-from-goals is Layer 4, prohibited).

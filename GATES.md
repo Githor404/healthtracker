@@ -447,4 +447,29 @@ Paced, **established-practice-only** good-habit nudges, unlocked by an **engagem
 
 `bash tests/run-data-layer.sh` → **363/363 ALL PASS** (NG1–NG7 + both split byte-identical safety invariants); real-browser smoke (ready → offer "A short walk after dinner" → accept → focus with "walk logged 2 times in the last 7 days · last: Sun" → browse shows all 7); `APP_VERSION → 0.7.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green. **No schema change; only the flagged `settings.nudges` addition to the S1/S2 fixtures.**
 
-**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.7.0.**
+**Status: MET — committed + deployed as v0.7.0.**
+
+### Regimen slice (D27) — PRE-REGISTERED
+
+A named **timeline template** for a repeating day — composition over presets/medication/events, **never auto-logged, never a fourth record system**. Top-level `regimens` store → **schema v5**. `APP_VERSION → 0.8.0`. JSON paste-authoring (D26); weekday-mapped daily checklist on the day view; scheduled-time-default instantiation with surfaced-lateness; window = metadata; substitution by acknowledgment.
+
+| Case | Asserts |
+|---|---|
+| RG-identity | an instantiated entry is **byte-identical** to the equivalent manual log at the same time (food via the shared `buildPresetItem`; med/event via `addSignal`) — **no regimen tag** on the record |
+| RG-never-auto | **no record without a confirm** — render/day-switch/boot write **zero** records; only the explicit Log action writes |
+| RG-late | **surfaced-lateness:** `isGrosslyLate` (>~2 h) correct; a grossly-late Log **needs confirmation** (surfaces the scheduled time), never silently backfills |
+| RG-weekday | today's checklist = entries matching today's weekday (`days` absent = every day); a Tue entry never shows on Wed |
+| RG-window-decoupled | the declared window is **never** read by `detectFastCandidates` — candidates byte-identical with vs. without a regimen window |
+| RG-history | editing/deleting a regimen leaves already-logged records untouched |
+| RG-substitute | "logged elsewhere" writes a **fulfillment flag, ZERO** timeline/day records |
+| RG-no-automatch | ingest/scan/manual logging sets **no** fulfillment flag |
+| RG-no-double | tapping a **fulfilled** row **needs confirmation** (never silent double-log); same-day un-acknowledge clears a substitution flag |
+| RG-distinguish | fulfillment records `template` vs `substituted` (the future-adherence marker) |
+| RG-roundtrip | `regimens` (templates + fulfillment log) survives export/restore **exact**; `normalizeRegimens` hardens; v4→v5 migration adds it; forward-guard rejects `>5` |
+| RG-authoring | `parseRegimen` rejects with **specific per-entry messages**; **`REGIMEN_SAMPLE` parses clean** (self-consistency, like `AI_PROMPT_SAMPLE`) |
+| RG-escaping | all rendered template text (names, notes, med names) escaped |
+| RG-empty | no active regimen → the checklist renders **silently empty** |
+
+`bash tests/run-data-layer.sh` → **388/388 ALL PASS** (RG-identity … RG-empty; v4→v5 fixtures updated); real-browser smoke (paste → 3-row checklist + window; Log at 12:00 scheduled time, row marks done; substitute writes a flag with 1 record; template renders on load); `APP_VERSION → 0.8.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green. **Flagged v4→v5 fixture updates** (version, +`regimens`, forward-blob 5→6, `migrateV4toV5`, S1/S2 +`regimens`).
+
+**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.8.0.**

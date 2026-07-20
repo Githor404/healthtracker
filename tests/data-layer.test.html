@@ -57,12 +57,12 @@ window.setLS({});
   setLS({}); HT.boot();
   var s = HT.state();
   res(HT.Store.tier === 'local', '1: tier local');
-  res(s.version === 4 && s.current === td, '1: schema v4, current = today');
+  res(s.version === 5 && s.current === td, '1: schema v5, current = today');
   res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
   res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
   res(s.settings && s.settings.supplement.enabled === false, '1: supplement off by default');
   res(s.settings.presets.length === 0 && Object.keys(s.settings.goals).length === 0, '1: zero presets, zero goals');
-  res(s.priceLog && Object.keys(s.priceLog).length === 0 && s.timeline && Object.keys(s.timeline).length === 0 && s.fastLog && Object.keys(s.fastLog).length === 0, '1: empty priceLog + timeline + fastLog');
+  res(s.priceLog && Object.keys(s.priceLog).length === 0 && s.timeline && Object.keys(s.timeline).length === 0 && s.fastLog && Object.keys(s.fastLog).length === 0 && s.regimens && s.regimens.list.length === 0, '1: empty priceLog + timeline + fastLog + regimens');
   res(HT.Store.status().ok === true, '1: badge ok');
 
   // 2. v1 -> v3 chained in-place migration
@@ -75,7 +75,7 @@ window.setLS({});
   var v1json = JSON.stringify(v1);
   setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.version === 4, '2: version bumped to 4 (chained v1->v2->v3->v4)');
+  res(s.version === 5, '2: version bumped to 5 (chained v1->…->v5)');
   res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
   res(!!s.settings && !!s.priceLog && !!s.timeline && !!s.fastLog, '2: settings + priceLog + timeline + fastLog added');
   res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
@@ -93,7 +93,7 @@ window.setLS({});
   res(HT.state().migratedAt === firstMigAt, '3: migratedAt unchanged');
 
   // 4. Forward-version blob in storage is protected (now > 4)
-  var futureBlob = JSON.stringify({ version: 5, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, futureField: 1 });
+  var futureBlob = JSON.stringify({ version: 6, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
   setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
   res(r4.source === 'future', '4: forward blob -> source future');
   res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
@@ -114,7 +114,7 @@ window.setLS({});
 
   // ---- v4 round-trip fixtures (settings gained signalUnits + fasting; blob gained timeline + fastLog) ----
   var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} } };
-  var S1 = { version: 4, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {} };
+  var S1 = { version: 5, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
@@ -127,9 +127,9 @@ window.setLS({});
   res(deepEqual(HT.state(), S1), '7: source WITH today -> identical incl settings + priceLog + timeline + fastLog');
 
   // 8. v4 round-trip WITHOUT today -> only permissible deltas
-  var S2 = { version: 4, days: {
+  var S2 = { version: 5, days: {
     '2026-07-08': { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 }
-  }, current:'2026-07-08', settings: goalState, priceLog: {}, timeline: {}, fastLog: {} };
+  }, current:'2026-07-08', settings: goalState, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   setLS({}); HT.boot(); window.__confirm = true;
   HT.restore(JSON.stringify(S2));
   var st8 = HT.state();
@@ -138,19 +138,19 @@ window.setLS({});
   res(extra.length === 1 && extra[0] === td, '8: exactly one extra day == today');
   res(st8.days[td].items.length === 0 && st8.days[td].status === 'in_progress', '8: added today empty in_progress');
   res(st8.current === td, '8: current -> today');
-  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog) && deepEqual(st8.timeline, S2.timeline) && deepEqual(st8.fastLog, S2.fastLog), '8: settings + priceLog + timeline + fastLog preserved');
+  res(deepEqual(st8.settings, S2.settings) && deepEqual(st8.priceLog, S2.priceLog) && deepEqual(st8.timeline, S2.timeline) && deepEqual(st8.fastLog, S2.fastLog) && deepEqual(st8.regimens, S2.regimens), '8: settings + priceLog + timeline + fastLog + regimens preserved');
 
   // 9. Restore routing: v1/v2/v3 migrate; version-absent rejected; >4 rejected
   setLS({}); HT.boot(); window.__confirm = true;
   var r9a = HT.restore(v1json);
-  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 4, '9: v1 paste -> migrated to v4');
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 5, '9: v1 paste -> migrated to v5');
   res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
   setLS({}); HT.boot();
   var before9 = JSON.stringify(HT.state());
   var r9b = HT.restore(JSON.stringify({ days: { '2026-07-08': { status:'complete', items:[], water_l:0 } }, current:'x' }));
   res(!r9b.ok && /Unrecognized|version/i.test(r9b.error || ''), '9: version-absent paste REJECTED (legacy removed)');
   var r9c = HT.restore(futureBlob);
-  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>4 paste rejected');
+  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>5 paste rejected');
   res(JSON.stringify(HT.state()) === before9, '9: state untouched by rejected pastes');
 
   // 10. Restore v2: micros coerced/clamped, unknown key preserved, source validated
@@ -194,7 +194,7 @@ window.setLS({});
   res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
 
   // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version": 4') >= 0, '14: export carries version 4');
+  res(HT.exportJSON().indexOf('"version": 5') >= 0, '14: export carries version 5');
   setLS({}); HT.boot(); window.__confirm = true;
   var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
   res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
@@ -269,7 +269,7 @@ window.setLS({});
   var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
   res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement', 'I8: v1 full-days migrated (source inferred) then merged');
   res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
-  res(!HT.ingest(JSON.stringify({ version:5, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>4 full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:6, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>5 full-days rejected');
 
   // I9. complete-day append -> reopens + reports
   setLS({}); HT.boot();
@@ -908,8 +908,10 @@ window.setLS({});
   res(m2.version===3 && !!m2.timeline && Object.keys(m2.timeline).length===0, 'TL6: migrateV2toV3 adds empty timeline, version 3');
   var m34 = HT.migrateV3toV4({ version:3, days:{}, current:'', settings:{}, priceLog:{}, timeline:{} }, '2026-07-18T00:00:00Z');
   res(m34.version===4 && !!m34.fastLog && Object.keys(m34.fastLog).length===0 && !!m34.timeline, 'TL6: migrateV3toV4 adds empty fastLog, version 4');
+  var m45 = HT.migrateV4toV5({ version:4, days:{}, current:'', settings:{}, priceLog:{}, timeline:{}, fastLog:{} }, '2026-07-20T00:00:00Z');
+  res(m45.version===5 && !!m45.regimens && m45.regimens.list.length===0 && !!m45.fastLog, 'TL6: migrateV4toV5 adds empty regimens, version 5');
   var m1 = HT.migrateToLatest({ version:1, days:{}, current:'' }, '2026-07-18T00:00:00Z');
-  res(m1.version===4 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog, 'TL6: migrateToLatest chains v1->v2->v3->v4');
+  res(m1.version===5 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v5');
 
   // TL7: normalizeTimeline restore hardening (incl. hostile medication) + round-trip
   var nt = HT.normalizeTimeline({
@@ -1093,7 +1095,7 @@ window.setLS({});
 
   // FX6: schema v4 migration end-to-end (a v3 blob gains fastLog on boot)
   setLS({'healthtracker-log': JSON.stringify({version:3,days:{'2026-06-01':{status:'complete',items:[],water_l:0}},current:'2026-06-01',settings:{},priceLog:{},timeline:{}})}); HT.boot();
-  res(HT.state().version===4 && !!HT.state().fastLog, 'FX6: a v3 blob migrates on boot -> gains fastLog + version 4');
+  res(HT.state().version===5 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 5');
 
   // FX7: tolerance-matched identity + inert orphan
   setLS({}); HT.boot();
@@ -1401,6 +1403,107 @@ window.setLS({});
   HT.acceptNudge('walk_after_dinner'); HT.state().settings.nudges.habits.walk_after_dinner.at=dk(-3)+'T00:00:00'; HT.state().timeline={};
   var fh7=nudgeHtml().toLowerCase();
   res(fh7.indexOf('no walk logged')>=0 && nbanned.filter(function(w){return fh7.indexOf(w)>=0;}).length===0, 'NG7: 0 occurrences rendered neutrally ("no walk logged"), never a lapse');
+
+  // ===== Regimen — timeline templates (D27) =====
+  if (!document.getElementById('regimenChecklist')) { var rck=document.createElement('div'); rck.id='regimenChecklist'; document.body.appendChild(rck); }
+  function seedRegimen(){
+    setLS({}); HT.boot();
+    HT.state().settings.presets.push({id:'lunch',name:'Lunch',meal:'lunch',kcal:500,protein_g:20,fat_g:10,carb_g:60,fiber_g:5,soluble_fiber_g:1});
+    return HT.addRegimenFromJSON(JSON.stringify({ name:'Protocol', window:{start:'12:00',end:'18:00'}, entries:[
+      { kind:'medication', time:'04:30', name:'Nattokinase', dose:2000, dose_unit:'unit' },
+      { kind:'event', time:'05:30', type:'red_light', value:10, unit:'min' },
+      { kind:'food', time:'12:00', presetId:'lunch' },
+      { kind:'food', time:'18:00', presetId:'lunch', days:[1] }
+    ]}));
+  }
+
+  // RG-authoring: self-consistency + specific per-entry errors
+  setLS({}); HT.boot();
+  HT.state().settings.presets.push({id:'lunch',name:'Lunch',meal:'lunch',kcal:500,soluble_fiber_g:0});
+  res(HT.parseRegimen(HT.REGIMEN_SAMPLE).ok===true, 'RG-authoring: shipped REGIMEN_SAMPLE parses clean (self-consistency)');
+  res(/entry 2.*time/i.test(HT.parseRegimen(JSON.stringify({name:'x',entries:[{kind:'medication',time:'04:30',name:'M'},{kind:'event',type:'red_light'}]})).error||''), 'RG-authoring: specific per-entry error (entry 2: time)');
+  res(/preset/i.test(HT.parseRegimen(JSON.stringify({name:'x',entries:[{kind:'food',time:'12:00',presetId:'nope'}]})).error||''), 'RG-authoring: food presetId matching no preset rejected specifically');
+  res(/name/i.test(HT.parseRegimen(JSON.stringify({entries:[]})).error||''), 'RG-authoring: missing name rejected');
+
+  // RG-identity: instantiated food item byte-identical to buildPresetItem(preset, scheduled time)
+  var rI=seedRegimen(); res(rI.ok, 'RG setup: regimen loaded (4 entries)');
+  var food=HT.activeRegimen().entries.filter(function(e){return e.kind==='food';})[0];
+  HT.logRegimenEntry(food.id, {now:food.time});
+  var logged=HT.state().days[td].items[HT.state().days[td].items.length-1];
+  var preset=HT.state().settings.presets.filter(function(p){return p.id==='lunch';})[0];
+  res(JSON.stringify(logged)===JSON.stringify(HT.buildPresetItem(preset, food.time)), 'RG-identity: instantiated food byte-identical to a manual preset log at the same time (no regimen tag)');
+
+  // RG-never-auto: render/refresh/boot create ZERO records
+  seedRegimen();
+  HT.refresh(); HT.renderRegimenChecklist(); HT.refresh();
+  res(HT.state().days[td].items.length===0 && Object.keys(HT.state().timeline).length===0, 'RG-never-auto: render/refresh create no records');
+  HT.boot();
+  res((HT.state().days[td].items||[]).length===0 && Object.keys(HT.state().timeline).length===0, 'RG-never-auto: boot (re-open) creates no records');
+
+  // RG-late: surfaced-lateness, no silent backfill
+  res(HT.isGrosslyLate('04:30','08:00')===true && HT.isGrosslyLate('04:30','05:00')===false, 'RG-late: isGrosslyLate >2h correct');
+  seedRegimen(); var med=HT.activeRegimen().entries.filter(function(e){return e.kind==='medication';})[0];
+  var lateR=HT.logRegimenEntry(med.id, {now:'09:00'});
+  res(lateR.ok===false && lateR.needsConfirm==='late' && lateR.scheduledTime==='04:30', 'RG-late: grossly-late Log needs confirmation, surfaces scheduled time (no silent backfill)');
+  var okR=HT.logRegimenEntry(med.id, {now:'09:00', confirmedLate:true});
+  res(okR.ok && okR.record.time==='04:30', 'RG-late: confirmed -> logs at the scheduled time');
+
+  // RG-weekday
+  setLS({}); HT.boot();
+  var wd=new Date(td+'T00:00:00').getDay();
+  HT.addRegimenFromJSON(JSON.stringify({name:'WD',entries:[{kind:'event',time:'06:00',type:'walk',days:[wd]},{kind:'event',time:'07:00',type:'walk',days:[(wd+1)%7]}]}));
+  var rtw=HT.regimenToday();
+  res(rtw.entries.length===1 && rtw.entries[0].entry.days[0]===wd, 'RG-weekday: today shows only the entry matching today’s weekday');
+
+  // RG-window-decoupled
+  setLS({}); HT.boot();
+  fdays([{date:'2026-06-01',time:'19:00'},{date:'2026-06-02',time:'13:00'}]);
+  var candA=JSON.stringify(HT.detectFastCandidates());
+  HT.state().settings.presets.push({id:'l',name:'L',meal:'lunch',kcal:1,soluble_fiber_g:0});
+  HT.addRegimenFromJSON(JSON.stringify({name:'W',window:{start:'12:00',end:'18:00'},entries:[{kind:'food',time:'12:00',presetId:'l'}]}));
+  res(candA===JSON.stringify(HT.detectFastCandidates()), 'RG-window-decoupled: the declared window never feeds detectFastCandidates');
+
+  // RG-history: deleting a regimen leaves logged records untouched
+  seedRegimen(); var food2=HT.activeRegimen().entries.filter(function(e){return e.kind==='food';})[0];
+  HT.logRegimenEntry(food2.id, {now:food2.time});
+  var itemsBefore=JSON.stringify(HT.state().days[td].items);
+  HT.deleteRegimen(HT.activeRegimen().id);
+  res(JSON.stringify(HT.state().days[td].items)===itemsBefore && HT.state().days[td].items.length===1, 'RG-history: deleting a regimen leaves logged records untouched');
+
+  // RG-substitute / no-double / distinguish
+  seedRegimen(); var med2=HT.activeRegimen().entries.filter(function(e){return e.kind==='medication';})[0];
+  HT.substituteRegimenEntry(med2.id);
+  res(HT.state().days[td].items.length===0 && Object.keys(HT.state().timeline).length===0, 'RG-substitute: "logged elsewhere" writes a flag, ZERO records');
+  res(HT.state().regimens.log[td][med2.id]==='substituted', 'RG-distinguish: fulfillment records "substituted"');
+  var dbl=HT.logRegimenEntry(med2.id);
+  res(dbl.ok===false && dbl.needsConfirm==='already', 'RG-no-double: tapping a fulfilled row needs confirmation (never silent double-log)');
+  HT.unfulfillRegimenEntry(med2.id);
+  res(!(HT.state().regimens.log[td]||{})[med2.id], 'RG-no-double: un-acknowledge same-day clears the flag');
+  HT.logRegimenEntry(med2.id, {now:med2.time});
+  res(HT.state().regimens.log[td][med2.id]==='template', 'RG-distinguish: a template log records "template"');
+
+  // RG-no-automatch: ingest sets no fulfillment flag
+  seedRegimen();
+  HT.ingest(JSON.stringify([{name:'Some meal',meal:'lunch',kcal:600,date:td}]));
+  res(!HT.state().regimens.log[td] || Object.keys(HT.state().regimens.log[td]).length===0, 'RG-no-automatch: ingesting a meal sets NO fulfillment flag');
+
+  // RG-roundtrip
+  seedRegimen(); var m6=HT.activeRegimen().entries.filter(function(e){return e.kind==='medication';})[0];
+  HT.substituteRegimenEntry(m6.id);
+  var expR=JSON.parse(HT.exportJSON());
+  res(expR.regimens.list.length===1 && expR.regimens.list[0].name==='Protocol' && expR.regimens.log[td][m6.id]==='substituted', 'RG-roundtrip: regimens (templates + fulfillment log) exported');
+  setLS({}); HT.boot(); window.__confirm=true;
+  HT.restore(JSON.stringify(expR));
+  res(HT.state().regimens.list.length===1 && HT.state().regimens.list[0].entries.length===4 && HT.state().regimens.log[td][m6.id]==='substituted', 'RG-roundtrip: regimens survive export->restore exact');
+
+  // RG-escaping + RG-empty
+  setLS({}); HT.boot();
+  HT.addRegimenFromJSON(JSON.stringify({name:'<b>reg</b>',entries:[{kind:'medication',time:'04:30',name:'<img src=x>'}]}));
+  HT.renderRegimenChecklist();
+  var rhtml=document.getElementById('regimenChecklist').innerHTML;
+  res(rhtml.indexOf('<img src=x>')<0 && rhtml.indexOf('&lt;img')>=0, 'RG-escaping: hostile medication name escaped in the checklist');
+  setLS({}); HT.boot(); HT.renderRegimenChecklist();
+  res(document.getElementById('regimenChecklist').innerHTML==='', 'RG-empty: no active regimen -> checklist renders silently empty');
 
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');

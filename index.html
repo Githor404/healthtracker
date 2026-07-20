@@ -217,6 +217,19 @@
   .nbrowse{margin-top:6px;border-top:1px solid var(--line)}
   .nbrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
   .nbtitle small{color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:.04em;font-weight:800;margin-left:6px}
+  #regimenChecklist:not(:empty){margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  .rgtitle{font-weight:800;font-size:13px}
+  .rgwindow{color:var(--muted);font-size:12px;margin:2px 0 6px}
+  .rgrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+  .rgrow:first-of-type{border-top:none}
+  .rgtime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:12px}
+  .rgtag{font-size:9px;text-transform:uppercase;letter-spacing:.04em;font-weight:800;border-radius:6px;padding:1px 5px;min-width:44px;text-align:center;flex:0 0 auto}
+  .rgtag.food{background:var(--accent);color:#fff}.rgtag.medication{border:1px solid var(--bad);color:var(--bad)}.rgtag.event{border:1px solid var(--warn);color:var(--warn)}
+  .rgmain{flex:1;min-width:0}.rgmain small{color:var(--muted)}
+  .rgrow.done .rgmain{color:var(--muted)}
+  .rgbtns{display:flex;gap:10px;flex:0 0 auto}
+  .rgmrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .rgtpl{white-space:pre-wrap;font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;max-height:200px;overflow:auto;margin-top:8px}
 </style>
 </head>
 <body>
@@ -226,6 +239,7 @@
     <div id="versionNotice" class="card vnotice" style="display:none"></div>
     <div id="onboarding" class="card" style="display:none"></div>
     <div class="card">
+      <div id="regimenChecklist"></div>
       <div id="dayView"></div>
     </div>
 
@@ -270,6 +284,20 @@
         <label class="checkline"><input type="checkbox" id="nudgeEnabled" onchange="setNudgesEnabled(this.checked)"> Suggest one established habit at a time</label>
         <div id="nudge" style="margin-top:8px"></div>
         <div class="note">After a couple of weeks of tracking, one widely-recommended habit is offered at a time — never a notification, always one tap to pass, and permanent when you decline. Accepting keeps it as a quiet focus.</div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Regimen</summary>
+        <div id="regimenList" style="margin-top:8px"></div>
+        <label style="margin-top:6px">Paste a regimen (JSON)</label>
+        <textarea id="regimenPaste" rows="5" placeholder="paste regimen JSON…"></textarea>
+        <div id="regimenReport" style="margin-top:6px"></div>
+        <button class="btn" onclick="doRegimenPaste()">Load regimen</button>
+        <button class="linklike" onclick="copyRegimenTemplate()">Copy template + sample</button>
+        <div class="note">A regimen is a named daily template — medications, events, and preset meals at their times, with optional weekday rotation and an eating window. It pre-fills today's checklist at the top of the day; nothing is ever auto-logged. Author it as JSON (template below); food entries reference a saved preset's id.</div>
+        <pre id="regimenTemplate" class="rgtpl"></pre>
       </details>
     </div>
 

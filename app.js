@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 4;
-const APP_VERSION      = '0.7.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 5;
+const APP_VERSION      = '0.8.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -62,7 +62,7 @@ function defaultSettings() {
   return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} } };
 }
 function emptyState() {
-  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {} };
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
 }
 
 // ---- storage adapter: localStorage -> memory ------------------------------
@@ -334,14 +334,32 @@ function migrateV3toV4(v3, nowISO) {
   if (typeof v3.knownDropped === 'number') out.knownDropped = v3.knownDropped;
   return out;
 }
-// Chain the in-place migrators to the latest schema (D7/D20/D22). version-absent is
-// treated as v1 defensively (our key). The same migrator serves boot + restore.
+// D27 add-only v4 -> v5: introduce the empty regimens store (templates + fulfillment
+// log). All prior stores byte-preserved.
+function migrateV4toV5(v4, nowISO) {
+  const out = {
+    version: 5,
+    days: (v4.days && typeof v4.days === 'object') ? v4.days : {},
+    current: typeof v4.current === 'string' ? v4.current : '',
+    settings: (v4.settings && typeof v4.settings === 'object') ? v4.settings : defaultSettings(),
+    priceLog: (v4.priceLog && typeof v4.priceLog === 'object') ? v4.priceLog : {},
+    timeline: (v4.timeline && typeof v4.timeline === 'object') ? v4.timeline : {},
+    fastLog: (v4.fastLog && typeof v4.fastLog === 'object') ? v4.fastLog : {},
+    regimens: { active: '', list: [], log: {} },   // add-only
+    migratedAt: typeof v4.migratedAt === 'string' ? v4.migratedAt : nowISO,
+  };
+  if (typeof v4.knownDropped === 'number') out.knownDropped = v4.knownDropped;
+  return out;
+}
+// Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
+// is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
   let out = blob;
   const v = (typeof blob.version === 'number') ? blob.version : 1;
   if (v < 2) out = migrateV1toV2(out, nowISO);
   if ((out.version || 2) < 3) out = migrateV2toV3(out, nowISO);
   if ((out.version || 3) < 4) out = migrateV3toV4(out, nowISO);
+  if ((out.version || 4) < 5) out = migrateV4toV5(out, nowISO);
   return out;
 }
 
@@ -356,6 +374,7 @@ function normalizeState(o) {
     priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
     timeline: normalizeTimeline(o.timeline),   // D20: source-agnostic signal store
     fastLog: normalizeFastLog(o.fastLog),      // D22: persisted fasting resolutions
+    regimens: normalizeRegimens(o.regimens),   // D27: timeline templates + fulfillment log
   };
   Object.keys(o.days || {}).forEach((d) => {
     const src = o.days[d] || {};
@@ -396,6 +415,52 @@ function normalizeFastLog(o) {
     out[start] = rec;
   });
   return out;
+}
+
+// D27 restore hardening for the regimens store (templates + fulfillment log). Lenient
+// (salvage what's valid); parseRegimen is the strict authoring boundary. Every text
+// field kept raw (escaped at render).
+const REGIMEN_KINDS = ['food', 'medication', 'event'];
+function normalizeRegimenEntry(e) {
+  e = e || {};
+  const kind = REGIMEN_KINDS.indexOf(e.kind) >= 0 ? e.kind : null;
+  if (!kind) return null;
+  const out = { id: String(e.id || ''), time: /^\d{2}:\d{2}$/.test(String(e.time)) ? String(e.time) : '', kind: kind };
+  if (Array.isArray(e.days)) { const d = e.days.map((x) => parseInt(x, 10)).filter((x) => x >= 0 && x <= 6); if (d.length) out.days = d; }
+  if (kind === 'food') out.presetId = String(e.presetId || '');
+  else if (kind === 'medication') {
+    out.name = String(e.name || '');
+    if (e.dose != null && String(e.dose) !== '') out.dose = clampNonNeg(e.dose);
+    if (e.dose_unit) out.dose_unit = String(e.dose_unit);
+    if (e.form) out.form = String(e.form);
+    if (e.route) out.route = String(e.route);
+  } else {
+    out.type = String(e.type || '');
+    if (e.value != null && String(e.value) !== '') out.value = clampNonNeg(e.value);
+    if (e.unit) out.unit = String(e.unit);
+  }
+  if (e.notes != null && String(e.notes) !== '') out.notes = String(e.notes);
+  return out;
+}
+function normalizeRegimen(r) {
+  r = r || {};
+  const out = { id: String(r.id || ''), name: String(r.name || ''), entries: Array.isArray(r.entries) ? r.entries.map(normalizeRegimenEntry).filter(Boolean) : [] };
+  if (r.window && typeof r.window === 'object' && /^\d{2}:\d{2}$/.test(String(r.window.start)) && /^\d{2}:\d{2}$/.test(String(r.window.end)))
+    out.window = { start: String(r.window.start), end: String(r.window.end) };
+  return out;
+}
+function normalizeRegimens(o) {
+  o = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const list = Array.isArray(o.list) ? o.list.map(normalizeRegimen).filter((r) => r.id) : [];
+  const src = (o.log && typeof o.log === 'object' && !Array.isArray(o.log)) ? o.log : {};
+  const log = {};
+  Object.keys(src).forEach((d) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || typeof src[d] !== 'object' || Array.isArray(src[d])) return;
+    const day = {};
+    Object.keys(src[d]).forEach((eid) => { const k = src[d][eid]; if (k === 'template' || k === 'substituted') day[String(eid)] = k; });
+    if (Object.keys(day).length) log[d] = day;
+  });
+  return { active: typeof o.active === 'string' ? o.active : '', list: list, log: log };
 }
 
 // ---- boot -----------------------------------------------------------------
@@ -440,6 +505,7 @@ function boot() {
   if (!state.priceLog || typeof state.priceLog !== 'object') { state.priceLog = {}; dirty = true; }
   if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
   if (!state.fastLog || typeof state.fastLog !== 'object') { state.fastLog = {}; dirty = true; }       // D22
+  if (!state.regimens || typeof state.regimens !== 'object') { state.regimens = { active: '', list: [], log: {} }; dirty = true; }   // D27
   if (!state.settings.fasting || typeof state.settings.fasting !== 'object') { state.settings.fasting = { enabled: true, minHours: 16 }; dirty = true; }   // D22
   if (!state.settings.nudges || typeof state.settings.nudges !== 'object') { state.settings.nudges = { enabled: true, habits: {} }; dirty = true; }         // D25
 
@@ -1087,15 +1153,20 @@ function saveManualPreset(raw, portion) {
 }
 
 // Log a preset as a fresh copy (source preset) — a copy, never a reference (D9).
+// Shared preset->item builder (D27): the ONE source both manual logPreset and a
+// regimen food instantiation use, so their records are byte-identical at a given time.
+function buildPresetItem(p, time) {
+  return normalizeItem({
+    name: p.name, meal: p.meal, time: time, confidence: p.confidence,
+    kcal: p.kcal, protein_g: p.protein_g, fat_g: p.fat_g, carb_g: p.carb_g,
+    fiber_g: p.fiber_g, soluble_fiber_g: p.soluble_fiber_g, source: 'preset', micros: p.micros,
+  }, true);
+}
 function logPreset(id) {
   const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
   const p = presets.find((x) => x.id === id);
   if (!p) return { ok: false };
-  const item = normalizeItem({
-    name: p.name, meal: p.meal, time: nowTime(), confidence: p.confidence,
-    kcal: p.kcal, protein_g: p.protein_g, fat_g: p.fat_g, carb_g: p.carb_g,
-    fiber_g: p.fiber_g, soluble_fiber_g: p.soluble_fiber_g, source: 'preset', micros: p.micros,
-  }, true);
+  const item = buildPresetItem(p, nowTime());
   const day = curDay(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';
   day.items.push(item);
@@ -2567,6 +2638,201 @@ function renderNudge() {
   el.innerHTML = html;
 }
 
+// ---- Regimen (D27): a named timeline template for a repeating day ------------
+// Composition over existing machinery; NEVER auto-logs. JSON paste-authoring with
+// specific per-entry errors + a self-consistency-gated in-app template/sample.
+const REGIMEN_TEMPLATE = [
+  'Paste a regimen as JSON. Shape:',
+  '{',
+  '  "name": "My protocol",',
+  '  "window": { "start": "12:00", "end": "18:00" },        // optional eating window (display only)',
+  '  "entries": [',
+  '    { "kind": "medication", "time": "04:30", "name": "Nattokinase", "dose": 2000, "dose_unit": "unit" },',
+  '    { "kind": "event", "time": "05:30", "type": "red_light", "value": 10, "unit": "min" },',
+  '    { "kind": "food", "time": "12:00", "presetId": "<a saved preset id>" },',
+  '    { "kind": "food", "time": "18:00", "presetId": "<preset id>", "days": [1,3,5,0] }   // Mon/Wed/Fri/Sun (Sun=0)',
+  '  ]',
+  '}',
+  'kind is food | medication | event. time is "HH:MM". days is optional [0-6] (Sun=0); omit for every day.',
+  'food references a SAVED preset by id; medication uses name/dose/dose_unit; event uses an event type.',
+].join('\n');
+const REGIMEN_SAMPLE = JSON.stringify({
+  name: 'Sample day',
+  window: { start: '12:00', end: '18:00' },
+  entries: [
+    { kind: 'medication', time: '04:30', name: 'Nattokinase', dose: 2000, dose_unit: 'unit' },
+    { kind: 'event', time: '05:30', type: 'red_light', value: 10, unit: 'min' },
+    { kind: 'food', time: '12:00', presetId: 'lunch' },
+  ],
+}, null, 2);
+let REGIMEN_CONFIRM = null;   // inline confirm state: {entryId, reason, ...}
+
+// Strict authoring boundary: cleanJSON + validate with SPECIFIC per-entry messages.
+function parseRegimen(raw) {
+  const text = cleanJSON(raw);
+  if (!text) return { ok: false, error: 'Nothing to load.' };
+  let o; try { o = JSON.parse(text); } catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return { ok: false, error: 'A regimen must be a JSON object.' };
+  if (!o.name || String(o.name).trim() === '') return { ok: false, error: 'Regimen needs a "name".' };
+  if (!Array.isArray(o.entries) || !o.entries.length) return { ok: false, error: 'Regimen needs a non-empty "entries" array.' };
+  if (o.window && (!/^\d{2}:\d{2}$/.test(String(o.window.start || '')) || !/^\d{2}:\d{2}$/.test(String(o.window.end || ''))))
+    return { ok: false, error: 'window.start / window.end must be "HH:MM".' };
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  for (let i = 0; i < o.entries.length; i++) {
+    const e = o.entries[i]; const at = 'entry ' + (i + 1) + ': ';
+    if (!e || typeof e !== 'object') return { ok: false, error: at + 'not an object.' };
+    if (REGIMEN_KINDS.indexOf(e.kind) < 0) return { ok: false, error: at + 'kind must be food | medication | event.' };
+    if (!/^\d{2}:\d{2}$/.test(String(e.time || ''))) return { ok: false, error: at + '(' + e.kind + ') time must be "HH:MM".' };
+    if (e.days != null && (!Array.isArray(e.days) || !e.days.every((x) => Number.isInteger(x) && x >= 0 && x <= 6))) return { ok: false, error: at + 'days must be an array of 0-6 (Sun=0).' };
+    if (e.kind === 'food' && (!e.presetId || String(e.presetId).trim() === '')) return { ok: false, error: at + 'food needs a "presetId".' };
+    if (e.kind === 'food' && !presets.some((p) => p.id === e.presetId)) return { ok: false, error: at + 'presetId "' + e.presetId + '" matches no saved preset.' };
+    if (e.kind === 'medication' && (!e.name || String(e.name).trim() === '')) return { ok: false, error: at + 'medication needs a "name".' };
+    if (e.kind === 'event' && (!e.type || String(e.type).trim() === '')) return { ok: false, error: at + 'event needs a "type".' };
+  }
+  const reg = normalizeRegimen(o);
+  if (!reg.id) reg.id = 'reg_' + ((APP_STATE.regimens && APP_STATE.regimens.list.length) || 0) + '_' + String(o.name).replace(/[^a-z0-9]/gi, '').slice(0, 10).toLowerCase();
+  reg.entries.forEach((en, idx) => { if (!en.id) en.id = reg.id + '_e' + idx; });
+  return { ok: true, regimen: reg };
+}
+function addRegimenFromJSON(raw) {
+  const r = parseRegimen(raw);
+  if (!r.ok) return r;
+  if (!APP_STATE.regimens) APP_STATE.regimens = { active: '', list: [], log: {} };
+  APP_STATE.regimens.list.push(r.regimen);
+  if (!APP_STATE.regimens.active) APP_STATE.regimens.active = r.regimen.id;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, regimen: r.regimen };
+}
+function setActiveRegimen(id) { if (APP_STATE.regimens) { APP_STATE.regimens.active = String(id || ''); Store.saveState(APP_STATE); refresh(); } }
+function deleteRegimen(id) {   // template only — fulfillment log + logged records untouched (D27/Fork E)
+  const rg = APP_STATE.regimens; if (!rg) return;
+  rg.list = rg.list.filter((r) => r.id !== id);
+  if (rg.active === id) rg.active = rg.list.length ? rg.list[0].id : '';
+  Store.saveState(APP_STATE); refresh();
+}
+function activeRegimen() { const rg = APP_STATE.regimens; if (!rg || !rg.active) return null; return (rg.list || []).filter((r) => r.id === rg.active)[0] || null; }
+function todayWeekday() { return new Date(localDate() + 'T00:00:00').getDay(); }
+function regimenToday() {
+  const reg = activeRegimen(); if (!reg) return null;
+  const wd = todayWeekday(), today = localDate();
+  const flags = (APP_STATE.regimens.log && APP_STATE.regimens.log[today]) || {};
+  const entries = (reg.entries || []).filter((e) => !e.days || e.days.indexOf(wd) >= 0)
+    .map((e) => ({ entry: e, fulfilled: flags[e.id] || '' }))
+    .sort((a, b) => (a.entry.time < b.entry.time ? -1 : a.entry.time > b.entry.time ? 1 : 0));
+  return { regimen: reg, window: reg.window, entries: entries };
+}
+function timeToMin(t) { const m = /^(\d{2}):(\d{2})$/.exec(String(t)); return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null; }
+function isGrosslyLate(scheduled, now) { const s = timeToMin(scheduled), n = timeToMin(now); return (s == null || n == null) ? false : Math.abs(n - s) > 120; }
+function setFulfillment(entryId, kind) {   // 'template' | 'substituted' | null(clear)
+  const rg = APP_STATE.regimens; if (!rg) return;
+  if (!rg.log) rg.log = {};
+  const today = localDate();
+  if (kind === null) { if (rg.log[today]) { delete rg.log[today][entryId]; if (!Object.keys(rg.log[today]).length) delete rg.log[today]; } }
+  else { if (!rg.log[today]) rg.log[today] = {}; rg.log[today][entryId] = kind; }
+}
+// Instantiate an entry through the SAME machinery (byte-identical record) + set a
+// 'template' fulfillment flag. Confirm-gated: grossly-late surfaces the scheduled
+// time; an already-fulfilled entry asks. Undo removes BOTH the record and the flag.
+function logRegimenEntry(entryId, opts) {
+  opts = opts || {};
+  const reg = activeRegimen(); if (!reg) return { ok: false, error: 'No active regimen.' };
+  const e = (reg.entries || []).filter((x) => x.id === entryId)[0];
+  if (!e) return { ok: false, error: 'Entry not found.' };
+  const today = localDate();
+  const already = ((APP_STATE.regimens.log || {})[today] || {})[entryId];
+  if (already && !opts.force) return { ok: false, needsConfirm: 'already', message: 'Already marked ' + (already === 'substituted' ? 'logged elsewhere' : 'logged') + ' — log again?' };
+  const now = opts.now || nowTime();
+  if (isGrosslyLate(e.time, now) && !opts.confirmedLate && !opts.time) return { ok: false, needsConfirm: 'late', scheduledTime: e.time, message: 'Log at ' + e.time + ' (scheduled)?' };
+  const t = opts.time || e.time || now;
+  let record = null, arr = null;
+  if (e.kind === 'food') {
+    const p = ((APP_STATE.settings && APP_STATE.settings.presets) || []).filter((x) => x.id === e.presetId)[0];
+    if (!p) return { ok: false, error: 'The preset for this entry was deleted.' };
+    const day = curDay(); if (!day) return { ok: false };
+    if (day.status === 'complete') day.status = 'in_progress';
+    record = buildPresetItem(p, t); day.items.push(record); arr = day.items;
+  } else if (e.kind === 'medication') {
+    const r = addSignal({ kind: 'medication', name: e.name, dose: e.dose, dose_unit: e.dose_unit, form: e.form, route: e.route, time: t, notes: e.notes });
+    if (!r.ok) return r; record = r.record; arr = APP_STATE.timeline[localDate()];
+  } else {
+    const r = addSignal({ type: e.type, value: e.value, unit: e.unit, time: t, notes: e.notes });
+    if (!r.ok) return r; record = r.record; arr = APP_STATE.timeline[localDate()];
+  }
+  setFulfillment(entryId, 'template');
+  Store.saveState(APP_STATE); refresh();
+  const lbl = e.kind === 'food' ? record.name : (e.kind === 'medication' ? (e.name || 'medication') : (SIGNAL_BY_TYPE[e.type] ? SIGNAL_BY_TYPE[e.type].label : e.type));
+  offerUndo('Logged ' + lbl, function () { if (Array.isArray(arr)) { const i = arr.indexOf(record); if (i >= 0) arr.splice(i, 1); } setFulfillment(entryId, null); Store.saveState(APP_STATE); refresh(); });
+  return { ok: true, record: record };
+}
+function substituteRegimenEntry(entryId) {   // attest a substitution -> a FLAG, no record
+  const reg = activeRegimen(); if (!reg || !(reg.entries || []).some((x) => x.id === entryId)) return { ok: false };
+  setFulfillment(entryId, 'substituted'); Store.saveState(APP_STATE); refresh(); return { ok: true };
+}
+function unfulfillRegimenEntry(entryId) { setFulfillment(entryId, null); Store.saveState(APP_STATE); refresh(); return { ok: true }; }
+function regimenEntryDesc(e) {
+  if (e.kind === 'food') { const p = ((APP_STATE.settings && APP_STATE.settings.presets) || []).filter((x) => x.id === e.presetId)[0]; return esc(p ? p.name : '(preset missing)'); }
+  if (e.kind === 'medication') return esc(e.name || 'medication') + (e.dose != null ? ' <small>' + esc(rDisp(e.dose)) + ' ' + esc(e.dose_unit || '') + '</small>' : '');
+  const sp = SIGNAL_BY_TYPE[e.type]; return esc(sp ? sp.label : e.type) + (e.value != null ? ' <small>' + esc(rDisp(e.value)) + ' ' + esc(e.unit || '') + '</small>' : '');
+}
+function regimenLogTap(entryId) {
+  const r = logRegimenEntry(entryId);
+  if (r.ok) { REGIMEN_CONFIRM = null; return; }
+  if (r.needsConfirm) { REGIMEN_CONFIRM = { entryId: entryId, reason: r.needsConfirm, scheduledTime: r.scheduledTime, message: r.message }; renderRegimenChecklist(); return; }
+  toast(r.error || 'Could not log');
+}
+function regimenConfirmLog(entryId, mode) {
+  const reason = REGIMEN_CONFIRM ? REGIMEN_CONFIRM.reason : '';
+  REGIMEN_CONFIRM = null;
+  const opts = { force: true };
+  if (mode === 'now') opts.time = nowTime(); else if (reason === 'late') opts.confirmedLate = true;
+  const r = logRegimenEntry(entryId, opts);
+  if (!r.ok) toast(r.error || 'Could not log');
+}
+function regimenConfirmCancel() { REGIMEN_CONFIRM = null; renderRegimenChecklist(); }
+function renderRegimenChecklist() {
+  const el = document.getElementById('regimenChecklist'); if (!el || !APP_STATE) return;
+  const rt = regimenToday();
+  if (!rt || !rt.entries.length) { el.innerHTML = ''; return; }        // silent-empty (Pin 3 / RG-empty)
+  let html = '<div class="rgtitle">Today’s regimen</div>';
+  if (rt.window) html += `<div class="rgwindow">eating window ${esc(rt.window.start)}–${esc(rt.window.end)}</div>`;
+  html += rt.entries.map((x) => {
+    const e = x.entry, tag = e.kind;
+    if (REGIMEN_CONFIRM && REGIMEN_CONFIRM.entryId === e.id) {
+      const late = REGIMEN_CONFIRM.reason === 'late';
+      return `<div class="rgrow confirm"><span class="rgtime">${esc(e.time)}</span><span class="rgmain">${esc(REGIMEN_CONFIRM.message)}`
+        + `<span class="rgbtns"><button type="button" class="linklike" onclick="regimenConfirmLog('${e.id}','scheduled')">${late ? 'Log ' + esc(e.time) : 'Yes, log again'}</button>`
+        + (late ? `<button type="button" class="linklike" onclick="regimenConfirmLog('${e.id}','now')">Log now</button>` : '')
+        + `<button type="button" class="linklike" onclick="regimenConfirmCancel()">cancel</button></span></span></div>`;
+    }
+    if (x.fulfilled) {
+      const lbl = x.fulfilled === 'substituted' ? 'logged elsewhere' : 'logged';
+      const undo = x.fulfilled === 'substituted' ? `<button type="button" class="linklike" onclick="unfulfillRegimenEntry('${e.id}')">undo</button>` : '';
+      return `<div class="rgrow done"><span class="rgtime">${esc(e.time)}</span><span class="rgtag ${esc(tag)}">${esc(tag)}</span><span class="rgmain">${regimenEntryDesc(e)} <small>✓ ${esc(lbl)}</small></span>${undo}</div>`;
+    }
+    return `<div class="rgrow"><span class="rgtime">${esc(e.time)}</span><span class="rgtag ${esc(tag)}">${esc(tag)}</span><span class="rgmain">${regimenEntryDesc(e)}</span>`
+      + `<span class="rgbtns"><button type="button" class="linklike" onclick="regimenLogTap('${e.id}')">Log</button>`
+      + `<button type="button" class="linklike" onclick="substituteRegimenEntry('${e.id}')">Logged elsewhere</button></span></div>`;
+  }).join('');
+  el.innerHTML = html;
+}
+function renderRegimenAuthor() {
+  const el = document.getElementById('regimenList'); if (!el || !APP_STATE) return;
+  const rg = APP_STATE.regimens || { active: '', list: [] };
+  if (!rg.list.length) { el.innerHTML = '<div class="note" style="margin:0 0 8px">No regimens yet — paste one below.</div>'; return; }
+  el.innerHTML = rg.list.map((r) =>
+    `<div class="rgmrow"><label class="checkline" style="margin:0"><input type="radio" name="rgactive" ${r.id === rg.active ? 'checked' : ''} onchange="setActiveRegimen('${r.id}')"> ${esc(r.name)} <small>${esc(r.entries.length)} entries</small></label><button type="button" class="linklike" onclick="deleteRegimen('${r.id}')">delete</button></div>`
+  ).join('');
+}
+function doRegimenPaste() {
+  const box = document.getElementById('regimenPaste');
+  const r = addRegimenFromJSON(box ? box.value : '');
+  const rep = document.getElementById('regimenReport');
+  if (r.ok) { if (box) box.value = ''; if (rep) rep.innerHTML = ''; toast('Regimen "' + r.regimen.name + '" loaded'); }
+  else if (rep) rep.innerHTML = `<div class="warn">${esc(r.error)}</div>`;
+}
+function copyRegimenTemplate() { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(REGIMEN_TEMPLATE + '\n\n' + REGIMEN_SAMPLE).then(function () { toast('Template + sample copied'); }).catch(function () {}); }
+function renderRegimenTemplate() { const el = document.getElementById('regimenTemplate'); if (el) el.textContent = REGIMEN_TEMPLATE + '\n\n' + REGIMEN_SAMPLE; }
+
 function renderAverages() {
   const el = document.getElementById('averages');
   if (!el || !APP_STATE) return;
@@ -2699,7 +2965,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -2729,6 +2995,7 @@ const VERSION_LOG = [
   { v: '0.6.0', note: 'Trends: see your own weight, biometrics, fasting streak, and energy over time — figures only, your data, no interpretation.' },
   { v: '0.6.1', note: 'Set targets on biometrics (weight, HRV, glucose, BP, …): they show as a line on your trend and float that signal to the front of the quick-log chips.' },
   { v: '0.7.0', note: 'Habits: after a couple of weeks of tracking, the app can gently suggest one established good habit at a time — always optional, one tap to pass, off in settings.' },
+  { v: '0.8.0', note: 'Regimens: build a named daily template (meds, events, preset meals, weekday rotation, eating window) and work through today’s checklist — one tap logs each, nothing is ever auto-logged.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -2789,13 +3056,18 @@ function main() {
   renderPromptCard();
   renderFastingForm();
   onGoalTypeChange();
+  renderRegimenTemplate();
   wireChipStripWheel();
   refresh();
 }
 
 // Console seam for review/testing.
 window.HT = {
-  Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateToLatest, normalizeState, refresh,
+  Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateToLatest, normalizeState, refresh,
+  // Phase 4 Slice — Regimen / timeline templates (D27)
+  parseRegimen, addRegimenFromJSON, normalizeRegimens, setActiveRegimen, deleteRegimen, activeRegimen, regimenToday,
+  logRegimenEntry, substituteRegimenEntry, unfulfillRegimenEntry, isGrosslyLate, buildPresetItem, REGIMEN_TEMPLATE, REGIMEN_SAMPLE,
+  renderRegimenChecklist, renderRegimenAuthor,
   // Phase 4 Slice X — fasting candidates + undo (D22)
   detectFastCandidates, confirmedFasts, resolveFast, matchResolution, fastEvents, fastEndedByItem,
   normalizeFastLog, normalizeFasting, offerUndo, doUndo, undoRemove,
