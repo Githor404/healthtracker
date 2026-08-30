@@ -43,6 +43,14 @@ if ! bash "$DIR/check-version.sh"; then
   exit 1
 fi
 
+# Write-site census (D29): every record-write must be a REGISTERED site, classified
+# stamped-with-the-tz-offset or exempt-with-a-reason. A new write site fails here
+# rather than silently joining unstamped.
+if ! bash "$DIR/check-writesites.sh"; then
+  echo "WRITESITES CHECK: FAIL"
+  exit 1
+fi
+
 # Convert the POSIX path to a file:// URL Chrome understands on Windows.
 if command -v cygpath >/dev/null 2>&1; then
   URL="file:///$(cygpath -m "$HTML")"

@@ -1505,6 +1505,230 @@ window.setLS({});
   setLS({}); HT.boot(); HT.renderRegimenChecklist();
   res(document.getElementById('regimenChecklist').innerHTML==='', 'RG-empty: no active regimen -> checklist renders silently empty');
 
+  // ==========================================================================
+  // D29 — timezone-offset capture. Additive, CAPTURE-ONLY: every creation path
+  // stamps the device offset; every other write site is deliberately exempt;
+  // nothing consumes the field, so behavior must be byte-identical either way.
+  // ==========================================================================
+  var TZ = HT.nowTZO();
+  var FOREIGN = (TZ === 330) ? -330 : 330;          // guaranteed != the local offset
+  var TZBC = '1234567890123';
+  var scanRec = { name:'Prod', barcode:TZBC, serving_g:50,
+    per100:{ kcal:100, protein_g:5, fat_g:2, carb_g:10, fiber_g:3, soluble_fiber_g:1 } };
+
+  function hasTzoAnywhere(o){
+    if (o === null || typeof o !== 'object') return false;
+    if (!Array.isArray(o) && Object.prototype.hasOwnProperty.call(o,'tzo')) return true;
+    return Object.keys(o).some(function(k){ return hasTzoAnywhere(o[k]); });
+  }
+  // Put a tzo on every RECORD in a state (not on settings/templates).
+  function stampAllRecords(st, v){
+    Object.keys(st.days||{}).forEach(function(d){ (st.days[d].items||[]).forEach(function(i){ i.tzo = v; }); });
+    Object.keys(st.timeline||{}).forEach(function(d){ (st.timeline[d]||[]).forEach(function(r){ r.tzo = v; }); });
+    Object.keys(st.fastLog||{}).forEach(function(k){ st.fastLog[k].tzo = v; });
+    Object.keys(st.priceLog||{}).forEach(function(b){ (st.priceLog[b].entries||[]).forEach(function(e){ e.tzo = v; }); });
+  }
+  // Every derived surface the app computes, as one comparable blob.
+  function derivedSnapshot(){
+    var st = HT.state(), day = st.days[td];
+    HT.refresh();                                   // renders day view, trends, averages, history
+    return JSON.stringify({
+      totals:    HT.dayTotals(day),
+      micro:     HT.microRollup(day),
+      avg7:      HT.averageOver(HT.completeDaysInWindow(7)),
+      avgAll:    HT.averageOver(HT.completeDaysInWindow(0)),
+      candidates:HT.detectFastCandidates(),
+      confirmed: HT.confirmedFasts(),
+      weight:    HT.signalSeries('weight', 30),
+      kcal:      HT.macroSeries('kcal', 30),
+      fasting:   HT.fastingStats(30),
+      dayHTML:   document.getElementById('dayView').innerHTML
+    });
+  }
+
+  // ---- TZ-sweep-stamp: every stamped creation path --------------------------
+  setLS({}); HT.boot();
+  var mR = HT.addManualEntry({ name:'Manual', kcal:100, soluble_fiber_g:0 });
+  res(mR.ok && mR.item.tzo === TZ, 'TZ-sweep-stamp: addManualEntry stamps the device offset');
+
+  var pR = HT.saveManualPreset({ name:'Yog', meal:'snack', kcal:120, soluble_fiber_g:0 }, '150 g');
+  var lR = HT.logPreset(pR.preset.id);
+  res(lR.ok && lR.item.tzo === TZ, 'TZ-sweep-stamp: logPreset (via the shared buildPresetItem) stamped');
+
+  res(HT.buildScanItem(scanRec, 'per_100g', 0, 'snack').tzo === TZ, 'TZ-sweep-stamp: buildScanItem stamped');
+  res(HT.logScanItem(scanRec, 'custom', 250, 'lunch').item.tzo === TZ, 'TZ-sweep-stamp: logScanItem stamped');
+
+  setLS({}); HT.boot();
+  HT.setSupplement(true, 'Sup', { kcal:10, soluble_fiber_g:0 });
+  var supNow = HT.state().days[td].items.filter(function(i){ return i._auto; })[0];
+  res(!!supNow && supNow.tzo === TZ, 'TZ-sweep-stamp: supplement injection at enable-time stamped');
+  HT.state().days['2026-01-02'] = { status:'in_progress', items:[], water_l:0 };
+  HT.maybeInjectSupplement(HT.state(), '2026-01-02');
+  res(HT.state().days['2026-01-02'].items[0].tzo === TZ, 'TZ-sweep-stamp: supplement injection at day-rollover stamped');
+
+  setLS({}); HT.boot();
+  res(HT.addSignal({ type:'weight', value:80, unit:'kg' }).record.tzo === TZ, 'TZ-sweep-stamp: addSignal (biometric chip/form) stamped');
+  res(HT.addSignal({ type:'sauna', value:20, unit:'min' }).record.tzo === TZ, 'TZ-sweep-stamp: addSignal (event) stamped');
+  res(HT.addSignal({ kind:'medication', name:'Metformin', dose:500, dose_unit:'mg' }).record.tzo === TZ, 'TZ-sweep-stamp: addMedication stamped');
+  var bp = HT.logBP(120, 80, '08:00', '');
+  res(bp.systolic.tzo === TZ && bp.diastolic.tzo === TZ, 'TZ-sweep-stamp: logBP stamps BOTH paired records');
+
+  var pe = HT.addPriceEntry(TZBC, 'Prod', { price:4.99, currency:'USD', store:'Shop' });
+  res(pe.ok && pe.entry.tzo === TZ, 'TZ-sweep-stamp: addPriceEntry stamped');
+
+  HT.resolveFast(td + 'T02:00', td + 'T20:00', 18, 'fasted');
+  res(HT.state().fastLog[td + 'T02:00'].tzo === TZ, 'TZ-sweep-stamp: resolveFast stamped');
+
+  // Regimen instantiation — Fork 2: the device's offset at instantiation.
+  seedRegimen();
+  var tzFood = HT.activeRegimen().entries.filter(function(e){ return e.kind === 'food'; })[0];
+  HT.logRegimenEntry(tzFood.id, { now: tzFood.time });
+  var tzLogged = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(tzLogged.tzo === TZ, 'TZ-sweep-stamp: regimen FOOD instantiation stamps the instantiation device offset');
+  var tzMed = HT.activeRegimen().entries.filter(function(e){ return e.kind === 'medication'; })[0];
+  HT.logRegimenEntry(tzMed.id, { now: tzMed.time, confirmedLate: true });
+  var tzMedRec = HT.state().timeline[td][HT.state().timeline[td].length - 1];
+  res(tzMedRec.tzo === TZ, 'TZ-sweep-stamp: regimen MEDICATION instantiation stamped');
+  var tzEv = HT.activeRegimen().entries.filter(function(e){ return e.kind === 'event'; })[0];
+  HT.logRegimenEntry(tzEv.id, { now: tzEv.time, confirmedLate: true });
+  res(HT.state().timeline[td][HT.state().timeline[td].length - 1].tzo === TZ, 'TZ-sweep-stamp: regimen EVENT instantiation stamped');
+
+  // ---- TZ-identity: D27 Pin 2 survives, tzo included ------------------------
+  seedRegimen();
+  var idFood = HT.activeRegimen().entries.filter(function(e){ return e.kind === 'food'; })[0];
+  HT.logRegimenEntry(idFood.id, { now: idFood.time });
+  var idLogged = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  var idPreset = HT.state().settings.presets.filter(function(p){ return p.id === 'lunch'; })[0];
+  res(JSON.stringify(idLogged) === JSON.stringify(HT.buildPresetItem(idPreset, idFood.time)) && idLogged.tzo === TZ,
+      'TZ-identity: instantiated record still byte-identical to a manual preset log (tzo included)');
+
+  // ---- TZ-sweep-exempt: every non-record write site adds NOTHING -------------
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify([{ name:'AI meal', kcal:600, date:td }]));
+  var aiItem = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(!Object.prototype.hasOwnProperty.call(aiItem, 'tzo'), 'TZ-sweep-exempt: AI-paste ingest adds NO tzo (Pin 3)');
+
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify({ version:5, days:{ '2026-02-01': { status:'complete', items:[{ name:'Old', kcal:200, soluble_fiber_g:0 }], water_l:0 } } }));
+  res(!hasTzoAnywhere(HT.state().days['2026-02-01']), 'TZ-sweep-exempt: full-days merge adds NO tzo');
+
+  setLS({}); HT.boot(); window.__confirm = true;
+  HT.restore(JSON.stringify({ version:5, current:'2026-03-01', days:{ '2026-03-01': { status:'complete', items:[{ name:'R', kcal:150, soluble_fiber_g:0 }], water_l:0 } }, settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{ active:'', list:[], log:{} } }));
+  res(!hasTzoAnywhere(HT.state().days['2026-03-01']), 'TZ-sweep-exempt: restore adds NO tzo to restored records');
+
+  var mig = HT.migrateToLatest({ version:1, days:{ '2026-01-05': { status:'complete', items:[{ name:'V1', kcal:300 }], water_l:0 } }, current:'2026-01-05' }, new Date().toISOString());
+  res(!hasTzoAnywhere(mig.days['2026-01-05']), 'TZ-sweep-exempt: v1->v5 migration adds NO tzo (history is pre-capture)');
+
+  // Pre-restore backup: a verbatim snapshot — preserves tzo, invents none.
+  setLS({}); HT.boot();
+  HT.addManualEntry({ name:'Before', kcal:111, soluble_fiber_g:0 });
+  var beforeBlob = JSON.parse(HT.exportJSON());
+  window.__confirm = true;
+  HT.restore(JSON.stringify({ version:5, current:td, days:{}, settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{ active:'', list:[], log:{} } }));
+  var backup = JSON.parse(window.__ls._get(HT.keys.PRERESTORE_KEY) || '{}');
+  res(backup.days && backup.days[td] && backup.days[td].items[0].tzo === TZ &&
+      JSON.stringify(backup.days[td].items[0]) === JSON.stringify(beforeBlob.days[td].items[0]),
+      'TZ-sweep-exempt: pre-restore backup is verbatim — tzo preserved exactly, none added');
+
+  // Fulfillment flag: a bare enum string, no timestamp, nothing to stamp.
+  seedRegimen();
+  var subEntry = HT.activeRegimen().entries.filter(function(e){ return e.kind === 'medication'; })[0];
+  HT.substituteRegimenEntry(subEntry.id);
+  res(HT.state().regimens.log[td][subEntry.id] === 'substituted' && !hasTzoAnywhere(HT.state().regimens.log),
+      'TZ-sweep-exempt: "logged elsewhere" fulfillment flag stays a bare string (no timestamp to stamp)');
+
+  // Templates + settings are not records.
+  setLS({}); HT.boot();
+  var exPreset = HT.saveManualPreset({ name:'Tmpl', kcal:50, soluble_fiber_g:0 }, '');
+  res(!hasTzoAnywhere(exPreset.preset), 'TZ-sweep-exempt: saveManualPreset (a template) carries NO tzo');
+  HT.setGoal('kcal', 2000, 'max');
+  HT.setSupplement(false, 'S', { kcal:5, soluble_fiber_g:0 });
+  HT.setNudgesEnabled(true);
+  HT.addRegimenFromJSON(JSON.stringify({ name:'R', entries:[{ kind:'medication', time:'08:00', name:'M' }] }));
+  res(!hasTzoAnywhere(HT.state().settings) && !hasTzoAnywhere(HT.state().regimens.list),
+      'TZ-sweep-exempt: goals / supplement config / nudges / regimen templates carry NO tzo');
+  var waterBefore = JSON.stringify(HT.state().days[td]);
+  HT.addWater(0.25);
+  res(!hasTzoAnywhere(HT.state().days[td]) && HT.state().days[td].water_l === 0.25 && waterBefore !== JSON.stringify(HT.state().days[td]),
+      'TZ-sweep-exempt: addWater writes a day-level scalar, no tzo');
+
+  // ---- TZ-foreign: Pin 3 both directions ------------------------------------
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify([{ name:'No zone', kcal:100, date:td }]));
+  var fAbs = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(!Object.prototype.hasOwnProperty.call(fAbs, 'tzo'), 'TZ-foreign: a paste with NO offset stays offset-absent (never the local zone)');
+  HT.ingest(JSON.stringify([{ name:'Has zone', kcal:100, date:td, tzo:FOREIGN }]));
+  var fKeep = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(fKeep.tzo === FOREIGN && FOREIGN !== TZ, 'TZ-foreign: a paste WITH a valid offset keeps the author’s value, not the local one');
+
+  // ---- TZ-hostile: Pin 4, coerce-or-drop, never clamp ------------------------
+  var bad = [999999, -999999, 'abc', NaN, Infinity, -Infinity, null, undefined, '', {}, [], [240], true, false, 841, -841];
+  res(bad.every(function(v){ return HT.normalizeTzo(v) === undefined; }),
+      'TZ-hostile: out-of-range / non-numeric / boolean / object values -> absent (never clamped)');
+  res(HT.normalizeTzo('-240') === -240 && HT.normalizeTzo(240.4) === 240 && HT.normalizeTzo(-240.6) === -241,
+      'TZ-hostile: numeric strings coerced, fractional minutes rounded');
+  res(HT.normalizeTzo(840) === 840 && HT.normalizeTzo(-840) === -840 && HT.normalizeTzo(0) === 0,
+      'TZ-hostile: the ±840 boundary is accepted');
+  setLS({}); HT.boot();
+  HT.ingest(JSON.stringify([{ name:'Hostile', kcal:10, date:td, tzo:999999 }]));
+  var hIt = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(!Object.prototype.hasOwnProperty.call(hIt, 'tzo'), 'TZ-hostile: out-of-range tzo dropped at the PASTE boundary');
+  setLS({}); HT.boot(); window.__confirm = true;
+  HT.restore(JSON.stringify({ version:5, current:'2026-04-01',
+    days:{ '2026-04-01': { status:'complete', items:[{ name:'H', kcal:10, soluble_fiber_g:0, tzo:'nope' }], water_l:0 } },
+    settings:{}, priceLog:{ '1234567890123': { name:'P', entries:[{ price:1, currency:'', store:'', date:'2026-04-01', tzo:99999 }] } },
+    timeline:{ '2026-04-01': [{ time:'08:00', kind:'biometric', type:'weight', value:80, unit:'kg', tzo:{} }] },
+    fastLog:{ '2026-04-01T02:00': { start:'2026-04-01T02:00', end:'2026-04-01T18:00', hours:16, state:'fasted', tzo:[] } },
+    regimens:{ active:'', list:[], log:{} } }));
+  res(!hasTzoAnywhere(HT.state().days['2026-04-01']) && !hasTzoAnywhere(HT.state().priceLog) &&
+      !hasTzoAnywhere(HT.state().timeline) && !hasTzoAnywhere(HT.state().fastLog),
+      'TZ-hostile: hostile tzo dropped at the RESTORE boundary on all four record kinds');
+
+  // ---- TZ-preserve: exact round-trip on all four record kinds ----------------
+  setLS({}); HT.boot();
+  HT.addManualEntry({ name:'RT', kcal:100, soluble_fiber_g:0 });
+  HT.addSignal({ type:'weight', value:81, unit:'kg' });
+  HT.addPriceEntry(TZBC, 'Prod', { price:2.50, currency:'EUR', store:'Shop' });
+  HT.resolveFast(td + 'T01:00', td + 'T19:00', 18, 'fasted');
+  var rtExport = JSON.parse(HT.exportJSON());
+  res(rtExport.days[td].items[0].tzo === TZ && rtExport.timeline[td][0].tzo === TZ &&
+      rtExport.priceLog[TZBC].entries[0].tzo === TZ && rtExport.fastLog[td + 'T01:00'].tzo === TZ,
+      'TZ-preserve: tzo present on all four record kinds in the export');
+  setLS({}); HT.boot(); window.__confirm = true;
+  HT.restore(JSON.stringify(rtExport));
+  var rtBack = HT.state();
+  res(rtBack.days[td].items[0].tzo === TZ && rtBack.timeline[td][0].tzo === TZ &&
+      rtBack.priceLog[TZBC].entries[0].tzo === TZ && rtBack.fastLog[td + 'T01:00'].tzo === TZ,
+      'TZ-preserve: tzo survives export -> restore EXACT on all four record kinds');
+  var migKeep = HT.migrateToLatest({ version:1, current:'2026-01-06',
+    days:{ '2026-01-06': { status:'complete', items:[{ name:'V1tz', kcal:300, tzo:FOREIGN }], water_l:0 } } }, new Date().toISOString());
+  res(migKeep.days['2026-01-06'].items[0].tzo === FOREIGN, 'TZ-preserve: a v1 blob that carries tzo keeps it through v1->v5 migration');
+  res(HT.state().version === 5, 'TZ-preserve: schema version UNCHANGED at 5 (Fork 1 — no bump)');
+
+  // ---- TZ-inert + TZ-absent-flows: Pin 1, nothing consumes the field ---------
+  setLS({}); HT.boot();
+  HT.state().days[td] = { status:'complete', items:[
+    { name:'A', meal:'breakfast', time:'08:00', kcal:400, protein_g:20, fat_g:10, carb_g:40, fiber_g:5, soluble_fiber_g:1, confidence:'measured', notes:'', source:'manual', micros:{ iron_mg:3 } },
+    { name:'B', meal:'dinner', time:'19:00', kcal:700, protein_g:35, fat_g:25, carb_g:60, fiber_g:8, soluble_fiber_g:2, confidence:'weighed', notes:'', source:'manual' }
+  ], water_l:1.5 };
+  HT.state().days['2026-05-01'] = { status:'complete', items:[
+    { name:'C', meal:'lunch', time:'12:00', kcal:500, protein_g:25, fat_g:15, carb_g:50, fiber_g:6, soluble_fiber_g:1, confidence:'measured', notes:'', source:'scan' }
+  ], water_l:0 };
+  HT.state().timeline[td] = [{ time:'07:00', kind:'biometric', type:'weight', value:82.1, unit:'kg', source:'manual', notes:'' }];
+  HT.state().fastLog[td + 'T00:00'] = { start:td + 'T00:00', end:td + 'T08:00', hours:8, state:'fasted', resolved_by:'user', resolved_at:'2026-08-30T00:00:00.000Z' };
+  HT.state().priceLog[TZBC] = { name:'Prod', entries:[{ price:3.20, currency:'USD', store:'Shop', date:td }] };
+  HT.resave();
+  var withoutTzo = derivedSnapshot();
+  res(!hasTzoAnywhere(HT.state().days) && !hasTzoAnywhere(HT.state().timeline),
+      'TZ-absent-flows: pre-capture records (no tzo) flow through day view / averages / Mirror / fasting without error');
+  stampAllRecords(HT.state(), TZ);
+  HT.resave();
+  var withTzo = derivedSnapshot();
+  res(withoutTzo === withTzo,
+      'TZ-inert: totals, micro rollup, averages, fast candidates, confirmed fasts, trends and the rendered day view are BYTE-IDENTICAL with vs. without tzo');
+  res(JSON.parse(HT.exportJSON()).days[td].items[0].tzo === TZ && withoutTzo.indexOf('tzo') < 0,
+      'TZ-inert: the field is exported but never rendered (capture-only — nothing consumes it)');
+
   var sm = document.createElement('p'); sm.className = 's';
   sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
   document.body.appendChild(sm);

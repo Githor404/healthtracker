@@ -473,3 +473,30 @@ A named **timeline template** for a repeating day — composition over presets/m
 `bash tests/run-data-layer.sh` → **388/388 ALL PASS** (RG-identity … RG-empty; v4→v5 fixtures updated); real-browser smoke (paste → 3-row checklist + window; Log at 12:00 scheduled time, row marks done; substitute writes a flag with 1 record; template renders on load); `APP_VERSION → 0.8.0` (check-version); offline + precache + sw-hash + check-zxing + chip-layout green. **Flagged v4→v5 fixture updates** (version, +`regimens`, forward-blob 5→6, `migrateV4toV5`, S1/S2 +`regimens`).
 
 **Status: MET — built, all gates green; awaiting review before commit/deploy as v0.8.0.**
+
+### Timezone-offset capture slice (D29) — PRE-REGISTERED
+
+Additive, **capture-only** `tzo` (device UTC offset, whole minutes, east-positive) on every record-creation path. **No schema bump** (stays v5, Fork 1); nothing consumes the field yet. `APP_VERSION → 0.8.1`.
+
+| Case | Asserts |
+|---|---|
+| TZ-sweep-stamp | **every stamped creation path** writes a valid `tzo` equal to the device offset: manual add · preset log · **regimen food instantiation** · scan · supplement injection (rollover **and** enable-time) · signal chip/form · medication form · `logBP` (both records) · **regimen med/event instantiation** · price entry · fasting resolution |
+| TZ-sweep-exempt | **every exempt write site** adds **no** `tzo`: AI-paste ingest · full-days merge · restore · `migrateV*` · pre-restore backup · fulfillment flag · preset save · goals/supplement/nudge/fasting/regimen config · `addWater` |
+| TZ-census | **`tests/check-writesites.sh`**: the set of record-write sites in `app.js` matches the pinned manifest — **a new write site fails the gate** until it is registered stamped or exempt |
+| TZ-identity | **D27 Pin 2 holds:** an instantiated regimen food record stays **byte-identical** (`tzo` included) to the equivalent manual preset log at the same time |
+| TZ-foreign | **Pin 3:** a paste carrying **no** offset stays offset-**absent** (never stamped with the ingesting device's zone); a paste carrying a **valid** offset **keeps that value**, not the local one |
+| TZ-hostile | **Pin 4:** `999999`, `-999999`, `"abc"`, `NaN`, `null`, `{}`, `[]`, `true` → **dropped to absent, never clamped**; `"-240"` coerced to `-240`; `240.4` rounded; boundary `±840` accepted, `±841` dropped — at **paste and restore** boundaries |
+| TZ-preserve | `tzo` survives **export → restore exact** on **all four record kinds** (day items, timeline signals, price entries, fastLog) and through **v1→v5 migration** of a blob that carries it |
+| TZ-inert | **Pin 1 — zero behavior change:** day totals, averages, `detectFastCandidates`, `confirmedFasts`, trends, micro rollup and the rendered day view are **byte-identical** with vs. without `tzo` present on every record |
+| TZ-absent-flows | **Pin 2:** pre-capture records (no `tzo`) flow through day view / averages / Mirror / fasting / export **unchanged from today's behavior** |
+
+`bash tests/run-data-layer.sh` → baseline before the slice was **388/388 ALL PASS**; must stay green and grow only by the TZ cases. **No schema change** (v5, no fixture version edits, no new migration).
+
+#### Evidence (run 2026-08-30)
+
+- `bash tests/run-data-layer.sh` → **427/427 ALL PASS** (388 baseline + 39 TZ cases; **no pre-existing case altered**, no fixture version edits).
+- **`tests/check-writesites.sh` → OK (13 sites, manifest matches)**, wired into the runner ahead of the browser pass. It **earned its keep during the build**: it flagged `focusAdherence` as an unregistered write site. That one is a read-side false positive (it pushes dates into a display array), and it was **classified exempt in D29 rather than pattern-matched away** — the pattern stays deliberately over-broad so a real write cannot slip past it.
+- Other gates green at the same tree: `check-precache` PASS · `check-sw-hash` OK (re-fixed for the app.js change) · `check-zxing` OK · `check-version` OK (0.8.0 → **0.8.1**, changelog line present) · `offline-gate.ps1` PASS · `chip-layout-gate.ps1` PASS · `update-gate.ps1` PASS.
+- **Real-browser smoke on the actual `index.html`:** `{"schema":5,"app":"0.8.1","deviceTzo":-240,"itemTzo":-240,"signalTzo":-240,"exportTzo":-240,"uiLeaksTzo":false,"uiShowsKcal":true}` — stamped on a manual item and a signal, present in the export, **absent from the rendered UI**, day view otherwise normal, no page errors.
+
+**Status: MET — built, all gates green; awaiting review before commit/deploy as v0.8.1.**

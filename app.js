@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.8.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.8.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -41,6 +41,23 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
 // data, byte-preserved); the restore boundary uses clamp.
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const clampNonNeg = (v) => Math.max(0, num(v));
+
+// D29 — timezone offset capture. `tzo` is the DEVICE's UTC offset in whole
+// minutes, EAST-POSITIVE (UTC-4 -> -240). JS getTimezoneOffset() is
+// west-positive, hence the negation. Capture-only: nothing reads it yet.
+const TZO_MAX = 840;                                  // +/- 14 h, the real-world extreme
+const nowTZO = () => -new Date().getTimezoneOffset();
+// Coerce to an integer offset in range, else UNDEFINED (the field is simply
+// absent). Deliberately NOT clamped: clamping would launder a garbage value into
+// a real-looking zone. Absence is a first-class state (D29 Pin 2) -- every
+// pre-capture record is absent, and that is honest.
+function normalizeTzo(v) {
+  if (v == null || v === '' || typeof v === 'boolean' || typeof v === 'object') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  const i = Math.round(n);
+  return (i >= -TZO_MAX && i <= TZO_MAX) ? i : undefined;
+}
 
 // Pasted JSON may arrive from a chat app: normalize smart quotes / non-breaking
 // spaces before JSON.parse so a clean-looking paste isn't rejected as "Bad JSON".
@@ -147,6 +164,12 @@ const Store = (() => {
 // (untrusted paste boundary); the migrator passes false to byte-preserve trusted
 // data. Micros are always coerced + clamped >= 0; unknown micro keys are preserved.
 // `source` is validated against the enum, fallback `manual`.
+//
+// NOTE (D29): this and the sibling record normalizers are ALLOWLIST REBUILDS, not
+// passthroughs -- an unknown TOP-LEVEL key is dropped. (Only normalizeMicros
+// genuinely preserves unknown keys.) So an additive field like `tzo` must be
+// listed explicitly here to survive; that is deliberate, since opening a
+// passthrough would let arbitrary keys cross the untrusted paste boundary.
 function normalizeMicros(micros) {
   if (!micros || typeof micros !== 'object' || Array.isArray(micros)) return null;
   const out = {};
@@ -175,6 +198,8 @@ function normalizeItem(it, clampMacros) {
   if (it._auto === true) out._auto = true;
   const micros = normalizeMicros(it.micros);
   if (micros) out.micros = micros;
+  const tzo = normalizeTzo(it.tzo);      // D29: PRESERVE only -- creation paths supply it,
+  if (tzo !== undefined) out.tzo = tzo;  // this boundary never invents one (Pin 3).
   return out;
 }
 
@@ -241,7 +266,10 @@ function normalizePriceLog(o) {
     const entries = (Array.isArray(b.entries) ? b.entries : []).map((e) => {
       e = e || {};
       const date = /^\d{4}-\d{2}-\d{2}$/.test(String(e.date)) ? String(e.date) : '';
-      return { price: clampNonNeg(e.price), currency: String(e.currency == null ? '' : e.currency), store: String(e.store == null ? '' : e.store), date: date };
+      const pe = { price: clampNonNeg(e.price), currency: String(e.currency == null ? '' : e.currency), store: String(e.store == null ? '' : e.store), date: date };
+      const ptz = normalizeTzo(e.tzo);            // D29: preserve only
+      if (ptz !== undefined) pe.tzo = ptz;
+      return pe;
     });
     out[bc] = { name: String(b.name == null ? '' : b.name), entries: entries };
   });
@@ -412,6 +440,8 @@ function normalizeFastLog(o) {
       resolved_at: typeof e.resolved_at === 'string' ? e.resolved_at : '',
     };
     if (e.notes != null && String(e.notes) !== '') rec.notes = String(e.notes);
+    const ftz = normalizeTzo(e.tzo);              // D29: preserve only
+    if (ftz !== undefined) rec.tzo = ftz;
     out[start] = rec;
   });
   return out;
@@ -675,7 +705,7 @@ function buildSupplementItem(sup) {
     kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
     fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g,
     confidence: 'measured', notes: 'auto-applied daily supplement',
-    source: 'supplement', _auto: true, micros: n.micros,
+    source: 'supplement', _auto: true, micros: n.micros, tzo: nowTZO(),   // D29 (stamped)
   }, true);
 }
 
@@ -1124,7 +1154,7 @@ function manualWarnings(raw) {
 function addManualEntry(raw) {
   if (!raw || !raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Name required' };
   const warnings = manualWarnings(raw);
-  const item = normalizeItem(Object.assign({}, raw, { source: 'manual' }), true);
+  const item = normalizeItem(Object.assign({}, raw, { source: 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
   const day = curDay(); if (!day) return { ok: false, error: 'No current day' };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
   day.items.push(item);
@@ -1155,11 +1185,16 @@ function saveManualPreset(raw, portion) {
 // Log a preset as a fresh copy (source preset) — a copy, never a reference (D9).
 // Shared preset->item builder (D27): the ONE source both manual logPreset and a
 // regimen food instantiation use, so their records are byte-identical at a given time.
+// D29 Fork 2: the offset is stamped HERE, inside the shared builder, so byte-identity
+// survives by construction. The scheduled `time` answers "when" (D27 Fork B supplies
+// it); `tzo` answers "where was the device when this was recorded" — different
+// questions, different sources, each field its own truth.
 function buildPresetItem(p, time) {
   return normalizeItem({
     name: p.name, meal: p.meal, time: time, confidence: p.confidence,
     kcal: p.kcal, protein_g: p.protein_g, fat_g: p.fat_g, carb_g: p.carb_g,
     fiber_g: p.fiber_g, soluble_fiber_g: p.soluble_fiber_g, source: 'preset', micros: p.micros,
+    tzo: nowTZO(),   // D29 (stamped)
   }, true);
 }
 function logPreset(id) {
@@ -1315,7 +1350,7 @@ function buildScanItem(rec, mode, customGrams, meal) {
     fiber_g: s.fiber_g, soluble_fiber_g: s.soluble_fiber_g,
     confidence: 'measured', source: 'scan', barcode: rec.barcode,
     notes: 'scanned ' + rDisp(s.grams) + ' g',
-    micros: s.micros,
+    micros: s.micros, tzo: nowTZO(),   // D29 (stamped)
   }, true);
 }
 function logScanItem(rec, mode, customGrams, meal) {
@@ -1733,6 +1768,8 @@ function addPriceEntry(barcode, name, raw) {
     store: String(raw.store == null ? '' : raw.store).trim(),
     date: date,
   };
+  const petz = normalizeTzo(raw.tzo != null ? raw.tzo : nowTZO());   // D29 (stamped)
+  if (petz !== undefined) entry.tzo = petz;
   if (!APP_STATE.priceLog || typeof APP_STATE.priceLog !== 'object') APP_STATE.priceLog = {};
   const bucket = APP_STATE.priceLog[bc] || { name: String(name == null ? '' : name), entries: [] };
   if (!bucket.name && name) bucket.name = String(name);
@@ -1875,11 +1912,15 @@ function normalizeSignal(raw) {
     rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
     if (raw.value != null && String(raw.value) !== '') rec.value = clampNonNeg(raw.value);
   }
+  const tzo = normalizeTzo(raw.tzo);   // D29: preserve only -- addSignal supplies it
+  if (tzo !== undefined) rec.tzo = tzo;
   return rec;
 }
 
 // Restore-boundary hardening (like normalizePriceLog): validate date keys, coerce
-// each record, tolerate unknown keys.
+// each record. Unknown TOP-LEVEL keys on a record are DROPPED (normalizeSignal is
+// an allowlist rebuild) -- what is tolerated is an unknown `type` VALUE and an
+// unknown `source` string, so a future adapter needs no substrate change (D19).
 function normalizeTimeline(o) {
   const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
   const out = {};
@@ -1914,7 +1955,10 @@ function addSignal(raw) {
   }
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date)) ? String(raw.date) : localDate();
   const warnings = signalWarnings(raw);
-  const rec = normalizeSignal(Object.assign({}, raw, { source: 'manual' }));   // manual adapter forces source
+  // Manual adapter forces source. D29: stamps the device offset unless the caller
+  // supplied one — leaving the seam open for a later adapter (D19/D28) that carries
+  // its own zone, without this path ever inventing a zone for foreign data.
+  const rec = normalizeSignal(Object.assign({}, raw, { source: 'manual', tzo: raw.tzo != null ? raw.tzo : nowTZO() }));
   if (!APP_STATE.timeline || typeof APP_STATE.timeline !== 'object') APP_STATE.timeline = {};
   (APP_STATE.timeline[date] = APP_STATE.timeline[date] || []).push(rec);
   if (!APP_STATE.settings.signalUnits) APP_STATE.settings.signalUnits = {};   // remember last-used unit
@@ -2318,10 +2362,15 @@ function resolveFast(start, end, hours, state, resolvedBy) {
   if (!APP_STATE.fastLog || typeof APP_STATE.fastLog !== 'object') APP_STATE.fastLog = {};
   if (state === 'pending') { delete APP_STATE.fastLog[start]; }
   else {
-    APP_STATE.fastLog[start] = {
+    // D29 (stamped): start/end are zone-less local wall-clock, so the resolving
+    // device's offset is the only record of which zone they were read in.
+    const fr = {
       start: start, end: String(end || ''), hours: clampNonNeg(hours), state: state,
       resolved_by: resolvedBy || 'user', resolved_at: new Date().toISOString(),
     };
+    const ftz = normalizeTzo(nowTZO());
+    if (ftz !== undefined) fr.tzo = ftz;
+    APP_STATE.fastLog[start] = fr;
   }
   Store.saveState(APP_STATE); refresh();
   return { ok: true };
@@ -2996,6 +3045,7 @@ const VERSION_LOG = [
   { v: '0.6.1', note: 'Set targets on biometrics (weight, HRV, glucose, BP, …): they show as a line on your trend and float that signal to the front of the quick-log chips.' },
   { v: '0.7.0', note: 'Habits: after a couple of weeks of tracking, the app can gently suggest one established good habit at a time — always optional, one tap to pass, off in settings.' },
   { v: '0.8.0', note: 'Regimens: build a named daily template (meds, events, preset meals, weekday rotation, eating window) and work through today’s checklist — one tap logs each, nothing is ever auto-logged.' },
+  { v: '0.8.1', note: 'New logs now also record your device’s time zone, so days logged while travelling stay accurate for later comparison. Nothing else changes, and nothing already logged is altered.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3064,6 +3114,8 @@ function main() {
 // Console seam for review/testing.
 window.HT = {
   Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateToLatest, normalizeState, refresh,
+  // D29 — timezone-offset capture (capture-only; nothing reads it yet)
+  nowTZO, normalizeTzo, TZO_MAX, normalizeItem, addWater, setFulfillment,
   // Phase 4 Slice — Regimen / timeline templates (D27)
   parseRegimen, addRegimenFromJSON, normalizeRegimens, setActiveRegimen, deleteRegimen, activeRegimen, regimenToday,
   logRegimenEntry, substituteRegimenEntry, unfulfillRegimenEntry, isGrosslyLate, buildPresetItem, REGIMEN_TEMPLATE, REGIMEN_SAMPLE,

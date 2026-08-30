@@ -601,3 +601,47 @@ The **FairCart lineage** — scan, personal price history, and nearby-price comp
 **Product RECOMMENDATION that reads the user's health data** (goals, regimen, intake history) **to steer purchases is Layer-4 personalized guidance** (D21/D25) — gated behind the guidance/contraindication governance note and the consent tier; built only when that gate opens.
 
 **Standing rule regardless of tier: NO recommendation or comparison surface ever carries commercial placement** — no affiliate links, no sponsored results, no paid ranking (D17). **The trust story is the asset; a paid "better product" would spend it permanently.**
+
+## D29 — Timezone-offset capture: additive, capture-only, no schema bump (Phase-4, 2026-08-30)
+
+**Motivation.** Timestamps store **local wall-clock only** (`item.time` = `"HH:MM"`, `fastLog` start/end = `"YYYY-MM-DDTHH:MM"`) and days are keyed on **local date**. Fine at home; **logging while travelling silently shifts day boundaries** and poisons future correlation against sleep/fasting windows. The offset costs ~nothing at write time and **can never be retrofitted** — every day logged without it is information destroyed. This slice takes the **minimal honest version**: capture only.
+
+**`tzo` = the device's UTC offset in whole minutes, east-positive** (UTC−4 → `-240`). JS `getTimezoneOffset()` is west-positive, so `nowTZO()` negates it. `APP_VERSION → 0.8.1`.
+
+**Pin 1 — ADDITIVE ONLY; this slice CAPTURES, nothing CONSUMES.** Every record-creation path stamps `tzo` alongside the existing timestamp. **Zero behavior change**: day keying, display, averages, fasting detection, trends, Mirror all untouched. No reader is built.
+
+**Pin 2 — absence is a first-class state, never backfilled, never guessed.** All existing history is **pre-capture**; records without the field are honest, not broken. A garbage or out-of-range value is **dropped to absent, never clamped** — clamping would launder noise into a real-looking zone, the "absence ≠ zero" principle (D19/D22) applied to zone data.
+
+**Pin 3 — never stamp the ingesting device's zone onto data authored elsewhere.** The AI-paste / full-days / restore boundaries **preserve** a valid incoming `tzo` and **never invent one**; the paste author's zone is unknowable. The AI prompt template is unchanged for now.
+
+**Pin 4 — boundaries.** `normalizeTzo` coerces to an integer and validates **±840** (UTC−14…UTC+14) at entry **and** at restore; every normalizer **preserves** the field; export/restore round-trips **exact**.
+
+### Fork 1 — version: NO BUMP (ruled). Optional-additive; schema stays v5.
+
+**The asymmetry is decisive.** D27 bumped v4→v5 because an older app silently dropping **regimens** destroys **user-authored content with real recreation cost**. `tzo` is not that: losing it **degrades precision on records that remain fully valid**, and **absence is already a first-class state** (Pin 2) — a stripped offset lands the record in a state the schema already defines as honest. Weighed against a bump's cost — the forward-guard makes an older app **reject the export outright**, so a user hits a wall instead of losing a field no feature yet reads — no-bump is correct.
+
+**Recorded consequence, eyes open:** an older app that restores a v5-with-`tzo` export **silently strips** every offset. Accepted, because the loss is precision on still-valid records, not content.
+
+**Implementation note that the ruling's phrasing must not obscure:** this codebase's record normalizers (`normalizeItem`, `normalizeSignal`, `normalizePriceLog`, `normalizeFastLog`) are **allowlist rebuilds, not passthroughs** — only `normalizeMicros` genuinely preserves unknown keys. "Preserve-unknown-keys posture" is therefore implemented as an **explicit allowlist addition** in each normalizer, **not** by opening a passthrough (which would let arbitrary keys cross the untrusted paste boundary). The `normalizeTimeline` comment claiming "tolerate unknown keys" was misleading and is corrected.
+
+### Fork 2 — regimen instantiation: STAMP the instantiation device's offset (ruled).
+
+Verbatim, as the ruling framed it: **the timestamp answers "when"** — the schedule supplies it, per D27's Fork-B scheduled-time-default — **and the offset answers "where was the device when this was recorded"** — the device supplies it. **Different questions, different sources, each field its own truth.**
+
+Byte-identity (D27 Pin 2) is preserved **by construction**: the offset is stamped inside the **shared** `buildPresetItem` / `addSignal`, the same builders a manual log uses, so an instantiated record stays byte-identical to the equivalent manual log at the same time.
+
+### The creation-path sweep — stamp-or-deliberately-exempt, enforced
+
+The sweep enumerates **every write site**, not just the obvious record creators, and asserts each is **stamped** or **deliberately exempt with a stated reason** — so **a future write site cannot silently join unstamped**. Enforced statically by `tests/check-writesites.sh` (the `check-sw-hash` / strip-check idiom): a write site not in the manifest **fails the gate**.
+
+**STAMPED (7):** `addManualEntry` · `buildPresetItem` (manual `logPreset` **and** regimen food instantiation) · `buildScanItem` · `buildSupplementItem` (day-rollover injection **and** enable-time injection) · `addSignal` (chips, signal form, medication form, `logBP`, regimen med/event instantiation) · `addPriceEntry` · `resolveFast`.
+
+**DELIBERATELY EXEMPT, with reason:**
+- `toAiPasteItem` / `ingestItems` / `ingestFullDays` / `restore` / all `migrateV*` — **Pin 3**: foreign or historical data; preserve, never invent.
+- **Pre-restore backup (D3)** — a **verbatim snapshot** of existing state; stamping would rewrite history with today's offset, violating Pin 2. Must preserve `tzo` exactly and add none.
+- **Regimen fulfillment flag** (`setFulfillment`) — the flag is a **bare enum string** (`'template'` / `'substituted'`) keyed by date and **carries no timestamp**; there is nothing to stamp. Giving it one would be a record-shape change, out of scope for an additive-capture slice. The **record** a `template` log creates **is** stamped, via the shared builders.
+- `saveManualPreset`, `setGoal`, `setSupplement`, `setNudge`, `setFastingFromForm`, `addRegimenFromJSON` — **templates and settings, not records**: they describe intent, not an event that happened. Their instantiations are stamped.
+- `addWater` — `day.water_l` is a **day-level scalar**, not a timestamped record.
+- `deleteItem` / `cycleMeal` / `toggleDayStatus` / `clearDay` — mutate or remove; create nothing.
+- `ProductCache` — a **disposable mirror** of OFF data (D13), not a user record.
+- `priceComparison`'s internal grouping and `focusAdherence`'s date collection — **display-side** structures, never persisted. (Both are read-side false positives of the census pattern; they are classified rather than pattern-matched away, so the pattern stays deliberately over-broad and a real write cannot slip past it.)
