@@ -561,3 +561,43 @@ Layer-1 adherence (D21 day-40 test), scoped to the primary user's real protocol 
 **Edits never touch history (Fork E).** Instantiated records are independent copies; editing/deleting a regimen or entry never touches logged records (the preset-deletion precedent). **Multiple regimens, one active (Fork F).**
 
 **Cadence items are OUT (Fork D).** The 72–96 h fast every 14–21 days needs **no representation** — `detectFastCandidates` already catches it (D22's no-cap ruling was made for exactly these). Weekday-fixed recurrence fits via `days`; genuine interval/quota cadence is deferred. **User-authored only (Pin 6)** — no suggested/recommended regimens (app-recommended-from-goals is Layer 4, prohibited).
+
+## D28 — Governance: the device-integration gate is RULED (closes D19's deferral) + FairCart addendum (2026-08-30)
+
+Closes the **standalone device-integration strategic gate** that **D19** referenced and deferred ("ruled with D17-level rigor before any integration code"). Governance-only, like D17/D19/D21/D26: it binds architecture, it builds nothing.
+
+**Option letters are local to this entry** — D19's parked-feature letters (A nearby prices, B BYOK vision, D week analytics, E shopping lists, F contribute-back) are a **different set** and are not affected. Here: **A** = stay PWA, manual entry only; **B** = native shell; **C** = cloud OAuth adapters; **D** = a server we run.
+
+### The ruling: B, then C-if-demanded; A is the floor, not the plan.
+
+**Architecture fork — ruled directionally, not calendared.** HealthKit-class device data will come via a **native shell** (Expo/React-Native WebView wrapping the existing web app, native bridge for HealthKit) feeding the **existing Slice-T adapter contract** (D19/D20: "a later cloud adapter or native layer must feed the same store via the same contract with no substrate rebuild") — **never via a server we run**. The web app remains **canonical**; the shell is a **consumer**.
+
+**The shell's start is gated on a real trigger, not a date:** when the WebView pattern's viability is confirmed on this exact stack, or when a HealthKit need (steps, sleep/HRV, CGM-via-HealthKit) becomes an actual build decision — whichever comes first. Ruled **directionally so the fork is never re-litigated**.
+
+**Verified facts the ruling rests on** (recorded because the ruling is only as good as these):
+- **HealthKit is native-only**; no browser API exists or is coming. This is the fact that **forces** the fork — no amount of PWA work reaches it.
+- **HealthKit ingestion via a native bridge involves ZERO egress** — device → bridge → `normalizeSignal`; no cloud, no token, no server. **B adds device data without crossing D17's "nothing leaves your device" line**; the only thing spent is the "just a website" simplicity.
+- **Dexcom lands in HealthKit** (3-hour delay, the same as their own API) — **CGM comes free with B**, no API work.
+- **Costed path** (report dated 2026-08-29): no Mac needed (EAS cloud builds from Windows); `@kingstinct/react-native-healthkit` with **anchored queries + per-type staleness badges** (background delivery throttles silently — **surface it, never trust it**); ~US$99/yr developer program; ~three build days to TestFlight after enrolment.
+
+**Cloud OAuth adapters (C — Oura-first) are DEFERRED behind B's evidence.** Revisit only when a real user actually needs the cloud route (e.g. an Oura owner who won't or can't install the shell). C is the **genuine D17 egress crossing** (user token + biometric data transiting the vendor's cloud) and ships only behind the **informed-consent tier**. **Do not build consent infrastructure for a constituency that may not exist** — the D26 discipline applied to governance plumbing.
+
+**Option D (any server we run — sync, hosted pulls, accounts) is REJECTED** per D17(b). A future commercial tier revisits under **D17's own optionality rules**, never through this gate.
+
+### D17 posture — re-confirmed, with one extension.
+
+The **free / public-good positioning HOLDS** for an app holding device biometrics: the shell ships free, no accounts, data on-device, export-is-yours; **an App Store listing is distribution, not monetization**. **Extension line for D17:** the native shell's existence creates **no server, no account system, no telemetry**; the bridge has **no network path** (cross-device transfer, if ever wanted, follows the **export-via-share-sheet** pattern). The privacy README extends to the shell: **HealthKit data never leaves the device**.
+
+### Roadmap consequence (recorded, not built).
+
+B unlocks, in order: **steps → sleep/HRV → CGM via HealthKit → the fasting resolver's fourth state** (biometric auto-resolution of pending candidates — the **Slice-X seam D22 was built to leave open**) **→ Layer 4's data threshold actually filling** (D21).
+
+### FairCart addendum.
+
+The **FairCart lineage** — scan, personal price history, and nearby-price comparison via **Open Prices (read-only, user-initiated)**, with device location as a **TRANSIENT query parameter: never stored, never continuous, one-shot lookups only; a location history/trail is PROHIBITED** — is confirmed **in-scope and privacy-clean** under the existing rulings (D14/D18 + the brief's Phase 3).
+
+**Product COMPARISON on explicit factual metrics is Mirror-grammar (D23) and PERMITTED:** same-barcode price deltas across stores ("$4.99 here · $3.49 at X, 800 m") and cross-product **price-per-unit** or **price-per-gram-protein** with the **metric STATED**. **Comparative-factual language only; never "better for you."**
+
+**Product RECOMMENDATION that reads the user's health data** (goals, regimen, intake history) **to steer purchases is Layer-4 personalized guidance** (D21/D25) — gated behind the guidance/contraindication governance note and the consent tier; built only when that gate opens.
+
+**Standing rule regardless of tier: NO recommendation or comparison surface ever carries commercial placement** — no affiliate links, no sponsored results, no paid ranking (D17). **The trust story is the asset; a paid "better product" would spend it permanently.**
