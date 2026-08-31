@@ -689,3 +689,23 @@ Direction only, like D17/D19/D21/D26/D28: it binds **preconditions**, and author
 **Paid infers agency — and therefore requires a scoping document.** Taking payment **infers agency**: a paying user is owed a duty a free user is not, and that duty attaches whether or not it is claimed. Consequently **any paid tier requires a scoping document** stating what is and is not promised, before the tier exists. This is the commercial mirror of the guidance gate (D21/D25): the constraint binds hardest exactly where the incentive to blur it is strongest.
 
 **Relationship to the existing record.** D28 already ruled that an **App Store listing is distribution, not monetization**, and that the native shell creates **no server, no accounts, no telemetry**; **D17(b)** rejects any server we run, and a future commercial tier revisits **under D17's own optionality rules, never through a feature gate**. D31 adds the entity-and-duty preconditions to that same door. The **standing rule from D28 is unaffected and unwaivable by any tier**: no recommendation or comparison surface ever carries commercial placement — no affiliate links, no sponsored results, no paid ranking. **The trust story is the asset.**
+
+## D32 — Safety amendment: jurisdictional reference ranges, shown against the user's own readings (2026-08-30)
+
+Amends the **Mirror (D23)** and the **four-layer model (D21/D25)**. Reference ranges are the first content the app shows that is **about health rather than about the user's behavior**, so the amendment is written as constraints first.
+
+**Declared in settings, never detected.** The user **declares** their jurisdiction in settings. The app **never infers it** — not from locale, timezone, IP, or the D28/FairCart location lookup (which stays a transient one-shot query parameter, never stored, per D28). Detecting jurisdiction would build a location signal the privacy stance forbids, to save one setting.
+
+**Sourced, cited, versioned. Canada first, US second.** Every range ships with its **source, a citation, and a version**, so a range can be audited and updated without guessing what the app was showing last year. **Canada first, United States second**; further jurisdictions follow the same sourcing bar or do not ship.
+
+**Shown against the user's readings.** Ranges are displayed **against the user's own values** — the Mirror grammar (D23): the user's data, the cited band, and the relationship between them. **Factual trend commentary only.**
+
+**Persistence-gated trend row.** When a **sustained multi-week trend crosses a band**, a trend row surfaces. **Persistence is the gate** — a single crossing reading is noise, and surfacing it would manufacture alarm from measurement variance. This is the "absence ≠ zero" discipline (D19/D22) applied to the other tail: **one reading is not a trend**.
+
+**"Worth discussing with your doctor" is standing context, never a per-flag verdict.** It appears as **standing context** for the feature, not as a per-reading or per-flag pronouncement. A verdict attached to individual values is Layer-4 guidance wearing a disclaimer.
+
+**Acute sourced statements ONLY on hand-entered readings, never device streams.** A hand-entered reading is an act of attention — the user is present, looking at a number. A **device stream is not**: acute statements on a stream would fire unattended, at arbitrary hours, on data the user has not looked at, with no one in the loop. This bound holds regardless of how good the stream gets, and it binds the D28 shell in advance.
+
+**Free and default-on regardless of tier.** This is **safety content, not a feature**: it is **free and on by default at every tier**, including any future paid tier (D31). Placing a safety surface behind payment would make D31's paid-infers-agency clause self-contradicting.
+
+**Mirror-never-nag is scoped to BEHAVIOR, not DANGER.** D23/D25's never-nag discipline governs **behavioral** commentary — it was never a rule against telling a user something that matters. **A danger signal is not a nudge**, and never-nag must not be read as a reason to stay silent about one. The two are separated here explicitly so the discipline cannot be misapplied as suppression.
