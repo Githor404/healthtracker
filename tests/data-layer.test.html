@@ -1166,7 +1166,14 @@ window.setLS({});
   res(gs.unit==='mg/dL' && gs.points.length===2 && Math.abs(gs.points[1].v-90.09)<0.5, 'M1: glucose mmol/L -> mg/dL');
   stM.timeline={}; stM.timeline['2026-06-01']=[{time:'06:00',kind:'biometric',type:'breath_ketones',value:20,unit:'ppm',source:'manual'},{time:'06:05',kind:'biometric',type:'breath_ketones',value:2,unit:'mmol/L',source:'manual'}];
   var bs=HT.signalSeries('breath_ketones','all');
-  res(bs.unit==='ppm' && bs.points.length===1 && bs.excluded===1 && bs.total===2, 'M1: breath-ketones mmol/L EXCLUDED from a ppm series (not force-converted), coverage counted');
+  // D34 CONTRACT CHANGE (ruled): an unconvertible reading is no longer excluded.
+  // It is kept, flagged converted:false, and labelled with its own unit -- never
+  // force-converted, and never dropped. Statistics still use converted points only.
+  res(bs.unit==='ppm' && bs.points.length===2 && bs.excluded===0 && bs.unconverted===1 && bs.total===2,
+      'M1: breath-ketones mmol/L KEPT in a ppm series as entered (never force-converted, never dropped)');
+  var bsUn=bs.points.filter(function(p){return p.converted===false;});
+  res(bsUn.length===1 && bsUn[0].unit==='mmol/L' && bsUn[0].v===2, 'M1: the unconvertible reading keeps its own value + unit for labelled display');
+  res(HT.seriesSummary(bs).n===1 && HT.seriesSummary(bs).unconverted===1, 'M1: statistics use converted points only, and report the unconverted count');
 
   // M2: trend assembly + factual summary
   setLS({}); HT.boot();
@@ -1917,6 +1924,211 @@ window.setLS({});
   var sumTxt = document.getElementById('historySummary').textContent;
   res(/All days · \d+ logged · \d+ in progress/.test(sumTxt) && sumTxt.indexOf(String(renderedRows) + ' logged') >= 0,
       'SE-history-counts: the summary line carries both counts and matches the list :: ' + sumTxt);
+
+  // ==========================================================================
+  // D34 — lab panels. Per-value records + panelId (A); LAB_SPEC merged at load
+  // (B); no schema bump (C); measurement-class-aware persistence (D); per-analyte
+  // conversion with a never-drop contract (E).
+  // ==========================================================================
+  var LABDATE = '2026-03-01', LABDATE2 = '2026-06-01', LABDATE3 = '2026-09-01';
+
+  // LB-A: per-value records sharing a panelId; never a second record system.
+  setLS({}); HT.boot();
+  var lp = HT.addLabPanel(LABDATE, [
+    { type:'apo_b', value:0.95, unit:'g/L' },
+    { type:'ldl_c', value:2.6, unit:'mmol/L' },
+    { type:'ferritin', value:210, unit:'ug/L', ref_low:30, ref_high:400 },
+    { type:'hdl_c', value:'' }
+  ]);
+  res(lp.ok && lp.written===3, 'LB-A: a panel writes one record PER VALUE; a blank row is not measured, not an error');
+  var labRecs = HT.state().timeline[LABDATE] || [];
+  res(labRecs.length===3 && labRecs.every(function(r){ return r.source==='lab' && r.kind==='biometric'; }),
+      'LB-A: lab values are ordinary timeline biometric records with source lab');
+  res(labRecs.every(function(r){ return r.panelId===lp.panelId; }) && lp.panelId!=='',
+      'LB-A: every value in the panel shares one panelId (exact grouping, not inferred)');
+  res(HT.labPanels().length===1 && HT.labPanels()[0].values.length===3, 'LB-A: the panel is a DERIVED grouping, never a record of its own');
+  res(HT.state().version===5, 'LB-C: schema version UNCHANGED at 5 (no bump)');
+
+  // LB-B: LAB_SPEC merged into the runtime lookup, but NOT into SIGNAL_SPEC.
+  res(HT.isLabType('apo_b') && !HT.isLabType('weight') && !!HT.SIGNAL_BY_TYPE['apo_b'] && HT.SIGNAL_BY_TYPE['apo_b'].kind==='biometric',
+      'LB-B: LAB_SPEC is merged into the runtime SIGNAL_BY_TYPE lookup at load');
+  res(HT.LAB_SPEC.length===14, 'LB-B: the curated starter set is 14 analytes');
+  res(HT.SIGNAL_SPEC.every(function(s){ return !HT.isLabType(s.type); }),
+      'LB-B: lab analytes are NOT in SIGNAL_SPEC (ApoB never appears beside Sauna in the picker/chips)');
+  res(HT.signalSeries('apo_b','all').label==='ApoB',
+      'LB-B: the merge makes signalSeries/chipLabel work on lab types with no change to them');
+  res(HT.CHIP_DEFAULT.every(function(t){ return !HT.isLabType(t); }), 'LB-B: no lab analyte reaches the quick-log chip strip');
+
+  // LB-C: an OLDER app (one that does not know these types) must PRESERVE them.
+  var labExport = JSON.parse(HT.exportJSON());
+  setLS({}); HT.boot(); window.__confirm = true;
+  HT.restore(JSON.stringify(labExport));
+  var back = (HT.state().timeline[LABDATE]||[]);
+  res(back.length===3 && back.every(function(r){ return r.source==='lab' && r.panelId===lp.panelId; }),
+      'LB-C: lab records + panelId survive export -> restore EXACT');
+  var unknown = HT.normalizeSignal({ time:'09:00', kind:'biometric', type:'some_future_analyte', value:7, unit:'x', source:'lab', panelId:'p1' });
+  res(unknown.type==='some_future_analyte' && unknown.value===7 && unknown.source==='lab' && unknown.panelId==='p1',
+      'LB-C: an app that does not know the analyte still PRESERVES the record (unknown type tolerated)');
+  var refKept = (HT.state().timeline[LABDATE]||[]).filter(function(r){ return r.type==='ferritin'; })[0];
+  res(refKept && refKept.ref_low===30 && refKept.ref_high===400 && refKept.ref_src==='lab-report',
+      'LB-C: the lab-report reference interval round-trips with its value');
+
+  // LB-E: per-analyte conversion, and the never-drop contract.
+  var r4=function(x){ return Math.round(x*100)/100; };
+  res(r4(HT.convertUnit('ldl_c',100,'mg/dL','mmol/L'))===2.59 && r4(HT.convertUnit('triglycerides',150,'mg/dL','mmol/L'))===1.69,
+      'LB-E: lipid mg/dL -> mmol/L uses PER-ANALYTE factors (LDL 38.67, TG 88.57), not one shared factor');
+  res(r4(HT.convertUnit('vit_d_25oh',30,'ng/mL','nmol/L'))===74.88 && r4(HT.convertUnit('insulin_fasting',10,'uIU/mL','pmol/L'))===69.45,
+      'LB-E: 25-OH-D x2.496 and insulin x6.945');
+  res(r4(HT.convertUnit('hba1c',7,'%','mmol/mol'))===53.01 && r4(HT.convertUnit('hba1c',53.01,'mmol/mol','%'))===7,
+      'LB-E: HbA1c converts by the NGSP/IFCC FORMULA, not a factor (round-trips)');
+  res(HT.convertUnit('ferritin',100,'ug/L','mg/L')===null, 'LB-E: an unmapped analyte returns null (store-as-entered), never a fabricated number');
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'ferritin', value:210, unit:'ug/L' }]);
+  HT.state().timeline[LABDATE2] = [{ time:'09:00', kind:'biometric', type:'ferritin', value:180, unit:'mg/L', source:'lab' }];
+  var fser = HT.signalSeries('ferritin','all');
+  res(fser.points.length===2 && fser.excluded===0 && fser.unconverted===1,
+      'LB-E GATE: no analyte ever VANISHES from a series — the unconvertible reading is kept, not dropped');
+  res(fser.points.filter(function(p){return p.converted===false;})[0].unit==='mg/L',
+      'LB-E: the kept reading carries its OWN unit so it is displayed as entered and labelled');
+  var fsum = HT.seriesSummary(fser);
+  res(fsum.n===1 && fsum.unconverted===1, 'LB-E: seriesSummary reports the coverage split (converted vs shown-as-entered)');
+  // The coverage annotation lands on the Trends statistics line, which iterates
+  // SIGNAL_SPEC — lab analytes are deliberately not in it (Fork B), so this is
+  // exercised on a mixed-unit biometric (the M1 scenario). TREND_MIN_POINTS = 3.
+  setLS({}); HT.boot();
+  HT.state().timeline['2026-06-01'] = [{ time:'06:00', kind:'biometric', type:'breath_ketones', value:20, unit:'ppm', source:'manual' }];
+  HT.state().timeline['2026-06-02'] = [{ time:'06:00', kind:'biometric', type:'breath_ketones', value:24, unit:'ppm', source:'manual' }];
+  HT.state().timeline['2026-06-03'] = [{ time:'06:00', kind:'biometric', type:'breath_ketones', value:2,  unit:'mmol/L', source:'manual' }];
+  if (!document.getElementById('trends')) { var trEl=document.createElement('div'); trEl.id='trends'; document.body.appendChild(trEl); }
+  HT.setTrendWindow('all'); HT.renderTrends();
+  var trHTML = document.getElementById('trends').innerHTML;
+  res(trHTML.indexOf('avg over 2 of 3 readings (1 unconverted, shown as entered)') >= 0,
+      'LB-E: the statistics line carries the micros-style coverage annotation');
+  res(trHTML.indexOf('shown as entered in mmol/L') >= 0,
+      'LB-E: the unconverted reading is named with its own unit on the trend head');
+
+  // LB-D: measurement-class-aware persistence.
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'hba1c', value:6.2, unit:'%' }]);
+  var t1 = HT.labTrend('hba1c');
+  res(t1.n===1 && !!t1.band && /prediabetes/.test(t1.band.label) && t1.showTrendRow===false && t1.direction===null,
+      'LB-D: ONE out-of-range value displays its band factually, with NO trend claim');
+  res(t1.band.src==='guideline' && !!t1.band.org && !!t1.band.cite && !!t1.band.version,
+      'LB-D/D32: a guideline band carries its source, citation AND version');
+  HT.addLabPanel(LABDATE2, [{ type:'hba1c', value:6.3, unit:'%' }]);
+  var t2 = HT.labTrend('hba1c');
+  res(t2.n===2 && t2.showTrendRow===true && t2.direction===null,
+      'LB-D: a trend row needs >=2 consecutive panels in the SAME band; direction still withheld at 2 points');
+  HT.addLabPanel(LABDATE3, [{ type:'hba1c', value:5.4, unit:'%' }]);
+  var t3 = HT.labTrend('hba1c');
+  res(t3.n===3 && t3.direction==='down', 'LB-D: directional commentary only at >=3 points');
+  res(t3.showTrendRow===false, 'LB-D: the trend row drops when band membership is no longer persistent across consecutive panels');
+
+  // LB-risk: CCS lipid targets are RISK-STRATIFIED, so they may never be this
+  // user's band -- the app must not infer a risk category.
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'apo_b', value:1.10, unit:'g/L' }]);
+  var tr = HT.labTrend('apo_b');
+  res(tr.band===null, 'LB-risk: with no printed interval entered, a lipid claims NO band (the CCS figure never fills in as one)');
+  res(!!tr.overlay && tr.overlay.value===0.80 && /statin-indicated/.test(tr.overlay.applicability) && /stricter tier/.test(tr.overlay.applicability),
+      'LB-risk: the CCS target rides as a labelled OVERLAY with its applicability stated');
+  res(HT.LAB_SPEC.filter(function(s){return s.overlay;}).every(function(s){ return !s.guideline && !s.bands && s.rangeSource==='lab-report'; }),
+      'LB-risk: no overlay analyte carries guideline BANDS - an overlay can never become a band');
+  HT.addLabPanel(LABDATE2, [{ type:'apo_b', value:1.05, unit:'g/L', ref_low:0.4, ref_high:1.0 }]);
+  var tr2 = HT.labTrend('apo_b');
+  res(tr2.band && tr2.band.src==='lab-report' && !!tr2.overlay,
+      'LB-risk: when the lab interval IS entered it supplies the band, and the CCS overlay still shows alongside it');
+  if (!document.getElementById('labTrends')) { var lt2=document.createElement('div'); lt2.id='labTrends'; document.body.appendChild(lt2); }
+  HT.renderLabTrends();
+  var rhtml = document.getElementById('labTrends').innerHTML;
+  res(/does not know your risk category/.test(rhtml) && /Canadian Cardiovascular Society/.test(rhtml),
+      'LB-risk: the rendered overlay states the applicability AND that no risk category is assumed');
+
+  // LB-D gate: a single out-of-band lab is NEVER silently un-displayed.
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'hba1c', value:9.2, unit:'%' }]);
+  if (!document.getElementById('labTrends')) { var lt=document.createElement('div'); lt.id='labTrends'; document.body.appendChild(lt); }
+  HT.renderLabTrends();
+  var lthtml = document.getElementById('labTrends').innerHTML;
+  res(/9\.2/.test(lthtml) && /diabetes threshold/.test(lthtml),
+      'LB-D GATE: a single out-of-band value is DISPLAYED with its band — never silently un-displayed');
+  res(/Diabetes Canada/.test(lthtml), 'LB-D/D32: the citation is shown with the band');
+  res(/worth discussing with your doctor/i.test(lthtml) && (lthtml.match(/worth discussing with your doctor/gi)||[]).length===1,
+      'LB-D/D32: "worth discussing with your doctor" is STANDING CONTEXT once, never a per-flag verdict');
+
+  // LB-content: the split content bar — 5 cited, 9 lab-report.
+  var cited = HT.LAB_SPEC.filter(function(s){ return !!s.guideline; });
+  var overlay = HT.LAB_SPEC.filter(function(s){ return !!s.overlay; });
+  var labref = HT.LAB_SPEC.filter(function(s){ return s.rangeSource==='lab-report'; });
+  res(cited.length===3 && overlay.length===2 && labref.length===11,
+      'LB-content: three guideline-BANDED analytes, two risk-stratified OVERLAYS, eleven banding from the lab printed interval');
+  res(cited.every(function(s){ return s.guideline.org && s.guideline.cite && s.guideline.version && s.guideline.jurisdiction==='CA'; }),
+      'LB-content/D32: every cited band is sourced, cited, versioned and jurisdiction-tagged (Canada first)');
+  res(cited.map(function(s){return s.type;}).sort().join(',')==='glucose_fasting,hba1c,vit_d_25oh',
+      'LB-content: the banded three are HbA1c, fasting glucose, 25-OH-D (non-risk-stratified)');
+  res(overlay.map(function(s){return s.type;}).sort().join(',')==='apo_b,ldl_c' &&
+      overlay.every(function(s){ return s.overlay.org && s.overlay.cite && s.overlay.version && s.overlay.applicability; }),
+      'LB-content: the two CCS lipid targets ride as cited overlays carrying applicability');
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'tsh', value:3.1, unit:'mIU/L' }]);
+  var tshT = HT.labTrend('tsh');
+  res(tshT.band===null, 'LB-content: a lab-report analyte with NO interval entered claims no band (absence, never a guess)');
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'tsh', value:9.9, unit:'mIU/L', ref_low:0.3, ref_high:4.0 }]);
+  res(/above the lab’s reference interval/.test(HT.labTrend('tsh').band.label),
+      'LB-content: with the printed interval entered, the band comes from the REPORTING LAB');
+
+  // LB-boundary (attestation edit 3): HALF-OPEN intervals [min, max). A reading
+  // exactly at the threshold bands as the DIABETES range, never below it.
+  setLS({}); HT.boot();
+  var bandOf = function(type, v, unit){ var b = HT.labBand(type, v, unit, {}); return b ? b.label : null; };
+  res(/prediabetes/.test(bandOf('hba1c', 6.0, '%')) && /prediabetes/.test(bandOf('hba1c', 6.4, '%')),
+      'LB-boundary: HbA1c 6.0 and 6.4 band as prediabetes (lower bound INCLUSIVE)');
+  res(/diabetes threshold/.test(bandOf('hba1c', 6.5, '%')),
+      'LB-boundary: HbA1c exactly 6.5 bands as the DIABETES range, not below it (upper bound EXCLUSIVE)');
+  res(/below the diabetes range/.test(bandOf('hba1c', 5.9, '%')), 'LB-boundary: HbA1c 5.9 bands below the diabetes range');
+  res(/impaired-fasting-glucose/.test(bandOf('glucose_fasting', 6.1, 'mmol/L')) && /impaired-fasting-glucose/.test(bandOf('glucose_fasting', 6.9, 'mmol/L')),
+      'LB-boundary: fasting glucose 6.1 and 6.9 band as IFG (lower bound INCLUSIVE)');
+  res(/diabetes threshold/.test(bandOf('glucose_fasting', 7.0, 'mmol/L')),
+      'LB-boundary: fasting glucose exactly 7.0 bands as the DIABETES range, not below it (upper bound EXCLUSIVE)');
+  res(/below the impaired/.test(bandOf('glucose_fasting', 6.0, 'mmol/L')), 'LB-boundary: fasting glucose 6.0 bands below IFG');
+
+  // LB-attest (edits 1 + 2): the cited content as signed.
+  var ccsOv = HT.LAB_BY_TYPE['apo_b'].overlay;
+  res(/very-high-risk secondary prevention/.test(ccsOv.applicability) && /1\.8/.test(ccsOv.applicability) && /0\.7/.test(ccsOv.applicability) && /2\.4/.test(ccsOv.applicability),
+      'LB-attest/CCS: the overlay states the STRICTER very-high-risk secondary-prevention tier');
+  res(/triglycerides exceed 1\.5/.test(ccsOv.applicability) && /non-HDL-C or ApoB over LDL-C/.test(ccsOv.applicability),
+      'LB-attest/CCS: the overlay states the non-HDL-C / ApoB preference when TG > 1.5 mmol/L');
+  res(ccsOv.cite === 'Pearson et al., Can J Cardiol 2021' && HT.LAB_BY_TYPE['ldl_c'].overlay.cite === 'Pearson et al., Can J Cardiol 2021',
+      'LB-attest/CCS: citation is Pearson et al., Can J Cardiol 2021');
+  var vd = HT.LAB_BY_TYPE['vit_d_25oh'];
+  res(vd.guideline.cite === 'Hanley et al., CMAJ 2010' && /reaffirmed 2024/.test(vd.guideline.version),
+      'LB-attest/25-OH-D: cited to Hanley et al., CMAJ 2010, version records the 2024 reaffirmation');
+  res(/50 nmol\/L/.test(vd.disclosure) && /Health Canada\/IOM/.test(vd.disclosure) && /may differ/.test(vd.disclosure),
+      'LB-attest/25-OH-D: the REQUIRED disclosure names the 50 nmol/L definition and that the lab interval may differ');
+
+  // A guideline-banded analyte now also stores + displays the lab's own interval.
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'vit_d_25oh', value:60, unit:'nmol/L', ref_low:50, ref_high:250 }]);
+  var vdt = HT.labTrend('vit_d_25oh');
+  res(vdt.band && vdt.band.src === 'guideline' && vdt.labInterval && vdt.labInterval.low === 50 && vdt.labInterval.high === 250,
+      'LB-attest/25-OH-D: the guideline band and the lab printed interval are BOTH carried');
+  if (!document.getElementById('labTrends')) { var lt3 = document.createElement('div'); lt3.id = 'labTrends'; document.body.appendChild(lt3); }
+  HT.renderLabTrends();
+  var vdh = document.getElementById('labTrends').innerHTML;
+  res(/below the sufficiency threshold/.test(vdh) && /printed interval: 50/.test(vdh) && /50 nmol\/L/.test(vdh),
+      'LB-attest/25-OH-D: band, the lab interval alongside, and the disclosure all render together');
+  res(!/recommend|should get|worth testing/i.test(vdh), 'LB-attest: nothing on the lab surface implies the app recommends testing');
+
+  // LB-escaping + LB-inert
+  setLS({}); HT.boot();
+  var before = HT.exportJSON();
+  HT.addLabPanel(LABDATE, [{ type:'not_an_analyte', value:1 }]);
+  res(HT.exportJSON()===before, 'LB-safety: an unknown analyte is rejected and writes nothing');
+  setLS({}); HT.boot();
+  HT.addLabPanel(LABDATE, [{ type:'alt', value:30, unit:'U/L' }]);
+  HT.addManualEntry({ name:'Food', kcal:400, soluble_fiber_g:0 });
+  res(HT.dayTotals(HT.state().days[td]).kcal===400, 'LB-inert: lab values never enter food totals (D19/D20 line holds)');
 
   var seDone = false;
   function finish(){

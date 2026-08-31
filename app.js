@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.9.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.10.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1876,6 +1876,10 @@ const SIGNAL_SPEC = [
 ];
 const SIGNAL_BY_TYPE = SIGNAL_SPEC.reduce((m, s) => { m[s.type] = s; return m; }, {});
 const SIGNAL_KINDS = ['biometric', 'event', 'medication'];   // D20 addendum: medication is a first-class kind
+// In-app adapters that may DECLARE their source through addSignal (D19's "one
+// contract, many adapters"). A later device adapter (D28) joins this list; it is
+// an allowlist so a source can never be self-asserted by data we did not create.
+const SIGNAL_ADAPTERS = ['manual', 'lab'];
 // Medication closed enums (name is open-ended free text; these drive form controls,
 // no cross-wiring — MICRO_SPEC/M1 discipline).
 const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'drop', 'puff', 'unit'];
@@ -1914,6 +1918,14 @@ function normalizeSignal(raw) {
   }
   const tzo = normalizeTzo(raw.tzo);   // D29: preserve only -- addSignal supplies it
   if (tzo !== undefined) rec.tzo = tzo;
+  // D34 lab fields, allowlist additions (the tzo pattern — this normalizer is a
+  // rebuild, so an additive field must be listed here to survive). panelId is a
+  // GROUPING KEY: losing it degrades grouping but loses no value, so it is
+  // precision rather than content and needs no schema bump (D29's asymmetry test).
+  if (raw.panelId != null && String(raw.panelId) !== '') rec.panelId = String(raw.panelId);
+  if (raw.ref_low  != null && String(raw.ref_low)  !== '') rec.ref_low  = clampNonNeg(raw.ref_low);
+  if (raw.ref_high != null && String(raw.ref_high) !== '') rec.ref_high = clampNonNeg(raw.ref_high);
+  if (raw.ref_src === 'lab-report') rec.ref_src = 'lab-report';
   return rec;
 }
 
@@ -1955,10 +1967,13 @@ function addSignal(raw) {
   }
   const date = /^\d{4}-\d{2}-\d{2}$/.test(String(raw.date)) ? String(raw.date) : localDate();
   const warnings = signalWarnings(raw);
-  // Manual adapter forces source. D29: stamps the device offset unless the caller
-  // supplied one — leaving the seam open for a later adapter (D19/D28) that carries
-  // its own zone, without this path ever inventing a zone for foreign data.
-  const rec = normalizeSignal(Object.assign({}, raw, { source: 'manual', tzo: raw.tzo != null ? raw.tzo : nowTZO() }));
+  // The adapter entry point (D19: one contract, many adapters; manual is the
+  // zeroth). A trusted in-app adapter may DECLARE its source from the allowlist —
+  // anything else falls back to 'manual', so a source is never self-asserted by
+  // untrusted data. (Ingest/restore never reach here; timeline is restore's job.)
+  // D29: stamps the device offset unless the caller supplied one.
+  const src = SIGNAL_ADAPTERS.indexOf(raw.source) >= 0 ? raw.source : 'manual';
+  const rec = normalizeSignal(Object.assign({}, raw, { source: src, tzo: raw.tzo != null ? raw.tzo : nowTZO() }));
   if (!APP_STATE.timeline || typeof APP_STATE.timeline !== 'object') APP_STATE.timeline = {};
   (APP_STATE.timeline[date] = APP_STATE.timeline[date] || []).push(rec);
   if (!APP_STATE.settings.signalUnits) APP_STATE.settings.signalUnits = {};   // remember last-used unit
@@ -2415,11 +2430,16 @@ const UNIT_CONVERT = {
   weight:  { 'kg>lb': function (v) { return v * 2.2046226; }, 'lb>kg': function (v) { return v / 2.2046226; } },
   glucose: { 'mg/dL>mmol/L': function (v) { return v / 18.0182; }, 'mmol/L>mg/dL': function (v) { return v * 18.0182; } },
 };
+// CONTRACT (D34, changed): null means NOT CONVERTIBLE — the caller must DISPLAY
+// THE READING AS ENTERED, unconverted and LABELLED with its own unit. It must
+// NEVER drop the point. Silently excluding an unconvertible reading is how an
+// analyte vanishes from its own series; that is the one behaviour this contract
+// exists to forbid.
 function convertUnit(type, value, fromU, toU) {
   if (fromU === toU) return num(value);
-  const tbl = UNIT_CONVERT[type];
+  const tbl = UNIT_CONVERT[type] || LAB_CONVERT[type];
   const fn = tbl && tbl[fromU + '>' + toU];
-  return fn ? fn(num(value)) : null;                        // null = not convertible -> excluded from this series
+  return fn ? fn(num(value)) : null;                        // null = display as entered + labelled, NEVER dropped
 }
 function windowCutoff(days) {
   if (!days || days === 'all') return '0000-00-00';         // include everything
@@ -2434,29 +2454,43 @@ function signalSeries(type, days) {
   const spec = SIGNAL_BY_TYPE[type];
   const targetUnit = signalUnitDefault(type);
   const cut = windowCutoff(days);
-  const pts = []; let excluded = 0, total = 0;
+  const pts = []; let unconverted = 0, total = 0;
   Object.keys(APP_STATE.timeline || {}).forEach((d) => {
     if (d < cut) return;
     (APP_STATE.timeline[d] || []).forEach((r) => {
       if (r.type !== type || r.value == null) return;
       total++;
-      const v = convertUnit(type, r.value, r.unit || targetUnit, targetUnit);
-      if (v == null) { excluded++; return; }
+      const from = r.unit || targetUnit;
+      const v = convertUnit(type, r.value, from, targetUnit);
+      // D34 contract: an unconvertible reading is KEPT, as entered and labelled
+      // with its own unit — never excluded. `excluded` is retained at 0 for
+      // callers that still read it, and is now always 0 by construction.
+      if (v == null) {
+        unconverted++;
+        pts.push({ t: d + 'T' + (r.time || '00:00'), v: Math.round(num(r.value) * 100) / 100, unit: from, converted: false });
+        return;
+      }
       pts.push({ t: d + 'T' + (r.time || '00:00'), v: Math.round(v * 100) / 100 });
     });
   });
   pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  return { type: type, label: spec ? spec.label : type, unit: targetUnit, points: pts, excluded: excluded, total: total };
+  return { type: type, label: spec ? spec.label : type, unit: targetUnit, points: pts,
+           excluded: 0, unconverted: unconverted, total: total };
 }
 // Factual summary only (no interpretation): latest, min, max, avg, delta, n.
 function seriesSummary(s) {
-  const vals = s.points.map((p) => p.v);
+  // D34: the series KEEPS every reading (nothing vanishes), but statistics are
+  // computed over the CONVERTED ones only — averaging ppm with mmol/L would be a
+  // worse dishonesty than the drop this contract replaced. The unconverted count
+  // is reported so the caller can state them explicitly instead.
+  const conv = s.points.filter((p) => p.converted !== false);
+  const vals = conv.map((p) => p.v);
   const n = vals.length;
-  if (!n) return { n: 0 };
+  if (!n) return { n: 0, unconverted: s.points.length };
   const sum = vals.reduce((a, b) => a + b, 0);
   const r2 = (x) => Math.round(x * 100) / 100;
   return { n: n, latest: vals[n - 1], min: Math.min.apply(null, vals), max: Math.max.apply(null, vals),
-           avg: r2(sum / n), delta: r2(vals[n - 1] - vals[0]) };
+           avg: r2(sum / n), delta: r2(vals[n - 1] - vals[0]), unconverted: s.points.length - n };
 }
 // Macro trend: daily total of a nutrient over the window, COMPLETE DAYS ONLY (D10).
 function macroSeries(nutrient, days) {
@@ -2526,7 +2560,17 @@ function renderTrends() {
     const s = signalSeries(sp.type, win);
     if (s.points.length < TREND_MIN_POINTS) return;          // min-data
     const sm = seriesSummary(s);
-    const cov = s.excluded > 0 ? ` <small class="tcov">${esc(s.total - s.excluded)} of ${esc(s.total)} in ${esc(s.unit)}</small>` : '';
+    const plot = s.points.filter((p) => p.converted !== false);
+    const asEntered = s.points.filter((p) => p.converted === false);
+    // D34 contract: an unconvertible reading is SHOWN AS ENTERED and labelled --
+    // never dropped, and never plotted on a scale it does not belong to.
+    const cov = asEntered.length
+      ? ` <small class="tcov">${esc(asEntered.length)} shown as entered in ${esc(asEntered[0].unit)} — not converted</small>` : '';
+    if (sm.n === 0) {                                        // every reading unconverted: still show them
+      bio += `<div class="trow"><div class="thead">${esc(s.label)}${cov}</div>`
+        + `<div class="tsum">${asEntered.map((p) => esc(rDisp(p.v)) + ' ' + esc(p.unit)).join(' · ')}</div></div>`;
+      return;
+    }
     // D24 signal goal: factual target + a neutral reference line (fully neutral — no
     // met/unmet color/word). Normalize the goal to the series unit; a non-convertible
     // goal unit surfaces the mismatch and is not drawn (same never-force rule as D23).
@@ -2537,8 +2581,10 @@ function renderTrends() {
       if (gv == null) goalStr = ` <small class="tcov">target set in ${esc(goal.unit || '?')} — not comparable to ${esc(s.unit)}</small>`;
       else { refVal = gv; goalStr = ` <small class="tgoal">target ${goal.direction === 'max' ? '&le;' : '&ge;'} ${esc(rDisp(gv))} ${esc(s.unit)}</small>`; }
     }
-    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}${goalStr}</div>${sparklineSVG(s.points, refVal)}`
-      + `<div class="tsum">latest ${esc(rDisp(sm.latest))} · avg ${esc(rDisp(sm.avg))} · ${esc(rDisp(sm.min))}–${esc(rDisp(sm.max))} · &Delta; ${sm.delta >= 0 ? '+' : ''}${esc(rDisp(sm.delta))} · n=${esc(sm.n)}</div></div>`;
+    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}${goalStr}</div>${sparklineSVG(plot, refVal)}`
+      + `<div class="tsum">latest ${esc(rDisp(sm.latest))} · avg ${esc(rDisp(sm.avg))} · ${esc(rDisp(sm.min))}–${esc(rDisp(sm.max))} · &Delta; ${sm.delta >= 0 ? '+' : ''}${esc(rDisp(sm.delta))} · n=${esc(sm.n)}`
+      + (sm.unconverted > 0 ? ` <small class="tcov">avg over ${esc(sm.n)} of ${esc(sm.n + sm.unconverted)} readings (${esc(sm.unconverted)} unconverted, shown as entered)</small>` : '')
+      + `</div></div>`;
   });
   html += bio;
   const fs = fastingStats(win);
@@ -3035,7 +3081,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -3069,6 +3115,7 @@ const VERSION_LOG = [
   { v: '0.8.1', note: 'New logs now also record your device’s time zone, so days logged while travelling stay accurate for later comparison. Nothing else changes, and nothing already logged is altered.' },
   { v: '0.9.0', note: 'Simpler main screen: it now shows your day, timeline, trends and averages, and one “+” button logs everything — scan, quick items, photo/AI paste, or manual. Setting things up (regimen, goals, supplement, presets, fasting, habits, export and restore) moved to Settings. Nothing was removed and nothing you have logged changed.' },
   { v: '0.9.1', note: 'Clearer entry points: the log button now reads “+ Log” and Settings is labelled, so nothing is hidden behind an icon. “All days” starts collapsed to a single line showing how many days you have logged.' },
+  { v: '0.10.0', note: 'Lab panels: enter a dated blood panel (ApoB, LDL, HbA1c, fasting glucose, vitamin D, ferritin, liver, thyroid and more) and see each value against its reference range — cited Canadian targets where they exist, your own lab’s printed interval otherwise. Figures only, never a verdict.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3117,13 +3164,293 @@ function dismissVersionNotice() {
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
 
+// ---- Lab panels (D34) ------------------------------------------------------
+// A dated lab panel enters as PER-VALUE biometric records with source 'lab',
+// sharing an optional panelId (Fork A) — never a second record system (D27).
+// LAB_SPEC is a SUB-REGISTRY (Fork B): authored separately because lab analytes
+// carry reference-range metadata no other signal has, then MERGED into
+// SIGNAL_BY_TYPE at load so normalizeSignal / signalSeries / chipLabel need no
+// change. It is deliberately NOT merged into SIGNAL_SPEC: that array drives the
+// event/biometric picker and the chip strip, and ApoB does not belong beside Sauna.
+//
+// CONTENT BAR (ruled, split two ways):
+//  - GUIDELINE analytes carry a cited, versioned Canadian target (D32).
+//  - LAB-INTERVAL analytes have no single honest universal range, so the honest
+//    range is the REPORTING LAB'S PRINTED INTERVAL, entered by the user with the
+//    value (`ref_src: 'lab-report'`). Five cited analytes, not fourteen.
+const LAB_GUIDELINE = {
+  ccs:  { org: 'Canadian Cardiovascular Society', cite: 'Pearson et al., Can J Cardiol 2021', version: '2021', jurisdiction: 'CA' },
+  dc:   { org: 'Diabetes Canada',                 cite: 'Diabetes Canada Clinical Practice Guidelines', version: '2018', jurisdiction: 'CA' },
+  // Origin citation is the 2010 CMAJ guideline; the target is still Osteoporosis
+  // Canada's stated one per their Dec-2024 position statement, so the version
+  // records both rather than implying the 2010 document is the latest word.
+  osc:  { org: 'Osteoporosis Canada',             cite: 'Hanley et al., CMAJ 2010', version: '2010 (reaffirmed 2024)', jurisdiction: 'CA' },
+};
+// The CCS lipid tiers, stated in full so the overlay can never read as a single
+// universal cutoff. The app displays these; it never selects a tier for the user.
+const CCS_APPLICABILITY = 'general intensification threshold for statin-indicated patients; '
+  + 'a stricter tier applies to very-high-risk secondary prevention (LDL-C \u2265 1.8 mmol/L / ApoB \u2265 0.7 g/L / non-HDL-C \u2265 2.4 mmol/L); '
+  + 'CCS prefers non-HDL-C or ApoB over LDL-C when triglycerides exceed 1.5 mmol/L';
+const LAB_SPEC = [
+  // --- guideline-cited (5) ---
+  // CCS lipid targets are RISK-STRATIFIED (statin-indicated vs primary prevention
+  // by risk tier). A single band would silently assume a risk category, and the app
+  // must never infer one — so lipids take the LAB'S PRINTED INTERVAL as their band
+  // and carry the CCS figure as a LABELLED OVERLAY whose applicability is stated.
+  { type: 'apo_b',            label: 'ApoB',              unit: 'g/L',      units: ['g/L', 'mg/dL'],        warn: 10,
+    rangeSource: 'lab-report',
+    overlay: Object.assign({ value: 0.80, direction: 'max', unit: 'g/L', applicability: CCS_APPLICABILITY }, LAB_GUIDELINE.ccs) },
+  { type: 'ldl_c',            label: 'LDL-C',             unit: 'mmol/L',   units: ['mmol/L', 'mg/dL'],     warn: 30,
+    rangeSource: 'lab-report',
+    overlay: Object.assign({ value: 2.0, direction: 'max', unit: 'mmol/L', applicability: CCS_APPLICABILITY }, LAB_GUIDELINE.ccs) },
+  { type: 'hba1c',            label: 'HbA1c',             unit: '%',        units: ['%', 'mmol/mol'],       warn: 25,
+    guideline: LAB_GUIDELINE.dc,  bands: [{ max: 6.0, label: 'below the diabetes range' }, { min: 6.0, max: 6.5, label: 'in the prediabetes range (6.0 to under 6.5%)' }, { min: 6.5, label: 'at or above the diabetes threshold' }] },
+  { type: 'glucose_fasting',  label: 'Fasting glucose',   unit: 'mmol/L',   units: ['mmol/L', 'mg/dL'],     warn: 60,
+    guideline: LAB_GUIDELINE.dc,  bands: [{ max: 6.1, label: 'below the impaired-fasting-glucose range' }, { min: 6.1, max: 7.0, label: 'in the impaired-fasting-glucose range (6.1 to under 7.0 mmol/L)' }, { min: 7.0, label: 'at or above the diabetes threshold' }] },
+  { type: 'vit_d_25oh',       label: '25-OH vitamin D',   unit: 'nmol/L',   units: ['nmol/L', 'ng/mL'],     warn: 1000,
+    guideline: LAB_GUIDELINE.osc, bands: [{ max: 75, label: 'below the sufficiency threshold' }, { min: 75, label: 'at or above the sufficiency threshold' }],
+    disclosure: 'Health Canada/IOM and many Canadian labs define sufficiency at 50 nmol/L; your lab\u2019s printed interval may differ from this target.' },
+  // --- lab-report interval (9): the reporting lab's printed range is the honest one ---
+  { type: 'hdl_c',            label: 'HDL-C',             unit: 'mmol/L',   units: ['mmol/L', 'mg/dL'],     warn: 20,  rangeSource: 'lab-report' },
+  { type: 'triglycerides',    label: 'Triglycerides',     unit: 'mmol/L',   units: ['mmol/L', 'mg/dL'],     warn: 60,  rangeSource: 'lab-report' },
+  { type: 'insulin_fasting',  label: 'Fasting insulin',   unit: 'uIU/mL',   units: ['uIU/mL', 'pmol/L'],    warn: 1000, rangeSource: 'lab-report' },
+  { type: 'hs_crp',           label: 'hs-CRP',            unit: 'mg/L',     units: ['mg/L'],                warn: 500, rangeSource: 'lab-report' },
+  { type: 'ferritin',         label: 'Ferritin',          unit: 'ug/L',     units: ['ug/L'],                warn: 5000, rangeSource: 'lab-report' },
+  { type: 'alt',              label: 'ALT',               unit: 'U/L',      units: ['U/L'],                 warn: 2000, rangeSource: 'lab-report' },
+  { type: 'ast',              label: 'AST',               unit: 'U/L',      units: ['U/L'],                 warn: 2000, rangeSource: 'lab-report' },
+  { type: 'egfr',             label: 'eGFR',              unit: 'mL/min/1.73m2', units: ['mL/min/1.73m2'],  warn: 300, rangeSource: 'lab-report' },
+  { type: 'tsh',              label: 'TSH',               unit: 'mIU/L',    units: ['mIU/L'],               warn: 500, rangeSource: 'lab-report' },
+];
+// Fork B's seam: one runtime lookup table, two authoring surfaces.
+LAB_SPEC.forEach((s) => { SIGNAL_BY_TYPE[s.type] = Object.assign({ kind: 'biometric', lab: true }, s); });
+const LAB_BY_TYPE = LAB_SPEC.reduce((m, s) => { m[s.type] = s; return m; }, {});
+function isLabType(t) { return !!LAB_BY_TYPE[t]; }
+
+// Per-analyte conversions for the convertible set (ruled). HbA1c is a FORMULA,
+// not a factor (NGSP% <-> IFCC mmol/mol), so it cannot ride the multiply table.
+// Everything else is store-as-entered — and, per the contract change below, an
+// unconvertible reading is DISPLAYED AS ENTERED, never dropped.
+const LAB_CONVERT = {
+  glucose_fasting:  { 'mg/dL>mmol/L': (v) => v / 18.0182,  'mmol/L>mg/dL': (v) => v * 18.0182 },
+  ldl_c:            { 'mg/dL>mmol/L': (v) => v / 38.67,    'mmol/L>mg/dL': (v) => v * 38.67 },
+  hdl_c:            { 'mg/dL>mmol/L': (v) => v / 38.67,    'mmol/L>mg/dL': (v) => v * 38.67 },
+  triglycerides:    { 'mg/dL>mmol/L': (v) => v / 88.57,    'mmol/L>mg/dL': (v) => v * 88.57 },
+  vit_d_25oh:       { 'ng/mL>nmol/L': (v) => v * 2.496,    'nmol/L>ng/mL': (v) => v / 2.496 },
+  insulin_fasting:  { 'uIU/mL>pmol/L': (v) => v * 6.945,   'pmol/L>uIU/mL': (v) => v / 6.945 },
+  hba1c:            { '%>mmol/mol': (v) => (v - 2.15) * 10.929, 'mmol/mol>%': (v) => (v / 10.929) + 2.15 },
+};
+
+// Classify a value against its reference band. Returns null when NO range is
+// available — the caller must still DISPLAY the value (a missing range is never
+// a reason to hide a reading). `rec` supplies the lab-report interval.
+function labBand(type, value, unit, rec) {
+  const spec = LAB_BY_TYPE[type];
+  if (!spec) return null;
+  rec = rec || {};
+  if (spec.guideline && spec.bands) {
+    const v = convertUnit(type, value, unit || spec.unit, spec.unit);
+    if (v == null) return null;                       // unconvertible -> no band claim, value still shown
+    // HALF-OPEN intervals [min, max) -- deliberate and gated at the boundaries:
+    // a reading exactly at 6.5 % or 7.0 mmol/L bands as the DIABETES range, not
+    // below it. Never change `<` to `<=` here.
+    for (let i = 0; i < spec.bands.length; i++) {
+      const b = spec.bands[i];
+      if ((b.min == null || v >= b.min) && (b.max == null || v < b.max))
+        return { label: b.label, src: 'guideline', org: spec.guideline.org, cite: spec.guideline.cite, version: spec.guideline.version };
+    }
+    return null;
+  }
+  const lo = rec.ref_low, hi = rec.ref_high;
+  if (lo == null && hi == null) return null;          // no printed interval entered yet
+  const v = num(value);
+  let label = 'within the lab’s reference interval';
+  if (lo != null && v < num(lo)) label = 'below the lab’s reference interval';
+  else if (hi != null && v > num(hi)) label = 'above the lab’s reference interval';
+  return { label: label, src: 'lab-report', org: 'reporting laboratory', cite: 'printed reference interval', version: '' };
+}
+
+// Measurement-class-aware persistence (ruled, restating D32 for lab cadence):
+//   1 point  -> the band is displayed FACTUALLY, no trend claim
+//   >= 2 consecutive measured panels in the SAME band -> a trend row
+//   >= 3 points -> directional commentary
+// A single out-of-band value is therefore never silently un-displayed.
+const LAB_TREND_MIN = 2, LAB_DIRECTION_MIN = 3;
+function labRecords(type) {
+  const out = [];
+  Object.keys(APP_STATE.timeline || {}).forEach((d) => {
+    (APP_STATE.timeline[d] || []).forEach((r) => {
+      if (r.type === type && r.source === 'lab' && r.value != null) out.push({ date: d, rec: r });
+    });
+  });
+  out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return out;
+}
+function labTrend(type) {
+  const rows = labRecords(type);
+  if (!rows.length) return null;
+  const spec = LAB_BY_TYPE[type];
+  const last = rows[rows.length - 1];
+  const band = labBand(type, last.rec.value, last.rec.unit, last.rec);
+  const out = {
+    type: type, label: spec ? spec.label : type, n: rows.length,
+    latest: { date: last.date, value: num(last.rec.value), unit: last.rec.unit || (spec ? spec.unit : ''), converted: true },
+    band: band, overlay: (spec && spec.overlay) || null,
+    disclosure: (spec && spec.disclosure) || null,
+    labInterval: (last.rec.ref_low != null || last.rec.ref_high != null)
+      ? { low: last.rec.ref_low, high: last.rec.ref_high } : null,
+    showTrendRow: false, direction: null,
+  };
+  if (rows.length >= LAB_TREND_MIN) {
+    const prev = rows[rows.length - 2];
+    const pband = labBand(type, prev.rec.value, prev.rec.unit, prev.rec);
+    out.showTrendRow = !!(band && pband && band.label === pband.label);   // persistent band across consecutive panels
+  }
+  if (rows.length >= LAB_DIRECTION_MIN) {
+    const spec2 = spec || {};
+    const val = (row) => {
+      const c = convertUnit(type, row.rec.value, row.rec.unit || spec2.unit, spec2.unit);
+      return c == null ? num(row.rec.value) : c;      // unconvertible -> as entered, never dropped
+    };
+    const a = val(rows[rows.length - 3]), c = val(rows[rows.length - 1]);
+    out.direction = c > a ? 'up' : (c < a ? 'down' : 'flat');
+  }
+  return out;
+}
+
+// Panels are a DERIVED grouping (Fork A): exact when panelId is present,
+// date-based otherwise. The panel is never a record of its own.
+function labPanels() {
+  const map = {};
+  Object.keys(APP_STATE.timeline || {}).forEach((d) => {
+    (APP_STATE.timeline[d] || []).forEach((r) => {
+      if (r.source !== 'lab' || !isLabType(r.type)) return;
+      const key = r.panelId ? ('p:' + r.panelId) : ('d:' + d);
+      (map[key] = map[key] || { date: d, panelId: r.panelId || '', values: [] }).values.push(r);
+    });
+  });
+  return Object.keys(map).map((k) => map[k]).sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
+let _panelSeq = 0;
+function newPanelId() { _panelSeq++; return 'lp' + Date.now().toString(36) + '_' + _panelSeq; }
+
+// Write a dated panel as per-value records through the SAME addSignal adapter
+// (D19/D20 contract, one path). Returns a report; zero valid values writes nothing.
+function addLabPanel(date, entries) {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(String(date)) ? String(date) : localDate();
+  const list = Array.isArray(entries) ? entries : [];
+  const panelId = newPanelId();
+  const written = [], rejected = [];
+  list.forEach((e) => {
+    e = e || {};
+    if (!isLabType(e.type)) { rejected.push({ type: String(e.type || ''), why: 'unknown analyte' }); return; }
+    if (e.value == null || String(e.value).trim() === '') return;             // blank row = not measured, not an error
+    const spec = LAB_BY_TYPE[e.type];
+    const raw = {
+      type: e.type, kind: 'biometric', value: e.value, source: 'lab',
+      unit: (spec.units.indexOf(e.unit) >= 0 ? e.unit : spec.unit),
+      time: /^\d{2}:\d{2}$/.test(String(e.time)) ? String(e.time) : '09:00',
+      date: d, notes: e.notes == null ? '' : e.notes, panelId: panelId,
+    };
+    // The reporting lab prints an interval for every analyte, so it is storable on
+    // every analyte. Where there is no guideline band it BECOMES the band; where
+    // there is one it is displayed ALONGSIDE it (the two can legitimately differ).
+    if (e.ref_low  != null && String(e.ref_low)  !== '') { raw.ref_low  = clampNonNeg(e.ref_low);  raw.ref_src = 'lab-report'; }
+    if (e.ref_high != null && String(e.ref_high) !== '') { raw.ref_high = clampNonNeg(e.ref_high); raw.ref_src = 'lab-report'; }
+    const r = addSignal(raw);
+    if (r.ok) { written.push(r.record); } else { rejected.push({ type: e.type, why: r.error || 'rejected' }); }
+  });
+  if (written.length) Store.saveState(APP_STATE);
+  refresh();
+  return { ok: written.length > 0, date: d, panelId: panelId, written: written.length, records: written, rejected: rejected };
+}
+
+// ---- lab rendering ---------------------------------------------------------
+// Mirror grammar (D23) + D32: the user's value, the cited band, and the factual
+// relationship between them. No verdict per reading; the "discuss with your
+// doctor" line is STANDING CONTEXT for the section, never attached to a flag.
+function labUnitOptions(spec, sel) {
+  return spec.units.map((u) => `<option value="${esc(u)}"${u === sel ? ' selected' : ''}>${esc(u)}</option>`).join('');
+}
+function renderLabForm() {
+  const el = document.getElementById('labRows');
+  if (!el) return;
+  const d = document.getElementById('labDate');
+  if (d && !d.value) d.value = localDate();
+  el.innerHTML = LAB_SPEC.map((s) => {
+    const refs = `<div style="flex:0 0 74px"><label>Ref low</label><input id="lab_lo_${esc(s.type)}" type="number" inputmode="decimal" placeholder="—"></div>
+         <div style="flex:0 0 74px"><label>Ref high</label><input id="lab_hi_${esc(s.type)}" type="number" inputmode="decimal" placeholder="—"></div>`;
+    return `<div class="row" style="align-items:flex-end">
+      <div style="flex:1.3"><label>${esc(s.label)}</label><input id="lab_v_${esc(s.type)}" type="number" inputmode="decimal" placeholder="—"></div>
+      <div style="flex:0 0 96px"><label>Unit</label><select id="lab_u_${esc(s.type)}">${labUnitOptions(s, s.unit)}</select></div>
+      ${refs}
+    </div>`;
+  }).join('');
+}
+function readLabForm() {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  return LAB_SPEC.map((s) => ({
+    type: s.type, value: g('lab_v_' + s.type), unit: g('lab_u_' + s.type),
+    ref_low: g('lab_lo_' + s.type), ref_high: g('lab_hi_' + s.type),
+  }));
+}
+function addLabPanelFromForm() {
+  const dEl = document.getElementById('labDate');
+  const r = addLabPanel(dEl ? dEl.value : '', readLabForm());
+  const rep = document.getElementById('labReport');
+  if (rep) {
+    rep.innerHTML = r.ok
+      ? `<div class="note" style="color:var(--good)">Saved ${r.written} value${r.written === 1 ? '' : 's'} for ${esc(r.date)}.</div>`
+      : `<div class="note" style="color:var(--warn)">Nothing saved — enter at least one value.</div>`;
+  }
+  if (r.ok) { renderLabForm(); toast('Lab panel saved'); }
+  return r;
+}
+function labBandCite(b) {
+  if (!b) return '';
+  return b.src === 'guideline'
+    ? `<small class="labcite">${esc(b.org)} · ${esc(b.cite)}${b.version ? ' (' + esc(b.version) + ')' : ''}</small>`
+    : `<small class="labcite">${esc(b.org)} · ${esc(b.cite)}</small>`;
+}
+function renderLabTrends() {
+  const el = document.getElementById('labTrends');
+  if (!el) return;
+  const rows = LAB_SPEC.map((s) => labTrend(s.type)).filter(Boolean);
+  if (!rows.length) { el.innerHTML = ''; return; }
+  const body = rows.map((t) => {
+    const val = `${esc(rDisp(t.latest.value))} ${esc(t.latest.unit)}`;
+    // 1 point: the band is stated factually, with NO trend claim.
+    const band = t.band ? `<div class="labband">${esc(t.band.label)} ${labBandCite(t.band)}</div>`
+                        : `<div class="labband labnorange">no reference interval entered — value shown as recorded</div>`;
+    // A risk-stratified guideline figure is shown as a LABELLED OVERLAY with its
+    // applicability stated — never as this user's band, because that would assume
+    // a risk category the app has no way to know and must never infer.
+    const ov = t.overlay
+      ? `<div class="labtrend labov">${esc(t.overlay.org)} ${t.overlay.direction === 'max' ? '&le;' : '&ge;'} ${esc(rDisp(t.overlay.value))} ${esc(t.overlay.unit)}
+         <small class="labcite">${esc(t.overlay.applicability)} — this app does not know your risk category and does not assume one · ${esc(t.overlay.cite)} (${esc(t.overlay.version)})</small></div>` : '';
+    const disc = t.disclosure ? `<div class="labtrend labov">${esc(t.disclosure)}</div>` : '';
+    const li = t.labInterval
+      ? `<div class="labtrend">your lab’s printed interval: ${esc(t.labInterval.low == null ? '—' : rDisp(t.labInterval.low))}–${esc(t.labInterval.high == null ? '—' : rDisp(t.labInterval.high))} ${esc(t.latest.unit)}</div>`
+      : '';
+    const trend = t.showTrendRow
+      ? `<div class="labtrend">${esc(t.n)} consecutive panels ${esc(t.band ? t.band.label : '')}</div>` : '';
+    const dir = t.direction
+      ? `<div class="labtrend">${t.direction === 'flat' ? 'unchanged' : t.direction} across the last ${esc(Math.min(t.n, 3))} panels</div>` : '';
+    return `<div class="labrow"><div class="labhead"><b>${esc(t.label)}</b><span class="labval">${val}</span></div>
+      <div class="labmeta">${esc(t.latest.date)} · ${esc(t.n)} panel${t.n === 1 ? '' : 's'}</div>${band}${li}${disc}${ov}${trend}${dir}</div>`;
+  }).join('');
+  el.innerHTML = `<h2 style="margin-top:14px">Labs</h2>${body}
+    <div class="note">Your values against the cited range. Figures only — no interpretation.
+    Reference ranges differ by laboratory and by person; <b>these are worth discussing with your doctor</b>.</div>`;
+}
+
 // ---- D30: single entry point ----------------------------------------------
 // Presentation only. The main surface carries today's state + one-tap responses
 // (regimen checklist, nudge offer, fast-candidate resolution — the ATTESTATION
 // half); authoring and configuration live in a flat settings list. One persistent
 // `+` opens the entry sheet. Nothing here writes a record: opening, closing and
 // mode-switching are pure view state (gated).
-const SHEET_MODES = ['scan', 'quick', 'photo', 'manual', 'signal', 'med'];
+const SHEET_MODES = ['scan', 'quick', 'photo', 'manual', 'signal', 'med', 'lab'];
 let SHEET_MODE = 'scan';
 
 function setSheetMode(mode) {
@@ -3199,6 +3526,7 @@ function main() {
   renderMedForm();
   renderPromptCard();
   renderFastingForm();
+  renderLabForm();
   onGoalTypeChange();
   renderRegimenTemplate();
   wireChipStripWheel();
@@ -3210,7 +3538,10 @@ window.HT = {
   Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateToLatest, normalizeState, refresh,
   // D29 — timezone-offset capture (capture-only; nothing reads it yet)
   nowTZO, normalizeTzo, TZO_MAX, normalizeItem, addWater, setFulfillment,
-  historyCounts, renderHistorySummary, renderHistory,
+  historyCounts, renderHistorySummary, renderHistory, SIGNAL_SPEC, SIGNAL_BY_TYPE, seriesSummary,
+  // D34 — lab panels (per-value records + panelId; LAB_SPEC merged at load)
+  LAB_SPEC, LAB_BY_TYPE, LAB_CONVERT, LAB_GUIDELINE, SIGNAL_ADAPTERS, isLabType, labBand, labTrend, labRecords, labPanels,
+  addLabPanel, addLabPanelFromForm, renderLabForm, readLabForm, renderLabTrends, LAB_TREND_MIN, LAB_DIRECTION_MIN,
   // D30 — single entry point (presentation only)
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
   // Phase 4 Slice — Regimen / timeline templates (D27)

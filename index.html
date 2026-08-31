@@ -255,6 +255,16 @@
   .sheetfoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;align-items:flex-start;background:var(--panel)}
   .qchip{display:inline-block;max-width:100%;margin:0 6px 6px 0;padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;font-size:13px;font-weight:700;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
   .qchip:active{opacity:.6}
+  .labrow{border-top:1px solid var(--line);padding:9px 0}
+  .labrow:first-of-type{border-top:none}
+  .labhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .labval{font-weight:700;font-variant-numeric:tabular-nums}
+  .labmeta{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .labband{font-size:12px;margin-top:3px}
+  .labband.labnorange{color:var(--muted)}
+  .labcite{display:block;color:var(--muted);font-size:10px;margin-top:1px}
+  .labtrend{font-size:12px;color:var(--muted);margin-top:2px}
+  .labov{border-left:2px solid var(--line);padding-left:7px;margin-top:4px}
   .qchip small{display:block;color:var(--muted);font-weight:600;font-size:11px}
 </style>
 </head>
@@ -279,6 +289,7 @@
       <details open>
         <summary>Trends</summary>
         <div id="trends" style="margin-top:10px"></div>
+        <div id="labTrends"></div>
       </details>
     </div>
     <div class="card">
@@ -378,6 +389,16 @@
         </div>
       </details>
       </div>
+      <div id="pane-lab" class="pane">
+        <h2>Lab panel</h2>
+        <div class="row" style="align-items:flex-end">
+          <div style="flex:1"><label>Panel date</label><input id="labDate" type="date"></div>
+        </div>
+        <div id="labRows" style="margin-top:8px"></div>
+        <button class="btn primary" style="margin-top:10px" onclick="addLabPanelFromForm()">Save panel</button>
+        <div id="labReport"></div>
+        <div class="note">Transcribe a dated panel from your lab report; leave anything not measured blank. Values with a cited Canadian target show it; every value can also carry <b>your lab’s own printed reference interval</b> — enter it beside the value. This is a record of panels you already have; the app does not suggest which tests to get. Each value is stored as its own dated reading, so it trends like any other biometric.</div>
+      </div>
       <div id="pane-signal" class="pane">
       <details open>
         <summary>Log a biometric or event</summary>
@@ -422,6 +443,7 @@
     <div class="sheetfoot">
       <button type="button" class="linklike" onclick="setSheetMode('signal')">Log event or biometric</button>
       <button type="button" class="linklike" onclick="setSheetMode('med')">Log medication or supplement</button>
+      <button type="button" class="linklike" onclick="setSheetMode('lab')">Log a lab panel</button>
     </div>
   </div>
 

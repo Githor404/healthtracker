@@ -595,4 +595,50 @@ Lab units are jurisdiction-split (mg/dL vs mmol/L lipids/glucose; ng/mL vs nmol/
 
 Displaying ranges against readings **is D32's mechanism**, so this slice is **D32's first consumer**: the **sourced/cited/versioned bar must be met for all 14 analytes, Canada first**, before anything displays. That is **content work, not code**, and it is the long pole — a range shipped without its citation would breach D32 on the slice that introduces it.
 
-**Status: PRE-REGISTERED — STOPPED for ruling on Forks A–E. Nothing built.**
+**Forks A–E RULED (2026-08-30) → built as D34.**
+
+| Case | Asserts |
+|---|---|
+| LB-A | a panel writes **one record per value** sharing a `panelId`; a blank row is *not measured*, not an error; the panel is a **derived grouping**, never a record of its own |
+| LB-B | `LAB_SPEC` merges into the runtime `SIGNAL_BY_TYPE` at load, so `signalSeries`/`chipLabel` need no change — and **no lab analyte reaches `SIGNAL_SPEC`, the picker, or the chip strip** |
+| LB-C | **older-app preserve:** an app that does not know the analyte still keeps the record (unknown `type` tolerated); `panelId` + the lab-report interval round-trip **exact**; **schema unchanged at 5** |
+| LB-D | **1 point → band stated factually, no trend claim; ≥2 consecutive panels in the same band → trend row; ≥3 points → direction.** GATE: **a single out-of-band value is never silently un-displayed** |
+| LB-E | per-analyte factors (LDL/HDL 38.67, TG 88.57, glucose 18.0182), 25-OH-D ×2.496, insulin ×6.945, **HbA1c by the NGSP/IFCC formula** (round-trips). GATE: **no analyte ever vanishes from a series** |
+| LB-content | **three** guideline-banded analytes (each with org + citation + version + `CA`), **two** risk-stratified CCS overlays, **eleven** banding from the lab report's printed interval; **no interval entered → no band claimed** |
+| LB-risk | **CCS lipid targets are risk-stratified, so they may never be this user's band.** With no printed interval entered a lipid claims **no band**; the CCS figure rides as a **labelled overlay** carrying its applicability and the statement that **the app does not know the user's risk category**; **no overlay analyte carries guideline bands**, so an overlay can never become a band |
+| LB-safety | an unknown analyte writes nothing; lab values never enter food totals |
+| M1 *(changed)* | **contract change, recorded not quietly updated:** M1 asserted the OLD exclusion behaviour. It now asserts the new one — the unconvertible reading is **kept, flagged `converted:false`, labelled with its own unit** — while statistics and the sparkline still use converted points only |
+
+#### Evidence (run 2026-08-30)
+
+- `bash tests/run-data-layer.sh` → **528/528 ALL PASS** (469 baseline + 59 lab cases: M1 rewritten to the ruled contract, `LB-risk` for the CCS adjustment, `LB-boundary` and `LB-attest` for the signed content).
+- The statistics line now carries the **micronutrient coverage idiom** — *"avg over N of M readings (K unconverted, shown as entered)"* — gated on a mixed-unit biometric series.
+- Other gates green: `check-precache` PASS · `check-sw-hash` OK · `check-zxing` OK · `check-version` OK (0.9.1 → **0.10.0**) · `check-writesites` OK (13 sites) · `offline-gate.ps1` PASS · `chip-layout-gate.ps1` PASS · `update-gate.ps1` PASS.
+- **Real-page smoke** (shipped `index.html`, 14-row panel form, one panel saved): `{"fabLabel":"+ Log","settingsLabel":"Settings","historyCollapsed":true,"historyLine":"All days · 1 logged · 1 in progress","labPane":"visible","labRows":14,"written":3,"panelIdShared":true,"showsApoB":true,"showsBand":true,"showsCite":true,"showsLabInterval":true,"doctorLineOnce":1,"schema":5,"app":"0.10.0"}`.
+
+#### Content attestation — SIGNED
+
+- Attester: Thomas Seiler (repo author, primary user)
+- Date: 2026-08-30
+- **Verified against the guideline documents**, with three required edits applied before signing.
+
+| Analyte | Shipped | Source | Version | Kind |
+|---|---|---|---|---|
+| HbA1c | `< 6.0 %` below diabetes range · `[6.0, 6.5)` prediabetes · `≥ 6.5 %` diabetes range | Diabetes Canada Clinical Practice Guidelines | 2018 | band |
+| Fasting glucose | `< 6.1` below IFG · `[6.1, 7.0)` impaired fasting glucose · `≥ 7.0 mmol/L` diabetes range | Diabetes Canada Clinical Practice Guidelines | 2018 | band |
+| 25-OH vitamin D | `< 75 nmol/L` below sufficiency · `≥ 75` at/above sufficiency | Osteoporosis Canada — **Hanley et al., CMAJ 2010** | 2010 (reaffirmed 2024) | band + disclosure |
+| ApoB | target `≤ 0.80 g/L` | CCS — **Pearson et al., Can J Cardiol 2021** | 2021 | overlay (risk-stratified) |
+| LDL-C | target `≤ 2.0 mmol/L` | CCS — **Pearson et al., Can J Cardiol 2021** | 2021 | overlay (risk-stratified) |
+
+**Edit 1 — CCS lipid overlays.** Numbers confirmed correct (2021 general intensification threshold for statin-indicated patients). The applicability line now also states the **stricter very-high-risk secondary-prevention tier** (LDL-C ≥ 1.8 mmol/L / ApoB ≥ 0.7 g/L / non-HDL-C ≥ 2.4 mmol/L) and that **CCS prefers non-HDL-C or ApoB over LDL-C when triglycerides exceed 1.5 mmol/L**. Citation corrected to **Pearson et al., Can J Cardiol 2021**.
+
+**Edit 2 — 25-OH-D.** Number and 2010 origin confirmed; citation corrected to **Hanley et al., CMAJ 2010**, version recorded as **"2010 (reaffirmed 2024)"** per Osteoporosis Canada's Dec-2024 position statement, so the entry cannot read as though a 15-year-old document were the latest word. **Required disclosure added to the band:** *"Health Canada/IOM and many Canadian labs define sufficiency at 50 nmol/L; your lab's printed interval may differ from this target."* The lab's printed interval is now storable and **displayed alongside a guideline band on every analyte**, not only where it *is* the band. The in-app note was reworded so nothing implies the app recommends testing — **Osteoporosis Canada does not recommend routine population screening**, and the surface is a record of panels the user already has.
+
+**Edit 3 — boundary semantics.** The comparison was **already half-open `[min, max)`** — verified before editing, so 6.5 % and 7.0 mmol/L always banded as the diabetes range. What was wrong was the **label and documentation wording**, which read as inclusive. Labels now state the range explicitly ("6.0 to under 6.5%"), the comparison carries a *never change `<` to `<=`* note at the line, and **six boundary cases are gated** (`LB-boundary`): 5.9 / 6.0 / 6.4 / 6.5 for HbA1c and 6.0 / 6.1 / 6.9 / 7.0 for fasting glucose.
+
+| Case | Asserts |
+|---|---|
+| LB-boundary | **half-open `[min, max)` at every threshold** — a reading exactly at 6.5 % or 7.0 mmol/L bands as the **diabetes range**, never below it |
+| LB-attest | the CCS overlay states the **stricter secondary-prevention tier** and the **TG > 1.5 non-HDL-C/ApoB preference**, cited to Pearson 2021; 25-OH-D cited to Hanley 2010 with the 2024 reaffirmation and the **required 50 nmol/L disclosure**; a guideline band and the lab's printed interval **render together**; **nothing implies the app recommends testing** |
+
+**Status: MET — machinery gated (528/528) and the content attestation SIGNED with its three required edits applied.**
