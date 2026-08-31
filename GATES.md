@@ -664,3 +664,71 @@ On-device pass of v0.10.0: **update notice showed both changelog lines** (0.9.1 
 `bash tests/run-data-layer.sh` → **528/528 ALL PASS** (unchanged — the element ids the cases drive are the same). `lab-form-gate` PASS · precache · sw-hash · zxing · version (0.10.0 → **0.10.1**) · writesites · offline · chip-layout · update all green.
 
 **Status: MET.**
+
+
+### Rhythm ring (Layer 2 Mirror) — PRE-REGISTERED, FORKS OPEN (awaiting ruling; NOT built)
+
+A **24-hour circle for the selected day** as the day view's centerpiece, with arcs for **eating, sleep, exercise and the fasting gaps between** — every arc **derived from logged records, nothing inferred**. Target `APP_VERSION → 0.11.0`. **D-number assigned on ruling.** No code written.
+
+#### Ruled (building to these, not re-opening them)
+
+1. **Centerpiece.** The rhythm ring replaces the goal ring in the day view's centre position. A **"now" hand on today only**.
+2. **Goal swap.** Tapping a goal chip swaps the centerpiece to that goal's existing **neutral** progress ring for **~12 s** (a constant, no setting), then reverts. Tapping a different goal restarts the timer; tapping the ring reverts immediately. **Display only — no data, no persisted state.**
+3. **Ring per day**, following the existing prev/next navigation; past days show their full rhythm.
+4. **Week and month views** as grids of small tappable rings (7 / calendar month), same derived arcs at reduced detail.
+
+**Arc definitions are honesty-bound** as ruled: eating from food timestamps with the actual window = first→last logged food and the regimen's **declared** window only as a faint reference beneath (D27: template is the plan, log is the reality); fasting drawn factually, today's open gap labelled *"Nh since last logged food"* — **never "fasting," never a zone** (D22); confirmed fasts as full arcs, **pending candidates as gaps labelled pending** with one-tap resolve from the ring; exercise from event time + duration; sleep as a **bedtime→wake interval** with `sleep_hours` **derived**, and existing hours-only readings drawing **no arc** (honest absence). **No zones, no metabolic bands, no achievements, no evaluative colour** — categorical only, and the **M7 vocabulary invariant extends to every ring label**.
+
+#### Verified against the substrate before arguing (not assumed)
+
+- **Exercise is arc-ready today.** Events carry `time` + `value` in minutes (`sauna`, `walk`, `workout`, …) — a start and a duration, which is exactly an arc.
+- **Fasting is arc-ready today.** `detectFastCandidates()` already returns `{start, end, hours, state}` with `start`/`end` as `YYYY-MM-DDTHH:MM`.
+- **Sleep is NOT.** `sleep_hours` is a scalar: `time` is when it was *logged*, `value` is hours. There is no bedtime.
+- **`renderGoalsHTML` filters `isNutrientGoal`** — the goal strip is **nutrient-only by D24's explicit "mixed-namespace filter contract."**
+
+#### Conflicts surfaced — these need rulings too, not just Forks A–F
+
+**(i) There is no "signal goal chip" to tap.** Ruling 2 says *"tapping any goal chip (nutrient or signal goal)"*, but only **nutrient** goals have a goal-strip cell. A **signal** goal has no cell — per D24 it surfaces as a **floated quick-log chip**, and tapping that chip **logs** (`pickSignal` → jump to the value box). Wiring the swap onto those chips would **regress D21's fastest logging path**, the thing that slice existed to create.
+*Proposal:* add a **separately-filtered signal-goal cell group** to the goal strip; **tapping a cell swaps**, quick-log chips keep logging untouched. **D24's nutrient-only filter contract for the ring math is unchanged** — the new cells are a second group, never fed into the ring's numbers.
+
+**(ii) The primary-nutrient selector's fate.** `.primsel` and `PRIMARY_NUTRIENT` exist to choose which goal the centre ring shows. Once the centre is the rhythm ring, that control has no standing job.
+*Proposal:* retire `.primsel` from the day view — the goal cells become the selector — and keep `PRIMARY_NUTRIENT` internally as the default swap target. It is display-only and unpersisted today, so nothing is lost. **Flagged because it removes a visible control**, which is a user-facing change inside a slice otherwise framed as additive.
+
+**(iii) Fast-candidate resolution must not silently move.** `SE-attest` (D30) gates that **fast-candidate resolution is on the main surface** via `#fastCandidates`. Making the ring "the primary resolution surface" is fine; **deleting the list is not**, and would either break that gate or quietly narrow a ruled attestation affordance.
+*Proposal:* **keep both** — the ring is the primary surface, the list remains the enumerable one. If the list is to go, that is a deliberate `SE-attest` amendment, ruled, not a side effect.
+
+**(iv) The sleep chip retarget interacts with D24's chip-float.** If bed→wake becomes a new type, `CHIP_DEFAULT` still lists `sleep_hours`, and `chipHasGoal` floats a chip when a goal exists **on that type**. A user with a `sleep_hours` goal would float the **scalar** chip while the entry path moved to the interval.
+*Proposal:* the chip targets the interval type for entry, and `chipHasGoal` treats a `sleep_hours` goal as satisfying it — one mapping rule, stated, rather than two sleep chips.
+
+**(v) M7's list is a substring grep.** Extending it to ring labels is right, but note it does **not** currently ban `"fasting"` — D22's prohibition on labelling a trailing gap *"fasting"* is a **separate, ring-specific assertion** and must be gated as its own case, not assumed to fall out of M7.
+
+#### Forks — argued, not resolved
+
+**A. Sleep across midnight.** Two questions are being asked as one, and conflating them is what makes the ring lie. **Ownership** (which day's record it is, what `sleep_hours` attributes to) → the **wake day**, as leaned. **Drawing** → **split by clock**: each day's ring draws only the portion that actually elapsed within that day. Whole-arc-on-wake-day would render a 23:30 segment on a day when nothing happened at 23:30 — an inferred arc, which the honesty rule forbids. *Different questions, different answers, each its own truth* (the D29 Fork-2 shape). Mitigation for "two arcs could read as two sleeps": the crossing end draws **uncapped/open** so it reads as continuing.
+
+**B. Schema for the sleep interval — no bump, and no new shape.** The existing event record already **is** an interval: `time` = start, `value` = duration. Bedtime→wake fits it exactly, as workouts already do. The real problem is a **discriminator**: an old `sleep_hours` record (`time` = when logged, `value` = hours) is byte-identical in shape to an interval and would draw a bogus arc. *Proposal:* use **the type as the discriminator** — a new `sleep` type for intervals, legacy `sleep_hours` untouched and arc-less. This needs **no normalizer change at all**: `normalizeSignal` already tolerates unknown types and an older app preserves the record (gated by `LB-C`), so "existing readings remain valid and draw no arc" becomes automatic rather than conditional. **Strictly better than a bump**, which would make an older app reject the export outright. Per D29's asymmetry test this is not even an additive field — it is a new **value** in an already-open enum.
+
+**C. Clock seam — and it is needed twice, not once.** The 12 s timer needs an injected clock, and so does the **"now" hand**, or the ring is untestable at a fixed time. *Proposal:* one `nowMs()` indirection with a test override (the `opts.now` shape already used by `logRegimenEntry`), driving both. **Day navigation cancels the swap** as leaned — navigation changes the ring's subject, so an overlay from the previous day must not survive it. One more rule needed: an **incidental `refresh()` must NOT cancel** the swap, or a background re-render would revert it mid-look.
+
+**D. Week/month placement — a dedicated Rhythm card below the day view**, as leaned. Trends is numeric and the mini-rings are **navigational** (tap → go to that day), which is day-view behaviour, not trend behaviour; mixing them muddies both. Placing it directly under the day card keeps ring→ring adjacent.
+
+**E. `tzo` — NO, and stated in the record.** The ring draws **wall-clock**. D29 was ruled capture-only; making the ring its first consumer would silently change what a travel day looks like without a ruling of its own. **The rhythm ring is not the first consumer of the D29 offset.**
+
+**F. Empty and sparse days — render the ring, empty.** Hiding it would make the centerpiece appear and disappear, which is worse for a first-run user and inconsistent with the day view being a display surface (D30). An empty 24-hour circle also **teaches the shape**. On sparse days arcs draw only where records exist and **nothing is interpolated** — "no arc without a record" holds at every density. The empty ring must not imply zero intake; day totals already carry that.
+
+#### Gate (to be finalised with the rulings)
+
+| Case | Asserts |
+|---|---|
+| RR-derived | the ring model is derived from the **same records as the timeline**: **no arc without a record**, and **every record of an arc-bearing kind produces its arc** (set equality, both directions) |
+| RR-swap | the goal swap **alters no data** (export byte-identical across a full swap cycle) and **reverts deterministically** via the injected clock; a second goal restarts the timer; a ring tap reverts immediately; **day navigation cancels**; an incidental refresh does not |
+| RR-sleep | `sleep_hours` **derived** = interval duration; a legacy hours-only reading stays valid and draws **no arc**; the midnight-crossing case draws per the Fork-A ruling |
+| RR-pending | **pending gaps never draw as confirmed**; a pending arc is labelled pending and its one-tap resolve is reachable from the ring |
+| RR-trailing | today's open gap reads **"Nh since last logged food"** — never "fasting", never a zone (D22); asserted as its own case, since **M7 does not ban that word** |
+| RR-window | the regimen's **declared** window draws only as a faint reference, **visually distinct** from the eating arc derived from logs (D27) |
+| RR-vocab | the **M7 invariant extends over every ring and mini-ring label**; no evaluative colour, categorical only |
+| RR-mini | week/month mini-rings **match their day rings** (same derived model at reduced detail); each navigates to its day |
+| RR-empty | a zero-record day renders an **honest empty ring**, not a hidden one, and implies nothing about intake |
+| RR-unchanged | **`SE-attest` and every existing gate unchanged**, including fast-candidate resolution remaining on the main surface |
+
+**Status: PRE-REGISTERED — STOPPED for ruling on Forks A–F and the five surfaced conflicts (i)–(v). Nothing built.**
