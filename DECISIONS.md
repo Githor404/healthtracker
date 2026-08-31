@@ -680,19 +680,60 @@ The labels point at something the record should hold: on a display-only surface 
 
 **Failure means the diagnosis was wrong** — that the barrier is not configuration burden but something else (day model, form length, performance). That is a useful result and is to be **recorded as such rather than patched around**.
 
-## D31 — Governance: monetization direction — NewCo first, ENVIROMINDsource walled off, paid infers agency (2026-08-30)
+## D31 — Governance: monetization direction (2026-08-30; reconciled verbatim 2026-08-30)
 
-Direction only, like D17/D19/D21/D26/D28: it binds **preconditions**, and authorizes **no** build work. **D17 holds** — the app is a free public good today, optionality preserved; this entry says what must be true **before** any of that optionality is exercised, so the question is never decided under commercial pressure after the fact.
+Direction only, like D17/D19/D21/D26/D28: it binds **preconditions and refusals**, and authorizes **no** build work. **Nothing here requires action now.** This entry's only job is to make sure the future conversation with an affiliate network, an analytics vendor, or an eager advisor **finds the refusal already written**.
 
-**NewCo is precondition #1.** No monetization of any kind proceeds before a **new company entity (NewCo)** exists to hold it. This is first in order, not merely on the list: taking money into an unformed or borrowed structure is the step that cannot be cleanly undone.
+*(Reconciled against the authoritative draft. An earlier reconstruction of this entry, written from a four-point summary, thinned it badly — it omitted the wall placement, the billing rail, paid-computes-locally, the upsell rules and the sequencing. The full text is restored below.)*
 
-**ENVIROMINDsource is walled off.** HealthTracker monetization does **not** run through **ENVIROMINDsource** — no revenue, no contracting, no liability path through that entity. The wall is structural, not a matter of practice.
+### The wall placement (the price list is already built)
 
-**IP assignment note.** The **IP position must be settled explicitly** and assigned to NewCo as part of forming it. An unrecorded or assumed assignment is the same class of defect as an unformed entity — cheap to fix before money moves, expensive after.
+- **Layers 1–3 — Track, Mirror, Nudge — are free forever, on the PWA, never degraded.** D21's public-good commitment restated commercially: **the free tier is a complete product by the project's own declaration.**
+- **The advisory tier is the paid product:** the Layer-4 correlation engine, the two-feature guidance split (sourced interaction flags; personal correlation observations), the trusted-supplier directory, and any future curated protocol library. **One subscription, not SKUs.**
+- **The consent wall and the paywall are THE SAME WALL.** Layer 4 was always going to be opt-in, walled, and deliberately activated for safety reasons; **charging at that gate adds no architecture and moves no boundary.**
 
-**Paid infers agency — and therefore requires a scoping document.** Taking payment **infers agency**: a paying user is owed a duty a free user is not, and that duty attaches whether or not it is claimed. Consequently **any paid tier requires a scoping document** stating what is and is not promised, before the tier exists. This is the commercial mirror of the guidance gate (D21/D25): the constraint binds hardest exactly where the incentive to blur it is strongest.
+### Capture free, interpretation paid
 
-**Relationship to the existing record.** D28 already ruled that an **App Store listing is distribution, not monetization**, and that the native shell creates **no server, no accounts, no telemetry**; **D17(b)** rejects any server we run, and a future commercial tier revisits **under D17's own optionality rules, never through a feature gate**. D31 adds the entity-and-duty preconditions to that same door. The **standing rule from D28 is unaffected and unwaivable by any tier**: no recommendation or comparison surface ever carries commercial placement — no affiliate links, no sponsored results, no paid ranking. **The trust story is the asset.**
+- **Device-data ingestion (HealthKit via the native shell, per D28) is FREE.** Charging users to receive **their own data into their own device** would spend the ethos for trivial revenue; free capture also feeds the free Mirror.
+- What is paid is what we **ADD** to their data: analysis, sourced flags, curation, templates. The commercial ethic in one sentence: **"Your data, free. Our judgment, paid."**
+
+### The billing rail (no accounts, ever)
+
+- The **ONLY** payment rail is **platform in-app purchase** (Apple IAP via the native shell). The platform holds identity and payment; **the app validates entitlement locally.** We hold **no name, no email, no card, no account system** — **D17(b) intact**.
+- **Consequence accepted:** the free tier lives everywhere (PWA); the paid tier lives in the shell. **The constituency that would pay is the constituency that installs.**
+
+### Paid computes locally
+
+- The subscription unlocks **CODE PATHS, not a cloud service.** The correlation engine runs **on-device over on-device data**. The supplier directory ships as **versioned, signed content inside app releases — no phone-home**.
+- **Paying creates zero telemetry, zero sync, zero egress.** A paying user's data is **exactly as sovereign as a free user's**.
+
+### The upsell surface (mirror-never-nag applies to commerce)
+
+- **No locked-panel teasers, no interstitials, no upgrade badges in the free experience.** **ONE** named entry in settings, plus **at most one quiet, dismissible card that appears only when TRUE**: data-earned eligibility ("you have N days of data — enough for the advisory tier to say something meaningful"). **The offer arrives exactly when the product can deliver.**
+
+### Standing bans (permanent)
+
+- **No commercial placement, ever:** no affiliate links, sponsored results, paid rankings, or supplier-paid listings — **on any surface, any tier** (per the D28 FairCart addendum). **Suppliers in the directory never pay and are never notified in advance of evaluation. Money flows only FROM users, never from the things being recommended.**
+- **No ads, no telemetry, no data sale, no accounts — under any tier, any revenue pressure, any future.**
+
+### The agency clause ("paid infers agency")
+
+**Payment for advice creates reliance; reliance creates duty.** The paid tier inherits the guidance-gate guardrails as **OBLIGATIONS, not design preferences**:
+
+- **Sourced-not-guessed** is what makes the product defensible at all; the **minimum-data thresholds** are the refusal-to-opine a professional owes when evidence is thin; **observational-vs-prescriptive grammar** is the line between information a user acts on and advice we are accountable for; **Feature-A's flag-for-your-professional framing** is the referral made at the edge of competence.
+- **A wrong paid recommendation is worse than a wrong free one. Charging RAISES the accuracy bar.**
+- The purchase flow includes a **real scoping document, plainly written**: what the analysis **is** (pattern-surfacing over the user's own logged data), what it **is not** (diagnosis, treatment, a substitute for clinical judgment), what it **will refuse to do** (opine under-threshold, guess interactions, override the sourced database), and what the user **retains** (all agency over action — **the app informs, the user decides**).
+
+### Named preconditions of the first charge
+
+1. **A new corporation.** Commercial operation ships under a **NewCo formed for the purpose** — **never under ENVIROMINDsource Inc.**, whose consulting practice, professional reputation, and liability profile stay **untangled** from a consumer health product. **NewCo owns the product IP, the developer account, the insurance, and the revenue.**
+2. **IP assignment.** Copyright currently rests with the **builder personally** (MIT, solo-authored). On NewCo formation, **assign or license to NewCo** — trivial while solo-authored, **which is why D17(a)'s solo-authorship / CLA-before-merging rule is a COMMERCIAL precondition, not only a governance nicety.**
+3. **Legal review** of the scoping document and consent language **before the first dollar.** Insurance/liability structure decided at NewCo formation.
+4. **The guidance gate's own conditions** (sufficient real data; deliberate ruling) **remain independently binding — monetization never accelerates the gate.**
+
+### Sequencing
+
+Nothing here requires action now. **Triggers, in order:** the **D28 shell trigger fires** → the shell exists → **IAP becomes possible** → **Layer 4's data threshold fills and its gate is ruled** → **NewCo forms** → **legal review** → **the first charge.** **Each step waits for the one before it.**
 
 ## D32 — Safety amendment: jurisdictional reference ranges, shown against the user's own readings (2026-08-30)
 
@@ -729,3 +770,4 @@ Amends the **Mirror (D23)** and the **four-layer model (D21/D25)**. Reference ra
 - **Depends on D28's shell.** The class is unreachable without device streams, so it cannot start before the native shell exists — and the shell's own start is trigger-gated, not calendared (D28).
 
 **Interaction with D32, stated so it is not resolved by accident:** D32 bounds **acute sourced statements** to **hand-entered readings, never device streams**. That bound is **not** loosened here. A logging *candidate* asks the user to record something; an **acute statement tells them something is wrong**. This class may do the first from a stream; it may **never** do the second. Anything that would blur that line needs its own ruling, not this reservation.
+
