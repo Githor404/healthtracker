@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.11.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.11.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3217,6 +3217,7 @@ const VERSION_LOG = [
   { v: '0.10.0', note: 'Lab panels: enter a dated blood panel (ApoB, LDL, HbA1c, fasting glucose, vitamin D, ferritin, liver, thyroid and more) and see each value against its reference range — cited Canadian targets where they exist, your own lab’s printed interval otherwise. Figures only, never a verdict.' },
   { v: '0.10.1', note: 'The lab panel form is readable on a phone: each value gets its own full-width box with the unit beside it, and the reference interval sits on its own line.' },
   { v: '0.11.0', note: 'A rhythm ring is now the centre of your day: a 24-hour circle showing when you ate, slept, moved, and the gaps between — all drawn from what you logged. Tap a goal to see its ring for a moment. Sleep is now logged bed-to-wake, and a week or month of rings sits below.' },
+  { v: '0.11.1', note: 'The rhythm ring now fills the screen the way a centrepiece should — about four-fifths of the width on a phone, with everything it needs still in reach.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

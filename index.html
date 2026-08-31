@@ -103,8 +103,11 @@
   .rmini small{display:block;margin-top:2px;font-variant-numeric:tabular-nums}
   .rmini.on{border-color:var(--accent);color:var(--txt)}
   .rmini.rempty{opacity:.45}
-  .ringbox{position:relative;width:180px;height:180px;margin:6px auto 0}
-  .ring{width:180px;height:180px;display:block}
+  /* D35 addendum: the ring is the centerpiece, so it renders at centerpiece
+     scale -- ~80% of viewport width, capped so desktop stays sane. Both ring
+     SVGs carry a viewBox, so arcs, labels and the now-hand scale with it. */
+  .ringbox{position:relative;width:min(80vw,360px);height:min(80vw,360px);margin:6px auto 0}
+  .ring{width:100%;height:100%;display:block}
   .ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
   .ringval b{font-size:32px;font-weight:800;line-height:1.05}
   .ringval span{font-size:11px;color:var(--muted)}

@@ -753,4 +753,19 @@ A **24-hour circle for the selected day** as the day view's centerpiece, with ar
 1. **`goalState` fixture** gained `primaryNutrient: ''` — cases 7 and 8 deep-compare settings, so the ruled addendum required it (the D27 "flagged fixture updates" precedent).
 2. **`SG1` rewritten**, because conflict (i) changed the contract it encoded. The replacement asserts D24's real invariant *more* tightly — see the D35 entry.
 
+#### Centerpiece scale — v0.11.1 (presentation only)
+
+The ring renders at `min(80vw, 360px)`. **New gate: `tests/ring-size-gate.ps1`** measures the real page at 390×844, 360×780 and 1200 px with a seeded regimen, day items and goals.
+
+| Case | Asserts |
+|---|---|
+| RS-scale | the ring is **≥ 70% of viewport width** on a phone (built at the 80% target), and **capped on desktop** with no horizontal overflow |
+| RS-reach | the ruled wording — **checklist above the fold, `+ Log` visible** — plus the assertions that actually bind: the **goal cells** (the ring's own swap affordance) and the **ring caption** (carrying the pending-fast resolve) are **both above the fold** at 390×844 |
+
+**Why the two originally-named measurables cannot bind, recorded so the gate is not read as stronger than it is:** `#regimenChecklist` renders **above** `#dayView`, so ring growth moves it up rather than down; and the `+ Log` pill is `position:fixed`, so it is in the viewport by construction. They are asserted, but they could not have failed.
+
+Measured: **390×844 → ring 312 px (80%)**, all four surfaces above the fold; **360×780 → 288 px (80%)**; **1200 px → 360 px, capped**. The 80% target held, so the ruled fallback (size down until reach is preserved) never fired.
+
+`bash tests/run-data-layer.sh` → **559/559 ALL PASS** (unchanged — this is CSS only). `ring-size` · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.11.0 → **0.11.1**) · `writesites` all green.
+
 **Status: MET — built to the ruled leanings, all gates green.**

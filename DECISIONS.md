@@ -846,6 +846,18 @@ The day view's centre becomes a **24-hour circle for the selected day**, with ar
 
 **(v) `"fasting"` is gated separately.** M7's banned list does not contain that word, so D22's trailing-gap prohibition is its own case (`RR-trailing`), asserted on the label directly rather than assumed to fall out of the vocabulary invariant.
 
+### Centerpiece scale (addendum, v0.11.1)
+
+The ring is the centerpiece, so it renders at **centerpiece scale**: `min(80vw, 360px)` — **80% of viewport width on a phone**, capped so desktop stays sane. Both ring SVGs carry a `viewBox`, so **arcs, labels and the now-hand scale proportionally** with no separate work; **mini-rings are unchanged**.
+
+**The ruled constraint was that the regimen checklist and the `+ Log` pill stay reachable without scrolling, with the constraint winning over the number. Neither can bind, and the record should say why rather than let a gate look stronger than it is:**
+- **`#regimenChecklist` renders ABOVE `#dayView`** in the day card, so ring growth pushes it **up the document, never down** — it cannot be displaced by a larger ring.
+- **The `+ Log` pill is `position:fixed`**, so it is in the viewport **by construction**, at any ring size.
+
+Both are asserted anyway (they are the ruled wording), but the assertions that **actually bind** are the surfaces a larger ring *can* push off screen, and which the ring itself depends on: **the goal cells** (the swap affordance — the ring's own interaction) and **the ring caption** (which carries the pending-fast one-tap resolve, a ruled D22 attestation affordance). Both are gated above the fold at 390×844.
+
+**Measured, so no size-down was needed:** at 390×844 the ring is **312 px (80% of vw)** with checklist, `+ Log`, goal cells and caption all above the fold; at 360×780 it is **288 px (80%)**; at 1200 px it caps at **360 px** with no overflow. The full 80% target holds, so the fallback ("size down to the largest ring that doesn't break reach") never fired.
+
 ### A previously-gated contract changed, recorded rather than quietly updated
 
 **`SG1`** asserted that `renderGoalsHTML` output was **byte-identical** with vs without a signal goal. Conflict (i) deliberately breaks that — a signal goal now renders a cell. The invariant D24 actually protects is that **a signal key never reaches the ring math**, and that is now asserted **more precisely than whole-output equality ever did**: the centerpiece ring and the swapped nutrient ring are each byte-identical with vs without a signal goal, the nutrient cells are byte-identical and unmoved, and the signal goal appears **exactly once**, appended as its own group.
