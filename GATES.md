@@ -670,6 +670,8 @@ On-device pass of v0.10.0: **update notice showed both changelog lines** (0.9.1 
 
 A **24-hour circle for the selected day** as the day view's centerpiece, with arcs for **eating, sleep, exercise and the fasting gaps between** — every arc **derived from logged records, nothing inferred**. Target `APP_VERSION → 0.11.0`. **D-number assigned on ruling.** No code written.
 
+**Not presentation-only.** The conflict-(ii) addendum makes `primaryNutrient` a **persisted setting**, so this slice touches storage and carries the storage discipline: an explicit normalizer allowlist addition, validation, and an export/restore round-trip gate. Everything else in the slice remains display-layer.
+
 #### Ruled (building to these, not re-opening them)
 
 1. **Centerpiece.** The rhythm ring replaces the goal ring in the day view's centre position. A **"now" hand on today only**.
@@ -691,8 +693,17 @@ A **24-hour circle for the selected day** as the day view's centerpiece, with ar
 **(i) There is no "signal goal chip" to tap.** Ruling 2 says *"tapping any goal chip (nutrient or signal goal)"*, but only **nutrient** goals have a goal-strip cell. A **signal** goal has no cell — per D24 it surfaces as a **floated quick-log chip**, and tapping that chip **logs** (`pickSignal` → jump to the value box). Wiring the swap onto those chips would **regress D21's fastest logging path**, the thing that slice existed to create.
 *Proposal:* add a **separately-filtered signal-goal cell group** to the goal strip; **tapping a cell swaps**, quick-log chips keep logging untouched. **D24's nutrient-only filter contract for the ring math is unchanged** — the new cells are a second group, never fed into the ring's numbers.
 
-**(ii) The primary-nutrient selector's fate.** `.primsel` and `PRIMARY_NUTRIENT` exist to choose which goal the centre ring shows. Once the centre is the rhythm ring, that control has no standing job.
-*Proposal:* retire `.primsel` from the day view — the goal cells become the selector — and keep `PRIMARY_NUTRIENT` internally as the default swap target. It is display-only and unpersisted today, so nothing is lost. **Flagged because it removes a visible control**, which is a user-facing change inside a slice otherwise framed as additive.
+**(ii) The primary-nutrient selector's fate — RULED (addendum).** `.primsel` is retired from the day view; the goal cells become the selector. **But `PRIMARY_NUTRIENT` stays USER-SETTABLE and moves to settings** — the upcoming photo-meal slice ranks items by contribution to the user's primary goal nutrient, so the user needs somewhere to declare it. **A UI removal in this slice must not orphan a setting the next slice depends on.**
+
+**This ruling changes the slice's character, and the record must say so.** `PRIMARY_NUTRIENT` is today a module-level `let … = 'kcal'` that is **never persisted** (`setPrimary` mutates it and re-renders; it does not touch state). Making it a declared setting turns a display variable into **stored user data**, so the rhythm-ring slice is **no longer presentation-only** and picks up the storage discipline the working rules attach to that:
+
+- **`normalizeSettings` is an allowlist rebuild** (the same trap as `tzo` and `panelId`): `primaryNutrient` must be **explicitly listed** there or it is silently dropped at every restore.
+- **Validate against `RING_NUTRIENTS`, not against the goals map.** D24 warns that goal keys are a **mixed namespace** — nutrient and signal keys share it. An unvalidated setting would let a *signal* key (`weight`, `hrv`) become the "primary nutrient" and reach the ring math that D24's filter contract exists to keep nutrient-only.
+- **Schema: no bump.** Settings-side additions have precedent without one — `currency` (D18), `signalUnits` (D20), `fasting` (D22), `nudges` (D25). On D29's asymmetry test a dropped `primaryNutrient` costs a **one-tap re-declaration**, not authored content, so it is precision rather than content. Recorded eyes-open: an older app restoring the export **silently drops the declaration** and the next slice falls back to its default.
+- **Default: absent, and derived — not stored as `'kcal'` at first boot.** Unset → **protein if a protein goal exists, else kcal**, which is exactly the rule the photo-meal slice describes. Storing a default the user never chose would fabricate a declaration, and absence stays a first-class state as everywhere else in this codebase.
+- **Home: inside the existing `Goals` settings entry**, not a new one — it *is* a goal-display choice, and this keeps the flat settings list and **`SE-enum` unchanged** (a new top-level entry would require amending that gate).
+
+**Still flagged for ruling:** retiring `.primsel` is a **user-facing removal** inside a slice otherwise framed as additive.
 
 **(iii) Fast-candidate resolution must not silently move.** `SE-attest` (D30) gates that **fast-candidate resolution is on the main surface** via `#fastCandidates`. Making the ring "the primary resolution surface" is fine; **deleting the list is not**, and would either break that gate or quietly narrow a ruled attestation affordance.
 *Proposal:* **keep both** — the ring is the primary surface, the list remains the enumerable one. If the list is to go, that is a deliberate `SE-attest` amendment, ruled, not a side effect.
@@ -729,6 +740,7 @@ A **24-hour circle for the selected day** as the day view's centerpiece, with ar
 | RR-vocab | the **M7 invariant extends over every ring and mini-ring label**; no evaluative colour, categorical only |
 | RR-mini | week/month mini-rings **match their day rings** (same derived model at reduced detail); each navigates to its day |
 | RR-empty | a zero-record day renders an **honest empty ring**, not a hidden one, and implies nothing about intake |
-| RR-unchanged | **`SE-attest` and every existing gate unchanged**, including fast-candidate resolution remaining on the main surface |
+| RR-primary | `settings.primaryNutrient` **round-trips export → restore exact**; it is an **explicit `normalizeSettings` allowlist addition**; a **signal-goal key is rejected** (validated against `RING_NUTRIENTS`, never the mixed-namespace goals map); **unset stays unset** and derives protein-if-protein-goal-else-kcal rather than being written at boot; **schema stays at 5** |
+| RR-unchanged | **`SE-attest` and every existing gate unchanged**, including fast-candidate resolution remaining on the main surface, and **`SE-enum` unchanged** because the control lands inside the existing Goals entry |
 
 **Status: PRE-REGISTERED — STOPPED for ruling on Forks A–F and the five surfaced conflicts (i)–(v). Nothing built.**
