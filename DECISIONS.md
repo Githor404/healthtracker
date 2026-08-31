@@ -674,6 +674,10 @@ Regimen authoring · Goals · Daily supplement · Presets (management) · Fastin
 
 Events/biometrics never enter food totals · averages complete-days-only · pending fast candidates count toward nothing · AI-paste is macros-only, micros stripped, eyeballed · ingest never overwrites a day with items · restore backs up first and surfaces the backup · daily supplement off by default, flagged and non-deletable when enabled, past days keep their record · habits one at a time, never a notification, one tap to pass, permanent on decline · the data-layer suite stays green at its current count.
 
+**Post-attestation addendum (2026-08-30, v0.9.1).** Ruling (5)'s attestation is **signed**: the reorganization costs the primary user's daily flow nothing. The pass surfaced two presentation defects, both fixed without behaviour change — **"All days" collapses to one counted line**, and the **two entry points take permanent labels** ("+ Log", "Settings") rather than icons.
+
+The labels point at something the record should hold: on a display-only surface those two controls are the **only doors**, so an unlabelled one does not read as an unlabelled button — it reads as *"where did everything go."* This is **the closest available proxy for the deferred cold-start criterion**, and **it points the same way**: the barrier this slice diagnosed was ordering and legibility, not capability. It is a proxy, not a substitute — one experienced user meeting his own reorganized app is not three strangers meeting it cold — so the deferred criterion stands unchanged, with its kit still pre-registered.
+
 **Failure means the diagnosis was wrong** — that the barrier is not configuration burden but something else (day model, form length, performance). That is a useful result and is to be **recorded as such rather than patched around**.
 
 ## D31 — Governance: monetization direction — NewCo first, ENVIROMINDsource walled off, paid infers agency (2026-08-30)

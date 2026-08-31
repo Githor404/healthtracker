@@ -236,7 +236,8 @@
      settings panel. Presentation only; no behavior changes. */
   .topbtn{position:absolute;right:12px;top:calc(8px + env(safe-area-inset-top));background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--muted);font:inherit;font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer}
   .topbtn:active{opacity:.6}
-  .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:29px;border:none;background:var(--accent);color:#fff;font-size:32px;font-weight:300;line-height:1;cursor:pointer;z-index:16;box-shadow:0 4px 16px rgba(0,0,0,.24)}
+  .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));min-height:52px;padding:0 20px;border-radius:26px;border:none;background:var(--accent);color:#fff;font:inherit;font-size:16px;font-weight:800;line-height:1;cursor:pointer;z-index:16;box-shadow:0 4px 16px rgba(0,0,0,.24)}
+  .fab span{font-size:22px;font-weight:400;vertical-align:-1px;margin-right:2px}
   .fab:active{opacity:.75}
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:17}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:90vh;display:flex;flex-direction:column}
@@ -293,13 +294,15 @@
       <div class="note">Complete days only. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
     </div>
     <div class="card">
-      <h2>All days</h2>
-      <div id="history"></div>
-      <div class="note">Overview of every day. Complete days count toward averages; in-progress days are flagged.</div>
+      <details id="historyDetails">
+        <summary id="historySummary">All days</summary>
+        <div id="history" style="margin-top:10px"></div>
+        <div class="note">Overview of every day. Complete days count toward averages; in-progress days are flagged.</div>
+      </details>
     </div>
   </div>
 
-  <button id="fab" class="fab" onclick="openSheet()" aria-label="Log something">+</button>
+  <button id="fab" class="fab" onclick="openSheet()" aria-label="Log something"><span aria-hidden="true">+</span> Log</button>
 
   <div id="sheetScrim" class="scrim" style="display:none" onclick="closeSheet()"></div>
   <div id="entrySheet" class="sheet" style="display:none" role="dialog" aria-modal="true" aria-label="Log something">

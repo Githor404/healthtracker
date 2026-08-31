@@ -528,7 +528,30 @@ Presentation only. Main surface = **display + attestation**; **authoring/config 
 
 **One gate mechanic changed, and it is not a weakening.** `chip-layout-gate.ps1` measured `#sigChips` on the main surface; the quick-log chips now live inside the `+` sheet's *log event or biometric* entry, so the strip is hidden until opened and the gate measured a collapsed element. The script now **opens the sheet before measuring**; **every assertion is unchanged** — chips still must wrap to all-reachable rows on mouse and keep the one-row scroll strip on touch. Re-run confirms 4 rows / 2 rows / 1 scrolling row, 0 clipped.
 
-**Status: MET — built, all gates green. Ruling (5)'s builder attestation (reorganization costs the daily flow zero) is OUTSTANDING and is the remaining half of this gate. The cold-start criterion stays DEFERRED, kit pre-registered in D30.**
+#### Ruling (5) attestation — SIGNED
+
+- Attester: Thomas Seiler (repo author, primary user)
+- Date: 2026-08-30
+- **The reorganization costs the daily flow nothing.** Checklist, chips and resolutions are where expected.
+- Signed against v0.9.0 as deployed.
+
+**Status: MET — machinery gated (461/461) and the builder attestation SIGNED.** The cold-start criterion stays **DEFERRED, not dropped**, kit pre-registered in D30; it fires if and when distribution happens.
+
+#### Follow-up from the attestation pass — v0.9.1 (presentation only, no behaviour change)
+
+The attestation pass surfaced two presentation defects. Both are **display-layer only**; no data, no schema, no behaviour.
+
+| Case | Asserts |
+|---|---|
+| SE-labels | the **two entry points carry permanent labels**, not icons: the `+` reads **"+ Log"**, the settings control reads **"Settings"** |
+| SE-history | **"All days" is collapsed to one line by default**, expandable in one tap, and the collapsed state **resets on reload** (the `<details>` lives in the shell with no `open` attribute, so re-rendering never collapses it mid-use either) |
+| SE-history-counts | the collapsed line **carries counts that match the expanded list** — `logged` equals the rendered row count and `in progress` equals the flagged rows, both computed from the same key set, so the line can never disagree with what it hides |
+
+**Why the labels matter more than they look.** On a display-only surface these are the **only two doors**, so ambiguity there does not read as "an unlabelled button" — it reads as **"where did everything go."** Fixed with permanent labels rather than a one-time hint, because a hint is spent on first launch and the ambiguity returns for every later encounter.
+
+`bash tests/run-data-layer.sh` → **469/469 ALL PASS** (461 + 8: SE-labels ×2, SE-history ×3, SE-history-counts ×3). **SE-attest unchanged and still green.** `APP_VERSION → 0.9.1`.
+
+**Status: MET.**
 
 ### Lab-panel ingestion — PRE-REGISTERED, FORKS OPEN (awaiting ruling; NOT built)
 

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.9.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.9.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2968,10 +2968,31 @@ function dayTotals(day) {
 const rDisp = (v) => { v = num(v); return Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1); };
 
 // EVERY rendered value — day keys included — routes through esc() (rule #2).
+// The collapsed "All days" line carries a signal, not just a label — a
+// mini-mirror at a glance. Both counts are computed from the SAME key list the
+// expanded rows render from, so the line can never disagree with the list
+// (gated). `logged` is the number of day rows; `in progress` is the flagged
+// subset. The <details> lives in the shell, so re-rendering never collapses it
+// mid-use, and a reload resets it to collapsed (like the Trends window).
+function historyCounts() {
+  const keys = Object.keys((APP_STATE && APP_STATE.days) || {}).sort();
+  let inProgress = 0;
+  keys.forEach((d) => { if (APP_STATE.days[d].status !== 'complete') inProgress++; });
+  return { keys: keys, logged: keys.length, inProgress: inProgress };
+}
+function renderHistorySummary() {
+  const el = document.getElementById('historySummary');
+  if (!el) return;
+  const c = historyCounts();
+  el.textContent = c.logged
+    ? `All days · ${c.logged} logged · ${c.inProgress} in progress`
+    : 'All days';
+}
 function renderHistory() {
   const el = document.getElementById('history');
+  renderHistorySummary();
   if (!el || !APP_STATE) return;
-  const keys = Object.keys(APP_STATE.days || {}).sort();
+  const keys = historyCounts().keys;
   if (!keys.length) { el.innerHTML = '<div class="note">No days yet.</div>'; return; }
   el.innerHTML = keys.map((d) => {
     const day = APP_STATE.days[d];
@@ -3047,6 +3068,7 @@ const VERSION_LOG = [
   { v: '0.8.0', note: 'Regimens: build a named daily template (meds, events, preset meals, weekday rotation, eating window) and work through today’s checklist — one tap logs each, nothing is ever auto-logged.' },
   { v: '0.8.1', note: 'New logs now also record your device’s time zone, so days logged while travelling stay accurate for later comparison. Nothing else changes, and nothing already logged is altered.' },
   { v: '0.9.0', note: 'Simpler main screen: it now shows your day, timeline, trends and averages, and one “+” button logs everything — scan, quick items, photo/AI paste, or manual. Setting things up (regimen, goals, supplement, presets, fasting, habits, export and restore) moved to Settings. Nothing was removed and nothing you have logged changed.' },
+  { v: '0.9.1', note: 'Clearer entry points: the log button now reads “+ Log” and Settings is labelled, so nothing is hidden behind an icon. “All days” starts collapsed to a single line showing how many days you have logged.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3188,6 +3210,7 @@ window.HT = {
   Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateToLatest, normalizeState, refresh,
   // D29 — timezone-offset capture (capture-only; nothing reads it yet)
   nowTZO, normalizeTzo, TZO_MAX, normalizeItem, addWater, setFulfillment,
+  historyCounts, renderHistorySummary, renderHistory,
   // D30 — single entry point (presentation only)
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
   // Phase 4 Slice — Regimen / timeline templates (D27)

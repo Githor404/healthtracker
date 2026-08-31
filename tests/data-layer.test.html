@@ -1796,6 +1796,19 @@ window.setLS({});
 
     // SE-modes: scan lives in the sheet, manual in the sheet.
     res(seIn('#pane-scan', '#scanBarcode') && seIn('#pane-manual', '#maName'), 'SE-modes: Scan and Manual carry their real forms');
+
+    // SE-labels (0.9.1): the two entry points are the ONLY doors on a
+    // display-only surface, so neither may be icon-only. Permanent labels,
+    // not a one-time hint.
+    var fabEl = SEDOC.querySelector('#fab'), setEl = SEDOC.querySelector('#settingsBtn');
+    res(!!fabEl && /log/i.test(fabEl.textContent), 'SE-labels: the + entry point carries a permanent "Log" label');
+    res(!!setEl && /settings/i.test(setEl.textContent), 'SE-labels: the settings entry point is labelled "Settings"');
+
+    // SE-history (0.9.1): collapsed by default, expandable, not persisted.
+    var hd = SEDOC.querySelector('#historyDetails');
+    res(!!hd && hd.tagName === 'DETAILS' && !hd.open, 'SE-history: "All days" is collapsed by default');
+    res(!!hd && !hd.hasAttribute('open'), 'SE-history: collapsed state resets on reload (no persisted open attribute in the shell)');
+    res(!!(hd && hd.querySelector('#history')), 'SE-history: the day list is inside the collapsible, expandable in one tap');
   }
 
   // Load the SHIPPED index.html and assert against it.
@@ -1888,6 +1901,22 @@ window.setLS({});
   res(!!seSup && seSup._auto === true, 'SE-invariants 7: when enabled the item is flagged (non-deletable)');
   setLS({}); HT.boot();
   res(HT.nudgeReady() === false, 'SE-invariants 8: habits stay engagement-gated and silent before the threshold');
+
+  // SE-history-counts (0.9.1): the collapsed line must never disagree with the
+  // list it hides — both are computed from the same key set.
+  setLS({}); HT.boot();
+  ['2026-07-01','2026-07-02','2026-07-03'].forEach(function(d){ HT.state().days[d] = { status:'complete', items:[{ name:'x', meal:'snack', time:'08:00', kcal:10, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 }; });
+  HT.state().days['2026-07-04'] = { status:'in_progress', items:[], water_l:0 };
+  if (!document.getElementById('historySummary')) { var hs = document.createElement('div'); hs.id = 'historySummary'; document.body.appendChild(hs); }
+  HT.renderHistory();
+  var hc = HT.historyCounts();
+  var renderedRows = (document.getElementById('history').innerHTML.match(/class="hrow"/g) || []).length;
+  var flagged = (document.getElementById('history').innerHTML.match(/class="flag"/g) || []).length;
+  res(hc.logged === renderedRows, 'SE-history-counts: the collapsed "logged" count equals the number of rows in the expanded list');
+  res(hc.inProgress === flagged, 'SE-history-counts: the collapsed "in progress" count equals the flagged rows in the expanded list');
+  var sumTxt = document.getElementById('historySummary').textContent;
+  res(/All days · \d+ logged · \d+ in progress/.test(sumTxt) && sumTxt.indexOf(String(renderedRows) + ' logged') >= 0,
+      'SE-history-counts: the summary line carries both counts and matches the list :: ' + sumTxt);
 
   var seDone = false;
   function finish(){
