@@ -529,3 +529,47 @@ Presentation only. Main surface = **display + attestation**; **authoring/config 
 **One gate mechanic changed, and it is not a weakening.** `chip-layout-gate.ps1` measured `#sigChips` on the main surface; the quick-log chips now live inside the `+` sheet's *log event or biometric* entry, so the strip is hidden until opened and the gate measured a collapsed element. The script now **opens the sheet before measuring**; **every assertion is unchanged** — chips still must wrap to all-reachable rows on mouse and keep the one-row scroll strip on touch. Re-run confirms 4 rows / 2 rows / 1 scrolling row, 0 clipped.
 
 **Status: MET — built, all gates green. Ruling (5)'s builder attestation (reorganization costs the daily flow zero) is OUTSTANDING and is the remaining half of this gate. The cold-start criterion stays DEFERRED, kit pre-registered in D30.**
+
+### Lab-panel ingestion — PRE-REGISTERED, FORKS OPEN (awaiting ruling; NOT built)
+
+A **dated lab panel** enters as **biometric records with `source: 'lab'`** — the outcome layer the correlation engine (D19) was aimed at. Curated starter set (14): **ApoB, LDL-C, HDL-C, triglycerides, HbA1c, fasting glucose, fasting insulin, hs-CRP, 25-OH-D, ferritin, ALT, AST, eGFR, TSH**. Per-record units; manual entry transcribed from a lab report; **D32 jurisdiction ranges displayed against the values**; visible on the timeline and in Mirror.
+
+**D-number to be assigned on ruling.** No code written. The forks below are surfaced, not resolved.
+
+#### What is already free (verified against the substrate, not assumed)
+
+- **`source: 'lab'` needs no schema change.** `normalizeSignal` already tolerates `source` as an arbitrary string ("extensible", D20) — the adapter seam D19 designed is doing its job.
+- **Trends and Mirror need no change per analyte.** `signalSeries(type, days)` is type-generic.
+- **Lab types would not flood the quick-log chips.** `CHIP_DEFAULT` is a curated 14-entry subset, and the goal dropdown in `index.html` is a hand-written optgroup — neither auto-enumerates `SIGNAL_SPEC`.
+
+#### Fork A — panel as ONE record vs PER-VALUE records
+
+**Per-value** (each analyte its own timeline record sharing a date): rides the existing substrate exactly, trends/Mirror/units work with no new machinery, and it honors D19's "one abstraction, many adapters" plus D27's "**never a fourth record system**". Cost: the *panel* becomes an implicit grouping (date + `source:'lab'`) rather than an entity, so "delete this panel" is an N-record operation.
+**Panel-as-one-record**: makes the panel an entity, but is a second record shape — new normalizer, `signalSeries` blind to it, and the thing D27 explicitly warned against.
+*Sub-fork if per-value wins:* an optional **`panelId`** on the record makes grouping **exact** instead of inferred (and survives two panels from two labs on one day). Additive optional field, `tzo`-shaped.
+**Leaning: per-value, with `panelId`.** Not ruled.
+
+#### Fork B — extend `SIGNAL_SPEC` vs a lab SUB-REGISTRY
+
+**Extend**: 14 rows added to `SIGNAL_SPEC`; zero new machinery. Cost: it puts ApoB in the same picker as *Sauna*, and D32 requires **range metadata (source, citation, version, per-jurisdiction bands)** that **no other signal has** — a field 14 of 35 rows would use.
+**Sub-registry** (`LAB_SPEC`, its own shape carrying D32's cited/versioned ranges) **merged into `SIGNAL_BY_TYPE` at load**: one lookup table at runtime, so `normalizeSignal`, `signalSeries` and `chipLabel` need **no change**, while authoring and versioning stay separate. Cost: two registries to keep consistent — the merge is the seam, and would need its own gate case.
+**Leaning: sub-registry merged at load.** Not ruled.
+
+#### Fork C — schema implications
+
+On the D29 asymmetry test: the **values** are ordinary signal records (already covered); **`panelId`** is a *grouping key* — losing it degrades grouping but loses no data, so it reads as **precision, not content** → **no bump**, explicit allowlist addition in `normalizeSignal` (the `tzo` pattern). D32's jurisdiction **declaration** is a `settings` field; the **ranges themselves** are shipped, versioned constants, **not user data**. **Net: likely no schema bump at all** — flagged as a fork rather than assumed, because "additive, therefore free" is exactly the reasoning D29 had to correct.
+
+#### Fork D — quarterly cadence
+
+Labs arrive ~quarterly; the trend machinery is day-windowed (`TREND_WINDOW`, `windowCutoff(days)`), so a 4-points-a-year analyte renders as an **empty sparkline** in a 30-day window. Options: (i) lab analytes default to an **all-time / last-N-panels** window; (ii) a distinct **panels view** — dated panels with per-analyte delta vs the previous panel; (iii) both.
+**This collides with D32 and the collision must be ruled, not absorbed:** D32 gates a trend row on a **"sustained multi-week trend"**. With quarterly data there is no multi-week series — the gate has to be restated in **consecutive panels** ("two successive panels outside the band"), or D32's persistence rule silently never fires for labs, which would be the wrong kind of quiet.
+
+#### Fork E — units and conversion
+
+Lab units are jurisdiction-split (mg/dL vs mmol/L lipids/glucose; ng/mL vs nmol/L for 25-OH-D; ferritin, insulin and TSH each with their own conventions). `UNIT_CONVERT` currently covers **only `weight` and `glucose`**, and `convertUnit` returns `null` for anything unmapped — which **silently excludes** that reading from a series. So: ship **per-analyte conversion factors**, or **store as entered and never convert** (honest, but a user who switches labs gets two incomparable series). Unmapped-and-silently-dropped is the one option that must not be chosen by default.
+
+#### Dependency, stated plainly
+
+Displaying ranges against readings **is D32's mechanism**, so this slice is **D32's first consumer**: the **sourced/cited/versioned bar must be met for all 14 analytes, Canada first**, before anything displays. That is **content work, not code**, and it is the long pole — a range shipped without its citation would breach D32 on the slice that introduces it.
+
+**Status: PRE-REGISTERED — STOPPED for ruling on Forks A–E. Nothing built.**
