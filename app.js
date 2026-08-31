@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.10.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.11.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -228,6 +228,12 @@ function normalizeSettings(s) {
     signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
     fasting: normalizeFasting(s.fasting),   // D22: fasting detection config
     nudges: normalizeNudges(s.nudges),      // D25: nudge state (load-bearing markers)
+    // D35: the declared primary nutrient. Allowlist addition (this normalizer is a
+    // rebuild), validated against RING_NUTRIENTS and NOT the goals map -- D24 warns
+    // that map is a mixed namespace, and a signal key must never reach ring math.
+    // Absent stays absent: primaryNutrientKey() derives rather than storing a
+    // default the user never chose.
+    primaryNutrient: (RING_NUTRIENTS.indexOf(s.primaryNutrient) >= 0) ? s.primaryNutrient : '',
   };
 }
 // D22: fasting config. enabled defaults true (always-on-but-silent — only real
@@ -910,7 +916,6 @@ function doIngest() {
 }
 
 // ---- day view + goals (Phase 1) -------------------------------------------
-let PRIMARY_NUTRIENT = 'kcal';
 const RING_NUTRIENTS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
 const NUTRIENT_LABELS = { kcal: 'kcal', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber' };
 const CONF_DOT = { weighed: 'good', measured: 'accent', eyeballed: 'warn' };
@@ -953,33 +958,85 @@ function ringSVG(frac, status) {
     </svg>`;
 }
 
+// D35: the centerpiece is the RHYTHM RING. Tapping a goal cell swaps it for that
+// goal's existing progress ring for GOAL_SWAP_MS (display only, nothing persisted);
+// tapping the ring reverts at once. `.primsel` is retired -- the goal cells are the
+// selector now, and the primary nutrient is a declared setting (conflict (ii)).
+function goalRingBoxHTML(key, t) {
+  const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
+  const g = goals[key];
+  if (!g) return '';
+  if (isNutrientGoal(key)) {
+    const gp = goalProgress(num(t[key]), g);
+    return `<div class="ringbox" onclick="clearSwap()">${ringSVG(gp.pct / 100, gp.status)}<div class="ringval">` +
+      `<b>${esc(rDisp(gp.current))}</b><span>of ${esc(rDisp(gp.target))} ${esc(NUTRIENT_LABELS[key] || key)}</span>` +
+      `<span class="gpct ${esc(gp.status)}">${esc(gp.pct)}%</span></div></div>`;
+  }
+  // Signal goal: fully neutral -- no met/unmet colour or word (D24).
+  const spec = SIGNAL_BY_TYPE[key];
+  const sm = seriesSummary(signalSeries(key, 'all'));
+  const cur = sm.n ? sm.latest : 0;
+  const gp = goalProgress(cur, g);
+  return `<div class="ringbox" onclick="clearSwap()">${ringSVG(gp.pct / 100, 'none')}<div class="ringval">` +
+    `<b>${esc(rDisp(cur))}</b><span>${esc(spec ? spec.label : key)}</span>` +
+    `<span>target ${esc(rDisp(num(g.value)))}${g.unit ? ' ' + esc(g.unit) : ''}</span></div></div>`;
+}
+
+// Every label here is covered by the M7 vocabulary invariant, and the trailing gap
+// is stated factually -- never "fasting", never a zone (D22).
+function rhythmCaptionHTML(model) {
+  if (model.empty) return `<div class="rrcap"><span class="rrmuted">no records for this day yet</span></div>`;
+  const rows = (model.arcs || []).map((a) => {
+    const key = `<span class="rkey rk-${esc(a.kind)}${a.ref ? ' rref' : ''}"></span>`;
+    if (a.kind === 'fast' && a.state === 'pending') {
+      const h = esc(String(num(a.hours)));
+      return `<div class="rrrow">${key}<span>${esc(a.label)}</span>` +
+        `<button type="button" class="linklike" onclick="resolveFastAt('${esc(a.start)}','${esc(a.end)}',${h},'fasted')">fasted</button>` +
+        `<button type="button" class="linklike" onclick="resolveFastAt('${esc(a.start)}','${esc(a.end)}',${h},'ate_didnt_log')">ate, didn\u2019t log</button></div>`;
+    }
+    return `<div class="rrrow">${key}<span>${esc(a.label)}</span></div>`;
+  });
+  return `<div class="rrcap">${rows.join('')}</div>`;
+}
+
+function goalCellsHTML(t) {
+  const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
+  const keys = Object.keys(goals);
+  const nut = keys.filter(isNutrientGoal);                       // D24 filter contract, unchanged
+  const sig = keys.filter((k) => !isNutrientGoal(k));            // conflict (i): a SEPARATE group
+  if (!nut.length && !sig.length) return '';
+  let html = '<div class="goalstrip">';
+  html += nut.map((k) => {
+    const gp = goalProgress(num(t[k]), goals[k]);
+    return `<div class="goalcell ${esc(gp.status)}" onclick="swapGoal('${esc(k)}')"><span>${esc(NUTRIENT_LABELS[k] || k)}</span>` +
+      `<b>${esc(rDisp(gp.current))}/${esc(rDisp(gp.target))}</b>` +
+      `<small>${esc(gp.direction === 'max' ? 'ceiling' : 'floor')} · ${esc(gp.pct)}%</small>` +
+      `<button class="grm" onclick="event.stopPropagation();removeGoal('${esc(k)}')" title="remove goal">×</button></div>`;
+  }).join('');
+  html += sig.map((k) => {
+    const spec = SIGNAL_BY_TYPE[k];
+    const sm = seriesSummary(signalSeries(k, 'all'));
+    const cur = sm.n ? rDisp(sm.latest) : '—';
+    const g = goals[k];
+    return `<div class="goalcell" onclick="swapGoal('${esc(k)}')"><span>${esc(spec ? spec.label : k)}</span>` +
+      `<b>${esc(cur)}/${esc(rDisp(num(g.value)))}</b>` +
+      `<small>${esc(g.direction === 'max' ? 'ceiling' : 'floor')}${g.unit ? ' · ' + esc(g.unit) : ''}</small>` +
+      `<button class="grm" onclick="event.stopPropagation();removeGoal('${esc(k)}')" title="remove goal">×</button></div>`;
+  }).join('');
+  return html + '</div>';
+}
+
 function renderGoalsHTML(t, day) {
   const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
-  const prim = PRIMARY_NUTRIENT;
-  const primVal = num(t[prim]);
-  const primGoal = goals[prim];
-  let frac, inner, status;
-  if (primGoal) {
-    const gp = goalProgress(primVal, primGoal);
-    frac = gp.pct / 100; status = gp.status;
-    inner = `<b>${esc(rDisp(primVal))}</b><span>of ${esc(rDisp(gp.target))} ${esc(NUTRIENT_LABELS[prim] || prim)}</span><span class="gpct ${esc(gp.status)}">${esc(gp.pct)}%</span>`;
+  const sw = swapActive();
+  let html;
+  if (sw && goals[sw.key]) {
+    html = goalRingBoxHTML(sw.key, t);
   } else {
-    frac = 0; status = 'none';
-    inner = `<b>${esc(rDisp(primVal))}</b><span>${esc(NUTRIENT_LABELS[prim] || prim)}</span><span class="gpct">set a goal</span>`;
+    const model = rhythmModel(APP_STATE.current);
+    html = `<div class="ringbox" onclick="clearSwap()">${rhythmSVG(model, 180)}</div>` + rhythmCaptionHTML(model);
   }
-  let html = `<div class="ringbox">${ringSVG(frac, status)}<div class="ringval">${inner}</div></div>`;
-  html += `<div class="primsel">` + RING_NUTRIENTS.map((k) =>
-    `<button class="${k === prim ? 'on' : ''}" onclick="setPrimary('${k}')">${esc(NUTRIENT_LABELS[k] || k)}</button>`).join('') + `</div>`;
-  const gk = Object.keys(goals).filter(isNutrientGoal);   // D24: food ring is nutrient goals ONLY (mixed-namespace filter contract)
-  if (gk.length) {
-    html += `<div class="goalstrip">` + gk.map((k) => {
-      const gp = goalProgress(num(t[k]), goals[k]);
-      return `<div class="goalcell ${esc(gp.status)}"><span>${esc(NUTRIENT_LABELS[k] || k)}</span>` +
-        `<b>${esc(rDisp(gp.current))}/${esc(rDisp(gp.target))}</b>` +
-        `<small>${esc(gp.direction === 'max' ? 'ceiling' : 'floor')} · ${esc(gp.pct)}%</small>` +
-        `<button class="grm" onclick="removeGoal('${esc(k)}')" title="remove goal">×</button></div>`;
-    }).join('') + `</div>`;
-  }
+  html += goalCellsHTML(t);
   const micros = microRollup(day);
   const mk = Object.keys(micros);
   if (mk.length) {
@@ -1045,10 +1102,19 @@ function stepDay(dir) {
   const dates = Object.keys(APP_STATE.days).sort();
   const j = dates.indexOf(APP_STATE.current) + dir;
   if (j < 0 || j >= dates.length) return;
+  SWAP = null;                        // D35 Fork C: navigation changes the ring's subject
   APP_STATE.current = dates[j];
   Store.saveState(APP_STATE); refresh();
 }
-function setPrimary(k) { PRIMARY_NUTRIENT = k; refresh(); }
+// Mini-ring navigation (Fork D). Only an existing day is navigable; a day with no
+// record renders its honest empty ring and is inert.
+function goToDay(k) {
+  if (!APP_STATE.days[k]) return { ok: false };
+  SWAP = null;
+  APP_STATE.current = k;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, date: k };
+}
 function deleteItem(idx) {
   const day = curDay(); if (!day) return;
   const it = day.items[idx];
@@ -1859,7 +1925,11 @@ const SIGNAL_SPEC = [
   { type: 'breath_ketones', kind: 'biometric', label: 'Breath ketones', unit: 'ppm', units: ['ppm', 'mmol/L'],   warn: 100 },
   { type: 'bp_systolic',    kind: 'biometric', label: 'BP systolic',   unit: 'mmHg',  units: ['mmHg'],            warn: 300 },
   { type: 'bp_diastolic',   kind: 'biometric', label: 'BP diastolic',  unit: 'mmHg',  units: ['mmHg'],            warn: 250 },
-  { type: 'sleep_hours',    kind: 'biometric', label: 'Sleep',         unit: 'h',     units: ['h'],               warn: 24 },
+  { type: 'sleep_hours',    kind: 'biometric', label: 'Sleep (hours)', unit: 'h',     units: ['h'],               warn: 24 },
+  // D35: sleep becomes an INTERVAL on the existing event shape -- `time` is bedtime,
+  // `value` is duration. The TYPE is the discriminator, so legacy sleep_hours
+  // records stay valid and simply draw no arc, with no normalizer change at all.
+  { type: 'sleep',          kind: 'biometric', label: 'Sleep (bed to wake)', unit: 'h', units: ['h'],              warn: 24 },
   { type: 'steps',          kind: 'biometric', label: 'Steps',         unit: 'count', units: ['count'],           warn: 100000 },
   { type: 'mood',           kind: 'biometric', label: 'Mood',          unit: '/5',    units: ['/5'],              warn: 5 },
   { type: 'energy',         kind: 'biometric', label: 'Energy',        unit: '/5',    units: ['/5'],              warn: 5 },
@@ -2037,6 +2107,9 @@ function renderSignalForm() {
   }
   onSignalTypeChange();
 }
+// D35: for the sleep interval the Time field is BEDTIME and the value is duration
+// (the shape workouts already use), so the label must say which.
+function signalTimeLabel(type) { return type === 'sleep' ? 'Bedtime' : 'Time'; }
 function onSignalTypeChange() {
   const sel = document.getElementById('sigType'); if (!sel) return;
   const isBP = sel.value === 'bp';
@@ -2052,7 +2125,10 @@ function onSignalTypeChange() {
 // form -- pickSignal only sets the type + focuses the value box, never creates a
 // record; logging still funnels through addSignalFromForm -> addSignal, so a
 // chip-logged record is identical to a dropdown-logged one (one contract, one path).
-const CHIP_DEFAULT = ['weight', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep_hours', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
+const CHIP_DEFAULT = ['weight', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
+// D35 conflict (iv): one stated mapping, not two sleep chips. A goal declared on
+// the legacy scalar type floats the interval chip, since that is where entry lives.
+const CHIP_GOAL_ALIAS = { sleep: 'sleep_hours' };
 function chipLabel(type) { return type === 'bp' ? 'BP' : (SIGNAL_BY_TYPE[type] ? SIGNAL_BY_TYPE[type].label : type); }
 // Goals-derived precedence (D21): a signal type the user set a goal on has been
 // declared to matter, so it floats into the unscrolled prime real estate; the
@@ -2061,9 +2137,9 @@ function chipLabel(type) { return type === 'bp' ? 'BP' : (SIGNAL_BY_TYPE[type] ?
 // (no inference from readings -- that is clinical judgment, barred by the guidance
 // gate). Adaptive most-logged ordering is deferred to Layer 2 (trend data).
 function chipHasGoal(type) {
-  const goals = (APP_STATE && APP_STATE.settings && APP_STATE.settings.goals) || {};
+  const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
   if (type === 'bp') return !!(goals.bp_systolic || goals.bp_diastolic);
-  return !!goals[type];
+  return !!(goals[type] || (CHIP_GOAL_ALIAS[type] && goals[CHIP_GOAL_ALIAS[type]]));
 }
 function chipOrder() {
   return CHIP_DEFAULT.filter(chipHasGoal).concat(CHIP_DEFAULT.filter((t) => !chipHasGoal(t)));
@@ -2195,6 +2271,25 @@ function renderFastCandidates() {
   }).join('');
 }
 function resolveFastAt(start, end, hours, state) { resolveFast(start, end, hours, state); }
+// Lives inside the existing Goals settings entry, so the flat settings list and
+// SE-enum are unchanged (D30 ruling 4).
+function renderPrimaryNutrientForm() {
+  const el = document.getElementById('primaryNutrient');
+  if (!el) return;
+  const cur = (APP_STATE.settings && APP_STATE.settings.primaryNutrient) || '';
+  el.innerHTML = `<option value="">auto (${esc(NUTRIENT_LABELS[primaryNutrientKey()] || primaryNutrientKey())})</option>` +
+    RING_NUTRIENTS.map((k) => `<option value="${esc(k)}"${k === cur ? ' selected' : ''}>${esc(NUTRIENT_LABELS[k] || k)}</option>`).join('');
+}
+function setPrimaryNutrientFromForm() {
+  const el = document.getElementById('primaryNutrient');
+  if (!el) return { ok: false };
+  if (el.value === '') {                                       // back to derived -- absence stays a state
+    APP_STATE.settings.primaryNutrient = '';
+    Store.saveState(APP_STATE); refresh();
+    return { ok: true, key: '' };
+  }
+  return setPrimaryNutrient(el.value);
+}
 function renderFastingForm() {
   const f = (APP_STATE.settings && APP_STATE.settings.fasting) || { enabled: true, minHours: 16 };
   const en = document.getElementById('fastEnabled'); if (en) en.checked = f.enabled !== false;
@@ -2450,15 +2545,19 @@ function windowCutoff(days) {
 // A biometric series in ONE unit over a window: every reading, time-ordered,
 // normalized to the type's current display unit; off-unit non-convertible readings
 // EXCLUDED (counted for an honest coverage note — absence != fabrication).
+// D35: `sleep_hours` is the analysis series, and a `sleep` INTERVAL contributes a
+// derived point to it (duration = hours). Trends/Mirror keep reading one key.
+const SERIES_ALIAS = { sleep_hours: ['sleep'] };
 function signalSeries(type, days) {
   const spec = SIGNAL_BY_TYPE[type];
   const targetUnit = signalUnitDefault(type);
   const cut = windowCutoff(days);
+  const alsoTypes = SERIES_ALIAS[type] || [];
   const pts = []; let unconverted = 0, total = 0;
   Object.keys(APP_STATE.timeline || {}).forEach((d) => {
     if (d < cut) return;
     (APP_STATE.timeline[d] || []).forEach((r) => {
-      if (r.type !== type || r.value == null) return;
+      if ((r.type !== type && alsoTypes.indexOf(r.type) < 0) || r.value == null) return;
       total++;
       const from = r.unit || targetUnit;
       const v = convertUnit(type, r.value, from, targetUnit);
@@ -3081,7 +3180,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -3117,6 +3216,7 @@ const VERSION_LOG = [
   { v: '0.9.1', note: 'Clearer entry points: the log button now reads “+ Log” and Settings is labelled, so nothing is hidden behind an icon. “All days” starts collapsed to a single line showing how many days you have logged.' },
   { v: '0.10.0', note: 'Lab panels: enter a dated blood panel (ApoB, LDL, HbA1c, fasting glucose, vitamin D, ferritin, liver, thyroid and more) and see each value against its reference range — cited Canadian targets where they exist, your own lab’s printed interval otherwise. Figures only, never a verdict.' },
   { v: '0.10.1', note: 'The lab panel form is readable on a phone: each value gets its own full-width box with the unit beside it, and the reference interval sits on its own line.' },
+  { v: '0.11.0', note: 'A rhythm ring is now the centre of your day: a 24-hour circle showing when you ate, slept, moved, and the gaps between — all drawn from what you logged. Tap a goal to see its ring for a moment. Sleep is now logged bed-to-wake, and a week or month of rings sits below.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3461,6 +3561,280 @@ function renderLabTrends() {
     Reference ranges differ by laboratory and by person; <b>these are worth discussing with your doctor</b>.</div>`;
 }
 
+
+// ============================================================================
+// Rhythm ring (D35, Layer 2 Mirror) -- a 24-hour circle for the SELECTED day.
+// Every arc is DERIVED from logged records; nothing is inferred, no zones, no
+// metabolic bands, no achievements, no evaluative colour. Categorical only.
+// ============================================================================
+
+// Fork C: ONE clock indirection, driving both the goal-swap timer and the "now"
+// hand -- otherwise the ring is untestable at a fixed time.
+let _clockFn = null;
+function nowMs() { return _clockFn ? _clockFn() : Date.now(); }
+function setClock(fn) { _clockFn = (typeof fn === 'function') ? fn : null; }   // test seam
+function nowDate() { return new Date(nowMs()); }
+function todayKey() { return localDate(nowDate()); }
+function nowMinutes() { const d = nowDate(); return d.getHours() * 60 + d.getMinutes(); }
+
+const MIN_PER_DAY = 1440;
+function timeToMinutes(t) { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t)); return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : null; }
+function shiftDate(dateKey, n) { const c = new Date(dateKey + 'T00:00:00'); c.setDate(c.getDate() + n); return localDate(c); }
+// Whole-day index via a UTC parse: used only for ordering/overlap arithmetic, so
+// it must not wander with DST the way a local parse would.
+function dayIndex(dateKey) { const t = Date.parse(dateKey + 'T00:00:00Z'); return Number.isFinite(t) ? Math.round(t / 86400000) : 0; }
+function absMinutes(dateKey, min) { return dayIndex(dateKey) * MIN_PER_DAY + min; }
+function isoToDayMin(iso) {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})$/.exec(String(iso));
+  return m ? { date: m[1], min: parseInt(m[2], 10) * 60 + parseInt(m[3], 10) } : null;
+}
+
+// Fork A: an interval is OWNED by one day but DRAWN split by the clock -- each
+// day's ring shows only the portion that actually elapsed within that day. Drawing
+// a whole night on the wake day would paint a 23:30 segment on a day when nothing
+// happened at 23:30, which is an inferred arc the honesty rule forbids. The
+// crossing end is flagged open so it reads as continuing, not as a second event.
+function addInterval(arcs, dateKey, startDate, startMin, durMin, kind, label, extra) {
+  if (!(durMin > 0)) return null;
+  const a0 = absMinutes(startDate, startMin), a1 = a0 + durMin;
+  const w0 = absMinutes(dateKey, 0), w1 = w0 + MIN_PER_DAY;
+  const o0 = Math.max(a0, w0), o1 = Math.min(a1, w1);
+  if (o1 <= o0) return null;                                     // no part of it falls in this day
+  const arc = Object.assign({
+    kind: kind, startMin: o0 - w0, endMin: o1 - w0, label: label,
+    openStart: a0 < w0, openEnd: a1 > w1,
+  }, extra || {});
+  arcs.push(arc);
+  return arc;
+}
+
+function signalLabel(r) {
+  const sp = SIGNAL_BY_TYPE[r.type];
+  return sp ? sp.label : String(r.type || 'event');
+}
+function hoursLabel(mins) { const h = mins / 60; return (Math.round(h * 10) / 10) + 'h'; }
+
+// The model IS the gate surface: every arc traces to a record, and every record of
+// an arc-bearing kind produces an arc. Rendering reads this and adds nothing.
+function rhythmModel(dateKey) {
+  const arcs = [], ticks = [];
+  const days = (APP_STATE && APP_STATE.days) || {};
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  const day = days[dateKey];
+  const isToday = dateKey === todayKey();
+
+  // --- eating: a tick per logged food item, plus the ACTUAL window (first->last).
+  const foodMins = [];
+  ((day && day.items) || []).forEach((it) => {
+    const m = timeToMinutes(it.time);
+    if (m == null) return;
+    foodMins.push(m);
+    ticks.push({ kind: 'eat', min: m, label: String(it.name || 'food') });
+  });
+  if (foodMins.length >= 2) {
+    foodMins.sort((a, b) => a - b);
+    arcs.push({ kind: 'eat', startMin: foodMins[0], endMin: foodMins[foodMins.length - 1],
+                label: 'eating window ' + hoursLabel(foodMins[foodMins.length - 1] - foodMins[0]),
+                openStart: false, openEnd: false });
+  }
+
+  // --- the regimen's DECLARED window: reference only, never the eating arc (D27).
+  const reg = (typeof activeRegimen === 'function') ? activeRegimen() : null;
+  if (reg && reg.window) {
+    const ws = timeToMinutes(reg.window.start), we = timeToMinutes(reg.window.end);
+    if (ws != null && we != null && we > ws)
+      arcs.push({ kind: 'window', ref: true, startMin: ws, endMin: we, label: 'declared window', openStart: false, openEnd: false });
+  }
+
+  // --- exercise: any EVENT carrying a minute duration. Derived, so a duration-less
+  // event (alcohol, in 'drinks') simply produces no arc rather than a fake one.
+  (tl[dateKey] || []).forEach((r) => {
+    if (r.kind !== 'event' || r.unit !== 'min') return;
+    const st = timeToMinutes(r.time); const dur = num(r.value);
+    if (st == null || !(dur > 0)) return;
+    addInterval(arcs, dateKey, dateKey, st, dur, 'exercise', signalLabel(r) + ' ' + rDisp(dur) + ' min');
+  });
+
+  // --- sleep intervals. OWNED by the wake day (the record's own date); a night that
+  // crosses midnight began on the previous day, so this day's ring must also consider
+  // the NEXT day's record for the pre-midnight portion.
+  [dateKey, shiftDate(dateKey, 1)].forEach((owner) => {
+    (tl[owner] || []).forEach((r) => {
+      if (r.type !== 'sleep') return;                            // legacy sleep_hours draws NO arc (honest absence)
+      const bed = timeToMinutes(r.time); const durMin = Math.round(num(r.value) * 60);
+      if (bed == null || !(durMin > 0)) return;
+      const crosses = bed + durMin > MIN_PER_DAY;
+      const startDate = crosses ? shiftDate(owner, -1) : owner;
+      addInterval(arcs, dateKey, startDate, bed, durMin, 'sleep', 'sleep ' + hoursLabel(durMin));
+    });
+  });
+
+  // --- fasting gaps. Confirmed draw as full arcs; PENDING draw as gaps labelled
+  // pending and carry their resolve handle. A denied gap (ate, didn't log) was
+  // missing data, not a fast, so it draws nothing (D22).
+  (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).forEach((c) => {
+    if (c.state === 'ate_didnt_log') return;
+    const s0 = isoToDayMin(c.start), s1 = isoToDayMin(c.end);
+    if (!s0 || !s1) return;
+    const dur = absMinutes(s1.date, s1.min) - absMinutes(s0.date, s0.min);
+    const pending = c.state !== 'fasted';
+    addInterval(arcs, dateKey, s0.date, s0.min, dur, 'fast',
+      rDisp(c.hours) + 'h ' + (pending ? 'gap · pending' : 'fasted'),
+      { state: pending ? 'pending' : 'fasted', start: c.start, end: c.end, hours: c.hours });
+  });
+
+  // --- today's OPEN trailing gap. Factual only: "Nh since last logged food".
+  // Never "fasting", never a zone -- an open gap is not evidence of one (D22).
+  let openGap = null;
+  if (isToday) {
+    const nowM = nowMinutes();
+    let lastAbs = null;
+    Object.keys(days).forEach((d) => {
+      ((days[d].items) || []).forEach((it) => {
+        const m = timeToMinutes(it.time);
+        if (m == null) return;
+        const a = absMinutes(d, m);
+        if (a <= absMinutes(dateKey, nowM) && (lastAbs == null || a > lastAbs)) lastAbs = a;
+      });
+    });
+    if (lastAbs != null) {
+      const dur = absMinutes(dateKey, nowM) - lastAbs;
+      if (dur > 0) {
+        const startAbs = lastAbs;
+        const sd = Math.floor(startAbs / MIN_PER_DAY), sm = startAbs - sd * MIN_PER_DAY;
+        const startDate = shiftDate(dateKey, sd - dayIndex(dateKey));
+        openGap = addInterval(arcs, dateKey, startDate, sm, dur, 'open',
+          hoursLabel(dur) + ' since last logged food', { open: true });
+      }
+    }
+  }
+
+  return {
+    date: dateKey, isToday: isToday,
+    nowMin: isToday ? nowMinutes() : null,
+    arcs: arcs, ticks: ticks, openGap: openGap,
+    empty: arcs.length === 0 && ticks.length === 0,
+  };
+}
+
+// ---- ring rendering --------------------------------------------------------
+// Concentric categorical bands. Colour is CATEGORY only (eat / sleep / exercise /
+// fast) -- never met/unmet, never a zone. Midnight at the top, clockwise.
+const RHYTHM_BANDS = { eat: 0.92, window: 0.92, sleep: 0.76, exercise: 0.60, fast: 0.44, open: 0.44 };
+function polarPt(cx, cy, r, deg) { const a = (deg - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
+function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
+function arcPath(cx, cy, r, d0, d1) {
+  let span = d1 - d0;
+  if (span >= 360) span = 359.99;                                // SVG cannot draw a closed arc in one segment
+  if (span <= 0) span = 0.01;
+  const [x0, y0] = polarPt(cx, cy, r, d0), [x1, y1] = polarPt(cx, cy, r, d0 + span);
+  return 'M' + r2(x0) + ' ' + r2(y0) + ' A' + r2(r) + ' ' + r2(r) + ' 0 ' + (span > 180 ? 1 : 0) + ' 1 ' + r2(x1) + ' ' + r2(y1);
+}
+function r2(n) { return Math.round(n * 100) / 100; }
+
+function rhythmSVG(model, size, mini) {
+  const S = size || 180, C = S / 2, R = C - 8;
+  let out = '<svg class="rring" viewBox="0 0 ' + S + ' ' + S + '" aria-hidden="true">';
+  out += '<circle class="rrbg" cx="' + C + '" cy="' + C + '" r="' + r2(R * 0.92) + '"/>';
+  if (!mini) {
+    [0, 6, 12, 18].forEach((h) => {
+      const [x, y] = polarPt(C, C, R * 0.99, minToDeg(h * 60));
+      const [x2, y2] = polarPt(C, C, R * 1.06, minToDeg(h * 60));
+      out += '<line class="rrtick" x1="' + r2(x) + '" y1="' + r2(y) + '" x2="' + r2(x2) + '" y2="' + r2(y2) + '"/>';
+    });
+  }
+  (model.arcs || []).forEach((a) => {
+    const band = RHYTHM_BANDS[a.kind] || 0.5;
+    const cls = 'rk-' + a.kind + (a.ref ? ' rref' : '') + (a.state === 'pending' ? ' rpending' : '') + (a.kind === 'open' ? ' ropen' : '');
+    out += '<path class="' + cls + '" d="' + arcPath(C, C, R * band, minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
+  });
+  (model.ticks || []).forEach((t) => {
+    const [x, y] = polarPt(C, C, R * RHYTHM_BANDS.eat, minToDeg(t.min));
+    out += '<circle class="rk-eatdot" cx="' + r2(x) + '" cy="' + r2(y) + '" r="' + (mini ? 1.6 : 3) + '"/>';
+  });
+  if (model.nowMin != null) {
+    const [x, y] = polarPt(C, C, R * 0.36, minToDeg(model.nowMin));
+    out += '<line class="rrnow" x1="' + C + '" y1="' + C + '" x2="' + r2(x) + '" y2="' + r2(y) + '"/>';
+  }
+  return out + '</svg>';
+}
+
+// ---- goal swap (ruled 2) ---------------------------------------------------
+// DISPLAY ONLY: no data written, nothing persisted. swapActive() consults the
+// injected clock, so the revert is deterministic under test without real timers.
+const GOAL_SWAP_MS = 12000;
+let SWAP = null;
+let _swapTimer = 0;
+function swapActive() {
+  if (!SWAP) return null;
+  if (nowMs() >= SWAP.until) { SWAP = null; return null; }
+  return SWAP;
+}
+function swapGoal(key) {
+  const k = String(key || '');
+  const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
+  if (!goals[k]) return { ok: false };
+  SWAP = { key: k, until: nowMs() + GOAL_SWAP_MS };
+  if (_swapTimer) { clearTimeout(_swapTimer); _swapTimer = 0; }
+  if (typeof setTimeout === 'function') _swapTimer = setTimeout(function () { _swapTimer = 0; renderDay(); }, GOAL_SWAP_MS + 20);
+  renderDay();
+  return { ok: true, key: k };
+}
+function clearSwap() {                                            // a tap on the ring reverts at once
+  SWAP = null;
+  if (_swapTimer) { clearTimeout(_swapTimer); _swapTimer = 0; }
+  renderDay();
+  return { ok: true };
+}
+
+// ---- primary nutrient (conflict (ii) addendum) -----------------------------
+// A DECLARED setting now, because the photo-meal slice ranks by it. Absent stays
+// absent and DERIVES -- storing 'kcal' at first boot would fabricate a choice the
+// user never made. Validated against RING_NUTRIENTS, never the goals map, which
+// D24 warns is a mixed namespace (a signal key must never reach the ring math).
+function primaryNutrientKey() {
+  const declared = (APP_STATE.settings && APP_STATE.settings.primaryNutrient) || '';
+  if (RING_NUTRIENTS.indexOf(declared) >= 0) return declared;
+  const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
+  return goals.protein_g ? 'protein_g' : 'kcal';
+}
+function setPrimaryNutrient(k) {
+  if (RING_NUTRIENTS.indexOf(k) < 0) return { ok: false, error: 'Not a nutrient the ring can show.' };
+  APP_STATE.settings.primaryNutrient = k;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, key: k };
+}
+
+let RHYTHM_RANGE = 'week';
+function setRhythmRange(r) { RHYTHM_RANGE = (r === 'month' ? 'month' : 'week'); renderRhythmGrid(); return RHYTHM_RANGE; }
+function rhythmGridDates() {
+  const cur = (APP_STATE && APP_STATE.current) || todayKey();
+  if (RHYTHM_RANGE === 'month') {
+    const d = new Date(cur + 'T00:00:00');
+    const y = d.getFullYear(), m = d.getMonth();
+    const n = new Date(y, m + 1, 0).getDate();
+    const out = [];
+    for (let i = 1; i <= n; i++) out.push(localDate(new Date(y, m, i)));
+    return out;
+  }
+  const out = [];
+  for (let i = 6; i >= 0; i--) out.push(shiftDate(cur, -i));
+  return out;
+}
+function renderRhythmGrid() {
+  const el = document.getElementById('rhythmGrid');
+  if (!el || !APP_STATE) return;
+  const dates = rhythmGridDates();
+  const btns = ['week', 'month'].map((r) =>
+    `<button type="button" class="${r === RHYTHM_RANGE ? 'on' : ''}" onclick="setRhythmRange('${r}')">${r === 'week' ? '7d' : 'Month'}</button>`).join('');
+  el.innerHTML = `<div class="twin">${btns}</div><div class="rgrid">` + dates.map((d) => {
+    const m = rhythmModel(d);
+    const has = !!(APP_STATE.days || {})[d];
+    return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}" ` +
+      `onclick="goToDay('${esc(d)}')" title="${esc(d)}">${rhythmSVG(m, 46, true)}<small>${esc(d.slice(8))}</small></button>`;
+  }).join('') + `</div>`;
+}
+
 // ---- D30: single entry point ----------------------------------------------
 // Presentation only. The main surface carries today's state + one-tap responses
 // (regimen checklist, nudge offer, fast-candidate resolution — the ATTESTATION
@@ -3543,6 +3917,7 @@ function main() {
   renderMedForm();
   renderPromptCard();
   renderFastingForm();
+  renderPrimaryNutrientForm();
   renderLabForm();
   onGoalTypeChange();
   renderRegimenTemplate();
@@ -3559,6 +3934,13 @@ window.HT = {
   // D34 — lab panels (per-value records + panelId; LAB_SPEC merged at load)
   LAB_SPEC, LAB_BY_TYPE, LAB_CONVERT, LAB_GUIDELINE, SIGNAL_ADAPTERS, isLabType, labBand, labTrend, labRecords, labPanels,
   addLabPanel, addLabPanelFromForm, renderLabForm, readLabForm, renderLabTrends, LAB_TREND_MIN, LAB_DIRECTION_MIN,
+  // D35 — rhythm ring (Layer 2 Mirror)
+  rhythmModel, rhythmSVG, rhythmCaptionHTML, goalRingBoxHTML, goalCellsHTML,
+  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
+  primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
+  renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
+  setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, shiftDate, timeToMinutes, addInterval,
+  SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D30 — single entry point (presentation only)
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
   // Phase 4 Slice — Regimen / timeline templates (D27)

@@ -810,3 +810,42 @@ This is why the slice **ships usable on day one** instead of waiting on fourteen
 **Form density (v0.10.1, on-device follow-up).** The panel form put four controls on one line; at 360 px that left the **value field — the one a human types into — at 64 px**, because three fixed-width neighbours held their space while the single flexible one absorbed every shortfall. Relaid out as **two lines per analyte** (name + hint / value + unit / optional printed interval). **A structural assertion could not see this**, exactly as "14 chips rendered" could not see that ten were unreachable (v0.4.1), so it takes the same remedy: **`tests/lab-form-gate.ps1` measures usable density on the real page, and was proven against the unfixed form before the fix landed.**
 
 **Adapter seam.** `addSignal` now accepts a **declared source from an allowlist** (`SIGNAL_ADAPTERS = ['manual','lab']`) rather than forcing `'manual'` — D19's "one contract, many adapters", with the D28 device adapter joining that list later. It is an allowlist so a source can never be self-asserted by data we did not create; ingest and restore never reach this path.
+
+
+## D35 — Rhythm ring: a derived 24-hour circle as the day's centerpiece (Phase-4 Layer 2, 2026-08-31)
+
+The day view's centre becomes a **24-hour circle for the selected day**, with arcs for **eating, sleep, exercise and the gaps between** — **every arc derived from a logged record, nothing inferred**. `APP_VERSION → 0.11.0`; **schema unchanged at v5**.
+
+**Ruled and built:** the ring is the centerpiece with a **"now" hand on today only**; tapping a goal cell **swaps** the centre to that goal's progress ring for **12 s** then reverts; the ring follows the existing day navigation; **week and month grids** of tappable mini-rings.
+
+**No zones, no metabolic bands, no achievements, no evaluative colour** — categorical only (eat / sleep / exercise / fast), and the **M7 vocabulary invariant now extends over every ring and mini-ring label** (gated, including an explicit no-zones/no-anabolic/no-catabolic check).
+
+### Forks, as ruled
+
+**A — ownership and drawing are two questions.** A sleep interval is **owned by the wake day**, but **drawn split by the clock**: each day's ring shows only the portion that actually elapsed within that day, and the crossing end is flagged **open** so it reads as continuing rather than as a second sleep. Painting a whole night onto the wake day would put a 23:30 segment on a day when nothing happened at 23:30 — **an inferred arc, which the honesty rule forbids**. (The D29 Fork-2 shape: different questions, different answers.)
+
+**B — no bump, and no new shape.** The existing event record **already is an interval** (`time` = start, `value` = duration), so bed→wake needs no new shape. The real problem was a **discriminator**, and **the type itself is it**: a new `sleep` type for intervals, legacy `sleep_hours` untouched and **arc-less**. This needed **no normalizer change at all** — unknown types are already tolerated and preserved (gated by `LB-C`) — so "existing readings stay valid and draw no arc" is **automatic rather than conditional**. `sleep_hours` remains the analysis series and an interval **contributes a derived point** to it (`SERIES_ALIAS`), so Trends and Mirror keep reading one key.
+
+**C — one clock seam, used twice.** `nowMs()` with a test override drives **both** the swap timer and the **now hand**; without it the ring is untestable at a fixed time. **Day navigation cancels** a swap (it changes the ring's subject); **an incidental `refresh()` does not** (a background re-render must not revert it mid-look). Both gated.
+
+**D — its own Rhythm card**, directly below the day view. **Trends stays numeric**: the mini-rings are **navigational**, which is day-view behaviour, not trend behaviour.
+
+**E — NOT the first consumer of the D29 offset.** The ring draws **wall-clock**. D29 was ruled capture-only; making the ring its first consumer would silently change what a travel day looks like without a ruling of its own. **Recorded so it is not assumed later.**
+
+**F — the empty ring renders.** Hiding it would make the centerpiece appear and disappear and would teach a first-run user nothing. A zero-record day draws an honest empty circle with a plain caption, and **implies nothing about intake**. At every density, **no arc without a record** — nothing is interpolated.
+
+### Conflicts, as ruled
+
+**(i) Signal goals get their own cell.** There was **no "signal goal chip" to tap** — signal goals had no goal-strip cell (D24's nutrient-only filter contract) and surfaced only as floated **quick-log chips whose tap logs**. Wiring the swap onto those would have **regressed D21's fastest logging path**. Instead the goal strip gains a **separately-filtered signal-goal group**; cells swap, **quick-log chips are untouched**, and **D24's filter contract is unchanged** — the new cells never feed the ring math.
+
+**(ii) `.primsel` retired; `primaryNutrient` is now a declared setting.** This made the slice **not presentation-only**: an explicit `normalizeSettings` allowlist addition (the `tzo` / `panelId` trap), **validated against `RING_NUTRIENTS` and never the mixed-namespace goals map**, so a signal key can never become the "primary nutrient". **No schema bump** (settings-side precedent: `currency` D18, `signalUnits` D20, `fasting` D22, `nudges` D25). **Absent stays absent and derives** — protein if a protein goal exists, else kcal — because storing a default at first boot would fabricate a choice the user never made. It lives inside the existing **Goals** settings entry, so the flat list and `SE-enum` are unchanged. *Recorded eyes-open: an older app restoring the export silently drops the declaration and the next slice falls back to the derived key.*
+
+**(iii) Fast-candidate resolution did not move — it gained a surface.** The ring is now the primary resolution surface, and `#fastCandidates` **remains**, so `SE-attest` is unchanged rather than amended.
+
+**(iv) One sleep chip, one mapping.** The chip targets the interval type; `CHIP_GOAL_ALIAS` makes a legacy `sleep_hours` goal float it. Not two sleep chips.
+
+**(v) `"fasting"` is gated separately.** M7's banned list does not contain that word, so D22's trailing-gap prohibition is its own case (`RR-trailing`), asserted on the label directly rather than assumed to fall out of the vocabulary invariant.
+
+### A previously-gated contract changed, recorded rather than quietly updated
+
+**`SG1`** asserted that `renderGoalsHTML` output was **byte-identical** with vs without a signal goal. Conflict (i) deliberately breaks that — a signal goal now renders a cell. The invariant D24 actually protects is that **a signal key never reaches the ring math**, and that is now asserted **more precisely than whole-output equality ever did**: the centerpiece ring and the swapped nutrient ring are each byte-identical with vs without a signal goal, the nutrient cells are byte-identical and unmoved, and the signal goal appears **exactly once**, appended as its own group.

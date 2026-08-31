@@ -743,4 +743,14 @@ A **24-hour circle for the selected day** as the day view's centerpiece, with ar
 | RR-primary | `settings.primaryNutrient` **round-trips export → restore exact**; it is an **explicit `normalizeSettings` allowlist addition**; a **signal-goal key is rejected** (validated against `RING_NUTRIENTS`, never the mixed-namespace goals map); **unset stays unset** and derives protein-if-protein-goal-else-kcal rather than being written at boot; **schema stays at 5** |
 | RR-unchanged | **`SE-attest` and every existing gate unchanged**, including fast-candidate resolution remaining on the main surface, and **`SE-enum` unchanged** because the control lands inside the existing Goals entry |
 
-**Status: PRE-REGISTERED — STOPPED for ruling on Forks A–F and the five surfaced conflicts (i)–(v). Nothing built.**
+#### Evidence (built to the ruled leanings, 2026-08-31)
+
+- `bash tests/run-data-layer.sh` → **559/559 ALL PASS** (528 baseline + 31 rhythm cases, `SG1` rewritten to the ruled contract).
+- Other gates green: `check-precache` · `check-sw-hash` · `check-zxing` · `check-version` (0.10.1 → **0.11.0**) · `check-writesites` · `lab-form-gate` · `chip-layout-gate` · `offline-gate` · `update-gate`.
+- **Real-page smoke:** `{"ringRendered":true,"hasEatArc":true,"hasSleepArc":true,"hasExerciseArc":true,"nowHand":true,"primselGone":true,"nutrientCell":true,"signalCell":true,"swappedToGoalRing":true,"revertedToRhythm":true,"miniRings":7,"primaryNutrientControl":true,"app":"0.11.0","schema":5}`.
+
+**Two flagged fixture/contract updates, neither silent:**
+1. **`goalState` fixture** gained `primaryNutrient: ''` — cases 7 and 8 deep-compare settings, so the ruled addendum required it (the D27 "flagged fixture updates" precedent).
+2. **`SG1` rewritten**, because conflict (i) changed the contract it encoded. The replacement asserts D24's real invariant *more* tightly — see the D35 entry.
+
+**Status: MET — built to the ruled leanings, all gates green.**

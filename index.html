@@ -77,6 +77,32 @@
   .daysel{text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
   .dstat{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px;vertical-align:2px}
   .dstat.done{color:var(--good);border-color:var(--good)}
+  /* D35 rhythm ring — CATEGORICAL colour only. No zones, no met/unmet, no bands. */
+  .rring{width:100%;height:100%;display:block;overflow:visible}
+  .rrbg{fill:none;stroke:var(--line);stroke-width:1}
+  .rrtick{stroke:var(--line);stroke-width:1}
+  .rrnow{stroke:var(--txt);stroke-width:2;stroke-linecap:round;opacity:.75}
+  .rring path{fill:none;stroke-width:9;stroke-linecap:butt}
+  .rk-eat{stroke:var(--accent)}
+  .rk-sleep{stroke:#7b86c4}
+  .rk-exercise{stroke:var(--good)}
+  .rk-fast{stroke:var(--muted)}
+  .rk-open{stroke:var(--muted);stroke-dasharray:4 4}
+  .rk-window{stroke:var(--accent);stroke-width:3;opacity:.28}
+  .rring path.rpending{stroke-dasharray:5 4}
+  .rk-eatdot{fill:var(--accent)}
+  .rrcap{margin:8px 0 2px;font-size:12px;color:var(--muted)}
+  .rrrow{display:flex;align-items:center;gap:7px;padding:2px 0;flex-wrap:wrap}
+  .rrmuted{color:var(--muted)}
+  .rkey{flex:0 0 auto;width:10px;height:10px;border-radius:3px;background:var(--line)}
+  .rkey.rk-eat{background:var(--accent)}.rkey.rk-sleep{background:#7b86c4}
+  .rkey.rk-exercise{background:var(--good)}.rkey.rk-fast{background:var(--muted)}
+  .rkey.rk-open{background:var(--muted);opacity:.5}.rkey.rk-window{background:var(--accent);opacity:.3}
+  .rgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .rmini{flex:0 0 auto;width:60px;padding:4px 2px;border:1px solid transparent;border-radius:12px;background:none;color:var(--muted);font:inherit;font-size:10px;cursor:pointer;text-align:center}
+  .rmini small{display:block;margin-top:2px;font-variant-numeric:tabular-nums}
+  .rmini.on{border-color:var(--accent);color:var(--txt)}
+  .rmini.rempty{opacity:.45}
   .ringbox{position:relative;width:180px;height:180px;margin:6px auto 0}
   .ring{width:180px;height:180px;display:block}
   .ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
@@ -291,6 +317,14 @@
     </div>
     <div class="card">
       <details open>
+        <summary>Rhythm</summary>
+        <div id="rhythmGrid" style="margin-top:10px"></div>
+        <div class="note">A week or month of days at a glance, each drawn from what you logged. Tap a day to open it.</div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details open>
         <summary>Timeline (food · events · biometrics)</summary>
         <div id="fastCandidates"></div>
         <div id="timelineOverlay" style="margin-top:10px"></div>
@@ -490,6 +524,8 @@
           <div><label>Direction</label><select id="goalDir"><option value="min">floor (min)</option><option value="max">ceiling (max)</option></select></div>
         </div>
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
+        <label style="margin-top:12px">Primary nutrient <span class="thint">(the goal other screens rank by)</span></label>
+        <select id="primaryNutrient" onchange="setPrimaryNutrientFromForm()"></select>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
       </details>
     </div>

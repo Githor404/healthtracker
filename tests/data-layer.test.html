@@ -113,7 +113,7 @@ window.setLS({});
   res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
   // ---- v4 round-trip fixtures (settings gained signalUnits + fasting; blob gained timeline + fastLog) ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} } };
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '' };
   var S1 = { version: 5, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
@@ -1253,11 +1253,27 @@ window.setLS({});
   HT.setGoal('protein_g', 120, 'min');                                   // nutrient goal
   var sgDay = HT.state().days[td];
   var ringBefore = HT.renderGoalsHTML(HT.dayTotals(sgDay), sgDay);
+  var sgRhythmBefore = HT.rhythmSVG(HT.rhythmModel(HT.state().current),180);
+  var sgNutRingBefore = HT.goalRingBoxHTML('protein_g', HT.dayTotals(sgDay));
+  var sgCellsBefore = HT.goalCellsHTML(HT.dayTotals(sgDay));
   HT.setGoal('weight', 80, 'max', 'kg');                                 // signal goal (carries unit)
   res(HT.state().settings.goals.weight.unit==='kg' && HT.state().settings.goals.weight.direction==='max' && !('unit' in HT.state().settings.goals.protein_g), 'SG1: signal goal stores unit; nutrient goal has none');
+  // D35 conflict (i) CHANGED this contract, deliberately: a signal goal now gets its
+  // OWN cell so it can be tapped to swap. The invariant D24 actually protects --
+  // that a signal key never reaches the RING MATH -- is now asserted directly, and
+  // more precisely than whole-output equality ever did.
   var ringAfter = HT.renderGoalsHTML(HT.dayTotals(sgDay), sgDay);
-  res(ringBefore===ringAfter, 'SG1: food ring BYTE-IDENTICAL with vs without a signal goal (filter proven by output equality, not asserted)');
-  res(ringAfter.indexOf("removeGoal('weight')")<0 && ringAfter.indexOf('protein')>=0, 'SG1: food ring shows the nutrient goal only, never the signal goal');
+  res(HT.rhythmSVG(HT.rhythmModel(HT.state().current),180) === sgRhythmBefore,
+      'SG1: the centerpiece ring is BYTE-IDENTICAL with vs without a signal goal (ring math never sees the mixed namespace)');
+  res(HT.goalRingBoxHTML('protein_g', HT.dayTotals(sgDay)) === sgNutRingBefore,
+      'SG1: the swapped NUTRIENT goal ring is BYTE-IDENTICAL with vs without a signal goal');
+  var sgCellsAfter = HT.goalCellsHTML(HT.dayTotals(sgDay));
+  res(sgCellsAfter.indexOf(sgCellsBefore.slice(0, sgCellsBefore.length-6)) === 0,
+      'SG1: the nutrient cells are byte-identical and unmoved; the signal goal is APPENDED as a separate group');
+  res((sgCellsAfter.match(/removeGoal\('weight'\)/g)||[]).length === 1 && sgCellsAfter.indexOf('protein')>=0,
+      'SG1: the signal goal appears exactly once, as its own cell, beside the nutrient goal');
+  res(HT.isNutrientGoal('weight')===false && HT.isNutrientGoal('protein_g')===true,
+      'SG1: the mixed-namespace filter itself is unchanged');
 
   // SG2: a signal goal WAKES the chip-float
   setLS({}); HT.boot();
@@ -2129,6 +2145,180 @@ window.setLS({});
   HT.addLabPanel(LABDATE, [{ type:'alt', value:30, unit:'U/L' }]);
   HT.addManualEntry({ name:'Food', kcal:400, soluble_fiber_g:0 });
   res(HT.dayTotals(HT.state().days[td]).kcal===400, 'LB-inert: lab values never enter food totals (D19/D20 line holds)');
+
+  // ==========================================================================
+  // D35 — rhythm ring. Every arc DERIVED from a record; the goal swap is display
+  // only and reverts on an injected clock; sleep is an interval; nothing inferred.
+  // ==========================================================================
+  var FIXED = new Date(td + 'T14:00:00').getTime();
+  function fixClock(){ HT.setClock(function(){ return FIXED; }); }
+  function freeClock(){ HT.setClock(null); }
+  function rrDay(d, items){ HT.state().days[d] = { status:'in_progress', items: items||[], water_l:0 }; }
+  function rrFood(name, time, kcal){ return { name:name, meal:'snack', time:time, kcal:kcal||100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }; }
+
+  // RR-derived: the model traces to the same records as the timeline.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','08:00'), rrFood('b','12:30'), rrFood('c','19:00')]);
+  HT.state().timeline[td] = [
+    { time:'06:30', kind:'event', type:'walk', value:40, unit:'min', source:'manual', notes:'' },
+    { time:'17:00', kind:'event', type:'sauna', value:20, unit:'min', source:'manual', notes:'' },
+    { time:'21:00', kind:'event', type:'alcohol', value:2, unit:'drinks', source:'manual', notes:'' },
+    { time:'07:00', kind:'biometric', type:'weight', value:80, unit:'kg', source:'manual', notes:'' }
+  ];
+  var M = HT.rhythmModel(td);
+  res(M.ticks.length===3, 'RR-derived: one eating tick per logged food item, no more');
+  var exArcs = M.arcs.filter(function(a){return a.kind==='exercise';});
+  res(exArcs.length===2, 'RR-derived: every duration-carrying event produces exactly one arc');
+  res(exArcs.filter(function(a){return /alcohol/i.test(a.label);}).length===0,
+      'RR-derived: a duration-less event (alcohol, in drinks) produces NO arc rather than a fabricated one');
+  res(M.arcs.filter(function(a){return a.kind==='sleep';}).length===0,
+      'RR-derived: no sleep record -> no sleep arc (nothing inferred)');
+  var eatArc = M.arcs.filter(function(a){return a.kind==='eat';})[0];
+  res(eatArc && eatArc.startMin===480 && eatArc.endMin===1140,
+      'RR-derived: the eating window is first->last LOGGED food, not a declared one');
+  HT.state().days[td].items = [];
+  res(HT.rhythmModel(td).arcs.filter(function(a){return a.kind==='eat';}).length===0 && HT.rhythmModel(td).ticks.length===0,
+      'RR-derived: remove the records and the arcs go with them (no arc without a record)');
+  freeClock();
+
+  // RR-window: the DECLARED window is a reference only, never the eating arc.
+  seedRegimen(); fixClock();
+  rrDay(td, [rrFood('a','13:00'), rrFood('b','17:00')]);
+  var MW = HT.rhythmModel(td);
+  var win = MW.arcs.filter(function(a){return a.kind==='window';})[0];
+  var eat = MW.arcs.filter(function(a){return a.kind==='eat';})[0];
+  res(!!win && win.ref===true && win.startMin===720 && win.endMin===1080, 'RR-window: the regimen declared window draws as a reference arc');
+  res(!!eat && eat.startMin===780 && eat.endMin===1020 && !eat.ref,
+      'RR-window: the eating arc stays the LOGGED reality, visually distinct from the declared plan (D27)');
+  freeClock();
+
+  // RR-sleep: interval, derived hours, legacy scalar draws nothing, midnight split.
+  setLS({}); HT.boot(); fixClock();
+  var prev = HT.shiftDate(td, -1);
+  HT.state().timeline[td] = [{ time:'23:00', kind:'biometric', type:'sleep', value:8, unit:'h', source:'manual', notes:'' }];
+  var Mw = HT.rhythmModel(td), Mp = HT.rhythmModel(prev);
+  var sw = Mw.arcs.filter(function(a){return a.kind==='sleep';})[0];
+  var sp = Mp.arcs.filter(function(a){return a.kind==='sleep';})[0];
+  res(!!sw && sw.startMin===0 && sw.endMin===420 && sw.openStart===true,
+      'RR-sleep: the wake day draws only the post-midnight portion, flagged as continuing');
+  res(!!sp && sp.startMin===1380 && sp.endMin===1440 && sp.openEnd===true,
+      'RR-sleep: the previous day draws only the pre-midnight portion — the arc is SPLIT BY CLOCK, never painted whole onto the wake day');
+  var ss = HT.seriesSummary(HT.signalSeries('sleep_hours','all'));
+  res(ss.n===1 && ss.latest===8, 'RR-sleep: sleep_hours is DERIVED from the interval duration');
+  setLS({}); HT.boot(); fixClock();
+  HT.state().timeline[td] = [{ time:'08:00', kind:'biometric', type:'sleep_hours', value:7, unit:'h', source:'manual', notes:'' }];
+  res(HT.rhythmModel(td).arcs.filter(function(a){return a.kind==='sleep';}).length===0,
+      'RR-sleep: a legacy hours-only reading stays valid and draws NO arc (honest absence)');
+  res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).latest===7, 'RR-sleep: the legacy reading still counts in the series');
+  res(HT.CHIP_GOAL_ALIAS.sleep==='sleep_hours' && HT.chipOrder().indexOf('sleep')>=0 && HT.chipOrder().indexOf('sleep_hours')<0,
+      'RR-sleep: one sleep chip (the interval), and a legacy sleep_hours goal floats it');
+  freeClock();
+
+  // RR-pending / RR-trailing.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(HT.shiftDate(td,-1), [rrFood('x','08:00')]);
+  rrDay(td, [rrFood('y','13:00')]);
+  var MF = HT.rhythmModel(td);
+  var fastArcs = MF.arcs.filter(function(a){return a.kind==='fast';});
+  res(fastArcs.length>0 && fastArcs.every(function(a){return a.state==='pending';}),
+      'RR-pending: an unresolved gap draws as PENDING, never as a confirmed fast');
+  res(fastArcs.every(function(a){return /pending/.test(a.label);}), 'RR-pending: the pending arc says so in its label');
+  var cap = HT.rhythmCaptionHTML(MF);
+  res(/resolveFastAt/.test(cap), 'RR-pending: one-tap resolve is reachable from the ring');
+  var openArc = MF.arcs.filter(function(a){return a.kind==='open';})[0];
+  res(!!openArc && /since last logged food/.test(openArc.label) && !/fast/i.test(openArc.label),
+      'RR-trailing: today\u2019s open gap reads "Nh since last logged food" \u2014 never "fasting", never a zone (D22)');
+  res(MF.nowMin===840, 'RR-trailing: the now hand sits at the injected clock time');
+  res(HT.rhythmModel(HT.shiftDate(td,-1)).nowMin===null, 'RR-trailing: no now hand on a past day');
+  freeClock();
+
+  // RR-swap: display only, deterministic revert on the injected clock.
+  setLS({}); HT.boot(); fixClock();
+  HT.setGoal('protein_g', 120, 'min'); HT.setGoal('weight', 80, 'max', 'kg');
+  var swapBefore = HT.exportJSON();
+  res(HT.swapGoal('nope').ok===false, 'RR-swap: a key with no goal does not swap');
+  res(HT.swapGoal('protein_g').ok===true && HT.swapActive().key==='protein_g', 'RR-swap: tapping a goal swaps the centerpiece');
+  res(HT.exportJSON()===swapBefore, 'RR-swap: the swap writes NO data');
+  FIXED += HT.GOAL_SWAP_MS - 1;
+  res(HT.swapActive()!==null, 'RR-swap: still swapped just before the timeout');
+  FIXED += 2;
+  res(HT.swapActive()===null, 'RR-swap: reverts to the rhythm ring at the timeout, deterministically');
+  FIXED = new Date(td + 'T14:00:00').getTime();
+  HT.swapGoal('protein_g'); FIXED += 6000; HT.swapGoal('weight');
+  FIXED += 7000;
+  res(HT.swapActive()!==null && HT.swapActive().key==='weight', 'RR-swap: tapping a different goal swaps to it AND restarts the timer');
+  HT.clearSwap();
+  res(HT.swapActive()===null, 'RR-swap: tapping the ring reverts immediately');
+  HT.swapGoal('protein_g'); HT.refresh();
+  res(HT.swapActive()!==null, 'RR-swap: an incidental refresh does NOT cancel the swap');
+  rrDay(HT.shiftDate(td,-1), [rrFood('z','09:00')]); HT.state().current = td;
+  HT.swapGoal('protein_g'); HT.stepDay(-1);
+  res(HT.swapActive()===null, 'RR-swap: day navigation CANCELS the swap');
+  res(HT.exportJSON().indexOf('"until"')<0, 'RR-swap: no swap state is ever persisted');
+  freeClock();
+
+  // RR-empty.
+  setLS({}); HT.boot(); fixClock();
+  var ME = HT.rhythmModel(td);
+  res(ME.empty===true && ME.arcs.length===0, 'RR-empty: a day with no records has an empty model');
+  var esvg = HT.rhythmSVG(ME, 180);
+  res(esvg.indexOf('<svg')===0 && /rrbg/.test(esvg), 'RR-empty: the ring still RENDERS (honest empty), never hidden');
+  res(/no records for this day yet/.test(HT.rhythmCaptionHTML(ME)), 'RR-empty: the caption says so plainly and implies nothing about intake');
+  freeClock();
+
+  // RR-mini: the grid uses the same model at reduced detail, and navigates.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','08:00'), rrFood('b','20:00')]);
+  var back = HT.shiftDate(td,-2); rrDay(back, [rrFood('c','09:00'), rrFood('d','18:00')]);
+  HT.setRhythmRange('week');
+  res(HT.rhythmGridDates().length===7 && HT.rhythmGridDates()[6]===td, 'RR-mini: the week grid is 7 days ending on the selected day');
+  res(HT.setRhythmRange('month')==='month' && HT.rhythmGridDates().length>=28, 'RR-mini: the month grid is a calendar month');
+  HT.setRhythmRange('week');
+  res(JSON.stringify(HT.rhythmModel(back))===JSON.stringify(HT.rhythmModel(back)), 'RR-mini: the model is stable');
+  res(HT.rhythmSVG(HT.rhythmModel(back),46,true).replace(/46/g,'180') !== '' &&
+      HT.rhythmModel(back).arcs.length===HT.rhythmModel(back).arcs.length,
+      'RR-mini: a mini ring is the SAME derived model as its day ring, only smaller');
+  res(HT.goToDay(back).ok===true && HT.state().current===back, 'RR-mini: tapping a mini ring navigates to that day');
+  res(HT.goToDay('2019-01-01').ok===false, 'RR-mini: a day with no record is inert');
+  freeClock();
+
+  // RR-vocab: the M7 invariant extends over every ring and mini-ring label.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(HT.shiftDate(td,-1), [rrFood('x','08:00')]);
+  rrDay(td, [rrFood('a','08:00'), rrFood('b','13:00')]);
+  HT.state().timeline[td] = [
+    { time:'06:00', kind:'event', type:'workout', value:45, unit:'min', source:'manual', notes:'' },
+    { time:'23:30', kind:'biometric', type:'sleep', value:7, unit:'h', source:'manual', notes:'' }
+  ];
+  HT.setRhythmRange('week');
+  var ringText = (HT.rhythmCaptionHTML(HT.rhythmModel(td)) + ' ' +
+                  HT.rhythmModel(td).arcs.map(function(a){return a.label;}).join(' ') + ' ' +
+                  HT.rhythmGridDates().map(function(d){ return HT.rhythmModel(d).arcs.map(function(a){return a.label;}).join(' '); }).join(' ')).toLowerCase();
+  var rbanned = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  var rhit = rbanned.filter(function(w){ return ringText.indexOf(w)>=0; });
+  res(rhit.length===0, 'RR-vocab: M7 vocabulary invariant holds over all ring + mini-ring labels' + (rhit.length?(' ['+rhit.join(',')+']'):''));
+  res(ringText.indexOf('zone')<0 && ringText.indexOf('anabolic')<0 && ringText.indexOf('catabolic')<0 && ringText.indexOf('fat-burning')<0,
+      'RR-vocab: no zones and no metabolic bands anywhere in the ring vocabulary');
+  freeClock();
+
+  // RR-primary: the declared setting (conflict (ii) addendum).
+  setLS({}); HT.boot();
+  res(HT.state().settings.primaryNutrient==='' && HT.primaryNutrientKey()==='kcal',
+      'RR-primary: unset stays UNSET and derives kcal — no default is written at boot');
+  HT.setGoal('protein_g', 120, 'min');
+  res(HT.state().settings.primaryNutrient==='' && HT.primaryNutrientKey()==='protein_g',
+      'RR-primary: with a protein goal the derived key is protein, still without storing a declaration');
+  res(HT.setPrimaryNutrient('weight').ok===false && HT.setPrimaryNutrient('nope').ok===false,
+      'RR-primary: a SIGNAL key is rejected — validated against RING_NUTRIENTS, never the mixed-namespace goals map');
+  res(HT.setPrimaryNutrient('fiber_g').ok===true && HT.primaryNutrientKey()==='fiber_g', 'RR-primary: a nutrient key is accepted and declared');
+  var pExp = JSON.parse(HT.exportJSON());
+  res(pExp.settings.primaryNutrient==='fiber_g', 'RR-primary: the declaration is exported');
+  setLS({}); HT.boot(); window.__confirm = true;
+  HT.restore(JSON.stringify(pExp));
+  res(HT.state().settings.primaryNutrient==='fiber_g', 'RR-primary: it round-trips export -> restore EXACT (explicit normalizer allowlist addition)');
+  res(HT.normalizeState({ version:5, settings:{ primaryNutrient:'weight' } }).settings.primaryNutrient==='',
+      'RR-primary: a hostile/invalid declaration is dropped at the restore boundary');
+  res(HT.state().version===5, 'RR-primary: schema version UNCHANGED at 5');
 
   var seDone = false;
   function finish(){
