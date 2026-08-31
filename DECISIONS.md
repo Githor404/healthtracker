@@ -709,3 +709,19 @@ Amends the **Mirror (D23)** and the **four-layer model (D21/D25)**. Reference ra
 **Free and default-on regardless of tier.** This is **safety content, not a feature**: it is **free and on by default at every tier**, including any future paid tier (D31). Placing a safety surface behind payment would make D31's paid-infers-agency clause self-contradicting.
 
 **Mirror-never-nag is scoped to BEHAVIOR, not DANGER.** D23/D25's never-nag discipline governs **behavioral** commentary — it was never a rule against telling a user something that matters. **A danger signal is not a nudge**, and never-nag must not be read as a reason to stay silent about one. The two are separated here explicitly so the discipline cannot be misapplied as suppression.
+
+## D33 — Reserved: biometric-triggered logging candidates (a future class; NOT authorized) (2026-08-30)
+
+**Reserved, not authorized.** No build work follows from this entry. It is recorded now so the class has a **named shape and its bounds before anything is built against it** — the same reason D19 designed the adapter seam before any adapter existed, and D22 built a three-state resolver rather than a two-state one that would have to be torn up.
+
+**The class.** A **physiological signal** (from the D28 shell — steps, sleep/HRV, CGM-via-HealthKit) suggests that **something happened worth logging**, and the app offers a **candidate** the user resolves. It is a *prompt to record*, never a record: the same grammar as a fasting candidate (D22), sourced from physiology instead of from a gap in the log.
+
+**Bounds, all of which bind if it is ever authorized:**
+- **Opt-in.** Off until the user turns it on. Never on by default, at any tier.
+- **Frequency-capped.** A hard cap, so the class cannot degrade into a stream of interruptions.
+- **Observational grammar.** It reports **what the signal did**, never what the user should do — Mirror language (D23), never Layer-4 guidance (D21/D25).
+- **Three-state resolution.** Confirmed / denied / pending, per **D22**: **pending counts toward nothing**, and a candidate is never silently promoted to a fact. A physiological hint is **not** evidence that something happened, exactly as a logging gap is not evidence of fasting.
+- **A narrow, named exception to the notification ban.** D25 rules that a nudge is **never a notification**. This class is the **single** exception, and it is **scoped to physiology-triggered logging prompts only** — it does **not** loosen the ban for nudges, habits, adherence, streaks, or anything else. The exception exists because the trigger is time-sensitive in a way a habit suggestion never is; it is written narrowly so it cannot be widened by analogy later.
+- **Depends on D28's shell.** The class is unreachable without device streams, so it cannot start before the native shell exists — and the shell's own start is trigger-gated, not calendared (D28).
+
+**Interaction with D32, stated so it is not resolved by accident:** D32 bounds **acute sourced statements** to **hand-entered readings, never device streams**. That bound is **not** loosened here. A logging *candidate* asks the user to record something; an **acute statement tells them something is wrong**. This class may do the first from a stream; it may **never** do the second. Anything that would blur that line needs its own ruling, not this reservation.
