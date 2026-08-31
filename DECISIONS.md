@@ -675,3 +675,17 @@ Regimen authoring · Goals · Daily supplement · Presets (management) · Fastin
 Events/biometrics never enter food totals · averages complete-days-only · pending fast candidates count toward nothing · AI-paste is macros-only, micros stripped, eyeballed · ingest never overwrites a day with items · restore backs up first and surfaces the backup · daily supplement off by default, flagged and non-deletable when enabled, past days keep their record · habits one at a time, never a notification, one tap to pass, permanent on decline · the data-layer suite stays green at its current count.
 
 **Failure means the diagnosis was wrong** — that the barrier is not configuration burden but something else (day model, form length, performance). That is a useful result and is to be **recorded as such rather than patched around**.
+
+## D31 — Governance: monetization direction — NewCo first, ENVIROMINDsource walled off, paid infers agency (2026-08-30)
+
+Direction only, like D17/D19/D21/D26/D28: it binds **preconditions**, and authorizes **no** build work. **D17 holds** — the app is a free public good today, optionality preserved; this entry says what must be true **before** any of that optionality is exercised, so the question is never decided under commercial pressure after the fact.
+
+**NewCo is precondition #1.** No monetization of any kind proceeds before a **new company entity (NewCo)** exists to hold it. This is first in order, not merely on the list: taking money into an unformed or borrowed structure is the step that cannot be cleanly undone.
+
+**ENVIROMINDsource is walled off.** HealthTracker monetization does **not** run through **ENVIROMINDsource** — no revenue, no contracting, no liability path through that entity. The wall is structural, not a matter of practice.
+
+**IP assignment note.** The **IP position must be settled explicitly** and assigned to NewCo as part of forming it. An unrecorded or assumed assignment is the same class of defect as an unformed entity — cheap to fix before money moves, expensive after.
+
+**Paid infers agency — and therefore requires a scoping document.** Taking payment **infers agency**: a paying user is owed a duty a free user is not, and that duty attaches whether or not it is claimed. Consequently **any paid tier requires a scoping document** stating what is and is not promised, before the tier exists. This is the commercial mirror of the guidance gate (D21/D25): the constraint binds hardest exactly where the incentive to blur it is strongest.
+
+**Relationship to the existing record.** D28 already ruled that an **App Store listing is distribution, not monetization**, and that the native shell creates **no server, no accounts, no telemetry**; **D17(b)** rejects any server we run, and a future commercial tier revisits **under D17's own optionality rules, never through a feature gate**. D31 adds the entity-and-duty preconditions to that same door. The **standing rule from D28 is unaffected and unwaivable by any tier**: no recommendation or comparison surface ever carries commercial placement — no affiliate links, no sponsored results, no paid ranking. **The trust story is the asset.**
