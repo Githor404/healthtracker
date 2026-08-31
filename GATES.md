@@ -644,3 +644,23 @@ Displaying ranges against readings **is D32's mechanism**, so this slice is **D3
 | LB-attest | the CCS overlay states the **stricter secondary-prevention tier** and the **TG > 1.5 non-HDL-C/ApoB preference**, cited to Pearson 2021; 25-OH-D cited to Hanley 2010 with the 2024 reaffirmation and the **required 50 nmol/L disclosure**; a guideline band and the lab's printed interval **render together**; **nothing implies the app recommends testing** |
 
 **Status: MET — machinery gated (528/528) and the content attestation SIGNED with its three required edits applied.**
+
+#### On-device pass follow-up — v0.10.1 (presentation only, no behaviour change)
+
+On-device pass of v0.10.0: **update notice showed both changelog lines** (0.9.1 + 0.10.0 — correct, since both shipped in one push and the device jumped 0.9.0 → 0.10.0). **Defect found: the lab-panel form was cramped at phone width.**
+
+**Same class of miss as the v0.4.1 chip smoke.** The harness asserted *14 analyte rows rendered* — structurally true, and unusable: four controls on one line at 360 px squeezed the value field, **the one a human types into**, to **64 px**, while three fixed-width neighbours (unit select, two reference inputs) held their space. A structural assertion cannot see density, so it gets the same answer the chip strip got — **measure the property that actually matters**.
+
+**New gate: `tests/lab-form-gate.ps1`.** CDP measures the real `index.html` at 360 / 390 / 900 px and asserts **usable density**: value input ≥ 88 px, each reference input ≥ 56 px, unit select ≥ 74 px, **zero truncated analyte names**, no horizontal overflow. It was **written first and run against the unfixed form, where it FAILED** (value 64 px at 360 px) — a layout gate that cannot reproduce the reported defect is worthless.
+
+**Fix (presentation only):** two lines per analyte — name + hint, then value + unit, then the optional printed interval on its own line. The sheet body also takes the app's 480 px column on desktop instead of running full-bleed.
+
+| Width | Before | After |
+|---|---|---|
+| 360 px | value **64 px** → FAIL | value **216 px** → PASS |
+| 390 px | value 94 px | value **246 px** |
+| 900 px | value 574 px (full-bleed) | value **321 px** (480 px column) |
+
+`bash tests/run-data-layer.sh` → **528/528 ALL PASS** (unchanged — the element ids the cases drive are the same). `lab-form-gate` PASS · precache · sw-hash · zxing · version (0.10.0 → **0.10.1**) · writesites · offline · chip-layout · update all green.
+
+**Status: MET.**

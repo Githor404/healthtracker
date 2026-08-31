@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.10.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.10.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3116,6 +3116,7 @@ const VERSION_LOG = [
   { v: '0.9.0', note: 'Simpler main screen: it now shows your day, timeline, trends and averages, and one “+” button logs everything — scan, quick items, photo/AI paste, or manual. Setting things up (regimen, goals, supplement, presets, fasting, habits, export and restore) moved to Settings. Nothing was removed and nothing you have logged changed.' },
   { v: '0.9.1', note: 'Clearer entry points: the log button now reads “+ Log” and Settings is labelled, so nothing is hidden behind an icon. “All days” starts collapsed to a single line showing how many days you have logged.' },
   { v: '0.10.0', note: 'Lab panels: enter a dated blood panel (ApoB, LDL, HbA1c, fasting glucose, vitamin D, ferritin, liver, thyroid and more) and see each value against its reference range — cited Canadian targets where they exist, your own lab’s printed interval otherwise. Figures only, never a verdict.' },
+  { v: '0.10.1', note: 'The lab panel form is readable on a phone: each value gets its own full-width box with the unit beside it, and the reference interval sits on its own line.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3372,18 +3373,34 @@ function addLabPanel(date, entries) {
 function labUnitOptions(spec, sel) {
   return spec.units.map((u) => `<option value="${esc(u)}"${u === sel ? ' selected' : ''}>${esc(u)}</option>`).join('');
 }
+function labHint(s) {
+  if (s.overlay) return esc(s.overlay.org.replace('Canadian Cardiovascular Society', 'CCS')) + ' \u2264 ' + esc(rDisp(s.overlay.value)) + ' ' + esc(s.overlay.unit);
+  if (s.guideline) return esc(s.guideline.org);
+  return 'uses your lab\u2019s interval';
+}
+// Two lines per analyte, mobile-first: name + hint, then value + unit, then the
+// optional printed interval. Four controls on ONE line squeezed the value field
+// to ~64 px at 360 px -- the field a human actually types into lost to three
+// fixed-width neighbours. Gated by tests/lab-form-gate.ps1.
 function renderLabForm() {
   const el = document.getElementById('labRows');
   if (!el) return;
   const d = document.getElementById('labDate');
   if (d && !d.value) d.value = localDate();
   el.innerHTML = LAB_SPEC.map((s) => {
-    const refs = `<div style="flex:0 0 74px"><label>Ref low</label><input id="lab_lo_${esc(s.type)}" type="number" inputmode="decimal" placeholder="—"></div>
-         <div style="flex:0 0 74px"><label>Ref high</label><input id="lab_hi_${esc(s.type)}" type="number" inputmode="decimal" placeholder="—"></div>`;
-    return `<div class="row" style="align-items:flex-end">
-      <div style="flex:1.3"><label>${esc(s.label)}</label><input id="lab_v_${esc(s.type)}" type="number" inputmode="decimal" placeholder="—"></div>
-      <div style="flex:0 0 96px"><label>Unit</label><select id="lab_u_${esc(s.type)}">${labUnitOptions(s, s.unit)}</select></div>
-      ${refs}
+    const t = esc(s.type), lbl = esc(s.label);
+    return `<div class="labfrow">
+      <div class="labfname"><span>${lbl}</span><small>${labHint(s)}</small></div>
+      <div class="labfmain">
+        <input id="lab_v_${t}" type="number" inputmode="decimal" placeholder="value" aria-label="${lbl} value">
+        <select id="lab_u_${t}" aria-label="${lbl} unit">${labUnitOptions(s, s.unit)}</select>
+      </div>
+      <div class="labfref">
+        <span>lab ref</span>
+        <input id="lab_lo_${t}" type="number" inputmode="decimal" placeholder="low" aria-label="${lbl} reference low">
+        <span>\u2013</span>
+        <input id="lab_hi_${t}" type="number" inputmode="decimal" placeholder="high" aria-label="${lbl} reference high">
+      </div>
     </div>`;
   }).join('');
 }
