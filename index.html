@@ -230,10 +230,35 @@
   .rgbtns{display:flex;gap:10px;flex:0 0 auto}
   .rgmrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
   .rgtpl{white-space:pre-wrap;font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;max-height:200px;overflow:auto;margin-top:8px}
+
+  /* D30 — single entry point: main surface is display + attestation; one
+     persistent + opens the entry sheet; authoring/config lives in a flat
+     settings panel. Presentation only; no behavior changes. */
+  .topbtn{position:absolute;right:12px;top:calc(8px + env(safe-area-inset-top));background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--muted);font:inherit;font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer}
+  .topbtn:active{opacity:.6}
+  .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));width:58px;height:58px;border-radius:29px;border:none;background:var(--accent);color:#fff;font-size:32px;font-weight:300;line-height:1;cursor:pointer;z-index:16;box-shadow:0 4px 16px rgba(0,0,0,.24)}
+  .fab:active{opacity:.75}
+  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:17}
+  .sheet{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:90vh;display:flex;flex-direction:column}
+  .panel{position:fixed;inset:0;z-index:18;background:var(--bg);display:flex;flex-direction:column}
+  .sheethead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto;padding-top:calc(10px + env(safe-area-inset-top))}
+  .sheet .sheethead{border-radius:18px 18px 0 0;padding-top:10px}
+  .modes{display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .modebtn{flex:0 0 auto;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--muted);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .modebtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .sheetx{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:2px 8px}
+  .sheetbody{overflow-y:auto;padding:14px;flex:1 1 auto;-webkit-overflow-scrolling:touch}
+  .panel .wrap{overflow-y:auto;flex:1 1 auto;width:100%;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+  .pane{display:none}
+  .pane.on{display:block}
+  .sheetfoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;align-items:flex-start;background:var(--panel)}
+  .qchip{display:inline-block;max-width:100%;margin:0 6px 6px 0;padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;font-size:13px;font-weight:700;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
+  .qchip:active{opacity:.6}
+  .qchip small{display:block;color:var(--muted);font-weight:600;font-size:11px}
 </style>
 </head>
 <body>
-  <div class="top"><h1>HealthTracker</h1></div>
+  <div class="top"><h1>HealthTracker</h1><button type="button" id="settingsBtn" class="topbtn" onclick="openSettings()" aria-label="Settings">Settings</button></div>
   <div id="storeBadge">…</div>
   <div class="wrap">
     <div id="versionNotice" class="card vnotice" style="display:none"></div>
@@ -242,27 +267,6 @@
       <div id="regimenChecklist"></div>
       <div id="dayView"></div>
     </div>
-
-    <div class="card">
-      <details open>
-        <summary>Log a biometric or event</summary>
-        <div id="sigChips" class="chipstrip"></div>
-        <div id="sigWarn"></div>
-        <div class="row" style="margin-top:10px">
-          <div style="flex:2"><label>Type</label><select id="sigType" onchange="onSignalTypeChange()"></select></div>
-          <div><label id="sigValLabel">Value</label><input id="sigValue" type="number" inputmode="decimal"></div>
-          <div id="sigDiaWrap" style="flex:1;display:none"><label>Diastolic</label><input id="sigDia" type="number" inputmode="decimal"></div>
-          <div style="flex:0 0 90px"><label>Unit</label><select id="sigUnit"></select></div>
-        </div>
-        <div class="row">
-          <div><label>Time</label><input id="sigTime" type="time"></div>
-          <div style="flex:2"><label>Notes</label><input id="sigNotes" placeholder="notes (optional)"></div>
-        </div>
-        <button class="btn primary" style="margin-top:10px" onclick="addSignalFromForm()">Log to timeline</button>
-        <div class="note">Weight, HRV, glucose, breath ketones, sleep, mood, energy, steps, BP; sauna, cold plunge, red light, HBOT, alcohol, … — on your daily timeline, never mixed into food totals.</div>
-      </details>
-    </div>
-
     <div class="card">
       <details open>
         <summary>Timeline (food · events · biometrics)</summary>
@@ -270,120 +274,46 @@
         <div id="timelineOverlay" style="margin-top:10px"></div>
       </details>
     </div>
-
     <div class="card">
       <details open>
         <summary>Trends</summary>
         <div id="trends" style="margin-top:10px"></div>
       </details>
     </div>
-
     <div class="card">
       <details open>
         <summary>Habits</summary>
-        <label class="checkline"><input type="checkbox" id="nudgeEnabled" onchange="setNudgesEnabled(this.checked)"> Suggest one established habit at a time</label>
         <div id="nudge" style="margin-top:8px"></div>
-        <div class="note">After a couple of weeks of tracking, one widely-recommended habit is offered at a time — never a notification, always one tap to pass, and permanent when you decline. Accepting keeps it as a quiet focus.</div>
+        <div class="note">One established habit is offered at a time — never a notification, always one tap to pass, and permanent when you decline. Turn it off under Settings › Habits.</div>
       </details>
     </div>
-
-    <div class="card">
-      <details>
-        <summary>Regimen</summary>
-        <div id="regimenList" style="margin-top:8px"></div>
-        <label style="margin-top:6px">Paste a regimen (JSON)</label>
-        <textarea id="regimenPaste" rows="5" placeholder="paste regimen JSON…"></textarea>
-        <div id="regimenReport" style="margin-top:6px"></div>
-        <button class="btn" onclick="doRegimenPaste()">Load regimen</button>
-        <button class="linklike" onclick="copyRegimenTemplate()">Copy template + sample</button>
-        <div class="note">A regimen is a named daily template — medications, events, and preset meals at their times, with optional weekday rotation and an eating window. It pre-fills today's checklist at the top of the day; nothing is ever auto-logged. Author it as JSON (template below); food entries reference a saved preset's id.</div>
-        <pre id="regimenTemplate" class="rgtpl"></pre>
-      </details>
-    </div>
-
-    <div class="card">
-      <details open>
-        <summary>Log a medication or supplement</summary>
-        <label>Name</label><input id="medName" placeholder="e.g. Metformin, Vitamin D3">
-        <div class="row">
-          <div><label>Dose</label><input id="medDose" type="number" inputmode="decimal"></div>
-          <div><label>Unit</label><select id="medDoseUnit"></select></div>
-          <div><label>Form</label><select id="medForm"></select></div>
-          <div><label>Route</label><select id="medRoute"></select></div>
-        </div>
-        <div class="row">
-          <div><label>Time</label><input id="medTime" type="time"></div>
-          <div><label>Prescriber</label><input id="medPrescriber" placeholder="optional"></div>
-          <div><label>Reason</label><input id="medReason" placeholder="optional"></div>
-        </div>
-        <label class="checkline"><input type="checkbox" id="medScheduled"> Standing / recurring dose (marks intent — no reminders yet)</label>
-        <label>Notes</label><input id="medNotes" placeholder="optional">
-        <button class="btn primary" style="margin-top:10px" onclick="addMedicationFromForm()">Log medication</button>
-        <div class="note">Name is enough for a quick log; dose and the rest are optional. Kept structured (not buried in notes) so it can be correlated later.</div>
-      </details>
-    </div>
-
-    <div class="card">
-      <details id="goalsDetails">
-        <summary>Goals</summary>
-        <div class="row" style="margin-top:10px">
-          <div style="flex:1.4"><label>Nutrient / biometric</label><select id="goalNutrient" onchange="onGoalTypeChange()">
-            <optgroup label="Nutrients"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></optgroup>
-            <optgroup label="Biometrics"><option value="weight">Weight</option><option value="resting_hr">Resting HR</option><option value="hrv">HRV</option><option value="glucose">Glucose</option><option value="breath_ketones">Breath ketones</option><option value="bp_systolic">BP systolic</option><option value="bp_diastolic">BP diastolic</option><option value="sleep_hours">Sleep</option><option value="steps">Steps</option><option value="mood">Mood</option><option value="energy">Energy</option></optgroup>
-          </select></div>
-          <div><label>Target <span id="goalUnitHint" class="thint"></span></label><input id="goalValue" type="number" inputmode="decimal"></div>
-          <div><label>Direction</label><select id="goalDir"><option value="min">floor (min)</option><option value="max">ceiling (max)</option></select></div>
-        </div>
-        <button class="btn" onclick="setGoalFromForm()">Set goal</button>
-        <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
-      </details>
-    </div>
-
-    <div class="card">
-      <details>
-        <summary>Fasting</summary>
-        <label class="checkline"><input type="checkbox" id="fastEnabled" checked> Show fasting candidates</label>
-        <div class="row" style="margin-top:8px">
-          <div style="flex:0 0 130px"><label>Min hours</label><input id="fastMinHours" type="number" inputmode="decimal"></div>
-        </div>
-        <button class="btn" onclick="setFastingFromForm()">Save</button>
-        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-kcal drinks and the daily supplement don't break a fast.</div>
-      </details>
-    </div>
-
-    <div class="card">
-      <details id="supDetails">
-        <summary>Daily supplement</summary>
-        <div id="supWarn"></div>
-        <label class="checkline"><input type="checkbox" id="supEnabled"> Enable — auto-add to each new day</label>
-        <label>Name</label><input id="supName" placeholder="e.g. Psyllium + D3 + B12">
-        <div class="row">
-          <div><label>kcal</label><input id="supKcal" type="number" inputmode="decimal"></div>
-          <div><label>P (g)</label><input id="supP" type="number" inputmode="decimal"></div>
-          <div><label>F (g)</label><input id="supF" type="number" inputmode="decimal"></div>
-          <div><label>C (g)</label><input id="supC" type="number" inputmode="decimal"></div>
-        </div>
-        <div class="row">
-          <div><label>Fiber (g)</label><input id="supFib" type="number" inputmode="decimal"></div>
-          <div><label>Soluble (g)</label><input id="supSol" type="number" inputmode="decimal"></div>
-          <div></div>
-        </div>
-        <details class="micros">
-          <summary>Micronutrients (from the supplement label)<span id="supMicroCount"></span></summary>
-          <div id="supMicros"></div>
-        </details>
-        <button class="btn primary" onclick="saveSupplement()">Save supplement</button>
-        <div class="note">Off by default. When enabled, a flagged non-deletable item is added to today (if open) and every new day; disable to stop. Past days keep their record.</div>
-      </details>
-    </div>
-
     <div class="card">
       <h2>Averages</h2>
       <div id="averages"></div>
       <div class="note">Complete days only. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
     </div>
-
     <div class="card">
+      <h2>All days</h2>
+      <div id="history"></div>
+      <div class="note">Overview of every day. Complete days count toward averages; in-progress days are flagged.</div>
+    </div>
+  </div>
+
+  <button id="fab" class="fab" onclick="openSheet()" aria-label="Log something">+</button>
+
+  <div id="sheetScrim" class="scrim" style="display:none" onclick="closeSheet()"></div>
+  <div id="entrySheet" class="sheet" style="display:none" role="dialog" aria-modal="true" aria-label="Log something">
+    <div class="sheethead">
+      <div class="modes">
+        <button type="button" id="mode-scan"   class="modebtn on" onclick="setSheetMode('scan')">Scan</button>
+        <button type="button" id="mode-quick"  class="modebtn"    onclick="setSheetMode('quick')">Quick</button>
+        <button type="button" id="mode-photo"  class="modebtn"    onclick="setSheetMode('photo')">Photo · AI paste</button>
+        <button type="button" id="mode-manual" class="modebtn"    onclick="setSheetMode('manual')">Manual</button>
+      </div>
+      <button type="button" class="sheetx" onclick="closeSheet()" aria-label="Close">&times;</button>
+    </div>
+    <div class="sheetbody">
+      <div id="pane-scan" class="pane on">
       <details open id="scanDetails">
         <summary>Scan or enter a barcode</summary>
         <div class="row" style="margin-top:10px;align-items:flex-end">
@@ -399,9 +329,22 @@
         <div id="scanResult"></div>
         <div class="note">Point the camera at a product barcode, or type it in. Looks up OpenFoodFacts, cache-first. Nutrition is community data — verify it against the package label.</div>
       </details>
-    </div>
-
-    <div class="card">
+      </div>
+      <div id="pane-quick" class="pane">
+        <div id="quickChips"></div>
+      </div>
+      <div id="pane-photo" class="pane">
+      <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
+      <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
+      <textarea id="promptTemplate" readonly></textarea>
+      <div class="note">Send this to your AI assistant with a meal photo, then paste its JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
+      <h2>Ingest · paste JSON</h2>
+      <textarea id="ingestBox" placeholder="Paste JSON from your AI assistant (items) — or a full export to merge days. Non-destructive."></textarea>
+      <button class="btn" onclick="doIngest()">Ingest</button>
+      <div id="ingestReport"></div>
+      <div class="note">Never overwrites a day that has items. AI-paste items are macros-only (micros stripped) at eyeballed confidence.</div>
+      </div>
+      <div id="pane-manual" class="pane">
       <details open>
         <summary>Add manually</summary>
         <div id="maWarn"></div>
@@ -431,42 +374,149 @@
           <button class="btn" onclick="saveAsPreset()">Save as preset</button>
         </div>
       </details>
+      </div>
+      <div id="pane-signal" class="pane">
+      <details open>
+        <summary>Log a biometric or event</summary>
+        <div id="sigChips" class="chipstrip"></div>
+        <div id="sigWarn"></div>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:2"><label>Type</label><select id="sigType" onchange="onSignalTypeChange()"></select></div>
+          <div><label id="sigValLabel">Value</label><input id="sigValue" type="number" inputmode="decimal"></div>
+          <div id="sigDiaWrap" style="flex:1;display:none"><label>Diastolic</label><input id="sigDia" type="number" inputmode="decimal"></div>
+          <div style="flex:0 0 90px"><label>Unit</label><select id="sigUnit"></select></div>
+        </div>
+        <div class="row">
+          <div><label>Time</label><input id="sigTime" type="time"></div>
+          <div style="flex:2"><label>Notes</label><input id="sigNotes" placeholder="notes (optional)"></div>
+        </div>
+        <button class="btn primary" style="margin-top:10px" onclick="addSignalFromForm()">Log to timeline</button>
+        <div class="note">Weight, HRV, glucose, breath ketones, sleep, mood, energy, steps, BP; sauna, cold plunge, red light, HBOT, alcohol, … — on your daily timeline, never mixed into food totals.</div>
+      </details>
+      </div>
+      <div id="pane-med" class="pane">
+      <details open>
+        <summary>Log a medication or supplement</summary>
+        <label>Name</label><input id="medName" placeholder="e.g. Metformin, Vitamin D3">
+        <div class="row">
+          <div><label>Dose</label><input id="medDose" type="number" inputmode="decimal"></div>
+          <div><label>Unit</label><select id="medDoseUnit"></select></div>
+          <div><label>Form</label><select id="medForm"></select></div>
+          <div><label>Route</label><select id="medRoute"></select></div>
+        </div>
+        <div class="row">
+          <div><label>Time</label><input id="medTime" type="time"></div>
+          <div><label>Prescriber</label><input id="medPrescriber" placeholder="optional"></div>
+          <div><label>Reason</label><input id="medReason" placeholder="optional"></div>
+        </div>
+        <label class="checkline"><input type="checkbox" id="medScheduled"> Standing / recurring dose (marks intent — no reminders yet)</label>
+        <label>Notes</label><input id="medNotes" placeholder="optional">
+        <button class="btn primary" style="margin-top:10px" onclick="addMedicationFromForm()">Log medication</button>
+        <div class="note">Name is enough for a quick log; dose and the rest are optional. Kept structured (not buried in notes) so it can be correlated later.</div>
+      </details>
+      </div>
     </div>
+    <div class="sheetfoot">
+      <button type="button" class="linklike" onclick="setSheetMode('signal')">Log event or biometric</button>
+      <button type="button" class="linklike" onclick="setSheetMode('med')">Log medication or supplement</button>
+    </div>
+  </div>
 
-    <div class="card">
+  <div id="settingsScrim" class="scrim" style="display:none" onclick="closeSettings()"></div>
+  <div id="settingsPanel" class="panel" style="display:none" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="sheethead">
+      <div class="modes"><b style="font-size:14px">Settings</b></div>
+      <button type="button" class="sheetx" onclick="closeSettings()" aria-label="Close">&times;</button>
+    </div>
+    <div class="wrap">
+    <div class="card" data-setting="regimen">
+      <details>
+        <summary>Regimen</summary>
+        <div id="regimenList" style="margin-top:8px"></div>
+        <label style="margin-top:6px">Paste a regimen (JSON)</label>
+        <textarea id="regimenPaste" rows="5" placeholder="paste regimen JSON…"></textarea>
+        <div id="regimenReport" style="margin-top:6px"></div>
+        <button class="btn" onclick="doRegimenPaste()">Load regimen</button>
+        <button class="linklike" onclick="copyRegimenTemplate()">Copy template + sample</button>
+        <div class="note">A regimen is a named daily template — medications, events, and preset meals at their times, with optional weekday rotation and an eating window. It pre-fills today's checklist at the top of the day; nothing is ever auto-logged. Author it as JSON (template below); food entries reference a saved preset's id.</div>
+        <pre id="regimenTemplate" class="rgtpl"></pre>
+      </details>
+    </div>
+    <div class="card" data-setting="goals">
+      <details id="goalsDetails">
+        <summary>Goals</summary>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:1.4"><label>Nutrient / biometric</label><select id="goalNutrient" onchange="onGoalTypeChange()">
+            <optgroup label="Nutrients"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></optgroup>
+            <optgroup label="Biometrics"><option value="weight">Weight</option><option value="resting_hr">Resting HR</option><option value="hrv">HRV</option><option value="glucose">Glucose</option><option value="breath_ketones">Breath ketones</option><option value="bp_systolic">BP systolic</option><option value="bp_diastolic">BP diastolic</option><option value="sleep_hours">Sleep</option><option value="steps">Steps</option><option value="mood">Mood</option><option value="energy">Energy</option></optgroup>
+          </select></div>
+          <div><label>Target <span id="goalUnitHint" class="thint"></span></label><input id="goalValue" type="number" inputmode="decimal"></div>
+          <div><label>Direction</label><select id="goalDir"><option value="min">floor (min)</option><option value="max">ceiling (max)</option></select></div>
+        </div>
+        <button class="btn" onclick="setGoalFromForm()">Set goal</button>
+        <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="supplement">
+      <details id="supDetails">
+        <summary>Daily supplement</summary>
+        <div id="supWarn"></div>
+        <label class="checkline"><input type="checkbox" id="supEnabled"> Enable — auto-add to each new day</label>
+        <label>Name</label><input id="supName" placeholder="e.g. Psyllium + D3 + B12">
+        <div class="row">
+          <div><label>kcal</label><input id="supKcal" type="number" inputmode="decimal"></div>
+          <div><label>P (g)</label><input id="supP" type="number" inputmode="decimal"></div>
+          <div><label>F (g)</label><input id="supF" type="number" inputmode="decimal"></div>
+          <div><label>C (g)</label><input id="supC" type="number" inputmode="decimal"></div>
+        </div>
+        <div class="row">
+          <div><label>Fiber (g)</label><input id="supFib" type="number" inputmode="decimal"></div>
+          <div><label>Soluble (g)</label><input id="supSol" type="number" inputmode="decimal"></div>
+          <div></div>
+        </div>
+        <details class="micros">
+          <summary>Micronutrients (from the supplement label)<span id="supMicroCount"></span></summary>
+          <div id="supMicros"></div>
+        </details>
+        <button class="btn primary" onclick="saveSupplement()">Save supplement</button>
+        <div class="note">Off by default. When enabled, a flagged non-deletable item is added to today (if open) and every new day; disable to stop. Past days keep their record.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="presets">
       <h2>Presets</h2>
       <div id="presetList"></div>
     </div>
-
-    <div class="card">
-      <h2>All days</h2>
-      <div id="history"></div>
-      <div class="note">Overview of every day. Complete days count toward averages; in-progress days are flagged.</div>
+    <div class="card" data-setting="fasting">
+      <details>
+        <summary>Fasting</summary>
+        <label class="checkline"><input type="checkbox" id="fastEnabled" checked> Show fasting candidates</label>
+        <div class="row" style="margin-top:8px">
+          <div style="flex:0 0 130px"><label>Min hours</label><input id="fastMinHours" type="number" inputmode="decimal"></div>
+        </div>
+        <button class="btn" onclick="setFastingFromForm()">Save</button>
+        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-kcal drinks and the daily supplement don't break a fast.</div>
+      </details>
     </div>
-
-    <div class="card">
+    <div class="card" data-setting="habits">
+      <details>
+        <summary>Habits</summary>
+        <label class="checkline"><input type="checkbox" id="nudgeEnabled" onchange="setNudgesEnabled(this.checked)"> Suggest one established habit at a time</label>
+        <div class="note">After a couple of weeks of tracking, one widely-recommended habit is offered at a time on the main screen — never a notification, always one tap to pass, and permanent when you decline. Accepting keeps it as a quiet focus.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="prompt">
       <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
       <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
       <textarea id="promptTemplate" readonly></textarea>
       <div class="note">Send this to your AI assistant with a meal photo, then paste its JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
     </div>
-
-    <div class="card">
-      <h2>Ingest · paste JSON</h2>
-      <textarea id="ingestBox" placeholder="Paste JSON from your AI assistant (items) — or a full export to merge days. Non-destructive."></textarea>
-      <button class="btn" onclick="doIngest()">Ingest</button>
-      <div id="ingestReport"></div>
-      <div class="note">Never overwrites a day that has items. AI-paste items are macros-only (micros stripped) at eyeballed confidence.</div>
-    </div>
-
-    <div class="card">
+    <div class="card" data-setting="export">
       <h2>Export · copy data out</h2>
       <button class="btn" onclick="copyOut()">⇪ Copy data</button>
       <textarea id="exportBox" readonly placeholder="Tap Copy — your full log JSON appears here. Select and copy it to back up, or paste to Claude."></textarea>
       <div class="note">Read-only. Nothing leaves your device — this is a local copy.</div>
     </div>
-
-    <div class="card">
+    <div class="card" data-setting="import">
       <h2>Import · restore <span style="color:var(--bad)">(replaces everything)</span></h2>
       <textarea id="importBox" placeholder="Paste a HealthTracker export — or a legacy uha-log-v1 export — to REPLACE all current data."></textarea>
       <button class="btn danger" onclick="doRestore()">Restore — replace all data</button>
@@ -476,6 +526,10 @@
         <textarea id="prerestoreBox" readonly></textarea>
       </div>
     </div>
+    </div>
+  </div>
+
+  <div class="wrap">
     <div class="about">HealthTracker — all data stays on this device. No accounts, no telemetry. <b>Your export is your backup</b> — some privacy browsers clear site data, so export regularly. On iOS, use Safari or Add to Home Screen for reliable offline use and camera scanning. <a href="https://github.com/Githor404/healthtracker">Source</a> · MIT.</div>
   </div>
   <div class="toast" id="toast"></div>

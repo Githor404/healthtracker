@@ -645,3 +645,33 @@ The sweep enumerates **every write site**, not just the obvious record creators,
 - `deleteItem` / `cycleMeal` / `toggleDayStatus` / `clearDay` — mutate or remove; create nothing.
 - `ProductCache` — a **disposable mirror** of OFF data (D13), not a user record.
 - `priceComparison`'s internal grouping and `focusAdherence`'s date collection — **display-side** structures, never persisted. (Both are read-side false positives of the census pattern; they are classified rather than pattern-matched away, so the pattern stays deliberately over-broad and a real write cannot slip past it.)
+
+## D30 — Single entry point: the main surface becomes display + attestation; authoring moves to settings (Phase-4, 2026-08-30)
+
+**Presentation only. No schema change (v5), no data written, no migration.** The app presents ~19 panels on one surface and most are **authoring** surfaces, so a first use must configure something before the app returns anything. The two paths that return value immediately (scan, quick-log) are not privileged over the rest, and the AI photo round trip is split across two panels sited apart. **This is an ordering problem, not a capability gap** — nothing is removed and nothing changes behavior.
+
+**Main surface** keeps: today's day (ring + strip), timeline (food · events · biometrics), trends, averages, all days. **One persistent `+`** opens a sheet with four food modes — **Scan (default)** · **Quick** (presets as chips) · **Photo / AI paste** · **Manual** — plus two secondary entries at its foot: *log event or biometric*, *log medication or supplement*. **Scan is default** because it is the only path returning micronutrients in one tap, and micronutrient capture is the app's differentiating claim. **Photo is third, not second**, because AI-paste items are macros-only at `eyeballed` confidence — the ordering reflects **data quality, not convenience** (the honesty rule, applied to menu order).
+
+### The five open rulings, closed
+
+**(1) Cold-start kit — the gate protocol is now specified.** Fresh install, **one real barcode-bearing item**, the instruction *"log what you'd eat today,"* success = an **honest logged item unaided within minutes**. Pre-registering the kit is what makes the criterion falsifiable: without it a failure cannot distinguish *wrong ordering* from *nothing in the room to scan*.
+
+**(2) The main-surface rule is AUTHORING vs ATTESTATION** — not "display vs interactive". **Authoring and configuration go to settings; today's state and its one-tap responses stay.** So the **regimen checklist**, the **nudge offer**, and **fast-candidate resolution** REMAIN on the main surface: each is today's state plus a one-tap response, and each is load-bearing for a ruled invariant (D27 substitution grammar, D25 one-tap-to-pass, D22 three-state resolution). Moving them would have silently regressed those rulings while passing a naive "display-only" reading. Their **configuration** (regimen authoring, habit enable, fasting config) moves.
+
+**(3) Photo mode is "Photo / AI paste", with the paste field directly reachable** — copy-prompt and paste-return are one flow in sequence, ending the split-across-two-panels problem. The paste field is the existing four-shape `ingest` boundary, so the **full-export merge shape stays reachable** there. **Destructive Import / Restore stays in settings and never shares a surface with merge-ingest** — a non-destructive merge and a replace-everything restore must never sit one mis-tap apart.
+
+**(4) The tap-count promise is DROPPED.** "At most two taps from settings" was unfalsifiable (settings did not exist; `<details>` panels make the count arguable). Replaced by a stronger, checkable property: **settings is a flat, single-level list and every relocated capability is a named top-level entry**, gated **by enumeration** — the gate names each capability and asserts its entry exists, which cannot be satisfied by burying something one level deeper.
+
+**(5) The tester is the primary user; distribution is deferred by the builder's decision.** The gate is the **re-verification sweep** plus the builder's **attestation that the reorganization costs the daily flow zero**. The **cold-start criterion is DEFERRED, not dropped** — it fires **if and when distribution happens**, with the kit from (1) already pre-registered so it cannot be retrofitted favorably.
+
+**Reconciliation with D26 (required, recorded).** My earlier review named a conflict: the change is D26-clean (it removes and adds no features) but its original **gate** — three unfamiliar cold-start testers — was a **generality instrument**, and D26 rules that generality is not a goal and that work is not done for a constituency that may not exist. Ruling (5) **resolves it in D26's favour without discarding the evidence**: the slice is judged by **primary-user cost** now, and the generality instrument is **held in reserve, pre-registered**, firing only once distribution makes that constituency real. This is the same discipline D28 applied to consent infrastructure — **design the seam, don't build for a hypothetical population** — and it preserves registered-before-observed, since the cold-start kit is fixed in advance rather than written after a disappointing result.
+
+### Moved to settings (flat, single-level, unchanged in function)
+
+Regimen authoring · Goals · Daily supplement · Presets (management) · Fasting configuration · Habits configuration · AI prompt template (also surfaced inside Photo mode) · Export · Import / restore.
+
+### Invariants that must not regress (each testable)
+
+Events/biometrics never enter food totals · averages complete-days-only · pending fast candidates count toward nothing · AI-paste is macros-only, micros stripped, eyeballed · ingest never overwrites a day with items · restore backs up first and surfaces the backup · daily supplement off by default, flagged and non-deletable when enabled, past days keep their record · habits one at a time, never a notification, one tap to pass, permanent on decline · the data-layer suite stays green at its current count.
+
+**Failure means the diagnosis was wrong** — that the barrier is not configuration burden but something else (day model, form length, performance). That is a useful result and is to be **recorded as such rather than patched around**.

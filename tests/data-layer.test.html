@@ -1729,9 +1729,177 @@ window.setLS({});
   res(JSON.parse(HT.exportJSON()).days[td].items[0].tzo === TZ && withoutTzo.indexOf('tzo') < 0,
       'TZ-inert: the field is exported but never rendered (capture-only — nothing consumes it)');
 
-  var sm = document.createElement('p'); sm.className = 's';
-  sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
-  document.body.appendChild(sm);
+  // ==========================================================================
+  // D30 — single entry point. Presentation only: main surface = today's state +
+  // one-tap responses (ATTESTATION); authoring/config = a flat settings list.
+  // The DOM cases load the real index.html into an iframe so they assert the
+  // SHIPPED markup, not a fixture of it.
+  // ==========================================================================
+  var SEDOC = null;
+  function seQuery(sel){ return SEDOC ? Array.prototype.slice.call(SEDOC.querySelectorAll(sel)) : []; }
+  function seIn(hostSel, sel){
+    var host = SEDOC && SEDOC.querySelector(hostSel);
+    return !!(host && host.querySelector(sel));
+  }
+
+  function runSECases(){
+    // SE-enum (ruling 4): flat single-level settings; every relocated capability
+    // is a NAMED top-level entry. Burying one a level deeper fails this.
+    var RELOCATED = ['regimen','goals','supplement','presets','fasting','habits','prompt','export','import'];
+    var entries = seQuery('#settingsPanel [data-setting]');
+    var keys = entries.map(function(e){ return e.getAttribute('data-setting'); });
+    var missing = RELOCATED.filter(function(k){ return keys.indexOf(k) < 0; });
+    res(missing.length === 0, 'SE-enum: every relocated capability is a named settings entry' + (missing.length ? ' :: missing ' + missing.join(',') : ''));
+    var nested = entries.filter(function(e){ return e.parentElement.closest('[data-setting]'); });
+    res(nested.length === 0, 'SE-enum: the settings list is FLAT (no entry nested inside another)');
+    var named = entries.every(function(e){
+      var h = e.querySelector('summary, h2');
+      return h && h.textContent.trim().length > 0;
+    });
+    res(named, 'SE-enum: every settings entry carries a visible name');
+
+    // SE-attest (ruling 2): today's state + one-tap responses stay on the MAIN
+    // surface; their configuration does not.
+    var mainWrap = SEDOC.querySelector('body > .wrap');
+    res(!!(mainWrap && mainWrap.querySelector('#regimenChecklist')), 'SE-attest: regimen CHECKLIST is on the main surface');
+    res(!!(mainWrap && mainWrap.querySelector('#fastCandidates')), 'SE-attest: fast-candidate RESOLUTION is on the main surface');
+    res(!!(mainWrap && mainWrap.querySelector('#nudge')), 'SE-attest: nudge OFFER is on the main surface');
+    res(seIn('#settingsPanel', '#regimenPaste') && seIn('#settingsPanel', '#fastMinHours') && seIn('#settingsPanel', '#nudgeEnabled'),
+        'SE-attest: their CONFIGURATION (regimen authoring, fasting, habit switch) moved to settings');
+    res(!(mainWrap && (mainWrap.querySelector('#regimenPaste') || mainWrap.querySelector('#nudgeEnabled') || mainWrap.querySelector('#goalValue') || mainWrap.querySelector('#supEnabled'))),
+        'SE-attest: no authoring/config surface remains on the main surface');
+
+    // SE-modes: four food modes, Scan default, two secondary entries at the foot.
+    res(!!SEDOC.querySelector('#fab'), 'SE-modes: one persistent + entry point exists');
+    res(['scan','quick','photo','manual'].every(function(m){ return SEDOC.querySelector('#mode-' + m) && SEDOC.querySelector('#pane-' + m); }),
+        'SE-modes: Scan / Quick / Photo·AI paste / Manual all present');
+    res(SEDOC.querySelector('#mode-scan').className.indexOf('on') >= 0 && SEDOC.querySelector('#pane-scan').className.indexOf('on') >= 0,
+        'SE-modes: Scan is the DEFAULT mode');
+    var foot = SEDOC.querySelector('.sheetfoot');
+    res(!!foot && /event or biometric/i.test(foot.textContent) && /medication or supplement/i.test(foot.textContent),
+        'SE-modes: both secondary entries sit at the foot of the sheet (not as tabs)');
+    res(seIn('#pane-signal', '#sigType') && seIn('#pane-med', '#medName'), 'SE-modes: the secondary entries carry the real signal + medication forms');
+
+    // SE-paste (ruling 3): Photo mode reaches the paste field directly, and that
+    // field is the four-shape ingest boundary. Restore is NOT on that surface.
+    res(seIn('#pane-photo', '#promptTemplate') && seIn('#pane-photo', '#ingestBox'),
+        'SE-paste: Photo · AI paste holds copy-prompt AND the paste field in one flow');
+    res(!seIn('#pane-photo', '#importBox') && !seIn('#entrySheet', '#importBox'),
+        'SE-paste: destructive Import/Restore is NOT on the paste surface');
+
+    // SE-separation: restore lives only in settings, never beside merge-ingest.
+    res(seIn('#settingsPanel', '#importBox') && seQuery('#importBox').length === 1,
+        'SE-separation: Import/Restore lives ONLY in settings');
+    var importCard = SEDOC.querySelector('[data-setting="import"]');
+    res(!!importCard && !importCard.querySelector('#ingestBox'),
+        'SE-separation: merge-ingest never shares a surface with replace-everything restore');
+
+    // SE-modes: scan lives in the sheet, manual in the sheet.
+    res(seIn('#pane-scan', '#scanBarcode') && seIn('#pane-manual', '#maName'), 'SE-modes: Scan and Manual carry their real forms');
+  }
+
+  // Load the SHIPPED index.html and assert against it.
+  var seFrame = document.createElement('iframe');
+  seFrame.style.cssText = 'width:390px;height:700px;border:0';
+  var sePending = true;
+  // NOTE: appending an iframe fires `load` once for the initial about:blank
+  // BEFORE the real document arrives. Ignore that pass, or every selector runs
+  // against an empty document and the cases fail for the wrong reason.
+  seFrame.onload = function(){
+    var d = seFrame.contentDocument;
+    if (!d || !d.getElementById('entrySheet')) return;   // about:blank -> wait for the real load
+    try {
+      SEDOC = d;
+      runSECases();
+    } catch (e) {
+      res(false, 'SE: could not inspect the shipped index.html', String(e));
+    }
+    sePending = false;
+    finish();
+  };
+  seFrame.src = '../index.html';
+  document.body.appendChild(seFrame);
+
+  // ---- SE cases that need no DOM (behavior + invariants) --------------------
+  setLS({}); HT.boot();
+  res(HT.state().version === 5, 'SE-noschema: schema version UNCHANGED at 5 (presentation only)');
+  var seBefore = HT.exportJSON();
+  HT.openSheet(); HT.setSheetMode('quick'); HT.setSheetMode('photo'); HT.setSheetMode('manual');
+  HT.setSheetMode('signal'); HT.setSheetMode('med'); HT.closeSheet();
+  HT.openSettings(); HT.closeSettings();
+  res(HT.exportJSON() === seBefore, 'SE-noschema: opening/closing the sheet + settings and switching modes write ZERO records');
+  res(HT.openSheet().mode === 'scan' && HT.setSheetMode('nope').ok === false,
+      'SE-modes: openSheet defaults to Scan; an unknown mode is rejected');
+
+  // SE-quick: one chip per preset, same logPreset path, escaped, honest empty.
+  setLS({}); HT.boot();
+  if (!document.getElementById('quickChips')) { var qc = document.createElement('div'); qc.id = 'quickChips'; document.body.appendChild(qc); }
+  HT.renderQuickChips();
+  res(/no quick items yet/i.test(document.getElementById('quickChips').textContent),
+      'SE-quick: empty preset list -> an honest empty state, never a blank pane');
+  var qp = HT.saveManualPreset({ name:'<img src=x onerror=1>', meal:'snack', kcal:250, soluble_fiber_g:0 }, '1 bowl');
+  HT.renderQuickChips();
+  var qHTML = document.getElementById('quickChips').innerHTML;
+  res(qHTML.indexOf('<img src=x') < 0 && qHTML.indexOf('&lt;img') >= 0, 'SE-escaping: hostile preset name escaped in the Quick chip');
+  res((qHTML.match(/class="qchip"/g) || []).length === 1, 'SE-quick: one chip per saved preset');
+  var qBefore = HT.state().days[td].items.length;
+  var qLog = HT.quickLog(qp.preset.id);
+  var qItem = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(qLog.ok && HT.state().days[td].items.length === qBefore + 1 &&
+      JSON.stringify(qItem) === JSON.stringify(HT.buildPresetItem(qp.preset, qItem.time)),
+      'SE-quick: a Quick chip logs a BYTE-IDENTICAL record via the same logPreset path');
+
+  // SE-invariants: the nine ruled invariants, re-verified after the move.
+  setLS({}); HT.boot();
+  HT.addManualEntry({ name:'Food', kcal:500, soluble_fiber_g:0 });
+  HT.addSignal({ type:'weight', value:80, unit:'kg' });
+  HT.addSignal({ type:'sauna', value:20, unit:'min' });
+  res(HT.dayTotals(HT.state().days[td]).kcal === 500, 'SE-invariants 1: events/biometrics never enter food totals');
+  res(HT.completeDaysInWindow(7).indexOf(td) < 0, 'SE-invariants 2: averages are complete-days-only (in-progress excluded)');
+  setLS({}); HT.boot();
+  HT.state().days['2026-06-01'] = { status:'complete', items:[{ name:'a', meal:'snack', time:'08:00', kcal:100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
+  HT.state().days['2026-06-03'] = { status:'complete', items:[{ name:'b', meal:'snack', time:'20:00', kcal:100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
+  res(HT.confirmedFasts().length === 0 && HT.detectFastCandidates().every(function(c){ return c.state === 'pending'; }),
+      'SE-invariants 3: pending fast candidates count toward nothing');
+  setLS({}); HT.boot();
+  var seIng = HT.ingest(JSON.stringify([{ name:'AI', kcal:400, date:td, micros:{ iron_mg:9 }, confidence:'measured', source:'scan' }]));
+  var seAi = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(seAi.source === 'ai-paste' && seAi.confidence === 'eyeballed' && !seAi.micros && seIng.stripped === 1,
+      'SE-invariants 4: AI-paste stays macros-only, micros stripped + reported, eyeballed');
+  var seCount = HT.state().days[td].items.length;
+  HT.ingest(JSON.stringify({ version:5, days:{} , current:td }));
+  HT.ingest(JSON.stringify({ version:5, current:td, days:{ } }));
+  var seFull = HT.ingest(JSON.stringify({ version:5, current:td, days:{ } }));
+  HT.ingest(JSON.stringify({ version:5, current:td, days:(function(){ var o={}; o[td]={status:'in_progress',items:[{name:'Z',kcal:1,soluble_fiber_g:0}],water_l:0}; return o; })() }));
+  res(HT.state().days[td].items.length === seCount && HT.state().days[td].items.every(function(i){ return i.name !== 'Z'; }),
+      'SE-invariants 5: ingest never overwrites a day that has items');
+  setLS({}); HT.boot();
+  HT.addManualEntry({ name:'Prior', kcal:222, soluble_fiber_g:0 });
+  window.__confirm = true;
+  var seRes = HT.restore(JSON.stringify({ version:5, current:td, days:{}, settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{ active:'', list:[], log:{} } }));
+  var seBackup = JSON.parse(window.__ls._get(HT.keys.PRERESTORE_KEY) || '{}');
+  res(seRes.ok && seRes.backedUp && seBackup.days[td].items[0].name === 'Prior',
+      'SE-invariants 6: restore backs up current data first and surfaces the backup');
+  setLS({}); HT.boot();
+  res(HT.state().settings.supplement.enabled === false && HT.state().days[td].items.length === 0,
+      'SE-invariants 7: daily supplement OFF by default (no fabricated intake)');
+  HT.setSupplement(true, 'Sup', { kcal:10, soluble_fiber_g:0 });
+  var seSup = HT.state().days[td].items.filter(function(i){ return i._auto; })[0];
+  res(!!seSup && seSup._auto === true, 'SE-invariants 7: when enabled the item is flagged (non-deletable)');
+  setLS({}); HT.boot();
+  res(HT.nudgeReady() === false, 'SE-invariants 8: habits stay engagement-gated and silent before the threshold');
+
+  var seDone = false;
+  function finish(){
+    if (sePending || seDone) return;
+    seDone = true;
+    var sm = document.createElement('p'); sm.className = 's';
+    sm.textContent = 'SUMMARY ' + pass + '/' + (pass + fail) + (fail ? (' -- ' + fail + ' FAILED') : ' -- ALL PASS');
+    document.body.appendChild(sm);
+  }
+  // Safety net: if the iframe never fires (file:// oddity), still emit a summary
+  // so the gate fails loudly rather than hanging with no SUMMARY line.
+  setTimeout(function(){ if (sePending) { res(false, 'SE: the shipped index.html did not load into the harness iframe'); sePending = false; finish(); } }, 15000);
 })();
 </script>
 </body>

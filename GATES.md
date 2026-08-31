@@ -500,3 +500,32 @@ Additive, **capture-only** `tzo` (device UTC offset, whole minutes, east-positiv
 - **Real-browser smoke on the actual `index.html`:** `{"schema":5,"app":"0.8.1","deviceTzo":-240,"itemTzo":-240,"signalTzo":-240,"exportTzo":-240,"uiLeaksTzo":false,"uiShowsKcal":true}` — stamped on a manual item and a signal, present in the export, **absent from the rendered UI**, day view otherwise normal, no page errors.
 
 **Status: MET — built, all gates green; awaiting review before commit/deploy as v0.8.1.**
+
+### Single entry point (D30) — PRE-REGISTERED
+
+Presentation only. Main surface = **display + attestation**; **authoring/config → a flat settings list**; one persistent `+` sheet with Scan (default) / Quick / Photo · AI paste / Manual + two secondary entries. **No schema change (v5), no data written, no migration.** `APP_VERSION → 0.9.0`.
+
+| Case | Asserts |
+|---|---|
+| SE-enum | **ruling (4):** settings is **flat single-level** and **every** relocated capability is a **named top-level entry** — regimen authoring, goals, daily supplement, presets, fasting, habits, AI prompt, export, import/restore — enumerated by name, so burying one a level deeper fails |
+| SE-attest | **ruling (2):** the **regimen checklist**, **nudge offer** and **fast-candidate resolution** are on the **main surface** (today's state + one-tap response), while their **configuration** is not |
+| SE-modes | the `+` sheet opens with **Scan default**, and Quick / Photo · AI paste / Manual are reachable; the two secondary entries (event-or-biometric, medication-or-supplement) are present at its foot |
+| SE-quick | Quick renders **one chip per saved preset**, logging via the same `logPreset` path (byte-identical record); **preset names escaped**; empty preset list → a silent, honest empty state |
+| SE-paste | **ruling (3):** Photo mode reaches the **paste field directly** and it is the **four-shape ingest** boundary (full-export merge still reachable); **destructive Import/Restore is NOT on that surface** |
+| SE-separation | Import/Restore lives **only** in settings and **never** shares a surface with merge-ingest |
+| SE-invariants | the nine ruled invariants hold unchanged: events/biometrics out of food totals · averages complete-days-only · pending fasts count nothing · AI-paste macros-only+stripped+eyeballed · ingest never overwrites a day with items · restore backs up first and surfaces it · supplement off-by-default/flagged/non-deletable · habits one-at-a-time/never-notification/one-tap-pass/permanent-decline · **data-layer suite green at its current count** |
+| SE-escaping | every rendered field on the new surfaces escaped (preset/goal/store/regimen names) |
+| SE-noschema | schema version **unchanged at 5**; **zero** records written by opening/closing the sheet or settings, or by switching modes |
+
+**Gate (ruling 5):** the re-verification sweep above **plus the builder's attestation that the reorganization costs the daily flow zero**. The **cold-start criterion is DEFERRED, not dropped** — kit pre-registered in D30 (fresh install, one real barcode-bearing item, *"log what you'd eat today,"* honest logged item unaided within minutes), firing **if and when distribution happens**.
+
+#### Evidence (run 2026-08-30)
+
+- `bash tests/run-data-layer.sh` → **461/461 ALL PASS** (427 baseline + 34 SE cases). The DOM cases load the **shipped `index.html` into an iframe**, so they assert the real markup rather than a fixture of it.
+- **No IDs and no handlers were lost in the restructure** — diffed the shipped page against `HEAD:index.html`: `lost ids: []`, `lost handlers: []`. The move was done by a script that extracts each card verbatim and re-emits it, so no panel content was retyped.
+- Other gates green: `check-precache` PASS · `check-sw-hash` OK · `check-zxing` OK · `check-version` OK (0.8.1 → **0.9.0**) · `check-writesites` OK (13 sites) · `offline-gate.ps1` PASS · `update-gate.ps1` PASS · `chip-layout-gate.ps1` PASS.
+- **Real-page smoke:** `{"sheetClosed":"hidden","settingsClosed":"hidden","fab":"visible","sheetOpen":"visible","defaultModeScan":true,"scanPane":"visible","quickPane":"visible","scanPaneHiddenAfterSwitch":"hidden","sheetClosedAgain":"hidden","settingsOpen":"visible","settingsEntries":9,"mainDayVisible":"visible","schema":5,"app":"0.9.0"}`.
+
+**One gate mechanic changed, and it is not a weakening.** `chip-layout-gate.ps1` measured `#sigChips` on the main surface; the quick-log chips now live inside the `+` sheet's *log event or biometric* entry, so the strip is hidden until opened and the gate measured a collapsed element. The script now **opens the sheet before measuring**; **every assertion is unchanged** — chips still must wrap to all-reachable rows on mouse and keep the one-row scroll strip on touch. Re-run confirms 4 rows / 2 rows / 1 scrolling row, 0 clipped.
+
+**Status: MET — built, all gates green. Ruling (5)'s builder attestation (reorganization costs the daily flow zero) is OUTSTANDING and is the remaining half of this gate. The cold-start criterion stays DEFERRED, kit pre-registered in D30.**

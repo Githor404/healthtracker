@@ -65,7 +65,11 @@ function Eval([string]$expr) {
 }
 
 # Emulate a device, load the real page fresh, and measure the chip strip.
-$measure = "(function(){var el=document.getElementById('sigChips');if(!el)return JSON.stringify({err:'no-strip'});var c=el.querySelectorAll('.chip');var sb=el.getBoundingClientRect();var rows={};var clipped=0;for(var i=0;i<c.length;i++){var r=c[i].getBoundingClientRect();rows[Math.round(c[i].offsetTop)]=1;if(r.right>sb.right+2||r.left<sb.left-2)clipped++;}return JSON.stringify({n:c.length,rows:Object.keys(rows).length,overflow:(el.scrollWidth>el.clientWidth+1),clipped:clipped});})()"
+# D30: the quick-log chips moved into the + sheet's "log event or biometric"
+# entry, so the strip must be OPENED before it can be measured. The assertion is
+# unchanged -- every chip still has to be reachable (wrap on mouse, scroll on
+# touch); only where the strip lives changed.
+$measure = "(function(){try{HT.openSheet('signal');}catch(e){}var el=document.getElementById('sigChips');if(!el)return JSON.stringify({err:'no-strip'});var c=el.querySelectorAll('.chip');var sb=el.getBoundingClientRect();var rows={};var clipped=0;for(var i=0;i<c.length;i++){var r=c[i].getBoundingClientRect();rows[Math.round(c[i].offsetTop)]=1;if(r.right>sb.right+2||r.left<sb.left-2)clipped++;}return JSON.stringify({n:c.length,rows:Object.keys(rows).length,overflow:(el.scrollWidth>el.clientWidth+1),clipped:clipped});})()"
 
 function Measure-Strip([int]$w, [int]$h, [bool]$mobile, [bool]$touch) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.8.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.9.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3014,7 +3014,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -3046,6 +3046,7 @@ const VERSION_LOG = [
   { v: '0.7.0', note: 'Habits: after a couple of weeks of tracking, the app can gently suggest one established good habit at a time — always optional, one tap to pass, off in settings.' },
   { v: '0.8.0', note: 'Regimens: build a named daily template (meds, events, preset meals, weekday rotation, eating window) and work through today’s checklist — one tap logs each, nothing is ever auto-logged.' },
   { v: '0.8.1', note: 'New logs now also record your device’s time zone, so days logged while travelling stay accurate for later comparison. Nothing else changes, and nothing already logged is altered.' },
+  { v: '0.9.0', note: 'Simpler main screen: it now shows your day, timeline, trends and averages, and one “+” button logs everything — scan, quick items, photo/AI paste, or manual. Setting things up (regimen, goals, supplement, presets, fasting, habits, export and restore) moved to Settings. Nothing was removed and nothing you have logged changed.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3094,6 +3095,77 @@ function dismissVersionNotice() {
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
 
+// ---- D30: single entry point ----------------------------------------------
+// Presentation only. The main surface carries today's state + one-tap responses
+// (regimen checklist, nudge offer, fast-candidate resolution — the ATTESTATION
+// half); authoring and configuration live in a flat settings list. One persistent
+// `+` opens the entry sheet. Nothing here writes a record: opening, closing and
+// mode-switching are pure view state (gated).
+const SHEET_MODES = ['scan', 'quick', 'photo', 'manual', 'signal', 'med'];
+let SHEET_MODE = 'scan';
+
+function setSheetMode(mode) {
+  if (SHEET_MODES.indexOf(mode) < 0) return { ok: false };
+  if (SHEET_MODE === 'scan' && mode !== 'scan') cancelScan();   // full teardown on leaving Scan (scanner spec)
+  SHEET_MODE = mode;
+  SHEET_MODES.forEach((m) => {
+    const pane = document.getElementById('pane-' + m);
+    if (pane) pane.classList.toggle('on', m === mode);
+    const btn = document.getElementById('mode-' + m);
+    if (btn) btn.classList.toggle('on', m === mode);
+  });
+  if (mode === 'quick') renderQuickChips();
+  return { ok: true, mode: mode };
+}
+// Scan is the default mode: the only path that returns micronutrients in one tap.
+function openSheet(mode) {
+  const sheet = document.getElementById('entrySheet'), scrim = document.getElementById('sheetScrim');
+  if (sheet) sheet.style.display = 'flex';
+  if (scrim) scrim.style.display = 'block';
+  setSheetMode(SHEET_MODES.indexOf(mode) >= 0 ? mode : 'scan');
+  return { ok: true, mode: SHEET_MODE };
+}
+function closeSheet() {
+  cancelScan();                                                  // never leave the camera running
+  const sheet = document.getElementById('entrySheet'), scrim = document.getElementById('sheetScrim');
+  if (sheet) sheet.style.display = 'none';
+  if (scrim) scrim.style.display = 'none';
+  return { ok: true };
+}
+function openSettings() {
+  const p = document.getElementById('settingsPanel'), s = document.getElementById('settingsScrim');
+  if (p) p.style.display = 'flex';
+  if (s) s.style.display = 'block';
+  return { ok: true };
+}
+function closeSettings() {
+  const p = document.getElementById('settingsPanel'), s = document.getElementById('settingsScrim');
+  if (p) p.style.display = 'none';
+  if (s) s.style.display = 'none';
+  return { ok: true };
+}
+// Quick mode: one chip per saved preset, logged through the SAME logPreset path
+// (byte-identical record — one contract, one path, as with the signal chips).
+// Presets ship empty, so the honest empty state points at where they come from.
+function renderQuickChips() {
+  const el = document.getElementById('quickChips');
+  if (!el) return;
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  if (!presets.length) {
+    el.innerHTML = '<div class="note" style="margin-top:0">No quick items yet. Add one with <b>Manual</b> → “Save as preset”, or manage them under Settings › Presets.</div>';
+    return;
+  }
+  el.innerHTML = presets.map((p) => {
+    const sub = [rDisp(num(p.kcal)) + ' kcal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
+    return `<button type="button" class="qchip" onclick="quickLog('${esc(String(p.id))}')">${esc(p.name)}<small>${esc(sub)}</small></button>`;
+  }).join('');
+}
+function quickLog(id) {
+  const r = logPreset(id);
+  if (r && r.ok) toast('Logged ' + r.item.name);
+  return r;
+}
+
 function main() {
   boot();
   requestPersistentStorage();
@@ -3116,6 +3188,8 @@ window.HT = {
   Store, boot, migrateV1toV2, migrateV2toV3, migrateV3toV4, migrateV4toV5, migrateToLatest, normalizeState, refresh,
   // D29 — timezone-offset capture (capture-only; nothing reads it yet)
   nowTZO, normalizeTzo, TZO_MAX, normalizeItem, addWater, setFulfillment,
+  // D30 — single entry point (presentation only)
+  openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
   // Phase 4 Slice — Regimen / timeline templates (D27)
   parseRegimen, addRegimenFromJSON, normalizeRegimens, setActiveRegimen, deleteRegimen, activeRegimen, regimenToday,
   logRegimenEntry, substituteRegimenEntry, unfulfillRegimenEntry, isGrosslyLate, buildPresetItem, REGIMEN_TEMPLATE, REGIMEN_SAMPLE,
