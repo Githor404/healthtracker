@@ -2366,6 +2366,23 @@ window.setLS({});
       'DT-header: it reads weekday + month + day (e.g. "' + HT.fmtMonthDay(td,true) + '")');
   res(/today/.test(dayselTxt), 'DT-header: today is still marked as today');
 
+  // DS-drift: defaultSettings() must survive its own normalizer unchanged. This is
+  // the drift that left a fresh state's primaryNutrient undefined instead of '' and
+  // was only caught because the masked-exception fix made the dead cases run.
+  res(JSON.stringify(HT.normalizeSettings(HT.defaultSettings()))===JSON.stringify(HT.defaultSettings()),
+      'DS-drift: normalizeSettings(defaultSettings()) is BYTE-IDENTICAL to defaultSettings() — the two shapes cannot diverge again');
+  res(JSON.stringify(HT.normalizeSettings(HT.normalizeSettings(HT.defaultSettings())))===JSON.stringify(HT.defaultSettings()),
+      'DS-drift: the normalizer is idempotent over the default shape');
+
+  // DT-prioryear: an earlier-year day SHOWS its year in the header (ruled: the
+  // ambiguity rule governs, so the header is not exempt from it).
+  HT.state().days['2025-07-08'] = { status:'complete', items:[], water_l:0 };
+  HT.state().current = '2025-07-08'; HT.renderDay();
+  var oldHdr = (document.getElementById('dayView').innerHTML.split('class="daysel"')[1]||'').split('</div>')[0];
+  res(oldHdr.indexOf('2025')>=0, 'DT-prioryear: a day from an earlier year SHOWS the year in the header');
+  res(/Jul 8, 2025/.test(oldHdr), 'DT-prioryear: it reads "Wed Jul 8, 2025" — month, day, comma, year');
+  delete HT.state().days['2025-07-08']; HT.state().current = td; HT.renderDay();
+
   // DT-year: the year appears only where it disambiguates.
   res(HT.fmtDateSmart(td,true).indexOf(td.slice(0,4))<0, 'DT-year: a current-year date shows no year');
   res(HT.fmtDateSmart('2019-03-04',true).indexOf('2019')>=0, 'DT-year: a prior-year date DOES show the year');

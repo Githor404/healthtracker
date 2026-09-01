@@ -864,7 +864,17 @@ Both are asserted anyway (they are the ruled wording), but the assertions that *
 
 **Dates.** The day header reads **"Tue Aug 31"** — weekday, month, day, **no year**. The year appears **only where it disambiguates**: the grid range label when it **spans a year boundary or sits outside the current year**, and the all-days list for **prior-year entries**. **Date keys, storage, `tzo` handling and exports are untouched — data stays full ISO, always** (gated).
 
-*Edge recorded, not resolved:* a **prior-year day opened in the header** shows no year, because the ruled gate says the header renders without one. That is the ruling as written; if it should instead follow the same disambiguation rule as the list, it is a one-line change to `fmtDateSmart`.
+*Edge RULED (v0.11.3):* a **prior-year day opened in the header SHOWS its year** — *"Wed Jul 8, 2025"*. **The ambiguity rule governs, and the header is not exempt from it.** The two statements of this ruling reconcile cleanly: "the header renders without a year" describes the ordinary current-year case, and the ambiguity rule settles the edge it did not address. Gated (`DT-prioryear`).
+
+### Assertion-count discipline (standing rule, from v0.11.3)
+
+Ruled after the masked-exception defect below. **Every gate report states the authored-assertion count against the executed count, and any discrepancy is explained.** Made structural rather than left to diligence:
+
+- **`EXPECTED_ASSERTIONS` is pinned in `tests/run-data-layer.sh`.** The executed total must match it, so a **silent drop fails the gate** instead of passing quietly. The pin is bumped **deliberately, in the commit that adds or removes cases**, with the delta stated.
+- The report prints **`executed · pinned · authored-lines`**. The authored count is a **static lower bound only** — it counts source lines containing a `res(` call, so multi-line calls and helper reuse make it an approximation. **The pin is the enforcing mechanism; the static count is a cross-check.**
+- **Proven against the real fault**: re-injecting the v0.11.0 defect fires **both** defences independently — the harness records the uncaught throw *and* the pin reports the count delta (−11). A layout gate that cannot reproduce its defect is worthless; so is a count check that cannot.
+
+**`DS-drift`** closes the second half of that failure: `normalizeSettings(defaultSettings())` must be **byte-identical** to `defaultSettings()`, plus an idempotency case — so the divergence that left a fresh state's `primaryNutrient` `undefined` cannot return.
 
 ### A previously-gated contract changed, recorded rather than quietly updated
 

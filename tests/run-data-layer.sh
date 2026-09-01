@@ -76,6 +76,36 @@ OUT=$("$BROWSER" --headless --disable-gpu --no-sandbox --allow-file-access-from-
 
 echo "$OUT"
 echo "-----------------------------------------"
+
+# ASSERTION-COUNT DISCIPLINE (ruled after the v0.11.0 masked-exception defect).
+# A synchronous throw used to abort the suite while still printing a green-looking
+# SUMMARY with a silently reduced count -- ~40 D35 assertions never ran and nobody
+# noticed. The harness now records such a throw as a failure, and this pin is the
+# second line of defence: the EXECUTED count must match the pinned number, so any
+# silent drop fails the gate rather than passing quietly.
+#
+# Bump EXPECTED_ASSERTIONS deliberately, in the same commit that adds or removes
+# cases, and state the delta in the gate report.
+#
+# AUTHORED is a static lower-bound cross-check only: it counts source LINES
+# containing a res( call, so multi-line calls and helper reuse make it an
+# approximation, not an equality. The PIN is the enforcing mechanism.
+EXPECTED_ASSERTIONS=604
+TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
+AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
+echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
+if [ -z "$TOTAL" ]; then
+  echo "ASSERTION COUNT: FAIL - no SUMMARY line (the suite did not finish)"
+  echo "GATE: FAIL"
+  exit 1
+fi
+if [ "$TOTAL" -ne "$EXPECTED_ASSERTIONS" ]; then
+  echo "ASSERTION COUNT: FAIL - executed $TOTAL, pinned $EXPECTED_ASSERTIONS (delta $((TOTAL - EXPECTED_ASSERTIONS)))"
+  echo "  A DROP means cases stopped running - find out why before re-pinning."
+  echo "  A RISE means cases were added - re-pin deliberately in the same commit."
+  echo "GATE: FAIL"
+  exit 1
+fi
 if printf '%s\n' "$OUT" | grep -q 'ALL PASS'; then
   echo "GATE: PASS"
   exit 0

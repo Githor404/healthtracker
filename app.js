@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.11.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.11.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1072,7 +1072,7 @@ function renderDay() {
 
   let html = `<div class="daynav">
       <button class="navbtn" onclick="stepDay(-1)" ${di <= 0 ? 'disabled' : ''}>‹</button>
-      <div class="daysel">${esc(fmtMonthDay(dk, true))}${dk === todayKey() ? ' · today' : ''}${dayStatusBadge(dk, day)}</div>
+      <div class="daysel">${esc(fmtDateSmart(dk, true))}${dk === todayKey() ? ' · today' : ''}${dayStatusBadge(dk, day)}</div>
       <button class="navbtn" onclick="stepDay(1)" ${di < 0 || di >= dates.length - 1 ? 'disabled' : ''}>›</button>
     </div>`;
 
@@ -3230,6 +3230,7 @@ const VERSION_LOG = [
   { v: '0.11.0', note: 'A rhythm ring is now the centre of your day: a 24-hour circle showing when you ate, slept, moved, and the gaps between — all drawn from what you logged. Tap a goal to see its ring for a moment. Sleep is now logged bed-to-wake, and a week or month of rings sits below.' },
   { v: '0.11.1', note: 'The rhythm ring now fills the screen the way a centrepiece should — about four-fifths of the width on a phone, with everything it needs still in reach.' },
   { v: '0.11.2', note: 'Tidier dates and status: the day header reads "Tue Aug 31" without the year, and the only day still labelled is a past one you never closed — the one that quietly sits out of your averages.' },
+  { v: '0.11.3', note: 'A day from an earlier year now shows that year in the header, so an old day can never be mistaken for a recent one.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3642,7 +3643,7 @@ function fmtMonthDay(dateKey, withWeekday) {
 // The year appears ONLY where it disambiguates -- i.e. not in the current year.
 function fmtDateSmart(dateKey, withWeekday) {
   const y = String(dateKey).slice(0, 4);
-  return fmtMonthDay(dateKey, withWeekday) + (y === todayKey().slice(0, 4) ? '' : ' ' + y);
+  return fmtMonthDay(dateKey, withWeekday) + (y === todayKey().slice(0, 4) ? '' : ', ' + y);
 }
 // A grid range carries a year when it spans a year boundary, or sits outside the
 // current year; otherwise the months alone are unambiguous.
@@ -3652,8 +3653,8 @@ function fmtRangeLabel(dates) {
   const ya = a.slice(0, 4), yb = b.slice(0, 4), cur = todayKey().slice(0, 4);
   const spans = ya !== yb, off = (ya !== cur || yb !== cur);
   if (a === b) return fmtDateSmart(a, false);
-  const left = fmtMonthDay(a, false) + (spans ? ' ' + ya : '');
-  const right = fmtMonthDay(b, false) + (spans || off ? ' ' + yb : '');
+  const left = fmtMonthDay(a, false) + (spans ? ', ' + ya : '');
+  const right = fmtMonthDay(b, false) + (spans || off ? ', ' + yb : '');
   return left + ' \u2013 ' + right;
 }
 
@@ -3981,7 +3982,7 @@ window.HT = {
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,
-  stepDay, toggleDayStatus, renderDay,
+  stepDay, toggleDayStatus, renderDay, defaultSettings, normalizeSettings,
   setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D30 — single entry point (presentation only)

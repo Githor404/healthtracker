@@ -791,4 +791,19 @@ One gate mechanic moved, and it is not a weakening: **`offline-gate.ps1`** probe
 
 `ring-size` · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.11.1 → **0.11.2**) · `writesites` all green. Real-page smoke: `{"todayHeader":"Mon Aug 31 · today","todayHasYear":false,"todayHasBadge":false,"pastUnclosedHeader":"Fri Aug 28 not closed · excluded from averages","pastClosedHasBadge":false,"gridLabel":"Aug 22 – Aug 28","exportKeysISO":true}`.
 
+#### Structural fixes + prior-year header — v0.11.3
+
+| Case | Asserts |
+|---|---|
+| DS-drift | **`normalizeSettings(defaultSettings())` is byte-identical to `defaultSettings()`**, and the normalizer is **idempotent** over the default shape — the divergence that left a fresh state's `primaryNutrient` `undefined` cannot return |
+| DT-prioryear | a day from an **earlier year SHOWS its year** in the header — *"Wed Jul 8, 2025"*; **the ambiguity rule governs and the header is not exempt** |
+
+**Assertion-count discipline (standing, enforced).** `EXPECTED_ASSERTIONS` is now pinned in the runner; the executed total must match it, so a silent drop **fails the gate**. Reports print **`executed · pinned · authored-lines`**, the last being a static lower bound (it counts lines containing `res(`, so helper reuse and multi-line calls make it approximate — the pin is what enforces).
+
+**Proven against the real fault, not just written:** re-injecting the v0.11.0 defect (an undefined `HT.*` call mid-suite) fires **both** defences independently — the harness records the uncaught throw, *and* the pin reports `executed 593, pinned 604 (delta -11)`. The pin also caught a mistake while being introduced: it was first set to 605 when the true count was 604, and failed until corrected.
+
+**Count delta for this release: 600 → 604** (+4: `DS-drift` ×2, `DT-prioryear` ×2). `bash tests/run-data-layer.sh` → **604/604 ALL PASS**, `assertions: executed 604 · pinned 604 · authored-lines 601`.
+
+All gates green: `precache` · `sw-hash` · `zxing` · `version` (0.11.2 → **0.11.3**) · `writesites` · `offline` · `ring-size` · `chip-layout` · `lab-form` · `update`.
+
 **Status: MET — built to the ruled leanings, all gates green.**
