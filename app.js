@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.11.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.11.4';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3231,6 +3231,7 @@ const VERSION_LOG = [
   { v: '0.11.1', note: 'The rhythm ring now fills the screen the way a centrepiece should — about four-fifths of the width on a phone, with everything it needs still in reach.' },
   { v: '0.11.2', note: 'Tidier dates and status: the day header reads "Tue Aug 31" without the year, and the only day still labelled is a past one you never closed — the one that quietly sits out of your averages.' },
   { v: '0.11.3', note: 'A day from an earlier year now shows that year in the header, so an old day can never be mistaken for a recent one.' },
+  { v: '0.11.4', note: 'The goal ring now returns to your rhythm ring a little sooner after you tap a goal.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3804,7 +3805,7 @@ function rhythmSVG(model, size, mini) {
 // ---- goal swap (ruled 2) ---------------------------------------------------
 // DISPLAY ONLY: no data written, nothing persisted. swapActive() consults the
 // injected clock, so the revert is deterministic under test without real timers.
-const GOAL_SWAP_MS = 12000;
+const GOAL_SWAP_MS = 8000;                                        // R7: 12 s read as too long in use
 let SWAP = null;
 let _swapTimer = 0;
 function swapActive() {

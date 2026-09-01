@@ -806,4 +806,14 @@ One gate mechanic moved, and it is not a weakening: **`offline-gate.ps1`** probe
 
 All gates green: `precache` · `sw-hash` · `zxing` · `version` (0.11.2 → **0.11.3**) · `writesites` · `offline` · `ring-size` · `chip-layout` · `lab-form` · `update`.
 
+#### Goal-swap timeout retuned — v0.11.4 (R7)
+
+`GOAL_SWAP_MS` **12000 → 8000**; 12 s read as too long in use. **Constant only** — ring-tap early-revert, restart-on-second-goal, day-nav cancel and refresh-does-not-cancel are all unchanged.
+
+The clock-seam gate **re-runs at the new value automatically**, because the cases read `HT.GOAL_SWAP_MS` rather than a literal. The restart case previously used hardcoded 6000/7000 ms, which sat close to the new boundary; it now **derives its offsets from the constant**, so it stays discriminating at any future value — the second swap must still be live at a point where the first would already have expired. All ten `RR-swap` cases green.
+
+**Assertion count unchanged at 604** (no cases added or removed).
+
+**Gate scope, stated rather than implied:** the data-layer suite and `precache` were re-run. The six CDP layout/lifecycle gates were verified green at 0.11.3 and are **not** re-run here — this change is a single numeric constant with no DOM, layout, network or lifecycle effect.
+
 **Status: MET — built to the ruled leanings, all gates green.**

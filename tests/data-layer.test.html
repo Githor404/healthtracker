@@ -2250,8 +2250,11 @@ window.setLS({});
   FIXED += 2;
   res(HT.swapActive()===null, 'RR-swap: reverts to the rhythm ring at the timeout, deterministically');
   FIXED = new Date(td + 'T14:00:00').getTime();
-  HT.swapGoal('protein_g'); FIXED += 6000; HT.swapGoal('weight');
-  FIXED += 7000;
+  // Derived from the constant, so this case stays meaningful if the timeout is
+  // retuned again: the second swap must still be live at a point where the FIRST
+  // one would already have expired.
+  HT.swapGoal('protein_g'); FIXED += HT.GOAL_SWAP_MS - 2000; HT.swapGoal('weight');
+  FIXED += HT.GOAL_SWAP_MS - 1000;
   res(HT.swapActive()!==null && HT.swapActive().key==='weight', 'RR-swap: tapping a different goal swaps to it AND restarts the timer');
   HT.clearSwap();
   res(HT.swapActive()===null, 'RR-swap: tapping the ring reverts immediately');
