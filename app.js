@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.11.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.11.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -76,7 +76,7 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} } };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '' };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -1048,6 +1048,17 @@ function renderGoalsHTML(t, day) {
   return html;
 }
 
+// D35 amendment: the ring's now-hand already says "today, in progress", so the
+// badge is a pre-ring leftover on today. The ONE status that keeps a label is a
+// PAST day left unclosed -- it is the only state that prompts an action, and it
+// silently excludes the day from averages (D10), which deserves surface.
+// The underlying binary is untouched: in_progress | complete, averages
+// complete-only. This is display only.
+function dayStatusBadge(dateKey, day) {
+  if (!day || day.status === 'complete') return '';            // complete: no mark
+  if (dateKey >= todayKey()) return '';                        // today (or ahead): the now-hand says it
+  return ' <span class="dstat">not closed · excluded from averages</span>';
+}
 function renderDay() {
   const host = document.getElementById('dayView');
   if (!host || !APP_STATE) return;
@@ -1061,7 +1072,7 @@ function renderDay() {
 
   let html = `<div class="daynav">
       <button class="navbtn" onclick="stepDay(-1)" ${di <= 0 ? 'disabled' : ''}>‹</button>
-      <div class="daysel">${esc(dk)}${dk === localDate() ? ' · today' : ''} <span class="dstat ${complete ? 'done' : ''}">${esc(day.status.replace('_', ' '))}</span></div>
+      <div class="daysel">${esc(fmtMonthDay(dk, true))}${dk === todayKey() ? ' · today' : ''}${dayStatusBadge(dk, day)}</div>
       <button class="navbtn" onclick="stepDay(1)" ${di < 0 || di >= dates.length - 1 ? 'disabled' : ''}>›</button>
     </div>`;
 
@@ -3145,7 +3156,7 @@ function renderHistory() {
     const flag = day.status !== 'complete' ? '<span class="flag">in progress</span>' : '';
     const items = String((day.items || []).length);
     return `<div class="hrow">
-        <div class="hd"><span class="hdate">${esc(d)}</span>${flag}</div>
+        <div class="hd"><span class="hdate">${esc(fmtDateSmart(d, true))}</span>${flag}</div>
         <div class="hmeta">${esc(rDisp(t.kcal))} kcal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L</div>
       </div>`;
   }).join('');
@@ -3218,6 +3229,7 @@ const VERSION_LOG = [
   { v: '0.10.1', note: 'The lab panel form is readable on a phone: each value gets its own full-width box with the unit beside it, and the reference interval sits on its own line.' },
   { v: '0.11.0', note: 'A rhythm ring is now the centre of your day: a 24-hour circle showing when you ate, slept, moved, and the gaps between — all drawn from what you logged. Tap a goal to see its ring for a moment. Sleep is now logged bed-to-wake, and a week or month of rings sits below.' },
   { v: '0.11.1', note: 'The rhythm ring now fills the screen the way a centrepiece should — about four-fifths of the width on a phone, with everything it needs still in reach.' },
+  { v: '0.11.2', note: 'Tidier dates and status: the day header reads "Tue Aug 31" without the year, and the only day still labelled is a past one you never closed — the one that quietly sits out of your averages.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3617,6 +3629,34 @@ function hoursLabel(mins) { const h = mins / 60; return (Math.round(h * 10) / 10
 
 // The model IS the gate surface: every arc traces to a record, and every record of
 // an arc-bearing kind produces an arc. Rendering reads this and adds nothing.
+// ---- display-only date formatting (D35 amendment) --------------------------
+// Date KEYS, storage, export and tzo are untouched -- exports stay full ISO,
+// always. This is only how a date is shown to a human.
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function fmtMonthDay(dateKey, withWeekday) {
+  const d = new Date(String(dateKey) + 'T00:00:00');
+  if (!Number.isFinite(d.getTime())) return String(dateKey);
+  return (withWeekday ? WEEKDAYS[d.getDay()] + ' ' : '') + MONTHS[d.getMonth()] + ' ' + d.getDate();
+}
+// The year appears ONLY where it disambiguates -- i.e. not in the current year.
+function fmtDateSmart(dateKey, withWeekday) {
+  const y = String(dateKey).slice(0, 4);
+  return fmtMonthDay(dateKey, withWeekday) + (y === todayKey().slice(0, 4) ? '' : ' ' + y);
+}
+// A grid range carries a year when it spans a year boundary, or sits outside the
+// current year; otherwise the months alone are unambiguous.
+function fmtRangeLabel(dates) {
+  if (!dates || !dates.length) return '';
+  const a = dates[0], b = dates[dates.length - 1];
+  const ya = a.slice(0, 4), yb = b.slice(0, 4), cur = todayKey().slice(0, 4);
+  const spans = ya !== yb, off = (ya !== cur || yb !== cur);
+  if (a === b) return fmtDateSmart(a, false);
+  const left = fmtMonthDay(a, false) + (spans ? ' ' + ya : '');
+  const right = fmtMonthDay(b, false) + (spans || off ? ' ' + yb : '');
+  return left + ' \u2013 ' + right;
+}
+
 function rhythmModel(dateKey) {
   const arcs = [], ticks = [];
   const days = (APP_STATE && APP_STATE.days) || {};
@@ -3828,7 +3868,7 @@ function renderRhythmGrid() {
   const dates = rhythmGridDates();
   const btns = ['week', 'month'].map((r) =>
     `<button type="button" class="${r === RHYTHM_RANGE ? 'on' : ''}" onclick="setRhythmRange('${r}')">${r === 'week' ? '7d' : 'Month'}</button>`).join('');
-  el.innerHTML = `<div class="twin">${btns}</div><div class="rgrid">` + dates.map((d) => {
+  el.innerHTML = `<div class="twin">${btns}</div><div class="rglabel">${esc(fmtRangeLabel(dates))}</div><div class="rgrid">` + dates.map((d) => {
     const m = rhythmModel(d);
     const has = !!(APP_STATE.days || {})[d];
     return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}" ` +
@@ -3940,6 +3980,8 @@ window.HT = {
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
+  fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,
+  stepDay, toggleDayStatus, renderDay,
   setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D30 — single entry point (presentation only)

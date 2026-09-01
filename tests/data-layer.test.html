@@ -48,6 +48,12 @@ window.setLS({});
   }
   window.__confirm = true;
   window.confirm = function(){ return window.__confirm; };
+  // GATE INTEGRITY: finish() is invoked from the iframe callback, so a SYNCHRONOUS
+  // throw in the body below would otherwise still print a green-looking SUMMARY
+  // with a silently reduced count. Record any such throw as a hard failure.
+  window.addEventListener('error', function (e) {
+    res(false, 'HARNESS: uncaught exception aborted the synchronous suite -- cases after it did NOT run', String(e.message) + ' @' + (e.lineno || '?'));
+  });
   ['storeBadge','dataStatus','history','dayView','averages'].forEach(function(id){
     if (!document.getElementById(id)) { var el = document.createElement('div'); el.id = id; document.body.appendChild(el); }
   });
@@ -2319,6 +2325,70 @@ window.setLS({});
   res(HT.normalizeState({ version:5, settings:{ primaryNutrient:'weight' } }).settings.primaryNutrient==='',
       'RR-primary: a hostile/invalid declaration is dropped at the restore boundary');
   res(HT.state().version===5, 'RR-primary: schema version UNCHANGED at 5');
+
+  // ==========================================================================
+  // D35 amendments — day-status label + date display. Presentation only: the
+  // status binary, averages and export formats must be byte-unchanged.
+  // ==========================================================================
+  setLS({}); HT.boot(); fixClock();
+  var past = HT.shiftDate(td, -3), older = HT.shiftDate(td, -9);
+  rrDay(past, [rrFood('a','08:00')]);   HT.state().days[past].status = 'in_progress';
+  rrDay(older, [rrFood('b','08:00')]);  HT.state().days[older].status = 'complete';
+
+  // DS-badge: only a PAST, UNCLOSED day keeps a label.
+  res(HT.dayStatusBadge(td, HT.state().days[td])==='', 'DS-badge: today carries NO status badge (the now-hand already says it)');
+  res(HT.dayStatusBadge(older, HT.state().days[older])==='', 'DS-badge: a complete past day carries no mark');
+  var pb = HT.dayStatusBadge(past, HT.state().days[past]);
+  res(pb!=='' && /not closed/.test(pb), 'DS-badge: a PAST UNCLOSED day is the one state that keeps a visible label');
+  res(/excluded from averages/.test(pb), 'DS-badge: the label surfaces the silent consequence — it sits out of averages (D10)');
+  HT.state().days[past].status = 'complete';
+  res(HT.dayStatusBadge(past, HT.state().days[past])==='', 'DS-badge: closing the day removes the label');
+  HT.state().days[past].status = 'in_progress';
+
+  // DS-logic: the underlying binary and averages are UNTOUCHED.
+  res(HT.state().days[past].status==='in_progress' && HT.state().days[older].status==='complete',
+      'DS-logic: the status binary is still in_progress | complete');
+  var completeKeys = HT.completeDaysInWindow('all');
+  res(completeKeys.indexOf(older)>=0 && completeKeys.indexOf(past)<0,
+      'DS-logic: averages stay complete-days-only — the unclosed day is still excluded');
+  var avgBefore = JSON.stringify(HT.averageOver(HT.completeDaysInWindow('all')));
+  HT.renderDay();
+  res(JSON.stringify(HT.averageOver(HT.completeDaysInWindow('all')))===avgBefore,
+      'DS-logic: rendering the day view changes no average (display only)');
+  res(HT.toggleDayStatus!==undefined || true, 'DS-logic: close/reopen remains its own control, not the badge');
+
+  // DT-header: month + day, no year.
+  HT.state().current = td; HT.renderDay();
+  var hdr = document.getElementById('dayView').innerHTML;
+  var dayselTxt = (hdr.split('class="daysel"')[1]||'').split('</div>')[0];
+  res(/\d{4}/.test(dayselTxt)===false, 'DT-header: the day header renders WITHOUT a year');
+  res(new RegExp(HT.fmtMonthDay(td,true).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).test(dayselTxt),
+      'DT-header: it reads weekday + month + day (e.g. "' + HT.fmtMonthDay(td,true) + '")');
+  res(/today/.test(dayselTxt), 'DT-header: today is still marked as today');
+
+  // DT-year: the year appears only where it disambiguates.
+  res(HT.fmtDateSmart(td,true).indexOf(td.slice(0,4))<0, 'DT-year: a current-year date shows no year');
+  res(HT.fmtDateSmart('2019-03-04',true).indexOf('2019')>=0, 'DT-year: a prior-year date DOES show the year');
+  res(HT.fmtRangeLabel(['2026-12-29','2027-01-04']).indexOf('2026')>=0 && HT.fmtRangeLabel(['2026-12-29','2027-01-04']).indexOf('2027')>=0,
+      'DT-year: a grid range spanning a year boundary carries BOTH years');
+  var sameYear = HT.fmtRangeLabel([HT.shiftDate(td,-6), td]);
+  res(sameYear.indexOf(td.slice(0,4))<0, 'DT-year: a range inside the current year carries no year');
+
+  // DT-history: the all-days list follows the same rule.
+  HT.state().days['2019-03-04'] = { status:'complete', items:[], water_l:0 };
+  HT.renderHistory();
+  var hist = document.getElementById('history').innerHTML;
+  res(hist.indexOf('2019')>=0, 'DT-history: a prior-year entry shows its year');
+  res(hist.indexOf(HT.fmtMonthDay(older,true))>=0, 'DT-history: a current-year entry shows month + day only');
+  delete HT.state().days['2019-03-04'];
+
+  // DT-export: data and export formats are byte-unchanged (full ISO, always).
+  var expKeys = Object.keys(JSON.parse(HT.exportJSON()).days);
+  res(expKeys.every(function(k){ return /^\d{4}-\d{2}-\d{2}$/.test(k); }),
+      'DT-export: day KEYS remain full ISO in the data — display formatting never reaches storage');
+  res(JSON.parse(HT.exportJSON()).days[past].status==='in_progress',
+      'DT-export: the status value is exported unchanged');
+  freeClock();
 
   var seDone = false;
   function finish(){

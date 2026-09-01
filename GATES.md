@@ -768,4 +768,27 @@ Measured: **390×844 → ring 312 px (80%)**, all four surfaces above the fold; 
 
 `bash tests/run-data-layer.sh` → **559/559 ALL PASS** (unchanged — this is CSS only). `ring-size` · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.11.0 → **0.11.1**) · `writesites` all green.
 
+#### Day-status label + date display — v0.11.2 (presentation only)
+
+| Case | Asserts |
+|---|---|
+| DS-badge | **today carries no badge**; a **complete past day carries no mark**; a **past unclosed day** keeps the one visible label, and that label **surfaces the silent consequence** (excluded from averages); closing the day removes it |
+| DS-logic | the status **binary is unchanged** (`in_progress \| complete`), averages stay **complete-days-only**, and rendering the day view changes **no average** |
+| DT-header | the header renders **without a year**, as weekday + month + day, still marking today |
+| DT-year | a current-year date shows no year; a **prior-year** date does; a grid range **spanning a year boundary carries both years**; a same-year range carries none |
+| DT-history | the all-days list follows the same rule — prior-year entries show the year |
+| DT-export | day **keys stay full ISO** and status values export unchanged — display formatting never reaches storage |
+
+#### A gate-integrity defect found while adding these — and it invalidated part of the D35 claim
+
+Adding the cases surfaced that **`finish()` is invoked from the iframe callback**, so a **synchronous throw** in the suite body still printed a **green-looking SUMMARY with a silently reduced count**. It was masking a real fault: **`HT.stepDay` was never exported**, so the RR-swap block threw partway and **every case after it never ran** — `RR-swap` (last two), `RR-empty`, `RR-mini`, `RR-vocab` and **all of `RR-primary`**. The v0.11.0 claim of *559/559* was therefore true only of the cases that executed; **roughly forty D35 assertions never did.**
+
+Fixed three ways: an `error` listener now **records any uncaught synchronous exception as a hard failure**; the missing exports (`stepDay`, `toggleDayStatus`, `renderDay`) were added; and re-running revealed **two genuine failures** in the previously-dead `RR-primary` cases — `defaultSettings()` had **diverged from `normalizeSettings()`**, leaving a fresh state's `primaryNutrient` `undefined` instead of `''`. That divergence is the same drift that produced the earlier fixture mismatch, and is now fixed at the source.
+
+**True count after the fix: 600/600 ALL PASS** (was silently 559 of ~600).
+
+One gate mechanic moved, and it is not a weakening: **`offline-gate.ps1`** probed for the literal ISO string `2026-07-08` in the rendered page, which the new date display replaced with *"Wed Jul 8"*. The probe now accepts either; **the assertion — the seeded day is present and rendered with the network cut — is unchanged.**
+
+`ring-size` · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.11.1 → **0.11.2**) · `writesites` all green. Real-page smoke: `{"todayHeader":"Mon Aug 31 · today","todayHasYear":false,"todayHasBadge":false,"pastUnclosedHeader":"Fri Aug 28 not closed · excluded from averages","pastClosedHasBadge":false,"gridLabel":"Aug 22 – Aug 28","exportKeysISO":true}`.
+
 **Status: MET — built to the ruled leanings, all gates green.**

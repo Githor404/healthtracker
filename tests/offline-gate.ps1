@@ -10,6 +10,10 @@
 #
 # Exit 0 PASS, 1 FAIL, 2 environment error.
 
+# NOTE (v0.11.2): the all-days list now renders a human date ("Wed Jul 8"), with the
+# year shown only for a prior year -- so the seeded-day probe accepts either the ISO
+# key or the rendered label. The ASSERTION is unchanged: the seeded day must still be
+# present and rendered with the network cut. Mechanics, not a weakening.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $port = 8123
@@ -153,7 +157,7 @@ try {
   Invoke-CDP 'Page.reload' $null | Out-Null
   Start-Sleep -Seconds 2
 
-  $raw = Eval "JSON.stringify({hrows: document.querySelectorAll('.hrow').length, seeded: document.body.innerHTML.indexOf('2026-07-08')>=0, badge: ((document.getElementById('storeBadge')||{}).textContent||'')})"
+  $raw = Eval "JSON.stringify({hrows: document.querySelectorAll('.hrow').length, seeded: (document.body.innerHTML.indexOf('2026-07-08')>=0 || document.body.innerHTML.indexOf('Jul 8')>=0), badge: ((document.getElementById('storeBadge')||{}).textContent||'')})"
   $d = $raw | ConvertFrom-Json
 
   # 6. ZXing must still load OFFLINE from healthtracker-runtime (D15): the fresh
@@ -168,7 +172,7 @@ try {
   Write-Host "offline reload (network cut via CDP, prod path forced):"
   Write-Host ("  shell precached (cache has index.html): {0}" -f [bool]$precached)
   Write-Host ("  history rendered offline (.hrow rows):  {0} ({1})" -f $hasHistory, $d.hrows)
-  Write-Host ("  seeded day present (2026-07-08):        {0}" -f $hasSeeded)
+  Write-Host ("  seeded day present (2026-07-08 / Jul 8): {0}" -f $hasSeeded)
   Write-Host ("  app.js ran (badge):                     {0} ('{1}')" -f $appRan, $d.badge)
   Write-Host ("  ZXing primed online + runtime-cached:   {0} / {1}" -f [bool]$zxOnline, [bool]$zxCached)
   Write-Host ("  ZXing loads OFFLINE from cache (D15):    {0}" -f [bool]$zxOffline)

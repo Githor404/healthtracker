@@ -858,6 +858,14 @@ Both are asserted anyway (they are the ruled wording), but the assertions that *
 
 **Measured, so no size-down was needed:** at 390×844 the ring is **312 px (80% of vw)** with checklist, `+ Log`, goal cells and caption all above the fold; at 360×780 it is **288 px (80%)**; at 1200 px it caps at **360 px** with no overflow. The full 80% target holds, so the fallback ("size down to the largest ring that doesn't break reach") never fired.
 
+### Day-status label and date display (addendum, v0.11.2 — presentation only)
+
+**Day status.** The "in progress" badge is a **pre-ring leftover on today** — the now-hand already communicates it — so today carries **no badge**, a **complete past day carries no mark**, and the one state that keeps a visible label is a **past day left unclosed**. That is the only status that **prompts an action**, and it **silently excludes the day from averages** (D10), so the label says so: *"not closed · excluded from averages."* **The underlying binary is untouched** — `in_progress | complete`, averages complete-days-only — and the close/reopen control was already its own button, so removing the badge orphaned nothing.
+
+**Dates.** The day header reads **"Tue Aug 31"** — weekday, month, day, **no year**. The year appears **only where it disambiguates**: the grid range label when it **spans a year boundary or sits outside the current year**, and the all-days list for **prior-year entries**. **Date keys, storage, `tzo` handling and exports are untouched — data stays full ISO, always** (gated).
+
+*Edge recorded, not resolved:* a **prior-year day opened in the header** shows no year, because the ruled gate says the header renders without one. That is the ruling as written; if it should instead follow the same disambiguation rule as the list, it is a one-line change to `fmtDateSmart`.
+
 ### A previously-gated contract changed, recorded rather than quietly updated
 
 **`SG1`** asserted that `renderGoalsHTML` output was **byte-identical** with vs without a signal goal. Conflict (i) deliberately breaks that — a signal goal now renders a cell. The invariant D24 actually protects is that **a signal key never reaches the ring math**, and that is now asserted **more precisely than whole-output equality ever did**: the centerpiece ring and the swapped nutrient ring are each byte-identical with vs without a signal goal, the nutrient cells are byte-identical and unmoved, and the signal goal appears **exactly once**, appended as its own group.
