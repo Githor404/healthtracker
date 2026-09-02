@@ -13,11 +13,20 @@
      palette lands with the render phase; this is the scaffold subset. */
   :root{
     --ringw:min(84vw,380px);
+    /* R17: lane hues per theme. Light values are darker + more saturated so an arc
+       reads against a white panel; dark values are the tuned R13 set. No green in
+       either set, so no green/red pair can read as an evaluation (Fork G). */
+    --lane-sleep:#4a56a6; --lane-eat:#0f8c7d; --lane-exercise:#a86a12;
+    --lane-sauna:#b04a24; --lane-yoga:#7a52ab; --lane-meditation:#2d6f96; --lane-red_light:#a63a63;
+    --lane-track:#c9d2de;
     --bg:#f4f6fa; --panel:#ffffff; --line:#e4e9f0;
     --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b; --accent:#2fb3a3;
   }
   @media (prefers-color-scheme: dark){
     :root{
+      --lane-sleep:#7b86c4; --lane-eat:#3fbfae; --lane-exercise:#d9a13e;
+      --lane-sauna:#d97a5a; --lane-yoga:#a98cc8; --lane-meditation:#6fa8c4; --lane-red_light:#c4718f;
+      --lane-track:#2a323f;
       --bg:#12161c; --panel:#1b212b; --line:#2a323f;
       --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484; --accent:#3fbfae;
     }
@@ -89,7 +98,7 @@
      SAME hues at reduced opacity -- the day dimmed to intention, not a grey copy. */
   .rring path{fill:none;stroke-linecap:round}
   .rring path.ra-open,.rring path.rpending{stroke-linecap:butt}
-  .rtrack{fill:none;stroke:var(--line);opacity:.45}
+  .rtrack{fill:none;stroke:var(--lane-track);opacity:.9}
   .rring path.rref{opacity:.30}
   .rring .rdot.rref{opacity:.45}
   .rring.rplan path{opacity:.38}
@@ -137,9 +146,16 @@
   .rkey.rk-exercise{background:var(--good)}.rkey.rk-fast{background:var(--muted)}
   .rkey.rk-open{background:var(--muted);opacity:.5}.rkey.rk-window{background:var(--accent);opacity:.3}
   .rglabel{margin-top:8px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-  .rgrid{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-  .rmini{flex:0 0 auto;width:60px;padding:4px 2px;border:1px solid transparent;border-radius:12px;background:none;color:var(--muted);font:inherit;font-size:10px;cursor:pointer;text-align:center}
-  .rmini small{display:block;margin-top:2px;font-variant-numeric:tabular-nums}
+  .rgrid{display:flex;flex-wrap:wrap;gap:2px;margin-top:10px;justify-content:flex-start}
+  .rmini{flex:0 0 auto;width:44px;padding:2px 0 3px;border:1px solid transparent;border-radius:10px;background:none;color:var(--muted);font:inherit;font-size:9.5px;cursor:pointer;text-align:center;line-height:1.1}
+  .rmini small{display:block;margin-top:1px;font-variant-numeric:tabular-nums}
+  /* R17: minis are DIGESTS with their own geometry -- fixed px, overflow hidden,
+     nothing drawn outside the box, so neighbours can never overlap. */
+  .rmring{display:block;margin:0 auto;overflow:hidden}
+  .rmbg{fill:none;stroke:var(--lane-track);stroke-width:5;opacity:.75}
+  .rmring path{fill:none;stroke-width:5;stroke-linecap:butt}
+  .rmk-sleep{stroke:var(--lane-sleep)}
+  .rmk-eat{stroke:var(--lane-eat)}
   .rmini.on{border-color:var(--accent);color:var(--txt)}
   .rmini.rempty{opacity:.45}
   /* D35 addendum: the ring is the centerpiece, so it renders at centerpiece

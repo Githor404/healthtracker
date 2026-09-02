@@ -1041,3 +1041,39 @@ Real nights are fragmented. A single bed→wake interval forces a fiction; a liv
 **Real-page smoke** (summon → toggle on → 90 min → reload → close): `{"summoned":true,"focusRides":"sleep","control":"Sleep on close","openArc":1,"stateLine":"sleeping · 1.5h","persisted":true,"survivedReload":true,"closedMinutes":150,"recordTime":"22:00","recordValue":2.5,"sleepHours":2.5,"schema":5}`.
 
 **Status: MET.**
+
+### 0.14.1 — on-device findings from 0.14.0 (R17)
+
+**1 — Timeline rows had no delete affordance at all.** Once the undo toast expired, a biometric/event/medication record was permanent in the UI. Each row now carries a `×` that removes it through the **same undo grammar as every other destructive action** (D22), and the undo restores it **byte-identical at its original position**. Food rows already had a delete in the day view.
+
+**2 — The mini-ring grid was broken post-R13: the redesign never reached the minis.** Cause, found rather than guessed: the minis **inherited the main ring's geometry**, and `.rring{overflow:visible}` let the **now-hand (rim × 1.04) and plan ticks (R × 1.07) draw outside the viewBox** — which is exactly why neighbours overlapped and the caption was overdrawn.
+
+Rebuilt deliberately as **digests, not scaled instruments**: their own `miniRingSVG` with its own viewBox and **fixed pixel size**, carrying **only the two anchors** (sleep span + eating window). Seven lanes at 42 px is noise. **No now-hand, no lane tracks, no centre text, and every coordinate inside the box** — so a mini structurally cannot spill onto a neighbour. Label sits under its ring, inside the same button. Tap-to-open unchanged.
+
+*The mini-ring alternative I considered and rejected:* adding a third mark for practice presence. It would answer "did I move that day" at a glance, but a 42 px ring with three bands is the noise the ruling was reacting to, and the anchors already carry the day's shape.
+
+**3 — Light mode was never specced.** The R13 palette was hex constants chosen against dark; **inline hex can only ever serve one theme**, which is how it went unspecced. Lane colour is now a **CSS custom property per category, defined for both themes**, so the browser resolves it natively and a theme switch needs no re-render. Light values are **darker and more saturated** so an arc reads against a white panel; the lane track is themed too, so an arc always has something to read against. **Still no green in either set**, so no green/red pair can read as an evaluation (Fork G).
+
+#### The long-flagged grid density gate — closed
+
+This surface had been **unattested since 0.11.0**, and the 0.14.0 report is precisely what it would have caught. The ring gate now also measures, at the real phone viewport:
+
+| Case | Asserts |
+|---|---|
+| grid density | **7 rings per row** at 42 px, **zero overlaps**, **zero spill** (every SVG inside its own button), **zero detached labels** |
+| theme contrast | **arc-vs-track and arc-vs-background in BOTH themes**, via emulated `prefers-color-scheme` |
+| R17-delete | delete removes **exactly one** record, undo restores it **byte-identical**, derived values (the sauna arc) **recompute both ways**; out-of-range targets remove nothing; every row renders its affordance |
+| R17-mini | fixed size; **no now-hand, no tracks, no centre text**; the two anchors only, **not** the practice lanes; **every coordinate inside the viewBox**; an empty day is two quiet rings |
+| R17-theme | all seven hues defined for **light and dark**, distinct within each, **light tuned rather than copied**, and the track themed too |
+
+**Measured:** grid `7 rings at 42px, 7/row, overlaps=0 spill=0 detached=0`; contrast `light arc/track 2.71, arc/bg 4.14 | dark arc/track 5.61, arc/bg 7.02` — thresholds 1.6 and 2.2, referenced to WCAG's 3:1 non-text guidance, with the arc-vs-track pair set lower because those two are adjacent bands of the same family rather than figure-and-ground.
+
+**Two of my own measurement bugs surfaced while building the gate**, both fixed rather than worked around: the per-row metric divided rings by row count instead of counting the topmost row, and an over-escaped regex left contrast unmeasurable (reporting a sentinel rather than failing). A gate that cannot measure is worse than no gate, because it reads as a pass.
+
+**One real defect the new gate then caught:** `border-box` plus a 1 px border left the button's content box 2 px narrower than `MINI_PX`, so every fixed-size SVG overflowed by 1 px a side — `spill=7`. Sized to 44 px outer / 42 px content.
+
+**Repointed, not weakened:** `R13-palette` asserted *explicit hex, no `var()`* — the exact contract item 3 had to change, since inline hex cannot respond to a theme. It now asserts seven **themed properties**, defined in **both** themes and distinct within each, which is a stronger claim than the hex check was.
+
+**Count delta: 762 → 784** (+22). `bash tests/run-data-layer.sh` → **784/784 ALL PASS**, `executed 784 · pinned 784`. All eleven gates green; `version` 0.14.0 → **0.14.1**.
+
+**Status: MET.**

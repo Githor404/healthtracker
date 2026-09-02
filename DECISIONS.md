@@ -989,3 +989,14 @@ Real nights are fragmented. A single bed→wake interval forces a fiction; a liv
 ### One shared helper changed, and it was a latent defect
 
 **`nowTime()` was still on the real clock** while `nowMinutes()` was on the injected seam — so a toggle recorded a wall-clock start whose duration was then measured on a different clock. **In production both are the same clock, which is exactly why it could sit unnoticed**; it only surfaced under an injected clock. `nowTime()` now uses the seam, so D35 Fork C's "one clock indirection" is finally true of every path, and all logging paths become clock-injectable for future gates.
+
+
+### 0.14.1 addendum (R17) — deletion, mini digests, and light mode
+
+**A timeline record had no way out.** Deletion now goes through the same undo grammar as every other destructive action, restoring byte-identical at its original position.
+
+**The minis never received the R13 redesign** — they inherited main-ring geometry, and `overflow:visible` let the now-hand and plan ticks draw outside the viewBox, which is why they overlapped. They are now **digests with their own geometry**: fixed pixel size, **two anchors only** (sleep span, eating window), no hand, no tracks, no centre text, and **every coordinate inside the box**, so spilling onto a neighbour is structurally impossible rather than merely unobserved.
+
+**Light mode went unspecced because the palette was inline hex**, which can serve exactly one theme. Lane colour is now a **CSS custom property per category, defined for both themes** — light darker and more saturated against a white panel, the track themed alongside so an arc always has something to read against, and still no green in either set (Fork G). **Contrast is gated in both themes** rather than assumed from one.
+
+**The grid density gate, unattested since 0.11.0, is closed.** It immediately caught a real 1 px `border-box` spill — and, before that, two flaws in my own measurements: a per-row metric that divided instead of counting, and an over-escaped regex that left contrast unmeasurable while still reporting a value. **A gate that cannot measure is worse than none, because it reads as a pass.**

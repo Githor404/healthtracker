@@ -1823,6 +1823,24 @@ window.setLS({});
     res(!!importCard && !importCard.querySelector('#ingestBox'),
         'SE-separation: merge-ingest never shares a surface with replace-everything restore');
 
+    // R17-theme: the lane properties must be defined for BOTH themes. Read from
+    // the shipped stylesheet, so a hue added for one theme only fails here.
+    var cssText = Array.prototype.slice.call(SEDOC.querySelectorAll('style')).map(function(s){return s.textContent;}).join('\n');
+    var darkBlock = (cssText.split('prefers-color-scheme: dark')[1]||'').slice(0, 900);
+    var lightBlock = cssText.split('prefers-color-scheme: dark')[0];
+    var cats17 = ['sleep','eat','exercise','sauna','yoga','meditation','red_light'];
+    var missLight = cats17.filter(function(c){ return lightBlock.indexOf('--lane-'+c+':')<0; });
+    var missDark  = cats17.filter(function(c){ return darkBlock.indexOf('--lane-'+c+':')<0; });
+    res(missLight.length===0, 'R17-theme: every lane hue is defined for LIGHT' + (missLight.length?(' :: missing '+missLight.join(',')):''));
+    res(missDark.length===0,  'R17-theme: every lane hue is defined for DARK'  + (missDark.length?(' :: missing '+missDark.join(',')):''));
+    var lightHues = cats17.map(function(c){ var m=new RegExp('--lane-'+c+':\\s*(#[0-9a-fA-F]{6})').exec(lightBlock); return m?m[1].toLowerCase():''; });
+    var darkHues  = cats17.map(function(c){ var m=new RegExp('--lane-'+c+':\\s*(#[0-9a-fA-F]{6})').exec(darkBlock);  return m?m[1].toLowerCase():''; });
+    res(lightHues.every(Boolean) && new Set(lightHues).size===7, 'R17-theme: the seven light hues are distinct');
+    res(darkHues.every(Boolean) && new Set(darkHues).size===7, 'R17-theme: the seven dark hues are distinct');
+    res(lightHues.join(',')!==darkHues.join(','), 'R17-theme: light is TUNED, not a copy of dark');
+    res(lightBlock.indexOf('--lane-track:')>=0 && darkBlock.indexOf('--lane-track:')>=0,
+        'R17-theme: the lane track is themed too, so an arc always has something to read against');
+
     // SE-modes: scan lives in the sheet, manual in the sheet.
     res(seIn('#pane-scan', '#scanBarcode') && seIn('#pane-manual', '#maName'), 'SE-modes: Scan and Manual carry their real forms');
 
@@ -2640,12 +2658,11 @@ window.setLS({});
       'R13-reserved: NOTHING is drawn in the annulus — every circle radius stays inside the rim');
 
   // R13-palette: gated constants, no good/bad axis.
-  res(HT.RING_CATS.length===7 && HT.RING_CATS.every(function(c){ return /^#[0-9a-f]{6}$/i.test(HT.RING_PALETTE[c]); }),
-      'R13-palette: seven categorical hues, all explicit constants');
+  res(HT.RING_CATS.length===7 && HT.RING_CATS.every(function(c){ return /^var\(--lane-[a-z_]+\)$/.test(HT.RING_PALETTE[c]); }),
+      'R13-palette: seven categorical hues, each a themed custom property');
   var hues = HT.RING_CATS.map(function(c){ return HT.RING_PALETTE[c].toLowerCase(); });
-  res(hues.length===new Set(hues).size, 'R13-palette: every hue is distinct');
-  res(hues.every(function(h){ return h.indexOf('var(')<0; }) &&
-      JSON.stringify(HT.RING_PALETTE).indexOf('--good')<0 && JSON.stringify(HT.RING_PALETTE).indexOf('--bad')<0,
+  res(hues.length===new Set(hues).size, 'R13-palette: every lane names a distinct property');
+  res(JSON.stringify(HT.RING_PALETTE).indexOf('--good')<0 && JSON.stringify(HT.RING_PALETTE).indexOf('--bad')<0,
       'R13-palette: no good/bad tokens — the palette carries no evaluative axis (Fork G)');
   res(HT.PLAN_OPACITY > 0 && HT.PLAN_OPACITY < 1,
       'R13-palette: plan view dims the SAME hues rather than greying them out');
@@ -2907,6 +2924,65 @@ window.setLS({});
   res(b16.filter(function(w){ return v16.indexOf(w)>=0; }).length===0, 'R16-vocab: M7 holds over every new label');
   res(v16.indexOf('fasting')<0, 'R16-vocab: and no stray D22 vocabulary');
   HT.discardSleepOpen();
+  freeClock();
+
+  // ==========================================================================
+  // R17 — timeline deletion, mini-ring digests, light mode.
+  // ==========================================================================
+  // R17-delete: a timeline record had no delete affordance at all.
+  setLS({}); HT.boot(); fixClock();
+  HT.addSignal({ type:'weight', value:80, unit:'kg', time:'07:00' });
+  HT.addSignal({ type:'sauna', value:20, unit:'min', time:'18:00' });
+  HT.addSignal({ kind:'medication', name:'Med', time:'08:00' });
+  var before17 = JSON.parse(JSON.stringify(HT.state().timeline[td]));
+  res(before17.length===3, 'R17-delete: three timeline records');
+  var del = HT.deleteSignal(td, 1);
+  res(del.ok===true && HT.state().timeline[td].length===2,
+      'R17-delete: delete removes EXACTLY one record');
+  res(HT.state().timeline[td].filter(function(r){return r.type==='sauna';}).length===0 &&
+      HT.state().timeline[td].filter(function(r){return r.type==='weight';}).length===1,
+      'R17-delete: it removes the one asked for, and no other');
+  res(HT.rhythmModel(td,{live:false}).arcs.filter(function(a){return a.cat==='sauna';}).length===0,
+      'R17-delete: derived values recompute — the sauna arc is gone with it');
+  HT.doUndo();
+  res(JSON.stringify(HT.state().timeline[td])===JSON.stringify(before17),
+      'R17-delete: undo restores it BYTE-IDENTICAL, at its original position');
+  res(HT.rhythmModel(td,{live:false}).arcs.filter(function(a){return a.cat==='sauna';}).length===1,
+      'R17-delete: and the derived arc comes back with it');
+  res(HT.deleteSignal(td, 99).ok===false && HT.deleteSignal('2019-01-01', 0).ok===false,
+      'R17-delete: an out-of-range or unknown target removes nothing');
+  if (!document.getElementById('timelineOverlay')) { var tlo=document.createElement('div'); tlo.id='timelineOverlay'; document.body.appendChild(tlo); }
+  HT.renderTimelineOverlay();
+  var tlHTML = document.getElementById('timelineOverlay').innerHTML;
+  res((tlHTML.match(/deleteSignal\(/g)||[]).length===3,
+      'R17-delete: every timeline row renders its own delete affordance');
+
+  // R17-mini: minis are DIGESTS, not scaled instruments.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','08:00'), rrFood('b','19:00')]);
+  HT.state().timeline[td] = [
+    { time:'23:00', kind:'biometric', type:'sleep', value:7, unit:'h', source:'manual', notes:'' },
+    { time:'06:00', kind:'event', type:'sauna', value:20, unit:'min', source:'manual', notes:'' },
+    { time:'12:00', kind:'event', type:'yoga', value:30, unit:'min', source:'manual', notes:'' }
+  ];
+  var mini = HT.miniRingSVG(HT.rhythmModel(td, {live:false}));
+  res(mini.indexOf('width="'+HT.MINI_PX+'"')>=0 && mini.indexOf('height="'+HT.MINI_PX+'"')>=0,
+      'R17-mini: a mini renders at a FIXED small size, not a scaled main ring');
+  res(mini.indexOf('rrnow')<0, 'R17-mini: no now-hand');
+  res(mini.indexOf('rtrack')<0, 'R17-mini: no main-ring lane tracks');
+  res(mini.indexOf('rcenter')<0 && mini.indexOf('<text')<0, 'R17-mini: no centre text');
+  res(/rmk-sleep/.test(mini) && /rmk-eat/.test(mini),
+      'R17-mini: it carries the two ANCHORS — the sleep span and the eating window');
+  res(mini.indexOf('rmk-sauna')<0 && mini.indexOf('rmk-yoga')<0,
+      'R17-mini: and NOT the practice lanes — seven lanes at 46 px is noise, so a digest shows two');
+  var nums = (mini.match(/[-\d.]+/g)||[]).map(parseFloat).filter(function(n){ return !isNaN(n); });
+  var coords = (mini.match(/(cx|cy)="([\d.-]+)"/g)||[]).map(function(x){ return parseFloat(x.split('"')[1]); });
+  var pathNums = (mini.match(/[MA] ?([\d.-]+) ([\d.-]+)/g)||[]).join(' ').match(/[\d.-]+/g)||[];
+  var allIn = coords.concat(pathNums.map(parseFloat)).every(function(n){ return n >= -0.01 && n <= 100.01; });
+  res(allIn, 'R17-mini: every coordinate stays INSIDE the viewBox — nothing can spill onto a neighbour');
+  var emptyMini = HT.miniRingSVG(HT.rhythmModel(HT.shiftDate(td,-9), {live:false}));
+  res(emptyMini.indexOf('<path')<0 && (emptyMini.match(/rmbg/g)||[]).length===2,
+      'R17-mini: an empty day is two quiet rings and no arcs');
   freeClock();
 
   // ==========================================================================

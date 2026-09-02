@@ -45,6 +45,13 @@ $MIN_BAND_MAX_PX = 13
 # PROPORTION, derived from the ruled sizes at the reference (12/328 = 3.66 %,
 # 14/328 = 4.27 %). Both are asserted at 390; only the proportion at 360.
 $MIN_BAND_PCT     = 3.5
+# R17 thresholds. Arcs are graphical objects, so WCAG non-text guidance (3:1) is
+# the reference; the arc-vs-track pair is asserted a little lower because the two
+# are adjacent bands of the same family, not figure-and-ground.
+$MIN_MINI_PER_ROW = 7
+$MAX_MINI_PX      = 56
+$MIN_ARC_TRACK    = 1.6
+$MIN_ARC_BG       = 2.2
 $MIN_BAND_MAX_PCT = 4.1
 
 function Find-Browser {
@@ -91,7 +98,10 @@ $seed = "(function(){try{" +
   "var td=HT.state().current;var mk=function(n,t,k){return {name:n,meal:'snack',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
   "HT.state().days[td].items.push(mk('a','08:00',300),mk('b','19:00',600));" +
   "HT.state().timeline[td]=[{time:'06:30',kind:'event',type:'walk',value:40,unit:'min',source:'manual',notes:''}];" +
-  "HT.setGoal('protein_g',120,'min');HT.setGoal('weight',80,'max','kg');HT.refresh();" +
+  "HT.setGoal('protein_g',120,'min');HT.setGoal('weight',80,'max','kg');" +
+  "for(var i=1;i<7;i++){var d=HT.shiftDate(td,-i);HT.state().days[d]={status:'complete',items:[mk('m','08:00',300),mk('n','19:00',500)],water_l:0};" +
+  "HT.state().timeline[d]=[{time:'23:00',kind:'biometric',type:'sleep',value:7,unit:'h',source:'manual',notes:''}];}" +
+  "HT.refresh();" +
   "return 'ok';}catch(e){return 'ERR '+e;}})()"
 
 $measure = "(function(){" +
@@ -131,6 +141,42 @@ $sweep = "(function(){var best=0,vh=window.innerHeight;" +
   "root.style.setProperty('--ringw',prev);HT.refresh();" +
   "return JSON.stringify({best:best,vw:window.innerWidth,pct:Math.round(best/window.innerWidth*100)});})()"
 
+# R17: the long-flagged MINI-GRID DENSITY gate. This surface has been unattested
+# since 0.11.0, and the 0.14.0 report is what it would have caught: minis
+# inheriting main-ring geometry, drawing outside their boxes and overlapping.
+$grid = "(function(){" +
+  "var minis=[].slice.call(document.querySelectorAll('#rhythmGrid .rmini'));" +
+  "if(!minis.length)return JSON.stringify({n:0});" +
+  "var R=minis.map(function(e){return e.getBoundingClientRect();});" +
+  "var overlaps=0;for(var i=0;i<R.length;i++)for(var j=i+1;j<R.length;j++){" +
+  "if(!(R[i].right<=R[j].left+0.5||R[j].right<=R[i].left+0.5||R[i].bottom<=R[j].top+0.5||R[j].bottom<=R[i].top+0.5))overlaps++;}" +
+  "var spill=0,detached=0,svgW=0;" +
+  "minis.forEach(function(e){var s=e.querySelector('svg'),l=e.querySelector('small');var br=e.getBoundingClientRect();" +
+  "if(!s||!l){detached++;return;}var sr=s.getBoundingClientRect(),lr=l.getBoundingClientRect();svgW=Math.round(sr.width);" +
+  "if(sr.left<br.left-0.5||sr.right>br.right+0.5||sr.top<br.top-0.5||sr.bottom>br.bottom+0.5)spill++;" +
+  "if(!(lr.top>=sr.bottom-1&&lr.bottom<=br.bottom+1&&lr.left>=br.left-1&&lr.right<=br.right+1))detached++;});" +
+  "var top0=Math.min.apply(null,R.map(function(r){return Math.round(r.top);}));" +
+  "var perRow=R.filter(function(r){return Math.round(r.top)===top0;}).length;" +
+  "return JSON.stringify({n:R.length,overlaps:overlaps,spill:spill,detached:detached,svgW:svgW,perRow:perRow});})()"
+
+# R17: arc-vs-track contrast, in BOTH themes. The R13 palette was designed against
+# dark only, so light mode was never specced -- this is what closes that.
+$contrast = "(function(){" +
+  "var toRGB=function(c){var p=String(c).replace(/[^0-9.,]/g,'').split(',').map(parseFloat);" +
+  "return (p.length>=3&&!isNaN(p[0]))?[p[0],p[1],p[2]]:null;};" +
+  "var lum=function(rgb){var a=rgb.map(function(v){v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);});" +
+  "return 0.2126*a[0]+0.7152*a[1]+0.0722*a[2];};" +
+  "var ratio=function(x,y){var l1=lum(x),l2=lum(y);var hi=Math.max(l1,l2),lo=Math.min(l1,l2);return Math.round(((hi+0.05)/(lo+0.05))*100)/100;};" +
+  "var paths=[].slice.call(document.querySelectorAll('#dayView .rring path'));" +
+  "var track=document.querySelector('#dayView .rtrack');" +
+  "if(!paths.length||!track)return JSON.stringify({err:'no marks'});" +
+  "var tc=toRGB(getComputedStyle(track).stroke);" +
+  "var bg=toRGB(getComputedStyle(document.querySelector('.card')).backgroundColor);" +
+  "var worstTrack=99,worstBg=99;" +
+  "paths.forEach(function(pth){var ac=toRGB(getComputedStyle(pth).stroke);if(!ac)return;" +
+  "worstTrack=Math.min(worstTrack,ratio(ac,tc));if(bg)worstBg=Math.min(worstBg,ratio(ac,bg));});" +
+  "return JSON.stringify({arcVsTrack:worstTrack===99?0:worstTrack,arcVsBg:worstBg===99?0:worstBg,n:paths.length});})()"
+
 function Measure-At([int]$w, [int]$h, [bool]$mobile) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $mobile; maxTouchPoints = 5 } | Out-Null
@@ -140,6 +186,18 @@ function Measure-At([int]$w, [int]$h, [bool]$mobile) {
   if ($sr -notlike 'ok*') { Write-Host "  seed failed: $sr" }
   Start-Sleep -Milliseconds 300
   $m = Eval $measure | ConvertFrom-Json
+  $gr = Eval $grid | ConvertFrom-Json
+  Add-Member -InputObject $m -NotePropertyName grid -NotePropertyValue $gr -Force
+  # both themes, on the same seeded page
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null
+  Start-Sleep -Milliseconds 200
+  $cl = Eval $contrast | ConvertFrom-Json
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'dark' }) } | Out-Null
+  Start-Sleep -Milliseconds 200
+  $cd = Eval $contrast | ConvertFrom-Json
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @() } | Out-Null
+  Add-Member -InputObject $m -NotePropertyName cLight -NotePropertyValue $cl -Force
+  Add-Member -InputObject $m -NotePropertyName cDark  -NotePropertyValue $cd -Force
   $sw = Eval $sweep | ConvertFrom-Json
   Add-Member -InputObject $m -NotePropertyName bestPx  -NotePropertyValue $sw.best -Force
   Add-Member -InputObject $m -NotePropertyName bestPct -NotePropertyValue $sw.pct  -Force
@@ -212,6 +270,10 @@ try {
   $S = Measure-At 360 690 $true     # a smaller phone, usable height
   $D = Measure-At 1200 900 $false   # desktop -- the cap must hold
 
+  $G_ok = ($P.grid.n -ge 7) -and ($P.grid.overlaps -eq 0) -and ($P.grid.spill -eq 0) -and
+          ($P.grid.detached -eq 0) -and ($P.grid.svgW -le $MAX_MINI_PX) -and ($P.grid.perRow -ge $MIN_MINI_PER_ROW)
+  $C_ok = ($P.cLight.arcVsTrack -ge $MIN_ARC_TRACK) -and ($P.cLight.arcVsBg -ge $MIN_ARC_BG) -and
+          ($P.cDark.arcVsTrack  -ge $MIN_ARC_TRACK) -and ($P.cDark.arcVsBg  -ge $MIN_ARC_BG)
   $P_ok = ($P.ratio -ge $MIN_RATIO) -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and $P.legAbove -and ($P.band -ge $MIN_BAND_PX) -and ($P.bandMax -ge $MIN_BAND_MAX_PX) -and ($P.bandPct -ge $MIN_BAND_PCT) -and ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $P.pageOverflow)
   $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
@@ -226,11 +288,18 @@ try {
   Write-Host ("  thresholds    : ring >= {0}% of vw; arc bands >= {1}/{2}px at 390 and >= {3}/{4}% of ring everywhere; checklist, + Log, goal cells and legend above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_MAX_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
   Write-Host "-----------------------------------------"
 
-  if ($P_ok -and $S_ok -and $D_ok) {
-    Write-Host "RING SIZE GATE: PASS (centerpiece scale without pushing the ring's own affordances below the fold)"
+  Write-Host ("  mini grid     : {0} rings at {1}px, {2}/row, overlaps={3} spill={4} detached-labels={5} -> {6}" -f `
+    $P.grid.n, $P.grid.svgW, $P.grid.perRow, $P.grid.overlaps, $P.grid.spill, $P.grid.detached, $G_ok)
+  Write-Host ("  contrast      : light arc/track={0} arc/bg={1} | dark arc/track={2} arc/bg={3} -> {4}" -f `
+    $P.cLight.arcVsTrack, $P.cLight.arcVsBg, $P.cDark.arcVsTrack, $P.cDark.arcVsBg, $C_ok)
+  Write-Host ("                  thresholds: >=7 rings/row at <={0}px, zero overlap/spill/detachment; arc-vs-track >={1}, arc-vs-background >={2}, BOTH themes" -f `
+    $MAX_MINI_PX, $MIN_ARC_TRACK, $MIN_ARC_BG)
+
+  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok) {
+    Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes)"
     Cleanup; exit 0
   }
-  Write-Host "RING SIZE GATE: FAIL"
+  Write-Host "RING GATE: FAIL"
   Cleanup; exit 1
 }
 catch {

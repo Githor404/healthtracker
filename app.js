@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.14.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.14.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2118,9 +2118,9 @@ function timelineForDay(date) {
   const rows = [];
   const day = (APP_STATE.days && APP_STATE.days[date]) || null;
   if (day) (day.items || []).forEach((it) => rows.push({ time: it.time || '', row: 'food', name: it.name, kcal: it.kcal }));
-  ((APP_STATE.timeline && APP_STATE.timeline[date]) || []).forEach((s) =>
+  ((APP_STATE.timeline && APP_STATE.timeline[date]) || []).forEach((s, idx) =>
     rows.push({ time: s.time || '', row: s.kind, type: s.type, value: s.value, unit: s.unit, notes: s.notes,
-                name: s.name, dose: s.dose, dose_unit: s.dose_unit }));
+                name: s.name, dose: s.dose, dose_unit: s.dose_unit, idx: idx }));
   rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   return rows;
 }
@@ -2289,14 +2289,36 @@ function renderTimelineOverlay() {
     const note = r.notes ? ` <small>${esc(r.notes)}</small>` : '';
     if (r.row === 'food')
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(rDisp(r.kcal))} kcal</small></span></div>`;
+    // Food already has a delete in the day view; these are the rows that had none.
+    const rm = `<button class="rm tlrm" onclick="deleteSignal('${esc(APP_STATE.current)}',${esc(String(r.idx))})" title="remove">\u00d7</button>`;
     if (r.row === 'medication') {
       const dose = (r.dose != null) ? ' ' + esc(rDisp(r.dose)) + ' ' + esc(r.dose_unit || '') : '';
-      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain">${esc(r.name)}${dose}${note}</span></div>`;
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain">${esc(r.name)}${dose}${note}</span>${rm}</div>`;
     }
     const spec = SIGNAL_BY_TYPE[r.type];
     const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
-    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain">${esc(spec ? spec.label : r.type)}${val}${note}</span></div>`;
+    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain">${esc(spec ? spec.label : r.type)}${val}${note}</span>${rm}</div>`;
   }).join('');
+}
+
+// R17: a timeline record had NO delete affordance -- once the undo toast expired
+// it was permanent in the UI. Removal goes through the same undo grammar as every
+// other destructive action (D22), and the undo restores the record byte-identical
+// at its original position.
+function deleteSignal(date, idx) {
+  const arr = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+  if (!arr || idx < 0 || idx >= arr.length) return { ok: false };
+  const rec = arr[idx];
+  const copy = JSON.parse(JSON.stringify(rec));
+  arr.splice(idx, 1);
+  if (!arr.length) delete APP_STATE.timeline[date];
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Removed ' + (rec.kind === 'medication' ? (rec.name || 'medication') : signalLabel(rec)), function () {
+    if (!APP_STATE.timeline[date]) APP_STATE.timeline[date] = [];
+    APP_STATE.timeline[date].splice(Math.min(idx, APP_STATE.timeline[date].length), 0, copy);
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, removed: copy };
 }
 
 // ---- fasting candidates DOM (D22): passive, inline resolve, mirror-never-nag --
@@ -3292,6 +3314,7 @@ const VERSION_LOG = [
   { v: '0.13.0', note: 'The ring is now seven labelled lanes \u2014 sleep, meals, exercise, sauna, yoga, meditation and red light \u2014 each with its own track, so every practice has a visible home whether or not you logged it. Flip between \u201cmy day\u201d and \u201cthe plan\u201d to compare what happened with what you declared.' },
   { v: '0.13.1', note: 'Fixes: the meals lane no longer draws a full ring on a day with nothing logged, and logging sleep now asks for your bedtime so the night actually appears on the ring.' },
   { v: '0.14.0', note: 'Sleep can now be toggled on and off as it happens, so a broken night records as the segments it actually was \u2014 wake gaps included. Tap the sleep key under the ring to get the switch. If you forget to turn it off, the app asks when you woke rather than guessing.' },
+  { v: '0.14.1', note: 'Fixes: timeline entries can now be removed (with undo), the week and month rings are rebuilt as small clean digests instead of overlapping, and the ring\u2019s colours are properly tuned for light mode.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4004,9 +4027,13 @@ function catOfEventType(t) { return CAT_OF_EVENT[t] || 'exercise'; }
 // good-bad axis (Fork G holds) -- there is no green in the set at all. Plan view
 // renders the SAME hues at reduced opacity, so the flip reads as the day dimmed
 // to intention rather than a grayscale copy.
+// R17: colour is a CSS custom property per category, defined for BOTH themes, so
+// the browser resolves it natively and a theme switch needs no re-render. Inline
+// hex could only ever serve one theme -- which is how light mode went unspecced.
 const RING_PALETTE = {
-  sleep: '#7b86c4', eat: '#3fbfae', exercise: '#d9a13e', sauna: '#d97a5a',
-  yoga: '#a98cc8', meditation: '#6fa8c4', red_light: '#c4718f',
+  sleep: 'var(--lane-sleep)', eat: 'var(--lane-eat)', exercise: 'var(--lane-exercise)',
+  sauna: 'var(--lane-sauna)', yoga: 'var(--lane-yoga)', meditation: 'var(--lane-meditation)',
+  red_light: 'var(--lane-red_light)',
 };
 const PLAN_OPACITY = 0.38;
 
@@ -4367,6 +4394,30 @@ function rhythmGridDates() {
   for (let i = 6; i >= 0; i--) out.push(shiftDate(cur, -i));
   return out;
 }
+// R17: the R13 redesign never reached the minis -- they inherited the main ring's
+// geometry, and `.rring{overflow:visible}` let the now-hand and plan ticks draw
+// OUTSIDE the viewBox, so neighbours overlapped. Minis are rebuilt deliberately as
+// DIGESTS rather than scaled instruments: seven lanes at 46 px is noise, so a mini
+// carries only the two ANCHORS -- the sleep span and the eating window. No tracks,
+// no now-hand, no centre text, nothing outside the box.
+const MINI_PX = 42;   // 7 per row at 390 pt: 7*42 + 6*4 gaps = 318 px inside a ~330 px card
+function miniRingSVG(model) {
+  const V = 100, C = 50, R = 42;                       // its own viewBox; marks stay inside
+  const lanes = { sleep: R * 0.96, eat: R * 0.62 };
+  let out = '<svg class="rmring" viewBox="0 0 ' + V + ' ' + V + '" width="' + MINI_PX + '" height="' + MINI_PX + '" aria-hidden="true">';
+  out += '<circle class="rmbg" cx="' + C + '" cy="' + C + '" r="' + r2(lanes.sleep) + '"/>';
+  out += '<circle class="rmbg" cx="' + C + '" cy="' + C + '" r="' + r2(lanes.eat) + '"/>';
+  ['sleep', 'eat'].forEach((cat) => {
+    (model.arcs || []).forEach((a) => {
+      if (a.cat !== cat || a.ref) return;
+      if (cat === 'eat' && a.kind !== 'eat') return;    // the eating WINDOW only, not gaps
+      if (cat === 'sleep' && a.kind !== 'sleep') return;
+      out += '<path class="rmk-' + cat + '" d="' + arcPath(C, C, lanes[cat], minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
+    });
+  });
+  return out + '</svg>';
+}
+
 function renderRhythmGrid() {
   const el = document.getElementById('rhythmGrid');
   if (!el || !APP_STATE) return;
@@ -4377,7 +4428,7 @@ function renderRhythmGrid() {
     const m = rhythmModel(d, { live: false });                   // archival: mini-rings are calendar days
     const has = !!(APP_STATE.days || {})[d];
     return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}" ` +
-      `onclick="goToDay('${esc(d)}')" title="${esc(d)}">${rhythmSVG(m, 46, true)}<small>${esc(d.slice(8))}</small></button>`;
+      `onclick="goToDay('${esc(d)}')" title="${esc(d)}">${miniRingSVG(m)}<small>${esc(d.slice(8))}</small></button>`;
   }).join('') + `</div>`;
 }
 
@@ -4494,7 +4545,8 @@ window.HT = {
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,
   stepDay, toggleDayStatus, renderDay, defaultSettings, normalizeSettings,
-  setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, shiftDate, timeToMinutes, addInterval,
+  setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, miniRingSVG, MINI_PX,
+  renderTimelineOverlay, timelineForDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D30 — single entry point (presentation only)
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
