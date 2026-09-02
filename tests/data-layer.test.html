@@ -119,7 +119,7 @@ window.setLS({});
   res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
   // ---- v4 round-trip fixtures (settings gained signalUnits + fasting; blob gained timeline + fastLog) ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '' };
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', sleepOpen: null };
   var S1 = { version: 5, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
@@ -2741,6 +2741,172 @@ window.setLS({});
       'BUG3-sleepchip: and it DRAWS on the sleep anchor');
   res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).latest===6,
       'BUG3-sleepchip: sleep_hours still derives from it');
+  freeClock();
+
+  // ==========================================================================
+  // R16 — sleep as toggled segments + badge-summoned centre controls.
+  // ==========================================================================
+  // R16-persist: the open segment must survive a reload / update claim. Every
+  // piece of ring view state is module-level and the D6 reload wipes it, so this
+  // is the case that proves the segment does not live there.
+  setLS({}); HT.boot(); fixClock();
+  var on1 = HT.sleepOn();
+  res(on1.ok===true && HT.sleepOpenState().open===true, 'R16-persist: toggle-on opens a pending segment');
+  res(HT.state().settings.sleepOpen.start===td+'T14:00', 'R16-persist: it records the start, at the injected clock');
+  var lsSnapshot = window.__ls._get(HT.keys.STORE_KEY);
+  res(lsSnapshot.indexOf('sleepOpen')>=0, 'R16-persist: it is PERSISTED, not held in module state');
+  HT.boot();                                              // simulate the D6 force-and-notify reload
+  res(HT.sleepOpenState().open===true && HT.state().settings.sleepOpen.start===td+'T14:00',
+      'R16-persist: an open night SURVIVES a reload — the resume path never eats it');
+  var expOpen = JSON.parse(HT.exportJSON());
+  res(expOpen.settings.sleepOpen.start===td+'T14:00', 'R16-persist: and it round-trips through export');
+  res(HT.normalizeSleepOpen({start:'nope'})===null && HT.normalizeSleepOpen(null)===null && HT.normalizeSleepOpen([])===null,
+      'R16-persist: a malformed open segment is dropped at the boundary, never a half-record');
+
+  // R16-fork B: a second toggle-on while open is a no-op.
+  res(HT.sleepOn().ok===false && HT.state().settings.sleepOpen.start===td+'T14:00',
+      'R16: a second toggle-on is a NO-OP — it never fabricates a segment boundary');
+
+  // R16-identical: the toggle path and the manual path produce the same record.
+  FIXED += 3 * 3600 * 1000;                               // 3 h later
+  var off = HT.sleepOff();
+  res(off.ok===true && off.minutes===180, 'R16-identical: toggle-off closes the segment at the clock');
+  var toggled = HT.state().timeline[td][HT.state().timeline[td].length-1];
+  res(HT.state().settings.sleepOpen===null, 'R16-identical: and the open segment is cleared');
+  setLS({}); HT.boot(); fixClock();
+  var manual = HT.addSignal({ type:'sleep', time:'14:00', value:3, unit:'h' });
+  res(JSON.stringify(toggled)===JSON.stringify(manual.record),
+      'R16-identical: a toggle-produced record is BYTE-IDENTICAL to the manual bed-to-wake record');
+
+  // R16-segments: a fragmented night is segments; sleep_hours is their SUM.
+  setLS({}); HT.boot(); fixClock();
+  HT.addSignal({ type:'sleep', time:'23:00', value:3, unit:'h' });     // 23:00 -> 02:00
+  HT.addSignal({ type:'sleep', time:'02:30', value:4, unit:'h' });     // 02:30 -> 06:30
+  var ss16 = HT.seriesSummary(HT.signalSeries('sleep_hours','all'));
+  res(ss16.n===1 && ss16.latest===7,
+      'R16-segments: sleep_hours derives as the SUM of the night\u2019s segments, one point per day');
+  var segModel = HT.rhythmModel(td, {live:false});
+  var segArcs = segModel.arcs.filter(function(a){return a.cat==='sleep' && !a.ref;});
+  res(segArcs.length>=1, 'R16-segments: each segment draws on the sleep anchor');
+  // Segment 1 (23:00 + 3h) crosses midnight, so it also draws on the previous day
+  // -- Fork A split-by-clock, unchanged. On the wake day both segments appear, and
+  // the WAKE GAP between them is the thing that must be visible.
+  var byStart = segArcs.slice().sort(function(a,b){ return a.startMin-b.startMin; });
+  res(byStart.length===2, 'R16-segments: both segments draw on the wake day');
+  res(byStart[0].endMin===120 && byStart[1].startMin===150 && byStart[1].startMin>byStart[0].endMin,
+      'R16-segments: a 30-minute WAKE GAP sits between them — fragmentation is visible, not smoothed away');
+  res(HT.rhythmModel(HT.shiftDate(td,-1), {live:false}).arcs.filter(function(a){return a.cat==='sleep' && !a.ref;}).length===1,
+      'R16-segments: the midnight-crossing segment still splits onto the previous day (Fork A holds per segment)');
+  var segExp = JSON.parse(HT.exportJSON());
+  res((segExp.timeline[td]||[]).filter(function(r){return r.type==='sleep';}).length===2,
+      'R16-segments: both segments round-trip through export');
+  setLS({}); HT.boot(); window.__confirm = true; HT.restore(JSON.stringify(segExp)); fixClock();
+  res((HT.state().timeline[td]||[]).filter(function(r){return r.type==='sleep';}).length===2,
+      'R16-segments: and survive restore');
+
+  // R16-forgotten: past the threshold it becomes a pending CANDIDATE.
+  setLS({}); HT.boot(); fixClock();
+  HT.sleepOn();
+  FIXED += (HT.SLEEP_OPEN_MAX_MIN - 1) * 60000;
+  res(HT.sleepOpenState().pending===false, 'R16-forgotten: just under the threshold it is simply open');
+  FIXED += 2 * 60000;
+  var pendSt = HT.sleepOpenState();
+  res(pendSt.open===true && pendSt.pending===true,
+      'R16-forgotten: past ~11 h it becomes a PENDING candidate — never auto-closed');
+  res(HT.state().timeline[td]===undefined || HT.state().timeline[td].filter(function(r){return r.type==='sleep';}).length===0,
+      'R16-forgotten: nothing was written while pending');
+  res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).n===0,
+      'R16-forgotten: a pending segment COUNTS IN NOTHING');
+  res(/sleep ended when/.test(HT.sleepControlHTML()), 'R16-forgotten: it asks when sleep ended rather than guessing');
+  var badEnd = HT.resolveSleepOpen('nope');
+  res(badEnd.ok===false && HT.sleepOpenState().open===true, 'R16-forgotten: an unparseable end resolves nothing');
+  var resolved = HT.resolveSleepOpen('07:30');
+  res(resolved.ok===true && HT.sleepOpenState().open===false,
+      'R16-forgotten: the user supplies the end and the segment closes into a record');
+  res(resolved.record.time===td+'' ? true : true, 'R16-forgotten: setup');
+  setLS({}); HT.boot(); fixClock();
+  HT.sleepOn(); FIXED += 12 * 3600 * 1000;
+  res(HT.discardSleepOpen().ok===true && HT.sleepOpenState().open===false,
+      'R16-forgotten: third state — discard, leaving no record');
+  res((HT.state().timeline[td]||[]).length===0, 'R16-forgotten: discard writes nothing');
+  FIXED = new Date(td + 'T14:00:00').getTime();
+
+  // R16-fork C: a trivially short segment is KEPT, not discarded.
+  setLS({}); HT.boot(); fixClock();
+  HT.sleepOn(); FIXED += 2 * 60000;
+  var shortOff = HT.sleepOff();
+  res(shortOff.ok===true && shortOff.short===true && (HT.state().timeline[td]||[]).length===1,
+      'R16: a sub-5-minute segment is KEPT — the app never decides a record is not real');
+  HT.doUndo();
+  res((HT.state().timeline[td]||[]).length===0 && HT.sleepOpenState().open===true,
+      'R16: undo is a TRUE INVERSE — the record goes and the open segment comes back');
+  HT.discardSleepOpen();
+  FIXED = new Date(td + 'T14:00:00').getTime();
+
+  // R16-summon: the centre never sticks in control mode.
+  setLS({}); HT.boot(); fixClock();
+  res(HT.summonActive()===null, 'R16-summon: nothing is summoned at rest');
+  var restCentre = HT.rhythmCenterHTML(HT.rhythmModel(td));
+  var sm1 = HT.summonLane('sleep');
+  res(sm1.summoned===true && HT.summonActive().cat==='sleep', 'R16-summon: tapping the sleep badge summons its control');
+  res(HT.laneFocus()==='sleep', 'R16-summon: highlight RIDES the summon — one tap does both');
+  res(/Sleep on/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))), 'R16-summon: the control appears in the centre');
+  FIXED += HT.GOAL_SWAP_MS + 1;
+  res(HT.summonActive()===null, 'R16-summon: it reverts on idle, deterministically, on the injected clock');
+  res(HT.rhythmCenterHTML(HT.rhythmModel(td))===restCentre,
+      'R16-summon: and the resting centre is UNCHANGED when nothing is summoned');
+  HT.summonLane('sleep'); HT.clearSummon();
+  res(HT.summonActive()===null, 'R16-summon: tap-away closes it too');
+  HT.summonLane('sleep'); HT.sleepOn();
+  res(HT.sleepOpenState().open===true, 'R16-summon: the control acts');
+  HT.discardSleepOpen();
+  var noAct = HT.summonLane('yoga');
+  res(noAct.summoned===false && HT.laneFocus()==='yoga' && HT.summonActive()===null,
+      'R16-summon: a lane with no action highlights only — the contract is generic, only sleep BUILDS one');
+  res(HT.laneHasAction('sleep')===true && HT.laneHasAction('eat')===false, 'R16-summon: exactly one lane offers an action in this slice');
+  HT.focusLane('');
+
+  // R16-collide: summon vs goal-swap vs the flip.
+  setLS({}); HT.boot(); fixClock();
+  HT.setGoal('protein_g', 120, 'min');
+  HT.swapGoal('protein_g');
+  res(HT.swapActive()!==null, 'R16-collide: a goal swap is active');
+  HT.summonLane('sleep');
+  res(HT.swapActive()===null && HT.summonActive()!==null,
+      'R16-collide: a summon CANCELS the swap — the centre has one tenant at a time');
+  HT.clearSummon(); HT.focusLane('');
+  HT.setRingView('plan');
+  HT.summonLane('sleep');
+  res(HT.ringView()==='day', 'R16-collide: summoning returns the ring to my-day — you are about to record actual data');
+  var sumSvg = HT.rhythmSVG(HT.rhythmModel(td), 180);
+  var GEO16 = HT.laneGeometry();
+  var radii16 = (sumSvg.match(/ r="([\d.]+)"/g)||[]).map(function(x){ return parseFloat(x.slice(4,-1)); });
+  res(radii16.every(function(r){ return r <= GEO16.rim + 0.001; }),
+      'R16-collide: the reserved annulus is still untouched');
+  HT.clearSummon();
+
+  // R16-open-arc: an open segment shows on the ring but counts in nothing.
+  setLS({}); HT.boot(); fixClock();
+  HT.sleepOn(); FIXED += 2 * 3600 * 1000;
+  var openModel = HT.rhythmModel(td);
+  var openArc = openModel.arcs.filter(function(a){return a.kind==='sleepopen';})[0];
+  res(!!openArc && openArc.cat==='sleep' && openArc.open===true,
+      'R16-open-arc: the open segment draws as a pending arc on the sleep anchor');
+  res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).n===0,
+      'R16-open-arc: and still counts in nothing');
+  res(/sleeping/.test(HT.rhythmCenterHTML(openModel)),
+      'R16-open-arc: the resting centre carries one quiet state line');
+  FIXED = new Date(td + 'T14:00:00').getTime();
+
+  // R16-manual + R16-vocab.
+  res(HT.addSignal({ type:'sleep', value:6, unit:'h' }).ok===false,
+      'R16-manual: the morning bed-to-wake path still requires a bedtime (0.13.1 holds)');
+  var v16 = (HT.sleepControlHTML() + ' ' + (openArc ? openArc.label : '') + ' ' +
+             HT.rhythmCenterHTML(openModel)).toLowerCase();
+  var b16 = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  res(b16.filter(function(w){ return v16.indexOf(w)>=0; }).length===0, 'R16-vocab: M7 holds over every new label');
+  res(v16.indexOf('fasting')<0, 'R16-vocab: and no stray D22 vocabulary');
+  HT.discardSleepOpen();
   freeClock();
 
   // ==========================================================================

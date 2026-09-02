@@ -90,7 +90,7 @@ echo "-----------------------------------------"
 # AUTHORED is a static lower-bound cross-check only: it counts source LINES
 # containing a res( call, so multi-line calls and helper reuse make it an
 # approximation, not an equality. The PIN is the enforcing mechanism.
-EXPECTED_ASSERTIONS=713
+EXPECTED_ASSERTIONS=762
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

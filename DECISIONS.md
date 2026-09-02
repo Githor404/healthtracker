@@ -962,3 +962,30 @@ Replaces the single-ring rendering. `APP_VERSION → 0.13.0`; **schema unchanged
 **The full-ring meals artifact did not violate the lane-channel gate.** The arc traced to a real record (the last food); what was wrong is that **a gap filling the whole window renders as "meals everywhere"**, the inverse of its meaning. Such a gap is now **recorded but not drawn** — the centre tenant already states it, and an arc with no edge to read against carries nothing. Dashed arcs take **butt caps**; round caps on a 359.99° dashed arc overlap into a blob and scallop, which is what read as "off-centre" (measurement showed every circle sharing one centre). **Concentricity is now gated from the rendered SVG.**
 
 **A sleep interval without a start is not an interval.** `signalTimeLabel` existed but was never wired, and the time field had no default, so the chip path stored `time: ''` records that could never draw. The field is labelled **Bedtime**, and such a record is now **rejected rather than silently stored**. Records already created this way remain, drawing nothing — honest absence, and the user's to delete.
+
+
+## D38 — Sleep as toggled segments + badge-summoned centre controls (R16; Phase-4, 2026-09-02)
+
+Real nights are fragmented. A single bed→wake interval forces a fiction; a live toggle captures the night as **segments**, and the **mid-night wake gap is itself signal**. `APP_VERSION → 0.14.0`; **schema unchanged at v5**.
+
+**Toggle-on opens a pending segment; toggle-off closes it into an ordinary interval record** — byte-identical to the manual bed→wake path (gated). `sleep_hours` derives as the **sum** of a day's segments, one point per day rather than one per segment. The ring draws each segment on the sleep anchor with the **wake gap between them visible**. The **morning manual path remains**, and existing hours-only scalars stay valid and draw nothing.
+
+**FORGOTTEN-OFF is the honesty core.** An open segment past **`SLEEP_OPEN_MAX_MIN` (11 h, surfaced)** becomes a **pending candidate** — *"sleep ended when?"* — resolved by the user with an end time, or discarded. **Never auto-closed, never auto-trusted.** Three-state grammar per D22, and while pending it **counts in nothing** (gated: `sleep_hours` sees zero points).
+
+### Forks, as ruled
+
+**A — the open segment lives in `settings.sleepOpen`.** It **must survive a mid-night reload**, and the check that settled it: **every piece of ring view state is module-level** (`RING_VIEW`, `LANE_FOCUS`, `RESOLVE_FOCUS`, `SWAP`) and the **D6 force-and-notify reload wipes all of it**. So the segment cannot live there. It is **live state, not a record**, so it sits beside the other persisted live state rather than as a half-record in the timeline (the shape D19 warned against). **Allowlist addition, no bump**; on D29's asymmetry test, losing it costs one re-entered bedtime. Gated against a simulated reload.
+
+**B — a second toggle-on while open is a no-op.** Silently closing and reopening would **fabricate a segment boundary the user never marked**.
+
+**C — a trivially short segment is KEPT, not discarded.** **Deciding a user's record is not real is a judgment this app has consistently refused to make**, and undo already answers the mis-tap. The undo is a **true inverse**: the record goes *and the open segment comes back* (gated).
+
+**D — day ownership is the wake-day rule (D35 Fork A), unchanged, per segment.** A midnight-crossing segment still splits by clock onto the previous day's ring; both segments of a fragmented night belong to the wake day. **Recorded consequence:** a 14:00 nap therefore sums into the same day's `sleep_hours` as the previous night — correct as *total sleep that day*, and a deliberate choice rather than a side effect.
+
+**E — the summoned-centre contract.** A lane may offer **one primary action**, summoned by tapping its legend badge; **only sleep builds one** in this slice. It **reverts on action, on idle (`GOAL_SWAP_MS`), or on tap-away — the centre never sticks in control mode**. A summon **cancels a goal swap** (one tenant at a time) and **returns the ring to "my day"**, because you are about to record actual data. **Highlight rides the summon** — one tap does both, a second clears both; **no long-press**, which is undiscoverable and fights mobile text-selection. A lane with no action highlights only. The control sits in the **centre**, never in R14's reserved annulus (gated).
+
+**F — the live counter is deliberately stale.** An open segment shows *"sleeping · Xh"* in the resting centre and a pending arc on the ring, but **nothing re-renders on a timer**: at 0.1 h resolution the figure moves every six minutes, and a ticking timer is real battery cost for a number nobody watches. It updates on the next interaction.
+
+### One shared helper changed, and it was a latent defect
+
+**`nowTime()` was still on the real clock** while `nowMinutes()` was on the injected seam — so a toggle recorded a wall-clock start whose duration was then measured on a different clock. **In production both are the same clock, which is exactly why it could sit unnoticed**; it only surfaced under an injected clock. `nowTime()` now uses the seam, so D35 Fork C's "one clock indirection" is finally true of every path, and all logging paths become clock-injectable for future gates.

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.13.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.14.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -76,7 +76,7 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '' };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', sleepOpen: null };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -234,8 +234,22 @@ function normalizeSettings(s) {
     // Absent stays absent: primaryNutrientKey() derives rather than storing a
     // default the user never chose.
     primaryNutrient: (RING_NUTRIENTS.indexOf(s.primaryNutrient) >= 0) ? s.primaryNutrient : '',
+    // R16 Fork A: the LIVE open sleep segment. It is live state, not a record, so
+    // it sits beside the other persisted live state rather than in the timeline --
+    // but it MUST persist, because every piece of ring view state is module-level
+    // and the D6 force-and-notify reload wipes that. An open night must survive an
+    // update landing at 3 a.m. Allowlist addition; no schema bump.
+    sleepOpen: normalizeSleepOpen(s.sleepOpen),
   };
 }
+// R16: an open sleep segment -- a start with no end yet. Coerced at both
+// boundaries; anything malformed becomes null (absent), never a half-record.
+function normalizeSleepOpen(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(String(o.start))) return null;
+  return { start: String(o.start), startedAt: typeof o.startedAt === 'string' ? o.startedAt : '' };
+}
+
 // D22: fasting config. enabled defaults true (always-on-but-silent — only real
 // >= minHours gaps ever surface); minHours default 16 (16:8), clamped > 0.
 function normalizeFasting(f) {
@@ -695,8 +709,12 @@ function offerSignalUndo(records, label) {
 }
 
 // ---- supplement + ingest (DECISIONS.md D8) --------------------------------
+// D35 Fork C said ONE clock indirection; this was still on the real clock, so a
+// toggle recorded a wall-clock start while its duration was measured on the seam.
+// In production both are the same clock, which is exactly why the inconsistency
+// could sit unnoticed -- it only shows up under an injected clock.
 function nowTime() {
-  const d = new Date();
+  const d = nowDate();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
@@ -2588,7 +2606,7 @@ function signalSeries(type, days) {
   const targetUnit = signalUnitDefault(type);
   const cut = windowCutoff(days);
   const alsoTypes = SERIES_ALIAS[type] || [];
-  const pts = []; let unconverted = 0, total = 0;
+  let pts = []; let unconverted = 0, total = 0;
   Object.keys(APP_STATE.timeline || {}).forEach((d) => {
     if (d < cut) return;
     (APP_STATE.timeline[d] || []).forEach((r) => {
@@ -2607,6 +2625,17 @@ function signalSeries(type, days) {
       pts.push({ t: d + 'T' + (r.time || '00:00'), v: Math.round(v * 100) / 100 });
     });
   });
+  // R16: a fragmented night is several segments, and sleep_hours is their SUM --
+  // one point per day, not one per segment.
+  if (type === 'sleep_hours' && pts.length > 1) {
+    const byDay = {};
+    pts.forEach((pt) => {
+      const d = String(pt.t).slice(0, 10);
+      if (!byDay[d]) byDay[d] = { t: d + 'T00:00', v: 0 };
+      byDay[d].v = Math.round((byDay[d].v + pt.v) * 100) / 100;
+    });
+    pts = Object.keys(byDay).sort().map((d) => byDay[d]);
+  }
   pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
   return { type: type, label: spec ? spec.label : type, unit: targetUnit, points: pts,
            excluded: 0, unconverted: unconverted, total: total };
@@ -3262,6 +3291,7 @@ const VERSION_LOG = [
   { v: '0.12.1', note: 'Clearer ring: after two days without a logged meal the centre names the date instead of counting hours, an empty day says what to log rather than showing a bare circle, and the now-hand no longer crosses the text.' },
   { v: '0.13.0', note: 'The ring is now seven labelled lanes \u2014 sleep, meals, exercise, sauna, yoga, meditation and red light \u2014 each with its own track, so every practice has a visible home whether or not you logged it. Flip between \u201cmy day\u201d and \u201cthe plan\u201d to compare what happened with what you declared.' },
   { v: '0.13.1', note: 'Fixes: the meals lane no longer draws a full ring on a day with nothing logged, and logging sleep now asks for your bedtime so the night actually appears on the ring.' },
+  { v: '0.14.0', note: 'Sleep can now be toggled on and off as it happens, so a broken night records as the segments it actually was \u2014 wake gaps included. Tap the sleep key under the ring to get the switch. If you forget to turn it off, the app asks when you woke rather than guessing.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3867,6 +3897,18 @@ function rhythmModel(dateKey, opts) {
     });
   }
 
+  // R16: the OPEN segment draws as a pending arc on the sleep anchor, from start
+  // to now. It is not a record, so it counts in nothing -- it only shows.
+  if (!plan) {
+    const sl = sleepOpenState();
+    if (sl.open) {
+      const nowAbs2 = absMinutes(todayKey(), nowMinutes());
+      addIntervalWin(arcs, win0, win1, sl.startAbs, nowAbs2 - sl.startAbs, 'sleepopen',
+        'sleeping ' + hoursLabel(sl.minutes) + (sl.pending ? ' \u00b7 pending' : ''),
+        { lane: 'sleep', cat: 'sleep', open: true, state: sl.pending ? 'pending' : 'open', src: 'sleepopen' });
+    }
+  }
+
   let openGap = null;
   if (isToday && !plan) {
     const nowAbs = absMinutes(dateKey, nowM);
@@ -4075,6 +4117,112 @@ function rhythmSVG(model, size, mini) {
   return out + '</svg>';
 }
 
+// ---- R16: sleep as toggled segments ---------------------------------------
+// Real nights are fragmented. Toggle-on opens a PENDING segment; toggle-off closes
+// it into an ordinary interval record, byte-identical to the manual bed->wake path.
+// The mid-night wake gap between segments is signal, not noise.
+//
+// FORGOTTEN-OFF (the honesty core): an open segment past the threshold becomes a
+// pending CANDIDATE the user resolves -- never auto-closed, never auto-trusted.
+// While pending it counts in nothing, exactly as a fasting candidate does (D22).
+const SLEEP_OPEN_MAX_MIN = 11 * 60;         // surfaced constant: ~11 h
+const SLEEP_MIN_SEGMENT_MIN = 5;            // Fork C: kept, never discarded -- see below
+
+function sleepOpenState() {
+  const o = (APP_STATE.settings && APP_STATE.settings.sleepOpen) || null;
+  if (!o) return { open: false };
+  const dm = isoToDayMin(o.start);
+  if (!dm) return { open: false };
+  const startAbs = absMinutes(dm.date, dm.min);
+  const nowAbs = absMinutes(todayKey(), nowMinutes());
+  const mins = Math.max(0, nowAbs - startAbs);
+  return { open: true, start: o.start, startAbs: startAbs, minutes: mins,
+           pending: mins >= SLEEP_OPEN_MAX_MIN };
+}
+function sleepOn() {
+  if (sleepOpenState().open) return { ok: false, error: 'A sleep segment is already open.' };
+  APP_STATE.settings.sleepOpen = { start: todayKey() + 'T' + nowTime(), startedAt: new Date(nowMs()).toISOString() };
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, start: APP_STATE.settings.sleepOpen.start };
+}
+// Close the segment into a record. Day ownership is the WAKE day (D35 Fork A),
+// per segment. `endAbs` lets the forgotten-off resolution supply a chosen end.
+function closeSleepSegment(endAbs, endDateKey) {
+  const st = sleepOpenState();
+  if (!st.open) return { ok: false, error: 'No sleep segment is open.' };
+  const mins = Math.max(0, endAbs - st.startAbs);
+  if (!(mins > 0)) { APP_STATE.settings.sleepOpen = null; Store.saveState(APP_STATE); refresh(); return { ok: false, error: 'That end is not after the start.' }; }
+  const dm = isoToDayMin(st.start);
+  const prev = APP_STATE.settings.sleepOpen;
+  const r = addSignal({ type: 'sleep', time: String(st.start).slice(11), value: Math.round((mins / 60) * 100) / 100,
+                        unit: 'h', date: endDateKey });
+  if (!r.ok) return r;
+  APP_STATE.settings.sleepOpen = null;
+  Store.saveState(APP_STATE); refresh();
+  // Fork C: a short segment is KEPT, never discarded -- deciding a user's record
+  // is not real is a judgment this app has consistently refused to make. Undo is
+  // the answer to a mis-tap, and it is a true inverse: the record goes and the
+  // open segment comes back.
+  const arr = APP_STATE.timeline[endDateKey] || [];
+  offerUndo('Sleep logged ' + hoursLabel(mins), function () {
+    const i = arr.indexOf(r.record);
+    if (i >= 0) arr.splice(i, 1);
+    APP_STATE.settings.sleepOpen = prev;
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, record: r.record, minutes: mins, short: mins < SLEEP_MIN_SEGMENT_MIN };
+}
+function sleepOff() { return closeSleepSegment(absMinutes(todayKey(), nowMinutes()), todayKey()); }
+// Forgotten-off resolution: the user supplies the end. Never inferred.
+function resolveSleepOpen(endHHMM) {
+  const st = sleepOpenState();
+  if (!st.open) return { ok: false, error: 'No sleep segment is open.' };
+  const m = timeToMinutes(endHHMM);
+  if (m == null) return { ok: false, error: 'Enter the time you woke, as HH:MM.' };
+  // Choose the first day at/after the start on which that clock time falls after it.
+  const dm = isoToDayMin(st.start);
+  let endAbs = absMinutes(dm.date, m), endDate = dm.date, guard = 0;
+  while (endAbs <= st.startAbs && guard++ < 3) { endDate = shiftDate(endDate, 1); endAbs = absMinutes(endDate, m); }
+  return closeSleepSegment(endAbs, endDate);
+}
+function discardSleepOpen() {
+  if (!sleepOpenState().open) return { ok: false };
+  APP_STATE.settings.sleepOpen = null;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+
+// ---- the summoned-centre contract (generic; only sleep BUILDS an action) ---
+// A lane may offer ONE primary action, summoned into the centre by tapping its
+// legend badge. The centre never sticks in control mode: it reverts on action, on
+// idle (the swap constant), or on tap-away.
+const LANE_ACTIONS = { sleep: { label: 'sleep' } };
+function laneHasAction(cat) { return !!LANE_ACTIONS[cat]; }
+let SUMMON = null;
+function summonActive() {
+  if (!SUMMON) return null;
+  if (nowMs() >= SUMMON.until) { SUMMON = null; return null; }
+  return SUMMON;
+}
+// Fork E: highlight RIDES the summon -- one tap does both. A summon cancels a goal
+// swap (mutually exclusive tenants), and returns the ring to my-day, because you
+// are about to record actual data.
+function summonLane(cat) {
+  const k = String(cat || '');
+  if (LANE_FOCUS === k && summonActive()) { LANE_FOCUS = ''; SUMMON = null; renderDay(); return { ok: true, summoned: false }; }
+  LANE_FOCUS = k;
+  SWAP = null;
+  if (laneHasAction(k)) {
+    RING_VIEW = 'day';
+    SUMMON = { cat: k, until: nowMs() + GOAL_SWAP_MS };
+  } else {
+    SUMMON = null;
+  }
+  renderDay();
+  return { ok: true, summoned: !!SUMMON, cat: k };
+}
+function clearSummon() { SUMMON = null; renderDay(); return { ok: true }; }
+
 // ---- R13: view flip + lane focus ------------------------------------------
 // The flip is the blink comparator: SAME geometry, alternate content. Sticky
 // (no timeout), always labeled, display-only. Lane focus is transient view state
@@ -4089,7 +4237,7 @@ function focusLane(k) { LANE_FOCUS = (LANE_FOCUS === k) ? '' : String(k || ''); 
 function ringLegendHTML() {
   // Type identity lives in colour + this legend, since lanes no longer encode it.
   return '<div class="rlegend">' + RING_CATS.map((c) =>
-    `<button type="button" class="rlkey${LANE_FOCUS === c ? ' on' : ''}" onclick="event.stopPropagation();focusLane('${esc(c)}')">` +
+    `<button type="button" class="rlkey${LANE_FOCUS === c ? ' on' : ''}" onclick="event.stopPropagation();summonLane('${esc(c)}')">` +
     `<span class="rlswatch" style="background:${RING_PALETTE[c]}"></span>${esc(CAT_LABELS[c] || c)}</button>`).join('') + '</div>';
 }
 function ringViewToggleHTML() {
@@ -4109,17 +4257,39 @@ function pendingFastCandidates() {
 }
 function focusPendingResolve() { RESOLVE_FOCUS = true; renderDay(); return { ok: true, pending: pendingFastCandidates().length }; }
 function clearResolveFocus() { RESOLVE_FOCUS = false; renderDay(); return { ok: true }; }
+function sleepControlHTML() {
+  const st = sleepOpenState();
+  if (st.open && st.pending) {
+    // Forgotten-off: a candidate, never an auto-close.
+    return `<div class="ringval rcenter rctrl" onclick="event.stopPropagation()">` +
+      `<span class="rcsub">open ${esc(hoursLabel(st.minutes))} \u2014 sleep ended when?</span>` +
+      `<input id="sleepEndAt" type="time" class="rcin">` +
+      `<button type="button" class="btn" onclick="resolveSleepOpen((document.getElementById('sleepEndAt')||{}).value)">Save</button>` +
+      `<button type="button" class="linklike" onclick="discardSleepOpen()">discard</button></div>`;
+  }
+  return `<div class="ringval rcenter rctrl" onclick="event.stopPropagation()">` +
+    (st.open ? `<span class="rcsub">sleeping \u00b7 ${esc(hoursLabel(st.minutes))}</span>` +
+               `<button type="button" class="btn" onclick="sleepOff()">Sleep off</button>`
+             : `<button type="button" class="btn" onclick="sleepOn()">Sleep on</button>`) +
+    `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
+}
 function rhythmCenterHTML(model) {
-  // R13: the centre is DISPLAY-ONLY, always. The resolve UI is evicted -- tapping
-  // the pending line opens it as a row BELOW the ring, never inside it.
-  if (!model || !model.openGap) return '';
+  // R13: the centre is DISPLAY-ONLY at rest. R16 adds ONE exception with a hard
+  // bound: a summoned lane control, which reverts on action, idle or tap-away and
+  // can never stick. The fast-resolve UI stays evicted below the ring.
+  const sum = summonActive();
+  if (sum && laneHasAction(sum.cat)) return sleepControlHTML();
+  const sl = sleepOpenState();
+  const openLine = sl.open
+    ? `<span class="rcsub rcstate">sleeping \u00b7 ${esc(hoursLabel(sl.minutes))}${sl.pending ? ' \u00b7 pending' : ''}</span>` : '';
+  if (!model || !model.openGap) return openLine ? `<div class="ringval rcenter">${openLine}</div>` : '';
   const pend = pendingFastCandidates();
   const mins = num(model.openGap.sinceMin);
   const body = (mins >= GAP_DATE_AFTER_MIN && model.openGap.sinceDate)
     ? `<span class="rcsub">no food logged since</span><b class="rcdate">${esc(fmtDateSmart(model.openGap.sinceDate, false))}</b>`
     : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>`;
   const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
-  return `<div class="ringval rcenter"${tap}>` + body +
+  return `<div class="ringval rcenter"${tap}>` + body + openLine +
     (pend.length ? `<span class="rcsub rctap">tap to resolve ${esc(pend.length)} pending</span>` : '') + `</div>`;
 }
 // The resolve row -- BELOW the ring, never inside it.
@@ -4317,6 +4487,8 @@ window.HT = {
   RING_ANCHORS, RING_CATS, CAT_LABELS, RING_PALETTE, PLAN_OPACITY, laneGeometry, catOfEventType,
   packPractice, practiceLaneKey, MAX_PRACTICE_LANES, LANE_PRACTICE_STROKE, LANE_ANCHOR_STROKE,
   ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
+  sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, closeSleepSegment, normalizeSleepOpen,
+  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,

@@ -1018,4 +1018,26 @@ Real nights are fragmented. A single bed→wake interval forces a fiction; a liv
 | R16-manual | the morning bed→wake path still works and still requires a bedtime (0.13.1) |
 | R16-vocab | **M7** over every new label, including "sleeping · Xh" and the forgotten-off prompt |
 
-**Status: PRE-REGISTERED — STOPPED for ruling on Forks A–F. Nothing built.**
+#### Evidence (built to the ruled forks, 2026-09-02)
+
+| Case | Result |
+|---|---|
+| R16-persist | the open segment is **persisted, survives a simulated reload**, round-trips through export, and a malformed one is dropped at the boundary |
+| R16-segments | two segments round-trip; `sleep_hours` = their **sum** (one point per day); both draw on the wake day with a **30-minute wake gap visible between them**; the midnight-crossing segment still splits onto the previous day (Fork A holds per segment) |
+| R16-identical | a toggle-produced record is **byte-identical** to the manual bed→wake record |
+| R16-forgotten | pending fires **past the threshold and not before**; nothing is written while pending; **`sleep_hours` sees zero points**; it asks when sleep ended; resolve and discard both work; an unparseable end resolves nothing |
+| R16 (Fork B) | a second toggle-on is a **no-op** |
+| R16 (Fork C) | a sub-5-minute segment is **kept**, and **undo is a true inverse** — record removed *and* open segment restored |
+| R16-summon | summons, **highlight rides**, control appears, **reverts on idle via the injected clock**, on tap-away; the **resting centre is byte-unchanged** when nothing is summoned; a lane with no action highlights only |
+| R16-collide | a summon **cancels the goal swap**; summoning **returns to my-day**; the **reserved annulus stays untouched** |
+| R16-manual / R16-vocab | the manual path still requires a bedtime (0.13.1 holds); **M7** over every new label |
+
+**A latent defect surfaced while building.** `nowTime()` was still on the **real** clock while `nowMinutes()` was on the injected seam, so a toggle recorded a wall-clock start whose duration was measured on a different clock. In production both are the same clock — which is precisely why it could sit unnoticed. `nowTime()` now uses the seam, making D35 Fork C's "one clock indirection" true of every path.
+
+**Flagged fixture update:** the `goalState` fixture gained `sleepOpen: null` (cases 7/8 deep-compare settings), the same shape as the `primaryNutrient` addition.
+
+**Count delta: 713 → 762** (+49). `bash tests/run-data-layer.sh` → **762/762 ALL PASS**, `executed 762 · pinned 762`. `ring-size` · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.13.1 → **0.14.0**) · `writesites` all green.
+
+**Real-page smoke** (summon → toggle on → 90 min → reload → close): `{"summoned":true,"focusRides":"sleep","control":"Sleep on close","openArc":1,"stateLine":"sleeping · 1.5h","persisted":true,"survivedReload":true,"closedMinutes":150,"recordTime":"22:00","recordValue":2.5,"sleepHours":2.5,"schema":5}`.
+
+**Status: MET.**
