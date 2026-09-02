@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.13.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.13.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2062,6 +2062,10 @@ function addSignal(raw) {
     if (!raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Enter the medication name.' };
   } else {
     if (!raw.type || String(raw.type).trim() === '') return { ok: false, error: 'Choose a signal type.' };
+    // A sleep INTERVAL is start + duration. Without a bedtime it is not an
+    // interval at all, and it would store as a record that silently draws nothing.
+    if (raw.type === 'sleep' && !/^\d{2}:\d{2}$/.test(String(raw.time == null ? '' : raw.time)))
+      return { ok: false, error: 'Sleep needs a bedtime — enter the time you went to bed.' };
     if (spec && spec.kind === 'biometric' && (raw.value == null || String(raw.value).trim() === ''))
       return { ok: false, error: 'Enter a value.' };
   }
@@ -2148,6 +2152,7 @@ function onSignalTypeChange() {
   const vl = document.getElementById('sigValLabel'); if (vl) vl.textContent = isBP ? 'Systolic' : ((spec && spec.kind === 'event') ? 'Duration (opt.)' : 'Value');
   const diaWrap = document.getElementById('sigDiaWrap'); if (diaWrap) diaWrap.style.display = isBP ? '' : 'none';
   const notes = document.getElementById('sigNotes'); if (notes) notes.placeholder = (sel.value === 'other') ? 'what was it?' : 'notes (optional)';
+  const tl = document.getElementById('sigTimeLabel'); if (tl) tl.textContent = signalTimeLabel(sel.value);
 }
 
 // Quick-log chips (D21 Layer-1 adherence: ease-of-logging is the mechanism of
@@ -3256,6 +3261,7 @@ const VERSION_LOG = [
   { v: '0.12.0', note: 'The ring now shows your last 24 hours, so last night\u2019s dinner, your sleep and the hours since you last ate all read as one continuous stretch. The centre counts the hours since your last logged food, and anything your regimen declares is drawn faintly underneath as the plan.' },
   { v: '0.12.1', note: 'Clearer ring: after two days without a logged meal the centre names the date instead of counting hours, an empty day says what to log rather than showing a bare circle, and the now-hand no longer crosses the text.' },
   { v: '0.13.0', note: 'The ring is now seven labelled lanes \u2014 sleep, meals, exercise, sauna, yoga, meditation and red light \u2014 each with its own track, so every practice has a visible home whether or not you logged it. Flip between \u201cmy day\u201d and \u201cthe plan\u201d to compare what happened with what you declared.' },
+  { v: '0.13.1', note: 'Fixes: the meals lane no longer draws a full ring on a day with nothing logged, and logging sleep now asks for your bedtime so the night actually appears on the ring.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3876,8 +3882,17 @@ function rhythmModel(dateKey, opts) {
     if (lastAbs != null && nowAbs - lastAbs > 0) {
       const sinceDate = shiftDate(dateKey, Math.floor(lastAbs / MIN_PER_DAY) - dayIndex(dateKey));
       const mins = nowAbs - lastAbs;
-      openGap = addIntervalWin(arcs, win0, win1, lastAbs, mins, 'open',
-        gapLabel(mins, sinceDate), { open: true, lane: 'eat', cat: 'eat', sinceMin: mins, sinceDate: sinceDate, src: 'open' });
+      // A gap that fills the whole window has no edge to read against: as an arc
+      // it becomes a full circle on the meals lane and says "meals everywhere",
+      // which is the opposite of what it means. The centre tenant already states
+      // it exactly ("no food logged since ..."), so the arc is suppressed and only
+      // the model record is kept. Gated with REAL-shaped data (records aged out).
+      const spansWholeWindow = lastAbs <= win0;
+      openGap = spansWholeWindow
+        ? { kind: 'open', lane: 'eat', cat: 'eat', open: true, suppressed: true,
+            sinceMin: mins, sinceDate: sinceDate, src: 'open', label: gapLabel(mins, sinceDate) }
+        : addIntervalWin(arcs, win0, win1, lastAbs, mins, 'open',
+            gapLabel(mins, sinceDate), { open: true, lane: 'eat', cat: 'eat', sinceMin: mins, sinceDate: sinceDate, src: 'open' });
     }
   }
 

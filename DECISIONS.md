@@ -953,3 +953,12 @@ Replaces the single-ring rendering. `APP_VERSION → 0.13.0`; **schema unchanged
 - **`data-src` on every rendered mark** — the audit tap-path needs "what did I tap" to resolve to a record.
 - **`AUDIT_WINDOWS` (R15, named, NOT built):** stimulus × response → default window, **sourced/cited/versioned on the D32 machinery**, user-adjustable, **uncited pairs labelled uncited**.
 - **Recorded destination:** **stimulus-aligned ensemble averaging over the user's own history** is the named future analysis this structure feeds — the **first consent-tier analysis candidate**, with **shows-never-attributes** governing its framing, and the audit **displaying the crowd of causes, never a single-cause fiction**.
+
+
+### 0.13.1 addendum to D37 — two defects the synthetic smoke could not see
+
+**Both hid behind the same blind spot: every gate and smoke seeded records INSIDE the window.** A real phone's ordinary state — food logged days ago, nothing recent — was never exercised, so a `BUG1-aged` case now covers it.
+
+**The full-ring meals artifact did not violate the lane-channel gate.** The arc traced to a real record (the last food); what was wrong is that **a gap filling the whole window renders as "meals everywhere"**, the inverse of its meaning. Such a gap is now **recorded but not drawn** — the centre tenant already states it, and an arc with no edge to read against carries nothing. Dashed arcs take **butt caps**; round caps on a 359.99° dashed arc overlap into a blob and scallop, which is what read as "off-centre" (measurement showed every circle sharing one centre). **Concentricity is now gated from the rendered SVG.**
+
+**A sleep interval without a start is not an interval.** `signalTimeLabel` existed but was never wired, and the time field had no default, so the chip path stored `time: ''` records that could never draw. The field is labelled **Bedtime**, and such a record is now **rejected rather than silently stored**. Records already created this way remain, drawing nothing — honest absence, and the user's to delete.

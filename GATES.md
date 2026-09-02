@@ -948,3 +948,27 @@ The gate also now **reports the largest reach-preserving ring** at each viewport
 **Real-page smoke:** `{"tracks":4,"marksWithSrc":5,"practiceLanes":2,"toggle":true,"legendKeys":7,"resolveInRing":false,"planLabeled":true,"planDim":true,"unionStable":true,"schema":5}` — two practice lanes because the seeded walk and meditation genuinely overlap.
 
 **Status: MET — R13 + R13.1 built. R14/R15 reserved, not authorized.**
+
+### 0.13.1 — on-device bug fixes (D37 follow-up)
+
+Three findings from the real phone. **The synthetic smoke never exercised a window with records AGED OUT of it — which is the ordinary state of a real phone**, and that is what hid both defects.
+
+**1 — Meals lane drew a full ring on a day with no food logged.** With the last food long outside the trailing 24 h, the **open-gap arc spanned the entire window** (1440 min) and drew as a near-complete circle on the meals lane. Two clarifications the report's framing deserves:
+- **The lane-channel gate was NOT violated.** The arc *did* trace to a record — the last logged food — so "no arc without a record" held. What was wrong is that **an arc filling the whole window says "meals everywhere", the opposite of what it means.**
+- **It was not actually off-centre.** Measured from the rendered SVG, every circle shared `cx=90 cy=90`. The apparent offset was the **round cap on a dashed 359.99° arc**: the two caps overlap into a blob near the closure and the dashes scallop, which reads as a lopsided beaded ring. **Zoom magnified it, and activating the meals badge dimmed everything else, leaving the artifact alone on screen** — which is why it only showed up that way.
+
+*Fix:* a gap that **fills the whole window is recorded but not drawn** — it has no edge to read against, and the centre tenant already states it exactly ("no food logged since Jul 18"). Dashed arcs also take **butt caps** so they can never bead. A gap with an edge inside the window draws exactly as before.
+
+**2 — Legend highlight confirmed correct.** The defect persists un-highlighted (it was the arc, not the highlight), and dimming renders correctly otherwise: with `sauna` active, other marks carry `rdim` and the sauna arc does not.
+
+**3 — Sleep chip produced records that silently drew nothing.** `signalTimeLabel` was **defined and exported but never called**, and `sigTime` has no default — so a chip-logged sleep arrived with `time: ''`, `timeToMinutes` returned `null`, and the record stored without ever drawing. *Fix:* the field is labelled **"Bedtime"** for the sleep interval, and **a sleep record without a bedtime is rejected** rather than stored as an invisible one. A sleep interval is start + duration; without a start it is not an interval at all.
+
+| Case | Asserts |
+|---|---|
+| BUG1-aged | with food logged but **none inside the trailing 24 h**: the gap is recorded, `suppressed`, **no arc on the meals lane, no path emitted at all**; the centre still states it; a gap **with an edge inside the window still draws** |
+| BUG1-concentric | every lane **track** shares one centre constant, and **every arc is circular with both endpoints at its radius from that same centre**, measured from the rendered SVG (tick dots are excluded — they sit at clock positions by design) |
+| BUG3-sleepchip | the field is labelled **Bedtime**; a sleep record **without** one is **rejected and nothing is written**; with one it stores as an interval, **draws on the sleep anchor**, and `sleep_hours` still derives from it |
+
+**Count delta: 700 → 713** (+13). `bash tests/run-data-layer.sh` → **713/713 ALL PASS**, `executed 713 · pinned 713`. Verified at **2.4× zoom with the meals badge active**: zero paths, zero full circles.
+
+**Status: MET.**

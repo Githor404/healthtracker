@@ -88,6 +88,7 @@
      lane-width strokes set inline from the computed geometry. Plan view renders the
      SAME hues at reduced opacity -- the day dimmed to intention, not a grey copy. */
   .rring path{fill:none;stroke-linecap:round}
+  .rring path.ra-open,.rring path.rpending{stroke-linecap:butt}
   .rtrack{fill:none;stroke:var(--line);opacity:.45}
   .rring path.rref{opacity:.30}
   .rring .rdot.rref{opacity:.45}
@@ -493,7 +494,7 @@
           <div style="flex:0 0 90px"><label>Unit</label><select id="sigUnit"></select></div>
         </div>
         <div class="row">
-          <div><label>Time</label><input id="sigTime" type="time"></div>
+          <div><label id="sigTimeLabel">Time</label><input id="sigTime" type="time"></div>
           <div style="flex:2"><label>Notes</label><input id="sigNotes" placeholder="notes (optional)"></div>
         </div>
         <button class="btn primary" style="margin-top:10px" onclick="addSignalFromForm()">Log to timeline</button>

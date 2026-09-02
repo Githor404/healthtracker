@@ -2675,6 +2675,75 @@ window.setLS({});
   freeClock();
 
   // ==========================================================================
+  // 0.13.1 on-device bug fixes. The synthetic smoke never exercised a window with
+  // records AGED OUT of it -- which is the ordinary state of a real phone.
+  // ==========================================================================
+  // BUG1-aged: food exists, but none of it is in the trailing 24 h.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(HT.shiftDate(td,-46), [rrFood('long ago','12:00')]);
+  var AG = HT.rhythmModel(td);
+  res(AG.openGap && AG.openGap.suppressed===true,
+      'BUG1-aged: a gap filling the WHOLE window is recorded but NOT drawn as an arc');
+  res(AG.arcs.filter(function(a){return a.lane==='eat';}).length===0,
+      'BUG1-aged: the meals lane draws NO arc when nothing was logged in the window');
+  var agsvg = HT.rhythmSVG(AG, 180);
+  res((agsvg.match(/<path/g)||[]).length===0,
+      'BUG1-aged: no full-circle arc is emitted — the ring shows tracks only');
+  res(/no food logged since/.test(HT.rhythmCenterHTML(AG)),
+      'BUG1-aged: the centre still states it exactly, which is why the arc is redundant');
+  // and a REAL gap (something logged inside the window) still draws
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('breakfast','08:00')]);
+  var RG = HT.rhythmModel(td);
+  res(RG.openGap && !RG.openGap.suppressed && RG.arcs.filter(function(a){return a.kind==='open';}).length===1,
+      'BUG1-aged: a gap with an edge inside the window still draws, as before');
+
+  // BUG1-concentric: every track and every arc shares ONE centre, measured from
+  // the rendered SVG rather than assumed from the source.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','08:00'), rrFood('b','13:00')]);
+  HT.state().timeline[td] = [{ time:'06:00', kind:'event', type:'sauna', value:20, unit:'min', source:'manual', notes:'' },
+                             { time:'23:00', kind:'biometric', type:'sleep', value:7, unit:'h', source:'manual', notes:'' }];
+  var csvg = HT.rhythmSVG(HT.rhythmModel(td), 180);
+  // TRACKS are concentric by construction; TICK DOTS sit at clock positions by
+  // design and are deliberately excluded. ARCS state no centre, so concentricity
+  // is proven by both endpoints being equidistant from it at the arc's radius.
+  var trackCentres = (csvg.match(/<circle class="rtrack"[^>]*cx="([\d.]+)" cy="([\d.]+)"/g)||[])
+    .map(function(x){ var m=/cx="([\d.]+)" cy="([\d.]+)"/.exec(x); return m[1]+','+m[2]; })
+    .filter(function(v,i,a){return a.indexOf(v)===i;});
+  res(trackCentres.length===1 && trackCentres[0]==='90,90',
+      'BUG1-concentric: every lane TRACK shares one centre constant :: ' + trackCentres.join(' | '));
+  var arcRe = /M([\d.-]+) ([\d.-]+) A([\d.]+) ([\d.]+) 0 \d 1 ([\d.-]+) ([\d.-]+)/g, am, arcOk = true, arcN = 0;
+  while ((am = arcRe.exec(csvg)) !== null) {
+    arcN++;
+    var rr = parseFloat(am[3]);
+    if (Math.abs(parseFloat(am[3]) - parseFloat(am[4])) > 0.01) arcOk = false;      // circular, not elliptical
+    var d0 = Math.sqrt(Math.pow(parseFloat(am[1])-90,2) + Math.pow(parseFloat(am[2])-90,2));
+    var d1 = Math.sqrt(Math.pow(parseFloat(am[5])-90,2) + Math.pow(parseFloat(am[6])-90,2));
+    if (Math.abs(d0-rr) > 0.05 || Math.abs(d1-rr) > 0.05) arcOk = false;            // centred on 90,90
+  }
+  res(arcN>0 && arcOk,
+      'BUG1-concentric: every ARC is circular and both endpoints sit at its radius from the SAME centre (' + arcN + ' arcs)');
+
+  // BUG3-sleepchip: the chip path must produce an INTERVAL, not a silent scalar.
+  setLS({}); HT.boot(); fixClock();
+  res(HT.signalTimeLabel('sleep')==='Bedtime' && HT.signalTimeLabel('weight')==='Time',
+      'BUG3-sleepchip: the time field is labelled Bedtime for the sleep interval');
+  var noTime = HT.addSignal({ type:'sleep', value:6, unit:'h' });
+  res(noTime.ok===false && /bedtime/i.test(noTime.error),
+      'BUG3-sleepchip: a sleep record WITHOUT a bedtime is rejected, not stored as a record that silently draws nothing');
+  res((HT.state().timeline[td]||[]).length===0, 'BUG3-sleepchip: and nothing was written');
+  var withTime = HT.addSignal({ type:'sleep', time:'23:00', value:6, unit:'h' });
+  res(withTime.ok===true && withTime.record.time==='23:00' && withTime.record.value===6,
+      'BUG3-sleepchip: with a bedtime it stores as an interval (time = start, value = duration)');
+  res(HT.rhythmModel(td, {live:false}).arcs.filter(function(a){return a.cat==='sleep';}).length>0 ||
+      HT.rhythmModel(HT.shiftDate(td,-1), {live:false}).arcs.filter(function(a){return a.cat==='sleep';}).length>0,
+      'BUG3-sleepchip: and it DRAWS on the sleep anchor');
+  res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).latest===6,
+      'BUG3-sleepchip: sleep_hours still derives from it');
+  freeClock();
+
+  // ==========================================================================
   // D35 amendments — day-status label + date display. Presentation only: the
   // status binary, averages and export formats must be byte-unchanged.
   // ==========================================================================
