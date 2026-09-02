@@ -866,3 +866,54 @@ The clock-seam gate **re-runs at the new value automatically**, because the case
 **Real-page smoke** — first contact, then after one log: `{"firstContact_hintCircles":3,"firstContact_noArcs":true,"firstContact_noDigits":true,"afterLog_hintGone":true,"afterLog_centre":"13.5h since last logged food","afterLog_captionRestates":false,"handInner":37.7,"handOuter":83.6}`.
 
 **Status: MET.**
+
+
+### Ring redesign — concentric-lane instrument (R13) — PRE-REGISTERED
+
+**Replaces** the current single-ring rendering. Visual spec + architecture bones; **R14 (radial response layer) and R15 (audit view) are named and RESERVED, not authorized** — the bones reserve their geometry and data paths now. Target `APP_VERSION → 0.13.0`. **No schema change intended.**
+
+**Seven concentric lanes**, fixed order in→out: **sleep, eat, exercise, sauna, yoga, meditation, red_light**. **Lane tracks always render** — full muted circles, every lane, every day — so the ring is never bare and every lane is findable. **Empty lane = visible track, no arc.** A clear **outer annulus (~12% of radius) stays reserved and empty** for R14; nothing draws there but the now-hand's tip. **Centre stays display-only** — the graduated gap counter — with the **resolve UI evicted below the ring**.
+
+#### Geometry, computed before building (phone 390 pt)
+
+| ring | rim (0.88·R) | centre | radial band | strokes | gap per lane |
+|---|---|---|---|---|---|
+| 85 vw = 332 px | 145.9 | **0.46·rim = 67.1** (R11's value) | 78.8 | 64 (12/12/5×8) | **2.46 px** |
+| 85 vw = 332 px | 145.9 | **0.40·rim = 58.3** | 87.5 | 59 (12/12/5×7) | **4.75 px** |
+
+**Fork A — R11's centre radius is the binding constraint, and it does not survive seven lanes.** At the ruled 85 vw with R11's `RING_CENTER_R = 0.46` and 8 px event lanes, the seven lanes are separated by **2.46 px** — with rounded caps they read as one mass, which defeats "every lane findable". *Leaning:* **centre → 0.40 of rim, event lanes → 7 px**, giving **4.75 px** gaps; the centre still spans 116 px, ample for a big numeral plus caption at this width. **R11's "hand never crosses centre text" is preserved and re-measured**, not assumed.
+
+**Fork B — eleven event types, seven lanes.** `SIGNAL_SPEC` carries `sauna, cold_plunge, yoga, workout, walk, meditation, red_light, hbot, alcohol, other`. Four duration-carrying types (**cold_plunge, workout, walk, hbot, other**) have **no named lane**, and today they all draw. Dropping them would be a **silent regression from 0.12.x**. *Leaning:* the **`exercise` lane is a bucket** carrying every duration-event not claimed by a named lane, with **each arc keeping its own truthful label** ("Cold plunge 3 min"). The lane groups; the label never lies. `alcohol` carries no duration and still draws nothing, unchanged.
+
+**Fork C — no record has an identity today.** The audit tap-path needs "what did I tap" to resolve to a record, but neither `day.items` nor timeline signals carry an id. *Leaning:* synthesize a **positional reference** (`item:<date>:<index>`, `sig:<date>:<index>`) as a `data-` attribute — **no schema change**, cheap now. Recorded plainly: this is stable **within a render**, not across edits. **If R15 needs cross-session stable identity, that becomes a deliberate schema question then** — not something to smuggle in now.
+
+**Fork D — 85 vw against the REAL usable height.** The reach gate assumes 844 px; Safari's usable height is nearer **745**. The ring grows from 312 → 332 px while the centre gains a numeral and a legend row is added, so the goal cells and caption have **less room, not more**. *This will be measured at 390×745 before the ring size is fixed*, and if reach breaks, **the ruled fallback applies — the constraint wins over the number** and the ring sizes down.
+
+**Fork E — R11's three-circle instructional ghost is RETIRED**, as ruled: the always-present lane tracks are the teaching layer, and they do it better (seven findable lanes rather than three unlabelled circles). The `R11-first` cases are **repointed, not weakened** — they will assert that the **lane tracks** carry first contact, that **no arc draws at zero records**, and that **no digit appears** — the same invariants against the replacement surface.
+
+**Fork F — legend highlight is transient view state.** Tapping a legend key dims the other lanes. *Leaning:* it behaves like the goal-swap — **display-only, nothing persisted, cleared on day navigation** — and it must not fight the flip or the swap.
+
+#### Architecture bones (seams, not features)
+
+- **`rhythmModel` gains a stable per-lane CHANNEL structure**: each lane is a **named channel with typed content** (`span` | `tick`) derived from records — **the same contract a future radial response series uses** (a biometric series is a channel with `kind: 'trace'`, angle-mapped). One contract: lanes now, traces later.
+- **Every rendered arc and tick carries its source record reference** as a data attribute (Fork C).
+- **`AUDIT_WINDOWS` (R15, named, NOT built):** stimulus × response → default window, **sourced/cited/versioned on the D32 lab-band machinery**, user-adjustable, and **uncited pairs get a generic window LABELED as uncited**.
+- **Recorded destination:** **stimulus-aligned ensemble averaging over the user's own history** is the named future analysis this structure feeds — the **first consent-tier analysis candidate**, and **shows-never-attributes governs its framing**. The audit **displays the crowd of causes, never a single-cause fiction**: every other stimulus tick inside the window is shown.
+
+#### Gate (to be finalised with the build)
+
+| Case | Asserts |
+|---|---|
+| R13-channels | per-lane derivation equality — **every record of a lane kind produces its arc/tick, and no arc exists without a record**, asserted per channel |
+| R13-tracks | **all seven tracks render always**, every day including empty ones; an empty lane is a **visible track with no arc** |
+| R13-flip | *my day ⇄ the plan* is **display-only, deterministic, always labeled, sticky (no timeout)**; plan view renders **only declared regimen content**; an undeclared practice is an **empty track** |
+| R13-swap | goal-swap **suspends** the flip and **revert restores** it; neither writes data |
+| R13-centre | the **resolve UI never renders inside the ring** — the centre is display-only, always |
+| R13-reserved | **nothing draws in the reserved annulus** except the now-hand's tip |
+| R13-ids | **every rendered arc and tick carries a source record reference** |
+| R13-palette | the seven hues and the plan-view opacity are **gated constants**, like ring-size; **no red/green good-bad axis** (Fork G holds) |
+| R13-geometry | lane radii, strokes and gaps are computed from constants and **do not collide**; the hand terminates **outside the centre text** and **at the reserved band's inner edge** |
+| ring-size / density | **re-measured for seven lanes at a REAL phone viewport (390×745)**, not 844 |
+| R13-vocab | **M7** over every new label, including lane and legend names |
+
+**Status: PRE-REGISTERED — forks A–F surfaced with leanings; building to them next. R14/R15 reserved, not authorized.**
