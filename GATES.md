@@ -972,3 +972,50 @@ Three findings from the real phone. **The synthetic smoke never exercised a wind
 **Count delta: 700 → 713** (+13). `bash tests/run-data-layer.sh` → **713/713 ALL PASS**, `executed 713 · pinned 713`. Verified at **2.4× zoom with the meals badge active**: zero paths, zero full circles.
 
 **Status: MET.**
+
+
+### R16 — Sleep as toggled segments + badge-summoned centre controls — PRE-REGISTERED, FORKS OPEN
+
+Real nights are fragmented. A single bed→wake interval forces a fiction; a live on/off toggle captures the night as **segments**, and the **mid-night wake gap is itself signal** (fragmentation) — matching the shape device sleep data (HealthKit/Oura, per D28) will eventually deliver into the same channel. Target `APP_VERSION → 0.14.0`. **Nothing built; stopped for ruling.**
+
+**Ruled pins, to be built once the forks are settled:** segments open pending on toggle-on and close into the **existing event record shape** on toggle-off; `sleep_hours` derives as their **sum**; the ring draws each segment on the sleep anchor with **wake gaps visible**; an open segment past a **surfaced ~11 h threshold** becomes a **pending candidate** resolved by the user — **never auto-closed, never auto-trusted**, three-state grammar per D22, counting in nothing while pending; the **morning manual path remains** and a toggle-produced record must be **byte-identical** to a manually entered one; existing hours-only scalars stay valid and draw nothing.
+
+#### Verified before arguing, not assumed
+
+- **`GOAL_SWAP_MS` is already 8000**, so "reuse the swap constant" for the summoned control's idle revert is exact rather than approximate.
+- **Every piece of ring view state is module-level** — `RING_VIEW`, `LANE_FOCUS`, `RESOLVE_FOCUS`, `SWAP` — and the **D6 force-and-notify reload** (`index.html:664`) wipes all of it. **An open segment therefore cannot live where view state lives.** That settles the shape of Fork A before the argument starts.
+
+#### Forks
+
+**Fork A — where the open segment lives (the load-bearing one).** It must survive a **mid-night reload, an update, and a force-and-notify claim**. Three options: a **new top-level store** (semantically cleanest, but every prior new store cost a schema bump — timeline v3, fastLog v4, regimens v5); an **incomplete timeline record** flagged open (no bump, free export/restore, but puts a non-record in the record store — the shape D19 warned against when it kept events out of `day.items`); or **`settings.sleepOpen`** (allowlist addition, **no bump**, precedent `currency` / `signalUnits` / `fasting` / `nudges` / `primaryNutrient`).
+
+*Leaning:* **`settings.sleepOpen`** — `{ start: "<date>T<HH:MM>", startedAt: "<iso>" }`. It is **live state, not a record**, so it belongs beside the other persisted live state rather than in the timeline; and on D29's asymmetry test, losing it costs **one re-entered bedtime, not content**. **Gated explicitly against a simulated reload mid-segment** — the resume path must not eat an open night.
+
+**Fork B — a second toggle-on while a segment is open.** *Leaning:* **no-op returning `{ok:false}`**. The summoned control offers only *Sleep off* while open, so this is defensive; silently closing and reopening would **fabricate a segment boundary the user never marked**.
+
+**Fork C — toggle-off within a trivial duration (< 5 min).** *Leaning:* **keep the record and offer undo** (D22's universal-undo grammar) rather than discarding under a threshold. **Discarding is the app deciding a user's record is not real** — a judgment it has consistently refused to make — and undo already covers the accidental double-tap this would protect against. Flagged, because the opposite lean is defensible if junk segments prove to pollute fragmentation.
+
+**Fork D — day ownership of segments.** *Leaning:* the existing **wake-day rule (D35 Fork A) governs unchanged, per segment** — a segment is owned by the day it ends, drawn split by clock on archival rings and contiguous on the live one. **Consequence to rule on explicitly:** a 14:00 nap then lands in the same day's `sleep_hours` as the previous night's segments. Arguably correct as *total sleep that day*, but it is a real semantic choice rather than a side effect.
+
+**Fork E — the summoned-centre contract, and its collisions.**
+- **Goal-swap** also occupies the centre. *Leaning:* **mutually exclusive, later summon wins and cancels the earlier**; both display-only.
+- **Flip view.** Summoning a *logging* control while showing *the plan* is incoherent. *Leaning:* **summoning returns the ring to "my day" first** — you are about to record actual data.
+- **Badge-tap disambiguation** (proposal requested): **highlight rides the summon** — one tap highlights the lane *and* summons its control; a second tap clears both; a lane with no control highlights only. **No long-press** — undiscoverable, and it fights mobile text-selection; a second gesture is not worth buying a distinction nobody asked for.
+- The summoned control lives in the **centre**, so it never touches **R14's reserved annulus**.
+
+**Fork F — what an open segment draws, and the live counter's staleness.** *Leaning:* a **pending open arc on the sleep anchor** from start to now (the open-food-gap grammar), plus one quiet **"sleeping · Xh"** line in the resting centre. But **nothing re-renders on a timer**, so that figure is **stale until the next interaction**. *Leaning:* **accept the staleness rather than run a ticking timer** — at 0.1 h resolution the number moves every six minutes, and a timer is real battery cost for a figure nobody is watching. Flagged, because the alternative is a one-line `setInterval` and you may want it.
+
+#### Gate (to be finalised with the rulings)
+
+| Case | Asserts |
+|---|---|
+| R16-persist | an open segment **survives a simulated reload / update claim** — the resume path never eats an open night |
+| R16-segments | a night of multiple segments round-trips export→restore; `sleep_hours` derives as their **sum**; the ring draws each with **wake gaps visible** |
+| R16-identical | a **toggle-produced record is byte-identical** to the manual bed→wake record for the same start and duration (the TL14 / RG-identity pattern) |
+| R16-forgotten | an open segment past the threshold becomes a **pending candidate**, resolves **three-state**, is **never auto-closed**, and **counts in nothing** while pending |
+| R16-summon | the summoned control **reverts deterministically** on action, on the injected-clock idle, and on tap-away; the centre **never sticks in control mode**; the resting centre is **unchanged when nothing is summoned** |
+| R16-collide | summon vs goal-swap mutually exclusive; summoning from plan view returns to my-day; the **reserved annulus stays untouched** |
+| R16-manual | the morning bed→wake path still works and still requires a bedtime (0.13.1) |
+| R16-vocab | **M7** over every new label, including "sleeping · Xh" and the forgotten-off prompt |
+
+**Status: PRE-REGISTERED — STOPPED for ruling on Forks A–F. Nothing built.**
