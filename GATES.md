@@ -1077,3 +1077,39 @@ This surface had been **unattested since 0.11.0**, and the 0.14.0 report is prec
 **Count delta: 762 → 784** (+22). `bash tests/run-data-layer.sh` → **784/784 ALL PASS**, `executed 784 · pinned 784`. All eleven gates green; `version` 0.14.0 → **0.14.1**.
 
 **Status: MET.**
+
+
+### R18 — extending the summoned-centre contract to four practices — PRE-REGISTERED
+
+R16 built the summoned-centre contract generically but wired **only sleep**. R18 fills it in: **sauna, meditation and red light** gain toggles in identical grammar, **meals** summons the existing fast-candidate resolve, and **exercise and yoga deliberately get none**. Target `APP_VERSION → 0.15.0`. **No schema bump** (settings-side).
+
+**Why toggles rather than stamps, recorded because it is the load-bearing reason:** a live session yields a **true start time**, and **R14/R15's audit quality depends on t=0 being real**. A stamp records when you remembered, not when it began.
+
+#### Forks
+
+**A — `settings.sleepOpen` generalises to `settings.laneOpen`, keyed by lane, and the migration is the risky part.** An open segment must survive the update that performs the migration — the **mid-night reload case, now per lane**. *Leaning:* fold the old field in inside `normalizeSettings` (which runs on both boot and restore), so a 0.14.x blob carrying `sleepOpen` emerges as `laneOpen.sleep` with **no data loss and no bump**; `defaultSettings()` carries `laneOpen: {}` and no `sleepOpen`, keeping `DS-drift` byte-identical. **Gated explicitly**: a stored `sleepOpen` from the previous version must still be an open sleep segment after boot.
+
+**B — several lanes open at once.** *Leaning:* **allowed**, and it is the point of keying by lane — R13.1 already stacks genuinely overlapping practice arcs, so red light *while* meditating renders honestly rather than being refused.
+
+**C — a segment crossing midnight.** *Leaning:* the wake-day rule (D35 Fork A) applies **per lane, unchanged** — the day it ends owns it, drawn split by clock on archival rings.
+
+**D — per-practice forgotten-off thresholds.** *Leaning, as proposed:* **sauna 3 h, red light 3 h, meditation 4 h, sleep 11 h** — surfaced constants, each a plausible outer bound for that practice rather than one number pretending to fit all four. Past its threshold an open segment becomes a **pending candidate**, three-state, counting in nothing.
+
+**E — the meals summon when nothing is pending.** *Leaning:* `laneHasAction('eat')` becomes **conditional on a pending candidate existing** — with none, the badge **highlights only** and no control appears. **No new semantics**: it is the existing three-state resolve, relocated into the summon.
+
+**F — exercise and yoga get NO summoned action, as a ruling rather than an omission.** Their logging **carries a value** (a workout has a duration and often a distance) or **an attestation** (a regimen checklist row). A bare toggle would create **a second, thinner path to the same record** — the shape D19 warned against when it refused to store events as zero-calorie food items. One record, one path.
+
+#### Gate
+
+| Case | Asserts |
+|---|---|
+| R18-migrate | a stored `sleepOpen` from 0.14.x **survives the update as `laneOpen.sleep`** — the mid-night reload case, per lane; `defaultSettings` stays drift-free |
+| R18-segments | each lane's segment round-trips export→restore and draws on its own cat |
+| R18-identical | a toggle-produced record is **byte-identical to the manual record** for that lane — minutes for practices, hours for sleep |
+| R18-thresholds | each practice's threshold fires **at its own constant and not before**; pending counts in nothing |
+| R18-meals | the meals badge summons the resolve **only when a candidate is pending**; otherwise highlight only |
+| R18-noaction | exercise and yoga offer **no** summoned action |
+| R18-contract | one action per lane; reverts on action / idle / tap-away; the centre never sticks; the resting centre is unchanged when nothing is summoned |
+| R18-vocab | **M7** over every new label |
+
+**Status: PRE-REGISTERED — building to these leanings next.**
