@@ -911,3 +911,45 @@ Bundles and **supersedes R1**; **R3's rationing note is recorded here**. Extends
 **Now-hand clears the centre tenant** — it runs rim-inward and terminates at the counter's bounding circle, measured against the text block rather than assumed.
 
 **De-duplication.** The legend never restates the centre: the open-gap line lives in the centre, the legend carries the pending-candidate resolve, and the open-gap arc still draws.
+
+
+## D37 — The ring as a concentric-lane instrument, allocated by conflict (R13 + R13.1; Phase-4 Layer 2, 2026-09-02)
+
+Replaces the single-ring rendering. `APP_VERSION → 0.13.0`; **schema unchanged at v5**. **R14 (radial response layer) and R15 (audit view) are named and RESERVED, not authorized** — this slice builds their seams only.
+
+### Lanes are allocated by OVERLAP, not by category (R13.1)
+
+**Sleep and eat keep dedicated anchor lanes** at fixed innermost positions — the face's stable identity. **Every practice shares one fat lane**, and a second **spawns only on genuine overlap** (greedy interval packing). Humans are sequential: five dedicated practice lanes would sit empty almost always, spending radius to encode a category that **colour already carries**. **`cat` is identity; `lane` is position** — positional identity is deliberately traded for radius.
+
+**FLIP-STABILITY PIN.** Lane assignment is computed from the **union of plan + actual** intervals and shared by both views, so **an arc can never change lanes between "my day" and "the plan"**. A blink comparator whose geometry moves under it is worthless. Gated by comparing `planeBySrc` across views.
+
+**Packing is deterministic** — sorted by `(start, end, src)`, so the same records pack to the same lanes in **any input order**, and overlap is measured in **absolute** minutes so it is correct across midnight rather than accidentally correct within a day. Gated.
+
+### Geometry, measured rather than assumed
+
+**Fork D was real and it bound.** The reach gate assumed 844 px; Safari's usable height is **~745**. At that height an 85 vw ring pushed the goal cells and caption **below the fold**, and the largest reach-preserving ring measured **256 px (66% of vw)** — far short of the ruled size.
+
+**The cause was ordering, not size.** The goal cells — an *interactive affordance* — rendered **after** the read-only caption. Moving the affordance above the detail list took the reach-preserving maximum from **256 px (66%) to 328 px (84%)**, essentially the ruled figure. That is a design correction, not a relaxed gate: an affordance belongs above a detail list at any ring size.
+
+**Shipped: `--ringw: min(84vw, 380px)`** — the measured maximum. Anchor strokes **12 px**, practice **14 px**, gaps **4.8 px**, centre **0.46 of rim**, reserved annulus **12%**, all computed from constants and gated against collision.
+
+**`MAX_PRACTICE_LANES = 2`, and the trade is recorded.** The ruled stroke widths (12/14 px) with legible gaps fit two practice lanes, not three. A **third simultaneous overlap clamps** into the overflow lane rather than spawning past the cap — rare, gated explicitly, and surfaced here rather than silently muddied.
+
+### The other forks
+
+**Fork B — eleven event types, seven categories.** `cold_plunge`, `workout`, `walk`, `hbot` and `other` have no named category and **all draw today**; dropping them would be a silent regression. They fall into **`exercise` as a bucket**, each arc keeping its **own truthful label**. `alcohol` carries no duration and still draws nothing.
+
+**Fork C — records have no identity.** Every mark carries a **synthesized positional reference** (`item:<date>:<index>`, `sig:<date>:<index>`) as `data-src`. **No schema change.** Recorded plainly: it is stable **within a render, not across edits** — if R15 needs cross-session identity, that becomes a **deliberate schema question then**, not something smuggled in now.
+
+**Fork E — R11's three-circle instructional ghost is RETIRED.** The always-present lane tracks are the teaching layer and do it better. Its cases are **repointed, not weakened**: same invariants (no arc without a record, no digits, one quiet line) asserted against the replacement surface.
+
+**Fork G holds.** Seven categorical hues, **no green at all**, so no green/red pair can read as an evaluation. Plan view renders the **same hues at reduced opacity** — the day dimmed to intention, not a grayscale copy.
+
+**Centre stays display-only, always.** The resolve UI is **evicted below the ring** and gated never to render inside it.
+
+### Reserved seams for R14/R15 (built as seams, not features)
+
+- **Per-category CHANNELS** on the model — a named channel with typed content (`span` | `tick`). **The same contract a radial response series will use** (`kind: 'trace'`, angle-mapped). Channels are keyed by **category** rather than lane, because lanes are now dynamic and categories are the stable thing.
+- **`data-src` on every rendered mark** — the audit tap-path needs "what did I tap" to resolve to a record.
+- **`AUDIT_WINDOWS` (R15, named, NOT built):** stimulus × response → default window, **sourced/cited/versioned on the D32 machinery**, user-adjustable, **uncited pairs labelled uncited**.
+- **Recorded destination:** **stimulus-aligned ensemble averaging over the user's own history** is the named future analysis this structure feeds — the **first consent-tier analysis candidate**, with **shows-never-attributes** governing its framing, and the audit **displaying the crowd of causes, never a single-cause fiction**.

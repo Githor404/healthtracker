@@ -34,8 +34,18 @@ $MIN_RATIO = 70     # percent of viewport width the ring must occupy on a phone
 # R8.2: arcs are BANDS, not hairlines. Stroke scales with the ring through the
 # viewBox, so this asserts the RENDERED band thickness both absolutely and as a
 # proportion of the ring -- a future ring resize cannot quietly thin them back out.
-$MIN_BAND_PX  = 14
-$MIN_BAND_PCT = 5
+# Recalibrated for the MULTI-LANE ring: the old 14 px / 5 %-of-ring thresholds were
+# derived from the single-lane design where one stroke was 6.7 % of the diameter.
+# Seven-then-four lanes cannot each be 5 % of the ring. The ruled sizes are ~12 px
+# anchors and ~14 px practice, so those are what is asserted, in pixels.
+$MIN_BAND_PX     = 11     # absolute, at the 390 pt reference width
+$MIN_BAND_MAX_PX = 13
+# Strokes scale with the ring, so a smaller phone renders proportionally thinner
+# bands -- correct behaviour, not a defect. The scale-invariant assertion is the
+# PROPORTION, derived from the ruled sizes at the reference (12/328 = 3.66 %,
+# 14/328 = 4.27 %). Both are asserted at 390; only the proportion at 360.
+$MIN_BAND_PCT     = 3.5
+$MIN_BAND_MAX_PCT = 4.1
 
 function Find-Browser {
   foreach ($c in @(
@@ -92,18 +102,34 @@ $measure = "(function(){" +
   "var fab=R('#fab');" +
   "var cells=R('#dayView .goalstrip');" +
   "var cap=R('#dayView .rrcap');" +
+  "var leg=R('#dayView .rlegend');" +
   "var svg=document.querySelector('#dayView .rring');" +
   "var vb=svg?parseFloat((svg.getAttribute('viewBox')||'0 0 180 180').split(' ')[2]):180;" +
-  "var pth=svg?svg.querySelector('path'):null;" +
-  "var sw=pth?parseFloat(getComputedStyle(pth).strokeWidth):0;" +
+  "var pths=svg?[].slice.call(svg.querySelectorAll('path')):[];" +
+  "var sws=pths.map(function(e){return parseFloat(getComputedStyle(e).strokeWidth)||0;}).filter(function(x){return x>0;});" +
+  "var sw=sws.length?Math.min.apply(null,sws):0, swMax=sws.length?Math.max.apply(null,sws):0;" +
   "var rw=ring?Math.round(ring.width):0;" +
   "var bandPx=(vb>0&&rw>0)?Math.round(sw/vb*rw*10)/10:0;" +
-  "return JSON.stringify({vw:vw,vh:vh,ring:rw,ratio:vw?Math.round(rw/vw*100):0,band:bandPx,bandPct:rw?Math.round(bandPx/rw*1000)/10:0," +
+  "var bandMax=(vb>0&&rw>0)?Math.round(swMax/vb*rw*10)/10:0;" +
+  "return JSON.stringify({vw:vw,vh:vh,ring:rw,ratio:vw?Math.round(rw/vw*100):0,band:bandPx,bandMax:bandMax,bandPct:rw?Math.round(bandPx/rw*1000)/10:0,bandMaxPct:rw?Math.round(bandMax/rw*1000)/10:0," +
   "chkBottom:chk?Math.round(chk.bottom):null,chkAbove:!!(chk&&chk.bottom<=vh)," +
   "fabVisible:!!(fab&&fab.bottom<=vh&&fab.top>=0)," +
   "cellsTop:cells?Math.round(cells.top):null,cellsAbove:!!(cells&&cells.top<vh)," +
   "capTop:cap?Math.round(cap.top):null,capAbove:!!(cap&&cap.top<vh)," +
+  "legAbove:!!(leg&&leg.top<vh)," +
   "pageOverflow:document.documentElement.scrollWidth>vw+1});})()"
+
+# R13 Fork D: report the LARGEST ring that keeps the ring's own affordances above
+# the fold at this viewport. The ruled fallback is "the constraint wins over the
+# number", so this tells us what number the constraint actually allows.
+$sweep = "(function(){var best=0,vh=window.innerHeight;" +
+  "var root=document.documentElement,prev=root.style.getPropertyValue('--ringw');" +
+  "for(var px=400;px>=200;px-=4){root.style.setProperty('--ringw',px+'px');HT.refresh();" +
+  "var c=document.querySelector('#dayView .goalstrip'),k=document.querySelector('#dayView .rrcap');" +
+  "var l=document.querySelector('#dayView .rlegend');" +
+  "if(c&&l&&c.getBoundingClientRect().top<vh&&l.getBoundingClientRect().top<vh){best=px;break;}}" +
+  "root.style.setProperty('--ringw',prev);HT.refresh();" +
+  "return JSON.stringify({best:best,vw:window.innerWidth,pct:Math.round(best/window.innerWidth*100)});})()"
 
 function Measure-At([int]$w, [int]$h, [bool]$mobile) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null
@@ -113,7 +139,11 @@ function Measure-At([int]$w, [int]$h, [bool]$mobile) {
   $sr = Eval $seed
   if ($sr -notlike 'ok*') { Write-Host "  seed failed: $sr" }
   Start-Sleep -Milliseconds 300
-  return (Eval $measure | ConvertFrom-Json)
+  $m = Eval $measure | ConvertFrom-Json
+  $sw = Eval $sweep | ConvertFrom-Json
+  Add-Member -InputObject $m -NotePropertyName bestPx  -NotePropertyValue $sw.best -Force
+  Add-Member -InputObject $m -NotePropertyName bestPct -NotePropertyValue $sw.pct  -Force
+  return $m
 }
 
 $browser = Find-Browser
@@ -175,21 +205,25 @@ try {
   Invoke-CDP 'Page.enable' $null    | Out-Null
   Invoke-CDP 'Runtime.enable' $null | Out-Null
 
-  $P = Measure-At 390 844 $true     # the ruled phone viewport
-  $S = Measure-At 360 780 $true     # a smaller phone
+  # R13 Fork D: 844 is the DEVICE height; Safari's usable viewport is ~745 once
+  # the address bar and home indicator are accounted for. The gate measured the
+  # generous number and was therefore optimistic about reach.
+  $P = Measure-At 390 745 $true     # REAL usable phone viewport
+  $S = Measure-At 360 690 $true     # a smaller phone, usable height
   $D = Measure-At 1200 900 $false   # desktop -- the cap must hold
 
-  $P_ok = ($P.ratio -ge $MIN_RATIO) -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and $P.capAbove -and ($P.band -ge $MIN_BAND_PX) -and ($P.bandPct -ge $MIN_BAND_PCT) -and (-not $P.pageOverflow)
-  $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and ($S.band -ge $MIN_BAND_PX) -and ($S.bandPct -ge $MIN_BAND_PCT) -and (-not $S.pageOverflow)
+  $P_ok = ($P.ratio -ge $MIN_RATIO) -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and $P.legAbove -and ($P.band -ge $MIN_BAND_PX) -and ($P.bandMax -ge $MIN_BAND_MAX_PX) -and ($P.bandPct -ge $MIN_BAND_PCT) -and ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $P.pageOverflow)
+  $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
 
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
-  Write-Host ("  phone 390x844 : ring={0}px ({1}% of vw) band={2}px ({3}% of ring) cells-above={4} caption-above={5} -> {6}" -f `
-    $P.ring, $P.ratio, $P.band, $P.bandPct, $P.cellsAbove, $P.capAbove, $P_ok)
-  Write-Host ("  phone 360x780 : ring={0}px ({1}% of vw) band={2}px ({3}% of ring) -> {4}" -f `
-    $S.ring, $S.ratio, $S.band, $S.bandPct, $S_ok)
+  Write-Host ("  phone 390x745 : ring={0}px ({1}% of vw) band={2}-{3}px cells-above={4} legend-above={5} -> {6}" -f `
+    $P.ring, $P.ratio, $P.band, $P.bandMax, $P.cellsAbove, $P.legAbove, $P_ok)
+  Write-Host ("                  largest ring keeping reach at this viewport: {0}px ({1}% of vw)" -f $P.bestPx, $P.bestPct)
+  Write-Host ("  phone 360x690 : ring={0}px ({1}% of vw) band={2}-{3}px ({4}-{5}% of ring) -> {6}" -f `
+    $S.ring, $S.ratio, $S.band, $S.bandMax, $S.bandPct, $S.bandMaxPct, $S_ok)
   Write-Host ("  desktop 1200  : ring={0}px (capped) overflow={1} -> {2}" -f $D.ring, [bool]$D.pageOverflow, $D_ok)
-  Write-Host ("  thresholds    : ring >= {0}% of vw; arc band >= {1}px and >= {2}% of ring; checklist, + Log, goal cells and caption above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_PCT)
+  Write-Host ("  thresholds    : ring >= {0}% of vw; arc bands >= {1}/{2}px at 390 and >= {3}/{4}% of ring everywhere; checklist, + Log, goal cells and legend above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_MAX_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
   Write-Host "-----------------------------------------"
 
   if ($P_ok -and $S_ok -and $D_ok) {

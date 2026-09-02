@@ -2173,7 +2173,7 @@ window.setLS({});
   ];
   var M = HT.rhythmModel(td, {live:false});   // archival semantics (R8.1 moved today to a trailing window)
   res(M.ticks.length===3, 'RR-derived: one eating tick per logged food item, no more');
-  var exArcs = M.arcs.filter(function(a){return a.kind==='exercise';});
+  var exArcs = M.arcs.filter(function(a){return a.kind==='practice';});
   res(exArcs.length===2, 'RR-derived: every duration-carrying event produces exactly one arc');
   res(exArcs.filter(function(a){return /alcohol/i.test(a.label);}).length===0,
       'RR-derived: a duration-less event (alcohol, in drinks) produces NO arc rather than a fabricated one');
@@ -2271,7 +2271,8 @@ window.setLS({});
   var ME = HT.rhythmModel(td);
   res(ME.empty===true && ME.arcs.length===0, 'RR-empty: a day with no records has an empty model');
   var esvg = HT.rhythmSVG(ME, 180);
-  res(esvg.indexOf('<svg')===0 && /rrbg/.test(esvg), 'RR-empty: the ring still RENDERS (honest empty), never hidden');
+  res(esvg.indexOf('<svg')===0 && (esvg.match(/rtrack/g)||[]).length===3,
+      'RR-empty: the ring still RENDERS (honest empty) — sleep, meals and one practice track, never hidden');
   res(/log food or sleep to draw your day/.test(HT.rhythmCaptionHTML(ME)) && !/\d/.test(HT.rhythmCaptionHTML(ME).replace(/<[^>]*>/g,'')),
       'RR-empty: the caption states what to log and implies nothing about intake (no numbers at all)');
   freeClock();
@@ -2415,10 +2416,14 @@ window.setLS({});
   res(/tap to resolve/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),
       'R8-centre: with a pending candidate present the centre offers the resolve');
   HT.focusPendingResolve();
-  var focused = HT.rhythmCenterHTML(HT.rhythmModel(td));
-  res(/resolveFastAt/.test(focused) && /Fasted/.test(focused),
-      'R8-centre: tapping it surfaces that candidate\u2019s resolve');
-  res(focused.indexOf('fasting')<0, 'R8-centre: still no "fasting" on the resolve surface');
+  // R13: the resolve is EVICTED from the centre -- it opens BELOW the ring.
+  var focusedCentre = HT.rhythmCenterHTML(HT.rhythmModel(td));
+  var focusedRow = HT.resolveRowHTML();
+  res(/resolveFastAt/.test(focusedRow) && /Fasted/.test(focusedRow),
+      'R8-centre: tapping it surfaces that candidate\u2019s resolve, BELOW the ring');
+  res(focusedCentre.indexOf('resolveFastAt')<0,
+      'R13-centre: the resolve NEVER renders inside the ring — the centre is display-only, always');
+  res(focusedRow.indexOf('fasting')<0 && focusedCentre.indexOf('fasting')<0, 'R8-centre: still no "fasting" on either surface');
   HT.clearResolveFocus();
 
   // R8-vocab: M7 + D22 over every new label.
@@ -2467,29 +2472,26 @@ window.setLS({});
   res(/tap to resolve/.test(HT.rhythmCenterHTML(C49)) || HT.pendingFastCandidates().length===0,
       'R11-counter: the pending-resolve tap line survives either form');
 
-  // R11-first: the instructional ghost is FIRST-CONTACT only.
+  // R11-first -> R13 Fork E: the instructional ghost is RETIRED. The always-present
+  // lane TRACKS are the teaching layer now and do it better (seven findable,
+  // labelled lanes rather than three unlabelled circles). Same invariants,
+  // repointed onto the replacement surface.
   setLS({}); HT.boot(); fixClock();
   var F0 = HT.rhythmModel(td);
-  res(F0.instructional===true, 'R11-first: zero records and no declared regimen -> the instructional state');
   var fsvg = HT.rhythmSVG(F0, 180), fcap = HT.rhythmCaptionHTML(F0);
-  res((fsvg.match(/rrhint/g)||[]).length===3, 'R11-first: three faint lane circles — grammar, not content');
-  res(fsvg.indexOf('<path')<0, 'R11-first: NO arcs are drawn — a complete circle can never be misread as logged time');
-  res(/meals/.test(fcap) && /sleep/.test(fcap) && /exercise/.test(fcap) && (fcap.match(/rkey/g)||[]).length===3,
-      'R11-first: all three lanes are labelled with their colour key, so the grammar is legible');
-  res(/log food or sleep to draw your day/.test(fcap), 'R11-first: and the hint line says what to do');
-  res(/\d/.test(fcap.replace(/<[^>]*>/g,''))===false && /\d/.test(fsvg.replace(/<[^>]*>/g,''))===false,
-      'R11-first: NEVER fake data and never an example number');
-  // yields the moment a record exists
+  res((fsvg.match(/rtrack/g)||[]).length===3,
+      'R13-first: at zero records the anchor lanes and one practice lane render — the ring is never bare');
+  res(fsvg.indexOf('<path')<0, 'R13-first: NO arc is drawn — an empty lane is a visible track with no arc');
+  res(/log food or sleep to draw your day/.test(fcap), 'R13-first: one quiet line says what to do');
+  res(/\d/.test(fcap.replace(/<[^>]*>/g,''))===false,
+      'R13-first: NEVER fake data and never an example number');
+  var flegend = HT.ringLegendHTML();
+  res(HT.RING_CATS.every(function(c){ return flegend.indexOf(HT.CAT_LABELS[c])>=0; }),
+      'R13-first: the legend keys all seven lanes, so the grammar is legible');
+  res(fsvg.indexOf('rrhint')<0, 'R13-first: the retired three-circle ghost is gone');
   rrDay(td, [rrFood('a','09:00')]);
-  res(HT.rhythmModel(td).instructional===false, 'R11-first: it disappears the moment a record exists');
-  // yields the moment a regimen is declared, even with zero records
-  setLS({}); HT.boot(); fixClock();
-  HT.state().settings.presets.push({id:'p1',name:'L',meal:'lunch',kcal:1,soluble_fiber_g:0});
-  HT.addRegimenFromJSON(JSON.stringify({name:'P',window:{start:'12:00',end:'20:00'},entries:[{kind:'food',time:'12:00',presetId:'p1'}]}));
-  var FG = HT.rhythmModel(td);
-  res(FG.instructional===false && FG.hasGhost===true && FG.hasActual===false,
-      'R11-first: with a regimen declared the GHOSTS carry the empty window instead');
-  res(HT.rhythmSVG(FG,180).indexOf('rrhint')<0, 'R11-first: and the instructional ghost is gone');
+  res(HT.rhythmSVG(HT.rhythmModel(td),180).indexOf('<path')>=0,
+      'R13-first: the moment a record exists its arc draws on its lane');
 
   // R11-hand: the hand terminates at the counter's bounding circle.
   setLS({}); HT.boot(); fixClock();
@@ -2497,14 +2499,16 @@ window.setLS({});
   var hsvg = HT.rhythmSVG(HT.rhythmModel(td), 180);
   var hm = /<line class="rrnow" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/.exec(hsvg);
   res(!!hm, 'R11-hand: the now-hand renders');
-  var cx=90, cy=90, Rr=82;
+  var cx=90, cy=90, Rr=HT.RING_R;
   var r1=Math.sqrt(Math.pow(parseFloat(hm[1])-cx,2)+Math.pow(parseFloat(hm[2])-cy,2));
   var r2i=Math.sqrt(Math.pow(parseFloat(hm[3])-cx,2)+Math.pow(parseFloat(hm[4])-cy,2));
   var inner=Math.min(r1,r2i), outer=Math.max(r1,r2i);
   res(inner > 1, 'R11-hand: it no longer starts at the centre point');
-  res(Math.abs(inner - Rr*HT.RING_CENTER_R) < 1.0,
-      'R11-hand: it TERMINATES at the counter bounding circle (RING_CENTER_R) — no line through text');
-  res(outer > Rr*0.9, 'R11-hand: and runs out to the rim, so now is still legible');
+  var GG = HT.laneGeometry();
+  res(Math.abs(inner - GG.inner) < 0.6,
+      'R11-hand: it TERMINATES at the counter bounding circle — no line through text');
+  res(outer > GG.rim && outer < HT.RING_R,
+      'R13-hand: it reaches the reserved band\u2019s inner edge, with only its tip in the annulus');
 
   // R11-dedupe: the legend never restates the centre.
   setLS({}); HT.boot(); fixClock();
@@ -2524,6 +2528,150 @@ window.setLS({});
   var r11hit = r11banned.filter(function(w){ return r11text.indexOf(w)>=0; });
   res(r11hit.length===0, 'R11-vocab: M7 holds over every new string' + (r11hit.length?(' ['+r11hit.join(',')+']'):''));
   res(r11text.indexOf('fasting')<0, 'R11-vocab/D22: still no "fasting" anywhere on the gap surfaces');
+  freeClock();
+
+  // ==========================================================================
+  // R13 / R13.1 — concentric-lane instrument, conflict-based allocation.
+  // ==========================================================================
+  // R13-packing: greedy interval packing, DETERMINISTIC in any input order.
+  var mkIv = function(src,a,b){ return { src:src, startAbs:a, endAbs:b }; };
+  var setA = [mkIv('a',0,60), mkIv('b',30,90), mkIv('c',120,180), mkIv('d',40,50)];
+  var setB = [mkIv('d',40,50), mkIv('c',120,180), mkIv('b',30,90), mkIv('a',0,60)];
+  var planeMap = function(list){ var m={}; HT.packPractice(list).forEach(function(x){ m[x.src]=x.plane; }); return m; };
+  var pA = planeMap(setA), pB = planeMap(setB);
+  res(JSON.stringify(pA)===JSON.stringify(pB),
+      'R13-packing: the same records pack to the same lanes in ANY input order (deterministic)');
+  res(pA.a===0 && pA.b===1, 'R13-packing: genuinely overlapping intervals stack onto spawned lanes');
+  res(pA.d===HT.MAX_PRACTICE_LANES-1 && Object.keys(pA).every(function(k){ return pA[k]<HT.MAX_PRACTICE_LANES; }),
+      'R13-packing: a third simultaneous overlap CLAMPS to the last lane rather than spawning past the cap');
+  res(pA.c===0, 'R13-packing: a non-overlapping interval reuses the base lane');
+  res(Object.keys(planeMap([mkIv('x',0,60), mkIv('y',60,120)])).every(function(k){ return planeMap([mkIv('x',0,60), mkIv('y',60,120)])[k]===0; }),
+      'R13-packing: touching-but-not-overlapping intervals stay on one lane');
+
+  // R13-tracks: overflow lanes appear ONLY on true overlap, and disappear.
+  setLS({}); HT.boot(); fixClock();
+  HT.state().timeline[td] = [{ time:'06:00', kind:'event', type:'walk', value:30, unit:'min', source:'manual', notes:'' }];
+  var T1 = HT.rhythmModel(td);
+  res(T1.practiceLanes===1 && (HT.rhythmSVG(T1,180).match(/rtrack/g)||[]).length===3,
+      'R13-tracks: with no overlap there is ONE practice lane — two anchors and one practice track');
+  HT.state().timeline[td].push({ time:'06:10', kind:'event', type:'meditation', value:20, unit:'min', source:'manual', notes:'' });
+  var T2 = HT.rhythmModel(td);
+  res(T2.practiceLanes===2 && (HT.rhythmSVG(T2,180).match(/rtrack/g)||[]).length===4,
+      'R13-tracks: a genuinely overlapping practice SPAWNS a second lane, and its track appears');
+  HT.state().timeline[td].pop();
+  res(HT.rhythmModel(td).practiceLanes===1,
+      'R13-tracks: remove the overlap and the spawned lane disappears again');
+  var stacked = T2.arcs.filter(function(a){return a.kind==='practice';});
+  res(stacked.length===2 && stacked[0].lane!==stacked[1].lane,
+      'R13-tracks: stacked practices render honestly as stacked arcs, not merged');
+
+  // R13-union: the FLIP-STABILITY PIN — assignment comes from the union of plan
+  // and actual, so an arc can never change lanes between views.
+  setLS({}); HT.boot(); fixClock();
+  HT.state().settings.presets.push({id:'p1',name:'L',meal:'lunch',kcal:1,soluble_fiber_g:0});
+  HT.addRegimenFromJSON(JSON.stringify({ name:'P', sleep:{start:'23:00',end:'07:00'},
+    entries:[{kind:'event',time:'06:05',type:'yoga',value:30,unit:'min'},{kind:'food',time:'12:00',presetId:'p1'}] }));
+  HT.state().timeline[td] = [{ time:'06:00', kind:'event', type:'walk', value:30, unit:'min', source:'manual', notes:'' }];
+  var DAY = HT.rhythmModel(td, {view:'day'}), PLAN = HT.rhythmModel(td, {view:'plan'});
+  res(JSON.stringify(DAY.planeBySrc)===JSON.stringify(PLAN.planeBySrc),
+      'R13-union: lane assignment is computed from the UNION and is IDENTICAL in both views');
+  var laneOf = function(m, src){ var x=m.arcs.concat(m.ticks).filter(function(k){return k.src===src;})[0]; return x?x.lane:null; };
+  var planSrc = Object.keys(PLAN.planeBySrc).filter(function(k){ return k.indexOf('plan:entry')===0; })[0];
+  res(!!planSrc && laneOf(PLAN, planSrc)===HT.practiceLaneKey(PLAN.planeBySrc[planSrc]),
+      'R13-union: a plan mark renders on the lane the union assigned it');
+  res(DAY.planeBySrc[planSrc]===PLAN.planeBySrc[planSrc],
+      'R13-union: an arc NEVER changes lanes between my-day and the-plan (blink comparator holds)');
+
+  // R13-flip: display-only, deterministic, labeled; plan shows only declared.
+  setLS({}); HT.boot(); fixClock();
+  HT.state().settings.presets.push({id:'p1',name:'L',meal:'lunch',kcal:1,soluble_fiber_g:0});
+  HT.addRegimenFromJSON(JSON.stringify({ name:'P', window:{start:'12:00',end:'20:00'}, entries:[{kind:'food',time:'12:00',presetId:'p1'}] }));
+  rrDay(td, [rrFood('real','09:00')]);
+  var flipBefore = HT.exportJSON();
+  res(HT.ringView()==='day', 'R13-flip: my day is the default and resting state');
+  res(HT.setRingView('plan')==='plan' && HT.ringView()==='plan', 'R13-flip: the flip is sticky — it sets and stays');
+  res(HT.exportJSON()===flipBefore, 'R13-flip: flipping writes NO data');
+  var PV = HT.rhythmModel(td, {view:'plan'});
+  res(PV.hasActual===false && PV.hasGhost===true,
+      'R13-flip: plan view renders ONLY declared content — no actual records');
+  res(PV.arcs.concat(PV.ticks).every(function(m){ return m.ref===true; }),
+      'R13-flip: every mark in plan view is a declared one');
+  res(HT.ringViewToggleHTML().indexOf('my day')>=0 && HT.ringViewToggleHTML().indexOf('the plan')>=0,
+      'R13-flip: the state is always labeled, both ways');
+  res(HT.toggleRingView()==='day' && HT.ringView()==='day', 'R13-flip: it toggles back deterministically');
+
+  // R13-swap: the goal swap suspends the flip; revert restores it.
+  HT.setRingView('plan'); HT.setGoal('protein_g', 120, 'min');
+  HT.swapGoal('protein_g');
+  res(HT.swapActive()!==null && HT.ringView()==='plan',
+      'R13-swap: a goal swap suspends the flip WITHOUT losing it');
+  HT.clearSwap();
+  res(HT.swapActive()===null && HT.ringView()==='plan', 'R13-swap: reverting restores the flip state');
+  HT.setRingView('day');
+
+  // R13-ids: every rendered mark carries its source record reference.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','08:00'), rrFood('b','13:00')]);
+  HT.state().timeline[td] = [{ time:'06:00', kind:'event', type:'sauna', value:20, unit:'min', source:'manual', notes:'' },
+                             { time:'23:00', kind:'biometric', type:'sleep', value:7, unit:'h', source:'manual', notes:'' }];
+  var IM = HT.rhythmModel(td);
+  res(IM.arcs.concat(IM.ticks).every(function(m){ return typeof m.src==='string' && m.src.length>0; }),
+      'R13-ids: every arc and tick in the model carries a source record reference');
+  var isvg = HT.rhythmSVG(IM, 180);
+  var marks = (isvg.match(/data-src="/g)||[]).length;
+  res(marks === IM.arcs.length + IM.ticks.length,
+      'R13-ids: every RENDERED mark carries data-src — the audit tap-path can resolve what was tapped');
+  res(/data-src="item:/.test(isvg) && /data-src="sig:/.test(isvg),
+      'R13-ids: the reference names the store and the record position');
+
+  // R13-reserved: nothing draws in the outer annulus except the hand's tip.
+  var GEO = HT.laneGeometry();
+  res(GEO.slots.every(function(k){ return GEO.lanes[k].r + GEO.lanes[k].stroke/2 <= GEO.rim + 0.001; }),
+      'R13-reserved: every lane, at full stroke, stays inside the rim');
+  var lanesArr = GEO.slots.map(function(k){ return GEO.lanes[k]; });
+  var collide = false;
+  for (var li=1; li<lanesArr.length; li++)
+    if (lanesArr[li].r - lanesArr[li].stroke/2 < lanesArr[li-1].r + lanesArr[li-1].stroke/2 - 0.001) collide = true;
+  res(!collide, 'R13-geometry: lane radii and strokes are computed from constants and do not collide');
+  res(GEO.inner > 0 && GEO.rim < HT.RING_R && (HT.RING_R - GEO.rim)/HT.RING_R > 0.10,
+      'R13-reserved: the outer annulus is reserved and is at least 10% of the radius');
+  var radii = (isvg.match(/ r="([\d.]+)"/g)||[]).map(function(x){ return parseFloat(x.slice(4,-1)); });
+  res(radii.every(function(r){ return r <= GEO.rim + 0.001; }),
+      'R13-reserved: NOTHING is drawn in the annulus — every circle radius stays inside the rim');
+
+  // R13-palette: gated constants, no good/bad axis.
+  res(HT.RING_CATS.length===7 && HT.RING_CATS.every(function(c){ return /^#[0-9a-f]{6}$/i.test(HT.RING_PALETTE[c]); }),
+      'R13-palette: seven categorical hues, all explicit constants');
+  var hues = HT.RING_CATS.map(function(c){ return HT.RING_PALETTE[c].toLowerCase(); });
+  res(hues.length===new Set(hues).size, 'R13-palette: every hue is distinct');
+  res(hues.every(function(h){ return h.indexOf('var(')<0; }) &&
+      JSON.stringify(HT.RING_PALETTE).indexOf('--good')<0 && JSON.stringify(HT.RING_PALETTE).indexOf('--bad')<0,
+      'R13-palette: no good/bad tokens — the palette carries no evaluative axis (Fork G)');
+  res(HT.PLAN_OPACITY > 0 && HT.PLAN_OPACITY < 1,
+      'R13-palette: plan view dims the SAME hues rather than greying them out');
+
+  // R13-channels: per-category derivation equality.
+  res(IM.channels.length===7 && IM.channels.map(function(c){return c.cat;}).join(',')===HT.RING_CATS.join(','),
+      'R13-channels: one named channel per category, in the fixed order');
+  var chanMarks = IM.channels.reduce(function(n,c){ return n + c.spans.length + c.ticks.length; }, 0);
+  res(chanMarks === IM.arcs.length + IM.ticks.length,
+      'R13-channels: every mark belongs to exactly one channel — no mark without a channel, no channel content without a mark');
+  var saunaCh = IM.channels.filter(function(c){return c.cat==='sauna';})[0];
+  res(saunaCh.spans.length===1 && saunaCh.spans[0].label.indexOf('Sauna')>=0,
+      'R13-channels: a record of a category produces content in that channel');
+  var yogaCh = IM.channels.filter(function(c){return c.cat==='yoga';})[0];
+  res(yogaCh.spans.length===0 && yogaCh.ticks.length===0,
+      'R13-channels: no record of a category -> an empty channel (no content without a record)');
+  res(HT.catOfEventType('cold_plunge')==='exercise' && HT.catOfEventType('hbot')==='exercise' && HT.catOfEventType('sauna')==='sauna',
+      'R13-channels/Fork B: unclaimed duration events fall into exercise, so nothing that drew before stops drawing');
+
+  // R13-vocab.
+  var r13text = (IM.arcs.map(function(a){return a.label;}).join(' ') + ' ' +
+                 IM.channels.map(function(c){return c.label;}).join(' ') + ' ' +
+                 HT.ringLegendHTML() + ' ' + HT.ringViewToggleHTML()).toLowerCase();
+  var r13banned = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  res(r13banned.filter(function(w){ return r13text.indexOf(w)>=0; }).length===0,
+      'R13-vocab: M7 holds over lane, legend and view-toggle labels');
   freeClock();
 
   // ==========================================================================

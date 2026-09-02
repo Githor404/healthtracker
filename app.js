@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.12.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.13.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -994,12 +994,10 @@ function rhythmCaptionHTML(model) {
   // R11.2: a designed empty-window state. Ghosts carry it when the plan is
   // declared; otherwise one quiet line. The bare circle is never the answer, and
   // this is also every new user's first screen.
-  if (model.instructional)
-    return `<div class="rrcap rrfirst">` +
-      `<div class="rrrow"><span class="rkey rk-eat"></span><span class="rrmuted">meals</span>` +
-      `<span class="rkey rk-sleep"></span><span class="rrmuted">sleep</span>` +
-      `<span class="rkey rk-exercise"></span><span class="rrmuted">exercise</span></div>` +
-      `<div class="rrrow"><span class="rrmuted">log food or sleep to draw your day.</span></div></div>`;
+  // R13 Fork E: the always-present lane TRACKS are the teaching layer now, so the
+  // R11 three-circle ghost is retired. First contact keeps its one quiet line.
+  if (!model.hasActual && !model.hasGhost)
+    return `<div class="rrcap"><span class="rrmuted">log food or sleep to draw your day.</span></div>`;
   const rows = (model.arcs || []).map((a) => {
     // R11.4: the legend never restates the centre verbatim -- the open gap lives in
     // the centre tenant, and the legend carries the pending-candidate line instead.
@@ -1050,12 +1048,14 @@ function renderGoalsHTML(t, day) {
   if (sw && goals[sw.key]) {
     html = goalRingBoxHTML(sw.key, t);
   } else {
-    const model = rhythmModel(APP_STATE.current);
-    html = `<div class="ringbox" onclick="clearSwap()">${rhythmSVG(model, 180)}${rhythmCenterHTML(model)}</div>`
-      + (model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}</div>` : '')
-      + rhythmCaptionHTML(model);
+    const model = rhythmModel(APP_STATE.current, { view: RING_VIEW });
+    html = ringViewToggleHTML()
+      + `<div class="ringbox" onclick="clearSwap()">${rhythmSVG(model, 180)}${rhythmCenterHTML(model)}</div>`
+      + (model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}${RING_VIEW === 'plan' ? ' \u00b7 the plan' : ''}</div>` : '')
+      + ringLegendHTML() + resolveRowHTML();
+    html += goalCellsHTML(t) + rhythmCaptionHTML(model);
   }
-  html += goalCellsHTML(t);
+  if (sw && goals[sw.key]) html += goalCellsHTML(t);   // swapped view still needs the selector
   const micros = microRollup(day);
   const mk = Object.keys(micros);
   if (mk.length) {
@@ -1132,7 +1132,7 @@ function stepDay(dir) {
   const dates = Object.keys(APP_STATE.days).sort();
   const j = dates.indexOf(APP_STATE.current) + dir;
   if (j < 0 || j >= dates.length) return;
-  SWAP = null;                        // D35 Fork C: navigation changes the ring's subject
+  SWAP = null; LANE_FOCUS = '';       // D35 Fork C / R13 Fork F: navigation changes the ring's subject
   APP_STATE.current = dates[j];
   Store.saveState(APP_STATE); refresh();
 }
@@ -1140,7 +1140,7 @@ function stepDay(dir) {
 // record renders its honest empty ring and is inert.
 function goToDay(k) {
   if (!APP_STATE.days[k]) return { ok: false };
-  SWAP = null;
+  SWAP = null; LANE_FOCUS = '';
   APP_STATE.current = k;
   Store.saveState(APP_STATE); refresh();
   return { ok: true, date: k };
@@ -3255,6 +3255,7 @@ const VERSION_LOG = [
   { v: '0.11.4', note: 'The goal ring now returns to your rhythm ring a little sooner after you tap a goal.' },
   { v: '0.12.0', note: 'The ring now shows your last 24 hours, so last night\u2019s dinner, your sleep and the hours since you last ate all read as one continuous stretch. The centre counts the hours since your last logged food, and anything your regimen declares is drawn faintly underneath as the plan.' },
   { v: '0.12.1', note: 'Clearer ring: after two days without a logged meal the centre names the date instead of counting hours, an empty day says what to log rather than showing a bare circle, and the now-hand no longer crosses the text.' },
+  { v: '0.13.0', note: 'The ring is now seven labelled lanes \u2014 sleep, meals, exercise, sauna, yoga, meditation and red light \u2014 each with its own track, so every practice has a visible home whether or not you logged it. Flip between \u201cmy day\u201d and \u201cthe plan\u201d to compare what happened with what you declared.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3713,8 +3714,18 @@ function fmtRangeLabel(dates) {
 // last night's dinner, the sleep that followed and the open gap render contiguous
 // and the hand ages content out. Past days stay calendar days. `opts.live:false`
 // forces the calendar-day model for today (used by the mini-rings and by gates).
+// The model IS the gate surface: every arc traces to a record, and every record of
+// an arc-bearing kind produces an arc. Rendering reads this and adds nothing.
+//
+// R8.1: for TODAY the window is the trailing 24 h ending at now ("last 24 h").
+// R13: every mark is assigned a LANE and carries a source record REFERENCE, and
+// the model exposes a per-lane CHANNEL structure -- the same contract a future
+// radial response series will use (a biometric series is a channel with
+// kind:'trace', angle-mapped). One contract: lanes now, traces later.
+// `opts.view:'plan'` renders ONLY declared regimen content on the same lanes.
 function rhythmModel(dateKey, opts) {
   opts = opts || {};
+  const plan = opts.view === 'plan';
   const arcs = [], ticks = [];
   const days = (APP_STATE && APP_STATE.days) || {};
   const tl = (APP_STATE && APP_STATE.timeline) || {};
@@ -3724,100 +3735,134 @@ function rhythmModel(dateKey, opts) {
   const win1 = live ? absMinutes(dateKey, nowM) : absMinutes(dateKey, 0) + MIN_PER_DAY;
   const win0 = live ? win1 - MIN_PER_DAY : absMinutes(dateKey, 0);
   const inWin = (abs) => abs >= win0 && abs <= win1;
-  // Days/timeline keys the window can touch.
   const scan = live ? [shiftDate(dateKey, -1), dateKey] : [dateKey];
+  const planDays = live ? [shiftDate(dateKey, -1), dateKey] : [dateKey];
+  const reg = (typeof activeRegimen === 'function') ? activeRegimen() : null;
 
-  // --- eating: a tick per logged food item, plus the ACTUAL window (first->last).
-  const foodAbs = [];
+  // ---- PHASE 1: collect every practice interval, ACTUAL and PLAN alike.
+  // FLIP-STABILITY PIN: packing is computed from the UNION and shared by both
+  // views, so an arc can never change lanes between "my day" and "the plan" --
+  // the blink comparator is worthless if the geometry moves under it.
+  const practiceUnion = [];
   scan.forEach((d) => {
-    (((days[d] || {}).items) || []).forEach((it) => {
-      const m = timeToMinutes(it.time);
-      if (m == null) return;
-      const abs = absMinutes(d, m);
-      if (!inWin(abs)) return;
-      foodAbs.push(abs);
-      ticks.push({ kind: 'eat', min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY, label: String(it.name || 'food') });
+    (tl[d] || []).forEach((r, idx) => {
+      if (r.kind !== 'event' || r.unit !== 'min') return;
+      const st = timeToMinutes(r.time); const dur = num(r.value);
+      if (st == null || !(dur > 0)) return;
+      const a0 = absMinutes(d, st);
+      practiceUnion.push({ src: 'sig:' + d + ':' + idx, startAbs: a0, endAbs: a0 + dur,
+                           cat: catOfEventType(r.type), label: signalLabel(r) + ' ' + rDisp(dur) + ' min',
+                           origin: 'actual' });
     });
   });
-  if (foodAbs.length >= 2) {
-    foodAbs.sort((a, b) => a - b);
-    const a0 = foodAbs[0], a1 = foodAbs[foodAbs.length - 1];
-    addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'eat', 'eating window ' + hoursLabel(a1 - a0));
+  if (reg && Array.isArray(reg.entries)) {
+    reg.entries.forEach((e, ei) => {
+      if (!e || e.kind === 'food') return;                     // food plans belong to the eat anchor
+      const m = timeToMinutes(e.time);
+      if (m == null) return;
+      planDays.forEach((d) => {
+        const a0 = absMinutes(d, m);
+        if (!inWin(a0)) return;
+        practiceUnion.push({ src: 'plan:entry:' + ei + ':' + d, startAbs: a0, endAbs: a0,
+                             cat: e.type ? catOfEventType(e.type) : 'exercise',
+                             label: 'scheduled ' + String(e.kind || ''), origin: 'plan' });
+      });
+    });
+  }
+  packPractice(practiceUnion);
+  const planeBySrc = {};
+  practiceUnion.forEach((it) => { planeBySrc[it.src] = it.plane; });
+  const usedPlanes = {};
+  practiceUnion.forEach((it) => { usedPlanes[it.plane] = true; });
+
+  // ---- PHASE 2: emit for the requested view, using the shared assignment.
+  if (!plan) {
+    const foodAbs = [];
+    scan.forEach((d) => {
+      (((days[d] || {}).items) || []).forEach((it, idx) => {
+        const m = timeToMinutes(it.time);
+        if (m == null) return;
+        const abs = absMinutes(d, m);
+        if (!inWin(abs)) return;
+        foodAbs.push(abs);
+        ticks.push({ lane: 'eat', cat: 'eat', kind: 'eat', min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY,
+                     label: String(it.name || 'food'), src: 'item:' + d + ':' + idx });
+      });
+    });
+    if (foodAbs.length >= 2) {
+      foodAbs.sort((a, b) => a - b);
+      const a0 = foodAbs[0], a1 = foodAbs[foodAbs.length - 1];
+      addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'eat', 'eating window ' + hoursLabel(a1 - a0),
+        { lane: 'eat', cat: 'eat', src: 'eatwindow' });
+    }
+    practiceUnion.filter((it) => it.origin === 'actual').forEach((it) => {
+      addIntervalWin(arcs, win0, win1, it.startAbs, it.endAbs - it.startAbs, 'practice', it.label,
+        { lane: practiceLaneKey(it.plane), cat: it.cat, src: it.src });
+    });
+    const sleepOwners = live ? [shiftDate(dateKey, -1), dateKey, shiftDate(dateKey, 1)] : [dateKey, shiftDate(dateKey, 1)];
+    sleepOwners.forEach((owner) => {
+      (tl[owner] || []).forEach((r, idx) => {
+        if (r.type !== 'sleep') return;
+        const bed = timeToMinutes(r.time); const durMin = Math.round(num(r.value) * 60);
+        if (bed == null || !(durMin > 0)) return;
+        const crosses = bed + durMin > MIN_PER_DAY;
+        const startDate = crosses ? shiftDate(owner, -1) : owner;
+        addIntervalWin(arcs, win0, win1, absMinutes(startDate, bed), durMin, 'sleep',
+          'sleep ' + hoursLabel(durMin), { lane: 'sleep', cat: 'sleep', src: 'sig:' + owner + ':' + idx });
+      });
+    });
+    // A fasting gap draws in the EAT anchor: it is that lane's own negative space.
+    (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).forEach((c) => {
+      if (c.state === 'ate_didnt_log') return;
+      const s0 = isoToDayMin(c.start), s1 = isoToDayMin(c.end);
+      if (!s0 || !s1) return;
+      const a0 = absMinutes(s0.date, s0.min), a1 = absMinutes(s1.date, s1.min);
+      const pending = c.state !== 'fasted';
+      addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'fast',
+        rDisp(c.hours) + 'h ' + (pending ? 'gap \u00b7 pending' : 'fasted'),
+        { lane: 'eat', cat: 'eat', state: pending ? 'pending' : 'fasted', start: c.start, end: c.end, hours: c.hours, src: 'fast:' + c.start });
+    });
   }
 
-  // --- GHOST PLAN ARCS (R8.4, D27 generalized): the regimen's DECLARED items, drawn
-  // faint UNDER the actual. Plan ghost, actual solid. Rendered ONLY from declared
-  // fields -- nothing is inferred, and nothing is ever auto-logged from them.
-  const reg = (typeof activeRegimen === 'function') ? activeRegimen() : null;
-  const planDays = live ? [shiftDate(dateKey, -1), dateKey] : [dateKey];
+  // ---- DECLARED regimen content: ghosts in day view, the whole picture in plan
+  // view. Rendered ONLY from declared fields -- an undeclared practice is an
+  // empty track, never an inferred one.
   if (reg && reg.window) {
     const ws = timeToMinutes(reg.window.start), we = timeToMinutes(reg.window.end);
     if (ws != null && we != null && we > ws)
-      planDays.forEach((d) => addIntervalWin(arcs, win0, win1, absMinutes(d, ws), we - ws, 'window', 'declared eating window', { ref: true }));
+      planDays.forEach((d) => addIntervalWin(arcs, win0, win1, absMinutes(d, ws), we - ws, 'window',
+        'declared eating window', { ref: true, lane: 'eat', cat: 'eat', src: 'plan:window:' + d }));
   }
   if (reg && reg.sleep) {
     const bs = timeToMinutes(reg.sleep.start), be = timeToMinutes(reg.sleep.end);
     if (bs != null && be != null) {
-      const dur = (be > bs ? be - bs : be + MIN_PER_DAY - bs);   // bed -> wake, crossing midnight
-      planDays.forEach((d) => addIntervalWin(arcs, win0, win1, absMinutes(d, bs), dur, 'sleepplan', 'declared sleep window', { ref: true }));
+      const dur = (be > bs ? be - bs : be + MIN_PER_DAY - bs);
+      planDays.forEach((d) => addIntervalWin(arcs, win0, win1, absMinutes(d, bs), dur, 'sleepplan',
+        'declared sleep window', { ref: true, lane: 'sleep', cat: 'sleep', src: 'plan:sleep:' + d }));
     }
   }
+  practiceUnion.filter((it) => it.origin === 'plan').forEach((it) => {
+    ticks.push({ lane: practiceLaneKey(it.plane), cat: it.cat, kind: 'plan', ref: true,
+                 min: ((it.startAbs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY,
+                 label: it.label, src: it.src });
+  });
   if (reg && Array.isArray(reg.entries)) {
-    reg.entries.forEach((e) => {
-      const m = timeToMinutes(e && e.time);
+    reg.entries.forEach((e, ei) => {
+      if (!e || e.kind !== 'food') return;
+      const m = timeToMinutes(e.time);
       if (m == null) return;
       planDays.forEach((d) => {
         const abs = absMinutes(d, m);
         if (!inWin(abs)) return;
-        ticks.push({ kind: 'plan', ref: true, min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY,
-                     label: 'scheduled ' + String(e.kind || '') });
+        ticks.push({ lane: 'eat', cat: 'eat', kind: 'plan', ref: true,
+                     min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY,
+                     label: 'scheduled food', src: 'plan:food:' + ei + ':' + d });
       });
     });
   }
 
-  // --- exercise: any EVENT carrying a minute duration. Derived, so a duration-less
-  // event (alcohol, in 'drinks') simply produces no arc rather than a fake one.
-  scan.forEach((d) => {
-    (tl[d] || []).forEach((r) => {
-      if (r.kind !== 'event' || r.unit !== 'min') return;
-      const st = timeToMinutes(r.time); const dur = num(r.value);
-      if (st == null || !(dur > 0)) return;
-      addIntervalWin(arcs, win0, win1, absMinutes(d, st), dur, 'exercise', signalLabel(r) + ' ' + rDisp(dur) + ' min');
-    });
-  });
-
-  // --- sleep intervals. OWNED by the wake day (the record's own date); a night that
-  // crosses midnight began on the previous day.
-  const sleepOwners = live ? [shiftDate(dateKey, -1), dateKey, shiftDate(dateKey, 1)] : [dateKey, shiftDate(dateKey, 1)];
-  sleepOwners.forEach((owner) => {
-    (tl[owner] || []).forEach((r) => {
-      if (r.type !== 'sleep') return;                            // legacy sleep_hours draws NO arc (honest absence)
-      const bed = timeToMinutes(r.time); const durMin = Math.round(num(r.value) * 60);
-      if (bed == null || !(durMin > 0)) return;
-      const crosses = bed + durMin > MIN_PER_DAY;
-      const startDate = crosses ? shiftDate(owner, -1) : owner;
-      addIntervalWin(arcs, win0, win1, absMinutes(startDate, bed), durMin, 'sleep', 'sleep ' + hoursLabel(durMin));
-    });
-  });
-
-  // --- fasting gaps. Confirmed draw as full arcs; PENDING draw as gaps labelled
-  // pending and carry their resolve handle. A denied gap (ate, didn't log) was
-  // missing data, not a fast, so it draws nothing (D22).
-  (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).forEach((c) => {
-    if (c.state === 'ate_didnt_log') return;
-    const s0 = isoToDayMin(c.start), s1 = isoToDayMin(c.end);
-    if (!s0 || !s1) return;
-    const a0 = absMinutes(s0.date, s0.min), a1 = absMinutes(s1.date, s1.min);
-    const pending = c.state !== 'fasted';
-    addIntervalWin(arcs, win0, win1, a0, a1 - a0,
-      'fast', rDisp(c.hours) + 'h ' + (pending ? 'gap · pending' : 'fasted'),
-      { state: pending ? 'pending' : 'fasted', start: c.start, end: c.end, hours: c.hours });
-  });
-
-  // --- the OPEN trailing gap. Factual only: "Nh since last logged food".
-  // Never "fasting", never a zone -- an open gap is not evidence of one (D22).
   let openGap = null;
-  if (isToday) {
+  if (isToday && !plan) {
     const nowAbs = absMinutes(dateKey, nowM);
     let lastAbs = null;
     Object.keys(days).forEach((d) => {
@@ -3832,35 +3877,120 @@ function rhythmModel(dateKey, opts) {
       const sinceDate = shiftDate(dateKey, Math.floor(lastAbs / MIN_PER_DAY) - dayIndex(dateKey));
       const mins = nowAbs - lastAbs;
       openGap = addIntervalWin(arcs, win0, win1, lastAbs, mins, 'open',
-        gapLabel(mins, sinceDate), { open: true, sinceMin: mins, sinceDate: sinceDate });
+        gapLabel(mins, sinceDate), { open: true, lane: 'eat', cat: 'eat', sinceMin: mins, sinceDate: sinceDate, src: 'open' });
     }
   }
 
+  // ---- CHANNELS: one named channel per CATEGORY. Categories are the stable
+  // thing now that lanes are allocated by conflict, and a future radial response
+  // series is a channel of the same shape with kind:'trace'.
+  const channels = RING_CATS.map((c) => ({
+    cat: c, label: CAT_LABELS[c] || c,
+    kind: (c === 'sleep' || c === 'eat') ? 'span' : 'tick',
+    spans: arcs.filter((a) => a.cat === c),
+    ticks: ticks.filter((t) => t.cat === c),
+  }));
+
+  const hasActual = arcs.some((a) => !a.ref) || ticks.some((t) => t.kind !== 'plan');
+  const hasGhost = arcs.some((a) => a.ref) || ticks.some((t) => t.kind === 'plan');
   return {
-    date: dateKey, isToday: isToday, live: live,
+    date: dateKey, isToday: isToday, live: live, view: plan ? 'plan' : 'day',
     rangeLabel: live ? 'last 24 h' : null,
     nowMin: isToday ? nowM : null,
-    arcs: arcs, ticks: ticks, openGap: openGap,
+    arcs: arcs, ticks: ticks, channels: channels, openGap: openGap,
+    practiceLanes: Object.keys(usedPlanes).length,          // how many spawned
+    planeBySrc: planeBySrc,                                 // the shared assignment
     empty: arcs.length === 0 && ticks.length === 0,
-    // R11.2: ghosts are the PLAN, not records. A window holding only ghosts has no
-    // actual content, and the caption must say so rather than let a declared plan
-    // read as a logged day.
-    hasActual: arcs.some((a) => !a.ref) || ticks.some((t) => t.kind !== 'plan'),
-    hasGhost: arcs.some((a) => a.ref) || ticks.some((t) => t.kind === 'plan'),
-    // R11 addendum: FIRST-CONTACT surface, not an edge case. True only at zero
-    // records AND no declared regimen -- it yields the moment either exists.
-    instructional: !(arcs.some((a) => !a.ref) || ticks.some((t) => t.kind !== 'plan'))
-                && !(arcs.some((a) => a.ref) || ticks.some((t) => t.kind === 'plan')),
+    hasActual: hasActual, hasGhost: hasGhost,
   };
 }
 
 // ---- ring rendering --------------------------------------------------------
 // Concentric categorical bands. Colour is CATEGORY only (eat / sleep / exercise /
 // fast) -- never met/unmet, never a zone. Midnight at the top, clockwise.
-const RHYTHM_BANDS = { eat: 0.92, window: 0.92, sleep: 0.76, sleepplan: 0.76, exercise: 0.60, fast: 0.44, open: 0.44 };
-// R11.3: the centre tenant's bounding circle. The now-hand runs from the rim INWARD
-// and terminates here, so it never draws a line through the counter's text.
-const RING_CENTER_R = 0.46;
+// ---- R13/R13.1: the concentric-lane instrument -----------------------------
+// Lanes are allocated by OVERLAP, not by category. Humans are sequential: five
+// dedicated practice lanes would sit empty almost always, spending radius to
+// encode a category that colour already carries.
+//
+//   * SLEEP and EAT keep dedicated ANCHOR lanes at fixed innermost positions --
+//     the face's stable identity.
+//   * EVERY practice shares ONE fat practice lane; a second (then a third) SPAWNS
+//     only when intervals genuinely overlap, by greedy interval packing. Stacked
+//     practices -- red light while meditating -- render honestly as stacked arcs.
+//   * CAT is identity (colour + legend highlight); LANE is position. Positional
+//     identity is deliberately traded for radius.
+const RING_R = 88;                    // drawing radius in viewBox units (180 box)
+const RESERVED_FRAC = 0.12;           // outer annulus reserved for R14; nothing draws there
+const RING_CENTER_R = 0.46;           // centre bounding circle, as a fraction of the rim
+const LANE_ANCHOR_STROKE = 6.59;      // 12 px at the shipped 328 px ring
+const LANE_PRACTICE_STROKE = 7.68;    // 14 px -- the freed radius goes here
+// Capped at 2 so the ruled stroke widths fit with legible gaps (4.8 px). A
+// three-way simultaneous overlap clamps into the overflow lane rather than
+// spawning a third -- rare, and surfaced rather than silently muddied.
+const MAX_PRACTICE_LANES = 2;
+const RING_ANCHORS = [
+  { key: 'sleep', label: 'sleep', stroke: LANE_ANCHOR_STROKE },
+  { key: 'eat',   label: 'meals', stroke: LANE_ANCHOR_STROKE },
+];
+// Categories carry identity. The legend keys these; lanes are positional only.
+const RING_CATS = ['sleep', 'eat', 'exercise', 'sauna', 'yoga', 'meditation', 'red_light'];
+const CAT_LABELS = { sleep: 'sleep', eat: 'meals', exercise: 'exercise', sauna: 'sauna',
+                     yoga: 'yoga', meditation: 'meditation', red_light: 'red light' };
+// Four named practice categories claim their own colour; every other
+// duration-carrying event (cold plunge, HBOT, walk, workout, other) falls into
+// `exercise`, so nothing that draws today stops drawing. The label never lies.
+const CAT_OF_EVENT = { sauna: 'sauna', yoga: 'yoga', meditation: 'meditation', red_light: 'red_light' };
+function catOfEventType(t) { return CAT_OF_EVENT[t] || 'exercise'; }
+
+// Deliberate categorical palette: seven muted, distinct hues. NO red/green
+// good-bad axis (Fork G holds) -- there is no green in the set at all. Plan view
+// renders the SAME hues at reduced opacity, so the flip reads as the day dimmed
+// to intention rather than a grayscale copy.
+const RING_PALETTE = {
+  sleep: '#7b86c4', eat: '#3fbfae', exercise: '#d9a13e', sauna: '#d97a5a',
+  yoga: '#a98cc8', meditation: '#6fa8c4', red_light: '#c4718f',
+};
+const PLAN_OPACITY = 0.38;
+
+// Greedy interval packing -- the calendar day-view algorithm. DETERMINISTIC: the
+// sort key is (start, end, src), so the same records pack to the same lanes in any
+// input order. Overlap is measured in ABSOLUTE minutes, so it is correct across
+// midnight rather than accidentally correct within a day.
+function packPractice(items) {
+  const sorted = items.slice().sort((a, b) =>
+    (a.startAbs - b.startAbs) || (a.endAbs - b.endAbs) ||
+    (a.src < b.src ? -1 : a.src > b.src ? 1 : 0));
+  const ends = [];
+  sorted.forEach((it) => {
+    let placed = -1;
+    for (let i = 0; i < ends.length; i++) { if (it.startAbs >= ends[i]) { placed = i; break; } }
+    if (placed < 0) { ends.push(it.endAbs); placed = ends.length - 1; }
+    else ends[placed] = it.endAbs;
+    it.plane = Math.min(placed, MAX_PRACTICE_LANES - 1);
+  });
+  return sorted;
+}
+function practiceLaneKey(plane) { return 'practice' + plane; }
+
+// Lane radii come from the constants, laid out for the FIXED maximum so the
+// geometry never moves when an overflow lane spawns -- the ring must not resize
+// because a practice happened to overlap.
+function laneGeometry() {
+  const rim = RING_R * (1 - RESERVED_FRAC);
+  const inner = rim * RING_CENTER_R;
+  const slots = RING_ANCHORS.map((a) => ({ key: a.key, stroke: a.stroke }))
+    .concat(Array.from({ length: MAX_PRACTICE_LANES }, (_, i) => ({ key: practiceLaneKey(i), stroke: LANE_PRACTICE_STROKE })));
+  const total = slots.reduce((a, l) => a + l.stroke, 0);
+  const gap = (rim - inner - total) / (slots.length + 1);
+  const out = {};
+  let cursor = inner + gap;
+  slots.forEach((l) => {
+    out[l.key] = { r: cursor + l.stroke / 2, stroke: l.stroke };
+    cursor += l.stroke + gap;
+  });
+  return { rim: rim, inner: inner, gap: gap, lanes: out, slots: slots.map((l) => l.key) };
+}
 function polarPt(cx, cy, r, deg) { const a = (deg - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
 function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
 function arcPath(cx, cy, r, d0, d1) {
@@ -3873,46 +4003,83 @@ function arcPath(cx, cy, r, d0, d1) {
 function r2(n) { return Math.round(n * 100) / 100; }
 
 function rhythmSVG(model, size, mini) {
-  const S = size || 180, C = S / 2, R = C - 8;
-  let out = '<svg class="rring" viewBox="0 0 ' + S + ' ' + S + '" aria-hidden="true">';
-  out += '<circle class="rrbg" cx="' + C + '" cy="' + C + '" r="' + r2(R * 0.92) + '"/>';
-  // R11 addendum: the instructional ghost is GRAMMAR, NOT CONTENT. Each lane is
-  // drawn as a COMPLETE faint circle -- a full circle cannot be misread as an arc
-  // of logged time, so it names the lane without inventing a position, a duration
-  // or an example number. It renders only in the first-contact state.
-  if (model.instructional) {
-    ['eat', 'sleep', 'exercise'].forEach((k) => {
-      out += '<circle class="rrhint" cx="' + C + '" cy="' + C + '" r="' + r2(R * RHYTHM_BANDS[k]) + '"/>';
-    });
-  }
+  const S = size || 180, C = S / 2;
+  const G = laneGeometry();
+  const plan = model.view === 'plan';
+  const focus = LANE_FOCUS;
+  let out = '<svg class="rring' + (plan ? ' rplan' : '') + '" viewBox="0 0 ' + S + ' ' + S + '" aria-hidden="true">';
+
+  // Lane TRACKS always render -- every lane, every day, so the ring is never bare
+  // and every lane is findable. An empty lane is a visible track with no arc.
+  // Anchor tracks always render. A practice track renders for lane 0 always, and
+  // for an overflow lane ONLY while it is actually in use -- it appears on true
+  // overlap and disappears when there is none.
+  const usedLanes = RING_ANCHORS.map((a) => a.key)
+    .concat(Array.from({ length: MAX_PRACTICE_LANES }, (_, i) => practiceLaneKey(i))
+      .filter((k, i) => i === 0 || i < (model.practiceLanes || 1)));
+  usedLanes.forEach((key) => {
+    const g = G.lanes[key];
+    out += '<circle class="rtrack" data-lane="' + key + '" cx="' + C + '" cy="' + C + '" r="' + r2(g.r) +
+           '" style="stroke-width:' + r2(g.stroke) + '"/>';
+  });
   if (!mini) {
     [0, 6, 12, 18].forEach((h) => {
-      const [x, y] = polarPt(C, C, R * 0.99, minToDeg(h * 60));
-      const [x2, y2] = polarPt(C, C, R * 1.06, minToDeg(h * 60));
+      const [x, y] = polarPt(C, C, G.rim * 1.02, minToDeg(h * 60));
+      const [x2, y2] = polarPt(C, C, G.rim * 1.07, minToDeg(h * 60));
       out += '<line class="rrtick" x1="' + r2(x) + '" y1="' + r2(y) + '" x2="' + r2(x2) + '" y2="' + r2(y2) + '"/>';
     });
   }
+
   (model.arcs || []).forEach((a) => {
-    const band = RHYTHM_BANDS[a.kind] || 0.5;
-    const cls = 'rk-' + a.kind + (a.ref ? ' rref' : '') + (a.state === 'pending' ? ' rpending' : '') + (a.kind === 'open' ? ' ropen' : '');
-    out += '<path class="' + cls + '" d="' + arcPath(C, C, R * band, minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
+    const g = G.lanes[a.lane] || G.lanes.eat;
+    const dim = focus && focus !== a.cat ? ' rdim' : '';
+    const cls = 'rk-' + a.cat + ' ra-' + a.kind + (a.ref ? ' rref' : '') + (a.state === 'pending' ? ' rpending' : '') + dim;
+    out += '<path class="' + cls + '" data-src="' + esc(a.src || '') + '" data-lane="' + esc(a.lane) + '" data-cat="' + esc(a.cat) + '"' +
+           ' style="stroke:' + (RING_PALETTE[a.cat] || 'currentColor') + ';stroke-width:' + r2(g.stroke) + '"' +
+           ' d="' + arcPath(C, C, g.r, minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
   });
+
   (model.ticks || []).forEach((t) => {
-    if (t.kind === 'plan') {                                     // R8.4: scheduled entries as faint RIM ticks
-      const [x1, y1] = polarPt(C, C, R * 1.0, minToDeg(t.min));
-      const [x2, y2] = polarPt(C, C, R * 1.07, minToDeg(t.min));
-      out += '<line class="rk-plantick" x1="' + r2(x1) + '" y1="' + r2(y1) + '" x2="' + r2(x2) + '" y2="' + r2(y2) + '"/>';
-      return;
-    }
-    const [x, y] = polarPt(C, C, R * RHYTHM_BANDS.eat, minToDeg(t.min));
-    out += '<circle class="rk-eatdot" cx="' + r2(x) + '" cy="' + r2(y) + '" r="' + (mini ? 1.6 : 3) + '"/>';
+    const g = G.lanes[t.lane] || G.lanes.eat;
+    const dim = focus && focus !== t.cat ? ' rdim' : '';
+    const [x, y] = polarPt(C, C, g.r, minToDeg(t.min));
+    const rr = (mini ? 1.4 : (t.kind === 'plan' ? 1.6 : 2.4));
+    out += '<circle class="rdot rk-' + esc(t.cat) + (t.kind === 'plan' ? ' rref' : '') + dim + '"' +
+           ' data-src="' + esc(t.src || '') + '" data-lane="' + esc(t.lane) + '" data-cat="' + esc(t.cat) + '"' +
+           ' style="fill:' + (RING_PALETTE[t.cat] || 'currentColor') + '"' +
+           ' cx="' + r2(x) + '" cy="' + r2(y) + '" r="' + rr + '"/>';
   });
+
+  // The hand runs from the counter's bounding circle out to the reserved band's
+  // inner edge, with only its TIP entering the reserved annulus.
   if (model.nowMin != null) {
-    const [xo, yo] = polarPt(C, C, R * 1.02, minToDeg(model.nowMin));
-    const [xi, yi] = polarPt(C, C, R * RING_CENTER_R, minToDeg(model.nowMin));
+    const [xi, yi] = polarPt(C, C, G.inner, minToDeg(model.nowMin));
+    const [xo, yo] = polarPt(C, C, G.rim * 1.04, minToDeg(model.nowMin));
     out += '<line class="rrnow" x1="' + r2(xo) + '" y1="' + r2(yo) + '" x2="' + r2(xi) + '" y2="' + r2(yi) + '"/>';
   }
   return out + '</svg>';
+}
+
+// ---- R13: view flip + lane focus ------------------------------------------
+// The flip is the blink comparator: SAME geometry, alternate content. Sticky
+// (no timeout), always labeled, display-only. Lane focus is transient view state
+// -- the cheapest audit gesture, and the seam R15's tap-path grows from.
+let RING_VIEW = 'day';
+let LANE_FOCUS = '';
+function ringView() { return RING_VIEW; }
+function setRingView(v) { RING_VIEW = (v === 'plan' ? 'plan' : 'day'); renderDay(); return RING_VIEW; }
+function toggleRingView() { return setRingView(RING_VIEW === 'plan' ? 'day' : 'plan'); }
+function laneFocus() { return LANE_FOCUS; }
+function focusLane(k) { LANE_FOCUS = (LANE_FOCUS === k) ? '' : String(k || ''); renderDay(); return LANE_FOCUS; }
+function ringLegendHTML() {
+  // Type identity lives in colour + this legend, since lanes no longer encode it.
+  return '<div class="rlegend">' + RING_CATS.map((c) =>
+    `<button type="button" class="rlkey${LANE_FOCUS === c ? ' on' : ''}" onclick="event.stopPropagation();focusLane('${esc(c)}')">` +
+    `<span class="rlswatch" style="background:${RING_PALETTE[c]}"></span>${esc(CAT_LABELS[c] || c)}</button>`).join('') + '</div>';
+}
+function ringViewToggleHTML() {
+  return `<div class="rviewsel"><button type="button" class="${RING_VIEW === 'day' ? 'on' : ''}" onclick="event.stopPropagation();setRingView('day')">my day</button>` +
+    `<button type="button" class="${RING_VIEW === 'plan' ? 'on' : ''}" onclick="event.stopPropagation();setRingView('plan')">the plan</button></div>`;
 }
 
 // ---- R8.3: the centre tenant ----------------------------------------------
@@ -3928,26 +4095,29 @@ function pendingFastCandidates() {
 function focusPendingResolve() { RESOLVE_FOCUS = true; renderDay(); return { ok: true, pending: pendingFastCandidates().length }; }
 function clearResolveFocus() { RESOLVE_FOCUS = false; renderDay(); return { ok: true }; }
 function rhythmCenterHTML(model) {
-  const pend = pendingFastCandidates();
-  if (RESOLVE_FOCUS && pend.length) {
-    const c = pend[pend.length - 1];
-    const h = esc(String(num(c.hours)));
-    return `<div class="ringval rcenter" onclick="event.stopPropagation()">` +
-      `<span class="rcsub">${esc(rDisp(c.hours))}h gap \u00b7 pending</span>` +
-      `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'fasted');clearResolveFocus()">Fasted</button>` +
-      `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'ate_didnt_log');clearResolveFocus()">Ate, didn\u2019t log</button>` +
-      `<button type="button" class="linklike" onclick="clearResolveFocus()">cancel</button></div>`;
-  }
+  // R13: the centre is DISPLAY-ONLY, always. The resolve UI is evicted -- tapping
+  // the pending line opens it as a row BELOW the ring, never inside it.
   if (!model || !model.openGap) return '';
+  const pend = pendingFastCandidates();
   const mins = num(model.openGap.sinceMin);
-  const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
-  // R11.1: inside the fast-relevant range this is a stopwatch; past it, a date.
   const body = (mins >= GAP_DATE_AFTER_MIN && model.openGap.sinceDate)
     ? `<span class="rcsub">no food logged since</span><b class="rcdate">${esc(fmtDateSmart(model.openGap.sinceDate, false))}</b>`
     : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>`;
+  const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
   return `<div class="ringval rcenter"${tap}>` + body +
-    (pend.length ? `<span class="rcsub rctap">tap to resolve ${esc(pend.length)} pending</span>` : '') +
-    `</div>`;
+    (pend.length ? `<span class="rcsub rctap">tap to resolve ${esc(pend.length)} pending</span>` : '') + `</div>`;
+}
+// The resolve row -- BELOW the ring, never inside it.
+function resolveRowHTML() {
+  if (!RESOLVE_FOCUS) return '';
+  const pend = pendingFastCandidates();
+  if (!pend.length) return '';
+  const c = pend[pend.length - 1];
+  const h = esc(String(num(c.hours)));
+  return `<div class="rresolve"><span>${esc(rDisp(c.hours))}h gap \u00b7 pending</span>` +
+    `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'fasted');clearResolveFocus()">Fasted</button>` +
+    `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'ate_didnt_log');clearResolveFocus()">Ate, didn\u2019t log</button>` +
+    `<button type="button" class="linklike" onclick="clearResolveFocus()">cancel</button></div>`;
 }
 
 // ---- goal swap (ruled 2) ---------------------------------------------------
@@ -4128,7 +4298,10 @@ window.HT = {
   // D35 — rhythm ring (Layer 2 Mirror)
   rhythmModel, rhythmSVG, rhythmCaptionHTML, goalRingBoxHTML, goalCellsHTML,
   rhythmCenterHTML, focusPendingResolve, clearResolveFocus, pendingFastCandidates, addIntervalWin,
-  gapLabel, GAP_DATE_AFTER_MIN, RING_CENTER_R, RHYTHM_BANDS,
+  gapLabel, GAP_DATE_AFTER_MIN, RING_CENTER_R, RING_R, RESERVED_FRAC,
+  RING_ANCHORS, RING_CATS, CAT_LABELS, RING_PALETTE, PLAN_OPACITY, laneGeometry, catOfEventType,
+  packPractice, practiceLaneKey, MAX_PRACTICE_LANES, LANE_PRACTICE_STROKE, LANE_ANCHOR_STROKE,
+  ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,

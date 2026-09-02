@@ -916,4 +916,35 @@ The clock-seam gate **re-runs at the new value automatically**, because the case
 | ring-size / density | **re-measured for seven lanes at a REAL phone viewport (390×745)**, not 844 |
 | R13-vocab | **M7** over every new label, including lane and legend names |
 
-**Status: PRE-REGISTERED — forks A–F surfaced with leanings; building to them next. R14/R15 reserved, not authorized.**
+#### R13.1 amendment — conflict-based allocation (folded in before locking)
+
+The five dedicated practice lanes are **replaced by overlap allocation**: sleep and eat keep anchor lanes; every practice shares one fat lane and a second **spawns only on genuine overlap**. `cat` is identity, `lane` is position. The **flip-stability pin** — assignment from the **union** of plan + actual, shared by both views — is gated, as is **packing determinism**.
+
+#### Evidence (built to the ruled leanings, 2026-09-02)
+
+| Case | Result |
+|---|---|
+| R13-packing | deterministic in any input order; overlap spawns a lane; a third simultaneous overlap **clamps at the cap** (gated) |
+| R13-tracks | one practice lane at rest (3 tracks); an overlap **spawns a second and its track appears**; removing it **disappears again**; stacked practices render as stacked arcs |
+| R13-union | `planeBySrc` **identical across views** — an arc never changes lanes between my-day and the-plan |
+| R13-flip | sticky, labeled both ways, writes no data; plan view renders **only declared** content |
+| R13-swap | a goal swap **suspends** the flip without losing it; revert **restores** it |
+| R13-ids | every model mark and every **rendered** mark carries `data-src` |
+| R13-reserved | every lane at full stroke stays inside the rim; **no circle is drawn in the annulus**; lane radii do not collide |
+| R13-palette | seven distinct explicit hues, **no good/bad tokens**; plan opacity dims rather than greys |
+| R13-channels | one channel per category; **every mark belongs to exactly one channel**, and a category with no record has an empty channel |
+| R13-centre | the resolve **never renders inside the ring** |
+
+**Fork D bound, and the fix was ordering.** At the real 390×745 viewport an 85 vw ring pushed the goal cells below the fold; the largest reach-preserving ring was **256 px (66%)**. The cause was that the **goal cells rendered after the caption** — an interactive affordance below a read-only detail list. Moving the affordance up took the maximum to **328 px (84%)**. Shipped at **84 vw**, the measured maximum.
+
+**Two gate recalibrations, both stated rather than silent:**
+1. The reach assertion now binds on **goal cells + legend** (fixed-height affordances) instead of the **caption**, because the caption is a **variable-length detail list** — requiring all of it above the fold would make ring size depend on how busy the day was, which is incoherent as a size rule.
+2. The band threshold was **14 px / 5%-of-ring**, derived from the single-lane design where one stroke was 6.7% of the diameter. **Four lanes cannot each be 5% of the ring.** It now asserts the **ruled sizes in pixels** (≥11 thinnest, ≥13 fattest at the 390 reference) **and their scale-invariant proportions** (≥3.5% / ≥4.1%), so a smaller phone's proportionally thinner bands pass while a genuine thinning fails.
+
+The gate also now **reports the largest reach-preserving ring** at each viewport, so the headroom is visible rather than rediscovered each time.
+
+`bash tests/run-data-layer.sh` → **700/700 ALL PASS**, `executed 700 · pinned 700`. Count delta **663 → 700** (+37). `ring-size` (ring 328 px = 84% of vw, bands 12–14 px, cells and legend above the fold at **390×745**) · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.12.1 → **0.13.0**) · `writesites` all green.
+
+**Real-page smoke:** `{"tracks":4,"marksWithSrc":5,"practiceLanes":2,"toggle":true,"legendKeys":7,"resolveInRing":false,"planLabeled":true,"planDim":true,"unionStable":true,"schema":5}` — two practice lanes because the seeded walk and meditation genuinely overlap.
+
+**Status: MET — R13 + R13.1 built. R14/R15 reserved, not authorized.**
