@@ -879,3 +879,24 @@ Ruled after the masked-exception defect below. **Every gate report states the au
 ### A previously-gated contract changed, recorded rather than quietly updated
 
 **`SG1`** asserted that `renderGoalsHTML` output was **byte-identical** with vs without a signal goal. Conflict (i) deliberately breaks that — a signal goal now renders a cell. The invariant D24 actually protects is that **a signal key never reaches the ring math**, and that is now asserted **more precisely than whole-output equality ever did**: the centerpiece ring and the swapped nutrient ring are each byte-identical with vs without a signal goal, the nutrient cells are byte-identical and unmoved, and the signal goal appears **exactly once**, appended as its own group.
+
+
+## D36 — Ring fullness: trailing-24h live ring, ghost plan-arcs, centre tenant (R8; Phase-4 Layer 2, 2026-09-01)
+
+Bundles and **supersedes R1**; **R3's rationing note is recorded here**. Extends **D35**. `APP_VERSION → 0.12.0`; **schema unchanged at v5**.
+
+**1 — Trailing-24h live ring (the primary emptiness fix).** The **live** centerpiece shows the **last 24 h on a fixed clock face**, labelled **"last 24 h"**. Last night's dinner, the sleep that followed and the open gap render **contiguous**; the hand **ages content out** behind it. **Archival rings stay calendar days.** Within any 24-hour window each clock position occurs exactly once, so a trailing window needs no extra disambiguation — the face stays a clock, and a record keeps its clock position.
+
+**Fork A still holds for archival rings** (an interval is owned by the wake day but **drawn split by the clock**). On the live ring the same night is **one arc**, because the window itself spans the midnight it crosses — that is the point, not an exception. Both are gated against the same record set.
+
+**2 — Arc weight.** Stroke is **12 of the 180 viewBox = 6.7% of ring diameter**, so a 312 px ring draws **~21 px bands**. Lane spacing is `0.16·R ≈ 13` units, so a 12-unit stroke nearly fills each lane with a hairline gap — **bands, not hairlines**. Gated in `ring-size` both **absolutely (≥ 14 px)** and **as a proportion (≥ 5% of the ring)**, so a future resize cannot quietly thin them back out.
+
+**3 — Centre tenant (R3's rationing note).** The centre disc carries the **open-gap counter** — *"14.1h since last logged food"* — **today-state, factual, D22 grammar exactly**. It **never says "fasting" about an unconfirmed gap**, and a gate asserts the word is absent from the open-gap label in any form.
+
+*Distinction worth keeping visible:* the **open** gap shown is **not** a candidate — candidates are **closed** gaps awaiting attestation. So tapping the centre **reveals** the most recent pending candidate's resolve rather than asserting anything about the gap on display. Two different objects, one surface, and the tap is a reveal, not a claim.
+
+**4 — Ghost plan-arcs (D27 generalized).** The regimen's **declared** items with clock positions draw **faint, under the actual**: the eating window (existing), a **new optional `sleep` field (bed → wake)**, and **scheduled entries as rim ticks**. **Plan ghost, actual solid**, visually distinct, no evaluative rendering, **no auto-anything** (gated: plan arcs write zero records). Rendered **only from declared fields** — with no regimen there are no plan arcs and no plan ticks.
+
+*Schema:* `sleep` is an **allowlist addition** to `normalizeRegimen` (a rebuild, like every other normalizer here) with a matching check at the `parseRegimen` authoring boundary. **No bump** — the `regimens` store already exists (D27's v4→v5 covered introducing it), and losing this field costs **two re-typed times, not a protocol**. Both boundaries gated.
+
+**5 — GUIDELINE TARGETS DO NOT DRAW ON THE DAY RING (standing prohibition).** Durations and weekly sums **have no clock position**, so placing them on a 24-hour face **fabricates a schedule the user never declared** — the same failure as an inferred arc, arriving by a different route. They belong in **Trends and the week view under D32** (sourced, cited, versioned, jurisdiction-aware): a sleep-duration guideline beside the sleep trend, a weekly-activity guideline in the week header. **A separate slice if wanted — not this one, and nothing here builds it.** This is recorded as a prohibition rather than a preference so a later slice cannot reach for the ring as the convenient surface.

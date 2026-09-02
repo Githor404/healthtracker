@@ -817,3 +817,24 @@ The clock-seam gate **re-runs at the new value automatically**, because the case
 **Gate scope, stated rather than implied:** the data-layer suite and `precache` were re-run. The six CDP layout/lifecycle gates were verified green at 0.11.3 and are **not** re-run here — this change is a single numeric constant with no DOM, layout, network or lifecycle effect.
 
 **Status: MET — built to the ruled leanings, all gates green.**
+
+### Ring fullness (D36 / R8) — v0.12.0
+
+| Case | Asserts |
+|---|---|
+| R8-trailing | **content equality** — the live window holds exactly the records timestamped in the last 24 h; older content has **aged out**, nothing after the hand is drawn, a record keeps its **clock position**, and the **archival model still holds exactly the calendar day's records** |
+| R8-sleep-contiguous | the same night is **one arc on the live ring** (23:00 → 07:00) and **still split by clock on archival rings** — Fork A holds where it applies |
+| R8-ghost | plan arcs render **only from declared regimen fields**; with no regimen there are **none**; declared eating + sleep windows are flagged `ref`; scheduled entries draw as rim ticks; a declared sleep window creates **no actual sleep arc**; plan arcs **write zero records**; the field **round-trips**, is **rejected when malformed at authoring** and **dropped when malformed at restore**; **schema stays 5** |
+| R8-centre | the centre counts hours since the last logged food, **matches the open gap derived from the same records**, **never says "fasting"**, and surfaces the pending candidate's resolve on tap |
+| R8-vocab | **M7 + D22** over every new label — trailing range, ghost, centre, caption; no zones, no metabolic bands; the **open-gap label contains no form of "fast"** |
+| ring-size (extended) | arc bands measure **≥ 14 px and ≥ 5% of the ring** at phone widths |
+
+**Six pre-existing cases were repointed, not weakened.** `RR-derived`, `RR-window` and `RR-sleep` asserted **calendar-day** semantics on *today*. R8.1 moves today to a trailing window, so those same invariants now belong to the **archival** model and the cases pass `{live:false}`. **The assertions themselves are unchanged**, and the new behaviour is gated separately rather than by relaxing the old cases.
+
+**Count delta: 604 → 635** (+31). `bash tests/run-data-layer.sh` → **635/635 ALL PASS**, `assertions: executed 635 · pinned 635`. The pin did its job on the way through — it **failed the gate at +31 until re-pinned deliberately**.
+
+`ring-size` (band 20.8 px = 6.7% of ring at 390 px) · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.11.4 → **0.12.0**) · `writesites` all green.
+
+**Real-page smoke:** `{"rangeLabel":"last 24 h","centre":"14.1h since last logged food","hasSleepPlanGhost":true,"hasPlanTick":true,"hasSolidSleep":true,"noFastingWord":true,"live":true,"miniIsArchival":true,"schema":5}` — and the smoke showed **no eating arc**, correctly: at the real wall-clock time yesterday's dinner had already aged past the hand, leaving one food in the window.
+
+**Status: MET.**

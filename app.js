@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.11.4';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.12.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -483,6 +483,12 @@ function normalizeRegimen(r) {
   const out = { id: String(r.id || ''), name: String(r.name || ''), entries: Array.isArray(r.entries) ? r.entries.map(normalizeRegimenEntry).filter(Boolean) : [] };
   if (r.window && typeof r.window === 'object' && /^\d{2}:\d{2}$/.test(String(r.window.start)) && /^\d{2}:\d{2}$/.test(String(r.window.end)))
     out.window = { start: String(r.window.start), end: String(r.window.end) };
+  // R8.4: an optional DECLARED sleep window (bed -> wake). Allowlist addition, like
+  // `window` -- this normalizer is a rebuild. No schema bump: the regimens store
+  // already exists (D27's v4->v5 covered introducing it), and losing this field
+  // costs two re-typed times, not a protocol.
+  if (r.sleep && typeof r.sleep === 'object' && /^\d{2}:\d{2}$/.test(String(r.sleep.start)) && /^\d{2}:\d{2}$/.test(String(r.sleep.end)))
+    out.sleep = { start: String(r.sleep.start), end: String(r.sleep.end) };
   return out;
 }
 function normalizeRegimens(o) {
@@ -1034,7 +1040,9 @@ function renderGoalsHTML(t, day) {
     html = goalRingBoxHTML(sw.key, t);
   } else {
     const model = rhythmModel(APP_STATE.current);
-    html = `<div class="ringbox" onclick="clearSwap()">${rhythmSVG(model, 180)}</div>` + rhythmCaptionHTML(model);
+    html = `<div class="ringbox" onclick="clearSwap()">${rhythmSVG(model, 180)}${rhythmCenterHTML(model)}</div>`
+      + (model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}</div>` : '')
+      + rhythmCaptionHTML(model);
   }
   html += goalCellsHTML(t);
   const micros = microRollup(day);
@@ -2882,6 +2890,8 @@ function parseRegimen(raw) {
   if (!Array.isArray(o.entries) || !o.entries.length) return { ok: false, error: 'Regimen needs a non-empty "entries" array.' };
   if (o.window && (!/^\d{2}:\d{2}$/.test(String(o.window.start || '')) || !/^\d{2}:\d{2}$/.test(String(o.window.end || ''))))
     return { ok: false, error: 'window.start / window.end must be "HH:MM".' };
+  if (o.sleep && (!/^\d{2}:\d{2}$/.test(String(o.sleep.start || '')) || !/^\d{2}:\d{2}$/.test(String(o.sleep.end || ''))))
+    return { ok: false, error: 'sleep.start / sleep.end must be "HH:MM" (bed to wake).' };
   const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
   for (let i = 0; i < o.entries.length; i++) {
     const e = o.entries[i]; const at = 'entry ' + (i + 1) + ': ';
@@ -3232,6 +3242,7 @@ const VERSION_LOG = [
   { v: '0.11.2', note: 'Tidier dates and status: the day header reads "Tue Aug 31" without the year, and the only day still labelled is a past one you never closed — the one that quietly sits out of your averages.' },
   { v: '0.11.3', note: 'A day from an earlier year now shows that year in the header, so an old day can never be mistaken for a recent one.' },
   { v: '0.11.4', note: 'The goal ring now returns to your rhythm ring a little sooner after you tap a goal.' },
+  { v: '0.12.0', note: 'The ring now shows your last 24 hours, so last night\u2019s dinner, your sleep and the hours since you last ate all read as one continuous stretch. The centre counts the hours since your last logged food, and anything your regimen declares is drawn faintly underneath as the plan.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3609,18 +3620,31 @@ function isoToDayMin(iso) {
 // a whole night on the wake day would paint a 23:30 segment on a day when nothing
 // happened at 23:30, which is an inferred arc the honesty rule forbids. The
 // crossing end is flagged open so it reads as continuing, not as a second event.
-function addInterval(arcs, dateKey, startDate, startMin, durMin, kind, label, extra) {
+// R8.1: placement is now WINDOW-based, not day-based. An archival ring's window is
+// the calendar day; the LIVE ring's window is the trailing 24 h ending at now. The
+// clock face is fixed either way, and within any 24 h window each clock position
+// occurs exactly once, so a trailing window needs no extra disambiguation.
+//
+// Fork A still holds for archival rings: an interval is owned by the wake day but
+// DRAWN split by the clock. On the live ring the same interval renders CONTIGUOUS,
+// because the window itself spans the midnight it crosses -- that is the point.
+function addIntervalWin(arcs, win0, win1, startAbs, durMin, kind, label, extra) {
   if (!(durMin > 0)) return null;
-  const a0 = absMinutes(startDate, startMin), a1 = a0 + durMin;
-  const w0 = absMinutes(dateKey, 0), w1 = w0 + MIN_PER_DAY;
-  const o0 = Math.max(a0, w0), o1 = Math.min(a1, w1);
-  if (o1 <= o0) return null;                                     // no part of it falls in this day
+  const a0 = startAbs, a1 = a0 + durMin;
+  const o0 = Math.max(a0, win0), o1 = Math.min(a1, win1);
+  if (o1 <= o0) return null;                                     // no part of it falls in the window
+  const startMin = ((o0 % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY;
   const arc = Object.assign({
-    kind: kind, startMin: o0 - w0, endMin: o1 - w0, label: label,
-    openStart: a0 < w0, openEnd: a1 > w1,
+    kind: kind, startMin: startMin, endMin: startMin + (o1 - o0), label: label,
+    openStart: a0 < win0, openEnd: a1 > win1,
   }, extra || {});
   arcs.push(arc);
   return arc;
+}
+// Retained day-scoped wrapper (the archival case, and the exported test seam).
+function addInterval(arcs, dateKey, startDate, startMin, durMin, kind, label, extra) {
+  const w0 = absMinutes(dateKey, 0);
+  return addIntervalWin(arcs, w0, w0 + MIN_PER_DAY, absMinutes(startDate, startMin), durMin, kind, label, extra);
 }
 
 function signalLabel(r) {
@@ -3659,56 +3683,97 @@ function fmtRangeLabel(dates) {
   return left + ' \u2013 ' + right;
 }
 
-function rhythmModel(dateKey) {
+// The model IS the gate surface: every arc traces to a record, and every record of
+// an arc-bearing kind produces an arc. Rendering reads this and adds nothing.
+//
+// R8.1: for TODAY the window is the trailing 24 h ending at now ("last 24 h"), so
+// last night's dinner, the sleep that followed and the open gap render contiguous
+// and the hand ages content out. Past days stay calendar days. `opts.live:false`
+// forces the calendar-day model for today (used by the mini-rings and by gates).
+function rhythmModel(dateKey, opts) {
+  opts = opts || {};
   const arcs = [], ticks = [];
   const days = (APP_STATE && APP_STATE.days) || {};
   const tl = (APP_STATE && APP_STATE.timeline) || {};
-  const day = days[dateKey];
   const isToday = dateKey === todayKey();
+  const live = isToday && opts.live !== false;
+  const nowM = isToday ? nowMinutes() : null;
+  const win1 = live ? absMinutes(dateKey, nowM) : absMinutes(dateKey, 0) + MIN_PER_DAY;
+  const win0 = live ? win1 - MIN_PER_DAY : absMinutes(dateKey, 0);
+  const inWin = (abs) => abs >= win0 && abs <= win1;
+  // Days/timeline keys the window can touch.
+  const scan = live ? [shiftDate(dateKey, -1), dateKey] : [dateKey];
 
   // --- eating: a tick per logged food item, plus the ACTUAL window (first->last).
-  const foodMins = [];
-  ((day && day.items) || []).forEach((it) => {
-    const m = timeToMinutes(it.time);
-    if (m == null) return;
-    foodMins.push(m);
-    ticks.push({ kind: 'eat', min: m, label: String(it.name || 'food') });
+  const foodAbs = [];
+  scan.forEach((d) => {
+    (((days[d] || {}).items) || []).forEach((it) => {
+      const m = timeToMinutes(it.time);
+      if (m == null) return;
+      const abs = absMinutes(d, m);
+      if (!inWin(abs)) return;
+      foodAbs.push(abs);
+      ticks.push({ kind: 'eat', min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY, label: String(it.name || 'food') });
+    });
   });
-  if (foodMins.length >= 2) {
-    foodMins.sort((a, b) => a - b);
-    arcs.push({ kind: 'eat', startMin: foodMins[0], endMin: foodMins[foodMins.length - 1],
-                label: 'eating window ' + hoursLabel(foodMins[foodMins.length - 1] - foodMins[0]),
-                openStart: false, openEnd: false });
+  if (foodAbs.length >= 2) {
+    foodAbs.sort((a, b) => a - b);
+    const a0 = foodAbs[0], a1 = foodAbs[foodAbs.length - 1];
+    addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'eat', 'eating window ' + hoursLabel(a1 - a0));
   }
 
-  // --- the regimen's DECLARED window: reference only, never the eating arc (D27).
+  // --- GHOST PLAN ARCS (R8.4, D27 generalized): the regimen's DECLARED items, drawn
+  // faint UNDER the actual. Plan ghost, actual solid. Rendered ONLY from declared
+  // fields -- nothing is inferred, and nothing is ever auto-logged from them.
   const reg = (typeof activeRegimen === 'function') ? activeRegimen() : null;
+  const planDays = live ? [shiftDate(dateKey, -1), dateKey] : [dateKey];
   if (reg && reg.window) {
     const ws = timeToMinutes(reg.window.start), we = timeToMinutes(reg.window.end);
     if (ws != null && we != null && we > ws)
-      arcs.push({ kind: 'window', ref: true, startMin: ws, endMin: we, label: 'declared window', openStart: false, openEnd: false });
+      planDays.forEach((d) => addIntervalWin(arcs, win0, win1, absMinutes(d, ws), we - ws, 'window', 'declared eating window', { ref: true }));
+  }
+  if (reg && reg.sleep) {
+    const bs = timeToMinutes(reg.sleep.start), be = timeToMinutes(reg.sleep.end);
+    if (bs != null && be != null) {
+      const dur = (be > bs ? be - bs : be + MIN_PER_DAY - bs);   // bed -> wake, crossing midnight
+      planDays.forEach((d) => addIntervalWin(arcs, win0, win1, absMinutes(d, bs), dur, 'sleepplan', 'declared sleep window', { ref: true }));
+    }
+  }
+  if (reg && Array.isArray(reg.entries)) {
+    reg.entries.forEach((e) => {
+      const m = timeToMinutes(e && e.time);
+      if (m == null) return;
+      planDays.forEach((d) => {
+        const abs = absMinutes(d, m);
+        if (!inWin(abs)) return;
+        ticks.push({ kind: 'plan', ref: true, min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY,
+                     label: 'scheduled ' + String(e.kind || '') });
+      });
+    });
   }
 
   // --- exercise: any EVENT carrying a minute duration. Derived, so a duration-less
   // event (alcohol, in 'drinks') simply produces no arc rather than a fake one.
-  (tl[dateKey] || []).forEach((r) => {
-    if (r.kind !== 'event' || r.unit !== 'min') return;
-    const st = timeToMinutes(r.time); const dur = num(r.value);
-    if (st == null || !(dur > 0)) return;
-    addInterval(arcs, dateKey, dateKey, st, dur, 'exercise', signalLabel(r) + ' ' + rDisp(dur) + ' min');
+  scan.forEach((d) => {
+    (tl[d] || []).forEach((r) => {
+      if (r.kind !== 'event' || r.unit !== 'min') return;
+      const st = timeToMinutes(r.time); const dur = num(r.value);
+      if (st == null || !(dur > 0)) return;
+      addIntervalWin(arcs, win0, win1, absMinutes(d, st), dur, 'exercise', signalLabel(r) + ' ' + rDisp(dur) + ' min');
+    });
   });
 
   // --- sleep intervals. OWNED by the wake day (the record's own date); a night that
-  // crosses midnight began on the previous day, so this day's ring must also consider
-  // the NEXT day's record for the pre-midnight portion.
-  [dateKey, shiftDate(dateKey, 1)].forEach((owner) => {
+  // crosses midnight began on the previous day.
+  const sleepOwners = live ? [shiftDate(dateKey, -1), dateKey, shiftDate(dateKey, 1)] : [dateKey, shiftDate(dateKey, 1)];
+  sleepOwners.forEach((owner) => {
     (tl[owner] || []).forEach((r) => {
       if (r.type !== 'sleep') return;                            // legacy sleep_hours draws NO arc (honest absence)
       const bed = timeToMinutes(r.time); const durMin = Math.round(num(r.value) * 60);
       if (bed == null || !(durMin > 0)) return;
       const crosses = bed + durMin > MIN_PER_DAY;
       const startDate = crosses ? shiftDate(owner, -1) : owner;
-      addInterval(arcs, dateKey, startDate, bed, durMin, 'sleep', 'sleep ' + hoursLabel(durMin));
+      addIntervalWin(arcs, win0, win1, absMinutes(startDate, bed), durMin, 'sleep', 'sleep ' + hoursLabel(durMin));
     });
   });
 
@@ -3719,42 +3784,37 @@ function rhythmModel(dateKey) {
     if (c.state === 'ate_didnt_log') return;
     const s0 = isoToDayMin(c.start), s1 = isoToDayMin(c.end);
     if (!s0 || !s1) return;
-    const dur = absMinutes(s1.date, s1.min) - absMinutes(s0.date, s0.min);
+    const a0 = absMinutes(s0.date, s0.min), a1 = absMinutes(s1.date, s1.min);
     const pending = c.state !== 'fasted';
-    addInterval(arcs, dateKey, s0.date, s0.min, dur, 'fast',
-      rDisp(c.hours) + 'h ' + (pending ? 'gap · pending' : 'fasted'),
+    addIntervalWin(arcs, win0, win1, a0, a1 - a0,
+      'fast', rDisp(c.hours) + 'h ' + (pending ? 'gap · pending' : 'fasted'),
       { state: pending ? 'pending' : 'fasted', start: c.start, end: c.end, hours: c.hours });
   });
 
-  // --- today's OPEN trailing gap. Factual only: "Nh since last logged food".
+  // --- the OPEN trailing gap. Factual only: "Nh since last logged food".
   // Never "fasting", never a zone -- an open gap is not evidence of one (D22).
   let openGap = null;
   if (isToday) {
-    const nowM = nowMinutes();
+    const nowAbs = absMinutes(dateKey, nowM);
     let lastAbs = null;
     Object.keys(days).forEach((d) => {
       ((days[d].items) || []).forEach((it) => {
         const m = timeToMinutes(it.time);
         if (m == null) return;
         const a = absMinutes(d, m);
-        if (a <= absMinutes(dateKey, nowM) && (lastAbs == null || a > lastAbs)) lastAbs = a;
+        if (a <= nowAbs && (lastAbs == null || a > lastAbs)) lastAbs = a;
       });
     });
-    if (lastAbs != null) {
-      const dur = absMinutes(dateKey, nowM) - lastAbs;
-      if (dur > 0) {
-        const startAbs = lastAbs;
-        const sd = Math.floor(startAbs / MIN_PER_DAY), sm = startAbs - sd * MIN_PER_DAY;
-        const startDate = shiftDate(dateKey, sd - dayIndex(dateKey));
-        openGap = addInterval(arcs, dateKey, startDate, sm, dur, 'open',
-          hoursLabel(dur) + ' since last logged food', { open: true });
-      }
+    if (lastAbs != null && nowAbs - lastAbs > 0) {
+      openGap = addIntervalWin(arcs, win0, win1, lastAbs, nowAbs - lastAbs, 'open',
+        hoursLabel(nowAbs - lastAbs) + ' since last logged food', { open: true, sinceMin: nowAbs - lastAbs });
     }
   }
 
   return {
-    date: dateKey, isToday: isToday,
-    nowMin: isToday ? nowMinutes() : null,
+    date: dateKey, isToday: isToday, live: live,
+    rangeLabel: live ? 'last 24 h' : null,
+    nowMin: isToday ? nowM : null,
     arcs: arcs, ticks: ticks, openGap: openGap,
     empty: arcs.length === 0 && ticks.length === 0,
   };
@@ -3763,7 +3823,7 @@ function rhythmModel(dateKey) {
 // ---- ring rendering --------------------------------------------------------
 // Concentric categorical bands. Colour is CATEGORY only (eat / sleep / exercise /
 // fast) -- never met/unmet, never a zone. Midnight at the top, clockwise.
-const RHYTHM_BANDS = { eat: 0.92, window: 0.92, sleep: 0.76, exercise: 0.60, fast: 0.44, open: 0.44 };
+const RHYTHM_BANDS = { eat: 0.92, window: 0.92, sleep: 0.76, sleepplan: 0.76, exercise: 0.60, fast: 0.44, open: 0.44 };
 function polarPt(cx, cy, r, deg) { const a = (deg - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
 function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
 function arcPath(cx, cy, r, d0, d1) {
@@ -3792,6 +3852,12 @@ function rhythmSVG(model, size, mini) {
     out += '<path class="' + cls + '" d="' + arcPath(C, C, R * band, minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
   });
   (model.ticks || []).forEach((t) => {
+    if (t.kind === 'plan') {                                     // R8.4: scheduled entries as faint RIM ticks
+      const [x1, y1] = polarPt(C, C, R * 1.0, minToDeg(t.min));
+      const [x2, y2] = polarPt(C, C, R * 1.07, minToDeg(t.min));
+      out += '<line class="rk-plantick" x1="' + r2(x1) + '" y1="' + r2(y1) + '" x2="' + r2(x2) + '" y2="' + r2(y2) + '"/>';
+      return;
+    }
     const [x, y] = polarPt(C, C, R * RHYTHM_BANDS.eat, minToDeg(t.min));
     out += '<circle class="rk-eatdot" cx="' + r2(x) + '" cy="' + r2(y) + '" r="' + (mini ? 1.6 : 3) + '"/>';
   });
@@ -3800,6 +3866,38 @@ function rhythmSVG(model, size, mini) {
     out += '<line class="rrnow" x1="' + C + '" y1="' + C + '" x2="' + r2(x) + '" y2="' + r2(y) + '"/>';
   }
   return out + '</svg>';
+}
+
+// ---- R8.3: the centre tenant ----------------------------------------------
+// The centre disc carries the OPEN-GAP counter -- today-state, factual, D22 grammar
+// exactly. It never says "fasting" about an unconfirmed gap; an open gap is not
+// evidence of one. Tapping it surfaces the most recent PENDING candidate's resolve
+// (a pending candidate is a CLOSED gap awaiting attestation -- a different object
+// from the open one shown, which is why the tap reveals rather than asserts).
+let RESOLVE_FOCUS = false;
+function pendingFastCandidates() {
+  return (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).filter((c) => c.state === 'pending');
+}
+function focusPendingResolve() { RESOLVE_FOCUS = true; renderDay(); return { ok: true, pending: pendingFastCandidates().length }; }
+function clearResolveFocus() { RESOLVE_FOCUS = false; renderDay(); return { ok: true }; }
+function rhythmCenterHTML(model) {
+  const pend = pendingFastCandidates();
+  if (RESOLVE_FOCUS && pend.length) {
+    const c = pend[pend.length - 1];
+    const h = esc(String(num(c.hours)));
+    return `<div class="ringval rcenter" onclick="event.stopPropagation()">` +
+      `<span class="rcsub">${esc(rDisp(c.hours))}h gap \u00b7 pending</span>` +
+      `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'fasted');clearResolveFocus()">Fasted</button>` +
+      `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'ate_didnt_log');clearResolveFocus()">Ate, didn\u2019t log</button>` +
+      `<button type="button" class="linklike" onclick="clearResolveFocus()">cancel</button></div>`;
+  }
+  if (!model || !model.openGap) return '';
+  const mins = num(model.openGap.sinceMin);
+  const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
+  return `<div class="ringval rcenter"${tap}>` +
+    `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>` +
+    (pend.length ? `<span class="rcsub rctap">tap to resolve ${esc(pend.length)} pending</span>` : '') +
+    `</div>`;
 }
 
 // ---- goal swap (ruled 2) ---------------------------------------------------
@@ -3871,7 +3969,7 @@ function renderRhythmGrid() {
   const btns = ['week', 'month'].map((r) =>
     `<button type="button" class="${r === RHYTHM_RANGE ? 'on' : ''}" onclick="setRhythmRange('${r}')">${r === 'week' ? '7d' : 'Month'}</button>`).join('');
   el.innerHTML = `<div class="twin">${btns}</div><div class="rglabel">${esc(fmtRangeLabel(dates))}</div><div class="rgrid">` + dates.map((d) => {
-    const m = rhythmModel(d);
+    const m = rhythmModel(d, { live: false });                   // archival: mini-rings are calendar days
     const has = !!(APP_STATE.days || {})[d];
     return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}" ` +
       `onclick="goToDay('${esc(d)}')" title="${esc(d)}">${rhythmSVG(m, 46, true)}<small>${esc(d.slice(8))}</small></button>`;
@@ -3979,6 +4077,7 @@ window.HT = {
   addLabPanel, addLabPanelFromForm, renderLabForm, readLabForm, renderLabTrends, LAB_TREND_MIN, LAB_DIRECTION_MIN,
   // D35 — rhythm ring (Layer 2 Mirror)
   rhythmModel, rhythmSVG, rhythmCaptionHTML, goalRingBoxHTML, goalCellsHTML,
+  rhythmCenterHTML, focusPendingResolve, clearResolveFocus, pendingFastCandidates, addIntervalWin,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,

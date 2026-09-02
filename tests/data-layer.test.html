@@ -2171,7 +2171,7 @@ window.setLS({});
     { time:'21:00', kind:'event', type:'alcohol', value:2, unit:'drinks', source:'manual', notes:'' },
     { time:'07:00', kind:'biometric', type:'weight', value:80, unit:'kg', source:'manual', notes:'' }
   ];
-  var M = HT.rhythmModel(td);
+  var M = HT.rhythmModel(td, {live:false});   // archival semantics (R8.1 moved today to a trailing window)
   res(M.ticks.length===3, 'RR-derived: one eating tick per logged food item, no more');
   var exArcs = M.arcs.filter(function(a){return a.kind==='exercise';});
   res(exArcs.length===2, 'RR-derived: every duration-carrying event produces exactly one arc');
@@ -2183,14 +2183,14 @@ window.setLS({});
   res(eatArc && eatArc.startMin===480 && eatArc.endMin===1140,
       'RR-derived: the eating window is first->last LOGGED food, not a declared one');
   HT.state().days[td].items = [];
-  res(HT.rhythmModel(td).arcs.filter(function(a){return a.kind==='eat';}).length===0 && HT.rhythmModel(td).ticks.length===0,
+  res(HT.rhythmModel(td,{live:false}).arcs.filter(function(a){return a.kind==='eat';}).length===0 && HT.rhythmModel(td,{live:false}).ticks.length===0,
       'RR-derived: remove the records and the arcs go with them (no arc without a record)');
   freeClock();
 
   // RR-window: the DECLARED window is a reference only, never the eating arc.
   seedRegimen(); fixClock();
   rrDay(td, [rrFood('a','13:00'), rrFood('b','17:00')]);
-  var MW = HT.rhythmModel(td);
+  var MW = HT.rhythmModel(td, {live:false});
   var win = MW.arcs.filter(function(a){return a.kind==='window';})[0];
   var eat = MW.arcs.filter(function(a){return a.kind==='eat';})[0];
   res(!!win && win.ref===true && win.startMin===720 && win.endMin===1080, 'RR-window: the regimen declared window draws as a reference arc');
@@ -2202,7 +2202,7 @@ window.setLS({});
   setLS({}); HT.boot(); fixClock();
   var prev = HT.shiftDate(td, -1);
   HT.state().timeline[td] = [{ time:'23:00', kind:'biometric', type:'sleep', value:8, unit:'h', source:'manual', notes:'' }];
-  var Mw = HT.rhythmModel(td), Mp = HT.rhythmModel(prev);
+  var Mw = HT.rhythmModel(td, {live:false}), Mp = HT.rhythmModel(prev);
   var sw = Mw.arcs.filter(function(a){return a.kind==='sleep';})[0];
   var sp = Mp.arcs.filter(function(a){return a.kind==='sleep';})[0];
   res(!!sw && sw.startMin===0 && sw.endMin===420 && sw.openStart===true,
@@ -2213,7 +2213,7 @@ window.setLS({});
   res(ss.n===1 && ss.latest===8, 'RR-sleep: sleep_hours is DERIVED from the interval duration');
   setLS({}); HT.boot(); fixClock();
   HT.state().timeline[td] = [{ time:'08:00', kind:'biometric', type:'sleep_hours', value:7, unit:'h', source:'manual', notes:'' }];
-  res(HT.rhythmModel(td).arcs.filter(function(a){return a.kind==='sleep';}).length===0,
+  res(HT.rhythmModel(td,{live:false}).arcs.filter(function(a){return a.kind==='sleep';}).length===0,
       'RR-sleep: a legacy hours-only reading stays valid and draws NO arc (honest absence)');
   res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).latest===7, 'RR-sleep: the legacy reading still counts in the series');
   res(HT.CHIP_GOAL_ALIAS.sleep==='sleep_hours' && HT.chipOrder().indexOf('sleep')>=0 && HT.chipOrder().indexOf('sleep_hours')<0,
@@ -2328,6 +2328,116 @@ window.setLS({});
   res(HT.normalizeState({ version:5, settings:{ primaryNutrient:'weight' } }).settings.primaryNutrient==='',
       'RR-primary: a hostile/invalid declaration is dropped at the restore boundary');
   res(HT.state().version===5, 'RR-primary: schema version UNCHANGED at 5');
+
+  // ==========================================================================
+  // R8 — ring fullness. Trailing-24h live ring, ghost plan-arcs, centre tenant.
+  // ==========================================================================
+  // R8-trailing: CONTENT EQUALITY — the live window holds exactly the records whose
+  // timestamps fall in the last 24 h, and the archival model still holds the day's.
+  setLS({}); HT.boot(); fixClock();          // clock fixed at 14:00 today
+  var yday = HT.shiftDate(td, -1);
+  rrDay(yday, [rrFood('dinner','19:00'), rrFood('early','09:00')]);
+  rrDay(td, [rrFood('breakfast','08:00'), rrFood('future','23:00')]);
+  var L = HT.rhythmModel(td), A = HT.rhythmModel(td, {live:false});
+  res(L.live===true && L.rangeLabel==='last 24 h', 'R8-trailing: today renders a LIVE trailing ring labelled "last 24 h"');
+  res(A.live===false && A.rangeLabel===null, 'R8-trailing: {live:false} gives the archival calendar-day model');
+  var lnames = L.ticks.map(function(x){return x.label;}).sort().join(',');
+  res(lnames==='breakfast,dinner', 'R8-trailing: the window holds LAST NIGHT\u2019s dinner and today\u2019s breakfast \u2014 contiguous across midnight');
+  res(L.ticks.filter(function(x){return x.label==='early';}).length===0,
+      'R8-trailing: content older than 24 h has AGED OUT (yesterday 09:00 is past the hand)');
+  res(L.ticks.filter(function(x){return x.label==='future';}).length===0,
+      'R8-trailing: nothing after the hand is drawn');
+  res(A.ticks.map(function(x){return x.label;}).sort().join(',')==='breakfast,future',
+      'R8-trailing: the ARCHIVAL model is unchanged \u2014 it still holds exactly the calendar day\u2019s records');
+  var dinnerTick = L.ticks.filter(function(x){return x.label==='dinner';})[0];
+  res(dinnerTick.min===1140, 'R8-trailing: a record keeps its CLOCK position on the fixed face (19:00 -> 1140)');
+  res(L.nowMin===840, 'R8-trailing: the hand marks now, so content ages out counter-clockwise from it');
+
+  // R8-sleep-contiguous: the same night is contiguous live, split archival.
+  setLS({}); HT.boot(); fixClock();
+  HT.state().timeline[td] = [{ time:'23:00', kind:'biometric', type:'sleep', value:8, unit:'h', source:'manual', notes:'' }];
+  var LS = HT.rhythmModel(td), AS = HT.rhythmModel(td, {live:false}), PS = HT.rhythmModel(HT.shiftDate(td,-1), {live:false});
+  var lsArc = LS.arcs.filter(function(a){return a.kind==='sleep';});
+  res(lsArc.length===1 && lsArc[0].startMin===1380 && lsArc[0].endMin===1380+480,
+      'R8-sleep-contiguous: on the LIVE ring the night is ONE arc crossing midnight (23:00 -> 07:00)');
+  res(AS.arcs.filter(function(a){return a.kind==='sleep';})[0].startMin===0 &&
+      PS.arcs.filter(function(a){return a.kind==='sleep';})[0].startMin===1380,
+      'R8-sleep-contiguous: ARCHIVAL rings still split it by clock across the two days (Fork A holds)');
+
+  // R8-ghost: plan arcs render ONLY from declared regimen fields.
+  setLS({}); HT.boot(); fixClock();
+  HT.state().settings.presets.push({id:'p1',name:'Lunch',meal:'lunch',kcal:500,soluble_fiber_g:0});
+  var noSleepPlan = HT.rhythmModel(td);
+  res(noSleepPlan.arcs.filter(function(a){return a.kind==='sleepplan';}).length===0 &&
+      noSleepPlan.ticks.filter(function(x){return x.kind==='plan';}).length===0,
+      'R8-ghost: with no regimen there are NO plan arcs and NO plan ticks (nothing inferred)');
+  var rgOk = HT.addRegimenFromJSON(JSON.stringify({ name:'P', window:{start:'12:00',end:'20:00'},
+    sleep:{start:'23:00',end:'07:00'},
+    entries:[{kind:'medication',time:'08:00',name:'Med'},{kind:'food',time:'12:00',presetId:'p1'}] }));
+  res(rgOk.ok===true, 'R8-ghost: a regimen may declare an optional sleep window (bed to wake)');
+  var G = HT.rhythmModel(td);
+  var sp = G.arcs.filter(function(a){return a.kind==='sleepplan';});
+  res(sp.length>0 && sp.every(function(a){return a.ref===true;}), 'R8-ghost: the declared sleep window draws as a GHOST arc, flagged ref');
+  res(G.arcs.filter(function(a){return a.kind==='window';}).every(function(a){return a.ref===true;}),
+      'R8-ghost: the declared eating window stays a ghost too (D27: plan is not the log)');
+  res(G.ticks.filter(function(x){return x.kind==='plan';}).length>0 &&
+      G.ticks.filter(function(x){return x.kind==='plan';}).every(function(x){return x.ref===true;}),
+      'R8-ghost: scheduled entries draw as faint RIM ticks');
+  res(G.arcs.filter(function(a){return a.kind==='sleep' && !a.ref;}).length===0,
+      'R8-ghost: a declared sleep window creates NO actual sleep arc \u2014 plan ghost, actual solid');
+  res(HT.state().days[td].items.length===0 && Object.keys(HT.state().timeline).length===0,
+      'R8-ghost: plan arcs write nothing \u2014 no auto-anything');
+  var expG = JSON.parse(HT.exportJSON());
+  res(expG.regimens.list[0].sleep.start==='23:00' && expG.regimens.list[0].sleep.end==='07:00',
+      'R8-ghost: the declared sleep window round-trips in the regimens store');
+  res(HT.parseRegimen(JSON.stringify({name:'x',sleep:{start:'oops',end:'07:00'},entries:[{kind:'medication',time:'08:00',name:'M'}]})).ok===false,
+      'R8-ghost: a malformed sleep window is rejected at the authoring boundary');
+  res(HT.normalizeRegimens({list:[{id:'r',name:'n',entries:[],sleep:{start:'bad',end:'x'}}]}).list[0].sleep===undefined,
+      'R8-ghost: a malformed sleep window is dropped at the restore boundary');
+  res(HT.state().version===5, 'R8-ghost: schema version UNCHANGED at 5 (a field on an existing store)');
+
+  // R8-centre: the centre carries the open-gap counter, in D22 grammar.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','08:00')]);
+  var CM = HT.rhythmModel(td);
+  var centre = HT.rhythmCenterHTML(CM);
+  res(/6h/.test(centre) && /since last logged food/.test(centre),
+      'R8-centre: the centre disc counts the hours since the last logged food');
+  res(centre.indexOf('fasting')<0 && centre.indexOf('Fasting')<0,
+      'R8-centre: it NEVER says "fasting" about an unconfirmed gap (D22)');
+  res(Math.round(CM.openGap.sinceMin)===360, 'R8-centre: the counter matches the open gap derived from the same records');
+  setLS({}); HT.boot(); fixClock();
+  rrDay(HT.shiftDate(td,-1), [rrFood('x','08:00')]); rrDay(td, [rrFood('y','13:00')]);
+  var pend8 = HT.pendingFastCandidates();
+  res(pend8.length>0 && pend8.every(function(c){return c.state==='pending';}),
+      'R8-centre: pending candidates come from detectFastCandidates, unchanged');
+  res(/tap to resolve/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),
+      'R8-centre: with a pending candidate present the centre offers the resolve');
+  HT.focusPendingResolve();
+  var focused = HT.rhythmCenterHTML(HT.rhythmModel(td));
+  res(/resolveFastAt/.test(focused) && /Fasted/.test(focused),
+      'R8-centre: tapping it surfaces that candidate\u2019s resolve');
+  res(focused.indexOf('fasting')<0, 'R8-centre: still no "fasting" on the resolve surface');
+  HT.clearResolveFocus();
+
+  // R8-vocab: M7 + D22 over every new label.
+  setLS({}); HT.boot(); fixClock();
+  HT.state().settings.presets.push({id:'p1',name:'Lunch',meal:'lunch',kcal:500,soluble_fiber_g:0});
+  HT.addRegimenFromJSON(JSON.stringify({ name:'P', window:{start:'12:00',end:'20:00'}, sleep:{start:'23:00',end:'07:00'},
+    entries:[{kind:'food',time:'12:00',presetId:'p1'}] }));
+  rrDay(HT.shiftDate(td,-1), [rrFood('x','08:00')]); rrDay(td, [rrFood('y','09:00')]);
+  var VM = HT.rhythmModel(td);
+  var vtext = (VM.arcs.map(function(a){return a.label;}).join(' ') + ' ' +
+               VM.ticks.map(function(x){return x.label;}).join(' ') + ' ' +
+               HT.rhythmCenterHTML(VM) + ' ' + HT.rhythmCaptionHTML(VM) + ' ' + (VM.rangeLabel||'')).toLowerCase();
+  var vbanned = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  var vhit = vbanned.filter(function(w){ return vtext.indexOf(w)>=0; });
+  res(vhit.length===0, 'R8-vocab: M7 holds over trailing-ring, ghost and centre labels' + (vhit.length?(' ['+vhit.join(',')+']'):''));
+  res(vtext.indexOf('zone')<0 && vtext.indexOf('anabolic')<0 && vtext.indexOf('catabolic')<0,
+      'R8-vocab: still no zones or metabolic bands');
+  var openLbl = (VM.openGap||{}).label||'';
+  res(openLbl.indexOf('fast')<0, 'R8-vocab/D22: the OPEN gap label never contains "fast" in any form');
+  freeClock();
 
   // ==========================================================================
   // D35 amendments — day-status label + date display. Presentation only: the

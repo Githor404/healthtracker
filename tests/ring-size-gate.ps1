@@ -31,6 +31,11 @@ $udd = Join-Path $env:TEMP ("ht-ringsize-" + [System.Guid]::NewGuid().ToString('
 $ct = [Threading.CancellationToken]::None
 
 $MIN_RATIO = 70     # percent of viewport width the ring must occupy on a phone
+# R8.2: arcs are BANDS, not hairlines. Stroke scales with the ring through the
+# viewBox, so this asserts the RENDERED band thickness both absolutely and as a
+# proportion of the ring -- a future ring resize cannot quietly thin them back out.
+$MIN_BAND_PX  = 14
+$MIN_BAND_PCT = 5
 
 function Find-Browser {
   foreach ($c in @(
@@ -87,8 +92,13 @@ $measure = "(function(){" +
   "var fab=R('#fab');" +
   "var cells=R('#dayView .goalstrip');" +
   "var cap=R('#dayView .rrcap');" +
+  "var svg=document.querySelector('#dayView .rring');" +
+  "var vb=svg?parseFloat((svg.getAttribute('viewBox')||'0 0 180 180').split(' ')[2]):180;" +
+  "var pth=svg?svg.querySelector('path'):null;" +
+  "var sw=pth?parseFloat(getComputedStyle(pth).strokeWidth):0;" +
   "var rw=ring?Math.round(ring.width):0;" +
-  "return JSON.stringify({vw:vw,vh:vh,ring:rw,ratio:vw?Math.round(rw/vw*100):0," +
+  "var bandPx=(vb>0&&rw>0)?Math.round(sw/vb*rw*10)/10:0;" +
+  "return JSON.stringify({vw:vw,vh:vh,ring:rw,ratio:vw?Math.round(rw/vw*100):0,band:bandPx,bandPct:rw?Math.round(bandPx/rw*1000)/10:0," +
   "chkBottom:chk?Math.round(chk.bottom):null,chkAbove:!!(chk&&chk.bottom<=vh)," +
   "fabVisible:!!(fab&&fab.bottom<=vh&&fab.top>=0)," +
   "cellsTop:cells?Math.round(cells.top):null,cellsAbove:!!(cells&&cells.top<vh)," +
@@ -169,17 +179,17 @@ try {
   $S = Measure-At 360 780 $true     # a smaller phone
   $D = Measure-At 1200 900 $false   # desktop -- the cap must hold
 
-  $P_ok = ($P.ratio -ge $MIN_RATIO) -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and $P.capAbove -and (-not $P.pageOverflow)
-  $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and (-not $S.pageOverflow)
+  $P_ok = ($P.ratio -ge $MIN_RATIO) -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and $P.capAbove -and ($P.band -ge $MIN_BAND_PX) -and ($P.bandPct -ge $MIN_BAND_PCT) -and (-not $P.pageOverflow)
+  $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and ($S.band -ge $MIN_BAND_PX) -and ($S.bandPct -ge $MIN_BAND_PCT) -and (-not $S.pageOverflow)
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
 
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
-  Write-Host ("  phone 390x844 : ring={0}px ({1}% of vw) checklist-above={2} +Log-visible={3} goal-cells-above={4} caption-above={5} -> {6}" -f `
-    $P.ring, $P.ratio, $P.chkAbove, $P.fabVisible, $P.cellsAbove, $P.capAbove, $P_ok)
-  Write-Host ("  phone 360x780 : ring={0}px ({1}% of vw) checklist-above={2} +Log-visible={3} -> {4}" -f `
-    $S.ring, $S.ratio, $S.chkAbove, $S.fabVisible, $S_ok)
+  Write-Host ("  phone 390x844 : ring={0}px ({1}% of vw) band={2}px ({3}% of ring) cells-above={4} caption-above={5} -> {6}" -f `
+    $P.ring, $P.ratio, $P.band, $P.bandPct, $P.cellsAbove, $P.capAbove, $P_ok)
+  Write-Host ("  phone 360x780 : ring={0}px ({1}% of vw) band={2}px ({3}% of ring) -> {4}" -f `
+    $S.ring, $S.ratio, $S.band, $S.bandPct, $S_ok)
   Write-Host ("  desktop 1200  : ring={0}px (capped) overflow={1} -> {2}" -f $D.ring, [bool]$D.pageOverflow, $D_ok)
-  Write-Host ("  thresholds    : ring >= {0}% of viewport width on phones; checklist, + Log, goal cells and ring caption all above the fold; desktop capped" -f $MIN_RATIO)
+  Write-Host ("  thresholds    : ring >= {0}% of vw; arc band >= {1}px and >= {2}% of ring; checklist, + Log, goal cells and caption above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_PCT)
   Write-Host "-----------------------------------------"
 
   if ($P_ok -and $S_ok -and $D_ok) {
