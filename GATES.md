@@ -1112,4 +1112,24 @@ R16 built the summoned-centre contract generically but wired **only sleep**. R18
 | R18-contract | one action per lane; reverts on action / idle / tap-away; the centre never sticks; the resting centre is unchanged when nothing is summoned |
 | R18-vocab | **M7** over every new label |
 
-**Status: PRE-REGISTERED — building to these leanings next.**
+#### Evidence (built to the ruled leanings, 2026-09-02)
+
+| Case | Result |
+|---|---|
+| R18-migrate | a 0.14.x `sleepOpen` **survives the update as `laneOpen.sleep`**; the old field stops being emitted; unknown lanes and malformed segments are dropped; **boot normalizes settings identically to restore** |
+| R18-segments / R18-identical | all four lanes toggle, close at the clock, round-trip through export, and produce records **byte-identical to the manual path** — minutes for practices, hours for sleep |
+| R18-thresholds | sauna 3 h, red light 3 h, meditation 4 h, sleep 11 h; each fires **at its own constant and not before**; a pending segment counts in nothing |
+| R18-meals | with no candidate the badge **highlights only** and no control renders; with one, the **existing three-state resolve** appears |
+| R18-noaction | exercise and yoga declare **no** action and highlight only |
+| R18 (Fork B) | two lanes open at once, each drawing on **its own category**, each named in the resting centre |
+| R18-contract / R18-vocab | each lane summons its own control, reverts on idle, resting centre unchanged; **M7** over every lane control |
+
+**A latent defect this slice exposed, predating it.** `boot()` took a same-version blob **as-is** and never ran `normalizeSettings` — it patched settings with **ad-hoc per-key guards** for `fasting` and `nudges` only. So **every settings-side addition since D18 applied on restore but never on boot** (`currency`, `signalUnits`, `primaryNutrient`, `sleepOpen`). Each is read defensively, so nothing broke — **until one needed a real migration**, and the fold silently did not happen. Boot now normalizes identically to restore; the two guards are subsumed and removed; and the key-set equality is gated.
+
+**Flagged fixture update:** `goalState` gained `laneOpen: {}` in place of `sleepOpen: null`.
+
+**Repointed, not weakened:** R16's persist cases read `settings.sleepOpen`, the field this slice generalises. They now read `laneOpen.sleep` and assert the same invariants.
+
+**Count delta: 784 → 836** (+52). `bash tests/run-data-layer.sh` → **836/836 ALL PASS**, `executed 836 · pinned 836`. All eleven gates green; `version` 0.14.1 → **0.15.0**.
+
+**Status: MET.**

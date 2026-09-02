@@ -119,7 +119,7 @@ window.setLS({});
   res(HT.Store.tier === 'memory' && HT.Store.status().ok === false, '6: blocked storage -> memory tier');
 
   // ---- v4 round-trip fixtures (settings gained signalUnits + fasting; blob gained timeline + fastLog) ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', sleepOpen: null };
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
   var S1 = { version: 5, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
@@ -2769,19 +2769,19 @@ window.setLS({});
   setLS({}); HT.boot(); fixClock();
   var on1 = HT.sleepOn();
   res(on1.ok===true && HT.sleepOpenState().open===true, 'R16-persist: toggle-on opens a pending segment');
-  res(HT.state().settings.sleepOpen.start===td+'T14:00', 'R16-persist: it records the start, at the injected clock');
+  res(HT.state().settings.laneOpen.sleep.start===td+'T14:00', 'R16-persist: it records the start, at the injected clock');
   var lsSnapshot = window.__ls._get(HT.keys.STORE_KEY);
-  res(lsSnapshot.indexOf('sleepOpen')>=0, 'R16-persist: it is PERSISTED, not held in module state');
+  res(lsSnapshot.indexOf('laneOpen')>=0, 'R16-persist: it is PERSISTED, not held in module state');
   HT.boot();                                              // simulate the D6 force-and-notify reload
-  res(HT.sleepOpenState().open===true && HT.state().settings.sleepOpen.start===td+'T14:00',
+  res(HT.sleepOpenState().open===true && HT.state().settings.laneOpen.sleep.start===td+'T14:00',
       'R16-persist: an open night SURVIVES a reload — the resume path never eats it');
   var expOpen = JSON.parse(HT.exportJSON());
-  res(expOpen.settings.sleepOpen.start===td+'T14:00', 'R16-persist: and it round-trips through export');
+  res(expOpen.settings.laneOpen.sleep.start===td+'T14:00', 'R16-persist: and it round-trips through export');
   res(HT.normalizeSleepOpen({start:'nope'})===null && HT.normalizeSleepOpen(null)===null && HT.normalizeSleepOpen([])===null,
       'R16-persist: a malformed open segment is dropped at the boundary, never a half-record');
 
   // R16-fork B: a second toggle-on while open is a no-op.
-  res(HT.sleepOn().ok===false && HT.state().settings.sleepOpen.start===td+'T14:00',
+  res(HT.sleepOn().ok===false && HT.state().settings.laneOpen.sleep.start===td+'T14:00',
       'R16: a second toggle-on is a NO-OP — it never fabricates a segment boundary');
 
   // R16-identical: the toggle path and the manual path produce the same record.
@@ -2789,7 +2789,7 @@ window.setLS({});
   var off = HT.sleepOff();
   res(off.ok===true && off.minutes===180, 'R16-identical: toggle-off closes the segment at the clock');
   var toggled = HT.state().timeline[td][HT.state().timeline[td].length-1];
-  res(HT.state().settings.sleepOpen===null, 'R16-identical: and the open segment is cleared');
+  res(HT.state().settings.laneOpen.sleep===undefined, 'R16-identical: and the open segment is cleared');
   setLS({}); HT.boot(); fixClock();
   var manual = HT.addSignal({ type:'sleep', time:'14:00', value:3, unit:'h' });
   res(JSON.stringify(toggled)===JSON.stringify(manual.record),
@@ -2983,6 +2983,122 @@ window.setLS({});
   var emptyMini = HT.miniRingSVG(HT.rhythmModel(HT.shiftDate(td,-9), {live:false}));
   res(emptyMini.indexOf('<path')<0 && (emptyMini.match(/rmbg/g)||[]).length===2,
       'R17-mini: an empty day is two quiet rings and no arcs');
+  freeClock();
+
+  // ==========================================================================
+  // R18 — the summoned-centre contract, filled in across four practices.
+  // ==========================================================================
+  // R18-migrate: a 0.14.x blob carrying the OLD single sleepOpen must survive the
+  // update that generalises it -- the mid-night reload case, now per lane.
+  setLS({}); HT.boot(); fixClock();
+  var legacyBlob = { version:5, current:td, days:{}, settings:{ sleepOpen:{ start: td+'T23:00', startedAt:'x' } },
+                     priceLog:{}, timeline:{}, fastLog:{}, regimens:{ active:'', list:[], log:{} } };
+  legacyBlob.days[td] = { status:'in_progress', items:[], water_l:0 };
+  setLS({ 'healthtracker-log': JSON.stringify(legacyBlob) }); HT.boot(); fixClock();
+  res(HT.state().settings.laneOpen && HT.state().settings.laneOpen.sleep &&
+      HT.state().settings.laneOpen.sleep.start===td+'T23:00',
+      'R18-migrate: an open sleep segment from the previous version SURVIVES the update as laneOpen.sleep');
+  res(HT.state().settings.sleepOpen===undefined, 'R18-migrate: and the old field stops being emitted');
+  res(JSON.stringify(HT.normalizeSettings(HT.defaultSettings()))===JSON.stringify(HT.defaultSettings()),
+      'R18-migrate: defaultSettings stays drift-free against its own normalizer');
+  res(JSON.stringify(HT.normalizeLaneOpen({ nope:{start:td+'T01:00'}, sauna:{start:'bad'} }, null))==='{}',
+      'R18-migrate: unknown lanes and malformed segments are dropped at the boundary');
+  // The migration only ran because boot now normalizes settings the way restore
+  // does. Before this, a same-version blob was taken as-is and every settings-side
+  // addition since D18 applied on restore but never on boot.
+  res(JSON.stringify(Object.keys(HT.state().settings).sort())===JSON.stringify(Object.keys(HT.defaultSettings()).sort()),
+      'R18-migrate: BOOT normalizes settings identically to restore — same key set as the default shape');
+
+  // R18-identical + R18-segments, per lane.
+  var laneCases = [
+    { lane:'sauna',      type:'sauna',      unit:'min', mins:20,  manual:20 },
+    { lane:'meditation', type:'meditation', unit:'min', mins:15,  manual:15 },
+    { lane:'red_light',  type:'red_light',  unit:'min', mins:10,  manual:10 },
+    { lane:'sleep',      type:'sleep',      unit:'h',   mins:180, manual:3 }
+  ];
+  laneCases.forEach(function(lc){
+    setLS({}); HT.boot(); fixClock();
+    var start = HT.laneOn(lc.lane);
+    res(start.ok===true && HT.laneOpenState(lc.lane).open===true, 'R18-segments: ' + lc.lane + ' toggles on');
+    FIXED += lc.mins * 60000;
+    var closed = HT.laneOff(lc.lane);
+    res(closed.ok===true && closed.minutes===lc.mins, 'R18-segments: ' + lc.lane + ' closes at the clock');
+    var toggled = HT.state().timeline[td][HT.state().timeline[td].length-1];
+    res(HT.laneOpenState(lc.lane).open===false, 'R18-segments: ' + lc.lane + ' open state is cleared');
+    var expL = JSON.parse(HT.exportJSON());
+    res((expL.timeline[td]||[]).filter(function(r){return r.type===lc.type;}).length===1,
+        'R18-segments: ' + lc.lane + ' round-trips through export');
+    setLS({}); HT.boot(); fixClock();
+    var man = HT.addSignal({ type:lc.type, time:'14:00', value:lc.manual, unit:lc.unit });
+    res(JSON.stringify(toggled)===JSON.stringify(man.record),
+        'R18-identical: a toggled ' + lc.lane + ' record is BYTE-IDENTICAL to the manual one');
+    FIXED = new Date(td + 'T14:00:00').getTime();
+  });
+
+  // R18-thresholds: each practice fires at ITS OWN constant, not a shared one.
+  var thresholds = [['sauna',180],['red_light',180],['meditation',240],['sleep',660]];
+  res(thresholds.every(function(x){ return HT.LANE_ACTIONS[x[0]].maxOpenMin===x[1]; }),
+      'R18-thresholds: sauna 3h, red light 3h, meditation 4h, sleep 11h — surfaced per practice');
+  thresholds.forEach(function(x){
+    var lane = x[0], lim = x[1];
+    setLS({}); HT.boot(); fixClock();
+    HT.laneOn(lane);
+    FIXED += (lim - 1) * 60000;
+    res(HT.laneOpenState(lane).pending===false, 'R18-thresholds: ' + lane + ' is not pending just under its own limit');
+    FIXED += 2 * 60000;
+    res(HT.laneOpenState(lane).pending===true, 'R18-thresholds: ' + lane + ' becomes pending at its own limit');
+    res(HT.seriesSummary(HT.signalSeries(lane==='sleep'?'sleep_hours':lane,'all')).n===0,
+        'R18-thresholds: a pending ' + lane + ' segment counts in nothing');
+    FIXED = new Date(td + 'T14:00:00').getTime();
+  });
+
+  // R18-meals: the summon shows the resolve ONLY when a candidate is pending.
+  setLS({}); HT.boot(); fixClock();
+  res(HT.laneHasAction('eat')===false, 'R18-meals: with no candidate, meals offers no action');
+  res(HT.laneControlHTML('eat')==='', 'R18-meals: and no control renders');
+  var mealSummon = HT.summonLane('eat');
+  res(mealSummon.summoned===false && HT.laneFocus()==='eat', 'R18-meals: the badge highlights only');
+  rrDay(HT.shiftDate(td,-1), [rrFood('x','08:00')]); rrDay(td, [rrFood('y','13:00')]);
+  res(HT.pendingFastCandidates().length>0 && HT.laneHasAction('eat')===true,
+      'R18-meals: with a candidate pending, meals offers the resolve');
+  res(/resolveFastAt/.test(HT.laneControlHTML('eat')),
+      'R18-meals: and it is the EXISTING three-state resolve, relocated — no new semantics');
+  HT.focusLane('');
+
+  // R18-noaction: exercise and yoga, as a ruling.
+  res(HT.laneHasAction('exercise')===false && HT.laneHasAction('yoga')===false,
+      'R18-noaction: exercise and yoga offer no summoned action');
+  res(HT.LANE_ACTIONS.exercise===undefined && HT.LANE_ACTIONS.yoga===undefined,
+      'R18-noaction: they declare none — a bare toggle would be a second, thinner path to the same record');
+  res(HT.summonLane('exercise').summoned===false && HT.laneFocus()==='exercise',
+      'R18-noaction: their badge highlights only');
+  HT.focusLane('');
+
+  // R18: several lanes open at once (Fork B) draw honestly.
+  setLS({}); HT.boot(); fixClock();
+  HT.laneOn('sauna'); HT.laneOn('meditation');
+  res(HT.openLanes().sort().join(',')==='meditation,sauna', 'R18: two lanes can be open at once');
+  FIXED += 30 * 60000;                       // a zero-length interval draws nothing
+  var multi = HT.rhythmModel(td);
+  var openArcs18 = multi.arcs.filter(function(a){return a.kind==='sleepopen';});
+  res(openArcs18.length===2 && openArcs18.map(function(a){return a.cat;}).sort().join(',')==='meditation,sauna',
+      'R18: each open segment draws on its own category');
+  var c18 = HT.rhythmCenterHTML(multi);
+  res(/in the sauna/.test(c18) && /meditating/.test(c18), 'R18: the resting centre names each open segment');
+  HT.discardLaneOpen('sauna'); HT.discardLaneOpen('meditation');
+
+  // R18-contract + R18-vocab.
+  setLS({}); HT.boot(); fixClock();
+  var rest18 = HT.rhythmCenterHTML(HT.rhythmModel(td));
+  HT.summonLane('sauna');
+  res(HT.summonActive().cat==='sauna' && /Sauna on/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),
+      'R18-contract: each lane summons its own control');
+  FIXED += HT.GOAL_SWAP_MS + 1;
+  res(HT.summonActive()===null && HT.rhythmCenterHTML(HT.rhythmModel(td))===rest18,
+      'R18-contract: it reverts on idle and the resting centre is unchanged');
+  var v18 = Object.keys(HT.LANE_ACTIONS).map(function(k){ return HT.laneControlHTML(k); }).join(' ').toLowerCase();
+  var b18 = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  res(b18.filter(function(w){ return v18.indexOf(w)>=0; }).length===0, 'R18-vocab: M7 holds over every lane control');
   freeClock();
 
   // ==========================================================================

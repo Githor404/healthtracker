@@ -1000,3 +1000,32 @@ Real nights are fragmented. A single bed→wake interval forces a fiction; a liv
 **Light mode went unspecced because the palette was inline hex**, which can serve exactly one theme. Lane colour is now a **CSS custom property per category, defined for both themes** — light darker and more saturated against a white panel, the track themed alongside so an arc always has something to read against, and still no green in either set (Fork G). **Contrast is gated in both themes** rather than assumed from one.
 
 **The grid density gate, unattested since 0.11.0, is closed.** It immediately caught a real 1 px `border-box` spill — and, before that, two flaws in my own measurements: a per-row metric that divided instead of counting, and an over-escaped regex that left contrast unmeasurable while still reporting a value. **A gate that cannot measure is worse than none, because it reads as a pass.**
+
+
+## D39 — The summoned-centre contract, filled in across four practices (R18; Phase-4, 2026-09-02)
+
+R16 built the contract generically but wired **only sleep**. R18 fills it in. `APP_VERSION → 0.15.0`; **schema unchanged at v5**.
+
+**Why toggles rather than stamps, recorded as the load-bearing reason:** a live session yields a **true start time**, and **R14/R15's audit quality depends on t=0 being real**. A stamp records when you remembered, not when it began.
+
+**Sauna, meditation and red light** gain toggles in sleep's grammar; **meals** summons the existing three-state fast resolve; **exercise and yoga get none**.
+
+### Forks, as ruled
+
+**A — `settings.sleepOpen` generalised to `settings.laneOpen`, keyed by lane**, with the old field folded in inside `normalizeSettings`. No bump. **Gated**: a 0.14.x blob with an open night emerges as `laneOpen.sleep`.
+
+**B — several lanes may be open at once**, which is the point of keying by lane. R13.1 already stacks genuinely overlapping practice arcs, so red light *while* meditating renders honestly rather than being refused.
+
+**C — midnight crossing** uses the wake-day rule per lane, unchanged.
+
+**D — thresholds are per practice**: **sauna 3 h, red light 3 h, meditation 4 h, sleep 11 h**. One number could not plausibly bound both a sauna and a night's sleep. Each fires at its own constant and not before (gated), and a pending segment counts in nothing.
+
+**E — meals offers an action only while a candidate is pending**; otherwise the badge highlights only. It is the **existing resolve relocated — no new semantics**.
+
+**F — exercise and yoga get NO summoned action, as a ruling rather than an omission.** Their logging **carries a value** (a workout has a duration, often a distance) or **an attestation** (a regimen checklist row). A bare toggle would be **a second, thinner path to the same record** — the shape D19 warned against when it refused to store events as zero-calorie food items. **One record, one path.**
+
+### A latent defect this slice exposed, and it predates it
+
+**`boot()` took a same-version blob AS-IS and never ran `normalizeSettings`** — it patched settings with **ad-hoc per-key guards** for `fasting` (D22) and `nudges` (D25) only. So **every settings-side allowlist addition since D18 applied on RESTORE but never on BOOT**: `currency`, `signalUnits`, `primaryNutrient`, `sleepOpen`. It went unnoticed because each is read defensively with a fallback — **until one needed a real migration**, and the `sleepOpen → laneOpen` fold silently did not happen for the ordinary boot path.
+
+**Boot now normalizes settings exactly as restore does**, and the two ad-hoc guards are subsumed and removed. Gated directly: after boot, the settings key set equals the default shape's. The general lesson is the one the assertion-count pin taught in another form — **a defensive read hides a missing normalization until something needs it to have run.**
