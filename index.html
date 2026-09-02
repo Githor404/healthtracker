@@ -80,6 +80,8 @@
   /* D35 rhythm ring — CATEGORICAL colour only. No zones, no met/unmet, no bands. */
   .rring{width:100%;height:100%;display:block;overflow:visible}
   .rrbg{fill:none;stroke:var(--line);stroke-width:1}
+  .rrhint{fill:none;stroke:var(--line);stroke-width:6;stroke-dasharray:2 7;opacity:.55}
+  .rrfirst .rrrow{gap:5px}
   .rrtick{stroke:var(--line);stroke-width:1}
   .rrnow{stroke:var(--txt);stroke-width:2;stroke-linecap:round;opacity:.75}
   .rring path{fill:none;stroke-width:12;stroke-linecap:butt}
@@ -91,9 +93,10 @@
   .rk-window{stroke:var(--accent);stroke-width:5;opacity:.26}
   .rk-sleepplan{stroke:#7b86c4;stroke-width:5;opacity:.26}
   .rk-plantick{stroke:var(--muted);stroke-width:1.5;opacity:.5}
-  .rcenter{gap:1px;padding:0 18%}
-  .rcenter b{font-size:30px;font-weight:800;line-height:1.05}
-  .rcsub{font-size:11px;color:var(--muted);line-height:1.25}
+  .rcenter{gap:1px;inset:30%;padding:0}
+  .rcenter b{font-size:24px;font-weight:800;line-height:1.05}
+  .rcenter b.rcdate{font-size:19px}
+  .rcsub{font-size:9.5px;color:var(--muted);line-height:1.2}
   .rctap{color:var(--accent);font-weight:700;margin-top:3px}
   .rcenter .btn{margin-top:5px;padding:6px 10px;font-size:12px}
   .rrrange{text-align:center;font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.04em}

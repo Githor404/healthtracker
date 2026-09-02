@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.12.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.12.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -991,8 +991,19 @@ function goalRingBoxHTML(key, t) {
 // Every label here is covered by the M7 vocabulary invariant, and the trailing gap
 // is stated factually -- never "fasting", never a zone (D22).
 function rhythmCaptionHTML(model) {
-  if (model.empty) return `<div class="rrcap"><span class="rrmuted">no records for this day yet</span></div>`;
+  // R11.2: a designed empty-window state. Ghosts carry it when the plan is
+  // declared; otherwise one quiet line. The bare circle is never the answer, and
+  // this is also every new user's first screen.
+  if (model.instructional)
+    return `<div class="rrcap rrfirst">` +
+      `<div class="rrrow"><span class="rkey rk-eat"></span><span class="rrmuted">meals</span>` +
+      `<span class="rkey rk-sleep"></span><span class="rrmuted">sleep</span>` +
+      `<span class="rkey rk-exercise"></span><span class="rrmuted">exercise</span></div>` +
+      `<div class="rrrow"><span class="rrmuted">log food or sleep to draw your day.</span></div></div>`;
   const rows = (model.arcs || []).map((a) => {
+    // R11.4: the legend never restates the centre verbatim -- the open gap lives in
+    // the centre tenant, and the legend carries the pending-candidate line instead.
+    if (a.kind === 'open') return '';
     const key = `<span class="rkey rk-${esc(a.kind)}${a.ref ? ' rref' : ''}"></span>`;
     if (a.kind === 'fast' && a.state === 'pending') {
       const h = esc(String(num(a.hours)));
@@ -3243,6 +3254,7 @@ const VERSION_LOG = [
   { v: '0.11.3', note: 'A day from an earlier year now shows that year in the header, so an old day can never be mistaken for a recent one.' },
   { v: '0.11.4', note: 'The goal ring now returns to your rhythm ring a little sooner after you tap a goal.' },
   { v: '0.12.0', note: 'The ring now shows your last 24 hours, so last night\u2019s dinner, your sleep and the hours since you last ate all read as one continuous stretch. The centre counts the hours since your last logged food, and anything your regimen declares is drawn faintly underneath as the plan.' },
+  { v: '0.12.1', note: 'Clearer ring: after two days without a logged meal the centre names the date instead of counting hours, an empty day says what to log rather than showing a bare circle, and the now-hand no longer crosses the text.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -3652,6 +3664,17 @@ function signalLabel(r) {
   return sp ? sp.label : String(r.type || 'event');
 }
 function hoursLabel(mins) { const h = mins / 60; return (Math.round(h * 10) / 10) + 'h'; }
+// R11.1: a stopwatch is only honest inside the fast-relevant range. Past 48 h the
+// gap stops being a duration you are living through and becomes a date you can
+// name -- and a tenth of an hour on a 46-day gap is FABRICATED PRECISION, the same
+// dishonesty as an inferred arc. 48 h is the constant: two full days is past any
+// fast this app models, and it is where "hours since" stops being a useful number.
+const GAP_DATE_AFTER_MIN = 48 * 60;
+function gapLabel(mins, sinceDate) {
+  return (mins >= GAP_DATE_AFTER_MIN && sinceDate)
+    ? 'no food logged since ' + fmtDateSmart(sinceDate, false)
+    : hoursLabel(mins) + ' since last logged food';
+}
 
 // The model IS the gate surface: every arc traces to a record, and every record of
 // an arc-bearing kind produces an arc. Rendering reads this and adds nothing.
@@ -3806,8 +3829,10 @@ function rhythmModel(dateKey, opts) {
       });
     });
     if (lastAbs != null && nowAbs - lastAbs > 0) {
-      openGap = addIntervalWin(arcs, win0, win1, lastAbs, nowAbs - lastAbs, 'open',
-        hoursLabel(nowAbs - lastAbs) + ' since last logged food', { open: true, sinceMin: nowAbs - lastAbs });
+      const sinceDate = shiftDate(dateKey, Math.floor(lastAbs / MIN_PER_DAY) - dayIndex(dateKey));
+      const mins = nowAbs - lastAbs;
+      openGap = addIntervalWin(arcs, win0, win1, lastAbs, mins, 'open',
+        gapLabel(mins, sinceDate), { open: true, sinceMin: mins, sinceDate: sinceDate });
     }
   }
 
@@ -3817,6 +3842,15 @@ function rhythmModel(dateKey, opts) {
     nowMin: isToday ? nowM : null,
     arcs: arcs, ticks: ticks, openGap: openGap,
     empty: arcs.length === 0 && ticks.length === 0,
+    // R11.2: ghosts are the PLAN, not records. A window holding only ghosts has no
+    // actual content, and the caption must say so rather than let a declared plan
+    // read as a logged day.
+    hasActual: arcs.some((a) => !a.ref) || ticks.some((t) => t.kind !== 'plan'),
+    hasGhost: arcs.some((a) => a.ref) || ticks.some((t) => t.kind === 'plan'),
+    // R11 addendum: FIRST-CONTACT surface, not an edge case. True only at zero
+    // records AND no declared regimen -- it yields the moment either exists.
+    instructional: !(arcs.some((a) => !a.ref) || ticks.some((t) => t.kind !== 'plan'))
+                && !(arcs.some((a) => a.ref) || ticks.some((t) => t.kind === 'plan')),
   };
 }
 
@@ -3824,6 +3858,9 @@ function rhythmModel(dateKey, opts) {
 // Concentric categorical bands. Colour is CATEGORY only (eat / sleep / exercise /
 // fast) -- never met/unmet, never a zone. Midnight at the top, clockwise.
 const RHYTHM_BANDS = { eat: 0.92, window: 0.92, sleep: 0.76, sleepplan: 0.76, exercise: 0.60, fast: 0.44, open: 0.44 };
+// R11.3: the centre tenant's bounding circle. The now-hand runs from the rim INWARD
+// and terminates here, so it never draws a line through the counter's text.
+const RING_CENTER_R = 0.46;
 function polarPt(cx, cy, r, deg) { const a = (deg - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
 function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
 function arcPath(cx, cy, r, d0, d1) {
@@ -3839,6 +3876,15 @@ function rhythmSVG(model, size, mini) {
   const S = size || 180, C = S / 2, R = C - 8;
   let out = '<svg class="rring" viewBox="0 0 ' + S + ' ' + S + '" aria-hidden="true">';
   out += '<circle class="rrbg" cx="' + C + '" cy="' + C + '" r="' + r2(R * 0.92) + '"/>';
+  // R11 addendum: the instructional ghost is GRAMMAR, NOT CONTENT. Each lane is
+  // drawn as a COMPLETE faint circle -- a full circle cannot be misread as an arc
+  // of logged time, so it names the lane without inventing a position, a duration
+  // or an example number. It renders only in the first-contact state.
+  if (model.instructional) {
+    ['eat', 'sleep', 'exercise'].forEach((k) => {
+      out += '<circle class="rrhint" cx="' + C + '" cy="' + C + '" r="' + r2(R * RHYTHM_BANDS[k]) + '"/>';
+    });
+  }
   if (!mini) {
     [0, 6, 12, 18].forEach((h) => {
       const [x, y] = polarPt(C, C, R * 0.99, minToDeg(h * 60));
@@ -3862,8 +3908,9 @@ function rhythmSVG(model, size, mini) {
     out += '<circle class="rk-eatdot" cx="' + r2(x) + '" cy="' + r2(y) + '" r="' + (mini ? 1.6 : 3) + '"/>';
   });
   if (model.nowMin != null) {
-    const [x, y] = polarPt(C, C, R * 0.36, minToDeg(model.nowMin));
-    out += '<line class="rrnow" x1="' + C + '" y1="' + C + '" x2="' + r2(x) + '" y2="' + r2(y) + '"/>';
+    const [xo, yo] = polarPt(C, C, R * 1.02, minToDeg(model.nowMin));
+    const [xi, yi] = polarPt(C, C, R * RING_CENTER_R, minToDeg(model.nowMin));
+    out += '<line class="rrnow" x1="' + r2(xo) + '" y1="' + r2(yo) + '" x2="' + r2(xi) + '" y2="' + r2(yi) + '"/>';
   }
   return out + '</svg>';
 }
@@ -3894,8 +3941,11 @@ function rhythmCenterHTML(model) {
   if (!model || !model.openGap) return '';
   const mins = num(model.openGap.sinceMin);
   const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
-  return `<div class="ringval rcenter"${tap}>` +
-    `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>` +
+  // R11.1: inside the fast-relevant range this is a stopwatch; past it, a date.
+  const body = (mins >= GAP_DATE_AFTER_MIN && model.openGap.sinceDate)
+    ? `<span class="rcsub">no food logged since</span><b class="rcdate">${esc(fmtDateSmart(model.openGap.sinceDate, false))}</b>`
+    : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>`;
+  return `<div class="ringval rcenter"${tap}>` + body +
     (pend.length ? `<span class="rcsub rctap">tap to resolve ${esc(pend.length)} pending</span>` : '') +
     `</div>`;
 }
@@ -4078,6 +4128,7 @@ window.HT = {
   // D35 — rhythm ring (Layer 2 Mirror)
   rhythmModel, rhythmSVG, rhythmCaptionHTML, goalRingBoxHTML, goalCellsHTML,
   rhythmCenterHTML, focusPendingResolve, clearResolveFocus, pendingFastCandidates, addIntervalWin,
+  gapLabel, GAP_DATE_AFTER_MIN, RING_CENTER_R, RHYTHM_BANDS,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,

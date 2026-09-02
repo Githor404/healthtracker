@@ -900,3 +900,14 @@ Bundles and **supersedes R1**; **R3's rationing note is recorded here**. Extends
 *Schema:* `sleep` is an **allowlist addition** to `normalizeRegimen` (a rebuild, like every other normalizer here) with a matching check at the `parseRegimen` authoring boundary. **No bump** — the `regimens` store already exists (D27's v4→v5 covered introducing it), and losing this field costs **two re-typed times, not a protocol**. Both boundaries gated.
 
 **5 — GUIDELINE TARGETS DO NOT DRAW ON THE DAY RING (standing prohibition).** Durations and weekly sums **have no clock position**, so placing them on a 24-hour face **fabricates a schedule the user never declared** — the same failure as an inferred arc, arriving by a different route. They belong in **Trends and the week view under D32** (sourced, cited, versioned, jurisdiction-aware): a sleep-duration guideline beside the sleep trend, a weekly-activity guideline in the week header. **A separate slice if wanted — not this one, and nothing here builds it.** This is recorded as a prohibition rather than a preference so a later slice cannot reach for the ring as the convenient surface.
+
+
+### Ring display rules (R11 addendum to D36, v0.12.1 — presentation only)
+
+**Graduated gap counter.** Under **48 h** (`GAP_DATE_AFTER_MIN`) the centre is a stopwatch; at or past it, a **date with no decimal**. A tenth of an hour on a 46-day gap is **fabricated precision**, which is the inferred-arc failure arriving by another route — so the counter stops offering precision it does not have. The pending-resolve tap line survives either form.
+
+**First-contact surface.** Zero records and no declared regimen draws an **instructional ghost**: complete, faint lane circles labelled *meals · sleep · exercise*, plus one quiet hint line. **Complete circles, never arcs** — a full circle cannot be misread as logged time. **Grammar, not content**: no fake data, no example numbers, gated as zero digits in caption and SVG. It yields the moment a record **or** a declared regimen exists, and with a regimen the ghost plan-arcs carry the window instead. **The bare circle is never the answer.**
+
+**Now-hand clears the centre tenant** — it runs rim-inward and terminates at the counter's bounding circle, measured against the text block rather than assumed.
+
+**De-duplication.** The legend never restates the centre: the open-gap line lives in the centre, the legend carries the pending-candidate resolve, and the open-gap arc still draws.

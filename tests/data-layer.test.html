@@ -2272,7 +2272,8 @@ window.setLS({});
   res(ME.empty===true && ME.arcs.length===0, 'RR-empty: a day with no records has an empty model');
   var esvg = HT.rhythmSVG(ME, 180);
   res(esvg.indexOf('<svg')===0 && /rrbg/.test(esvg), 'RR-empty: the ring still RENDERS (honest empty), never hidden');
-  res(/no records for this day yet/.test(HT.rhythmCaptionHTML(ME)), 'RR-empty: the caption says so plainly and implies nothing about intake');
+  res(/log food or sleep to draw your day/.test(HT.rhythmCaptionHTML(ME)) && !/\d/.test(HT.rhythmCaptionHTML(ME).replace(/<[^>]*>/g,'')),
+      'RR-empty: the caption states what to log and implies nothing about intake (no numbers at all)');
   freeClock();
 
   // RR-mini: the grid uses the same model at reduced detail, and navigates.
@@ -2437,6 +2438,92 @@ window.setLS({});
       'R8-vocab: still no zones or metabolic bands');
   var openLbl = (VM.openGap||{}).label||'';
   res(openLbl.indexOf('fast')<0, 'R8-vocab/D22: the OPEN gap label never contains "fast" in any form');
+  freeClock();
+
+  // ==========================================================================
+  // R11 — ring display rules. Presentation only; no logic change.
+  // ==========================================================================
+  // R11-counter: graduated gap label at the 48 h boundary.
+  setLS({}); HT.boot(); fixClock();                      // now = today 14:00
+  var d2 = HT.shiftDate(td, -2);
+  rrDay(d2, [rrFood('last','15:00')]);                   // 47 h before now
+  var C47 = HT.rhythmModel(td);
+  res(Math.round(C47.openGap.sinceMin)===2820, 'R11-counter: 47 h gap set up');
+  var c47txt = HT.rhythmCenterHTML(C47).replace(/<[^>]*>/g,' ').replace(/\s+/g,' ');
+  res(/47h/.test(c47txt) && /since last logged food/.test(c47txt) && c47txt.indexOf('no food logged since')<0,
+      'R11-counter: under 48 h the centre is a STOPWATCH — "47h since last logged food"');
+  setLS({}); HT.boot(); fixClock();
+  rrDay(d2, [rrFood('last','13:00')]);                   // 49 h before now
+  var C49 = HT.rhythmModel(td);
+  res(Math.round(C49.openGap.sinceMin)===2940, 'R11-counter: 49 h gap set up');
+  var c49 = HT.rhythmCenterHTML(C49);
+  res(/no food logged since/.test(c49), 'R11-counter: at or past 48 h the centre names a DATE, not a stopwatch');
+  res(c49.indexOf(HT.fmtDateSmart(d2,false))>=0, 'R11-counter: the date is the day of the last logged food');
+  res(/\d+\.\d/.test(c49.replace(/<[^>]*>/g,''))===false,
+      'R11-counter: NO decimal beyond the fast-relevant range — a tenth of an hour on a long gap is fabricated precision');
+  res(HT.GAP_DATE_AFTER_MIN===2880, 'R11-counter: the threshold is a surfaced constant (48 h)');
+  res(HT.gapLabel(2879, d2).indexOf('since last logged food')>=0 && HT.gapLabel(2880, d2).indexOf('no food logged since')===0,
+      'R11-counter: the boundary is exact — 2879 min is a stopwatch, 2880 min is a date');
+  res(/tap to resolve/.test(HT.rhythmCenterHTML(C49)) || HT.pendingFastCandidates().length===0,
+      'R11-counter: the pending-resolve tap line survives either form');
+
+  // R11-first: the instructional ghost is FIRST-CONTACT only.
+  setLS({}); HT.boot(); fixClock();
+  var F0 = HT.rhythmModel(td);
+  res(F0.instructional===true, 'R11-first: zero records and no declared regimen -> the instructional state');
+  var fsvg = HT.rhythmSVG(F0, 180), fcap = HT.rhythmCaptionHTML(F0);
+  res((fsvg.match(/rrhint/g)||[]).length===3, 'R11-first: three faint lane circles — grammar, not content');
+  res(fsvg.indexOf('<path')<0, 'R11-first: NO arcs are drawn — a complete circle can never be misread as logged time');
+  res(/meals/.test(fcap) && /sleep/.test(fcap) && /exercise/.test(fcap) && (fcap.match(/rkey/g)||[]).length===3,
+      'R11-first: all three lanes are labelled with their colour key, so the grammar is legible');
+  res(/log food or sleep to draw your day/.test(fcap), 'R11-first: and the hint line says what to do');
+  res(/\d/.test(fcap.replace(/<[^>]*>/g,''))===false && /\d/.test(fsvg.replace(/<[^>]*>/g,''))===false,
+      'R11-first: NEVER fake data and never an example number');
+  // yields the moment a record exists
+  rrDay(td, [rrFood('a','09:00')]);
+  res(HT.rhythmModel(td).instructional===false, 'R11-first: it disappears the moment a record exists');
+  // yields the moment a regimen is declared, even with zero records
+  setLS({}); HT.boot(); fixClock();
+  HT.state().settings.presets.push({id:'p1',name:'L',meal:'lunch',kcal:1,soluble_fiber_g:0});
+  HT.addRegimenFromJSON(JSON.stringify({name:'P',window:{start:'12:00',end:'20:00'},entries:[{kind:'food',time:'12:00',presetId:'p1'}]}));
+  var FG = HT.rhythmModel(td);
+  res(FG.instructional===false && FG.hasGhost===true && FG.hasActual===false,
+      'R11-first: with a regimen declared the GHOSTS carry the empty window instead');
+  res(HT.rhythmSVG(FG,180).indexOf('rrhint')<0, 'R11-first: and the instructional ghost is gone');
+
+  // R11-hand: the hand terminates at the counter's bounding circle.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(td, [rrFood('a','09:00')]);
+  var hsvg = HT.rhythmSVG(HT.rhythmModel(td), 180);
+  var hm = /<line class="rrnow" x1="([-\d.]+)" y1="([-\d.]+)" x2="([-\d.]+)" y2="([-\d.]+)"/.exec(hsvg);
+  res(!!hm, 'R11-hand: the now-hand renders');
+  var cx=90, cy=90, Rr=82;
+  var r1=Math.sqrt(Math.pow(parseFloat(hm[1])-cx,2)+Math.pow(parseFloat(hm[2])-cy,2));
+  var r2i=Math.sqrt(Math.pow(parseFloat(hm[3])-cx,2)+Math.pow(parseFloat(hm[4])-cy,2));
+  var inner=Math.min(r1,r2i), outer=Math.max(r1,r2i);
+  res(inner > 1, 'R11-hand: it no longer starts at the centre point');
+  res(Math.abs(inner - Rr*HT.RING_CENTER_R) < 1.0,
+      'R11-hand: it TERMINATES at the counter bounding circle (RING_CENTER_R) — no line through text');
+  res(outer > Rr*0.9, 'R11-hand: and runs out to the rim, so now is still legible');
+
+  // R11-dedupe: the legend never restates the centre.
+  setLS({}); HT.boot(); fixClock();
+  rrDay(HT.shiftDate(td,-1), [rrFood('x','08:00')]); rrDay(td, [rrFood('y','09:00')]);
+  var DM = HT.rhythmModel(td);
+  var dcap = HT.rhythmCaptionHTML(DM), dctr = HT.rhythmCenterHTML(DM);
+  res(dctr.indexOf('since last logged food')>=0, 'R11-dedupe: the centre carries the open-gap line');
+  res(dcap.indexOf('since last logged food')<0, 'R11-dedupe: the legend does NOT restate it');
+  res(DM.arcs.filter(function(a){return a.kind==='open';}).length===1,
+      'R11-dedupe: the open-gap ARC still draws — only its legend row was dropped');
+  res(/resolveFastAt/.test(dcap) || HT.pendingFastCandidates().length===0,
+      'R11-dedupe: the legend carries the pending-candidate line instead');
+
+  // R11-vocab: M7 + D22 over every new string.
+  var r11text = (dcap + ' ' + dctr + ' ' + fcap + ' ' + HT.rhythmCenterHTML(C49) + ' ' + HT.gapLabel(9999, d2)).toLowerCase();
+  var r11banned = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  var r11hit = r11banned.filter(function(w){ return r11text.indexOf(w)>=0; });
+  res(r11hit.length===0, 'R11-vocab: M7 holds over every new string' + (r11hit.length?(' ['+r11hit.join(',')+']'):''));
+  res(r11text.indexOf('fasting')<0, 'R11-vocab/D22: still no "fasting" anywhere on the gap surfaces');
   freeClock();
 
   // ==========================================================================

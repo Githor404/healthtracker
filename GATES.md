@@ -838,3 +838,31 @@ The clock-seam gate **re-runs at the new value automatically**, because the case
 **Real-page smoke:** `{"rangeLabel":"last 24 h","centre":"14.1h since last logged food","hasSleepPlanGhost":true,"hasPlanTick":true,"hasSolidSleep":true,"noFastingWord":true,"live":true,"miniIsArchival":true,"schema":5}` — and the smoke showed **no eating arc**, correctly: at the real wall-clock time yesterday's dinner had already aged past the hand, leaving one food in the window.
 
 **Status: MET.**
+
+### Ring display rules (R11) — v0.12.1, presentation only
+
+**1 — Graduated gap counter.** Under **48 h** the centre is a stopwatch (*"47h since last logged food"*); at or past it, a **date** (*"no food logged since Aug 30"*) with **no decimal**. **48 h is the constant** (`GAP_DATE_AFTER_MIN`), chosen because two full days is past any fast this app models and is where "hours since" stops being a number anyone uses. A tenth of an hour on a 46-day gap is **fabricated precision** — the inferred-arc failure arriving by a different route. The pending-resolve tap line survives either form.
+
+**2 + addendum — First-contact surface, not an edge case.** With zero records and no declared regimen the ring draws an **instructional ghost**: three **complete, faint lane circles** labelled *meals · sleep · exercise*, plus the line *"log food or sleep to draw your day."* **Complete circles, never arcs** — a full circle cannot be misread as a stretch of logged time, so it names the lane without inventing a position, a duration or an example number. **Grammar, not content: no fake data, no example numbers** (gated: zero digits in both caption and SVG). It **yields the moment either a record or a declared regimen exists** — with a regimen, the **ghost plan-arcs** carry the empty window instead.
+
+**3 — The now-hand clears the centre.** It runs from the rim **inward** and terminates at `RING_CENTER_R` (0.46·R = 37.7 units), just outside the centre block's 36-unit half-width — measured, not assumed. **No line through text.**
+
+**4 — De-duplicated.** The open-gap row is **dropped from the legend** (the centre carries it); the legend carries the **pending-candidate line with its resolve** instead. The open-gap **arc still draws** — only its legend row went.
+
+| Case | Asserts |
+|---|---|
+| R11-counter | 47 h → stopwatch, 49 h → date naming the last-logged day; **no decimal past the threshold**; the boundary is exact at 2879/2880 min; the threshold is a surfaced constant |
+| R11-first | the instructional ghost renders **only** at zero records **and** no declared regimen: three lane circles, **no `<path>` at all**, labelled, **zero digits anywhere**; **disappears the moment either a record or a regimen exists** |
+| R11-hand | the hand no longer starts at the centre point, **terminates at the counter bounding circle**, and still reaches the rim |
+| R11-dedupe | the centre carries the open-gap line and the **legend does not restate it**; the open-gap **arc survives**; the legend carries the pending line |
+| R11-vocab | **M7 + D22** over every new string; no "fasting" on any gap surface |
+
+**One copy choice, surfaced:** the ruling's example label was *"exercise draw here"*. Rendered, the three keyed labels read as one run-on and the trailing phrase attached only to the third lane, while the hint line already says *"to draw your day"*. The labels are therefore **meals · sleep · exercise**, each with its colour key, and the "draw here" meaning is carried by the hint line.
+
+**Count delta: 635 → 663** (+28). `bash tests/run-data-layer.sh` → **663/663 ALL PASS**, `executed 663 · pinned 663`. The pin again failed the gate at +28 until re-pinned deliberately.
+
+`ring-size` (band 20.8 px = 6.7% of ring) · `chip-layout` · `lab-form` · `offline` · `update` · `precache` · `sw-hash` · `zxing` · `version` (0.12.0 → **0.12.1**) · `writesites` all green.
+
+**Real-page smoke** — first contact, then after one log: `{"firstContact_hintCircles":3,"firstContact_noArcs":true,"firstContact_noDigits":true,"afterLog_hintGone":true,"afterLog_centre":"13.5h since last logged food","afterLog_captionRestates":false,"handInner":37.7,"handOuter":83.6}`.
+
+**Status: MET.**
