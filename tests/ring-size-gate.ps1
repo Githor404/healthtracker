@@ -38,9 +38,13 @@ $MIN_RATIO = 70     # percent of viewport width the ring must occupy on a phone
 # derived from the single-lane design where one stroke was 6.7 % of the diameter.
 # Seven-then-four lanes cannot each be 5 % of the ring. The ruled sizes are ~12 px
 # anchors and ~14 px practice, so those are what is asserted, in pixels.
-# R18.1: the meals lane must never read as a full ring. 97% of the circumference
-# leaves ~11 minutes of visible gap, which no one reads as a gap.
-$EAT_MAX_PCT     = 97
+# R18.2: 97% was the wrong bar and this gate passed the reported defect at 91.7%.
+# The rule the fix implements is figure-and-ground, so the gate asserts THAT: no
+# single arc past HALF the lane (past half, the eye reads the remainder as the
+# mark), and the lane's total draw under 60% so the dots stay the loudest thing
+# on it. Measured on the reported shape: one meal cluster, ~21 h ago, nothing since.
+$EAT_MAX_PCT     = 60
+$EAT_MAX_ONE_PCT = 50
 $MIN_BAND_PX     = 11     # absolute, at the 390 pt reference width
 $MIN_BAND_MAX_PX = 13
 # Strokes scale with the ring, so a smaller phone renders proportionally thinner
@@ -194,10 +198,11 @@ $contrast = "(function(){" +
 # yesterday evening, NOTHING logged today, and an older meal leaving an unresolved
 # gap behind them. Then it measures what is actually drawn.
 $seedSparse = "(function(){try{localStorage.clear();" +
-  "HT.setClock(function(){return new Date(2026,8,3,0,30,0).getTime();});HT.boot();" +
+  "HT.setClock(function(){return new Date(2026,8,3,16,0,0).getTime();});HT.boot();" +
+  # 16:00, so the last meal is ~21 h back: the shape that was STILL drawing a
+  # ring with a notch after 0.16.2, and the reason this seed is not milder.
   "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
-  "HT.state().days['2026-08-30']={status:'open',items:[mk('a','12:00',500)],water_l:0};" +
-  "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600),mk('b','18:48',300)],water_l:0};" +
+    "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600),mk('b','18:48',300)],water_l:0};" +
   "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
 
 # Rendered coverage of the meals lane: summed arc length against the lane's own
@@ -327,7 +332,7 @@ try {
 
   $E = Measure-Sparse 390 745
   # A mostly-empty meals lane must not read as a ring: the dots carry the day.
-  $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.dots -ge 2)
+  $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.maxPct -lt $EAT_MAX_ONE_PCT) -and ($E.dots -ge 2)
 
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
   Write-Host ("  phone 390x745 : ring={0}px ({1}% of vw) band={2}-{3}px cells-above={4} legend-above={5} -> {6}" -f `
@@ -339,7 +344,7 @@ try {
   Write-Host ("  thresholds    : ring >= {0}% of vw; arc bands >= {1}/{2}px at 390 and >= {3}/{4}% of ring everywhere; checklist, + Log, goal cells and legend above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_MAX_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
   Write-Host ("  sparse meals  : eat-lane paths={0} dots={1} drawn={2}% of the lane (largest {3}%) -> {4}" -f `
     $E.paths, $E.dots, $E.sumPct, $E.maxPct, $E_ok)
-  Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference and keeps its meal dots" -f $EAT_MAX_PCT)
+  Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference, no single arc past {1}%, and keeps its meal dots" -f $EAT_MAX_PCT, $EAT_MAX_ONE_PCT)
   Write-Host "-----------------------------------------"
 
   Write-Host ("  mini grid     : {0} rings at {1}px, {2}/row, overlaps={3} spill={4} detached-labels={5} -> {6}" -f `

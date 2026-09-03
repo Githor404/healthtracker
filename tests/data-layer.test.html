@@ -3098,21 +3098,65 @@ window.setLS({});
       'R181-eatring CONTROL: unsuppressed, those three arcs TILE the whole lane -- this case really does reproduce the defect');
   res(HT.eatCoverage(eatB.filter(function (a) { return !a.suppressed; })) < HT.EAT_FULL_FRAC,
       'R181-eatring: as drawn, the meals lane is NEVER fully covered');
+  // Repointed by R18.2: the rule is now per-arc figure-and-ground, so at 00:30 the
+  // 263-degree fast candidate is withheld while the 86-degree trailing gap still
+  // DRAWS -- at that size it reads as a gap, which is the whole point of drawing it.
   res(eatB.filter(function (a) { return a.kind === 'fast' && a.suppressed; }).length === 1 &&
-      eatB.filter(function (a) { return a.kind === 'open' && a.suppressed; }).length === 1,
-      'R181-eatring: the NEGATIVE SPACE is what is withheld -- the gap arcs');
+      eatB.filter(function (a) { return a.kind === 'open' && !a.suppressed; }).length === 1,
+      'R181-eatring: the oversized negative space is withheld and the readable gap is kept');
   res(eatB.some(function (a) { return a.kind === 'eat' && !a.suppressed; }),
       'R181-eatring: the real eating-window arc still draws -- suppression is not a blanket');
   res(MB.ticks.filter(function (t) { return t.lane === 'eat'; }).length === 2,
       'R181-eatring: the meal ticks survive -- a sparse day renders as dots at meal times');
   var svgB = HT.rhythmSVG(MB, 180);
-  res(svgB.indexOf('ra-fast') < 0 && svgB.indexOf('ra-open') < 0,
-      'R181-eatring: and NOTHING is drawn for the suppressed arcs');
+  res(svgB.indexOf('ra-fast') < 0 && svgB.indexOf('ra-open') >= 0,
+      'R181-eatring: nothing is drawn for the suppressed arc, and the kept one is');
   res(HT.rhythmCaptionHTML(MB).indexOf('fasted') >= 0 && HT.rhythmCaptionHTML(MB).indexOf('ate') >= 0,
       'R181-eatring: the pending candidate KEEPS its resolve buttons -- suppression withholds the drawing, not the record');
   res(HT.state().days['2026-09-02'].items.length === 2 && HT.state().days['2026-08-30'].items.length === 1 &&
       HT.state().days['2026-09-02'].items[0].kcal === 600,
       'R181-eatring: RENDER-ONLY -- every meal record is untouched');
+
+  // R182-gapsweep: THE CASE THE FIRST PASS MISSED. 0.16.2 measured the UNION at
+  // 97% and shipped -- but the COMMON shape is a single trailing gap, and at
+  // 20-22 h that draws 300-330\u00b0: a ring with a notch, which is what the device
+  // kept showing after the "fix". The boundary is figure and ground, not
+  // closeness to 360, so the sweep is gated across the whole range rather than at
+  // one point.
+  [[6, true], [10, true], [11.9, true], [12.1, false], [14, false], [18, false], [20, false], [22, false]].forEach(function (cs) {
+    var H = cs[0], shouldDraw = cs[1];
+    setLS({}); HT.boot();
+    var NOW182 = new Date(2026, 8, 3, 18, 0, 0).getTime();
+    FIXED = NOW182; fixClock();
+    var last = new Date(NOW182 - H * 3600000);
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    var dk = last.getFullYear() + '-' + pad(last.getMonth() + 1) + '-' + pad(last.getDate());
+    rrDay(dk, [rrFood('m', pad(last.getHours()) + ':' + pad(last.getMinutes()), 500)]);
+    var M182 = HT.rhythmModel(HT.state().current);
+    var gaps = M182.arcs.filter(function (a) { return a.lane === 'eat' && a.kind === 'open'; });
+    res(gaps.length === 1, 'R182-gapsweep: ' + H + 'h leaves exactly one trailing gap in the model');
+    res((!gaps[0].suppressed) === shouldDraw,
+        'R182-gapsweep: a ' + H + 'h gap ' + (shouldDraw ? 'DRAWS -- under half the lane it reads as a gap'
+                                                         : 'is WITHHELD -- past half the lane it reads as a ring'));
+    res(HT.rhythmCenterHTML(M182).indexOf('since last logged food') >= 0,
+        'R182-gapsweep: and at ' + H + 'h the centre states the hours either way -- the information never depends on the arc');
+    res(M182.ticks.filter(function (t) { return t.lane === 'eat'; }).length === 1,
+        'R182-gapsweep: the meal dot survives at ' + H + 'h');
+  });
+  FIXED = new Date(td + 'T14:00:00').getTime(); fixClock();
+
+  // R182-boundary: the rule is figure-and-ground, and it is asymmetric BY DESIGN.
+  var gap182 = [{ lane: 'eat', cat: 'eat', kind: 'open', startMin: 0, endMin: 720, label: 'x' }];
+  HT.suppressFullEatLane(gap182);
+  res(gap182[0].suppressed === true, 'R182-boundary: a gap at exactly half the lane is withheld');
+  var gap182b = [{ lane: 'eat', cat: 'eat', kind: 'open', startMin: 0, endMin: 719, label: 'x' }];
+  HT.suppressFullEatLane(gap182b);
+  res(!gap182b[0].suppressed, 'R182-boundary: one minute under half, it still draws');
+  var pos182 = [{ lane: 'eat', cat: 'eat', kind: 'eat', startMin: 0, endMin: 840, label: 'x' }];
+  HT.suppressFullEatLane(pos182);
+  res(!pos182[0].suppressed,
+      'R182-boundary: a POSITIVE eating-window arc past half is EXEMPT -- it has two real meal times with ticks at both ends, and shortening it would be the lie');
+  res(HT.EAT_GAP_MAX_FRAC === 0.5, 'R182-boundary: the boundary is a surfaced constant');
 
   // R181-eatring: the single-arc rule, kind-independent (the 0.13.1 case, generalised).
   var solo181 = [{ lane: 'eat', cat: 'eat', kind: 'eat', startMin: 0, endMin: 1439, label: 'x' }];

@@ -1282,3 +1282,26 @@ Also fixed: `photo-lead-gate` was first written with `ring-size-gate`'s ports (8
 **Count delta: 924 → 968** (+44). `bash tests/run-data-layer.sh` → **968/968 ALL PASS**, `executed 968 · pinned 968`. Thirteen gates green; `version` 0.16.1 → **0.16.2**.
 
 **Status: MET — awaiting review.**
+
+
+---
+
+### R18.2 — the gap bound corrected (D43) — v0.16.3
+
+Reported after 0.16.2 shipped: **the meals ring was still the same.** It was.
+
+| Case | Result |
+|---|---|
+| R182-gapsweep | eight positions from 6 h to 22 h: a gap **under** half the lane draws, one **past** it is withheld, **the centre states the hours either way**, and the meal dot survives at every point |
+| R182-boundary | withheld at exactly half, drawn one minute under; a **positive** eating-window arc past half is **exempt**; the boundary is a surfaced constant |
+| R181-eatring | **repointed** — at 00:30 the 263° fast candidate is withheld while the 86° trailing gap still **draws**, because at that size it reads as a gap |
+
+**`ring-size-gate` repointed and re-seeded.** Its sparse case asserted `< 97%` and **passed the reported defect at 91.7%** — the gate agreed with the bug. It now asserts the rule the fix implements (no single arc past **50%**, total under **60%**), and its seed was narrowed to the reported shape: the wider seed carried an older meal whose fast candidate pushed the union to 100%, so **D42's rule already handled it and the case could not have proven D43's**.
+
+**Proven against the defect, both ways.** With the D42 rule restored the sparse case reads `paths=2 dots=2 drawn=91.7% (largest 88.3%)` → **FAIL**; with D43, `paths=1 dots=2 drawn=3.3%` → **PASS**.
+
+**A gate caught the author again.** `VN3` failed on a **duplicated 0.16.3 changelog line** left by a restore script — the fresh-install notice would have shown the same line twice. Caught before commit by the invariant that a fresh install shows exactly one line.
+
+**Count delta: 968 → 1004** (+36). `bash tests/run-data-layer.sh` → **1004/1004 ALL PASS**, `executed 1004 · pinned 1004`. Thirteen gates green, collected one CDP gate at a time.
+
+**Status: MET — awaiting review.**

@@ -1138,3 +1138,36 @@ Each is set just past a long-but-real session of that practice. `LANE_ACTIONS` a
 ### The 152-minute red-light record
 
 **Deletable, with undo, and the undo restores it byte-identical** — verified end to end (record → rendered row with its delete affordance → delete → undo). **There is no edit-in-place for a timeline record:** the correction path is delete and re-log. Stated rather than implied, because "editable" and "deletable" are different promises.
+
+
+## D43 — The meals-lane gap is bounded by FIGURE AND GROUND, not by closeness to 360° (R18.2, 2026-09-03)
+
+`APP_VERSION → 0.16.3`; **schema unchanged at v5**. This corrects D42's fix, which was right about the mechanism it found and wrong about the boundary — the defect was still on the device after 0.16.2 shipped.
+
+### What D42 missed
+
+D42 measured **union coverage** at `EAT_FULL_FRAC = 0.97` and proved it against the union case it had reproduced. But **the common shape is a single trailing gap**, and a sweep of hours-since-last-meal shows what that draws:
+
+| hours since last meal | drawn under D42 |
+|---|---|
+| 6 h | gap 90° |
+| 14 h | gap 210° |
+| 18 h | gap 270° |
+| **20–22 h** | **gap 300–330° — a ring with a notch** |
+| ≥ 23 h | suppressed |
+
+Ate yesterday evening, look at it this evening: **20–22 hours, and the lane is a ring**. The union rule never fired because a lone gap plus a 12° eating window is 91.7%, comfortably under 0.97. **0.97 was a number chosen to describe the one case in hand, not the property being protected.**
+
+### The rule
+
+**`EAT_GAP_MAX_FRAC = 0.5`.** A negative-space arc (`open`, `fast`) draws only while it is **under half the lane**. The boundary is **figure and ground**: past half, the eye stops reading the arc as the gap and starts reading the **remainder** as the mark — so an oversized gap arc says the opposite of what it means. Under half it reads as a gap and is genuinely useful, which is why it is kept rather than removed outright.
+
+**The information never depended on the arc.** `rhythmCenterHTML` states the gap in words unconditionally — *"22h since last logged food"*, or a date past 48 h — whether or not anything is drawn. Gated at every point in the sweep.
+
+**Positive arcs are exempt, deliberately.** An eating window that really did span 14 h is two real meal times with **ticks at both ends**; shortening it would be the lie. A gap has no such endpoints — its far edge is just *now*. The full-lane rule (`EAT_FULL_FRAC`) still applies to any arc of any kind, and the union rule still guards arcs that are each under their own limit yet together tile the lane.
+
+### The lesson, recorded
+
+**A threshold set from the single case in hand is a threshold that fits that case.** D42's reproduction was real and its mechanism was real, and that made the number feel earned when it was not. The check that would have caught it — and now exists — is to **sweep the parameter rather than assert at one point**: `R182-gapsweep` gates eight positions from 6 h to 22 h, so the boundary itself is under test, not just one side of it.
+
+The rendered gate had the same flaw: `ring-size-gate`'s sparse case asserted `< 97%` and **passed the reported defect at 91.7%**. It now asserts the rule the fix implements — no single arc past **half** the lane, total draw under 60% — and its seed was narrowed to the reported shape, because the wider seed included an older meal whose fast candidate pushed the union to 100% and let D42's rule handle it. **A gate seeded so that the old rule already passes cannot prove the new one.**

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.16.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.16.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3460,6 +3460,7 @@ const VERSION_LOG = [
   { v: '0.16.0', note: 'Photo meals: send the new template to your assistant with a photo, paste the reply, then correct the one portion you know best \u2014 the rest rescale with it. Nothing is saved until you say so, and your assistant is only ever asked once.' },
   { v: '0.16.1', note: 'Photo meals now open with one question \u2014 the biggest item\u2019s estimate, to confirm with a tap or correct if you know better. Everything else rescales from your answer.' },
   { v: '0.16.2', note: 'Fixes: the meals ring no longer draws a full circle when a day has little logged food \u2014 the meal dots and the pending gap carry it instead. And a practice left switched on now asks when it ended much sooner: red light after 40 minutes, sauna 45, meditation an hour. It still never guesses an end time.' },
+  { v: '0.16.3', note: 'Fix: a long stretch with no food logged no longer sweeps most of the meals ring \u2014 past half a circle it stops reading as a gap, so the ring keeps your meal dots and the centre states the hours instead.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4245,6 +4246,15 @@ function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
 // EAT_FULL_FRAC is deliberately just under 1: at 97% of the circle the remaining
 // wedge is ~11 minutes of arc, which no one reads as a gap -- it reads as a ring.
 const EAT_FULL_FRAC = 0.97;
+// R18.1 (second pass): 0.97 was measured against the UNION and missed the common
+// case entirely. A single trailing gap of 20-22 h draws 300-330 deg -- a ring with
+// a notch in it, which is what the device kept showing. The boundary is not "how
+// close to 360" but FIGURE AND GROUND: past half the lane the eye stops reading
+// the arc as the gap and starts reading the REMAINDER as the mark, so a gap arc
+// that big says the opposite of what it means. Under half it reads as a gap and
+// is genuinely useful; over half the centre tenant carries it in words -- which it
+// already does, unconditionally, whether or not the arc is drawn.
+const EAT_GAP_MAX_FRAC = 0.5;
 const EAT_GAP_KINDS = ['open', 'fast'];      // the lane's negative space
 function eatCoverage(arcs) {
   const seen = new Uint8Array(MIN_PER_DAY);
@@ -4258,10 +4268,18 @@ function eatCoverage(arcs) {
 }
 function suppressFullEatLane(arcs) {
   const full = EAT_FULL_FRAC * MIN_PER_DAY;
+  const gapMax = EAT_GAP_MAX_FRAC * MIN_PER_DAY;
   const mine = arcs.filter((a) => a.lane === 'eat' && !a.ref && !a.suppressed);
-  // (i) any single arc that fills the lane on its own
+  // (i) any single arc that fills the lane on its own, whatever its kind
   mine.forEach((a) => { if (a.endMin - a.startMin >= full) a.suppressed = true; });
-  // (ii) the union case -- legal arcs that together tile it
+  // (ii) a NEGATIVE-SPACE arc past half the lane. Positive arcs are exempt: an
+  // eating window that really did span 14 h is two real meal times with ticks at
+  // both ends, and shortening it would be the lie. A gap has no such endpoints --
+  // its far edge is just "now".
+  mine.forEach((a) => {
+    if (EAT_GAP_KINDS.indexOf(a.kind) >= 0 && a.endMin - a.startMin >= gapMax) a.suppressed = true;
+  });
+  // (iii) the union case -- arcs each under their own limit that together tile it
   const live = mine.filter((a) => !a.suppressed);
   if (eatCoverage(live) >= EAT_FULL_FRAC)
     live.forEach((a) => { if (EAT_GAP_KINDS.indexOf(a.kind) >= 0) a.suppressed = true; });
@@ -5025,7 +5043,7 @@ window.HT = {
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
-  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
+  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, EAT_GAP_MAX_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
