@@ -634,7 +634,7 @@ Byte-identity (D27 Pin 2) is preserved **by construction**: the offset is stampe
 
 The sweep enumerates **every write site**, not just the obvious record creators, and asserts each is **stamped** or **deliberately exempt with a stated reason** — so **a future write site cannot silently join unstamped**. Enforced statically by `tests/check-writesites.sh` (the `check-sw-hash` / strip-check idiom): a write site not in the manifest **fails the gate**.
 
-**STAMPED (7):** `addManualEntry` · `buildPresetItem` (manual `logPreset` **and** regimen food instantiation) · `buildScanItem` · `buildSupplementItem` (day-rollover injection **and** enable-time injection) · `addSignal` (chips, signal form, medication form, `logBP`, regimen med/event instantiation) · `addPriceEntry` · `resolveFast`.
+**STAMPED (8):** `photoSave` (R6, added 2026-09-02 — the census flagged it as unregistered on its first run, which is the mechanism working) · `addManualEntry` · `buildPresetItem` (manual `logPreset` **and** regimen food instantiation) · `buildScanItem` · `buildSupplementItem` (day-rollover injection **and** enable-time injection) · `addSignal` (chips, signal form, medication form, `logBP`, regimen med/event instantiation) · `addPriceEntry` · `resolveFast`.
 
 **DELIBERATELY EXEMPT, with reason:**
 - `toAiPasteItem` / `ingestItems` / `ingestFullDays` / `restore` / all `migrateV*` — **Pin 3**: foreign or historical data; preserve, never invent.
@@ -1029,3 +1029,40 @@ R16 built the contract generically but wired **only sleep**. R18 fills it in. `A
 **`boot()` took a same-version blob AS-IS and never ran `normalizeSettings`** — it patched settings with **ad-hoc per-key guards** for `fasting` (D22) and `nudges` (D25) only. So **every settings-side allowlist addition since D18 applied on RESTORE but never on BOOT**: `currency`, `signalUnits`, `primaryNutrient`, `sleepOpen`. It went unnoticed because each is read defensively with a fallback — **until one needed a real migration**, and the `sleepOpen → laneOpen` fold silently did not happen for the ordinary boot path.
 
 **Boot now normalizes settings exactly as restore does**, and the two ad-hoc guards are subsumed and removed. Gated directly: after boot, the settings key set equals the default shape's. The general lesson is the one the assertion-count pin taught in another form — **a defensive read hides a missing normalization until something needs it to have run.**
+
+
+## D40 — The photo-meal slice (R6; Phase-4, 2026-09-02)
+
+Photo → **the user's own assistant** (copy template / paste JSON, the D11 flow; **no BYOK, no in-app calls, consulted exactly once per meal**) → a local **draft** → anchor by slider → save. **All recalibration is client-side arithmetic; there is never a second round trip.** `APP_VERSION → 0.16.0`; **schema unchanged at v5**.
+
+**Cost declaration, recorded with the slice:** this build defers the lab-panel entry and curriculum voice pass (~1 week of queue), and assumes capture accuracy matters pre-distribution at a user base of one — justified because the correction-loop data it accumulates (`ai_grams` vs accepted) **only compounds with time**, so starting earlier is structurally better regardless of distribution timing.
+
+### Template v3
+
+`AI_TEMPLATE_VERSION` **2 → 3**, because the item contract changes. Per item: `name`, `grams`, **per-100 g macros only**, `scale_linked` (default **true**), and `dominance` ranked by the user's **declared** `primaryNutrient` — which D35's conflict-(ii) addendum made declarable **precisely so this slice could read it**. The template ships that nutrient inline, so the model ranks by what this user actually tracks.
+
+**D8 holds absolutely: no micros from the photo path**, ever. Micros arrive later from the knowledge-layer corpus, keyed off identification. And **saved items stay `source: 'ai-paste'` at `eyeballed` confidence** — anchoring improves an estimate; **it does not make it weighed**. Both gated.
+
+### The two rails
+
+**SCALE.** Correcting an item's grams **pins** it. `r_i = user_grams / ai_grams`; the shared correction is **`R = exp(mean(ln r_i))`, the geometric mean recomputed from the FULL pinned set on every change** — so **order-independence is a property of the construction, not of luck** (gated: pin A then B is bit-identical to pin B then A). Unpinned `scale_linked` items display `ai_grams × R`; **non-`scale_linked` items never move**.
+
+**Divergence.** If `max(r_i)/min(r_i) > DIVERGE_MAX` (1.5, surfaced), **propagation stops** and unpinned items read *"estimates don't share a scale — adjust individually."* **Fabricating a mean across disagreeing pins is prohibited** — the same refusal as inferring an arc, applied to arithmetic.
+
+**IDENTITY.** A name re-pick swaps the **per-100 g profile**, **keeps the anchored grams**, and **recomputes that item only**. **Identity corrections never propagate** — shared-scale is a **geometry hypothesis, not an identity one** (gated). A pinned item **stays pinned**, and its ratio still holds because it is measured against the **original** `ai_grams`.
+
+### Storage and staging, as ruled
+
+**Four additive optional item fields** — `ai_grams`, `ai_identity`, `pinned`, `mealId` — as explicit `normalizeItem` allowlist entries (the `tzo` / `panelId` pattern). **No bump**: on D29's asymmetry test, losing them degrades a **future calibration input**, not authored content. All four round-trip export→restore, and a saved photo-meal item is **byte-identical to a manual item plus exactly those fields** (gated).
+
+**A dedicated staging path.** `ingest()`'s four shapes are untouched; the paste produces a **draft** and **records are written only on Save**. A draft **deliberately does not persist** — unlike R16's open segment, it is one paste away from being recreated, and persisting it would put a non-record in the store for no gain.
+
+**Saving with nothing pinned is allowed** — every item rides the raw estimate. **Reopen by `mealId`** restores the same widget; re-saving **replaces that meal's items only**, never another meal, and undo covers it.
+
+**The correction loop is RETENTION ONLY.** `(ai_grams vs accepted)` and `(ai_identity vs accepted)` persist; **nothing computes from them in this slice**. Personal calibration is a named future slice.
+
+### Residuals — named as the immediate follow-up, with the reason
+
+Post-slider quick-add for oils, butter and sauces is **deferred rather than built**, and not for cost: shipping per-100 g constants for them would **introduce unsourced nutrition data into the one path D8 keeps most tightly bounded**. The honest source is the knowledge-layer corpus, which is explicitly out of scope here. Sourcing it from the user's own presets would be honest but dead on arrival, since presets ship empty. **It is the immediate follow-up, once there is a sourced place for the numbers to come from.**
+
+**Out of scope, as ruled:** micros (knowledge layer), BYOK, the fast-food declared tier, and regimen auto-matching (suggest-then-confirm per D27, deferrable).

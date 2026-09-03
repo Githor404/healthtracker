@@ -43,6 +43,7 @@ logPreset
 logRegimenEntry
 logScanItem
 maybeInjectSupplement
+photoSave
 priceComparison
 resolveFast
 setFulfillment

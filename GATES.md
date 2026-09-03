@@ -1170,4 +1170,25 @@ Photo → **the user's own AI** (copy template / paste JSON — the existing D11
 - **A missing `scale_linked` coerces to `true`** at the paste boundary, per the ruled default.
 - **A pinned item that has its identity swapped stays pinned**, and its `r_i` is unchanged — identity keeps the anchored grams, so the ratio against the original `ai_grams` still holds.
 
-**Status: PRE-REGISTERED — the spec message was TRUNCATED mid-sentence after the divergence rule, so Forks A and B (storage shape and ingest/staging) may already be answered in the unsent tail. Stopped for that tail rather than guessing the data layer.**
+#### Evidence (tail received; Forks A and B ruled as argued; built 2026-09-02)
+
+| Case | Result |
+|---|---|
+| R6-template | the shipped sample **parses clean through the real parser**; items order by dominance; the template ships the **declared primary nutrient** inline and follows it when it changes; a **v2-shaped paste is rejected with a specific message**, never read as v3; prose is rejected; a missing `scale_linked` coerces to the ruled default |
+| R6-math | one pin makes R its own ratio; unpinned `scale_linked` items follow; **non-`scale_linked` never move**; a pinned item keeps exactly what the user set; **R is the geometric mean** and **pin-A-then-B is bit-identical to pin-B-then-A**; past `DIVERGE_MAX` propagation **stops** rather than fabricating a mean |
+| R6-identity | the profile swaps, the **anchored grams are kept**, the pin survives with **its ratio intact against the original `ai_grams`**, that item alone recomputes, and it **never propagates** |
+| R6-save | records written **only** on save; D8 holds (`ai-paste`, `eyeballed`, **no micros**); all four fields stored; **byte-identical to a manual item plus exactly those fields** |
+| R6-roundtrip | all four fields **export and restore exact**; coerced at the boundary; **schema unchanged at 5** |
+| R6-unanchored | saving with nothing pinned is allowed and every item rides the raw estimate |
+| R6-revise | reopen by `mealId` restores the widget **with its pins**; re-save **replaces that meal only**, never another; undo covers it |
+| R6-vocab | **M7** over the draft surface and the template |
+
+**The write-site census earned its keep again.** `photoSave` was flagged **unregistered on its first run** and is now classified **stamped** in D29 — the third slice where that mechanism has caught a new write site before it could join unstamped.
+
+**A gate that could not fail, caught by its own control.** `R6-vocab` first tripped on `on track` — matched inside "nutriti**on track**er". The term was **not dropped**; the matcher was tightened to word boundaries. The first two attempts at that produced `'\b'` in a JS string, which is a **backspace character, not a word boundary** — a regex that can never match, i.e. a vacuous test that reads as a pass. It was caught only because I added a **planted control** asserting the matcher catches a known-bad string. The final matcher uses no backslashes at all. **The control stays.**
+
+**Count delta: 836 → 891** (+55). `bash tests/run-data-layer.sh` → **891/891 ALL PASS**, `executed 891 · pinned 891`. All eleven gates green; `version` 0.15.0 → **0.16.0**.
+
+**Real-page smoke** (paste → pin → save): `{"paste":true,"rows":2,"beforePin":200,"afterPin":400,"sharedR":2,"note":"1 pinned · others scaled ×2","saved":true,"fields":{"ai_grams":150,"ai_identity":"Grilled chicken breast","pinned":true,"mealId":true},"confidence":"eyeballed","source":"ai-paste","micros":true,"templateVersion":3,"schema":5}` — a 150 g estimate corrected to 300 g rescales the 200 g salad to 400 g, exactly R = 2.
+
+**Status: MET — awaiting review.**

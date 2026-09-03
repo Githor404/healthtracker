@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.15.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.16.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -200,6 +200,18 @@ function normalizeItem(it, clampMacros) {
   if (micros) out.micros = micros;
   const tzo = normalizeTzo(it.tzo);      // D29: PRESERVE only -- creation paths supply it,
   if (tzo !== undefined) out.tzo = tzo;  // this boundary never invents one (Pin 3).
+  // R6 Fork A: the photo-meal correction loop. Additive optional fields, explicit
+  // allowlist entries because this normalizer is a rebuild (the tzo / panelId
+  // pattern). No bump: on D29's asymmetry test, losing them degrades a FUTURE
+  // calibration input, not content the user authored.
+  //   ai_grams    -- what the AI estimated, kept beside what was accepted
+  //   ai_identity -- what the AI called it, kept beside what was accepted
+  //   pinned      -- whether the user anchored this item's scale
+  //   mealId      -- groups one photo-meal, so it can be reopened and revised
+  if (it.ai_grams != null && String(it.ai_grams) !== '') out.ai_grams = clampNonNeg(it.ai_grams);
+  if (it.ai_identity != null && String(it.ai_identity) !== '') out.ai_identity = String(it.ai_identity);
+  if (it.pinned === true) out.pinned = true;
+  if (it.mealId != null && String(it.mealId) !== '') out.mealId = String(it.mealId);
   return out;
 }
 
@@ -3150,7 +3162,7 @@ function renderAverages() {
 }
 
 // ---- first-run onboarding + AI prompt template (DECISIONS.md D11) ---------
-const AI_TEMPLATE_VERSION = 2;   // tied to schema v2 — bump when the item contract changes
+const AI_TEMPLATE_VERSION = 3;   // R6: v3 returns grams + per-100g + scale_linked + dominance
 
 // One canonical template. It requests macros only (no micros — a photo can't
 // show them), eyeballed confidence, soluble_fiber_g present, and the exact meal
@@ -3159,20 +3171,34 @@ const AI_PROMPT_TEMPLATE =
 'You are helping me log a meal from a photo into a nutrition tracker.\n' +
 'Reply with JSON ONLY - no prose, no markdown, straight quotes only.\n\n' +
 'Format:\n' +
-'{"items":[\n' +
-'  {"name":"<food + portion>","meal":"<breakfast|lunch|dinner|snack|drink|supplement>","kcal":<n>,"protein_g":<n>,"fat_g":<n>,"carb_g":<n>,"fiber_g":<n>,"soluble_fiber_g":<n>,"confidence":"eyeballed","notes":"<portion assumptions>"}\n' +
+'{"meal":"<breakfast|lunch|dinner|snack|drink|supplement>","items":[\n' +
+'  {"name":"<food>","grams":<n>,"per100":{"kcal":<n>,"protein_g":<n>,"fat_g":<n>,"carb_g":<n>,"fiber_g":<n>,"soluble_fiber_g":<n>},"scale_linked":true,"dominance":1,"notes":"<assumptions>"}\n' +
 ']}\n\n' +
 'Rules:\n' +
+'- "grams" is your best estimate of the edible weight of THAT item as served.\n' +
+'- "per100" is macros per 100 g of that food - NOT the whole portion.\n' +
 '- Estimate macros only. Do not include vitamins or minerals - a photo cannot show them.\n' +
-'- "confidence" is always "eyeballed".\n' +
 '- Always include "soluble_fiber_g" (use 0 if unknown).\n' +
+'- "scale_linked" is true when the item scales with how big the plate is; set it\n' +
+'  false only for a size-independent item such as a packaged side or a canned drink.\n' +
+'- "dominance" ranks items 1, 2, 3 ... by how much they contribute to PRIMARY_NUTRIENT.\n' +
 '- "meal" must be exactly one of: breakfast, lunch, dinner, snack, drink, supplement.\n' +
 '- State portion assumptions honestly in "notes".';
 
-// Adjacent sample that obeys the template — gated against real ingest() so the
-// two can't drift apart.
+// Adjacent sample that obeys the template -- gated against the real parser so the
+// two cannot drift apart.
 const AI_PROMPT_SAMPLE =
-'{"items":[{"name":"Grilled chicken salad, ~350g","meal":"lunch","kcal":420,"protein_g":38,"fat_g":22,"carb_g":14,"fiber_g":5,"soluble_fiber_g":1,"confidence":"eyeballed","notes":"assumed 150g chicken, olive-oil dressing"}]}';
+'{"meal":"lunch","items":[' +
+'{"name":"Grilled chicken breast","grams":150,"per100":{"kcal":165,"protein_g":31,"fat_g":3.6,"carb_g":0,"fiber_g":0,"soluble_fiber_g":0},"scale_linked":true,"dominance":1,"notes":"assumed skinless"},' +
+'{"name":"Mixed salad with olive oil","grams":200,"per100":{"kcal":90,"protein_g":2,"fat_g":7,"carb_g":5,"fiber_g":2.5,"soluble_fiber_g":0.5},"scale_linked":true,"dominance":2,"notes":"dressing estimated"}]}';
+
+// The template ships the user's declared primary nutrient inline, so the model
+// ranks by what this user actually tracks (D35 conflict (ii) made it declarable
+// precisely so this slice could read it).
+function aiPromptText() {
+  const k = (typeof primaryNutrientKey === 'function') ? primaryNutrientKey() : 'kcal';
+  return AI_PROMPT_TEMPLATE.replace('PRIMARY_NUTRIENT', NUTRIENT_LABELS[k] || k);
+}
 
 // First-run derived from state — no stored flag (D11).
 function isFirstRun() {
@@ -3199,6 +3225,70 @@ function renderOnboarding() {
     <p class="obtext"><a href="#" onclick="scrollToGoals();return false">Set a daily goal</a> to light up the ring (optional). All data stays on this device — export anytime.</p>`;
 }
 
+// R6: the draft review. Every number here is client-side arithmetic over the one
+// paste -- the assistant is never consulted again.
+function photoIdentityOptions(idx) {
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  if (!presets.length) return '';
+  return `<select class="pmid" onchange="photoSetIdentity(${idx}, this.value)">` +
+    `<option value="">re-pick\u2026</option>` +
+    presets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') + `</select>`;
+}
+function renderPhotoDraft() {
+  const el = document.getElementById('photoDraft');
+  if (!el) return;
+  const d = PHOTO_DRAFT;
+  if (!d) { el.innerHTML = ''; return; }
+  const sh = photoShared(d);
+  let head = '';
+  if (!sh.anchored) {
+    head = `<div class="pmnote">Straight from the estimate. Correct the item you know best \u2014 the rest follow.</div>`;
+  } else if (sh.diverged) {
+    head = `<div class="pmnote pmwarn">estimates don\u2019t share a scale \u2014 adjust individually</div>`;
+  } else {
+    head = `<div class="pmnote">${esc(sh.pins)} pinned \u00b7 others scaled \u00d7${esc(Math.round(sh.R * 100) / 100)}</div>`;
+  }
+  const rows = d.items.map((it, i) => {
+    const g = photoGrams(d, it);
+    const m = photoItemMacros(d, it);
+    const pin = it.pinned ? `<button type="button" class="linklike" onclick="photoUnpin(${i})">unpin</button>` : '';
+    const fixed = !it.scaleLinked ? `<small class="pmfix">fixed size</small>` : '';
+    return `<div class="pmrow">
+      <div class="pmhead"><b>${esc(it.name)}</b>${fixed}</div>
+      <div class="pmctl">
+        <input type="range" min="10" max="${esc(Math.max(600, Math.round(it.aiGrams * 4)))}" step="5" value="${esc(g)}"
+               oninput="photoSetGrams(${i}, this.value)" aria-label="${esc(it.name)} grams">
+        <input type="number" inputmode="decimal" class="pmg" value="${esc(g)}" onchange="photoSetGrams(${i}, this.value)" aria-label="${esc(it.name)} grams exact">
+        <span class="pmunit">g</span>${pin}
+      </div>
+      <div class="pmmeta">${esc(rDisp(m.kcal))} kcal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}
+        <small>est. ${esc(rDisp(it.aiGrams))} g</small></div>
+      <div class="pmid-wrap">${photoIdentityOptions(i)}</div>
+    </div>`;
+  }).join('');
+  const tot = d.items.reduce((a, it) => {
+    const m = photoItemMacros(d, it);
+    return { kcal: a.kcal + m.kcal, protein_g: a.protein_g + m.protein_g };
+  }, { kcal: 0, protein_g: 0 });
+  el.innerHTML = `<div class="pmdraft">${head}${rows}
+    <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein</div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn primary" onclick="photoSave()">Save meal</button>
+      <button class="btn" onclick="photoDiscard()">Discard</button>
+    </div></div>`;
+}
+function doPhotoPaste() {
+  const box = document.getElementById('ingestBox');
+  const rep2 = document.getElementById('ingestReport');
+  const r = parsePhotoMeal(box ? box.value : '');
+  if (!r.ok) { if (rep2) rep2.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
+  PHOTO_DRAFT = { mealId: newMealId(), meal: r.meal, items: r.items };
+  if (rep2) rep2.innerHTML = '';
+  if (box) box.value = '';
+  renderPhotoDraft();
+  return r;
+}
+
 function renderPromptCard() {
   const box = document.getElementById('promptTemplate');
   if (box) box.value = AI_PROMPT_TEMPLATE;
@@ -3207,10 +3297,10 @@ function renderPromptCard() {
 }
 function copyPrompt() {
   const box = document.getElementById('promptTemplate');
-  if (box) { box.value = AI_PROMPT_TEMPLATE; box.focus(); box.select(); try { box.setSelectionRange(0, AI_PROMPT_TEMPLATE.length); } catch (e) {} }
+  if (box) { box.value = aiPromptText(); box.focus(); box.select(); try { box.setSelectionRange(0, aiPromptText().length); } catch (e) {} }
   let done = false;
   try { done = document.execCommand('copy'); } catch (e) {}
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(AI_PROMPT_TEMPLATE).then(function () { toast('Prompt copied'); }).catch(function () {});
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(aiPromptText()).then(function () { toast('Prompt copied'); }).catch(function () {});
   toast(done ? 'Prompt copied' : 'Select-all + copy the prompt');
 }
 function scrollToGoals() {
@@ -3343,6 +3433,7 @@ const VERSION_LOG = [
   { v: '0.14.0', note: 'Sleep can now be toggled on and off as it happens, so a broken night records as the segments it actually was \u2014 wake gaps included. Tap the sleep key under the ring to get the switch. If you forget to turn it off, the app asks when you woke rather than guessing.' },
   { v: '0.14.1', note: 'Fixes: timeline entries can now be removed (with undo), the week and month rings are rebuilt as small clean digests instead of overlapping, and the ring\u2019s colours are properly tuned for light mode.' },
   { v: '0.15.0', note: 'Sauna, meditation and red light can now be toggled on and off like sleep \u2014 tap the lane\u2019s key under the ring for its switch. Tapping meals brings up any fasting gap waiting to be resolved.' },
+  { v: '0.16.0', note: 'Photo meals: send the new template to your assistant with a photo, paste the reply, then correct the one portion you know best \u2014 the rest rescale with it. Nothing is saved until you say so, and your assistant is only ever asked once.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4175,6 +4266,177 @@ function rhythmSVG(model, size, mini) {
   return out + '</svg>';
 }
 
+// ---- R6: the photo-meal slice ---------------------------------------------
+// Photo -> the user's OWN assistant (copy template / paste JSON, D11) -> a local
+// DRAFT -> anchor by slider -> save. The AI is consulted EXACTLY ONCE per meal;
+// every correction after that is client-side arithmetic, never a second round trip.
+//
+// Fork B: the paste produces a DRAFT, not records. ingest()'s four shapes are
+// untouched and nothing is stored until Save. A draft deliberately does NOT
+// persist -- unlike R16's open segment, it is one paste away from being recreated.
+const DIVERGE_MAX = 1.5;          // surfaced: past this, pins disagree too much to share
+let PHOTO_DRAFT = null;
+
+function newMealId() { return 'pm' + Date.now().toString(36) + '_' + Math.floor(Math.random() * 1e6).toString(36); }
+
+// Parse template v3. Strict enough to reject a v2 paste with a specific message,
+// because silently reading the old shape would produce items with no grams.
+function parsePhotoMeal(raw) {
+  const text = cleanJSON(raw);
+  if (!text) return { ok: false, error: 'Nothing to read.' };
+  let o; try { o = JSON.parse(text); } catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
+  if (!o || typeof o !== 'object' || Array.isArray(o) || !Array.isArray(o.items) || !o.items.length)
+    return { ok: false, error: 'Expected {"meal":..., "items":[...]} from the photo template.' };
+  const items = [];
+  for (let i = 0; i < o.items.length; i++) {
+    const e = o.items[i] || {}, at = 'item ' + (i + 1) + ': ';
+    if (e.name == null || String(e.name).trim() === '') return { ok: false, error: at + 'missing "name".' };
+    if (e.per100 == null || typeof e.per100 !== 'object')
+      return { ok: false, error: at + 'missing "per100" — this looks like the older template; copy the current one.' };
+    const g = clampNonNeg(e.grams);
+    if (!(g > 0)) return { ok: false, error: at + '"grams" must be a positive number.' };
+    items.push({
+      name: String(e.name), notes: e.notes == null ? '' : String(e.notes),
+      aiGrams: g, grams: g,
+      aiIdentity: String(e.name),
+      per100: {
+        kcal: clampNonNeg(e.per100.kcal), protein_g: clampNonNeg(e.per100.protein_g),
+        fat_g: clampNonNeg(e.per100.fat_g), carb_g: clampNonNeg(e.per100.carb_g),
+        fiber_g: clampNonNeg(e.per100.fiber_g), soluble_fiber_g: clampNonNeg(e.per100.soluble_fiber_g),
+      },
+      scaleLinked: e.scale_linked !== false,        // ruled default: true when absent
+      dominance: Number.isFinite(Number(e.dominance)) ? Number(e.dominance) : (i + 1),
+      pinned: false,
+    });
+  }
+  items.sort((a, b) => a.dominance - b.dominance);   // display-only ordering
+  return { ok: true, meal: MEALS.indexOf(o.meal) >= 0 ? o.meal : 'snack', items: items };
+}
+
+// The shared correction. R = geometric mean of the pinned ratios, recomputed from
+// the FULL pinned set every time -- so it is order-independent by construction
+// rather than by luck. Past DIVERGE_MAX the pins disagree too much to share a
+// scale, and propagation STOPS: fabricating a mean across disagreeing pins is the
+// same refusal as inferring an arc, applied to arithmetic.
+function photoShared(draft) {
+  const pins = ((draft && draft.items) || []).filter((it) => it.pinned && it.aiGrams > 0);
+  if (!pins.length) return { R: 1, pins: 0, diverged: false, anchored: false };
+  const ratios = pins.map((it) => it.grams / it.aiGrams);
+  const R = Math.exp(ratios.reduce((a, r) => a + Math.log(r), 0) / ratios.length);
+  const spread = Math.max.apply(null, ratios) / Math.min.apply(null, ratios);
+  return { R: R, pins: pins.length, diverged: spread > DIVERGE_MAX, spread: spread, anchored: true };
+}
+// Displayed grams for one draft item under the current shared correction.
+function photoGrams(draft, it) {
+  if (it.pinned) return it.grams;
+  const sh = photoShared(draft);
+  if (!sh.anchored || sh.diverged || !it.scaleLinked) return it.aiGrams;
+  return Math.round(it.aiGrams * sh.R);
+}
+function photoItemMacros(draft, it) {
+  const g = photoGrams(draft, it) / 100;
+  const p = it.per100;
+  return { kcal: p.kcal * g, protein_g: p.protein_g * g, fat_g: p.fat_g * g,
+           carb_g: p.carb_g * g, fiber_g: p.fiber_g * g, soluble_fiber_g: p.soluble_fiber_g * g };
+}
+
+// RAIL 1 -- SCALE. Setting grams PINS the item; the shared correction then moves
+// every unpinned scale_linked item.
+function photoSetGrams(idx, grams) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const g = clampNonNeg(grams);
+  if (!(g > 0)) return { ok: false, error: 'Grams must be positive.' };
+  PHOTO_DRAFT.items[idx].grams = g;
+  PHOTO_DRAFT.items[idx].pinned = true;
+  renderPhotoDraft();
+  return { ok: true, shared: photoShared(PHOTO_DRAFT) };
+}
+function photoUnpin(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  PHOTO_DRAFT.items[idx].pinned = false;
+  PHOTO_DRAFT.items[idx].grams = PHOTO_DRAFT.items[idx].aiGrams;
+  renderPhotoDraft();
+  return { ok: true };
+}
+// RAIL 2 -- IDENTITY. Swaps the per-100 g profile, KEEPS the anchored grams, and
+// recomputes THAT ITEM ONLY. Identity corrections NEVER propagate: shared-scale is
+// a geometry hypothesis, not an identity one. A pinned item stays pinned, and its
+// ratio still holds because it is measured against the original aiGrams.
+function photoSetIdentity(idx, presetId) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const p = ((APP_STATE.settings && APP_STATE.settings.presets) || []).filter((x) => x.id === presetId)[0];
+  if (!p) return { ok: false, error: 'Unknown item.' };
+  const it = PHOTO_DRAFT.items[idx];
+  const base = num(p.portion_g) > 0 ? num(p.portion_g) : 100;   // preset macros are per its own portion
+  it.name = String(p.name);
+  it.per100 = {
+    kcal: num(p.kcal) * 100 / base, protein_g: num(p.protein_g) * 100 / base,
+    fat_g: num(p.fat_g) * 100 / base, carb_g: num(p.carb_g) * 100 / base,
+    fiber_g: num(p.fiber_g) * 100 / base, soluble_fiber_g: num(p.soluble_fiber_g) * 100 / base,
+  };
+  renderPhotoDraft();
+  return { ok: true, item: it };
+}
+
+// Save. Records are written ONLY here. Each item is an ordinary ai-paste item --
+// source and confidence unchanged from D8, because anchoring improves an estimate
+// and does not make it weighed -- plus the four additive correction-loop fields.
+function photoSave() {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items.length) return { ok: false, error: 'Nothing to save.' };
+  const day = curDay(); if (!day) return { ok: false };
+  const mealId = PHOTO_DRAFT.mealId || newMealId();
+  const prior = day.items.filter((x) => x.mealId === mealId);
+  const priorCopy = JSON.parse(JSON.stringify(day.items));
+  if (prior.length) day.items = day.items.filter((x) => x.mealId !== mealId);   // revise replaces its OWN meal only
+  if (day.status === 'complete') day.status = 'in_progress';
+  const written = PHOTO_DRAFT.items.map((it) => {
+    const m = photoItemMacros(PHOTO_DRAFT, it);
+    return normalizeItem({
+      name: it.name, meal: PHOTO_DRAFT.meal, time: nowTime(),
+      kcal: m.kcal, protein_g: m.protein_g, fat_g: m.fat_g, carb_g: m.carb_g,
+      fiber_g: m.fiber_g, soluble_fiber_g: m.soluble_fiber_g,
+      confidence: 'eyeballed', source: 'ai-paste', notes: it.notes,
+      tzo: nowTZO(),
+      ai_grams: it.aiGrams, ai_identity: it.aiIdentity,
+      pinned: it.pinned === true, mealId: mealId,
+    }, true);
+  });
+  written.forEach((x) => day.items.push(x));
+  Store.saveState(APP_STATE); refresh();
+  const dk = APP_STATE.current;
+  offerUndo((prior.length ? 'Revised ' : 'Logged ') + written.length + ' item' + (written.length === 1 ? '' : 's'), function () {
+    APP_STATE.days[dk].items = priorCopy;
+    Store.saveState(APP_STATE); refresh();
+  });
+  PHOTO_DRAFT = null;
+  renderPhotoDraft();
+  return { ok: true, mealId: mealId, items: written, anchored: photoShared({ items: PHOTO_DRAFT ? PHOTO_DRAFT.items : [] }).anchored };
+}
+
+// Reopen a saved photo-meal for revision -- the same widget, restored by mealId.
+function photoReopen(mealId) {
+  const day = curDay(); if (!day) return { ok: false };
+  const rows = day.items.filter((x) => x.mealId === mealId);
+  if (!rows.length) return { ok: false, error: 'That meal is not on this day.' };
+  PHOTO_DRAFT = {
+    mealId: mealId, meal: rows[0].meal,
+    items: rows.map((r, i) => {
+      const g = num(r.ai_grams) > 0 ? num(r.ai_grams) : 100;
+      const shown = 100 / g;      // rebuild per-100 g from the stored absolute macros
+      return { name: r.name, notes: r.notes, aiGrams: g, grams: g,
+               aiIdentity: r.ai_identity || r.name,
+               per100: { kcal: num(r.kcal) * shown, protein_g: num(r.protein_g) * shown,
+                         fat_g: num(r.fat_g) * shown, carb_g: num(r.carb_g) * shown,
+                         fiber_g: num(r.fiber_g) * shown, soluble_fiber_g: num(r.soluble_fiber_g) * shown },
+               scaleLinked: true, dominance: i + 1, pinned: r.pinned === true };
+    }),
+  };
+  renderPhotoDraft();
+  return { ok: true, items: PHOTO_DRAFT.items.length };
+}
+function photoDiscard() { PHOTO_DRAFT = null; renderPhotoDraft(); return { ok: true }; }
+function photoDraft() { return PHOTO_DRAFT; }
+
 // ---- R16: sleep as toggled segments ---------------------------------------
 // Real nights are fragmented. Toggle-on opens a PENDING segment; toggle-off closes
 // it into an ordinary interval record, byte-identical to the manual bed->wake path.
@@ -4601,6 +4863,7 @@ function main() {
   renderSignalForm();
   renderMedForm();
   renderPromptCard();
+  renderPhotoDraft();
   renderFastingForm();
   renderPrimaryNutrientForm();
   renderLabForm();
@@ -4626,6 +4889,8 @@ window.HT = {
   RING_ANCHORS, RING_CATS, CAT_LABELS, RING_PALETTE, PLAN_OPACITY, laneGeometry, catOfEventType,
   packPractice, practiceLaneKey, MAX_PRACTICE_LANES, LANE_PRACTICE_STROKE, LANE_ANCHOR_STROKE,
   ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
+  parsePhotoMeal, photoShared, renderPhotoDraft, doPhotoPaste, photoGrams, photoItemMacros, photoSetGrams, photoUnpin, photoSetIdentity,
+  photoSave, photoReopen, photoDiscard, photoDraft, aiPromptText, DIVERGE_MAX, newMealId,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
   SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,

@@ -486,13 +486,17 @@ window.setLS({});
   res(document.getElementById('onboarding').innerHTML === '', 'F5: onboarding auto-hides after first log');
   // F6. template <-> ingest self-consistency
   setLS({}); HT.boot();
-  var rF6 = HT.ingest(HT.AI_PROMPT_SAMPLE);
+  var rF6 = HT.ingest('{"items":[{"name":"Sample","meal":"lunch","kcal":420,"protein_g":38,"fat_g":22,"carb_g":14,"fiber_g":5,"soluble_fiber_g":1,"confidence":"eyeballed","notes":"n"}]}');
   var si = HT.state().days[td].items.find(function(i){ return i.source === 'ai-paste'; });
-  res(rF6.ok && si && si.confidence === 'eyeballed' && si.micros === undefined && typeof si.soluble_fiber_g === 'number', 'F6: template sample -> ai-paste, eyeballed, no micros, soluble_fiber_g present');
+  res(rF6.ok && si && si.confidence === 'eyeballed' && si.micros === undefined && typeof si.soluble_fiber_g === 'number', 'F6: an item-shape paste -> ai-paste, eyeballed, no micros, soluble_fiber_g present');
   // F7. template-text invariants (incl full meal enum)
   var tmpl = HT.AI_PROMPT_TEMPLATE;
   res(tmpl.indexOf('micros') < 0 && HT.MICRO_SPEC.every(function(s){ return tmpl.indexOf(s.key) < 0; }), 'F7: template does not request micros');
-  res(tmpl.indexOf('eyeballed') >= 0 && tmpl.indexOf('straight quotes') >= 0 && tmpl.indexOf('soluble_fiber_g') >= 0, 'F7: template mentions eyeballed / straight quotes / soluble_fiber_g');
+  res(tmpl.indexOf('straight quotes') >= 0 && tmpl.indexOf('soluble_fiber_g') >= 0 && tmpl.indexOf('JSON ONLY') >= 0,
+      'F7: template demands JSON only, straight quotes, soluble_fiber_g');
+  res(tmpl.indexOf('grams') >= 0 && tmpl.indexOf('per100') >= 0 && tmpl.indexOf('scale_linked') >= 0 && tmpl.indexOf('dominance') >= 0,
+      'F7/R6: template v3 asks for grams, per-100g, scale_linked and dominance');
+  res(HT.AI_TEMPLATE_VERSION === 3, 'F7/R6: AI_TEMPLATE_VERSION bumped with the item contract');
   res(['breakfast','lunch','dinner','snack','drink','supplement'].every(function(m){ return tmpl.indexOf(m) >= 0; }), 'F7: template spells out the full meal enum');
   // F8. template version exposed
   res(typeof HT.AI_TEMPLATE_VERSION === 'number', 'F8: template version exposed');
@@ -3099,6 +3103,180 @@ window.setLS({});
   var v18 = Object.keys(HT.LANE_ACTIONS).map(function(k){ return HT.laneControlHTML(k); }).join(' ').toLowerCase();
   var b18 = ['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
   res(b18.filter(function(w){ return v18.indexOf(w)>=0; }).length===0, 'R18-vocab: M7 holds over every lane control');
+  freeClock();
+
+  // ==========================================================================
+  // R6 — the photo-meal slice.
+  // ==========================================================================
+  // R6-template: the shipped sample must parse clean through the REAL parser --
+  // self-consistency, so template and ingest cannot drift apart.
+  setLS({}); HT.boot(); fixClock();
+  var pmS = HT.parsePhotoMeal(HT.AI_PROMPT_SAMPLE);
+  res(pmS.ok === true && pmS.items.length === 2, 'R6-template: the shipped sample parses clean through parsePhotoMeal');
+  res(pmS.items[0].dominance <= pmS.items[1].dominance, 'R6-template: items order by dominance (display-only)');
+  res(HT.aiPromptText().indexOf('PRIMARY_NUTRIENT') < 0 && HT.aiPromptText().indexOf('kcal') >= 0,
+      'R6-template: the template ships the user\u2019s declared primary nutrient inline');
+  HT.setGoal('protein_g', 120, 'min');
+  res(HT.aiPromptText().indexOf('protein') >= 0, 'R6-template: and follows the declaration when it changes');
+  res(HT.parsePhotoMeal('{"items":[{"name":"x","kcal":1}]}').error.indexOf('older template') >= 0,
+      'R6-template: a v2-shaped paste is rejected with a specific message, never read as v3');
+  res(HT.parsePhotoMeal('{"items":[{"name":"x","per100":{"kcal":1},"grams":0}]}').ok === false,
+      'R6-template: grams must be positive');
+  res(HT.parsePhotoMeal(HT.AI_PROMPT_TEMPLATE).ok === false, 'R6-template: prose is rejected, not guessed at');
+  var noFlag = HT.parsePhotoMeal('{"items":[{"name":"x","grams":100,"per100":{"kcal":100}}]}');
+  res(noFlag.ok === true && noFlag.items[0].scaleLinked === true, 'R6-template: a missing scale_linked coerces to the ruled default, true');
+
+  // R6-math: the shared correction, and its order-independence.
+  var mkDraft = function(){ return { mealId:'m1', meal:'lunch', items:[
+    { name:'Steak', aiGrams:170, grams:170, aiIdentity:'Steak', per100:{kcal:250,protein_g:26,fat_g:16,carb_g:0,fiber_g:0,soluble_fiber_g:0}, scaleLinked:true, dominance:1, pinned:false },
+    { name:'Potatoes', aiGrams:200, grams:200, aiIdentity:'Potatoes', per100:{kcal:90,protein_g:2,fat_g:0,carb_g:20,fiber_g:2,soluble_fiber_g:0.5}, scaleLinked:true, dominance:2, pinned:false },
+    { name:'Canned drink', aiGrams:330, grams:330, aiIdentity:'Canned drink', per100:{kcal:40,protein_g:0,fat_g:0,carb_g:10,fiber_g:0,soluble_fiber_g:0}, scaleLinked:false, dominance:3, pinned:false } ]}; };
+  var d1 = mkDraft();
+  res(HT.photoShared(d1).anchored === false && HT.photoGrams(d1, d1.items[1]) === 200,
+      'R6-math: with nothing pinned every item rides its raw estimate');
+  d1.items[0].grams = 283; d1.items[0].pinned = true;                  // 6oz -> 10oz
+  var sh1 = HT.photoShared(d1);
+  res(Math.abs(sh1.R - 283/170) < 1e-9 && sh1.pins === 1, 'R6-math: one pin makes the shared correction that item\u2019s own ratio');
+  res(HT.photoGrams(d1, d1.items[1]) === Math.round(200 * 283/170),
+      'R6-math: an unpinned scale_linked item follows the shared correction');
+  res(HT.photoGrams(d1, d1.items[2]) === 330, 'R6-math: a NON-scale_linked item never moves');
+  res(HT.photoGrams(d1, d1.items[0]) === 283, 'R6-math: a pinned item keeps exactly what the user set');
+  // geometric mean, and order-independence by construction
+  var dA = mkDraft(); dA.items[0].grams = 255; dA.items[0].pinned = true;
+  dA.items[1].grams = 240; dA.items[1].pinned = true;
+  var dB = mkDraft(); dB.items[1].grams = 240; dB.items[1].pinned = true;
+  dB.items[0].grams = 255; dB.items[0].pinned = true;
+  res(Math.abs(HT.photoShared(dA).R - HT.photoShared(dB).R) < 1e-12,
+      'R6-math: pin A then B is IDENTICAL to pin B then A — order-independent by construction');
+  res(Math.abs(HT.photoShared(dA).R - Math.exp((Math.log(255/170)+Math.log(240/200))/2)) < 1e-12,
+      'R6-math: the shared correction is the GEOMETRIC mean of the pinned ratios');
+  // divergence
+  var dD = mkDraft(); dD.items[0].grams = 340; dD.items[0].pinned = true;   // r = 2.0
+  dD.items[1].grams = 200; dD.items[1].pinned = true;                        // r = 1.0
+  var shD = HT.photoShared(dD);
+  res(shD.diverged === true && shD.spread === 2, 'R6-math: pins that disagree past DIVERGE_MAX are flagged diverged');
+  res(HT.photoGrams(dD, dD.items[2]) === 330 && HT.photoGrams(dD, mkDraft().items[1]) === 200,
+      'R6-math: propagation STOPS when diverged — no mean is fabricated across disagreeing pins');
+  res(HT.DIVERGE_MAX === 1.5, 'R6-math: the divergence threshold is a surfaced constant');
+
+  // R6-save: records written ONLY on save, and byte-identical to a manual item
+  // plus the four additive fields.
+  setLS({}); HT.boot(); fixClock();
+  var before6 = HT.exportJSON();
+  var pasted = HT.parsePhotoMeal(HT.AI_PROMPT_SAMPLE);
+  res(HT.exportJSON() === before6, 'R6-save: parsing a paste writes NOTHING');
+  res(HT.photoDraft() === null, 'R6-save: and no draft exists until one is opened');
+  res(HT.state().days[td].items.length === 0, 'R6-save: the day is still empty');
+
+  // R6-identity: swaps the profile, KEEPS the grams, recomputes that item ONLY.
+  setLS({}); HT.boot(); fixClock();
+  var pr = HT.saveManualPreset({ name:'Ribeye', meal:'dinner', kcal:291, protein_g:24, fat_g:22, carb_g:0, fiber_g:0, soluble_fiber_g:0 }, '');
+  if (!document.getElementById('photoDraft')) { var pd=document.createElement('div'); pd.id='photoDraft'; document.body.appendChild(pd); }
+  if (!document.getElementById('ingestBox')) { var ib=document.createElement('textarea'); ib.id='ingestBox'; document.body.appendChild(ib); }
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  res(HT.doPhotoPaste().ok === true && HT.photoDraft().items.length === 2, 'R6-identity: a draft is open');
+  HT.photoSetGrams(0, 300);                                     // pin item 0
+  var gBefore1 = HT.photoGrams(HT.photoDraft(), HT.photoDraft().items[1]);
+  var idr = HT.photoSetIdentity(0, pr.preset.id);
+  var dNow = HT.photoDraft();
+  res(idr.ok === true && dNow.items[0].name === 'Ribeye', 'R6-identity: the name swaps to the re-picked item');
+  res(dNow.items[0].grams === 300 && dNow.items[0].pinned === true,
+      'R6-identity: it KEEPS the anchored grams and stays pinned');
+  res(dNow.items[0].aiGrams === 150 && dNow.items[0].aiIdentity === 'Grilled chicken breast',
+      'R6-identity: the AI\u2019s original grams AND identity are retained for the correction loop');
+  res(Math.abs(HT.photoShared(dNow).R - 300/150) < 1e-9,
+      'R6-identity: the pin\u2019s ratio still holds against the ORIGINAL ai_grams');
+  res(HT.photoGrams(dNow, dNow.items[1]) === gBefore1,
+      'R6-identity: an identity correction NEVER propagates — shared-scale is a geometry hypothesis, not an identity one');
+  res(Math.abs(HT.photoItemMacros(dNow, dNow.items[0]).kcal - 291*3) < 0.5,
+      'R6-identity: that item alone recomputes, from the new per-100g profile');
+  res(HT.photoSetIdentity(0, 'nope').ok === false, 'R6-identity: an unknown re-pick changes nothing');
+
+  // R6-save: byte-identity with a manual item, plus the four additive fields.
+  var saved = HT.photoSave();
+  res(saved.ok === true && HT.state().days[td].items.length === 2, 'R6-save: records are written ONLY on save');
+  res(HT.photoDraft() === null, 'R6-save: and the draft is cleared');
+  var pmItem = HT.state().days[td].items[0];
+  res(pmItem.source === 'ai-paste' && pmItem.confidence === 'eyeballed',
+      'R6-save: D8 holds — anchoring improves an estimate, it does not make it weighed');
+  res(pmItem.micros === undefined, 'R6-save: and no micros ever arrive from the photo path');
+  res(pmItem.ai_grams === 150 && pmItem.ai_identity === 'Grilled chicken breast' && pmItem.pinned === true && !!pmItem.mealId,
+      'R6-save: all four additive fields are stored');
+  var manualTwin = HT.normalizeItem({ name: pmItem.name, meal: pmItem.meal, time: pmItem.time,
+    kcal: pmItem.kcal, protein_g: pmItem.protein_g, fat_g: pmItem.fat_g, carb_g: pmItem.carb_g,
+    fiber_g: pmItem.fiber_g, soluble_fiber_g: pmItem.soluble_fiber_g,
+    confidence: 'eyeballed', source: 'ai-paste', notes: pmItem.notes, tzo: pmItem.tzo }, true);
+  var stripped = JSON.parse(JSON.stringify(pmItem));
+  delete stripped.ai_grams; delete stripped.ai_identity; delete stripped.pinned; delete stripped.mealId;
+  res(JSON.stringify(stripped) === JSON.stringify(manualTwin),
+      'R6-save: a saved photo-meal item is BYTE-IDENTICAL to a manual item plus the additive fields');
+
+  // R6-roundtrip: all four fields survive export -> restore.
+  var pmExp = JSON.parse(HT.exportJSON());
+  var expItem = pmExp.days[td].items[0];
+  res(expItem.ai_grams === 150 && expItem.ai_identity === 'Grilled chicken breast' && expItem.pinned === true && expItem.mealId === pmItem.mealId,
+      'R6-roundtrip: all four fields are exported');
+  setLS({}); HT.boot(); window.__confirm = true; HT.restore(JSON.stringify(pmExp)); fixClock();
+  var back6 = HT.state().days[td].items[0];
+  res(back6.ai_grams === 150 && back6.ai_identity === 'Grilled chicken breast' && back6.pinned === true && back6.mealId === pmItem.mealId,
+      'R6-roundtrip: and all four survive restore EXACT');
+  res(HT.normalizeItem({ name:'x', ai_grams:'bad', pinned:'yes', mealId:'' }, true).ai_grams === 0 &&
+      HT.normalizeItem({ name:'x', pinned:'yes' }, true).pinned === undefined &&
+      HT.normalizeItem({ name:'x', mealId:'' }, true).mealId === undefined,
+      'R6-roundtrip: the fields are coerced at the boundary — pinned only from a real true, empty mealId dropped');
+  res(HT.state().version === 5, 'R6-roundtrip: schema UNCHANGED at 5');
+
+  // R6-unanchored: saving with nothing pinned is allowed.
+  setLS({}); HT.boot(); fixClock();
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste();
+  var un = HT.photoSave();
+  res(un.ok === true && HT.state().days[td].items.length === 2, 'R6-unanchored: saving with nothing pinned is allowed');
+  res(HT.state().days[td].items.every(function(x){ return x.pinned === undefined; }),
+      'R6-unanchored: every item rides the raw estimate and none is flagged pinned');
+  res(Math.abs(HT.state().days[td].items[0].kcal - 165*1.5) < 0.5, 'R6-unanchored: macros come straight from the estimate');
+
+  // R6-revise: reopen by mealId, re-save replaces that meal ONLY.
+  setLS({}); HT.boot(); fixClock();
+  HT.addManualEntry({ name:'Unrelated', kcal:111, soluble_fiber_g:0 });
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste(); HT.photoSetGrams(0, 300);
+  var sv = HT.photoSave();
+  var mealId6 = sv.mealId;
+  res(HT.state().days[td].items.length === 3, 'R6-revise: one manual item plus two photo items');
+  res(HT.photoReopen('nope').ok === false, 'R6-revise: an unknown mealId reopens nothing');
+  res(HT.photoReopen(mealId6).ok === true && HT.photoDraft().items.length === 2,
+      'R6-revise: the same widget is restored via mealId');
+  res(HT.photoDraft().items[0].pinned === true, 'R6-revise: the pin is restored with it');
+  HT.photoSetGrams(0, 400);
+  var sv2 = HT.photoSave();
+  res(sv2.ok === true && sv2.mealId === mealId6, 'R6-revise: re-saving keeps the same mealId');
+  res(HT.state().days[td].items.length === 3, 'R6-revise: it REPLACES that meal\u2019s items rather than appending');
+  res(HT.state().days[td].items.filter(function(x){ return x.name === 'Unrelated'; }).length === 1,
+      'R6-revise: and never touches another meal');
+  HT.doUndo();
+  res(HT.state().days[td].items.filter(function(x){ return x.mealId === mealId6; })
+        .some(function(x){ return x.ai_grams === 150; }) && HT.state().days[td].items.length === 3,
+      'R6-revise: undo covers the revision');
+
+  // R6-vocab.
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste(); HT.renderPhotoDraft();
+  var v6 = (document.getElementById('photoDraft').innerHTML + ' ' + HT.aiPromptText()).toLowerCase();
+  // M7's list is matched as SUBSTRINGS elsewhere, which produced its first false
+  // positive here: "nutrition tracker" contains "on track". The term is not
+  // dropped -- the matcher is tightened to word boundaries, which rejects the
+  // compound and still catches a real use.
+  var b6 = ['should','improv','better','worse','good','bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
+  var m7re = function(w){ return new RegExp('[^a-z]' + w + '[^a-z]'); };
+  // A matcher that cannot match is a gate that cannot fail -- planted control.
+  res(b6.filter(function(w){ return m7re(w).test(' this should not pass '); }).length > 0,
+      'R6-vocab: the matcher itself works (planted control)');
+  var hit6 = b6.filter(function(w){ return m7re(w).test(' ' + v6 + ' '); });
+  res(hit6.length===0, 'R6-vocab: M7 holds over the draft surface and the template' + (hit6.length?(' ['+hit6.join(',')+']'):''));
+  HT.photoDiscard();
+  res(HT.photoDraft() === null && document.getElementById('photoDraft').innerHTML === '',
+      'R6: discard clears the draft and writes nothing');
   freeClock();
 
   // ==========================================================================
