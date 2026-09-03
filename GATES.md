@@ -1231,4 +1231,31 @@ The lead item is `items[0]` after the shipped dominance ordering (`sort((a,b) =>
 | R61-guidance | **no photo help on any rendered surface mentions a reference object, prop, framing or angle** — the guidance reduces to *one plate, all items visible*. Carries a **planted control**, per the R6-vocab lesson: a matcher that cannot fail is not a gate |
 | R61-math | D40's arithmetic is **byte-unchanged**: `photoShared` / `photoGrams` / `photoSetIdentity` results identical to the shipped values for the R6 fixtures |
 
-**Status: PRE-REGISTERED — Forks A, B, C open. Not built.**
+#### Evidence (Forks A–D ruled; built 2026-09-03, v0.16.1)
+
+| Case | Result |
+|---|---|
+| R61-lead | the lead is the dominance-ordered first item; **ties fall back to paste order**, so it is deterministic; an empty draft has no lead; the question renders **above** the list, the lead is **not repeated** in the rows beneath, and the generic opening line is suppressed while the question is up |
+| R61-unit | 170 g → `~6 oz`, rounded to the half ounce; **no hint below the floor** rather than one rounded to noise; weight-shaped reads the shipped `scale_linked` flag; the question shows **grams AND the hint**; the slider and exact field stay grams — **there is no oz input** |
+| R61-confirm | one tap pins at the estimate; enters the shared correction at **r = 1.0**; the question is not asked twice; the record carries `pinned: true` with `accepted == ai_grams`, and **an item never touched carries no `pinned` field — confirmed-correct and never-looked-at do not collapse** |
+| R61-correct | typing on the lead pins at the truth, keeps `ai_grams` for the correction loop, and the rest rescale by the **unchanged** shipped math |
+| R61-diverge | confirm at r = 1.0 **then** correct past `DIVERGE_MAX` → spread 1.7, **diverged**, both pins stand exactly as set, **no mean fabricated**, and divergence still speaks on the surface |
+| R61-reopen | a meal whose lead is pinned does **not** re-ask; one saved unanchored still leads with the question |
+| R61-guidance | **planted control first** (3/3 terms on a known-bad string), then zero prop/framing/angle terms across the draft surface and the template |
+| R61-math | the shipped propagation signature is **byte-identical**: `[1.664705882,283,333,330,299.7]` |
+
+**`tests/photo-lead-gate.ps1` — new.** "Confirm-first, sliders-second" is a **layout** claim, so it is measured as one: the question's bottom edge must sit **above** the first row's top edge. A gate that only asserted *a lead card rendered* would pass with the card at the foot of the sheet. **Proven against its defect:** moving the question below the list flips all three widths to FAIL (leadBottom 981 vs rowTop 728 at 360 px). Also measured: confirm button ≥ 200×40 px, no clipping, no horizontal overflow, at 360 / 390 / 900 px.
+
+**`tests/check-guidance.sh` — new.** The static half of the guidance prohibition: the photo pane in the shell, the shipped template constant, and the README — prose the browser suite cannot load. Scoped deliberately (a repo-wide grep for "angle" would drown in ring geometry). **Proven twice:** injecting *"Put a fork in frame for scale"* into the photo pane fails it, and blanking the term list fails the **planted control** rather than reporting a clean scan.
+
+#### A gate that was not re-runnable across midnight
+
+`ring-size-gate` **failed on byte-identical code** during this build — `band=12-12px`, no practice lane drawn. It was not R6.1: **stashing to the shipped 0.16.0 tree reproduced the identical failure**. The cause is that the ring is a **trailing-24h instrument** and the gate seeded a 06:30 walk and 23:00 sleep entries against the **wall clock**; the suite ran at **00:28 local**, so the seeded scene had not happened yet and no practice lane existed to measure.
+
+The evidence rule is *pre-registered and re-runnable*, and a gate whose verdict depends on the hour is neither. Fixed by **pinning the clock through the shipped `HT.setClock` seam** in the gate's seed — the same seam the data-layer suite uses — so the seeded scene is the same scene at every hour. **Repointed, not weakened:** every threshold is unchanged, and with the clock pinned the gate passes on the 0.16.0 tree (`band=12-14px`) exactly as it did before midnight.
+
+Also fixed: `photo-lead-gate` was first written with `ring-size-gate`'s ports (8131/9341), so the two could never run back-to-back without one failing to bind. Given its own pair.
+
+**Count delta: 891 → 924** (+33). `bash tests/run-data-layer.sh` → **924/924 ALL PASS**, `executed 924 · pinned 924`. Thirteen gates green: data-layer, precache, sw-hash, zxing, version (0.16.0 → **0.16.1**), writesites, **guidance**, ring, **photo-lead**, chip-layout, lab-form, offline, update.
+
+**Status: MET — awaiting review.**

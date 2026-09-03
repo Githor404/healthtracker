@@ -1066,3 +1066,34 @@ Photo → **the user's own assistant** (copy template / paste JSON, the D11 flow
 Post-slider quick-add for oils, butter and sauces is **deferred rather than built**, and not for cost: shipping per-100 g constants for them would **introduce unsourced nutrition data into the one path D8 keeps most tightly bounded**. The honest source is the knowledge-layer corpus, which is explicitly out of scope here. Sourcing it from the user's own presets would be honest but dead on arrival, since presets ship empty. **It is the immediate follow-up, once there is a sourced place for the numbers to come from.**
 
 **Out of scope, as ruled:** micros (knowledge layer), BYOK, the fast-food declared tier, and regimen auto-matching (suggest-then-confirm per D27, deferrable).
+
+
+## D41 — Confirm-first (R6.1; presentation refinement of D40, 2026-09-03)
+
+Presentation-only refinement of the shipped photo-meal draft. **D40's arithmetic is byte-unchanged** — no propagation rule, no schema touch, no new item field. What changes is what the draft **asks first**. `APP_VERSION → 0.16.1`; **schema unchanged at v5**.
+
+### The contract
+
+**The draft leads with a question on the dominant item:** *"AI estimated: Grilled chicken breast, 150 g (~5.5 oz) — confirm or correct."* One tap confirms (pins at the estimate); typing or sliding corrects (pins at the truth). The remaining items rescale by the shipped math and render beneath as the adjustable list. **Confirm first, sliders second — the interaction is a question, not a form.** The lead is `items[0]` after the shipped dominance ordering (a stable sort, so ties fall back to paste order): deterministic, no new selection rule.
+
+**A confirmation is DATA, not a skip.** It pins at `r = 1.0` and records the correction-loop pair with `accepted == ai_grams`. **The existing storage already carried this**: a confirmed item has `pinned: true` with `grams === ai_grams`, while an item never touched has **no `pinned` field at all** (`normalizeItem` writes it only from a real `true`). *Confirmed correct* and *never looked at* do not collapse. No schema work was needed.
+
+### Fork rulings
+
+**A — ships standalone as 0.16.1.** Presentation-only and self-contained. R19 (capture flow) exists only as an unsent draft and arrives later as its own pre-registration; there was nothing to fold into, so nothing was guessed.
+
+**B — storage stays GRAMS, end to end.** No oz input affordance, no unit setting. The **confirm line alone** shows dual units for **weight-shaped** items; the slider, the exact field and the record are grams. **Display-only, the D34 display/stored separation.** Rationale, as ruled: *people know steaks in ounces — the confirm question should speak the unit the user's knowledge is stored in, while the record speaks the app's.*
+
+*Weight-shaped* is read from the shipped `scale_linked` flag: an item that scales with the plate gets the ounce hint; a fixed-size packaged item (a canned drink, a sealed side) is known by its package, not in ounces, and gets grams only. Below `OZ_MIN_G` (25 g) there is **no hint rather than one rounded to noise**. Decided here rather than escalated, since it follows from the shipped data.
+
+**The R6 addendum's "grams/oz slider" phrasing is corrected to grams-only input** — no oz input was ever the intent. Recorded because grams-only shipped in D40 with no oz affordance built and none gated; the gap is now closed by ruling rather than left as a silent divergence.
+
+**C — divergence reaching sooner is the FEATURE, and is gated.** Confirm-first pins the dominant item before anything else is touched, so a confirmation at `r = 1.0` plus a later correction past `DIVERGE_MAX` trips divergence and stops propagation — a state the shipped draft rarely reached. **If the steak is confirmed right and the potatoes are 60% off, the scene genuinely does not share a scale, and saying so is the whole point.**
+
+**D — the lead renders only while the dominant item is unpinned.** A reopened meal whose lead is already pinned is **not asked again**; one saved unanchored still leads with the question. Read from existing state, no new flag.
+
+### Reference-object guidance — RETIRED, as a prohibition
+
+**The design's scale reference is the USER'S KNOWLEDGE, delivered through the confirm question — not props in frame.** User-facing photo help reduces to exactly *one plate, all items visible*.
+
+**Audit finding: no such guidance existed in any shipped surface.** `index.html`, `app.js` and `README.md` carried no prop, framing or angle advice. That advice had been given **in conversation by the assistant, not by the app**. So the ruling lands as a **recorded prohibition plus a static gate** (`tests/check-guidance.sh`) rather than a deletion: it corrects the assistant, and fences the guidance out of the code before it can creep in. As ruled: *advice that only ever lived in conversation still deserves a fence if it contradicts the design.*

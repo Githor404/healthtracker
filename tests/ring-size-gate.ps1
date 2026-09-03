@@ -92,6 +92,13 @@ function Eval([string]$expr) {
 }
 
 $seed = "(function(){try{" +
+  # The ring is a TRAILING-24H instrument, so a wall-clock gate is not a
+  # re-runnable one: seeded 06:30 and 23:00 entries fall outside the window
+  # when the suite runs after midnight, no practice lane draws, and the band
+  # assertion fails on byte-identical code. Pin the clock through the shipped
+  # seam so the seeded scene is the same scene at every hour. (Found 2026-09-03
+  # at 00:28 local, when R6.1 ran the gate and this failed on unchanged code.)
+  "HT.setClock(function(){return new Date(2026,0,15,15,0,0).getTime();});HT.boot();" +
   "HT.state().settings.presets.push({id:'p1',name:'Lunch',meal:'lunch',kcal:500,soluble_fiber_g:0});" +
   "HT.addRegimenFromJSON(JSON.stringify({name:'P',window:{start:'12:00',end:'20:00'},entries:[" +
   "{kind:'medication',time:'08:00',name:'Med'},{kind:'food',time:'12:00',presetId:'p1'}]}));" +

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.16.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.16.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3240,15 +3240,39 @@ function renderPhotoDraft() {
   const d = PHOTO_DRAFT;
   if (!d) { el.innerHTML = ''; return; }
   const sh = photoShared(d);
+  const li = photoLeadIndex(d);
+  const leadOpen = photoLeadOpen(d);
+  // Divergence always speaks. The generic opening line is suppressed only while
+  // the question is up, because the question already says it, and says it better.
   let head = '';
-  if (!sh.anchored) {
-    head = `<div class="pmnote">Straight from the estimate. Correct the item you know best \u2014 the rest follow.</div>`;
-  } else if (sh.diverged) {
+  if (sh.diverged) {
     head = `<div class="pmnote pmwarn">estimates don\u2019t share a scale \u2014 adjust individually</div>`;
-  } else {
+  } else if (sh.anchored) {
     head = `<div class="pmnote">${esc(sh.pins)} pinned \u00b7 others scaled \u00d7${esc(Math.round(sh.R * 100) / 100)}</div>`;
+  } else if (!leadOpen) {
+    head = `<div class="pmnote">Straight from the estimate. Correct the item you know best \u2014 the rest follow.</div>`;
+  }
+  // The lead question. Dual-unit is DISPLAY ONLY -- the slider, the exact field
+  // and the record are grams; the question speaks ounces because that is the unit
+  // the user's own knowledge of a steak is stored in.
+  let lead = '';
+  if (leadOpen) {
+    const lt = d.items[li];
+    const oz = photoWeightShaped(lt) ? ozHint(lt.aiGrams) : '';
+    const amt = `${esc(rDisp(lt.aiGrams))} g${oz ? ` (${esc(oz)})` : ''}`;
+    lead = `<div class="pmlead">
+      <div class="pmq">AI estimated: <b>${esc(lt.name)}</b>, ${amt} \u2014 confirm or correct.</div>
+      <div class="pmctl">
+        <input type="range" min="10" max="${esc(Math.max(600, Math.round(lt.aiGrams * 4)))}" step="5" value="${esc(lt.aiGrams)}"
+               oninput="photoSetGrams(${li}, this.value)" aria-label="${esc(lt.name)} grams">
+        <input type="number" inputmode="decimal" class="pmg" value="${esc(lt.aiGrams)}" onchange="photoSetGrams(${li}, this.value)" aria-label="${esc(lt.name)} grams exact">
+        <span class="pmunit">g</span>
+      </div>
+      <button type="button" class="btn primary pmok" onclick="photoConfirmLead()">Confirm ${amt}</button>
+    </div>`;
   }
   const rows = d.items.map((it, i) => {
+    if (leadOpen && i === li) return '';
     const g = photoGrams(d, it);
     const m = photoItemMacros(d, it);
     const pin = it.pinned ? `<button type="button" class="linklike" onclick="photoUnpin(${i})">unpin</button>` : '';
@@ -3270,7 +3294,7 @@ function renderPhotoDraft() {
     const m = photoItemMacros(d, it);
     return { kcal: a.kcal + m.kcal, protein_g: a.protein_g + m.protein_g };
   }, { kcal: 0, protein_g: 0 });
-  el.innerHTML = `<div class="pmdraft">${head}${rows}
+  el.innerHTML = `<div class="pmdraft">${lead}${head}${rows}
     <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein</div>
     <div class="row" style="margin-top:10px">
       <button class="btn primary" onclick="photoSave()">Save meal</button>
@@ -3434,6 +3458,7 @@ const VERSION_LOG = [
   { v: '0.14.1', note: 'Fixes: timeline entries can now be removed (with undo), the week and month rings are rebuilt as small clean digests instead of overlapping, and the ring\u2019s colours are properly tuned for light mode.' },
   { v: '0.15.0', note: 'Sauna, meditation and red light can now be toggled on and off like sleep \u2014 tap the lane\u2019s key under the ring for its switch. Tapping meals brings up any fasting gap waiting to be resolved.' },
   { v: '0.16.0', note: 'Photo meals: send the new template to your assistant with a photo, paste the reply, then correct the one portion you know best \u2014 the rest rescale with it. Nothing is saved until you say so, and your assistant is only ever asked once.' },
+  { v: '0.16.1', note: 'Photo meals now open with one question \u2014 the biggest item\u2019s estimate, to confirm with a tap or correct if you know better. Everything else rescales from your answer.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4340,6 +4365,45 @@ function photoItemMacros(draft, it) {
            carb_g: p.carb_g * g, fiber_g: p.fiber_g * g, soluble_fiber_g: p.soluble_fiber_g * g };
 }
 
+// ---- R6.1 -- confirm-first -----------------------------------------------
+// The draft LEADS with a question on the dominant item -- confirm the estimate or
+// correct it -- and the adjustable list renders beneath. Confirm-first,
+// sliders-second: the interaction is a question, not a form.
+//
+// Fork D (ruled): the question renders ONLY while the dominant item is unpinned.
+// A reopened meal whose lead is already pinned has answered it and is not asked
+// again; one saved unanchored still leads with it. Read from state, no new flag.
+const OZ_G = 28.3495;
+const OZ_MIN_G = 25;             // below this an ounce hint rounds to noise
+// Display-only (Fork B): storage stays GRAMS end to end -- no oz input, no unit
+// setting. The confirm question speaks the unit the user's knowledge is stored
+// in; the record speaks the app's. Same display/stored separation as D34.
+function ozHint(g) {
+  const n = Number(g);
+  if (!Number.isFinite(n) || n < OZ_MIN_G) return '';
+  return '~' + (Math.round((n / OZ_G) * 2) / 2) + ' oz';
+}
+// Weight-shaped = it scales with how big the plate is. A fixed-size packaged item
+// (a canned drink, a sealed side) is known by its package, not in ounces, so it
+// gets grams only. Read from the shipped scale_linked flag -- no new field.
+function photoWeightShaped(it) { return !!(it && it.scaleLinked); }
+function photoLeadIndex(draft) {
+  const items = (draft && draft.items) || [];
+  return items.length ? 0 : -1;          // already dominance-ordered by the parser
+}
+function photoLeadOpen(draft) {
+  const i = photoLeadIndex(draft);
+  return i >= 0 && !draft.items[i].pinned;
+}
+// Confirming is DATA, not a skip: it pins at the estimate (r = 1.0) and records
+// the correction-loop pair with accepted == ai_grams. An item never touched
+// carries no `pinned` field at all, so the two never collapse in the record.
+function photoConfirmLead() {
+  const d = PHOTO_DRAFT;
+  const i = photoLeadIndex(d);
+  if (i < 0) return { ok: false };
+  return photoSetGrams(i, d.items[i].aiGrams);
+}
 // RAIL 1 -- SCALE. Setting grams PINS the item; the shared correction then moves
 // every unpinned scale_linked item.
 function photoSetGrams(idx, grams) {
@@ -4891,6 +4955,7 @@ window.HT = {
   ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
   parsePhotoMeal, photoShared, renderPhotoDraft, doPhotoPaste, photoGrams, photoItemMacros, photoSetGrams, photoUnpin, photoSetIdentity,
   photoSave, photoReopen, photoDiscard, photoDraft, aiPromptText, DIVERGE_MAX, newMealId,
+  ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
   SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,

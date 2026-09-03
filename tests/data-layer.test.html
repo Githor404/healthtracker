@@ -3277,6 +3277,149 @@ window.setLS({});
   HT.photoDiscard();
   res(HT.photoDraft() === null && document.getElementById('photoDraft').innerHTML === '',
       'R6: discard clears the draft and writes nothing');
+  // ==========================================================================
+  // R6.1 -- confirm-first. Presentation refinement of the R6 draft: the math is
+  // untouched; what changes is what the draft ASKS first.
+  // ==========================================================================
+  setLS({}); HT.boot(); fixClock();
+  if (!document.getElementById('photoDraft')) { var pd61=document.createElement('div'); pd61.id='photoDraft'; document.body.appendChild(pd61); }
+  if (!document.getElementById('ingestBox')) { var ib61=document.createElement('textarea'); ib61.id='ingestBox'; document.body.appendChild(ib61); }
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste();
+  var d61 = HT.photoDraft();
+
+  // R61-lead: the lead is the dominance-ordered first item, and the question is
+  // asked only while it is unpinned.
+  res(HT.photoLeadIndex(d61) === 0 && d61.items[0].name === 'Grilled chicken breast',
+      'R61-lead: the lead is the dominance-ordered first item');
+  res(HT.photoLeadOpen(d61) === true, 'R61-lead: a fresh draft leads with the question');
+  res(HT.photoLeadIndex({ items: [] }) === -1, 'R61-lead: an empty draft has no lead to ask about');
+  var tie61 = HT.parsePhotoMeal('{"items":[' +
+    '{"name":"First","grams":100,"per100":{"kcal":100},"dominance":1},' +
+    '{"name":"Second","grams":100,"per100":{"kcal":100},"dominance":1}]}');
+  res(tie61.ok === true && tie61.items[0].name === 'First',
+      'R61-lead: tied dominance falls back to paste order, so the lead is deterministic');
+  HT.renderPhotoDraft();
+  var html61 = document.getElementById('photoDraft').innerHTML;
+  res(html61.indexOf('pmlead') >= 0 && html61.indexOf('confirm or correct') >= 0,
+      'R61-lead: the question renders above the list');
+  var rows61 = html61.slice(html61.indexOf('pmrow'));
+  res((html61.match(/class="pmrow"/g) || []).length === 1 && rows61.indexOf('Grilled chicken breast') < 0,
+      'R61-lead: the lead item is NOT also repeated in the list beneath');
+  res(html61.indexOf('Mixed salad with olive oil') >= 0,
+      'R61-lead: the remaining items still render beneath as the adjustable list');
+  res(html61.indexOf('Straight from the estimate') < 0,
+      'R61-lead: the generic opening line is suppressed while the question is up');
+
+  // R61-unit: dual-unit is DISPLAY ONLY. Storage stays grams end to end.
+  res(HT.ozHint(170) === '~6 oz', 'R61-unit: 170 g displays as ~6 oz');
+  res(HT.ozHint(283) === '~10 oz' && HT.ozHint(150) === '~5.5 oz',
+      'R61-unit: the hint rounds to the half ounce');
+  res(HT.ozHint(12) === '' && HT.ozHint('x') === '' && HT.ozHint(null) === '',
+      'R61-unit: below the floor, or with no number, there is no ounce hint rather than one rounded to noise');
+  res(HT.photoWeightShaped({ scaleLinked: true }) === true && HT.photoWeightShaped({ scaleLinked: false }) === false,
+      'R61-unit: weight-shaped reads the shipped scale_linked flag -- a fixed-size packaged item is known by its package, not in ounces');
+  res(html61.indexOf('150 g (~5.5 oz)') >= 0, 'R61-unit: the question shows grams AND the ounce hint');
+  res(html61.indexOf('>g</span>') >= 0 && html61.indexOf('oz"') < 0,
+      'R61-unit: the slider and the exact field stay grams -- there is no oz input');
+
+  // R61-confirm: a confirmation is DATA, not a skip.
+  var cf = HT.photoConfirmLead();
+  var d61b = HT.photoDraft();
+  res(cf.ok === true && d61b.items[0].pinned === true && d61b.items[0].grams === 150,
+      'R61-confirm: one tap pins at the estimate');
+  res(Math.abs(HT.photoShared(d61b).R - 1) < 1e-12 && HT.photoShared(d61b).pins === 1,
+      'R61-confirm: the confirmation enters the shared correction at r = 1.0');
+  res(HT.photoGrams(d61b, d61b.items[1]) === 200,
+      'R61-confirm: at r = 1.0 the other items keep the estimate');
+  res(HT.photoLeadOpen(d61b) === false, 'R61-confirm: the question is not asked twice');
+  HT.renderPhotoDraft();
+  res(document.getElementById('photoDraft').innerHTML.indexOf('pmlead') < 0,
+      'R61-confirm: and the question is gone from the surface once answered');
+  var svC = HT.photoSave();
+  var itC = HT.state().days[td].items;
+  res(svC.ok === true && itC[0].pinned === true && itC[0].ai_grams === 150 && Math.abs(itC[0].kcal - 165 * 1.5) < 1e-9,
+      'R61-confirm: the record carries pinned:true with accepted == ai_grams');
+  res(itC[1].pinned === undefined,
+      'R61-confirm: an item never touched carries NO pinned field -- confirmed-correct and never-looked-at do not collapse');
+
+  // R61-correct: correcting the lead pins at the truth; the shipped math moves the rest.
+  setLS({}); HT.boot(); fixClock();
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste();
+  HT.photoSetGrams(0, 300);
+  var d61c = HT.photoDraft();
+  res(d61c.items[0].pinned === true && d61c.items[0].grams === 300 && d61c.items[0].aiGrams === 150,
+      'R61-correct: typing on the lead pins at the truth and keeps the estimate for the correction loop');
+  res(Math.abs(HT.photoShared(d61c).R - 2) < 1e-12 && HT.photoGrams(d61c, d61c.items[1]) === 400,
+      'R61-correct: the remaining items rescale by the UNCHANGED shipped math');
+  res(HT.photoLeadOpen(d61c) === false, 'R61-correct: correcting also answers the question');
+
+  // R61-diverge: confirm at r = 1.0, then correct another item past DIVERGE_MAX.
+  // Ruled (Fork C): that is the feature, not a regression -- the scene really does
+  // not share a scale, and saying so beats averaging across it.
+  setLS({}); HT.boot(); fixClock();
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste();
+  HT.photoConfirmLead();                       // r = 1.0
+  HT.photoSetGrams(1, 340);                    // 200 -> 340, r = 1.7 > DIVERGE_MAX
+  var d61d = HT.photoDraft();
+  var shD61 = HT.photoShared(d61d);
+  res(shD61.pins === 2 && Math.abs(shD61.spread - 1.7) < 1e-9 && shD61.diverged === true,
+      'R61-diverge: a confirmation at r = 1.0 plus a correction past DIVERGE_MAX trips divergence');
+  res(HT.photoGrams(d61d, d61d.items[0]) === 150 && HT.photoGrams(d61d, d61d.items[1]) === 340,
+      'R61-diverge: both pinned values stand exactly as set -- no mean is fabricated across them');
+  HT.renderPhotoDraft();
+  res(document.getElementById('photoDraft').innerHTML.indexOf('share a scale') >= 0,
+      'R61-diverge: and divergence speaks on the surface even though the question is answered');
+
+  // R61-reopen (Fork D): an answered question is not re-asked; an unanswered one is.
+  var svR = HT.photoSave();
+  HT.photoDiscard();
+  res(HT.photoReopen(svR.mealId).ok === true && HT.photoLeadOpen(HT.photoDraft()) === false,
+      'R61-reopen: a meal whose lead is already pinned does NOT re-ask');
+  HT.photoDiscard();
+  setLS({}); HT.boot(); fixClock();
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  HT.doPhotoPaste();
+  var svU = HT.photoSave();                    // saved with nothing pinned
+  HT.photoDiscard();
+  res(HT.photoReopen(svU.mealId).ok === true && HT.photoLeadOpen(HT.photoDraft()) === true,
+      'R61-reopen: a meal saved unanchored still leads with the question');
+
+  // R61-guidance: the scale reference is the USER'S KNOWLEDGE via confirmation,
+  // never props in frame. PLANTED CONTROL first -- per the R6-vocab lesson, a
+  // matcher that cannot fail is not a gate.
+  var props61 = ['for scale', 'reference object', 'size reference', 'a coin', 'a fork',
+                 'your hand', 'at an angle', 'straight down', 'overhead', 'in frame'];
+  var hits61 = function (s) {
+    var low = ' ' + String(s).toLowerCase() + ' ';
+    return props61.filter(function (w) { return low.indexOf(w) >= 0; });
+  };
+  res(hits61('put a fork in frame for scale').length === 3,
+      'R61-guidance CONTROL: the matcher catches a known-bad string -- it is capable of failing');
+  HT.doPhotoPaste(); HT.renderPhotoDraft();
+  var surf61 = document.getElementById('photoDraft').innerHTML + ' ' + HT.aiPromptText() + ' ' + HT.AI_PROMPT_TEMPLATE;
+  res(hits61(surf61).length === 0,
+      'R61-guidance: no rendered photo surface asks for a prop, a framing or an angle');
+  res(HT.aiPromptText().indexOf('grams') >= 0,
+      'R61-guidance: the estimate is still asked for -- what was retired is the prop advice, not the question');
+
+  // R61-math: D40's arithmetic is byte-unchanged.
+  var fx61 = { mealId:'m61', meal:'lunch', items:[
+    { name:'Steak', aiGrams:170, grams:283, aiIdentity:'Steak', per100:{kcal:250,protein_g:26,fat_g:16,carb_g:0,fiber_g:0,soluble_fiber_g:0}, scaleLinked:true, dominance:1, pinned:true },
+    { name:'Potatoes', aiGrams:200, grams:200, aiIdentity:'Potatoes', per100:{kcal:90,protein_g:2,fat_g:0,carb_g:20,fiber_g:2,soluble_fiber_g:0.5}, scaleLinked:true, dominance:2, pinned:false },
+    { name:'Canned drink', aiGrams:330, grams:330, aiIdentity:'Canned drink', per100:{kcal:40,protein_g:0,fat_g:0,carb_g:10,fiber_g:0,soluble_fiber_g:0}, scaleLinked:false, dominance:3, pinned:false } ]};
+  var sig61 = JSON.stringify([Math.round(HT.photoShared(fx61).R * 1e9) / 1e9,
+                              HT.photoGrams(fx61, fx61.items[0]),
+                              HT.photoGrams(fx61, fx61.items[1]),
+                              HT.photoGrams(fx61, fx61.items[2]),
+                              Math.round(HT.photoItemMacros(fx61, fx61.items[1]).kcal * 1e6) / 1e6]);
+  res(sig61 === '[1.664705882,283,333,330,299.7]',
+      'R61-math: the shipped propagation values are byte-unchanged by the presentation slice');
+  HT.photoDiscard();
+  freeClock();
+
   freeClock();
 
   // ==========================================================================
