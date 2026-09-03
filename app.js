@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.16.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.17.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1179,7 +1179,7 @@ function renderDay() {
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
       <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
   html += `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'End &amp; complete this day'}</button>`;
-  html += `<button class="clrday" onclick="clearDay()">Clear this day</button>`;
+  html += `<div class="dayclr"><button class="clrday" onclick="clearDay()">Clear this day</button></div>`;
 
   host.innerHTML = html;
 }
@@ -1221,12 +1221,30 @@ function toggleDayStatus() {
   Store.saveState(APP_STATE); refresh();
   toast(day.status === 'complete' ? 'Day completed' : 'Day reopened');
 }
+// A whole-day wipe was the ONE destructive action outside the undo grammar every
+// other deletion goes through (D22). It is also the largest, which makes it the
+// worst place to make an exception -- and its confirm text promised the exception
+// was permanent. It now snapshots, wipes, and offers the same undo as an item
+// delete; the confirm stays, because a day is bigger than a row.
+//
+// The undo restores BY DATE KEY, never by object reference: the toast lives for
+// seven seconds and the user can page to another day inside that window, so the
+// restore has to land on the day that was cleared, not the day now on screen.
 function clearDay() {
-  const day = curDay(); if (!day) return;
-  if (!window.confirm('Clear all items and water for ' + APP_STATE.current + '? This cannot be undone.')) return;
+  const dk = APP_STATE.current;
+  const day = APP_STATE.days[dk]; if (!day) return;
+  if (!window.confirm('Clear all items and water for ' + dk + '?')) return;
+  const items = JSON.parse(JSON.stringify(day.items || []));
+  const water = day.water_l || 0;
   day.items = []; day.water_l = 0;
   Store.saveState(APP_STATE); refresh();
-  toast('Day cleared');
+  offerUndo('Cleared ' + dk, function () {
+    const back = APP_STATE.days[dk];
+    if (!back) return;
+    back.items = items; back.water_l = water;
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, date: dk, cleared: items.length };
 }
 function addWater(delta) {
   const day = curDay(); if (!day) return;
@@ -3461,6 +3479,7 @@ const VERSION_LOG = [
   { v: '0.16.1', note: 'Photo meals now open with one question \u2014 the biggest item\u2019s estimate, to confirm with a tap or correct if you know better. Everything else rescales from your answer.' },
   { v: '0.16.2', note: 'Fixes: the meals ring no longer draws a full circle when a day has little logged food \u2014 the meal dots and the pending gap carry it instead. And a practice left switched on now asks when it ended much sooner: red light after 40 minutes, sauna 45, meditation an hour. It still never guesses an end time.' },
   { v: '0.16.3', note: 'Fix: a long stretch with no food logged no longer sweeps most of the meals ring \u2014 past half a circle it stops reading as a gap, so the ring keeps your meal dots and the centre states the hours instead.' },
+  { v: '0.17.0', note: 'Clearing a day can now be undone, like every other deletion — the Undo appears in the toast for a few seconds. The clear control also moved further from “End & complete this day” and got quieter, so it is harder to hit by accident.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5076,7 +5095,7 @@ window.HT = {
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
-  averageOver, completeDaysInWindow,
+  averageOver, completeDaysInWindow, clearDay,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   setSupplement, applySupplementToToday, normalizeSupplement,
   requestPersistentStorage,

@@ -1806,6 +1806,23 @@ window.setLS({});
     res(!!SEDOC.querySelector('#fab'), 'SE-modes: one persistent + entry point exists');
     res(['scan','quick','photo','manual'].every(function(m){ return SEDOC.querySelector('#mode-' + m) && SEDOC.querySelector('#pane-' + m); }),
         'SE-modes: Scan / Quick / Photo·AI paste / Manual all present');
+    // R19: the destructive control must not share the size, weight and thumb path
+    // of the affirmative one above it. Measured in the SHIPPED shell, laid out --
+    // "it is a different class" is not the property that stops a mis-tap.
+    var seClr = SEDOC.querySelector('.clrday');
+    var seDone = SEDOC.querySelector('#dayView .btn.big');
+    res(!!seClr && !!seDone, 'R19-demote: both the complete and the clear controls render on the day view');
+    if (seClr && seDone) {
+      var rc = seClr.getBoundingClientRect(), rd = seDone.getBoundingClientRect();
+      var sc = seFrame.contentWindow.getComputedStyle(seClr), sd = seFrame.contentWindow.getComputedStyle(seDone);
+      res(rc.width < rd.width * 0.6,
+          'R19-demote: the destructive control is far narrower than the affirmative one -- no full-width red bar');
+      res(rc.top - rd.bottom >= 16,
+          'R19-demote: and separated from it, so the thumb path to "complete" does not end on "clear"');
+      res(parseFloat(sc.fontSize) < parseFloat(sd.fontSize) && parseFloat(sc.fontWeight) < parseFloat(sd.fontWeight),
+          'R19-demote: smaller and lighter than the action it sits under');
+      res(sc.color !== sd.color, 'R19-demote: and muted at rest rather than shouting in the destructive colour');
+    }
     res(SEDOC.querySelector('#mode-scan').className.indexOf('on') >= 0 && SEDOC.querySelector('#pane-scan').className.indexOf('on') >= 0,
         'SE-modes: Scan is the DEFAULT mode');
     var foot = SEDOC.querySelector('.sheetfoot');
@@ -3431,6 +3448,56 @@ window.setLS({});
   HT.photoDiscard();
   res(HT.photoDraft() === null && document.getElementById('photoDraft').innerHTML === '',
       'R6: discard clears the draft and writes nothing');
+  // ==========================================================================
+  // R19 -- "Clear this day" joins the undo grammar.
+  // ==========================================================================
+  // It was the ONE destructive action outside it, and the largest: a whole day,
+  // wiped, with a confirm that promised the wipe was permanent.
+  setLS({}); HT.boot(); fixClock();
+  HT.addManualEntry({ name: 'Steak', kcal: 600, protein_g: 50, soluble_fiber_g: 0 });
+  HT.addManualEntry({ name: 'Rice', kcal: 300, carb_g: 60, soluble_fiber_g: 0 });
+  HT.addWater(0.75);
+  var beforeCD = JSON.stringify(HT.state().days[td].items);
+  var waterCD = HT.state().days[td].water_l;
+  res(beforeCD !== '[]' && waterCD === 0.75, 'R19-clear: a day with items and water exists');
+
+  window.__confirm = false;
+  HT.clearDay();
+  res(JSON.stringify(HT.state().days[td].items) === beforeCD && HT.state().days[td].water_l === 0.75,
+      'R19-clear: declining the confirm is a true no-op');
+
+  window.__confirm = true;
+  var cd = HT.clearDay();
+  res(cd && cd.ok === true && cd.cleared === 2, 'R19-clear: confirming clears, and says what it cleared');
+  res(HT.state().days[td].items.length === 0 && HT.state().days[td].water_l === 0,
+      'R19-clear: items AND water are gone');
+  res(JSON.parse(HT.exportJSON()).days[td].items.length === 0, 'R19-clear: and it is persisted, not just on screen');
+
+  HT.doUndo();
+  res(JSON.stringify(HT.state().days[td].items) === beforeCD,
+      'R19-clear: UNDO restores every item BYTE-IDENTICAL');
+  res(HT.state().days[td].water_l === 0.75, 'R19-clear: and the water with them');
+  res(JSON.parse(HT.exportJSON()).days[td].items.length === 2, 'R19-clear: the restore is persisted too');
+
+  // The toast lives seven seconds and a day is one tap away, so the undo has to
+  // land on the day that was CLEARED, not the day now on screen.
+  var prevCD = HT.shiftDate(td, -1);
+  HT.state().days[prevCD] = { status: 'complete', items: [], water_l: 0 };
+  HT.clearDay();
+  res(HT.state().days[td].items.length === 0, 'R19-clear: cleared again, to test the moving view');
+  HT.goToDay(prevCD);
+  res(HT.state().current === prevCD, 'R19-clear: the view moved to another day before the undo');
+  HT.doUndo();
+  res(JSON.stringify(HT.state().days[td].items) === beforeCD && HT.state().days[td].water_l === 0.75,
+      'R19-clear: undo restores the day that was CLEARED, not the day on screen');
+  res(HT.state().days[prevCD].items.length === 0, 'R19-clear: and never touches the day it landed on');
+  HT.goToDay(td);
+
+  // A cleared day keeps its identity: clearing is not completing, and not deleting.
+  res(HT.state().days[td] !== undefined, 'R19-clear: the day itself survives -- clearing empties it, it does not delete it');
+  window.__confirm = true;
+  freeClock();
+
   // ==========================================================================
   // R6.1 -- confirm-first. Presentation refinement of the R6 draft: the math is
   // untouched; what changes is what the draft ASKS first.

@@ -1305,3 +1305,23 @@ Reported after 0.16.2 shipped: **the meals ring was still the same.** It was.
 **Count delta: 968 → 1004** (+36). `bash tests/run-data-layer.sh` → **1004/1004 ALL PASS**, `executed 1004 · pinned 1004`. Thirteen gates green, collected one CDP gate at a time.
 
 **Status: MET — awaiting review.**
+
+
+---
+
+### R19 — the day-wipe becomes recoverable, and stops sharing the thumb path (D44) — v0.17.0
+
+| Case | Result |
+|---|---|
+| R19-clear | declining the confirm is a **true no-op**; confirming clears items **and** water and persists it; **undo restores every item byte-identical**, with the water, persisted |
+| R19-clear (moving view) | clear, **page to another day**, then undo → it restores **the day that was cleared**, and **never touches the day it landed on** |
+| R19-clear (identity) | a cleared day still exists — **clearing empties a day, it does not delete it** |
+| R19-demote | measured on the **shipped shell, laid out**: narrower than 60% of the affirmative control, **≥ 16 px separation**, smaller font, lighter weight, different rest colour |
+
+**Proven against the defect.** Restoring the previous CSS (`width:100%`, `font-weight:700`, `color:var(--bad)`, 8 px below the primary) fails three of the four `R19-demote` assertions — width, separation and weight.
+
+**The harness caught the author again, twice over.** `clearDay` was not exported, so the new cases threw; the **uncaught-exception listener** (added after the v0.11.0 masked-exception defect) recorded it as a failure instead of letting a green-looking SUMMARY through, and the **assertion pin** independently flagged the drop from 1004 to 954. Both second lines of defence fired on the same mistake.
+
+**Count delta: 1004 → 1022** (+18). `bash tests/run-data-layer.sh` → **1022/1022 ALL PASS**, `executed 1022 · pinned 1022`. Thirteen gates green, collected one CDP gate at a time.
+
+**Status: MET — awaiting review.**

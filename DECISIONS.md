@@ -1171,3 +1171,26 @@ Ate yesterday evening, look at it this evening: **20–22 hours, and the lane is
 **A threshold set from the single case in hand is a threshold that fits that case.** D42's reproduction was real and its mechanism was real, and that made the number feel earned when it was not. The check that would have caught it — and now exists — is to **sweep the parameter rather than assert at one point**: `R182-gapsweep` gates eight positions from 6 h to 22 h, so the boundary itself is under test, not just one side of it.
 
 The rendered gate had the same flaw: `ring-size-gate`'s sparse case asserted `< 97%` and **passed the reported defect at 91.7%**. It now asserts the rule the fix implements — no single arc past **half** the lane, total draw under 60% — and its seed was narrowed to the reported shape, because the wider seed included an older meal whose fast candidate pushed the union to 100% and let D42's rule handle it. **A gate seeded so that the old rule already passes cannot prove the new one.**
+
+
+## D44 — "Clear this day" joins the undo grammar, and stops sharing the thumb path (R19, 2026-09-03)
+
+`APP_VERSION → 0.17.0`; **schema unchanged at v5**. Two answers to a pre-distribution review of the day-wipe.
+
+### 1. It was NOT undoable — and that was the wrong exception to make
+
+`clearDay()` ran `window.confirm('… This cannot be undone.')`, emptied `items` and `water_l`, saved and toasted. **No `offerUndo`.** Every other deletion in the app — an item, a timeline record, a photo-meal re-save — goes through the undo grammar (D22). **The whole-day wipe was the single exception, and it is the largest destructive action there is**, which makes it the worst place to hold one. The confirm text also *promised* the exception: it told the user the loss was permanent, which it did not have to be.
+
+It now snapshots `items` and `water_l`, wipes, and offers the same undo toast as an item delete, restoring **byte-identical**. **The confirm stays** — a day is bigger than a row, and the two mechanisms answer different questions ("did you mean it?" versus "can you take it back?"). The text no longer claims permanence.
+
+**The undo restores BY DATE KEY, never by object reference.** The toast lives seven seconds and a day is one tap away, so the user can page elsewhere inside that window; the restore has to land on the day that was cleared, not the day now on screen. Gated explicitly, including that the day it lands on is not touched.
+
+### 2. The demotion — done now, not post-launch
+
+The control was `width:100%`, `font-weight:700`, `color:var(--bad)`, **8 px below** the primary "End & complete this day" button: **a full-width red bar directly in the thumb path of the frequent affirmative action, at the same width and heavier weight.** That is the shape of a mis-tap, and first contact is exactly when someone reaches for "complete" without reading.
+
+Judged **this slice** rather than post-launch: it is a CSS-and-one-wrapper change with a measurable gate, the review is pre-distribution, and the two fixes are the same concern — one lowers the cost of the mistake, the other lowers its likelihood. Shipping the undo alone would have left the trap in place.
+
+**Kept on the day surface rather than moved to settings.** Clearing a day is a legitimate rare action, most likely during first-contact experimentation ("I typed nonsense in, wipe it"); burying it would make a reasonable act hard while barely reducing the mis-tap, whose cause is proximity and size, not presence. It is now centred, auto-width, 12 px, unbolded, muted at rest, separated by 26 px, and carries the destructive colour only on press — where the intent is already deliberate.
+
+**Measured, not asserted.** `R19-demote` reads the **shipped shell, laid out** in the harness iframe: narrower than 60% of the affirmative control, ≥ 16 px of separation, smaller font and lighter weight, and a different rest colour. *"It has a different class"* is not the property that stops a mis-tap. **Proven against the defect:** restoring the previous CSS fails three of the four.

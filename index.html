@@ -201,7 +201,13 @@
   .btn.big{width:100%;padding:13px;font-size:15px;margin-top:8px}
   .btn.close{background:var(--accent);color:#fff;border-color:var(--accent)}
   .btn.reopen{background:var(--bg);color:var(--good);border-color:var(--good)}
-  .clrday{width:100%;margin-top:8px;background:none;border:none;color:var(--bad);font-size:13px;font-weight:700;cursor:pointer}
+  /* R19: a rare destructive action must not share the size, weight and thumb
+     path of the frequent affirmative one it sits under. Separated, shrunk,
+     unbolded and muted at rest; it carries the destructive colour on press,
+     where the intent is already deliberate. */
+  .dayclr{display:flex;justify-content:center;margin-top:26px}
+  .clrday{width:auto;padding:6px 10px;background:none;border:none;color:var(--muted);font-size:12px;font-weight:400;text-decoration:underline;cursor:pointer}
+  .clrday:hover,.clrday:active{color:var(--bad)}
   .mafield{margin-bottom:8px}
   .uinput{display:flex;align-items:center;gap:6px}
   .uinput input{flex:1}
