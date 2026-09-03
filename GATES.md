@@ -1133,3 +1133,41 @@ R16 built the summoned-centre contract generically but wired **only sleep**. R18
 **Count delta: 784 → 836** (+52). `bash tests/run-data-layer.sh` → **836/836 ALL PASS**, `executed 836 · pinned 836`. All eleven gates green; `version` 0.14.1 → **0.15.0**.
 
 **Status: MET.**
+
+
+### R6 — Photo-meal slice — PRE-REGISTERED (spec received 2026-09-02; two forks open)
+
+Photo → **the user's own AI** (copy template / paste JSON — the existing D11 flow; **no BYOK, no in-app calls**, AI consulted **exactly once per meal**) → structured item list → **local anchor/sliders** → save. **All recalibration is client-side arithmetic; no second round-trip ever.** Target `APP_VERSION → 0.16.0`.
+
+#### Ruled pins
+
+**Template v3** (`AI_TEMPLATE_VERSION` 2 → 3, because the item contract changes). Per item: `name`; estimated `grams`; **per-100 g MACROS only**; `scale_linked` (default **true**; false for size-independent items); and **dominance rank** by contribution to `settings.primaryNutrient` (protein for a protein-goal user, else kcal). The template must **travel well** — self-contained rules, JSON-only, any competent assistant returns a valid shape — and stays **self-consistency-gated template ↔ ingest**.
+
+**D8 HOLDS: no micros from the AI.** Micros arrive later from the knowledge-layer corpus keyed off identification, never from the photo path.
+
+**Anchoring is a user-supplied gram/oz correction on one item via its slider** — no reference objects, no in-frame markers. Correcting an item **pins** it.
+
+**Propagation math.** `r_i = user_grams / ai_grams` per pinned item; the shared correction `R = exp(mean(ln r_i))` — the **geometric mean, recomputed from the FULL pinned set on every change**, so it is **order-independent** (gated: pin A then B ≡ pin B then A). Every **unpinned `scale_linked`** item displays `ai_grams × R`; **non-`scale_linked` items never move**.
+
+**Divergence rule.** If `max(r_i) / min(r_i) > DIVERGE_MAX` (~1.5, a surfaced constant), **propagation STOPS** and unpinned items read *"estimates don't share a scale — adjust individually."* **Fabricating a mean across disagreeing pins is prohibited** — the same refusal as inferring an arc, applied to arithmetic.
+
+**Two rails, gated separately (addendum).**
+1. **SCALE** — the slider pins the item and propagates the shared correction to unpinned `scale_linked` items by the math above.
+2. **IDENTITY** — name tap → re-pick (presets / recents / list now, corpus search later). Swaps the **per-100 g profile**, **KEEPS the anchored grams**, and **recomputes that item only**. **Identity corrections NEVER propagate** — shared-scale is a **geometry hypothesis, not an identity one**. The non-propagation is gated.
+
+**Correction loop retains both** `(ai_grams vs accepted)` **and** `(ai_identity vs accepted)` per item — the second feeds future template / personal-calibration work.
+
+#### Forks NOT answered by the spec
+
+**Fork A — where the correction-loop retention lives (a storage question).** `ai_grams` and `ai_identity` must persist per item to be worth retaining. *Leaning:* **optional fields on the item** (`ai_grams`, `ai_name`), **explicit allowlist additions to `normalizeItem`** — the `tzo` / `panelId` pattern — with **no schema bump**: on D29's asymmetry test, losing them degrades a **future calibration input**, not content the user authored. **Flagged rather than assumed, because every storage question in this project has been ruled before code**, and this one also decides whether the loop survives an export/restore round trip.
+
+**Fork B — ingest routing, and whether a draft persists.** Template v3 returns **per-100 g + grams + `scale_linked`**, which is not one of `ingest()`'s four shapes, and the anchoring step must happen **before any record exists**. *Leaning:* a **dedicated staging path** — the paste produces a **draft**, `ingest()`'s four shapes stay untouched, and **records are written only on Save**, so nothing is stored until the user acts. *Sub-fork:* should an unsaved draft survive a reload? *Leaning:* **no** — unlike R16's open segment, which had to persist because live state cannot be reconstructed, a draft is one paste away from being recreated, and persisting it would put a non-record in the store for no gain.
+
+#### Carried from existing rulings unless overruled
+
+- **Saved items stay `source: 'ai-paste'`, `confidence: 'eyeballed'`** (D8). Anchoring improves an estimate; it does not make it weighed. Recorded explicitly because "anchored" could otherwise be read as promoting confidence.
+- **Dominance rank is display-only** — it orders the review list, nothing else.
+- **A missing `scale_linked` coerces to `true`** at the paste boundary, per the ruled default.
+- **A pinned item that has its identity swapped stays pinned**, and its `r_i` is unchanged — identity keeps the anchored grams, so the ratio against the original `ai_grams` still holds.
+
+**Status: PRE-REGISTERED — the spec message was TRUNCATED mid-sentence after the divergence rule, so Forks A and B (storage shape and ingest/staging) may already be answered in the unsent tail. Stopped for that tail rather than guessing the data layer.**
