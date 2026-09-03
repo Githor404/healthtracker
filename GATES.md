@@ -1259,3 +1259,26 @@ Also fixed: `photo-lead-gate` was first written with `ring-size-gate`'s ports (8
 **Count delta: 891 → 924** (+33). `bash tests/run-data-layer.sh` → **924/924 ALL PASS**, `executed 924 · pinned 924`. Thirteen gates green: data-layer, precache, sw-hash, zxing, version (0.16.0 → **0.16.1**), writesites, **guidance**, ring, **photo-lead**, chip-layout, lab-form, offline, update.
 
 **Status: MET — awaiting review.**
+
+
+---
+
+### R18.1 — forgot-off thresholds + the meals-lane full-ring defect (D42) — v0.16.2
+
+| Case | Result |
+|---|---|
+| R181-thresholds | red light 40 / sauna 45 / meditation 60; **sleep unchanged at 11 h**; `LANE_ACTIONS` and `SLEEP_OPEN_MAX_MIN` both read the one table; **yoga and exercise carry none**, per D39 |
+| R181-candidate | at **each practice's own** threshold: not pending a minute before, pending at it, **still open**, **nothing written**, the true start kept, and the centre asking *"ended when?"* with a field — **still open and still unwritten six hours past it** |
+| R181-eatring | the device shape reproduces (eat 12°, fast/pending 263°, open gap 86°); **CONTROL: unsuppressed those three tile 100% of the lane**; as drawn it is under the threshold; the **gap arcs** are what is withheld; the real eating-window arc still draws; **both meal ticks survive**; nothing is drawn for the suppressed arcs; **the pending candidate keeps its resolve buttons**; and **every meal record is untouched** |
+| R181-eatring (unit) | a single arc filling the lane is withheld **whatever its kind**; an ordinary 86° gap is left alone; **a declared ghost is neither counted nor withheld** |
+| R181-rlt | the 152-minute red-light record renders a delete affordance, deletes, and **undo restores it byte-identical**. **No edit-in-place exists** — correction is delete and re-log |
+
+**`ring-size-gate` gains the sparse case — the shape every ring gate had been missing.** The 0.13.0 lesson was that gates seeding records *inside* the window can never measure a lane while mostly **empty**, which is exactly when it drew a full circle. The new case seeds the device shape and measures **rendered** coverage (summed arc length against the lane's own circumference), because the defect was a drawing that contradicted a correct-enough model. **Proven against the defect:** with the fix disabled it reads `paths=3 dots=2 drawn=100%` → FAIL; with it, `paths=1 dots=2 drawn=3.3%` → PASS.
+
+**Scenario isolation fixed in the same gate.** `localStorage` survives `Page.navigate`, so the sparse seed's records leaked into the next scenario and moved the layout below the fold — a false failure. Both seeds now clear the profile first, making each measurement independent of order.
+
+**Runner note (honest limitation).** The five CDP gates pass individually and reliably; running them **back-to-back in one batch** produced one spurious `ring-size-gate` FAIL that does not reproduce when the gate is run alone. Until that interference is chased down, **CDP gate evidence is collected one gate at a time** — a batch run is not evidence.
+
+**Count delta: 924 → 968** (+44). `bash tests/run-data-layer.sh` → **968/968 ALL PASS**, `executed 968 · pinned 968`. Thirteen gates green; `version` 0.16.1 → **0.16.2**.
+
+**Status: MET — awaiting review.**

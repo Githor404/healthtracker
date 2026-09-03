@@ -1097,3 +1097,44 @@ Presentation-only refinement of the shipped photo-meal draft. **D40's arithmetic
 **The design's scale reference is the USER'S KNOWLEDGE, delivered through the confirm question — not props in frame.** User-facing photo help reduces to exactly *one plate, all items visible*.
 
 **Audit finding: no such guidance existed in any shipped surface.** `index.html`, `app.js` and `README.md` carried no prop, framing or angle advice. That advice had been given **in conversation by the assistant, not by the app**. So the ruling lands as a **recorded prohibition plus a static gate** (`tests/check-guidance.sh`) rather than a deletion: it corrects the assistant, and fences the guidance out of the code before it can creep in. As ruled: *advice that only ever lived in conversation still deserves a fence if it contradicts the design.*
+
+
+## D42 — Per-practice forgot-off thresholds, and the meals-lane full-ring defect (R18.1, 2026-09-03)
+
+`APP_VERSION → 0.16.2`; **schema unchanged at v5**. Two changes ship together: a threshold table, and a render fix for a defect reported from the device.
+
+### The meals-lane full-ring defect — diagnosed, not guessed
+
+**Reported:** the meals lane drew as a full 360° dashed green ring on a day with an 0.8 h eating window and nothing logged yet.
+
+**Reproduced headlessly before any code was touched**, by seeding the described shape against a pinned clock. The mechanism is **not** the eating-window span and **not** an empty-state gap — both of those hypotheses were tested and cleared:
+
+| seeded shape | eat-lane arcs | lane covered |
+|---|---|---|
+| two meals 0.8 h apart yesterday, none today | eat 12°, open gap 86° | 27% |
+| last meal 30 h ago (gap fills the window) | none — the 0.13.1 rule already suppresses it | 0% |
+| **the device shape:** the same two meals **plus an older meal leaving an unresolved gap** | eat 12°, **fast/pending 263°**, open gap 86° | **100%** |
+
+**The cause is the UNION.** The 0.13.1 fix guarded a *single* arc filling the window. Here a **pending fast candidate** and the **trailing open gap** are each legal, each well under the window, and **together they tile the lane** — and both are dashed (`.rpending` 5-4, `.ra-open` 4-4), so the result reads as one segmented ring meaning *meals everywhere*, the exact opposite of what it says. `arcPath` then clamps the span to 359.99°, closing the circle visually.
+
+**The fix measures coverage, because coverage is the property that matters** — per arc **and** as a union (`EAT_FULL_FRAC = 0.97`; at 97% the remaining wedge is ~11 minutes of arc, which no one reads as a gap). When the lane is full, the **negative-space arcs** (`open`, `fast`) are withheld.
+
+**Suppression withholds the DRAWING, never the record.** Suppressed arcs stay in the model, so the legend keeps the pending candidate **with its resolve buttons** and the centre still states the gap in words. **Ticks always survive** — meal dots at meal times are the honest render of a sparse day, and they are what the ruling asks for. A declared ghost is not counted or withheld: it is the plan's claim, not the lane's claim about what happened.
+
+**Render-only, and gated as such:** no write path was touched and every meal record is asserted untouched in the same case. Coverage on the device shape goes **100% → 3%**.
+
+### Per-practice forgot-off thresholds
+
+Per-practice thresholds already existed as `LANE_ACTIONS[lane].maxOpenMin`; **the values were wrong** — three hours of red light is not a forgotten switch, it is a forgotten *day*. They now live in one surfaced table:
+
+`FORGOT_OFF_MIN = { sleep: 11 h (unchanged), sauna: 45 min, meditation: 60 min, red_light: 40 min }`
+
+Each is set just past a long-but-real session of that practice. `LANE_ACTIONS` and the retained `SLEEP_OPEN_MAX_MIN` both read the table, so a threshold lives in exactly one place.
+
+**Past the threshold is a QUESTION, never an auto-close** — this was already the behaviour and is now explicitly gated at each practice's own number: the segment stays open, keeps its **true** start, writes nothing, and the centre asks *"&lt;practice&gt; ended when?"* with a time field. Closing at the threshold would write a duration nobody lived; **an invented end time is the same fabrication as an inferred arc (D19)**, and it would be indelible in a way the question is not. Gated six hours past the threshold too: still open, still unwritten.
+
+**Yoga and exercise get no threshold** — D39 (R18 Fork F) gave them no toggle, so they cannot be left on. A lane that cannot be left on cannot be left on too long. If yoga ever gains a toggle, its threshold arrives with it.
+
+### The 152-minute red-light record
+
+**Deletable, with undo, and the undo restores it byte-identical** — verified end to end (record → rendered row with its delete affordance → delete → undo). **There is no edit-in-place for a timeline record:** the correction path is delete and re-log. Stated rather than implied, because "editable" and "deletable" are different promises.

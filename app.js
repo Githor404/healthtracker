@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.16.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.16.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3459,6 +3459,7 @@ const VERSION_LOG = [
   { v: '0.15.0', note: 'Sauna, meditation and red light can now be toggled on and off like sleep \u2014 tap the lane\u2019s key under the ring for its switch. Tapping meals brings up any fasting gap waiting to be resolved.' },
   { v: '0.16.0', note: 'Photo meals: send the new template to your assistant with a photo, paste the reply, then correct the one portion you know best \u2014 the rest rescale with it. Nothing is saved until you say so, and your assistant is only ever asked once.' },
   { v: '0.16.1', note: 'Photo meals now open with one question \u2014 the biggest item\u2019s estimate, to confirm with a tap or correct if you know better. Everything else rescales from your answer.' },
+  { v: '0.16.2', note: 'Fixes: the meals ring no longer draws a full circle when a day has little logged food \u2014 the meal dots and the pending gap carry it instead. And a practice left switched on now asks when it ended much sooner: red light after 40 minutes, sauna 45, meditation an hour. It still never guesses an end time.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4118,6 +4119,22 @@ function rhythmModel(dateKey, opts) {
     ticks: ticks.filter((t) => t.cat === c),
   }));
 
+  // ---- R18.1 BUG: the meals lane must never read as a full ring ------------
+  // The 0.13.1 rule guarded a SINGLE arc filling the window. This is the
+  // seven-lane recurrence of the same lie by a different mechanism: a pending
+  // fast candidate (263\u00b0) and the trailing open gap (86\u00b0) are each legal,
+  // each individually well under the window, and TOGETHER THEY TILE THE LANE --
+  // so a day with two logged meals renders as a full dashed green circle saying
+  // "meals everywhere", the exact opposite of what it means.
+  //
+  // Coverage is the property that matters, so coverage is what is measured:
+  // per arc AND as a union. Suppressed arcs stay in the MODEL -- the legend still
+  // carries the pending candidate with its resolve buttons, and the centre still
+  // states the gap in words. Only the drawing is withheld, because the drawing is
+  // the part that lies. Ticks always survive: meal dots at meal times are the
+  // honest render of a sparse day.
+  suppressFullEatLane(arcs);
+
   const hasActual = arcs.some((a) => !a.ref) || ticks.some((t) => t.kind !== 'plan');
   const hasGhost = arcs.some((a) => a.ref) || ticks.some((t) => t.kind === 'plan');
   return {
@@ -4224,6 +4241,33 @@ function laneGeometry() {
 }
 function polarPt(cx, cy, r, deg) { const a = (deg - 90) * Math.PI / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
 function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
+// Coverage of the eat lane, in clock-minutes, over the drawn (non-ghost) arcs.
+// EAT_FULL_FRAC is deliberately just under 1: at 97% of the circle the remaining
+// wedge is ~11 minutes of arc, which no one reads as a gap -- it reads as a ring.
+const EAT_FULL_FRAC = 0.97;
+const EAT_GAP_KINDS = ['open', 'fast'];      // the lane's negative space
+function eatCoverage(arcs) {
+  const seen = new Uint8Array(MIN_PER_DAY);
+  arcs.forEach((a) => {
+    for (let m = Math.floor(a.startMin); m < Math.ceil(a.endMin); m++)
+      seen[((m % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY] = 1;
+  });
+  let n = 0;
+  for (let m = 0; m < MIN_PER_DAY; m++) n += seen[m];
+  return n / MIN_PER_DAY;
+}
+function suppressFullEatLane(arcs) {
+  const full = EAT_FULL_FRAC * MIN_PER_DAY;
+  const mine = arcs.filter((a) => a.lane === 'eat' && !a.ref && !a.suppressed);
+  // (i) any single arc that fills the lane on its own
+  mine.forEach((a) => { if (a.endMin - a.startMin >= full) a.suppressed = true; });
+  // (ii) the union case -- legal arcs that together tile it
+  const live = mine.filter((a) => !a.suppressed);
+  if (eatCoverage(live) >= EAT_FULL_FRAC)
+    live.forEach((a) => { if (EAT_GAP_KINDS.indexOf(a.kind) >= 0) a.suppressed = true; });
+  return arcs;
+}
+
 function arcPath(cx, cy, r, d0, d1) {
   let span = d1 - d0;
   if (span >= 360) span = 359.99;                                // SVG cannot draw a closed arc in one segment
@@ -4262,6 +4306,7 @@ function rhythmSVG(model, size, mini) {
   }
 
   (model.arcs || []).forEach((a) => {
+    if (a.suppressed) return;                 // R18.1: modelled, deliberately not drawn
     const g = G.lanes[a.lane] || G.lanes.eat;
     const dim = focus && focus !== a.cat ? ' rdim' : '';
     const cls = 'rk-' + a.cat + ' ra-' + a.kind + (a.ref ? ' rref' : '') + (a.state === 'pending' ? ' rpending' : '') + dim;
@@ -4516,7 +4561,29 @@ function photoDraft() { return PHOTO_DRAFT; }
 // WHY TOGGLES RATHER THAN STAMPS: a live session yields a TRUE start time, and
 // R14/R15's audit quality depends on t=0 being real. A stamp records when you
 // remembered, not when it began.
-const SLEEP_OPEN_MAX_MIN = 11 * 60;         // retained name; sleep's threshold
+// R18.1: FORGOT-OFF THRESHOLDS, one per practice. A single threshold could only
+// ever be wrong for most of them -- 40 minutes of red light and 11 hours of sleep
+// are both ordinary, and the same number cannot describe both. These are the
+// durations past which "still on" is more likely a forgotten switch than a very
+// long session, so they are set just past a long-but-real session of each.
+//
+// PAST THE THRESHOLD IS A QUESTION, NEVER AN AUTO-CLOSE. The segment stays open
+// and the centre asks "<practice> ended when?" with a time field. Closing it at
+// the threshold would write a duration nobody lived -- an invented end time is
+// the same fabrication as an inferred arc (D19), and it would be indelible in a
+// way the question is not.
+//
+// YOGA HAS NO THRESHOLD because D39 (R18 Fork F) gave it no toggle: exercise and
+// yoga carry a value or an attestation, so a bare on/off would be a second,
+// thinner path to the same record. A lane that cannot be left on cannot be left
+// on too long. If yoga ever gains a toggle, its threshold arrives with it.
+const FORGOT_OFF_MIN = {
+  sleep:      11 * 60,   // unchanged: a long night, plus the lie-in
+  sauna:      45,        // a long sauna round with the cool-down still counted
+  meditation: 60,        // an hour-long sit is real; longer is usually the switch
+  red_light:  40,        // ruled: panels run in 10-20 min doses
+};
+const SLEEP_OPEN_MAX_MIN = FORGOT_OFF_MIN.sleep;   // retained name; one source now
 const SLEEP_MIN_SEGMENT_MIN = 5;            // Fork C (R16): kept, never discarded
 
 function sleepOpenState() { return laneOpenState('sleep'); }
@@ -4602,13 +4669,13 @@ function discardSleepOpen() { return discardLaneOpen('sleep'); }
 // plausibly bound both a sauna and a night's sleep.
 const LANE_ACTIONS = {
   sleep:      { toggle: true, type: 'sleep',      unit: 'h',   label: 'Sleep',      state: 'sleeping',
-                maxOpenMin: 11 * 60, toValue: (m) => Math.round((m / 60) * 100) / 100 },
+                maxOpenMin: FORGOT_OFF_MIN.sleep, toValue: (m) => Math.round((m / 60) * 100) / 100 },
   sauna:      { toggle: true, type: 'sauna',      unit: 'min', label: 'Sauna',      state: 'in the sauna',
-                maxOpenMin: 3 * 60,  toValue: (m) => Math.round(m) },
+                maxOpenMin: FORGOT_OFF_MIN.sauna, toValue: (m) => Math.round(m) },
   meditation: { toggle: true, type: 'meditation', unit: 'min', label: 'Meditation', state: 'meditating',
-                maxOpenMin: 4 * 60,  toValue: (m) => Math.round(m) },
+                maxOpenMin: FORGOT_OFF_MIN.meditation, toValue: (m) => Math.round(m) },
   red_light:  { toggle: true, type: 'red_light',  unit: 'min', label: 'Red light',  state: 'red light on',
-                maxOpenMin: 3 * 60,  toValue: (m) => Math.round(m) },
+                maxOpenMin: FORGOT_OFF_MIN.red_light, toValue: (m) => Math.round(m) },
   // R18 Fork E: meals summons the EXISTING three-state fast resolve, relocated --
   // no new semantics. It offers an action only while a candidate is pending.
   eat:        { toggle: false, resolve: true, label: 'Meals' },
@@ -4958,7 +5025,7 @@ window.HT = {
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
-  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
+  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,

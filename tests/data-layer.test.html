@@ -3038,11 +3038,121 @@ window.setLS({});
         'R18-identical: a toggled ' + lc.lane + ' record is BYTE-IDENTICAL to the manual one');
     FIXED = new Date(td + 'T14:00:00').getTime();
   });
+  // ==========================================================================
+  // R18.1 -- per-practice forgot-off thresholds, and the meals-lane full-ring bug.
+  // ==========================================================================
+
+  // R181-thresholds: one table, one source, and sleep untouched.
+  res(HT.FORGOT_OFF_MIN.red_light === 40 && HT.FORGOT_OFF_MIN.sauna === 45 && HT.FORGOT_OFF_MIN.meditation === 60,
+      'R181-thresholds: red light 40 min, sauna 45, meditation 60');
+  res(HT.FORGOT_OFF_MIN.sleep === 11 * 60 && HT.SLEEP_OPEN_MAX_MIN === 11 * 60,
+      'R181-thresholds: sleep is UNCHANGED at 11 h, and the retained name reads the same table');
+  res(HT.FORGOT_OFF_MIN.yoga === undefined && HT.FORGOT_OFF_MIN.exercise === undefined,
+      'R181-thresholds: yoga and exercise have NO threshold -- D39 gave them no toggle, so they cannot be left on');
+  res(HT.LANE_ACTIONS.red_light.maxOpenMin === HT.FORGOT_OFF_MIN.red_light &&
+      HT.LANE_ACTIONS.sauna.maxOpenMin === HT.FORGOT_OFF_MIN.sauna &&
+      HT.LANE_ACTIONS.meditation.maxOpenMin === HT.FORGOT_OFF_MIN.meditation &&
+      HT.LANE_ACTIONS.sleep.maxOpenMin === HT.FORGOT_OFF_MIN.sleep,
+      'R181-thresholds: LANE_ACTIONS reads the table, so a threshold lives in exactly one place');
+
+  // R181-candidate: it fires at each practice's OWN threshold, and never auto-closes.
+  var base181 = new Date(td + 'T08:00:00').getTime();
+  [['red_light', 40], ['sauna', 45], ['meditation', 60], ['sleep', 11 * 60]].forEach(function (pr) {
+    var lane = pr[0], thr = pr[1];
+    setLS({}); HT.boot(); FIXED = base181; fixClock();
+    HT.laneOn(lane);
+    FIXED = base181 + (thr - 1) * 60000;
+    res(HT.laneOpenState(lane).pending === false,
+        'R181-candidate: ' + lane + ' is not yet a candidate one minute before its threshold');
+    FIXED = base181 + thr * 60000;
+    var st181 = HT.laneOpenState(lane);
+    res(st181.pending === true && st181.open === true,
+        'R181-candidate: ' + lane + ' becomes a pending candidate AT its threshold and STAYS open');
+    res((HT.state().timeline[td] || []).length === 0,
+        'R181-candidate: ' + lane + ' is NEVER auto-closed -- no record is written at the threshold');
+    res(HT.state().settings.laneOpen[lane] && HT.state().settings.laneOpen[lane].start === td + 'T08:00',
+        'R181-candidate: ' + lane + ' keeps its TRUE start -- the question is about the end, not the beginning');
+    res(HT.laneControlHTML(lane).indexOf('ended when?') >= 0 && HT.laneControlHTML(lane).indexOf('laneEndAt') >= 0,
+        'R181-candidate: ' + lane + ' asks when it ended, with a field to say so -- it never invents an end time');
+    FIXED = base181 + thr * 60000 + 6 * 3600000;
+    res(HT.laneOpenState(lane).open === true && (HT.state().timeline[td] || []).length === 0,
+        'R181-candidate: ' + lane + ' six hours PAST the threshold is still open and still unwritten');
+  });
+  FIXED = new Date(td + 'T14:00:00').getTime(); fixClock();
+
+  // R181-eatring: the real-data case. THE 0.13.0 LESSON APPLIES DIRECTLY -- the
+  // gates that missed the first meals-lane defect all seeded records INSIDE the
+  // window, so the failing shape was never built. This is the shape from the
+  // device: two meals 0.8 h apart yesterday evening, nothing logged today, and an
+  // older meal leaving an unresolved gap behind them.
+  setLS({}); HT.boot();
+  FIXED = new Date('2026-09-03T00:30:00').getTime(); fixClock();
+  rrDay('2026-08-30', [rrFood('a', '12:00', 500)]);
+  rrDay('2026-09-02', [rrFood('a', '18:00', 600), rrFood('b', '18:48', 300)]);
+  var MB = HT.rhythmModel(HT.state().current);
+  var eatB = MB.arcs.filter(function (a) { return a.lane === 'eat'; });
+  res(eatB.length === 3 && eatB.filter(function (a) { return a.kind === 'fast'; }).length === 1 &&
+      eatB.filter(function (a) { return a.kind === 'open'; }).length === 1,
+      'R181-eatring: the device shape reproduces -- an eating-window arc, a pending fast candidate, and the trailing gap');
+  res(HT.eatCoverage(eatB) >= 1,
+      'R181-eatring CONTROL: unsuppressed, those three arcs TILE the whole lane -- this case really does reproduce the defect');
+  res(HT.eatCoverage(eatB.filter(function (a) { return !a.suppressed; })) < HT.EAT_FULL_FRAC,
+      'R181-eatring: as drawn, the meals lane is NEVER fully covered');
+  res(eatB.filter(function (a) { return a.kind === 'fast' && a.suppressed; }).length === 1 &&
+      eatB.filter(function (a) { return a.kind === 'open' && a.suppressed; }).length === 1,
+      'R181-eatring: the NEGATIVE SPACE is what is withheld -- the gap arcs');
+  res(eatB.some(function (a) { return a.kind === 'eat' && !a.suppressed; }),
+      'R181-eatring: the real eating-window arc still draws -- suppression is not a blanket');
+  res(MB.ticks.filter(function (t) { return t.lane === 'eat'; }).length === 2,
+      'R181-eatring: the meal ticks survive -- a sparse day renders as dots at meal times');
+  var svgB = HT.rhythmSVG(MB, 180);
+  res(svgB.indexOf('ra-fast') < 0 && svgB.indexOf('ra-open') < 0,
+      'R181-eatring: and NOTHING is drawn for the suppressed arcs');
+  res(HT.rhythmCaptionHTML(MB).indexOf('fasted') >= 0 && HT.rhythmCaptionHTML(MB).indexOf('ate') >= 0,
+      'R181-eatring: the pending candidate KEEPS its resolve buttons -- suppression withholds the drawing, not the record');
+  res(HT.state().days['2026-09-02'].items.length === 2 && HT.state().days['2026-08-30'].items.length === 1 &&
+      HT.state().days['2026-09-02'].items[0].kcal === 600,
+      'R181-eatring: RENDER-ONLY -- every meal record is untouched');
+
+  // R181-eatring: the single-arc rule, kind-independent (the 0.13.1 case, generalised).
+  var solo181 = [{ lane: 'eat', cat: 'eat', kind: 'eat', startMin: 0, endMin: 1439, label: 'x' }];
+  HT.suppressFullEatLane(solo181);
+  res(solo181[0].suppressed === true,
+      'R181-eatring: a SINGLE arc that fills the lane is withheld too, whatever its kind');
+  var small181 = [{ lane: 'eat', cat: 'eat', kind: 'open', startMin: 0, endMin: 342, label: 'x' }];
+  HT.suppressFullEatLane(small181);
+  res(!small181[0].suppressed,
+      'R181-eatring: an ordinary gap is left alone -- 86\u00b0 of dashed arc is exactly what it says');
+  var ghost181 = [{ lane: 'eat', cat: 'eat', kind: 'window', ref: true, startMin: 0, endMin: 1439, label: 'x' }];
+  HT.suppressFullEatLane(ghost181);
+  res(!ghost181[0].suppressed,
+      'R181-eatring: a declared ghost is not the lane\u2019s own claim about what happened, so it is not counted or withheld');
+
+  // R181-rlt: the 152-minute red-light record is correctable.
+  setLS({}); HT.boot(); FIXED = new Date(td + 'T14:00:00').getTime(); fixClock();
+  var rlt = HT.addSignal({ type: 'red_light', time: '20:00', value: 152, unit: 'min' });
+  res(rlt.ok === true && HT.state().timeline[td].length === 1, 'R181-rlt: a 152-minute red-light record exists');
+  if (!document.getElementById('timelineOverlay')) { var tlo=document.createElement('div'); tlo.id='timelineOverlay'; document.body.appendChild(tlo); }
+  HT.renderTimelineOverlay();
+  var tlHTML = document.getElementById('timelineOverlay').innerHTML;
+  res(tlHTML.indexOf('deleteSignal') >= 0 && tlHTML.indexOf('152') >= 0,
+      'R181-rlt: its timeline row carries a delete affordance');
+  var delR = HT.deleteSignal(td, 0);
+  res(delR.ok === true && (HT.state().timeline[td] || []).length === 0, 'R181-rlt: it deletes');
+  HT.doUndo();
+  res(HT.state().timeline[td].length === 1 && JSON.stringify(HT.state().timeline[td][0]) === JSON.stringify(delR.removed),
+      'R181-rlt: and undo restores it BYTE-IDENTICAL');
+
 
   // R18-thresholds: each practice fires at ITS OWN constant, not a shared one.
-  var thresholds = [['sauna',180],['red_light',180],['meditation',240],['sleep',660]];
-  res(thresholds.every(function(x){ return HT.LANE_ACTIONS[x[0]].maxOpenMin===x[1]; }),
-      'R18-thresholds: sauna 3h, red light 3h, meditation 4h, sleep 11h — surfaced per practice');
+  // R18.1 repointed these: the VALUES moved (red light 40, sauna 45, meditation 60)
+  // and are pinned by R181-thresholds. What R18 asserts is the MECHANISM -- each
+  // practice fires at its own surfaced constant rather than a shared one -- so it
+  // reads the table instead of restating the numbers a second time.
+  var thresholds = ['sauna','red_light','meditation','sleep'].map(function(k){ return [k, HT.FORGOT_OFF_MIN[k]]; });
+  res(thresholds.every(function(x){ return HT.LANE_ACTIONS[x[0]].maxOpenMin===x[1] && x[1]>0; }) &&
+      new Set(thresholds.map(function(x){ return x[1]; })).size === thresholds.length,
+      'R18-thresholds: every practice carries its OWN surfaced threshold, and no two share one');
   thresholds.forEach(function(x){
     var lane = x[0], lim = x[1];
     setLS({}); HT.boot(); fixClock();

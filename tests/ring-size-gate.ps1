@@ -38,6 +38,9 @@ $MIN_RATIO = 70     # percent of viewport width the ring must occupy on a phone
 # derived from the single-lane design where one stroke was 6.7 % of the diameter.
 # Seven-then-four lanes cannot each be 5 % of the ring. The ruled sizes are ~12 px
 # anchors and ~14 px practice, so those are what is asserted, in pixels.
+# R18.1: the meals lane must never read as a full ring. 97% of the circumference
+# leaves ~11 minutes of visible gap, which no one reads as a gap.
+$EAT_MAX_PCT     = 97
 $MIN_BAND_PX     = 11     # absolute, at the 390 pt reference width
 $MIN_BAND_MAX_PX = 13
 # Strokes scale with the ring, so a smaller phone renders proportionally thinner
@@ -91,7 +94,7 @@ function Eval([string]$expr) {
   return $r.result.result.value
 }
 
-$seed = "(function(){try{" +
+$seed = "(function(){try{localStorage.clear();" +
   # The ring is a TRAILING-24H instrument, so a wall-clock gate is not a
   # re-runnable one: seeded 06:30 and 23:00 entries fall outside the window
   # when the suite runs after midnight, no practice lane draws, and the band
@@ -183,6 +186,43 @@ $contrast = "(function(){" +
   "paths.forEach(function(pth){var ac=toRGB(getComputedStyle(pth).stroke);if(!ac)return;" +
   "worstTrack=Math.min(worstTrack,ratio(ac,tc));if(bg)worstBg=Math.min(worstBg,ratio(ac,bg));});" +
   "return JSON.stringify({arcVsTrack:worstTrack===99?0:worstTrack,arcVsBg:worstBg===99?0:worstBg,n:paths.length});})()"
+
+# R18.1: THE SHAPE THE GATES KEPT MISSING. Every ring gate to date seeded records
+# INSIDE the window, so a lane could never be measured while mostly EMPTY -- which
+# is exactly when the meals lane drew a full dashed circle (0.13.0, and again in
+# the seven-lane build). This seeds the device shape: two meals 0.8 h apart
+# yesterday evening, NOTHING logged today, and an older meal leaving an unresolved
+# gap behind them. Then it measures what is actually drawn.
+$seedSparse = "(function(){try{localStorage.clear();" +
+  "HT.setClock(function(){return new Date(2026,8,3,0,30,0).getTime();});HT.boot();" +
+  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "HT.state().days['2026-08-30']={status:'open',items:[mk('a','12:00',500)],water_l:0};" +
+  "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600),mk('b','18:48',300)],water_l:0};" +
+  "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
+
+# Rendered coverage of the meals lane: summed arc length against the lane's own
+# circumference. Measured from the DOM, not from the model, because the defect was
+# a DRAWING that contradicted a correct-enough model.
+$measureEat = "(function(){" +
+  "var svg=document.querySelector('#dayView .rring');if(!svg)return JSON.stringify({err:'no-ring'});" +
+  "var track=svg.querySelector('circle.rtrack[data-lane=eat]');if(!track)return JSON.stringify({err:'no-eat-track'});" +
+  "var r=parseFloat(track.getAttribute('r'))||0;var circ=2*Math.PI*r;" +
+  "var paths=[].slice.call(svg.querySelectorAll('path[data-lane=eat]'));" +
+  "var lens=paths.map(function(e){try{return e.getTotalLength();}catch(err){return 0;}});" +
+  "var sum=lens.reduce(function(a,b){return a+b;},0);" +
+  "var dots=svg.querySelectorAll('circle.rdot[data-lane=eat]').length;" +
+  "return JSON.stringify({paths:paths.length,dots:dots,circ:Math.round(circ*10)/10," +
+  "sumPct:circ?Math.round(sum/circ*1000)/10:0,maxPct:circ?Math.round(Math.max.apply(null,lens.concat([0]))/circ*1000)/10:0});})()"
+
+function Measure-Sparse([int]$w, [int]$h) {
+  Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $true } | Out-Null
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
+  Start-Sleep -Milliseconds 1500
+  $sr = Eval $seedSparse
+  if ($sr -notlike 'ok*') { Write-Host "  sparse seed failed: $sr" }
+  Start-Sleep -Milliseconds 300
+  return (Eval $measureEat | ConvertFrom-Json)
+}
 
 function Measure-At([int]$w, [int]$h, [bool]$mobile) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null
@@ -285,6 +325,10 @@ try {
   $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
 
+  $E = Measure-Sparse 390 745
+  # A mostly-empty meals lane must not read as a ring: the dots carry the day.
+  $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.dots -ge 2)
+
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
   Write-Host ("  phone 390x745 : ring={0}px ({1}% of vw) band={2}-{3}px cells-above={4} legend-above={5} -> {6}" -f `
     $P.ring, $P.ratio, $P.band, $P.bandMax, $P.cellsAbove, $P.legAbove, $P_ok)
@@ -293,6 +337,9 @@ try {
     $S.ring, $S.ratio, $S.band, $S.bandMax, $S.bandPct, $S.bandMaxPct, $S_ok)
   Write-Host ("  desktop 1200  : ring={0}px (capped) overflow={1} -> {2}" -f $D.ring, [bool]$D.pageOverflow, $D_ok)
   Write-Host ("  thresholds    : ring >= {0}% of vw; arc bands >= {1}/{2}px at 390 and >= {3}/{4}% of ring everywhere; checklist, + Log, goal cells and legend above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_MAX_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
+  Write-Host ("  sparse meals  : eat-lane paths={0} dots={1} drawn={2}% of the lane (largest {3}%) -> {4}" -f `
+    $E.paths, $E.dots, $E.sumPct, $E.maxPct, $E_ok)
+  Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference and keeps its meal dots" -f $EAT_MAX_PCT)
   Write-Host "-----------------------------------------"
 
   Write-Host ("  mini grid     : {0} rings at {1}px, {2}/row, overlaps={3} spill={4} detached-labels={5} -> {6}" -f `
@@ -302,7 +349,7 @@ try {
   Write-Host ("                  thresholds: >=7 rings/row at <={0}px, zero overlap/spill/detachment; arc-vs-track >={1}, arc-vs-background >={2}, BOTH themes" -f `
     $MAX_MINI_PX, $MIN_ARC_TRACK, $MIN_ARC_BG)
 
-  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok) {
+  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok) {
     Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes)"
     Cleanup; exit 0
   }
