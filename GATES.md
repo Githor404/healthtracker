@@ -1192,3 +1192,43 @@ Photo → **the user's own AI** (copy template / paste JSON — the existing D11
 **Real-page smoke** (paste → pin → save): `{"paste":true,"rows":2,"beforePin":200,"afterPin":400,"sharedR":2,"note":"1 pinned · others scaled ×2","saved":true,"fields":{"ai_grams":150,"ai_identity":"Grilled chicken breast","pinned":true,"mealId":true},"confidence":"eyeballed","source":"ai-paste","micros":true,"templateVersion":3,"schema":5}` — a 150 g estimate corrected to 300 g rescales the 200 g salad to 400 g, exactly R = 2.
 
 **Status: MET — awaiting review.**
+
+---
+
+### R6.1 — draft presentation refinement (confirm-first) — PRE-REGISTERED, FORKS OPEN (received 2026-09-02; NOT built)
+
+Presentation-only refinement of the shipped R6 draft surface. **The math in D40 does not change** — no new propagation rule, no schema touch, no new item field. What changes is what the draft *asks* first.
+
+**1. Confirm-first.** The draft **leads with a confirm prompt on the dominant item**: *"AI estimated: <amount> <name> — confirm or correct."* One tap confirms (**pins at the estimate**); typing or sliding corrects (**pins at the truth**). Remaining items rescale per the shipped math and render beneath as the adjustable list. **The interaction is a question, not a form** — confirm first, sliders second. One surface, not two screens.
+
+The lead item is `items[0]` after the shipped dominance ordering (`sort((a,b) => a.dominance - b.dominance)`, stable, so ties fall back to paste order) — deterministic, no new selection rule.
+
+**2. Reference-object guidance is RETIRED** from any user-facing photo help. **The design's scale reference is the USER'S KNOWLEDGE, delivered through confirmation — not props in frame.** Photo guidance reduces to exactly: *one plate, all items visible.* Nothing else.
+
+*Audit finding: no such guidance exists in any shipped surface* — `index.html`, `app.js` and `README.md` carry no fork/coin/hand/angle/framing advice. The prop advice was given **in conversation, not by the app**. So this ruling lands as a **recorded prohibition plus a gate term**, not a deletion — it prevents the guidance from ever being written in, and it corrects the assistant rather than the code.
+
+**3. A confirmation is DATA, not a skip.** Confirming at the estimate still pins (`r = 1.0`) and still records the correction-loop pair with `accepted == ai_grams`. **The existing storage carries this with no change:** a confirmed item has `pinned: true` and `grams === ai_grams`; an *unconfirmed* item has **no `pinned` field at all** (`normalizeItem` only writes `pinned` from a real `true`). The two are already distinguishable in the record — "confirmed correct" and "never looked at" do not collapse.
+
+#### Forks — open, awaiting ruling
+
+**Fork A — which build does this ride? (blocking)** The instruction says *"fold into R19's build."* **There is no R19** in `DECISIONS.md`, in `GATES.md`, or in the conversation this pre-registration was written from. Nothing to fold into. Options: **(a)** ship R6.1 standalone as **0.16.1**, presentation-only; **(b)** hold it pre-registered until R19 arrives and fold then. Not resolvable from `DECISIONS.md` — escalated rather than guessed.
+
+**Fork B — the unit in the confirm line.** The instruction's example reads *"6 oz porterhouse"*; **the app is grams-only end to end** (slider, exact field, unit span, storage). Naming the related gap honestly: the R6 addendum said *"SCALE (grams/oz slider)"* and **grams-only shipped** — no oz affordance was built and none was gated. Options: **(a)** render the confirm line in grams (*"AI estimated: 170 g porterhouse"*), leaving R6 as shipped; **(b)** add an **oz display layer** — display-only conversion, **storage stays grams**, following the D34 precedent that separates display unit from stored value. (b) is the larger change and touches the whole draft, not just the lead line.
+
+**Fork C — confirm-first makes divergence reachable much sooner (behavioral consequence, no math change).** Today the draft opens with **nothing pinned**, so a first correction is a lone pin and propagation always runs. Under confirm-first the dominant item is **pinned before anything else is touched**, so a confirmation at `r = 1.0` plus a later correction past `DIVERGE_MAX` (> 1.5×) **trips divergence and stops propagation** — a state R6-as-shipped rarely reached. **Leaning: correct as-is and gate it.** It is exactly what *"a confirmation is data, not a skip"* means: if you confirmed the steak and the potatoes are 60% off, the scene genuinely does not share a scale, and refusing to average across that is the shipped refusal working as designed. Named because it changes the felt behaviour of a shipped surface.
+
+**Fork D — does the lead re-ask on reopen? RULED (resolvable, recorded here).** The confirm prompt renders **only when the dominant item is unpinned**. Reopening a meal whose dominant item is already pinned shows the adjustable list with pins intact — **the question has been answered, so it is not asked again**; a meal saved with nothing pinned still leads with the question, because it hasn't been. Derived from existing state, **no new flag, no schema touch**.
+
+#### Gate — pre-registered, re-runnable
+
+| Case | Asserts |
+|---|---|
+| R61-lead | the lead is the dominance-ordered first item, deterministic under ties; it renders only when that item is unpinned |
+| R61-confirm | one tap pins at the estimate; `r = 1.0`; `grams === ai_grams`; the record carries `pinned: true` — **distinguishable from an untouched item, which carries no `pinned` field** |
+| R61-correct | typing or sliding on the lead pins at the corrected value; the remaining items rescale by the **unchanged** shipped math |
+| R61-diverge | confirm-then-correct past `DIVERGE_MAX` stops propagation and surfaces the shipped notice (Fork C, once ruled) |
+| R61-reopen | a reopened meal with a pinned dominant item does **not** re-ask; one saved unanchored does |
+| R61-guidance | **no photo help on any rendered surface mentions a reference object, prop, framing or angle** — the guidance reduces to *one plate, all items visible*. Carries a **planted control**, per the R6-vocab lesson: a matcher that cannot fail is not a gate |
+| R61-math | D40's arithmetic is **byte-unchanged**: `photoShared` / `photoGrams` / `photoSetIdentity` results identical to the shipped values for the R6 fixtures |
+
+**Status: PRE-REGISTERED — Forks A, B, C open. Not built.**
