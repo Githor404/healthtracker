@@ -1298,3 +1298,33 @@ The old handler could **return in silence** — no file, no message, indistingui
 Now: **something is on screen the instant a photo comes back**, the stage is named as it changes (*reading* → *sending*), and the input is cleared only **after** the read completes. Every terminal outcome is visible, and the state paints **on the capture surface** as well as in the draft — the draft sits below two textareas, which on a phone is off-screen, and off-screen is its own kind of silence.
 
 **Gated as an invariant, not as a list:** for no-file, a non-image, an empty file and an HEIC frame, each capture must end in **a fired request or a visible message**. Never neither.
+
+
+## D48 — Two clocks: a model reading a photograph is not a one-word ping (R21.3, 2026-09-04)
+
+`APP_VERSION → 0.18.3`; **schema unchanged at v5**. From the device: capture now fires — decode, encode and send all work — and the counter moves 0 → 1/20. **The failure is a timeout on the vision response**, and it was **ours**: the app aborted a call that was still working, having already paid for it.
+
+### The budget was one number for two different calls
+
+`BYOK_TIMEOUT_MS = 45000` covered both a one-word text ping and a model reading a plate of food. **One number cannot be right for both.** They are now separate:
+
+| call | budget | why |
+|---|---|---|
+| connection test | **15 s** (unchanged) | a one-token ping; longer just delays a verdict |
+| capture | **120 s** | the model reads a photograph and returns structured JSON |
+
+**120 s rather than the ~60 s proposed.** 45 s had *already* failed, so 60 s is a thin margin over a bound known to be too low, and a second timeout costs another call. The cost of waiting is now bounded by what the user can **see** — the wait is counted on screen and can be cancelled — while the cost of giving up early is a call already charged for and thrown away. **The asymmetry favours waiting.**
+
+The ping's own abort is bounded by the **test** budget, not the capture one: otherwise it would sit behind the 15 s race and never be the thing that fires.
+
+### A long wait must look alive
+
+The pending line now **counts the elapsed seconds** — *"Sending to your provider… 23s"* — beside the spinner, and it renders on the capture surface. A slow answer therefore looks slow, which is the truth, rather than dead. **And a two-minute budget must never trap anyone: there is a `cancel`**, which abandons the wait and says the photo is still in hand.
+
+### A timeout is not proof the call did not happen
+
+The message now says so: *"The provider did not answer within 120 seconds. If it answered afterwards, that call still counted — check your provider console."* **An aborted request is not an unmade one**, and a user deciding whether to retry deserves to know which they are looking at.
+
+### What I could not check
+
+**The provider console is the user's, not mine.** Whether the earlier call completed with a 200 after the app gave up is answerable only from that console — and the raised budget answers it in practice: if a capture now succeeds at, say, 55 s, the call was always completing and the bound was the whole defect.

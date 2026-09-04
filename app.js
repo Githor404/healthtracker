@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.18.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.18.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3355,6 +3355,32 @@ function byokState() { return BYOK_STATE; }
 // The state renders in BOTH places: the draft surface, and the capture box the
 // finger just left. The draft surface sits below two textareas -- on a phone that
 // is off-screen, which is its own kind of silence.
+// A long wait must not read as a hang. The elapsed seconds tick on screen, so a
+// slow-but-working call looks slow, which is the truth, rather than dead.
+let BYOK_TICK = null;
+function byokStopTick() { if (BYOK_TICK) { clearInterval(BYOK_TICK); BYOK_TICK = null; } }
+function byokStartTick(label) {
+  byokStopTick();
+  const t0 = nowMs();
+  byokBusy('sending', label + ' 0s');
+  BYOK_TICK = setInterval(function () {
+    if (!BYOK_BUSY || BYOK_BUSY.phase !== 'sending') { byokStopTick(); return; }
+    byokBusy('sending', label + ' ' + Math.round((nowMs() - t0) / 1000) + 's');
+  }, 1000);
+}
+// One live accessor. Exporting the `let`s themselves would freeze their value at
+// load, so a gate would assert a number nobody uses.
+function byokTimeouts() {
+  return { call: BYOK_CALL_TIMEOUT_MS, test: BYOK_TEST_TIMEOUT_MS,
+           decode: BYOK_DECODE_TIMEOUT_MS, lease: BYOK_BITMAP_LEASE_MS };
+}
+function byokCancel() {
+  BYOK_CANCELLED = true;
+  try { if (BYOK_INFLIGHT) BYOK_INFLIGHT.abort(); } catch (e) {}
+  byokStopTick();
+  byokBusy('error', 'Cancelled. The photo is still on your phone \u2014 use Copy prompt, or capture again.');
+  return { ok: false, kind: 'cancelled' };
+}
 function byokBusy(phase, message) {
   BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null;
   try { renderPhotoDraft(); } catch (e) {}
@@ -3375,21 +3401,21 @@ function byokCapture(file) {
           ' bytes=' + Number((file && file.size) || 0));      // never the image
   return byokDownscale(file).then(function (img) {
     byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
-    byokBusy('sending', 'Sending to your provider\u2026');
+    byokStartTick('Sending to your provider\u2026');
     byokCount();
     return byokCall(img.dataUrl, {}).then(function (r1) {
       if (r1.ok) {
         const d1 = openPhotoDraft(r1.text);
-        if (d1.ok) { byokBusy(null); return { ok: true, source: 'call', attempts: 1 }; }
+        if (d1.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 1 }; }
         // RETRY ONCE, and only for a malformed BODY -- a rejected key or a dead
         // network will fail the same way twice and spending a second call on it
         // is just a second charge.
-        byokBusy('sending', 'That reply did not parse. Asking once more\u2014');
+        byokStartTick('That reply did not parse. Asking once more\u2026');
         byokCount();
         return byokCall(img.dataUrl, {}).then(function (r2) {
           if (r2.ok) {
             const d2 = openPhotoDraft(r2.text);
-            if (d2.ok) { byokBusy(null); return { ok: true, source: 'call', attempts: 2 }; }
+            if (d2.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 2 }; }
             return byokFallback(r2.text, 'The reply did not match the template twice.');
           }
           return byokFallback('', r2.error);
@@ -3405,6 +3431,7 @@ function byokCapture(file) {
 // the paste box and the user is one tap from the path that has always worked --
 // with the photo still in hand.
 function byokFallback(raw, message) {
+  byokStopTick();
   const box = document.getElementById('ingestBox');
   if (box && raw) box.value = String(raw);
   byokBusy('error', String(message || 'That did not work.') + ' Use Copy prompt and paste the reply instead.');
@@ -3491,7 +3518,10 @@ function renderCaptureBtn() {
   const busyC = BYOK_BUSY
     ? `<div class="byoks ${BYOK_BUSY.phase === 'error' ? 'byokbad' : 'byoktesting'}">` +
       (BYOK_BUSY.phase === 'error' ? '' : '<span class="byokspin"></span>') +
-      `${esc(BYOK_BUSY.message)}</div>`
+      `${esc(BYOK_BUSY.message)}` +
+      (BYOK_BUSY.phase === 'sending'
+        ? `<button type="button" class="linklike" onclick="byokCancel()">cancel</button>` : '') +
+      `</div>`
     : '';
   el.innerHTML = busyC + (byokConfigured()
     ? `<button class="btn primary" style="width:100%" onclick="document.getElementById('captureFile').click()">Capture meal</button>` +
@@ -3652,6 +3682,7 @@ const VERSION_LOG = [
   { v: '0.18.0', note: 'Photo meals can now go straight through: add your own AI key in Settings \u2014 Photo capture, and a snapshot becomes an editable meal without the copy-paste round trip. Your key stays on this device and never leaves it except to make that one call, the photo is never stored, and the copy-prompt path still works exactly as before if you would rather not use a key.' },
   { v: '0.18.1', note: 'Fix: \u201cTest connection\u201d could finish without telling you anything. It now always says what happened \u2014 testing, connected, the provider\u2019s own error, or timed out after 15 seconds \u2014 and the key\u2019s status (verified, unverified or failed) is remembered and shown wherever you use it.' },
   { v: '0.18.2', note: 'Fix: Capture meal could do nothing at all on a phone \u2014 no picture read, no call, no message. Reading the photo is now bounded and reported at every step, large phone photos are resized without loading the whole image into memory, and a photo the provider cannot read says so instead of stopping silently. Capture can no longer end in silence.' },
+  { v: '0.18.3', note: 'Capture now waits two minutes for the answer instead of 45 seconds \u2014 reading a plate of food takes a model far longer than a one-word test, and the old limit was giving up on calls that were still working. While it waits it counts the seconds, so a slow answer looks slow rather than dead, and there is a Cancel button if you would rather not wait.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4645,7 +4676,21 @@ function photoItemMacros(draft, it) {
 // normalizeSettings is an allowlist rebuild that has surprised this project once
 // already; a structural fact needs no vigilance.
 const BYOK_LS = 'healthtracker-byok';
-const BYOK_TIMEOUT_MS = 45000;
+// TWO budgets, because these are two different calls and one number cannot be
+// right for both. R21.3, from the device: a vision+JSON call on a real plate
+// exceeded 45 s and was aborted BY US -- the chain had worked, and the app threw
+// away an answer it had already paid for. A one-word text ping and a model
+// reading a photograph do not belong on the same clock.
+//
+// 120 s rather than the 60 s first proposed: 45 s had ALREADY failed, so 60 s is a
+// thin margin over a bound we know is too low, and the cost of waiting is now
+// bounded by what the user can see -- the wait is counted on screen and can be
+// cancelled. The cost of giving up early is a call already charged for and thrown
+// away, which is strictly worse.
+let BYOK_CALL_TIMEOUT_MS = 120000;      // capture: the model reads a photograph
+function setByokCallTimeout(ms) { BYOK_CALL_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 120000; }
+let BYOK_INFLIGHT = null;               // the controller, so a wait can be abandoned
+let BYOK_CANCELLED = false;
 const BYOK_MAX_EDGE = 1280;                 // Fork D: latency binds long before 20 MiB does
 const BYOK_JPEG_Q = 0.8;
 const BYOK_DEFAULT_CAP = 20;
@@ -4883,7 +4928,11 @@ function byokCall(dataUrl, opts) {
     ? { model: prov.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
     : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model);
   const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
-  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, BYOK_TIMEOUT_MS);
+  // The ping is bounded by the test's own 15 s race, so its abort must not sit
+  // BEHIND that race or it would never be the thing that fires.
+  const budget = o.ping ? BYOK_TEST_TIMEOUT_MS : BYOK_CALL_TIMEOUT_MS;
+  BYOK_INFLIGHT = ctl; BYOK_CANCELLED = false;
+  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, budget);
   return fetch(prov.base + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.key },
@@ -4891,6 +4940,7 @@ function byokCall(dataUrl, opts) {
     signal: ctl ? ctl.signal : undefined,
   }).then(function (res) {
     clearTimeout(timer);
+    BYOK_INFLIGHT = null;
     return res.text().then(function (raw) {
       // VERIFIED against the live API 2026-09-04: xAI answers a bad key with 400,
       // not 401 -- "Incorrect API key provided. You can obtain an API key from
@@ -4913,8 +4963,12 @@ function byokCall(dataUrl, opts) {
     });
   }).catch(function (e) {
     clearTimeout(timer);
+    BYOK_INFLIGHT = null;
     const name = String((e && e.name) || '');
-    if (name === 'AbortError') return byokErr('timeout', 'The provider did not answer in time.');
+    if (name === 'AbortError' && BYOK_CANCELLED) return byokErr('cancelled', 'Cancelled.');
+    if (name === 'AbortError')
+      return byokErr('timeout', 'The provider did not answer within ' + Math.round(budget / 1000) +
+        ' seconds. If it answered afterwards, that call still counted \u2014 check your provider console.');
     return byokErr('network', 'The call could not be made. Check the connection.');
   });
 }
@@ -5612,7 +5666,7 @@ window.HT = {
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
   photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
-  setByokTestTimeout, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
+  setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
   BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,

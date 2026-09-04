@@ -1911,6 +1911,10 @@ window.setLS({});
     // that every outcome is visible. The lease is shortened here so the fallback
     // engages immediately instead of spending five virtual seconds per capture.
     HT.setByokBitmapLease(20);
+    // The scripted stub, kept so the cases that REPLACE window.fetch can put it
+    // back. Leaving a never-answering stub in place hung every later case behind
+    // a 120-second budget -- the same trap this slice is fixing, in the harness.
+    var SCRIPTED_FETCH = window.fetch;
     // The rendered status line, tags stripped -- the spinner is an element inside
     // it, so a naive [^<]* capture reads the empty string before the span.
     function vis() {
@@ -2201,6 +2205,69 @@ window.setLS({});
       try { HT.byokEncode(tiny, 1, 1); } catch (e) { blankThrew = true; }
       res(blankThrew,
           'R21.2-encode: an encode that produced almost nothing THROWS -- iOS hands back a blank canvas without raising, and a blank canvas must never be sent as a meal');
+    }).then(function () {
+      // ======================================================================
+      // R21.3 -- two clocks, because these are two different calls.
+      // ======================================================================
+      var T = HT.byokTimeouts();
+      res(T.call >= 90000, 'R21.3-clocks: the CAPTURE budget is at least 90s -- a model reading a plate is not a one-word ping');
+      res(T.test <= 20000, 'R21.3-clocks: the connection test stays short');
+      res(T.call >= T.test * 4,
+          'R21.3-clocks: and the capture budget is MUCH longer than the test budget -- 45s was aborting calls that were still working');
+      res(T.decode > 0 && T.lease > 0 && T.lease < T.decode,
+          'R21.3-clocks: the decoder lease sits inside the decode budget, so the fallback always gets a turn');
+
+      // A long wait must look alive: the elapsed seconds are on screen.
+      byokReset(SECRET); HT.photoDiscard();
+      // Honours the abort signal, like a real fetch: an unsettleable stub leaves a
+      // promise pending for the rest of the run, which is its own kind of hang.
+      window.fetch = function (u, i) {
+        FETCHES.push({});
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+        });
+      };
+      var hang = HT.byokCapture(FILE);
+      return new Promise(function (r) { setTimeout(r, 60); }).then(function () {
+        var b = HT.byokBusyState();
+        res(!!b && b.phase === 'sending' && /\d+s$/.test(String(b.message)),
+            'R21.3-alive: while it waits, the elapsed seconds are counted on screen');
+        res(String(b.message).indexOf('Sending to your provider') === 0,
+            'R21.3-alive: and the stage says what it is doing');
+        // renderCaptureBtn's OUTPUT is app logic, so a harness host is enough here;
+        // that it is wired into the shipped shell is what R21.2 proves, in the iframe.
+        if (!document.getElementById('captureBox')) { var cb=document.createElement('div'); cb.id='captureBox'; document.body.appendChild(cb); }
+        HT.renderCaptureBtn();
+        res(document.getElementById('captureBox').innerHTML.indexOf('byokCancel') >= 0,
+            'R21.3-alive: a cancel is offered, so a two-minute budget never traps anyone');
+        var c = HT.byokCancel();
+        var b2 = HT.byokBusyState();
+        res(c.kind === 'cancelled' && b2 && b2.phase === 'error' && b2.message.indexOf('Cancelled') === 0,
+            'R21.3-alive: cancelling stops the wait and SAYS so');
+        res(b2.message.indexOf('Copy prompt') > 0,
+            'R21.3-alive: and points at the path that still works');
+        return hang.then(function () { HT.byokBusyClear(); });
+      });
+    }).then(function () {
+      // A timeout must not imply the call did not happen -- it may well have, and
+      // it was charged for either way.
+      byokReset(SECRET);
+      HT.setByokCallTimeout(40);
+      window.fetch = function (u, i) {
+        FETCHES.push({});
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+        });
+      };
+      return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+        res(r.ok === false && r.kind === 'timeout', 'R21.3-clocks: the capture budget aborts as a timeout');
+        res(String(r.error).indexOf('still counted') > 0 && String(r.error).indexOf('provider console') > 0,
+            'R21.3-clocks: and the message says the call may still have counted -- an aborted request is not an unmade one');
+        HT.setByokCallTimeout(120000);
+        window.fetch = SCRIPTED_FETCH;          // hand the scripted stub back
+      });
     }).then(function () {
       // R21-egress: the per-day cap, whose counter lives with the KEY.
       byokReset(SECRET);

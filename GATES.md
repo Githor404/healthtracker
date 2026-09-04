@@ -1467,3 +1467,20 @@ The earlier R21 cases called `byokCapture()` **directly**, so input → change �
 **Count delta: 1115 → 1138** (+23). **1138/1138 ALL PASS**, `executed 1138 · pinned 1138`. Fourteen gates green.
 
 **Status: MET — awaiting review. The preferred decoder and the real camera remain unexercised by any gate**; that is what the next capture on the device tests.
+
+
+---
+
+### R21.3 — two clocks (D48) — v0.18.3
+
+| Case | Result |
+|---|---|
+| R21.3-clocks | the capture budget is **≥ 90 s**, the test budget stays **≤ 20 s**, and capture is **at least 4× test**; the decoder lease sits **inside** the decode budget so the fallback always gets a turn |
+| R21.3-clocks | the capture budget aborts as a `timeout`, and the message says the call **may still have counted** — an aborted request is not an unmade one |
+| R21.3-alive | while it waits the **elapsed seconds are counted on screen**, the stage says what it is doing, a **cancel** is offered, and cancelling stops the wait, says so, and points at the paste path |
+
+**A harness hang, caught by the harness.** Two of these cases replace `window.fetch` with a stub that never answers. Leaving that stub in place left every later case waiting behind the 120 s budget, and the runner reported *"no SUMMARY line (the suite did not finish)"* — **the same trap this slice fixes, reproduced in the test file**. The scripted stub is now handed back explicitly. A second version of the stub ignored the abort signal entirely, which left a promise pending for the rest of the run; it honours the signal now, like a real fetch.
+
+**Count delta: 1138 → 1149** (+11). **1149/1149 ALL PASS**, `executed 1149 · pinned 1149`. Fourteen gates green.
+
+**Status: MET — awaiting review.** The real question — does a plate of food come back inside 120 s — is the device's to answer.
