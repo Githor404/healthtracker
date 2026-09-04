@@ -1309,7 +1309,9 @@ Reported after 0.16.2 shipped: **the meals ring was still the same.** It was.
 
 ---
 
-### R19 — the day-wipe becomes recoverable, and stops sharing the thumb path (D44) — v0.17.0
+### R20 — the day-wipe becomes recoverable, and stops sharing the thumb path (D44) — v0.17.0
+
+> **Label amendment (2026-09-04).** This slice shipped as "R19", which was already spoken for: the 2026-09-02 ruling reserved R19 for the capture-flow draft. **The slice is R20**; D44 keeps its number and the shipped code is untouched. Its gate case IDs remain `R19-clear` / `R19-demote` — they are shipped strings in the harness, and renaming them would be a code change to close a documentation conflict. **The capture-flow slice stands as R21.**
 
 | Case | Result |
 |---|---|

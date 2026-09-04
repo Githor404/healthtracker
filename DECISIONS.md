@@ -1173,7 +1173,7 @@ Ate yesterday evening, look at it this evening: **20–22 hours, and the lane is
 The rendered gate had the same flaw: `ring-size-gate`'s sparse case asserted `< 97%` and **passed the reported defect at 91.7%**. It now asserts the rule the fix implements — no single arc past **half** the lane, total draw under 60% — and its seed was narrowed to the reported shape, because the wider seed included an older meal whose fast candidate pushed the union to 100% and let D42's rule handle it. **A gate seeded so that the old rule already passes cannot prove the new one.**
 
 
-## D44 — "Clear this day" joins the undo grammar, and stops sharing the thumb path (R19, 2026-09-03)
+## D44 — "Clear this day" joins the undo grammar, and stops sharing the thumb path (R20, 2026-09-03)
 
 `APP_VERSION → 0.17.0`; **schema unchanged at v5**. Two answers to a pre-distribution review of the day-wipe.
 
@@ -1194,3 +1194,42 @@ Judged **this slice** rather than post-launch: it is a CSS-and-one-wrapper chang
 **Kept on the day surface rather than moved to settings.** Clearing a day is a legitimate rare action, most likely during first-contact experimentation ("I typed nonsense in, wipe it"); burying it would make a reasonable act hard while barely reducing the mis-tap, whose cause is proximity and size, not presence. It is now centred, auto-width, 12 px, unbolded, muted at rest, separated by 26 px, and carries the destructive colour only on press — where the intent is already deliberate.
 
 **Measured, not asserted.** `R19-demote` reads the **shipped shell, laid out** in the harness iframe: narrower than 60% of the affirmative control, ≥ 16 px of separation, smaller font and lighter weight, and a different rest colour. *"It has a different class"* is not the property that stops a mis-tap. **Proven against the defect:** restoring the previous CSS fails three of the four.
+
+
+## D45 — BYOK vision calls: a bounded exception to D11's "no in-app AI calls" (R21, 2026-09-04)
+
+**Controlled single-user prototype**: one user, their own xAI key, their own device. **Not a cohort feature.** Everything runs client-side or against that key; **no server of ours exists or is created**. Distribution to testers is deferred, so this is a full build, not a fenced one.
+
+### The exception, and its bounds
+
+The app **MAY** call a user-supplied vision endpoint, **only**: (a) with a key the user entered themselves, (b) on an explicit capture-send, (c) sending only the meal photo and the perception template — nothing else. **The share-sheet/paste path (D11) remains** as the no-key fallback. **BYOK is an addition, never a replacement**, and every failure lands back on it.
+
+### Key hygiene — by construction, not by rule (Fork F, ruled)
+
+**The key never enters `APP_STATE`.** It lives in its own localStorage key, `healthtracker-byok`, alongside its own per-day counter. This is the whole rule, and it is structural: **export, the D3 pre-restore backup, and restore cannot carry the key because it is not in the object they serialize.** An exclusion filter would have been a rule a future normalizer change could quietly break — and `normalizeSettings` is an allowlist rebuild that has surprised this project once already. A structural fact needs no vigilance.
+
+The remaining hygiene rules, each gated: never in code, never committed; **never written to any log, console, toast or error string** — including the failure paths, which is where keys usually leak; **egress only on an explicit capture-send**, never in the background.
+
+**Photo hygiene:** the image is held in memory for the call only. **Never persisted to any store, never in any export.** The downscale touches only the bytes that are sent.
+
+**The service worker explicitly bypasses the call** (Fork G, ruled). A cross-origin POST is not cacheable *by default*, and "by default" is not "never".
+
+### Provider-agnostic, with a verified contract
+
+A provider table `{ label, base, model }` keyed by name; the call is OpenAI-compatible so a second provider slots in **without a code change** (gated). Ships with xAI/Grok configured.
+
+**Verified live 2026-09-04, and the verification changed the answer.** xAI's image-understanding guide documents `{"type":"input_image","image_url":"…"}` with `input_text` — the **Responses API** shape. Sent to `/v1/chat/completions` that is **rejected** (`data did not match any variant of untagged enum Content`), while the **OpenAI-classic** `{"type":"image_url","image_url":{"url":"data:…"}}` parses. **Following the documentation alone would have shipped a payload the endpoint refuses.**
+
+**Pre-registered contract:** `POST https://api.x.ai/v1/chat/completions`, `Authorization: Bearer <key>`, OpenAI-classic content parts, model `grok-4.6`, image as `data:image/jpeg;base64,…`. Limits per the guide: 20 MiB, jpg/png. **CORS is open** (`access-control-allow-origin: *` on both preflight and POST), which is what makes a browser-only call possible at all.
+
+**Model-string validity and rate-limit behaviour cannot be verified without a key** — they are checked after authentication. **"Test connection" is the verification mechanism**, and it surfaces the provider's own error text, never the key.
+
+### D8 holds absolutely — actively refused, not passively dropped (Fork H, ruled)
+
+The model returns **identification and macros only**. Micros are **never requested and never accepted**. The v3 parser has no micros field, so they would be dropped as a side effect — **dropped as a side effect is not the same as refused**. The parser now **detects and strips them explicitly and says so**, the same "stripped and reported" contract the ingest path has, on **both** paths. Gated with a micros-bearing response.
+
+**Micros are out of scope, seam only:** identification strings are retained (`ai_identity`, already shipped) so a future knowledge-layer corpus can populate micros with coverage masks. **This slice ships macros. A macros-only anchored meal is the honest deliverable**, and fabricating micros to "complete" it is prohibited.
+
+### One downstream, not two
+
+A valid response routes **straight into the shipped confirm-first draft** (R6/R6.1) — no paste step. Everything after it — anchor, pin, divergence, identity re-pick, save, correction-loop retention — is **unchanged and already built**. The load-bearing gate is **R21-parity**: identical item JSON produces a **byte-identical draft whether it arrived by call or by paste**.
