@@ -1325,3 +1325,81 @@ Reported after 0.16.2 shipped: **the meals ring was still the same.** It was.
 **Count delta: 1004 → 1022** (+18). `bash tests/run-data-layer.sh` → **1022/1022 ALL PASS**, `executed 1022 · pinned 1022`. Thirteen gates green, collected one CDP gate at a time.
 
 **Status: MET — awaiting review.**
+
+
+---
+
+### R21 — frictionless BYOK photo→macro path — PRE-REGISTERED, FORKS OPEN (received 2026-09-03; NOT built)
+
+Controlled **single-user prototype**: one user, their own xAI key, their own device. Not a cohort feature. Everything runs client-side or against that key; **no server of ours exists or is created**. The share-sheet/paste path (D11) **remains** as the no-key fallback — BYOK is an addition, never a replacement.
+
+#### Blocking: the D-number is already taken
+
+**D42 is `R18.1` (forgot-off thresholds + the meals-lane defect), D43 is `R18.2`, D44 is `R19`.** The next free entry is **D45**, and the governance text below is drafted against D45 pending that ruling. Flagged rather than silently renumbered, per the working rule on name conflicts.
+
+**A second collision, and it is mine.** On 2026-09-02 the ruling said *"R19 (capture flow) exists only as an unsent draft on my side."* I then used **R19** for the clear-day slice, which is committed, pushed and recorded in D44. **R20 is free.** Options: renumber the clear-day slice to R20 in a doc-only amendment (D44 keeps its number; only the slice label moves), or let R19 stand for the shipped slice and leave the capture-flow draft to arrive under another label. Either is fine; the double-use is not.
+
+#### Verification, dated — required before coding, and it changed the answer
+
+Probed **2026-09-04** against the live API.
+
+**1. CORS: OPEN. The client-side call is feasible from GitHub Pages.** This was the slice's single largest feasibility risk — a browser-only BYOK call is impossible without it, and no server may be created. The preflight a browser actually sends:
+
+```
+OPTIONS https://api.x.ai/v1/chat/completions
+  Origin: https://githor404.github.io
+  Access-Control-Request-Method: POST
+  Access-Control-Request-Headers: authorization,content-type
+→ HTTP/1.1 200
+  access-control-allow-origin: *
+  access-control-allow-methods: *
+  access-control-allow-headers: *
+```
+The POST itself also returns `access-control-allow-origin: *`.
+
+**2. The payload shape in the docs is NOT the shape `chat/completions` accepts.** The image-understanding guide documents `{"type":"input_image","image_url":"data:..."}` with `input_text` — that is the **Responses API** shape. Probed against `/v1/chat/completions`, sending it produces a body-deserialization error, while the **OpenAI-classic** shape parses:
+
+| shape sent to `/v1/chat/completions` | result |
+|---|---|
+| `{"type":"image_url","image_url":{"url":"data:image/png;base64,…"}}` + `{"type":"text"}` | **parses** — reaches the auth check (`unauthenticated:no-credentials`) |
+| `{"type":"input_image","image_url":"data:…"}` + `{"type":"input_text"}` | **rejected** — `data did not match any variant of untagged enum Content` |
+| plain string content (control) | parses — same auth error |
+
+**The instruction not to assume OpenAI compatibility was right, and the answer is the reverse of what the docs page alone would have produced**: following that page would have shipped a payload the endpoint rejects. **Pre-registered contract: `POST https://api.x.ai/v1/chat/completions`, `Authorization: Bearer <key>`, OpenAI-classic content parts, model `grok-4.6`, image as a `data:image/jpeg;base64,…` URL.** Limits per the guide: **20 MiB max**, `jpg/jpeg` or `png`.
+
+**3. What could NOT be verified without a key:** model-string validity and rate-limit behaviour are checked only after authentication. **"Test connection" is therefore the verification mechanism**, and it must surface the provider's own error text (never the key) so a wrong model string is diagnosable rather than mysterious.
+
+#### Forks — the five raised, with leanings
+
+**Fork A — capture-meal placement (tenancy).** The meals badge already has a tenant: the fast-resolve control (D39/R18). **Leaning: a button in the `+ Log` → Photo tab, beside "Copy prompt"**, not a second badge tenant. The badge's summoned centre is a one-action contract; making it conditional on which action is pending would put two unrelated destinies behind one tap. The Photo tab is also where the fallback lives, so success and fallback share a surface.
+
+**Fork B — template variant.** **Leaning: reuse v3 unchanged** and pass it as the text part. Two variants drift, and the shipped `R6-template` gate asserts the sample parses through the real parser — one template keeps one gate honest. If the direct call needs a preamble (e.g. "reply with JSON only, no markdown fence"), it rides as a **prefix constant** with the template's version, not a fork of it.
+
+**Fork C — loading/error on the confirm-first draft.** **Leaning: the draft surface owns all three states** — a pending placeholder where the draft will be, an error line in the same place, and the draft itself. No modal, no separate screen; the user's eye never has to move to learn what happened.
+
+**Fork D — encoding/downscale.** **Leaning: downscale to a longest-edge bound (~1280 px) and JPEG ~0.8 before encoding**, always, not only when over the limit — a phone photo is 3–8 MB and a 20 MiB cap is not the binding constraint, latency is. **Gated: the downscale touches only the bytes sent; no record, no store, no export ever sees the image.**
+
+**Fork E — cap reset.** **Leaning: local calendar day, reset at local midnight, counted from a counter that lives with the key (not in the log)**, so clearing a day or restoring a backup cannot move the count. It is soft/UX; the console cap is the hard backstop.
+
+#### Forks NOT raised, surfaced here
+
+**Fork F — where the key lives (recommend ruling this one).** The brief says *excluded from the data-export blob*. **Leaning: keep the key OUT of `APP_STATE` entirely, in its own localStorage key** (`healthtracker-byok`). Exclusion-by-rule is a rule a future normalizer change can quietly break — and `normalizeSettings` is an allowlist rebuild that has already surprised us once. Exclusion **by construction** cannot: if the key is not in the state object, then export, the D3 pre-restore backup, and restore can never carry it, and the gate proves a structural fact rather than the current behaviour of a filter.
+
+**Fork G — the service worker must never see the call.** Its fetch handler is cache-first for the shell; a cross-origin POST is not cacheable by default, but *not by default* is not the same as *never*. **Leaning: an explicit bypass for non-GET and non-same-origin requests, gated.**
+
+**Fork H — what if the model returns micros anyway?** D8 says never requested and never accepted. The v3 parser has no micros field, so they are dropped — but *dropped as a side effect* is not the same as *refused*. **Leaning: an explicit strip on the call path with the same "stripped and said so" reporting the ingest path has**, and a gate that feeds a micros-bearing response through it.
+
+#### Gate — pre-registered, re-runnable
+
+| Case | Asserts |
+|---|---|
+| R21-key | the key is never in `APP_STATE`; **absent from export, from the D3 pre-restore backup, and from a restore round-trip**; never in a toast, log, console or error string (including the failure paths); removing it leaves no residue |
+| R21-egress | **no request leaves without an explicit capture-send** — boot, refresh, day nav, settings open and a failed parse all issue zero calls; the SW bypasses the call entirely |
+| R21-photo | the image is held for the call only: **never in any store, never in export**, references dropped after; the downscale changes **only the sent bytes** |
+| R21-contract | the request is exactly the verified contract (endpoint, Bearer, OpenAI-classic parts, model, data URL); a provider row swap changes the call **without a code change** |
+| R21-validate | a valid response routes **straight into the confirm-first draft**; malformed → **retry once** → second failure drops the raw text into the paste box, **never a dead end** |
+| R21-failure | timeout, network error, rate-limit and malformed each handled distinctly, each falling back to the paste path **with the photo still in hand** |
+| R21-parity | **identical item JSON produces a byte-identical draft whether it arrived by call or by paste** — one downstream, not two |
+| R21-d8 | micros in the model's response are **stripped and reported**; the item saves as `ai-paste`-equivalent at `eyeballed`; identification strings are retained for the future micros seam |
+
+**Status: PRE-REGISTERED — the D-number collision and Forks A–H await ruling. Not built.**
