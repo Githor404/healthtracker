@@ -1233,3 +1233,39 @@ The model returns **identification and macros only**. Micros are **never request
 ### One downstream, not two
 
 A valid response routes **straight into the shipped confirm-first draft** (R6/R6.1) — no paste step. Everything after it — anchor, pin, divergence, identity re-pick, save, correction-loop retention — is **unchanged and already built**. The load-bearing gate is **R21-parity**: identical item JSON produces a **byte-identical draft whether it arrived by call or by paste**.
+
+
+## D46 — "Test connection" could finish without saying anything (R21.1, 2026-09-04)
+
+`APP_VERSION → 0.18.1`; **schema unchanged at v5**. Reported from the device against 0.18.0: key saved, Test connection tapped, **nothing rendered — no success, no error, no spinner.**
+
+### What the live page actually does
+
+Driven with CDP against the **live 0.18.0 build**, with a deliberately fake key (a rejection proves the round trip happened):
+
+| question | answer |
+|---|---|
+| a request to `api.x.ai`? | **yes, two** — the preflight and the POST |
+| status | preflight **200**, POST **400** — **no `loadingFailed`, no CORS error** |
+| console | no CORS, no `Access-Control`, no `Failed to fetch` |
+| status line | rendered at t0 and t12 |
+
+**So the network path is sound and the code is not silent on desktop.** The silence is presentational, and it is legible in the old markup: the outcome rendered as `<div class="note bad">`, and **`.bad` was only ever defined for `.ireport`** — so a failure painted in the *same 12 px muted grey* as the help paragraph directly beneath it, with no spinner and no colour. To an eye scanning a phone, a new grey line above an existing grey paragraph is not an answer. **The harness could not have caught this: the harness reads strings, and a person reads a page.**
+
+### Three real defects on that path, any one of which produces exactly "nothing happened"
+
+1. **No `.catch`.** A throw anywhere in the `.then` — `renderByok()` included — became an unhandled rejection, and unhandled rejections are invisible.
+2. **A disabled button.** `byokSave` reported `configured` from the key's **length**, not from whether the write **landed**; a failed write was masked by the in-memory fallback until the next reload, after which the key was gone, the button rendered `disabled`, and tapping it did nothing at all.
+3. **No distinct timeout.** The call's own 45 s bound is far longer than anyone waits before deciding a button is broken.
+
+**The fix is one rule, not three patches: every exit from `byokTest` paints.** Pending (with a spinner) the moment it is tapped; success naming the model that answered; failure in the provider's own words; timeout at **15 s**; a throw; and "no key saved" — because **the button is never disabled again: a disabled button is the silence.**
+
+### xAI answers a bad key with 400, not 401
+
+Verified in the same run: the live response is `400` with *"Incorrect API key provided. You can obtain an API key from https://console.x.ai."* Classifying on the status code alone filed **the single most likely failure** under a generic HTTP error. The classifier now reads the provider's message as well, and surfaces it verbatim. Gated both ways — a key-shaped 400 is `auth`, a `Messages cannot be empty` 400 stays `http`.
+
+### R21.1 — key shape check and persisted status
+
+A **shape** check, not a validity check: only the provider can say whether a key *works*, which is what testing is for. Blocking rules are the ones certainly wrong for any provider — empty, embedded whitespace, implausibly short. **A prefix that does not match the provider's usual one warns and saves anyway**: key formats change, and refusing on a guess is a worse failure than the one it prevents.
+
+Status — `unverified` / `verified` / `failed`, with a timestamp and the failure message — is **persisted beside the key**, so it stays out of the log and out of the export, and it shows in settings and on the capture surface. **Replacing the key resets it to unverified**, because a new key has not been verified.

@@ -1425,3 +1425,24 @@ The POST itself also returns `access-control-allow-origin: *`.
 **Count delta: 1022 → 1083** (+61). `bash tests/run-data-layer.sh` → **1083/1083 ALL PASS**, `executed 1083 · pinned 1083`. **Fourteen gates green**, collected one CDP gate at a time.
 
 **Status: MET — awaiting review. Untested against a live key:** every call in the suite is stubbed, so the first real capture is also the first end-to-end proof of the model string, of latency at a real photo size, and of the provider's actual error text.
+
+
+---
+
+### R21.1 — the silent Test button (D46) — v0.18.1
+
+| Case | Result |
+|---|---|
+| R21.1-paint | **PENDING** paints on tap, with a spinner, before any answer; **SUCCESS** names the model; **FAILURE** paints in the failure colour with a message; **TIMEOUT** paints at 15 s and points at the paste path; a **THROW** paints; **no key** says so — and the button is **never disabled**, because a disabled button is the silence |
+| R21.1-paint | none of the six prints the key; a write that did not land reports `stored:false` |
+| R21.1-shape | empty, embedded space and implausibly short are **refused**; a surprising prefix **warns and saves anyway**; a blocked save stores nothing |
+| R21.1-status | a new key is `unverified`; verification persists **beside the key**, so the export carries no trace; replacing the key **resets** it |
+| R21-failure | the **400 xAI really sends for a bad key** classifies as `auth` with the provider's words; a `Messages cannot be empty` 400 stays `http` |
+
+**Proven against the defect, and it reproduced the symptom exactly.** Restoring the pre-fix `byokTest` fails four assertions **and hangs the suite**: with no timeout, the never-answering fetch never settles, `finish()` never runs, and the runner reports *"no SUMMARY line (the suite did not finish)"*. **The silent button silenced the harness the same way it silenced the device.**
+
+**Live diagnosis, CDP against the deployed 0.18.0** (fake key, so a rejection proves the round trip): two requests to `api.x.ai`, preflight **200**, POST **400**, **no `loadingFailed`, no CORS error, no `Failed to fetch`** — the network path is sound. The silence was presentational: `.bad` was only defined for `.ireport`, so a failure rendered in the same muted grey as the help paragraph below it.
+
+**Count delta: 1083 → 1115** (+32). **1115/1115 ALL PASS**, `executed 1115 · pinned 1115`. Fourteen gates green.
+
+**Status: MET — awaiting review. Still untested against a real key**, which is the one thing only the device can answer.

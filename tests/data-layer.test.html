@@ -1904,6 +1904,14 @@ window.setLS({});
     });
   };
   function runByokAsync() {
+    // The rendered status line, tags stripped -- the spinner is an element inside
+    // it, so a naive [^<]* capture reads the empty string before the span.
+    function vis() {
+      var el = document.getElementById('byokBox');
+      var m = el ? el.innerHTML.match(/<div class="byoks([^"]*)">([\s\S]*?)<\/div>/) : null;
+      return m ? { cls: m[1].trim(), text: m[2].replace(/<[^>]+>/g, '').trim() }
+               : { cls: '(none)', text: '(NOTHING RENDERED)' };
+    }
     var ok = '{"choices":[{"message":{"content":' + JSON.stringify(HT.AI_PROMPT_SAMPLE) + '}}]}';
     var junk = '{"choices":[{"message":{"content":"sorry, I cannot"}}]}';
     function mkFile() {
@@ -1966,6 +1974,12 @@ window.setLS({});
       // R21-failure: each wall is distinct, and each lands on the paste path.
       var walls = [
         { name: 'a rejected key', script: { status: 401, body: '{"error":"bad key"}' }, kind: 'auth' },
+        // VERIFIED live: xAI answers a bad key with 400, not 401. Classifying on
+        // the status code alone filed the likeliest failure under "generic HTTP".
+        { name: 'the 400 xAI really sends for a bad key',
+          script: { status: 400, body: '{"error":"Incorrect API key provided. You can obtain an API key from https://console.x.ai."}' }, kind: 'auth' },
+        { name: 'a 400 that is NOT about the key',
+          script: { status: 400, body: '{"error":"Messages cannot be empty"}' }, kind: 'http' },
         { name: 'a rate limit',   script: { status: 429, body: '{"error":"slow down"}' }, kind: 'ratelimit' },
         { name: 'a server error', script: { status: 500, body: '{"error":"boom"}' }, kind: 'http' },
         { name: 'a dead network', script: { reject: new TypeError('Failed to fetch') }, kind: 'network' },
@@ -1988,6 +2002,82 @@ window.setLS({});
           });
         });
       }, Promise.resolve());
+    }).then(function () {
+      // R21.1-paint: "Test connection" was SILENT on the device. Every exit from
+      // that function must now paint, and each state must be DISTINCT.
+      if (!document.getElementById('byokBox')) { var bb=document.createElement('div'); bb.id='byokBox'; document.body.appendChild(bb); }
+      byokReset(SECRET);
+      // PENDING -- painted synchronously, before any network answer.
+      var held; window.fetch = function () { FETCHES.push({}); return new Promise(function (r) { held = r; }); };
+      var pending = HT.byokTest();
+      var vPend = vis();
+      res(vPend.text.indexOf('Testing') === 0 && vPend.cls.indexOf('byoktesting') >= 0,
+          'R21.1-paint: PENDING paints the moment the button is tapped, before any answer');
+      res(document.getElementById('byokBox').innerHTML.indexOf('byokspin') >= 0,
+          'R21.1-paint: with a spinner, so a slow provider looks slow and not broken');
+      held({ ok: true, status: 200, text: function () { return Promise.resolve('{"choices":[{"message":{"content":"pong"}}]}'); } });
+      return pending.then(function (r) {
+        var v = vis();
+        res(r.ok === true && v.text.indexOf('Connected') === 0 && v.text.indexOf('grok-4.6') > 0 && v.cls.indexOf('byokok') >= 0,
+            'R21.1-paint: SUCCESS names the model that answered, in its own colour');
+        res(HT.byokSettings().status.state === 'verified', 'R21.1-paint: and the verification is remembered');
+      });
+    }).then(function () {
+      // FAILURE -- the provider's own words, never ours, never the key.
+      byokReset(SECRET);
+      FETCH_SCRIPT = [{ status: 401, body: '{"error":"Incorrect API key provided"}' }];
+      window.fetch = function (u, i) { FETCHES.push({ url: String(u), init: i }); var n = FETCH_SCRIPT.shift();
+        return Promise.resolve({ ok: n.status < 400, status: n.status, text: function () { return Promise.resolve(n.body); } }); };
+      return HT.byokTest().then(function (r) {
+        var v = vis();
+        res(r.ok === false && v.cls.indexOf('byokbad') >= 0 && v.text.length > 0,
+            'R21.1-paint: FAILURE paints, in the failure colour, with a message');
+        res(document.getElementById('byokBox').innerHTML.indexOf(SECRET) < 0, 'R21.1-paint: and never the key');
+        res(HT.byokSettings().status.state === 'failed', 'R21.1-paint: the failure is remembered too');
+      });
+    }).then(function () {
+      // TIMEOUT -- exercised through the seam, because a timeout nobody has seen
+      // is a timeout nobody knows works.
+      byokReset(SECRET);
+      HT.setByokTestTimeout(40);
+      window.fetch = function () { FETCHES.push({}); return new Promise(function () {}); };   // never answers
+      return HT.byokTest().then(function (r) {
+        var v = vis();
+        res(r.ok === false && v.text.indexOf('No answer') === 0 && v.cls.indexOf('byokbad') >= 0,
+            'R21.1-paint: TIMEOUT paints rather than hanging silent');
+        res(v.text.indexOf('paste path') > 0, 'R21.1-paint: and points at the path that still works');
+        HT.setByokTestTimeout(15000);
+      });
+    }).then(function () {
+      // A THROW anywhere in the chain must still paint -- this branch did not
+      // exist, and an unhandled rejection is invisible.
+      byokReset(SECRET);
+      window.fetch = function () { throw new Error('boom'); };
+      return HT.byokTest().then(function (r) {
+        var v = vis();
+        res(r.ok === false && v.text.indexOf('boom') > 0, 'R21.1-paint: a THROW paints instead of vanishing');
+      });
+    }).then(function () {
+      // NO KEY -- the button is never disabled, so the tap always explains itself.
+      HT.byokClear();
+      HT.renderByok();
+      res(document.getElementById('byokBox').innerHTML.indexOf('onclick="byokTest()">Test connection') >= 0,
+          'R21.1-paint: the button is NEVER disabled -- a disabled button is the silence');
+      return HT.byokTest().then(function (r) {
+        var v = vis();
+        res(r.ok === false && v.text.indexOf('No key saved') === 0,
+            'R21.1-paint: and with no key it says so, rather than doing nothing');
+      });
+    }).then(function () {
+      // A write that does not land must not report a save.
+      byokReset(null);
+      var realSet = localStorage.setItem;
+      localStorage.setItem = function (k) { if (k === 'healthtracker-byok') throw new Error('quota'); return realSet.apply(localStorage, arguments); };
+      var sv = HT.byokSave('grok', SECRET, 20);
+      localStorage.setItem = realSet;
+      res(sv.stored === false,
+          'R21.1-paint: a write that did not land reports stored:false -- the in-memory fallback must not report a save it did not make');
+      HT.byokClear();
     }).then(function () {
       // R21-egress: the per-day cap, whose counter lives with the KEY.
       byokReset(SECRET);
@@ -3650,6 +3740,36 @@ window.setLS({});
   res(HT.byokClear().ok === true && HT.byokConfigured() === false &&
       String(localStorage.getItem('healthtracker-byok') || '').indexOf(SECRET) < 0,
       'R21-key: removing it leaves no residue');
+
+  // R21.1-shape: a SHAPE check, not a validity check. Only the provider can say
+  // whether a key works -- so the blocking rules are the ones that are certainly
+  // wrong for any provider, and a surprising prefix WARNS rather than refuses.
+  res(HT.byokKeyIssue('grok', '').block === true, 'R21.1-shape: an empty key is refused');
+  res(HT.byokKeyIssue('grok', 'xai-with a space-0123456789').block === true,
+      'R21.1-shape: an embedded space is refused -- the classic copy-paste stray');
+  res(HT.byokKeyIssue('grok', 'xai-short').block === true, 'R21.1-shape: an implausibly short key is refused');
+  var warn211 = HT.byokKeyIssue('grok', 'sk-someotherprovider-0123456789');
+  res(warn211 && warn211.block === false && warn211.message.indexOf('xai-') >= 0,
+      'R21.1-shape: a surprising prefix WARNS and saves anyway -- key formats change, and refusing on a guess is the worse failure');
+  res(HT.byokKeyIssue('grok', SECRET) === null, 'R21.1-shape: a well-formed key raises nothing');
+  byokReset(null);
+  res(HT.byokSave('grok', 'nope', 20).blocked === true && HT.byokConfigured() === false,
+      'R21.1-shape: a blocked save stores NOTHING');
+
+  // R21.1-status: verified / unverified / failed, persisted with the key.
+  byokReset(SECRET);
+  res(HT.byokSettings().status.state === 'unverified' && HT.byokStatusLine() === 'key not tested yet',
+      'R21.1-status: a newly saved key is UNVERIFIED, and says so');
+  HT.byokSetStatus('verified', '');
+  res(HT.byokSettings().status.state === 'verified' && HT.byokStatusLine() === 'key verified',
+      'R21.1-status: verification persists');
+  res(String(localStorage.getItem('healthtracker-byok') || '').indexOf('verified') >= 0,
+      'R21.1-status: and it is stored WITH THE KEY, not in the log');
+  res(HT.exportJSON().indexOf('verified') < 0, 'R21.1-status: so the export carries no trace of it');
+  HT.byokSave('grok', 'xai-A-DIFFERENT-KEY-0123456789', 20);
+  res(HT.byokSettings().status.state === 'unverified',
+      'R21.1-status: replacing the key RESETS the status -- a new key has not been verified');
+  byokReset(SECRET);
 
   // R21-egress: nothing calls out on its own. Only an explicit capture-send does.
   byokReset(SECRET);

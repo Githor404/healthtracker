@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.18.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.18.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3350,6 +3350,7 @@ function doPhotoPaste() {
 let BYOK_BUSY = null;                        // {phase, message} | null
 let BYOK_STATE = null;                       // settings-side test result
 function byokBusyState() { return BYOK_BUSY; }
+function byokState() { return BYOK_STATE; }
 function byokBusy(phase, message) { BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null; renderPhotoDraft(); }
 
 // EGRESS HAPPENS HERE AND NOWHERE ELSE. Nothing in boot, refresh, day nav or
@@ -3410,10 +3411,21 @@ function renderByok() {
   const el = document.getElementById('byokBox');
   if (!el) return;
   const s = byokSettings();
+  const st0 = s.status;
   const cap = byokCap();
-  const test = BYOK_STATE && BYOK_STATE.phase === 'tested'
-    ? `<div class="note ${BYOK_STATE.ok ? '' : 'bad'}">${esc(BYOK_STATE.message)}</div>`
-    : (BYOK_STATE && BYOK_STATE.phase === 'testing' ? `<div class="note">Testing\u2014</div>` : '');
+  // Every outcome paints, and each is DISTINCT: pending, connected, failed,
+  // timed out. The stored status is shown even before a test is run this session,
+  // so "have I ever verified this key?" is answerable without pressing anything.
+  const live = BYOK_STATE
+    ? `<div class="byoks ${BYOK_STATE.phase === 'testing' ? 'byoktesting' : (BYOK_STATE.ok ? 'byokok' : 'byokbad')}">` +
+      (BYOK_STATE.phase === 'testing' ? '<span class="byokspin"></span>' : '') +
+      `${esc(BYOK_STATE.message)}</div>`
+    : '';
+  const stored = (!BYOK_STATE && s.key)
+    ? `<div class="byoks ${st0.state === 'verified' ? 'byokok' : (st0.state === 'failed' ? 'byokbad' : '')}">` +
+      `${esc(byokStatusLine())}${st0.at ? ' · ' + esc(String(st0.at).slice(0, 10)) : ''}` +
+      `${st0.state === 'failed' && st0.message ? ' — ' + esc(st0.message) : ''}</div>`
+    : '';
   el.innerHTML =
     `<div class="row"><div style="flex:1"><label>Provider</label><select id="byokProv">` +
     Object.keys(BYOK_PROVIDERS).map((k) =>
@@ -3424,9 +3436,9 @@ function renderByok() {
     `<input id="byokKey" type="password" autocomplete="off" placeholder="${s.key ? 'Enter a new key to replace it' : 'Paste your key'}">` +
     `<div class="row" style="margin-top:8px">` +
     `<button class="btn primary" onclick="saveByok()">Save</button>` +
-    `<button class="btn" onclick="byokTest()"${s.key ? '' : ' disabled'}>Test connection</button>` +
+    `<button class="btn" onclick="byokTest()">Test connection</button>` +
     `<button class="btn" onclick="byokClear()"${s.key ? '' : ' disabled'}>Remove key</button></div>` +
-    test +
+    live + stored +
     `<div class="note">Used today: ${esc(cap.used)} of ${esc(cap.cap)}. The key is stored on this device only, ` +
     `is never included in an export or a backup, and is sent nowhere except to the provider you choose, ` +
     `when you capture a meal. The photo is never stored.</div>`;
@@ -3437,16 +3449,23 @@ function saveByok() {
   const cp = document.getElementById('byokCap');
   const r = byokSave(pv ? pv.value : null, (k && k.value) ? k.value : null, cp ? cp.value : null);
   if (k) k.value = '';                        // never leave it in the DOM
-  BYOK_STATE = null;
-  toast(r.configured ? 'Key saved on this device' : 'Settings saved');
+  if (r.blocked) { BYOK_STATE = { phase: 'tested', ok: false, message: r.message }; renderByok(); return r; }
+  // A write that did not land says so, rather than reporting a save that will be
+  // gone at the next reload.
+  BYOK_STATE = r.stored
+    ? (r.warning ? { phase: 'tested', ok: false, message: r.warning } : null)
+    : { phase: 'tested', ok: false, message: 'This device would not store the key. It will work until you reload, and then be gone.' };
+  toast(r.stored ? (r.configured ? 'Key saved on this device' : 'Settings saved') : 'Could not store the key');
   renderByok();
   return r;
 }
 function renderCaptureBtn() {
   const el = document.getElementById('captureBox');
   if (!el) return;
+  const stC = byokSettings().status;
   el.innerHTML = byokConfigured()
     ? `<button class="btn primary" style="width:100%" onclick="document.getElementById('captureFile').click()">Capture meal</button>` +
+      `<div class="byoks ${stC.state === 'verified' ? 'byokok' : (stC.state === 'failed' ? 'byokbad' : '')}">${esc(byokStatusLine())}</div>` +
       `<div class="note">One call to your provider with the photo and the template below. Nothing else is sent.</div>`
     : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`;
 }
@@ -3601,6 +3620,7 @@ const VERSION_LOG = [
   { v: '0.16.3', note: 'Fix: a long stretch with no food logged no longer sweeps most of the meals ring \u2014 past half a circle it stops reading as a gap, so the ring keeps your meal dots and the centre states the hours instead.' },
   { v: '0.17.0', note: 'Clearing a day can now be undone, like every other deletion — the Undo appears in the toast for a few seconds. The clear control also moved further from “End & complete this day” and got quieter, so it is harder to hit by accident.' },
   { v: '0.18.0', note: 'Photo meals can now go straight through: add your own AI key in Settings \u2014 Photo capture, and a snapshot becomes an editable meal without the copy-paste round trip. Your key stays on this device and never leaves it except to make that one call, the photo is never stored, and the copy-prompt path still works exactly as before if you would rather not use a key.' },
+  { v: '0.18.1', note: 'Fix: \u201cTest connection\u201d could finish without telling you anything. It now always says what happened \u2014 testing, connected, the provider\u2019s own error, or timed out after 15 seconds \u2014 and the key\u2019s status (verified, unverified or failed) is remembered and shown wherever you use it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4633,8 +4653,42 @@ function byokClear() {
 function byokSettings() {
   const o = byokRead() || {};
   const prov = BYOK_PROVIDERS[o.provider] ? o.provider : 'grok';
+  const st = (o.status && typeof o.status === 'object') ? o.status : null;
   return { provider: prov, key: String(o.key || ''), cap: (o.cap > 0 ? o.cap : BYOK_DEFAULT_CAP),
-           used: (o.used && typeof o.used === 'object') ? o.used : { date: '', n: 0 } };
+           used: (o.used && typeof o.used === 'object') ? o.used : { date: '', n: 0 },
+           status: st || { state: 'unverified', at: '', message: '' } };
+}
+// R21.1: a shape check, not a validity check -- only the provider can say whether
+// a key WORKS, and that is what "test connection" is for. So the blocking rules
+// are the ones that are certainly wrong regardless of provider (empty, embedded
+// whitespace, implausibly short), and a prefix that does not match the provider's
+// usual one is a WARNING and not a refusal: key formats change, and blocking on a
+// guess would be a worse failure than the one it prevents.
+const BYOK_PREFIX = { grok: 'xai-' };
+function byokKeyIssue(provider, key) {
+  const k = String(key == null ? '' : key);
+  if (!k.trim()) return { block: true, message: 'No key entered.' };
+  if (/\s/.test(k.trim())) return { block: true, message: 'That key contains a space \u2014 check for a copy-paste stray.' };
+  if (k.trim().length < 20) return { block: true, message: 'That key looks too short to be complete.' };
+  const pre = BYOK_PREFIX[provider];
+  if (pre && k.trim().indexOf(pre) !== 0)
+    return { block: false, message: 'That does not start with "' + pre + '", which ' +
+             (BYOK_PROVIDERS[provider] ? BYOK_PROVIDERS[provider].label : provider) +
+             ' keys usually do. Saved anyway \u2014 test it to find out.' };
+  return null;
+}
+function byokSetStatus(state, message) {
+  const o = byokRead() || {};
+  o.status = { state: state, at: new Date(nowMs()).toISOString(), message: String(message || '') };
+  byokWrite(o);
+  return o.status;
+}
+function byokStatusLine() {
+  const st = byokSettings().status;
+  if (!byokConfigured()) return '';
+  if (st.state === 'verified') return 'key verified';
+  if (st.state === 'failed') return 'key failed its last test';
+  return 'key not tested yet';
 }
 function byokConfigured() { return byokSettings().key.length > 0; }
 // NEVER returns the key. The masked form is the ONLY thing any surface may show.
@@ -4649,9 +4703,17 @@ function byokSave(provider, key, cap) {
                  key: (key == null ? o.key : String(key).trim()),
                  cap: (cap == null || !(Number(cap) > 0)) ? o.cap : Math.round(Number(cap)),
                  used: o.used };
+  const issue = (key == null) ? null : byokKeyIssue(next.provider, next.key);
+  if (issue && issue.block) return { ok: false, blocked: true, message: issue.message, configured: byokConfigured() };
+  if (key != null && next.key !== o.key) next.status = { state: 'unverified', at: '', message: '' };
+  else next.status = o.status;
+  // A write that did not land must NOT report success: the in-memory fallback
+  // masks it until the next reload, and then the key is simply gone -- which is
+  // one of the ways "test connection" ended up silent (a disabled button).
   const ok = byokWrite(next);
   refresh();
-  return { ok: ok, provider: next.provider, cap: next.cap, configured: next.key.length > 0 };
+  return { ok: ok, stored: ok, warning: (issue && !issue.block) ? issue.message : '',
+           provider: next.provider, cap: next.cap, configured: next.key.length > 0 };
 }
 // Fork E (ruled): the counter lives WITH THE KEY, not in the log, so clearing a
 // day or restoring a backup cannot move it. Resets at local midnight.
@@ -4725,12 +4787,18 @@ function byokCall(dataUrl, opts) {
   }).then(function (res) {
     clearTimeout(timer);
     return res.text().then(function (raw) {
-      if (res.status === 401 || res.status === 403)
-        return byokErr('auth', 'The provider rejected the key. Check it in Settings.');
+      // VERIFIED against the live API 2026-09-04: xAI answers a bad key with 400,
+      // not 401 -- "Incorrect API key provided. You can obtain an API key from
+      // https://console.x.ai." Classifying only on the status code would have
+      // filed the single most likely failure under a generic HTTP error, so the
+      // provider's own words are read too. The message is surfaced verbatim.
+      const pmsg = byokProviderMessage(raw);
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key|unauthor|credential/i.test(pmsg)))
+        return byokErr('auth', pmsg || 'The provider rejected the key. Check it in Settings.');
       if (res.status === 429)
         return byokErr('ratelimit', 'The provider is rate-limiting. Wait a moment, or paste instead.');
       if (!res.ok)
-        return byokErr('http', 'The provider returned ' + res.status + '. ' + byokProviderMessage(raw));
+        return byokErr('http', 'The provider returned ' + res.status + '. ' + pmsg);
       let j; try { j = JSON.parse(raw); } catch (e) { return byokErr('malformed', 'The reply was not JSON.'); }
       const msg = j && j.choices && j.choices[0] && j.choices[0].message;
       const content = msg && (typeof msg.content === 'string' ? msg.content
@@ -4754,14 +4822,73 @@ function byokProviderMessage(raw) {
     return String(typeof m === 'string' ? m : (m.message || '')).slice(0, 160);
   } catch (e) { return ''; }
 }
+// R21.1 -- "Test connection" was SILENT on the device. Three defects on one path,
+// and any of them alone produces exactly "nothing happened":
+//
+//   1. NO .catch. A throw anywhere in the .then -- renderByok included -- became
+//      an unhandled rejection, and unhandled rejections are invisible.
+//   2. A DISABLED BUTTON. byokSave reported "configured" from the key's LENGTH
+//      rather than from whether the write LANDED; a failed write was masked by the
+//      in-memory fallback until the next reload, after which the key was gone, the
+//      button rendered disabled, and tapping it did nothing at all -- no pending,
+//      no error, no sound.
+//   3. NO DISTINCT TIMEOUT. The call's own 45 s bound is longer than anyone waits
+//      before deciding a button is broken.
+//
+// The fix is not three patches but one rule: EVERY EXIT FROM THIS FUNCTION PAINTS.
+let BYOK_TEST_TIMEOUT_MS = 15000;
+// Test seam, the same shape as setClock: a 15 s wall clock cannot be waited on
+// in a suite, and a timeout that is never exercised is a timeout nobody has seen.
+function setByokTestTimeout(ms) { BYOK_TEST_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 15000; }
+function byokPaint(state, ok, message) {
+  BYOK_STATE = { phase: state, ok: !!ok, message: String(message || '') };
+  try { renderByok(); } catch (e) {}         // a render fault must not eat the state
+  try { renderCaptureBtn(); } catch (e) {}
+  return { ok: !!ok, state: state, message: BYOK_STATE.message };
+}
+// The attempt is logged -- endpoint and model only. NEVER the key, and never the
+// body, which contains the photo.
+function byokLog(line) { try { if (window.console && console.info) console.info('[byok] ' + line); } catch (e) {} }
 function byokTest() {
-  BYOK_STATE = { phase: 'testing' };
-  renderByok();
-  return byokCall(null, { ping: true }).then(function (r) {
-    BYOK_STATE = { phase: 'tested', ok: r.ok, message: r.ok ? 'Connection OK.' : r.error };
-    renderByok();
-    return { ok: r.ok, kind: r.kind || null };
-  });
+  try {
+    const s = byokSettings();
+    if (!s.key) {
+      byokLog('test aborted: no key saved');
+      return Promise.resolve(byokPaint('tested', false, 'No key saved. Paste your key above, tap Save, then test.'));
+    }
+    const prov = BYOK_PROVIDERS[s.provider];
+    byokPaint('testing', false, 'Testing \u2014 calling ' + (prov ? prov.label : s.provider) + '\u2026');
+    byokLog('test: POST ' + (prov ? prov.base : '?') + '/chat/completions model=' + (prov ? prov.model : '?'));
+    let settled = false;
+    const race = new Promise(function (resolve) {
+      setTimeout(function () {
+        if (!settled) {
+          byokLog('test: no answer in ' + (BYOK_TEST_TIMEOUT_MS / 1000) + 's');
+          resolve(byokPaint('tested', false, 'No answer in ' + (BYOK_TEST_TIMEOUT_MS / 1000) +
+            ' seconds. The provider may be slow or unreachable \u2014 the paste path still works.'));
+        }
+      }, BYOK_TEST_TIMEOUT_MS);
+    });
+    const call = byokCall(null, { ping: true }).then(function (r) {
+      settled = true;
+      byokLog('test: ' + (r.ok ? 'ok' : 'failed (' + r.kind + ')'));
+      byokSetStatus(r.ok ? 'verified' : 'failed', r.ok ? '' : String(r.error || ''));
+      return byokPaint('tested', r.ok,
+        r.ok ? ('Connected \u2014 ' + (prov ? prov.model : 'the model') + ' responded.') : String(r.error || 'The call failed.'));
+    }).catch(function (e) {
+      // Defect 1: this branch did not exist, so a throw here was silence.
+      settled = true;
+      byokLog('test: threw');
+      byokSetStatus('failed', 'unexpected error');
+      return byokPaint('tested', false, 'Something went wrong making the call: ' +
+        String((e && e.message) || e).slice(0, 120));
+    });
+    return Promise.race([call, race]);
+  } catch (e) {
+    // And neither did this one, so a synchronous throw was silence too.
+    return Promise.resolve(byokPaint('tested', false, 'Could not start the test: ' +
+      String((e && e.message) || e).slice(0, 120)));
+  }
 }
 // ---- R6.1 -- confirm-first -----------------------------------------------
 // The draft LEADS with a question on the dominant item -- confirm the estimate or
@@ -5379,7 +5506,8 @@ window.HT = {
   BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
-  photoMicroHits, byokBusyState,
+  photoMicroHits, byokBusyState, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
+  setByokTestTimeout, byokState,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
