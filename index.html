@@ -372,6 +372,8 @@
   .pmlead{border:1px solid var(--line);border-radius:12px;padding:11px;margin-bottom:11px;background:var(--panel)}
   .pmq{font-size:15px;line-height:1.35}
   .pmok{width:100%;margin-top:9px}
+  .pmbusy{font-size:12.5px;color:var(--muted);padding:9px 0}
+  .pmbusy.pmwarn{color:var(--warn)}
   .pmnote{font-size:12px;color:var(--muted);margin-bottom:8px}
   .pmnote.pmwarn{color:var(--warn)}
   .pmrow{border-top:1px solid var(--line);padding:9px 0}
@@ -478,6 +480,9 @@
         <div id="quickChips"></div>
       </div>
       <div id="pane-photo" class="pane">
+      <h2>Photo capture</h2>
+      <div id="captureBox"></div>
+      <input id="captureFile" type="file" accept="image/*" capture="environment" style="display:none" onchange="onCaptureFile(this)">
       <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
       <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
       <textarea id="promptTemplate" readonly></textarea>
@@ -639,6 +644,12 @@
         </details>
         <button class="btn primary" onclick="saveSupplement()">Save supplement</button>
         <div class="note">Off by default. When enabled, a flagged non-deletable item is added to today (if open) and every new day; disable to stop. Past days keep their record.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="byok">
+      <details>
+        <summary>Photo capture key (BYOK)</summary>
+        <div id="byokBox"></div>
       </details>
     </div>
     <div class="card" data-setting="presets">

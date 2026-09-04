@@ -19,6 +19,20 @@ if grep -nE "$STRIP_RE" "$DIR/../app.js" >/dev/null 2>&1; then
 fi
 echo "strip check: app.js is legacy-free"
 
+# R21/D45 Fork G: the SW must let the BYOK vision call through untouched. A
+# cross-origin POST is not cacheable BY DEFAULT, and "by default" is not "never",
+# so the bypass is asserted rather than assumed.
+if ! grep -q "req.method !== 'GET') return" "$DIR/../sw.js"; then
+  echo "SW BYPASS: FAIL - the non-GET early return is gone; the vision POST could be intercepted"; exit 1
+fi
+if ! grep -q "url.origin !== self.location.origin) return" "$DIR/../sw.js"; then
+  echo "SW BYPASS: FAIL - the cross-origin passthrough is gone"; exit 1
+fi
+if ! grep -q "Fork G" "$DIR/../sw.js"; then
+  echo "SW BYPASS: FAIL - the bypass is no longer named as deliberate (D45 Fork G)"; exit 1
+fi
+echo "sw bypass: the BYOK call passes through uncached (non-GET + cross-origin)"
+
 # SW cache name must track the shell (D6): fail if sw.js SHELL_HASH is stale, so
 # a shell change can never ship without the SW seeing it.
 if ! bash "$DIR/check-sw-hash.sh" >/dev/null 2>&1; then
@@ -90,7 +104,7 @@ echo "-----------------------------------------"
 # AUTHORED is a static lower-bound cross-check only: it counts source LINES
 # containing a res( call, so multi-line calls and helper reuse make it an
 # approximation, not an equality. The PIN is the enforcing mechanism.
-EXPECTED_ASSERTIONS=1022
+EXPECTED_ASSERTIONS=1083
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -1896,8 +1896,115 @@ window.setLS({});
       res(false, 'SE: could not inspect the shipped index.html', String(e));
     }
     sePending = false;
-    finish();
+    // R21: the call-path cases are asynchronous. They run here, in the same
+    // deferred slot as the iframe, so the suite still finishes exactly once.
+    runByokAsync().then(finish, function (e) {
+      res(false, 'R21: the async cases threw', String(e && e.message));
+      finish();
+    });
   };
+  function runByokAsync() {
+    var ok = '{"choices":[{"message":{"content":' + JSON.stringify(HT.AI_PROMPT_SAMPLE) + '}}]}';
+    var junk = '{"choices":[{"message":{"content":"sorry, I cannot"}}]}';
+    function mkFile() {
+      var c = document.createElement('canvas'); c.width = 2400; c.height = 1600;
+      var x = c.getContext('2d'); x.fillStyle = '#a33'; x.fillRect(0, 0, 2400, 1600);
+      return new Promise(function (resolve) {
+        c.toBlob(function (b) { resolve(new File([b], 'meal.jpg', { type: 'image/jpeg' })); }, 'image/jpeg', 0.9);
+      });
+    }
+    var FILE = null;
+    return mkFile().then(function (f) {
+      FILE = f;
+      // R21-photo: the downscale touches ONLY the bytes sent.
+      var before = HT.exportJSON();
+      return HT.byokDownscale(f).then(function (img) {
+        res(Math.max(img.w, img.h) === HT.BYOK_MAX_EDGE,
+            'R21-photo: a 2400px photo is downscaled to the 1280px bound before it is sent');
+        res(img.dataUrl.indexOf('data:image/jpeg;base64,') === 0, 'R21-photo: and encoded as a jpeg data URL');
+        res(HT.exportJSON() === before && JSON.stringify(HT.state()).indexOf('data:image') < 0,
+            'R21-photo: the downscale changed the SENT BYTES ONLY -- no record, no store, no export');
+      });
+    }).then(function () {
+      // R21-validate: a valid reply routes straight into the confirm-first draft.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function (r) {
+        res(r.ok === true && r.attempts === 1, 'R21-validate: a valid reply needs ONE call');
+        res(FETCHES.length === 1 && FETCHES[0].url === 'https://api.x.ai/v1/chat/completions',
+            'R21-validate: sent to the verified endpoint');
+        res(String(FETCHES[0].init.headers.Authorization) === 'Bearer ' + SECRET,
+            'R21-validate: with the key as a Bearer header');
+        res(FETCHES[0].init.body.indexOf('data:image/jpeg;base64,') > 0 &&
+            FETCHES[0].init.body.indexOf('"type":"image_url"') > 0,
+            'R21-validate: carrying the photo in the verified content shape');
+        res(!!HT.photoDraft() && HT.photoDraft().items.length === 2 && HT.photoLeadOpen(HT.photoDraft()) === true,
+            'R21-validate: and it lands in the SHIPPED confirm-first draft, no paste step');
+        res(HT.byokBusyState() === null, 'R21-validate: the pending state clears');
+      });
+    }).then(function () {
+      // retry ONCE, then the paste box -- never a dead end.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: junk }, { status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function (r) {
+        res(r.ok === true && r.attempts === 2 && FETCHES.length === 2,
+            'R21-validate: a reply that does not parse is retried EXACTLY once');
+        res(!!HT.photoDraft(), 'R21-validate: and the second reply lands in the draft');
+      });
+    }).then(function () {
+      byokReset(SECRET); HT.photoDiscard();
+      document.getElementById('ingestBox').value = '';
+      FETCH_SCRIPT = [{ status: 200, body: junk }, { status: 200, body: junk }];
+      return HT.byokCapture(FILE).then(function (r) {
+        res(r.ok === false && r.fellBack === true && FETCHES.length === 2,
+            'R21-validate: two unparseable replies stop -- no third call');
+        res(document.getElementById('ingestBox').value.indexOf('sorry') >= 0,
+            'R21-validate: the raw reply is dropped into the paste box -- NEVER a dead end');
+        res(HT.photoDraft() === null, 'R21-validate: and no draft is fabricated from it');
+      });
+    }).then(function () {
+      // R21-failure: each wall is distinct, and each lands on the paste path.
+      var walls = [
+        { name: 'a rejected key', script: { status: 401, body: '{"error":"bad key"}' }, kind: 'auth' },
+        { name: 'a rate limit',   script: { status: 429, body: '{"error":"slow down"}' }, kind: 'ratelimit' },
+        { name: 'a server error', script: { status: 500, body: '{"error":"boom"}' }, kind: 'http' },
+        { name: 'a dead network', script: { reject: new TypeError('Failed to fetch') }, kind: 'network' },
+        { name: 'a timeout',      script: { reject: (function(){ var e=new Error('aborted'); e.name='AbortError'; return e; })() }, kind: 'timeout' }
+      ];
+      return walls.reduce(function (chain, w) {
+        return chain.then(function () {
+          byokReset(SECRET); HT.photoDiscard();
+          FETCH_SCRIPT = [w.script];
+          return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+            res(r.ok === false && r.kind === w.kind, 'R21-failure: ' + w.name + ' is classified as ' + w.kind);
+            res(String(r.error || '').indexOf(SECRET) < 0, 'R21-failure: and ' + w.name + ' never prints the key');
+            FETCH_SCRIPT = [w.script];
+            return HT.byokCapture(FILE).then(function (c) {
+              res(c.ok === false && c.fellBack === true,
+                  'R21-failure: ' + w.name + ' falls back to the paste path with the photo still in hand');
+              res(String((HT.byokBusyState() || {}).message || '').indexOf(SECRET) < 0,
+                  'R21-failure: and the surfaced message never prints the key');
+            });
+          });
+        });
+      }, Promise.resolve());
+    }).then(function () {
+      // R21-egress: the per-day cap, whose counter lives with the KEY.
+      byokReset(SECRET);
+      HT.byokSave('grok', SECRET, 1);
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        var before = FETCHES.length;
+        return HT.byokCapture(FILE).then(function (r) {
+          res(r.ok === false && r.kind === 'cap' && FETCHES.length === before,
+              'R21-egress: past the daily cap NO call is made at all');
+          res(HT.exportJSON().indexOf('used') < 0 || JSON.stringify(HT.state()).indexOf(SECRET) < 0,
+              'R21-egress: the counter lives with the key, not in the log');
+          HT.byokClear(); HT.photoDiscard();
+        });
+      });
+    });
+  }
   seFrame.src = '../index.html';
   document.body.appendChild(seFrame);
 
@@ -3497,6 +3604,120 @@ window.setLS({});
   res(HT.state().days[td] !== undefined, 'R19-clear: the day itself survives -- clearing empties it, it does not delete it');
   window.__confirm = true;
   freeClock();
+
+  // ==========================================================================
+  // R21 / D45 -- BYOK vision call. The key hygiene rules are STRUCTURAL, so the
+  // cases assert structure, not the current behaviour of a filter.
+  // ==========================================================================
+  var FETCHES = [];                       // every request the app makes, recorded
+  var FETCH_SCRIPT = [];                  // queued responses
+  window.fetch = function (url, init) {
+    FETCHES.push({ url: String(url), init: init || {} });
+    var next = FETCH_SCRIPT.shift();
+    if (!next) return Promise.resolve({ ok: true, status: 200, text: function () { return Promise.resolve('{}'); } });
+    if (next.reject) return Promise.reject(next.reject);
+    return Promise.resolve({ ok: next.status < 400, status: next.status,
+                             text: function () { return Promise.resolve(next.body); } });
+  };
+  function byokReset(key) {
+    FETCHES = []; FETCH_SCRIPT = [];
+    HT.byokClear();
+    if (key) HT.byokSave('grok', key, 20);
+  }
+  var SECRET = 'xai-SUPERSECRET-0123456789';
+
+  // R21-key: the key is not in the state object, so nothing that serializes the
+  // state can carry it -- by construction, not by an exclusion rule.
+  setLS({}); HT.boot(); fixClock();
+  byokReset(SECRET);
+  res(HT.byokConfigured() === true, 'R21-key: a saved key configures the call path');
+  res(JSON.stringify(HT.state()).indexOf(SECRET) < 0,
+      'R21-key: the key is NOT in APP_STATE -- it cannot reach anything that serializes the state');
+  var expK = HT.exportJSON();
+  res(expK.indexOf(SECRET) < 0 && expK.indexOf('byok') < 0,
+      'R21-key: absent from the export blob, and so is any trace of the store');
+  res(JSON.stringify(HT.state().settings).indexOf(SECRET) < 0, 'R21-key: and absent from settings');
+  window.__confirm = true;
+  HT.restore(expK);                               // D3: takes a pre-restore backup
+  res(JSON.stringify(HT.Store.peekBackup() || '').indexOf(SECRET) < 0,
+      'R21-key: absent from the D3 pre-restore backup');
+  res(HT.byokConfigured() === true && HT.byokSettings().key === SECRET,
+      'R21-key: and a full destructive restore leaves the key untouched -- different store, different lifetime');
+  res(HT.byokMask().indexOf(SECRET) < 0 && HT.byokMask().indexOf('xai') === 0,
+      'R21-key: the mask shows the shape of the key and never the key');
+  var toastEl = document.getElementById('toast');
+  res(!toastEl || toastEl.innerHTML.indexOf(SECRET) < 0, 'R21-key: never in a toast');
+  res(HT.byokClear().ok === true && HT.byokConfigured() === false &&
+      String(localStorage.getItem('healthtracker-byok') || '').indexOf(SECRET) < 0,
+      'R21-key: removing it leaves no residue');
+
+  // R21-egress: nothing calls out on its own. Only an explicit capture-send does.
+  byokReset(SECRET);
+  FETCHES = [];
+  HT.boot(); HT.refresh(); HT.stepDay(-1); HT.stepDay(1); HT.renderByok(); HT.renderCaptureBtn();
+  HT.openPhotoDraft('not json at all');            // a failed parse must not retry over the wire
+  res(FETCHES.length === 0,
+      'R21-egress: boot, refresh, day nav, settings render and a failed parse issue ZERO calls');
+
+  // R21-contract: the request is the shape verified against the live API.
+  var body21 = HT.byokBody('data:image/jpeg;base64,AAAA', 'TEXT', 'grok-4.6');
+  var c21 = body21.messages[0].content;
+  res(body21.model === 'grok-4.6' && c21.length === 2, 'R21-contract: one user message, image and text');
+  res(c21[0].type === 'image_url' && c21[0].image_url && c21[0].image_url.url.indexOf('data:image/jpeg;base64,') === 0,
+      'R21-contract: OpenAI-CLASSIC image part -- the shape the endpoint accepts, not the docs\u2019 input_image');
+  res(c21[1].type === 'text' && c21[1].text === 'TEXT', 'R21-contract: and a text part');
+  res(HT.BYOK_PROVIDERS.grok.base === 'https://api.x.ai/v1' && HT.BYOK_PROVIDERS.grok.model === 'grok-4.6',
+      'R21-contract: the verified endpoint and model are the shipped defaults');
+  res(HT.AI_DIRECT_PREFIX.indexOf('v' + HT.AI_TEMPLATE_VERSION) >= 0 && HT.AI_DIRECT_PREFIX.indexOf('ONLY') >= 0,
+      'R21-contract: the preamble is a prefix CARRYING the template version, not a forked template');
+  res(HT.aiPromptText().indexOf('per100') >= 0, 'R21-contract: and the template itself is v3, unchanged');
+  // a second provider is CONFIGURATION, not code
+  HT.BYOK_PROVIDERS.other = { label: 'Other', base: 'https://example.test/v1', model: 'm-1' };
+  HT.byokSave('other', SECRET, 20);
+  res(HT.byokSettings().provider === 'other' && HT.byokBody('d', 't', HT.BYOK_PROVIDERS.other.model).model === 'm-1',
+      'R21-contract: a second provider slots in as a TABLE ROW -- no code change');
+  delete HT.BYOK_PROVIDERS.other;
+  byokReset(SECRET);
+
+  // R21-parity: THE load-bearing one. Identical item JSON must produce an
+  // identical draft whichever door it came through.
+  var itemJSON = HT.AI_PROMPT_SAMPLE;
+  if (!document.getElementById('photoDraft')) { var pd21=document.createElement('div'); pd21.id='photoDraft'; document.body.appendChild(pd21); }
+  if (!document.getElementById('ingestBox')) { var ib21=document.createElement('textarea'); ib21.id='ingestBox'; document.body.appendChild(ib21); }
+  document.getElementById('ingestBox').value = itemJSON;
+  HT.doPhotoPaste();
+  var draftPaste = JSON.parse(JSON.stringify(HT.photoDraft())); draftPaste.mealId = 'FIXED';
+  HT.photoDiscard();
+  HT.openPhotoDraft(itemJSON);                     // the door the call path uses
+  var draftCall = JSON.parse(JSON.stringify(HT.photoDraft())); draftCall.mealId = 'FIXED';
+  res(JSON.stringify(draftPaste) === JSON.stringify(draftCall),
+      'R21-parity: identical item JSON gives a BYTE-IDENTICAL draft, call or paste -- one downstream, not two');
+  HT.photoDiscard();
+
+  // R21-d8: micros are REFUSED and reported, not silently dropped.
+  var withMicros = '{"meal":"lunch","items":[{"name":"Stew","grams":400,' +
+    '"per100":{"kcal":120,"protein_g":9,"fat_g":5,"carb_g":8,"fiber_g":2,"soluble_fiber_g":0.5},' +
+    '"micros":{"iron_mg":4.2},"sodium_mg":900,"scale_linked":true,"dominance":1}]}';
+  var pm21 = HT.parsePhotoMeal(withMicros);
+  res(pm21.ok === true && pm21.microsStripped === 2,
+      'R21-d8: micros in the reply are DETECTED and counted -- refused actively, not dropped as a side effect');
+  HT.openPhotoDraft(withMicros);
+  res(JSON.stringify(HT.photoDraft()).indexOf('iron_mg') < 0 && JSON.stringify(HT.photoDraft()).indexOf('sodium_mg') < 0,
+      'R21-d8: and none of them reach the draft');
+  HT.renderPhotoDraft();
+  res(document.getElementById('photoDraft').innerHTML.indexOf('stripped') >= 0,
+      'R21-d8: the strip is SAID on the surface, the same contract ingest has');
+  var sv21 = HT.photoSave();
+  var it21 = HT.state().days[td].items[HT.state().days[td].items.length - 1];
+  res(sv21.ok === true && it21.source === 'ai-paste' && it21.confidence === 'eyeballed' && it21.micros === undefined,
+      'R21-d8: the saved item is macros-only at eyeballed, whichever door it came through');
+  res(it21.ai_identity === 'Stew', 'R21-d8: the identification string is retained -- the seam a micros corpus will key off');
+
+  // R21-photo (storage half): no image byte is ever in a record or an export.
+  res(HT.exportJSON().indexOf('data:image') < 0 && JSON.stringify(HT.state()).indexOf('base64') < 0,
+      'R21-photo: no image data reaches any record or the export');
+  res(HT.BYOK_MAX_EDGE === 1280 && HT.BYOK_JPEG_Q === 0.8,
+      'R21-photo: the downscale bounds are surfaced constants');
 
   // ==========================================================================
   // R6.1 -- confirm-first. Presentation refinement of the R6 draft: the math is

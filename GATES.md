@@ -1404,4 +1404,24 @@ The POST itself also returns `access-control-allow-origin: *`.
 | R21-parity | **identical item JSON produces a byte-identical draft whether it arrived by call or by paste** — one downstream, not two |
 | R21-d8 | micros in the model's response are **stripped and reported**; the item saves as `ai-paste`-equivalent at `eyeballed`; identification strings are retained for the future micros seam |
 
-**Status: PRE-REGISTERED — the D-number collision and Forks A–H await ruling. Not built.**
+#### Evidence (D45; Forks A–H ruled as argued; built 2026-09-04, v0.18.0)
+
+| Case | Result |
+|---|---|
+| R21-key | the key **is not in `APP_STATE`**, so it is absent from the export blob, from `settings`, and from the **D3 pre-restore backup**; a **full destructive restore leaves it untouched** — different store, different lifetime; the mask shows the key's shape and never the key; never in a toast; removal leaves no residue |
+| R21-egress | boot, refresh, day nav, settings render and a **failed parse** issue **zero** calls; **past the daily cap no call is made at all**; the counter lives with the key, not in the log |
+| R21-photo | a 2400 px photo downscales to the 1280 px bound and encodes as a jpeg data URL — and the export is **byte-unchanged across the downscale**: no record, no store, no export ever holds an image |
+| R21-contract | the exact shape verified live: one user message, **OpenAI-classic `image_url` part**, text part, `grok-4.6`, `https://api.x.ai/v1`; the preamble is a **prefix carrying the template version**, not a forked template; **a second provider slots in as a table row with no code change** |
+| R21-validate | a valid reply takes **one** call and lands in the **shipped confirm-first draft** with no paste step; an unparseable reply is retried **exactly once**; two failures stop — **no third call** — and the raw reply lands in the paste box |
+| R21-failure | rejected key → `auth`, rate limit → `ratelimit`, server error → `http`, dead network → `network`, abort → `timeout`; **each falls back to the paste path with the photo still in hand**, and **none of the five prints the key**, in the error object or on the surface |
+| R21-parity | **identical item JSON gives a byte-identical draft, call or paste** — one downstream, not two |
+| R21-d8 | micros in a reply are **detected and counted** (2 of 2 — the `micros` container and a volunteered flat key), never reach the draft, and the strip is **said on the surface**; the saved item is macros-only at `eyeballed`; `ai_identity` is retained as the micros seam |
+| sw bypass | asserted in the runner: the non-GET early return, the cross-origin passthrough, **and that the bypass is named as deliberate** — so deleting the comment fails the gate along with the behaviour |
+
+**Proven against the defect.** Writing the key into `APP_STATE.settings` — the shape an exclusion-filter design would have had — fails **four** `R21-key` assertions at once: in-state, in-export, in-settings, in-backup. This is the case for Fork F in one line: the filter design would have needed a filter that works; the structural design fails loudly the moment anything puts the key where it does not belong.
+
+**The verification is the finding.** Following xAI's image-understanding guide would have shipped `{"type":"input_image","image_url":"…"}` to `/v1/chat/completions`, which **rejects it** (`data did not match any variant of untagged enum Content`). The OpenAI-classic shape parses. **The pre-registration probe caught a defect that would otherwise have shipped and failed on the first real photo** — and the model string and rate-limit behaviour, which cannot be checked without a key, are what "test connection" exists to surface.
+
+**Count delta: 1022 → 1083** (+61). `bash tests/run-data-layer.sh` → **1083/1083 ALL PASS**, `executed 1083 · pinned 1083`. **Fourteen gates green**, collected one CDP gate at a time.
+
+**Status: MET — awaiting review. Untested against a live key:** every call in the suite is stubbed, so the first real capture is also the first end-to-end proof of the model string, of latency at a real photo size, and of the provider's actual error text.

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.17.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.18.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3256,7 +3256,9 @@ function renderPhotoDraft() {
   const el = document.getElementById('photoDraft');
   if (!el) return;
   const d = PHOTO_DRAFT;
-  if (!d) { el.innerHTML = ''; return; }
+  // Fork C: pending and error render WHERE THE DRAFT WILL BE.
+  const busy = BYOK_BUSY ? `<div class="pmbusy ${BYOK_BUSY.phase === 'error' ? 'pmwarn' : ''}">${esc(BYOK_BUSY.message)}</div>` : '';
+  if (!d) { el.innerHTML = busy; return; }
   const sh = photoShared(d);
   const li = photoLeadIndex(d);
   const leadOpen = photoLeadOpen(d);
@@ -3312,23 +3314,141 @@ function renderPhotoDraft() {
     const m = photoItemMacros(d, it);
     return { kcal: a.kcal + m.kcal, protein_g: a.protein_g + m.protein_g };
   }, { kcal: 0, protein_g: 0 });
-  el.innerHTML = `<div class="pmdraft">${lead}${head}${rows}
+  // D8, said out loud: micros that arrived were REFUSED, not quietly absent.
+  const mstrip = (d.microsStripped > 0)
+    ? `<div class="pmnote pmwarn">micronutrients in the reply were stripped \u2014 a photo cannot show them</div>` : '';
+  el.innerHTML = `${busy}<div class="pmdraft">${mstrip}${lead}${head}${rows}
     <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein</div>
     <div class="row" style="margin-top:10px">
       <button class="btn primary" onclick="photoSave()">Save meal</button>
       <button class="btn" onclick="photoDiscard()">Discard</button>
     </div></div>`;
 }
-function doPhotoPaste() {
-  const box = document.getElementById('ingestBox');
+// R21: the ONE door into a draft. The paste path and the direct-call path both
+// come through here, so "identical item JSON produces an identical draft" is a
+// property of the CONSTRUCTION rather than of two code paths agreeing (R21-parity).
+function openPhotoDraft(text) {
   const rep2 = document.getElementById('ingestReport');
-  const r = parsePhotoMeal(box ? box.value : '');
+  const r = parsePhotoMeal(text);
   if (!r.ok) { if (rep2) rep2.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
-  PHOTO_DRAFT = { mealId: newMealId(), meal: r.meal, items: r.items };
+  PHOTO_DRAFT = { mealId: newMealId(), meal: r.meal, items: r.items,
+                  microsStripped: r.microsStripped || 0 };
   if (rep2) rep2.innerHTML = '';
-  if (box) box.value = '';
   renderPhotoDraft();
   return r;
+}
+function doPhotoPaste() {
+  const box = document.getElementById('ingestBox');
+  const r = openPhotoDraft(box ? box.value : '');
+  if (r.ok && box) box.value = '';
+  return r;
+}
+
+// ---- the capture flow -----------------------------------------------------
+// Fork C (ruled): the DRAFT SURFACE owns pending, error and draft. No modal, no
+// second screen -- the eye never moves to learn what happened.
+let BYOK_BUSY = null;                        // {phase, message} | null
+let BYOK_STATE = null;                       // settings-side test result
+function byokBusyState() { return BYOK_BUSY; }
+function byokBusy(phase, message) { BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null; renderPhotoDraft(); }
+
+// EGRESS HAPPENS HERE AND NOWHERE ELSE. Nothing in boot, refresh, day nav or
+// settings issues a call; this runs only from an explicit capture-send.
+function byokCapture(file) {
+  if (!byokConfigured()) return Promise.resolve({ ok: false, kind: 'config', error: 'No key saved.' });
+  const cap = byokCap();
+  if (cap.exhausted) {
+    byokBusy('error', 'Daily cap reached (' + cap.cap + '). Paste instead, or raise it in Settings.');
+    return Promise.resolve({ ok: false, kind: 'cap' });
+  }
+  byokBusy('sending', 'Reading the photo\u2014');
+  return byokDownscale(file).then(function (img) {
+    byokCount();
+    return byokCall(img.dataUrl, {}).then(function (r1) {
+      if (r1.ok) {
+        const d1 = openPhotoDraft(r1.text);
+        if (d1.ok) { byokBusy(null); return { ok: true, source: 'call', attempts: 1 }; }
+        // RETRY ONCE, and only for a malformed BODY -- a rejected key or a dead
+        // network will fail the same way twice and spending a second call on it
+        // is just a second charge.
+        byokBusy('sending', 'That reply did not parse. Asking once more\u2014');
+        byokCount();
+        return byokCall(img.dataUrl, {}).then(function (r2) {
+          if (r2.ok) {
+            const d2 = openPhotoDraft(r2.text);
+            if (d2.ok) { byokBusy(null); return { ok: true, source: 'call', attempts: 2 }; }
+            return byokFallback(r2.text, 'The reply did not match the template twice.');
+          }
+          return byokFallback('', r2.error);
+        });
+      }
+      return byokFallback('', r1.error);
+    });
+  }).catch(function (e) {
+    return byokFallback('', (e && e.message) || 'The photo could not be prepared.');
+  });
+}
+// NEVER A DEAD END. Whatever failed, the raw reply (when there is one) lands in
+// the paste box and the user is one tap from the path that has always worked --
+// with the photo still in hand.
+function byokFallback(raw, message) {
+  const box = document.getElementById('ingestBox');
+  if (box && raw) box.value = String(raw);
+  byokBusy('error', String(message || 'That did not work.') + ' Use Copy prompt and paste the reply instead.');
+  return { ok: false, kind: 'fallback', fellBack: true, hasRaw: !!raw };
+}
+function onCaptureFile(input) {
+  const f = input && input.files && input.files[0];
+  if (input) input.value = '';               // the File reference is dropped here
+  if (!f) return;
+  byokCapture(f);
+}
+
+// Settings-side BYOK panel. The key is write-only from here: what renders is the
+// MASK, never the key, and no failure path prints it either.
+function renderByok() {
+  const el = document.getElementById('byokBox');
+  if (!el) return;
+  const s = byokSettings();
+  const cap = byokCap();
+  const test = BYOK_STATE && BYOK_STATE.phase === 'tested'
+    ? `<div class="note ${BYOK_STATE.ok ? '' : 'bad'}">${esc(BYOK_STATE.message)}</div>`
+    : (BYOK_STATE && BYOK_STATE.phase === 'testing' ? `<div class="note">Testing\u2014</div>` : '');
+  el.innerHTML =
+    `<div class="row"><div style="flex:1"><label>Provider</label><select id="byokProv">` +
+    Object.keys(BYOK_PROVIDERS).map((k) =>
+      `<option value="${esc(k)}"${k === s.provider ? ' selected' : ''}>${esc(BYOK_PROVIDERS[k].label)}</option>`).join('') +
+    `</select></div><div style="flex:1"><label>Daily cap</label>` +
+    `<input id="byokCap" type="number" inputmode="numeric" min="1" value="${esc(s.cap)}"></div></div>` +
+    `<label>API key${s.key ? ' <small>(saved: ' + esc(byokMask()) + ')</small>' : ''}</label>` +
+    `<input id="byokKey" type="password" autocomplete="off" placeholder="${s.key ? 'Enter a new key to replace it' : 'Paste your key'}">` +
+    `<div class="row" style="margin-top:8px">` +
+    `<button class="btn primary" onclick="saveByok()">Save</button>` +
+    `<button class="btn" onclick="byokTest()"${s.key ? '' : ' disabled'}>Test connection</button>` +
+    `<button class="btn" onclick="byokClear()"${s.key ? '' : ' disabled'}>Remove key</button></div>` +
+    test +
+    `<div class="note">Used today: ${esc(cap.used)} of ${esc(cap.cap)}. The key is stored on this device only, ` +
+    `is never included in an export or a backup, and is sent nowhere except to the provider you choose, ` +
+    `when you capture a meal. The photo is never stored.</div>`;
+}
+function saveByok() {
+  const k = document.getElementById('byokKey');
+  const pv = document.getElementById('byokProv');
+  const cp = document.getElementById('byokCap');
+  const r = byokSave(pv ? pv.value : null, (k && k.value) ? k.value : null, cp ? cp.value : null);
+  if (k) k.value = '';                        // never leave it in the DOM
+  BYOK_STATE = null;
+  toast(r.configured ? 'Key saved on this device' : 'Settings saved');
+  renderByok();
+  return r;
+}
+function renderCaptureBtn() {
+  const el = document.getElementById('captureBox');
+  if (!el) return;
+  el.innerHTML = byokConfigured()
+    ? `<button class="btn primary" style="width:100%" onclick="document.getElementById('captureFile').click()">Capture meal</button>` +
+      `<div class="note">One call to your provider with the photo and the template below. Nothing else is sent.</div>`
+    : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`;
 }
 
 function renderPromptCard() {
@@ -3427,7 +3547,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderCaptureBtn(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -3480,6 +3600,7 @@ const VERSION_LOG = [
   { v: '0.16.2', note: 'Fixes: the meals ring no longer draws a full circle when a day has little logged food \u2014 the meal dots and the pending gap carry it instead. And a practice left switched on now asks when it ended much sooner: red light after 40 minutes, sauna 45, meditation an hour. It still never guesses an end time.' },
   { v: '0.16.3', note: 'Fix: a long stretch with no food logged no longer sweeps most of the meals ring \u2014 past half a circle it stops reading as a gap, so the ring keeps your meal dots and the centre states the hours instead.' },
   { v: '0.17.0', note: 'Clearing a day can now be undone, like every other deletion — the Undo appears in the toast for a few seconds. The clear control also moved further from “End & complete this day” and got quieter, so it is harder to hit by accident.' },
+  { v: '0.18.0', note: 'Photo meals can now go straight through: add your own AI key in Settings \u2014 Photo capture, and a snapshot becomes an editable meal without the copy-paste round trip. Your key stays on this device and never leaves it except to make that one call, the photo is never stored, and the copy-prompt path still works exactly as before if you would rather not use a key.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4388,6 +4509,20 @@ function newMealId() { return 'pm' + Date.now().toString(36) + '_' + Math.floor(
 
 // Parse template v3. Strict enough to reject a v2 paste with a specific message,
 // because silently reading the old shape would produce items with no grams.
+// D8 / Fork H: the keys that must never arrive from a photo. `micros` is the
+// container; the rest are the canonical flat keys, in case a model volunteers them
+// at the top level of an item.
+const PHOTO_MICRO_KEYS = ['micros'].concat(MICRO_KEYS || []);
+function photoMicroHits(items) {
+  let n = 0;
+  (items || []).forEach((e) => {
+    if (!e || typeof e !== 'object') return;
+    PHOTO_MICRO_KEYS.forEach((k) => { if (Object.prototype.hasOwnProperty.call(e, k)) n++; });
+    if (e.per100 && typeof e.per100 === 'object')
+      PHOTO_MICRO_KEYS.forEach((k) => { if (Object.prototype.hasOwnProperty.call(e.per100, k)) n++; });
+  });
+  return n;
+}
 function parsePhotoMeal(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to read.' };
@@ -4417,7 +4552,8 @@ function parsePhotoMeal(raw) {
     });
   }
   items.sort((a, b) => a.dominance - b.dominance);   // display-only ordering
-  return { ok: true, meal: MEALS.indexOf(o.meal) >= 0 ? o.meal : 'snack', items: items };
+  const stripped = photoMicroHits(o.items);         // D8: refused actively, and SAID
+  return { ok: true, meal: MEALS.indexOf(o.meal) >= 0 ? o.meal : 'snack', items: items, microsStripped: stripped };
 }
 
 // The shared correction. R = geometric mean of the pinned ratios, recomputed from
@@ -4447,6 +4583,186 @@ function photoItemMacros(draft, it) {
            carb_g: p.carb_g * g, fiber_g: p.fiber_g * g, soluble_fiber_g: p.soluble_fiber_g * g };
 }
 
+// ---- R21 / D45: BYOK vision call ------------------------------------------
+// A BOUNDED exception to D11's "no in-app AI calls": the user's OWN key, their
+// own device, one call on an explicit capture-send, carrying only the photo and
+// the perception template. The paste path stays; every failure lands back on it.
+//
+// FORK F (ruled): the key NEVER enters APP_STATE. It lives in its own storage
+// key, so export, the D3 pre-restore backup and restore cannot carry it BY
+// CONSTRUCTION -- not by a filter a future normalizer change could quietly break.
+// normalizeSettings is an allowlist rebuild that has surprised this project once
+// already; a structural fact needs no vigilance.
+const BYOK_LS = 'healthtracker-byok';
+const BYOK_TIMEOUT_MS = 45000;
+const BYOK_MAX_EDGE = 1280;                 // Fork D: latency binds long before 20 MiB does
+const BYOK_JPEG_Q = 0.8;
+const BYOK_DEFAULT_CAP = 20;
+// Provider-agnostic by table. The call is OpenAI-compatible, so a second row is a
+// CONFIGURATION change, not a code change (gated).
+const BYOK_PROVIDERS = {
+  grok: { label: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-4.6' },
+};
+// Fork B (ruled): ONE template. The direct call needs a preamble the paste path
+// does not (a chat model will happily wrap JSON in a markdown fence), so it rides
+// as a PREFIX carrying the template's own version -- never a forked template.
+const AI_DIRECT_PREFIX =
+  'Template v' + AI_TEMPLATE_VERSION + '. Reply with the JSON object ONLY: ' +
+  'no markdown fence, no prose before or after it.\n\n';
+
+let _byokMem = null;                        // D1: memory fallback, same as Store
+function byokRead() {
+  if (_byokMem) return _byokMem;
+  try {
+    const raw = localStorage.getItem(BYOK_LS);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return (o && typeof o === 'object') ? o : null;
+  } catch (e) { return null; }
+}
+function byokWrite(o) {
+  _byokMem = o;
+  try { localStorage.setItem(BYOK_LS, JSON.stringify(o)); return true; } catch (e) { return false; }
+}
+function byokClear() {
+  _byokMem = null;
+  try { localStorage.removeItem(BYOK_LS); } catch (e) {}
+  refresh();
+  return { ok: true };
+}
+function byokSettings() {
+  const o = byokRead() || {};
+  const prov = BYOK_PROVIDERS[o.provider] ? o.provider : 'grok';
+  return { provider: prov, key: String(o.key || ''), cap: (o.cap > 0 ? o.cap : BYOK_DEFAULT_CAP),
+           used: (o.used && typeof o.used === 'object') ? o.used : { date: '', n: 0 } };
+}
+function byokConfigured() { return byokSettings().key.length > 0; }
+// NEVER returns the key. The masked form is the ONLY thing any surface may show.
+function byokMask() {
+  const k = byokSettings().key;
+  if (!k) return '';
+  return k.length <= 8 ? '********' : (k.slice(0, 3) + '\u2014' + k.slice(-3)).replace('\u2014', ' ... ');
+}
+function byokSave(provider, key, cap) {
+  const o = byokSettings();
+  const next = { provider: BYOK_PROVIDERS[provider] ? provider : o.provider,
+                 key: (key == null ? o.key : String(key).trim()),
+                 cap: (cap == null || !(Number(cap) > 0)) ? o.cap : Math.round(Number(cap)),
+                 used: o.used };
+  const ok = byokWrite(next);
+  refresh();
+  return { ok: ok, provider: next.provider, cap: next.cap, configured: next.key.length > 0 };
+}
+// Fork E (ruled): the counter lives WITH THE KEY, not in the log, so clearing a
+// day or restoring a backup cannot move it. Resets at local midnight.
+function byokCap() {
+  const s = byokSettings();
+  const today = todayKey();
+  const n = (s.used.date === today) ? num(s.used.n) : 0;
+  return { date: today, used: n, cap: s.cap, left: Math.max(0, s.cap - n), exhausted: n >= s.cap };
+}
+function byokCount() {
+  const s = byokSettings();
+  const c = byokCap();
+  byokWrite({ provider: s.provider, key: s.key, cap: s.cap, used: { date: c.date, n: c.used + 1 } });
+  return byokCap();
+}
+
+// Downscale for the wire ONLY. Fork D (ruled): always, not just past the cap.
+// GATED: this touches the bytes SENT and nothing else -- no record, no store, no
+// export ever holds an image.
+function byokDownscale(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = function () {
+      try {
+        const long = Math.max(img.width, img.height) || 1;
+        const scale = Math.min(1, BYOK_MAX_EDGE / long);
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const out = c.toDataURL('image/jpeg', BYOK_JPEG_Q);
+        URL.revokeObjectURL(url);
+        resolve({ dataUrl: out, w: c.width, h: c.height });
+      } catch (e) { URL.revokeObjectURL(url); reject(e); }
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('That image could not be read.')); };
+    img.src = url;
+  });
+}
+
+// The call. Verified 2026-09-04 against the live API: OpenAI-CLASSIC content
+// parts on /chat/completions -- the input_image/input_text shape in the vendor's
+// image guide is the Responses API's and is REJECTED here.
+//
+// Errors are CLASSIFIED, because the recovery differs and the user deserves to
+// know which wall they hit. The key is never part of any of them.
+function byokBody(dataUrl, text, model) {
+  return { model: model, messages: [{ role: 'user', content: [
+    { type: 'image_url', image_url: { url: dataUrl } },
+    { type: 'text', text: text },
+  ] }] };
+}
+function byokErr(kind, message) { return { ok: false, kind: kind, error: message }; }
+function byokCall(dataUrl, opts) {
+  const s = byokSettings();
+  const prov = BYOK_PROVIDERS[s.provider];
+  if (!prov) return Promise.resolve(byokErr('config', 'No provider configured.'));
+  if (!s.key) return Promise.resolve(byokErr('config', 'No key saved.'));
+  const o = opts || {};
+  const body = o.ping
+    ? { model: prov.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
+    : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model);
+  const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, BYOK_TIMEOUT_MS);
+  return fetch(prov.base + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.key },
+    body: JSON.stringify(body),
+    signal: ctl ? ctl.signal : undefined,
+  }).then(function (res) {
+    clearTimeout(timer);
+    return res.text().then(function (raw) {
+      if (res.status === 401 || res.status === 403)
+        return byokErr('auth', 'The provider rejected the key. Check it in Settings.');
+      if (res.status === 429)
+        return byokErr('ratelimit', 'The provider is rate-limiting. Wait a moment, or paste instead.');
+      if (!res.ok)
+        return byokErr('http', 'The provider returned ' + res.status + '. ' + byokProviderMessage(raw));
+      let j; try { j = JSON.parse(raw); } catch (e) { return byokErr('malformed', 'The reply was not JSON.'); }
+      const msg = j && j.choices && j.choices[0] && j.choices[0].message;
+      const content = msg && (typeof msg.content === 'string' ? msg.content
+        : (Array.isArray(msg.content) ? msg.content.map((c) => c && c.text ? c.text : '').join('') : ''));
+      if (!content) return byokErr('malformed', 'The reply carried no content.');
+      return { ok: true, text: content };
+    });
+  }).catch(function (e) {
+    clearTimeout(timer);
+    const name = String((e && e.name) || '');
+    if (name === 'AbortError') return byokErr('timeout', 'The provider did not answer in time.');
+    return byokErr('network', 'The call could not be made. Check the connection.');
+  });
+}
+// The provider's OWN error text, for a diagnosable failure -- never the key, and
+// never the request we sent.
+function byokProviderMessage(raw) {
+  try {
+    const j = JSON.parse(raw);
+    const m = (j && (j.error || j.message)) || '';
+    return String(typeof m === 'string' ? m : (m.message || '')).slice(0, 160);
+  } catch (e) { return ''; }
+}
+function byokTest() {
+  BYOK_STATE = { phase: 'testing' };
+  renderByok();
+  return byokCall(null, { ping: true }).then(function (r) {
+    BYOK_STATE = { phase: 'tested', ok: r.ok, message: r.ok ? 'Connection OK.' : r.error };
+    renderByok();
+    return { ok: r.ok, kind: r.kind || null };
+  });
+}
 // ---- R6.1 -- confirm-first -----------------------------------------------
 // The draft LEADS with a question on the dominant item -- confirm the estimate or
 // correct it -- and the adjustable list renders beneath. Confirm-first,
@@ -5059,6 +5375,11 @@ window.HT = {
   ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
   parsePhotoMeal, photoShared, renderPhotoDraft, doPhotoPaste, photoGrams, photoItemMacros, photoSetGrams, photoUnpin, photoSetIdentity,
   photoSave, photoReopen, photoDiscard, photoDraft, aiPromptText, DIVERGE_MAX, newMealId,
+  // R21 / D45 -- BYOK vision call (key lives OUTSIDE APP_STATE, by construction)
+  BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
+  byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
+  byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
+  photoMicroHits, byokBusyState,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
