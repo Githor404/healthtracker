@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.18.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.18.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3350,8 +3350,16 @@ function doPhotoPaste() {
 let BYOK_BUSY = null;                        // {phase, message} | null
 let BYOK_STATE = null;                       // settings-side test result
 function byokBusyState() { return BYOK_BUSY; }
+function byokBusyClear() { byokBusy(null); }
 function byokState() { return BYOK_STATE; }
-function byokBusy(phase, message) { BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null; renderPhotoDraft(); }
+// The state renders in BOTH places: the draft surface, and the capture box the
+// finger just left. The draft surface sits below two textareas -- on a phone that
+// is off-screen, which is its own kind of silence.
+function byokBusy(phase, message) {
+  BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null;
+  try { renderPhotoDraft(); } catch (e) {}
+  try { renderCaptureBtn(); } catch (e) {}
+}
 
 // EGRESS HAPPENS HERE AND NOWHERE ELSE. Nothing in boot, refresh, day nav or
 // settings issues a call; this runs only from an explicit capture-send.
@@ -3362,8 +3370,12 @@ function byokCapture(file) {
     byokBusy('error', 'Daily cap reached (' + cap.cap + '). Paste instead, or raise it in Settings.');
     return Promise.resolve({ ok: false, kind: 'cap' });
   }
-  byokBusy('sending', 'Reading the photo\u2014');
+  byokBusy('sending', 'Reading the photo\u2026');
+  byokLog('capture: file type=' + String((file && file.type) || '?') +
+          ' bytes=' + Number((file && file.size) || 0));      // never the image
   return byokDownscale(file).then(function (img) {
+    byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
+    byokBusy('sending', 'Sending to your provider\u2026');
     byokCount();
     return byokCall(img.dataUrl, {}).then(function (r1) {
       if (r1.ok) {
@@ -3398,11 +3410,24 @@ function byokFallback(raw, message) {
   byokBusy('error', String(message || 'That did not work.') + ' Use Copy prompt and paste the reply instead.');
   return { ok: false, kind: 'fallback', fellBack: true, hasRaw: !!raw };
 }
+// The instant a photo comes back, SOMETHING is on screen. The old handler could
+// return silently -- no file, no message -- which is indistinguishable from a
+// broken button, and it cleared the input BEFORE the read, which on iOS can
+// invalidate the very File it just handed us.
 function onCaptureFile(input) {
   const f = input && input.files && input.files[0];
-  if (input) input.value = '';               // the File reference is dropped here
-  if (!f) return;
-  byokCapture(f);
+  if (!f) {
+    byokBusy('error', 'No photo came back from the camera. Try again, or use Copy prompt below.');
+    byokLog('capture: the input delivered no file');
+    return { ok: false, kind: 'nofile' };
+  }
+  byokBusy('sending', 'Reading the photo\u2026');
+  const done = function (r) { if (input) { try { input.value = ''; } catch (e) {} } return r; };
+  return byokCapture(f).then(done, function (e) {
+    done();
+    byokFallback('', 'Reading the photo failed: ' + String((e && e.message) || e).slice(0, 140));
+    return { ok: false, kind: 'threw' };
+  });
 }
 
 // Settings-side BYOK panel. The key is write-only from here: what renders is the
@@ -3463,11 +3488,16 @@ function renderCaptureBtn() {
   const el = document.getElementById('captureBox');
   if (!el) return;
   const stC = byokSettings().status;
-  el.innerHTML = byokConfigured()
+  const busyC = BYOK_BUSY
+    ? `<div class="byoks ${BYOK_BUSY.phase === 'error' ? 'byokbad' : 'byoktesting'}">` +
+      (BYOK_BUSY.phase === 'error' ? '' : '<span class="byokspin"></span>') +
+      `${esc(BYOK_BUSY.message)}</div>`
+    : '';
+  el.innerHTML = busyC + (byokConfigured()
     ? `<button class="btn primary" style="width:100%" onclick="document.getElementById('captureFile').click()">Capture meal</button>` +
       `<div class="byoks ${stC.state === 'verified' ? 'byokok' : (stC.state === 'failed' ? 'byokbad' : '')}">${esc(byokStatusLine())}</div>` +
       `<div class="note">One call to your provider with the photo and the template below. Nothing else is sent.</div>`
-    : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`;
+    : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`);
 }
 
 function renderPromptCard() {
@@ -3621,6 +3651,7 @@ const VERSION_LOG = [
   { v: '0.17.0', note: 'Clearing a day can now be undone, like every other deletion — the Undo appears in the toast for a few seconds. The clear control also moved further from “End & complete this day” and got quieter, so it is harder to hit by accident.' },
   { v: '0.18.0', note: 'Photo meals can now go straight through: add your own AI key in Settings \u2014 Photo capture, and a snapshot becomes an editable meal without the copy-paste round trip. Your key stays on this device and never leaves it except to make that one call, the photo is never stored, and the copy-prompt path still works exactly as before if you would rather not use a key.' },
   { v: '0.18.1', note: 'Fix: \u201cTest connection\u201d could finish without telling you anything. It now always says what happened \u2014 testing, connected, the provider\u2019s own error, or timed out after 15 seconds \u2014 and the key\u2019s status (verified, unverified or failed) is remembered and shown wherever you use it.' },
+  { v: '0.18.2', note: 'Fix: Capture meal could do nothing at all on a phone \u2014 no picture read, no call, no message. Reading the photo is now bounded and reported at every step, large phone photos are resized without loading the whole image into memory, and a photo the provider cannot read says so instead of stopping silently. Capture can no longer end in silence.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4733,26 +4764,100 @@ function byokCount() {
 // Downscale for the wire ONLY. Fork D (ruled): always, not just past the cap.
 // GATED: this touches the bytes SENT and nothing else -- no record, no store, no
 // export ever holds an image.
-function byokDownscale(file) {
-  return new Promise((resolve, reject) => {
+//
+// R21.2 -- CAPTURE DID NOTHING ON THE DEVICE, and "used today: 0" was the tell:
+// the counter increments AFTER the decode, so the decode never finished. The
+// original used `new Image()` on an object URL, which on a phone has three ways
+// to hang or fail QUIETLY:
+//
+//   * neither onload NOR onerror fires (it happens, and an unsettled promise is
+//     an invisible one) -- so the decode is now BOUNDED by a timeout;
+//   * a 12 MP photo blows iOS Safari's canvas limit and drawImage yields a BLANK
+//     canvas with no exception -- so createImageBitmap resizes WITHOUT ever
+//     allocating the full-size bitmap, and the output is sanity-checked;
+//   * an HEIC frame from the photo library decodes nowhere -- so that is named
+//     explicitly rather than surfacing as a mystery.
+//
+// Every one of those now ends in a MESSAGE, never in nothing.
+let BYOK_DECODE_TIMEOUT_MS = 20000;
+let BYOK_BITMAP_LEASE_MS = 5000;      // how long the preferred decoder gets before the fallback
+function setByokBitmapLease(ms) { BYOK_BITMAP_LEASE_MS = (Number(ms) > 0) ? Number(ms) : 5000; }
+function setByokDecodeTimeout(ms) { BYOK_DECODE_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 20000; }
+const BYOK_MIN_DATAURL = 2048;       // a blank/failed canvas encodes to almost nothing
+function byokBounds(w, h) {
+  const long = Math.max(w, h) || 1;
+  const scale = Math.min(1, BYOK_MAX_EDGE / long);
+  return { w: Math.max(1, Math.round(w * scale)), h: Math.max(1, Math.round(h * scale)) };
+}
+function byokEncode(src, w, h) {
+  const b = byokBounds(w, h);
+  const c = document.createElement('canvas');
+  c.width = b.w; c.height = b.h;
+  const ctx = c.getContext('2d');
+  if (!ctx) throw new Error('This browser would not give a drawing context.');
+  ctx.drawImage(src, 0, 0, b.w, b.h);
+  const out = c.toDataURL('image/jpeg', BYOK_JPEG_Q);
+  // iOS can hand back a BLANK canvas rather than throwing. A blank one encodes to
+  // a few hundred bytes, so the output is checked rather than trusted.
+  if (!out || out.indexOf('data:image/jpeg') !== 0 || out.length < BYOK_MIN_DATAURL)
+    throw new Error('The photo encoded to nothing \u2014 it may be too large for this browser.');
+  return { dataUrl: out, w: b.w, h: b.h };
+}
+// Preferred path: createImageBitmap resizes during decode, so a 12 MP photo never
+// becomes a 12 MP bitmap in memory -- which is the allocation phones fail on.
+function byokDecodeBitmap(file) {
+  if (typeof createImageBitmap !== 'function') return Promise.reject(new Error('no createImageBitmap'));
+  // ONE decode. An earlier draft decoded twice -- once for the dimensions, once
+  // resized -- which doubles the most expensive step on the device that was
+  // failing. drawImage does the scaling from the single bitmap.
+  return createImageBitmap(file).then(function (bmp) {
+    try { const out = byokEncode(bmp, bmp.width, bmp.height); try { bmp.close(); } catch (e) {} return out; }
+    catch (e) { try { bmp.close(); } catch (e2) {} throw e; }
+  });
+}
+function byokDecodeImage(file) {
+  return new Promise(function (resolve, reject) {
     const url = URL.createObjectURL(file);
     const img = new Image();
+    const done = function (fn, arg) { try { URL.revokeObjectURL(url); } catch (e) {} fn(arg); };
     img.onload = function () {
-      try {
-        const long = Math.max(img.width, img.height) || 1;
-        const scale = Math.min(1, BYOK_MAX_EDGE / long);
-        const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(img.width * scale));
-        c.height = Math.max(1, Math.round(img.height * scale));
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        const out = c.toDataURL('image/jpeg', BYOK_JPEG_Q);
-        URL.revokeObjectURL(url);
-        resolve({ dataUrl: out, w: c.width, h: c.height });
-      } catch (e) { URL.revokeObjectURL(url); reject(e); }
+      try { done(resolve, byokEncode(img, img.naturalWidth || img.width, img.naturalHeight || img.height)); }
+      catch (e) { done(reject, e); }
     };
-    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('That image could not be read.')); };
+    img.onerror = function () { done(reject, new Error('This browser could not decode that image.')); };
     img.src = url;
   });
+}
+function byokDownscale(file) {
+  const type = String((file && file.type) || '').toLowerCase();
+  // Named rather than mysterious: the provider takes jpg/png, and a phone library
+  // will hand over HEIC, which decodes nowhere useful in a browser.
+  const heic = /heic|heif/.test(type) || /\.hei[cf]$/i.test(String((file && file.name) || ''));
+  let timer = null;
+  const bounded = new Promise(function (_, reject) {
+    timer = setTimeout(function () {
+      reject(new Error(heic
+        ? 'That photo is in HEIC, which browsers cannot read. Set the camera to "Most Compatible", or use Copy prompt.'
+        : 'Reading the photo timed out after ' + (BYOK_DECODE_TIMEOUT_MS / 1000) + ' seconds.'));
+    }, BYOK_DECODE_TIMEOUT_MS);
+  });
+  // Bitmap first (it is the one that survives a 12 MP photo on a phone), but on a
+  // SHORT LEASH: a decoder that stalls must not spend the whole budget before the
+  // other one gets a turn. This is not hypothetical -- the first build of this
+  // function hung the harness exactly that way, which is the same shape as the
+  // hang being fixed.
+  const leash = new Promise(function (_, reject) {
+    setTimeout(function () { reject(new Error('bitmap decode did not answer in time')); }, BYOK_BITMAP_LEASE_MS);
+  });
+  const work = Promise.race([byokDecodeBitmap(file), leash])
+    .catch(function () { return byokDecodeImage(file); })
+    .catch(function (e) {
+      if (heic) throw new Error('That photo is in HEIC, which browsers cannot read. Set the camera to "Most Compatible", or use Copy prompt.');
+      throw e;
+    });
+  return Promise.race([work, bounded]).then(function (r) {
+    clearTimeout(timer); return r;
+  }, function (e) { clearTimeout(timer); throw e; });
 }
 
 // The call. Verified 2026-09-04 against the live API: OpenAI-CLASSIC content
@@ -5506,8 +5611,9 @@ window.HT = {
   BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
-  photoMicroHits, byokBusyState, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
-  setByokTestTimeout, byokState,
+  photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
+  setByokTestTimeout, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
+  BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,

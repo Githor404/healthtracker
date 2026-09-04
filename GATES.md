@@ -1446,3 +1446,24 @@ The POST itself also returns `access-control-allow-origin: *`.
 **Count delta: 1083 → 1115** (+32). **1115/1115 ALL PASS**, `executed 1115 · pinned 1115`. Fourteen gates green.
 
 **Status: MET — awaiting review. Still untested against a real key**, which is the one thing only the device can answer.
+
+
+---
+
+### R21.2 — the capture chain, driven through the shipped shell (D47) — v0.18.2
+
+The earlier R21 cases called `byokCapture()` **directly**, so input → change → handler → decode → send was never once exercised end to end. That is the chain that did nothing on the device. These cases run in the **iframe that already loaded `index.html`**, using its elements and its handler.
+
+| Case | Result |
+|---|---|
+| R21.2-wire | the shipped shell's file input is wired to the shipped handler; a photo paints **PENDING immediately**, before the decode; it paints **on the capture surface**, not only in the draft two textareas below; a real image **fires the request**, opens the draft, and **moves the counter** — the "used today: 0" that was the tell |
+| R21.2-never-silent | no file, a non-image, an empty file, an HEIC frame: **each ends in a request or a visible message, never in nothing**, each says so where the finger just was, and none prints the key |
+| R21.2-encode | 12 MP bounds to 1280 with aspect kept; a small image is never upscaled; real pixels encode to a jpeg data URL above the blank-canvas floor; **an encode that produced almost nothing throws** — iOS hands back a blank canvas without raising |
+
+**Proven against the defect.** Restoring the pre-fix handler fails **seven** assertions. Stated precisely: with no file it returns in **silence**, and it returns **nothing at all**, so no caller can await it — which is why the three `R21.2-wire` outcome assertions fail as well. The "fires the request" failure is partly a consequence of that un-awaitability rather than a pure reproduction of the device stall; the contract it breaks is real either way.
+
+**Harness limitation, recorded.** `createImageBitmap` **never settles** under `--virtual-time-budget` — neither resolve nor reject, while timers around it fire normally (measured). The suite cannot exercise the **preferred** decoder; it proves the leash, the fallback, and the visibility of every outcome. The lease is shortened to 20 ms in the harness so the fallback engages immediately instead of spending five virtual seconds per capture.
+
+**Count delta: 1115 → 1138** (+23). **1138/1138 ALL PASS**, `executed 1138 · pinned 1138`. Fourteen gates green.
+
+**Status: MET — awaiting review. The preferred decoder and the real camera remain unexercised by any gate**; that is what the next capture on the device tests.

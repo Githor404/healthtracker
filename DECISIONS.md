@@ -1269,3 +1269,32 @@ Verified in the same run: the live response is `400` with *"Incorrect API key pr
 A **shape** check, not a validity check: only the provider can say whether a key *works*, which is what testing is for. Blocking rules are the ones certainly wrong for any provider — empty, embedded whitespace, implausibly short. **A prefix that does not match the provider's usual one warns and saves anyway**: key formats change, and refusing on a guess is a worse failure than the one it prevents.
 
 Status — `unverified` / `verified` / `failed`, with a timestamp and the failure message — is **persisted beside the key**, so it stays out of the log and out of the export, and it shows in settings and on the capture surface. **Replacing the key resets it to unverified**, because a new key has not been verified.
+
+
+## D47 — Capture could do nothing at all, and the decode is where it stopped (R21.2, 2026-09-04)
+
+`APP_VERSION → 0.18.2`; **schema unchanged at v5**. Reported from the device against 0.18.1: **Capture meal never fires** — "used today" stays 0/20, the provider console shows no call, nothing renders.
+
+### The tell was in the report
+
+**`used today: 0`.** The counter increments *after* the decode and *before* the send, so a stuck counter says the chain stopped **inside the decode** — upstream of the POST, exactly as reported. Test connection working confirms key, auth and endpoint are fine.
+
+Driven through the shipped shell's own input and handler, the chain **does** complete on desktop: change → handler → decode → POST → draft. So the decode is failing on the device specifically, and the original `byokDownscale` had three ways to fail there **quietly**:
+
+1. **Neither `onload` nor `onerror` fires.** An unsettled promise is an invisible one, and the whole capture simply stops. **The decode is now bounded by a timeout.**
+2. **A 12 MP photo exceeds iOS Safari's canvas limit** and `drawImage` yields a **blank canvas with no exception**. `createImageBitmap` now resizes without ever allocating the full-size bitmap, and **the output is sanity-checked** — a blank canvas encodes to almost nothing, so an encode under `BYOK_MIN_DATAURL` throws instead of being sent as a meal.
+3. **An HEIC frame from the photo library decodes nowhere** in a browser. That is now **named** — *"Set the camera to Most Compatible, or use Copy prompt"* — rather than surfacing as a mystery.
+
+### The decoder is on a short leash, because the first fix hung the harness
+
+`createImageBitmap` is preferred (it is what survives a large photo on a phone) but it gets **5 seconds** before the `Image` path takes over. That bound is not hypothetical: the first version of this function, without it, **hung the test suite exactly the way the button hung the device** — and the runner caught it as *"no SUMMARY line (the suite did not finish)"*.
+
+**Harness limitation, recorded rather than hidden:** `createImageBitmap` **never settles** under `--virtual-time-budget` — neither resolve nor reject, while timers around it fire normally (measured directly). **The suite therefore cannot exercise the preferred decoder at all.** What it proves is the leash, the fallback, and that every outcome is visible. The preferred path's first real exercise is on the device.
+
+### Capture can no longer end in silence
+
+The old handler could **return in silence** — no file, no message, indistinguishable from a broken button — and it cleared `input.value` **before** the read, which on iOS can invalidate the very File it was handed. It also returned nothing, so no caller could await it.
+
+Now: **something is on screen the instant a photo comes back**, the stage is named as it changes (*reading* → *sending*), and the input is cleared only **after** the read completes. Every terminal outcome is visible, and the state paints **on the capture surface** as well as in the draft — the draft sits below two textareas, which on a phone is off-screen, and off-screen is its own kind of silence.
+
+**Gated as an invariant, not as a list:** for no-file, a non-image, an empty file and an HEIC frame, each capture must end in **a fired request or a visible message**. Never neither.

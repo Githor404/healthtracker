@@ -1904,6 +1904,13 @@ window.setLS({});
     });
   };
   function runByokAsync() {
+    // HARNESS LIMITATION, recorded rather than hidden: createImageBitmap NEVER
+    // settles under --virtual-time-budget -- neither resolve nor reject, while
+    // timers around it fire normally (measured). So the suite cannot exercise the
+    // PREFERRED decoder at all; what it proves is the leash, the fallback, and
+    // that every outcome is visible. The lease is shortened here so the fallback
+    // engages immediately instead of spending five virtual seconds per capture.
+    HT.setByokBitmapLease(20);
     // The rendered status line, tags stripped -- the spinner is an element inside
     // it, so a naive [^<]* capture reads the empty string before the span.
     function vis() {
@@ -2078,6 +2085,122 @@ window.setLS({});
       res(sv.stored === false,
           'R21.1-paint: a write that did not land reports stored:false -- the in-memory fallback must not report a save it did not make');
       HT.byokClear();
+    }).then(function () {
+      // ======================================================================
+      // R21.2 -- the capture chain, driven through the SHIPPED SHELL. The earlier
+      // cases called byokCapture() directly, so input -> change -> handler ->
+      // decode -> send was never once exercised end to end. That is the chain
+      // that did nothing on the device, so it is run here in the real document:
+      // the iframe already loaded index.html, and these use ITS elements and ITS
+      // handler, not a replica built in the harness.
+      // ======================================================================
+      var W = seFrame.contentWindow, D = seFrame.contentDocument;
+      if (!W || !D || !D.getElementById('captureFile')) {
+        res(false, 'R21.2-wire: the shipped shell did not load, so the capture chain could not be driven');
+        return;
+      }
+      W.HT.setByokBitmapLease(20);
+      var WFETCH = [];
+      var WSCRIPT = [];
+      W.fetch = function (u, i) {
+        WFETCH.push({ url: String(u), init: i || {} });
+        var n = WSCRIPT.shift();
+        if (!n) return Promise.resolve({ ok: true, status: 200, text: function () { return Promise.resolve('{}'); } });
+        return Promise.resolve({ ok: n.status < 400, status: n.status, text: function () { return Promise.resolve(n.body); } });
+      };
+      function wReset() { WFETCH = []; WSCRIPT = []; W.HT.byokClear(); W.HT.byokSave('grok', SECRET, 20); W.HT.byokBusyClear(); }
+      function wFire(file) {
+        var inp = D.getElementById('captureFile');
+        try {
+          var dt = new W.DataTransfer();
+          if (file) dt.items.add(file);
+          inp.files = dt.files;
+        } catch (e) {}
+        var r = W.onCaptureFile(inp);
+        return (r && r.then) ? r : Promise.resolve(r || { ok: false });
+      }
+      function wVisible() {
+        var b = W.HT.byokBusyState();
+        var box = D.getElementById('captureBox');
+        return { msg: b ? String(b.message || '') : '', phase: b ? b.phase : null,
+                 onSurface: box ? box.innerHTML.indexOf('byoks') >= 0 : false };
+      }
+      function wImage() {
+        var c = D.createElement('canvas'); c.width = 1400; c.height = 1050;
+        var x = c.getContext('2d');
+        var g = x.createLinearGradient(0, 0, 1400, 1050);
+        g.addColorStop(0, '#873'); g.addColorStop(1, '#39a');
+        x.fillStyle = g; x.fillRect(0, 0, 1400, 1050);
+        return new Promise(function (r) { c.toBlob(function (b) { r(new W.File([b], 'meal.jpg', { type: 'image/jpeg' })); }, 'image/jpeg', 0.9); });
+      }
+      res(typeof W.onCaptureFile === 'function' && !!D.getElementById('captureFile') &&
+          D.getElementById('captureFile').getAttribute('onchange').indexOf('onCaptureFile') >= 0,
+          'R21.2-wire: the SHIPPED shell has a file input wired to the shipped handler');
+      window.__R21 = { W: W, D: D, WFETCH: function () { return WFETCH; }, WSCRIPT: function (v) { WSCRIPT = v; },
+                       wReset: wReset, wFire: wFire, wVisible: wVisible, wImage: wImage };
+      wReset();
+      return wImage().then(function (f) {
+        window.__R21.file = f;
+        WSCRIPT = [{ status: 200, body: '{"choices":[{"message":{"content":' + JSON.stringify(HT.AI_PROMPT_SAMPLE) + '}}]}' }];
+        var pend = wFire(f);
+        var vp = wVisible();
+        res(vp.phase === 'sending' && vp.msg.indexOf('Reading the photo') === 0,
+            'R21.2-wire: a photo paints PENDING immediately, before the decode starts');
+        res(vp.onSurface,
+            'R21.2-wire: and it paints on the CAPTURE surface, not only in the draft two textareas below it');
+        return pend.then(function () {
+          res(WFETCH.length === 1 && WFETCH[0].url.indexOf('api.x.ai') > 0,
+              'R21.2-wire: a real image through the real DOM path FIRES THE REQUEST');
+          res(!!W.HT.photoDraft(), 'R21.2-wire: and opens the draft');
+          res(W.HT.byokCap().used === 1,
+              'R21.2-wire: the counter moves -- "used today: 0" was the tell that the chain never reached the send');
+        });
+      });
+    }).then(function () {
+      // THE HARD REQUIREMENT. For every adversarial input the capture must end in
+      // a fired request OR a visible message. Never neither.
+      var R = window.__R21;
+      if (!R) return;
+      var cases = [
+        { name: 'no file at all (the camera returned nothing)', file: null },
+        { name: 'a file that is not an image', file: new R.W.File(['this is not a jpeg'], 'x.jpg', { type: 'image/jpeg' }) },
+        { name: 'an empty file', file: new R.W.File([], 'empty.jpg', { type: 'image/jpeg' }) },
+        { name: 'an HEIC frame from the photo library', file: new R.W.File(['ftypheic'], 'IMG_0001.HEIC', { type: 'image/heic' }) }
+      ];
+      return cases.reduce(function (chain, c) {
+        return chain.then(function () {
+          R.wReset();
+          return R.wFire(c.file).then(function () {
+            var v = R.wVisible();
+            var fired = R.WFETCH().length > 0;
+            var spoke = v.msg.length > 0 && v.phase === 'error';
+            res(fired || spoke,
+                'R21.2-never-silent: ' + c.name + ' ends in a request or a MESSAGE, never in nothing');
+            res(!spoke || v.onSurface,
+                'R21.2-never-silent: ' + c.name + ' says so where the finger just was');
+            res(String(v.msg).indexOf(SECRET) < 0, 'R21.2-never-silent: ' + c.name + ' never prints the key');
+          });
+        });
+      }, Promise.resolve());
+    }).then(function () {
+      // The encode guards, on real pixels.
+      res(HT.byokBounds(4032, 3024).w === 1280 && HT.byokBounds(4032, 3024).h === 960,
+          'R21.2-encode: a 12 MP phone photo is bounded to the long edge, aspect kept');
+      res(HT.byokBounds(400, 300).w === 400, 'R21.2-encode: a small image is never UPscaled');
+      var cv = document.createElement('canvas'); cv.width = 900; cv.height = 600;
+      var cx = cv.getContext('2d');
+      var grad = cx.createLinearGradient(0, 0, 900, 600);
+      grad.addColorStop(0, '#873'); grad.addColorStop(1, '#39a');
+      cx.fillStyle = grad; cx.fillRect(0, 0, 900, 600);
+      var enc = HT.byokEncode(cv, 900, 600);
+      res(enc.dataUrl.indexOf('data:image/jpeg;base64,') === 0 && enc.w === 900 && enc.h === 600,
+          'R21.2-encode: real pixels encode to a jpeg data URL');
+      res(enc.dataUrl.length > HT.BYOK_MIN_DATAURL, 'R21.2-encode: and clear the blank-canvas floor');
+      var blankThrew = false;
+      var tiny = document.createElement('canvas'); tiny.width = 1; tiny.height = 1;
+      try { HT.byokEncode(tiny, 1, 1); } catch (e) { blankThrew = true; }
+      res(blankThrew,
+          'R21.2-encode: an encode that produced almost nothing THROWS -- iOS hands back a blank canvas without raising, and a blank canvas must never be sent as a meal');
     }).then(function () {
       // R21-egress: the per-day cap, whose counter lives with the KEY.
       byokReset(SECRET);
