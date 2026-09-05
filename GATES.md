@@ -1484,3 +1484,35 @@ The earlier R21 cases called `byokCapture()` **directly**, so input → change �
 **Count delta: 1138 → 1149** (+11). **1149/1149 ALL PASS**, `executed 1149 · pinned 1149`. Fourteen gates green.
 
 **Status: MET — awaiting review.** The real question — does a plate of food come back inside 120 s — is the device's to answer.
+---
+
+### R21.4 — one persisted fact, read by every surface (D49) — v0.18.4
+
+**Pre-registered gate (from the report):** *a successful Test connection sets a persisted verified state that Capture reads; capture is not blocked after a passing test.*
+
+| Case | Result |
+|---|---|
+| R21.4-persist | a passing test sets `verified` **in the store** (read back from raw `localStorage`, not from a variable), the **capture surface reads that same fact**, and **counting a call no longer costs it** — the exact write that ate it |
+| R21.4-persist | the reported sequence end to end on one key: test → capture **runs to a draft**, the key is **still verified afterwards**, the **counter still moves**, and the surface the finger just left still says verified |
+| R21.4-verdict | a **successful capture verifies** an untested key; an **`auth` rejection demotes** it, on the capture surface too; a **timeout**, and a **reply that will not parse**, leave a verified key **verified** — neither is a verdict on the key |
+| R21.4-path | an untested key **still gets a Capture button** (the status has never been a gate), the line is never stated without an inline **verify now**, an **unverified key still captures**, a **failed** key is offered one too, a **verified** key is offered nothing, and the surface never prints the key |
+| R21.4-merge | a field **no writer knows about** survives the counter *and* a save; status, new cap and key stand together; **replacing the key still resets to `unverified`** — a merge must not preserve a verdict about a different key |
+
+**Proven against the defect, twice.** Restoring the pre-fix `byokCount` body alone fails **5** assertions. Restoring the **full** pre-fix behaviour — that plus the un-wired capture verdict and the bare status line — fails **13**, including *"and the key is STILL verified afterwards"* and *"the surface the finger just left still says verified"*: the reported sequence, reproduced.
+
+Stated precisely: with only `byokCount` reverted, the *success* path is masked by the new verdict-recording (a successful capture re-verifies what the counter just erased). The counter assertion, the mid-capture surface assertion and the **timeout** case still catch it — the timeout being the honest one, since nothing re-verifies there.
+
+**Count delta: 1149 → 1173** (+24). **1173/1173 ALL PASS**, `executed 1173 · pinned 1173`. Fourteen gates green.
+
+#### The baseline was red before a line was written, and that is its own finding
+
+The suite reported **837 of a pinned 1149 with two aborts**, and `ring-size-gate.ps1` measured `paths=0 dots=0` — an empty meals lane. **Neither was a product regression.** `ensureToday()` calls `localDate()` **with no argument**, reading the real `Date` rather than the `setClock` seam, so a date-pinned case can fix the clock and its booted `current` is still the real today. Both scenes were authored on 2026-09-03 against a clock fixed to 2026-09-03, and **stopped describing themselves at midnight**.
+
+Two consequences worth separating:
+
+- The data-layer abort was **loud** — an exception, 312 assertions dropped, the pin caught it. That is the assertion-count discipline doing exactly its job.
+- The ring gate was **quieter**: it failed, but on a measurement of *nothing*. A seed that silently stops seeding is the failure mode this project has been bitten by before (the 0.13.0 lesson: *"the gates that missed the first meals-lane defect all seeded records INSIDE the window"*).
+
+Both are patched at the call site and now say why. **The root fix is deferred to a ruling** (D49): `ensureToday` reading `todayKey()` would make one clock govern, and is a runtime no-op — but it is product code outside this defect.
+
+**Status: MET — awaiting review.** The device question is the same one the fix is about: after a passing test, does the capture surface still say *verified* once a capture has run.

@@ -203,6 +203,14 @@ $seedSparse = "(function(){try{localStorage.clear();" +
   # ring with a notch after 0.16.2, and the reason this seed is not milder.
   "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
     "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600),mk('b','18:48',300)],water_l:0};" +
+  # DATE-PINNED, and it must not expire at midnight. ensureCurrentDay() reads the
+  # REAL clock (localDate() with no argument) rather than the setClock seam, so a
+  # booted `current` is always the real today -- and this scene is only the
+  # reported shape when the day on screen is the day the seeded clock stands on.
+  # Left implicit, this gate passed on 2026-09-03 and drew an EMPTY meals lane
+  # from 2026-09-04 onward: paths=0, dots=0, a measurement of nothing.
+  "HT.state().days['2026-09-03']={status:'open',items:[],water_l:0};" +
+  "HT.state().current='2026-09-03';" +
   "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
 
 # Rendered coverage of the meals lane: summed arc length against the lane's own

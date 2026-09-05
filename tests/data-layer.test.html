@@ -1923,6 +1923,15 @@ window.setLS({});
       return m ? { cls: m[1].trim(), text: m[2].replace(/<[^>]+>/g, '').trim() }
                : { cls: '(none)', text: '(NOTHING RENDERED)' };
     }
+    // R21.4: the CAPTURE surface, rendered fresh. The status the user acts on is
+    // read here, not in the settings panel vis() reads.
+    if (!document.getElementById('captureBox')) {
+      var cbEl = document.createElement('div'); cbEl.id = 'captureBox'; document.body.appendChild(cbEl);
+    }
+    function capVis() {
+      HT.renderCaptureBtn();
+      return document.getElementById('captureBox').innerHTML;
+    }
     var ok = '{"choices":[{"message":{"content":' + JSON.stringify(HT.AI_PROMPT_SAMPLE) + '}}]}';
     var junk = '{"choices":[{"message":{"content":"sorry, I cannot"}}]}';
     function mkFile() {
@@ -2089,6 +2098,151 @@ window.setLS({});
       res(sv.stored === false,
           'R21.1-paint: a write that did not land reports stored:false -- the in-memory fallback must not report a save it did not make');
       HT.byokClear();
+    }).then(function () {
+      // ======================================================================
+      // R21.4 -- ONE PERSISTED FACT, READ BY EVERY SURFACE.
+      //
+      // Reported from the device against 0.18.3: "Test connection" went green
+      // ("Connected -- grok-4.6 responded"), and Capture meal then read "key not
+      // tested yet" -- a genuinely tested key treated as untested.
+      //
+      // The reader was never the problem. byokCount() rebuilt the whole stored
+      // blob from {provider, key, cap, used} and therefore ERASED the status on
+      // the first capture-send -- DURING the capture, which is exactly why the
+      // two looked causally linked. R21.1 gated the status against the writers
+      // that existed when it was written; R21.2/R21.3 then added one that ate it.
+      // A gate per writer would rot the same way, so what is gated here is the
+      // INVARIANT: no write to this store may cost the status.
+      // ======================================================================
+      window.fetch = SCRIPTED_FETCH;
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: '{"choices":[{"message":{"content":"pong"}}]}' }];
+      return HT.byokTest().then(function (t) {
+        res(t.ok === true && HT.byokSettings().status.state === 'verified',
+            'R21.4-persist: a passing Test connection sets a PERSISTED verified state');
+        res(JSON.parse(localStorage.getItem('healthtracker-byok') || '{}').status.state === 'verified',
+            'R21.4-persist: written to the STORE, not held in a variable -- a reload reads the same fact');
+        res(capVis().indexOf('key verified') >= 0,
+            'R21.4-persist: and the CAPTURE SURFACE reads that same fact -- one source of truth, two readers');
+        // THE REGRESSION ITSELF: the counter used to rebuild the blob without it.
+        HT.byokCount();
+        res(HT.byokSettings().status.state === 'verified',
+            'R21.4-persist: counting a call does NOT cost the verification -- the exact write that ate it');
+        res(capVis().indexOf('key not tested yet') < 0,
+            'R21.4-persist: so the capture surface never flips to "not tested" mid-capture');
+      });
+    }).then(function () {
+      // The reported sequence, end to end: test, then capture, on one key.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: '{"choices":[{"message":{"content":"pong"}}]}' },
+                      { status: 200, body: ok }];
+      return HT.byokTest().then(function () {
+        var usedBefore = HT.byokCap().used;
+        return HT.byokCapture(FILE).then(function (r) {
+          res(r.ok === true,
+              'R21.4-persist: capture after a passing test is NOT blocked -- it runs to a draft');
+          res(HT.byokSettings().status.state === 'verified',
+              'R21.4-persist: and the key is STILL verified afterwards');
+          res(HT.byokCap().used === usedBefore + 1,
+              'R21.4-persist: the counter still moves -- carrying the status did not cost the count');
+          res(capVis().indexOf('key verified') >= 0,
+              'R21.4-persist: the surface the finger just left still says verified');
+        });
+      });
+    }).then(function () {
+      // R21.4-verdict: a capture IS a verdict on the key -- the provider just
+      // answered. Success verifies it; only an auth rejection fails it.
+      byokReset(SECRET); HT.photoDiscard();
+      res(HT.byokSettings().status.state === 'unverified', 'R21.4-verdict: a fresh key starts unverified');
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        res(HT.byokSettings().status.state === 'verified',
+            'R21.4-verdict: a SUCCESSFUL capture verifies the key -- the provider answering is the proof, whichever button asked');
+      });
+    }).then(function () {
+      byokReset(SECRET); HT.photoDiscard();
+      HT.byokSetStatus('verified', '');
+      FETCH_SCRIPT = [{ status: 401, body: '{"error":"Incorrect API key provided"}' }];
+      return HT.byokCapture(FILE).then(function () {
+        res(HT.byokSettings().status.state === 'failed',
+            'R21.4-verdict: an AUTH rejection during a capture demotes it -- the key stopped working and the surface says so');
+        res(capVis().indexOf('key failed its last test') >= 0,
+            'R21.4-verdict: and that reads on the capture surface too');
+      });
+    }).then(function () {
+      // The failures that say NOTHING about the key must not demote it.
+      byokReset(SECRET); HT.photoDiscard();
+      HT.byokSetStatus('verified', '');
+      FETCH_SCRIPT = [{ status: 200, body: junk }, { status: 200, body: junk }];
+      return HT.byokCapture(FILE).then(function (r) {
+        res(r.ok === false && HT.byokSettings().status.state === 'verified',
+            'R21.4-verdict: a reply that will not parse is not a verdict on the key -- the verification stands');
+      });
+    }).then(function () {
+      byokReset(SECRET); HT.photoDiscard();
+      HT.byokSetStatus('verified', '');
+      HT.setByokCallTimeout(40);
+      // Honours the abort signal, like a real fetch -- a stub that ignores it
+      // leaves a promise pending for the rest of the run.
+      window.fetch = function (u, i) {
+        FETCHES.push({ url: String(u) });
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+        });
+      };
+      return HT.byokCapture(FILE).then(function (r) {
+        window.fetch = SCRIPTED_FETCH;
+        HT.setByokCallTimeout(120000);
+        res(r.ok === false && HT.byokSettings().status.state === 'verified',
+            'R21.4-verdict: a TIMEOUT is not a verdict on the key either -- an unanswered call proves nothing');
+      });
+    }).then(function () {
+      // R21.4-path: NEVER A STATUS WITHOUT A PATH FORWARD. Capture has never
+      // been gated on the status -- but a bare "key not tested yet" sitting
+      // under the button reads as the reason nothing happened, which is how a
+      // stale status came to be reported as a block.
+      byokReset(SECRET); HT.photoDiscard();
+      var untested = capVis();
+      res(untested.indexOf('Capture meal') >= 0,
+          'R21.4-path: an untested key still gets a Capture button -- the status has never been a gate');
+      res(untested.indexOf('key not tested yet') >= 0 && untested.indexOf('verify now') >= 0 &&
+          untested.indexOf('onclick="byokTest()"') >= 0,
+          'R21.4-path: and it is never STATED without an offer to settle it right here -- verify now, no trip to Settings');
+      res(untested.indexOf(SECRET) < 0, 'R21.4-path: and the capture surface never prints the key');
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function (r) {
+        res(r.ok === true,
+            'R21.4-path: an UNVERIFIED key still captures -- the fix adds a path, it does not add a gate');
+      });
+    }).then(function () {
+      byokReset(SECRET);
+      HT.byokSetStatus('verified', '');
+      res(capVis().indexOf('verify now') < 0,
+          'R21.4-path: a verified key is offered nothing -- it is settled, and an offer would be noise');
+      HT.byokSetStatus('failed', 'Incorrect API key provided');
+      var failedVis = capVis();
+      res(failedVis.indexOf('verify now') >= 0 && failedVis.indexOf('key failed its last test') >= 0,
+          'R21.4-path: a FAILED key is offered one too -- a failure is the state most in need of a retry');
+    }).then(function () {
+      // R21.4-merge: the structural half. A rule ("remember to carry the other
+      // fields") is what failed; a merge cannot forget, including fields no
+      // writer has been taught about yet.
+      byokReset(SECRET);
+      HT.byokSetStatus('verified', '');
+      HT.byokPatch({ someFutureField: 'keep me' });
+      HT.byokCount();
+      HT.byokSave('grok', null, 7);
+      var raw214 = JSON.parse(localStorage.getItem('healthtracker-byok') || '{}');
+      res(raw214.someFutureField === 'keep me',
+          'R21.4-merge: a field no writer knows about survives the counter AND a save -- the allowlist rebuild is gone');
+      res(raw214.status.state === 'verified' && raw214.cap === 7 && raw214.key === SECRET,
+          'R21.4-merge: while the status, the new cap and the key all stand together');
+      res(HT.byokSave('grok', 'xai-A-COMPLETELY-DIFFERENT-KEY-0123', 7).ok === true &&
+          HT.byokSettings().status.state === 'unverified',
+          'R21.4-merge: and replacing the KEY still resets the status -- a merge must not preserve a verdict about a different key');
+      byokReset(SECRET);
+      window.fetch = SCRIPTED_FETCH;
     }).then(function () {
       // ======================================================================
       // R21.2 -- the capture chain, driven through the SHIPPED SHELL. The earlier
@@ -3491,6 +3645,13 @@ window.setLS({});
   // older meal leaving an unresolved gap behind them.
   setLS({}); HT.boot();
   FIXED = new Date('2026-09-03T00:30:00').getTime(); fixClock();
+  // DATE-PINNED CASE, and it must not expire at midnight. ensureCurrentDay reads
+  // the REAL clock (localDate() with no argument), not the setClock seam, so a
+  // booted `current` is always the real today -- and this case's whole shape
+  // depends on `current` being the day the fixed clock is standing on. Left
+  // implicit, the suite passed only on 2026-09-03 and went red at midnight. Same
+  // idiom as the RR-mini case above.
+  HT.state().current = '2026-09-03';
   rrDay('2026-08-30', [rrFood('a', '12:00', 500)]);
   rrDay('2026-09-02', [rrFood('a', '18:00', 600), rrFood('b', '18:48', 300)]);
   var MB = HT.rhythmModel(HT.state().current);
@@ -3532,6 +3693,7 @@ window.setLS({});
     setLS({}); HT.boot();
     var NOW182 = new Date(2026, 8, 3, 18, 0, 0).getTime();
     FIXED = NOW182; fixClock();
+    HT.state().current = '2026-09-03';          // date-pinned; see R181-eatring
     var last = new Date(NOW182 - H * 3600000);
     var pad = function (n) { return (n < 10 ? '0' : '') + n; };
     var dk = last.getFullYear() + '-' + pad(last.getMonth() + 1) + '-' + pad(last.getDate());

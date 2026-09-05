@@ -1328,3 +1328,57 @@ The message now says so: *"The provider did not answer within 120 seconds. If it
 ### What I could not check
 
 **The provider console is the user's, not mine.** Whether the earlier call completed with a 200 after the app gave up is answerable only from that console — and the raised budget answers it in practice: if a capture now succeeds at, say, 55 s, the call was always completing and the bound was the whole defect.
+
+## D49 — One persisted fact, and the writer that ate it (R21.4, 2026-09-04)
+
+`APP_VERSION → 0.18.4`; **schema unchanged at v5**. Reported from the device against 0.18.3: Test connection went green — *"Connected — grok-4.6 responded"* — and Capture meal then read **"key not tested yet."** A genuinely tested key treated as untested.
+
+### The reader was never the problem
+
+Both surfaces already read the same field. `byokTest` persisted `status` beside the key, and `renderCaptureBtn` read `byokSettings().status`. The suspicion in the report — *"capture checks a different flag than the test sets"* — was the natural one and was wrong.
+
+**`byokCount()` erased it.** It rebuilt the whole stored blob from its own four-field list:
+
+```js
+byokWrite({ provider: s.provider, key: s.key, cap: s.cap, used: {...} });
+```
+
+No `status`. The counter increments **inside the capture**, between the decode and the send, so the verified state was destroyed **while the user watched the capture run** — which is exactly why the two looked causally linked, and why the report reads as *"capture blocks."*
+
+**This is the pattern D45 warned about, one function below the warning.** D45 kept the key out of `APP_STATE` structurally rather than by an exclusion filter, on the grounds that *"`normalizeSettings` is an allowlist rebuild that has surprised this project once already."* The BYOK store then grew its own allowlist rebuild, and it surprised us the same way inside a single slice.
+
+### The fix is a merge, because a rule is what failed
+
+Every writer now goes through **`byokPatch(patch)`** — read, assign the named fields, write. `byokSetStatus`, `byokSave` and `byokCount` all use it, and nothing else writes the store. The old contract was *"remember to carry the other fields"*, which is a rule; **a merge cannot forget**, including fields no writer has been taught about yet. Gated with a field no writer knows.
+
+**Replacing the key still resets the status to `unverified`** — merging must not preserve a verdict about a *different* key. That is the one place the rebuild was doing real work, and it is kept explicitly.
+
+### A capture is a verdict on the key too (the other half of "one source of truth")
+
+The status meant *"what the Test connection button last saw."* It now means **"what the provider last said about this key"**, whichever call asked:
+
+| capture outcome | status |
+|---|---|
+| a reply | **verified** — the provider answering is the proof, and no button has a monopoly on it |
+| `auth` rejection | **failed**, in the provider's words |
+| timeout, network, rate limit, unparseable body | **unchanged** — none of them is a verdict on the key |
+
+That last row is the load-bearing one. A 120-second timeout (D48) says nothing about whether the key works, and demoting on it would manufacture a failure out of a slow model.
+
+### Capture was never gated on the status — and the line still read as a gate
+
+Worth stating plainly, because it was the reported symptom and the code disagrees with it: **`byokCapture` has never checked the status.** Its only guards are "a key is saved" and the daily cap. Nothing blocked.
+
+But a bare status line sitting directly under **Capture meal** reads as a **precondition**, and after a capture that had *also* failed on the old 45-second budget, "key not tested yet" was the nearest available explanation. The presentation was making a claim the code did not.
+
+So, per the interim-safety instruction: **an unverified or failed key is never stated without an offer to settle it.** The line now carries an inline **verify now** that runs the test on the capture surface itself, with the pending state and the verdict painted there — no trip to Settings. A verified key is offered nothing, because it is settled and an offer would be noise. **Never a status without a path forward**, and still never a gate.
+
+### R21.1 verification, as asked
+
+Its two halves were **both shipped and one was being overwritten**. The shape check on save (empty / embedded whitespace / implausibly short block; an unexpected prefix warns and saves) is complete and gated. The persisted `unverified` / `verified` / `failed` with timestamp and failure message is complete and gated. What R21.1 lacked was a gate on the **invariant** — it gated the status against the writers that existed when it was written, and R21.2/R21.3 then added one that ate it. A per-writer gate would have rotted the same way; **the invariant is now what is gated: no write to this store may cost the status.**
+
+### Two gates had rotted at midnight, and that is a separate finding
+
+The suite was **red before this fix was written** — 837 of a pinned 1149, two aborts — and `ring-size-gate.ps1` measured an empty meals lane. Neither was a product regression. `ensureToday()` calls **`localDate()` with no argument**, which reads the real `Date`, **not the `setClock` seam**; so a date-pinned case can fix the clock but its booted `current` is always the real today. Both gates were authored on 2026-09-03 and stopped describing their own scene at midnight.
+
+Patched at the call sites (the harness and the ring gate now pin `current` explicitly, and say why). **The root fix — `ensureToday` reading `todayKey()` so one clock governs — is NOT taken here**: it is a product change outside the reported defect, and it is the user's to rule. In production `_clockFn` is null and the two are identical, so it is a no-op at runtime and a real repair to the seam. **Open ruling.**

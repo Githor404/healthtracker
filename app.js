@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.18.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.18.4';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3387,6 +3387,19 @@ function byokBusy(phase, message) {
   try { renderCaptureBtn(); } catch (e) {}
 }
 
+// A capture is a verdict on the key as much as a test ping is -- the provider has
+// just answered. So the SAME persisted status records it: a reply VERIFIES the
+// key, and only an `auth` rejection FAILS it. A timeout, a rate limit or a
+// malformed body say nothing about the key and must never demote it.
+//
+// This is the other half of "one source of truth": the status means "what the
+// provider last said about this key", not "what one particular button last saw".
+function byokNoteVerdict(r) {
+  if (!r) return r;
+  if (r.ok) byokSetStatus('verified', '');
+  else if (r.kind === 'auth') byokSetStatus('failed', String(r.error || ''));
+  return r;
+}
 // EGRESS HAPPENS HERE AND NOWHERE ELSE. Nothing in boot, refresh, day nav or
 // settings issues a call; this runs only from an explicit capture-send.
 function byokCapture(file) {
@@ -3403,7 +3416,7 @@ function byokCapture(file) {
     byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
     byokStartTick('Sending to your provider\u2026');
     byokCount();
-    return byokCall(img.dataUrl, {}).then(function (r1) {
+    return byokCall(img.dataUrl, {}).then(byokNoteVerdict).then(function (r1) {
       if (r1.ok) {
         const d1 = openPhotoDraft(r1.text);
         if (d1.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 1 }; }
@@ -3412,7 +3425,7 @@ function byokCapture(file) {
         // is just a second charge.
         byokStartTick('That reply did not parse. Asking once more\u2026');
         byokCount();
-        return byokCall(img.dataUrl, {}).then(function (r2) {
+        return byokCall(img.dataUrl, {}).then(byokNoteVerdict).then(function (r2) {
           if (r2.ok) {
             const d2 = openPhotoDraft(r2.text);
             if (d2.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 2 }; }
@@ -3523,9 +3536,22 @@ function renderCaptureBtn() {
         ? `<button type="button" class="linklike" onclick="byokCancel()">cancel</button>` : '') +
       `</div>`
     : '';
-  el.innerHTML = busyC + (byokConfigured()
+  // A status line under a button reads as a PRECONDITION -- "key not tested yet"
+  // sitting directly beneath Capture meal looks like the reason nothing happened,
+  // which is how a stale status was read as a block. Capture has never been gated
+  // on the status and still is not; but the line is never stated without an offer
+  // to settle it RIGHT HERE, on the capture surface, with no trip to Settings.
+  // Never a status without a path forward.
+  const testingC = (BYOK_STATE && BYOK_STATE.phase === 'testing')
+    ? `<div class="byoks byoktesting"><span class="byokspin"></span>${esc(BYOK_STATE.message)}</div>`
+    : '';
+  const verifyC = (stC.state === 'verified') ? ''
+    : ` <button type="button" class="linklike" onclick="byokTest()">verify now</button>`;
+  el.innerHTML = busyC + testingC + (byokConfigured()
     ? `<button class="btn primary" style="width:100%" onclick="document.getElementById('captureFile').click()">Capture meal</button>` +
-      `<div class="byoks ${stC.state === 'verified' ? 'byokok' : (stC.state === 'failed' ? 'byokbad' : '')}">${esc(byokStatusLine())}</div>` +
+      (testingC ? '' :
+        `<div class="byoks ${stC.state === 'verified' ? 'byokok' : (stC.state === 'failed' ? 'byokbad' : '')}">` +
+        `${esc(byokStatusLine())}${verifyC}</div>`) +
       `<div class="note">One call to your provider with the photo and the template below. Nothing else is sent.</div>`
     : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`);
 }
@@ -3683,6 +3709,7 @@ const VERSION_LOG = [
   { v: '0.18.1', note: 'Fix: \u201cTest connection\u201d could finish without telling you anything. It now always says what happened \u2014 testing, connected, the provider\u2019s own error, or timed out after 15 seconds \u2014 and the key\u2019s status (verified, unverified or failed) is remembered and shown wherever you use it.' },
   { v: '0.18.2', note: 'Fix: Capture meal could do nothing at all on a phone \u2014 no picture read, no call, no message. Reading the photo is now bounded and reported at every step, large phone photos are resized without loading the whole image into memory, and a photo the provider cannot read says so instead of stopping silently. Capture can no longer end in silence.' },
   { v: '0.18.3', note: 'Capture now waits two minutes for the answer instead of 45 seconds \u2014 reading a plate of food takes a model far longer than a one-word test, and the old limit was giving up on calls that were still working. While it waits it counts the seconds, so a slow answer looks slow rather than dead, and there is a Cancel button if you would rather not wait.' },
+  { v: '0.18.4', note: 'Fix: a key that passed Test connection could go back to reading "key not tested yet" on the capture screen. Sending a photo was overwriting the saved verified status while counting the call, so a tested key looked untested. The status is now one saved fact that both screens read, a successful capture counts as a verification in its own right, and if a key is ever unverified the capture screen offers to verify it on the spot rather than just saying so.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4720,6 +4747,22 @@ function byokWrite(o) {
   _byokMem = o;
   try { localStorage.setItem(BYOK_LS, JSON.stringify(o)); return true; } catch (e) { return false; }
 }
+// R21.4 -- ONE WAY TO WRITE, and it is a MERGE. Every writer used to rebuild the
+// blob from its own field list, so a writer that predated a field destroyed it
+// silently. That is not hypothetical: byokCount wrote {provider, key, cap, used}
+// and therefore ERASED the verified status on the first capture-send -- a key
+// that had just passed "test connection" read back as "key not tested yet", and
+// the erase happened DURING the capture, so the two looked causally linked.
+//
+// This is the exact pattern D45 warned about one function away ("normalizeSettings
+// is an allowlist rebuild that has surprised this project once already"), and it
+// had already been reproduced inside the BYOK store itself. A rule -- "remember to
+// carry the other fields" -- is what failed. A merge cannot forget.
+function byokPatch(patch) {
+  const o = byokRead() || {};
+  Object.keys(patch || {}).forEach(function (k) { o[k] = patch[k]; });
+  return byokWrite(o);
+}
 function byokClear() {
   _byokMem = null;
   try { localStorage.removeItem(BYOK_LS); } catch (e) {}
@@ -4753,11 +4796,13 @@ function byokKeyIssue(provider, key) {
              ' keys usually do. Saved anyway \u2014 test it to find out.' };
   return null;
 }
+// THE single source of truth for "does this key work". Test connection writes it,
+// the capture surface reads it, and nothing else may set it -- so the state the
+// user was shown is the state the next surface sees.
 function byokSetStatus(state, message) {
-  const o = byokRead() || {};
-  o.status = { state: state, at: new Date(nowMs()).toISOString(), message: String(message || '') };
-  byokWrite(o);
-  return o.status;
+  const st = { state: state, at: new Date(nowMs()).toISOString(), message: String(message || '') };
+  byokPatch({ status: st });
+  return st;
 }
 function byokStatusLine() {
   const st = byokSettings().status;
@@ -4786,7 +4831,7 @@ function byokSave(provider, key, cap) {
   // A write that did not land must NOT report success: the in-memory fallback
   // masks it until the next reload, and then the key is simply gone -- which is
   // one of the ways "test connection" ended up silent (a disabled button).
-  const ok = byokWrite(next);
+  const ok = byokPatch(next);
   refresh();
   return { ok: ok, stored: ok, warning: (issue && !issue.block) ? issue.message : '',
            provider: next.provider, cap: next.cap, configured: next.key.length > 0 };
@@ -4799,10 +4844,11 @@ function byokCap() {
   const n = (s.used.date === today) ? num(s.used.n) : 0;
   return { date: today, used: n, cap: s.cap, left: Math.max(0, s.cap - n), exhausted: n >= s.cap };
 }
+// Touches the COUNTER and nothing else. It used to rebuild the whole blob, which
+// is how a verified key became an untested one mid-capture.
 function byokCount() {
-  const s = byokSettings();
   const c = byokCap();
-  byokWrite({ provider: s.provider, key: s.key, cap: s.cap, used: { date: c.date, n: c.used + 1 } });
+  byokPatch({ used: { date: c.date, n: c.used + 1 } });
   return byokCap();
 }
 
@@ -5667,7 +5713,7 @@ window.HT = {
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
   photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
   setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
-  BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease,
+  BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease, byokPatch, byokNoteVerdict,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
