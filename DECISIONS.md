@@ -1381,4 +1381,39 @@ Its two halves were **both shipped and one was being overwritten**. The shape ch
 
 The suite was **red before this fix was written** — 837 of a pinned 1149, two aborts — and `ring-size-gate.ps1` measured an empty meals lane. Neither was a product regression. `ensureToday()` calls **`localDate()` with no argument**, which reads the real `Date`, **not the `setClock` seam**; so a date-pinned case can fix the clock but its booted `current` is always the real today. Both gates were authored on 2026-09-03 and stopped describing their own scene at midnight.
 
-Patched at the call sites (the harness and the ring gate now pin `current` explicitly, and say why). **The root fix — `ensureToday` reading `todayKey()` so one clock governs — is NOT taken here**: it is a product change outside the reported defect, and it is the user's to rule. In production `_clockFn` is null and the two are identical, so it is a no-op at runtime and a real repair to the seam. **Open ruling.**
+Patched at the call sites (the harness and the ring gate now pin `current` explicitly, and say why). **The root fix — `ensureToday` reading `todayKey()` so one clock governs — is NOT taken here**: it is a product change outside the reported defect, and it is the user's to rule. In production `_clockFn` is null and the two are identical, so it is a no-op at runtime and a real repair to the seam. ~~**Open ruling.**~~ **RULED 2026-09-04: take it — see D50, which also corrects the count: it is 21 call sites, not one.**
+
+## D50 — One clock, and it was 21 call sites rather than one (R21.4 addendum, ruled 2026-09-04)
+
+`APP_VERSION → 0.18.5`; **schema unchanged at v5**. Closes the open ruling at the end of D49.
+
+### The fix moved, because the diagnosis was too small
+
+D49 named `ensureCurrentDay()` and described the repair as one word at one site. **That was under-counted.** `localDate()` takes an optional date and defaults it with `new Date()` — and there are **21 bare `localDate()` calls** in `app.js`. Every one of them consulted the real wall clock while the rest of the app ran on `setClock`. `ensureCurrentDay` was simply the one whose damage was visible.
+
+So the default argument is what changed, once, at the definition:
+
+```js
+function localDate(d) { d = d || nowDate(); ... }
+```
+
+`nowDate()` is `new Date(nowMs())`, and `nowMs()` is `_clockFn ? _clockFn() : Date.now()`. **`setClock` is a test seam and is never called by shipped code**, so in production `_clockFn` is null and this is `new Date()` exactly — a runtime no-op. `localDate()` and `todayKey()` are now literally the same expression, which is **pinned by a gate** so they cannot drift apart again.
+
+**Fixing the definition rather than the caller is the point.** Patching `ensureCurrentDay` would have left twenty sites reading a second clock and a third gate free to rot the same way later.
+
+### What it repairs, and the evidence
+
+Both gates in D49's finding stopped describing their own scene at midnight because they could fix the clock and still boot onto the real today.
+
+- `ring-size-gate.ps1` **no longer pins `current` at all.** Its seed sets the clock before boot, and the day on screen follows — so the gate is now this fix's evidence in a real browser against the shipped app. Reverting D50 empties its meals lane back to `paths=0 dots=0`.
+- The data-layer harness **still pins explicitly** in the R181-eatring block, because that block boots first and fixes the clock afterwards. That is the block's own ordering, not a seam problem.
+
+**Verified against the defect:** reverting the default fails the three `D50-seam` assertions and the ring gate's real-browser measurement simultaneously.
+
+### Why this ships with a version bump and a changelog line that says "nothing to see"
+
+D6 makes `APP_VERSION` bump whenever the shell changes, and the shell **did** change: `app.js` bytes differ, the SW cache name is re-derived, and users take an update. A no-op change that still ships an update deserves an honest note rather than a silent one or an invented feature. **The changelog says there is nothing to observe, because there is nothing to observe.**
+
+### Scope, stated plainly
+
+This is a **test-seam repair**, not a product fix — nothing a user can see behaves differently. It is logged as a decision because it changes shipped code, and because the class of failure it removes is one this project has been bitten by before: a gate that stops testing what it claims to, while still printing green.

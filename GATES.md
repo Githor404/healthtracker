@@ -1516,3 +1516,23 @@ Two consequences worth separating:
 Both are patched at the call site and now say why. **The root fix is deferred to a ruling** (D49): `ensureToday` reading `todayKey()` would make one clock govern, and is a runtime no-op — but it is product code outside this defect.
 
 **Status: MET — awaiting review.** The device question is the same one the fix is about: after a passing test, does the capture surface still say *verified* once a capture has run.
+---
+
+### D50 — one clock (the root fix D49 left open) — v0.18.5
+
+Ruled after R21.4. The diagnosis in D49 was under-counted: not one call site but **21** — `localDate()` defaulted its argument with `new Date()` while the rest of the app ran on `setClock`. Fixed once, at the definition.
+
+| Case | Result |
+|---|---|
+| D50-seam | a clock fixed **before** boot puts the booted day on **that** date — the hole that let a pinned gate rot — and the day it selected **exists**, so the scene a gate seeds is the scene it measures |
+| D50-seam | `localDate()` and `todayKey()` read the **same clock**, pinned so they cannot drift apart again |
+| D50-seam | with **no clock installed** it is the real today — the production no-op, asserted rather than assumed |
+| ring-size-gate | the sparse-meals scene **pins nothing**: its clock is set before boot and the day on screen follows. The gate is now this fix's evidence in a real browser against the shipped app |
+
+**Proven against the defect, in both harnesses at once.** Reverting the default argument fails the three `D50-seam` assertions **and** returns the ring gate to `paths=0 dots=0` — a real-browser measurement of an empty lane, which is what it had been silently reporting since midnight on 2026-09-04.
+
+**Count delta: 1173 → 1177** (+4). **1177/1177 ALL PASS**, `executed 1177 · pinned 1177`. Fourteen gates green.
+
+**A note on the changelog line.** D6 bumps `APP_VERSION` whenever the shell changes, and it did: `app.js` differs, the SW cache name is re-derived, users take an update. So the entry says plainly that there is nothing to observe — an honest no-op note, rather than a silent update or an invented feature.
+
+**Status: MET.** Nothing here is the device's to answer; this change has no user-visible behaviour by construction, and that property is itself gated.

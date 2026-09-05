@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.18.4';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.18.5';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -67,8 +67,15 @@ const cleanJSON = (s) => String(s == null ? '' : s)
   .replace(new RegExp('[' + String.fromCharCode(0xA0, 0x2007, 0x202F) + ']', 'g'), ' ')
   .trim();
 
+// D50: the default argument reads the CLOCK SEAM, not `new Date()`. There are 21
+// bare localDate() calls in this file -- ensureCurrentDay among them -- and every
+// one of them used to consult the real wall clock while the rest of the app was
+// on setClock. So a gate could fix the clock and still boot onto the real today,
+// and two date-pinned gates silently stopped describing their own scene at
+// midnight (D49). In production _clockFn is null and nowDate() is `new Date()`,
+// so this is a runtime no-op; what it changes is that ONE clock now governs.
 function localDate(d) {
-  d = d || new Date();
+  d = d || nowDate();
   return d.getFullYear() + '-' +
     String(d.getMonth() + 1).padStart(2, '0') + '-' +
     String(d.getDate()).padStart(2, '0');
@@ -3710,6 +3717,7 @@ const VERSION_LOG = [
   { v: '0.18.2', note: 'Fix: Capture meal could do nothing at all on a phone \u2014 no picture read, no call, no message. Reading the photo is now bounded and reported at every step, large phone photos are resized without loading the whole image into memory, and a photo the provider cannot read says so instead of stopping silently. Capture can no longer end in silence.' },
   { v: '0.18.3', note: 'Capture now waits two minutes for the answer instead of 45 seconds \u2014 reading a plate of food takes a model far longer than a one-word test, and the old limit was giving up on calls that were still working. While it waits it counts the seconds, so a slow answer looks slow rather than dead, and there is a Cancel button if you would rather not wait.' },
   { v: '0.18.4', note: 'Fix: a key that passed Test connection could go back to reading "key not tested yet" on the capture screen. Sending a photo was overwriting the saved verified status while counting the call, so a tested key looked untested. The status is now one saved fact that both screens read, a successful capture counts as a verification in its own right, and if a key is ever unverified the capture screen offers to verify it on the spot rather than just saying so.' },
+  { v: '0.18.5', note: 'Housekeeping, with nothing to see: the app now keeps a single clock internally. Two of its own automated checks had quietly stopped checking what they claimed to when the date rolled over, and this is the repair. Nothing you can observe changes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5718,7 +5726,7 @@ window.HT = {
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
   SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, EAT_GAP_MAX_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
-  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey,
+  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey, localDate,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,

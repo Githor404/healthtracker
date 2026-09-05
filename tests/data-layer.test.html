@@ -3638,6 +3638,25 @@ window.setLS({});
   });
   FIXED = new Date(td + 'T14:00:00').getTime(); fixClock();
 
+  // D50-seam: ONE CLOCK GOVERNS. localDate() with no argument used to read
+  // `new Date()` while the rest of the app was on setClock -- 21 call sites,
+  // ensureCurrentDay among them. So a gate could fix the clock and STILL boot
+  // onto the real today, which is how two date-pinned gates quietly stopped
+  // describing their own scene at midnight (D49). One default argument.
+  setLS({});
+  HT.setClock(function () { return new Date(2026, 0, 15, 9, 30, 0).getTime(); });
+  HT.boot();
+  res(HT.state().current === '2026-01-15',
+      'D50-seam: a clock fixed BEFORE boot puts the booted day on THAT date -- the hole that let a pinned gate rot');
+  res(!!HT.state().days['2026-01-15'],
+      'D50-seam: and the day it selected actually exists, so the scene a gate seeds is the scene it measures');
+  res(HT.localDate() === HT.todayKey(),
+      'D50-seam: localDate() and todayKey() read the SAME clock -- pinned so they cannot drift apart again');
+  HT.setClock(null);
+  res(HT.localDate() === today(),
+      'D50-seam: with no clock installed it is the real today -- in production this change is a no-op');
+  FIXED = new Date(td + 'T14:00:00').getTime(); fixClock();
+
   // R181-eatring: the real-data case. THE 0.13.0 LESSON APPLIES DIRECTLY -- the
   // gates that missed the first meals-lane defect all seeded records INSIDE the
   // window, so the failing shape was never built. This is the shape from the
@@ -3645,12 +3664,12 @@ window.setLS({});
   // older meal leaving an unresolved gap behind them.
   setLS({}); HT.boot();
   FIXED = new Date('2026-09-03T00:30:00').getTime(); fixClock();
-  // DATE-PINNED CASE, and it must not expire at midnight. ensureCurrentDay reads
-  // the REAL clock (localDate() with no argument), not the setClock seam, so a
-  // booted `current` is always the real today -- and this case's whole shape
-  // depends on `current` being the day the fixed clock is standing on. Left
-  // implicit, the suite passed only on 2026-09-03 and went red at midnight. Same
-  // idiom as the RR-mini case above.
+  // DATE-PINNED CASE, and it must not expire at midnight. This case's whole shape
+  // depends on `current` being the day the fixed clock stands on; left implicit,
+  // the suite passed only on 2026-09-03 and went red at midnight. D50 made the
+  // seam govern localDate(), so setting the clock BEFORE boot is now enough --
+  // but this block boots FIRST and fixes the clock after, so `current` is still
+  // pinned explicitly here. Same idiom as the RR-mini case above.
   HT.state().current = '2026-09-03';
   rrDay('2026-08-30', [rrFood('a', '12:00', 500)]);
   rrDay('2026-09-02', [rrFood('a', '18:00', 600), rrFood('b', '18:48', 300)]);
