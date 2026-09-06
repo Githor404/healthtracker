@@ -173,9 +173,10 @@ ls tests/*.ps1 | wc -l          # expect 8
 git checkout -- tests/<gate>.ps1  # every gate script is committed
 ```
 
-This machine carries a scoped AV exclusion for `tests/`. **A green suite on a
-machine without that exclusion proves less than it appears to**, because a
-quarantined gate does not run and does not say so.
+This machine carries a scoped AV exclusion for `tests/`, **set to all components
+— see the RESOLVED note below; the dialog's default scope is not sufficient**. **A
+green suite on a machine without that exclusion proves less than it appears to**,
+because a quarantined gate does not run and does not say so.
 
 `run-data-layer.sh` now refuses to start on that footing: it opens with a
 **gate-script census** against a pinned manifest of the eight names, so a
@@ -207,6 +208,54 @@ bm-slider-gate.ps1         FAIL - PRODUCED NO VERDICT (rc=126)
       timeout: failed to run command 'powershell.exe': Permission denied
 ```
 
-A file-scanning exclusion for `tests/` may not be enough; this block is on
-*execution* of that path, so the proactive-defence module likely needs the
-exclusion too.
+### RESOLVED 2026-09-06 — the exclusion must be set to ALL COMPONENTS
+
+**The open question above is answered: a file-scanning exclusion is not enough.**
+
+Kaspersky's exclusion dialog defaults to **Selected components**, which covered
+Scan and File Anti-Virus — neither of which was doing the blocking. The block came
+from the **proactive-defence module**, and it is not in that default set. Setting
+the `tests/` exclusion to **All components** (and restarting Kaspersky) cleared it:
+`bm-slider-gate.ps1` now runs its `Input.dispatchMouseEvent` assertions end to end
+and reports `BM SLIDER GATE: PASS` with exit 0.
+
+```
+tests/  ->  exclusion scope: All components     # NOT "Selected components"
+```
+
+### The correction that cost two sessions: it is ONE event, not two modes
+
+The heading above says "the second AV mode", as if quarantine-at-rest and
+denied-execution were two states a file could sit in. **They are not.** Watched
+across a single run, the sequence is:
+
+1. before the run — file present, byte-identical to its commit, census reads 8 of 8;
+2. the suite tries to execute it — `rc=126`, `Permission denied`, in about a second;
+3. immediately after — the file is **gone**, from the Git-Bash view as well as Win32.
+
+**The denial and the quarantine are the same event, triggered by the execution
+attempt.** The file is untouched on disk until something tries to run it.
+
+This is why `git checkout -- tests/bm-slider-gate.ps1` *looks like it failed*: it
+succeeds, the file is genuinely restored and hash-matches HEAD, and then the next
+run takes it again. Two sessions were spent re-restoring a file that had restored
+correctly every time. **Verify a restore with `git hash-object`, not with the next
+suite run** — the suite run is what destroys the evidence.
+
+A mid-run tell, if you need to distinguish this from a real missing file: `icacls`
+on the blocked path returns `The system cannot find the file specified` while
+`icacls` on any sibling gate resolves normally. The block is path-specific.
+
+### Do not try to evidence a quarantine from the Windows event log
+
+`avp` (Kaspersky) writes to the Windows **Application** log, but with **no message
+text registered** — `Get-WinEvent` returns entries whose `Message` is empty, so
+there is nothing chasable in them:
+
+```powershell
+# dead end — returns Id 4662 entries with empty Message, and nothing for the gate
+Get-WinEvent -LogName Application | Where-Object { $_.ProviderName -match 'Kaspersky|avp' }
+```
+
+**Kaspersky's own Reports view is the only source that names the detection and the
+quarantined path.** Go there first; the event log will only cost time.
