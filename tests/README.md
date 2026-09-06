@@ -149,3 +149,9 @@ git checkout -- tests/<gate>.ps1  # every gate script is committed
 This machine carries a scoped AV exclusion for `tests/`. **A green suite on a
 machine without that exclusion proves less than it appears to**, because a
 quarantined gate does not run and does not say so.
+
+`run-data-layer.sh` now refuses to start on that footing: it opens with a
+**gate-script census** against a pinned manifest of the eight names, so a
+quarantined script fails the suite loudly and by name, with its `git checkout`
+line printed. Adding a ninth gate fails the census until its name joins the
+manifest — the same deliberate re-pin `EXPECTED_ASSERTIONS` requires.

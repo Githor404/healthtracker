@@ -1767,4 +1767,10 @@ Two consequences, both standing:
 
 **When a gate script goes missing, suspect the AV before the runner.** Recovery is `git checkout -- tests/<gate>.ps1`: every gate script is committed, so a quarantined file is always recoverable byte-identical. Verify with `ls tests/*.ps1 | wc -l` — there should be **eight**.
 
+**Now enforced, not just documented (2026-09-06).** `run-data-layer.sh` opens with a **gate-script census**: a pinned manifest of the eight `*-gate.ps1` names, checked before anything runs. A quarantined gate now **fails the suite loudly** instead of being silently absent — closing at the script level the same hole `EXPECTED_ASSERTIONS` closes inside the harness.
+
+It is a **manifest, not a bare count**, for the reason `SE-disclose` names the leaked phrase rather than reporting a mismatch: *"expected 8, found 7"* starts a hunt; naming the file ends it. The failure prints the missing name, says to suspect the AV first, and hands over the exact `git checkout -- tests/<gate>.ps1`. A manifest also catches a **rename**, which a count cannot see at all. Adding a ninth gate fails the census until its name joins the manifest — deliberately, in the same commit.
+
+Proven both directions: removing `bm-slider-gate.ps1` names it and prints its recovery line; adding an unpinned `new-feature-gate.ps1` fails as unpinned.
+
 **2. The gate suite has an environment dependency on this machine:** a scoped AV exclusion for `tests/`. Without it, CDP gates may be quarantined mid-run and the suite becomes non-deterministic in a way that looks like a code failure and is not. Recorded as a dependency because a future session hitting a missing gate should reach for this note rather than re-derive it — and because a green run on a machine without the exclusion proves less than it appears to.

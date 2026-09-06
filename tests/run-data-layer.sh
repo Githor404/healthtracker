@@ -8,6 +8,57 @@ set -uo pipefail
 DIR=$(cd "$(dirname "$0")" && pwd)
 HTML="$DIR/data-layer.test.html"
 
+# GATE-SCRIPT CENSUS -- a precondition, recorded 2026-09-06 after a real loss.
+#
+# The CDP gates are PowerShell driving headless Chrome with synthetic input
+# injection, and that profile matches automation-malware heuristics: Kaspersky
+# quarantined bm-slider-gate.ps1 as PDM:Trojan.Win32.Bazon.a mid-session. A
+# quarantined gate DOES NOT RUN AND DOES NOT SAY SO -- which is this project's
+# recurring failure shape, a check that silently stops checking while everything
+# still reports green. The assertion-count pin catches that inside the harness;
+# nothing caught it at the SCRIPT level until this.
+#
+# Pinned as a MANIFEST, not a bare count, for the same reason SE-disclose names
+# the leaked phrase rather than reporting a mismatch: "expected 8, found 7"
+# starts a hunt, naming the file ends it. A manifest also catches a RENAME, which
+# a count cannot see at all.
+#
+# Adding a ninth gate: add its name here, in the same commit -- deliberately,
+# exactly as EXPECTED_ASSERTIONS is re-pinned.
+GATE_SCRIPTS="bm-slider-gate.ps1
+capture-outcome-gate.ps1
+chip-layout-gate.ps1
+lab-form-gate.ps1
+offline-gate.ps1
+photo-lead-gate.ps1
+ring-size-gate.ps1
+update-gate.ps1"
+EXPECTED_GATE_SCRIPTS=8
+
+GS_MISSING=""
+for g in $GATE_SCRIPTS; do [ -f "$DIR/$g" ] || GS_MISSING="$GS_MISSING $g"; done
+GS_FOUND=$(ls "$DIR"/*-gate.ps1 2>/dev/null | wc -l | tr -d ' ')
+GS_EXTRA=$(ls "$DIR"/*-gate.ps1 2>/dev/null | xargs -n1 basename 2>/dev/null   | grep -vxF "$GATE_SCRIPTS" | tr '
+' ' ')
+
+if [ -n "$GS_MISSING" ]; then
+  echo "GATE-SCRIPT CENSUS: FAIL -$GS_MISSING missing (expected $EXPECTED_GATE_SCRIPTS, found $GS_FOUND)"
+  echo "  A gate script that is absent does not run and does not report."
+  echo "  SUSPECT ANTIVIRUS QUARANTINE FIRST: Kaspersky has flagged these as"
+  echo "  PDM:Trojan.Win32.Bazon.a -- a behavioural false positive on the CDP profile."
+  echo "  Recover (every gate script is committed):"
+  for g in $GS_MISSING; do echo "    git checkout -- tests/$g"; done
+  echo "  Then confirm the scoped AV exclusion for tests/ is in place on this machine."
+  exit 1
+fi
+if [ -n "$GS_EXTRA" ]; then
+  echo "GATE-SCRIPT CENSUS: FAIL - unpinned gate script(s): $GS_EXTRA"
+  echo "  A new gate must join the manifest deliberately, in the same commit that adds it,"
+  echo "  so the bar can never move without someone choosing to move it."
+  exit 1
+fi
+echo "gate-script census: $GS_FOUND of $EXPECTED_GATE_SCRIPTS present, manifest matches"
+
 # Phase R (D5/D7): the legacy path must be fully stripped from app.js. Match code
 # (the migrator/constant identifiers and quoted 'uha-log-v1' string usage) — a
 # doc comment mentioning the removed key in backticks is fine.
