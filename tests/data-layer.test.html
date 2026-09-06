@@ -4946,6 +4946,54 @@ window.setLS({});
   res(/<div class="citebody">\s*\S/.test(allBlocks),
       'R20.1-disclose: and a non-empty body behind it');
 
+
+  // ======================================================================
+  // D54 -- THE FOOD ROW JOINS THE UNDO GRAMMAR.
+  //
+  // Found while surveying for R22: deleteItem spliced and saved, with no
+  // offerUndo, so the most-deleted row in the app was the one deletion you
+  // could not take back. D44 asserted the opposite in the governance log.
+  // ======================================================================
+  setLS({}); HT.boot(); fixClock();
+  // offerUndo paints into #toast; the harness page has no shell, so give it one.
+  if (!document.getElementById('toast')) { var tE = document.createElement('div'); tE.id = 'toast'; document.body.appendChild(tE); }
+  var dkD54 = HT.state().current;
+  HT.addManualEntry({ name: 'Oatmeal', meal: 'breakfast', time: '07:30', kcal: 300,
+                      protein_g: 10, fat_g: 5, carb_g: 50, fiber_g: 8, soluble_fiber_g: 4,
+                      confidence: 'weighed', notes: 'with berries' });
+  HT.addManualEntry({ name: 'Coffee', meal: 'drink', time: '08:00', kcal: 5 });
+  var beforeD54 = JSON.stringify(HT.state().days[dkD54].items);
+  var d54 = HT.deleteItem(0);
+  res(d54.ok === true && HT.state().days[dkD54].items.length === 1 &&
+      HT.state().days[dkD54].items[0].name === 'Coffee',
+      'D54-undo: deleting a food row removes it');
+  res(document.getElementById('toast').innerHTML.indexOf('doUndo()') >= 0,
+      'D54-undo: and OFFERS AN UNDO -- the affordance that was missing entirely');
+  HT.doUndo();
+  res(JSON.stringify(HT.state().days[dkD54].items) === beforeD54,
+      'D54-undo: undo restores the item BYTE-EXACT, at its original index, with every field it carried');
+
+  // The date is captured, not read at undo time. A toast outlives a day-nav, and
+  // restoring into "whatever day is current now" would move a meal between days --
+  // an undo that is itself a second, quieter mutation.
+  HT.deleteItem(0);
+  var otherD54 = HT.shiftDate(dkD54, -1);
+  HT.state().days[otherD54] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().current = otherD54;              // navigate away with the toast still up
+  HT.doUndo();
+  res(HT.state().days[dkD54].items.length === 2 && HT.state().days[otherD54].items.length === 0,
+      'D54-undo: undo restores into the day the item was DELETED FROM, not the day now on screen');
+  HT.state().current = dkD54;
+
+  // The supplement stays non-deletable, and now returns a refusal rather than
+  // undefined -- so a caller can tell "refused" from "done".
+  HT.state().days[dkD54].items.push(HT.normalizeItem({ name: 'Standing dose', meal: 'supplement',
+      time: '09:00', kcal: 0, source: 'supplement', _auto: true }, true));
+  var autoIdx = HT.state().days[dkD54].items.length - 1;
+  var refused = HT.deleteItem(autoIdx);
+  res(refused.ok === false && HT.state().days[dkD54].items.length === autoIdx + 1,
+      'D54-undo: the flagged supplement is still non-deletable, and says so rather than returning nothing');
+
   // R20-nobump (Fork I): additive, schema stays v5.
   res(JSON.parse(HT.exportJSON()).version === 5,
       'R20-nobump: the schema is unchanged at v5 -- an older app preserves a bm record unrendered rather than stripping it');

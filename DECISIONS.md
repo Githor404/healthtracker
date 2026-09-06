@@ -1179,7 +1179,13 @@ The rendered gate had the same flaw: `ring-size-gate`'s sparse case asserted `< 
 
 ### 1. It was NOT undoable — and that was the wrong exception to make
 
-`clearDay()` ran `window.confirm('… This cannot be undone.')`, emptied `items` and `water_l`, saved and toasted. **No `offerUndo`.** Every other deletion in the app — an item, a timeline record, a photo-meal re-save — goes through the undo grammar (D22). **The whole-day wipe was the single exception, and it is the largest destructive action there is**, which makes it the worst place to hold one. The confirm text also *promised* the exception: it told the user the loss was permanent, which it did not have to be.
+`clearDay()` ran `window.confirm('… This cannot be undone.')`, emptied `items` and `water_l`, saved and toasted. **No `offerUndo`.** ~~Every other deletion in the app — an item, a timeline record, a photo-meal re-save — goes through the undo grammar (D22). **The whole-day wipe was the single exception**~~, and it is the largest destructive action there is, which makes it the worst place to hold one. The confirm text also *promised* the exception: it told the user the loss was permanent, which it did not have to be.
+
+> **CORRECTION (2026-09-06, D54).** The struck sentence was **false when it was written**, and it stood in the governance log for three days. `deleteItem()` — the `×` on a food row, the most-used deletion in the app — spliced and saved with **no `offerUndo`**. The day-wipe was **not** the single exception; it was one of **two**, and the other one was the smaller, commoner gesture nobody thought to check.
+>
+> The claim was not merely incomplete, it was **load-bearing**: it was the argument for fixing the day-wipe ("every other deletion goes through the grammar, so this one must too"). An argument from a false premise reached a correct conclusion, which is the kind of luck that hides the next defect rather than exposing it — and it did: a food row stayed unrecoverable for three more days because the log said it was already safe.
+>
+> Recorded rather than quietly patched, because **a governance claim that was false deserves the same treatment as a false gate.** This log is read as evidence by future sessions; a sentence in it that is wrong will be believed. Fixed in D54, with the pre-fix behaviour reproduced against the new cases.
 
 It now snapshots `items` and `water_l`, wipes, and offers the same undo toast as an item delete, restoring **byte-identical**. **The confirm stays** — a day is bigger than a row, and the two mechanisms answer different questions ("did you mean it?" versus "can you take it back?"). The text no longer claims permanence.
 
@@ -1593,3 +1599,34 @@ The brief asked to measure the rendered **thumb** box and assert ≥ 44×44. **T
 **A finger occludes what is under and beside a slider exactly while sliding — which is when the readout is being read.** A mouse never shows this defect, which is why it survived the R20 gates: every one of them drove the control programmatically. The readout now sits **above** the track with 6 px clearance, gated on `readout.bottom ≤ track.top`.
 
 Reverting both — 36 px control, readout below — fails the gate at both widths (`target ... -> False`, `readout above-track=False gap=-76.6px`).
+
+## D54 — The food row joins the undo grammar, and D44's claim is corrected (2026-09-06)
+
+`APP_VERSION → 0.20.3`; **schema unchanged at v5**. Shipped **alone and first**, ahead of the R22 slice that surfaced it, because it is losing data today.
+
+### The defect
+
+`deleteItem(idx)` spliced the item out of `day.items`, saved, and refreshed. **No `offerUndo`.** The `×` on a food row — the most-used deletion in the app — was one tap away from losing a meal, with nothing offering it back. `deleteSignal` has had undo since it shipped; `clearDay` gained it in D44; a photo-meal re-save snapshots its prior state. The food row had none.
+
+It now captures a deep copy, offers the standard undo toast, and restores **byte-exact at the original index**.
+
+**The date is captured, not read at undo time.** The toast lives seven seconds and a day is one tap away, so a user can navigate before undoing; restoring into "whatever day is current now" would move a meal between days — an undo that is itself a second, quieter mutation. This is D44's own by-date-key rule, applied to the row it forgot. **Gated with a day-nav in the middle of the undo.**
+
+The flagged supplement stays non-deletable, and now **returns a refusal** rather than `undefined`, so a caller can tell "refused" from "done".
+
+### The governance correction
+
+D44 asserted the day-wipe was *"the single exception"* to the undo grammar. **That was false when written** — see the correction inserted at D44 itself, where the sentence is struck rather than removed.
+
+Two things follow, and both are the point of recording it this way:
+
+1. **The false claim was the argument.** D44 reasoned *"every other deletion goes through the grammar, so this one must too."* A correct conclusion from a false premise is worse than a wrong one, because nothing about the outcome invites re-checking the premise.
+2. **It cost three days.** The log said food deletion was already safe, so nobody looked. A governance claim is read as evidence by future sessions; one that is wrong will be believed and acted on. **A false claim in the log gets the same treatment as a false gate** — reproduced, corrected in place, and struck rather than deleted, per the never-delete-log-entries rule.
+
+### Flagged, not fixed: `cycleMeal` is the second silent rewriter — and it is NOT the same severity
+
+`cycleMeal(idx)` rewrites a saved record's `meal` with no undo and no trace. Surfaced here rather than left to be discovered.
+
+**But it is not data loss, and the difference is worth stating precisely.** It advances through `MEALS` **cyclically** — `MEALS[(indexOf + 1) % length]` over six values — so six taps return the original. Nothing is destroyed; the user is inconvenienced, not robbed. That is why it is **not** in this emergency fix.
+
+It is, however, an **edit of an editable field** under R22's Fork D ruling (value / time / notes / meal), and Fork C rules that editing `meal` demotes nothing. **So `cycleMeal` is already an R22 edit that predates R22**, and the right resolution is to route it through the edit path R22 builds — one contract, one path, with undo — rather than bolting a separate undo onto it now. **Recorded as R22 scope.**

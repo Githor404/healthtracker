@@ -1858,3 +1858,24 @@ D44 stated the day-wipe was *"the ONE destructive action outside the undo gramma
 | R22-vocab | M7 with a planted control over every new label |
 
 **Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–H.**
+
+---
+
+### D54 — the food row joins the undo grammar — v0.20.3
+
+Shipped **alone and first**, ahead of the R22 slice that surfaced it, because it was losing data today.
+
+| Case | Result |
+|---|---|
+| D54-undo | deleting a food row removes it **and offers an undo** — the affordance that was missing entirely |
+| D54-undo | undo restores the item **byte-exact, at its original index**, with every field it carried |
+| D54-undo | undo restores into the day the item was **deleted from**, not the day now on screen — gated with a **day-nav in the middle of the undo**, because the toast outlives a day change |
+| D54-undo | the flagged supplement is still non-deletable, and now **returns a refusal** rather than `undefined`, so a caller can tell "refused" from "done" |
+
+**Proven against the defect.** Restoring the pre-D54 body — splice, save, return — fails **three** of the four: no undo is offered, nothing is restored, and the day-nav case cannot even run. Only the "still non-deletable" case survives, which is exactly right: that behaviour was never broken.
+
+**Count delta: 1282 → 1287** (+5). **1287/1287 ALL PASS**. Sixteen gates green.
+
+**Governance correction, recorded in D44 itself.** D44 claimed the day-wipe was *"the single exception"* to the undo grammar. It was **false when written**, it was **the argument** for that fix ("every other deletion goes through the grammar, so this one must too"), and it stood three days — during which a food row remained unrecoverable **because the log said it was already safe**. The sentence is struck in place, not removed. A false claim in the governance log gets the same treatment as a false gate.
+
+**Flagged, not fixed:** `cycleMeal` rewrites a saved record with no undo — but it cycles through `MEALS` modulo six, so six taps return the original. **Inconvenience, not data loss**, which is why it is not in this emergency fix. It is an edit of an editable field under R22's Fork D, so it routes through the edit path R22 builds — one contract, one path. **Recorded as R22 scope.**

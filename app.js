@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.20.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.20.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1209,12 +1209,31 @@ function goToDay(k) {
   Store.saveState(APP_STATE); refresh();
   return { ok: true, date: k };
 }
+// D54: a food row is the ONLY deletion that was still outside the undo grammar,
+// and D44 said the opposite -- it called the day-wipe "the ONE destructive action
+// outside the undo grammar every other deletion goes through". That was false as
+// written: this function spliced and saved, and a deleted food item was gone.
+// deleteSignal has had undo since it shipped; a food row, the most-deleted row in
+// the app, did not.
+//
+// The date is captured, not read at undo time: the toast outlives a day-nav, and
+// restoring into whatever day happens to be current would move a meal between
+// days -- turning an undo into a second, quieter mutation. Same reason deleteSignal
+// closes over `date`.
 function deleteItem(idx) {
-  const day = curDay(); if (!day) return;
+  const day = curDay(); if (!day) return { ok: false };
   const it = day.items[idx];
-  if (!it || it._auto) return;               // supplement is non-deletable
+  if (!it || it._auto) return { ok: false };   // supplement is non-deletable
+  const dk = APP_STATE.current;
+  const copy = JSON.parse(JSON.stringify(it));
   day.items.splice(idx, 1);
   Store.saveState(APP_STATE); refresh();
+  offerUndo('Removed ' + (it.name || 'item'), function () {
+    const d = APP_STATE.days[dk]; if (!d) return;
+    d.items.splice(Math.min(idx, d.items.length), 0, copy);
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, removed: copy, date: dk, idx: idx };
 }
 function cycleMeal(idx) {
   const day = curDay(); if (!day) return;
@@ -4067,6 +4086,7 @@ const VERSION_LOG = [
   { v: '0.20.0', note: 'Track bowel movements on the Bristol scale: tap the new chip, slide to the form that matches, log. The slider has exactly seven stops, because the scale defines seven forms and nothing in between — so there is no half-type to record by accident. Trends shows the median, the most common type and the range over your window, with the sources cited; it deliberately shows no average, since averaging form types would invent a number the scale does not define.' },
   { v: '0.20.1', note: 'The Bristol slider is easier to hit one-handed, and the type it reads now sits ABOVE the track, where your finger cannot cover it while you slide. Citations and fine print across the app — the bowel-scale sources, the lab guideline references, the key-and-photo handling note — now sit behind a small “Source” line you can open in one tap, instead of taking up room on every glance. Warnings and anything that says how a number should be read stay visible as before.' },
   { v: '0.20.2', note: 'Two more fine-print blocks folded away behind a one-tap line: where barcode nutrition data comes from, and how lab targets are sourced and stored. The instructions that matter stay where they were — check nutrition against the package label, and this app does not suggest which tests to get.' },
+  { v: '0.20.3', note: 'Fix: deleting a food item can now be undone, like every other deletion in the app. Until now the × on a food row removed it for good — the tap was one gesture away from losing a meal you had just logged, with nothing offering it back.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6091,7 +6111,7 @@ window.HT = {
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,
   stepDay, toggleDayStatus, renderDay, defaultSettings, normalizeSettings,
-  setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, miniRingSVG, MINI_PX,
+  setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, deleteItem, miniRingSVG, MINI_PX,
   renderTimelineOverlay, timelineForDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D52 -- the ordinal contract (general), and the bm scale that first uses it
