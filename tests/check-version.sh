@@ -7,11 +7,44 @@
 # Drift is measured against the LAST COMMIT (the last release), not a stamped
 # baseline -- so iterating within a release is friction-free, and a commit that
 # changes the shell without bumping APP_VERSION fails. No --fix / no baseline file.
+#
+# BOTH DIRECTIONS ARE GATED (D6 converse amendment, 2026-09-06):
+#   shell changed + APP_VERSION did not move  -> FAIL (an update with no notice)
+#   APP_VERSION moved + shell otherwise same  -> FAIL (a notice with no update)
+# The second is the one that needed thought. Bumping APP_VERSION EDITS app.js,
+# which is itself a shell file, so "the shell changed" is trivially true on every
+# bump and a plain diff can never catch a hollow one. So the shell is fingerprinted
+# with its version metadata STRIPPED -- the APP_VERSION assignment and the
+# VERSION_LOG entry lines removed -- and compared against HEAD. Same fingerprint
+# with a moved version means the version was the only thing that changed, which
+# under force-and-notify ships a changelog line announcing work no user can see.
 set -uo pipefail
 
 DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$DIR"
 SHELL_FILES="index.html app.js manifest.json icons"
+SHELL_TEXT="index.html app.js manifest.json icons/icon.svg"
+SHELL_BIN="icons/icon-192.png icons/icon-512.png icons/apple-touch-icon.png"
+
+# Version metadata, removed so the REST of the shell can be compared. Matches the
+# APP_VERSION assignment and VERSION_LOG entry lines only -- references such as
+# `'HealthTracker/' + APP_VERSION` are not assignments and are deliberately kept.
+strip_vmeta() {
+  sed -E \
+    -e "/APP_VERSION[[:space:]]*=[[:space:]]*'[^']*'/d" \
+    -e "/^[[:space:]]*\{[[:space:]]*v:[[:space:]]*'[0-9]+\.[0-9]+\.[0-9]+'[[:space:]]*,[[:space:]]*note:/d"
+}
+# Line endings normalized like check-sw-hash, so the fingerprint is platform-stable.
+subst_hash_work() {
+  for f in $SHELL_TEXT; do
+    if [ "$f" = app.js ]; then strip_vmeta < "$f"; else cat "$f"; fi
+  done | tr -d '\r' | sha256sum | cut -d' ' -f1
+}
+subst_hash_head() {
+  for f in $SHELL_TEXT; do
+    if [ "$f" = app.js ]; then git show "HEAD:$f" | strip_vmeta; else git show "HEAD:$f"; fi
+  done | tr -d '\r' | sha256sum | cut -d' ' -f1
+}
 
 extract_appv() { grep -oE "APP_VERSION[[:space:]]*=[[:space:]]*'[^']*'" | head -1 | sed -E "s/.*'([^']*)'.*/\1/"; }
 APPV=$(extract_appv < app.js)
@@ -32,6 +65,18 @@ if git rev-parse HEAD >/dev/null 2>&1; then
     PREV=$(git show HEAD:app.js 2>/dev/null | extract_appv)
     if [ -n "$PREV" ] && [ "$PREV" = "$APPV" ]; then
       fail "shell changed since last commit but APP_VERSION did not bump (still $APPV) - bump it + add a VERSION_LOG line"
+    fi
+    # Converse arm: the version moved, but did anything a user could SEE move with it?
+    if [ -n "$PREV" ] && [ "$PREV" != "$APPV" ] \
+       && [ "$(subst_hash_work)" = "$(subst_hash_head)" ] \
+       && git diff --quiet HEAD -- $SHELL_BIN 2>/dev/null; then
+      echo "check-version: FAIL - APP_VERSION bumped $PREV -> $APPV but the shell is"
+      echo "  otherwise UNCHANGED: stripped of the version line and the VERSION_LOG"
+      echo "  entries, the shell fingerprint is identical to HEAD. Under force-and-notify"
+      echo "  (D6) this ships a changelog line to every device announcing a change that"
+      echo "  did not happen. Infrastructure work (gates, harness, docs) is not a release."
+      echo "  fix: ship a real shell change with the bump, or hold the version."
+      exit 1
     fi
     echo "check-version: OK ($APPV; shell changed since last commit, APP_VERSION bumped $PREV -> $APPV)"
     exit 0
