@@ -1774,3 +1774,87 @@ It is a **manifest, not a bare count**, for the reason `SE-disclose` names the l
 Proven both directions: removing `bm-slider-gate.ps1` names it and prints its recovery line; adding an unpinned `new-feature-gate.ps1` fails as unpinned.
 
 **2. The gate suite has an environment dependency on this machine:** a scoped AV exclusion for `tests/`. Without it, CDP gates may be quarantined mid-run and the suite becomes non-deterministic in a way that looks like a code failure and is not. Recorded as a dependency because a future session hitting a missing gate should reach for this note rather than re-derive it — and because a green run on a machine without the exclusion proves less than it appears to.
+---
+
+### R22 — Timeline-record editing — PRE-REGISTERED, FORKS OPEN (received 2026-09-06; NOT built)
+
+**Brief as received:** *"records are deletable but not editable."*
+
+Pre-registered rather than built because the working rule binds here: **data-loss implications stated and ruled before touching storage.** An edit is a storage mutation that rewrites history other features read.
+
+#### What the survey found before any design
+
+Three things that change the shape of this slice, and two of them contradict the brief.
+
+**1. Editing already exists, in two places, and one of them is silent.**
+
+| path | what it edits | undo? |
+|---|---|---|
+| `cycleMeal(idx)` | a food item's **meal category**, tap-to-cycle | **none** |
+| `photoReopen` → `photoSave` | a whole photo meal, by `mealId` | **yes** — full prior-state snapshot |
+
+So "not editable" is not quite true: the app already mutates saved records in two ways. `photoSave` is the good precedent — it replaces **its own meal only**, snapshots the prior items, and offers the standard undo. `cycleMeal` is the bad one: it rewrites a saved record with no undo and no trace.
+
+**2. `deleteItem` is outside the undo grammar — and D44 says it is not.**
+
+D44 stated the day-wipe was *"the ONE destructive action outside the undo grammar every other deletion goes through."* That is **wrong as written**: `deleteItem(idx)` splices a food item and saves, with **no `offerUndo`**. `deleteSignal` has undo; clear-day has undo; a food row does not.
+
+**A food item deleted today is unrecoverable.** That is a live data-loss defect, found while surveying for this slice, and it is arguably more urgent than the feature that surfaced it. **Fork A** asks whether it rides along.
+
+**3. Both normalizers are allowlist rebuilds, so any new edit field must be declared or it is destroyed at the restore boundary.**
+
+`normalizeSignal` drops unknown top-level keys; `normalizeItem` does the same and lists `ai_grams` / `ai_identity` / `pinned` / `mealId` / `tzo` / `panelId` explicitly for exactly this reason. This is the pattern that has now bitten this project three times (D45's warning, D49's `byokCount`, and the two allowlists here). **Any edit-provenance field must join both allowlists in the same commit, or an export→restore round-trip silently erases the edit history while keeping the edited value** — the worst of both.
+
+#### The forks
+
+**Fork A — does the missing food-item undo ride along?** It is a two-line fix (`deleteItem` gains the `offerUndo` + `undoRemove` that `deleteSignal` already uses), it is a real data-loss hole, and it sits in the same code this slice touches.
+- **A1 (recommended):** yes, fix it here, and amend D44's claim in the log rather than leaving a false statement standing.
+- **A2:** separate slice. Clean, but leaves an unrecoverable delete shipped for longer with no benefit.
+
+**Fork B — in-place edit, or edit-with-provenance?** This is the load-bearing one.
+- **B1 — in place.** The record's fields change; the old values are gone. Simple, and undo covers the immediate mistake.
+- **B2 (recommended) — the correction-loop shape, which this app already uses.** The photo path keeps `ai_grams` **beside** the accepted grams: *what was estimated* and *what was corrected to*, both retained. The same shape here: an edited record keeps `orig` (the fields as first written) plus `edited_at`. Costs two allowlist entries per normalizer.
+  - **Why B2:** every honesty feature in this app rests on knowing where a number came from — `confidence`, `source`, micros-only-from-labels, `ai_identity`. An in-place edit makes a hand-typed value indistinguishable from a scanned one **forever**, and R15's audit view is explicitly reserved on the promise that provenance survives.
+  - **Against B2:** it is storage nobody reads yet. D29 shipped `tzo` on exactly that basis ("capture only, nothing consumes"), so the precedent is established — but it is a precedent for *capture*, and this is more.
+- **B3 — append-only:** never mutate; write a superseding record. Rejected unless you want it: it doubles every edited row in every series that reads the timeline, and every consumer would need a supersede-aware filter.
+
+**Fork C — does an edit change `source` and `confidence`?** The honesty question, and it has a right answer per this app's own rules.
+- A scanned item carries `source: 'scan'`, `confidence: 'measured'`, and possibly **labelled micros** (D8's honesty rule: micros come only from labelled sources). Hand-editing its protein makes "measured" false.
+- **C1 (recommended):** editing a **nutrient or value** field demotes `confidence` to `eyeballed` and leaves `source` alone (the record *did* come from a scan; the user corrected it). Editing **time**, **notes**, or **meal** touches neither — those are not claims about measurement.
+- **C2:** demote `source` to `manual` too. Rejected: it erases that OFF was ever consulted, and the barcode stays on the record anyway, so the log would contradict itself.
+- **C3:** change nothing. Rejected: it lets a hand-typed number keep the word `measured`, which is the exact dishonesty D8 exists to prevent.
+- **Sub-question:** should editing a nutrient on a scanned item **strip its micros**? They came from the label; if the macros are being corrected, the label is in question. Recommend **keep, and mark the record edited** — the micros are still what the label said, and D8's rule is about *provenance*, not agreement.
+
+**Fork D — which fields, and which record classes?**
+- **D1 (recommended) — value, time, notes, and meal-category only.** Not `type` and not `kind`: changing a weight into a glucose is not an edit, it is a delete plus a create, and letting one record change species breaks every series that has already read it.
+- Classes: timeline **signals** and **medications** first (they have the row and the delete button), **food items** second (they have a different row and no undo — see Fork A), **lab values** third.
+- **D2:** everything at once, including lab values. Lab rows carry `panelId`, `ref_low/ref_high`, `ref_src` and feed the D32 band machinery — an edited lab value with a stale `ref_src: 'lab-report'` claims a printed interval it may no longer match. Recommend **deferring labs** to their own slice with that question ruled.
+
+**Fork E — derived state after an edit.** Editing a **time** moves the record on the ring, and editing a **meal time** can create, destroy or resize a fast candidate (D22), an eating window (D35/R8), and the trailing gap (D43). Editing a **bm** value must re-snap (D52).
+- **E1 (recommended):** derived state is **recomputed, never patched** — every consumer already derives from the records on each render, so an edit needs no invalidation logic. But a **resolved** fast (`fastLog`) is a *user decision* about a window that may no longer exist. Recommend: an edit that changes a meal time **leaves resolutions alone and lets the candidate recompute**; if a resolution's window no longer exists it is already dead data the detector ignores. Gate it, because this is where an edit could silently rewrite a decision the user made.
+
+**Fork F — `tzo` on edit.** D29 Pin 2/3: `tzo` is the zone the record was **captured** in, never invented, never backfilled.
+- **F1 (recommended):** an edit **preserves the original `tzo`**. Editing a Tuesday breakfast from another timezone must not claim you ate it there. If B2 lands, `edited_at` may carry its own offset; the record's `tzo` does not move.
+
+**Fork G — the undo grammar and the write-site census.** An edit must be undoable exactly like a delete (`offerUndo` + a prior-state snapshot, the `photoSave` shape). And `check-writesites.sh` pins 14 write sites: an edit function is a **new write site** and must join the D29 manifest with its stamping classified — recommend **exempt, with the reason "preserves the original stamp, never issues a new one"** (Fork F).
+
+**Fork H — where does the edit UI live?** The timeline row has a `×`. An edit affordance beside it is the obvious place, but the row is compact and already carries time, tag, text and a delete.
+- **H1 (recommended):** tap the **row body** to open an inline editor; leave `×` as the only button. No new chrome on a dense row, and the delete stays a deliberate, separate target — the D44 instinct that a destructive action should not share a thumb path.
+- **H2:** an explicit pencil button per row. Honest but crowds the row and puts edit and delete adjacent.
+
+#### Pre-registered gates (to run once ruled)
+
+| Case | Asserts |
+|---|---|
+| R22-undo | an edit is undoable like a delete: prior state restored **byte-exact**, including fields the editor never showed |
+| R22-provenance | *(if B2)* `orig` + `edited_at` survive **export → restore** — the allowlist trap, asserted directly, in **both** normalizers |
+| R22-honesty | editing a value demotes `confidence`; editing time/notes/meal does not; `source` and `barcode` stand (Fork C) |
+| R22-fields | `type` and `kind` are **not** editable; an attempt is refused, not silently applied |
+| R22-derived | after a time edit the ring, the eating window and the fast candidates **recompute**; a resolved fast is not silently rewritten (Fork E) |
+| R22-tzo | the original `tzo` is preserved across an edit, never re-stamped (Fork F / D29 Pin 3) |
+| R22-ordinal | editing a `bm` value still snaps, and no non-integer is storable **or renderable** (D52) |
+| R22-delete | *(Fork A)* a deleted **food item** is undoable — the hole this survey found |
+| R22-writesites | the edit site joins the D29 manifest deliberately; census re-pinned 14 → 15 |
+| R22-vocab | M7 with a planted control over every new label |
+
+**Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–H.**
