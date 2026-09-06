@@ -1527,3 +1527,62 @@ Both are **named candidates, not built and not asserted**. Per D37 an uncited pa
 ### One contract, one path
 
 Entry writes the snapped integer into the existing `#sigValue` and submits through `addSignalFromForm → addSignal`. **No new record-write site**: the D29 census stays at 14, unchanged.
+## D53 — Provenance collapses, safety does not; and a touch target is a zone, not a handle (R20.1, 2026-09-06)
+
+`APP_VERSION → 0.20.1`; **schema unchanged at v5**. Presentation and accessibility; no data contract touched.
+
+### The general rule: PROGRESSIVE DISCLOSURE OF PROVENANCE
+
+**Citation and provenance text is AUDITABLE, NOT CONTENT.** D32 requires a claim to be **sourced and the source reachable**; it never required the source to be **permanently on screen**. Fine print that always shows costs attention on every glance and earns it only on the glances where someone is actually auditing.
+
+**The boundary is the whole rule, and it is not "small text folds":**
+
+| folds | stays visible |
+|---|---|
+| who said it, which paper, which version | anything constraining how a number may be **read** |
+| how two sources differ methodologically | applicability and scope ("statin-indicated patients") |
+| | "this app does not know your risk category" |
+| | "figures only, no interpretation" |
+| | "worth discussing with your doctor", and every warning |
+
+**A qualifier that stops a figure being misread is not provenance — it is the safety statement wearing small type.**
+
+Implemented as `citeBlock()` over a native `<details>`: every word stays **in the DOM at all times**, opens in **one tap**, and is keyboard- and screen-reader-navigable for free. Closed by default, because the default is the non-auditing glance.
+
+**Gated by deletion, which is the sharp form of the test.** The cases strip every `<details class="cited">` block from a surface and assert on what remains — that is what a reader sees before touching anything, and every safety phrase must be in it. With a planted control: a safety line deliberately folded **does** trip the check, so it is not vacuous.
+
+**One boundary call worth stating, because it went the other way from the brief's list.** The CCS overlay's **applicability text does not fold.** D32 made it load-bearing precisely so a risk-stratified figure can never read as a universal cutoff — three tiers stated in full. That is scope, not provenance. Only the paper reference folds. The brief said "guideline citations", and the applicability is not a citation, so this is the ruling applied rather than departed from.
+
+**Applied to:** the bm sources (the claim and the doctor line stay); lab band citations; the lab overlay's paper reference; the vitamin-D Health Canada/IOM methodology note; the BYOK key-and-photo handling paragraph (the live "used today" counter stays — it is state, not provenance).
+
+**Surveyed and proposed, NOT applied** — the brief asked for a proposal:
+
+| candidate | verdict |
+|---|---|
+| scanner note: *"Nutrition is community data — verify it against the package label"* | **split**: the provenance half folds, the *verify* instruction stays. Worth doing. |
+| lab-entry note: *"Values with a cited Canadian target show it; every value can also carry your lab's own printed interval"* | **fold** — methodology explanation. Worth doing. |
+| labs footer: *"Reference ranges differ by laboratory and by person; these are worth discussing with your doctor"* | **do not fold.** The methodology half is fused into the safety sentence; splitting risks weakening a safety line for a small gain. |
+| trends footer: *"figures only, no interpretation"* | **do not fold** — scope. |
+| ingest note: *"AI-paste items are macros-only (micros stripped) at eyeballed confidence"* | **do not fold** — it states what the record means, which prevents misreading it. |
+| the entry sheet's explanatory notes (how each feature works) | **out of scope.** These are *help*, not provenance. Folding them is a different slice; propose separately if wanted. |
+
+### The touch target is the STOP'S ZONE, not the handle
+
+The brief asked to measure the rendered **thumb** box and assert ≥ 44×44. **The thumb is not measurable, and both routes were tried and recorded:**
+
+- `getComputedStyle(el, '::-webkit-slider-thumb')` returns the **host box** — 332×36 — not the thumb. A ≥44 check on it would have **passed for the wrong reason** while the real handle was ~16 px.
+- CDP `DOM.describeNode` with `pierce` reports **no pseudoElements** for it.
+
+**A gate that measured the host box and called it the thumb would be a gate that lies**, so it was not written. What is gated instead is what WCAG 2.5.5 is actually about — **the area a finger must hit to select a stop** — and on a range input a tap anywhere on the track jumps to that position, so that area is `(trackWidth / 7) × control height`. Measurable, and a **stronger** claim than the handle's size.
+
+**And the premise is proven behaviourally rather than assumed:** the gate dispatches real taps at stops 1, 3, 5 and 7 and asserts the selected value comes back as that stop, at both widths. If tapping the track ever stopped jumping, the gate fails rather than quietly measuring a target nobody can use.
+
+**The measurement found a real failure in what 0.20.0 shipped:** the control was **36 px tall — below the 44 px floor**. It is now **48 px**, so the per-stop target is **47.4 × 48** at 360 px and **51.7 × 48** at 390 px.
+
+**The brief's two requirements collided, and the arithmetic decides it.** "+10 %" over the 44 floor is 48.4 px of handle; but a handle must not span two stops, and at 360 px the stop pitch is only **47.4 px**. A 48.4 px handle straddles its neighbours. The window at 360 px is `44 ≤ handle ≤ 47.4` **if the handle itself had to meet the floor** — but it does not, because the *zone* is the target. So the handle is **28 px**: visibly larger than the ~16 px default, comfortably clear of the 47.4 px pitch, and the touch target is met by the control's height instead. Gated both ways.
+
+### The readout moved above the track
+
+**A finger occludes what is under and beside a slider exactly while sliding — which is when the readout is being read.** A mouse never shows this defect, which is why it survived the R20 gates: every one of them drove the control programmatically. The readout now sits **above** the track with 6 px clearance, gated on `readout.bottom ≤ track.top`.
+
+Reverting both — 36 px control, readout below — fails the gate at both widths (`target ... -> False`, `readout above-track=False gap=-76.6px`).

@@ -60,12 +60,28 @@
      STORES the validated ordinal -- the slider has step=1 over 7 stops, so an
      intermediate position is not merely discouraged, it does not exist. */
   .bmwrap{margin-top:10px}
-  .bmslider{width:100%;margin:6px 0 2px}
+  /* R20.1: the control is 48px TALL, and that is the touch target. On a range
+     input a tap anywhere on the track jumps to that position, so the thing a
+     thumb must hit is the STOP'S ZONE (trackWidth/7 wide by this height), not the
+     handle. 48 clears the 44x44 floor (WCAG 2.5.5 / Apple HIG) with margin; the
+     handle stays 28px because it must NOT span two stops -- at 360px a stop zone
+     is only 47.4px wide, so a 44px+ handle would straddle its neighbours. */
+  .bmslider{-webkit-appearance:none;appearance:none;width:100%;height:48px;background:transparent;margin:0;display:block}
+  .bmslider:focus{outline:none}
+  .bmslider:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .bmslider::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--line)}
+  .bmslider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:28px;height:28px;border-radius:50%;
+    background:var(--accent);border:2px solid var(--panel);box-shadow:0 1px 4px rgba(0,0,0,.3);margin-top:-11px}
+  .bmslider::-moz-range-track{height:6px;border-radius:3px;background:var(--line)}
+  .bmslider::-moz-range-thumb{width:28px;height:28px;border-radius:50%;background:var(--accent);border:2px solid var(--panel)}
   .bmends{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:11.5px;line-height:1.35}
   .bmends span{max-width:46%}
   .bmends span:last-child{text-align:right}
-  .bmread{margin-top:8px;font-size:14.5px;line-height:1.4}
-  .bmread b{font-size:16px}
+  /* R20.1: the readout sits ABOVE the track. A finger on a slider occludes
+     whatever is under and beside it exactly while sliding -- which is precisely
+     when the readout is being read. A mouse never shows this defect. */
+  .bmread{margin:2px 0 6px;font-size:15px;line-height:1.4;min-height:21px}
+  .bmread b{font-size:16.5px}
   .bmref{margin-top:10px}
   .bmrefline{font-size:12.5px;line-height:1.45}
   .byoks{font-size:12.5px;margin-top:10px;line-height:1.4;display:flex;align-items:center;gap:7px}
@@ -355,6 +371,17 @@
   /* R21.5: the capture outcome OWNS THE SCREEN. It sits above the entry sheet
      (z-17/18) because it is the answer to something the user just did, and an
      answer rendered behind the form that asked is an answer nobody reads. */
+  /* D53: provenance is AUDITABLE, not CONTENT. Native <details> keeps every word
+     in the DOM at all times and opens in one tap -- "sourced and reachable" holds
+     without "permanently on screen". Safety text never goes in here. */
+  .cited{margin-top:6px}
+  .cited>summary{cursor:pointer;color:var(--muted);font-size:11.5px;line-height:1.5;list-style:none;
+    display:inline-flex;align-items:center;gap:5px;padding:4px 0;min-height:24px}
+  .cited>summary::-webkit-details-marker{display:none}
+  .cited>summary::before{content:"D8";font-size:13px;opacity:.85}
+  .cited>summary:hover{color:var(--fg)}
+  .citebody{margin-top:2px;padding-left:2px;border-left:2px solid var(--line);padding-left:8px}
+  .citebody .labcite{display:block;margin-top:4px}
   .oscrim{z-index:21;background:rgba(0,0,0,.55)}
   .omodal{position:fixed;left:0;right:0;bottom:0;z-index:22;background:var(--panel);border-top:1px solid var(--line);
           border-radius:18px 18px 0 0;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 -6px 28px rgba(0,0,0,.32)}
@@ -594,10 +621,10 @@
              new record-write site (D29 census unchanged). -->
         <div id="sigBmWrap" class="bmwrap" style="display:none">
           <label id="sigBmLabel">Form</label>
+          <div class="bmread" id="sigBmRead" aria-live="polite"></div>
           <input id="sigBmSlider" class="bmslider" type="range" min="1" max="7" step="1" value="4"
                  oninput="onBmSlide(this.value)" aria-describedby="sigBmRead">
           <div class="bmends" id="sigBmEnds"></div>
-          <div class="bmread" id="sigBmRead" aria-live="polite"></div>
           <div id="sigBmRef"></div>
         </div>
         <div class="row">

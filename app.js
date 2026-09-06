@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.20.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.20.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2162,6 +2162,30 @@ function ordinalSummary(values) {
   return { n: n, median: median, modes: modes, min: vs[0], max: vs[n - 1], latest: values[values.length - 1] };
 }
 
+// ---- D53: PROGRESSIVE DISCLOSURE OF PROVENANCE -- a general contract ----------
+//
+// Citation and provenance text is AUDITABLE, NOT CONTENT. D32 requires a claim to
+// be sourced and the source REACHABLE; it never required the source to be
+// permanently on screen. Fine print that always shows costs the reader attention
+// on every glance and buys nothing on the glances where they are not auditing.
+//
+// THE BOUNDARY, and it is the whole rule: PROVENANCE COLLAPSES, SAFETY DOES NOT.
+//   * collapses -- who said it, which paper, which version, how two sources differ;
+//   * STAYS VISIBLE -- anything that constrains how a number may be READ: scope and
+//     applicability, "this app does not know your risk category", "figures only",
+//     "worth discussing with your doctor", and every warning.
+// A qualifier that stops a figure being misread is not provenance. It is the
+// safety statement, wearing small type.
+//
+// Native <details>: every word stays in the DOM at all times, it opens in ONE tap,
+// and it is keyboard- and screen-reader-navigable for free. Closed by default --
+// no `open` attribute -- because the default is the non-auditing glance.
+function citeBlock(summary, innerHTML) {
+  if (!innerHTML) return '';
+  return `<details class="cited"><summary>${esc(summary)}</summary>` +
+         `<div class="citebody">${innerHTML}</div></details>`;
+}
+
 // ---- D52 / Fork G+H: the bm reference, sourced on the D32 shape ---------------
 // D34 fenced the lab registry off from signals ("ApoB does not belong beside
 // Sauna"), so this is bm-LOCAL and reuses the {org, cite, version, applicability}
@@ -2187,11 +2211,14 @@ const BM_BETWEEN = { min: 3, max: 5 };
 // colour, no verdict word, ever -- the direction-of-good is the user's to judge
 // and a doctor's to interpret. This function returns figures and citations only.
 function bmReferenceHTML() {
+  // D53: the CLAIM stays visible and so does the standing safety line. What folds
+  // is who said it, in which paper, and what each source does and does not assert
+  // -- reachable in one tap from this same surface, which is what D32 asks for.
   return `<div class="bmref"><div class="bmrefline">Rome IV subtypes at types 1–2 and 6–7 · types ` +
     `${esc(BM_BETWEEN.min)}–${esc(BM_BETWEEN.max)} fall between those boundaries</div>` +
-    BM_SOURCES.map((s) =>
+    citeBlock('Sources', BM_SOURCES.map((s) =>
       `<small class="labcite">${esc(s.org)} — ${esc(s.cite)}${s.version ? ' (' + esc(s.version) + ')' : ''} · ${esc(s.applicability)}</small>`
-    ).join('') +
+    ).join('')) +
     `<small class="labcite">Figures only. Persistent change in bowel habit is worth discussing with your doctor.</small></div>`;
 }
 
@@ -3830,9 +3857,10 @@ function renderByok() {
     `<button class="btn" onclick="byokTest()">Test connection</button>` +
     `<button class="btn" onclick="byokClear()"${s.key ? '' : ' disabled'}>Remove key</button></div>` +
     live + stored +
-    `<div class="note">Used today: ${esc(cap.used)} of ${esc(cap.cap)}. The key is stored on this device only, ` +
-    `is never included in an export or a backup, and is sent nowhere except to the provider you choose, ` +
-    `when you capture a meal. The photo is never stored.</div>`;
+    `<div class="note">Used today: ${esc(cap.used)} of ${esc(cap.cap)}.</div>` +
+    citeBlock('How your key and photos are handled',
+      `<small class="labcite">The key is stored on this device only, is never included in an export or a backup, ` +
+      `and is sent nowhere except to the provider you choose, when you capture a meal. The photo is never stored.</small>`);
 }
 function saveByok() {
   const k = document.getElementById('byokKey');
@@ -4037,6 +4065,7 @@ const VERSION_LOG = [
   { v: '0.18.5', note: 'Housekeeping, with nothing to see: the app now keeps a single clock internally. Two of its own automated checks had quietly stopped checking what they claimed to when the date rolled over, and this is the repair. Nothing you can observe changes.' },
   { v: '0.19.0', note: 'Capturing a meal now answers you properly. The result opens as a pop-up that takes over the screen: the estimated items with their sliders, the running totals, and Save meal or Discard right there at the bottom where you can always reach them. If the call fails or times out it says so in the same place, with Try again and Paste the response manually, and while it is working the countdown sits front and centre with a Cancel. No more results appearing quietly below the fold.' },
   { v: '0.20.0', note: 'Track bowel movements on the Bristol scale: tap the new chip, slide to the form that matches, log. The slider has exactly seven stops, because the scale defines seven forms and nothing in between — so there is no half-type to record by accident. Trends shows the median, the most common type and the range over your window, with the sources cited; it deliberately shows no average, since averaging form types would invent a number the scale does not define.' },
+  { v: '0.20.1', note: 'The Bristol slider is easier to hit one-handed, and the type it reads now sits ABOVE the track, where your finger cannot cover it while you slide. Citations and fine print across the app — the bowel-scale sources, the lab guideline references, the key-and-photo handling note — now sit behind a small “Source” line you can open in one tap, instead of taking up room on every glance. Warnings and anything that says how a number should be read stay visible as before.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -4343,11 +4372,14 @@ function addLabPanelFromForm() {
   if (r.ok) { renderLabForm(); toast('Lab panel saved'); }
   return r;
 }
+// D53: the band LABEL is the claim and stays; the org/paper/version behind it is
+// provenance and folds, reachable in one tap on the same row.
 function labBandCite(b) {
   if (!b) return '';
-  return b.src === 'guideline'
+  const inner = b.src === 'guideline'
     ? `<small class="labcite">${esc(b.org)} · ${esc(b.cite)}${b.version ? ' (' + esc(b.version) + ')' : ''}</small>`
     : `<small class="labcite">${esc(b.org)} · ${esc(b.cite)}</small>`;
+  return citeBlock('Source', inner);
 }
 function renderLabTrends() {
   const el = document.getElementById('labTrends');
@@ -4362,10 +4394,17 @@ function renderLabTrends() {
     // A risk-stratified guideline figure is shown as a LABELLED OVERLAY with its
     // applicability stated — never as this user's band, because that would assume
     // a risk category the app has no way to know and must never infer.
+    // D53 BOUNDARY CALL, stated: the APPLICABILITY text does NOT fold. D32 made it
+    // load-bearing precisely so a risk-stratified figure can never read as a
+    // universal cutoff -- it is a scope qualifier, which is safety wearing small
+    // type, not provenance. Only the paper reference folds.
     const ov = t.overlay
       ? `<div class="labtrend labov">${esc(t.overlay.org)} ${t.overlay.direction === 'max' ? '&le;' : '&ge;'} ${esc(rDisp(t.overlay.value))} ${esc(t.overlay.unit)}
-         <small class="labcite">${esc(t.overlay.applicability)} — this app does not know your risk category and does not assume one · ${esc(t.overlay.cite)} (${esc(t.overlay.version)})</small></div>` : '';
-    const disc = t.disclosure ? `<div class="labtrend labov">${esc(t.disclosure)}</div>` : '';
+         <small class="labcite">${esc(t.overlay.applicability)} — this app does not know your risk category and does not assume one</small>` +
+        citeBlock('Source', `<small class="labcite">${esc(t.overlay.cite)} (${esc(t.overlay.version)})</small>`) + `</div>` : '';
+    const disc = t.disclosure
+      ? `<div class="labtrend labov">` + citeBlock('How this target is defined',
+          `<small class="labcite">${esc(t.disclosure)}</small>`) + `</div>` : '';
     const li = t.labInterval
       ? `<div class="labtrend">your lab’s printed interval: ${esc(t.labInterval.low == null ? '—' : rDisp(t.labInterval.low))}–${esc(t.labInterval.high == null ? '—' : rDisp(t.labInterval.high))} ${esc(t.latest.unit)}</div>`
       : '';
@@ -6055,7 +6094,7 @@ window.HT = {
   renderTimelineOverlay, timelineForDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D52 -- the ordinal contract (general), and the bm scale that first uses it
-  ORDINAL_SCALES, isOrdinal, ordinalStops, ordinalDescriptor, ordinalSnap, ordinalClamp,
+  ORDINAL_SCALES, isOrdinal, ordinalStops, ordinalDescriptor, ordinalSnap, ordinalClamp, citeBlock, labBandCite,
   ordinalSummary, BM_SOURCES, BM_BETWEEN, bmReferenceHTML, onBmSlide, renderBmControl,
   // D30 — single entry point (presentation only)
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,

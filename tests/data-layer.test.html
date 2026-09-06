@@ -4810,6 +4810,96 @@ window.setLS({});
   res(document.getElementById('trends').innerHTML.indexOf('Bowel movement') < 0,
       'R20-one-record: removing the record removes the series -- one record, not a derived copy');
 
+
+  // ======================================================================
+  // R20.1 / D53 -- PROGRESSIVE DISCLOSURE OF PROVENANCE.
+  //
+  // The general rule: PROVENANCE COLLAPSES, SAFETY DOES NOT. So the sharp test
+  // is not "is the citation present" -- it is what survives when every collapsed
+  // block is DELETED. Whatever is still on screen with the details stripped is
+  // what a non-auditing glance actually sees, and every safety statement must be
+  // in that set.
+  // ======================================================================
+  // Everything OUTSIDE a collapsed provenance block -- i.e. what a reader sees
+  // before touching anything.
+  function visibleOf(html) { return String(html).replace(/<details class="cited">[\s\S]*?<\/details>/g, ''); }
+  function citedOf(html) {
+    var m = String(html).match(/<details class="cited">[\s\S]*?<\/details>/g);
+    return m ? m.join(' ') : '';
+  }
+
+  var cb = HT.citeBlock('Source', '<small>who said it</small>');
+  res(cb.indexOf('<details class="cited">') === 0 && cb.indexOf(' open') < 0,
+      'R20.1-disclose: a provenance block is a native <details>, CLOSED by default -- the default is the non-auditing glance');
+  res(cb.indexOf('<summary>Source</summary>') > 0 && cb.indexOf('who said it') > 0,
+      'R20.1-disclose: the text is IN THE DOM at all times and one tap away -- sourced-and-reachable, not sourced-and-permanent');
+  res(HT.citeBlock('Source', '') === '',
+      'R20.1-disclose: an empty block renders nothing -- no summary promising content that is not there');
+
+  // The bm band: the CLAIM stays, the SOURCES fold, the SAFETY line stays.
+  var bmRef = HT.bmReferenceHTML();
+  var bmVis = visibleOf(bmRef), bmCited = citedOf(bmRef);
+  res(bmVis.indexOf('Rome IV subtypes at types') >= 0,
+      'R20.1-disclose: the bm CLAIM stays visible -- what folds is who said it, not what is claimed');
+  res(bmVis.indexOf('worth discussing with your doctor') >= 0,
+      'R20.1-safety: the standing doctor line is NOT collapsed -- safety never folds');
+  res(bmCited.indexOf('Scand J Gastroenterol') >= 0 && bmCited.indexOf('Rome IV diagnostic criteria') >= 0,
+      'R20.1-disclose: both citations moved INTO the collapsed block');
+  res(bmVis.indexOf('Scand J Gastroenterol') < 0,
+      'R20.1-disclose: and out of the permanent surface -- otherwise nothing was disclosed progressively');
+  res(bmCited.indexOf('not a target either source asserts') >= 0,
+      'R20.1-disclose: the "neither source asserts a target" note rides with the sources it is about');
+  res(bmRef.indexOf('Scand J Gastroenterol') >= 0,
+      'R20.1-disclose GATE: no cited claim renders without its citation reachable FROM THE SAME SURFACE');
+
+  // The lab band: same shape.
+  var lbc = HT.labBandCite({ src: 'guideline', org: 'Diabetes Canada', cite: 'CPG', version: '2018' });
+  res(lbc.indexOf('<details class="cited">') === 0 && lbc.indexOf('Diabetes Canada') > 0,
+      'R20.1-disclose: a lab band citation folds, and still carries the org');
+  res(visibleOf(lbc).replace(/\s/g, '') === '',
+      'R20.1-disclose: the citation is ENTIRELY inside the block -- nothing of it remains permanent');
+
+  // BYOK: live state stays, the hygiene paragraph folds.
+  if (!document.getElementById('byokBox')) { var bb201 = document.createElement('div'); bb201.id = 'byokBox'; document.body.appendChild(bb201); }
+  HT.byokClear(); HT.byokSave('grok', 'xai-DISCLOSE-0123456789012', 20);
+  HT.renderByok();
+  var byokHTML = document.getElementById('byokBox').innerHTML;
+  res(visibleOf(byokHTML).indexOf('Used today') >= 0,
+      'R20.1-disclose: the BYOK live counter stays visible -- it is state, not provenance');
+  res(citedOf(byokHTML).indexOf('never included in an export') >= 0 &&
+      visibleOf(byokHTML).indexOf('never included in an export') < 0,
+      'R20.1-disclose: the key/photo handling paragraph folds behind one tap');
+  HT.byokClear();
+
+  // THE BOUNDARY, gated as an invariant over every surface that has one: no
+  // safety statement may sit inside a collapsed block, anywhere.
+  var SAFETY = ['worth discussing with your doctor',
+                'does not know your risk category',
+                'Figures only'];
+  var surfaces201 = [HT.bmReferenceHTML()];
+  var leaked = [];
+  surfaces201.forEach(function (h) {
+    SAFETY.forEach(function (phrase) {
+      if (String(h).indexOf(phrase) >= 0 && visibleOf(h).indexOf(phrase) < 0) leaked.push(phrase);
+    });
+  });
+  res(leaked.length === 0,
+      'R20.1-safety GATE: no safety statement is inside a collapsed block' + (leaked.length ? (' [' + leaked.join(',') + ']') : ''));
+  // CONTROL: the same check DOES fire when a safety line is folded, so the gate
+  // is live rather than vacuous.
+  var plantedFold = '<details class="cited"><summary>Source</summary><div class="citebody">worth discussing with your doctor</div></details>';
+  res(visibleOf(plantedFold).indexOf('worth discussing with your doctor') < 0 &&
+      plantedFold.indexOf('worth discussing with your doctor') >= 0,
+      'R20.1-safety CONTROL: the check fires on a safety line deliberately folded -- it is not vacuous');
+
+  // Reachability: a block with a summary and a body is one tap. A block that
+  // promised content and carried none would be worse than no block.
+  var allBlocks = citedOf(HT.bmReferenceHTML() + byokHTML + lbc);
+  res(allBlocks.indexOf('<summary>') >= 0,
+      'R20.1-disclose: every block carries a summary -- the tap target that opens it');
+  res(/<div class="citebody">\s*\S/.test(allBlocks),
+      'R20.1-disclose: and a non-empty body behind it');
+
   // R20-nobump (Fork I): additive, schema stays v5.
   res(JSON.parse(HT.exportJSON()).version === 5,
       'R20-nobump: the schema is unchanged at v5 -- an older app preserves a bm record unrendered rather than stripping it');

@@ -99,3 +99,32 @@ recorded as unexercisable in the harness.
 Proven against the defect: returning `#photoDraft` to the sheet body fails the
 success cases at every width; restoring the second capture-surface paint fails
 the pending cases.
+
+## bm slider ergonomics (R20.1)
+
+### `bm-slider-gate.ps1` — the touch target is the stop's zone
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/bm-slider-gate.ps1
+```
+
+**What it cannot measure, stated up front.** A native range input's thumb is a
+UA-shadow pseudo-element and is not measurable here: `getComputedStyle(el,
+'::-webkit-slider-thumb')` returns the **host box** (332×36), and CDP
+`DOM.describeNode` with `pierce` reports no pseudoElements. A `>=44` assertion on
+the host box would pass for the wrong reason while the real handle was ~16px, so
+that assertion is not written.
+
+It measures the thing WCAG 2.5.5 is actually about — **the area a finger must hit
+to select a stop**. On a range input a tap anywhere on the track jumps to that
+position, so the target is `(trackWidth / 7) × control height`, and the gate
+**proves that premise behaviourally** by dispatching real taps at stops 1/3/5/7
+and checking which stop comes back.
+
+At 360×740 and 390×745 it asserts: the stop zone clears 44×44; the handle stays
+under the stop pitch so it never straddles two stops; and the readout sits
+**above** the track — a finger occludes what is under and beside a slider exactly
+while sliding, and a mouse never shows that defect.
+
+Proven against the defect: restoring the pre-R20.1 control (36px tall, readout
+below the track) fails at both widths.

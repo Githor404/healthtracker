@@ -1717,3 +1717,27 @@ A target band also sits oddly beside D24's ruling that a signal goal renders **f
 
 **Status: MET — awaiting review.** The device question is whether two taps in a bathroom is actually two taps.
 
+
+---
+
+### R20.1 — slider ergonomics + progressive disclosure of provenance (D53) — v0.20.1
+
+| Case | Result |
+|---|---|
+| R20.1-disclose | a provenance block is a native `<details>`, **closed by default**; its text is **in the DOM at all times** and one tap away; an empty block renders nothing rather than promising content it lacks |
+| R20.1-disclose | the bm **claim** stays visible while both citations move into the block — and out of the permanent surface, or nothing was disclosed progressively |
+| R20.1-disclose | lab band citations fold **entirely**; the BYOK **live counter stays** (it is state) while the key-and-photo paragraph folds |
+| R20.1-disclose GATE | **no cited claim renders without its citation reachable from the same surface** |
+| R20.1-safety GATE | **no safety statement is inside a collapsed block** — gated by *deleting* every block and asserting on what remains, which is what a non-auditing glance actually sees. **With a planted control**: a safety line deliberately folded does trip the check |
+| bm-slider-gate · target | the per-stop touch target measured at **47.4 × 48** (360 px) and **51.7 × 48** (390 px) — both dimensions clear the 44 px floor |
+| bm-slider-gate · span | the handle (28 px) stays **under the stop pitch**, so it never straddles two stops |
+| bm-slider-gate · readout | the readout sits **above** the track with 6 px clearance and real text |
+| bm-slider-gate · taps | **real dispatched taps** at stops 1, 3, 5, 7 each select that stop, at both widths — the premise that the *zone* is the target, proven rather than assumed |
+
+**What this gate deliberately does not claim.** The brief asked for the rendered **thumb** box. It is not measurable: `getComputedStyle(el,'::-webkit-slider-thumb')` returns the **host box** (332×36), and CDP `DOM.describeNode` with `pierce` reports no pseudoElements. A ≥44 assertion on the host box would have **passed for the wrong reason** while the real handle was ~16 px, so it was not written. The gate measures the **stop zone** instead — what WCAG 2.5.5 is actually about, and a stronger claim.
+
+**Proven against the defect.** Restoring the pre-R20.1 control — 36 px tall, readout below the track — fails at both widths: `target ... 36px -> False`, `readout above-track=False gap=-76.6px`. **The height failure was real and shipped in 0.20.0**: the control was under the touch-target floor, and no gate then existing measured it, because every R20 case drove the control programmatically and a mouse never shows an occlusion defect.
+
+**Count delta: 1256 → 1273** (+17). **1273/1273 ALL PASS**. **Sixteen gates green** (`bm-slider-gate.ps1` is new).
+
+**Status: MET — awaiting review.** Device question: is one-handed sliding now comfortable, and does the readout stay legible under a real thumb.
