@@ -59,6 +59,15 @@
   /* D52: the 7-stop ordinal control. The user FEELS a sliding scale; the record
      STORES the validated ordinal -- the slider has step=1 over 7 stops, so an
      intermediate position is not merely discouraged, it does not exist. */
+  /* R22: the inline record editor. It replaces its row rather than opening
+     beside it, so the thing being edited stays where the finger already was. */
+  .tleditopen{display:block;padding:0}
+  .rewrap{padding:10px 12px;border:1px solid var(--accent);border-radius:12px;background:var(--panel)}
+  .rerow{display:flex;gap:8px;align-items:flex-end}
+  .rerow .btn{flex:1 1 0;min-height:44px}
+  .renote{margin-top:6px;color:var(--muted);font-size:11.5px;line-height:1.45}
+  .tledit{color:var(--muted);font-size:10.5px;border:1px solid var(--line);border-radius:6px;padding:0 4px;margin-left:4px}
+  .tlmain[role=button]{cursor:pointer}
   .bmwrap{margin-top:10px}
   /* R20.1: the control is 48px TALL, and that is the touch target. On a range
      input a tap anywhere on the track jumps to that position, so the thing a

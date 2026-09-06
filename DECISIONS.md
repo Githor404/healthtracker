@@ -1630,3 +1630,64 @@ Two things follow, and both are the point of recording it this way:
 **But it is not data loss, and the difference is worth stating precisely.** It advances through `MEALS` **cyclically** — `MEALS[(indexOf + 1) % length]` over six values — so six taps return the original. Nothing is destroyed; the user is inconvenienced, not robbed. That is why it is **not** in this emergency fix.
 
 It is, however, an **edit of an editable field** under R22's Fork D ruling (value / time / notes / meal), and Fork C rules that editing `meal` demotes nothing. **So `cycleMeal` is already an R22 edit that predates R22**, and the right resolution is to route it through the edit path R22 builds — one contract, one path, with undo — rather than bolting a separate undo onto it now. **Recorded as R22 scope.**
+## D55 — Editing a record: the correction is kept beside the original, never in place (R22, 2026-09-06)
+
+`APP_VERSION → 0.21.0`; **schema unchanged at v5**. Eight forks ruled; D54 shipped ahead of this as its own commit because it was losing data.
+
+### Fork B — the correction-loop shape, and why in-place was never available
+
+An edited record keeps **`orig`** (the fields **as first written**) and **`edited_at`**. This is the shape the photo path already uses: `ai_grams` sits beside the accepted grams — what was estimated, and what it was corrected to, both retained.
+
+**`orig` is WRITE-ONCE PER FIELD.** A second edit of the same field must not overwrite what the first preserved: `orig` means *as first written*, not *as it was a moment ago*. A field edited three times still shows its original; a field touched later records its own original then. Gated both ways.
+
+Editing in place was not merely simpler-but-worse — it would have **silently retired a commitment already in the log**. R15's audit view is *reserved* on the promise that provenance survives, and every honesty feature here (`confidence`, `source`, micros-only-from-labels, `ai_identity`) rests on knowing where a number came from. An in-place edit makes a hand-typed value indistinguishable from a scanned one **forever**.
+
+The original is also **shown** in the editor — *"originally value 82"*. Provenance the user cannot see is provenance they cannot check.
+
+### Fork C — provenance is a fact, reliability is a claim
+
+Editing a **measurement** field demotes `confidence` to `eyeballed`; `source` and `barcode` **stand**. The record really did come from a scan, and a log that erased that while keeping the barcode would contradict itself. Editing **time, notes or meal** demotes nothing — none of them is a claim about how the number was obtained. Demotion never *invents* a field: a record with no reliability claim gains none.
+
+**Stated plainly, because it limits this slice:** timeline signal records carry **no `confidence`** — that field lives on food items, and Fork D deferred items to second. So `demoteForEdit` ships **correct and gated as a pure function, with no live caller yet**. Its first live caller arrives with the item-edit slice. That is a consequence of the ruling, not a gap in it, and it is recorded rather than left for someone to discover.
+
+### Fork D — the editable set, and what is deliberately not in it
+
+`value` / `time` / `notes` (`dose` for medications). **`type` and `kind` are refused** — changing a weight into a glucose is a delete plus a create, and letting one record change species breaks every series that has already read it. A medication's `name` is its identity, out for the same reason.
+
+**Refused, not silently ignored:** a caller that asks to change `type` gets `{ok:false, refused:['type']}`. A caller told nothing believes it worked.
+
+An edit that changes **nothing** does not stamp `edited_at` — it must not claim an edit happened.
+
+### Fork E — recompute, never patch; and a resolved fast is a decision
+
+Every consumer already derives from the records on each render, so an edit needs no invalidation logic: the ring recomputes and the gate asserts the drawn SVG actually changes. **`fastLog` is untouched** — a resolved fast is a decision the user made, not a derivation to be rewritten under them.
+
+### Fork F — `tzo` preserved, never re-stamped
+
+D29 Pin 3. Editing a Tuesday breakfast from another timezone must not claim you ate it there. Gated across an edit and a full export→restore.
+
+### Fork G — CORRECTED: the D29 census is a CREATION census, and an edit is not a creation
+
+My own fork said the edit function "is a new write site and must join the D29 manifest." **That was wrong.** `check-writesites.sh` matches `.items.push(`, `.entries.push(`, `timeline[..].push(` — it enumerates **record creation**, because its purpose is that every *new* record is tz-stamped. `editRecord` pushes nothing; it mutates in place. Adding it to the manifest would have made the manifest and the detector disagree, failing the census as "lists a site that no longer exists."
+
+So the census correctly stays at **14**, and the `tzo` invariant is gated **behaviourally** instead. **Recorded limitation:** the census does not see mutations at all — `cycleMeal`, `toggleDayStatus`, `photoSetGrams` and now `editRecord` are all invisible to it. That is the right scope for a *creation*-path census, but it should not be mistaken for a write census.
+
+### Fork H — the row body opens the editor; the `×` keeps its own target
+
+Two separate elements, gated as such: the body carries `openRecordEdit` and no delete, the `×` carries `deleteSignal` and no editor. D44's instinct — a destructive action must not share a thumb path with a routine one — and it costs the dense row no new chrome.
+
+An **ordinal** offers its seven stops as a `<select>`, never a number box: the D52 snap stays *structural* on this surface too. And at the API boundary an ordinal edit to 3.5 is **refused rather than snapped-to-absent** — at ingest a stray value becomes absence because there is no one to ask; an edit has a user in front of it, and silently dropping what they just typed would be the worse answer.
+
+### The allowlist trap, treated as a hard requirement
+
+`orig` and `edited_at` are declared in **`normalizeSignal` and `normalizeItem`, in this commit**, though the item edit UI is a later slice. A half-declaration is the trap itself: a record edited by any future path would round-trip as **edited-value-without-edit-history** the first time it was exported — a record that looks corrected but has lost that it *is* a correction.
+
+Third occurrence of this pattern (D45 warned; D49's `byokCount` did it; both normalizers here), so it is **round-tripped rather than reasoned about**. Proven three ways: undeclared in both → both gates fail; declared in the signal normalizer only → the item gate fails **alone**. `orig` is itself key-allowlisted, because at restore it is untrusted input.
+
+### Found while building
+
+`timeToMinutes` parses **"25:00" to 1500 without complaint** — it is an arithmetic helper, not a validator, and every other entry point is a native `<input type="time">` that constrains the value for it. `editRecord` takes a patch object from a caller, so it **range-checks at its own boundary**. Left global behaviour alone; recorded so the next boundary that accepts a raw time knows not to trust that helper.
+
+### `cycleMeal`, as flagged in D54
+
+Still the second silent rewriter. It is an edit of an editable field under Fork D, and Fork C rules it demotes nothing — so it should route through `editRecord`. **Not done here:** `editRecord` operates on `timeline[date]`, and `cycleMeal` mutates `day.items`. Wiring it means extending the contract to food items, which is the item-edit slice. **Recorded as the first task of that slice**, so it does not survive as a silent rewriter by default.

@@ -1879,3 +1879,33 @@ Shipped **alone and first**, ahead of the R22 slice that surfaced it, because it
 **Governance correction, recorded in D44 itself.** D44 claimed the day-wipe was *"the single exception"* to the undo grammar. It was **false when written**, it was **the argument** for that fix ("every other deletion goes through the grammar, so this one must too"), and it stood three days — during which a food row remained unrecoverable **because the log said it was already safe**. The sentence is struck in place, not removed. A false claim in the governance log gets the same treatment as a false gate.
 
 **Flagged, not fixed:** `cycleMeal` rewrites a saved record with no undo — but it cycles through `MEALS` modulo six, so six taps return the original. **Inconvenience, not data loss**, which is why it is not in this emergency fix. It is an edit of an editable field under R22's Fork D, so it routes through the edit path R22 builds — one contract, one path. **Recorded as R22 scope.**
+
+#### Evidence (D55; Forks A–H ruled as argued; built 2026-09-06, v0.21.0)
+
+| Case | Result |
+|---|---|
+| R22-fields | the editable set is `value`/`time`/`notes` (`dose` for medications); **`type` and `kind` are REFUSED**, not silently ignored; an empty patch is refused; an edit that changes nothing does **not** stamp `edited_at`; a malformed time or non-number is refused |
+| R22-provenance | the edit applies and the **original is kept beside it**, with when it happened; a **second** edit does not overwrite `orig` — it means *as first written*; each field records its own original the first time it is touched |
+| R22-provenance **GATE** | `orig` and `edited_at` **survive export → restore** in **both** record classes; `orig` is itself key-allowlisted, and a non-primitive or malformed stamp is dropped |
+| R22-tzo | the original `tzo` is preserved across every edit and a full round-trip (D29 Pin 3) |
+| R22-honesty | editing a measurement field demotes `confidence`; `source` and `barcode` stand; time/notes/meal demote nothing; a record with no reliability claim gains none |
+| R22-ordinal | editing a `bm` to 3.5 is **refused** — at ingest a stray value becomes absence, but an edit has a user in front of it |
+| R22-undo | an edit offers the same undo a deletion does, restoring **byte-exact including the absence of `orig`/`edited_at`** on a record that had never been edited |
+| R22-derived | the ring **recomputes** from the edited record; `fastLog` is untouched — a resolved fast is a decision, not a derivation |
+| R22-ui | the row body and the `×` are **two separate targets**, neither doing the other's job; the editor opens in place with three fields and **no control for type or kind**; an ordinal offers its seven stops, never a number box |
+| R22-vocab | M7 over the editor and the edited-row marker, **with a planted control** |
+
+**The allowlist trap, proven three ways.** Undeclared in both normalizers → both provenance gates fail. Declared in `normalizeSignal` **only** → the item gate fails **alone**, which is the half-declaration shape exactly. The failure message states the consequence: *"the normalizer rebuild would keep the edited value and destroy the fact that it was edited."*
+
+**Count delta: 1287 → 1324** (+37). **1324/1324 ALL PASS.**
+
+**Fifteen of sixteen gates green — and the sixteenth could not be RUN.** `bm-slider-gate.ps1` now fails to launch: `Program 'powershell.exe' failed to run: Access is denied`, in **one second**, reproducibly, while every other CDP gate ran clean on the same machine minutes earlier. The file is **byte-identical to its commit** (`git diff` empty), so this is **not** the quarantine variant D53 recorded.
+
+**It is the same detection, in its other mode: execution denial rather than file removal.** `bm-slider-gate.ps1` is the **only** gate that calls `Input.dispatchMouseEvent` — synthetic input injection, the precise behaviour `PDM:Trojan.Win32.Bazon.a` fires on — which is why it is the only one affected.
+
+**Two consequences:**
+
+1. **The gate-script census does not catch this.** It checks *presence*, and the file is present; it simply will not run. A gate that is present-but-unrunnable is the same silent skip in a new costume — a batch loop grepping for `GATE: PASS` prints nothing for it and moves on.
+2. **A `tests/` file-scanning exclusion may not be sufficient.** This block is on the *execution* of that path, so the exclusion likely needs to cover the behavioural/proactive-defence module for that script, not just on-access file scanning.
+
+**R22's claims do not rest on that gate** — it covers the bm slider's ergonomics, which this slice does not touch, and the ordinal edit path is covered in the harness (`R22-ordinal`, `R22-ui`). But **"sixteen gates green" is not a statement I can make for this commit**, and it is not made.

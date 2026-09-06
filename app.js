@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.20.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.21.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -219,6 +219,14 @@ function normalizeItem(it, clampMacros) {
   if (it.ai_identity != null && String(it.ai_identity) !== '') out.ai_identity = String(it.ai_identity);
   if (it.pinned === true) out.pinned = true;
   if (it.mealId != null && String(it.mealId) !== '') out.mealId = String(it.mealId);
+  // R22 / D55 edit provenance -- declared HERE TOO, in the same commit as the
+  // signal normalizer. The item edit UI is a later slice, but a half-declared
+  // field is the trap itself: a record edited by any future path would round-trip
+  // as edited-value-without-edit-history the first time it was exported.
+  const origI = normalizeOrig(it.orig);
+  if (origI) out.orig = origI;
+  const edI = normalizeEditedAt(it.edited_at);
+  if (edI) out.edited_at = edI;
   return out;
 }
 
@@ -2288,6 +2296,14 @@ function normalizeSignal(raw) {
   if (raw.ref_low  != null && String(raw.ref_low)  !== '') rec.ref_low  = clampNonNeg(raw.ref_low);
   if (raw.ref_high != null && String(raw.ref_high) !== '') rec.ref_high = clampNonNeg(raw.ref_high);
   if (raw.ref_src === 'lab-report') rec.ref_src = 'lab-report';
+  // R22 / D55 edit provenance -- allowlist entries, because this normalizer is a
+  // rebuild. Undeclared, an export -> restore would keep the edited value and
+  // DESTROY the fact that it was edited: a record that looks corrected but has
+  // lost that it is a correction. Declared in normalizeItem too, same commit.
+  const origS = normalizeOrig(raw.orig);
+  if (origS) rec.orig = origS;
+  const edA = normalizeEditedAt(raw.edited_at);
+  if (edA) rec.edited_at = edA;
   return rec;
 }
 
@@ -2584,15 +2600,22 @@ function renderTimelineOverlay() {
     const note = r.notes ? ` <small>${esc(r.notes)}</small>` : '';
     if (r.row === 'food')
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(rDisp(r.kcal))} kcal</small></span></div>`;
+    // FORK H (ruled): the ROW BODY opens the editor; the x keeps its own thumb
+    // path. D44's instinct -- a destructive action must not share a target with a
+    // routine one -- and it costs the dense row no new chrome.
+    const openA = ` onclick="openRecordEdit('${esc(APP_STATE.current)}',${esc(String(r.idx))})" role="button" tabindex="0"`;
+    if (EDIT_TARGET && EDIT_TARGET.date === APP_STATE.current && EDIT_TARGET.idx === r.idx)
+      return recordEditHTML(APP_STATE.current, r.idx, r);
+    const edited = r.edited_at ? ` <small class="tledit">edited</small>` : '';
     // Food already has a delete in the day view; these are the rows that had none.
     const rm = `<button class="rm tlrm" onclick="deleteSignal('${esc(APP_STATE.current)}',${esc(String(r.idx))})" title="remove">\u00d7</button>`;
     if (r.row === 'medication') {
       const dose = (r.dose != null) ? ' ' + esc(rDisp(r.dose)) + ' ' + esc(r.dose_unit || '') : '';
-      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain">${esc(r.name)}${dose}${note}</span>${rm}</div>`;
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain"${openA}>${esc(r.name)}${dose}${note}${edited}</span>${rm}</div>`;
     }
     const spec = SIGNAL_BY_TYPE[r.type];
     const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
-    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain">${esc(spec ? spec.label : r.type)}${val}${note}</span>${rm}</div>`;
+    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(spec ? spec.label : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
 }
 
@@ -2600,6 +2623,225 @@ function renderTimelineOverlay() {
 // it was permanent in the UI. Removal goes through the same undo grammar as every
 // other destructive action (D22), and the undo restores the record byte-identical
 // at its original position.
+// ---- R22 / D55: editing a record -------------------------------------------
+//
+// FORK B (ruled): the correction-loop shape, never in place. The photo path
+// already keeps `ai_grams` BESIDE the accepted grams -- what was estimated and
+// what it was corrected to, both retained. An edit does the same: `orig` holds
+// the fields AS FIRST WRITTEN, `edited_at` says when. Editing in place would
+// make a hand-typed value indistinguishable from a scanned one forever, and
+// R15's audit view is RESERVED on the promise that provenance survives -- an
+// edit-in-place would have silently retired a commitment already in the log.
+//
+// `orig` IS WRITE-ONCE PER FIELD. A second edit of the same field must not
+// overwrite what the first one preserved: `orig` means "as first written", not
+// "as it was a moment ago". A field edited three times still shows its original.
+const EDITABLE_FIELDS = {
+  // FORK D (ruled): `type` and `kind` are NOT here. Changing a weight into a
+  // glucose is not an edit, it is a delete plus a create -- and letting one
+  // record change species breaks every series that has already read it. A
+  // medication's `name` is its identity, so it is out for the same reason.
+  signal: ['value', 'time', 'notes'],
+  medication: ['dose', 'time', 'notes'],
+};
+// Fields whose change is a claim about the MEASUREMENT rather than about the
+// record. Listed for food items too, because the honesty rule below is shared and
+// items are the class that carries a reliability claim.
+const MEASUREMENT_FIELDS = ['value', 'dose', 'kcal', 'protein_g', 'fat_g', 'carb_g',
+                            'fiber_g', 'soluble_fiber_g'];
+function editableFields(rec) {
+  return (EDITABLE_FIELDS[rec && rec.kind === 'medication' ? 'medication' : 'signal']).slice();
+}
+// FORK C (ruled): the PROVENANCE of a record is a fact; the RELIABILITY of its
+// number is a claim. An edit changes the claim and never the fact.
+//
+//   * `source` and `barcode` STAND -- the record really did come from a scan, and
+//     a log that erased that while keeping the barcode would contradict itself;
+//   * `confidence` DROPS to `eyeballed` the moment a measured number is
+//     hand-corrected, because "measured" would otherwise be false.
+//
+// Editing time, notes or meal demotes nothing: none of them is a claim about how
+// the number was obtained.
+function demoteForEdit(rec, fields) {
+  if (!rec || !Array.isArray(fields)) return false;
+  if (!fields.some((f) => MEASUREMENT_FIELDS.indexOf(f) >= 0)) return false;
+  if (rec.confidence === undefined) return false;        // no reliability claim to demote
+  if (rec.confidence === 'eyeballed') return false;      // already the floor
+  rec.confidence = 'eyeballed';
+  return true;
+}
+// THE ALLOWLIST TRAP, third occurrence in this project (D45 warned, D49's
+// byokCount did it, and both normalizers are rebuilds). `orig` and `edited_at`
+// must be declared in normalizeSignal AND normalizeItem or an export -> restore
+// keeps the edited value and DESTROYS the fact that it was edited -- a record
+// that looks corrected but has lost that it is a correction. Gated by round-trip
+// in both classes.
+//
+// Keys are constrained to the editable union: at restore this map is untrusted
+// input, and an allowlist inside the allowlist is cheaper than trusting it.
+const ORIG_KEYS = ['value', 'dose', 'time', 'notes', 'meal', 'kcal', 'protein_g',
+                   'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g', 'confidence'];
+function normalizeOrig(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
+  const out = {};
+  ORIG_KEYS.forEach((k) => {
+    if (!Object.prototype.hasOwnProperty.call(o, k)) return;
+    const v = o[k];
+    if (v === null || typeof v === 'object' || typeof v === 'function') return;   // primitives only
+    out[k] = v;
+  });
+  return Object.keys(out).length ? out : undefined;
+}
+function normalizeEditedAt(v) {
+  const s = String(v == null ? '' : v);
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) ? s : undefined;
+}
+// THE edit. One contract, one path: every surface that edits a timeline record
+// comes through here, so undo, provenance and the honesty rule cannot diverge
+// between callers.
+//
+// FORK F (ruled): `tzo` is NEVER touched. D29 Pin 3 -- the offset records the zone
+// the record was CAPTURED in, and editing a Tuesday breakfast from another
+// timezone must not claim you ate it there. Note also that this is not a
+// CREATION site: it pushes nothing, so the D29 census (which enumerates pushes)
+// correctly does not see it, and stamping here would be exactly the invention
+// Pin 3 forbids.
+function editRecord(date, idx, patch) {
+  const arr = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+  if (!arr || idx < 0 || idx >= arr.length) return { ok: false, error: 'No such record.' };
+  const rec = arr[idx];
+  const allowed = editableFields(rec);
+  const keys = Object.keys(patch || {});
+  if (!keys.length) return { ok: false, error: 'Nothing to change.' };
+  // REFUSED, not silently ignored: a caller that asked to change `type` must
+  // learn it did not happen, or it will believe it did.
+  const refused = keys.filter((k) => allowed.indexOf(k) < 0);
+  if (refused.length) return { ok: false, error: 'Not editable: ' + refused.join(', '), refused: refused };
+
+  const next = {};
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i], raw = patch[k];
+    if (k === 'time') {
+      // Range-checked HERE, deliberately. `timeToMinutes` parses "25:00" to 1500
+      // without complaint -- it is an arithmetic helper, not a validator, and every
+      // other entry point is a native <input type="time"> that constrains the value
+      // for it. This boundary takes a patch object from a caller, so it validates.
+      const t = String(raw == null ? '' : raw).trim();
+      const m = /^(\d{2}):(\d{2})$/.exec(t);
+      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return { ok: false, error: 'Time must be HH:MM.' };
+      next.time = t;
+    } else if (k === 'notes') {
+      next.notes = String(raw == null ? '' : raw);
+    } else if (k === 'value' || k === 'dose') {
+      // D52: an ordinal is REFUSED rather than snapped-to-absent here. At ingest a
+      // stray 3.5 becomes absence because there is no user to ask; an edit has one
+      // in front of it, and silently dropping the value they just typed would be a
+      // worse answer than saying no.
+      if (k === 'value' && isOrdinal(rec.type)) {
+        const o = ordinalSnap(rec.type, raw);
+        if (o == null) return { ok: false, error: 'That is not one of the ' + ordinalStops(rec.type).length + ' defined types.' };
+        next.value = o;
+      } else {
+        const n = Number(raw);
+        if (!Number.isFinite(n) || n < 0) return { ok: false, error: 'That is not a number.' };
+        next[k] = clampNonNeg(n);
+      }
+    }
+  }
+  // Nothing actually different? Then nothing is recorded -- an edit that changed
+  // no value must not stamp `edited_at` and claim one happened.
+  const changed = Object.keys(next).filter((k) => rec[k] !== next[k]);
+  if (!changed.length) return { ok: false, error: 'No change.', unchanged: true };
+
+  const prior = JSON.parse(JSON.stringify(rec));
+  // FORK B: preserve AS FIRST WRITTEN, per field, write-once.
+  const orig = rec.orig ? rec.orig : {};
+  changed.forEach((k) => {
+    if (!Object.prototype.hasOwnProperty.call(orig, k)) orig[k] = rec[k];
+  });
+  const demoted = demoteForEdit(rec, changed);
+  if (demoted && !Object.prototype.hasOwnProperty.call(orig, 'confidence')) orig.confidence = prior.confidence;
+  changed.forEach((k) => { rec[k] = next[k]; });
+  rec.orig = orig;
+  rec.edited_at = new Date(nowMs()).toISOString();
+
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Edited ' + (rec.kind === 'medication' ? (rec.name || 'medication') : signalLabel(rec)), function () {
+    const a = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+    if (!a || idx >= a.length) return;
+    a[idx] = prior;                    // byte-exact, INCLUDING an absent orig/edited_at
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, changed: changed, demoted: demoted, record: rec };
+}
+
+let EDIT_TARGET = null;                       // {date, idx} | null
+function recordEditTarget() { return EDIT_TARGET; }
+function openRecordEdit(date, idx) {
+  const arr = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+  if (!arr || idx < 0 || idx >= arr.length) return { ok: false };
+  EDIT_TARGET = { date: date, idx: idx };
+  renderTimelineOverlay();
+  return { ok: true };
+}
+function closeRecordEdit() { EDIT_TARGET = null; renderTimelineOverlay(); return { ok: true }; }
+// The inline editor. ONLY the ruled-editable fields get a control -- a field with
+// no control on screen cannot be argued with, which is a better refusal than an
+// error message about it.
+function recordEditHTML(date, idx, r) {
+  const med = r.kind === 'medication';
+  const numLabel = med ? ('Dose' + (r.dose_unit ? ' (' + esc(r.dose_unit) + ')' : '')) : 'Value';
+  const numKey = med ? 'dose' : 'value';
+  const cur = r[numKey];
+  // D52: an ordinal offers its STOPS, never a number box. The snap stays
+  // STRUCTURAL on this surface too -- there is nowhere to type a half-type.
+  const numCtl = (!med && isOrdinal(r.type))
+    ? `<select id="reVal">` + ordinalStops(r.type).map((lab, i) =>
+        `<option value="${i + 1}"${Number(cur) === i + 1 ? ' selected' : ''}>${esc(i + 1)} — ${esc(lab)}</option>`).join('') + `</select>`
+    : `<input id="reVal" type="number" inputmode="decimal" value="${cur == null ? '' : esc(cur)}">`;
+  // Fork B, made visible: the original is kept, so it is also SHOWN. Provenance
+  // the user cannot see is provenance they cannot check.
+  const origNote = r.orig
+    ? `<div class="renote">originally ` + Object.keys(r.orig).map((k) =>
+        `${esc(k)} ${esc(String(r.orig[k]))}`).join(' · ') + `</div>` : '';
+  return `<div class="tlrow tleditopen"><div class="rewrap">
+    <div class="rerow">
+      <div style="flex:0 0 104px"><label>Time</label><input id="reTime" type="time" value="${esc(r.time || '')}"></div>
+      <div style="flex:1"><label>${numLabel}</label>${numCtl}</div>
+    </div>
+    <label>Notes</label><input id="reNotes" value="${esc(r.notes || '')}">
+    <div id="reMsg"></div>${origNote}
+    <div class="rerow" style="margin-top:8px">
+      <button class="btn primary" onclick="saveRecordEdit('${esc(date)}',${esc(String(idx))})">Save</button>
+      <button class="btn" onclick="closeRecordEdit()">Cancel</button>
+    </div>
+    <div class="note" style="margin-top:6px">Editing a value keeps what it was before, and marks the reading as your own estimate. The type and the time zone are never changed by an edit.</div>
+  </div></div>`;
+}
+function saveRecordEdit(date, idx) {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
+  const arr = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+  if (!arr || !arr[idx]) return { ok: false };
+  const rec = arr[idx];
+  const patch = {};
+  const tv = g('reTime'); if (tv !== undefined) patch.time = tv;
+  const nt = g('reNotes'); if (nt !== undefined) patch.notes = nt;
+  const numKey = rec.kind === 'medication' ? 'dose' : 'value';
+  const nv = g('reVal');
+  if (nv !== undefined && String(nv).trim() !== '') patch[numKey] = nv;
+  const r = editRecord(date, idx, patch);
+  if (!r.ok) {
+    // "No change" is not a failure the user needs told about -- it is a cancel
+    // they expressed by changing nothing.
+    if (r.unchanged) { closeRecordEdit(); return r; }
+    const m = document.getElementById('reMsg');
+    if (m) m.innerHTML = `<div class="ireport bad">${esc(r.error || 'Could not save.')}</div>`;
+    return r;
+  }
+  EDIT_TARGET = null;
+  renderTimelineOverlay();
+  return r;
+}
 function deleteSignal(date, idx) {
   const arr = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
   if (!arr || idx < 0 || idx >= arr.length) return { ok: false };
@@ -4087,6 +4329,7 @@ const VERSION_LOG = [
   { v: '0.20.1', note: 'The Bristol slider is easier to hit one-handed, and the type it reads now sits ABOVE the track, where your finger cannot cover it while you slide. Citations and fine print across the app — the bowel-scale sources, the lab guideline references, the key-and-photo handling note — now sit behind a small “Source” line you can open in one tap, instead of taking up room on every glance. Warnings and anything that says how a number should be read stay visible as before.' },
   { v: '0.20.2', note: 'Two more fine-print blocks folded away behind a one-tap line: where barcode nutrition data comes from, and how lab targets are sourced and stored. The instructions that matter stay where they were — check nutrition against the package label, and this app does not suggest which tests to get.' },
   { v: '0.20.3', note: 'Fix: deleting a food item can now be undone, like every other deletion in the app. Until now the × on a food row removed it for good — the tap was one gesture away from losing a meal you had just logged, with nothing offering it back.' },
+  { v: '0.21.0', note: 'Timeline records can now be edited, not just deleted — tap the row to change its time, value or note. An edit keeps what the value was before and shows it, so a correction never erases the original reading; and correcting a number marks it as your own estimate rather than leaving it labelled as measured. The type of a record cannot be changed by an edit, and neither can its time zone. Every edit can be undone, like every deletion.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6112,6 +6355,9 @@ window.HT = {
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,
   stepDay, toggleDayStatus, renderDay, defaultSettings, normalizeSettings,
   setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, deleteItem, miniRingSVG, MINI_PX,
+  // R22 / D55 -- the edit contract
+  editRecord, editableFields, demoteForEdit, normalizeOrig, normalizeEditedAt, EDITABLE_FIELDS, MEASUREMENT_FIELDS,
+  openRecordEdit, closeRecordEdit, saveRecordEdit, recordEditTarget,
   renderTimelineOverlay, timelineForDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D52 -- the ordinal contract (general), and the bm scale that first uses it

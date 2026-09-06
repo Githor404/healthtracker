@@ -155,3 +155,25 @@ quarantined gate does not run and does not say so.
 quarantined script fails the suite loudly and by name, with its `git checkout`
 line printed. Adding a ninth gate fails the census until its name joins the
 manifest — the same deliberate re-pin `EXPECTED_ASSERTIONS` requires.
+
+### The second AV mode: present, but denied execution
+
+Observed 2026-09-06 on `bm-slider-gate.ps1`:
+
+```
+Program 'powershell.exe' failed to run: Access is denied
+```
+
+— in one second, reproducibly, with the file **byte-identical to its commit**
+and every other CDP gate running clean minutes earlier. It is the **only** gate
+that calls `Input.dispatchMouseEvent`, which is the behaviour the detection
+fires on.
+
+**The census does not catch this**: it checks presence, and the file is present.
+A present-but-unrunnable gate is the same silent skip wearing a new costume —
+a loop grepping for `GATE: PASS` prints nothing and moves on. **Treat a missing
+`GATE:` line as a failure, never as silence.**
+
+A file-scanning exclusion for `tests/` may not be enough; this block is on
+*execution* of that path, so the proactive-defence module likely needs the
+exclusion too.

@@ -4994,6 +4994,193 @@ window.setLS({});
   res(refused.ok === false && HT.state().days[dkD54].items.length === autoIdx + 1,
       'D54-undo: the flagged supplement is still non-deletable, and says so rather than returning nothing');
 
+
+  // ======================================================================
+  // R22 / D55 -- EDITING A RECORD.
+  //
+  // The load-bearing case is R22-provenance: both normalizers are allowlist
+  // rebuilds, so an undeclared field survives in memory and dies at the restore
+  // boundary -- leaving a record that looks corrected but has lost the fact that
+  // it IS a correction. Third occurrence of that pattern in this project, so it
+  // is round-tripped rather than reasoned about.
+  // ======================================================================
+  setLS({}); HT.boot(); fixClock();
+  var dkE = HT.state().current;
+  HT.addSignal({ type: 'weight', value: 82, unit: 'kg', time: '07:00', notes: 'morning' });
+  var recE = HT.state().timeline[dkE][0];
+  var tzoE = recE.tzo;
+
+  // R22-fields: the editable set is the ruled one, and anything else is REFUSED
+  // rather than silently ignored.
+  res(HT.editableFields({ kind: 'biometric' }).join(',') === 'value,time,notes' &&
+      HT.editableFields({ kind: 'medication' }).join(',') === 'dose,time,notes',
+      'R22-fields: the editable set is value/time/notes (dose for medications) -- and nothing else');
+  var refT = HT.editRecord(dkE, 0, { type: 'glucose' });
+  res(refT.ok === false && refT.refused.indexOf('type') >= 0 && HT.state().timeline[dkE][0].type === 'weight',
+      'R22-fields: changing TYPE is refused -- a weight cannot become a glucose, that is a delete plus a create');
+  var refK = HT.editRecord(dkE, 0, { kind: 'event' });
+  res(refK.ok === false && HT.state().timeline[dkE][0].kind === 'biometric',
+      'R22-fields: and KIND is refused too');
+  res(HT.editRecord(dkE, 0, {}).ok === false, 'R22-fields: an empty patch is refused, not treated as a no-op edit');
+  res(HT.editRecord(dkE, 0, { value: 82 }).unchanged === true &&
+      HT.state().timeline[dkE][0].edited_at === undefined,
+      'R22-fields: an edit that changes nothing does NOT stamp edited_at -- it must not claim an edit happened');
+  res(HT.editRecord(dkE, 0, { time: '25:00' }).ok === false &&
+      HT.editRecord(dkE, 0, { value: 'abc' }).ok === false,
+      'R22-fields: a malformed time or a non-number is refused');
+
+  // R22-provenance: the original is KEPT BESIDE the correction (Fork B).
+  var okE = HT.editRecord(dkE, 0, { value: 80.5 });
+  var afterE = HT.state().timeline[dkE][0];
+  res(okE.ok === true && afterE.value === 80.5,
+      'R22-provenance: the edit applies');
+  res(afterE.orig && afterE.orig.value === 82,
+      'R22-provenance: and the ORIGINAL is kept beside it -- the ai_grams pattern, never an edit in place');
+  res(typeof afterE.edited_at === 'string' && afterE.edited_at.indexOf('T') > 0,
+      'R22-provenance: with when it happened');
+
+  // WRITE-ONCE: a second edit of the same field must not overwrite the first
+  // original. `orig` means "as first written", not "as it was a moment ago".
+  HT.editRecord(dkE, 0, { value: 79 });
+  res(HT.state().timeline[dkE][0].orig.value === 82,
+      'R22-provenance: a SECOND edit does not overwrite orig -- it means "as first written", not "as it was a moment ago"');
+  // A different field records its own original the first time it is touched.
+  HT.editRecord(dkE, 0, { notes: 'after a run' });
+  res(HT.state().timeline[dkE][0].orig.notes === 'morning' && HT.state().timeline[dkE][0].orig.value === 82,
+      'R22-provenance: each field keeps its own first value, recorded when that field is first touched');
+
+  // ---- THE ALLOWLIST TRAP, gated by round-trip in BOTH classes ----
+  var expE = HT.exportJSON();
+  res(expE.indexOf('"orig"') > 0 && expE.indexOf('"edited_at"') > 0,
+      'R22-provenance: the edit history reaches the EXPORT');
+  setLS({}); HT.boot(); HT.restore(expE);
+  var backE = HT.state().timeline[dkE][0];
+  res(backE.value === 79 && backE.orig && backE.orig.value === 82 && backE.orig.notes === 'morning' &&
+      typeof backE.edited_at === 'string',
+      'R22-provenance GATE: orig and edited_at SURVIVE export -> restore -- undeclared, the normalizer rebuild would keep the edited value and destroy the fact that it was edited');
+  res(JSON.stringify(backE) === JSON.stringify(HT.normalizeSignal(backE)),
+      'R22-provenance: and the restored record is already normalized -- a second restore cannot change it');
+  // The SAME declaration in the item normalizer, gated in its own class, because
+  // half a declaration is the trap itself.
+  var itE = HT.normalizeItem({ name: 'Rice', meal: 'lunch', time: '12:00', kcal: 200,
+                               orig: { kcal: 240, confidence: 'measured' }, edited_at: '2026-09-06T10:00:00.000Z' }, true);
+  res(itE.orig && itE.orig.kcal === 240 && itE.edited_at === '2026-09-06T10:00:00.000Z',
+      'R22-provenance GATE: normalizeItem declares the same two fields, in the same commit -- an item edited by any future path round-trips its history');
+  res(HT.normalizeOrig({ bogus: 1, value: 3 }).bogus === undefined &&
+      HT.normalizeOrig({ value: 3 }).value === 3,
+      'R22-provenance: orig is an allowlist too -- at restore it is untrusted input');
+  res(HT.normalizeOrig({ value: { nested: 1 } }) === undefined &&
+      HT.normalizeEditedAt('not a date') === undefined,
+      'R22-provenance: a non-primitive or a malformed stamp is dropped, never stored');
+
+  // R22-tzo (Fork F / D29 Pin 3): the capture zone is a FACT about the capture.
+  res(backE.tzo === tzoE,
+      'R22-tzo: the original tzo is preserved across every edit -- editing from another zone must not claim you were there');
+
+  // R22-honesty (Fork C): provenance is a fact, reliability is a claim.
+  setLS({}); HT.boot(); fixClock();
+  var scanned = HT.normalizeItem({ name: 'Yogurt', meal: 'snack', time: '10:00', kcal: 120,
+                                   protein_g: 10, confidence: 'measured', source: 'scan', barcode: '3017620422003' }, true);
+  var dem = HT.demoteForEdit(scanned, ['kcal']);
+  res(dem === true && scanned.confidence === 'eyeballed',
+      'R22-honesty: editing a MEASUREMENT field demotes confidence to eyeballed -- "measured" would otherwise be false');
+  res(scanned.source === 'scan' && scanned.barcode === '3017620422003',
+      'R22-honesty: while source and barcode STAND -- the record did come from a scan, and the log must not contradict itself');
+  var scanned2 = HT.normalizeItem({ name: 'Yogurt', meal: 'snack', time: '10:00', kcal: 120,
+                                    confidence: 'measured', source: 'scan' }, true);
+  res(HT.demoteForEdit(scanned2, ['time']) === false && scanned2.confidence === 'measured',
+      'R22-honesty: editing TIME demotes nothing -- when you ate it is not a claim about how the number was obtained');
+  res(HT.demoteForEdit(scanned2, ['notes']) === false && HT.demoteForEdit(scanned2, ['meal']) === false,
+      'R22-honesty: nor notes, nor meal');
+  var sigNoConf = { kind: 'biometric', type: 'weight', value: 80 };
+  res(HT.demoteForEdit(sigNoConf, ['value']) === false && sigNoConf.confidence === undefined,
+      'R22-honesty: a record with NO reliability claim gains none -- demotion never invents a field');
+
+  // R22-ordinal (D52): the edit path snaps too, and REFUSES rather than dropping.
+  setLS({}); HT.boot(); fixClock();
+  HT.addSignal({ type: 'bm', value: 4, unit: 'type', time: '08:00' });
+  var badO = HT.editRecord(dkE, 0, { value: 3.5 });
+  res(badO.ok === false && HT.state().timeline[dkE][0].value === 4,
+      'R22-ordinal: editing a bm to 3.5 is REFUSED -- at ingest a stray value becomes absence, but an edit has a user in front of it and must not silently drop what they typed');
+  res(HT.editRecord(dkE, 0, { value: 6 }).ok === true && HT.state().timeline[dkE][0].value === 6,
+      'R22-ordinal: a real stop edits normally');
+
+  // R22-undo: an edit is undoable exactly like a delete, byte-exact -- INCLUDING
+  // the absence of orig/edited_at on a record that had never been edited.
+  setLS({}); HT.boot(); fixClock();
+  if (!document.getElementById('toast')) { var tE2 = document.createElement('div'); tE2.id = 'toast'; document.body.appendChild(tE2); }
+  HT.addSignal({ type: 'hrv', value: 55, unit: 'ms', time: '06:30', notes: 'rested' });
+  var beforeU = JSON.stringify(HT.state().timeline[dkE][0]);
+  HT.editRecord(dkE, 0, { value: 61, notes: 'after coffee' });
+  res(document.getElementById('toast').innerHTML.indexOf('doUndo()') >= 0,
+      'R22-undo: an edit offers the same undo a deletion does');
+  HT.doUndo();
+  res(JSON.stringify(HT.state().timeline[dkE][0]) === beforeU,
+      'R22-undo: undo restores the record BYTE-EXACT -- including having no orig and no edited_at, which a patch-back would have left behind');
+
+  // R22-derived (Fork E): consumers recompute; a RESOLVED fast is a user decision
+  // and is never rewritten by an edit.
+  setLS({}); HT.boot(); fixClock();
+  HT.addSignal({ type: 'sauna', value: 20, unit: 'min', time: '18:00' });
+  var ringBefore = HT.rhythmSVG(HT.rhythmModel(dkE), 180);
+  HT.editRecord(dkE, 0, { time: '06:00' });
+  var ringAfter = HT.rhythmSVG(HT.rhythmModel(dkE), 180);
+  res(ringBefore !== ringAfter,
+      'R22-derived: the ring RECOMPUTES from the edited record -- no invalidation logic, because every consumer already derives on render');
+  var fastKeys = Object.keys(HT.state().fastLog || {});
+  res(fastKeys.length === 0,
+      'R22-derived: and an edit writes nothing into fastLog -- a resolved fast is a user decision, not a derivation to be rewritten');
+
+  // R22-ui (Fork H): the row body opens the editor; the x keeps its own path.
+  setLS({}); HT.boot(); fixClock();
+  if (!document.getElementById('timelineOverlay')) { var tl = document.createElement('div'); tl.id = 'timelineOverlay'; document.body.appendChild(tl); }
+  HT.addSignal({ type: 'weight', value: 80, unit: 'kg', time: '07:00' });
+  HT.renderTimelineOverlay();
+  var tlHTML = document.getElementById('timelineOverlay').innerHTML;
+  res(tlHTML.indexOf('openRecordEdit(') >= 0 && tlHTML.indexOf('deleteSignal(') >= 0,
+      'R22-ui: the row offers BOTH an edit and a delete');
+  // The two targets are SEPARATE elements, asserted as such rather than by their
+  // order in the string: the row body opens the editor and carries no delete; the
+  // x carries the delete and opens no editor.
+  var bodyEl = document.querySelector('#timelineOverlay .tlmain');
+  var rmEl = document.querySelector('#timelineOverlay .tlrm');
+  res(!!bodyEl && !!rmEl &&
+      String(bodyEl.getAttribute('onclick') || '').indexOf('openRecordEdit') === 0 &&
+      String(bodyEl.getAttribute('onclick') || '').indexOf('deleteSignal') < 0 &&
+      String(rmEl.getAttribute('onclick') || '').indexOf('deleteSignal') === 0 &&
+      String(rmEl.getAttribute('onclick') || '').indexOf('openRecordEdit') < 0,
+      'R22-ui: the editor opens from the row BODY and the delete from its own x -- two targets, neither doing the other job (D44: a destructive action does not share a thumb path)');
+  HT.openRecordEdit(dkE, 0);
+  var edHTML = document.getElementById('timelineOverlay').innerHTML;
+  res(HT.recordEditTarget() && edHTML.indexOf('reVal') >= 0 && edHTML.indexOf('reTime') >= 0 && edHTML.indexOf('reNotes') >= 0,
+      'R22-ui: it opens IN PLACE of its row, with the three editable fields');
+  res(edHTML.indexOf('reType') < 0 && edHTML.indexOf('reKind') < 0,
+      'R22-ui: and NO control for type or kind -- a field with no control cannot be argued with, which beats an error about it');
+  HT.closeRecordEdit();
+  res(HT.recordEditTarget() === null, 'R22-ui: cancel closes without writing');
+
+  // The ordinal editor offers STOPS, never a number box.
+  HT.addSignal({ type: 'bm', value: 3, unit: 'type', time: '09:00' });
+  var bmIdx = HT.state().timeline[dkE].length - 1;
+  HT.openRecordEdit(dkE, bmIdx);
+  var bmEd = document.getElementById('timelineOverlay').innerHTML;
+  res(bmEd.indexOf('<select id="reVal"') >= 0 && bmEd.indexOf('type="number" inputmode="decimal" value="3"') < 0,
+      'R22-ui: an ordinal offers its seven STOPS, never a number box -- the snap stays structural on this surface too');
+  HT.closeRecordEdit();
+
+  // R22-vocab: M7 over every new label, with a planted control.
+  HT.editRecord(dkE, 0, { value: 81 });
+  HT.openRecordEdit(dkE, 0);
+  var edSurface = (document.getElementById('timelineOverlay').innerHTML).toLowerCase();
+  var edBanned = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                  'you could','try to','aim for','well done','great job','keep it up','wrong','mistake'];
+  var edHit = edBanned.filter(function (w) { return edSurface.indexOf(w) >= 0; });
+  res(edHit.length === 0,
+      'R22-vocab: M7 holds over the editor and the edited-row marker' + (edHit.length ? (' [' + edHit.join(',') + ']') : ''));
+  res(edBanned.filter(function (w) { return (edSurface + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
+      'R22-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
+  HT.closeRecordEdit();
+
   // R20-nobump (Fork I): additive, schema stays v5.
   res(JSON.parse(HT.exportJSON()).version === 5,
       'R20-nobump: the schema is unchanged at v5 -- an older app preserves a bm record unrendered rather than stripping it');
