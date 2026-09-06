@@ -1691,3 +1691,72 @@ Third occurrence of this pattern (D45 warned; D49's `byokCount` did it; both nor
 ### `cycleMeal`, as flagged in D54
 
 Still the second silent rewriter. It is an edit of an editable field under Fork D, and Fork C rules it demotes nothing — so it should route through `editRecord`. **Not done here:** `editRecord` operates on `timeline[date]`, and `cycleMeal` mutates `day.items`. Wiring it means extending the contract to food items, which is the item-edit slice. **Recorded as the first task of that slice**, so it does not survive as a silent rewriter by default.
+## D56 — Presence was not enough: every gate must produce a verdict (2026-09-06)
+
+Doc-and-harness only; no shell change, no version bump.
+
+### The fourth instance of one failure shape
+
+This project keeps finding the same defect wearing different clothes: **a check that silently stops checking while everything still reports green.**
+
+| # | instance | closed by |
+|---|---|---|
+| 1 | date-pinned gates rotting at midnight | **D50** — one clock governs |
+| 2 | the storage gate green while the row printed `avg 3.5` | **D52** — display-time computation is a gate surface |
+| 3 | a gate script **quarantined** by antivirus | **D53** — the gate-script presence census |
+| 4 | a gate script **present but denied execution** | **this** — presence + verdict |
+
+Instance 4 walked straight past the fix for instance 3. `bm-slider-gate.ps1` sat **byte-identical to its commit** and simply would not launch — *"Access is denied"*, one second, `rc=126` — because it is the only gate that injects synthetic input and the AV's proactive-defence module fires on that behaviour rather than on the file. **The census checked existence, and the file existed.**
+
+**Presence was necessary and not sufficient.** The bar is now **presence *and* a verdict**: every gate must print a `GATE: PASS` / `GATE: FAIL` line, and one that prints neither **fails the suite by name**, exactly as a missing file does. There is no third outcome called *silence*.
+
+### The silent skip was not in any committed script
+
+It lived in **how the gates were invoked** — one at a time, by hand, through a `grep 'GATE:'` that printed nothing for the unrunnable one and moved on to the next. Nothing in the repository was wrong; the repository simply had **no runner**, and the gap was in the operator.
+
+`tests/run-all-gates.sh` is that missing runner. It classifies every outcome, and the classification is the point:
+
+| outcome | verdict |
+|---|---|
+| hung past the timeout (`rc=124`) | **FAIL — no verdict will ever arrive** |
+| exited but printed no `GATE:` line | **FAIL — present but speechless** (instance 4) |
+| printed `GATE: FAIL` | FAIL, with the failing measurements echoed |
+| printed `GATE: PASS` but exited non-zero | **FAIL — the two disagree, so neither is trusted** |
+| printed `GATE: PASS` and exited 0 | PASS |
+
+**Every gate runs on a leash.** A hung gate never exits and would hang the runner forever — the silent skip with the volume turned all the way down — so a timeout is a *failure*, not a pause. That is not hypothetical: this exact gate hung two batch runs to the ten-minute mark before it began being denied outright.
+
+**The no-verdict branch names the likely cause**, because the diagnosis cost real time twice: it prints the tail of the output and says that *"Access is denied"* with the file intact means the antivirus's proactive-defence module, not the script.
+
+### Fork G, corrected in the log rather than quietly
+
+The R22 ruling said the edit function must join the D29 write-site census. **It must not.** The census matches `.push(` — it enumerates **record creation**, because its purpose is that every *new* record is tz-stamped. `editRecord` mutates and creates nothing; adding it would have made the manifest and the detector disagree, failing as *"lists a site that no longer exists."*
+
+**The recorded limitation is the valuable half, and it is now standing policy:** the D29 census is a **CREATION census, not a write census**. `cycleMeal`, `toggleDayStatus`, `photoSetGrams` and `editRecord` are all invisible to it, correctly. **It must never be cited as proof that all writes are covered** — only that every creation path is stamped.
+
+### First full run, and it FAILS — which is the runner working
+
+```
+gate-script census: 8 of 8 present, manifest matches
+  data-layer                 PASS
+  bm-slider-gate.ps1         FAIL - PRODUCED NO VERDICT (rc=126)
+      timeout: failed to run command 'powershell.exe': Permission denied
+  capture-outcome-gate.ps1   PASS
+  chip-layout-gate.ps1       PASS
+  lab-form-gate.ps1          PASS
+  offline-gate.ps1           PASS
+  photo-lead-gate.ps1        PASS
+  ring-size-gate.ps1         PASS
+  update-gate.ps1            PASS
+passed: 8   failed: 1
+FAILED: bm-slider-gate.ps1(no-verdict)
+SUITE: FAIL
+```
+
+**Eight of nine verdicts, and the suite exits non-zero anyway.** That is the whole point: under the old hand-run loop this was a green afternoon. The blocked gate now has a name, a return code, and a stated likely cause.
+
+**No exemption mechanism is provided, deliberately.** A way to mark a gate "known-blocked" would reintroduce exactly the silence this closes — the suite would go green while a gate did not run, which is instance 4 again with a config file in front of it. The suite stays red until the gate can speak, and the fix is the environment (the proactive-defence exclusion), not the bar.
+
+### Standing environment note
+
+The gate suite depends on antivirus exclusions for `tests/` covering **both** on-access file scanning **and** the proactive-defence module. The first prevents instance 3; only the second prevents instance 4. A suite run on a machine without both is not evidence of anything, and the runner now says so out loud instead of leaving a gap where a gate should have spoken.

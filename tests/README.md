@@ -129,6 +129,33 @@ while sliding, and a mouse never shows that defect.
 Proven against the defect: restoring the pre-R20.1 control (36px tall, readout
 below the track) fails at both widths.
 
+## Running everything — `run-all-gates.sh`
+
+```sh
+bash tests/run-all-gates.sh
+GATE_TIMEOUT=900 bash tests/run-all-gates.sh   # per-gate seconds, default 600
+```
+
+Runs the data-layer harness and every `*-gate.ps1`, and holds each to the same
+bar: **presence and a verdict, or fail — by name.**
+
+A gate must PRINT a `GATE: PASS` / `GATE: FAIL` line. One that prints neither
+fails the suite exactly as a missing file does. **There is no third outcome
+called silence**, because silence is how this project's recurring defect —
+a check that stops checking while everything reports green — keeps arriving:
+
+| outcome | verdict |
+|---|---|
+| hung past the timeout (`rc=124`) | FAIL — no verdict will ever arrive |
+| exited, printed no `GATE:` line | FAIL — present but speechless |
+| printed `GATE: FAIL` | FAIL, with the failing measurements echoed |
+| `GATE: PASS` but exited non-zero | FAIL — the two disagree, so neither is trusted |
+| `GATE: PASS` and exited 0 | PASS |
+
+Run the gates through this, not one at a time by hand. **The hand-run loop is
+where the silent skip lived** — a `grep 'GATE:'` prints nothing for an unrunnable
+gate and moves on to the next one, and nothing in the repository was wrong.
+
 ## Environment dependency — antivirus exclusion for `tests/`
 
 The eight `*-gate.ps1` scripts drive headless Chrome over CDP: PowerShell +
@@ -171,8 +198,14 @@ fires on.
 
 **The census does not catch this**: it checks presence, and the file is present.
 A present-but-unrunnable gate is the same silent skip wearing a new costume —
-a loop grepping for `GATE: PASS` prints nothing and moves on. **Treat a missing
-`GATE:` line as a failure, never as silence.**
+a loop grepping for `GATE: PASS` prints nothing and moves on. That hole is now
+closed by `run-all-gates.sh`, which treats a missing `GATE:` line as a failure
+by name; it reports this exact case as:
+
+```
+bm-slider-gate.ps1         FAIL - PRODUCED NO VERDICT (rc=126)
+      timeout: failed to run command 'powershell.exe': Permission denied
+```
 
 A file-scanning exclusion for `tests/` may not be enough; this block is on
 *execution* of that path, so the proactive-defence module likely needs the
