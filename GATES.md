@@ -1575,3 +1575,113 @@ The 0.13.0 lesson, in the test code this time: an assertion outside the window t
 **Collateral repointed rather than left to rot:** `photo-lead-gate.ps1` measured overflow on `.sheetbody`. With the draft moved it would still have passed — while measuring a box the draft is no longer in. It now measures `.obody`.
 
 **Status: MET — awaiting review.** The device question: does the pop-up land where a thumb expects it, and does a 120-second wait still read as alive inside it.
+---
+
+### R20 — Bowel-movement tracking, Bristol scale, snap-to-scale — PRE-REGISTERED, FORKS OPEN (received 2026-09-05; NOT built)
+
+> **Label note.** "R20" was briefly used for the clear-day slice before the 2026-09-04 amendment moved that to D44/R20 and reassigned the capture flow to R21. The clear-day slice's shipped gate IDs remain `R19-clear` / `R19-demote`. **This slice takes R20 as its own label**; if that reads as a third use of the number, say so and it becomes R22.
+
+**Motivation (as received).** Gut transit/form is a free daily biomarker and the primary readout for the psyllium and fermented-food levers. Instrument: the Bristol Stool Form Scale, 7 types.
+
+#### The load-bearing rule, and where it actually bites
+
+**Snap, never interpolate.** Bristol defines 7 forms, not a continuum, so a stored 3.5 would fabricate precision the instrument never issued. Agreed and unambiguous at the entry boundary.
+
+**But the rule has a downstream twin the spec does not cover, and it is where a 3.5 would actually appear.** `renderTrends` iterates every `SIGNAL_SPEC` entry with `kind === 'biometric'` and prints `seriesSummary`: `latest · avg · min–max · Δ · n`. Registered as an ordinary biometric, a `bm` series would render **"avg 3.5"** — the exact forbidden number — and **"Δ +2"**, which asserts that type 5 minus type 3 is two units of something Bristol never defined. The arithmetic mean of an ordinal scale assumes equal spacing between its points; that is the same category error as interpolation, arriving through the summary line instead of the slider.
+
+So the gate must read **stored *or* rendered**, not stored alone. See **Fork F**.
+
+#### Forks the brief named
+
+**Fork A — the chip.** *Density is not the binding constraint; placement is.*
+
+`chip-layout-gate.ps1` hard-pins `n -eq 14` at all three viewports, so a 15th chip fails it on the count and must be **re-pinned deliberately**, like `EXPECTED_ASSERTIONS`. Its other thresholds survive: touch keeps a **one-row horizontal scroll strip**, mouse wraps to reachable rows with zero clipping.
+
+The real problem is that a one-row scroll strip means **chip 15 is off-screen until you scroll** — and `chipOrder()` floats only goal-bearing types, so a `bm` chip with no goal lands dead last. That directly defeats the stated motivation ("bathroom logging has a phone-not-in-hand problem, so minimal").
+
+- **A1 (recommended):** insert `bm` **high in `CHIP_DEFAULT`** — inside the first six, in the unscrolled prime real estate — and re-pin the gate to 15. `CHIP_DEFAULT` is already described in-code as "a curated, audience-tuned strip", and D26 is primary-user-first.
+- **A2:** append at the end. Honest to the existing curation order, but the chip is then two gestures away, which is the thing this slice is trying not to be.
+
+**Fork B — where does a `bm` tick draw?** *It is neither a practice nor an anchor, and the geometry is not free.*
+
+`laneGeometry()` lays out for a **fixed maximum** — 2 anchors (sleep, eat) + 2 practice lanes — explicitly so "the ring never moves when an overflow lane spawns". Strokes are constants; **the gap is the remainder**. Measured:
+
+| layout | slots | gap (viewBox) | gap at the shipped 328 px ring |
+|---|---|---|---|
+| today | 4 | 2.656 | **4.84 px** (the in-code design intent, "legible gaps (4.8 px)") |
+| + a 5th anchor-width lane | 5 | 1.115 | **2.03 px** |
+| + a thin 3.0-stroke tick track | 5 | 1.713 | **3.12 px** |
+
+**And `ring-size-gate.ps1` would not catch either.** It gates band **strokes** (≥ 11/13 px, ≥ 3.5/4.1 % of ring) — which are constants and do not move — and never gates the gaps. A new lane would halve the whitespace the ring's legibility rests on while every gate stayed green. That is precisely the "gate that stops testing what it claims to" pattern from D50, waiting to happen.
+
+- **B1:** dedicated thin tick track (3.12 px gaps), **and `ring-size-gate` gains a gap-floor threshold** so crowding can never again land silently. Costs whitespace; keeps the dual nature the brief asks for.
+- **B2 (recommended for this slice):** **no ring tick yet** — record + Trends only, with the tick named and reserved. The ring's outer annulus is already reserved for R14 and the lane budget is at its ruled maximum; spending the last of the whitespace on the newest signal, before R14's claim is settled, is the expensive order to do it in. Nothing is lost: the record carries `time`, so the tick can be added later from data already stored.
+- **B3:** ride the **eat lane** as a distinct category colour. Physiologically the same axis (in → out) and the eat lane already carries ticks. Rejected unless you like it: it puts output in a lane labelled "meals", and `eatCoverage`/`suppressFullEatLane` (D43) reason about that lane's occupancy.
+
+**Fork C — the descriptors, and a conflict inside the brief.**
+
+Standard Bristol descriptors are factual and pass M7 as written: *1 separate hard lumps · 2 lumpy, sausage-shaped · 3 sausage-shaped with cracks · 4 smooth and soft, sausage or snake · 5 soft blobs with clear edges · 6 fluffy ragged pieces, mushy · 7 watery, no solid pieces.*
+
+**The end labels as specced do not.** The brief asks for ends reading *"hard / constipated"* ↔ *"loose / diarrhea"* — and, four points later, that the app must **never** say "constipated" as a verdict. Those are the same word. Naming the conflict rather than resolving it silently:
+
+- **C1 (recommended):** ends carry the **scale's own descriptive poles** — *"separate hard lumps"* ↔ *"watery, no solid pieces"*. Descriptive, sourced, and it removes the clinical term from the surface entirely rather than relying on the reader to treat it as an axis label.
+- **C2:** keep the clinical words as axis labels only, and gate them as an explicit M7 carve-out. Workable, but a carve-out on a safety invariant is a precedent, and the invariant's whole value is that it has none.
+
+**Fork D — the note field.** `notes` already exists on every signal record, so this is a **UI question with no schema cost**. Recommended: present but **secondary** — the two-tap path never touches it, and it is one optional line for the case worth remembering. Never required, never prompted.
+
+#### Forks the brief did not name
+
+**Fork E — `kind` vs `type`, and it is a data-integrity question, not a style one.**
+
+The brief says "NEW SIGNAL KIND `bm`". In this codebase `kind` is a **closed enum** — `SIGNAL_KINDS = ['biometric','event','medication']` — and `normalizeSignal` coerces anything outside it. Trace a `kind: 'bm'` record through an app that does not know the value:
+
+```
+kind = SIGNAL_KINDS.indexOf('bm') >= 0 ? ... : (spec ? spec.kind : (name ? 'medication' : 'event'))
+```
+
+→ **silently reclassified as `event`.** A bowel movement becomes an untyped duration event, permanently, with no error.
+
+With **`kind: 'biometric'`, `type: 'bm'`** the same record survives untouched: the kind is valid, the type is preserved as a string, the value passes `clampNonNeg`. It renders nowhere and loses nothing. **This is exactly the D35 sleep precedent** — *"the TYPE is the discriminator, so legacy `sleep_hours` records stay valid and simply draw no arc, with no normalizer change at all."*
+
+**Recommendation: `type: 'bm'`, `kind: 'biometric'`.** Strongly held — a new enum member buys nothing and costs silent reclassification.
+
+**Fork F — the summary statistic for an ordinal.** (The downstream twin, above.)
+
+- **F1 (recommended):** `bm` gets its own summary — **median and mode**, `min–max`, `n`, **no mean and no Δ**. Median and mode are the defined central statistics for an ordinal scale; the mean is not.
+- **F2:** inherit the biometric summary. Rejected: it prints the forbidden 3.5.
+
+Sub-question, minor: `sparklineSVG` connects points with straight lines, which draws through the intermediate values it is forbidden to state. A **dot or step plot** for ordinals would be the consistent choice. Recommend dots; flagging rather than assuming.
+
+**Fork G — where the cited band lives.** The D32 machinery (`LAB_GUIDELINE`, `labBand()`, `{org, cite, version, applicability}`) sits in the **lab sub-registry**, which D34 deliberately fenced off from signals — *"ApoB does not belong beside Sauna"*. A `bm` is a signal.
+
+- **G1 (recommended):** a `bm`-local band constant reusing the **same `{org, cite, version, applicability}` shape**, so the grammar and the gates are identical without wiring a signal into `LAB_SPEC` and its surfaces.
+- **G2:** generalize `labBand()` to serve any registry. Cleaner in the abstract; touches shipped lab paths and their gates for one caller.
+
+**Fork H — the citation has to say what we claim it says.** This is D32's own discipline (`CCS_APPLICABILITY` states three tiers rather than one cutoff, precisely so an overlay cannot read as a universal threshold).
+
+**Lewis & Heaton 1997** (*Scand J Gastroenterol* 32:920–4) validated the scale as a **proxy for whole-gut transit time** — types 1–2 with slower transit, 6–7 with faster. It is the right citation for *"this scale tracks transit"*. **It is not, on its own, a citation for "3–4 is the reference band"**; that convention comes from downstream clinical use, most defensibly **Rome IV**, which subtypes by BSFS **1–2** and **6–7**.
+
+- **H1 (recommended):** cite **both**, with applicability stated in the D32 manner — Lewis & Heaton for the instrument, Rome IV for the 1–2 / 6–7 boundaries, and describe 3–4 as **"the range those boundaries leave"** rather than as a target either paper asserts.
+- **H2:** cite Lewis & Heaton alone and describe 3–4 as convention, explicitly uncited. Honest, weaker.
+
+A target band also sits oddly beside D24's ruling that a signal goal renders **fully neutral, no met/unmet colour, ever** — the direction-of-good being personal. Recommend the `bm` band render on exactly that footing: a neutral reference band, never a met/unmet cue.
+
+**Fork I — schema version. Recommend NO BUMP,** on an argument *stronger* than D29's. `tzo` accepted that an older app silently strips the field. Here an older app **does not even strip it**: `kind:'biometric'` + unknown `type` round-trips intact and simply renders nowhere (Fork E). Nothing is lost, so the forward-guard's cost buys nothing. Schema stays **v5**.
+
+**Fork J — AUDIT_WINDOWS.** Named in D37 as an R15 seam; **it does not exist in `app.js`** — the reservation is a decision-log entry, not code. So item 5 is satisfied by recording the two candidate pairs in DECISIONS.md with their citations and `uncited` where they lack one. No code lands. Confirming that reading rather than inventing a constant nothing consumes.
+
+#### Pre-registered gates (to run once the forks are ruled)
+
+| Case | Asserts |
+|---|---|
+| R20-record | round-trip: a `bm` record survives save → export → restore byte-exact, including `notes` and `tzo`; an older-schema consumer preserves it (Fork E's coercion trace, asserted directly) |
+| R20-snap | slider→type mapping exact over all 7 stops; **no non-integer is storable** — 3.5 from the form, from a paste, and from a restore each snap or reject, never round silently |
+| R20-snap-render | **no non-integer is ever rendered either**: the Trends row for `bm` contains no mean and no Δ (Fork F); a series of 3 and 4 never prints 3.5 anywhere |
+| R20-band | the D32 band renders **cited** — org, citation, version, applicability — on the same grammar as `labBand`; neutral reference only, no met/unmet cue (D24) |
+| R20-one-record | the ring tick (if Fork B lands as B1) and the Trends series **derive from one record** — deleting it removes both; no second store |
+| R20-vocab | **M7 with a planted control** over every new label: descriptors, ends, band text, trend row. The control proves the grep is live, per the existing M7 cases |
+| R20-chips | chip present and reachable **without scrolling** on touch (Fork A); chip-layout gate re-pinned 14 → 15 deliberately, not silently |
+| R20-ring-gaps | *(only if B1)* `ring-size-gate` gains a **gap-floor** threshold, so a future lane cannot halve the whitespace while every gate stays green |
+| existing | `photo-lead`, `ring-size`, `chip-layout` **repointed, not weakened**, wherever touched — the D50/R21.5 rule |
+
+**Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–J.**
