@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.21.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.22.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4283,53 +4283,65 @@ function requestPersistentStorage() {
 // check-version.sh) and doubles as the OFF UA version (D14). VERSION_LOG is the
 // single per-release changelog — one line each, like AI_TEMPLATE_VERSION lives
 // in one place. Newest entry last; its version must equal APP_VERSION.
+//
+// `d` is the release DATE (YYYY-MM-DD), and it lives INSIDE the entry on purpose
+// (D6 converse amendment): a separate BUILD_DATE constant would be a second thing
+// to edit with nothing forcing it, and a stale date on a current version reads as
+// authoritative while being wrong. One row per release, one edit, nothing to
+// forget — check-version.sh requires `d` on the newest entry. Date only, never a
+// time: the constant is written at edit time, but publication is the later push
+// plus the Pages rebuild, so a minute would claim precision the process lacks.
+// The three oldest entries predate the release-marker convention and carry NO
+// date. That is deliberate: absent renders as the version alone, never as a
+// guessed or inferred date.
 const VERSION_LOG = [
   { v: '0.2.0', note: 'Barcode scanning, OpenFoodFacts lookup, and price capture.' },
   { v: '0.3.0', note: 'Automatic updates with this changelog, so new versions arrive without a manual refresh.' },
   { v: '0.4.0', note: 'Log weight, biometrics (HRV, resting HR, glucose, sleep, steps, mood), and events (sauna, cold plunge, yoga, ...) on one daily timeline alongside food.' },
-  { v: '0.4.1', note: 'Faster logging: tap a chip (weight, glucose, HRV, sauna, ...) to jump straight to the value box.' },
-  { v: '0.4.2', note: 'Tap the unit to switch it — kg/lb, mg/dL vs mmol/L, ppm vs mmol/L.' },
-  { v: '0.4.3', note: 'Fix: on a mouse/desktop the quick-log chips now wrap to rows so every chip is reachable (they only scrolled by touch before).' },
-  { v: '0.5.0', note: 'Fasting: long gaps between meals surface as candidates you resolve (fasted / ate-didn\'t-log) — pending never counts. Plus Undo on every log.' },
-  { v: '0.5.1', note: 'Updates now also apply when you reopen the app from the switcher, not only on a full launch.' },
-  { v: '0.6.0', note: 'Trends: see your own weight, biometrics, fasting streak, and energy over time — figures only, your data, no interpretation.' },
-  { v: '0.6.1', note: 'Set targets on biometrics (weight, HRV, glucose, BP, …): they show as a line on your trend and float that signal to the front of the quick-log chips.' },
-  { v: '0.7.0', note: 'Habits: after a couple of weeks of tracking, the app can gently suggest one established good habit at a time — always optional, one tap to pass, off in settings.' },
-  { v: '0.8.0', note: 'Regimens: build a named daily template (meds, events, preset meals, weekday rotation, eating window) and work through today’s checklist — one tap logs each, nothing is ever auto-logged.' },
-  { v: '0.8.1', note: 'New logs now also record your device’s time zone, so days logged while travelling stay accurate for later comparison. Nothing else changes, and nothing already logged is altered.' },
-  { v: '0.9.0', note: 'Simpler main screen: it now shows your day, timeline, trends and averages, and one “+” button logs everything — scan, quick items, photo/AI paste, or manual. Setting things up (regimen, goals, supplement, presets, fasting, habits, export and restore) moved to Settings. Nothing was removed and nothing you have logged changed.' },
-  { v: '0.9.1', note: 'Clearer entry points: the log button now reads “+ Log” and Settings is labelled, so nothing is hidden behind an icon. “All days” starts collapsed to a single line showing how many days you have logged.' },
-  { v: '0.10.0', note: 'Lab panels: enter a dated blood panel (ApoB, LDL, HbA1c, fasting glucose, vitamin D, ferritin, liver, thyroid and more) and see each value against its reference range — cited Canadian targets where they exist, your own lab’s printed interval otherwise. Figures only, never a verdict.' },
-  { v: '0.10.1', note: 'The lab panel form is readable on a phone: each value gets its own full-width box with the unit beside it, and the reference interval sits on its own line.' },
-  { v: '0.11.0', note: 'A rhythm ring is now the centre of your day: a 24-hour circle showing when you ate, slept, moved, and the gaps between — all drawn from what you logged. Tap a goal to see its ring for a moment. Sleep is now logged bed-to-wake, and a week or month of rings sits below.' },
-  { v: '0.11.1', note: 'The rhythm ring now fills the screen the way a centrepiece should — about four-fifths of the width on a phone, with everything it needs still in reach.' },
-  { v: '0.11.2', note: 'Tidier dates and status: the day header reads "Tue Aug 31" without the year, and the only day still labelled is a past one you never closed — the one that quietly sits out of your averages.' },
-  { v: '0.11.3', note: 'A day from an earlier year now shows that year in the header, so an old day can never be mistaken for a recent one.' },
-  { v: '0.11.4', note: 'The goal ring now returns to your rhythm ring a little sooner after you tap a goal.' },
-  { v: '0.12.0', note: 'The ring now shows your last 24 hours, so last night\u2019s dinner, your sleep and the hours since you last ate all read as one continuous stretch. The centre counts the hours since your last logged food, and anything your regimen declares is drawn faintly underneath as the plan.' },
-  { v: '0.12.1', note: 'Clearer ring: after two days without a logged meal the centre names the date instead of counting hours, an empty day says what to log rather than showing a bare circle, and the now-hand no longer crosses the text.' },
-  { v: '0.13.0', note: 'The ring is now seven labelled lanes \u2014 sleep, meals, exercise, sauna, yoga, meditation and red light \u2014 each with its own track, so every practice has a visible home whether or not you logged it. Flip between \u201cmy day\u201d and \u201cthe plan\u201d to compare what happened with what you declared.' },
-  { v: '0.13.1', note: 'Fixes: the meals lane no longer draws a full ring on a day with nothing logged, and logging sleep now asks for your bedtime so the night actually appears on the ring.' },
-  { v: '0.14.0', note: 'Sleep can now be toggled on and off as it happens, so a broken night records as the segments it actually was \u2014 wake gaps included. Tap the sleep key under the ring to get the switch. If you forget to turn it off, the app asks when you woke rather than guessing.' },
-  { v: '0.14.1', note: 'Fixes: timeline entries can now be removed (with undo), the week and month rings are rebuilt as small clean digests instead of overlapping, and the ring\u2019s colours are properly tuned for light mode.' },
-  { v: '0.15.0', note: 'Sauna, meditation and red light can now be toggled on and off like sleep \u2014 tap the lane\u2019s key under the ring for its switch. Tapping meals brings up any fasting gap waiting to be resolved.' },
-  { v: '0.16.0', note: 'Photo meals: send the new template to your assistant with a photo, paste the reply, then correct the one portion you know best \u2014 the rest rescale with it. Nothing is saved until you say so, and your assistant is only ever asked once.' },
-  { v: '0.16.1', note: 'Photo meals now open with one question \u2014 the biggest item\u2019s estimate, to confirm with a tap or correct if you know better. Everything else rescales from your answer.' },
-  { v: '0.16.2', note: 'Fixes: the meals ring no longer draws a full circle when a day has little logged food \u2014 the meal dots and the pending gap carry it instead. And a practice left switched on now asks when it ended much sooner: red light after 40 minutes, sauna 45, meditation an hour. It still never guesses an end time.' },
-  { v: '0.16.3', note: 'Fix: a long stretch with no food logged no longer sweeps most of the meals ring \u2014 past half a circle it stops reading as a gap, so the ring keeps your meal dots and the centre states the hours instead.' },
-  { v: '0.17.0', note: 'Clearing a day can now be undone, like every other deletion — the Undo appears in the toast for a few seconds. The clear control also moved further from “End & complete this day” and got quieter, so it is harder to hit by accident.' },
-  { v: '0.18.0', note: 'Photo meals can now go straight through: add your own AI key in Settings \u2014 Photo capture, and a snapshot becomes an editable meal without the copy-paste round trip. Your key stays on this device and never leaves it except to make that one call, the photo is never stored, and the copy-prompt path still works exactly as before if you would rather not use a key.' },
-  { v: '0.18.1', note: 'Fix: \u201cTest connection\u201d could finish without telling you anything. It now always says what happened \u2014 testing, connected, the provider\u2019s own error, or timed out after 15 seconds \u2014 and the key\u2019s status (verified, unverified or failed) is remembered and shown wherever you use it.' },
-  { v: '0.18.2', note: 'Fix: Capture meal could do nothing at all on a phone \u2014 no picture read, no call, no message. Reading the photo is now bounded and reported at every step, large phone photos are resized without loading the whole image into memory, and a photo the provider cannot read says so instead of stopping silently. Capture can no longer end in silence.' },
-  { v: '0.18.3', note: 'Capture now waits two minutes for the answer instead of 45 seconds \u2014 reading a plate of food takes a model far longer than a one-word test, and the old limit was giving up on calls that were still working. While it waits it counts the seconds, so a slow answer looks slow rather than dead, and there is a Cancel button if you would rather not wait.' },
-  { v: '0.18.4', note: 'Fix: a key that passed Test connection could go back to reading "key not tested yet" on the capture screen. Sending a photo was overwriting the saved verified status while counting the call, so a tested key looked untested. The status is now one saved fact that both screens read, a successful capture counts as a verification in its own right, and if a key is ever unverified the capture screen offers to verify it on the spot rather than just saying so.' },
-  { v: '0.18.5', note: 'Housekeeping, with nothing to see: the app now keeps a single clock internally. Two of its own automated checks had quietly stopped checking what they claimed to when the date rolled over, and this is the repair. Nothing you can observe changes.' },
-  { v: '0.19.0', note: 'Capturing a meal now answers you properly. The result opens as a pop-up that takes over the screen: the estimated items with their sliders, the running totals, and Save meal or Discard right there at the bottom where you can always reach them. If the call fails or times out it says so in the same place, with Try again and Paste the response manually, and while it is working the countdown sits front and centre with a Cancel. No more results appearing quietly below the fold.' },
-  { v: '0.20.0', note: 'Track bowel movements on the Bristol scale: tap the new chip, slide to the form that matches, log. The slider has exactly seven stops, because the scale defines seven forms and nothing in between — so there is no half-type to record by accident. Trends shows the median, the most common type and the range over your window, with the sources cited; it deliberately shows no average, since averaging form types would invent a number the scale does not define.' },
-  { v: '0.20.1', note: 'The Bristol slider is easier to hit one-handed, and the type it reads now sits ABOVE the track, where your finger cannot cover it while you slide. Citations and fine print across the app — the bowel-scale sources, the lab guideline references, the key-and-photo handling note — now sit behind a small “Source” line you can open in one tap, instead of taking up room on every glance. Warnings and anything that says how a number should be read stay visible as before.' },
-  { v: '0.20.2', note: 'Two more fine-print blocks folded away behind a one-tap line: where barcode nutrition data comes from, and how lab targets are sourced and stored. The instructions that matter stay where they were — check nutrition against the package label, and this app does not suggest which tests to get.' },
-  { v: '0.20.3', note: 'Fix: deleting a food item can now be undone, like every other deletion in the app. Until now the × on a food row removed it for good — the tap was one gesture away from losing a meal you had just logged, with nothing offering it back.' },
-  { v: '0.21.0', note: 'Timeline records can now be edited, not just deleted — tap the row to change its time, value or note. An edit keeps what the value was before and shows it, so a correction never erases the original reading; and correcting a number marks it as your own estimate rather than leaving it labelled as measured. The type of a record cannot be changed by an edit, and neither can its time zone. Every edit can be undone, like every deletion.' },
+  { v: '0.4.1', d: '2026-07-18', note: 'Faster logging: tap a chip (weight, glucose, HRV, sauna, ...) to jump straight to the value box.' },
+  { v: '0.4.2', d: '2026-07-18', note: 'Tap the unit to switch it — kg/lb, mg/dL vs mmol/L, ppm vs mmol/L.' },
+  { v: '0.4.3', d: '2026-07-18', note: 'Fix: on a mouse/desktop the quick-log chips now wrap to rows so every chip is reachable (they only scrolled by touch before).' },
+  { v: '0.5.0', d: '2026-07-19', note: 'Fasting: long gaps between meals surface as candidates you resolve (fasted / ate-didn\'t-log) — pending never counts. Plus Undo on every log.' },
+  { v: '0.5.1', d: '2026-07-19', note: 'Updates now also apply when you reopen the app from the switcher, not only on a full launch.' },
+  { v: '0.6.0', d: '2026-07-19', note: 'Trends: see your own weight, biometrics, fasting streak, and energy over time — figures only, your data, no interpretation.' },
+  { v: '0.6.1', d: '2026-07-20', note: 'Set targets on biometrics (weight, HRV, glucose, BP, …): they show as a line on your trend and float that signal to the front of the quick-log chips.' },
+  { v: '0.7.0', d: '2026-07-20', note: 'Habits: after a couple of weeks of tracking, the app can gently suggest one established good habit at a time — always optional, one tap to pass, off in settings.' },
+  { v: '0.8.0', d: '2026-07-20', note: 'Regimens: build a named daily template (meds, events, preset meals, weekday rotation, eating window) and work through today’s checklist — one tap logs each, nothing is ever auto-logged.' },
+  { v: '0.8.1', d: '2026-08-30', note: 'New logs now also record your device’s time zone, so days logged while travelling stay accurate for later comparison. Nothing else changes, and nothing already logged is altered.' },
+  { v: '0.9.0', d: '2026-08-30', note: 'Simpler main screen: it now shows your day, timeline, trends and averages, and one “+” button logs everything — scan, quick items, photo/AI paste, or manual. Setting things up (regimen, goals, supplement, presets, fasting, habits, export and restore) moved to Settings. Nothing was removed and nothing you have logged changed.' },
+  { v: '0.9.1', d: '2026-08-30', note: 'Clearer entry points: the log button now reads “+ Log” and Settings is labelled, so nothing is hidden behind an icon. “All days” starts collapsed to a single line showing how many days you have logged.' },
+  { v: '0.10.0', d: '2026-08-30', note: 'Lab panels: enter a dated blood panel (ApoB, LDL, HbA1c, fasting glucose, vitamin D, ferritin, liver, thyroid and more) and see each value against its reference range — cited Canadian targets where they exist, your own lab’s printed interval otherwise. Figures only, never a verdict.' },
+  { v: '0.10.1', d: '2026-08-30', note: 'The lab panel form is readable on a phone: each value gets its own full-width box with the unit beside it, and the reference interval sits on its own line.' },
+  { v: '0.11.0', d: '2026-08-31', note: 'A rhythm ring is now the centre of your day: a 24-hour circle showing when you ate, slept, moved, and the gaps between — all drawn from what you logged. Tap a goal to see its ring for a moment. Sleep is now logged bed-to-wake, and a week or month of rings sits below.' },
+  { v: '0.11.1', d: '2026-08-31', note: 'The rhythm ring now fills the screen the way a centrepiece should — about four-fifths of the width on a phone, with everything it needs still in reach.' },
+  { v: '0.11.2', d: '2026-08-31', note: 'Tidier dates and status: the day header reads "Tue Aug 31" without the year, and the only day still labelled is a past one you never closed — the one that quietly sits out of your averages.' },
+  { v: '0.11.3', d: '2026-08-31', note: 'A day from an earlier year now shows that year in the header, so an old day can never be mistaken for a recent one.' },
+  { v: '0.11.4', d: '2026-08-31', note: 'The goal ring now returns to your rhythm ring a little sooner after you tap a goal.' },
+  { v: '0.12.0', d: '2026-09-01', note: 'The ring now shows your last 24 hours, so last night\u2019s dinner, your sleep and the hours since you last ate all read as one continuous stretch. The centre counts the hours since your last logged food, and anything your regimen declares is drawn faintly underneath as the plan.' },
+  { v: '0.12.1', d: '2026-09-01', note: 'Clearer ring: after two days without a logged meal the centre names the date instead of counting hours, an empty day says what to log rather than showing a bare circle, and the now-hand no longer crosses the text.' },
+  { v: '0.13.0', d: '2026-09-02', note: 'The ring is now seven labelled lanes \u2014 sleep, meals, exercise, sauna, yoga, meditation and red light \u2014 each with its own track, so every practice has a visible home whether or not you logged it. Flip between \u201cmy day\u201d and \u201cthe plan\u201d to compare what happened with what you declared.' },
+  { v: '0.13.1', d: '2026-09-02', note: 'Fixes: the meals lane no longer draws a full ring on a day with nothing logged, and logging sleep now asks for your bedtime so the night actually appears on the ring.' },
+  { v: '0.14.0', d: '2026-09-02', note: 'Sleep can now be toggled on and off as it happens, so a broken night records as the segments it actually was \u2014 wake gaps included. Tap the sleep key under the ring to get the switch. If you forget to turn it off, the app asks when you woke rather than guessing.' },
+  { v: '0.14.1', d: '2026-09-02', note: 'Fixes: timeline entries can now be removed (with undo), the week and month rings are rebuilt as small clean digests instead of overlapping, and the ring\u2019s colours are properly tuned for light mode.' },
+  { v: '0.15.0', d: '2026-09-02', note: 'Sauna, meditation and red light can now be toggled on and off like sleep \u2014 tap the lane\u2019s key under the ring for its switch. Tapping meals brings up any fasting gap waiting to be resolved.' },
+  { v: '0.16.0', d: '2026-09-02', note: 'Photo meals: send the new template to your assistant with a photo, paste the reply, then correct the one portion you know best \u2014 the rest rescale with it. Nothing is saved until you say so, and your assistant is only ever asked once.' },
+  { v: '0.16.1', d: '2026-09-03', note: 'Photo meals now open with one question \u2014 the biggest item\u2019s estimate, to confirm with a tap or correct if you know better. Everything else rescales from your answer.' },
+  { v: '0.16.2', d: '2026-09-03', note: 'Fixes: the meals ring no longer draws a full circle when a day has little logged food \u2014 the meal dots and the pending gap carry it instead. And a practice left switched on now asks when it ended much sooner: red light after 40 minutes, sauna 45, meditation an hour. It still never guesses an end time.' },
+  { v: '0.16.3', d: '2026-09-03', note: 'Fix: a long stretch with no food logged no longer sweeps most of the meals ring \u2014 past half a circle it stops reading as a gap, so the ring keeps your meal dots and the centre states the hours instead.' },
+  { v: '0.17.0', d: '2026-09-03', note: 'Clearing a day can now be undone, like every other deletion — the Undo appears in the toast for a few seconds. The clear control also moved further from “End & complete this day” and got quieter, so it is harder to hit by accident.' },
+  { v: '0.18.0', d: '2026-09-03', note: 'Photo meals can now go straight through: add your own AI key in Settings \u2014 Photo capture, and a snapshot becomes an editable meal without the copy-paste round trip. Your key stays on this device and never leaves it except to make that one call, the photo is never stored, and the copy-prompt path still works exactly as before if you would rather not use a key.' },
+  { v: '0.18.1', d: '2026-09-03', note: 'Fix: \u201cTest connection\u201d could finish without telling you anything. It now always says what happened \u2014 testing, connected, the provider\u2019s own error, or timed out after 15 seconds \u2014 and the key\u2019s status (verified, unverified or failed) is remembered and shown wherever you use it.' },
+  { v: '0.18.2', d: '2026-09-03', note: 'Fix: Capture meal could do nothing at all on a phone \u2014 no picture read, no call, no message. Reading the photo is now bounded and reported at every step, large phone photos are resized without loading the whole image into memory, and a photo the provider cannot read says so instead of stopping silently. Capture can no longer end in silence.' },
+  { v: '0.18.3', d: '2026-09-03', note: 'Capture now waits two minutes for the answer instead of 45 seconds \u2014 reading a plate of food takes a model far longer than a one-word test, and the old limit was giving up on calls that were still working. While it waits it counts the seconds, so a slow answer looks slow rather than dead, and there is a Cancel button if you would rather not wait.' },
+  { v: '0.18.4', d: '2026-09-04', note: 'Fix: a key that passed Test connection could go back to reading "key not tested yet" on the capture screen. Sending a photo was overwriting the saved verified status while counting the call, so a tested key looked untested. The status is now one saved fact that both screens read, a successful capture counts as a verification in its own right, and if a key is ever unverified the capture screen offers to verify it on the spot rather than just saying so.' },
+  { v: '0.18.5', d: '2026-09-04', note: 'Housekeeping, with nothing to see: the app now keeps a single clock internally. Two of its own automated checks had quietly stopped checking what they claimed to when the date rolled over, and this is the repair. Nothing you can observe changes.' },
+  { v: '0.19.0', d: '2026-09-05', note: 'Capturing a meal now answers you properly. The result opens as a pop-up that takes over the screen: the estimated items with their sliders, the running totals, and Save meal or Discard right there at the bottom where you can always reach them. If the call fails or times out it says so in the same place, with Try again and Paste the response manually, and while it is working the countdown sits front and centre with a Cancel. No more results appearing quietly below the fold.' },
+  { v: '0.20.0', d: '2026-09-05', note: 'Track bowel movements on the Bristol scale: tap the new chip, slide to the form that matches, log. The slider has exactly seven stops, because the scale defines seven forms and nothing in between — so there is no half-type to record by accident. Trends shows the median, the most common type and the range over your window, with the sources cited; it deliberately shows no average, since averaging form types would invent a number the scale does not define.' },
+  { v: '0.20.1', d: '2026-09-06', note: 'The Bristol slider is easier to hit one-handed, and the type it reads now sits ABOVE the track, where your finger cannot cover it while you slide. Citations and fine print across the app — the bowel-scale sources, the lab guideline references, the key-and-photo handling note — now sit behind a small “Source” line you can open in one tap, instead of taking up room on every glance. Warnings and anything that says how a number should be read stay visible as before.' },
+  { v: '0.20.2', d: '2026-09-06', note: 'Two more fine-print blocks folded away behind a one-tap line: where barcode nutrition data comes from, and how lab targets are sourced and stored. The instructions that matter stay where they were — check nutrition against the package label, and this app does not suggest which tests to get.' },
+  { v: '0.20.3', d: '2026-09-06', note: 'Fix: deleting a food item can now be undone, like every other deletion in the app. Until now the × on a food row removed it for good — the tap was one gesture away from losing a meal you had just logged, with nothing offering it back.' },
+  { v: '0.21.0', d: '2026-09-06', note: 'Timeline records can now be edited, not just deleted — tap the row to change its time, value or note. An edit keeps what the value was before and shows it, so a correction never erases the original reading; and correcting a number marks it as your own estimate rather than leaving it labelled as measured. The type of a record cannot be changed by an edit, and neither can its time zone. Every edit can be undone, like every deletion.' },
+  { v: '0.22.0', d: '2026-09-06', note: 'Settings now shows the app version and its release date, at the foot of the panel.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6299,6 +6311,26 @@ function quickLog(id) {
   return r;
 }
 
+// Version + release date at the foot of Settings (reference info, not a control,
+// so it rides the existing .about line rather than claiming a region of its own).
+// Pure so it can be gate-tested without a DOM. The date comes from this version's
+// VERSION_LOG entry; an entry without `d` (the three pre-convention releases)
+// renders the version ALONE -- never "undefined", never a date inferred from
+// anything. Absent is honest; guessed is not.
+function versionLine(version, log) {
+  version = version || APP_VERSION;
+  log = log || VERSION_LOG;
+  const entry = (log || []).filter((e) => e && e.v === version)[0];
+  const d = entry && typeof entry.d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(entry.d)
+    ? entry.d : null;
+  return 'HealthTracker v' + version + (d ? ' · released ' + d : '');
+}
+// textContent, not innerHTML: the string can never become markup.
+function renderVersionLine() {
+  const el = document.getElementById('aboutVersion');
+  if (el) el.textContent = versionLine(APP_VERSION, VERSION_LOG);
+}
+
 function main() {
   boot();
   requestPersistentStorage();
@@ -6315,6 +6347,7 @@ function main() {
   renderLabForm();
   onGoalTypeChange();
   renderRegimenTemplate();
+  renderVersionLine();
   wireChipStripWheel();
   refresh();
 }
@@ -6393,6 +6426,7 @@ window.HT = {
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,
+  versionLine, renderVersionLine,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
   buildScanItem, logScanItem, ProductCache, finishLookup, lookupBarcode, applyLookup,

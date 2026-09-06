@@ -878,6 +878,38 @@ window.setLS({});
   HT.boot(); document.getElementById('versionNotice').innerHTML=''; HT.checkVersionNotice();
   res(document.getElementById('versionNotice').innerHTML==='', 'VN6: same version -> no notice rendered');
 
+  // ---- VL: the version + release-date line at the foot of Settings ----
+  // The date lives INSIDE the VERSION_LOG entry (D6 converse amendment). An entry
+  // with no usable date must render the VERSION ALONE -- the failure to gate here
+  // would be a line reading "released undefined" on a real user's Settings panel.
+  var vlLog = [{v:'0.2.0', note:'pre-convention, no date'},
+               {v:'0.9.9', d:'not-a-date', note:'malformed'},
+               {v:'0.22.0', d:'2026-09-06', note:'dated'}];
+  res(HT.versionLine('0.22.0', vlLog) === 'HealthTracker v0.22.0 · released 2026-09-06',
+      'VL1: a dated entry renders version AND release date');
+  res(HT.versionLine('0.2.0', vlLog) === 'HealthTracker v0.2.0',
+      'VL2 GATE: an entry with NO date renders the version alone -- not a guessed or inferred date');
+  res(HT.versionLine('0.9.9', vlLog) === 'HealthTracker v0.9.9',
+      'VL3 GATE: a MALFORMED date is treated as absent, never passed through to the surface');
+  res(HT.versionLine('9.9.9', vlLog) === 'HealthTracker v9.9.9',
+      'VL4: a version with no VERSION_LOG entry at all still renders its version');
+  res(['0.2.0','0.9.9','9.9.9'].every(function(v){
+        return HT.versionLine(v, vlLog).indexOf('undefined') < 0 &&
+               HT.versionLine(v, vlLog).indexOf('released') < 0; }),
+      'VL5 GATE: no dateless case ever emits "undefined" or a bare "released"');
+  // Ties the pure function to what actually ships: the running version's own entry.
+  res(HT.versionLine(HT.APP_VERSION, HT.VERSION_LOG) ===
+      'HealthTracker v' + HT.APP_VERSION + ' · released ' +
+      HT.VERSION_LOG.filter(function(e){return e.v===HT.APP_VERSION;})[0].d,
+      'VL6 GATE: the SHIPPED version renders a real dated line (check-version.sh gates the date exists)');
+  if (!document.getElementById('aboutVersion')) { var abEl=document.createElement('span'); abEl.id='aboutVersion'; document.body.appendChild(abEl); }
+  var vlEl = document.getElementById('aboutVersion');
+  HT.renderVersionLine();
+  res(vlEl && vlEl.textContent === HT.versionLine(HT.APP_VERSION, HT.VERSION_LOG),
+      'VL7: the Settings foot element carries exactly that line');
+  res(vlEl && vlEl.innerHTML.indexOf('<') < 0,
+      'VL8: written as textContent -- the line can never become markup');
+
   // ===== Phase 4 Slice T: timeline substrate (D20) =====
   setLS({}); HT.boot(); var tdT = today();
   // TL1: addSignal -> normalized record in timeline[date]; value clamped; source manual

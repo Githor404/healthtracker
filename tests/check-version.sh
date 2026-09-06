@@ -29,10 +29,17 @@ SHELL_BIN="icons/icon-192.png icons/icon-512.png icons/apple-touch-icon.png"
 # Version metadata, removed so the REST of the shell can be compared. Matches the
 # APP_VERSION assignment and VERSION_LOG entry lines only -- references such as
 # `'HealthTracker/' + APP_VERSION` are not assignments and are deliberately kept.
+#
+# The entry pattern deliberately keys on `{ v: 'X.Y.Z'` ALONE, not on what follows.
+# It once required `, note:` and that was a latent silent-skip: adding the `d:`
+# release-date field between them would have stopped the line matching, the two
+# fingerprints would then differ on any changelog edit, and since the converse arm
+# fires only when they are EQUAL it would have quietly stopped catching hollow
+# bumps. A gate must not depend on the shape of a field it is not checking.
 strip_vmeta() {
   sed -E \
     -e "/APP_VERSION[[:space:]]*=[[:space:]]*'[^']*'/d" \
-    -e "/^[[:space:]]*\{[[:space:]]*v:[[:space:]]*'[0-9]+\.[0-9]+\.[0-9]+'[[:space:]]*,[[:space:]]*note:/d"
+    -e "/^[[:space:]]*\{[[:space:]]*v:[[:space:]]*'[0-9]+\.[0-9]+\.[0-9]+'/d"
 }
 # Line endings normalized like check-sw-hash, so the fingerprint is platform-stable.
 subst_hash_work() {
@@ -58,6 +65,19 @@ fail() { echo "check-version: FAIL - $1"; exit 1; }
 echo "$LOGV" | grep -qx "$APPV" || fail "APP_VERSION $APPV has no VERSION_LOG changelog entry"
 NEWEST=$(printf '%s\n' "$LOGV" | sort -V | tail -1)
 [ "$APPV" = "$NEWEST" ] || fail "APP_VERSION $APPV is not the newest VERSION_LOG entry (newest: $NEWEST)"
+
+# Release date lives INSIDE the entry (D6 converse amendment) so it cannot drift
+# from the version it describes -- but it can still be omitted, so require it on
+# the entry being shipped. Older entries predating the convention stay bare and
+# render as the version alone; only the newest is gated.
+APPV_LINE=$(grep -F "{ v: '$APPV'," app.js | head -1)
+[ -n "$APPV_LINE" ] || fail "no VERSION_LOG line found for APP_VERSION $APPV"
+APPV_DATE=$(printf '%s' "$APPV_LINE" | grep -oE "d: '[0-9]{4}-[0-9]{2}-[0-9]{2}'" | head -1 | cut -d"'" -f2)
+[ -n "$APPV_DATE" ] || fail "VERSION_LOG entry for $APPV has no release date - add d: 'YYYY-MM-DD' to it (it is what Settings shows)"
+TODAY=$(date +%F)
+if [ "$APPV_DATE" ">" "$TODAY" ]; then
+  fail "VERSION_LOG release date for $APPV is in the future ($APPV_DATE > $TODAY) - likely a typo"
+fi
 
 # Drift: if the shell changed since the last commit, APP_VERSION must have bumped.
 if git rev-parse HEAD >/dev/null 2>&1; then
