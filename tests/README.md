@@ -64,3 +64,38 @@ day still render with the origin unreachable. Exit 0 on PASS.
 Manual fallback: open the app over `http://localhost`, then DevTools →
 Application → Service Workers → check **Offline** → reload → confirm history
 renders.
+
+## Capture outcome (R21.5)
+
+### `capture-outcome-gate.ps1` — one explicit outcome, in view without scrolling
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/capture-outcome-gate.ps1
+```
+
+"Exactly one outcome, front and centre" is a **layout** claim, so it is measured
+as one. A string gate can prove the modal rendered; only a viewport can prove it
+was readable without hunting for it — which is the defect this slice removed (the
+draft used to render inline in the entry sheet, below two textareas, off the
+bottom of a phone).
+
+Drives the **shipped** capture path against the real `index.html` with `fetch`
+stubbed, at 360×690, 390×745 and 1200×900, and asserts per state:
+
+- **success** — the confirm-first question, its slider and **both** footer actions
+  are fully inside the viewport with the page unscrolled; actions ≥ 44 px tall;
+- **success, long list** — the body scrolls and the footer **does not**, so Save
+  and Discard stay reachable whatever the item count;
+- **failure** — the stated message plus *Try again* and *Paste the response
+  manually*, both in view;
+- **pending** — the counted spinner and the cancel, in view;
+- and in every state, **exactly one** outcome exists: the capture surface carries
+  none of it.
+
+Unlike the data-layer suite this runs in **real time**, not under
+`--virtual-time-budget`, so it exercises the `createImageBitmap` decoder that D47
+recorded as unexercisable in the harness.
+
+Proven against the defect: returning `#photoDraft` to the sheet body fails the
+success cases at every width; restoring the second capture-surface paint fails
+the pending cases.

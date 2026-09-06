@@ -1536,3 +1536,42 @@ Ruled after R21.4. The diagnosis in D49 was under-counted: not one call site but
 **A note on the changelog line.** D6 bumps `APP_VERSION` whenever the shell changes, and it did: `app.js` differs, the SW cache name is re-derived, users take an update. So the entry says plainly that there is nothing to observe — an honest no-op note, rather than a silent update or an invented feature.
 
 **Status: MET.** Nothing here is the device's to answer; this change has no user-visible behaviour by construction, and that property is itself gated.
+---
+
+### R21.5 — the capture outcome is explicit, central and modal (D51) — v0.19.0
+
+**Pre-registered gate:** *after a capture, exactly one explicit outcome state is shown (success-modal / timeout-message / pending) and it is in view without manual scrolling; save writes a meal, discard writes nothing.*
+
+Two harnesses, because the claim has two halves. The string half is behaviour; **"in view without scrolling" is a layout claim and is measured in a viewport** — a string gate can prove the modal rendered, not that anyone could read it.
+
+| Case | Result |
+|---|---|
+| R21.5-success | a parsed reply opens the modal; the **confirm-first lead and its slider** are in the body with the **live macro total**; the footer carries **exactly two** actions, Save meal and Discard; the actions are **not** in the scrolling body; the modal never prints the key |
+| R21.5-save | Save writes the meal through the shipped save path (day item count rises by the draft's item count) and **the modal closes** — it never lingers around a draft that is gone |
+| R21.5-discard | Discard writes **nothing** — not a record, and **not a byte of the export** — and the modal closes with the draft thrown away |
+| R21.5-fail | a timeout is an explicit **state**, saying the provider did not answer and that the call **may still have counted**, with **Try again** and **Paste the response manually** as buttons rather than as a sentence; dismissable, unlike a draft |
+| R21.5-pending | the wait is a state of the same modal: spinner, **counted seconds**, a cancel and nothing else; cancelling moves to the stated-failure state, **never to nothing** |
+| R21.5-one | in each state the **other two states' actions are absent**, and the **capture surface carries no outcome at all** — asserted in pending and failure, the states where a duplicate can actually render |
+| R21.5-parity | a **pasted** reply opens the same modal with the same actions — one downstream, not two (R21-parity unchanged and green) |
+| capture-outcome-gate (3 viewports) | at 360×690, 390×745 and 1200×900: lead, slider and **both** actions fully inside the viewport with the page unscrolled; actions ≥ 44 px; with a **nine-item** list the body scrolls and **the footer does not** |
+
+**Proven against the defect, three ways.**
+
+- Returning `#photoDraft` to the sheet body — its pre-R21.5 home — fails the success cases at **every** width: `lead=False slider=False`. That is the original defect, measured.
+- Restoring the second capture-surface paint fails the **pending** cases at every width.
+- The dismissal rule is gated in both directions: a failure dismisses, a success refuses to.
+
+#### Two of my own assertions were placed where they could not fail
+
+Recorded because both passed review and were caught only by reproduction.
+
+1. The viewport gate's fixture hand-rolled a reply with **flat macros instead of `per100`**. The parser rejected it, the capture fell through to the failure state, and the gate **measured the failure state while reporting on success** — its footer assertions passing for the wrong buttons. Fixed to the shape the parser accepts.
+2. The harness's "capture surface carries no duplicate" assertion ran **only during success**, when `BYOK_BUSY` is null and no duplicate could render. Restoring the old duplicate paint left the suite **1205/1205 green** while the viewport gate failed on all three viewports. Moved into the pending and failure states; it now fails against the reverted code (2 assertions).
+
+The 0.13.0 lesson, in the test code this time: an assertion outside the window the defect lives in is not an assertion.
+
+**Count delta: 1177 → 1207** (+30). **1207/1207 ALL PASS**, `executed 1207 · pinned 1207`. **Fifteen gates green** (`capture-outcome-gate.ps1` is new).
+
+**Collateral repointed rather than left to rot:** `photo-lead-gate.ps1` measured overflow on `.sheetbody`. With the draft moved it would still have passed — while measuring a box the draft is no longer in. It now measures `.obody`.
+
+**Status: MET — awaiting review.** The device question: does the pop-up land where a thumb expects it, and does a 120-second wait still read as alive inside it.

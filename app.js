@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.18.5';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.19.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3260,12 +3260,19 @@ function photoIdentityOptions(idx) {
     presets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('') + `</select>`;
 }
 function renderPhotoDraft() {
+  // R21.5: EVERY exit repaints the modal, including the one that clears the draft
+  // -- otherwise a save or a discard leaves the modal open around nothing, with a
+  // footer offering to save a meal that is already gone.
+  try { renderPhotoDraftInner(); } finally { try { renderCaptureOutcome(); } catch (e) {} }
+}
+function renderPhotoDraftInner() {
   const el = document.getElementById('photoDraft');
   if (!el) return;
   const d = PHOTO_DRAFT;
-  // Fork C: pending and error render WHERE THE DRAFT WILL BE.
-  const busy = BYOK_BUSY ? `<div class="pmbusy ${BYOK_BUSY.phase === 'error' ? 'pmwarn' : ''}">${esc(BYOK_BUSY.message)}</div>` : '';
-  if (!d) { el.innerHTML = busy; return; }
+  // R21.5: pending and error no longer render here. Fork C put them "where the
+  // draft will be" because that was the only surface that knew; now the modal owns
+  // all three states, and a copy in the draft body would be a second one.
+  if (!d) { el.innerHTML = ''; return; }
   const sh = photoShared(d);
   const li = photoLeadIndex(d);
   const leadOpen = photoLeadOpen(d);
@@ -3324,12 +3331,12 @@ function renderPhotoDraft() {
   // D8, said out loud: micros that arrived were REFUSED, not quietly absent.
   const mstrip = (d.microsStripped > 0)
     ? `<div class="pmnote pmwarn">micronutrients in the reply were stripped \u2014 a photo cannot show them</div>` : '';
-  el.innerHTML = `${busy}<div class="pmdraft">${mstrip}${lead}${head}${rows}
+  // Save and Discard are NOT here any more: they live in the modal's fixed footer
+  // (R21.5), so they stay in view whatever the item count. A primary action you
+  // have to scroll to is one an anxious user does not find.
+  el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}
     <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein</div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn primary" onclick="photoSave()">Save meal</button>
-      <button class="btn" onclick="photoDiscard()">Discard</button>
-    </div></div>`;
+    </div>`;
 }
 // R21: the ONE door into a draft. The paste path and the direct-call path both
 // come through here, so "identical item JSON produces an identical draft" is a
@@ -3349,6 +3356,103 @@ function doPhotoPaste() {
   const r = openPhotoDraft(box ? box.value : '');
   if (r.ok && box) box.value = '';
   return r;
+}
+
+// ---- R21.5 / D51: the capture outcome is explicit, central and MODAL --------
+// Every capture ends in exactly ONE of three states, and that state owns the
+// screen. Before this, the answer rendered inline in the entry sheet BELOW two
+// textareas -- D47 named that "its own kind of silence" and worked around it by
+// painting the state in a SECOND place. Two surfaces telling the same story is
+// not the fix for one of them being off-screen; a surface that cannot be
+// off-screen is.
+//
+// The states are mutually exclusive BY CONSTRUCTION -- one modal, one state --
+// so "exactly one outcome is shown" is a property of the structure rather than
+// of three surfaces agreeing with each other.
+function captureOutcomeState() {
+  // A draft outranks a stale busy line: the answer arrived, whatever the last
+  // pending message said.
+  if (PHOTO_DRAFT) return 'success';
+  if (BYOK_BUSY && BYOK_BUSY.phase === 'sending') return 'pending';
+  if (BYOK_BUSY && BYOK_BUSY.phase === 'error') return 'error';
+  return 'none';
+}
+// Only the FAILURE state is dismissable. A success must be answered -- Save or
+// Discard -- because a draft dismissed by a stray tap on the scrim is a meal
+// silently thrown away, which is the failure mode this whole slice exists to
+// remove. Pending is not dismissable either: it has a cancel, which says what
+// it does.
+function captureOutcomeDismiss() {
+  if (captureOutcomeState() !== 'error') return { ok: false, kind: 'not-dismissable' };
+  byokBusy(null);
+  return { ok: true };
+}
+// "Try again" re-opens the picker rather than replaying the photo. D45 holds the
+// image in memory FOR THE CALL ONLY, and keeping it alive across a failure to
+// enable a silent replay would stretch a ruled hygiene bound for convenience.
+// Re-picking costs one tap and keeps the bound intact.
+function captureRetry() {
+  byokBusy(null);
+  const inp = document.getElementById('captureFile');
+  if (!inp) return { ok: false, error: 'no capture input' };
+  try { inp.click(); } catch (e) { return { ok: false, error: 'picker unavailable' }; }
+  return { ok: true };
+}
+// The paste path has always been the floor under every failure (D45). This is
+// that floor made into a button instead of a sentence.
+function capturePasteInstead() {
+  byokBusy(null);
+  try { if (typeof openSheet === 'function') openSheet('photo'); } catch (e) {}
+  const box = document.getElementById('ingestBox');
+  if (box) { try { box.focus(); box.scrollIntoView({ block: 'center' }); } catch (e) {} }
+  return { ok: true };
+}
+function renderCaptureOutcome() {
+  const wrap = document.getElementById('captureOutcome');
+  const scrim = document.getElementById('outcomeScrim');
+  const title = document.getElementById('outcomeTitle');
+  const msg = document.getElementById('outcomeMsg');
+  const foot = document.getElementById('outcomeFoot');
+  const x = document.getElementById('outcomeX');
+  if (!wrap || !title || !msg || !foot) return;
+  const st = captureOutcomeState();
+  if (st === 'none') {
+    wrap.style.display = 'none';
+    if (scrim) scrim.style.display = 'none';
+    msg.innerHTML = '';
+    foot.innerHTML = '';
+    return;
+  }
+  wrap.style.display = 'flex';
+  if (scrim) scrim.style.display = 'block';
+  if (x) x.style.display = (st === 'error') ? '' : 'none';
+  const busyMsg = BYOK_BUSY ? String(BYOK_BUSY.message || '') : '';
+  if (st === 'success') {
+    // The draft renders into #photoDraft, which now lives in this body. The
+    // markup is UNCHANGED and shared with the paste path, so R21-parity is
+    // preserved by construction -- the surface moved, the draft did not.
+    title.textContent = 'Meal captured — confirm and save';
+    msg.innerHTML = '';
+    foot.innerHTML =
+      `<button class="btn primary" onclick="photoSave()">Save meal</button>` +
+      `<button class="btn" onclick="photoDiscard()">Discard</button>`;
+  } else if (st === 'pending') {
+    title.textContent = 'Reading your photo';
+    msg.innerHTML = `<div class="opend"><span class="byokspin"></span>${esc(busyMsg)}</div>` +
+      `<div class="osub">The photo is sent once, to the provider you configured. Nothing else is sent, ` +
+      `and the photo is never stored.</div>`;
+    foot.innerHTML = `<button class="btn" onclick="byokCancel()">Cancel</button>`;
+  } else {
+    // FAILURE, stated where it happened, with both ways out as BUTTONS rather
+    // than as a sentence telling the user where to go.
+    title.textContent = 'That did not work';
+    msg.innerHTML = `<div class="omsg obad">${esc(busyMsg)}</div>` +
+      `<div class="osub">Your photo is still on your phone. Trying again opens the picker so you can ` +
+      `choose it once more.</div>`;
+    foot.innerHTML =
+      `<button class="btn primary" onclick="captureRetry()">Try again</button>` +
+      `<button class="btn" onclick="capturePasteInstead()">Paste the response manually</button>`;
+  }
 }
 
 // ---- the capture flow -----------------------------------------------------
@@ -3391,6 +3495,7 @@ function byokCancel() {
 function byokBusy(phase, message) {
   BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null;
   try { renderPhotoDraft(); } catch (e) {}
+  try { renderCaptureOutcome(); } catch (e) {}
   try { renderCaptureBtn(); } catch (e) {}
 }
 
@@ -3535,14 +3640,12 @@ function renderCaptureBtn() {
   const el = document.getElementById('captureBox');
   if (!el) return;
   const stC = byokSettings().status;
-  const busyC = BYOK_BUSY
-    ? `<div class="byoks ${BYOK_BUSY.phase === 'error' ? 'byokbad' : 'byoktesting'}">` +
-      (BYOK_BUSY.phase === 'error' ? '' : '<span class="byokspin"></span>') +
-      `${esc(BYOK_BUSY.message)}` +
-      (BYOK_BUSY.phase === 'sending'
-        ? `<button type="button" class="linklike" onclick="byokCancel()">cancel</button>` : '') +
-      `</div>`
-    : '';
+  // R21.5: the capture outcome is NOT painted here any more. D47 put it on this
+  // surface because the draft sat off-screen below two textareas; the outcome modal
+  // removes that reason, and a second copy would BE a second outcome state -- which
+  // is exactly what this slice forbids. The KEY STATUS below is not an outcome, it
+  // is a precondition readout, and it stays.
+  const busyC = '';
   // A status line under a button reads as a PRECONDITION -- "key not tested yet"
   // sitting directly beneath Capture meal looks like the reason nothing happened,
   // which is how a stale status was read as a block. Capture has never been gated
@@ -3659,7 +3762,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderCaptureBtn(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderCaptureBtn(); renderCaptureOutcome(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -3718,6 +3821,7 @@ const VERSION_LOG = [
   { v: '0.18.3', note: 'Capture now waits two minutes for the answer instead of 45 seconds \u2014 reading a plate of food takes a model far longer than a one-word test, and the old limit was giving up on calls that were still working. While it waits it counts the seconds, so a slow answer looks slow rather than dead, and there is a Cancel button if you would rather not wait.' },
   { v: '0.18.4', note: 'Fix: a key that passed Test connection could go back to reading "key not tested yet" on the capture screen. Sending a photo was overwriting the saved verified status while counting the call, so a tested key looked untested. The status is now one saved fact that both screens read, a successful capture counts as a verification in its own right, and if a key is ever unverified the capture screen offers to verify it on the spot rather than just saying so.' },
   { v: '0.18.5', note: 'Housekeeping, with nothing to see: the app now keeps a single clock internally. Two of its own automated checks had quietly stopped checking what they claimed to when the date rolled over, and this is the repair. Nothing you can observe changes.' },
+  { v: '0.19.0', note: 'Capturing a meal now answers you properly. The result opens as a pop-up that takes over the screen: the estimated items with their sliders, the running totals, and Save meal or Discard right there at the bottom where you can always reach them. If the call fails or times out it says so in the same place, with Try again and Paste the response manually, and while it is working the countdown sits front and centre with a Cancel. No more results appearing quietly below the fold.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5722,6 +5826,7 @@ window.HT = {
   photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
   setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
   BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease, byokPatch, byokNoteVerdict,
+  captureOutcomeState, renderCaptureOutcome, captureOutcomeDismiss, captureRetry, capturePasteInstead,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,

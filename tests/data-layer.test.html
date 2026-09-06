@@ -1932,6 +1932,35 @@ window.setLS({});
       HT.renderCaptureBtn();
       return document.getElementById('captureBox').innerHTML;
     }
+    // R21.5: the shipped shell's outcome-modal scaffold, mirrored here so the
+    // renderer has somewhere to paint. That it is wired into the REAL shell is
+    // what the R21.5 iframe cases and capture-outcome-gate.ps1 prove.
+    function ensureOutcomeDOM() {
+      if (document.getElementById('captureOutcome')) return;
+      var mk = function (tag, id, cls, parent) {
+        var e = document.createElement(tag); e.id = id; if (cls) e.className = cls;
+        (parent || document.body).appendChild(e); return e;
+      };
+      mk('div', 'outcomeScrim', 'scrim oscrim');
+      var w = mk('div', 'captureOutcome', 'omodal');
+      mk('b', 'outcomeTitle', '', w);
+      mk('button', 'outcomeX', 'sheetx', w);
+      var body = mk('div', 'outcomeBody', 'obody', w);
+      mk('div', 'outcomeMsg', '', body);
+      var pd = document.getElementById('photoDraft');
+      if (pd) body.appendChild(pd); else mk('div', 'photoDraft', '', body);
+      mk('div', 'outcomeFoot', 'ofoot', w);
+    }
+    function outcome() {
+      ensureOutcomeDOM(); HT.renderCaptureOutcome();
+      var w = document.getElementById('captureOutcome');
+      return { state: HT.captureOutcomeState(),
+               shown: w.style.display !== 'none' && w.style.display !== '',
+               title: document.getElementById('outcomeTitle').textContent || '',
+               msg: document.getElementById('outcomeMsg').innerHTML || '',
+               foot: document.getElementById('outcomeFoot').innerHTML || '',
+               body: document.getElementById('photoDraft').innerHTML || '' };
+    }
     var ok = '{"choices":[{"message":{"content":' + JSON.stringify(HT.AI_PROMPT_SAMPLE) + '}}]}';
     var junk = '{"choices":[{"message":{"content":"sorry, I cannot"}}]}';
     function mkFile() {
@@ -2245,6 +2274,157 @@ window.setLS({});
       window.fetch = SCRIPTED_FETCH;
     }).then(function () {
       // ======================================================================
+      // R21.5 -- EXACTLY ONE OUTCOME, AND IT OWNS THE SCREEN.
+      //
+      // Every capture ends in one of three states, and the state is a property of
+      // ONE modal rather than an agreement between three surfaces. So the cases
+      // assert the exclusivity directly: in each state, the other two states'
+      // actions are absent, and the capture surface carries no outcome at all.
+      // ======================================================================
+      window.fetch = SCRIPTED_FETCH;
+      byokReset(SECRET); HT.photoDiscard(); HT.byokBusyClear();
+      var o0 = outcome();
+      res(o0.state === 'none' && !o0.shown,
+          'R21.5-one: with nothing happening the modal is CLOSED -- it appears because of an outcome, not by default');
+
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function (r) {
+        var o = outcome();
+        res(r.ok === true && o.state === 'success' && o.shown,
+            'R21.5-success: a parsed reply opens the modal, and the modal is the outcome');
+        res(o.body.indexOf('pmlead') >= 0 && o.body.indexOf('type="range"') >= 0,
+            'R21.5-success: the confirm-first lead question and its slider are IN the modal');
+        res(o.body.indexOf('pmtot') >= 0 && o.body.indexOf('kcal') >= 0,
+            'R21.5-success: with the live macro total');
+        res(o.foot.indexOf('photoSave()') >= 0 && o.foot.indexOf('photoDiscard()') >= 0,
+            'R21.5-success: and exactly two actions, Save meal and Discard');
+        res(o.body.indexOf('photoSave()') < 0 && o.body.indexOf('photoDiscard()') < 0,
+            'R21.5-success: the actions are NOT in the scrolling body -- a primary action you must scroll to is one nobody finds');
+        res(o.foot.indexOf('byokCancel') < 0 && o.foot.indexOf('captureRetry') < 0,
+            'R21.5-one: success offers neither cancel nor retry -- the other states are absent, not merely hidden');
+        res(capVis().indexOf('pmbusy') < 0 && capVis().indexOf('byokCancel') < 0,
+            'R21.5-one: and the capture surface carries NO outcome -- one state, one place');
+        res((o.title + o.body + o.foot).indexOf(SECRET) < 0, 'R21.5-success: the modal never prints the key');
+      });
+    }).then(function () {
+      // SAVE WRITES A MEAL, and closes.
+      byokReset(SECRET); HT.photoDiscard();
+      var before = HT.state().days[HT.state().current].items.length;
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        var n = HT.photoDraft().items.length;
+        var sv = HT.photoSave();
+        var o = outcome();
+        res(sv.ok === true && HT.state().days[HT.state().current].items.length === before + n,
+            'R21.5-save: Save meal writes the meal through the shipped save path');
+        res(o.state === 'none' && !o.shown && HT.photoDraft() === null,
+            'R21.5-save: and the modal closes -- it never lingers around a draft that is gone');
+      });
+    }).then(function () {
+      // DISCARD WRITES NOTHING, and closes.
+      byokReset(SECRET); HT.photoDiscard();
+      var before = HT.state().days[HT.state().current].items.length;
+      var exportBefore = HT.exportJSON();
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        HT.photoDiscard();
+        var o = outcome();
+        res(HT.state().days[HT.state().current].items.length === before && HT.exportJSON() === exportBefore,
+            'R21.5-discard: Discard writes NOTHING -- not a record, not a byte of the export');
+        res(o.state === 'none' && !o.shown && HT.photoDraft() === null,
+            'R21.5-discard: and the modal closes with the draft thrown away');
+      });
+    }).then(function () {
+      // A SUCCESS MUST BE ANSWERED. A draft dismissed by a stray tap is a meal
+      // silently discarded, which is the failure this slice exists to remove.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        var d = HT.captureOutcomeDismiss();
+        var o = outcome();
+        res(d.ok === false && o.state === 'success' && o.shown && !!HT.photoDraft(),
+            'R21.5-success: the scrim and the close button do NOT dismiss a draft -- Save or Discard, no third silent exit');
+        HT.photoDiscard();
+      });
+    }).then(function () {
+      // TIMEOUT: stated, central, with both ways out as BUTTONS.
+      byokReset(SECRET); HT.photoDiscard();
+      HT.setByokCallTimeout(40);
+      window.fetch = function (u, i) {
+        FETCHES.push({ url: String(u) });
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+        });
+      };
+      return HT.byokCapture(FILE).then(function (r) {
+        window.fetch = SCRIPTED_FETCH;
+        HT.setByokCallTimeout(120000);
+        var o = outcome();
+        res(r.ok === false && o.state === 'error' && o.shown,
+            'R21.5-fail: a timeout is an explicit STATE, not a silent return');
+        res(o.msg.indexOf('did not answer') > 0 && o.msg.indexOf('still counted') > 0,
+            'R21.5-fail: it says the provider did not answer, and that the call may still have counted');
+        res(o.foot.indexOf('captureRetry()') >= 0 && o.foot.indexOf('capturePasteInstead()') >= 0,
+            'R21.5-fail: with Try again and Paste the response manually as BUTTONS, not as a sentence');
+        res(o.foot.indexOf('photoSave()') < 0 && o.foot.indexOf('byokCancel') < 0,
+            'R21.5-one: a failure offers neither save nor cancel -- the other states are absent');
+        res(capVis().indexOf('did not answer') < 0,
+            'R21.5-one: and the failure is not ALSO restated on the capture surface -- two surfaces telling one story is two outcome states');
+        res(o.body === '' , 'R21.5-one: and no draft is shown beside the failure');
+        res((o.title + o.msg + o.foot).indexOf(SECRET) < 0, 'R21.5-fail: the failure never prints the key');
+      });
+    }).then(function () {
+      // A FAILURE is dismissable -- there is nothing to lose by closing it.
+      var d = HT.captureOutcomeDismiss();
+      var o = outcome();
+      res(d.ok === true && o.state === 'none' && !o.shown,
+          'R21.5-fail: a failure CAN be dismissed -- nothing is lost by closing it, unlike a draft');
+      HT.capturePasteInstead();
+      res(HT.captureOutcomeState() === 'none',
+          'R21.5-fail: "Paste the response manually" closes the outcome and hands over to the path that always works');
+    }).then(function () {
+      // PENDING: counted, central, cancellable -- and it is the ONLY thing shown.
+      byokReset(SECRET); HT.photoDiscard();
+      window.fetch = function (u, i) {
+        FETCHES.push({ url: String(u) });
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+        });
+      };
+      var hang215 = HT.byokCapture(FILE);
+      return new Promise(function (r) { setTimeout(r, 60); }).then(function () {
+        var o = outcome();
+        res(o.state === 'pending' && o.shown,
+            'R21.5-pending: the wait is an explicit state of the same modal, front and centre');
+        res(o.msg.indexOf('byokspin') >= 0 && /\d+s/.test(o.msg),
+            'R21.5-pending: with a spinner and the elapsed seconds counting');
+        res(o.foot.indexOf('byokCancel') >= 0 && o.foot.indexOf('photoSave()') < 0,
+            'R21.5-pending: a cancel and nothing else -- the other states are absent');
+        res(o.body === '', 'R21.5-one: and no stale draft underneath it');
+        res(capVis().indexOf('byokCancel') < 0,
+            'R21.5-one: while it waits the capture surface carries no second copy of the wait');
+        HT.byokCancel();
+        return hang215.then(function () {
+          res(HT.captureOutcomeState() === 'error',
+              'R21.5-pending: cancelling moves to the stated-failure state, never to nothing');
+          HT.byokBusyClear(); window.fetch = SCRIPTED_FETCH;
+        });
+      });
+    }).then(function () {
+      // The PASTE path lands in the same modal -- R21-parity is about ONE
+      // downstream, and a second draft surface would be two.
+      byokReset(SECRET); HT.photoDiscard(); HT.byokBusyClear();
+      document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+      HT.doPhotoPaste();
+      var o = outcome();
+      res(o.state === 'success' && o.shown && o.foot.indexOf('photoSave()') >= 0,
+          'R21.5-parity: a PASTED reply opens the same modal with the same actions -- one downstream, not two');
+      HT.photoDiscard();
+
+    }).then(function () {
+      // ======================================================================
       // R21.2 -- the capture chain, driven through the SHIPPED SHELL. The earlier
       // cases called byokCapture() directly, so input -> change -> handler ->
       // decode -> send was never once exercised end to end. That is the chain
@@ -2391,9 +2571,11 @@ window.setLS({});
             'R21.3-alive: and the stage says what it is doing');
         // renderCaptureBtn's OUTPUT is app logic, so a harness host is enough here;
         // that it is wired into the shipped shell is what R21.2 proves, in the iframe.
-        if (!document.getElementById('captureBox')) { var cb=document.createElement('div'); cb.id='captureBox'; document.body.appendChild(cb); }
-        HT.renderCaptureBtn();
-        res(document.getElementById('captureBox').innerHTML.indexOf('byokCancel') >= 0,
+        // R21.5 repointed this: the cancel now lives in the outcome modal's fixed
+        // footer rather than on the capture surface. The invariant is untouched --
+        // a two-minute budget must never trap anyone -- only its home moved, and
+        // the new home is the one that cannot be scrolled off.
+        res(outcome().foot.indexOf('byokCancel') >= 0,
             'R21.3-alive: a cancel is offered, so a two-minute budget never traps anyone');
         var c = HT.byokCancel();
         var b2 = HT.byokBusyState();

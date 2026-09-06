@@ -69,7 +69,7 @@
   .btn{display:inline-block;width:auto;padding:11px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;font-size:14px;cursor:pointer}
   .btn:active{opacity:.6}
   .btn.danger{border-color:var(--bad);color:var(--bad)}
-  .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:800;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;max-width:90%;text-align:center}
+  .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:800;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:23;max-width:90%;text-align:center}
   .toast.show{opacity:1}
   .hrow{padding:9px 0;border-top:1px solid var(--line)}
   .hrow:first-child{border-top:none}
@@ -340,6 +340,24 @@
   .fab span{font-size:22px;font-weight:400;vertical-align:-1px;margin-right:2px}
   .fab:active{opacity:.75}
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:17}
+  /* R21.5: the capture outcome OWNS THE SCREEN. It sits above the entry sheet
+     (z-17/18) because it is the answer to something the user just did, and an
+     answer rendered behind the form that asked is an answer nobody reads. */
+  .oscrim{z-index:21;background:rgba(0,0,0,.55)}
+  .omodal{position:fixed;left:0;right:0;bottom:0;z-index:22;background:var(--panel);border-top:1px solid var(--line);
+          border-radius:18px 18px 0 0;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 -6px 28px rgba(0,0,0,.32)}
+  /* Body scrolls, footer does NOT: the actions are in view at every height,
+     however many items came back. That is the gate, not a nicety. */
+  .obody{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:14px;flex:1 1 auto;width:100%;max-width:480px;margin:0 auto}
+  .ofoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+         display:flex;gap:8px;background:var(--panel);width:100%;max-width:480px;margin:0 auto;box-sizing:border-box}
+  .ofoot .btn{flex:1 1 0;min-height:46px}
+  .omsg{font-size:15px;line-height:1.5}
+  .omsg.obad{color:var(--bad)}
+  .opend{display:flex;align-items:center;gap:10px;font-size:15px;line-height:1.5}
+  .osub{color:var(--muted);font-size:12.5px;line-height:1.45;margin-top:10px}
+  @media (min-width:560px){.omodal{left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);
+    width:496px;max-height:86vh;border-radius:18px;border:1px solid var(--line)}}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:90vh;display:flex;flex-direction:column}
   .panel{position:fixed;inset:0;z-index:18;background:var(--bg);display:flex;flex-direction:column}
   .sheethead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto;padding-top:calc(10px + env(safe-area-inset-top))}
@@ -502,7 +520,6 @@
       <button class="btn primary" onclick="doPhotoPaste()">Read photo meal</button>
         <button class="btn" onclick="doIngest()">Ingest</button>
       <div id="ingestReport"></div>
-        <div id="photoDraft"></div>
       <div class="note">Never overwrites a day that has items. AI-paste items are macros-only (micros stripped) at eyeballed confidence.</div>
       </div>
       <div id="pane-manual" class="pane">
@@ -711,6 +728,22 @@
 
   <div class="wrap">
     <div class="about">HealthTracker — all data stays on this device. No accounts, no telemetry. <b>Your export is your backup</b> — some privacy browsers clear site data, so export regularly. On iOS, use Safari or Add to Home Screen for reliable offline use and camera scanning. <a href="https://github.com/Githor404/healthtracker">Source</a> · MIT.</div>
+  </div>
+  <!-- R21.5: ONE place a capture outcome is ever shown. Success (the draft),
+       failure (stated, with a way out) and pending (counted) are mutually
+       exclusive states of this one modal -- so "exactly one outcome, in view"
+       is a property of the STRUCTURE and not of three surfaces agreeing. -->
+  <div id="outcomeScrim" class="scrim oscrim" style="display:none" onclick="captureOutcomeDismiss()"></div>
+  <div id="captureOutcome" class="omodal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="outcomeTitle">
+    <div class="sheethead">
+      <b id="outcomeTitle"></b>
+      <button type="button" id="outcomeX" class="sheetx" onclick="captureOutcomeDismiss()" aria-label="Close">&times;</button>
+    </div>
+    <div class="obody" id="outcomeBody">
+      <div id="outcomeMsg"></div>
+      <div id="photoDraft"></div>
+    </div>
+    <div class="ofoot" id="outcomeFoot"></div>
   </div>
   <div class="toast" id="toast"></div>
   <script src="app.js"></script>

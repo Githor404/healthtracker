@@ -73,7 +73,10 @@ $measure = "(function(){try{HT.openSheet('photo');}catch(e){return JSON.stringif
   "var row=document.querySelector('.pmrow');" +
   "var r=function(e){return e?e.getBoundingClientRect():null;};" +
   "var lb=r(lead),rb=r(row),bb=r(btn),sb=r(sl),qb=r(q);" +
-  "var body=document.querySelector('.sheetbody');" +
+  # R21.5 moved the draft out of the entry sheet and into the outcome modal, so the
+# container whose overflow matters is now .obody. Left pointing at .sheetbody this
+# check would still have passed -- while measuring a box the draft is no longer in.
+  "var body=document.querySelector('.obody');" +
   "return JSON.stringify({" +
   "hasLead:!!lead,hasBtn:!!btn,rows:document.querySelectorAll('.pmrow').length," +
   "qText:(q?q.textContent:'')," +

@@ -1417,3 +1417,49 @@ D6 makes `APP_VERSION` bump whenever the shell changes, and the shell **did** ch
 ### Scope, stated plainly
 
 This is a **test-seam repair**, not a product fix — nothing a user can see behaves differently. It is logged as a decision because it changes shipped code, and because the class of failure it removes is one this project has been bitten by before: a gate that stops testing what it claims to, while still printing green.
+## D51 — The capture outcome owns the screen: one modal, three states (R21.5, 2026-09-05)
+
+`APP_VERSION → 0.19.0`; **schema unchanged at v5**. A presentation ruling, no data contract touched.
+
+### What was wrong was never the logic
+
+Every capture already ended in a definite result. It ended it **in the wrong place**: the draft rendered inline in the entry sheet, beneath the prompt textarea and the ingest textarea, which on a phone is off the bottom of the screen. D47 named that exactly — *"the draft sits below two textareas, which on a phone is off-screen, and off-screen is its own kind of silence"* — and worked around it by painting the state on the **capture surface as well**.
+
+**That workaround was the wrong shape, and this slice retires it.** Two surfaces telling the same story is not the fix for one of them being invisible; a surface that *cannot* be invisible is. And once the modal exists, the second copy is worse than redundant: it is a second outcome state, which is precisely what the gate forbids.
+
+### The three states are exclusive by construction, not by agreement
+
+One modal, one state, resolved in one place:
+
+| state | when | body | actions |
+|---|---|---|---|
+| **success** | a draft exists | the confirm-first lead, sliders, live totals | **Save meal** · **Discard** |
+| **pending** | `BYOK_BUSY.phase === 'sending'` | spinner + the counted seconds (D48) | **Cancel** |
+| **failure** | `BYOK_BUSY.phase === 'error'` | the message, in the provider's words | **Try again** · **Paste the response manually** |
+
+A draft **outranks** a stale pending line: the answer arrived, whatever the last message said. Because the state is a property of one function rather than a negotiation between three surfaces, *"exactly one outcome is shown"* needs no vigilance to stay true.
+
+### The footer does not scroll, and that is the whole point
+
+Save and Discard moved **out of the draft markup** and into a fixed footer. At the end of a list they were reachable only by scrolling past however many items the model returned — and a primary action you must hunt for is one an anxious user does not find. Gated at three widths with a nine-item list: the body scrolls, the footer does not.
+
+### A success cannot be dismissed; a failure can
+
+The scrim and the close button dismiss a **failure** — nothing is lost by closing it. They do **not** dismiss a **success**: a draft closed by a stray tap is a meal silently thrown away, which is the exact class of silence this slice exists to remove. Save or Discard, and no third exit. Pending is not dismissable either; it has a cancel, which says what it does.
+
+### Both paths keep one downstream (R21-parity, preserved by construction)
+
+`#photoDraft` **moved**; the draft markup did not change. The paste path and the call path still come through `openPhotoDraft` into the same element, so a pasted reply opens the same modal with the same actions. Giving the call path a modal and leaving paste inline would have split the one downstream D45 made load-bearing — the parity gate is unchanged and still green.
+
+### "Try again" re-opens the picker, and that is deliberate
+
+D45 holds the image in memory **for the call only**. Keeping it alive across a failure so a retry could replay it silently would stretch a ruled hygiene bound for convenience, so it does not: **Try again re-opens the picker**, and the modal says so. Re-picking costs one tap; the bound stays intact. **Open option, not taken:** keeping the decoded data URL in memory for the lifetime of the failure modal only would make retry a true replay. That is a hygiene amendment and is the user's to rule.
+
+### What the gates learned, twice
+
+Two of my own assertions were placed where they could not fail, and both were caught by reproduction rather than by review:
+
+1. The `capture-outcome-gate` fixture hand-rolled a reply with **flat macros instead of `per100`**. The parser rejected it, the capture fell to the failure state, and the gate measured **the failure state while reporting on success** — passing footer assertions for the wrong buttons. A fixture the parser refuses is not a fixture.
+2. The harness assertion that the capture surface carries no duplicate ran **only during success**, when `BYOK_BUSY` is null and a duplicate could not render anyway. Restoring the old second paint left the suite **fully green** while the visual gate failed on all three viewports. The assertions now run in the pending and failure states, where the defect actually lives, and they fail against the reverted code.
+
+Both are the 0.13.0 lesson again — *the gates that missed the first meals-lane defect all seeded records inside the window* — this time in the test code rather than the product.
