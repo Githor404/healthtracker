@@ -999,8 +999,16 @@ window.setLS({});
   setLS({}); HT.boot();
   if (!document.getElementById('sigType')) {
     var fh = document.createElement('div');
-    fh.innerHTML = '<select id="sigType"></select><label id="sigValLabel"></label><input id="sigValue">'
-      + '<div id="sigDiaWrap"><input id="sigDia"></div><select id="sigUnit"></select><input id="sigTime"><input id="sigNotes">'
+    // Mirrors the SHELL's structure, not just its ids: the value label and input
+    // share a wrapper, because onSignalTypeChange hides that wrapper for an
+    // ordinal (D52) and a flat scaffold would have it hide the whole form.
+    fh.innerHTML = '<select id="sigType"></select>'
+      + '<div><label id="sigValLabel"></label><input id="sigValue"></div>'
+      + '<div id="sigDiaWrap"><input id="sigDia"></div>'
+      + '<div id="sigUnitWrap"><select id="sigUnit"></select></div>'
+      + '<label id="sigTimeLabel"></label><input id="sigTime"><input id="sigNotes">'
+      + '<div id="sigBmWrap" style="display:none"><input id="sigBmSlider" type="range" min="1" max="7" step="1" value="4">'
+      + '<div id="sigBmEnds"></div><div id="sigBmRead"></div><div id="sigBmRef"></div></div>'
       + '<div id="sigChips"></div><div id="sigWarn"></div>';
     document.body.appendChild(fh);
   }
@@ -4616,6 +4624,197 @@ window.setLS({});
       'DT-export: day KEYS remain full ISO in the data — display formatting never reaches storage');
   res(JSON.parse(HT.exportJSON()).days[past].status==='in_progress',
       'DT-export: the status value is exported unchanged');
+
+  // ======================================================================
+  // R20 / D52 -- BRISTOL, AND THE GENERAL ORDINAL CONTRACT.
+  //
+  // Two rules, both general: SNAP-NEVER-INTERPOLATE, and ORDINAL STATISTICS
+  // ONLY. And the gate-scope rule that found the second one: DISPLAY-TIME
+  // COMPUTATION IS A GATE SURFACE. Every case below that asserts on a rendered
+  // string exists because entry-gating the value would not have caught it --
+  // stored values can be perfect integers while the trend row prints "avg 3.5".
+  // ======================================================================
+  setLS({}); HT.boot(); fixClock();
+
+  // R20-scale: seven stops, and the descriptors are the scale's own.
+  res(HT.ordinalStops('bm').length === 7, 'R20-scale: the scale has exactly SEVEN stops');
+  res(HT.isOrdinal('bm') === true && HT.isOrdinal('weight') === false,
+      'R20-scale: ordinality is a declared property, not a guess about the type');
+  res(HT.ordinalDescriptor('bm', 1) === 'separate hard lumps' &&
+      HT.ordinalDescriptor('bm', 7) === 'watery, no solid pieces',
+      'R20-scale: the poles are the SCALE’S OWN descriptors (Fork C) -- no clinical verdict word on the axis');
+  res(HT.ordinalDescriptor('bm', 4) === 'smooth and soft, sausage or snake',
+      'R20-scale: every stop carries its standard Bristol descriptor');
+
+  // R20-snap: the slider maps exactly, and a 3.5 CANNOT be produced by it.
+  var slidMap = [1,2,3,4,5,6,7].every(function (t) { return HT.ordinalClamp('bm', t) === t; });
+  res(slidMap, 'R20-snap: slider->type mapping is exact over all seven stops');
+  res(HT.ordinalClamp('bm', 3.5) === 4 && HT.ordinalClamp('bm', 0) === 1 && HT.ordinalClamp('bm', 99) === 7,
+      'R20-snap: the CONTROL lands on a stop always -- a drag between stops has no data in it to launder');
+  res(HT.onBmSlide(3.5) === 4 && document.getElementById('sigValue').value === '4',
+      'R20-snap: what the slider writes to the form is the SNAPPED integer, not the raw position');
+
+  // R20-snap: and at the INGEST boundary a 3.5 is DROPPED, never rounded. That is
+  // D29 Pin 2 applied to ranks -- rounding would launder noise into a real value.
+  res(HT.ordinalSnap('bm', 4) === 4 && HT.ordinalSnap('bm', 3.5) === null &&
+      HT.ordinalSnap('bm', 0) === null && HT.ordinalSnap('bm', 8) === null &&
+      HT.ordinalSnap('bm', 'x') === null,
+      'R20-snap: at ingest a non-stop is REJECTED, not rounded -- 3.5 becomes absence, never 4');
+  var bmBad = HT.normalizeSignal({ type: 'bm', kind: 'biometric', value: 3.5, time: '08:00' });
+  res(bmBad.value === undefined,
+      'R20-snap: a 3.5 through the normalizer stores NO VALUE -- honest absence beats a fabricated observation');
+  var bmOK = HT.normalizeSignal({ type: 'bm', kind: 'biometric', value: 4, time: '08:00' });
+  res(bmOK.value === 4 && bmOK.kind === 'biometric' && bmOK.type === 'bm',
+      'R20-snap: a real stop passes through unchanged');
+
+  // R20-record: round-trip, and the Fork E coercion trace asserted directly.
+  var bmAdd = HT.addSignal({ type: 'bm', value: 4, unit: 'type', time: '07:20', notes: 'after psyllium' });
+  res(bmAdd.ok === true && bmAdd.record.value === 4 && bmAdd.record.notes === 'after psyllium',
+      'R20-record: a bm record logs through the SHIPPED addSignal path -- no new write site');
+  res(bmAdd.record.tzo === HT.nowTZO(),
+      'R20-record: and it is tz-stamped like every other record (D29)');
+  var bmExp = HT.exportJSON();
+  setLS({}); HT.boot();
+  HT.restore(bmExp);
+  var bmBack = (HT.state().timeline[td] || []).filter(function (r) { return r.type === 'bm'; })[0];
+  res(!!bmBack && bmBack.value === 4 && bmBack.notes === 'after psyllium' && bmBack.time === '07:20',
+      'R20-record: it round-trips export -> restore byte-exact, notes and time included');
+  res(JSON.stringify(bmBack) === JSON.stringify(HT.normalizeSignal(bmBack)),
+      'R20-record: and it is already normalized -- a restore cannot change it');
+  // FORK E, the reason this is a type and not a kind: a consumer that does not
+  // know the value must PRESERVE the record, not silently reclassify it.
+  // Modelled on a type THIS app does not know, because that is precisely the
+  // older-app situation: asserting it with 'bm' would prove nothing now that a bm
+  // spec exists here to recover the kind from.
+  var asUnknownKind = HT.normalizeSignal({ type: 'future_scale', kind: 'future_scale', value: 4, time: '07:20' });
+  res(asUnknownKind.kind === 'event',
+      'R20-record FORK E: an unknown KIND is silently coerced to event -- which is why bm is a TYPE and not a kind');
+  var asKnownKind = HT.normalizeSignal({ type: 'future_scale', kind: 'biometric', value: 4, time: '07:20' });
+  res(asKnownKind.kind === 'biometric' && asKnownKind.type === 'future_scale' && asKnownKind.value === 4,
+      'R20-record FORK E: an unknown TYPE on a KNOWN kind survives intact -- the D35 sleep precedent, which is what bm rides');
+
+  // R20-ordinal: the statistics themselves. NO MEAN, NO DELTA, and the lower
+  // median -- averaging the two central ranks of an even count would reintroduce
+  // exactly the forbidden 3.5.
+  var os1 = HT.ordinalSummary([3, 4]);
+  res(os1.median === 3 && os1.n === 2,
+      'R20-ordinal: the median of [3,4] is 3 -- the LOWER median, an observed rank, never 3.5');
+  res(os1.mean === undefined && os1.avg === undefined && os1.delta === undefined,
+      'R20-ordinal: the summary carries NO mean and NO delta -- arithmetic on ranks is not defined');
+  var os2 = HT.ordinalSummary([1, 4, 4, 6, 7]);
+  res(os2.median === 4 && os2.modes.length === 1 && os2.modes[0] === 4 && os2.min === 1 && os2.max === 7 && os2.n === 5,
+      'R20-ordinal: median, mode, range and n over an odd count');
+  var os3 = HT.ordinalSummary([2, 2, 5, 5]);
+  res(os3.modes.length === 2 && os3.modes[0] === 2 && os3.modes[1] === 5,
+      'R20-ordinal: a tie reports BOTH modes rather than picking one');
+  res(HT.ordinalSummary([]).n === 0, 'R20-ordinal: an empty series summarises to nothing, not to zero');
+
+  // R20-snap-render: THE HEADLINE. Stored values are perfect integers; the defect
+  // would have been computed at DISPLAY time. So the gate reads the rendered row.
+  setLS({}); HT.boot(); fixClock();
+  // [3,4,3,4] is the sharpest fixture there is: its MEAN IS EXACTLY 3.5. If the
+  // ordinal branch ever regressed to seriesSummary, this row would print the
+  // forbidden number verbatim. Four points also clears TREND_MIN_POINTS.
+  HT.addSignal({ type: 'bm', value: 3, unit: 'type', time: '07:00' });
+  HT.addSignal({ type: 'bm', value: 4, unit: 'type', time: '09:00' });
+  HT.addSignal({ type: 'bm', value: 3, unit: 'type', time: '17:00' });
+  HT.addSignal({ type: 'bm', value: 4, unit: 'type', time: '19:00' });
+  HT.setTrendWindow('all');
+  HT.renderTrends();
+  var tHTML = document.getElementById('trends').innerHTML;
+  var bmRow = tHTML.split('Bowel movement')[1] || '';
+  bmRow = bmRow.split('</div></div>')[0] || bmRow;
+  res(tHTML.indexOf('Bowel movement') >= 0, 'R20-snap-render: the bm series renders a trend row');
+  res(bmRow.indexOf('3.5') < 0 && tHTML.indexOf('3.5') < 0,
+      'R20-snap-render: a series whose MEAN IS EXACTLY 3.5 never prints 3.5 -- the number the entry gate could not have caught');
+  res(bmRow.indexOf('avg') < 0 && bmRow.indexOf('&Delta;') < 0 && bmRow.indexOf('Δ') < 0,
+      'R20-snap-render: no mean and no delta on the ordinal row');
+  res(bmRow.indexOf('median type 3') >= 0 && bmRow.indexOf('n=4') >= 0,
+      'R20-snap-render: it reports the median, the mode, the range and n instead');
+  res(bmRow.indexOf('sparkdots') >= 0 && bmRow.indexOf('<polyline') < 0,
+      'R20-snap-render: and it plots as DOTS -- a line would draw through 3.5 in pixels');
+
+  // R20-band: cited, and neutral per D24.
+  var refHTML = HT.bmReferenceHTML();
+  res(refHTML.indexOf('Lewis &amp; Heaton') >= 0 && refHTML.indexOf('1997') >= 0 &&
+      refHTML.indexOf('Rome Foundation') >= 0 && refHTML.indexOf('Rome IV') >= 0,
+      'R20-band: BOTH sources are cited -- the instrument and the boundaries are different claims');
+  res(refHTML.indexOf('transit time') >= 0,
+      'R20-band FORK H: Lewis & Heaton is cited for what it actually validated -- a transit-time proxy');
+  res(refHTML.indexOf('not a target either source asserts') >= 0,
+      'R20-band FORK H: and the app states plainly that neither source asserts a target form');
+  res(HT.BM_BETWEEN.min === 3 && HT.BM_BETWEEN.max === 5,
+      'R20-band FORK H: the range the Rome IV boundaries leave is 3-5, not 3-4 -- the brief’s number corrected to its own sourcing rule');
+  res(refHTML.indexOf('doctor') >= 0,
+      'R20-band: the standing "worth discussing with your doctor" line is CONTEXT, present regardless of any reading');
+  res(refHTML.indexOf('normal') < 0 && refHTML.indexOf('healthy') < 0 && refHTML.indexOf('target') < 0 ||
+      refHTML.indexOf('not a target') >= 0,
+      'R20-band: no verdict word stands on its own -- "target" appears only inside the denial that there is one');
+
+  // R20-vocab: M7 over every new label, WITH A PLANTED CONTROL so the grep is
+  // proven live rather than assumed.
+  var bmSurface = (HT.bmReferenceHTML() + ' ' + HT.ordinalStops('bm').join(' ') + ' ' + bmRow).toLowerCase();
+  var bmBanned = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                  'you could','try to','aim for','well done','great job','keep it up',
+                  'constipat','diarrh','normal stool','abnormal'];
+  var bmHit = bmBanned.filter(function (w) { return bmSurface.indexOf(w) >= 0; });
+  res(bmHit.length === 0,
+      'R20-vocab: M7 holds over every new label -- descriptors, poles, band text and trend row' + (bmHit.length ? (' [' + bmHit.join(',') + ']') : ''));
+  var planted = (bmSurface + ' you should aim for better').toLowerCase();
+  res(bmBanned.filter(function (w) { return planted.indexOf(w) >= 0; }).length > 0,
+      'R20-vocab CONTROL: the same grep DOES fire on planted evaluative text -- the check is live, not vacuous');
+  var plantedClinical = (bmSurface + ' constipated').toLowerCase();
+  res(bmBanned.filter(function (w) { return plantedClinical.indexOf(w) >= 0; }).length > 0,
+      'R20-vocab CONTROL: and it fires on the clinical verdict word the brief originally specced as a pole');
+
+  // R20-chips: reachable, not appended out of sight.
+  res(HT.CHIP_DEFAULT.indexOf('bm') >= 0 && HT.CHIP_DEFAULT.indexOf('bm') < 6,
+      'R20-chips: the chip sits in the FIRST SIX -- the touch strip is one scrolling row, and this is logged with the phone barely in hand');
+  res(HT.chipLabel('bm') === 'Bowel movement', 'R20-chips: and it is labelled from the registry, not hardcoded');
+  HT.renderSignalChips();
+  res(document.getElementById('sigChips').innerHTML.indexOf("pickSignal('bm')") >= 0,
+      'R20-chips: the chip is wired to the shipped pickSignal path');
+
+  // R20-entry: two taps, and the number box is GONE for an ordinal -- a typeable
+  // box beside a 7-stop control is an invitation to type 3.5.
+  HT.renderSignalForm();
+  HT.pickSignal('bm');
+  res(document.getElementById('sigType').value === 'bm', 'R20-entry: the chip selects the type');
+  res(document.getElementById('sigBmWrap').style.display !== 'none',
+      'R20-entry: the ordinal control is shown');
+  res(document.getElementById('sigValLabel').parentNode.style.display === 'none',
+      'R20-entry: and the free numeric value box is HIDDEN, so there is nowhere to type a half-type');
+  var sl20 = document.getElementById('sigBmSlider');
+  res(sl20.getAttribute('min') === '1' && sl20.getAttribute('max') === '7' && sl20.getAttribute('step') === '1',
+      'R20-entry: the control itself has seven stops -- the snap is STRUCTURAL, not a validator that could be bypassed');
+  res(document.getElementById('sigBmEnds').innerHTML.indexOf('separate hard lumps') >= 0 &&
+      document.getElementById('sigBmEnds').innerHTML.indexOf('watery, no solid pieces') >= 0,
+      'R20-entry: the ends are labelled with the scale’s own poles');
+  res(document.getElementById('sigBmRead').innerHTML.indexOf('Type 4') >= 0,
+      'R20-entry: the selected stop states its Bristol type and descriptor');
+  res(document.getElementById('sigNotes') && document.getElementById('sigNotes').offsetParent !== undefined,
+      'R20-entry FORK D: the note field is present but secondary -- never on the two-tap path');
+
+  // R20-one-record: one record feeds every surface. Deleting it removes them all.
+  setLS({}); HT.boot(); fixClock();
+  HT.addSignal({ type: 'bm', value: 5, unit: 'type', time: '09:00' });
+  HT.addSignal({ type: 'bm', value: 5, unit: 'type', time: '15:00' });
+  HT.addSignal({ type: 'bm', value: 5, unit: 'type', time: '21:00' });   // >= TREND_MIN_POINTS
+  res((HT.state().timeline[td] || []).filter(function (r) { return r.type === 'bm'; }).length === 3,
+      'R20-one-record: the records are ordinary timeline records -- no second store');
+  HT.renderTrends();
+  res(document.getElementById('trends').innerHTML.indexOf('Bowel movement') >= 0,
+      'R20-one-record: the Trends series derives from them');
+  HT.state().timeline[td] = (HT.state().timeline[td] || []).filter(function (r) { return r.type !== 'bm'; });
+  HT.renderTrends();
+  res(document.getElementById('trends').innerHTML.indexOf('Bowel movement') < 0,
+      'R20-one-record: removing the record removes the series -- one record, not a derived copy');
+
+  // R20-nobump (Fork I): additive, schema stays v5.
+  res(JSON.parse(HT.exportJSON()).version === 5,
+      'R20-nobump: the schema is unchanged at v5 -- an older app preserves a bm record unrendered rather than stripping it');
+  setLS({}); HT.boot(); fixClock();
+
   freeClock();
 
   var seDone = false;

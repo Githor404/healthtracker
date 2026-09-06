@@ -69,7 +69,7 @@ function Eval([string]$expr) {
 # entry, so the strip must be OPENED before it can be measured. The assertion is
 # unchanged -- every chip still has to be reachable (wrap on mouse, scroll on
 # touch); only where the strip lives changed.
-$measure = "(function(){try{HT.openSheet('signal');}catch(e){}var el=document.getElementById('sigChips');if(!el)return JSON.stringify({err:'no-strip'});var c=el.querySelectorAll('.chip');var sb=el.getBoundingClientRect();var rows={};var clipped=0;for(var i=0;i<c.length;i++){var r=c[i].getBoundingClientRect();rows[Math.round(c[i].offsetTop)]=1;if(r.right>sb.right+2||r.left<sb.left-2)clipped++;}return JSON.stringify({n:c.length,rows:Object.keys(rows).length,overflow:(el.scrollWidth>el.clientWidth+1),clipped:clipped});})()"
+$measure = "(function(){try{HT.openSheet('signal');}catch(e){}var el=document.getElementById('sigChips');if(!el)return JSON.stringify({err:'no-strip'});var c=el.querySelectorAll('.chip');var sb=el.getBoundingClientRect();var rows={};var clipped=0;for(var i=0;i<c.length;i++){var r=c[i].getBoundingClientRect();rows[Math.round(c[i].offsetTop)]=1;if(r.right>sb.right+2||r.left<sb.left-2)clipped++;}var bm=null;for(var j=0;j<c.length;j++){if((c[j].textContent||'').indexOf('Bowel movement')>=0){bm=c[j];break;}}var bmr=bm?bm.getBoundingClientRect():null;return JSON.stringify({n:c.length,rows:Object.keys(rows).length,overflow:(el.scrollWidth>el.clientWidth+1),clipped:clipped,bmFound:!!bm,bmIdx:bm?Array.prototype.indexOf.call(c,bm):-1,bmReachable:!!bmr&&bmr.left>=sb.left-1&&bmr.right<=sb.right+1,scrollLeft:Math.round(el.scrollLeft)});})()"
 
 function Measure-Strip([int]$w, [int]$h, [bool]$mobile, [bool]$touch) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null
@@ -79,6 +79,12 @@ function Measure-Strip([int]$w, [int]$h, [bool]$mobile, [bool]$touch) {
   Start-Sleep -Milliseconds 1400
   return (Eval $measure | ConvertFrom-Json)
 }
+
+# The chip COUNT is pinned deliberately, the same discipline as
+# EXPECTED_ASSERTIONS: a chip that appears or vanishes must be a decision, not a
+# drift. Bumped 14 -> 15 by D52/R20, which adds `bm` in the first six -- the touch
+# strip is one scrolling row, so where a chip sits is the whole question.
+$EXPECT_CHIPS = 15
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
@@ -143,13 +149,14 @@ try {
   $B = Measure-Strip 380  800 $true  $true    # touch phone
   $C = Measure-Strip 1100 900 $false $false   # mouse, wide desktop
 
-  $A_ok = ($A.n -eq 14) -and (-not $A.overflow) -and ($A.rows -gt 1) -and ($A.clipped -eq 0)
-  $B_ok = ($B.n -eq 14) -and ($B.overflow) -and ($B.rows -eq 1)
-  $C_ok = ($C.n -eq 14) -and (-not $C.overflow) -and ($C.rows -gt 1) -and ($C.clipped -eq 0)
+  $A_ok = ($A.n -eq $EXPECT_CHIPS) -and $A.bmFound -and $A.bmReachable -and (-not $A.overflow) -and ($A.rows -gt 1) -and ($A.clipped -eq 0)
+  $B_ok = ($B.n -eq $EXPECT_CHIPS) -and $B.bmFound -and $B.bmReachable -and ($B.scrollLeft -eq 0) -and ($B.overflow) -and ($B.rows -eq 1)
+  $C_ok = ($C.n -eq $EXPECT_CHIPS) -and $C.bmFound -and $C.bmReachable -and (-not $C.overflow) -and ($C.rows -gt 1) -and ($C.clipped -eq 0)
 
   Write-Host "chip reachability (real index.html, CDP device emulation):"
   Write-Host ("  A mouse/narrow 380px : wrapped={0} rows={1} clipped={2} -> {3}" -f (-not $A.overflow), $A.rows, $A.clipped, $A_ok)
   Write-Host ("  B touch/phone  380px : scrolls={0} rows={1}            -> {2}" -f [bool]$B.overflow, $B.rows, $B_ok)
+  Write-Host ("  bm chip (D52/R20)    : idx={0} reachable-unscrolled={1} (touch strip is ONE scrolling row, so placement IS reachability)" -f $B.bmIdx, $B.bmReachable)
   Write-Host ("  C mouse/wide  1100px : wrapped={0} rows={1} clipped={2} -> {3}" -f (-not $C.overflow), $C.rows, $C.clipped, $C_ok)
   Write-Host "-----------------------------------------"
 

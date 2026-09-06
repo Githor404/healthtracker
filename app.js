@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.19.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.20.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2043,6 +2043,12 @@ const SIGNAL_SPEC = [
   // records stay valid and simply draw no arc, with no normalizer change at all.
   { type: 'sleep',          kind: 'biometric', label: 'Sleep (bed to wake)', unit: 'h', units: ['h'],              warn: 24 },
   { type: 'steps',          kind: 'biometric', label: 'Steps',         unit: 'count', units: ['count'],           warn: 100000 },
+  // D52 / Fork E: a new TYPE, not a new kind. `kind` is a closed enum, and
+  // normalizeSignal coerces anything outside it -- a `kind:'bm'` record would be
+  // silently reclassified to 'event' by any app that did not know the value, and
+  // permanently. As `kind:'biometric'` with an unknown type it round-trips intact
+  // and simply renders nowhere. That is the D35 sleep precedent exactly.
+  { type: 'bm',             kind: 'biometric', label: 'Bowel movement', unit: 'type', units: ['type'],           warn: 7 },
   { type: 'mood',           kind: 'biometric', label: 'Mood',          unit: '/5',    units: ['/5'],              warn: 5 },
   { type: 'energy',         kind: 'biometric', label: 'Energy',        unit: '/5',    units: ['/5'],              warn: 5 },
   { type: 'sauna',        kind: 'event', label: 'Sauna',       unit: 'min',    units: ['min'],    warn: 600 },
@@ -2067,6 +2073,127 @@ const SIGNAL_ADAPTERS = ['manual', 'lab'];
 const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'drop', 'puff', 'unit'];
 const MED_FORMS  = ['tablet', 'capsule', 'liquid', 'injection', 'topical', 'inhaler', 'patch', 'drops', 'other'];
 const MED_ROUTES = ['oral', 'sublingual', 'topical', 'inhaled', 'injected', 'nasal', 'other'];
+
+// ---- D52: ORDINAL SCALES -- a general contract, not a bowel-movement feature --
+//
+// An ordinal scale's points are RANKS, not quantities. Bristol defines seven
+// FORMS; it does not define the distance between them, so no arithmetic that
+// assumes equal spacing is licensed on them. Two rules follow, and both are
+// general -- the next ordinal (a symptom scale, RPE, a mood scale) inherits them:
+//
+//   1. SNAP, NEVER INTERPOLATE. A 3.5 does not exist. The entry control offers
+//      only the defined stops, and every ingest boundary either snaps to a stop
+//      or DROPS THE VALUE TO ABSENT -- never rounds silently. Dropping rather
+//      than rounding is D29 Pin 2 applied to ranks: rounding 3.5 to 4 would
+//      "launder noise into a real-looking zone", inventing an observation the
+//      instrument never issued.
+//
+//   2. ORDINAL STATISTICS ONLY: median, mode, min-max, n. NEVER a mean, and
+//      NEVER a delta. The mean of ranks fabricates a quantity the scale never
+//      defined, and "delta +2" asserts that type 5 minus type 3 is two units of
+//      something Bristol does not name.
+//
+// AND THE GATE-SCOPE RULE THAT FOUND THIS: DISPLAY-TIME COMPUTATION IS A GATE
+// SURFACE. Entry-gating a value does not protect a derived display of it. Every
+// stored value here can be a perfect integer while the trend row still prints
+// "avg 3.5" -- the exact forbidden number, computed at render time from clean
+// data. Gates on a value's honesty must read STORED **OR RENDERED**.
+const ORDINAL_SCALES = {
+  bm: {
+    label: 'Bristol type',
+    min: 1, max: 7,
+    // The scale's own descriptors. Descriptive, not evaluative: they survive M7
+    // because they say what was observed, not how the observer is doing.
+    stops: [
+      'separate hard lumps',
+      'lumpy, sausage-shaped',
+      'sausage-shaped with cracks',
+      'smooth and soft, sausage or snake',
+      'soft blobs with clear edges',
+      'fluffy ragged pieces, mushy',
+      'watery, no solid pieces',
+    ],
+  },
+};
+function isOrdinal(type) { return Object.prototype.hasOwnProperty.call(ORDINAL_SCALES, type); }
+function ordinalStops(type) { const o = ORDINAL_SCALES[type]; return o ? o.stops.slice() : []; }
+function ordinalDescriptor(type, v) {
+  const o = ORDINAL_SCALES[type];
+  const i = Math.round(num(v)) - (o ? o.min : 1);
+  return (o && i >= 0 && i < o.stops.length) ? o.stops[i] : '';
+}
+// The ONLY door a value may enter an ordinal series by. Returns an integer stop
+// or null; null means "not a value this instrument issued", and the caller stores
+// ABSENCE rather than a guess.
+function ordinalSnap(type, v) {
+  const o = ORDINAL_SCALES[type];
+  if (!o) return null;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (!Number.isInteger(n)) return null;            // 3.5 is REJECTED, never rounded
+  if (n < o.min || n > o.max) return null;
+  return n;
+}
+// The slider's own snap: a control may only ever land on a stop. Out-of-range
+// clamps here (a drag cannot mean anything but "the nearest end"), which is a
+// different act from accepting a 3.5 out of a paste -- this one has no data in it
+// to launder.
+function ordinalClamp(type, v) {
+  const o = ORDINAL_SCALES[type];
+  if (!o) return null;
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n)) return o.min;
+  return Math.min(o.max, Math.max(o.min, n));
+}
+// Ordinal statistics. NO MEAN, NO DELTA -- see rule 2.
+//
+// The median of an EVEN count is the trap: averaging the two central ranks
+// reintroduces exactly the 3.5 the whole contract forbids. So this is the LOWER
+// median -- an actual observed rank, never a point between two of them.
+function ordinalSummary(values) {
+  const vs = (values || []).map(Number).filter(Number.isInteger).slice().sort((a, b) => a - b);
+  const n = vs.length;
+  if (!n) return { n: 0 };
+  const median = vs[Math.ceil(n / 2) - 1];          // LOWER median: always a real stop
+  const counts = {};
+  vs.forEach((v) => { counts[v] = (counts[v] || 0) + 1; });
+  const top = Math.max.apply(null, Object.keys(counts).map((k) => counts[k]));
+  const modes = Object.keys(counts).filter((k) => counts[k] === top).map(Number).sort((a, b) => a - b);
+  return { n: n, median: median, modes: modes, min: vs[0], max: vs[n - 1], latest: values[values.length - 1] };
+}
+
+// ---- D52 / Fork G+H: the bm reference, sourced on the D32 shape ---------------
+// D34 fenced the lab registry off from signals ("ApoB does not belong beside
+// Sauna"), so this is bm-LOCAL and reuses the {org, cite, version, applicability}
+// shape rather than wiring a signal into LAB_SPEC.
+//
+// FORK H, and the brief was corrected here: Lewis & Heaton 1997 validated the
+// scale as a proxy for WHOLE-GUT TRANSIT TIME. It does not assert a target form.
+// The 1-2 / 6-7 boundaries are Rome IV's bowel-habit subtyping. Stated as two
+// sources doing two different jobs, in the D32 manner.
+//
+// AND A CORRECTION THAT FELL OUT OF THE RULING: the range those boundaries leave
+// is 3-5, not 3-4. Rome IV subtypes at 1-2 and 6-7, so the uncharacterised middle
+// is three forms wide. "3-4" is a common convention with no source here asserting
+// it, so it is not what this app draws.
+const BM_SOURCES = [
+  { org: 'Lewis & Heaton', cite: 'Scand J Gastroenterol 1997;32:920–4', version: '1997',
+    applicability: 'validates the seven forms as a proxy for whole-gut transit time — types 1–2 with slower transit, 6–7 with faster. It does not state a target form.' },
+  { org: 'Rome Foundation', cite: 'Rome IV diagnostic criteria', version: 'IV (2016)',
+    applicability: 'subtypes bowel habit at types 1–2 and 6–7. Types 3–5 are the range those boundaries leave — not a target either source asserts.' },
+];
+const BM_BETWEEN = { min: 3, max: 5 };
+// D24 absolute: a reference is FACTUAL TEXT and a neutral line. No met/unmet
+// colour, no verdict word, ever -- the direction-of-good is the user's to judge
+// and a doctor's to interpret. This function returns figures and citations only.
+function bmReferenceHTML() {
+  return `<div class="bmref"><div class="bmrefline">Rome IV subtypes at types 1–2 and 6–7 · types ` +
+    `${esc(BM_BETWEEN.min)}–${esc(BM_BETWEEN.max)} fall between those boundaries</div>` +
+    BM_SOURCES.map((s) =>
+      `<small class="labcite">${esc(s.org)} — ${esc(s.cite)}${s.version ? ' (' + esc(s.version) + ')' : ''} · ${esc(s.applicability)}</small>`
+    ).join('') +
+    `<small class="labcite">Figures only. Persistent change in bowel habit is worth discussing with your doctor.</small></div>`;
+}
 
 // Coerce a raw signal (from ANY adapter) to the canonical record. value clamped
 // >= 0; kind validated; unknown type tolerated + preserved; source tolerated as a
@@ -2096,7 +2223,14 @@ function normalizeSignal(raw) {
     if (raw.reason != null && String(raw.reason) !== '') rec.reason = String(raw.reason);
   } else {
     rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
-    if (raw.value != null && String(raw.value) !== '') rec.value = clampNonNeg(raw.value);
+    if (raw.value != null && String(raw.value) !== '') {
+      // D52 rule 1, at EVERY ingest boundary -- form, paste and restore all land
+      // here. A 3.5 is not rounded to 4: it is DROPPED, and the record carries
+      // honest absence instead of an observation the instrument never issued.
+      // D29 Pin 2, applied to ranks.
+      if (isOrdinal(rec.type)) { const o = ordinalSnap(rec.type, raw.value); if (o != null) rec.value = o; }
+      else rec.value = clampNonNeg(raw.value);
+    }
   }
   const tzo = normalizeTzo(raw.tzo);   // D29: preserve only -- addSignal supplies it
   if (tzo !== undefined) rec.tzo = tzo;
@@ -2229,12 +2363,48 @@ function signalTimeLabel(type) { return type === 'sleep' ? 'Bedtime' : 'Time'; }
 function onSignalTypeChange() {
   const sel = document.getElementById('sigType'); if (!sel) return;
   const isBP = sel.value === 'bp';
+  const ord = isOrdinal(sel.value);
   const spec = SIGNAL_BY_TYPE[sel.value];
   fillUnitOptions(sel.value, isBP);
   const vl = document.getElementById('sigValLabel'); if (vl) vl.textContent = isBP ? 'Systolic' : ((spec && spec.kind === 'event') ? 'Duration (opt.)' : 'Value');
   const diaWrap = document.getElementById('sigDiaWrap'); if (diaWrap) diaWrap.style.display = isBP ? '' : 'none';
   const notes = document.getElementById('sigNotes'); if (notes) notes.placeholder = (sel.value === 'other') ? 'what was it?' : 'notes (optional)';
   const tl = document.getElementById('sigTimeLabel'); if (tl) tl.textContent = signalTimeLabel(sel.value);
+  // D52: an ordinal has no free numeric value and no unit to pick -- the SCALE is
+  // the unit. The number box is hidden rather than left beside the slider, because
+  // a typeable box next to a 7-stop control is an invitation to type 3.5.
+  const bmWrap = document.getElementById('sigBmWrap');
+  const valWrap = vl ? vl.parentNode : null;
+  const unitWrap = document.getElementById('sigUnitWrap');
+  if (bmWrap) bmWrap.style.display = ord ? '' : 'none';
+  if (valWrap) valWrap.style.display = ord ? 'none' : '';
+  if (unitWrap) unitWrap.style.display = (ord || isBP) ? (ord ? 'none' : '') : '';
+  if (ord) renderBmControl(sel.value);
+}
+// Fork C: the poles are the SCALE'S OWN end descriptors. The brief specced
+// "hard / constipated" and "loose / diarrhea" and then forbade "constipated" as a
+// verdict four points later; taking the descriptors removes the clinical word from
+// the surface entirely rather than carving an exception into M7 -- and a safety
+// invariant whose value is that it has no exceptions must not acquire one.
+function renderBmControl(type) {
+  const stops = ordinalStops(type);
+  const ends = document.getElementById('sigBmEnds');
+  if (ends) ends.innerHTML = `<span>${esc(stops[0] || '')}</span><span>${esc(stops[stops.length - 1] || '')}</span>`;
+  const ref = document.getElementById('sigBmRef');
+  if (ref) ref.innerHTML = bmReferenceHTML();
+  const sl = document.getElementById('sigBmSlider');
+  onBmSlide(sl ? sl.value : (ORDINAL_SCALES[type] ? ORDINAL_SCALES[type].min : 1), type);
+}
+// The slider can only land on a stop, and what it writes to #sigValue is the
+// snapped integer -- so the value the form submits is a stop by construction.
+function onBmSlide(v, type) {
+  type = type || 'bm';
+  const n = ordinalClamp(type, v);
+  const sl = document.getElementById('sigBmSlider'); if (sl && String(sl.value) !== String(n)) sl.value = n;
+  const val = document.getElementById('sigValue'); if (val) val.value = String(n);
+  const read = document.getElementById('sigBmRead');
+  if (read) read.innerHTML = `<b>Type ${esc(n)}</b> · ${esc(ordinalDescriptor(type, n))}`;
+  return n;
 }
 
 // Quick-log chips (D21 Layer-1 adherence: ease-of-logging is the mechanism of
@@ -2242,7 +2412,11 @@ function onSignalTypeChange() {
 // form -- pickSignal only sets the type + focuses the value box, never creates a
 // record; logging still funnels through addSignalFromForm -> addSignal, so a
 // chip-logged record is identical to a dropdown-logged one (one contract, one path).
-const CHIP_DEFAULT = ['weight', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
+// D52 / Fork A: `bm` sits in the FIRST SIX deliberately. The touch strip is one
+// scrolling row, so a chip appended at the end is off-screen until you scroll --
+// and this is the signal logged in a bathroom with the phone barely in hand. The
+// curation order is audience-tuned (D26); this is that tuning, not an accident.
+const CHIP_DEFAULT = ['weight', 'bm', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
 // D35 conflict (iv): one stated mapping, not two sleep chips. A goal declared on
 // the legacy scalar type floats the interval chip, since that is where entry lives.
 const CHIP_GOAL_ALIAS = { sleep: 'sleep_hours' };
@@ -2275,6 +2449,13 @@ function pickSignal(type) {
   const sel = document.getElementById('sigType'); if (!sel) return;
   sel.value = type;
   onSignalTypeChange();
+  // D52: for an ordinal the number box is hidden, so focusing it would put the
+  // caret nowhere. The thumb belongs on the slider -- that IS the second tap.
+  if (isOrdinal(type)) {
+    const sl = document.getElementById('sigBmSlider');
+    if (sl) { try { sl.focus(); } catch (e) {} }
+    return;
+  }
   const v = document.getElementById('sigValue');
   if (v) { try { v.focus(); if (v.select) v.select(); } catch (e) {} }
 }
@@ -2306,6 +2487,10 @@ function addSignalFromForm() {
   }
   if (!r.ok) { toast(r.error || 'Could not log'); return; }
   ['sigValue', 'sigDia', 'sigNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  // D52: clearing #sigValue would desync an ordinal -- the slider would still read
+  // Type 4 while the form submitted nothing. Re-sync from the control that is
+  // actually on screen.
+  if (isOrdinal(type)) onBmSlide(document.getElementById('sigBmSlider').value, type);
   showSignalWarnings(r.warnings || []);
   const spec = SIGNAL_BY_TYPE[type];
   const lbl = (type === 'bp')
@@ -2780,7 +2965,7 @@ function fastingStats(days) {
 // Hand-rolled inline SVG sparkline (theme-aware via CSS; no deps). Optional refVal
 // draws a NEUTRAL dashed goal line (D24: no met/unmet color — the goal is factual,
 // the user judges the gap); the value range expands to keep the line visible.
-function sparklineSVG(points, refVal) {
+function sparklineSVG(points, refVal, opts) {
   const W = 240, H = 40, pad = 3;
   if (!points.length) return '';
   const vs = points.map((p) => p.v);
@@ -2794,6 +2979,17 @@ function sparklineSVG(points, refVal) {
   }).join(' ');
   const dot = n === 1 ? `<circle cx="${W / 2}" cy="${refVal != null ? Math.round(yFor(vs[0]) * 10) / 10 : H / 2}" r="2.5"/>` : '';
   const ref = refVal != null ? `<line class="tref" x1="${pad}" y1="${Math.round(yFor(refVal) * 10) / 10}" x2="${W - pad}" y2="${Math.round(yFor(refVal) * 10) / 10}"/>` : '';
+  // D52: an ORDINAL plots as DOTS. A polyline between type 3 and type 5 draws a
+  // continuous path through 3.5 and 4.5 -- values the scale does not define -- so
+  // the line states in pixels exactly what the summary is forbidden to state in
+  // numbers. Same rule, different encoding.
+  if (opts && opts.dots) {
+    const circles = points.map((p, i) => {
+      const x = n === 1 ? W / 2 : pad + (i / (n - 1)) * (W - 2 * pad);
+      return `<circle cx="${Math.round(x * 10) / 10}" cy="${Math.round(yFor(p.v) * 10) / 10}" r="2.2"/>`;
+    }).join('');
+    return `<svg class="spark sparkdots" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${ref}${circles}</svg>`;
+  }
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${ref}<polyline points="${pts}"/>${dot}</svg>`;
 }
 function setTrendWindow(d) { TREND_WINDOW = d; renderTrends(); }
@@ -2823,6 +3019,24 @@ function renderTrends() {
     // D24 signal goal: factual target + a neutral reference line (fully neutral — no
     // met/unmet color/word). Normalize the goal to the series unit; a non-convertible
     // goal unit surfaces the mismatch and is not drawn (same never-force rule as D23).
+    // D52 rule 2 + THE GATE-SCOPE RULE: this is where "avg 3.5" would have been
+    // printed, from perfectly integer stored values. An ordinal never reaches
+    // seriesSummary -- median, mode, range and n, and no delta.
+    if (isOrdinal(sp.type)) {
+      const os = ordinalSummary(plot.map((p) => p.v));
+      if (os.n === 0) return;
+      const modeStr = os.modes.length === 1
+        ? ('most often type ' + rDisp(os.modes[0]))
+        : ('most often types ' + os.modes.map(rDisp).join(' and '));
+      bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(ORDINAL_SCALES[sp.type].label)}</small>${cov}</div>`
+        + sparklineSVG(plot, null, { dots: true })
+        + `<div class="tsum">latest type ${esc(rDisp(os.latest))} · median type ${esc(rDisp(os.median))} · ${esc(modeStr)}`
+        + ` · range ${esc(rDisp(os.min))}–${esc(rDisp(os.max))} · n=${esc(os.n)}</div>`
+        + `<div class="tsum"><small>${esc(ordinalDescriptor(sp.type, os.median))} at the median</small></div>`
+        + bmReferenceHTML()
+        + `</div>`;
+      return;
+    }
     const goal = (APP_STATE.settings.goals || {})[sp.type];
     let goalStr = '', refVal = null;
     if (goal && goal.value != null) {
@@ -3822,6 +4036,7 @@ const VERSION_LOG = [
   { v: '0.18.4', note: 'Fix: a key that passed Test connection could go back to reading "key not tested yet" on the capture screen. Sending a photo was overwriting the saved verified status while counting the call, so a tested key looked untested. The status is now one saved fact that both screens read, a successful capture counts as a verification in its own right, and if a key is ever unverified the capture screen offers to verify it on the spot rather than just saying so.' },
   { v: '0.18.5', note: 'Housekeeping, with nothing to see: the app now keeps a single clock internally. Two of its own automated checks had quietly stopped checking what they claimed to when the date rolled over, and this is the repair. Nothing you can observe changes.' },
   { v: '0.19.0', note: 'Capturing a meal now answers you properly. The result opens as a pop-up that takes over the screen: the estimated items with their sliders, the running totals, and Save meal or Discard right there at the bottom where you can always reach them. If the call fails or times out it says so in the same place, with Try again and Paste the response manually, and while it is working the countdown sits front and centre with a Cancel. No more results appearing quietly below the fold.' },
+  { v: '0.20.0', note: 'Track bowel movements on the Bristol scale: tap the new chip, slide to the form that matches, log. The slider has exactly seven stops, because the scale defines seven forms and nothing in between — so there is no half-type to record by accident. Trends shows the median, the most common type and the range over your window, with the sources cited; it deliberately shows no average, since averaging form types would invent a number the scale does not define.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5839,6 +6054,9 @@ window.HT = {
   setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, miniRingSVG, MINI_PX,
   renderTimelineOverlay, timelineForDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
+  // D52 -- the ordinal contract (general), and the bm scale that first uses it
+  ORDINAL_SCALES, isOrdinal, ordinalStops, ordinalDescriptor, ordinalSnap, ordinalClamp,
+  ordinalSummary, BM_SOURCES, BM_BETWEEN, bmReferenceHTML, onBmSlide, renderBmControl,
   // D30 — single entry point (presentation only)
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
   // Phase 4 Slice — Regimen / timeline templates (D27)
@@ -5857,7 +6075,7 @@ window.HT = {
   SIGNAL_SPEC, SIGNAL_KINDS, MED_DOSE_UNITS, MED_FORMS, MED_ROUTES,
   normalizeSignal, normalizeTimeline, signalWarnings, addSignal, logBP, timelineForDay,
   // Phase 4 Layer-1 adherence — quick-log chips (D21)
-  chipOrder, CHIP_DEFAULT, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
+  chipOrder, CHIP_DEFAULT, chipLabel, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable,
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)

@@ -1684,4 +1684,36 @@ A target band also sits oddly beside D24's ruling that a signal goal renders **f
 | R20-ring-gaps | *(only if B1)* `ring-size-gate` gains a **gap-floor** threshold, so a future lane cannot halve the whitespace while every gate stays green |
 | existing | `photo-lead`, `ring-size`, `chip-layout` **repointed, not weakened**, wherever touched — the D50/R21.5 rule |
 
-**Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–J.**
+~~**Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–J.**~~ **All ten ruled 2026-09-05 as recommended; built.**
+
+
+#### Evidence (D52; Forks A–J ruled as argued; built 2026-09-05, v0.20.0)
+
+| Case | Result |
+|---|---|
+| R20-scale | seven stops; ordinality is a **declared property**, not a guess about the type; every stop carries its standard Bristol descriptor; the poles are the **scale's own** (Fork C) |
+| R20-snap | slider→type exact over all seven stops; the control always lands on a stop; what it writes to the form is the **snapped integer**, not the raw position |
+| R20-snap | at **ingest** a non-stop is **rejected, not rounded** — a 3.5 through the normalizer stores **no value**; honest absence beats a fabricated observation (D29 Pin 2 applied to ranks) |
+| R20-record | logs through the shipped `addSignal` path, tz-stamped like every record; round-trips export→restore byte-exact with notes and time; already normalized, so a restore cannot change it |
+| R20-record **Fork E** | an unknown **kind** is silently coerced to `event`; an unknown **type** on a known kind survives intact — asserted on `future_scale`, a type this app genuinely does not know, because `bm` would prove nothing now that a spec exists to recover it |
+| R20-ordinal | median of `[3,4]` is **3** — the lower median, an observed rank, never 3.5; the summary carries **no mean and no delta**; a tie reports **both** modes; an empty series summarises to nothing, not to zero |
+| R20-snap-render | **the headline.** A series whose **mean is exactly 3.5** never prints 3.5; no mean and no Δ on the row; median, mode, range and n instead; plotted as **dots**, because a line draws through 3.5 in pixels |
+| R20-band | both sources cited, each for the claim it supports; Lewis & Heaton cited for **transit time**; the app states plainly that **neither source asserts a target**; the range the Rome IV boundaries leave is **3–5**; the doctor line renders as standing context |
+| R20-vocab | M7 over descriptors, poles, band text and trend row — **with two planted controls**: the grep fires on planted evaluative text, *and* on the clinical verdict word the brief originally specced as a pole |
+| R20-chips | the chip is in the first six, labelled from the registry, wired to the shipped `pickSignal` |
+| R20-entry | the chip selects the type and the ordinal control shows; **the free numeric box is hidden**, so there is nowhere to type a half-type; the control itself is `min=1 max=7 step=1` — the snap is **structural**, not a validator that could be bypassed |
+| R20-one-record | the records are ordinary timeline records, no second store; removing them removes the series |
+| R20-nobump | schema unchanged at **v5** (Fork I) |
+| chip-layout-gate | **re-pinned 14 → 15 deliberately**, and it now **measures reachability**: the bm chip's rect inside the strip's visible box at `scrollLeft === 0`. Measured `idx=1`, reachable-unscrolled — the touch strip is one scrolling row, so placement *is* reachability |
+
+**Proven against the defect, twice, and the pair is the point.**
+
+- Deleting the ordinal branch from `renderTrends` fails the **four** `R20-snap-render` cases — **while every storage case stays green.** The suite reports the value stored honestly at the same moment the row prints 3.5. That is the gate-scope hole, reproduced rather than described.
+- Making the ingest boundary **round** instead of reject fails the **two** `R20-snap` boundary cases: 3.5 becomes 4, an observation nobody made.
+
+**Count delta: 1207 → 1256** (+49). **1256/1256 ALL PASS**, `executed 1256 · pinned 1256`. **Fifteen gates green.**
+
+**Not built, deliberately:** the ring tick (Fork B2 — the gap arithmetic and R14's unsettled annulus claim; `time` is stored, so it is addable later from existing data) and `AUDIT_WINDOWS` (Fork J — a decision-log reservation; the two candidate pairs are recorded in D52 and both are labelled **uncited**).
+
+**Status: MET — awaiting review.** The device question is whether two taps in a bathroom is actually two taps.
+

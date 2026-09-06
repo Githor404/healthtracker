@@ -56,6 +56,18 @@
   /* R21.1: a test outcome must be DISTINCT at a glance. .bad was only ever
      defined for .ireport, so a failure rendered in the same muted grey as a
      help note -- visible, but not legible as a failure. */
+  /* D52: the 7-stop ordinal control. The user FEELS a sliding scale; the record
+     STORES the validated ordinal -- the slider has step=1 over 7 stops, so an
+     intermediate position is not merely discouraged, it does not exist. */
+  .bmwrap{margin-top:10px}
+  .bmslider{width:100%;margin:6px 0 2px}
+  .bmends{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:11.5px;line-height:1.35}
+  .bmends span{max-width:46%}
+  .bmends span:last-child{text-align:right}
+  .bmread{margin-top:8px;font-size:14.5px;line-height:1.4}
+  .bmread b{font-size:16px}
+  .bmref{margin-top:10px}
+  .bmrefline{font-size:12.5px;line-height:1.45}
   .byoks{font-size:12.5px;margin-top:10px;line-height:1.4;display:flex;align-items:center;gap:7px}
   .byoks.byokok{color:var(--good)}
   .byoks.byokbad{color:var(--bad)}
@@ -572,7 +584,21 @@
           <div style="flex:2"><label>Type</label><select id="sigType" onchange="onSignalTypeChange()"></select></div>
           <div><label id="sigValLabel">Value</label><input id="sigValue" type="number" inputmode="decimal"></div>
           <div id="sigDiaWrap" style="flex:1;display:none"><label>Diastolic</label><input id="sigDia" type="number" inputmode="decimal"></div>
-          <div style="flex:0 0 90px"><label>Unit</label><select id="sigUnit"></select></div>
+          <div style="flex:0 0 90px" id="sigUnitWrap"><label>Unit</label><select id="sigUnit"></select></div>
+        </div>
+        <!-- D52: the ordinal control. Two taps: the chip lands here, the thumb
+             lands on the slider. step=1 over 7 stops means an intermediate
+             position DOES NOT EXIST -- the snap is structural, not a validator.
+             It writes the snapped integer into #sigValue, so logging still funnels
+             through addSignalFromForm -> addSignal: one contract, one path, and no
+             new record-write site (D29 census unchanged). -->
+        <div id="sigBmWrap" class="bmwrap" style="display:none">
+          <label id="sigBmLabel">Form</label>
+          <input id="sigBmSlider" class="bmslider" type="range" min="1" max="7" step="1" value="4"
+                 oninput="onBmSlide(this.value)" aria-describedby="sigBmRead">
+          <div class="bmends" id="sigBmEnds"></div>
+          <div class="bmread" id="sigBmRead" aria-live="polite"></div>
+          <div id="sigBmRef"></div>
         </div>
         <div class="row">
           <div><label id="sigTimeLabel">Time</label><input id="sigTime" type="time"></div>

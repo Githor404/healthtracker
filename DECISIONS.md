@@ -1463,3 +1463,67 @@ Two of my own assertions were placed where they could not fail, and both were ca
 2. The harness assertion that the capture surface carries no duplicate ran **only during success**, when `BYOK_BUSY` is null and a duplicate could not render anyway. Restoring the old second paint left the suite **fully green** while the visual gate failed on all three viewports. The assertions now run in the pending and failure states, where the defect actually lives, and they fail against the reverted code.
 
 Both are the 0.13.0 lesson again — *the gates that missed the first meals-lane defect all seeded records inside the window* — this time in the test code rather than the product.
+## D52 — Ordinal scales: a general contract, first used by Bristol (R20, 2026-09-05)
+
+`APP_VERSION → 0.20.0`; **schema unchanged at v5** (Fork I). Ten forks ruled as argued. **Three of the rulings corrected the brief**, and are recorded as corrections rather than as choices.
+
+### The two general rules
+
+These are the deliverable. Bristol is the first instrument to use them; the next ordinal — a symptom scale, RPE, a mood scale — inherits them without a new ruling.
+
+**Rule 1 — SNAP, NEVER INTERPOLATE.** An ordinal's points are **ranks, not quantities**. Bristol defines seven forms and says nothing about the distance between them, so a 3.5 is not a value the instrument can issue. The entry control offers only the defined stops; every ingest boundary either lands on a stop or **drops the value to absent**.
+
+**Dropping, not rounding** — and the precedent is already in the log. Rounding a pasted 3.5 to 4 would "launder noise into a real-looking zone", which is exactly what **D29 Pin 2** forbids for out-of-range `tzo`. The same reasoning applies to ranks: a rounded 3.5 is an observation nobody made. The slider clamps (a drag between stops carries no data to launder); the *boundary* rejects.
+
+**Rule 2 — ORDINAL STATISTICS ONLY: median, mode, min–max, n. Never a mean, never a delta.** The mean of ranks fabricates a quantity the scale never defined, and "Δ +2" asserts that type 5 minus type 3 is two units of something Bristol does not name.
+
+**With a trap inside the rule:** the median of an even count, computed naively, averages the two central ranks — and reintroduces exactly the 3.5 the contract forbids. This is the **lower median**: always an actually-observed rank. A tie in the mode reports **both** modes rather than picking one.
+
+### The correction that produced Rule 2 — and a third general rule
+
+**DISPLAY-TIME COMPUTATION IS A GATE SURFACE.** The brief's gate — *"no non-integer type is ever stored"* — was airtight at entry and blind to everything downstream. Registered as an ordinary biometric, a `bm` series would have inherited `seriesSummary` and rendered **"avg 3.5"** in the trend row: the exact forbidden number, computed at render time **from perfectly integer stored values**.
+
+**Entry-gating a value does not protect a derived display of it.** A gate on a value's honesty must read **stored *or* rendered**.
+
+This is now demonstrated rather than asserted. Deleting the ordinal branch from `renderTrends` fails the four `R20-snap-render` cases **while every storage case stays green** — the storage gates report success with the forbidden number on screen. That is the shape of the hole, reproduced.
+
+Its third instance, in pixels rather than numbers: a **polyline** between type 3 and type 5 draws a continuous path through 3.5 and 4.5. The line states in geometry what the summary may not state in text, so an ordinal plots as **dots**. Same rule, different encoding — the same argument D24 made when it refused a met/unmet colour as "good" re-encoded past the M7 grep.
+
+### Corrections to the brief, recorded as corrections
+
+**(1) The gate-scope hole** — above. The brief's gate would have passed while the app printed 3.5.
+
+**(2) Fork C — the brief contradicted itself.** It specced the slider poles as *"hard / constipated"* ↔ *"loose / diarrhea"*, and four points later forbade "constipated" as a verdict. The poles are now **the scale's own end descriptors** — *"separate hard lumps"* ↔ *"watery, no solid pieces"*. Better sourced, and it removes the clinical word from the surface entirely rather than carving an exception into M7 — an invariant whose whole value is that it has none. Gated with a planted control on the clinical word itself.
+
+**(3) Fork H — the citation did not say what the brief claimed.** Lewis & Heaton 1997 (*Scand J Gastroenterol* 32:920–4) validated the scale as a proxy for **whole-gut transit time** — types 1–2 slower, 6–7 faster. **It does not assert a target form.** The 1–2 / 6–7 boundaries are **Rome IV's** bowel-habit subtyping. Both are cited, each for the claim it actually supports, in the D32 manner.
+
+**And following that ruling to its conclusion changed the number.** The brief named 3–4 as the reference band. Rome IV subtypes at 1–2 and 6–7, so **the range those boundaries leave is 3–5**, three forms wide. "3–4" is a common convention with no source here asserting it, so it is not what the app draws. The app states the boundaries and says plainly that the middle is *"not a target either source asserts"*.
+
+Per **D24** the band renders on fully neutral footing: factual text and citations, **no met/unmet cue, ever**. The standing *"worth discussing with your doctor"* line is **context that renders regardless of any reading** — never a per-entry verdict.
+
+### The remaining rulings, as argued
+
+**Fork E — `type: 'bm'`, `kind: 'biometric'`, and it is a data-integrity question.** `kind` is a closed enum and `normalizeSignal` coerces anything outside it: a `kind:'bm'` record is silently reclassified to `event` by any app that does not know the value, permanently and without error. As an unknown *type* on a known *kind* it round-trips intact and renders nowhere. **This is the D35 sleep precedent exactly.** Gated on `future_scale` — a type this app genuinely does not know — because asserting it with `bm` would prove nothing now that a `bm` spec exists here to recover the kind from.
+
+**Fork A — the chip sits in the first six**, and *placement is the whole question*: the touch strip is one scrolling row, so a chip appended at the end is off-screen until you scroll, for the one signal logged with the phone barely in hand. `chip-layout-gate` re-pinned **14 → 15** deliberately — and, having just learned this twice, it now **measures reachability** rather than trusting an array index: the bm chip's rect must sit inside the strip's visible box at `scrollLeft === 0`. Measured at `idx=1`, reachable.
+
+**Fork B2 — no ring tick this slice.** The lane budget is at its ruled maximum and `laneGeometry` spends the remainder as whitespace: a fifth lane cuts inter-lane gaps from **4.84 px to 2.03 px** (or 3.12 px for a thin track), and `ring-size-gate` measures **strokes, never gaps**, so it would have stayed green through it. With R14's claim on the reserved annulus still unsettled, spending the last whitespace on the newest signal is the expensive order. **Nothing is lost:** the record carries `time`, so the tick is addable later from data already stored.
+
+**Fork D — the note is present but secondary.** `notes` already exists on every signal record, so this cost no schema change; the two-tap path never touches it.
+
+**Fork G — the band is `bm`-local**, reusing the `{org, cite, version, applicability}` shape rather than wiring a signal into `LAB_SPEC`. D34's fence holds — *"ApoB does not belong beside Sauna"*.
+
+**Fork I — no bump**, on an argument stronger than D29's: an older app does not even strip these records, it preserves them unrendered.
+
+**Fork J — `AUDIT_WINDOWS` is a decision-log reservation, not a constant.** It does not exist in `app.js`; no code lands. The two candidate pairs, recorded here for R15:
+
+| stimulus → response | window | status |
+|---|---|---|
+| psyllium → bm form | ~24–48 h | **uncited** — plausible from transit physiology; no source registered |
+| fast ≥ 72 h → transit disruption / recovery | to be set at R15 | **uncited** |
+
+Both are **named candidates, not built and not asserted**. Per D37 an uncited pair must be *labelled* uncited wherever it eventually surfaces.
+
+### One contract, one path
+
+Entry writes the snapped integer into the existing `#sigValue` and submits through `addSignalFromForm → addSignal`. **No new record-write site**: the D29 census stays at 14, unchanged.
