@@ -902,11 +902,11 @@ window.setLS({});
       'HealthTracker v' + HT.APP_VERSION + ' · released ' +
       HT.VERSION_LOG.filter(function(e){return e.v===HT.APP_VERSION;})[0].d,
       'VL6 GATE: the SHIPPED version renders a real dated line (check-version.sh gates the date exists)');
-  if (!document.getElementById('aboutVersion')) { var abEl=document.createElement('span'); abEl.id='aboutVersion'; document.body.appendChild(abEl); }
-  var vlEl = document.getElementById('aboutVersion');
+  if (!document.getElementById('settingsVersion')) { var abEl=document.createElement('span'); abEl.id='settingsVersion'; document.body.appendChild(abEl); }
+  var vlEl = document.getElementById('settingsVersion');
   HT.renderVersionLine();
   res(vlEl && vlEl.textContent === HT.versionLine(HT.APP_VERSION, HT.VERSION_LOG),
-      'VL7: the Settings foot element carries exactly that line');
+      'VL7: the Settings foot element (#settingsVersion, inside the panel) carries exactly that line');
   res(vlEl && vlEl.innerHTML.indexOf('<') < 0,
       'VL8: written as textContent -- the line can never become markup');
 

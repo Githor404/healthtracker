@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.22.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.22.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4342,6 +4342,7 @@ const VERSION_LOG = [
   { v: '0.20.3', d: '2026-09-06', note: 'Fix: deleting a food item can now be undone, like every other deletion in the app. Until now the × on a food row removed it for good — the tap was one gesture away from losing a meal you had just logged, with nothing offering it back.' },
   { v: '0.21.0', d: '2026-09-06', note: 'Timeline records can now be edited, not just deleted — tap the row to change its time, value or note. An edit keeps what the value was before and shows it, so a correction never erases the original reading; and correcting a number marks it as your own estimate rather than leaving it labelled as measured. The type of a record cannot be changed by an edit, and neither can its time zone. Every edit can be undone, like every deletion.' },
   { v: '0.22.0', d: '2026-09-06', note: 'Settings now shows the app version and its release date, at the foot of the panel.' },
+  { v: '0.22.1', d: '2026-09-06', note: 'Fix: the version and release date now appear in Settings, where they were meant to be — in 0.22.0 the line landed at the foot of the main screen instead.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6311,8 +6312,10 @@ function quickLog(id) {
   return r;
 }
 
-// Version + release date at the foot of Settings (reference info, not a control,
-// so it rides the existing .about line rather than claiming a region of its own).
+// Version + release date at the foot of the Settings panel (reference info, not a
+// control, so it takes no card and no heading -- it reuses the .about type style).
+// It lives INSIDE #settingsPanel: the page's other .about line is a sibling of the
+// panel, on the main surface, which is where 0.22.0 wrongly put this.
 // Pure so it can be gate-tested without a DOM. The date comes from this version's
 // VERSION_LOG entry; an entry without `d` (the three pre-convention releases)
 // renders the version ALONE -- never "undefined", never a date inferred from
@@ -6327,7 +6330,7 @@ function versionLine(version, log) {
 }
 // textContent, not innerHTML: the string can never become markup.
 function renderVersionLine() {
-  const el = document.getElementById('aboutVersion');
+  const el = document.getElementById('settingsVersion');
   if (el) el.textContent = versionLine(APP_VERSION, VERSION_LOG);
 }
 

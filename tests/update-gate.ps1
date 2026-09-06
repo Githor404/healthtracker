@@ -169,14 +169,40 @@ try {
     if ([bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN2')>=0)")) { $resumeApplied = $true; break }
   }
 
+  # 5. THE VERSION LINE IS WHERE IT IS CLAIMED TO BE (v0.22.1).
+  #    v0.22.0 shipped a changelog line saying Settings shows the version, and it
+  #    did not: the element sat on the page's OTHER .about line, a SIBLING of
+  #    #settingsPanel, so it rendered at the foot of the MAIN screen. Every gate
+  #    was green -- the harness created its own detached element and asserted the
+  #    text went into it, which is true wherever that element lives. Presence of a
+  #    correct string is not presence on the right surface. So this asserts
+  #    CONTAINMENT (panel.contains(el)) and real visibility with Settings open,
+  #    against the shipped index.html.
+  #    NOTE: the separator is written ·, not a literal '·'. This file has no BOM, so
+  #    Windows PowerShell 5.1 reads it in the system codepage and a literal UTF-8
+  #    middot arrives as two mojibake chars that never match. ASCII escape instead.
+  Eval "if (typeof openSettings === 'function') openSettings()" | Out-Null
+  Start-Sleep -Milliseconds 200
+  $vlJson = Eval "(function(){var p=document.getElementById('settingsPanel'),e=document.getElementById('settingsVersion');if(!p||!e)return JSON.stringify({found:false});var r=e.getBoundingClientRect();return JSON.stringify({found:true,inPanel:p.contains(e),text:e.textContent,w:Math.round(r.width),h:Math.round(r.height)});})()"
+  $vl = $null; try { $vl = $vlJson | ConvertFrom-Json } catch {}
+  $vlFound   = [bool]($vl -and $vl.found)
+  $vlInPanel = [bool]($vlFound -and $vl.inPanel)
+  $vlText    = if ($vlFound) { [string]$vl.text } else { '' }
+  $vlShaped  = [bool]($vlText -match '^HealthTracker v[0-9]+\.[0-9]+\.[0-9]+( \u00b7 released [0-9]{4}-[0-9]{2}-[0-9]{2})?$')
+  $vlHonest  = [bool]($vlText -notmatch 'undefined' -and $vlText -notmatch 'released\s*$')
+  $vlVisible = [bool]($vlFound -and $vl.w -gt 0 -and $vl.h -gt 0)
+  $vlOk = $vlFound -and $vlInPanel -and $vlShaped -and $vlHonest -and $vlVisible
+
   Write-Host "SW update lifecycle (CDP, prod path forced, NO gesture):"
   Write-Host ("  1. v1 registers + activates:                          {0}" -f $v1active)
   Write-Host ("  2. shell change -> auto-applies on LOAD (token):      {0}  [force-and-notify]" -f $loadApplied)
   Write-Host ("  3. page controlled before resume:                     {0}" -f $controlled)
   Write-Host ("  4. shell change -> auto-applies on RESUME (token2):   {0}  [v0.5.1 visibilitychange, no navigation]" -f $resumeApplied)
+  Write-Host ("  5. version line INSIDE #settingsPanel, visible:       {0}  [text: '{1}']" -f $vlOk, $vlText)
+  Write-Host ("     found={0} inPanel={1} shaped={2} honest={3} visible={4}" -f $vlFound, $vlInPanel, $vlShaped, $vlHonest, $vlVisible)
   Write-Host "-----------------------------------------"
-  if ($v1active -and $loadApplied -and $controlled -and $resumeApplied) {
-    Write-Host "UPDATE GATE: PASS (auto-applies on both load and app-switcher resume; no gesture)"
+  if ($v1active -and $loadApplied -and $controlled -and $resumeApplied -and $vlOk) {
+    Write-Host "UPDATE GATE: PASS (auto-applies on both load and app-switcher resume; no gesture; version line is in Settings)"
     Cleanup; exit 0
   }
   Write-Host "UPDATE GATE: FAIL"
