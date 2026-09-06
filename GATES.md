@@ -1741,3 +1741,20 @@ A target band also sits oddly beside D24's ruling that a signal goal renders **f
 **Count delta: 1256 → 1273** (+17). **1273/1273 ALL PASS**. **Sixteen gates green** (`bm-slider-gate.ps1` is new).
 
 **Status: MET — awaiting review.** Device question: is one-handed sliding now comfortable, and does the readout stay legible under a real thumb.
+
+#### R20.1 amendment — the two remaining folds taken (D53, 2026-09-06) — v0.20.2
+
+| Case | Result |
+|---|---|
+| SE-disclose | the scanner's data-provenance line folds — **in the DOM, absent from the permanent surface** — while **"Verify nutrition against the package label" stays**: the fold took the *why*, never the *do this* |
+| SE-disclose | the lab sourcing/storage methodology folds, while **"the app does not suggest which tests to get" stays** — the sentence keeping that surface out of clinical advice — and so does the instruction for entering your lab's own printed interval, which is help rather than provenance |
+| SE-disclose SAFETY GATE | **no safety statement anywhere in the shipped shell sits inside a collapsed block**, over a named list, asserted by stripping every block from the shell's own body |
+| SE-disclose | every block in the shell is a real `<details>`, **closed by default**, with a summary to tap and non-empty content behind it |
+
+**A surface the invariant had never reached.** Every earlier disclosure case asserted on strings `app.js` builds; these two notes are **static markup**, which no disclosure gate had looked at. That gap mattered exactly when two of those notes were folded.
+
+**Proven against the wrong cut.** Folding the instruction and the clinical-scope disclaimer while leaving the provenance visible fails **four** cases, and the safety gate names both leaked phrases in its failure message: `[Verify nutrition against the package label | the app does not suggest which tests to get]`.
+
+**Count delta: 1273 → 1282** (+9). **1282/1282 ALL PASS**. Sixteen gates green.
+
+**Harness note, recorded.** During a batch run that the runner killed at its 10-minute timeout, `tests/bm-slider-gate.ps1` went missing from the working tree. Recovered from the commit byte-identical; a clean run passes and leaves it intact, and all eight gate scripts are present. Cause not established — recorded rather than assumed away.

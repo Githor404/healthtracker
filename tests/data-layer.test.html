@@ -1784,6 +1784,52 @@ window.setLS({});
   }
 
   function runSECases(){
+    // ------------------------------------------------------------------
+    // SE-disclose (D53) -- the invariant reaches the SHIPPED SHELL's own static
+    // notes, not just the strings app.js builds. Those notes are markup, so they
+    // were outside every earlier disclosure case; folding two of them is exactly
+    // the moment that gap matters.
+    // ------------------------------------------------------------------
+    var shellHTML = SEDOC.body.innerHTML;
+    var shellVisible = shellHTML.replace(/<details class="cited">[\s\S]*?<\/details>/g, '');
+    // The two folds themselves.
+    res(shellHTML.indexOf('Looks up OpenFoodFacts, cache-first') >= 0 &&
+        shellVisible.indexOf('Looks up OpenFoodFacts, cache-first') < 0,
+        'SE-disclose: the scanner’s data-provenance line folds -- present in the DOM, absent from the permanent surface');
+    res(shellVisible.indexOf('Verify nutrition against the package label') >= 0,
+        'SE-disclose SAFETY: but the instruction to check the package label STAYS -- the fold took the "why", never the "do this"');
+    res(shellHTML.indexOf('stored as its own dated reading') >= 0 &&
+        shellVisible.indexOf('stored as its own dated reading') < 0,
+        'SE-disclose: the lab sourcing/storage methodology folds');
+    res(shellVisible.indexOf('the app does not suggest which tests to get') >= 0,
+        'SE-disclose SAFETY: and the clinical-scope disclaimer STAYS -- it is the sentence keeping this surface out of advice');
+    res(shellVisible.indexOf('printed reference interval') >= 0,
+        'SE-disclose: the instruction for entering your lab’s own interval stays too -- that is help, not provenance');
+
+    // THE INVARIANT, over the whole shipped shell rather than one function's
+    // output: no safety statement may sit inside a collapsed provenance block,
+    // anywhere in the markup.
+    var SHELL_SAFETY = ['Verify nutrition against the package label',
+                        'the app does not suggest which tests to get',
+                        'never mixed into food totals',
+                        'Never overwrites a day that has items'];
+    var shellLeak = SHELL_SAFETY.filter(function (p) {
+      return shellHTML.indexOf(p) >= 0 && shellVisible.indexOf(p) < 0;
+    });
+    res(shellLeak.length === 0,
+        'SE-disclose SAFETY GATE: no safety statement anywhere in the shipped shell is inside a collapsed block' +
+        (shellLeak.length ? (' [' + shellLeak.join(' | ') + ']') : ''));
+    // And every block in the shell is genuinely one tap: closed, summarised, non-empty.
+    var shellBlocks = seQuery('details.cited');
+    res(shellBlocks.length >= 2, 'SE-disclose: the shell carries its folded blocks as real <details> elements');
+    res(shellBlocks.every(function (d) { return !d.hasAttribute('open'); }),
+        'SE-disclose: every one is CLOSED by default');
+    res(shellBlocks.every(function (d) {
+          var sm = d.querySelector('summary'), bd = d.querySelector('.citebody');
+          return sm && sm.textContent.trim().length > 0 && bd && bd.textContent.trim().length > 0;
+        }),
+        'SE-disclose: each has a summary to tap and real content behind it -- never a promise with nothing under it');
+
     // SE-enum (ruling 4): flat single-level settings; every relocated capability
     // is a NAMED top-level entry. Burying one a level deeper fails this.
     var RELOCATED = ['regimen','goals','supplement','presets','fasting','habits','prompt','export','import'];

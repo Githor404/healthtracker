@@ -1566,6 +1566,13 @@ Implemented as `citeBlock()` over a native `<details>`: every word stays **in th
 | ingest note: *"AI-paste items are macros-only (micros stripped) at eyeballed confidence"* | **do not fold** — it states what the record means, which prevents misreading it. |
 | the entry sheet's explanatory notes (how each feature works) | **out of scope.** These are *help*, not provenance. Folding them is a different slice; propose separately if wanted. |
 
+**Amendment (2026-09-06, v0.20.2): both "worth doing" candidates taken.** The cut in each case is where the sentence changes job, not where the paragraph ends:
+
+- **Scanner note.** Folded: *"Looks up OpenFoodFacts, cache-first. Nutrition there is community data, contributed by other people — it can be wrong or out of date."* Kept visible and promoted to bold: **"Verify nutrition against the package label."** The fold took the **why**, never the **do this** — the reason lives one tap away, the instruction does not move.
+- **Lab-entry note.** Folded: *"Values with a cited Canadian target show it. Each value is stored as its own dated reading, so it trends like any other biometric"* — sourcing and storage methodology. Kept visible: the transcription instruction, the instruction for entering your lab's own printed interval (that is help, not provenance), and — bolded — **"the app does not suggest which tests to get"**, which is the sentence keeping this surface out of clinical advice.
+
+**And the invariant grew a surface it did not previously reach.** Every earlier disclosure case asserted on strings `app.js` builds; these two notes are **static markup in the shell**, which no disclosure gate had ever looked at. `SE-disclose` now strips every `<details class="cited">` from the shipped shell's own body and asserts on what remains, over a named list of shell safety statements. **Proven against the wrong cut:** folding the instruction and the disclaimer while leaving the provenance visible fails four cases, and the invariant names both leaked phrases in its own failure message.
+
 ### The touch target is the STOP'S ZONE, not the handle
 
 The brief asked to measure the rendered **thumb** box and assert ≥ 44×44. **The thumb is not measurable, and both routes were tried and recorded:**

@@ -540,7 +540,10 @@
         </div>
         <div id="scanCamMsg"></div>
         <div id="scanResult"></div>
-        <div class="note">Point the camera at a product barcode, or type it in. Looks up OpenFoodFacts, cache-first. Nutrition is community data — verify it against the package label.</div>
+        <div class="note">Point the camera at a product barcode, or type it in. <b>Verify nutrition against the package label.</b></div>
+        <details class="cited"><summary>Where this data comes from</summary><div class="citebody">
+          <small class="labcite">Looks up OpenFoodFacts, cache-first. Nutrition there is community data, contributed by other people — it can be wrong or out of date, which is why the label is the check.</small>
+        </div></details>
       </details>
       </div>
       <div id="pane-quick" class="pane">
@@ -600,7 +603,10 @@
         <div id="labRows" style="margin-top:8px"></div>
         <button class="btn primary" style="margin-top:10px" onclick="addLabPanelFromForm()">Save panel</button>
         <div id="labReport"></div>
-        <div class="note">Transcribe a dated panel from your lab report; leave anything not measured blank. Values with a cited Canadian target show it; every value can also carry <b>your lab’s own printed reference interval</b> — enter it beside the value. This is a record of panels you already have; the app does not suggest which tests to get. Each value is stored as its own dated reading, so it trends like any other biometric.</div>
+        <div class="note">Transcribe a dated panel from your lab report; leave anything not measured blank. Every value can also carry <b>your lab’s own printed reference interval</b> — enter it beside the value. This is a record of panels you already have; <b>the app does not suggest which tests to get</b>.</div>
+        <details class="cited"><summary>Where the targets come from, and how values are stored</summary><div class="citebody">
+          <small class="labcite">Values with a cited Canadian target show it. Each value is stored as its own dated reading, so it trends like any other biometric.</small>
+        </div></details>
       </div>
       <div id="pane-signal" class="pane">
       <details open>

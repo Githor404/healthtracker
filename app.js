@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.20.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.20.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4066,6 +4066,7 @@ const VERSION_LOG = [
   { v: '0.19.0', note: 'Capturing a meal now answers you properly. The result opens as a pop-up that takes over the screen: the estimated items with their sliders, the running totals, and Save meal or Discard right there at the bottom where you can always reach them. If the call fails or times out it says so in the same place, with Try again and Paste the response manually, and while it is working the countdown sits front and centre with a Cancel. No more results appearing quietly below the fold.' },
   { v: '0.20.0', note: 'Track bowel movements on the Bristol scale: tap the new chip, slide to the form that matches, log. The slider has exactly seven stops, because the scale defines seven forms and nothing in between — so there is no half-type to record by accident. Trends shows the median, the most common type and the range over your window, with the sources cited; it deliberately shows no average, since averaging form types would invent a number the scale does not define.' },
   { v: '0.20.1', note: 'The Bristol slider is easier to hit one-handed, and the type it reads now sits ABOVE the track, where your finger cannot cover it while you slide. Citations and fine print across the app — the bowel-scale sources, the lab guideline references, the key-and-photo handling note — now sit behind a small “Source” line you can open in one tap, instead of taking up room on every glance. Warnings and anything that says how a number should be read stay visible as before.' },
+  { v: '0.20.2', note: 'Two more fine-print blocks folded away behind a one-tap line: where barcode nutrition data comes from, and how lab targets are sourced and stored. The instructions that matter stay where they were — check nutrition against the package label, and this app does not suggest which tests to get.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
