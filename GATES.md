@@ -1757,4 +1757,14 @@ A target band also sits oddly beside D24's ruling that a signal goal renders **f
 
 **Count delta: 1273 → 1282** (+9). **1282/1282 ALL PASS**. Sixteen gates green.
 
-**Harness note, recorded.** During a batch run that the runner killed at its 10-minute timeout, `tests/bm-slider-gate.ps1` went missing from the working tree. Recovered from the commit byte-identical; a clean run passes and leaves it intact, and all eight gate scripts are present. Cause not established — recorded rather than assumed away.
+**Environment note — CAUSE ESTABLISHED, and it was not the runner.** `tests/bm-slider-gate.ps1` went missing from the working tree mid-session. My first note guessed at the batch run the runner had killed at its 10-minute timeout. **That guess was wrong, and it was pointing at the wrong subsystem.**
+
+**Kaspersky flagged that exact file as `PDM:Trojan.Win32.Bazon.a` and quarantined it.** A behavioural false positive: PowerShell driving headless Chrome and injecting synthetic input matches automation-malware heuristics closely. Nothing was wrong with the script, and nothing is wrong with the runner.
+
+Two consequences, both standing:
+
+**1. AV quarantine is a real failure mode for this project's CDP gates.** All eight gate scripts share the flagged behavioural profile — PowerShell + `--remote-debugging-port` + `Input.dispatchMouseEvent` / `Runtime.evaluate` — so **any of them can vanish mid-run**. The symptom is a gate that reports `The argument '...' to the -File parameter does not exist`, or a batch that skips a gate silently.
+
+**When a gate script goes missing, suspect the AV before the runner.** Recovery is `git checkout -- tests/<gate>.ps1`: every gate script is committed, so a quarantined file is always recoverable byte-identical. Verify with `ls tests/*.ps1 | wc -l` — there should be **eight**.
+
+**2. The gate suite has an environment dependency on this machine:** a scoped AV exclusion for `tests/`. Without it, CDP gates may be quarantined mid-run and the suite becomes non-deterministic in a way that looks like a code failure and is not. Recorded as a dependency because a future session hitting a missing gate should reach for this note rather than re-derive it — and because a green run on a machine without the exclusion proves less than it appears to.

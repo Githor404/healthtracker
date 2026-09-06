@@ -128,3 +128,24 @@ while sliding, and a mouse never shows that defect.
 
 Proven against the defect: restoring the pre-R20.1 control (36px tall, readout
 below the track) fails at both widths.
+
+## Environment dependency — antivirus exclusion for `tests/`
+
+The eight `*-gate.ps1` scripts drive headless Chrome over CDP: PowerShell +
+`--remote-debugging-port` + synthetic input injection. That profile matches
+automation-malware heuristics, and it has been flagged in practice —
+**Kaspersky quarantined `bm-slider-gate.ps1` as `PDM:Trojan.Win32.Bazon.a`
+mid-session.** A behavioural false positive; the script was fine.
+
+**If a gate script goes missing, suspect the AV before the runner.** The symptom
+is `The argument '...' to the -File parameter does not exist`, or a batch run
+that silently skips a gate.
+
+```sh
+ls tests/*.ps1 | wc -l          # expect 8
+git checkout -- tests/<gate>.ps1  # every gate script is committed
+```
+
+This machine carries a scoped AV exclusion for `tests/`. **A green suite on a
+machine without that exclusion proves less than it appears to**, because a
+quarantined gate does not run and does not say so.
