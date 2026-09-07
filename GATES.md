@@ -1909,3 +1909,120 @@ Shipped **alone and first**, ahead of the R22 slice that surfaced it, because it
 2. **A `tests/` file-scanning exclusion may not be sufficient.** This block is on the *execution* of that path, so the exclusion likely needs to cover the behavioural/proactive-defence module for that script, not just on-access file scanning.
 
 **R22's claims do not rest on that gate** — it covers the bm slider's ergonomics, which this slice does not touch, and the ordinal edit path is covered in the harness (`R22-ordinal`, `R22-ui`). But **"sixteen gates green" is not a statement I can make for this commit**, and it is not made.
+
+---
+
+### R23 — Item editing: routing the last silent rewriter through the contract — PRE-REGISTERED, FORKS OPEN (received 2026-09-07; NOT built)
+
+D55 closed by naming this slice's first task: `cycleMeal` should route through `editRecord` rather than keep a separate undo bolted on. The survey below was run before any code was touched, and it **contradicts the brief in three places**. Naming the conflicts rather than silently resolving them is the working rule, so they are named first.
+
+#### The survey — what is actually shipped
+
+**1. `meal` is NOT in the ruled editable set, and the brief assumes it is.**
+
+The motivation for this slice says *"under R22's Fork D, meal is an editable field."* That was true of the **pre-registered** Fork D1 above (*"value, time, notes, and meal-category only"*). It is **not** true of the **ruled** D55 Fork D, which narrowed to `value` / `time` / `notes` (`dose` for medications) precisely because food items were deferred. Shipped:
+
+```
+const EDITABLE_FIELDS = { signal: ['value','time','notes'], medication: ['dose','time','notes'] };
+```
+
+There is no `item` class and no `meal` anywhere in it. `meal` **is** in `ORIG_KEYS` — forward-declared for exactly this slice. So routing `cycleMeal` through `editRecord` is **an extension of a ruled contract, not a re-pointed caller**, and it needs a ruling (Fork B).
+
+**2. And the allowlist alone would silently do nothing.** `editRecord`'s patch loop builds `next` from four branches — `time`, `notes`, `value`, `dose`. `changed` is then computed as `Object.keys(next).filter(...)`, **over `next`, not over the caller's keys**. An allowed-but-unhandled field therefore produces an empty `next`, an empty `changed`, and the return `{ok:false, error:'No change.'}`. Adding `meal` to `EDITABLE_FIELDS` without adding its branch would make `cycleMeal` a **silent no-op that reports "No change"** — the allowlist and the patch loop must move together. Gated.
+
+**3. `editRecord` is hardwired to `timeline[date]`; items live in `days[date].items`.** D55 named this as the blocker. It is Fork A.
+
+**4. THE LOAD-BEARING ONE — there is no accepted portion to edit.**
+
+The brief's point 4 requires that *"editing an AI-derived item's grams must update the ACCEPTED value while PRESERVING `ai_grams`."* **No food item stores an accepted grams.** `normalizeItem`'s allowlist has no `grams`. The two paths that know a portion both discard it:
+
+- **scan** writes it into **prose**: `notes: 'scanned ' + rDisp(s.grams) + ' g'`;
+- **photo** stores `ai_grams` (the *estimate*) and the *scaled absolute macros* — never what the user accepted.
+
+So point 4 cannot be implemented as written without a **new persisted field**, which is the allowlist trap the brief anticipates at point 5, fourth occurrence. That is Fork C.
+
+**5. And the correction loop is ALREADY broken on reopen — verified, not reasoned.**
+
+Because the accepted grams is not stored, `photoReopen` reconstructs the per-100 g profile by dividing the stored macros by `ai_grams` — which is only correct when the user accepted the estimate unchanged. Transcribed the shipped `photoShared` / `photoGrams` / `photoItemMacros` / `photoSave` / `photoReopen` and ran them headless:
+
+```
+anchor a 100 g AI estimate to 150 g
+  SAVED               {"name":"Chicken","kcal":247.5,"protein_g":46.5,"ai_grams":100,"pinned":true}
+  has accepted grams? false
+  REOPENED grams      100      <- user set 150
+  REOPENED per100     247.5    <- truth 165
+  REOPENED total      247.5    (preserved -- which is why nothing looks wrong)
+  REOPENED anchor R   1        <- the user's anchor was 1.5
+  then nudge to 200g  495 kcal <- truth 165*2 = 330
+```
+
+**A photo meal reopened after anchoring loses its anchor**, displays the AI's grams as though accepted, and misstates per-100 g by the anchor ratio. `pinned: true` survives while the ratio it recorded does not. Totals are preserved at reopen, so the defect is invisible until the next grams edit compounds from the wrong base — and the next grams edit is exactly what this slice adds. **This is the correction-loop erasure point 4 exists to prevent, already shipped.** Fork D asks whether it rides along.
+
+**6. The silent-rewriter census, corrected.** The brief names `toggleDayStatus` and `photoSetGrams`.
+
+| site | mutates | undo | verdict |
+|---|---|---|---|
+| `cycleMeal` | `item.meal` | none | **the target.** Cyclic over six values, so inconvenience not loss |
+| `addWater` | `day.water_l` | none | **an unnamed third** — see below |
+| `toggleDayStatus` | `day.status` | toast only | self-inverse; a **day-level attestation**, not a record edit (Fork G) |
+| `photoSetGrams` | `PHOTO_DRAFT` | n/a | **NOT a silent rewriter** — the draft is never persisted; `photoSave` is the write and it carries a full-snapshot undo |
+| `photoSave` (revise) | its own `mealId` | full snapshot | the good precedent, unchanged |
+
+`addWater` is the one the brief did not name. It is narrow: with the shipped buttons (`−0.25` / `+0.25` / `+0.5`) the `Math.max(0, …)` clamp only destroys information when `water_l` is **not a multiple of 0.25** — reachable via ingest or restore. Narrow, but it is the one mutation where the inverse gesture does not return the value, and it has no undo at all.
+
+**7. D10 / completed days: the arithmetic is safe; the governance is not.** `averageOver` sums `day.items` on every render — no cache, so an edit recomputes for free and Fork E's *recompute-never-patch* rule already covers it. The real gap is elsewhere: **every creation path reopens a completed day** (`addManualEntry`, `logPreset`, `logScanItem`, `photoSave` all carry `if (day.status === 'complete') day.status = 'in_progress'`), and **`deleteItem` does not**. Deleting from a completed day today silently changes a day that keeps counting in averages as complete. An edit lands in the same gap. Fork F.
+
+#### The forks
+
+**Fork A — where does the item edit live?**
+- **A1 (recommended):** extend `editRecord` with a collection discriminator so items and timeline records share one function, one undo, one provenance path. The stated goal is *one contract, one path*; two functions is the thing D55 refused.
+- **A2:** a sibling `editItem` sharing `demoteForEdit` / `normalizeOrig`. Lower risk to shipped timeline behaviour, at the cost of the second path.
+
+**Fork B — does `meal` join the ruled editable set, and what else?** Required before `cycleMeal` can route at all (survey 1 + 2).
+- **B1 (recommended):** an `item` class of `time`, `notes`, `meal`, plus the measurement fields (`kcal`, `protein_g`, `fat_g`, `carb_g`, `fiber_g`, `soluble_fiber_g`) — all already in `MEASUREMENT_FIELDS` and `ORIG_KEYS`, which were written for this.
+- **B2:** `meal` / `time` / `notes` only; defer macro editing. Makes `cycleMeal` routable now and leaves point 3 of the brief unbuilt.
+- **Not in either:** `source`, `barcode`, `micros`, `_auto`. Fork C of D55 stands — provenance is a fact.
+
+**Fork C — is an accepted `grams` persisted?** The one that decides whether point 4 is buildable.
+- **C1 (recommended):** add `grams` to `normalizeItem`, populated by the scan and photo paths, declared in **both** normalizers in the same commit with an export→restore gate. Unblocks point 4, is the fix for the reopen defect, and retires the `notes: 'scanned 150 g'` prose that currently carries the portion.
+- **C2:** edit the absolute macros only, no new field. Cheapest, leaves the reopen defect standing, and makes point 4 unimplementable as written.
+- **Sub-question, genuinely open — does `grams` bump the schema?** `ai_grams` and friends were additive with **no bump**, justified on D29's asymmetry test: *losing them degrades a future calibration input, not content the user authored.* An accepted `grams` **is** content the user authored — they typed 150. By that same test it may warrant a bump to v6. Ruling wanted.
+
+**Fork D — does the reopen defect ride along?** D54's precedent is that a live defect ships **alone and first**.
+- **D1 (recommended):** fix it inside this slice, because C1's `grams` field *is* the fix — reopen reads the accepted portion instead of reconstructing from the estimate. Splitting them would mean writing the reconstruction twice.
+- **D2:** ship it alone and first, D54-style. Correct if you read anchor-loss as data loss; it is not loss of totals, which is why it is offered rather than assumed.
+
+**Fork E — the food-row affordance.** The timeline row was *body + ×*, and Fork H put the editor on the body. The food row already has **three** targets: the `.mmain` body, the `.mealchip` cycler, and the `.rm ×`. Putting the editor on the body nests the chip inside the tap target.
+- **E1 (recommended):** the chip stops cycling and **becomes the way into the editor**, focused on meal; the body opens the same editor; `×` keeps its own target. One editor, no nested-button ambiguity, and the affordance users already know survives.
+- **E2:** the chip keeps cycling but routes through `editRecord`, one undo toast per tap. Preserves the one-tap path; six taps produce six toasts.
+- **E3:** remove the chip; meal lives only in the editor. Cleanest row, loses the fast path.
+- **Confirmed either way:** the brief's *"a meal cycled six times back to its original should still show its `orig`"* **already falls out of the shipped write-once logic** — tap 1 pins `orig.meal`, taps 2–6 leave it, and the record ends reading *edited, and back where it started*, which is honest.
+
+**Fork F — does an edit reopen a completed day?**
+- **F1 (recommended):** yes, matching every creation path — **and `deleteItem` gains the same**, closing the shipped inconsistency in survey 7. D10's discipline is a *manual attestation*; changing a day's contents after the attestation means it was made about different data.
+- **F2:** no — an edit is a correction to a day you already closed, and forcing a re-close is friction.
+- **F3:** leave as-is. Rejected unless you want it: it keeps a completed day's totals changing under the averages with no re-attestation.
+
+**Fork G — do the other rewriters join now?**
+- **G1 (recommended):** `addWater` gains the standard undo (survey 6); `toggleDayStatus` does **not** route through `editRecord` — it is a day-level attestation, not a record edit, it is self-inverse, and it already speaks via a toast.
+- **G2:** both in. **G3:** neither; their own slice.
+
+#### Pre-registered gates (to run once ruled)
+
+| Case | Asserts |
+|---|---|
+| R23-route | `cycleMeal` writes **through** the edit contract: `orig.meal` preserved write-once, `edited_at` stamped, and the change is undoable — proven against the pre-slice body, which offers no undo and leaves no trace |
+| R23-cycle | six cycles return the original value **and** the record still reports `orig` and `edited_at` — edited, and back where it started |
+| R23-loop | the allowlist and the patch loop move together: a field in `EDITABLE_FIELDS` with no branch in the loop is caught, **not** silently returned as `No change` |
+| R23-item | food-item edits follow D55's contract — refusal is explicit, an empty patch is refused, an edit that changes nothing does not stamp |
+| R23-honesty | editing a **measurement** field demotes `confidence` to `eyeballed`; `source` and `barcode` **stand**; editing `time` / `notes` / `meal` demotes nothing (D55 Fork C, first live caller on the item class) |
+| R23-aigrams | editing an AI-derived item's portion updates the **accepted** value while `ai_grams` **survives** — the comparison the loop exists for |
+| R23-reopen | *(Fork D)* a photo meal anchored to 150 g **reopens at 150 g**, per-100 g intact and anchor ratio preserved; proven against the shipped reconstruction, which returns 100 g / 247.5 / R=1 |
+| R23-roundtrip | *(Fork C)* every field this slice adds survives **export → restore** in **both** normalizers — declared in the same commit, fourth occurrence of the trap |
+| R23-complete | *(Fork F)* editing an item on a completed day recomputes that day's contribution to the D10 averages correctly, and the day's status behaves as ruled — with `deleteItem` asserted to match |
+| R23-water | *(Fork G)* `addWater` is undoable, including the clamp case where the inverse gesture does not restore the value |
+| R23-ui | the row's targets stay separate: neither the editor nor the delete does the other's job; the supplement row offers neither |
+| R23-regress | every existing R22 and delete/undo gate **repointed, not weakened** — the timeline class behaves exactly as D55 gated it |
+| R23-vocab | M7 with a planted control over every new label |
+
+**Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–G.**
