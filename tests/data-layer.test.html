@@ -2323,8 +2323,12 @@ window.setLS({});
       // stale status came to be reported as a block.
       byokReset(SECRET); HT.photoDiscard();
       var untested = capVis();
-      res(untested.indexOf('Capture meal') >= 0,
-          'R21.4-path: an untested key still gets a Capture button -- the status has never been a gate');
+      // REPOINTED, NOT WEAKENED (R24): the one "Capture meal" button became two --
+      // "Take photo" and "Choose photo". The claim is unchanged and is now asserted
+      // over BOTH, because a status that gated only one of them would be the same
+      // block wearing half a costume.
+      res(untested.indexOf('Take photo') >= 0 && untested.indexOf('Choose photo') >= 0,
+          'R21.4-path: an untested key still gets BOTH capture buttons -- the status has never been a gate');
       res(untested.indexOf('key not tested yet') >= 0 && untested.indexOf('verify now') >= 0 &&
           untested.indexOf('onclick="byokTest()"') >= 0,
           'R21.4-path: and it is never STATED without an offer to settle it right here -- verify now, no trip to Settings');
@@ -2547,6 +2551,48 @@ window.setLS({});
         var r = W.onCaptureFile(inp);
         return (r && r.then) ? r : Promise.resolve(r || { ok: false });
       }
+      // R24: the SAME driver, through the OTHER input. The library input is the one
+      // WITHOUT `capture`, which is the entire difference between the two paths.
+      function wFireFrom(id, file) {
+        var inp = D.getElementById(id);
+        if (!inp) return Promise.resolve({ ok: false, missing: id });
+        try {
+          var dt = new W.DataTransfer();
+          if (file) dt.items.add(file);
+          inp.files = dt.files;
+        } catch (e) {}
+        var r = W.onCaptureFile(inp);
+        return (r && r.then) ? r : Promise.resolve(r || { ok: false });
+      }
+      // A real JPEG carrying a real EXIF Orientation tag. A library photo carries one
+      // far more often than a fresh camera frame, and a sideways plate is a different
+      // meal to a vision model.
+      function wExifImage(w, h, orientation) {
+        var c = D.createElement('canvas'); c.width = w; c.height = h;
+        var x = c.getContext('2d');
+        var g = x.createLinearGradient(0, 0, w, h);
+        g.addColorStop(0, '#873'); g.addColorStop(1, '#39a');
+        x.fillStyle = g; x.fillRect(0, 0, w, h);
+        return new Promise(function (r) {
+          c.toBlob(function (b) {
+            b.arrayBuffer().then(function (ab) {
+              var src = new Uint8Array(ab);
+              var tiff = [0x4D,0x4D,0x00,0x2A,0x00,0x00,0x00,0x08, 0x00,0x01,
+                          0x01,0x12,0x00,0x03,0x00,0x00,0x00,0x01,
+                          (orientation >> 8) & 255, orientation & 255, 0x00,0x00,
+                          0x00,0x00,0x00,0x00];
+              var payload = [0x45,0x78,0x69,0x66,0x00,0x00].concat(tiff);
+              var len = payload.length + 2;
+              var app1 = [0xFF,0xE1, (len >> 8) & 255, len & 255].concat(payload);
+              var out = new Uint8Array(src.length + app1.length);
+              out.set(src.subarray(0, 2), 0);
+              out.set(app1, 2);
+              out.set(src.subarray(2), 2 + app1.length);
+              r(new W.File([out], 'IMG_2201.JPG', { type: 'image/jpeg' }));
+            });
+          }, 'image/jpeg', 0.9);
+        });
+      }
       function wVisible() {
         var b = W.HT.byokBusyState();
         var box = D.getElementById('captureBox');
@@ -2565,7 +2611,8 @@ window.setLS({});
           D.getElementById('captureFile').getAttribute('onchange').indexOf('onCaptureFile') >= 0,
           'R21.2-wire: the SHIPPED shell has a file input wired to the shipped handler');
       window.__R21 = { W: W, D: D, WFETCH: function () { return WFETCH; }, WSCRIPT: function (v) { WSCRIPT = v; },
-                       wReset: wReset, wFire: wFire, wVisible: wVisible, wImage: wImage };
+                       wReset: wReset, wFire: wFire, wVisible: wVisible, wImage: wImage,
+                       wFireFrom: wFireFrom, wExifImage: wExifImage };
       wReset();
       return wImage().then(function (f) {
         window.__R21.file = f;
@@ -2589,16 +2636,26 @@ window.setLS({});
       // a fired request OR a visible message. Never neither.
       var R = window.__R21;
       if (!R) return;
-      var cases = [
-        { name: 'no file at all (the camera returned nothing)', file: null },
+      // R24: the hard requirement now runs over BOTH SOURCES. Every one of these
+      // failure modes was only ever proven on the camera input; a library photo takes
+      // the same downstream and must be held to the same bar, so the cross-product is
+      // asserted rather than assumed to carry over.
+      var baseCases = [
+        { name: 'no file at all (the picker returned nothing)', file: null },
         { name: 'a file that is not an image', file: new R.W.File(['this is not a jpeg'], 'x.jpg', { type: 'image/jpeg' }) },
         { name: 'an empty file', file: new R.W.File([], 'empty.jpg', { type: 'image/jpeg' }) },
-        { name: 'an HEIC frame from the photo library', file: new R.W.File(['ftypheic'], 'IMG_0001.HEIC', { type: 'image/heic' }) }
+        { name: 'an HEIC frame', file: new R.W.File(['ftypheic'], 'IMG_0001.HEIC', { type: 'image/heic' }) }
       ];
+      var cases = [];
+      [['captureFile', 'camera'], ['captureLib', 'library']].forEach(function (src) {
+        baseCases.forEach(function (c) {
+          cases.push({ name: c.name + ' [' + src[1] + ']', file: c.file, input: src[0] });
+        });
+      });
       return cases.reduce(function (chain, c) {
         return chain.then(function () {
           R.wReset();
-          return R.wFire(c.file).then(function () {
+          return R.wFireFrom(c.input, c.file).then(function () {
             var v = R.wVisible();
             var fired = R.WFETCH().length > 0;
             var spoke = v.msg.length > 0 && v.phase === 'error';
@@ -2610,6 +2667,171 @@ window.setLS({});
           });
         });
       }, Promise.resolve());
+    }).then(function () {
+      // ======================================================================
+      // R24 / D58 -- CAPTURE FROM CAMERA *OR* LIBRARY.
+      //
+      // Only the SOURCE of the image changes; everything downstream is the same
+      // path. So the gates are of two kinds: that the second door exists and is
+      // wired to the same handler, and that the three failure modes D47 closed --
+      // HEIC, EXIF orientation, size -- are closed on the LIBRARY side too, where
+      // all three are markedly more likely than on a fresh camera frame.
+      // ======================================================================
+      var R = window.__R21;
+      if (!R) { res(false, 'R24: the shipped shell was not available'); return; }
+      var D2 = R.D, W2 = R.W;
+
+      // ---- R24-doors: two inputs, and the difference between them IS the slice --
+      var camIn = D2.getElementById('captureFile');
+      var libIn = D2.getElementById('captureLib');
+      res(!!camIn && !!libIn, 'R24-doors: the shipped shell has BOTH a camera input and a library input');
+      res(!!camIn && !!libIn && camIn.hasAttribute('capture') && !libIn.hasAttribute('capture'),
+          'R24-doors: the camera input FORCES the camera and the library input does not -- omitting `capture` is what lets the OS offer the library');
+      res(!!camIn && !!libIn &&
+          String(libIn.getAttribute('onchange') || '').indexOf('onCaptureFile') >= 0 &&
+          String(camIn.getAttribute('onchange') || '').indexOf('onCaptureFile') >= 0,
+          'R24-doors: both are wired to the SAME handler -- one downstream, not two');
+      res(!!libIn && String(libIn.getAttribute('accept') || '').indexOf('image/') === 0,
+          'R24-doors: the library input still filters to images, so a desktop file dialog cannot offer a PDF');
+
+      // The source is DERIVED from the element, so it cannot drift from behaviour.
+      res(W2.HT.captureSourceOf(camIn) === 'camera' && W2.HT.captureSourceOf(libIn) === 'library',
+          'R24-doors: the source is derived from the `capture` attribute itself -- one source of truth, not a second argument that could disagree with it');
+
+      // ---- R24-buttons: both offered, and each points at its own door ----------
+      W2.HT.byokClear(); W2.HT.byokSave('grok', SECRET, 20);
+      W2.HT.renderCaptureBtn();
+      var capHTML = D2.getElementById('captureBox').innerHTML;
+      res(capHTML.indexOf("getElementById('captureFile').click()") >= 0 &&
+          capHTML.indexOf("getElementById('captureLib').click()") >= 0,
+          'R24-buttons: the capture surface offers BOTH -- take one now, or choose one already taken');
+      res(capHTML.indexOf('Take photo') >= 0 && capHTML.indexOf('Choose photo') >= 0,
+          'R24-buttons: and each says which it is, rather than one button whose behaviour depends on the platform');
+
+      // ---- R24-same-path: a library photo takes the identical downstream -------
+      R.wReset();
+      R.WSCRIPT([{ status: 200, body: '{"choices":[{"message":{"content":' + JSON.stringify(HT.AI_PROMPT_SAMPLE) + '}}]}' }]);
+      return R.wImage().then(function (f) {
+        return R.wFireFrom('captureLib', f).then(function () {
+          res(R.WFETCH().length === 1 && R.WFETCH()[0].url.indexOf('api.x.ai') > 0,
+              'R24-same-path: a photo chosen from the library FIRES THE SAME REQUEST -- same downscale, same base64, same call');
+          res(!!W2.HT.photoDraft(),
+              'R24-same-path: and opens the SAME confirm-first draft, so the outcome contract (D51) is untouched');
+          res(W2.HT.byokCap().used === 1, 'R24-same-path: and it counts against the same daily cap');
+        });
+      }).then(function () {
+        // ---- R24-heic: the advice depends on where the photo came from --------
+        // "Set the camera to Most Compatible" fixes the NEXT photo you take. It does
+        // nothing for a HEIC already sitting in the library, and advice that cannot
+        // work is worse than none.
+        var camMsg = W2.HT.byokHeicMessage('camera');
+        var libMsg = W2.HT.byokHeicMessage('library');
+        res(camMsg !== libMsg, 'R24-heic: the two sources get DIFFERENT advice');
+        res(/Most Compatible/.test(camMsg) && !/Most Compatible/.test(libMsg),
+            'R24-heic: the camera setting is offered only where it can help -- it cannot change a photo already taken');
+        res(/JPEG/i.test(libMsg),
+            'R24-heic: and the library path is told what CAN work for a photo it already has');
+        res(/Copy prompt/.test(camMsg) && /Copy prompt/.test(libMsg),
+            'R24-heic: both keep the path that always works');
+
+        // Driven through the shipped shell, not just the string.
+        R.wReset();
+        return R.wFireFrom('captureLib', new R.W.File(['ftypheic'], 'IMG_0001.HEIC', { type: 'image/heic' }))
+          .then(function () {
+            var v = R.wVisible();
+            res(v.phase === 'error' && !/Most Compatible/.test(v.msg),
+                'R24-heic: a HEIC chosen FROM THE LIBRARY says so on the capture surface, without the camera advice that cannot apply');
+            res(v.msg.indexOf(SECRET) < 0, 'R24-heic: and never prints the key');
+          });
+      }).then(function () {
+        // ---- R24-exif: orientation, on the path that actually carries it ------
+        // A 4x2 landscape frame tagged Orientation=6 must present as 2x4 PORTRAIT.
+        // Left to the default this is a browser-version fact: the original spec said
+        // "none", the current one says "from-image", and "none" has since been
+        // removed. The decoder pins it rather than inheriting whichever default the
+        // device shipped with.
+        // STRUCTURAL, and deliberately so. The behavioural gate below asserts the
+        // right OUTCOME -- but it cannot fail on this browser, because Chrome's
+        // default is ALREADY from-image, so it passes with the option pinned or
+        // absent. Proven: removing the pin leaves the whole suite green. The pin
+        // exists for a browser whose default is the OLD one, which is exactly the
+        // browser not running this suite. So the pin itself is asserted directly,
+        // where it CAN fail, and the two gates are honest about different things.
+        // Matched against the CALL, not the function text. The first version of this
+        // assertion grepped String(fn) for "imageOrientation" and passed with the pin
+        // REMOVED -- because the explanatory comment sitting inside the function body
+        // contains the word. A structural gate that matches its own comment asserts
+        // nothing, which is the family this project keeps closing, found here in a
+        // gate I had just written to close it.
+        // Matched against the CALL SHAPE, not the function text. The first version of
+        // this assertion grepped String(fn) for "imageOrientation" and PASSED WITH THE
+        // PIN REMOVED -- because the explanatory comment inside the function body
+        // contains the word. A structural gate that matches its own comment asserts
+        // nothing, which is the family this project keeps closing, found here in a
+        // gate written to close it. The call shape appears in no comment.
+        res(/createImageBitmap\s*\(\s*file\s*,\s*\{[^})]*imageOrientation\s*:\s*'from-image'/
+              .test(String(W2.HT.byokDecodeBitmap)),
+            'R24-exif: the decoder PINS imageOrientation ON THE CALL rather than inheriting a default that has changed twice -- the behavioural gate below cannot catch this on a browser whose default is already correct');
+        return R.wExifImage(400, 200, 6).then(function (f) {
+          return W2.HT.byokDownscale(f, 'library').then(function (img) {
+            res(img.h > img.w,
+                'R24-exif GATE: a library photo tagged Orientation=6 decodes PORTRAIT (' + img.w + 'x' + img.h + ') -- unrotated it would reach the model sideways, which is a different meal');
+            res(img.w === 200 && img.h === 400,
+                'R24-exif: and at the oriented dimensions exactly, not merely a swapped aspect');
+          });
+        });
+      }).then(function () {
+        // The same assertion for a frame that needs NO rotation, so the gate is not
+        // passing by rotating everything.
+        return R.wExifImage(400, 200, 1).then(function (f) {
+          return W2.HT.byokDownscale(f, 'library').then(function (img) {
+            res(img.w === 400 && img.h === 200,
+                'R24-exif CONTROL: Orientation=1 is left alone -- the fix orients, it does not rotate indiscriminately');
+          });
+        });
+      }).then(function () {
+        // ---- R24-size: a library photo is bigger, and the bound is the same ----
+        res(HT.byokBounds(6000, 4000).w === HT.BYOK_MAX_EDGE &&
+            HT.byokBounds(6000, 4000).h === Math.round(4000 * HT.BYOK_MAX_EDGE / 6000),
+            'R24-size: a 24 MP library original is bounded to the same long edge as a camera frame -- the library path adds no new size ceiling to reason about');
+        return R.wExifImage(2400, 1800, 1).then(function (f) {
+          return W2.HT.byokDownscale(f, 'library').then(function (img) {
+            res(Math.max(img.w, img.h) === HT.BYOK_MAX_EDGE,
+                'R24-size GATE: a large library photo really is downscaled on the way through, measured rather than assumed');
+            res(img.dataUrl.indexOf('data:image/jpeg;base64,') === 0 &&
+                img.dataUrl.length > HT.BYOK_MIN_DATAURL,
+                'R24-size: and clears the blank-canvas floor -- iOS hands back a blank canvas without throwing');
+          });
+        });
+      }).then(function () {
+        // ---- R24-cancel: a cancelled pick is not a camera fault ---------------
+        R.wReset();
+        return R.wFireFrom('captureLib', null).then(function () {
+          var v = R.wVisible();
+          res(v.phase === 'error' && !/camera/i.test(v.msg),
+              'R24-cancel: dismissing the library picker does not report a camera fault -- changing your mind is the ordinary way to leave a picker');
+          res(v.onSurface, 'R24-cancel: and it says so where the finger just was');
+          R.wReset();
+          return R.wFireFrom('captureFile', null).then(function () {
+            res(/camera/i.test(R.wVisible().msg),
+                'R24-cancel CONTROL: the camera path still names the camera, so the two are told apart rather than blurred');
+          });
+        });
+      }).then(function () {
+        // ---- R24-vocab: M7 over the new surface, with a planted control -------
+        W2.HT.renderCaptureBtn();
+        var surface = (D2.getElementById('captureBox').innerHTML + ' ' +
+                       W2.HT.byokHeicMessage('library') + ' ' +
+                       W2.HT.byokHeicMessage('camera')).toLowerCase();
+        var banned = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                      'you could','try to','aim for','well done','great job','keep it up','wrong','mistake'];
+        var hit = banned.filter(function (w) { return surface.indexOf(w) >= 0; });
+        res(hit.length === 0,
+            'R24-vocab: M7 holds over both buttons and both HEIC messages' + (hit.length ? (' [' + hit.join(',') + ']') : ''));
+        res(banned.filter(function (w) { return (surface + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
+            'R24-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
+        W2.HT.photoDiscard();
+      });
     }).then(function () {
       // The encode guards, on real pixels.
       res(HT.byokBounds(4032, 3024).w === 1280 && HT.byokBounds(4032, 3024).h === 960,

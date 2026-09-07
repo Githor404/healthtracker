@@ -2064,3 +2064,39 @@ anchor a 100 g AI estimate to 150 g
 **Repointed, not weakened:** fifteen existing assertions moved with the schema. The round-trip fixture `S1` was re-pinned to the **live** `SCHEMA_VERSION` — left one version behind it would have quietly stopped being a round-trip test and become a migration test, asserting round-trip equality no longer. Six `"UNCHANGED at 5 (no bump)"` labels now read `"this slice bumped nothing; v6 is D57's"`, so each keeps the claim it was making and names why the number moved.
 
 **Full suite, one invocation: `SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS)`, runner exit 0.** Nine gates green, including `bm-slider-gate.ps1` — the D56 environment note is holding across a machine restart.
+
+---
+
+### R24 — Capture from camera or library (D58) — v0.24.0
+
+Only the source of the image changes. The gates are of two kinds: that the second door exists and is wired to the same handler, and that the three failure modes D47 closed are closed on the **library** path too, where all three are more likely.
+
+| Case | Result |
+|---|---|
+| R24-doors | the shell has **both** inputs; the camera one forces the camera and the library one does not; both are wired to the **same** handler; the library input still filters to images; the source is **derived from the `capture` attribute itself**, so it cannot drift from behaviour |
+| R24-buttons | both are offered and each says which it is, rather than one button whose behaviour depends on the platform |
+| R24-same-path | a photo chosen from the library **fires the same request**, opens the same confirm-first draft (D51 untouched) and counts against the same daily cap |
+| R24-heic | the two sources get **different advice**: the camera setting is offered only where it can help, and the library path is told what can actually work for a photo it already has. Driven through the shipped shell, and the key is never printed |
+| R24-exif **structural** | the decoder **pins `imageOrientation` on the call**. Matched against the call shape, because the first version of this assertion grepped the function text and **passed with the pin removed** — the explanatory comment contains the word |
+| R24-exif **behavioural** | a library photo tagged `Orientation=6` decodes **portrait**, at the oriented dimensions exactly; `Orientation=1` is left alone, so the fix orients rather than rotating indiscriminately |
+| R24-size | a 24 MP original is bounded to the same long edge, and a 2400×1800 library photo is **measured** through the real decoder to come out at the bound and clear the blank-canvas floor |
+| R24-cancel | dismissing the library picker does not report a camera fault; the camera path still names the camera (control) |
+| R24-never-silent | D47's hard requirement now runs as a **cross-product**: four adversarial files × both inputs, through the shipped shell |
+| R24-vocab | M7 over both buttons and both HEIC messages, with a planted control |
+
+**Proven against the defect:**
+
+| planted defect | fails |
+|---|---|
+| the library input removed | **R24-doors**, plus **four never-silent cases** that only exist because the second path does |
+| the library input given a `capture` attribute | **R24-doors ×2, R24-heic, R24-cancel** — it becomes the camera path wearing the library's name |
+| `imageOrientation` unpinned | **R24-exif structural** — and *not* the behavioural one, which is the point below |
+| one HEIC message for both sources | **R24-heic ×4** |
+
+**A limit of this evidence, stated rather than left implied.** The behavioural EXIF gate **cannot fail on this browser**: Chrome's default is already `from-image`, so it stays green with the pin removed. It guards the browser whose default is the old one — which is not the browser running this suite. That is why the pin is *also* asserted structurally, where it can fail, and why the two gates are described as proving different things.
+
+**Not verifiable here:** whether iOS's native picker offers *Take Photo* from a no-`capture` input. This machine has no iOS or Android, so the design was chosen not to depend on it — two explicit buttons behave identically everywhere. If the on-device pass shows the native chooser offers both, this can collapse to one button on evidence.
+
+**Count delta: 1405 → 1445** (+40), re-pinned deliberately in the same commit. **1445/1445 ALL PASS.**
+
+**Full suite, one invocation: `SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS)`, runner exit 0.**

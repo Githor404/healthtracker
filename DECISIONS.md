@@ -1857,3 +1857,61 @@ Fifteen existing assertions moved: the migration chain now ends at v6, the forwa
 Six assertions that read *"schema version UNCHANGED at 5 (no bump)"* now read *"this slice bumped nothing; v6 is D57's"*. The claim each was making is preserved; only the number moved, and the reason it moved is named in the assertion text.
 
 `R6-save`'s additive set grew from four fields to five.
+
+## D58 — Capture from camera *or* library, and the three D47 failure modes re-proven on the second path (R24, 2026-09-07)
+
+`APP_VERSION → 0.24.0`; **schema unchanged at v6**. Only the SOURCE of the image changes: same downscale, same base64, same call, same confirm-first modal (D51). The slice is small; what it needed was evidence that the failure modes D47 closed are closed on the *other* path too, where all three are markedly more likely.
+
+### Two inputs, and the source is derived from the attribute
+
+`capture="environment"` is what forces the camera, so the library input is simply the same input **without it**. Two elements rather than one input whose attribute is toggled: the source is read back at runtime by `captureSourceOf(input)`, and a mutated attribute would make that derivation race the click that set it.
+
+**The source is derived from the `capture` attribute, never passed alongside it.** One source of truth that cannot drift from the element's actual behaviour — a second argument in the markup could disagree with the attribute, and then the messages would describe a path the file did not take. Both inputs call the **same** `onCaptureFile`, so there is one downstream, not two.
+
+### Two buttons, ruled rather than relying on the native picker
+
+The brief's hypothesis was that dropping `capture` is enough, because iOS then offers *Take Photo / Choose from Library* in its own picker — and asked that this be checked rather than assumed. **It cannot be checked from here**: this machine has Chrome and no iOS or Android. So the design was chosen to not depend on the unverifiable.
+
+Two explicit buttons — **Take photo** and **Choose photo** — behave identically on every platform: each opens its own input, and the camera path is byte-for-byte the one that shipped. Relying on a single no-`capture` input would have been smaller, but its failure mode is losing the camera entirely on any platform whose picker does not offer it; the two-button failure mode is a redundant button on desktop. **Recorded as the open question for the on-device pass:** if iOS's native chooser does offer both from the library input, this could collapse to one button — that is a simplification available later, on evidence, not a guess taken now.
+
+**Desktop is fixed as a side effect**, which was the second half of the ask: `Choose photo` opens an ordinary file dialog on a machine with no camera, where Capture previously had no working path at all.
+
+### EXIF orientation — measured, then pinned anyway, and the gate's limits stated
+
+`createImageBitmap(file)` was called with **no options**, so orientation depended entirely on the default — and that default has moved twice: the original spec said `"none"`, the current one says `"from-image"`, and `"none"` has since been removed and folded into from-image. Measured on this Chrome with a real JPEG carrying an injected EXIF `Orientation=6` tag:
+
+```
+source: 4x2 landscape, EXIF Orientation=6
+  createImageBitmap(blob)                      -> 2x4    (as shipped)
+  createImageBitmap(blob,{from-image})         -> 2x4
+  createImageBitmap(blob,{none})               -> 2x4    ("none" no longer honoured)
+  <img>.naturalWidth/Height (fallback path)    -> 2x4
+```
+
+So the shipped code was **already correct on this browser**, on both decoders. It is pinned anyway: the answer above is a browser-version fact rather than a contract, and a library photo carries EXIF far more often than a fresh camera frame does. A browser too old for the options argument still degrades correctly — any bitmap failure already falls through to `byokDecodeImage`, which honours EXIF via the `<img>` path.
+
+**Stated plainly, because it bounds what the evidence proves:** the *behavioural* EXIF gate **cannot fail on this browser**. Removing the pin leaves it green, because Chrome's default is already right. It would catch the regression on a browser whose default is the old one — which is precisely the browser not running this suite. So the pin is asserted **structurally as well**, where it can fail, and the two gates are honest about proving different things.
+
+### The structural gate matched its own comment — sixth instance of the family
+
+The first version of that structural assertion grepped `String(byokDecodeBitmap)` for `imageOrientation` and **passed with the pin removed**, because the explanatory comment sitting inside the function body contains the word. A gate that matches its own comment asserts nothing.
+
+This is the same family D56 tabulated — a check that stops checking while reporting green — and it was found *in a gate written to close that family*, which is the part worth recording. The rule that follows: **a structural gate must match a shape that cannot occur in prose.** It now matches the call shape (`createImageBitmap(file, { imageOrientation: 'from-image'`), which appears in no comment, and it fails against the unpinned build.
+
+### The HEIC advice was wrong for half the photos it addressed
+
+One message served both paths: *"Set the camera to Most Compatible."* That fixes the **next** photo you take. It does nothing for a HEIC already sitting in the library, and telling someone to change a camera setting to fix a photo they took last Tuesday is advice that cannot work. **A dead end stated confidently is worse than one stated plainly.**
+
+`byokHeicMessage(source)` now says *"Share or re-save it as a JPEG first"* for a library photo and keeps the camera setting where it can help. Both keep the path that always works (Copy prompt). Gated on the strings **and** driven through the shipped shell.
+
+Same reasoning for the empty pick: **a cancelled library picker is the ordinary way to change your mind**, and it must not read as a camera fault. The camera path still names the camera, so the two are told apart rather than blurred — gated with a control.
+
+### The hard requirement now runs over both sources
+
+D47's never-silent bar — *every adversarial input ends in a fired request or a visible message, never in nothing* — was only ever proven on the camera input. It now runs as a **cross-product of the four adversarial files against both inputs**, driven through the shipped shell in the iframe. That is not a formality: with the library input removed, four of those eight cases fail.
+
+Size needed no new bound — `BYOK_MAX_EDGE` already binds both paths — but a 2400×1800 library photo is now put through the real decoder and **measured** to come out at the bound, rather than assumed to inherit it.
+
+### Repointed, not weakened
+
+`R21.4-path` asserted that an untested key still gets a `Capture meal` button. The one button became two, so the assertion now covers **both** — a status that gated only one of them would be the same block wearing half a costume.

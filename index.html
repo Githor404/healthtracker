@@ -62,6 +62,8 @@
   /* R22: the inline record editor. It replaces its row rather than opening
      beside it, so the thing being edited stays where the finger already was. */
   .tleditopen{display:block;padding:0}
+  .caprow{display:flex;gap:8px}
+  .caprow .btn{flex:1;width:auto}   /* R24: take-or-choose, two equal targets */
   .itemeditopen{display:block;padding:0;border:0;background:none}   /* R23: the editor replaces the row in place */
   .rewrap{padding:10px 12px;border:1px solid var(--accent);border-radius:12px;background:var(--panel)}
   .rerow{display:flex;gap:8px;align-items:flex-end}
@@ -562,7 +564,16 @@
       <div id="pane-photo" class="pane">
       <h2>Photo capture</h2>
       <div id="captureBox"></div>
+      <!-- R24: TWO inputs, and the difference between them is the whole slice. The
+           `capture` attribute is what forces the camera; the library input simply
+           omits it, and the OS offers the picker. Two elements rather than one
+           toggled attribute, because the source is derived from the attribute at
+           runtime (captureSourceOf) and a mutated attribute would make that
+           derivation race the click that set it. Both feed the SAME onCaptureFile,
+           so everything downstream -- downscale, base64, call, confirm-first
+           modal -- is one path with one source of truth. -->
       <input id="captureFile" type="file" accept="image/*" capture="environment" style="display:none" onchange="onCaptureFile(this)">
+      <input id="captureLib" type="file" accept="image/*" style="display:none" onchange="onCaptureFile(this)">
       <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
       <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
       <textarea id="promptTemplate" readonly></textarea>

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.23.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.24.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4296,7 +4296,7 @@ function byokNoteVerdict(r) {
 }
 // EGRESS HAPPENS HERE AND NOWHERE ELSE. Nothing in boot, refresh, day nav or
 // settings issues a call; this runs only from an explicit capture-send.
-function byokCapture(file) {
+function byokCapture(file, source) {
   if (!byokConfigured()) return Promise.resolve({ ok: false, kind: 'config', error: 'No key saved.' });
   const cap = byokCap();
   if (cap.exhausted) {
@@ -4304,9 +4304,10 @@ function byokCapture(file) {
     return Promise.resolve({ ok: false, kind: 'cap' });
   }
   byokBusy('sending', 'Reading the photo\u2026');
-  byokLog('capture: file type=' + String((file && file.type) || '?') +
+  byokLog('capture: source=' + (source === 'library' ? 'library' : 'camera') +
+          ' type=' + String((file && file.type) || '?') +
           ' bytes=' + Number((file && file.size) || 0));      // never the image
-  return byokDownscale(file).then(function (img) {
+  return byokDownscale(file, source).then(function (img) {
     byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
     byokStartTick('Sending to your provider\u2026');
     byokCount();
@@ -4348,16 +4349,29 @@ function byokFallback(raw, message) {
 // return silently -- no file, no message -- which is indistinguishable from a
 // broken button, and it cleared the input BEFORE the read, which on iOS can
 // invalidate the very File it just handed us.
+// R24: the source is DERIVED FROM THE INPUT THAT FIRED, never passed alongside it.
+// The `capture` attribute is what forces the camera, so its presence IS the fact --
+// one source of truth that cannot drift from the element's actual behaviour. A
+// second argument in the markup could disagree with the attribute, and then the
+// messages would describe a path the file did not take.
+function captureSourceOf(input) {
+  return (input && input.hasAttribute && input.hasAttribute('capture')) ? 'camera' : 'library';
+}
 function onCaptureFile(input) {
+  const source = captureSourceOf(input);
   const f = input && input.files && input.files[0];
   if (!f) {
-    byokBusy('error', 'No photo came back from the camera. Try again, or use Copy prompt below.');
-    byokLog('capture: the input delivered no file');
-    return { ok: false, kind: 'nofile' };
+    // A cancelled library picker is the ordinary way to change your mind, and it
+    // must not read as a camera fault.
+    byokBusy('error', source === 'library'
+      ? 'No photo was chosen. Pick one, take a photo, or use Copy prompt below.'
+      : 'No photo came back from the camera. Try again, or use Copy prompt below.');
+    byokLog('capture: the input delivered no file (source=' + source + ')');
+    return { ok: false, kind: 'nofile', source: source };
   }
   byokBusy('sending', 'Reading the photo\u2026');
   const done = function (r) { if (input) { try { input.value = ''; } catch (e) {} } return r; };
-  return byokCapture(f).then(done, function (e) {
+  return byokCapture(f, source).then(done, function (e) {
     done();
     byokFallback('', 'Reading the photo failed: ' + String((e && e.message) || e).slice(0, 140));
     return { ok: false, kind: 'threw' };
@@ -4441,11 +4455,14 @@ function renderCaptureBtn() {
   const verifyC = (stC.state === 'verified') ? ''
     : ` <button type="button" class="linklike" onclick="byokTest()">verify now</button>`;
   el.innerHTML = busyC + testingC + (byokConfigured()
-    ? `<button class="btn primary" style="width:100%" onclick="document.getElementById('captureFile').click()">Capture meal</button>` +
+    ? `<div class="caprow">` +
+      `<button class="btn primary" onclick="document.getElementById('captureFile').click()">Take photo</button>` +
+      `<button class="btn" onclick="document.getElementById('captureLib').click()">Choose photo</button>` +
+      `</div>` +
       (testingC ? '' :
         `<div class="byoks ${stC.state === 'verified' ? 'byokok' : (stC.state === 'failed' ? 'byokbad' : '')}">` +
         `${esc(byokStatusLine())}${verifyC}</div>`) +
-      `<div class="note">One call to your provider with the photo and the template below. Nothing else is sent.</div>`
+      `<div class="note">Take one now, or choose one you already have. One call to your provider with the photo and the template below. Nothing else is sent.</div>`
     : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`);
 }
 
@@ -4624,6 +4641,7 @@ const VERSION_LOG = [
   { v: '0.22.0', d: '2026-09-06', note: 'Settings now shows the app version and its release date, at the foot of the panel.' },
   { v: '0.22.1', d: '2026-09-06', note: 'Fix: the version and release date now appear in Settings, where they were meant to be — in 0.22.0 the line landed at the foot of the main screen instead.' },
   { v: '0.23.0', d: '2026-09-07', note: 'Food items can now be edited, not just deleted — tap a row to change its meal, time, portion, numbers or note. Tapping the meal chip opens the same editor on the meal, so changing it is a choice from the list rather than tapping through all six. An edit keeps what the values were before and shows them, and correcting a number marks it as your own estimate. Scanned and photo items now record the portion you accepted as a real number instead of burying it in a note, so changing the grams rescales the item’s nutrition; a photo meal you reopen comes back at the weight you set rather than the estimate you corrected. Adjusting water can be undone, and changing or deleting anything on a completed day reopens it, so a finished day always matches what you attested to.' },
+  { v: '0.24.0', d: '2026-09-07', note: 'Capture meal now lets you choose: take a photo now, or pick one you already have. A meal photographed earlier can finally be logged — and on a computer, where Capture had no working path at all, Choose photo opens an ordinary file picker. Nothing after the photo changes. Photos from a library are also turned the right way up before they are sent, since a sideways plate is a different meal to the model reading it; and a HEIC picked from the library is now told what can actually fix it, rather than a camera setting that only affects the next photo you take.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5825,7 +5843,16 @@ function byokDecodeBitmap(file) {
   // ONE decode. An earlier draft decoded twice -- once for the dimensions, once
   // resized -- which doubles the most expensive step on the device that was
   // failing. drawImage does the scaling from the single bitmap.
-  return createImageBitmap(file).then(function (bmp) {
+  // R24: `imageOrientation` is PINNED, never left to the default. That default has
+  // moved -- the original spec said "none", the current one says "from-image", and
+  // "none" has since been removed and folded into from-image. Measured on this
+  // Chrome, all three spellings now return the EXIF-oriented bitmap; the point is
+  // that the answer is a browser-version fact rather than a contract, and a library
+  // photo carries EXIF far more often than a fresh camera frame does. Pinning it
+  // costs one option and removes the version from the question. A browser too old
+  // for the options argument still degrades correctly -- any bitmap failure falls
+  // through to byokDecodeImage, which honours EXIF via the <img> path.
+  return createImageBitmap(file, { imageOrientation: 'from-image' }).then(function (bmp) {
     try { const out = byokEncode(bmp, bmp.width, bmp.height); try { bmp.close(); } catch (e) {} return out; }
     catch (e) { try { bmp.close(); } catch (e2) {} throw e; }
   });
@@ -5843,7 +5870,18 @@ function byokDecodeImage(file) {
     img.src = url;
   });
 }
-function byokDownscale(file) {
+// R24: the HEIC advice depends on WHERE the photo came from, and the single message
+// this used to carry was wrong for half of them. "Set the camera to Most Compatible"
+// fixes the NEXT photo you take; it does nothing for a HEIC that is already sitting
+// in your library, and telling someone to change a camera setting to fix a photo
+// they took last Tuesday is advice that cannot work. A dead end stated confidently
+// is worse than one stated plainly.
+function byokHeicMessage(source) {
+  return source === 'library'
+    ? 'That photo is in HEIC, which browsers cannot read. Share or re-save it as a JPEG first, or use Copy prompt.'
+    : 'That photo is in HEIC, which browsers cannot read. Set the camera to "Most Compatible", or use Copy prompt.';
+}
+function byokDownscale(file, source) {
   const type = String((file && file.type) || '').toLowerCase();
   // Named rather than mysterious: the provider takes jpg/png, and a phone library
   // will hand over HEIC, which decodes nowhere useful in a browser.
@@ -5852,7 +5890,7 @@ function byokDownscale(file) {
   const bounded = new Promise(function (_, reject) {
     timer = setTimeout(function () {
       reject(new Error(heic
-        ? 'That photo is in HEIC, which browsers cannot read. Set the camera to "Most Compatible", or use Copy prompt.'
+        ? byokHeicMessage(source)
         : 'Reading the photo timed out after ' + (BYOK_DECODE_TIMEOUT_MS / 1000) + ' seconds.'));
     }, BYOK_DECODE_TIMEOUT_MS);
   });
@@ -5867,7 +5905,7 @@ function byokDownscale(file) {
   const work = Promise.race([byokDecodeBitmap(file), leash])
     .catch(function () { return byokDecodeImage(file); })
     .catch(function (e) {
-      if (heic) throw new Error('That photo is in HEIC, which browsers cannot read. Set the camera to "Most Compatible", or use Copy prompt.');
+      if (heic) throw new Error(byokHeicMessage(source));
       throw e;
     });
   return Promise.race([work, bounded]).then(function (r) {
@@ -6677,6 +6715,8 @@ window.HT = {
   BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
+  // R24 -- take-or-choose
+  byokHeicMessage, captureSourceOf, byokDecodeBitmap,
   photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
   setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
   BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease, byokPatch, byokNoteVerdict,
