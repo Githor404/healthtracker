@@ -2026,3 +2026,41 @@ anchor a 100 g AI estimate to 150 g
 | R23-vocab | M7 with a planted control over every new label |
 
 **Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–G.**
+
+#### Evidence (D57; Forks A–G ruled as argued; built 2026-09-07, v0.23.0, schema v6)
+
+| Case | Result |
+|---|---|
+| R23-route | `cycleMeal` is a **caller of the contract**, not a rewriter: the original meal is kept, the edit is stamped, and it gained an undo **without a line of undo code of its own**. Undo restores byte-exact **including the absence** of `orig`/`edited_at` on a record that had never been edited. The flagged supplement is refused **by name** rather than returning `undefined` |
+| R23-cycle | six taps return the original value **and** the record still reports `orig` and `edited_at` — *edited, and back where it started*, which is the honest reading. This falls out of D55's write-once logic and was confirmed rather than built |
+| R23-loop | a field the allowlist admits and the patch loop does not build is named as **contract drift**, never returned as `No change` — proven by planting `name` in `EDITABLE_FIELDS.item` with no branch behind it |
+| R23-item | the item class carries `meal` and `grams` and opening it **did not widen the signal class**; `source`, `barcode` and `micros` are refused; an unknown meal is **refused, not coerced to snack** (`normalizeItem` coerces because it hardens untrusted paste — an edit has a user in front of it) |
+| R23-honesty | correcting a measurement demotes `confidence` and leaves `source` and `barcode` standing; time/notes/meal demote nothing; demotion never invents a claim nor goes below the floor. D55's `demoteForEdit` **gets its first live caller here**, as that entry predicted |
+| R23-aigrams | editing the portion moves the **accepted** value and leaves the **estimate** standing; the macros rescale by new/old; `orig` keeps **both halves**; labelled micros rescale with the portion; with **no prior portion** setting one annotates rather than rescales |
+| R23-reopen | a photo meal anchored 100 g → 150 g **reopens at 150 g**, per-100 g intact at 165, anchor R preserved at 1.5, and the next edit compounds from the right base (330, not 495) |
+| R23-roundtrip | `grams` survives export → restore; `orig.grams` survives with it; the **shared** `ORIG_KEYS` carries it in **both** classes; a signal never grows a portion; an unparseable portion clamps and an **absent one stays absent** |
+| R23-bump | schema **v6**; `migrateV5toV6` stamps and carries through while **inventing no portion** — the `"scanned 150 g"` prose is left unmined, because parsing user-editable notes is an inference, not a transport; the forward guard moved to reject v7 |
+| R23-complete | editing an item on a completed day **reopens** it and the D10 average recomputes from the edited record; **undoing the edit undoes the reopen**; and `deleteItem` now reopens too — the shipped inconsistency, closed |
+| R23-water | `addWater` offers an undo it never had, and the undo restores **the exact prior value**: from 0.1 L a −0.25 tap clamps to 0, and undo returns **0.1**, where the inverse gesture would have given 0.25. A tap that changes nothing claims nothing |
+| R23-ui | body, chip and `×` are **three targets, none doing another's job**; the chip opens the editor on meal and **no longer cycles**, with `stopPropagation` so the body cannot steal its focus; no control for source, barcode or confidence; meal is a `<select>`, never a text box; the supplement row offers neither affordance **and the API refuses it too**; the portion shows on the row and an edited row says so |
+| R23-regress | the default collection is still the timeline, so **every R22 caller behaves exactly as D55 gated it**; `type` is still refused and `meal` is still not a signal field; `tzo` preserved (D29 Pin 3); one resolver, two homes, and a missing day resolves to nothing rather than throwing |
+| R23-vocab | M7 over the item editor, the portion line and the edited marker, **with a planted control** |
+
+**Every gate proven against its defect**, by restoring the pre-slice behaviour one at a time:
+
+| planted defect | fails |
+|---|---|
+| `cycleMeal` restored to assign-and-save | **R23-route ×2**, plus an uncaught exception — the `undefined` refusal crashing a caller that believed it |
+| `photoReopen` reconstructing from the estimate | **R23-reopen ×4** — the shipped bug, reproduced |
+| `grams` undeclared in `normalizeItem` | **9 cases** incl. the round-trip and every reopen case — the allowlist trap, shown rather than argued |
+| the drift guard removed | **R23-loop** |
+| `deleteItem` leaving a completed day complete | **R23-complete** |
+| `addWater` without undo | **R23-water ×3** |
+| `editRecord` not reopening a completed day | **R23-complete** |
+| the grams rescale removed | **R23-aigrams ×3** |
+
+**Count delta: 1332 → 1405** (+73), re-pinned deliberately in the same commit. **1405/1405 ALL PASS.**
+
+**Repointed, not weakened:** fifteen existing assertions moved with the schema. The round-trip fixture `S1` was re-pinned to the **live** `SCHEMA_VERSION` — left one version behind it would have quietly stopped being a round-trip test and become a migration test, asserting round-trip equality no longer. Six `"UNCHANGED at 5 (no bump)"` labels now read `"this slice bumped nothing; v6 is D57's"`, so each keeps the claim it was making and names why the number moved.
+
+**Full suite, one invocation: `SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS)`, runner exit 0.** Nine gates green, including `bm-slider-gate.ps1` — the D56 environment note is holding across a machine restart.

@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 5;
-const APP_VERSION      = '0.22.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 6;
+const APP_VERSION      = '0.23.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -215,6 +215,17 @@ function normalizeItem(it, clampMacros) {
   //   ai_identity -- what the AI called it, kept beside what was accepted
   //   pinned      -- whether the user anchored this item's scale
   //   mealId      -- groups one photo-meal, so it can be reopened and revised
+  // D57 / R23: the ACCEPTED portion. Schema v6, and the bump is the point -- every
+  // other additive item field so far (ai_grams, ai_identity, pinned, mealId) was a
+  // future calibration input, so losing it to an older app degraded an ANALYSIS.
+  // `grams` is content the USER AUTHORED: they typed 150. D29's asymmetry test puts
+  // authored content on the other side of the line, where a silent strip by an older
+  // app is data loss, so this one bumps.
+  //
+  // ABSENCE IS MEANINGFUL AND PRESERVED. An item with no known portion has no
+  // `grams` -- never 0, which would claim a weightless meal. Every pre-v6 item is in
+  // exactly that state, and the reopen path reads the absence rather than guessing.
+  if (it.grams != null && String(it.grams) !== '') out.grams = clampNonNeg(it.grams);
   if (it.ai_grams != null && String(it.ai_grams) !== '') out.ai_grams = clampNonNeg(it.ai_grams);
   if (it.ai_identity != null && String(it.ai_identity) !== '') out.ai_identity = String(it.ai_identity);
   if (it.pinned === true) out.pinned = true;
@@ -446,6 +457,33 @@ function migrateV4toV5(v4, nowISO) {
   if (typeof v4.knownDropped === 'number') out.knownDropped = v4.knownDropped;
   return out;
 }
+// v5 -> v6 (D57 / R23). Items gain an OPTIONAL accepted `grams` -- the portion the
+// user actually accepted, which until now was never stored: the scan path wrote it
+// into PROSE ("scanned 150 g") and the photo path kept only the AI's estimate.
+//
+// This migration is a VERSION STAMP AND NOTHING ELSE, and that is deliberate. It
+// would be easy to mine `notes` for "scanned <n> g" and backfill a portion for
+// every historical scan item. That is exactly the editorializing D4's surviving
+// principle forbids: `notes` is user-editable free text, so a parse of it is an
+// INFERENCE about what a number meant, not a transport of it. A migrated item
+// therefore has NO `grams`, which is the honest state -- we do not know the
+// portion, and absence says so. The prose is left untouched on old items; only new
+// writes carry the field.
+function migrateV5toV6(v5, nowISO) {
+  const out = {
+    version: 6,
+    days: (v5.days && typeof v5.days === 'object') ? v5.days : {},
+    current: typeof v5.current === 'string' ? v5.current : '',
+    settings: (v5.settings && typeof v5.settings === 'object') ? v5.settings : defaultSettings(),
+    priceLog: (v5.priceLog && typeof v5.priceLog === 'object') ? v5.priceLog : {},
+    timeline: (v5.timeline && typeof v5.timeline === 'object') ? v5.timeline : {},
+    fastLog: (v5.fastLog && typeof v5.fastLog === 'object') ? v5.fastLog : {},
+    regimens: (v5.regimens && typeof v5.regimens === 'object') ? v5.regimens : { active: '', list: [], log: {} },
+    migratedAt: typeof v5.migratedAt === 'string' ? v5.migratedAt : nowISO,
+  };
+  if (typeof v5.knownDropped === 'number') out.knownDropped = v5.knownDropped;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -455,6 +493,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 2) < 3) out = migrateV2toV3(out, nowISO);
   if ((out.version || 3) < 4) out = migrateV3toV4(out, nowISO);
   if ((out.version || 4) < 5) out = migrateV4toV5(out, nowISO);
+  if ((out.version || 5) < 6) out = migrateV5toV6(out, nowISO);
   return out;
 }
 
@@ -632,7 +671,8 @@ function boot() {
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
 // Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
-// absent -> reject; 1/2 -> in-place migrate to latest; 3 -> as-is; > 3 -> reject.
+// absent -> reject; 1 -> chained in-place migrate; 2..5 -> normalized up; 6 -> as-is;
+// > 6 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -650,7 +690,7 @@ function parseImport(raw) {
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
     return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // v2 -> upgrade; v3 -> as-is
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v6 upgrades, v6 as-is
 }
 
 function showPrerestore(json) {
@@ -1178,13 +1218,24 @@ function renderDay() {
     groups[m].forEach((row) => {
       const it = row.it, idx = row.idx;
       const dot = CONF_DOT[it.confidence] || 'muted';
+      // The editor replaces the row in place, so the day stays one column.
+      if (ITEM_EDIT && ITEM_EDIT.date === dk && ITEM_EDIT.idx === idx) {
+        html += itemEditHTML(it, idx, ITEM_EDIT.focus);
+        return;
+      }
       const rm = it._auto ? '' : `<button class="rm" onclick="deleteItem(${idx})" title="delete">×</button>`;
-      const chip = it._auto ? '' : `<button class="mealchip" onclick="cycleMeal(${idx})" title="change meal">${esc(it.meal)}</button>`;
-      html += `<div class="mitem"><div class="mmain">
+      // E1: the chip opens the editor ON MEAL instead of cycling. stopPropagation
+      // keeps the body's handler from firing over it and stealing that focus.
+      const chip = it._auto ? '' : `<button class="mealchip" onclick="event.stopPropagation();openItemEdit(${idx},'meal')" title="change meal">${esc(it.meal)}</button>`;
+      // `x` is NOT inside the editor's target -- D44's rule that a destructive action
+      // must not share a thumb path with a routine one, kept intact.
+      const open = it._auto ? '' : ` onclick="openItemEdit(${idx})"`;
+      const edited = it.edited_at ? `<span class="src" title="edited">· edited</span>` : '';
+      html += `<div class="mitem"><div class="mmain"${open}>
           <div class="mname">${esc(it.name)}</div>
-          <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib · <span class="src">${esc(it.source || '')}</span></div>
+          <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib · <span class="src">${esc(it.source || '')}</span>${edited}</div>
           ${chip}
-        </div><div class="mkcal">${esc(rDisp(it.kcal))}<small> kcal</small></div>${rm}</div>`;
+        </div><div class="mkcal"${open}>${esc(rDisp(it.kcal))}<small> kcal</small></div>${rm}</div>`;
     });
     html += `</div>`;
   });
@@ -1234,20 +1285,122 @@ function deleteItem(idx) {
   if (!it || it._auto) return { ok: false };   // supplement is non-deletable
   const dk = APP_STATE.current;
   const copy = JSON.parse(JSON.stringify(it));
+  // A splice renumbers every row after it, so an editor left open would be pointing
+  // at a DIFFERENT item than the one the user opened. Close it rather than let it
+  // save into the wrong row.
+  ITEM_EDIT = null;
   day.items.splice(idx, 1);
+  // FORK F (ruled F1), the shipped inconsistency closed: every CREATION path already
+  // reopened a completed day, and this one did not -- so removing a row from a closed
+  // day changed its totals while it went on counting in the D10 averages as an
+  // attested complete day. Deleting is as much a change to what was attested as
+  // adding is.
+  const priorStatus = day.status;
+  if (day.status === 'complete') day.status = 'in_progress';
   Store.saveState(APP_STATE); refresh();
   offerUndo('Removed ' + (it.name || 'item'), function () {
     const d = APP_STATE.days[dk]; if (!d) return;
     d.items.splice(Math.min(idx, d.items.length), 0, copy);
+    d.status = priorStatus;            // the reopen was part of the delete
     Store.saveState(APP_STATE); refresh();
   });
   return { ok: true, removed: copy, date: dk, idx: idx };
 }
+// D57 / R23: the last silent rewriter, routed. This used to assign `it.meal` and
+// save -- no undo, no trace, and no `orig`, so a saved record's category could be
+// rewritten with nothing recording that it ever said anything else. It cycled
+// modulo six, so nothing was destroyed and it was never the emergency `deleteItem`
+// was (D54); it was simply outside the contract. It is now a caller of the contract
+// like any other, which is why it gained undo and provenance without gaining a line
+// of undo code of its own.
+//
+// It also stops returning `undefined` for a refusal: `editRecord` refuses the
+// flagged supplement by name, so a caller can tell "refused" from "done".
 function cycleMeal(idx) {
-  const day = curDay(); if (!day) return;
-  const it = day.items[idx]; if (!it || it._auto) return;
-  it.meal = MEALS[(MEALS.indexOf(it.meal) + 1) % MEALS.length];
-  Store.saveState(APP_STATE); refresh();
+  const day = curDay(); if (!day) return { ok: false };
+  const it = day.items[idx];
+  if (!it) return { ok: false, error: 'No such item.' };
+  const nextMeal = MEALS[(MEALS.indexOf(it.meal) + 1) % MEALS.length];
+  return editRecord(APP_STATE.current, idx, { meal: nextMeal }, 'items');
+}
+// ---- R23: the item editor (Fork E, ruled E1) -------------------------------
+// The timeline row was body + x, and D55's Fork H put the editor on the body. The
+// food row already carried THREE targets -- body, meal chip, and x -- so putting the
+// editor on the body nested a button inside the tap target. E1 resolves it by taking
+// the cycler away and making the chip THE WAY IN: chip and body open the same
+// editor, the chip landing on meal. The affordance users know survives, there is one
+// editor, and `x` keeps its own target exactly as D44 wanted.
+let ITEM_EDIT = null;                          // {date, idx, focus} | null
+function itemEditTarget() { return ITEM_EDIT; }
+function openItemEdit(idx, focus) {
+  const day = curDay(); if (!day) return { ok: false };
+  const it = day.items[idx];
+  if (!it) return { ok: false };
+  if (it._auto) return { ok: false, refused: ['_auto'] };   // the supplement is a setting, not a log entry
+  ITEM_EDIT = { date: APP_STATE.current, idx: idx, focus: focus === 'meal' ? 'meal' : '' };
+  refresh();
+  return { ok: true };
+}
+function closeItemEdit() { ITEM_EDIT = null; refresh(); return { ok: true }; }
+const ITEM_MACROS = [['kcal', 'kcal'], ['protein_g', 'Protein g'], ['fat_g', 'Fat g'],
+                     ['carb_g', 'Carb g'], ['fiber_g', 'Fibre g'], ['soluble_fiber_g', 'Soluble g']];
+function itemEditHTML(it, idx, focus) {
+  const mealSel = `<select id="ieMeal"${focus === 'meal' ? ' autofocus' : ''}>` + MEALS.map((m) =>
+    `<option value="${esc(m)}"${it.meal === m ? ' selected' : ''}>${esc(m)}</option>`).join('') + `</select>`;
+  const macros = ITEM_MACROS.map(([k, lab]) =>
+    `<div style="flex:1 1 30%"><label>${esc(lab)}</label><input id="ie_${esc(k)}" type="number" inputmode="decimal" value="${esc(rDisp(it[k]))}"></div>`).join('');
+  // Provenance is SHOWN, not merely kept (D55 Fork B). A row the user cannot check
+  // is a row that cannot be argued with.
+  const origNote = it.orig
+    ? `<div class="renote">originally ` + Object.keys(it.orig).map((k) =>
+        `${esc(k)} ${esc(String(it.orig[k]))}`).join(' · ') + `</div>` : '';
+  // The estimate stays beside the accepted value -- the whole point of the loop.
+  const aiNote = (it.ai_grams != null)
+    ? `<div class="renote">the estimate was ${esc(rDisp(it.ai_grams))} g${it.ai_identity ? ' · ' + esc(it.ai_identity) : ''}</div>` : '';
+  return `<div class="mitem itemeditopen"><div class="rewrap">
+    <div class="rerow">
+      <div style="flex:1"><label>Meal</label>${mealSel}</div>
+      <div style="flex:0 0 104px"><label>Time</label><input id="ieTime" type="time" value="${esc(it.time || '')}"></div>
+    </div>
+    <div class="rerow"><div style="flex:0 0 104px"><label>Grams</label><input id="ieGrams" type="number" inputmode="decimal" value="${it.grams == null ? '' : esc(rDisp(it.grams))}"></div>
+      <div style="flex:1"><label>Name</label><input value="${esc(it.name || '')}" disabled></div></div>
+    <div class="rerow" style="flex-wrap:wrap">${macros}</div>
+    <label>Notes</label><input id="ieNotes" value="${esc(it.notes || '')}">
+    <div id="ieMsg"></div>${origNote}${aiNote}
+    <div class="rerow" style="margin-top:8px">
+      <button class="btn primary" onclick="saveItemEdit(${esc(String(idx))})">Save</button>
+      <button class="btn" onclick="closeItemEdit()">Cancel</button>
+    </div>
+    <div class="note" style="margin-top:6px">Changing the grams rescales this item's numbers. Editing a number keeps what it was before and marks it as your own estimate; where it came from, and its barcode, do not change.</div>
+  </div></div>`;
+}
+function saveItemEdit(idx) {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
+  const day = curDay(); if (!day || !day.items[idx]) return { ok: false };
+  const it = day.items[idx];
+  const patch = {};
+  const mv = g('ieMeal'); if (mv !== undefined) patch.meal = mv;
+  const tv = g('ieTime'); if (tv !== undefined) patch.time = tv;
+  const nt = g('ieNotes'); if (nt !== undefined) patch.notes = nt;
+  const gr = g('ieGrams');
+  if (gr !== undefined && String(gr).trim() !== '') patch.grams = gr;
+  // A macro is sent only when the user actually moved it. Sending all six always
+  // would defeat the grams rescale -- every macro would arrive "explicitly patched"
+  // at its old value and win over the factor.
+  ITEM_MACROS.forEach(([k]) => {
+    const v = g('ie_' + k);
+    if (v !== undefined && String(v).trim() !== '' && Number(v) !== Number(rDisp(it[k]))) patch[k] = v;
+  });
+  const r = editRecord(APP_STATE.current, idx, patch, 'items');
+  if (!r.ok) {
+    if (r.unchanged) { closeItemEdit(); return r; }   // changing nothing is a cancel
+    const m = document.getElementById('ieMsg');
+    if (m) m.innerHTML = `<div class="ireport bad">${esc(r.error || 'Could not save.')}</div>`;
+    return r;
+  }
+  ITEM_EDIT = null;
+  refresh();
+  return r;
 }
 function toggleDayStatus() {
   const day = curDay(); if (!day) return;
@@ -1280,10 +1433,27 @@ function clearDay() {
   });
   return { ok: true, date: dk, cleared: items.length };
 }
+// FORK G (ruled G1): the third silent rewriter, and the one nobody had named. It
+// looks self-inverse -- tap minus, tap plus -- but `Math.max(0, ...)` CLAMPS, so any
+// decrement larger than the current value loses the remainder for good: 0.1 L take
+// 0.25 lands on 0, and the answering +0.25 gives 0.25, not 0.1. Non-multiples of
+// 0.25 arrive by ingest and restore, so the case is narrow and real. It is the one
+// mutation in the app where the inverse gesture does not return the value, and it
+// had no undo at all. It joins the grammar rather than growing a special case.
 function addWater(delta) {
-  const day = curDay(); if (!day) return;
-  day.water_l = Math.max(0, Math.round(((day.water_l || 0) + delta) * 100) / 100);
+  const day = curDay(); if (!day) return { ok: false };
+  const dk = APP_STATE.current;
+  const before = day.water_l || 0;
+  const after = Math.max(0, Math.round((before + delta) * 100) / 100);
+  if (after === before) return { ok: false, unchanged: true };   // nothing happened: claim nothing
+  day.water_l = after;
   Store.saveState(APP_STATE); refresh();
+  offerUndo('Water ' + rDisp(after) + ' L', function () {
+    const d = APP_STATE.days[dk]; if (!d) return;
+    d.water_l = before;               // the exact prior value, not the inverse gesture
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, before: before, after: after, date: dk };
 }
 // settings.goals is a MIXED NAMESPACE (D24): nutrient keys = daily-sum goals (food
 // ring); signal-type keys = latest-reading goals (Mirror + chip-float). Signal goals
@@ -1554,7 +1724,15 @@ function buildScanItem(rec, mode, customGrams, meal) {
     kcal: s.kcal, protein_g: s.protein_g, fat_g: s.fat_g, carb_g: s.carb_g,
     fiber_g: s.fiber_g, soluble_fiber_g: s.soluble_fiber_g,
     confidence: 'measured', source: 'scan', barcode: rec.barcode,
-    notes: 'scanned ' + rDisp(s.grams) + ' g',
+    // D57 / R23: the portion is DATA, and the prose that used to carry it is
+    // RETIRED rather than kept alongside. Keeping both would be two copies of one
+    // fact with only one of them editable -- edit the grams and the sentence
+    // "scanned 150 g" goes stale and starts lying. That is the surface-claiming-
+    // more-than-the-substance shape this project keeps closing (D50/D52/D53/D56),
+    // so the sentence goes and `notes` returns to being the user's own field.
+    // Pre-v6 items keep their sentence: migration does not rewrite history.
+    grams: s.grams,
+    notes: '',
     micros: s.micros, tzo: nowTZO(),   // D29 (stamped)
   }, true);
 }
@@ -2643,13 +2821,34 @@ const EDITABLE_FIELDS = {
   // medication's `name` is its identity, so it is out for the same reason.
   signal: ['value', 'time', 'notes'],
   medication: ['dose', 'time', 'notes'],
+  // D57 / R23 Fork B (ruled): THE ITEM CLASS IS OPENED. D55's Fork D narrowed the
+  // editable set to value/time/notes *because food items were deferred*; they are
+  // deferred no longer. `meal` arrives with it -- it sat in ORIG_KEYS from D55,
+  // forward-declared for exactly this slice, while being in no editable set at all,
+  // which is how `cycleMeal` came to be editing a field the contract did not admit.
+  item: ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g',
+         'grams', 'time', 'notes', 'meal'],
 };
 // Fields whose change is a claim about the MEASUREMENT rather than about the
 // record. Listed for food items too, because the honesty rule below is shared and
 // items are the class that carries a reliability claim.
+// `grams` is here (D57): the portion is the measurement. Correcting "150 g" to
+// "200 g" by hand makes `measured` false for exactly the reason a corrected kcal
+// does -- the number no longer came off the label at that weight.
 const MEASUREMENT_FIELDS = ['value', 'dose', 'kcal', 'protein_g', 'fat_g', 'carb_g',
-                            'fiber_g', 'soluble_fiber_g'];
-function editableFields(rec) {
+                            'fiber_g', 'soluble_fiber_g', 'grams'];
+// The collection discriminator (Fork A, ruled A1): ONE contract, two record homes.
+// Timeline records live in `timeline[date]`, food items in `days[date].items`; the
+// alternative was a sibling `editItem`, which is the second path D55 refused.
+function recordsIn(date, collection) {
+  if (collection === 'items') {
+    const d = APP_STATE.days && APP_STATE.days[date];
+    return (d && Array.isArray(d.items)) ? d.items : null;
+  }
+  return (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+}
+function editableFields(rec, collection) {
+  if (collection === 'items') return EDITABLE_FIELDS.item.slice();
   return (EDITABLE_FIELDS[rec && rec.kind === 'medication' ? 'medication' : 'signal']).slice();
 }
 // FORK C (ruled): the PROVENANCE of a record is a fact; the RELIABILITY of its
@@ -2680,7 +2879,8 @@ function demoteForEdit(rec, fields) {
 // Keys are constrained to the editable union: at restore this map is untrusted
 // input, and an allowlist inside the allowlist is cheaper than trusting it.
 const ORIG_KEYS = ['value', 'dose', 'time', 'notes', 'meal', 'kcal', 'protein_g',
-                   'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g', 'confidence'];
+                   'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g', 'confidence',
+                   'grams'];   // D57/R23: the accepted portion is editable, so it has an original
 function normalizeOrig(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
   const out = {};
@@ -2706,11 +2906,16 @@ function normalizeEditedAt(v) {
 // CREATION site: it pushes nothing, so the D29 census (which enumerates pushes)
 // correctly does not see it, and stamping here would be exactly the invention
 // Pin 3 forbids.
-function editRecord(date, idx, patch) {
-  const arr = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+function editRecord(date, idx, patch, collection) {
+  const coll = collection === 'items' ? 'items' : 'timeline';
+  const arr = recordsIn(date, coll);
   if (!arr || idx < 0 || idx >= arr.length) return { ok: false, error: 'No such record.' };
   const rec = arr[idx];
-  const allowed = editableFields(rec);
+  // The supplement is flagged non-deletable (D54); it is non-editable for the same
+  // reason -- it is not a thing the user logged, it is a setting persisting itself.
+  // Refused, never silently ignored.
+  if (coll === 'items' && rec._auto) return { ok: false, error: 'The supplement is set in Settings.', refused: ['_auto'] };
+  const allowed = editableFields(rec, coll);
   const keys = Object.keys(patch || {});
   if (!keys.length) return { ok: false, error: 'Nothing to change.' };
   // REFUSED, not silently ignored: a caller that asked to change `type` must
@@ -2732,6 +2937,19 @@ function editRecord(date, idx, patch) {
       next.time = t;
     } else if (k === 'notes') {
       next.notes = String(raw == null ? '' : raw);
+    } else if (k === 'meal') {
+      // D57: validated against the enum, not coerced to a default. `normalizeItem`
+      // silently falls back to 'snack' for an unknown meal because it hardens
+      // untrusted paste; an edit has a user in front of it, so a bad value is
+      // refused rather than quietly turned into a snack (the D52 ordinal argument).
+      if (MEALS.indexOf(raw) < 0) return { ok: false, error: 'Not a meal category.' };
+      next.meal = raw;
+    } else if (k === 'kcal' || k === 'protein_g' || k === 'fat_g' || k === 'carb_g' ||
+               k === 'fiber_g' || k === 'soluble_fiber_g' || k === 'grams') {
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0) return { ok: false, error: 'That is not a number.' };
+      if (k === 'grams' && !(n > 0)) return { ok: false, error: 'Grams must be positive.' };
+      next[k] = clampNonNeg(n);
     } else if (k === 'value' || k === 'dose') {
       // D52: an ordinal is REFUSED rather than snapped-to-absent here. At ingest a
       // stray 3.5 becomes absence because there is no user to ask; an edit has one
@@ -2748,6 +2966,40 @@ function editRecord(date, idx, patch) {
       }
     }
   }
+  // THE ALLOWLIST/LOOP DRIFT GUARD (R23-loop). `changed` below is computed over
+  // `next` -- the loop's OUTPUT -- not over the caller's keys. So a field the
+  // allowlist admits but no branch above builds produces an empty `next`, an empty
+  // `changed`, and the return "No change.": a silent no-op wearing a success-shaped
+  // refusal. That is D56's shape in a new costume, and it is exactly what would have
+  // happened had `meal` joined EDITABLE_FIELDS without joining the loop. A field
+  // that is editable-but-unbuilt is a CONTRACT DRIFT and is named as one.
+  const unhandled = keys.filter((k) => !Object.prototype.hasOwnProperty.call(next, k));
+  if (unhandled.length)
+    return { ok: false, error: 'Editable but unhandled (contract drift): ' + unhandled.join(', '), drift: unhandled };
+
+  // D57: editing the PORTION rescales what was measured at it. A record reading
+  // 200 g while its kcal still holds the 150 g figure is internally false, and the
+  // app would go on totalling the stale number. The factor is new/old, so `orig`
+  // keeps the first-written portion AND the first-written macros -- both halves of
+  // what the row used to say survive.
+  //
+  // With NO prior portion (every pre-v6 item) there is nothing to scale FROM, so
+  // setting grams records the portion and leaves the macros alone. That is an
+  // annotation of what was already logged, not a rescale, and inventing a factor
+  // for it would be fabricating a measurement.
+  let rescaled = 0;
+  if (Object.prototype.hasOwnProperty.call(next, 'grams')) {
+    const oldG = num(rec.grams);
+    if (oldG > 0 && next.grams > 0 && next.grams !== oldG) {
+      const f = next.grams / oldG;
+      ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'].forEach((k) => {
+        // An explicitly-patched macro WINS: the user said what they meant.
+        if (!Object.prototype.hasOwnProperty.call(next, k)) next[k] = clampNonNeg(num(rec[k]) * f);
+      });
+      rescaled = f;
+    }
+  }
+
   // Nothing actually different? Then nothing is recorded -- an edit that changed
   // no value must not stamp `edited_at` and claim one happened.
   const changed = Object.keys(next).filter((k) => rec[k] !== next[k]);
@@ -2762,17 +3014,45 @@ function editRecord(date, idx, patch) {
   const demoted = demoteForEdit(rec, changed);
   if (demoted && !Object.prototype.hasOwnProperty.call(orig, 'confidence')) orig.confidence = prior.confidence;
   changed.forEach((k) => { rec[k] = next[k]; });
+  // Micros ride the portion but never the patch. They are not editable (D8: they
+  // come from a label, and hand-typing one would be the dishonesty that rule
+  // exists to prevent) -- but a 150 g row rescaled to 200 g whose sodium stayed put
+  // would understate by the same ratio the macros just moved by. Rescaled in place,
+  // and deliberately NOT recorded in `orig`: `normalizeOrig` takes primitives only,
+  // and the originals are recoverable exactly, since write-once `orig.grams` pins
+  // the total factor as current/original.
+  if (rescaled && rec.micros) {
+    const m = {};
+    Object.keys(rec.micros).forEach((K) => { m[K] = clampNonNeg(num(rec.micros[K]) * rescaled); });
+    rec.micros = m;
+  }
   rec.orig = orig;
   rec.edited_at = new Date(nowMs()).toISOString();
 
+  // FORK F (ruled F1): a completed day whose contents changed was attested about
+  // DIFFERENT DATA, so the attestation is withdrawn and the user re-closes. This
+  // matches every creation path (`addManualEntry` / `logPreset` / `logScanItem` /
+  // `photoSave` all reopen); `deleteItem` did not, which is the shipped
+  // inconsistency this slice closes there too.
+  const dayRef = (coll === 'items' && APP_STATE.days) ? APP_STATE.days[date] : null;
+  const priorStatus = dayRef ? dayRef.status : null;
+  if (dayRef && dayRef.status === 'complete') dayRef.status = 'in_progress';
+
   Store.saveState(APP_STATE); refresh();
-  offerUndo('Edited ' + (rec.kind === 'medication' ? (rec.name || 'medication') : signalLabel(rec)), function () {
-    const a = (APP_STATE.timeline && APP_STATE.timeline[date]) || null;
+  const label = coll === 'items'
+    ? (rec.name || 'item')
+    : (rec.kind === 'medication' ? (rec.name || 'medication') : signalLabel(rec));
+  offerUndo('Edited ' + label, function () {
+    const a = recordsIn(date, coll);
     if (!a || idx >= a.length) return;
     a[idx] = prior;                    // byte-exact, INCLUDING an absent orig/edited_at
+    // The reopen is part of the edit, so undoing the edit undoes it -- otherwise an
+    // undone edit leaves the day silently reopened and out of the averages.
+    const d2 = (coll === 'items' && APP_STATE.days) ? APP_STATE.days[date] : null;
+    if (d2 && priorStatus) d2.status = priorStatus;
     Store.saveState(APP_STATE); refresh();
   });
-  return { ok: true, changed: changed, demoted: demoted, record: rec };
+  return { ok: true, changed: changed, demoted: demoted, rescaled: rescaled, record: rec };
 }
 
 let EDIT_TARGET = null;                       // {date, idx} | null
@@ -4343,6 +4623,7 @@ const VERSION_LOG = [
   { v: '0.21.0', d: '2026-09-06', note: 'Timeline records can now be edited, not just deleted — tap the row to change its time, value or note. An edit keeps what the value was before and shows it, so a correction never erases the original reading; and correcting a number marks it as your own estimate rather than leaving it labelled as measured. The type of a record cannot be changed by an edit, and neither can its time zone. Every edit can be undone, like every deletion.' },
   { v: '0.22.0', d: '2026-09-06', note: 'Settings now shows the app version and its release date, at the foot of the panel.' },
   { v: '0.22.1', d: '2026-09-06', note: 'Fix: the version and release date now appear in Settings, where they were meant to be — in 0.22.0 the line landed at the foot of the main screen instead.' },
+  { v: '0.23.0', d: '2026-09-07', note: 'Food items can now be edited, not just deleted — tap a row to change its meal, time, portion, numbers or note. Tapping the meal chip opens the same editor on the meal, so changing it is a choice from the list rather than tapping through all six. An edit keeps what the values were before and shows them, and correcting a number marks it as your own estimate. Scanned and photo items now record the portion you accepted as a real number instead of burying it in a note, so changing the grams rescales the item’s nutrition; a photo meal you reopen comes back at the weight you set rather than the estimate you corrected. Adjusting water can be undone, and changing or deleting anything on a completed day reopens it, so a finished day always matches what you attested to.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5834,6 +6115,12 @@ function photoSave() {
       fiber_g: m.fiber_g, soluble_fiber_g: m.soluble_fiber_g,
       confidence: 'eyeballed', source: 'ai-paste', notes: it.notes,
       tzo: nowTZO(),
+      // D57 / R23: BOTH halves of the correction loop are now written. `grams` is
+      // what the user accepted, `ai_grams` what the model guessed. Until v6 only the
+      // guess survived, so reopen had to RECONSTRUCT the accepted portion by dividing
+      // the stored macros by the estimate -- correct only when the user had changed
+      // nothing, and silently wrong by the anchor ratio whenever they had.
+      grams: photoGrams(PHOTO_DRAFT, it),
       ai_grams: it.aiGrams, ai_identity: it.aiIdentity,
       pinned: it.pinned === true, mealId: mealId,
     }, true);
@@ -5858,9 +6145,22 @@ function photoReopen(mealId) {
   PHOTO_DRAFT = {
     mealId: mealId, meal: rows[0].meal,
     items: rows.map((r, i) => {
+      // D57 / R23 -- THE REOPEN FIX. The stored macros are the macros AT THE
+      // ACCEPTED PORTION, so per-100 g must be rebuilt by dividing by the ACCEPTED
+      // grams. Dividing by `ai_grams` (what this did before v6) is only correct when
+      // the user accepted the estimate unchanged; anchor a 100 g guess to 150 g and
+      // reopen used to show 100 g, a per-100 g profile inflated by the anchor ratio,
+      // and R collapsed from 1.5 to 1 -- with the TOTAL preserved, which is why
+      // nothing looked wrong until the next grams edit compounded from it.
+      //
+      // Pre-v6 items have no accepted portion (migration does not invent one), so
+      // they fall back to the old reconstruction. That is not a fix for them -- it is
+      // the best available reading of a record that never stored what was accepted,
+      // and it is exactly as good as the app was before.
       const g = num(r.ai_grams) > 0 ? num(r.ai_grams) : 100;
-      const shown = 100 / g;      // rebuild per-100 g from the stored absolute macros
-      return { name: r.name, notes: r.notes, aiGrams: g, grams: g,
+      const acc = num(r.grams) > 0 ? num(r.grams) : g;
+      const shown = 100 / acc;    // rebuild per-100 g from the stored absolute macros
+      return { name: r.name, notes: r.notes, aiGrams: g, grams: acc,
                aiIdentity: r.ai_identity || r.name,
                per100: { kcal: num(r.kcal) * shown, protein_g: num(r.protein_g) * shown,
                          fat_g: num(r.fat_g) * shown, carb_g: num(r.carb_g) * shown,
@@ -6394,6 +6694,9 @@ window.HT = {
   // R22 / D55 -- the edit contract
   editRecord, editableFields, demoteForEdit, normalizeOrig, normalizeEditedAt, EDITABLE_FIELDS, MEASUREMENT_FIELDS,
   openRecordEdit, closeRecordEdit, saveRecordEdit, recordEditTarget,
+  // R23 / D57 -- the item class of the same contract
+  recordsIn, cycleMeal, openItemEdit, closeItemEdit, saveItemEdit, itemEditTarget, itemEditHTML,
+  migrateV5toV6,
   renderTimelineOverlay, timelineForDay, shiftDate, timeToMinutes, addInterval,
   SERIES_ALIAS, CHIP_GOAL_ALIAS,
   // D52 -- the ordinal contract (general), and the bm scale that first uses it

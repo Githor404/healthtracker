@@ -1768,3 +1768,92 @@ SUITE: FAIL
 ### Standing environment note
 
 The gate suite depends on antivirus exclusions for `tests/` covering **both** on-access file scanning **and** the proactive-defence module. The first prevents instance 3; only the second prevents instance 4. A suite run on a machine without both is not evidence of anything, and the runner now says so out loud instead of leaving a gap where a gate should have spoken.
+
+## D57 — The item class of the edit contract, and the portion that was never stored (R23, 2026-09-07)
+
+`APP_VERSION → 0.23.0`; **schema v6** — the first item-field bump, and the bump is the ruling. Seven forks ruled (A1, B1, C1, D1, E1, F1, G1). The survey ran before any code was touched and **contradicted the brief three times**; all three corrections were accepted, and they are recorded here as corrections rather than folded silently into the result.
+
+### The three corrections, because a brief believed is a brief acted on
+
+**1. `meal` was in no editable set.** The slice was framed as *"route `cycleMeal` through `editRecord`"* on the basis that meal is editable under R22's Fork D. The **pre-registered** Fork D1 said *"value, time, notes, and meal-category only"*; the **ruled** D55 Fork D narrowed to `value`/`time`/`notes` precisely because items were deferred. `meal` sat in `ORIG_KEYS` — forward-declared for this slice — while being in no `EDITABLE_FIELDS` class at all. **So `cycleMeal` was editing a field the contract did not admit**, and this was an extension of a ruled contract, not a re-pointed caller. Ruled explicitly (B1) rather than assumed.
+
+**2. The allowlist alone would have done nothing — silently.** `editRecord` computes `changed` over `Object.keys(next)` — the patch loop's **output**, not the caller's keys. A field the allowlist admits and no branch builds yields an empty `next`, an empty `changed`, and the return `{ok:false, error:'No change.'}`. Adding `meal` to `EDITABLE_FIELDS` without adding its branch would have made `cycleMeal` **a silent no-op reporting "No change"**.
+
+**This is the fifth instance of the family D56 tabulated** — a check or a path that stops working while everything still reports success-shaped. It gets the same treatment: a guard that **names the failure**. A field that is editable-but-unbuilt now returns `{ok:false, drift:[...]}` saying *"Editable but unhandled (contract drift)"*. The general rule, stated so the next allowlist inherits it: **an allowlist and the loop that serves it must move together, or the allowlist lies.** Gated by planting `name` in the allowlist with no branch behind it.
+
+**3. There was no accepted portion to edit, and that absence was the root cause of a live defect.** The brief required that editing an AI-derived item's grams update the accepted value while preserving `ai_grams`. **No food item stored an accepted grams.** `normalizeItem` had no such key; the scan path wrote the portion into **prose** (`notes: 'scanned 150 g'`); the photo path stored only the estimate and the scaled macros.
+
+### The reopen defect — found by the survey, fixed by the same field
+
+Because the accepted portion was never stored, `photoReopen` **reconstructed** the per-100 g profile by dividing the stored macros by `ai_grams` — correct only when the user had accepted the estimate unchanged. Transcribed the shipped `photoShared` / `photoGrams` / `photoItemMacros` / `photoSave` / `photoReopen` and ran them headless before writing a line of the fix:
+
+```
+anchor a 100 g AI estimate to 150 g
+  SAVED               {"kcal":247.5,"ai_grams":100,"pinned":true}   no accepted grams anywhere
+  REOPENED grams      100      <- the user set 150
+  REOPENED per100     247.5    <- truth 165
+  REOPENED total      247.5    (preserved -- which is why nothing looked wrong)
+  REOPENED anchor R   1        <- the user's anchor was 1.5
+  then nudge to 200g  495 kcal <- truth 330
+```
+
+**A photo meal reopened after anchoring lost its anchor.** `pinned: true` survived while the ratio it recorded did not. The total was preserved at reopen, so the defect was invisible — until the next grams edit compounded from the wrong base, and **the next grams edit is exactly what this slice adds**. Ruled D1: it rides along, because `grams` *is* the fix and splitting the slices would have meant writing the reconstruction twice.
+
+**Recorded limitation:** pre-v6 items have no accepted portion and fall back to the old reconstruction. That is not a fix for them — it is the best available reading of a record that never stored what was accepted, and it is exactly as good as the app was before.
+
+### Why this one bumps the schema (Fork C, ruled C1 + bump)
+
+Every additive item field so far — `ai_grams`, `ai_identity`, `pinned`, `mealId` — shipped **without** a bump, justified on D29's asymmetry test: *losing them degrades a future calibration input, not content the user authored.* **`grams` is on the other side of that line.** The user typed 150. An older app silently stripping it at the restore boundary is data loss, not a degraded analysis. **So the schema bumps to 6**, `migrateV5toV6` is add-only, and the forward guard moves with it (`> 6` refused).
+
+**The migration invents no portion, and this is the load-bearing half.** It would be easy to mine `notes` for `"scanned <n> g"` and backfill every historical scan item. That is exactly the editorializing **D4's surviving principle** forbids: `notes` is user-editable free text, so parsing it is an **inference about what a number meant**, not a transport of it. A migrated item has **no** `grams`, which is the honest state — we do not know the portion, and absence says so. Gated: the migrator carries `kcal` through and leaves both the prose and the absence alone.
+
+**Absence is preserved, never zero-filled.** An item with no known portion has no `grams`; 0 would claim a weightless meal. Same rule micros have had since D8.
+
+**The scan prose is retired** on new writes. Keeping both would be two copies of one fact with only one of them editable — edit the grams and the sentence *"scanned 150 g"* goes stale and starts lying, which is the surface-claiming-more-than-the-substance shape D50/D52/D53/D56 keep closing. Old items keep their sentence; migration does not rewrite history.
+
+### Ruled inside C1, and flagged rather than buried: editing the portion RESCALES
+
+The forks did not ask what editing `grams` does to the macros, and it has only one honest answer. A record reading 200 g while its kcal still holds the 150 g figure is **internally false**, and the app would go on totalling the stale number. So a grams edit rescales the macros by `new/old`, `orig` keeps **both** the first-written portion and the first-written macros, and an explicitly-patched macro wins over the factor (the user said what they meant).
+
+**Labelled micros rescale with it.** They are not editable — D8 rules a hand-typed micro is exactly the dishonesty that rule exists to prevent — but a 150 g row rescaled to 200 g whose sodium stayed put would understate by precisely the ratio the macros just moved. They are rescaled in place and deliberately **not** recorded in `orig`: `normalizeOrig` takes primitives only, and the originals are recoverable exactly, since write-once `orig.grams` pins the total factor as current/original.
+
+**With no prior portion there is nothing to scale from**, so setting one records the portion and leaves the macros alone — an annotation of what was already logged. Inventing a factor there would be fabricating a measurement.
+
+### The allowlist trap, fourth occurrence — and where the ruling's letter was not followed
+
+The ruling said the accepted grams *"joins BOTH normalizers in the same commit."* **It joins `normalizeItem` and `ORIG_KEYS`, and deliberately not `normalizeSignal`** — a signal has no portion, and declaring a field a class can never legitimately carry is noise pretending to be safety. The both-normalizers half is satisfied where it actually bites: **`ORIG_KEYS` is the allowlist inside the allowlist and is shared by both normalizers**, so `orig.grams` round-trips in either class and no edit history is lost at either boundary. Gated four ways: `grams` survives export→restore on an item, `orig.grams` survives with it, a signal's `orig.grams` survives, and a signal itself never grows a `grams`.
+
+### The silent-rewriter census, corrected in both directions
+
+| site | verdict |
+|---|---|
+| `cycleMeal` | **the target.** Now a caller of the contract; it gained undo and provenance without a line of undo code of its own |
+| `addWater` | **the unnamed third.** The brief did not name it; it had no undo at all |
+| `toggleDayStatus` | **stays out** (G1). A day-level *attestation*, not a record edit — self-inverse, and it already speaks |
+| `photoSetGrams` | **NOT a rewriter.** It mutates `PHOTO_DRAFT`, which is never persisted; `photoSave` is the write and already carried a full-snapshot undo. The brief's census note was withdrawn |
+
+`addWater` looks self-inverse and is not: `Math.max(0, …)` **clamps**, so 0.1 L take 0.25 lands on 0 and the answering +0.25 gives 0.25, not 0.1. Non-multiples of 0.25 arrive by ingest and restore. It is the one mutation in the app where the inverse gesture does not return the value, and the undo now restores **the exact prior value**, not the inverse gesture. Gated on that case specifically.
+
+### Fork F — the shipped inconsistency, closed on both sides
+
+Every **creation** path already reopened a completed day; **`deleteItem` did not**. So removing a row from a closed day changed its totals while the day went on counting in the D10 averages as attested. Ruled F1: an edit reopens, **and `deleteItem` gains the same**. D10's discipline is a *manual attestation*, and changing a day's contents after the attestation means it was made about different data.
+
+**The reopen is part of the mutation, so undo undoes it too** — otherwise an undone edit leaves the day quietly reopened and out of the averages, which is a second, silent mutation of the kind D44 closed for dates.
+
+The arithmetic needed nothing: `averageOver` derives from `day.items` on every render, so an edit recomputes for free. That is D55's Fork E rule holding without extension.
+
+### Fork E — three targets, and the one that had to stop being a button
+
+The timeline row was *body + ×*, and D55's Fork H put the editor on the body. The food row already carried **three** targets — body, meal chip, `×` — so putting the editor on the body would have nested a button inside the tap target. E1: **the chip stops cycling and becomes the way in**, landing the editor on meal; the body opens the same editor; `×` keeps its own target, and D44's rule that a destructive action does not share a thumb path survives intact. The affordance users know is preserved, and meal becomes a **choice from the enum** rather than six taps through it.
+
+The supplement row offers neither, and `openItemEdit` refuses it at the API too, so the guard is not merely cosmetic.
+
+**Confirmed rather than built:** the requirement that a meal cycled six times back to its original still shows its `orig` **falls out of the shipped write-once logic** — tap 1 pins `orig.meal`, taps 2–6 leave it, and the record ends reading *edited, and back where it started*. That is the honest reading, and it is gated as such.
+
+### Repointed, not weakened
+
+Fifteen existing assertions moved: the migration chain now ends at v6, the forward-guard fixtures moved to v7, and the round-trip fixture `S1` was **re-pinned to the live schema version**. That last one matters beyond bookkeeping — pinned one version behind, it would have quietly stopped being a round-trip test and become a migration test, asserting round-trip equality no longer. The comment now says so.
+
+Six assertions that read *"schema version UNCHANGED at 5 (no bump)"* now read *"this slice bumped nothing; v6 is D57's"*. The claim each was making is preserved; only the number moved, and the reason it moved is named in the assertion text.
+
+`R6-save`'s additive set grew from four fields to five.
