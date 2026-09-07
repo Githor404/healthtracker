@@ -211,6 +211,14 @@ Phase 2 Slice 1. The OFF product cache (barcode → product + nutriments + fetch
 - **Refresh — pure cache-first, no auto-TTL (ruled).** A cached product resolves without a network call (OFF's 15 req/min/IP courtesy, D14; nutriments rarely change). Staleness is handled by an **explicit, manual** "refresh from OpenFoodFacts" affordance — **never automatic**, never a background revalidate.
 - **Cache taxonomy — three distinct caches, do not conflate:** (1) `healthtracker-shell-<hash>` — SW Cache Storage, app shell (D6); (2) `healthtracker-runtime` — SW Cache Storage, ZXing UMD (later camera slice, D6 forward note); (3) `healthtracker-products` — **localStorage**, this cache. #3 is **not** a Cache Storage cache; the SW never touches it (D6: data lives in localStorage, which the SW never caches), so D6-Amendment-A shell cleanup can never evict it.
 
+**Amendment — a FOURTH store, and the escalation clause exercised (2026-09-07, D59).** The taxonomy above said *"three distinct caches, do not conflate"* and enumerated three. **That enumeration is now incomplete**, and it is amended here rather than left to go stale — a governance claim that quietly becomes false is believed by the next session that reads it (D54).
+
+**(4) `healthtracker-corpus` — IndexedDB, the micronutrient composition corpus (D59).** Not a cache and not user data: an **accreting asset** that is never evicted, excluded from export, and re-acquired rather than restored. It is the first exercise of this entry's *"IndexedDB is the Phase-4 escalation only"* clause.
+
+**Nothing above changes for the product cache.** D13 is not superseded: its localStorage ruling, its 500/512 KB caps, its LRU eviction, its cache-first refresh and its export exclusion all stand exactly as ruled. D59 rules a different artifact class, and records that this entry's reasoning — *no second storage subsystem, no async, synchronously testable* — was **weighed and traded** there, not sidestepped.
+
+**One clause of this entry does NOT generalise, and D59 turns on why.** *"LRU, cache yields first"* is safe here **because the cache is disposable** — evicting costs a re-fetch and never data. Applied to an accreted corpus the same policy destroys resolution work that a source refresh cannot re-derive. The mechanism that bounds the product cache safely is, for that artifact class, a mechanism for silently deleting it.
+
 ## D14 — OpenFoodFacts integration: lookup, micros mapping, identifier transport (2026-07-16)
 
 Phase 2 Slice 1, the data-layer half of the scan path — **no camera** (getUserMedia is a later, on-device-attested slice). The pipeline is a DOM-free, synchronously-testable core (`mapOffProduct`, `scalePortion`, `buildScanItem`, `finishLookup`, `ProductCache`) behind a thin async fetch edge (`fetchOff`/`lookupBarcode`), triggered in this slice by the **manual barcode field** (the camera-free trigger from the scanner spec); the camera later wires into the same `lookupBarcode`.
@@ -1915,3 +1923,89 @@ Size needed no new bound — `BYOK_MAX_EDGE` already binds both paths — but a 
 ### Repointed, not weakened
 
 `R21.4-path` asserted that an untested key still gets a `Capture meal` button. The one button became two, so the assertion now covers **both** — a status that gated only one of them would be the same block wearing half a costume.
+
+## D59 — The micros corpus: a fourth store, and the first exercise of D13's escalation clause (2026-09-07)
+
+Governance only. **No code, no schema change, no `APP_VERSION` bump** — nothing in the shell moves, and under the D6 converse a bump here would announce work that did not happen.
+
+This entry rules the **substrate** for the micronutrient composition corpus and deliberately does **not** rule its schema. Six forks ruled (A1, B1, C1, D1, E1, F1) plus one pin that was not offered as optional.
+
+### The misattribution, corrected before anything rests on it
+
+The session that produced this entry twice cited **"D12"** as the ruling against IndexedDB. **It is D13.** D12 is the supplement config UI and has nothing to do with storage. The error was in conversation only and reached no committed file — but half a governance argument was conducted against the wrong entry number before it was caught, and the correction is recorded rather than quietly absorbed, on D54's rule: a false claim in the governance record gets the same treatment as a false gate, because a future session reading only the outcome cannot tell that the argument had to be re-grounded.
+
+### What D13 ruled, and what it did not
+
+> **Ruled: a capped localStorage key, not IndexedDB.** […] No second storage subsystem, no async — the cache stays **synchronously testable** by the committed harness. IndexedDB is the **Phase-4 escalation only**, if product volume ever outgrows the localStorage budget.
+
+**D13 stands unchanged and is not superseded.** Every clause of it is about the OFF product cache: a *disposable, rebuildable mirror of a remote API* — capped at 500 entries and ~512 KB, LRU-evicted, excluded from export, benign on failure, always yielding storage to the log. The corpus is none of those things, so D13 does not govern it. Superseding a correct entry to license an unrelated one would corrupt the log; the ruling below is a **new artifact class**, not a reversal.
+
+**Its escalation clause is also narrower than the case brought against it.** It names a **volume** trigger for **that cache**. The volume half fits as written. The growth half — see Ground 2 — is a condition D13 never contemplated, and is the stronger argument.
+
+### D13's reasoning was WEIGHED AND TRADED, not sidestepped
+
+This must be stated plainly or the scope argument above becomes a dodge. D13 chose localStorage in part for *"no second storage subsystem, no async — the cache stays synchronously testable by the committed harness."* That is a real architectural commitment, it is still a good one, and **this entry trades it away for the corpus.**
+
+What makes the trade payable is a seam, not a hope: the ruling that **past meals never revise** means an item freezes its computed values at save time and the corpus is never consulted for a past meal again. **No log operation ever awaits the corpus.** The synchronous, synchronously-testable core stays exactly that; async is confined to a subsystem nothing in the log blocks on. The suite already drives async chains through the shipped shell (R21.2, R24), so the capability exists — what is new is async *in the data layer*, and it is new only outside the log.
+
+### The escalation is met on two independent grounds
+
+**Ground 1 — the arithmetic, which is not close.** localStorage stores strings, so a `Float32Array` must be base64'd (+33%), and browsers charge quota per UTF-16 code unit (×2):
+
+| | raw | base64 | localStorage quota |
+|---|---|---|---|
+| dense 64×f32 × 10k foods | 2.56 MB | 3.41 MB | **~6.8 MB** |
+| sparse (~25 populated of 64) | 1.0 MB | 1.33 MB | **~2.7 MB** |
+| index, 10k plain JSON objects | — | ~1.0 MB | **~2.0 MB** |
+
+The dense form **exceeds the whole budget on its own**, before the log and before `healthtracker-products`' 512 KB. Even sparse-plus-index consumes ~4.7 MB of a ~5 MB budget that D13 requires to *"always yield storage to the log."*
+
+**Ground 2 — write amplification, and it is the stronger of the two.** localStorage has **no partial update**: every accretion of a single resolved food rewrites the entire corpus blob, synchronously, on the main thread. **This is not a quota problem, so no amount of subsetting fixes it.** It is a structural mismatch between a monolithic-blob store and an accreting asset, and it holds at 3,000 rows exactly as firmly as at 10,000. Ground 1 could in principle be argued down; Ground 2 cannot.
+
+### The LRU finding — the policy that made localStorage safe is the one that is destructive here
+
+D13's eviction rule is *"LRU, cache yields first."* **That policy is safe precisely because the cache is disposable** — evicting an entry costs a re-fetch and never data (D13's own "Nature" clause).
+
+Evicting an accreted corpus destroys **resolution work that a source refresh cannot re-derive**. A CNF or FDC release brings back the published rows; it does not bring back the matches, the resolved misses, or the barcode-derived accretions that made this corpus better than the sources it came from. So the one mechanism that bounded the product cache safely is, applied here, a mechanism for silently deleting the moat.
+
+This is the sharpest form of the argument: it is not that localStorage is too small for the corpus, it is that **localStorage's only safety mechanism is destructive to this artifact class.**
+
+### Why no useful corpus is localStorage-shaped
+
+The strongest conservative case — sparse-encode, cap at ~3,000 foods, LRU as D13 does — fails on its own terms, and not narrowly. Approximate row counts: CNF ~5,700; SR Legacy ~7,800; FNDDS ~5,600; FDC Foundation ~300 (Branded ~1.9M, excluded). A 3,000-row budget forces dropping most of one source, and dropping FNDDS costs the ~5,400 recipe-calculated mixed dishes — **the restaurant-and-cooked-meal case, which is the case the micros layer exists to serve.** A subset of single ingredients answers the questions a package label already answers.
+
+**There is no corpus size that is both useful and localStorage-shaped.**
+
+### The ruling
+
+**Fork A1 — D13 stands; the corpus is a new artifact class.** Its taxonomy is extended to a **fourth store in the same commit as this entry** (see the D13 amendment). D13's *"three distinct caches, do not conflate"* sentence becomes false the moment this lands, and a stale governance claim is believed by the next session that reads it — the D54 shape, closed here by construction rather than left to be discovered.
+
+**Fork B1 — the escalation is met**, on both grounds above, with write amplification recorded as the stronger.
+
+**Fork C1 — one store, two object stores, one transaction; index hydrated to RAM at boot.** The index's "hotness" is served by **RAM, not by which disk store it came from** — localStorage is not faster than IndexedDB once loaded, only synchronous, and 10k masks as two `Int32Array`s is ~80 KB. Splitting therefore buys no speed and costs atomicity: **a localStorage index plus an IDB composition can crash between writes and leave a mask asserting a nutrient whose values are not there — a mask that LIES, which is worse than a mask that is absent, and is precisely what the mask/value split exists to prevent.** IndexedDB gives a transaction across object stores; a split across two subsystems gives nothing.
+
+**Fork D1 — everything in IndexedDB for v1.** D2 — an immutable base as a versioned static asset (fetched, SW-cached, shielded as D6-Amendment-A shields the runtime cache) with accretions in IDB, overlaid at read — is **named as the escalation and not built.** It is genuinely attractive and would also solve initial acquisition, but it buys shadowing and two-sources-of-truth-per-row, and that price is not paid before base-refresh pain is real.
+
+**Fork E1 — corpus absence is a CAPABILITY statement, not a storage-badge event.** D13's consequence-2 reasoning carries: the truthful badge (D1) speaks for *your log*, and a missing corpus is not a log-integrity fact. The micros layer says it is unavailable on this device; logging, scanning and manual entry are untouched. **Never a silent absence** — an unavailable capability that says nothing is the D56 family.
+
+**Fork F1 — rule the substrate, defer the schema.** The substrate is cheap and robust to a 3× swing in row count; the schema is not. The **dish-vs-decompose fork is upstream of the storage sizing, not parallel to it**: decomposing makes the corpus ingredients-plus-recipe-logic, keeping dishes whole makes FNDDS's mixed dishes first-class rows, and that changes row count, mask density and average sparsity — every input to the table above. Pinning the schema now pins an estimate the next fork can invalidate.
+
+### The pin — `resolvePath` and `maskAtResolve` are FORENSIC ONLY
+
+Audit and explanation. **Never inputs to re-resolution.** They look exactly like re-resolution inputs, and the freeze rule dies quietly the first time someone treats them as such. Pinned here so that a future slice proposing "re-resolve past meals from stored provenance" is recognised as repealing D59, not as implementing it.
+
+### Accepted deliberately, rather than discovered later
+
+**Corpus version skew across devices.** Two devices at different corpus versions can resolve the same food to different numbers going forward. Under the freeze rule this produces no contradiction in the log — just two records with different provenance. Accepted.
+
+**Store sparse, hydrate dense.** The mask exists to record which nutrients are present; dense 64-slot storage then spends bytes on exactly the absences the mask already encodes. Storing sparse and expanding on load decouples the storage question from the compute question, and the mask makes the expansion free. This holds wherever the corpus lands and is not contingent on the substrate ruling.
+
+**Export/restore is unchanged, and the freeze rule makes it simpler rather than harder.** The corpus is an asset, not user data, so it is excluded from export for D13's consequence-1 reasoning extended to the fourth store. A restore on a device with **no** corpus is *complete* — items carry their frozen values and nothing is missing from history; future resolution degrades until re-acquisition. A **stale** or **differently-versioned** corpus is irrelevant to history by construction, since past meals never consult it.
+
+### What this entry does not rule, and where the attention goes next
+
+The schema, the mask's word-1 slot list, the dish-vs-decompose fork, and the matcher.
+
+**The next slice is the MATCHER and the dish fork, prototyped in RAM over a few thousand rows with no persistence at all.** Nothing about name matching across CNF's and FDC's different conventions needs a durable store in order to be *learned*, which means the knowledge layer was less blocked behind this ruling than it appeared.
+
+Recorded because it is the reason this entry is deliberately short on schema: **a corpus that resolves the wrong food quickly is worse than one that resolves the right food slowly.** Representation optimises retrieval; the matcher determines correctness. The representation work was the tractable half, and tractability is not the same as priority.
