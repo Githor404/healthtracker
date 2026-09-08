@@ -2246,4 +2246,20 @@ Recorded here because a governance log is read by future sessions as evidence, a
 
 ### What this entry does not rule
 
-The matcher. The mask's word-1 slot list. The grouping gesture's surface. Whether a composite's components may themselves be composites — deferred deliberately, because the answer is obvious in the small (yes) and dangerous in the large (unbounded recursion in a nutrition calculation), and nothing needs it yet.
+The matcher. The mask's word-1 slot list. The grouping gesture's surface. ~~Whether a composite's components may themselves be composites — deferred deliberately, because the answer is obvious in the small (yes) and dangerous in the large (unbounded recursion in a nutrition calculation), and nothing needs it yet.~~ **Nesting was deferred here and ruled within the hour — see the amendment below.** The sentence is struck rather than removed, because a deferral that was closed immediately is a different fact from one that still stands, and the next session should be able to see which.
+
+### Amendment — nesting, ruled rather than left open (2026-09-08)
+
+**Ruled: NO NESTING. A composite's components are foods, not composites. Flat, one level.**
+
+The appeal is real in the small case — a sauce defined once and used in three dishes is exactly the thing a composite is for, and refusing it looks like a small, arbitrary limit.
+
+**It is refused because of what arrives with it, not because the small case is wrong.** Nesting brings a **dependency graph**:
+
+- **cycle detection** — nothing prevents a composite referencing an ancestor, and a nutrition calculation that does not terminate is a worse failure than one that is merely limited;
+- **recompute propagation** — D13's explicit manual recompute is a single, comprehensible action on a flat composite; on a tree it becomes a cascade, and the question *"what else just changed?"* has no answer the user can see;
+- **confidence and coverage over a tree rather than a list** — Fork 5's minimum and intersection are stated over components. Over a tree they still work, but the *weakest leaf anywhere in the tree* now silently sets the whole composite's claim, several levels from where anyone is looking.
+
+**None of that is needed by anything on the board, and all of it becomes load-bearing the moment one nested composite exists.** That asymmetry is the ruling: the cost is not paid gradually as nesting gets used, it is paid in full by the first instance.
+
+**If the sauce case becomes real it gets ruled deliberately** — as its own fork, with cycle detection and recompute propagation argued rather than inherited. What is refused here is nesting **arriving as an implementation detail**, which is how a dependency graph normally enters a codebase: not decided, just permitted.
