@@ -62,6 +62,13 @@
   /* R22: the inline record editor. It replaces its row rather than opening
      beside it, so the thing being edited stays where the finger already was. */
   .tleditopen{display:block;padding:0}
+  .pmex{opacity:.55}
+  .pmex .pmhead b{text-decoration:line-through}
+  .pmaddwrap{margin-top:10px}
+  .pmadd{width:100%}
+  .pmaddopen{padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:var(--panel)}
+  .pmexb{margin-left:auto}
+  .pmex-wrap{display:flex}
   .caprow{display:flex;gap:8px}
   .caprow .btn{flex:1;width:auto}   /* R24: take-or-choose, two equal targets */
   .itemeditopen{display:block;padding:0;border:0;background:none}   /* R23: the editor replaces the row in place */
@@ -605,6 +612,13 @@
           <div><label>Fiber (g)</label><input id="maFib" type="number" inputmode="decimal"></div>
           <div><label>Soluble (g)</label><input id="maSol" type="number" inputmode="decimal"></div>
           <div><label>Portion (label)</label><input id="maPortion" placeholder="e.g. 125 ml"></div>
+          <!-- R25 / F-fix1: the portion as a NUMBER, beside the descriptive label. R23
+               gave items a `grams` field but only the scan and photo paths filled it;
+               a hand-logged portion is exactly what it is for. It also gives a preset
+               the denominator its macros are measured against, which photoSetIdentity
+               has been reading and nobody has been writing. Optional: absent stays
+               absent, and an identity re-pick refuses rather than assuming 100. -->
+          <div><label>Portion (g)</label><input id="maGrams" type="number" inputmode="decimal" placeholder="optional"></div>
         </div>
         <details class="micros">
           <summary>Micronutrients (from label)<span id="maMicroCount"></span></summary>

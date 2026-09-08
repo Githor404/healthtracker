@@ -4403,7 +4403,15 @@ window.setLS({});
 
   // R6-identity: swaps the profile, KEEPS the grams, recomputes that item ONLY.
   setLS({}); HT.boot(); fixClock();
-  var pr = HT.saveManualPreset({ name:'Ribeye', meal:'dinner', kcal:291, protein_g:24, fat_g:22, carb_g:0, fiber_g:0, soluble_fiber_g:0 }, '');
+  // REPOINTED, NOT WEAKENED (R25/F-fix1). This preset previously carried NO portion
+  // weight, and the assertions below still passed -- because photoSetIdentity fell
+  // back to base=100 and treated 291 kcal PER PORTION as 291 kcal per 100 g. The
+  // test was encoding the defect. The portion is now STATED as 100 g, so the same
+  // arithmetic holds by declaration rather than by a silent default, and the cases
+  // that follow prove the fallback is gone.
+  var pr = HT.saveManualPreset({ name:'Ribeye', meal:'dinner', kcal:291, protein_g:24, fat_g:22, carb_g:0, fiber_g:0, soluble_fiber_g:0, grams:100 }, '');
+  res(pr.ok === true && pr.preset.portion_g === 100,
+      'R25-identity: a preset saved with a portion RECORDS it -- photoSetIdentity has always read portion_g and nothing ever wrote it');
   if (!document.getElementById('photoDraft')) { var pd=document.createElement('div'); pd.id='photoDraft'; document.body.appendChild(pd); }
   if (!document.getElementById('ingestBox')) { var ib=document.createElement('textarea'); ib.id='ingestBox'; document.body.appendChild(ib); }
   document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
@@ -5792,6 +5800,232 @@ window.setLS({});
   res(ieBanned.filter(function (w) { return (ieSurface + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
       'R23-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
   HT.closeItemEdit();
+
+
+  // ======================================================================
+  // R25 / D61 -- THE THIRD RAIL: add what the photo could not show.
+  //
+  // The motivating meal: a bowl of crab and chicken in one sauce. The model
+  // resolved the crab and did not separately report the chicken -- correct for
+  // what a photo permits. The two shipped rails correct what was reported; this
+  // one adds what was not.
+  //
+  // Two survey findings drive most of these cases: the identity rail computed the
+  // wrong number because nothing ever wrote `portion_g`, and "an added item takes
+  // no part in propagation" holds ONLY when its aiGrams is absent.
+  // ======================================================================
+  setLS({}); HT.boot(); fixClock();
+  if (!document.getElementById('photoDraft')) { var pd25 = document.createElement('div'); pd25.id = 'photoDraft'; document.body.appendChild(pd25); }
+  if (!document.getElementById('ingestBox')) { var ib25 = document.createElement('textarea'); ib25.id = 'ingestBox'; document.body.appendChild(ib25); }
+  var td25 = HT.state().current;
+  // A two-item draft with a known geometry: 170 g steak @ 250/100g, 200 g potato.
+  var draft25 = '{"meal":"dinner","items":[' +
+    '{"name":"Steak","grams":170,"per100":{"kcal":250,"protein_g":26,"fat_g":16,"carb_g":0,"fiber_g":0,"soluble_fiber_g":0},"scale_linked":true,"dominance":1,"notes":""},' +
+    '{"name":"Potatoes","grams":200,"per100":{"kcal":90,"protein_g":2,"fat_g":0,"carb_g":20,"fiber_g":2,"soluble_fiber_g":0.5},"scale_linked":true,"dominance":2,"notes":""}]}';
+  res(HT.openPhotoDraft(draft25).ok === true && HT.photoDraft().items.length === 2,
+      'R25-add: a two-item draft is open');
+
+  // ---- R25-add: the added item is the USER'S claim, not the photo's ----------
+  var addR = HT.photoAddItem({ name: 'Chicken', grams: 120, kcal: 200, protein_g: 36,
+                               fat_g: 5, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0 });
+  var dr25 = HT.photoDraft();
+  var ai25 = dr25.items[addR.index];
+  res(addR.ok === true && dr25.items.length === 3 && ai25.name === 'Chicken',
+      'R25-add: an item the model never reported can be added to the draft');
+  res(Math.abs(ai25.per100.kcal - 200 * 100 / 120) < 1e-9,
+      'R25-add: macros are typed FOR THE PORTION EATEN and stored as the per-100g density the draft works in');
+  res(HT.photoAddItem({ name: '', grams: 100 }).ok === false &&
+      HT.photoAddItem({ name: 'x', grams: 0 }).ok === false &&
+      HT.photoAddItem({ name: 'x', grams: 100, kcal: 'abc' }).ok === false,
+      'R25-add: a nameless item, a zero portion and a non-number are refused');
+
+  // ---- R25-pin: absent aiGrams is what keeps it out of the pin set ----------
+  res(ai25.pinned === true && ai25.added === true && ai25.aiGrams === undefined,
+      'R25-pin: an added item is pinned by construction and carries NO aiGrams -- it has no estimate to be a correction of');
+  var shA = HT.photoShared(dr25);
+  res(shA.anchored === false && shA.pins === 0,
+      'R25-pin: so it does NOT enter the shared-scale pin set, even though it is pinned');
+  // THE TRAP, asserted directly: aiGrams = grams would enter at ratio 1.0.
+  var trap = JSON.parse(JSON.stringify(dr25));
+  trap.items[2].aiGrams = trap.items[2].grams;
+  res(HT.photoShared(trap).anchored === true && Math.abs(HT.photoShared(trap).R - 1) < 1e-9,
+      'R25-pin GATE: had aiGrams been set EQUAL to grams "for symmetry", the added item would enter the pin set at ratio exactly 1.0 -- which is why absent is the ruled state and zero would lie in the other direction');
+
+  // ---- R25-propagate: adding changes nobody else's size ---------------------
+  setLS({}); HT.boot(); fixClock();
+  HT.openPhotoDraft(draft25);
+  HT.photoSetGrams(0, 255);                       // anchor the steak: R = 1.5
+  var d25b = HT.photoDraft();
+  var beforeAdd = d25b.items.map(function (it) { return HT.photoGrams(d25b, it); }).join(',');
+  var rBefore = HT.photoShared(d25b).R;
+  HT.photoAddItem({ name: 'Chicken', grams: 120, kcal: 200 });
+  var d25c = HT.photoDraft();
+  var afterAdd = d25c.items.slice(0, 2).map(function (it) { return HT.photoGrams(d25c, it); }).join(',');
+  res(beforeAdd === afterAdd && Math.abs(HT.photoShared(d25c).R - rBefore) < 1e-12,
+      'R25-propagate: adding an item leaves every other item’s grams and the shared correction BYTE-IDENTICAL');
+  res(HT.photoGrams(d25c, d25c.items[2]) === 120,
+      'R25-propagate: and the added item keeps exactly the size the user stated');
+
+  // ---- R25-render: the three guards Fork B named ----------------------------
+  HT.renderPhotoDraft();
+  var pdHTML = document.getElementById('photoDraft').innerHTML;
+  res(pdHTML.indexOf('max="NaN"') < 0,
+      'R25-render GATE: the slider max is a number -- with aiGrams absent, Math.max(600, Math.round(undefined*4)) is NaN');
+  res(pdHTML.indexOf('est. 0 g') < 0,
+      'R25-render GATE: the added row does NOT claim the model estimated 0 g -- it made no estimate at all, which is a different statement');
+  res(pdHTML.indexOf('added by you') >= 0 && pdHTML.split('fixed size').length - 1 === 0,
+      'R25-render: the added row says it was ADDED, not "fixed size" -- that label describes an estimate that does not ride the shared scale, and this row has no estimate');
+
+  // ---- R25-remove: soft, reversible, and the last one is refused ------------
+  var exR = HT.photoToggleExclude(1);
+  var d25d = HT.photoDraft();
+  res(exR.ok === true && d25d.items.length === 3 && d25d.items[1].excluded === true,
+      'R25-remove: excluding keeps the row in the draft -- an AI row cost a paid call and cannot be regenerated without another');
+  res(HT.photoKeptItems(d25d).length === 2,
+      'R25-remove: but it is out of the meal');
+  var gStay = HT.photoGrams(d25d, d25d.items[0]);
+  res(gStay === 255,
+      'R25-remove: the remaining propagation is recomputed and the anchored item is unmoved');
+  HT.photoToggleExclude(1);
+  res(HT.photoDraft().items[1].excluded === false && HT.photoKeptItems(HT.photoDraft()).length === 3,
+      'R25-remove: and it is reversible right up to the save');
+  // The last item cannot be excluded into nothing.
+  HT.photoToggleExclude(1); HT.photoToggleExclude(2);
+  var lastR = HT.photoToggleExclude(0);
+  res(lastR.ok === false && lastR.lastItem === true && HT.photoKeptItems(HT.photoDraft()).length === 1,
+      'R25-remove: excluding the LAST item is refused, pointing at Discard -- a modal offering to save nothing is the shape R21.5 forbids');
+  HT.photoToggleExclude(1); HT.photoToggleExclude(2);
+
+  // An EXCLUDED PINNED row must not steer a correction for a meal it is not part
+  // of. Found by the D60 defect pass: the first version of these cases excluded an
+  // UNPINNED row, so removing photoKeptItems from photoShared changed nothing and
+  // the whole suite stayed green. A gate that cannot fail is not evidence.
+  HT.photoSetGrams(1, 400);                       // pin the potatoes too: ratio 2.0
+  var rBoth = HT.photoShared(HT.photoDraft()).R;
+  res(rBoth > 1.5 && rBoth < 2.0,
+      'R25-remove: two disagreeing pins give a shared correction between them');
+  HT.photoToggleExclude(1);
+  res(Math.abs(HT.photoShared(HT.photoDraft()).R - 1.5) < 1e-9,
+      'R25-remove GATE: excluding a PINNED row takes it out of the shared correction -- it must not steer the scale of a meal it is not going to be part of');
+  HT.photoToggleExclude(1);
+  HT.photoUnpin(1);
+
+  // ---- R25-add saves as an ordinary item with its OWN claim -----------------
+  // Saved WITH a row excluded, so the save path's filter is actually exercised.
+  // The first version of this block un-excluded everything before saving, so
+  // photoSave could read every row and no case noticed.
+  HT.photoAddItem({ name: 'Onions', grams: 40, kcal: 16 });
+  var onionIdx = HT.photoDraft().items.length - 1;
+  HT.photoToggleExclude(onionIdx);
+  var sv25 = HT.photoSave();
+  var saved25 = HT.state().days[td25].items;
+  var addedRec = saved25.filter(function (x) { return x.name === 'Chicken'; })[0];
+  var aiRec = saved25.filter(function (x) { return x.name === 'Steak'; })[0];
+  res(sv25.ok === true && saved25.length === 3, 'R25-add: the meal saves the three kept items');
+  res(saved25.filter(function (x) { return x.name === 'Onions'; }).length === 0,
+      'R25-remove GATE: an EXCLUDED row is not written -- proven by saving with one excluded, which the first version of this block failed to do');
+  res(addedRec.source === 'manual' && addedRec.confidence === 'eyeballed',
+      'R25-add GATE: the added item is MANUAL and eyeballed -- inheriting ai-paste would say a model reported a food no model saw');
+  res(aiRec.source === 'ai-paste',
+      'R25-add: while the reported items keep their own source, unchanged');
+  res(addedRec.added === true && addedRec.ai_grams === undefined && addedRec.grams === 120,
+      'R25-add: it is marked added, carries the stated portion, and has NO ai_grams');
+  res(addedRec.mealId === aiRec.mealId,
+      'R25-add: and it belongs to the same photo meal, so a reopen brings it back with the rest');
+
+  // ---- R25-roundtrip: the added marker survives the restore boundary --------
+  var exp25 = HT.exportJSON();
+  res(exp25.indexOf('"added"') > 0, 'R25-roundtrip: the marker reaches the export');
+  setLS({}); HT.boot(); window.__confirm = true; HT.restore(exp25); fixClock();
+  var back25 = HT.state().days[td25].items.filter(function (x) { return x.name === 'Chicken'; })[0];
+  res(back25 && back25.added === true && back25.grams === 120 && back25.ai_grams === undefined,
+      'R25-roundtrip GATE: `added` survives export -> restore -- undeclared, normalizeItem would drop it and the row would reopen as an AI estimate it never was');
+  res(HT.normalizeItem({ name: 'x', added: 'yes' }, true).added === undefined &&
+      HT.normalizeItem({ name: 'x' }, true).added === undefined,
+      'R25-roundtrip: the marker is a strict true, and absent stays absent');
+
+  // ---- R25-reopen: the interaction with R23's fix ---------------------------
+  var reoId = HT.state().days[td25].items[0].mealId;
+  var reo25 = HT.photoReopen(reoId);
+  var dRe = HT.photoDraft();
+  var reAdded = dRe.items.filter(function (it) { return it.added; })[0];
+  var reSteak = dRe.items.filter(function (it) { return it.name === 'Steak'; })[0];
+  res(reo25.ok === true && !!reAdded && reAdded.aiGrams === undefined && reAdded.grams === 120,
+      'R25-reopen: an added row reopens with its stated portion and STILL no aiGrams');
+  res(Math.abs(HT.photoShared(dRe).R - 1.5) < 1e-9,
+      'R25-reopen GATE: the shared correction survives the reopen -- without the marker the added row would take the 100 g default, re-enter the pin set at grams/100, and rescale every estimate in the meal while the totals still looked right');
+  res(Math.abs(HT.photoItemMacros(dRe, reAdded).kcal - 200) < 0.5,
+      'R25-reopen: and the added item’s own numbers come back unchanged');
+  HT.photoDiscard();
+
+  // ---- R25-identity: the rail that nothing ever wrote a denominator for -----
+  setLS({}); HT.boot(); fixClock();
+  var pGood = HT.saveManualPreset({ name: 'Chicken breast', meal: 'dinner', kcal: 248, protein_g: 46,
+                                    fat_g: 5, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, grams: 150 }, '');
+  var pBad = HT.saveManualPreset({ name: 'Mystery', meal: 'dinner', kcal: 248, protein_g: 46,
+                                   fat_g: 5, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0 }, '');
+  res(pGood.preset.portion_g === 150 && pBad.preset.portion_g === undefined,
+      'R25-identity: a preset records its portion when one is stated, and records none when it is not');
+  HT.openPhotoDraft(draft25);
+  HT.photoSetGrams(0, 200);
+  var idOK = HT.photoSetIdentity(0, pGood.preset.id);
+  var dId = HT.photoDraft();
+  res(idOK.ok === true && Math.abs(HT.photoItemMacros(dId, dId.items[0]).kcal - 248 * 200 / 150) < 0.5,
+      'R25-identity GATE: a 150 g / 248 kcal preset re-picked onto 200 g gives ~330 kcal. The shipped fallback treated the portion as a per-100g density and returned 496');
+  var idBad = HT.photoSetIdentity(0, pBad.preset.id);
+  res(idBad.ok === false && idBad.needsPortion === true && dId.items[0].name === 'Chicken breast',
+      'R25-identity GATE: a preset with NO portion is REFUSED, not assumed to be per-100g -- assuming a denominator is the fabrication the app refuses everywhere else');
+
+  // ---- R25-merge: the motivating case, end to end ---------------------------
+  // One reported item becomes two: identity-correct what the model saw, add what
+  // it could not. This is the composition, gated rather than assumed.
+  setLS({}); HT.boot(); fixClock();
+  var crabP = HT.saveManualPreset({ name: 'Crab meat', meal: 'dinner', kcal: 84, protein_g: 18,
+                                    fat_g: 1, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, grams: 100 }, '');
+  var bowl = '{"meal":"dinner","items":[' +
+    '{"name":"Seafood and chicken bowl","grams":300,"per100":{"kcal":120,"protein_g":15,"fat_g":5,"carb_g":3,"fiber_g":0,"soluble_fiber_g":0},"scale_linked":true,"dominance":1,"notes":"one dish"}]}';
+  HT.openPhotoDraft(bowl);
+  HT.photoSetGrams(0, 150);                                   // the crab half
+  var mId = HT.photoSetIdentity(0, crabP.preset.id);           // rail 2: what it IS
+  var mAdd = HT.photoAddItem({ name: 'Chicken', grams: 150, kcal: 248, protein_g: 46, fat_g: 5 });
+  var dM = HT.photoDraft();
+  res(mId.ok === true && mAdd.ok === true && dM.items.length === 2,
+      'R25-merge: one reported item becomes TWO -- identity-correct the half the model named, add the half it could not');
+  res(dM.items[0].name === 'Crab meat' && dM.items[1].name === 'Chicken',
+      'R25-merge: each is itself');
+  res(Math.abs(HT.photoItemMacros(dM, dM.items[0]).kcal - 84 * 150 / 100) < 0.5 &&
+      Math.abs(HT.photoItemMacros(dM, dM.items[1]).kcal - 248) < 0.5,
+      'R25-merge GATE: and each carries its OWN macros -- 126 kcal of crab and 248 of chicken, not one number split in half');
+  var mSave = HT.photoSave();
+  var mItems = HT.state().days[HT.state().current].items;
+  res(mSave.ok === true && mItems.length === 2 &&
+      mItems[0].source === 'ai-paste' && mItems[1].source === 'manual',
+      'R25-merge: they save as two items with DIFFERENT provenance -- what the photo gave and what you supplied stay distinguishable');
+
+  // ---- R25-micros: honestly absent, never assumed complete (D8/D10) ---------
+  res(mItems[1].micros === undefined,
+      'R25-micros: an added item carries no micros -- no label was read, and D8 forbids inventing them');
+  var mr25 = HT.microRollup(HT.state().days[HT.state().current]);
+  res(Object.keys(mr25).length === 0 || Object.keys(mr25).every(function (K) { return mr25[K].n < 2; }),
+      'R25-micros: so it is honestly ABSENT from micro coverage rather than counted as complete');
+
+  // ---- R25-vocab: M7 over the add form and the added-row labels -------------
+  HT.openPhotoDraft(draft25);
+  HT.photoAddItem({ name: 'Chicken', grams: 120, kcal: 200 });
+  HT.photoToggleAddForm(true);
+  HT.renderPhotoDraft();
+  var pmSurface = (document.getElementById('photoDraft').innerHTML).toLowerCase();
+  var pmBanned = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                  'you could','try to','aim for','well done','great job','keep it up','wrong','mistake'];
+  var pmHit = pmBanned.filter(function (w) { return pmSurface.indexOf(w) >= 0; });
+  res(pmHit.length === 0,
+      'R25-vocab: M7 holds over the add form, the added-row label and the exclude control' + (pmHit.length ? (' [' + pmHit.join(',') + ']') : ''));
+  res(pmBanned.filter(function (w) { return (pmSurface + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
+      'R25-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
+  res(pmSurface.indexOf('photoaddsubmit') >= 0 && pmSurface.indexOf('pagrams') >= 0,
+      'R25-ui: the add form is INLINE in the draft body, not in the footer D51 reserved for Save and Discard');
+  HT.photoToggleAddForm(false);
+  HT.photoDiscard();
 
   // R20-nobump (Fork I) -- REPOINTED, NOT WEAKENED. R20 itself was additive and
   // bumped nothing; the schema is at 6 because D57 bumped it for the accepted

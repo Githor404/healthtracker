@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.24.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.25.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -229,6 +229,14 @@ function normalizeItem(it, clampMacros) {
   if (it.ai_grams != null && String(it.ai_grams) !== '') out.ai_grams = clampNonNeg(it.ai_grams);
   if (it.ai_identity != null && String(it.ai_identity) !== '') out.ai_identity = String(it.ai_identity);
   if (it.pinned === true) out.pinned = true;
+  // R25 / D61 Fork C: an item the USER added to a photo draft -- the model never saw
+  // it, so it has no estimate to be a correction of. Declared here, in the same
+  // commit as the feature, because `photoReopen` reads it: without the marker an
+  // added row reopens with aiGrams defaulting to 100 and, still pinned, re-enters
+  // the shared-scale pin set at grams/100, silently rescaling every AI estimate in
+  // the meal. Fifth occurrence of the allowlist trap, so it is round-tripped rather
+  // than reasoned about.
+  if (it.added === true) out.added = true;
   if (it.mealId != null && String(it.mealId) !== '') out.mealId = String(it.mealId);
   // R22 / D55 edit provenance -- declared HERE TOO, in the same commit as the
   // signal normalizer. The item edit UI is a later slice, but a half-declared
@@ -1551,6 +1559,13 @@ function saveManualPreset(raw, portion) {
   };
   if (item.micros) preset.micros = item.micros;
   if (portion && String(portion).trim()) preset.portion = String(portion).trim();   // descriptive label only (fork A)
+  // R25 / F-fix1: THE DENOMINATOR, written at last. `photoSetIdentity` has always
+  // read `p.portion_g` to convert a preset's per-portion macros into a per-100 g
+  // density -- and nothing has ever written it, so `base` silently fell back to 100
+  // and a preset's whole-portion numbers were treated as its density. Absent stays
+  // absent: a preset saved without a stated portion has no denominator, and the
+  // identity rail refuses rather than inventing one.
+  if (num(item.grams) > 0) preset.portion_g = num(item.grams);
   if (!Array.isArray(APP_STATE.settings.presets)) APP_STATE.settings.presets = [];
   APP_STATE.settings.presets.push(preset);
   Store.saveState(APP_STATE); refresh();
@@ -3226,12 +3241,14 @@ function readManualForm() {
     kcal: g('maKcal'), protein_g: g('maP'), fat_g: g('maF'), carb_g: g('maC'),
     fiber_g: g('maFib'), soluble_fiber_g: g('maSol'),
   };
+  const gr = g('maGrams');
+  if (String(gr).trim() !== '' && Number(gr) > 0) raw.grams = gr;   // R25: absent stays absent
   const micros = readMicroFields('ma_micro_');
   if (Object.keys(micros).length) raw.micros = micros;
   return raw;
 }
 function clearManualForm() {
-  ['maName', 'maKcal', 'maP', 'maF', 'maC', 'maFib', 'maSol', 'maTime', 'maPortion'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['maName', 'maKcal', 'maP', 'maF', 'maC', 'maFib', 'maSol', 'maTime', 'maPortion', 'maGrams'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   MICRO_SPEC.forEach((s) => { const el = document.getElementById('ma_micro_' + s.key); if (el) el.value = ''; });
   updateMicroCount('ma_micro_', 'maMicroCount'); showManualWarnings([]);
 }
@@ -4091,22 +4108,35 @@ function renderPhotoDraftInner() {
     if (leadOpen && i === li) return '';
     const g = photoGrams(d, it);
     const m = photoItemMacros(d, it);
-    const pin = it.pinned ? `<button type="button" class="linklike" onclick="photoUnpin(${i})">unpin</button>` : '';
-    const fixed = !it.scaleLinked ? `<small class="pmfix">fixed size</small>` : '';
-    return `<div class="pmrow">
-      <div class="pmhead"><b>${esc(it.name)}</b>${fixed}</div>
+    const pin = it.pinned && !it.added ? `<button type="button" class="linklike" onclick="photoUnpin(${i})">unpin</button>` : '';
+    // R25: an ADDED row says it was added. `fixed size` is a statement about an
+    // ESTIMATE that does not ride the shared scale; an added row has no estimate at
+    // all, so borrowing that label would describe the wrong thing.
+    const fixed = it.added ? `<small class="pmfix">added by you</small>`
+                : (!it.scaleLinked ? `<small class="pmfix">fixed size</small>` : '');
+    // Fork B guard 1: with aiGrams ABSENT, Math.max(600, Math.round(undefined * 4))
+    // is NaN, and max="NaN" is a broken slider. An added row sizes from its own grams.
+    const sbase = num(it.aiGrams) > 0 ? num(it.aiGrams) : num(it.grams);
+    const smax = Math.max(600, Math.round((sbase > 0 ? sbase : 150) * 4));
+    // Fork B guard 2: `est. 0 g` would claim the model estimated nothing. It made no
+    // estimate at all, which is a different statement, so the row makes none.
+    const est = num(it.aiGrams) > 0 ? `<small>est. ${esc(rDisp(it.aiGrams))} g</small>` : '';
+    const ex = it.excluded === true;
+    const exBtn = `<button type="button" class="linklike pmexb" onclick="photoToggleExclude(${i})">${ex ? 'put back' : 'not on the plate'}</button>`;
+    return `<div class="pmrow${ex ? ' pmex' : ''}">
+      <div class="pmhead"><b>${esc(it.name)}</b>${fixed}${ex ? `<small class="pmfix">not saved</small>` : ''}</div>
       <div class="pmctl">
-        <input type="range" min="10" max="${esc(Math.max(600, Math.round(it.aiGrams * 4)))}" step="5" value="${esc(g)}"
+        <input type="range" min="10" max="${esc(smax)}" step="5" value="${esc(g)}"
                oninput="photoSetGrams(${i}, this.value)" aria-label="${esc(it.name)} grams">
         <input type="number" inputmode="decimal" class="pmg" value="${esc(g)}" onchange="photoSetGrams(${i}, this.value)" aria-label="${esc(it.name)} grams exact">
         <span class="pmunit">g</span>${pin}
       </div>
       <div class="pmmeta">${esc(rDisp(m.kcal))} kcal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}
-        <small>est. ${esc(rDisp(it.aiGrams))} g</small></div>
-      <div class="pmid-wrap">${photoIdentityOptions(i)}</div>
+        ${est}</div>
+      <div class="pmid-wrap">${photoIdentityOptions(i)}${exBtn}</div>
     </div>`;
   }).join('');
-  const tot = d.items.reduce((a, it) => {
+  const tot = photoKeptItems(d).reduce((a, it) => {
     const m = photoItemMacros(d, it);
     return { kcal: a.kcal + m.kcal, protein_g: a.protein_g + m.protein_g };
   }, { kcal: 0, protein_g: 0 });
@@ -4116,7 +4146,12 @@ function renderPhotoDraftInner() {
   // Save and Discard are NOT here any more: they live in the modal's fixed footer
   // (R21.5), so they stay in view whatever the item count. A primary action you
   // have to scroll to is one an anxious user does not find.
-  el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}
+  // FORK E (ruled): the add form is INLINE, at the end of the list. D51 made the
+  // modal footer the OUTCOME COMMITMENT surface -- Save and Discard, fixed, never
+  // scrolling -- and adding an item is draft EDITING, like every slider and identity
+  // picker above it, all of which are inline. In the footer it would compete for the
+  // thumb with Save, which is the one control D51 protected.
+  el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}${photoAddFormHTML()}
     <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein</div>
     </div>`;
 }
@@ -4642,6 +4677,7 @@ const VERSION_LOG = [
   { v: '0.22.1', d: '2026-09-06', note: 'Fix: the version and release date now appear in Settings, where they were meant to be — in 0.22.0 the line landed at the foot of the main screen instead.' },
   { v: '0.23.0', d: '2026-09-07', note: 'Food items can now be edited, not just deleted — tap a row to change its meal, time, portion, numbers or note. Tapping the meal chip opens the same editor on the meal, so changing it is a choice from the list rather than tapping through all six. An edit keeps what the values were before and shows them, and correcting a number marks it as your own estimate. Scanned and photo items now record the portion you accepted as a real number instead of burying it in a note, so changing the grams rescales the item’s nutrition; a photo meal you reopen comes back at the weight you set rather than the estimate you corrected. Adjusting water can be undone, and changing or deleting anything on a completed day reopens it, so a finished day always matches what you attested to.' },
   { v: '0.24.0', d: '2026-09-07', note: 'Capture meal now lets you choose: take a photo now, or pick one you already have. A meal photographed earlier can finally be logged — and on a computer, where Capture had no working path at all, Choose photo opens an ordinary file picker. Nothing after the photo changes. Photos from a library are also turned the right way up before they are sent, since a sideways plate is a different meal to the model reading it; and a HEIC picked from the library is now told what can actually fix it, rather than a camera setting that only affects the next photo you take.' },
+  { v: '0.25.0', d: '2026-09-07', note: 'A photo draft can now be corrected in a third way: add something the camera could not show. A bowl of crab and chicken in one sauce is one thing to a camera — you can now add the chicken yourself, with its own weight and nutrition, and it is saved as your entry rather than the photo’s. You can also mark an item as not on the plate; it stays visible until you save, so nothing the estimate found is thrown away by one tap. Anything you add keeps its own size and never changes the other items’ sizes. Fix: re-picking what an item IS, from one of your presets, was giving wrong numbers — it treated the preset’s whole portion as if it were the amount in 100 g. Presets now record their portion weight, and one saved without a weight says so instead of guessing.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5613,7 +5649,10 @@ function parsePhotoMeal(raw) {
 // scale, and propagation STOPS: fabricating a mean across disagreeing pins is the
 // same refusal as inferring an arc, applied to arithmetic.
 function photoShared(draft) {
-  const pins = ((draft && draft.items) || []).filter((it) => it.pinned && it.aiGrams > 0);
+  // R25: `aiGrams > 0` is what keeps an ADDED item out of the pin set -- it has no
+  // estimate, so there is no ratio it could contribute. And an EXCLUDED row must not
+  // steer a correction for a meal it is not going to be part of.
+  const pins = photoKeptItems(draft).filter((it) => it.pinned && it.aiGrams > 0);
   if (!pins.length) return { R: 1, pins: 0, diverged: false, anchored: false };
   const ratios = pins.map((it) => it.grams / it.aiGrams);
   const R = Math.exp(ratios.reduce((a, r) => a + Math.log(r), 0) / ratios.length);
@@ -6107,6 +6146,140 @@ function photoSetGrams(idx, grams) {
   renderPhotoDraft();
   return { ok: true, shared: photoShared(PHOTO_DRAFT) };
 }
+// ---- R25: the third rail -- ADD what the photo could not show --------------
+// The two shipped rails correct what the model reported: scale (R6 Rail 1) and
+// identity (R6 Rail 2). Neither can add a food it never reported, which is not a
+// model defect -- a bowl of crab and chicken in one sauce is one thing to a
+// camera. The human knows what is in the bowl; this is where they say so.
+//
+// FORK B (ruled): `aiGrams` is ABSENT, never 0 and never equal to `grams`.
+// An added item has no AI estimate, so there is nothing for the shared-scale
+// correction to be a correction OF -- and zero and equal both lie, in different
+// directions. Equal is the dangerous one: `photoShared` pins on
+// `pinned && aiGrams > 0` and takes the geometric mean of grams/aiGrams, so an
+// added item at ratio exactly 1.0 would drag the shared correction toward 1 and
+// rescale every unpinned estimate in the draft, with nothing on screen saying so.
+// Absent keeps it out of the pin set BY CONSTRUCTION rather than by a guard.
+//
+// FORK A (ruled): macros are typed FOR THE PORTION EATEN -- the manual-add mental
+// model -- and converted to the per-100 g density the draft works in. The item is
+// `manual`/`eyeballed` (or the preset's own claim), never `ai-paste`: no model saw
+// this food, and inheriting the draft's source would say one did.
+function photoAddItem(spec) {
+  if (!PHOTO_DRAFT) return { ok: false, error: 'No draft open.' };
+  spec = spec || {};
+  const name = String(spec.name == null ? '' : spec.name).trim();
+  if (!name) return { ok: false, error: 'Name required.' };
+  const g = clampNonNeg(spec.grams);
+  if (!(g > 0)) return { ok: false, error: 'Grams must be positive.' };
+  const MK = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'];
+  const per100 = {};
+  for (let i = 0; i < MK.length; i++) {
+    const k = MK[i], v = spec[k];
+    const n = Number(v == null || v === '' ? 0 : v);
+    if (!Number.isFinite(n) || n < 0) return { ok: false, error: 'That is not a number.' };
+    per100[k] = clampNonNeg(n) * 100 / g;      // typed per PORTION -> stored per 100 g
+  }
+  const src = SOURCES.indexOf(spec.source) >= 0 ? spec.source : 'manual';
+  const conf = CONFIDENCES.indexOf(spec.confidence) >= 0 ? spec.confidence : 'eyeballed';
+  PHOTO_DRAFT.items.push({
+    name: name, notes: String(spec.notes == null ? '' : spec.notes),
+    grams: g, per100: per100,
+    pinned: true,            // the user stated it; nothing was estimated
+    added: true,
+    scaleLinked: false,      // it is not an estimate riding a shared scale
+    source: src, confidence: conf,
+    dominance: PHOTO_DRAFT.items.length + 1,
+    // aiGrams / aiIdentity deliberately ABSENT -- see Fork B above.
+  });
+  renderPhotoDraft();
+  return { ok: true, index: PHOTO_DRAFT.items.length - 1, shared: photoShared(PHOTO_DRAFT) };
+}
+// FORK D (ruled): SOFT exclude. The row stays, struck through, and can be put back
+// until the moment of save. A draft is not saved state, so the D44 undo grammar
+// does not reach it -- but an AI row cost a paid call and cannot be regenerated
+// without another one, so destroying it on one tap would be the expensive kind of
+// irreversible. A flag gets the reversibility that a toast would have had to build.
+function photoToggleExclude(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const it = PHOTO_DRAFT.items[idx];
+  if (!it.excluded && photoKeptItems(PHOTO_DRAFT).length <= 1)
+    return { ok: false, error: 'That is the only item left. Discard the meal instead.', lastItem: true };
+  it.excluded = !it.excluded;
+  renderPhotoDraft();
+  return { ok: true, excluded: it.excluded === true, kept: photoKeptItems(PHOTO_DRAFT).length };
+}
+// The one definition of "in this meal". Every consumer -- the pin set, the totals,
+// the save -- reads through it, so an excluded row cannot influence a number it is
+// not going to be part of.
+let PHOTO_ADD_OPEN = false;
+function photoAddOpen() { return PHOTO_ADD_OPEN; }
+function photoToggleAddForm(on) {
+  PHOTO_ADD_OPEN = (on === undefined) ? !PHOTO_ADD_OPEN : !!on;
+  renderPhotoDraft();
+  return { ok: true, open: PHOTO_ADD_OPEN };
+}
+// Macros are asked for AS EATEN, not per 100 g. "The chicken was about 120 g and
+// about 200 kcal" is the sentence people can actually say; per-100 g density is a
+// unit nobody holds a plate in. The conversion happens once, inside photoAddItem.
+const PHOTO_ADD_FIELDS = [['kcal', 'kcal'], ['protein_g', 'Protein g'], ['fat_g', 'Fat g'],
+                          ['carb_g', 'Carb g'], ['fiber_g', 'Fibre g'], ['soluble_fiber_g', 'Soluble g']];
+function photoAddFormHTML() {
+  if (!PHOTO_ADD_OPEN) {
+    return `<div class="pmaddwrap"><button type="button" class="btn pmadd" onclick="photoToggleAddForm(true)">+ Add something the photo missed</button></div>`;
+  }
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  const pick = presets.length
+    ? `<label>From a preset</label><select id="paPreset" onchange="photoAddFromPreset(this.value)">` +
+      `<option value="">type it below\u2026</option>` +
+      presets.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}${p.portion_g ? ' \u00b7 ' + esc(rDisp(p.portion_g)) + ' g' : ''}</option>`).join('') +
+      `</select>` : '';
+  const fields = PHOTO_ADD_FIELDS.map(([k, lab]) =>
+    `<div style="flex:1 1 30%"><label>${esc(lab)}</label><input id="pa_${esc(k)}" type="number" inputmode="decimal" placeholder="0"></div>`).join('');
+  return `<div class="pmaddwrap pmaddopen">
+    ${pick}
+    <div class="rerow"><div style="flex:1"><label>What was it</label><input id="paName" placeholder="e.g. chicken"></div>
+      <div style="flex:0 0 96px"><label>Grams</label><input id="paGrams" type="number" inputmode="decimal"></div></div>
+    <div class="note">Nutrition for the amount you ate.</div>
+    <div class="rerow" style="flex-wrap:wrap">${fields}</div>
+    <div id="paMsg"></div>
+    <div class="rerow" style="margin-top:8px">
+      <button type="button" class="btn primary" onclick="photoAddSubmit()">Add to meal</button>
+      <button type="button" class="btn" onclick="photoToggleAddForm(false)">Cancel</button>
+    </div>
+    <div class="note">This is yours, not the photo\u2019s \u2014 it is saved as your own entry, and it does not change the other items\u2019 sizes.</div>
+  </div>`;
+}
+// A preset fills the form rather than adding straight away, so the grams stay the
+// user's to state -- the preset knows its own portion, not the one on this plate.
+function photoAddFromPreset(presetId) {
+  const p = ((APP_STATE.settings && APP_STATE.settings.presets) || []).filter((x) => x.id === presetId)[0];
+  if (!p) return { ok: false };
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); };
+  set('paName', p.name);
+  set('paGrams', num(p.portion_g) > 0 ? rDisp(p.portion_g) : '');
+  PHOTO_ADD_FIELDS.forEach(([k]) => set('pa_' + k, rDisp(num(p[k]))));
+  return { ok: true, preset: p.id, hasPortion: num(p.portion_g) > 0 };
+}
+function photoAddSubmit() {
+  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const spec = { name: g('paName'), grams: g('paGrams') };
+  PHOTO_ADD_FIELDS.forEach(([k]) => { spec[k] = g('pa_' + k); });
+  const sel = document.getElementById('paPreset');
+  if (sel && sel.value) spec.source = 'preset';
+  const r = photoAddItem(spec);
+  if (!r.ok) {
+    const m = document.getElementById('paMsg');
+    if (m) m.innerHTML = `<div class="ireport bad">${esc(r.error || 'Could not add.')}</div>`;
+    return r;
+  }
+  PHOTO_ADD_OPEN = false;
+  renderPhotoDraft();
+  return r;
+}
+function photoKeptItems(draft) {
+  return ((draft && draft.items) || []).filter((it) => !it.excluded);
+}
 function photoUnpin(idx) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
   PHOTO_DRAFT.items[idx].pinned = false;
@@ -6123,7 +6296,16 @@ function photoSetIdentity(idx, presetId) {
   const p = ((APP_STATE.settings && APP_STATE.settings.presets) || []).filter((x) => x.id === presetId)[0];
   if (!p) return { ok: false, error: 'Unknown item.' };
   const it = PHOTO_DRAFT.items[idx];
-  const base = num(p.portion_g) > 0 ? num(p.portion_g) : 100;   // preset macros are per its own portion
+  // R25 / F-fix1: REFUSED, not assumed. A preset stores the macros of one portion;
+  // converting them to a per-100 g density needs to know what that portion weighed.
+  // This line used to fall back to 100 when it did not -- and nothing wrote
+  // `portion_g`, so the fallback was the ONLY path: a 150 g / 248 kcal preset
+  // re-picked onto a 200 g item returned 496 kcal against a truth of ~330, and said
+  // nothing. Assuming a denominator is the same fabrication as assuming a missing
+  // micronutrient is zero, so it is refused the same way, by name.
+  const base = num(p.portion_g);
+  if (!(base > 0))
+    return { ok: false, error: 'That preset has no portion weight, so its numbers cannot be scaled. Add a portion in grams when you save it.', needsPortion: true };
   it.name = String(p.name);
   it.per100 = {
     kcal: num(p.kcal) * 100 / base, protein_g: num(p.protein_g) * 100 / base,
@@ -6145,13 +6327,21 @@ function photoSave() {
   const priorCopy = JSON.parse(JSON.stringify(day.items));
   if (prior.length) day.items = day.items.filter((x) => x.mealId !== mealId);   // revise replaces its OWN meal only
   if (day.status === 'complete') day.status = 'in_progress';
-  const written = PHOTO_DRAFT.items.map((it) => {
+  const kept = photoKeptItems(PHOTO_DRAFT);
+  if (!kept.length) return { ok: false, error: 'Nothing to save.' };
+  const written = kept.map((it) => {
     const m = photoItemMacros(PHOTO_DRAFT, it);
     return normalizeItem({
       name: it.name, meal: PHOTO_DRAFT.meal, time: nowTime(),
       kcal: m.kcal, protein_g: m.protein_g, fat_g: m.fat_g, carb_g: m.carb_g,
       fiber_g: m.fiber_g, soluble_fiber_g: m.soluble_fiber_g,
-      confidence: 'eyeballed', source: 'ai-paste', notes: it.notes,
+      // R25 Fork A: an ADDED item carries its OWN claim. Inheriting `ai-paste` would
+      // say a model reported a food no model ever saw, which is the honesty rule
+      // (D8) pointed at its own draft.
+      confidence: it.added ? (it.confidence || 'eyeballed') : 'eyeballed',
+      source: it.added ? (it.source || 'manual') : 'ai-paste',
+      added: it.added === true,
+      notes: it.notes,
       tzo: nowTZO(),
       // D57 / R23: BOTH halves of the correction loop are now written. `grams` is
       // what the user accepted, `ai_grams` what the model guessed. Until v6 only the
@@ -6195,6 +6385,22 @@ function photoReopen(mealId) {
       // they fall back to the old reconstruction. That is not a fix for them -- it is
       // the best available reading of a record that never stored what was accepted,
       // and it is exactly as good as the app was before.
+      // R25 Fork C: an ADDED row reopens with NO aiGrams. Without the marker it would
+      // take the 100 g default below and, still pinned, re-enter the shared-scale pin
+      // set at grams/100 -- rescaling every AI estimate in the meal. The reopened
+      // totals would be right, so nothing would look wrong until the next scale
+      // correction: the same shape R23 closed on this path, arriving from the other
+      // side. The marker is why this is a read of a fact rather than an inference.
+      if (r.added) {
+        const ga = num(r.grams) > 0 ? num(r.grams) : 100;
+        const sa = 100 / ga;
+        return { name: r.name, notes: r.notes, grams: ga, added: true, pinned: true,
+                 scaleLinked: false, source: r.source, confidence: r.confidence,
+                 per100: { kcal: num(r.kcal) * sa, protein_g: num(r.protein_g) * sa,
+                           fat_g: num(r.fat_g) * sa, carb_g: num(r.carb_g) * sa,
+                           fiber_g: num(r.fiber_g) * sa, soluble_fiber_g: num(r.soluble_fiber_g) * sa },
+                 dominance: i + 1 };
+      }
       const g = num(r.ai_grams) > 0 ? num(r.ai_grams) : 100;
       const acc = num(r.grams) > 0 ? num(r.grams) : g;
       const shown = 100 / acc;    // rebuild per-100 g from the stored absolute macros
@@ -6711,6 +6917,9 @@ window.HT = {
   ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
   parsePhotoMeal, photoShared, renderPhotoDraft, doPhotoPaste, photoGrams, photoItemMacros, photoSetGrams, photoUnpin, photoSetIdentity,
   photoSave, photoReopen, photoDiscard, photoDraft, aiPromptText, DIVERGE_MAX, newMealId,
+  // R25 / D61 -- the third rail: add what the photo could not show
+  photoAddItem, photoToggleExclude, photoKeptItems, photoToggleAddForm, photoAddOpen,
+  photoAddFormHTML, photoAddFromPreset, photoAddSubmit, PHOTO_ADD_FIELDS,
   // R21 / D45 -- BYOK vision call (key lives OUTSIDE APP_STATE, by construction)
   BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,

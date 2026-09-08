@@ -32,6 +32,14 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # ---- the pinned manifest (D29) --------------------------------------------
 # STAMPED  : writes a record that carries the device offset.
 # EXEMPT   : writes something that is not a stamped record -- reason in D29.
+#
+# R25/D61: `photoAddItem` is EXEMPT. It pushes into PHOTO_DRAFT.items -- a DRAFT
+# held in memory and never persisted -- so it creates no record and there is
+# nothing to stamp. `photoSave` is the creation site for that path and it is
+# already registered and stamped. Recorded because it exposes a real limit of the
+# detector: it matches the SHAPE `.items.push(`, not the STORE, so any array named
+# `items` reads as a record store. That over-match is the safe direction (it asks
+# rather than assumes) and the manifest is where the answer goes.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addPriceEntry
@@ -43,6 +51,7 @@ logPreset
 logRegimenEntry
 logScanItem
 maybeInjectSupplement
+photoAddItem
 photoSave
 priceComparison
 resolveFast

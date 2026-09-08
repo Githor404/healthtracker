@@ -2066,3 +2066,86 @@ A defect run is a full suite run per planted defect. R23 cost eight; R24 cost fo
 ### Relationship to `CLAUDE.md`
 
 The brief's working rule — *"pre-registered, re-runnable gate evidence"* — is the weaker statement and is now incomplete, as instance 6 demonstrated by satisfying it completely. **D60 is the binding form.** Per the project's own rule that ruled contracts live in `DECISIONS.md` and bind equally with the brief, no edit to `CLAUDE.md` is required for this to hold; the brief is left alone rather than partially updated, since it is already behind the code in other respects and a half-refreshed brief is worse than one known to be historical.
+
+## D61 — The third rail: adding what the photo could not show, and the denominator nobody was writing (R25, 2026-09-07)
+
+`APP_VERSION → 0.25.0`; **schema unchanged at v6** — `added` is an additive optional item field, and the v6 bump for `grams` (D57) already covered the authored-content case. Seven forks ruled (A1, B1, C1, D1, E1, F1 + F-fix1, G).
+
+The motivating meal: a bowl of crab and chicken in one sauce. The model resolved the crab and did not separately report the chicken. **That is correct behaviour for what a photo permits, not a defect** — a bowl of two interleaved proteins under one browning is one thing to a camera. The gap was that the human, who knows what is in the bowl, had no way to say so: the draft's two rails (scale, identity) both correct what was *reported*, and neither can add what was not.
+
+### F-fix1 — the identity rail computed the wrong number, and had done since it shipped
+
+`photoSetIdentity` converts a preset's macros into a per-100 g density with `const base = num(p.portion_g) > 0 ? num(p.portion_g) : 100`. **`portion_g` was read on that one line and written nowhere.** `saveManualPreset` writes `portion` — a descriptive *label* ("1 mug") — and `normalizeSettings` passes presets through unnormalized, so no boundary could ever supply it. **The fallback was therefore the only path**, and a preset's whole-portion macros were treated as its density: a 150 g / 248 kcal preset re-picked onto a 200 g item returned **496 kcal against a truth of ~330**, silently. The comment on that line documented an intent the preset writer never implemented.
+
+**Ruled: presets record `portion_g`, and where it is absent the re-pick is REFUSED, never assumed.** Assuming a denominator is the same fabrication as assuming a missing micronutrient is zero, and it is refused the same way — by name, with a message saying what would fix it. The denominator comes from a new optional **Portion (g)** field on the manual form, which also fills the item's own `grams`: R23 gave items that field and only the scan and photo paths ever filled it, so a hand-logged portion had nowhere to go. Absent stays absent, in both places.
+
+**It rode along rather than shipping separately** — same reasoning as D57's reopen defect: the defect and the feature share a root, and R25's merge case *depends on this rail working*. Shipping add-item onto a broken rail would have left the crab-and-chicken case still uncorrectable, which is the thing that prompted the slice.
+
+**And the existing gate was asserting the defect.** `R6-identity` used a preset with no portion and passed, because it expected the fallback's arithmetic. It is repointed by **stating** the portion as 100 g, so the same numbers now hold by declaration rather than by a silent default.
+
+### Fork B — absent, never zero and never equal
+
+An added item is pinned by construction: the user stated its grams, so nothing was estimated. **"It therefore takes no part in the shared-scale correction" does NOT fall out for free.** `photoShared` selects pins as `it.pinned && it.aiGrams > 0` and takes the geometric mean of `grams / aiGrams`. An added item is pinned, so what keeps it out is entirely the state of `aiGrams`:
+
+- **equal to `grams`** — the obvious "symmetric" choice — enters it at ratio **exactly 1.0**, dragging the shared correction toward 1 and rescaling every unpinned estimate in the draft, with nothing on screen saying so;
+- **zero** would claim the model estimated nothing, when it made no estimate at all;
+- **absent** keeps it out of the pin set *by construction* rather than by a guard someone can later delete.
+
+**Ruled absent.** The general statement, because it keeps recurring: *an added item has no AI estimate, so there is nothing for the shared-scale correction to be a correction OF.* Zero and equal both lie, in different directions.
+
+Absence costs three render guards, each a real defect if missed: the slider `max` computes `Math.max(600, Math.round(aiGrams * 4))`, and `Math.max(600, NaN)` is **NaN** — a broken control; the row prints `est. N g`, which must be **omitted** rather than printed as 0; and the `fixed size` label describes an *estimate* that does not ride the shared scale, which an added row is not, so it says **added by you** instead.
+
+### Fork C — the marker, and how it bites R23
+
+`photoReopen` rebuilds a draft with `g = num(r.ai_grams) > 0 ? num(r.ai_grams) : 100`. An added item has no `ai_grams`, so without a marker it reopens with `aiGrams = 100` and, since `pinned` survives the round-trip, **re-enters the pin set at `grams / 100`** — rescaling every AI estimate in the meal. The reopened totals are right, so nothing looks wrong until the next scale correction: **the same failure shape R23 closed on this path, arriving from the other side.**
+
+`added: true` is persisted and **declared in `normalizeItem` in this commit**, round-trip gated. **Fifth occurrence of the allowlist trap** (D45 warned; D49's `byokCount`; D55's `orig`/`edited_at`; D57's `grams`). It is now reflex rather than reasoning, which is the point of counting them.
+
+C2 — inferring "added" from absent `ai_grams` within a `mealId` — was sound today and rejected anyway: it is an inference where a fact costs one allowlist entry, and it breaks the first time any other path writes a photo-meal item without `ai_grams`.
+
+### Fork A — the macro source
+
+**Typed for the portion eaten**, converted once into the per-100 g density the draft works in. *"The chicken was about 120 g and about 200 kcal"* is a sentence people can say; per-100 g density is a unit nobody holds a plate in. A preset fills the form rather than adding directly — the preset knows its own portion, not the one on this plate.
+
+**The added item carries its own claim: `source: manual` (or `preset`), `confidence: eyeballed`.** Inheriting the draft's `ai-paste` would state that a model reported a food no model ever saw — D8's honesty rule pointed at its own draft.
+
+**A4 — logging grams with no macros — was rejected on the log, not on taste.** D10 states: *"Macros … every complete day has them (0 for a fasting day), so the mean is Σ(day totals) / M — full coverage."* A macro-absent item does not make the log *honestly incomplete*; it **breaks an invariant** every totals consumer rests on. The honest repair is macro coverage annotation on the daily total, the ring and the averages — the *"from N of M"* shape D10 already uses for micros — which is a larger slice. **Recorded as the escalation**, not smuggled in under an add button.
+
+**A3 — copying macros from another row — was rejected as a source** for the motivating case's own reason: crab and chicken are different foods, and copying crab's density onto chicken is fabrication wearing a decimal.
+
+### Fork D — soft exclude, because the row cost money
+
+A draft is not saved state, so the D44/D54 undo grammar does not reach it. But **an AI row cost a paid API call and cannot be regenerated without another one**, so destroying it on one tap is the expensive kind of irreversible. The row is therefore *excluded*, not removed: struck through, still visible, put-back-able right up to the save. A flag buys the reversibility a toast would have had to build.
+
+Confirmed as the brief supposed: **zero grams is not a workaround** — `photoSetGrams` refuses `!(g > 0)`. Excluding the **last** item is refused, pointing at Discard: a modal offering to save nothing is the shape R21.5 exists to forbid.
+
+`photoKeptItems` is the single definition of *"in this meal"*, and the pin set, the totals and the save all read through it — so an excluded row cannot steer a number it is not going to be part of.
+
+### Fork E — inline, because the footer belongs to the outcome
+
+D51 made the modal footer the **outcome commitment** surface: Save and Discard, fixed, never scrolling. Adding an item is draft *editing*, like every slider and identity picker above it, all of which are inline. In the footer it would compete for the thumb with Save — the one control D51 was written to protect.
+
+### Fork G — micro coverage falls out
+
+An added item carries no micros (no label was read; D8 forbids inventing them), and D10 counts only days *carrying* K. It is therefore **honestly absent from micro coverage rather than assumed complete**, with no new code. Gated as a confirmation rather than argued.
+
+### D29 census — a new site, classified exempt, and a limit of the detector recorded
+
+`photoAddItem` pushes into `PHOTO_DRAFT.items`, which the census's `\.items\.push\(` pattern matches. It is registered and **exempt**: the draft is held in memory and never persisted, so it creates no record and there is nothing to stamp; `photoSave` is the creation site for that path and is already registered and stamped. Census re-pinned **14 → 15**.
+
+**The recorded limitation is the useful half:** the detector matches the *shape* `.items.push(`, not the *store*, so any array named `items` reads as a record store. That over-match is the **safe direction** — it asks rather than assumes — and the manifest is where the answer belongs. This complements D56's standing note that the census is a **creation** census and sees no mutations at all.
+
+### Found by D60, in the session D60 was written
+
+The defect pass planted eight defects. **Six failed their gates; two did not** — and the two that passed were properties this slice claims to have gated:
+
+- `photoShared` reading excluded rows changed nothing, because the test excluded an **unpinned** row;
+- `photoSave` writing excluded rows changed nothing, because the test **un-excluded everything before saving**.
+
+Both gates were green, pre-registered, re-runnable — and unfalsifiable. That is instance 6's shape exactly, caught this time by the rule written a few hours earlier rather than by luck. The cases now exclude a **pinned** row and save **with a row still excluded**, and both fail against their defect.
+
+**Recorded because it is the first evidence D60 pays for itself**, and because it says something about the rule's scope: the danger is not only a gate that asserts nothing, it is a gate whose *fixture* does not reach the property it names. A gate is not evidence until it has been seen to fail — including when the reason it cannot fail is the test data rather than the assertion.
+
+### An environment note, since it produced a scary-looking result twice
+
+Two harness runs during this slice reported `executed 0 · no SUMMARY line`, with three clean 1489/1489 runs on either side and no code change between them — Chrome contention from concurrent headless invocations, not a defect. **The runner behaved correctly**: it failed loudly with *"the suite did not finish"* rather than reporting a pass, which is D56's bar working. Recorded so the next session recognises the shape instead of hunting it.

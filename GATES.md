@@ -2192,3 +2192,39 @@ An added item carries no micros (no label was read, so D8 forbids inventing them
 | R25-vocab | M7 with a planted control over the add form and the added-row labels |
 
 **Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–G.**
+
+#### Evidence (D61; Forks A–G ruled as argued; built 2026-09-07, v0.25.0)
+
+| Case | Result |
+|---|---|
+| R25-add | an item the model never reported is added to the draft; macros typed **for the portion eaten** are stored as the per-100 g density the draft works in; a nameless item, a zero portion and a non-number are refused |
+| R25-add **GATE** | it saves `manual`/`eyeballed` — **inheriting `ai-paste` would say a model reported a food no model saw**; the reported items keep their own source; same `mealId`, so a reopen brings it back with the rest |
+| R25-pin | pinned by construction, **no `aiGrams`**, and therefore absent from the shared-scale pin set |
+| R25-pin **GATE** | had `aiGrams` been set **equal to `grams`** "for symmetry", it would enter the pin set at ratio exactly 1.0 — asserted directly, which is why absent is the ruled state |
+| R25-propagate | adding leaves every other item's grams **and** the shared correction byte-identical; the added item keeps exactly the size stated |
+| R25-render **GATE** | the slider `max` is a number (`Math.max(600, NaN)` is NaN); the row does **not** claim an estimate of 0 g; it is labelled *added by you*, not *fixed size* |
+| R25-remove | excluding keeps the row (an AI row cost a paid call); it leaves the meal; it is reversible up to the save; excluding the **last** item is refused, pointing at Discard |
+| R25-remove **GATE** | excluding a **pinned** row takes it out of the shared correction, and an excluded row is **not written** — both added after the defect pass showed the first versions could not fail |
+| R25-roundtrip **GATE** | `added` survives export → restore; a strict `true`, absent stays absent |
+| R25-reopen **GATE** | the shared correction **survives a reopen** — without the marker the added row takes the 100 g default, re-enters the pin set at `grams/100` and rescales every estimate while the totals still look right |
+| R25-identity **GATE** | a 150 g / 248 kcal preset re-picked onto 200 g gives **~330**, where the shipped fallback returned **496**; a preset with **no** portion is **refused**, not assumed per-100 g |
+| R25-merge **GATE** | the motivating case end to end: one reported item becomes two, each with its own macros (126 kcal crab, 248 chicken), saved with **different provenance** |
+| R25-micros | an added item carries no micros and is honestly **absent** from micro coverage (D8/D10) |
+| R25-vocab | M7 over the add form, the added-row label and the exclude control, with a planted control |
+
+**Proven against the defect — and the pass found two gates that could not fail.**
+
+| planted defect | fails |
+|---|---|
+| `photoSetIdentity` restored to the `base = 100` fallback | R25-identity |
+| `added` undeclared in `normalizeItem` | 5 cases + an uncaught exception |
+| `aiGrams` set equal to `grams` | R25-pin ×2, R25-propagate, +2 |
+| an added item inheriting `ai-paste` | R25-add GATE, R25-merge |
+| the slider `max` unguarded | R25-render |
+| `photoReopen` without the added branch | R25-reopen ×2 |
+| `photoShared` reading excluded rows | **initially PASSED** — the case excluded an *unpinned* row |
+| `photoSave` writing excluded rows | **initially PASSED** — the case un-excluded everything before saving |
+
+**The last two are D60 earning its keep in the session it was written.** Both gates were green, pre-registered and re-runnable, and neither could fail — instance 6's shape, caught by the rule rather than by luck. It also sharpens D60: the danger is not only a gate that asserts nothing, but one whose **fixture does not reach the property it names**. Both now fail against their defect.
+
+**Count delta: 1445 → 1489** (+44), re-pinned deliberately in the same commit. **1489/1489 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
