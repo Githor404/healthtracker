@@ -2149,3 +2149,101 @@ Both gates were green, pre-registered, re-runnable — and unfalsifiable. That i
 ### An environment note, since it produced a scary-looking result twice
 
 Two harness runs during this slice reported `executed 0 · no SUMMARY line`, with three clean 1489/1489 runs on either side and no code change between them — Chrome contention from concurrent headless invocations, not a defect. **The runner behaved correctly**: it failed loudly with *"the suite did not finish"* rather than reporting a pass, which is D56's bar working. Recorded so the next session recognises the shape instead of hunting it.
+
+## D62 — The dish fork: a stored answer beats a better guess (2026-09-08)
+
+Governance only. **No code, no schema change, no `APP_VERSION` bump.** Five forks ruled. This is the fork D59's F1 named as upstream of the matcher, and it is upstream in the way F1 predicted: it changes what a corpus row *is*, and therefore row count, mask density and sparsity — every input to D59's sizing table.
+
+### What changed since F1 named it
+
+A real bowl: crab and chicken with onions, cooked together under one sauce. **Neither branch of the binary handles it**, and the reasons are different in kind.
+
+**Decompose** returns components with guessed proportions, starts from a list that may be incomplete (occluded or visually similar components are simply not reported), and **loses the sauce and the cooking fat entirely** — because those belong to the dish and to no component in it.
+
+**Whole-dish lookup** returns a real recipe's composition, but a **generic** one. FNDDS has ~5,400 recipe-calculated dishes built for "as consumed"; CNF's composite coverage is thinner. And no row exists at all for a dish invented in one person's kitchen.
+
+### The reframe: the third branch is not a third strategy
+
+Decompose and whole-dish are both **resolution strategies** — ways of turning a photograph into numbers. A user-defined composite is not a third one. It is **a stored answer**, authored once, that stops the question arising again.
+
+That distinction does most of the work below, and it makes the branch far cheaper than it looks: **a composite is a preset with a component list.** Presets are already user-authored food objects, already carried in `settings` and therefore already exported, and already wired into the identity rail — `photoIdentityOptions` re-picks a draft item to a preset, and R25's add form fills from one. So a composite needs **no new matching mechanism**: *"this bowl is my crab-chicken thing"* is a user gesture at a rail that already exists, not a recognition problem.
+
+**And it is the only branch that can represent what actually motivated the question.** Sauce and cooking fat are expressible in neither binary branch — decompose loses them because they belong to no component, whole-dish gets someone else's version of them. In a composite they are simply components ("2 tbsp oil") that were never visible in the photograph at all. **That is a stronger argument for the branch than reusability**, which is the argument it is usually given.
+
+Which means a user-defined composite **is a recipe**, and the structural precedent is already ruled. **D27's regimen is a named timeline template** — user-authored, stored in state, instantiated only on explicit confirmation, never auto-applied, and built by *composition over existing machinery rather than a fourth record system*. Recipe : food :: regimen : timeline. Every pin in D27 transfers.
+
+### Fork 1 — order: composite → whole-dish → decompose, and the last one is not a "fallback"
+
+**Ruled as instinct had it, with one correction that decides the UI.**
+
+The falsifiability frame is the right one, and it is sharper than the Warnsdorff gesture it replaced: **N components with N free proportions will fit almost any plate, so a decomposition's success is weak evidence.** A dish row has two free parameters — which row, how many grams — so a fit is much less likely to be accidental. Prefer the constrained hypothesis because it is the falsifiable one.
+
+**But the counter cuts the other way at the moment of acceptance, and that is what the ruling turns on.** A bad decomposition is **visible**: "rice, 120 g" in a bowl with no rice. A bad dish match is **invisible**: one authoritative-looking row with nothing to inspect. The more constrained branch is also the one whose failures the user cannot see.
+
+**So a whole-dish match is a HYPOTHESIS TO CONFIRM, never a result handed over.** Same confirm-first grammar D51 imposes on the capture outcome and R6's lead question imposes on the dominant item. The ordering is not softened; the acceptance is.
+
+**And decompose is not a fallback — it is a different KIND of claim.** A lookup and an estimate-with-invented-proportions are different assertions about where a number came from, and **they must never produce indistinguishable records.** Which branch resolved a meal is therefore a **provenance fact that reaches the record**, alongside `source` and `confidence` — D57's rule that provenance is a fact and reliability is a claim, applied to resolution strategy.
+
+*Rejected: decompose-first with whole-dish as refinement.* It inverts falsifiability — it starts from the hypothesis that cannot fail and only sometimes replaces it with one that can.
+
+### Fork 2 — cross-source dish resolution: yes
+
+**Ruled: a dish resolves against FNDDS regardless of locale, with provenance on the row.**
+
+The argument brought to this fork was that refusing would mean *"silently producing worse data to preserve a locale purity I never asked for."* **The correction is that the purity does not exist.** Every barcode lookup already goes to `world.openfoodfacts.org` — the global endpoint — and takes whatever the crowd entered, from any country. There is no locale invariant to protect here; there would only be a new one, invented specifically to make dish resolution worse than it needs to be.
+
+**Two consequences accepted deliberately rather than discovered later:**
+
+**FNDDS dishes are recipe-calculated from US ingredients** — US enriched pasta, US fortification baselines, US dairy. The mixing is therefore **not neutral across nutrients: macros travel well, fortification-sensitive micros travel badly** (folate in flour, vitamin D in milk, iodine in salt). A cross-locale dish row is weakest exactly where D8 is most careful. **Recorded now, acted on when the micros layer exists** — not before, and not never.
+
+**No badge.** D53 already ruled *progressive disclosure of provenance*: provenance collapses behind a one-tap line, safety never does. A per-meal source badge would be **a second provenance surface competing with the first**. The source rides **on the row**, disclosed the way D53 disclosed everything else, so a meal carrying `cnf:` components and an `fdc:` dish row is legible without new chrome.
+
+### Fork 3 — a composite is a preset with a component list
+
+**Both proposed structures are rejected, and cleanly.**
+
+**Not a corpus block.** D59 drew the line: the corpus is an **asset, not user data** — excluded from export, re-acquired rather than restored. A composite is *authored by the user* and fails that test in every clause. Storing it in the corpus would mean **a person's own recipes vanish on restore** and return only if a source refresh happened to contain them, which it never will. That is the worst available outcome for this artifact.
+
+**Not a re-resolving draft.** It violates the freeze principle in spirit, and it is **worse than log drift**: a saved object whose numbers silently change between two uses means **the same gesture produces two different meals**, with no way to see which one was got.
+
+**Ruled: composition computed once and FROZEN, with the component list retained as provenance** — the `orig` / `ai_grams` correction-loop shape this app uses everywhere: what it was built from, kept beside what it resolved to.
+
+**With an explicit, user-invoked recompute — never automatic.** That is D13's ruled refresh pattern verbatim (*"explicit, manual… never automatic, never a background revalidate"*), and it buys corpus improvement without the drift.
+
+**Export follows for free and needs no new rule:** presets live in `settings`, `settings` is in the exported blob, so composites are exported while the corpus is not — the asset/data boundary D59 drew, landing exactly where it should.
+
+**And a property worth naming:** because the composition is frozen, **a composite still works on a device with no corpus at all** (D59 Fork E1). Only *recompute* is unavailable. It degrades in the right place.
+
+### Fork 4 — the classification is a user gesture, not a model output
+
+**Dish-vs-components is not a property of the photograph.** The same bowl is one dish if a good row exists, separate components if it does not, and a composite if one has been defined. The answer depends on **corpus contents the model cannot see** and on how the person thinks about the meal. Asking the model to classify is asking the wrong entity a question that is not about the image.
+
+The model also **already classifies implicitly** — returning one item for a mixed bowl *is* the "one dish" answer. So the real choice is not whether classification happens; it is whether to add a field the model can newly get wrong to a **versioned, shipped template** (D11), where every added field is a new failure mode.
+
+**Ruled: no template change.** The corrections stay where they are: **split** is identity-correct-plus-add, which R25 shipped; **group** is the one gesture this fork implies, and it is small.
+
+### Fork 5 — confidence is the MINIMUM; coverage is the INTERSECTION
+
+Two different operations, for two different reasons, and the split is the substance of this fork.
+
+**Confidence: the minimum.** It is ordinal (`eyeballed < weighed < measured`) and a composite is no better than its weakest component. The minimum runs over the components **and over the proportion claim itself** — proportions are a claim, so all-`measured` components with hand-stated proportions yield an `eyeballed` composite. That is D57's demotion rule (hand-correcting a measurement makes `measured` false) applied one level up.
+
+**Coverage: the intersection — and this is the half that would otherwise have shipped a silent lie.** Summing micronutrient values across components where one component lacks potassium produces a potassium figure that is **understated but looks complete**. That is worse than absence: **absence is honest, and an understated figure is a wrong answer wearing decimals** — precisely what D8 exists to prevent.
+
+**So a composite carries micronutrient K only if EVERY component carries K.** Otherwise K is absent from the composite. **Union for values, intersection for presence** — and with D59's mask this is literally an `AND` of the component masks, which is the first place that representation earns its keep.
+
+### Scope
+
+**Minimum viable is: define once from a draft already corrected, reuse by name through the existing identity rail.** Nothing else. A composite that accretes becomes a recipe book — CRUD, editing, scaling, search — and that is a Phase-4 candidate, not this. D27's *"composition over a fourth record system"* is the discipline that keeps it from becoming one.
+
+### Sequencing, recorded as stated rather than softened
+
+**This is the third session running on governance and representation rather than the matcher F1 named as next.** This one was legitimately upstream and genuinely changed the corpus shape — it is why a composite is user data rather than a corpus row, and why coverage is an intersection.
+
+**But after this ruling the matcher has no remaining upstream blocker.** If a fourth governance question surfaces before a line of matcher code exists, **that pattern gets examined rather than answered.** The evaluation set is the first thing to build — a few hundred hand-labelled `(query → correct row)` pairs drawn from meals actually eaten — and it needs no persistence, no corpus substrate and no further rulings.
+
+Recorded here because a governance log is read by future sessions as evidence, and a project that keeps finding tractable questions upstream of a hard one has found a way to look busy. **Tractability is not priority** (D59), and this is the entry that says so about its own sequence.
+
+### What this entry does not rule
+
+The matcher. The mask's word-1 slot list. The grouping gesture's surface. Whether a composite's components may themselves be composites — deferred deliberately, because the answer is obvious in the small (yes) and dangerous in the large (unbounded recursion in a nutrition calculation), and nothing needs it yet.
