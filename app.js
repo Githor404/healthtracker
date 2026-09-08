@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.25.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.26.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4007,7 +4007,18 @@ const AI_PROMPT_TEMPLATE =
 '  false only for a size-independent item such as a packaged side or a canned drink.\n' +
 '- "dominance" ranks items 1, 2, 3 ... by how much they contribute to PRIMARY_NUTRIENT.\n' +
 '- "meal" must be exactly one of: breakfast, lunch, dinner, snack, drink, supplement.\n' +
-'- State portion assumptions honestly in "notes".';
+'- State portion assumptions honestly in "notes".\n\n' +
+// R27: the closing restatement, written AT the observed failure rather than in
+// general. Asked for a mixed plate, the model returned prose, tables, per-100g
+// reference values for foods it had not listed, micronutrients and dietary
+// commentary -- so each of those is now refused BY NAME, and the JSON-only
+// instruction is repeated last as well as first. The API path also constrains
+// this structurally (response_format), but the COPY-PROMPT path has no such
+// lever: there, the words are the only mechanism there is.
+'Nothing else. No tables. No reference values for foods that are not in "items".\n' +
+'No commentary about the meal or about nutrition. If a number is uncertain, still\n' +
+'reply with the JSON object and say so in "notes".\n' +
+'Your entire reply must start with { and end with }.';
 
 // Adjacent sample that obeys the template -- gated against the real parser so the
 // two cannot drift apart.
@@ -4339,6 +4350,7 @@ function byokCapture(file, source) {
     return Promise.resolve({ ok: false, kind: 'cap' });
   }
   byokBusy('sending', 'Reading the photo\u2026');
+  const capT0 = nowMs();                 // R27: the retry must know what it has left
   byokLog('capture: source=' + (source === 'library' ? 'library' : 'camera') +
           ' type=' + String((file && file.type) || '?') +
           ' bytes=' + Number((file && file.size) || 0));      // never the image
@@ -4353,15 +4365,30 @@ function byokCapture(file, source) {
         // RETRY ONCE, and only for a malformed BODY -- a rejected key or a dead
         // network will fail the same way twice and spending a second call on it
         // is just a second charge.
+        // R27: AND ONLY IF THERE IS BUDGET LEFT TO SPEND. Every call gets its own
+        // full timeout, so a slow first attempt followed by a full second one kept
+        // the user waiting up to TWO budgets and then reported a TIMEOUT -- for what
+        // was actually a PARSE failure that had already happened. The symptom named
+        // the wrong cause, which is why this presented as a hang.
+        byokLog('capture: reply did not parse (' + String(r1.text || '').length + ' chars); ' +
+                Math.round((nowMs() - capT0) / 1000) + 's spent');
+        const left = BYOK_CALL_TIMEOUT_MS - (nowMs() - capT0);
+        if (left < BYOK_RETRY_MIN_MS)
+          return byokFallback(r1.text, 'The reply did not match the template, and too little time was left to ask again. It is below, paste-ready.');
         byokStartTick('That reply did not parse. Asking once more\u2026');
         byokCount();
-        return byokCall(img.dataUrl, {}).then(byokNoteVerdict).then(function (r2) {
+        return byokCall(img.dataUrl, { budget: left }).then(byokNoteVerdict).then(function (r2) {
           if (r2.ok) {
             const d2 = openPhotoDraft(r2.text);
             if (d2.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 2 }; }
             return byokFallback(r2.text, 'The reply did not match the template twice.');
           }
-          return byokFallback('', r2.error);
+          // R27: THE FIRST REPLY IS NOT THROWN AWAY. It arrived, it was paid for,
+          // and it is the only thing the user can act on -- losing it because the
+          // SECOND call timed out is how a failed capture came to show an EMPTY
+          // paste box. Whatever arrived, arrives here.
+          return byokFallback(r1.text, String(r2.error || '') +
+            ' The first reply is below: it did not match the template, but it is what the model sent.');
         });
       }
       return byokFallback('', r1.error);
@@ -4724,6 +4751,7 @@ const VERSION_LOG = [
   { v: '0.24.0', d: '2026-09-07', note: 'Capture meal now lets you choose: take a photo now, or pick one you already have. A meal photographed earlier can finally be logged — and on a computer, where Capture had no working path at all, Choose photo opens an ordinary file picker. Nothing after the photo changes. Photos from a library are also turned the right way up before they are sent, since a sideways plate is a different meal to the model reading it; and a HEIC picked from the library is now told what can actually fix it, rather than a camera setting that only affects the next photo you take.' },
   { v: '0.25.0', d: '2026-09-07', note: 'A photo draft can now be corrected in a third way: add something the camera could not show. A bowl of crab and chicken in one sauce is one thing to a camera — you can now add the chicken yourself, with its own weight and nutrition, and it is saved as your entry rather than the photo’s. You can also mark an item as not on the plate; it stays visible until you save, so nothing the estimate found is thrown away by one tap. Anything you add keeps its own size and never changes the other items’ sizes. Fix: re-picking what an item IS, from one of your presets, was giving wrong numbers — it treated the preset’s whole portion as if it were the amount in 100 g. Presets now record their portion weight, and one saved without a weight says so instead of guessing.' },
   { v: '0.25.1', d: '2026-09-08', note: 'Fix: the route that needs no API key was broken. The AI photo prompt under Settings was always empty, and Copy prompt could put nothing on the clipboard while telling you to select the text yourself — from a box with nothing in it. Both prompt boxes now hold the prompt, Copy works from either, and if copying is blocked it says so and the text is there to select. Without a key, photo to meal is the only route there is; it works again.' },
+  { v: '0.26.0', d: '2026-09-08', note: 'Capture is more likely to work, and when it does not it now hands you something. If the model answers with prose instead of the data — tables, commentary, nutrients a photo cannot show — that reply is put straight into the paste box for you to use, instead of being thrown away while the app reported a timeout. The app also now asks the provider for data-only replies rather than only requesting it in words, caps how long an answer can run, and will not start a second attempt it has no time to finish. The copyable prompt spells out what not to include, since when you paste it yourself those words are the only thing steering the reply.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5742,6 +5770,12 @@ const BYOK_LS = 'healthtracker-byok';
 // cancelled. The cost of giving up early is a call already charged for and thrown
 // away, which is strictly worse.
 let BYOK_CALL_TIMEOUT_MS = 120000;      // capture: the model reads a photograph
+// R27: below this, a retry is not worth starting -- it would report a timeout for a
+// parse failure that already happened, and bill a second call to say so.
+const BYOK_RETRY_MIN_MS = 30000;
+// Generous enough for a ten-item meal with notes; small enough that a model that
+// starts writing an essay is cut off rather than billed and waited for.
+const BYOK_MAX_TOKENS = 2048;
 function setByokCallTimeout(ms) { BYOK_CALL_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 120000; }
 let BYOK_INFLIGHT = null;               // the controller, so a wait can be abandoned
 let BYOK_CANCELLED = false;
@@ -5751,7 +5785,10 @@ const BYOK_DEFAULT_CAP = 20;
 // Provider-agnostic by table. The call is OpenAI-compatible, so a second row is a
 // CONFIGURATION change, not a code change (gated).
 const BYOK_PROVIDERS = {
-  grok: { label: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-4.6' },
+  // `jsonMode`: the provider accepts OpenAI-style response_format json_object.
+  // Declared per provider, not assumed, so an unknown provider is never sent a
+  // field it may reject -- and byokCall retries without it if one does anyway.
+  grok: { label: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-4.6', jsonMode: true },
 };
 // Fork B (ruled): ONE template. The direct call needs a preamble the paste path
 // does not (a chat model will happily wrap JSON in a markdown fence), so it rides
@@ -6004,11 +6041,20 @@ function byokDownscale(file, source) {
 //
 // Errors are CLASSIFIED, because the recovery differs and the user deserves to
 // know which wall they hit. The key is never part of any of them.
-function byokBody(dataUrl, text, model) {
-  return { model: model, messages: [{ role: 'user', content: [
+// R27: ask for JSON STRUCTURALLY, not only in prose. The template has said
+// "Reply with JSON ONLY" since D11 and the model still answered with prose,
+// tables, per-100g reference values, micronutrients and dietary commentary. That
+// is two failures at once: the parser rejects it (correctly), AND an essay is far
+// more tokens than a 200-token object, so the call is slow enough to look like a
+// hang. An instruction is a request; response_format is a constraint.
+function byokBody(dataUrl, text, model, caps) {
+  const b = { model: model, messages: [{ role: 'user', content: [
     { type: 'image_url', image_url: { url: dataUrl } },
     { type: 'text', text: text },
   ] }] };
+  if (caps && caps.jsonMode) b.response_format = { type: 'json_object' };
+  b.max_tokens = BYOK_MAX_TOKENS;
+  return b;
 }
 function byokErr(kind, message) { return { ok: false, kind: kind, error: message }; }
 function byokCall(dataUrl, opts) {
@@ -6019,11 +6065,11 @@ function byokCall(dataUrl, opts) {
   const o = opts || {};
   const body = o.ping
     ? { model: prov.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
-    : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model);
+    : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model, (o.noJsonMode ? null : prov));
   const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
   // The ping is bounded by the test's own 15 s race, so its abort must not sit
   // BEHIND that race or it would never be the thing that fires.
-  const budget = o.ping ? BYOK_TEST_TIMEOUT_MS : BYOK_CALL_TIMEOUT_MS;
+  const budget = o.ping ? BYOK_TEST_TIMEOUT_MS : (Number(o.budget) > 0 ? Number(o.budget) : BYOK_CALL_TIMEOUT_MS);
   BYOK_INFLIGHT = ctl; BYOK_CANCELLED = false;
   const timer = setTimeout(function () { if (ctl) ctl.abort(); }, budget);
   return fetch(prov.base + '/chat/completions', {
@@ -6045,6 +6091,13 @@ function byokCall(dataUrl, opts) {
         return byokErr('auth', pmsg || 'The provider rejected the key. Check it in Settings.');
       if (res.status === 429)
         return byokErr('ratelimit', 'The provider is rate-limiting. Wait a moment, or paste instead.');
+      // R27: a provider that does not know `response_format` must not lose the
+      // capture over it. Retried ONCE without the field -- this cannot loop,
+      // because the retry sets noJsonMode and the branch requires it unset.
+      if (!res.ok && res.status === 400 && !o.noJsonMode && /response_format|json_object|unknown|unsupported/i.test(pmsg)) {
+        byokLog('capture: provider refused response_format; retrying without it');
+        return byokCall(dataUrl, Object.assign({}, o, { noJsonMode: true, budget: budget }));
+      }
       if (!res.ok)
         return byokErr('http', 'The provider returned ' + res.status + '. ' + pmsg);
       let j; try { j = JSON.parse(raw); } catch (e) { return byokErr('malformed', 'The reply was not JSON.'); }
@@ -6968,6 +7021,8 @@ window.HT = {
   photoAddFormHTML, photoAddFromPreset, photoAddSubmit, PHOTO_ADD_FIELDS,
   // R21 / D45 -- BYOK vision call (key lives OUTSIDE APP_STATE, by construction)
   BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
+  // R27 -- structural JSON + the retry floor
+  byokBody, BYOK_RETRY_MIN_MS, BYOK_MAX_TOKENS,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
   // R24 -- take-or-choose

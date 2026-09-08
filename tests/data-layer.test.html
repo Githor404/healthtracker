@@ -502,6 +502,34 @@ window.setLS({});
       'F7/R6: template v3 asks for grams, per-100g, scale_linked and dominance');
   res(HT.AI_TEMPLATE_VERSION === 3, 'F7/R6: AI_TEMPLATE_VERSION bumped with the item contract');
   res(['breakfast','lunch','dinner','snack','drink','supplement'].every(function(m){ return tmpl.indexOf(m) >= 0; }), 'F7: template spells out the full meal enum');
+  // ---- R27 / D64: the capture failure that presented as a timeout ----------
+  // Diagnosed in order: the counter incremented TWICE, which proves the reply
+  // ARRIVED and failed to parse -- byokCount() fires immediately before each
+  // byokCall, so a count of 2 is not ambiguous. The retry then spent a SECOND full
+  // budget and aborted, so a PARSE failure was reported as a TIMEOUT, and the first
+  // reply -- paid for, and the only thing the user could act on -- was discarded on
+  // the way past.
+  res(tmpl.indexOf('No tables') >= 0 && tmpl.indexOf('No reference values') >= 0 &&
+      tmpl.indexOf('No commentary') >= 0,
+      'R27-template: the template refuses BY NAME what the model actually returned -- tables, reference values, commentary');
+  res(tmpl.lastIndexOf('JSON object') > tmpl.indexOf('JSON ONLY'),
+      'R27-template: and repeats the JSON-only instruction LAST as well as first');
+  res(tmpl.indexOf('start with { and end with }') >= 0,
+      'R27-template: with a shape the model can check its own reply against');
+  res(HT.parsePhotoMeal(HT.AI_PROMPT_SAMPLE).ok === true,
+      'R27-template: and the shipped sample still parses -- the wording hardened, the CONTRACT did not, which is why AI_TEMPLATE_VERSION does not move');
+  // The API path constrains it structurally; the copy-prompt path cannot.
+  var capBody = HT.byokBody('data:image/jpeg;base64,AAA', 'PROMPT', 'grok-4.6', HT.BYOK_PROVIDERS.grok);
+  res(capBody.response_format && capBody.response_format.type === 'json_object',
+      'R27-json GATE: the capture call asks for JSON STRUCTURALLY -- an instruction is a request, response_format is a constraint');
+  res(capBody.max_tokens > 0 && capBody.max_tokens <= 4096,
+      'R27-json GATE: and bounds the answer, because an essay is not just unparseable, it is SLOW -- which is what made a parse failure look like a hang');
+  var plainBody = HT.byokBody('data:image/jpeg;base64,AAA', 'PROMPT', 'other-model', null);
+  res(plainBody.response_format === undefined,
+      'R27-json: a provider that has not DECLARED json mode is never sent the field -- an unknown provider must not lose capture to a header it may reject');
+  res(HT.BYOK_RETRY_MIN_MS > 0 && HT.BYOK_RETRY_MIN_MS < HT.byokTimeouts().call,
+      'R27-retry: a retry floor exists and sits inside the call budget -- below it, a second attempt would report a timeout for a parse failure that already happened');
+
   // F8. template version exposed
   res(typeof HT.AI_TEMPLATE_VERSION === 'number', 'F8: template version exposed');
 
@@ -2189,6 +2217,46 @@ window.setLS({});
         res(document.getElementById('ingestBox').value.indexOf('sorry') >= 0,
             'R21-validate: the raw reply is dropped into the paste box -- NEVER a dead end');
         res(HT.photoDraft() === null, 'R21-validate: and no draft is fabricated from it');
+      });
+    }).then(function () {
+      // ---- R27 / D64: the first reply is not thrown away -------------------
+      // THE REPORTED BUG. The model answered with prose (tables, reference values,
+      // micronutrients, commentary), the parse failed, the retry fired, the retry
+      // failed -- and `byokFallback('', r2.error)` discarded r1.text on the way
+      // past. The user waited, paid for a reply that arrived, and got a timeout
+      // message over an EMPTY paste box.
+      var PROSE = '{"choices":[{"message":{"content":' + JSON.stringify(
+        'Here is the breakdown of your meal. Crab 84 kcal per 100 g (reference). ' +
+        'This plate is a balanced source of protein.') + '}}]}';
+      byokReset(SECRET); HT.photoDiscard();
+      document.getElementById('ingestBox').value = '';
+      FETCH_SCRIPT = [{ status: 200, body: PROSE }, { status: 500, body: 'gateway error' }];
+      return HT.byokCapture(FILE).then(function (r) {
+        res(r.ok === false && r.fellBack === true && FETCHES.length === 2,
+            'R27-keep: a prose reply is retried once, and the second failure ends it');
+        var boxed = document.getElementById('ingestBox').value;
+        res(boxed.indexOf('breakdown of your meal') >= 0,
+            'R27-keep GATE: the FIRST reply reaches the paste box even though the SECOND call failed -- it arrived, it was paid for, and it is the only thing the user can act on');
+        res(HT.photoDraft() === null, 'R27-keep: and no draft is fabricated from prose');
+      });
+    }).then(function () {
+      // ---- R27: a retry is not started without the budget to finish it -----
+      // With almost no budget left, a second full-length attempt is what turned a
+      // PARSE failure into a reported TIMEOUT. It is now declined, and says so.
+      var PROSE2 = '{"choices":[{"message":{"content":' + JSON.stringify(
+        'Here is the breakdown of your meal, as a table.') + '}}]}';
+      byokReset(SECRET); HT.photoDiscard();
+      document.getElementById('ingestBox').value = '';
+      HT.setByokCallTimeout(1);                 // nothing left the moment the first returns
+      FETCH_SCRIPT = [{ status: 200, body: PROSE2 }, { status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function (r) {
+        HT.setByokCallTimeout(120000);
+        res(FETCHES.length === 1,
+            'R27-retry GATE: with no budget left the second call is NOT made -- it would bill a second reply to report a timeout for a parse failure that had already happened');
+        res(document.getElementById('ingestBox').value.indexOf('breakdown of your meal') >= 0,
+            'R27-retry: and the first reply still reaches the paste box');
+        res(r.ok === false && r.fellBack === true,
+            'R27-retry: reported as a fallback, not as a success');
       });
     }).then(function () {
       // R21-failure: each wall is distinct, and each lands on the paste path.

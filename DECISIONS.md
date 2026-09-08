@@ -2330,3 +2330,58 @@ Both findings are generalised into **D60's Clause 4** in the same commit: *the f
 Both notes described only the manual route, which was written before BYOK capture existed and never revisited. They now describe **both**: the photo surface names Take photo / Choose photo as the with-a-key route and the prompt as the without-one route; the Settings copy points at where capture lives. The D8 honesty line — *macros only, never micronutrients from a photo* — is kept verbatim on both.
 
 **Count delta: 1489 → 1498** (+9), re-pinned deliberately in the same commit.
+
+## D64 — A parse failure wearing a timeout's message, and the reply it threw away (R27, 2026-09-08)
+
+`APP_VERSION → 0.26.0`; **schema unchanged at v6**; **`AI_TEMPLATE_VERSION` deliberately unchanged at 3** (see below). A fix, not a feature.
+
+**Reported as:** capture timed out on a photo Grok answers directly in about ten seconds.
+
+### Diagnosed in the order the report set, because the order was right
+
+**1 — The counter is unambiguous, and it is the diagnostic to reach for first.** `byokCount()` fires immediately before each `byokCall`, and the retry fires **only** when `r1.ok === true` and the parse failed. So a count of **+2 is proof the reply arrived and failed validation**; +1 is proof it did not arrive. Nothing else has to be inferred.
+
+**2 — Confirmed, and the mechanism is worse than "both attempts burned the budget."** Every call gets its **own full 120 s timeout** — the timer is per-call. A slow first attempt followed by a full second one kept the user waiting **up to 240 seconds** and then aborted, reporting a **timeout**. The parse failure had already happened; the message named the wrong cause. **A symptom that names the wrong cause is worse than a silent failure**, because it sends the next session to the network layer.
+
+**3 — Cleared: the template IS reaching the model.** `byokCall` sends `AI_DIRECT_PREFIX + aiPromptText()` through `byokBody` into the message content beside the image. No duplicate-id-class defect on this path. Recorded because the suspicion was reasonable — D63 had just found exactly that shape one day earlier — and because clearing a hypothesis is evidence too.
+
+**4 — The fallback did not get the raw reply, and this is the defect that cost data.**
+
+```js
+return byokFallback('', r2.error);   // r1.text discarded
+```
+
+When the **retry** failed for any reason, the **first reply was thrown away**. It had arrived. It had been paid for. It was the only thing the user could act on. The paste box — the surface the whole no-key design rests on — was handed an empty string.
+
+Compounding it: `byokLog` writes only to `console.info`, which is unreachable on a phone. So the response existed, was discarded, and left no trace the user could read.
+
+**5 — The template was being sent and the model returned prose anyway**, so hardening is warranted — but the two paths do not share a lever, and that distinction is the substance of this entry.
+
+### The API path gets a constraint; the copy-prompt path only ever gets words
+
+**`response_format: {type:'json_object'}` and a `max_tokens` bound are now sent on the capture call.** The template has said *"Reply with JSON ONLY"* since D11 and the model answered with tables, per-100 g reference values, micronutrients and dietary commentary regardless. **An instruction is a request; `response_format` is a constraint.**
+
+The token bound matters on its own, and not for parsing: **an essay is not merely unparseable, it is slow.** A model writing commentary emits many times the tokens of a 200-token object, which is a direct cause of the wall-clock failure. Bounding the answer bounds the wait.
+
+**This could not be verified against the live API from here** (no key on this machine), so it degrades rather than gambles: `jsonMode` is **declared per provider** rather than assumed, and a provider that rejects the field with a 400 is **retried once without it**. The retry cannot loop — it sets `noJsonMode`, and the branch requires that flag unset.
+
+**The copy-prompt path has no equivalent**, and it is the path the evidence came from. There the words are the only mechanism, so the template now refuses **by name** what the model actually did: no tables, no reference values for foods absent from `items`, no commentary, reply starts with `{` and ends with `}`, and the JSON-only instruction repeated **last as well as first**.
+
+**`AI_TEMPLATE_VERSION` stays at 3.** D11 ties that number to the **schema**, and the item contract is unchanged — same `grams`, `per100`, `scale_linked`, `dominance`. Bumping it would tell a user their saved copy is incompatible when it still produces valid output. The version tracks the contract; wording hardens without it.
+
+### The fixes, and what each one closes
+
+- **Whatever arrived reaches the paste box.** `byokFallback(r1.text, …)` — the first reply survives a failed retry, with a message saying it did not match the template but is what the model sent.
+- **A retry is not started without the budget to finish it.** Below `BYOK_RETRY_MIN_MS` of the call budget the second attempt is declined and the first reply is handed over instead. This is what stops a parse failure from being reported as a timeout.
+- **The retry that does run is bounded by what is left**, not given a fresh full budget.
+- **The decode/parse outcome is logged with its size and elapsed time**, so the next occurrence says how far it got.
+
+### The defect pass
+
+Six defects planted, six failed their gates — including **the reported bug itself**, reproduced by restoring `byokFallback('', …)` and watching `R27-keep` fail. The two structural gates (`response_format`, `max_tokens`) and the provider-declaration gate fail against their own removal; the template gate fails against removing the closing restatement; the retry-floor gate fails against `if (false)`.
+
+**Count delta: 1498 → 1512** (+14), re-pinned deliberately in the same commit.
+
+### Recorded because it will recur
+
+**The escape-sequence trap, three times in one session.** Writing JS string literals through a Python heredoc, `\n` was expanded into a real newline three separate times — twice breaking a string literal outright and once producing a gate that could not parse. Each time the suite said so immediately (`executed 0`, *"the suite did not finish"*), which is the runner behaving exactly as D56 requires. **The tooling lesson: build JS source through raw strings, or avoid the escape entirely by choosing test data without newlines in it.** Cheap to avoid, and it cost three round trips here.
