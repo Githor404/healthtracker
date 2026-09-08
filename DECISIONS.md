@@ -2009,3 +2009,60 @@ The schema, the mask's word-1 slot list, the dish-vs-decompose fork, and the mat
 **The next slice is the MATCHER and the dish fork, prototyped in RAM over a few thousand rows with no persistence at all.** Nothing about name matching across CNF's and FDC's different conventions needs a durable store in order to be *learned*, which means the knowledge layer was less blocked behind this ruling than it appeared.
 
 Recorded because it is the reason this entry is deliberately short on schema: **a corpus that resolves the wrong food quickly is worse than one that resolves the right food slowly.** Representation optimises retrieval; the matcher determines correctness. The representation work was the tractable half, and tractability is not the same as priority.
+
+### Amendment — the store name, ruled rather than assumed (2026-09-07)
+
+`healthtracker-corpus` appeared in the D13 taxonomy row above because that row needed a label, **not because it was ruled**. Flagged immediately after this entry was committed, and settled here rather than left to harden under code.
+
+**Ruled: `healthtracker-corpus`, and the name is a SUBSTRATE decision, not a schema one.** D1 is the reason. That entry rules a *version-stable key* — the predecessor baked the version into the key (`uha-log-v1`), *"which is precisely why a future v2 would orphan v1 data"* — and the same trap is available here: `healthtracker-corpus-v1` would orphan the accreted corpus on the first schema change, which for an artifact whose whole value is accretion is the worst possible place to repeat it.
+
+**The name therefore carries no version, and IndexedDB's own mechanism carries it instead.** `indexedDB.open(name, version)` has a native versioned-upgrade path, so the database name stays stable forever and schema migration runs through `onupgradeneeded` — D1's principle expressed in the substrate's own idiom rather than bolted on beside it.
+
+**Object store names remain deferred to the schema slice.** The database name is D1-class — stable, never versioned, never orphaned — and belongs with the substrate. What the stores inside it are called is schema, and F1 defers schema.
+
+## D60 — A gate is not evidence until it has been seen to fail (2026-09-07)
+
+Governance only. No code, no schema change, no `APP_VERSION` bump.
+
+### The finding that forces this
+
+D56 tabulated four instances of one failure shape: **a check that silently stops checking while everything still reports green.** Two more have since been found, and sorting the six by *where they lived* is the uncomfortable part:
+
+| # | instance | site |
+|---|---|---|
+| 1 | date-pinned gates rotting at midnight (D50) | **gate layer** |
+| 2 | storage gate green while the row printed `avg 3.5` (D52) | app |
+| 3 | a gate script quarantined by antivirus (D53) | **gate layer** |
+| 4 | a gate script present but denied execution (D56) | **gate layer** |
+| 5 | allowlist/loop drift in `editRecord` (D57) | app |
+| 6 | a structural gate matching its own comment (D58) | **gate layer** |
+
+**Four of six live in the gate layer.** The gates are now the most frequent site of the failure they exist to detect. That is not an argument for fewer gates — instance 5 was a live shipped defect and instance 6 was found inside the slice that shipped the fix for it — but it means the gate layer has earned the same adversarial treatment the app gets, and it has been getting that treatment by habit rather than by rule.
+
+Instance 6 is the proof that the existing bar is insufficient. `CLAUDE.md`'s working rule asks for *"pre-registered, re-runnable gate evidence."* That gate was pre-registered, re-runnable, and green — and asserted **nothing**, because it matched the word `imageOrientation` in its own explanatory comment. Every stated requirement was met by a gate that could not fail.
+
+### The rule
+
+**A new or materially changed gate is not evidence until it has been RUN AGAINST THE DEFECT IT CLOSES AND SEEN TO FAIL.** The failing run is part of the gate's evidence and is recorded in `GATES.md` alongside the passing one.
+
+Three clauses, each earned by a specific instance:
+
+**1. Exhibited, not asserted.** It is not enough to reason that a gate would fail; the defect is planted — the pre-slice behaviour restored, or the property mutated false — the suite is run, and the named cases are observed failing. Instance 6 survived every amount of reasoning and died in the first minute of being run against the unpinned build.
+
+**2. A gate that CANNOT fail on the machine running it must say so, and must be paired.** Some properties are unfalsifiable locally: R24's behavioural EXIF gate stays green with the pin removed, because this browser's default is already correct, and it guards the browser that is not running the suite. Such a gate is still worth having — but it is **not** evidence of the thing it appears to prove, it must state that limitation in its own text, and it must be accompanied by an assertion that *can* fail. Silence about a gate's blind spot is the same defect one level up.
+
+**3. It applies to CHANGED gates, not only new ones.** A repointed assertion can be weakened without anyone intending it. This session moved sixteen; each kept its claim only because the claim was re-checked, and "repointed, not weakened" is a statement that has to be *earned* per assertion rather than asserted per commit.
+
+### What this costs, stated honestly
+
+A defect run is a full suite run per planted defect. R23 cost eight; R24 cost four. That is minutes, not hours, and it is the cheapest evidence in the project — it found a shipped photo-reopen bug and a vacuous gate that no amount of review had caught.
+
+### No exemption, and no pretence that writing it down is enough
+
+**No mechanism is provided for marking a gate "unfalsifiable, skip the proof."** D56 refused the same thing for a blocked gate script and the reasoning carries: an exemption marker would let the suite go green while a gate proved nothing, which is instance 6 with a config file in front of it. Clause 2 is the honest path — state the blind spot, pair it with something that can fail.
+
+**And this rule is NOT machine-enforced, which is its own weakness and is recorded rather than glossed.** It depends on the author remembering, and a check that depends on remembering is precisely the category this project has watched decay four times in the gate layer alone. The rule is therefore written where it binds, but it should not be mistaken for a solution: **the enforcing mechanism would be a mutation pass** — a runner that flips a known set of properties false and asserts that a named gate fails for each — and until that exists, D60 is a discipline, not a guarantee. Naming that gap is the point; a governance claim that oversells its own enforcement is the D54 shape.
+
+### Relationship to `CLAUDE.md`
+
+The brief's working rule — *"pre-registered, re-runnable gate evidence"* — is the weaker statement and is now incomplete, as instance 6 demonstrated by satisfying it completely. **D60 is the binding form.** Per the project's own rule that ruled contracts live in `DECISIONS.md` and bind equally with the brief, no edit to `CLAUDE.md` is required for this to hold; the brief is left alone rather than partially updated, since it is already behind the code in other respects and a half-refreshed brief is worse than one known to be historical.
