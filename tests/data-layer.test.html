@@ -2259,6 +2259,69 @@ window.setLS({});
             'R27-retry: reported as a fallback, not as a success');
       });
     }).then(function () {
+      // ---- R28 / D65: the capture trace -------------------------------------
+      // Slowness was reported three times and neither side could see where the
+      // time went, because byokLog writes to console.info -- unreachable on a
+      // phone. A number nobody can read is not instrumentation. These cases gate
+      // that the breakdown EXISTS, is populated from a real capture, and reaches
+      // the surface the finger is on.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        var t = HT.byokTrace();
+        res(!!t && t.attempts.length === 1,
+            'R28-trace: a capture records exactly one attempt when the first reply parses');
+        res(t.bytes > 0 && t.w > 0 && t.h > 0 && typeof t.decodeMs === 'number',
+            'R28-trace GATE: the PAYLOAD actually sent is recorded -- bytes and dimensions, not the target they were aimed at');
+        var a0 = t.attempts[0];
+        res(typeof a0.ttfbMs === 'number' && typeof a0.totalMs === 'number' && a0.totalMs >= a0.ttfbMs,
+            'R28-trace GATE: TIME TO FIRST BYTE is recorded separately from total -- a long TTFB means the model is thinking, a long body means it is writing, and those have opposite fixes');
+        res(a0.status === 200 && /reply \d+ chars/.test(String(a0.outcome)),
+            'R28-trace: with the HTTP status and how much came back');
+        res(typeof a0.jsonMode === 'boolean',
+            'R28-trace GATE: and whether response_format was SENT -- if the 400-retry fires silently every capture is two calls');
+        var line = HT.byokTraceLine();
+        res(line.indexOf('first byte') >= 0 && line.indexOf('total') >= 0 && line.indexOf('call 1') >= 0,
+            'R28-trace GATE: the line names each part, so a report can say WHICH part was slow rather than "slow"');
+      });
+    }).then(function () {
+      // Two attempts are both reported -- the case where a silent double call
+      // would otherwise be invisible.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: junk }, { status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        var t = HT.byokTrace();
+        res(t.attempts.length === 2 && HT.byokTraceLine().indexOf('call 2') >= 0,
+            'R28-trace GATE: a SECOND call appears in the breakdown -- two calls hiding behind one progress spinner is exactly what could not be seen');
+      });
+    }).then(function () {
+      // The trace survives to the outcome surface, on success AND failure.
+      // renderCaptureOutcome returns early without its elements, so the harness
+      // page is given the same ones the shell has -- otherwise these cases would
+      // pass by never running, which is the shape D60 Clause 4 names.
+      ['captureOutcome', 'outcomeScrim', 'outcomeTitle', 'outcomeMsg', 'outcomeFoot', 'outcomeX'].forEach(function (id) {
+        if (!document.getElementById(id)) {
+          var e = document.createElement('div'); e.id = id; document.body.appendChild(e);
+        }
+      });
+      byokReset(SECRET); HT.photoDiscard();
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function () {
+        HT.renderCaptureOutcome();
+        var om = document.getElementById('outcomeMsg');
+        res(!!om && om.innerHTML.indexOf('otrace') >= 0,
+            'R28-surface GATE: the breakdown reaches the OUTCOME MODAL on success -- console.info is unreachable on a phone, which is why this was invisible for three reports');
+        HT.photoDiscard();
+        byokReset(SECRET);
+        FETCH_SCRIPT = [{ status: 500, body: 'boom' }];
+        return HT.byokCapture(FILE).then(function () {
+          HT.renderCaptureOutcome();
+          var om2 = document.getElementById('outcomeMsg');
+          res(!!om2 && om2.innerHTML.indexOf('otrace') >= 0,
+              'R28-surface GATE: and on FAILURE too -- instrumentation that appears only on failure cannot be compared against a working run');
+        });
+      });
+    }).then(function () {
       // R21-failure: each wall is distinct, and each lands on the paste path.
       var walls = [
         { name: 'a rejected key', script: { status: 401, body: '{"error":"bad key"}' }, kind: 'auth' },

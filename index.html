@@ -69,6 +69,11 @@
   .pmaddopen{padding:10px 12px;border:1px dashed var(--line);border-radius:12px;background:var(--panel)}
   .pmexb{margin-left:auto}
   .pmex-wrap{display:flex}
+  /* R28: the timing breakdown. Monospace and small, but SELECTABLE -- it exists
+     to be read off a phone and pasted into a bug report. */
+  .otrace{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;
+          color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:8px;
+          padding:6px 8px;margin:6px 0;user-select:text;-webkit-user-select:text;word-break:break-word}
   .caprow{display:flex;gap:8px}
   .caprow .btn{flex:1;width:auto}   /* R24: take-or-choose, two equal targets */
   .itemeditopen{display:block;padding:0;border:0;background:none}   /* R23: the editor replaces the row in place */

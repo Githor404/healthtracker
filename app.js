@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.26.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.26.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4255,12 +4255,18 @@ function renderCaptureOutcome() {
   if (scrim) scrim.style.display = 'block';
   if (x) x.style.display = (st === 'error') ? '' : 'none';
   const busyMsg = BYOK_BUSY ? String(BYOK_BUSY.message || '') : '';
+  // R28: WHERE THE TIME WENT, on the surface the finger is on. Shown on every
+  // outcome including success -- a capture that worked in 90s is a report worth
+  // having too, and instrumentation that only appears on failure cannot be
+  // compared against a working run.
+  const traceTxt = byokTraceLine();
+  const traceHTML = traceTxt ? `<div class="otrace">${esc(traceTxt)}</div>` : '';
   if (st === 'success') {
     // The draft renders into #photoDraft, which now lives in this body. The
     // markup is UNCHANGED and shared with the paste path, so R21-parity is
     // preserved by construction -- the surface moved, the draft did not.
     title.textContent = 'Meal captured — confirm and save';
-    msg.innerHTML = '';
+    msg.innerHTML = traceHTML;
     foot.innerHTML =
       `<button class="btn primary" onclick="photoSave()">Save meal</button>` +
       `<button class="btn" onclick="photoDiscard()">Discard</button>`;
@@ -4268,13 +4274,13 @@ function renderCaptureOutcome() {
     title.textContent = 'Reading your photo';
     msg.innerHTML = `<div class="opend"><span class="byokspin"></span>${esc(busyMsg)}</div>` +
       `<div class="osub">The photo is sent once, to the provider you configured. Nothing else is sent, ` +
-      `and the photo is never stored.</div>`;
+      `and the photo is never stored.</div>` + traceHTML;
     foot.innerHTML = `<button class="btn" onclick="byokCancel()">Cancel</button>`;
   } else {
     // FAILURE, stated where it happened, with both ways out as BUTTONS rather
     // than as a sentence telling the user where to go.
     title.textContent = 'That did not work';
-    msg.innerHTML = `<div class="omsg obad">${esc(busyMsg)}</div>` +
+    msg.innerHTML = traceHTML + `<div class="omsg obad">${esc(busyMsg)}</div>` +
       `<div class="osub">Your photo is still on your phone. Trying again opens the picker so you can ` +
       `choose it once more.</div>`;
     foot.innerHTML =
@@ -4296,6 +4302,40 @@ function byokState() { return BYOK_STATE; }
 // is off-screen, which is its own kind of silence.
 // A long wait must not read as a hang. The elapsed seconds tick on screen, so a
 // slow-but-working call looks slow, which is the truth, rather than dead.
+// ---- R28: the capture TRACE. Slowness was reported three times and neither
+// side could see where the time went, because byokLog writes to console.info --
+// unreachable on a phone. A number nobody can read is not instrumentation.
+//
+// The split that matters is TIME TO FIRST BYTE vs BODY: fetch resolves its
+// Response when the HEADERS arrive, and res.text() when the body completes. A
+// long TTFB means the model is THINKING before it writes; a short TTFB with a
+// long body means it is writing a great deal. Those have opposite fixes, and
+// without the split every report is just "slow".
+let BYOK_TRACE = null;
+function byokTraceReset() { BYOK_TRACE = { t0: nowMs(), attempts: [] }; return BYOK_TRACE; }
+function byokTrace() { return BYOK_TRACE; }
+function byokTraceNote(k, v) { if (BYOK_TRACE) BYOK_TRACE[k] = v; }
+function byokTraceAttempt(a) { if (BYOK_TRACE) BYOK_TRACE.attempts.push(a); return a; }
+const kb = function (n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' kB'; };
+const secs = function (ms) { return (ms / 1000).toFixed(1) + 's'; };
+// One line, readable on a phone, stating where the time actually went.
+function byokTraceLine() {
+  const t = BYOK_TRACE;
+  if (!t || !t.attempts.length && !t.bytes) return '';
+  const bits = [];
+  if (t.bytes) bits.push(kb(t.bytes) + (t.w ? ' · ' + t.w + '×' + t.h : '') + ' · encode ' + secs(t.decodeMs || 0));
+  t.attempts.forEach(function (a, i) {
+    const parts = ['call ' + (i + 1)];
+    if (a.ttfbMs != null) parts.push('first byte ' + secs(a.ttfbMs));
+    if (a.totalMs != null) parts.push('done ' + secs(a.totalMs));
+    if (a.status) parts.push('HTTP ' + a.status);
+    if (a.outcome) parts.push(a.outcome);
+    parts.push(a.jsonMode ? 'json_object sent' : 'no json_object');
+    bits.push(parts.join(' · '));
+  });
+  bits.push('total ' + secs(nowMs() - t.t0));
+  return bits.join('  |  ');
+}
 let BYOK_TICK = null;
 function byokStopTick() { if (BYOK_TICK) { clearInterval(BYOK_TICK); BYOK_TICK = null; } }
 function byokStartTick(label) {
@@ -4351,10 +4391,16 @@ function byokCapture(file, source) {
   }
   byokBusy('sending', 'Reading the photo\u2026');
   const capT0 = nowMs();                 // R27: the retry must know what it has left
+  byokTraceReset();                      // R28: one trace per capture
   byokLog('capture: source=' + (source === 'library' ? 'library' : 'camera') +
           ' type=' + String((file && file.type) || '?') +
           ' bytes=' + Number((file && file.size) || 0));      // never the image
   return byokDownscale(file, source).then(function (img) {
+    // R28: the payload the provider actually receives, not the target it was aimed
+    // at. base64 inflates by 4/3, and that is what crosses the wire.
+    byokTraceNote('decodeMs', nowMs() - capT0);
+    byokTraceNote('bytes', String(img.dataUrl || '').length);
+    byokTraceNote('w', img.w); byokTraceNote('h', img.h);
     byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
     byokStartTick('Sending to your provider\u2026');
     byokCount();
@@ -4752,6 +4798,7 @@ const VERSION_LOG = [
   { v: '0.25.0', d: '2026-09-07', note: 'A photo draft can now be corrected in a third way: add something the camera could not show. A bowl of crab and chicken in one sauce is one thing to a camera — you can now add the chicken yourself, with its own weight and nutrition, and it is saved as your entry rather than the photo’s. You can also mark an item as not on the plate; it stays visible until you save, so nothing the estimate found is thrown away by one tap. Anything you add keeps its own size and never changes the other items’ sizes. Fix: re-picking what an item IS, from one of your presets, was giving wrong numbers — it treated the preset’s whole portion as if it were the amount in 100 g. Presets now record their portion weight, and one saved without a weight says so instead of guessing.' },
   { v: '0.25.1', d: '2026-09-08', note: 'Fix: the route that needs no API key was broken. The AI photo prompt under Settings was always empty, and Copy prompt could put nothing on the clipboard while telling you to select the text yourself — from a box with nothing in it. Both prompt boxes now hold the prompt, Copy works from either, and if copying is blocked it says so and the text is there to select. Without a key, photo to meal is the only route there is; it works again.' },
   { v: '0.26.0', d: '2026-09-08', note: 'Capture is more likely to work, and when it does not it now hands you something. If the model answers with prose instead of the data — tables, commentary, nutrients a photo cannot show — that reply is put straight into the paste box for you to use, instead of being thrown away while the app reported a timeout. The app also now asks the provider for data-only replies rather than only requesting it in words, caps how long an answer can run, and will not start a second attempt it has no time to finish. The copyable prompt spells out what not to include, since when you paste it yourself those words are the only thing steering the reply.' },
+  { v: '0.26.1', d: '2026-09-08', note: 'Capture now shows where the time went. Every capture — whether it works or not — reports the photo size actually sent, how long preparing it took, how long the provider took to start answering versus to finish, how many calls were made and why. If capture is slow, the breakdown says which part was slow, and it can be selected and copied. Nothing about how capture works has changed; this release only makes it visible.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6072,6 +6119,11 @@ function byokCall(dataUrl, opts) {
   const budget = o.ping ? BYOK_TEST_TIMEOUT_MS : (Number(o.budget) > 0 ? Number(o.budget) : BYOK_CALL_TIMEOUT_MS);
   BYOK_INFLIGHT = ctl; BYOK_CANCELLED = false;
   const timer = setTimeout(function () { if (ctl) ctl.abort(); }, budget);
+  // R28: per-attempt timing. Recorded for the CAPTURE call only -- the ping has
+  // its own budget and its own surface, and mixing them would make the line lie.
+  const att = o.ping ? null : byokTraceAttempt({
+    jsonMode: !!(prov && prov.jsonMode && !o.noJsonMode), sentAt: nowMs(),
+  });
   return fetch(prov.base + '/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + s.key },
@@ -6080,7 +6132,11 @@ function byokCall(dataUrl, opts) {
   }).then(function (res) {
     clearTimeout(timer);
     BYOK_INFLIGHT = null;
+    // Headers are here: this is TIME TO FIRST BYTE. Everything after it is the
+    // provider writing the body.
+    if (att) { att.ttfbMs = nowMs() - att.sentAt; att.status = res.status; }
     return res.text().then(function (raw) {
+      if (att) att.totalMs = nowMs() - att.sentAt;
       // VERIFIED against the live API 2026-09-04: xAI answers a bad key with 400,
       // not 401 -- "Incorrect API key provided. You can obtain an API key from
       // https://console.x.ai." Classifying only on the status code would have
@@ -6095,6 +6151,9 @@ function byokCall(dataUrl, opts) {
       // capture over it. Retried ONCE without the field -- this cannot loop,
       // because the retry sets noJsonMode and the branch requires it unset.
       if (!res.ok && res.status === 400 && !o.noJsonMode && /response_format|json_object|unknown|unsupported/i.test(pmsg)) {
+        // R28: named in the trace. If this fires silently every capture is TWO
+        // calls, and that alone could be most of the wait.
+        if (att) att.outcome = 'response_format REFUSED, retried without';
         byokLog('capture: provider refused response_format; retrying without it');
         return byokCall(dataUrl, Object.assign({}, o, { noJsonMode: true, budget: budget }));
       }
@@ -6105,12 +6164,14 @@ function byokCall(dataUrl, opts) {
       const content = msg && (typeof msg.content === 'string' ? msg.content
         : (Array.isArray(msg.content) ? msg.content.map((c) => c && c.text ? c.text : '').join('') : ''));
       if (!content) return byokErr('malformed', 'The reply carried no content.');
+      if (att) att.outcome = 'reply ' + content.length + ' chars';
       return { ok: true, text: content };
     });
   }).catch(function (e) {
     clearTimeout(timer);
     BYOK_INFLIGHT = null;
     const name = String((e && e.name) || '');
+    if (att) { att.totalMs = nowMs() - att.sentAt; att.outcome = (name === 'AbortError' ? (BYOK_CANCELLED ? 'cancelled' : 'aborted at budget') : 'network error'); }
     if (name === 'AbortError' && BYOK_CANCELLED) return byokErr('cancelled', 'Cancelled.');
     if (name === 'AbortError')
       return byokErr('timeout', 'The provider did not answer within ' + Math.round(budget / 1000) +
@@ -7023,6 +7084,9 @@ window.HT = {
   BYOK_LS, BYOK_PROVIDERS, BYOK_MAX_EDGE, BYOK_JPEG_Q, AI_DIRECT_PREFIX, byokSettings, byokSave,
   // R27 -- structural JSON + the retry floor
   byokBody, BYOK_RETRY_MIN_MS, BYOK_MAX_TOKENS,
+  // R28 -- the capture trace
+  byokTrace, byokTraceReset, byokTraceLine, byokTraceNote, byokTraceAttempt,
+  renderCaptureOutcome,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,
   // R24 -- take-or-choose

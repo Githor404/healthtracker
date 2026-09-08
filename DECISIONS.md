@@ -2385,3 +2385,46 @@ Six defects planted, six failed their gates — including **the reported bug its
 ### Recorded because it will recur
 
 **The escape-sequence trap, three times in one session.** Writing JS string literals through a Python heredoc, `\n` was expanded into a real newline three separate times — twice breaking a string literal outright and once producing a gate that could not parse. Each time the suite said so immediately (`executed 0`, *"the suite did not finish"*), which is the runner behaving exactly as D56 requires. **The tooling lesson: build JS source through raw strings, or avoid the escape entirely by choosing test data without newlines in it.** Cheap to avoid, and it cost three round trips here.
+
+## D65 — Instrument before tuning: where the capture time actually goes (R28, 2026-09-08)
+
+`APP_VERSION → 0.26.1`; **schema unchanged at v6**. **Instrumentation only — nothing about how capture works was changed.**
+
+Slowness had been reported three times, and neither side could see why. `byokLog` writes to `console.info`, which is unreachable on a phone. **A number nobody can read is not instrumentation**, and three rounds of hypothesis without measurement is where this had got to. So the ruling for this slice was: measure first, tune nothing.
+
+### The correction that invalidated the earlier benchmark
+
+The fast Grok responses the report had been comparing against were **web-search-augmented** — the chat identified the restaurant, the specific menu item and nearby locations, and quoted published calorie figures. That is a tool-using pipeline, not a constrained vision call. **The 20 s-versus-100 s comparison proves only that the chat's tool path is fast**, and it is withdrawn as a benchmark. Recorded because it had been steering the diagnosis, and because a benchmark that measures a different pipeline is worse than none.
+
+### What is now measured, and the split that matters
+
+Every capture reports, on the **outcome modal** — the surface D51 already owns, rather than a second one — and on **success as well as failure**:
+
+- the **payload actually sent**, in bytes and pixels (base64 inflates the JPEG by 4/3, and that is what crosses the wire; the target it was aimed at is not evidence of what left the device);
+- **encode time**, separately from call time;
+- per attempt: **time to first byte**, **total**, **HTTP status**, **reply length**, and **whether `response_format` was sent**;
+- whether the 400-retry fired, named as `response_format REFUSED, retried without`;
+- the **attempt count** — a second call can no longer hide behind one spinner;
+- **total elapsed**.
+
+**The load-bearing distinction is TTFB versus body.** `fetch` resolves its `Response` when the *headers* arrive and `res.text()` when the body completes. A long time-to-first-byte means the model is **thinking before it writes**; a short TTFB with a long body means it is **writing a great deal**. **Those have opposite fixes**, and without the split every report reduces to "slow" — which is exactly where three reports had left it.
+
+The line is monospace and deliberately **selectable**: it exists to be read off a phone and pasted back verbatim.
+
+### Verified against the live docs, not assumed
+
+**grok-4.6 accepts image input** — *"Text and image input; text output"*. One models-index table said otherwise; the model's own page contradicts it and captures demonstrably work, so the index summary is the unreliable source. Recorded because "the model may not be vision-capable" would have been a serious hypothesis had it been true.
+
+**`reasoning_effort` defaults to `"high"`, and this app has never set it.** Accepted values are `low | medium | high | xhigh`; **reasoning cannot be disabled**; `"low"` is documented as *"some reasoning tokens, but still fast"*, explicitly for latency-sensitive applications. So a reasoning model runs **high-effort deliberation** to look at a photograph and emit fifteen lines of JSON.
+
+**This is the strongest candidate and it is deliberately NOT changed here.** The instruction for this slice was to instrument before tuning, and the reason is sound: with three unmeasured reports already on the record, a fix applied now would be a fourth guess, and if it appeared to work nobody would know which of the changes did it. The trace will confirm or refute it in one capture — a long TTFB with a short body is the signature.
+
+**`response_format: {type:'json_object'}` is supported** on grok-4.6, alongside `json_schema`. So R27's change should be valid and each capture should be a single call — but the trace now proves that per attempt rather than leaving it inferred.
+
+**Also available and unused:** `image_url` accepts a `detail` parameter controlling image quality, a second latency lever. Noted, not pulled.
+
+### Gated, because instrumentation that stops reporting is the worst kind
+
+Four defects planted, four fail: TTFB not recorded; payload size not recorded; a second call not recorded; and **the trace recorded but never reaching the surface** — which is precisely the failure that made this invisible for three reports. The surface cases needed the outcome-modal elements added to the harness page: without them `renderCaptureOutcome` returns early and the cases would have **passed by never running**, which is D60 Clause 4 exactly, caught by the clause written yesterday.
+
+**Count delta: 1512 → 1521** (+9), re-pinned deliberately in the same commit.
