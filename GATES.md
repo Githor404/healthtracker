@@ -2100,3 +2100,95 @@ Only the source of the image changes. The gates are of two kinds: that the secon
 **Count delta: 1405 → 1445** (+40), re-pinned deliberately in the same commit. **1445/1445 ALL PASS.**
 
 **Full suite, one invocation: `SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS)`, runner exit 0.**
+
+---
+
+### R25 — Adding an item to a photo draft — PRE-REGISTERED, FORKS OPEN (received 2026-09-07; NOT built)
+
+The draft has two correction rails — scale (R6 Rail 1) and identity (R6 Rail 2) — and neither can add a food the model did not report. The motivating meal: a bowl of crab and chicken, the crab resolved, the chicken not separately reported. Correct behaviour for what a photo permits; the gap is that the human cannot then say so.
+
+The survey turned up **two things that change the slice**, both on paths this slice was asked to compose with.
+
+#### Survey — what is actually shipped
+
+**1. The identity rail is broken, and it is the rail the merge case depends on.**
+
+`photoSetIdentity` computes the new per-100 g profile as:
+
+```js
+const base = num(p.portion_g) > 0 ? num(p.portion_g) : 100;   // preset macros are per its own portion
+it.per100 = { kcal: num(p.kcal) * 100 / base, … };
+```
+
+`portion_g` is **read in that one line and written nowhere** — `saveManualPreset` writes `preset.portion`, a descriptive *label* ("1 mug"), and `normalizeSettings` passes presets through unnormalized (`presets: Array.isArray(s.presets) ? s.presets : []`), so no boundary can add it. **`base` is therefore always 100**, and a preset's *per-portion* macros are treated as its *per-100 g density*.
+
+Concretely: a "Chicken breast, 150 g, 248 kcal" preset re-picked onto a 200 g draft item yields **496 kcal against a truth of ~330**. The comment documents an intent the preset writer never implemented.
+
+**And the rail is invisible on a fresh install:** `photoIdentityOptions` returns `''` when `presets.length === 0`, and presets ship empty by the v4 multi-user rule. So the composition R25 is asked to gate — *identity-correct one, add the other* — is **unavailable to a new user and wrong for an existing one**. That is Fork F.
+
+**2. "An added item takes no part in propagation" does NOT fall out for free.** It falls out only under a specific choice, and the obvious alternative silently corrupts every other item's scale.
+
+`photoShared` selects pins as `it.pinned && it.aiGrams > 0` and takes the geometric mean of `grams / aiGrams`. An added item is pinned by construction. **If it also carries `aiGrams`, it enters the pin set** — and if `aiGrams` were set equal to `grams` for symmetry, its ratio is exactly 1.0, dragging the shared correction toward 1 and rescaling every unpinned AI estimate in the draft. The propagation would be wrong with nothing on screen saying so.
+
+With `aiGrams` **absent**, `undefined > 0` is false, the item is excluded, `photoGrams` returns `it.grams` on the `pinned` branch without consulting `photoShared`, and `normalizeItem` omits `ai_grams` because absence is not zero. That is Fork B, and three render sites need guarding for it (below).
+
+**3. Zero-grams is confirmed not to be a remove.** `photoSetGrams` refuses `!(g > 0)` with *"Grams must be positive."* — so the removal gesture genuinely does not exist today, as the brief supposed.
+
+**4. The lead question needs no special case.** `photoLeadIndex` is always 0 and `photoLeadOpen` requires that item to be unpinned. An added item appends after index 0, and is pinned regardless. Removing the lead promotes the next item and reopens its question — coherent, and gated rather than assumed.
+
+#### The forks
+
+**Fork A — the macro source. The central one.**
+
+- **A1 (recommended) — typed per-portion macros, with a preset shortcut when presets exist.** The user types name, grams, and the macros *for the portion they ate* (the manual-add mental model, and the fields already exist); the draft stores `per100 = typed × 100 / grams`, which is the unit the whole draft already works in. Saves as `source: 'manual'`, `confidence: 'eyeballed'` — **never `ai-paste`, never inheriting the draft's**, because no model saw this food. A preset-sourced add saves `source: 'preset'` with the preset's own confidence.
+- **A2 — preset only.** Rejected: presets ship empty, so add-item would be unusable on exactly the install the motivating meal happened on.
+- **A3 — copy/scale from another item in the draft.** Rejected *as a source*: in the motivating case the two foods are genuinely different, and copying crab's density onto chicken is fabrication wearing a decimal. Reasonable later as a convenience for a true duplicate; never as the default.
+- **A4 — unresolved: grams, no macros, flagged.** Honest, and it does record that the food was eaten. **Rejected for v1 for a specific reason**, not a vague one: D10 states *"Macros … every complete day has them (0 for a fasting day), so the mean is Σ(day totals) / M — full coverage."* Macro-absent items break that invariant and every consumer resting on it, and the honest repair is macro coverage annotation on the daily total, the ring and the averages — the shape D10 already uses for micros (*"from N of M"*). That is a larger slice than this one. **Recorded as the escalation** if macro coverage is ever built; not smuggled in under an add button.
+
+**Fork B — `aiGrams` on an added item.**
+- **B1 (recommended): absent (`undefined`), never 0.** Absence is not zero — the rule this project applies to micros (D14) and to `grams` (D57). It keeps the item out of `photoShared`'s pin set by construction rather than by a guard someone can delete.
+- **B2: `aiGrams = grams`.** Rejected — this is the trap named in survey 2.
+- **Three render sites need guarding under B1, and each is a real defect if missed:** the slider `max` computes `Math.max(600, Math.round(aiGrams * 4))`, and `Math.max(600, NaN)` is **NaN**; the row meta prints `est. ${rDisp(aiGrams)} g`, which would claim the model estimated **0 g**; and `photoWeightShaped` / the `fixed size` label read `scaleLinked`, which an added item should not carry.
+
+**Fork C — reopen. This one bites R23's fix.**
+`photoReopen` rebuilds a draft with `g = num(r.ai_grams) > 0 ? num(r.ai_grams) : 100`. An added item has **no** `ai_grams`, so `aiGrams` becomes **100** — and since `pinned` survives the round-trip, the item **re-enters the pin set with ratio `grams / 100`**, corrupting the shared correction on every reopen. Totals stay right on the reopened rows, so nothing looks wrong until the next scale correction, which is precisely the failure shape R23 just closed on this path.
+- **C1 (recommended): persist an explicit marker** (`added: true`), and reopen with `aiGrams` undefined for those rows. **The marker joins `normalizeItem` in the same commit with an export→restore gate** — the allowlist trap, fifth occurrence.
+- **C2: infer from absent `ai_grams`.** Sound *today* within a `mealId`, but it is inference where a fact costs one allowlist entry, and it breaks the first time any other path writes a photo-meal item without `ai_grams`.
+
+**Fork D — remove.**
+- **D1 (recommended): soft exclude.** The row stays, struck through, with an *include* control; `photoSave` skips excluded rows. Fully reversible until save, needs no undo machinery, and it **preserves output that cost a paid API call and cannot be regenerated without another one** — which is the real argument for reversibility here, since a draft is not saved state.
+- **D2: hard remove plus an undo toast.** `offerUndo` is wired to `Store.saveState` + `refresh`, and a draft is not saved state; it would need its own mechanism to do what D1 gets from a flag.
+- **Last-item edge:** removing the final item is **refused**, pointing at Discard. A modal offering to save nothing is the shape R21.5 exists to forbid.
+
+**Fork E — where the affordance lives.**
+- **E1 (recommended): inline, at the end of the item list.** D51 ruled the footer is the *outcome commitment* surface — Save and Discard, fixed, never scrolling. Add-item is draft **editing**, like every slider and identity picker, all of which are inline. In the footer it would compete for the thumb with Save.
+- **E2: modal footer.** Rejected for the above, unless you want add to read as an outcome-level action.
+
+**Fork F — can an added item be identity-re-picked, and does the broken rail get fixed here?**
+- **F1 (recommended): yes, same rail, same contract** — a typed item that turns out to match a preset should be able to say so.
+- **But F1 is worth little until the rail works.** Two sub-options for survey 1:
+  - **F-fix1 (recommended): presets record `portion_g`, and where it is absent identity re-pick REFUSES** rather than assuming 100. Absence is not zero; refusing is honest, assuming is the current silent wrongness. Additive to the settings shape, so no migration — but it is a settings-side allowlist addition and the R18 boot/restore lesson applies.
+  - **F-fix2: keep assuming 100 and document it.** Rejected: that is the defect with a comment on it.
+- **Scope call, and it is yours.** This is a live defect on the exact path R25 is asked to compose with. Gating *add + identity-correct* without fixing it would be gating a rail that computes the wrong number — D60's *"a gate is not evidence"* in spirit. **Recommend it rides along**; it is the one piece of scope creep in the slice and it deserves an explicit yes rather than my assumption.
+
+**Fork G — micro coverage. Falls out; gated as a confirmation.**
+An added item carries no micros (no label was read, so D8 forbids inventing them), and D10 counts only days *carrying* K. So it is **honestly absent from micro coverage rather than assumed complete**, with no new code. Confirmed by gate rather than by argument.
+
+#### Pre-registered gates (to run once ruled)
+
+| Case | Asserts |
+|---|---|
+| R25-add | an added item saves as an **ordinary item** with `source: 'manual'` (or `'preset'`) and its **own** confidence — never `ai-paste`, never the draft's |
+| R25-pin | it is pinned, carries **no `aiGrams`**, and is **excluded from `photoShared`'s pin set**; proven against B2 by setting `aiGrams = grams` and asserting the shared correction moves |
+| R25-propagate | adding an item leaves every other item's scale **byte-identical** — the added item changes nobody else's grams |
+| R25-render | the slider `max` is a number (not `NaN`), the row does **not** claim an estimate of 0 g, and the added row is labelled as added rather than as *fixed size* |
+| R25-reopen | a saved meal containing an added item **reopens with the shared correction intact** — proven against C2/no-marker, where `aiGrams` defaults to 100 and the item re-enters the pin set |
+| R25-roundtrip | the added marker survives **export → restore** in `normalizeItem` — the allowlist trap, fifth occurrence, asserted directly |
+| R25-remove | an excluded row is **not saved**, the remaining propagation is **recomputed correctly**, exclusion is **reversible before save**, and removing the last item is **refused** rather than leaving a modal offering to save nothing |
+| R25-merge | **the motivating case, end to end**: one reported item is identity-corrected to the crab and a chicken item is added, producing two items with the right macros — the composition gated rather than assumed |
+| R25-identity | *(F-fix1)* a preset with `portion_g` re-picks to the **correct density**; one without `portion_g` is **refused, not assumed to be per-100 g**; proven against the shipped behaviour, which returns 496 kcal where truth is ~330 |
+| R25-micros | an added item is **absent** from micro coverage, never counted as complete (D8/D10) |
+| R25-regress | every existing R6 / R21.5 / R22 draft gate **repointed, not weakened** — lead question, divergence, identity propagation-stop, and the outcome modal's three states unchanged |
+| R25-vocab | M7 with a planted control over the add form and the added-row labels |
+
+**Status: PRE-REGISTERED, NOT BUILT — awaiting rulings on A–G.**
