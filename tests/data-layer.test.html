@@ -1924,6 +1924,87 @@ window.setLS({});
     // field is the four-shape ingest boundary. Restore is NOT on that surface.
     res(seIn('#pane-photo', '#promptTemplate') && seIn('#pane-photo', '#ingestBox'),
         'SE-paste: Photo · AI paste holds copy-prompt AND the paste field in one flow');
+
+    // ------------------------------------------------------------------
+    // R26 -- THE NO-KEY FLOOR. The case above asserts the textarea EXISTS.
+    // It existed the whole time the path was dead: `renderPromptCard` filled
+    // `getElementById('promptTemplate')`, both cards shared that id, so the
+    // Settings box was never written to at all, and `copyPrompt` selected a
+    // textarea inside the hidden photo pane -- which cannot be selected, so the
+    // toast then told the user to "select-all + copy" a box that was empty.
+    // Presence was necessary and not sufficient, again (D53/D56). These cases
+    // assert CONTENT and OUTCOME on the surface the finger is on.
+    // ------------------------------------------------------------------
+    var seW = seFrame.contentWindow;
+    var pboxes = SEDOC.querySelectorAll('[data-prompt-box]');
+    res(pboxes.length >= 2, 'R26-floor: there is a prompt box on the photo surface AND in Settings');
+    var ids = {};
+    Array.prototype.forEach.call(SEDOC.querySelectorAll('[id]'), function (el) {
+      ids[el.id] = (ids[el.id] || 0) + 1;
+    });
+    var dupes = Object.keys(ids).filter(function (k) { return ids[k] > 1; });
+    res(dupes.length === 0,
+        'R26-floor GATE: NO duplicate element id in the shipped shell -- two cards shared "promptTemplate", and getElementById only ever returns the first, which is what left the second permanently empty' + (dupes.length ? (' [' + dupes.join(',') + ']') : ''));
+    var allFilled = Array.prototype.every.call(pboxes, function (b) {
+      return (b.value || '').length > 0 && b.value === seW.HT.AI_PROMPT_TEMPLATE;
+    });
+    res(allFilled,
+        'R26-floor GATE: EVERY prompt box actually CONTAINS the template after boot -- not merely present, and not just the first one');
+
+    // The copy action must put real text on the clipboard, from either surface.
+    var grabbed = null;
+    try {
+      Object.defineProperty(seW.navigator, 'clipboard',
+        { value: { writeText: function (t) { grabbed = t; return Promise.resolve(); } }, configurable: true });
+    } catch (e) {}
+    function seCopyFrom(paneOpen) {
+      grabbed = null;
+      if (paneOpen === 'photo') { seW.closeSettings(); seW.openSheet('photo'); }
+      else { seW.closeSheet(); seW.openSettings(); }
+      // EVERY box is blanked first. Without this the assertions below measure what
+      // BOOT did, not what copyPrompt does -- both boxes are already full at boot,
+      // so targeting the wrong one, or not filling at all, changes nothing visible
+      // and the gate cannot fail. Third time a fixture has failed to reach the
+      // property it names (D60/D61); it is the fixture that needs the adversary,
+      // not only the assertion.
+      var all = SEDOC.querySelectorAll('[data-prompt-box]');
+      Array.prototype.forEach.call(all, function (b) { b.value = ''; });
+      var vis = Array.prototype.filter.call(all, function (b) { return b.offsetParent !== null; })[0];
+      var btn = vis && vis.parentElement ? vis.parentElement.querySelector('button') : null;
+      var r = seW.copyPrompt(btn);
+      var other = Array.prototype.filter.call(all, function (b) { return b !== vis; })[0];
+      return { visible: vis, other: other, ret: r, clip: grabbed };
+    }
+    var cPhoto = seCopyFrom('photo');
+    res(!!cPhoto.clip && cPhoto.clip.length > 0 && cPhoto.clip === seW.HT.aiPromptText(),
+        'R26-copy GATE: from the PHOTO surface, Copy prompt puts the real prompt on the clipboard -- non-empty, and the same text the box shows');
+    res((cPhoto.visible.value || '').length > 0,
+        'R26-copy GATE: and it FILLS the box itself -- asserted from empty, so this measures copyPrompt rather than what boot happened to leave behind. "Select it and copy" is only honest if the text is there');
+    var cSet = seCopyFrom('settings');
+    res(!!cSet.clip && cSet.clip.length > 0 && cSet.clip === seW.HT.aiPromptText(),
+        'R26-copy GATE: and from SETTINGS too -- this surface copied from a HIDDEN textarea in the other card, which is unselectable, so the whole action was dead there');
+    res((cSet.visible.value || '').length > 0,
+        'R26-copy GATE: with its OWN box filled -- it was empty on every build since v0.9.0');
+    res((cSet.other.value || '').length === 0,
+        'R26-copy GATE: and the box in the OTHER card is untouched -- copying from Settings used to write into the hidden photo-pane textarea, which is the bug wearing its own fix');
+    // BOTH surfaces open at once. This is what makes the ancestor walk in
+    // promptBoxFor load-bearing rather than belt-and-braces: with one surface open
+    // the visible-box fallback picks the right box on its own, so removing the walk
+    // breaks nothing observable. Here two boxes are visible and only the tapped
+    // card's may be written.
+    seW.openSheet('photo'); seW.openSettings();
+    var bothBoxes = SEDOC.querySelectorAll('[data-prompt-box]');
+    Array.prototype.forEach.call(bothBoxes, function (b) { b.value = ''; });
+    var visBoth = Array.prototype.filter.call(bothBoxes, function (b) { return b.offsetParent !== null; });
+    if (visBoth.length >= 2) {
+      var target = visBoth[visBoth.length - 1];                 // NOT the first
+      seW.copyPrompt(target.parentElement.querySelector('button'));
+      res((target.value || '').length > 0 && (visBoth[0].value || '').length === 0,
+          'R26-copy GATE: with BOTH surfaces open, Copy fills the box in the card that was TAPPED and leaves the other alone -- the first-in-document box is exactly what the shipped bug always reached for');
+    } else {
+      res(false, 'R26-copy: could not open both prompt surfaces at once, so the tapped-card case went untested');
+    }
+    seW.closeSettings(); seW.closeSheet();
     res(!seIn('#pane-photo', '#importBox') && !seIn('#entrySheet', '#importBox'),
         'SE-paste: destructive Import/Restore is NOT on the paste surface');
 

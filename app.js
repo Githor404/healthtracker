@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.25.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.25.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4501,19 +4501,64 @@ function renderCaptureBtn() {
     : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`);
 }
 
+// R26: EVERY prompt box, not the first one getElementById happens to return.
+// There are two cards -- the photo pane's and Settings' -- and they shared an id,
+// so `getElementById` filled the photo one and the Settings box sat permanently
+// EMPTY, on every build since v0.9.0. Selected by attribute so a third card would
+// be filled too, rather than silently joining the dead one.
+function promptBoxes() { return Array.prototype.slice.call(document.querySelectorAll('[data-prompt-box]')); }
 function renderPromptCard() {
-  const box = document.getElementById('promptTemplate');
-  if (box) box.value = AI_PROMPT_TEMPLATE;
-  const ver = document.getElementById('promptVersion');
-  if (ver) ver.textContent = 'template v' + AI_TEMPLATE_VERSION;
+  promptBoxes().forEach(function (box) { box.value = AI_PROMPT_TEMPLATE; });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-prompt-version]'),
+    function (ver) { ver.textContent = 'template v' + AI_TEMPLATE_VERSION; });
 }
-function copyPrompt() {
-  const box = document.getElementById('promptTemplate');
-  if (box) { box.value = aiPromptText(); box.focus(); box.select(); try { box.setSelectionRange(0, aiPromptText().length); } catch (e) {} }
+// The box the FINGER was on, not the first in the document. Copying from Settings
+// used to select a textarea inside the hidden photo pane -- which cannot be
+// selected, so `execCommand` failed, and the toast then told the user to
+// "select-all + copy the prompt" from a box that was empty. The stated recovery
+// was impossible, which is what made the no-key path dead rather than merely awkward.
+function promptBoxFor(from) {
+  const boxes = promptBoxes();
+  // Walk up from whatever was tapped until an ancestor holds a prompt box.
+  // Deliberately NOT keyed to a wrapper class: the two cards do not share one --
+  // the Settings copy is in a `.card` and the photo pane is not -- and keying to
+  // markup that merely happens to hold today is how the first version of this
+  // function broke.
+  let n = (from && from.parentElement) ? from.parentElement : null;
+  while (n) {
+    const own = n.querySelector ? n.querySelector('[data-prompt-box]') : null;
+    if (own) return own;
+    n = n.parentElement;
+  }
+  const visible = boxes.filter(function (b) { return b.offsetParent !== null; });
+  return visible[0] || boxes[0] || null;
+}
+function copyPrompt(from) {
+  const text = aiPromptText();
+  const box = promptBoxFor(from);
+  // FILL FIRST, unconditionally. Whatever happens to the clipboard, the manual
+  // route must be followable -- "select it and copy" is only honest advice if the
+  // text is actually there.
+  if (box) box.value = text;
   let done = false;
-  try { done = document.execCommand('copy'); } catch (e) {}
-  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(aiPromptText()).then(function () { toast('Prompt copied'); }).catch(function () {});
-  toast(done ? 'Prompt copied' : 'Select-all + copy the prompt');
+  if (box && box.offsetParent !== null) {          // only a VISIBLE box can be selected
+    try {
+      box.focus(); box.select();
+      try { box.setSelectionRange(0, text.length); } catch (e) {}
+      done = document.execCommand('copy');
+    } catch (e) { done = false; }
+  }
+  if (done) { toast('Prompt copied'); return { ok: true, via: 'selection', chars: text.length }; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    // The rejection is REPORTED, not swallowed. A silent catch is how a dead copy
+    // looked like a working one.
+    navigator.clipboard.writeText(text).then(
+      function () { toast('Prompt copied'); },
+      function () { toast('Copy did not work — the prompt is in the box, select it and copy'); });
+    return { ok: true, via: 'clipboard', chars: text.length };
+  }
+  toast('The prompt is in the box — select it and copy');
+  return { ok: true, via: 'manual', chars: text.length };
 }
 function scrollToGoals() {
   const d = document.getElementById('goalsDetails'); if (d) d.open = true;
@@ -4678,6 +4723,7 @@ const VERSION_LOG = [
   { v: '0.23.0', d: '2026-09-07', note: 'Food items can now be edited, not just deleted — tap a row to change its meal, time, portion, numbers or note. Tapping the meal chip opens the same editor on the meal, so changing it is a choice from the list rather than tapping through all six. An edit keeps what the values were before and shows them, and correcting a number marks it as your own estimate. Scanned and photo items now record the portion you accepted as a real number instead of burying it in a note, so changing the grams rescales the item’s nutrition; a photo meal you reopen comes back at the weight you set rather than the estimate you corrected. Adjusting water can be undone, and changing or deleting anything on a completed day reopens it, so a finished day always matches what you attested to.' },
   { v: '0.24.0', d: '2026-09-07', note: 'Capture meal now lets you choose: take a photo now, or pick one you already have. A meal photographed earlier can finally be logged — and on a computer, where Capture had no working path at all, Choose photo opens an ordinary file picker. Nothing after the photo changes. Photos from a library are also turned the right way up before they are sent, since a sideways plate is a different meal to the model reading it; and a HEIC picked from the library is now told what can actually fix it, rather than a camera setting that only affects the next photo you take.' },
   { v: '0.25.0', d: '2026-09-07', note: 'A photo draft can now be corrected in a third way: add something the camera could not show. A bowl of crab and chicken in one sauce is one thing to a camera — you can now add the chicken yourself, with its own weight and nutrition, and it is saved as your entry rather than the photo’s. You can also mark an item as not on the plate; it stays visible until you save, so nothing the estimate found is thrown away by one tap. Anything you add keeps its own size and never changes the other items’ sizes. Fix: re-picking what an item IS, from one of your presets, was giving wrong numbers — it treated the preset’s whole portion as if it were the amount in 100 g. Presets now record their portion weight, and one saved without a weight says so instead of guessing.' },
+  { v: '0.25.1', d: '2026-09-08', note: 'Fix: the route that needs no API key was broken. The AI photo prompt under Settings was always empty, and Copy prompt could put nothing on the clipboard while telling you to select the text yourself — from a box with nothing in it. Both prompt boxes now hold the prompt, Copy works from either, and if copying is blocked it says so and the text is there to select. Without a key, photo to meal is the only route there is; it works again.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6977,6 +7023,7 @@ window.HT = {
   renderMicroFields, readMicroFields, MICRO_SPEC,
   averageOver, completeDaysInWindow, clearDay,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
+  renderPromptCard, copyPrompt, promptBoxes, promptBoxFor,
   setSupplement, applySupplementToToday, normalizeSupplement,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice

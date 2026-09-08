@@ -2063,6 +2063,25 @@ A defect run is a full suite run per planted defect. R23 cost eight; R24 cost fo
 
 **And this rule is NOT machine-enforced, which is its own weakness and is recorded rather than glossed.** It depends on the author remembering, and a check that depends on remembering is precisely the category this project has watched decay four times in the gate layer alone. The rule is therefore written where it binds, but it should not be mistaken for a solution: **the enforcing mechanism would be a mutation pass** — a runner that flips a known set of properties false and asserts that a named gate fails for each — and until that exists, D60 is a discipline, not a guarantee. Naming that gap is the point; a governance claim that oversells its own enforcement is the D54 shape.
 
+
+### Amendment — Clause 4: THE FIXTURE IS AS FALSIFIABLE AS THE ASSERTION (2026-09-08)
+
+The three clauses above catch a gate that **asserts nothing**. They do not catch a gate whose **starting state makes the assertion true regardless of the code under test** — and that has now happened three times, in two consecutive slices, always found by the defect pass and never by review.
+
+| slice | assertion | why the fixture could not exhibit the failure |
+|---|---|---|
+| R25 (D61) | excluding a row takes it out of the shared correction | the case excluded an **unpinned** row, which was never in the pin set |
+| R25 (D61) | an excluded row is not written | the case **un-excluded everything before saving** |
+| R26 (D63) | Copy fills the box, so "select it and copy" is followable | **both boxes are already full at boot**, so the assertion held whatever `copyPrompt` did |
+
+In every case the assertion was correct, well-named, and would have caught the defect **given a fixture that could reach it**. The gap is one level below the assertion, which is exactly where nobody looks.
+
+**Clause 4, binding:** *proving against the defect means the FIXTURE must be capable of exhibiting the failure, not merely the assertion capable of naming it.* The starting state is part of the gate and is adversarial in the same way the assertion is — set it so the property is **false before the code under test runs**, then assert the code makes it true.
+
+**The practical diagnostic, since this is what actually catches it:** when a planted defect leaves the suite green, suspect the fixture first. An assertion that names the right property and still passes against its own defect is almost always measuring a state that some *other* code established.
+
+**And the positive pattern, from the fourth defect of R26.** Removing the ancestor walk in `promptBoxFor` broke no gate — legitimately, because the visible-box fallback independently satisfies the property whenever only one surface is open. The temptation is a caveat: *"this mutation is safe for an unrelated reason."* The better answer is to **construct the case where the mechanism is not optional** — both surfaces open at once, two boxes visible, only the tapped card's may be written. That makes the walk load-bearing and the mutation falsifiable, and it replaces a note nobody would re-read with a gate that fails. **Prefer constructing the discriminating case over recording why the gate could not fail.**
+
 ### Relationship to `CLAUDE.md`
 
 The brief's working rule — *"pre-registered, re-runnable gate evidence"* — is the weaker statement and is now incomplete, as instance 6 demonstrated by satisfying it completely. **D60 is the binding form.** Per the project's own rule that ruled contracts live in `DECISIONS.md` and bind equally with the brief, no edit to `CLAUDE.md` is required for this to hold; the brief is left alone rather than partially updated, since it is already behind the code in other respects and a half-refreshed brief is worse than one known to be historical.
@@ -2263,3 +2282,51 @@ The appeal is real in the small case — a sauce defined once and used in three 
 **None of that is needed by anything on the board, and all of it becomes load-bearing the moment one nested composite exists.** That asymmetry is the ruling: the cost is not paid gradually as nesting gets used, it is paid in full by the first instance.
 
 **If the sauce case becomes real it gets ruled deliberately** — as its own fork, with cycle detection and recompute propagation argued rather than inherited. What is refused here is nesting **arriving as an implementation detail**, which is how a dependency graph normally enters a codebase: not decided, just permitted.
+
+## D63 — The no-key floor was dead, and the gate that named it asserted presence (R26, 2026-09-08)
+
+`APP_VERSION → 0.25.1`; **schema unchanged at v6**. A fix, not a feature.
+
+**The floor:** without an API key, copy-the-prompt → paste-the-reply is the *only* route from a photo to a meal. Every capture decision since R21 rests on that route existing. It did not work.
+
+### Not the regression it looked like
+
+The report suspected R21, R24 or R25 — all three touched the Photo tab this week. `git log -S 'id="promptTemplate"'` puts the cause at **v0.9.0 (D30)**, weeks earlier. Recorded because the instinct was reasonable and wrong, and because the defect pass, not the blame guess, is what located it.
+
+### Two defects; the second is what made it dead rather than merely ugly
+
+**1. Two elements shared `id="promptTemplate"`** (and `promptVersion`) — one on the photo surface, one in Settings. `renderPromptCard` used `getElementById`, which returns only the first. **The Settings prompt box has been empty on every build since v0.9.0.**
+
+**2. `copyPrompt` always reached for that same first box, whichever card was tapped.** From Settings, that box sits inside the **hidden** photo pane, and a hidden textarea cannot be focused or selected — so `execCommand('copy')` fails. The Clipboard API fallback carried `.catch(function () {})`, so **a rejection was swallowed**, and the toast then said *"Select-all + copy the prompt"* while pointing at a box containing nothing.
+
+**The stated recovery was impossible.** That is the difference between a rough edge and a dead path: the app told the user to do something that could not be done, and reported no failure while doing it.
+
+### The fix
+
+- **Distinct ids, and every box filled.** `renderPromptCard` writes to `[data-prompt-box]` — all of them, selected by attribute so a third card would be filled rather than silently joining the dead one.
+- **`copyPrompt(from)` copies from the box the finger was on**, found by walking up from the tapped element until an ancestor holds a prompt box. Deliberately **not** keyed to a wrapper class: the two cards do not share one — Settings' is a `.card`, the photo pane is not — and the first version of this fix keyed to `.card` and broke for exactly that reason, which is the same mistake one layer along.
+- **The box is filled unconditionally, before any copy is attempted.** Whatever the clipboard does, the manual route must be followable; *"select it and copy"* is only honest advice when the text is there.
+- **The rejection is reported, not swallowed.** A failed `writeText` now says so and points at the box, rather than leaving a toast that claims nothing happened while implying something did.
+
+### How it passed the suite — presence, not content
+
+The nearest existing case asserted `#promptTemplate` **exists** inside `#pane-photo`. It existed throughout. Everything else exercised `AI_PROMPT_TEMPLATE` and `AI_PROMPT_SAMPLE` as **constants**, through `ingest()` and `parsePhotoMeal` — the R6 template↔ingest self-consistency gate is a gate on the *constant*, and it was green and correct the entire time the surface was broken.
+
+**Nothing asserted that the constant reaches the box, or that the copy action yields text.** That is D53's and D56's *presence was necessary and not sufficient*, one layer up: the element was present, the constant was consistent, and the user had nothing to paste.
+
+The new cases assert **content and outcome, on the shipped surface, from both cards** — every box holds the template after boot; the shell contains **no duplicate id at all**; Copy puts the real prompt on the clipboard from the photo surface and from Settings; and the tapped card's box is the one that gets filled.
+
+### The defect pass, and what it caught in the gate
+
+Four defects planted. Two failed immediately. **Two passed — and neither was an assertion problem:**
+
+- *the box is filled* held whatever `copyPrompt` did, because **both boxes are already full at boot**. The fixture now blanks every box first, so the case measures the function rather than the boot.
+- *the tapped card's box is used* held with the ancestor walk removed, because the visible-box fallback independently satisfies the property whenever only one surface is open — **a legitimate pass, not a gap**. Rather than record a caveat, the case now opens **both surfaces at once**, where two boxes are visible and only the tapped one may be written. That makes the walk load-bearing and the mutation falsifiable.
+
+Both findings are generalised into **D60's Clause 4** in the same commit: *the fixture is as falsifiable as the assertion.*
+
+### The instruction copy, revisited
+
+Both notes described only the manual route, which was written before BYOK capture existed and never revisited. They now describe **both**: the photo surface names Take photo / Choose photo as the with-a-key route and the prompt as the without-one route; the Settings copy points at where capture lives. The D8 honesty line — *macros only, never micronutrients from a photo* — is kept verbatim on both.
+
+**Count delta: 1489 → 1498** (+9), re-pinned deliberately in the same commit.

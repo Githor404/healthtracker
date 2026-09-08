@@ -291,7 +291,7 @@
   .oblist{font-size:13px;color:var(--muted);margin:6px 0;padding-left:18px;line-height:1.55}
   .oblist b{color:var(--txt)}
   .pver{font-size:11px;color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
-  #promptTemplate{min-height:150px}
+  #promptTemplate,#promptTemplateSettings{min-height:150px}
   .checkline{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--txt);margin:8px 0}
   .checkline input{width:auto}
   .about{font-size:11px;color:var(--muted);text-align:center;padding:16px 6px;line-height:1.6}
@@ -581,10 +581,10 @@
            modal -- is one path with one source of truth. -->
       <input id="captureFile" type="file" accept="image/*" capture="environment" style="display:none" onchange="onCaptureFile(this)">
       <input id="captureLib" type="file" accept="image/*" style="display:none" onchange="onCaptureFile(this)">
-      <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
-      <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
-      <textarea id="promptTemplate" readonly></textarea>
-      <div class="note">Send this to your AI assistant with a meal photo, then paste its JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
+      <h2>AI photo prompt <small id="promptVersion" class="pver" data-prompt-version></small></h2>
+      <button class="btn" onclick="copyPrompt(this)">⇪ Copy prompt</button>
+      <textarea id="promptTemplate" data-prompt-box readonly></textarea>
+      <div class="note">Two ways to read a photo. With an API key saved, <b>Take photo</b> or <b>Choose photo</b> sends it for you. Without one, copy this prompt to your own AI assistant with the photo, then paste its JSON reply below. Either way: macros only — never micronutrients from a photo.</div>
       <h2>Ingest · paste JSON</h2>
       <textarea id="ingestBox" placeholder="Paste JSON from your AI assistant (items) — or a full export to merge days. Non-destructive."></textarea>
       <button class="btn primary" onclick="doPhotoPaste()">Read photo meal</button>
@@ -796,10 +796,10 @@
       </details>
     </div>
     <div class="card" data-setting="prompt">
-      <h2>AI photo prompt <small id="promptVersion" class="pver"></small></h2>
-      <button class="btn" onclick="copyPrompt()">⇪ Copy prompt</button>
-      <textarea id="promptTemplate" readonly></textarea>
-      <div class="note">Send this to your AI assistant with a meal photo, then paste its JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
+      <h2>AI photo prompt <small id="promptVersionSettings" class="pver" data-prompt-version></small></h2>
+      <button class="btn" onclick="copyPrompt(this)">⇪ Copy prompt</button>
+      <textarea id="promptTemplateSettings" data-prompt-box readonly></textarea>
+      <div class="note">Used two ways. Capture on the Photo screen sends it for you when an API key is saved; without one, copy it to your own AI assistant with a meal photo and paste the JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
     </div>
     <div class="card" data-setting="export">
       <h2>Export · copy data out</h2>
