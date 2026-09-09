@@ -2228,3 +2228,129 @@ An added item carries no micros (no label was read, so D8 forbids inventing them
 **The last two are D60 earning its keep in the session it was written.** Both gates were green, pre-registered and re-runnable, and neither could fail — instance 6's shape, caught by the rule rather than by luck. It also sharpens D60: the danger is not only a gate that asserts nothing, but one whose **fixture does not reach the property it names**. Both now fail against their defect.
 
 **Count delta: 1445 → 1489** (+44), re-pinned deliberately in the same commit. **1489/1489 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
+
+### R30 — Identity-first confirmation and the candidate off-ramp — PRE-REGISTERED, FORKS OPEN (received 2026-09-09; NOT built)
+
+**Numbering.** The brief arrived labelled R28. **R28 is taken** (D65, capture instrumentation, v0.26.1) and so is R29 (D66, `reasoning_effort`, v0.26.2). Registered here as **R30**; say if a renumber was intended rather than a slip.
+
+Two real failures on device, and they share a shape:
+
+1. **A glass of wine identified as apple juice**, after which the confirm modal asked for the **grams**. The question presupposed the identity and moved attention to the number — a volume was corrected for a drink that was not being had. Alcohol versus sugar: not close, invisible in the photo, material in the record.
+2. **A single item resolved as "chicken nugget"** with the same grams-first framing. Tenderloin versus New York strip differ materially at the same weight. (Flagged in D66 and deliberately left there, so the first-byte measurement stayed attributable.)
+
+**Ruled in the brief, and built to as stated:** single item in frame → the confirm question is **identity**, not grams; multi-item plates keep the dominant-anchors-the-rest design; above threshold resolve with the off-ramp visible; **below threshold do not resolve at all** — no provisional answer in the field, straight to the off-ramp, because a displayed default anchors even when labelled uncertain. Off-ramp in three depths: ranked candidates with **no confidence figures shown**, "none of these" → unresolved path, corpus search eventually.
+
+#### One thing to say before the forks: the threshold is the weaker of the two defences
+
+The wine was almost certainly returned **confidently**. A confidence threshold does not catch a confidently wrong answer; it catches a hesitant one. What catches the wine case is the **shape of the question** — asking *what is this* before *how much of it* — and the off-ramp remaining visible **above** threshold, both of which the brief already rules.
+
+Recorded because it decides how the slice is judged on device: *identity is asked first* is the load-bearing gate. *Below threshold nothing is rendered* is a second, narrower defence, and if the next capture is again confidently wrong that is **not** evidence the threshold is set wrong.
+
+#### Survey — what is actually shipped
+
+**1. The off-ramp's destination does not exist, and this project has already ruled on building it.**
+
+"None of these → grams logged, composition absent, flagged" is **R25's Fork A4 verbatim**, which was **rejected for v1** for a stated reason:
+
+> D10 states *"Macros … every complete day has them (0 for a fasting day), so the mean is Σ(day totals) / M — full coverage."* Macro-absent items break that invariant and every consumer resting on it, and the honest repair is macro coverage annotation on the daily total, the ring and the averages — the shape D10 already uses for micros (*"from N of M"*). That is a larger slice than this one. **Recorded as the escalation** if macro coverage is ever built; not smuggled in under an add button.
+
+An item with grams and no macros contributes **0 kcal to a total that presents itself as complete** — understated, and looking exact. That is the failure D8 exists to prevent, arriving through the daily ring instead of through a micronutrient. **The off-ramp cannot be built honestly without macro coverage**, and macro coverage touches the daily total, the ring, the averages and export. This is Fork F, and it is the largest cost in the brief by a wide margin.
+
+**2. The identity rail the off-ramp would reuse renders nothing on a fresh install.**
+
+`photoIdentityOptions` returns `''` when `presets.length === 0`, and presets ship empty by the v4 multi-user rule. So the only shipped way to correct an identity is **a re-pick over the user's own presets**, and for a user with none there is **no identity correction at all** — which is the state both motivating failures happened in. The off-ramp is not an improvement on the rail; for a new user it is the first rail there is.
+
+**3. A candidate pick has no macros, and this is the crux of the slice.**
+
+`photoSetIdentity` swaps `per100` from a **preset**, and since R25's F-fix1 it **refuses** when `portion_g` is absent rather than assuming 100. A candidate returned by the model is **a name and a number** — no `per100`, no portion. So picking candidate #2 can change the name and nothing else, leaving apple-juice macros under the word "wine": the original error, now wearing a correction. Fork E.
+
+**4. The lead question is grams-shaped by construction.**
+
+`photoLeadIndex` is unconditionally `0`; `photoLeadOpen` is *"index 0 exists and is unpinned"*; the block hardcodes *"AI estimated: **name**, N g — confirm or correct"* over a slider and a numeric field, and `photoConfirmLead` pins at the estimate. There is no branch for a differently-shaped question and no item-count test anywhere in it. Single-item detection has no home yet — it is new structure, not a flag.
+
+**5. Below-threshold suppression collides with propagation, and only on plates.**
+
+`photoShared` computes R from `grams / aiGrams` over pinned items and `photoGrams` scales every unpinned `scaleLinked` item by it. **Withholding a provisional identity on a plate's dominant item strands the mechanism the plate design depends on** — there is nothing to anchor from and nothing to propagate. The brief's below-threshold rule is coherent for one item and destructive for many. Fork C.
+
+**6. The copy-prompt path cannot be constrained, so the two paths cannot be held to the same rule.**
+
+D64: `response_format` is an API-path lever and the paste path *"only ever gets words."* A reply pasted from an assistant may carry no candidates at all. The rule has to distinguish **"the model did not answer the question"** from **"the model answered and is unsure"**, or an old saved template opens an empty off-ramp on every capture. Fork G.
+
+**7. A word collision that would reach the record.** `confidence` already means the item ordinal `eyeballed | weighed | measured` (D8, schema), it is written by `photoSave`, and D57 demotes it on hand-correction. **The model's per-candidate number is a different quantity in a different type**, and if it ships under the same key in the template it will meet the item contract at ingest. It needs a different name in the template *and* in the record.
+
+#### The forks
+
+**Fork A — the template change. The central one, and it is a versioned shipped contract (D11).**
+
+**A note first, on precedent:** D62 Fork 4 ruled *"no template change"* — but for a **different question** (dish-vs-components classification), refused because the classification *"is not a property of the photograph"* and depends on corpus contents the model cannot see. **Identity candidates are not that.** Alternative identities for a thing in frame are exactly what the image supports and exactly what a vision model is for. D62's *reasoning* still transfers — *"every added field is a new failure mode"* — but it does not decide this fork.
+
+- **A1 (recommended) — always ask, fixed shape, top-1 unchanged.** Each item gains `alts: [{"name":…, "p":0-1}, …]`, **ordered best first**, with the rule that **`alts[0].name` equals `name`**. The primary contract (`name`, `grams`, `per100`, `scale_linked`, `dominance`) is untouched, so a degraded reply still parses as today, and *"asking for alternatives moved the top answer"* becomes a **gate-checkable equality** rather than a worry.
+- **A2 — conditional ("only when unsure").** Rejected. A wrongly-confident model does not self-report unsure — the wine case *is* that failure — so the branch would be absent exactly when it is needed, and the reply shape becomes variable for no gain.
+- **How many: 3** (the answer plus two). Five invites deference-by-menu and does not fit beside a grams control on a phone; two barely differs from one. Output cost is negligible against the 477-char reply D66 measured.
+- **`p`, not `confidence`** (survey 7), a number in `[0,1]`, **never displayed** — read only by the threshold, written only to the calibration record.
+- **`AI_TEMPLATE_VERSION`: 3 → 4 (recommended).** D11 ties the number to the item contract and this changes it. D64's counter-precedent — *"bumping would tell a user their saved copy is incompatible when it still produces valid output"* — argues the other way, since a v3 copy still parses. **The distinction offered: a v3 copy still produces a valid meal but cannot produce an off-ramp**, so it is degraded rather than merely older. Your call; the honest alternative is to leave it at 3 and accept that the version has stopped tracking the contract.
+
+**Fork B — what "single item in frame" means.**
+- **B1 (recommended): one item in the parsed reply, decided once at draft construction and frozen for the life of the draft.** The question is a framing decision made when the draft opens; a question that re-shapes itself as rows are excluded is a moving target, and D51's confirm-first grammar wants one stable question.
+- **B2: one item after exclusions.** Rejected, with the consequence stated plainly: under B1, excluding a plate down to one row does **not** summon the identity question, and adding a row (R25) does not dissolve it. That is the price of stability, and it is worth naming rather than discovering.
+
+**Fork C — a low-confidence *dominant* item on a multi-item plate.**
+- **C1 (recommended): keep the estimate, surface the off-ramp beside it, suppress nothing.** Below-threshold suppression would strand propagation (survey 5). The plate keeps its grams-first lead question; the dominant row gains a visible candidate list.
+- **C2: promote the plate to an identity question when the dominant item is below threshold.** Coherent, and it makes the two paths one — but it changes the plate design the brief explicitly protects, and it needs an answer for what anchors R meanwhile.
+- **C3: nothing at all on plates.** Cheapest, and it leaves the "chicken nugget" shape unaddressed the moment a second item appears.
+
+**Fork D — where the list renders (D51 owns the surface).**
+- **D1 (recommended): one renderer, two mounts.** Single-item → **inside the lead block**, in place of the grams control when below threshold (that is what *"no provisional answer in the field"* has to mean structurally — the field is not rendered at all), and beneath the identity question when above it. Multi-item → behind the existing per-row `pmid-wrap` rail, where `photoIdentityOptions` already lives. No new modal, no second surface: R21.5 ruled one modal, one state.
+- **D2: a dedicated identity step before the draft renders.** Rejected — a second modal state, against R21.5, and it puts a wall in front of the common case where the answer is right.
+
+**Fork E — does an off-ramp pick differ from a rail pick? The crux.**
+- **E1 (recommended): a candidate pick that does not resolve to a preset routes to the unresolved path** — the same destination as "none of these", with the picked name recorded. Honest about what was actually obtained: a **name**, not a nutrition profile.
+- **E2: keep the top-1 macros, change the name.** **Rejected on D8 grounds** — apple-juice numbers under "wine" is a wrong answer wearing decimals, and worse than the original because it now looks corrected.
+- **E3: ask the model for `per100` per candidate.** Triples the estimate work for answers mostly discarded, is the most likely way to degrade top-1, and lengthens the reply two slices after latency was fixed.
+- **Consequence, stated rather than buried:** under E1 the off-ramp's value in this slice is **honesty and calibration data, not better numbers.** Better numbers arrive with the matcher and the corpus. And E1 makes Fork F unavoidable — the unresolved path stops being the rare "none of these" case and becomes **where most off-ramp picks land**.
+
+**Fork F — the unresolved path: this slice, or its own?** *(The escalation R25 pre-registered.)*
+- **F1 (recommended): its own slice, landing before this one.** Macro coverage annotation — daily total, ring, averages, export — is the D10 amendment R25 named. Building it under an off-ramp is exactly the smuggling R25 refused, and the ring is the surface D36/R8/R11/R13 have been shaped over five slices.
+- **F2: build it here.** One coherent story, but it makes R30 the largest slice since the ring redesign and mixes a question-shape change with a totals-invariant change — two things that should fail their gates separately.
+- **F3: ship R30 with the off-ramp ending at "none of these → keep the model's answer, flagged for later".** Cheapest, and dishonest in the specific way D8 forbids: the record would claim a composition the user had explicitly rejected.
+- **If F1 is ruled, R30's off-ramp is a recording surface and a rename, and the honest scope of this slice shrinks accordingly.** That is the shape I would build, but it is a scope call and it is yours.
+
+**Fork G — the threshold.**
+- **G1 (recommended): `IDENTITY_CONFIDENCE_MIN = 0.75`**, one surfaced constant, applied to **the top candidate's `p` alone**. Conservative per the brief — over-asking is cheap and builds the calibration data fastest.
+- **No margin rule in v1.** A second knob (top1 − top2) is arguably the better ambiguity signal, but two knobs before any data exists is the pre-D65 guessing pattern with an extra variable. One constant, one behaviour, one thing the data can eventually speak about.
+- **Absent `alts` → today's behaviour** (resolve, rail visible): the model did not answer the question, and an empty off-ramp is worse than none. **Present but below threshold → off-ramp.** **`p` absent on a present list → treated as below threshold.** This is the distinction survey 6 requires, and it is what keeps a v3 saved template usable.
+
+**Fork H — where the calibration record lives.** *(Recorded, not consumed — no consumer in this slice.)*
+- **H1 (recommended): additive fields on the saved item, schema v6 → v7.** `ai_alts: [{name, p}, …]` in offered order, plus the pick — rank, `none`, or `preset`. This is D57's correction-loop shape exactly (`ai_grams` beside `grams`, `ai_identity` beside `name`): the guess stored next to the acceptance. It exports for free, needs no new store, and avoids D59's escalation clause. Migration is additive; **no data-loss implication**, and the `normalizeItem` allowlist trap — now on its sixth occurrence — goes in the same commit with an export→restore gate.
+- **H2: a separate calibration log.** A fifth store, and D59's escalation clause would have to be argued.
+- **The loss under H1, stated:** records are written by `photoSave`, so **a discarded draft records nothing** — and a draft discarded after the model got it wrong is among the most informative cases there is. Accepted for this slice; recorded here so it is a known gap rather than a surprise when the threshold is eventually tuned.
+
+**Fork I — search over presets and recent items: now or wait?**
+- **I1 (recommended): wait for the search box, with one exception that is a lookup rather than a matcher.** If a candidate's name matches a preset name case-insensitively, the pick resolves through the existing `photoSetIdentity` — real macros, no scoring, no ranking, no evaluation set. That is the difference between an off-ramp that resolves and one that only records, for roughly no code.
+- **I2: build the search now.** **D62's own sequencing warning applies to it directly** — *"a project that keeps finding tractable questions upstream of a hard one has found a way to look busy"* — and free-text search over user data is precisely that shape: adjacent, tractable, and not the matcher. The evaluation set is what D62 named as next, and it still has no upstream blocker.
+- Even I1 deserves an explicit yes rather than my assumption, since a name comparison will look like the first inch of a matcher.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| R30-identity-first **GATE** | a **single-item** reply renders an **identity** question; the grams slider and exact field are **absent** from the lead block until identity is settled |
+| R30-plate-unchanged | a multi-item reply renders today's grams-first lead on the dominant item, and `photoShared` / `photoGrams` propagation is **unchanged from R6/R25 behaviour** (repointed, not weakened) |
+| R30-below-none | below `IDENTITY_CONFIDENCE_MIN`, **no name and no per100 reach any field** — asserted on the rendered surface, not on the parse |
+| R30-above-offramp | above threshold the identity resolves **and** the off-ramp control is present |
+| R30-order | the candidate list renders in the **model's order**, unsorted by the app |
+| R30-no-numbers | **no confidence figure appears anywhere** in the rendered draft — asserted over the modal's full text, with a planted `0.82` proving the case can fail |
+| R30-none-of-these | "none of these" reaches the unresolved path; grams survive, composition is absent, the flag is set, the name is recorded |
+| R30-record | the offered list is stored **in order** with each `p`, plus which rank was picked / `none` / `preset`; survives **export → restore** |
+| R30-top1 | `alts[0].name === name` on every parsed item — the degradation check for Fork A |
+| R30-degrade | a reply with **no** `alts` produces today's draft exactly (paste-path parity, D64) |
+| R30-parity | template↔ingest self-consistency for **both** the capture and copy-prompt paths, `AI_PROMPT_SAMPLE` updated to obey the new template |
+| R30-vocab | M7 over the identity question, the candidate rows and the "none of these" control, with a planted control |
+
+**Defect pass required before this is evidence** (D60): at minimum the below-threshold suppression, the no-numbers assertion and the order assertion must be shown to **fail** against their own removal — and per **D60 Clause 4**, the no-numbers fixture must contain a number that *could* leak, or it measures nothing.
+
+#### What this pre-registration does not settle
+
+The matcher and its evaluation set (D62's stated next). The corpus. Whether macro coverage (Fork F) is its own slice — that ruling changes what R30 is. Whether the calibration data ever tunes anything, which the brief explicitly defers.
+
+**Status: NOT BUILT. Awaiting rulings on Forks A–I.**
