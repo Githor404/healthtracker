@@ -2428,3 +2428,57 @@ The line is monospace and deliberately **selectable**: it exists to be read off 
 Four defects planted, four fail: TTFB not recorded; payload size not recorded; a second call not recorded; and **the trace recorded but never reaching the surface** — which is precisely the failure that made this invisible for three reports. The surface cases needed the outcome-modal elements added to the harness page: without them `renderCaptureOutcome` returns early and the cases would have **passed by never running**, which is D60 Clause 4 exactly, caught by the clause written yesterday.
 
 **Count delta: 1512 → 1521** (+9), re-pinned deliberately in the same commit.
+
+## D66 — The 41 seconds were deliberation, not transfer (R29, 2026-09-08)
+
+`APP_VERSION → 0.26.2`; **schema unchanged at v6**. **One change**, deliberately, so the next measurement is attributable.
+
+### The measurement that ended three rounds of guessing
+
+From a real capture on the device, with D65's instrumentation:
+
+```
+249 kB · 960×1280 · encode 0.1s | call 1 · first byte 41.2s · done 41.2s
+· HTTP 200 · reply 477 chars · json_object sent | total 41.3s
+```
+
+**`first byte 41.2s`, `done 41.2s`.** The body arrived in no measurable time after the headers. **Every one of those 41 seconds was spent before the first token was written**, which is the signature of deliberation, not of transfer, generation or upload.
+
+And every competing hypothesis died in the same line:
+
+| suspected | measured |
+|---|---|
+| payload too large / upload time | **249 kB**, 960×1280 — the downscale is working |
+| encode cost | **0.1 s** |
+| `response_format` refused, two calls each time | **one call**, `json_object sent`, HTTP 200 |
+| model returning prose again | **477 chars**, honouring the template |
+
+Three reports of "slow" had produced three plausible theories and no facts. One trace settled it in a single line. **That is the entire argument for D65 having been its own slice.**
+
+### The change, and only it
+
+`reasoning_effort: 'low'` on the capture call. xAI documents the parameter as `low | medium | high | xhigh`, **defaulting to `"high"`**, with reasoning **not disableable** — `"low"` is the floor, described as *"some reasoning tokens, but still fast"*, for latency-sensitive work. The app had never set it, so every capture ran **high-effort deliberation** to look at one photograph and emit fifteen lines of JSON.
+
+**Declared per provider**, exactly as `jsonMode` is — never assumed of a provider that has not stated it.
+
+**Nothing else was touched**, and that was the instruction. The next trace differs from this one in the first-byte number and in nothing else, so an improvement is attributable to this change rather than to the weather.
+
+### The one thing that had to change to keep it attributable
+
+The trace line now also reports **which effort was sent** (`effort low`, or `effort default(high)` when none is). Without it a changed first-byte time proves nothing — the parameter might simply not have arrived. Instrumentation that cannot confirm the intervention was applied cannot attribute the result to it.
+
+### Two independent degrade flags, not one
+
+A provider that rejects an optional field must not cost the capture, so a `400` naming a field is retried once without **that** field. The two flags are **independent**: refusing `reasoning_effort` must not silently also drop `response_format`, or a provider that dislikes one would quietly cost the other and the trace would report a state nobody chose.
+
+A **generic** refusal — `unknown` / `unsupported` with no field named — strips **both at once** rather than degrading twice, so the worst case is two calls and never three.
+
+### Gated
+
+Four defects planted; the fourth needed its fixture repaired first. *"A provider that has not declared it is never sent it"* passed against hardcoding `'low'` inside `byokCaps`, because the case asserted through `byokBody(..., null)` — a null never reaches the code that decides. It now asserts through `byokCaps` with an **undeclared provider**, and fails. **D60 Clause 4, one day old, catching its third instance.**
+
+**Count delta: 1521 → 1530** (+9), re-pinned deliberately in the same commit.
+
+### Flagged, not touched
+
+The capture identified a single item in frame as *"chicken nugget"* — the identity-first case discussed under the dish fork (D62). **Deliberately not addressed here**: touching the template in this commit would have made the next first-byte measurement unattributable, which is the whole point of the slice. Recorded so it is picked up as its own question rather than lost.

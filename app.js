@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.26.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.26.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4331,6 +4331,9 @@ function byokTraceLine() {
     if (a.status) parts.push('HTTP ' + a.status);
     if (a.outcome) parts.push(a.outcome);
     parts.push(a.jsonMode ? 'json_object sent' : 'no json_object');
+    // R29: the effort actually sent, so a change in first-byte time is attributable
+    // to it rather than to the weather.
+    parts.push(a.effort ? ('effort ' + a.effort) : 'effort default(high)');
     bits.push(parts.join(' · '));
   });
   bits.push('total ' + secs(nowMs() - t.t0));
@@ -4799,6 +4802,7 @@ const VERSION_LOG = [
   { v: '0.25.1', d: '2026-09-08', note: 'Fix: the route that needs no API key was broken. The AI photo prompt under Settings was always empty, and Copy prompt could put nothing on the clipboard while telling you to select the text yourself — from a box with nothing in it. Both prompt boxes now hold the prompt, Copy works from either, and if copying is blocked it says so and the text is there to select. Without a key, photo to meal is the only route there is; it works again.' },
   { v: '0.26.0', d: '2026-09-08', note: 'Capture is more likely to work, and when it does not it now hands you something. If the model answers with prose instead of the data — tables, commentary, nutrients a photo cannot show — that reply is put straight into the paste box for you to use, instead of being thrown away while the app reported a timeout. The app also now asks the provider for data-only replies rather than only requesting it in words, caps how long an answer can run, and will not start a second attempt it has no time to finish. The copyable prompt spells out what not to include, since when you paste it yourself those words are the only thing steering the reply.' },
   { v: '0.26.1', d: '2026-09-08', note: 'Capture now shows where the time went. Every capture — whether it works or not — reports the photo size actually sent, how long preparing it took, how long the provider took to start answering versus to finish, how many calls were made and why. If capture is slow, the breakdown says which part was slow, and it can be selected and copied. Nothing about how capture works has changed; this release only makes it visible.' },
+  { v: '0.26.2', d: '2026-09-08', note: 'Capture should be markedly faster. A timing breakdown from a real capture showed all 41 seconds went on the model deliberating before it wrote a single character — the reply itself arrived instantly once it started. The app now asks for the quickest setting for this kind of request, which is reading a photo and returning a short list. If a provider will not accept that setting the request is made without it rather than failing. Nothing else changed, so the breakdown from your next capture is directly comparable with the last one.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5835,7 +5839,13 @@ const BYOK_PROVIDERS = {
   // `jsonMode`: the provider accepts OpenAI-style response_format json_object.
   // Declared per provider, not assumed, so an unknown provider is never sent a
   // field it may reject -- and byokCall retries without it if one does anyway.
-  grok: { label: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-4.6', jsonMode: true },
+  // `reasoningEffort`: xAI documents low|medium|high|xhigh, DEFAULTING TO HIGH, and
+  // reasoning cannot be disabled -- "low" is the floor, documented as "some
+  // reasoning tokens, but still fast" for latency-sensitive work. A trace from a
+  // real capture measured 41.2s to first byte and 0.0s of body after it: all of the
+  // wait was deliberation before the first token, on a task that is "look at this
+  // image and emit fifteen lines of JSON". Declared per provider, never assumed.
+  grok: { label: 'xAI Grok', base: 'https://api.x.ai/v1', model: 'grok-4.6', jsonMode: true, reasoningEffort: 'low' },
 };
 // Fork B (ruled): ONE template. The direct call needs a preamble the paste path
 // does not (a chat model will happily wrap JSON in a markdown fence), so it rides
@@ -6094,12 +6104,24 @@ function byokDownscale(file, source) {
 // is two failures at once: the parser rejects it (correctly), AND an essay is far
 // more tokens than a 200-token object, so the call is slow enough to look like a
 // hang. An instruction is a request; response_format is a constraint.
+// The capabilities actually sent on THIS attempt: the provider's declarations
+// minus whatever a previous 400 told us it will not accept. Two independent
+// degrade flags rather than one, so a provider that refuses one field does not
+// silently lose the other.
+function byokCaps(prov, o) {
+  if (!prov) return null;
+  return {
+    jsonMode: prov.jsonMode && !(o && o.noJsonMode),
+    reasoningEffort: (o && o.noEffort) ? null : prov.reasoningEffort,
+  };
+}
 function byokBody(dataUrl, text, model, caps) {
   const b = { model: model, messages: [{ role: 'user', content: [
     { type: 'image_url', image_url: { url: dataUrl } },
     { type: 'text', text: text },
   ] }] };
   if (caps && caps.jsonMode) b.response_format = { type: 'json_object' };
+  if (caps && caps.reasoningEffort) b.reasoning_effort = caps.reasoningEffort;
   b.max_tokens = BYOK_MAX_TOKENS;
   return b;
 }
@@ -6112,7 +6134,7 @@ function byokCall(dataUrl, opts) {
   const o = opts || {};
   const body = o.ping
     ? { model: prov.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
-    : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model, (o.noJsonMode ? null : prov));
+    : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model, byokCaps(prov, o));
   const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
   // The ping is bounded by the test's own 15 s race, so its abort must not sit
   // BEHIND that race or it would never be the thing that fires.
@@ -6121,8 +6143,11 @@ function byokCall(dataUrl, opts) {
   const timer = setTimeout(function () { if (ctl) ctl.abort(); }, budget);
   // R28: per-attempt timing. Recorded for the CAPTURE call only -- the ping has
   // its own budget and its own surface, and mixing them would make the line lie.
+  const caps0 = byokCaps(prov, o);
   const att = o.ping ? null : byokTraceAttempt({
-    jsonMode: !!(prov && prov.jsonMode && !o.noJsonMode), sentAt: nowMs(),
+    jsonMode: !!(caps0 && caps0.jsonMode),
+    effort: (caps0 && caps0.reasoningEffort) || null,
+    sentAt: nowMs(),
   });
   return fetch(prov.base + '/chat/completions', {
     method: 'POST',
@@ -6150,12 +6175,25 @@ function byokCall(dataUrl, opts) {
       // R27: a provider that does not know `response_format` must not lose the
       // capture over it. Retried ONCE without the field -- this cannot loop,
       // because the retry sets noJsonMode and the branch requires it unset.
-      if (!res.ok && res.status === 400 && !o.noJsonMode && /response_format|json_object|unknown|unsupported/i.test(pmsg)) {
-        // R28: named in the trace. If this fires silently every capture is TWO
-        // calls, and that alone could be most of the wait.
-        if (att) att.outcome = 'response_format REFUSED, retried without';
-        byokLog('capture: provider refused response_format; retrying without it');
-        return byokCall(dataUrl, Object.assign({}, o, { noJsonMode: true, budget: budget }));
+      // R29: a provider that rejects an optional field must not cost the capture --
+      // but the retry strips only what the provider NAMED, and is bounded to one.
+      // A generic refusal strips both at once rather than degrading twice, so the
+      // worst case is two calls, never three.
+      if (!res.ok && res.status === 400 && !(o.noJsonMode && o.noEffort)) {
+        const wantsEffort = /reasoning[_ ]?effort|reasoning/i.test(pmsg) && !o.noEffort;
+        const wantsJson = /response_format|json_object/i.test(pmsg) && !o.noJsonMode;
+        const generic = !wantsEffort && !wantsJson && /unknown|unsupported|unrecognized|not supported/i.test(pmsg);
+        if (wantsEffort || wantsJson || generic) {
+          const drop = Object.assign({}, o, { budget: budget });
+          if (wantsEffort || generic) drop.noEffort = true;
+          if (wantsJson || generic) drop.noJsonMode = true;
+          const dropped = [drop.noEffort && !o.noEffort ? 'reasoning_effort' : null,
+                           drop.noJsonMode && !o.noJsonMode ? 'response_format' : null]
+                          .filter(Boolean).join(' + ');
+          if (att) att.outcome = dropped + ' REFUSED, retried without';
+          byokLog('capture: provider refused ' + dropped + '; retrying without');
+          return byokCall(dataUrl, drop);
+        }
       }
       if (!res.ok)
         return byokErr('http', 'The provider returned ' + res.status + '. ' + pmsg);
@@ -7085,7 +7123,7 @@ window.HT = {
   // R27 -- structural JSON + the retry floor
   byokBody, BYOK_RETRY_MIN_MS, BYOK_MAX_TOKENS,
   // R28 -- the capture trace
-  byokTrace, byokTraceReset, byokTraceLine, byokTraceNote, byokTraceAttempt,
+  byokTrace, byokTraceReset, byokTraceLine, byokTraceNote, byokTraceAttempt, byokCaps,
   renderCaptureOutcome,
   byokClear, byokConfigured, byokMask, byokCap, byokCount, byokCall, byokTest, byokCapture,
   byokDownscale, byokFallback, byokBody, renderByok, saveByok, renderCaptureBtn, openPhotoDraft,

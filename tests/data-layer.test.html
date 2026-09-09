@@ -525,6 +525,35 @@ window.setLS({});
   res(capBody.max_tokens > 0 && capBody.max_tokens <= 4096,
       'R27-json GATE: and bounds the answer, because an essay is not just unparseable, it is SLOW -- which is what made a parse failure look like a hang');
   var plainBody = HT.byokBody('data:image/jpeg;base64,AAA', 'PROMPT', 'other-model', null);
+  // ---- R29 / D66: reasoning_effort, the one thing this slice changed --------
+  // A real capture measured first byte 41.2s, done 41.2s: the body arrived in no
+  // measurable time after the headers, so ALL of it was deliberation before the
+  // first token. xAI documents reasoning_effort as DEFAULTING TO HIGH and not
+  // disableable, with "low" the floor.
+  res(capBody.reasoning_effort === 'low',
+      'R29-effort GATE: the capture call asks for the LOW reasoning floor -- unset, xAI defaults to HIGH, which is deliberation billed as latency on a task that is "read this image, emit fifteen lines of JSON"');
+  res(HT.BYOK_PROVIDERS.grok.reasoningEffort === 'low',
+      'R29-effort: declared PER PROVIDER, like jsonMode -- never assumed of a provider that has not stated it');
+  var capsOff = HT.byokCaps(HT.BYOK_PROVIDERS.grok, { noEffort: true });
+  res(capsOff.reasoningEffort === null && capsOff.jsonMode === true,
+      'R29-effort GATE: the two degrade flags are INDEPENDENT -- a provider refusing one field must not silently cost the other');
+  var capsNoJson = HT.byokCaps(HT.BYOK_PROVIDERS.grok, { noJsonMode: true });
+  res(capsNoJson.jsonMode === false && capsNoJson.reasoningEffort === 'low',
+      'R29-effort: and in the other direction too');
+  res(HT.byokBody('data:,x', 'p', 'm', HT.byokCaps(HT.BYOK_PROVIDERS.grok, { noEffort: true })).reasoning_effort === undefined,
+      'R29-effort: a degraded attempt omits the field entirely rather than sending a fallback value');
+  // Asserted through byokCaps with an UNDECLARED provider, not with caps:null --
+  // the first version passed a null and so never reached the code that decides,
+  // which is D60 Clause 4: the fixture must be able to exhibit the failure.
+  var undeclared = HT.byokCaps({ label: 'x', base: 'b', model: 'm' }, {});
+  res(!undeclared.reasoningEffort && !undeclared.jsonMode,
+      'R29-effort GATE: a provider that declares NEITHER field is sent neither -- an undeclared capability is never invented on its behalf');
+  res(HT.byokBody('data:,x', 'p', 'm', undeclared).reasoning_effort === undefined &&
+      HT.byokBody('data:,x', 'p', 'm', undeclared).response_format === undefined,
+      'R29-effort: and the body it builds carries neither field');
+  res(plainBody.reasoning_effort === undefined,
+      'R29-effort: and no caps at all sends nothing either');
+
   res(plainBody.response_format === undefined,
       'R27-json: a provider that has not DECLARED json mode is never sent the field -- an unknown provider must not lose capture to a header it may reject');
   res(HT.BYOK_RETRY_MIN_MS > 0 && HT.BYOK_RETRY_MIN_MS < HT.byokTimeouts().call,
@@ -2280,6 +2309,8 @@ window.setLS({});
             'R28-trace: with the HTTP status and how much came back');
         res(typeof a0.jsonMode === 'boolean',
             'R28-trace GATE: and whether response_format was SENT -- if the 400-retry fires silently every capture is two calls');
+        res(a0.effort === 'low' && HT.byokTraceLine().indexOf('effort low') >= 0,
+            'R29-trace GATE: the trace states WHICH reasoning effort was sent -- without it a changed first-byte time is not attributable to the change that caused it');
         var line = HT.byokTraceLine();
         res(line.indexOf('first byte') >= 0 && line.indexOf('total') >= 0 && line.indexOf('call 1') >= 0,
             'R28-trace GATE: the line names each part, so a report can say WHICH part was slow rather than "slow"');
