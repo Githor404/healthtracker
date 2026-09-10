@@ -2369,5 +2369,60 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 | 2026-09-09 | **Framing adopted, correcting the brief** — the threshold is the weaker defence; *identity is asked first* is the load-bearing gate; a confidently-wrong capture is not evidence the threshold is misset |
 | 2026-09-09 | **Survey 2 adopted as a change to what the slice is** — with zero presets there is no identity correction at all, so the off-ramp is the first rail rather than a better one |
 | 2026-09-09 | **Fork A, version sub-fork** — `AI_TEMPLATE_VERSION` 3 → 4, on the degraded-not-merely-older distinction |
+| 2026-09-09 | **Forks A–I ruled as recommended**, in full — including **A1** (always ask, fixed shape, `alts[0].name === name`), **count 3**, and **`p`** as the key name |
+| 2026-09-09 | **F1 stands** — macro coverage is its own slice, landing first. Registered as **R31** below |
 
-**Status: NOT BUILT.** Fork A's version sub-fork is ruled; **A1-vs-A2, the candidate count and the `p` key remain open**, as do **Forks B–I**. Fork F still decides the size of the slice.
+**Amended by R31's sequencing (Fork 7 there):** H1's schema bump reads **v6 → v7** above, but R31 takes v7, so **R30's calibration fields are v7 → v8**. The ruling is unchanged; only its number moved.
+
+**Status: NOT BUILT — every fork ruled, blocked on R31**, which is registered below and builds first by F1.
+
+### R31 — Macro coverage: the invariant D10 asserted, and the item that breaks it — PRE-REGISTERED (received 2026-09-09 as R30 Fork F1)
+
+**Numbering and order.** Registered **after** R30 and **landing before it**. R-numbers record when a slice was written down, not when it ships; F1 ruled this one is the prerequisite, so R31 builds first and R30 is unblocked by it. Said plainly here so the out-of-order pair is read as the ruling it is.
+
+**Why it exists.** R30's off-ramp must be able to end in *"none of these"*, which produces an item with **grams and no composition**. D10 rules macros as **full coverage** — `Σ(day totals) / M`, no annotation, no per-nutrient count — and every macro consumer in the app rests on that. R25 hit this from the other side, rejected the macro-absent item as its Fork A4, and recorded the repair as an escalation: *"macro coverage annotation on the daily total, the ring and the averages — the shape D10 already uses for micros."* This is that escalation, built.
+
+**The failure being prevented, stated exactly.** `normalizeItem` coerces every macro through `num()`, so an item with no `kcal` is stored as `kcal: 0`. A day containing it then sums to a total that is **understated and indistinguishable from complete**. That is D8's rule — absence is not zero — reaching the daily ring instead of a micronutrient, and it is worse there, because the ring is the surface the user reads first.
+
+#### Forks, all resolved from the log rather than referred up
+
+**1 — How an unresolved item is represented.** **Explicit `unresolved: true`, macros ABSENT rather than zero.** Not inferred from missing macros: R25's Fork C1 ruled the same question for `added` — *"a read of a fact rather than an inference"* — because an inference breaks the first time another path writes an item without the field. And `normalizeItem` already states the absence rule for exactly this shape, one field along: *"ABSENCE IS MEANINGFUL AND PRESERVED. An item with no known portion has no `grams` — never 0, which would claim a weightless meal."* An item with no composition has no `kcal`, for the same reason and by the same mechanism.
+
+**2 — Schema bump, and the bump is the point.** **v6 → v7.** On D29's asymmetry test: an older app reading this blob strips `unresolved`, and the macros — absent — are then coerced to `0`. The result is not a degraded future analysis, it is **a wrong number presented as a fact**, which is the side of the line D57 put `grams` on when it bumped to v6. The forward guard moves with it and rejects `> 7`.
+
+**3 — Averages: exclude, do not include.** A complete day containing an unresolved item does not have complete macro data, so it is **excluded from the macro mean and the block says "from N of M complete days"** — D10's micro rule applied to macros without amendment: *"A day without K data is excluded from K's mean, never counted as 0."* Including it would drag every mean down by an amount nothing on screen could explain.
+
+**4 — Trends: the same exclusion, stated.** A partial day plotted as a point understates in geometry what the summary refuses to understate in text — the encoding-dodge D24 and D53 both refused. The day is **omitted from the series and the omission is captioned**, per D62 Fork 5: *"absence is honest, and an understated figure is a wrong answer wearing decimals."*
+
+**5 — The coverage line does not collapse.** D53 ruled *progressive disclosure of provenance*: **provenance collapses behind a one-tap line, safety never does.** Coverage is not provenance — it is a statement that the number on screen is incomplete. It stays visible wherever a partial total is shown.
+
+**6 — No producer in this slice.** Nothing in R31 lets a user create an unresolved item; R30's off-ramp is the producer, and building one here would be R30 arriving early — the same smuggling F1 refused in the other direction. **Consequence recorded rather than discovered: until R30 lands, the coverage branch is reachable only by the gates.** That is not D63's dead path — no surface claims this works and silently fails — but it is why the gates assert on the *rendered surface* rather than on the rollup, so the branch cannot rot unobserved.
+
+**7 — A sequencing consequence for R30.** H1 ruled the calibration fields at **v6 → v7**. R31 takes v7, so **R30 becomes v7 → v8**. Recorded here because the ruling's number changed without its reasoning changing.
+
+#### Data-loss implications, stated and ruled before the storage change
+
+- **Migration is a structural passthrough.** No existing item is unresolved, so no day's contents change; only `version` moves. In-place under the stable key (D1), pre-migration backup untouched (D7).
+- **The forward guard is what protects the older app**, and the bump is what arms it. Without the bump, a v7 blob would open in a v6 app and read every absent macro as `0`.
+- **Nothing is dropped, coerced or reordered.** A v6 blob round-trips to v7 with `days` byte-identical, which is gated rather than argued.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| R31-absent **GATE** | an unresolved item carries **no macro keys at all** after `normalizeItem` — not `0`, not `null` |
+| R31-not-zero **GATE** | the item's rendered row shows **no zero** for kcal/P/F/C, with a planted `0` proving the case can fail |
+| R31-total | a day with one unresolved item sums only the items that carry macros, and the day-total row states **"from N of M items"** |
+| R31-ring | the goal/ring surface carries the coverage statement whenever `n < m`, and does **not** collapse it behind disclosure (D53) |
+| R31-avg-exclude | a **complete** day containing an unresolved item is excluded from the macro mean, and the block says **"from N of M complete days"** |
+| R31-avg-unchanged | with no unresolved items present, every average is numerically **identical to v0.26.2** — repointed, not weakened |
+| R31-trend | a partial day is omitted from the trend series and the omission is stated on the surface |
+| R31-flag | `unresolved` survives **export → restore** (the `normalizeItem` allowlist trap, seventh occurrence) |
+| R31-migrate | a v6 blob migrates in place under the stable key to v7 with `days` unchanged |
+| R31-guard | the forward-version guard rejects `version: 8` |
+| R31-export | on a day containing an unresolved item, the displayed total and the exported item set are the **same numeric set** (Phase-1 gate, re-pointed) |
+| R31-vocab | M7 over every new coverage string, with a planted control |
+
+**Defect pass required before this is evidence** (D60): at minimum — restoring the `num()` coercion must fail `R31-absent`; removing the coverage annotation must fail `R31-total`; including partial days must fail `R31-avg-exclude`; and dropping `unresolved` from the allowlist must fail `R31-flag`. **Per D60 Clause 4 the fixtures must be as falsifiable as the assertions** — `R31-not-zero` in particular must contain a zero that *could* leak, or it measures nothing.
+
+**Status: BUILDING.**
