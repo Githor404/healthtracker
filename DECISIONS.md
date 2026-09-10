@@ -2482,3 +2482,81 @@ Four defects planted; the fourth needed its fixture repaired first. *"A provider
 ### Flagged, not touched
 
 The capture identified a single item in frame as *"chicken nugget"* — the identity-first case discussed under the dish fork (D62). **Deliberately not addressed here**: touching the template in this commit would have made the next first-byte measurement unattributable, which is the whole point of the slice. Recorded so it is picked up as its own question rather than lost.
+
+## D67 — Macro coverage: the invariant D10 asserted, and the item that breaks it (R31, 2026-09-09)
+
+`APP_VERSION → 0.27.0`; **schema v6 → v7**. Built as R30's Fork F1: the prerequisite ruled out of the identity slice so it could fail its own gates separately.
+
+**Registered after R30 and landing before it.** R-numbers record when a slice was written down, not when it ships. Recorded so the out-of-order pair reads as the ruling it is.
+
+### What it is for
+
+R30's off-ramp must be able to end in *"none of these"*, which produces an item with **grams and no composition**. D10 rules macros as **full coverage** — `Σ(day totals) / M`, no annotation, no per-nutrient count — and every macro consumer in the app rests on that sentence.
+
+**R25 hit this from the other side and refused it**, as its Fork A4: *"Macro-absent items break that invariant and every consumer resting on it… Recorded as the escalation if macro coverage is ever built; not smuggled in under an add button."* This is that escalation, built — and not smuggled in under an off-ramp either.
+
+### The failure being prevented, stated exactly
+
+`normalizeItem` coerced every macro through `num()`, so an item with no `kcal` was stored as `kcal: 0`. A day containing it summed to a total that was **understated and indistinguishable from complete**. That is D8's absence-is-not-zero rule arriving at the **daily ring** instead of at a micronutrient, and it is worse there, because the ring is the surface read first.
+
+The fix is the rule the codebase already applies one field along, in `normalizeItem`'s own comment for `grams`: *"ABSENCE IS MEANINGFUL AND PRESERVED. An item with no known portion has no `grams` — never 0, which would claim a weightless meal."* An item with no composition has no `kcal`, for the same reason and by the same mechanism.
+
+### Seven forks, all resolved from the log rather than referred up
+
+**1 — Explicit flag, absent macros.** `unresolved: true`, and the six macro keys omitted. Not inferred from the missing keys: R25's Fork C1 ruled the same question for `added` — *a read of a fact rather than an inference* — because an inference breaks the first time another path writes an item without them. `soluble_fiber_g` is *"always present, even at 0"* on every other path and deliberately absent here: **0 g of soluble fibre is a measurement, and none was taken.**
+
+**2 — v6 → v7, and the bump is the point.** D29's asymmetry test: an older app strips `unresolved` and then coerces the absent macros to `0`. That is not a degraded future analysis, it is **a wrong number presented as a fact** — the side of the line D57 put `grams` on. The forward guard is what protects that older app; **the bump is what arms it.**
+
+**3 — Averages exclude, and say so.** D10's micro rule applied to macros without amendment — *"A day without K data is excluded from K's mean, never counted as 0."* The macro mean now has a denominator of its own, `nMacro`, and the block reads *"from N of M days"* only when it differs from M.
+
+**4 — Trends exclude too.** Plotting a partial day states in geometry the understatement the summary refuses to state in text — the encoding dodge **D24** refused for colour and **D53** for a met/unmet cue. The omission is **counted and captioned**; a silently shorter series looks like days that were never logged.
+
+**5 — The coverage line never collapses.** D53 ruled *provenance collapses behind a one-tap line, safety never does*. Coverage is not provenance — it is a statement that the number on screen is incomplete.
+
+**6 — No producer, and no resolver.** Nothing in R31 creates an unresolved item; R30's off-ramp does. Building one here would be R30 arriving early. The item **editor** was the near-miss: its macro fields render through `rDisp`, which turns `undefined` into the string `"0"`, so an unresolved item would have opened with six zeros in editable fields. They are now **empty and disabled**, with the reason on the surface. Accepting numbers there without clearing the flag would have been the worst option available — `normalizeItem` strips macro keys while the flag is set, so the numbers would survive in memory, be ignored by every total, and vanish on the next export/restore. **Refusing to take them is honest; taking and losing them is not.**
+
+**7 — A sequencing consequence for R30.** H1 ruled the calibration fields at v6 → v7. R31 takes v7, so **R30 becomes v7 → v8**. The ruling is unchanged; only its number moved.
+
+### Data-loss implications, ruled before the storage change
+
+`migrateV6toV7` is a **structural passthrough** — no existing item is unresolved, so `days` comes through byte-identical and only `version` moves. In place under the stable key (D1), pre-migration snapshot first (D7). Nothing is dropped, coerced or reordered, and the key order of a **resolved** item is byte-for-byte what it was before v7, so an export fixture written against v6 still matches.
+
+### The defect pass, and the gate it caught
+
+**Ten defects planted, and one gate was not evidence.**
+
+`R31-total` asserted *"the day-total row says so"* against the **whole day view** — and passed with the day-total note deleted, because the **meal group head** carries the same sentence for the same three items and satisfied it instead. Two surfaces make the same claim, and asserting on their union let one go missing behind the other. Each is now asserted where it lives, and **both fail against their own removal** — which is why the pass runs ten defects rather than the seven first written.
+
+**D60 Clause 4's fourth instance**, and the first where the flaw was in the assertion's *scope* rather than in the fixture's reach.
+
+The other seven behaved: restoring the `num()` coercion fails `R31-absent`; including partial days fails `R31-avg-exclude` (on a fixture chosen so excluding gives 200 and including gives 300 — a fixture where they coincide would have passed either way); dropping the allowlist entry fails `R31-flag`, the **seventh** occurrence of that trap; plotting partial days fails `R31-trend`; removing the goal-block line fails `R31-ring`; enabling the editor's zeroed fields fails `R31-edit`.
+
+### Re-pinned, deliberately, in the same commit
+
+**Count delta: 1530 → 1579** (+49). **Eleven existing version assertions moved with the schema**, each one a case that deliberately pinned "my slice bumped nothing" — they now name v7 and R31 as the reason. Two fixtures had to move with it: the "future blob" (v7 → v8, or it stops being ahead of `SCHEMA_VERSION` and stops testing the guard) and R23's forward-guard case, which asserted v7 was refused.
+
+**One of those re-pins was over-applied and put back:** a blanket replace also rewrote `migrateV5toV6`'s own stamp from 6 to 7. That function is one step of the chain, not the chain, and asserting 7 there would have asserted the wrong function's job.
+
+### Two consumers the ruling did not enumerate, and one of them was wrong rather than short
+
+F1's scope read *"daily total, ring, averages, export"*. That was the ruling's **list**; it was never the **rule**, which is that no consumer treats absence as zero. Two more rest on the invariant, and the build found them by looking rather than by assuming the list was complete.
+
+**The history row** prints the same understated kcal the day view does, so it now carries the same sentence. Short, not wrong.
+
+**The fasting detector was wrong.** `fastEvents` selects a fast-breaking food event with `num(it.kcal) > 0`, so an unresolved item scored **0 and did not count as eating**. Every other consumer of this absence understates a total; this one **invents a fast that did not happen** — a longer streak, a confirmed candidate, a figure the user might act on, assembled out of a meal they ate. Unknown calories are not no calories, so the item now counts as a food event on the strength of having been eaten at a time, which is all the detector ever needed from it.
+
+Recorded because the enumeration was mine and it was incomplete, and because the difference between *understating a number* and *asserting an event that never occurred* is the difference this slice exists to police.
+
+### An environment note, and the same shape as D61's, one cause deeper
+
+The full suite failed once during this slice with **three** gates down — `bm-slider` and `capture-outcome` producing **no verdict** (*"an internal WebSocket error occurred"*), and `lab-form` reporting **`rows=0`**, meaning it measured a page that had not rendered. All three passed on individual re-run, `lab-form` at `rows=14`. None of the three touches anything R31 changed.
+
+**The next full-suite run was killed by the OS for low memory**, which names the cause the earlier flake only hinted at: the machine was at **84% of 15.7 GB with 2.5 GB free**, the user's own Chrome holding 3.9 GB across 34 processes. A CDP gate launches another Chrome and drives a real page; under that headroom the socket dies or the page has not painted when it is measured.
+
+**The runner behaved correctly in both directions** — it failed loudly and by name rather than reporting a pass, which is failure shape #4 working as built. Recorded because *three* simultaneous gate failures with no related change is exactly the shape that sends a session hunting a regression, and because D61's note covered `executed 0` from Chrome contention without naming memory pressure as what produces it.
+
+**Not a reason to re-run until green.** Individual passes are not the evidence; the runner's header says why. The verdict this slice rests on is a clean full-suite run.
+
+### Flagged, not touched
+
+R30 is now unblocked. Its off-ramp has somewhere honest to land, and the identity-first question can be built against a totals layer that no longer has to pretend an unresolved item ate nothing.

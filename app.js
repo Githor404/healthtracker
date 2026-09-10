@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 6;
-const APP_VERSION      = '0.26.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 7;
+const APP_VERSION      = '0.27.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -29,6 +29,12 @@ const SOURCES     = ['scan', 'ai-paste', 'manual', 'preset', 'supplement'];
 const MICRO_KEYS  = ['sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg', 'magnesium_mg',
   'zinc_mg', 'vitamin_a_ug', 'vitamin_c_mg', 'vitamin_d_ug', 'vitamin_b12_ug', 'folate_ug',
   'saturated_fat_g', 'sugars_g', 'cholesterol_mg'];
+// R31: the macro contract, in one place. Every one of these is present on a
+// resolved item and ABSENT on an unresolved one -- never 0 (see normalizeItem).
+const MACRO_KEYS  = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'];
+// An item carries composition, or it does not. Unlike micros this is all-or-
+// nothing per item, so ONE coverage figure covers every macro on a day.
+const itemHasMacros = (it) => !!it && it.unresolved !== true;
 
 // ---- small helpers --------------------------------------------------------
 // Escaper covers & < > " ' (baseline rule #2).
@@ -186,20 +192,35 @@ function normalizeMicros(micros) {
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
   it = it || {};
+  // R31 -- THE UNRESOLVED ITEM. Food whose portion is known and whose composition
+  // is not: the shape R30's off-ramp produces when the user rejects every candidate
+  // identity. Its macros are ABSENT, never 0.
+  //
+  // `num()` would coerce a missing kcal to 0, and the day would then sum to a total
+  // that is understated and INDISTINGUISHABLE FROM COMPLETE. That is D8's
+  // absence-is-not-zero rule arriving at the daily ring instead of at a
+  // micronutrient, and it is worse there, because the ring is the surface read
+  // first. `soluble_fiber_g` is "always present, even at 0" on every OTHER path and
+  // deliberately absent here for the same reason -- 0 g of soluble fibre is a
+  // measurement, and none was taken.
+  //
+  // The flag is EXPLICIT rather than inferred from the missing keys, for the reason
+  // R25's Fork C1 gave when it ruled the same question for `added`: an inference is
+  // sound only until another path writes an item without them, and it reads a guess
+  // where a fact costs one allowlist entry.
+  const unresolved = it.unresolved === true;
   const out = {
     name:            String(it.name == null ? '' : it.name),
     meal:            MEALS.includes(it.meal) ? it.meal : 'snack',
     time:            String(it.time == null ? '' : it.time),
-    kcal:            N(it.kcal),
-    protein_g:       N(it.protein_g),
-    fat_g:           N(it.fat_g),
-    carb_g:          N(it.carb_g),
-    fiber_g:         N(it.fiber_g),
-    soluble_fiber_g: N(it.soluble_fiber_g),   // always present, even at 0
-    confidence:      CONFIDENCES.includes(it.confidence) ? it.confidence : 'eyeballed',
-    notes:           String(it.notes == null ? '' : it.notes),
-    source:          SOURCES.includes(it.source) ? it.source : 'manual',
   };
+  // Key order for a RESOLVED item is byte-for-byte what it was before v7, so an
+  // export fixture written against v6 still matches.
+  if (!unresolved) MACRO_KEYS.forEach((k) => { out[k] = N(it[k]); });
+  out.confidence = CONFIDENCES.includes(it.confidence) ? it.confidence : 'eyeballed';
+  out.notes      = String(it.notes == null ? '' : it.notes);
+  out.source     = SOURCES.includes(it.source) ? it.source : 'manual';
+  if (unresolved) out.unresolved = true;
   if (it.barcode != null && String(it.barcode) !== '') out.barcode = String(it.barcode);
   if (it.water_l != null) out.water_l = N(it.water_l);
   if (it._auto === true) out._auto = true;
@@ -492,6 +513,32 @@ function migrateV5toV6(v5, nowISO) {
   if (typeof v5.knownDropped === 'number') out.knownDropped = v5.knownDropped;
   return out;
 }
+// R31 -- v6 -> v7. A STRUCTURAL PASSTHROUGH: no existing item is unresolved, so no
+// day's contents change and `days` comes through byte-identical (gated). Only
+// `version` moves.
+//
+// THE BUMP IS THE POINT, and it is the D29 asymmetry test that puts it here. An
+// older app reading this blob strips `unresolved`, and the macros -- absent, by
+// design -- are then coerced to 0 by its own normalizer. What it shows is not a
+// degraded future analysis, it is a WRONG NUMBER PRESENTED AS A FACT: a day that
+// silently under-reports. That is the side of the line D57 put `grams` on when it
+// bumped to v6. The forward guard moves with SCHEMA_VERSION and is what actually
+// protects that older app; the bump is what arms it.
+function migrateV6toV7(v6, nowISO) {
+  const out = {
+    version: 7,
+    days: (v6.days && typeof v6.days === 'object') ? v6.days : {},
+    current: typeof v6.current === 'string' ? v6.current : '',
+    settings: (v6.settings && typeof v6.settings === 'object') ? v6.settings : defaultSettings(),
+    priceLog: (v6.priceLog && typeof v6.priceLog === 'object') ? v6.priceLog : {},
+    timeline: (v6.timeline && typeof v6.timeline === 'object') ? v6.timeline : {},
+    fastLog: (v6.fastLog && typeof v6.fastLog === 'object') ? v6.fastLog : {},
+    regimens: (v6.regimens && typeof v6.regimens === 'object') ? v6.regimens : { active: '', list: [], log: {} },
+    migratedAt: typeof v6.migratedAt === 'string' ? v6.migratedAt : nowISO,
+  };
+  if (typeof v6.knownDropped === 'number') out.knownDropped = v6.knownDropped;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -502,6 +549,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 3) < 4) out = migrateV3toV4(out, nowISO);
   if ((out.version || 4) < 5) out = migrateV4toV5(out, nowISO);
   if ((out.version || 5) < 6) out = migrateV5toV6(out, nowISO);
+  if ((out.version || 6) < 7) out = migrateV6toV7(out, nowISO);
   return out;
 }
 
@@ -679,8 +727,8 @@ function boot() {
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
 // Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
-// absent -> reject; 1 -> chained in-place migrate; 2..5 -> normalized up; 6 -> as-is;
-// > 6 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
+// absent -> reject; 1 -> chained in-place migrate; 2..6 -> normalized up; 7 -> as-is;
+// > 7 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -698,7 +746,7 @@ function parseImport(raw) {
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
     return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v6 upgrades, v6 as-is
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v7 upgrades, v7 as-is
 }
 
 function showPrerestore(json) {
@@ -1073,6 +1121,24 @@ function microRollup(day) {
   return out;
 }
 
+// R31: macro coverage, the same shape as the micro rollup and for the same reason.
+// `n` items carry composition out of `m` on the day. Because composition is
+// all-or-nothing per item (unlike a micro, which is per-nutrient), ONE figure
+// covers every macro -- there is no per-key variant and there must not be one.
+// `partial` is the only question any caller actually asks.
+function macroCoverage(day) {
+  const items = (day && day.items) || [];
+  const n = items.filter(itemHasMacros).length;
+  return { n: n, m: items.length, partial: n < items.length };
+}
+// The sentence every partial surface says, in ONE place -- four surfaces state this
+// claim and a hand-written copy in each is four chances for the same number to be
+// described two ways. The micro rollup's wording is matched deliberately: the user
+// has already learned what "from N of M items" means.
+function coverageNote(cov) {
+  return cov && cov.partial ? `from ${cov.n} of ${cov.m} items` : '';
+}
+
 function ringSVG(frac, status) {
   const R = 74, C = 2 * Math.PI * R, L = C * Math.max(Math.min(frac, 1), 0);
   const color = (status === 'over' || status === 'short') ? 'var(--warn)'
@@ -1164,6 +1230,14 @@ function goalCellsHTML(t) {
 function renderGoalsHTML(t, day) {
   const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
   const sw = swapActive();
+  // R31: every goal cell and the ring itself are computed from `t`, which is short
+  // by whatever the unresolved items would have contributed. The statement is
+  // attached ONCE, above the whole block, because it qualifies all of it -- and it
+  // is never collapsed behind disclosure (D53: provenance may hide, safety may not).
+  const cov = macroCoverage(day);
+  const covLine = cov.partial
+    ? `<div class="goalcov">Totals below are ${esc(coverageNote(cov))} — the rest have no composition recorded.</div>`
+    : '';
   let html;
   if (sw && goals[sw.key]) {
     html = goalRingBoxHTML(sw.key, t);
@@ -1184,7 +1258,7 @@ function renderGoalsHTML(t, day) {
       return `<div class="sumrow"><span>${esc(k)}</span><span>${esc(rDisp(mv.total))} <small>from ${esc(mv.n)} of ${esc(mv.m)} items</small></span></div>`;
     }).join('') + `</div>`;
   }
-  return html;
+  return covLine + html;
 }
 
 // D35 amendment: the ring's now-hand already says "today, in progress", so the
@@ -1221,8 +1295,13 @@ function renderDay() {
   day.items.forEach((it, idx) => { const m = MEALS.indexOf(it.meal) >= 0 ? it.meal : 'other'; (groups[m] = groups[m] || []).push({ it: it, idx: idx }); });
   MEALS.concat('other').forEach((m) => {
     if (!groups[m]) return;
-    const gt = dayTotals({ items: groups[m].map((x) => x.it) });
-    html += `<div class="mealgrp"><div class="mealhead"><span>${esc(m)}</span><span>${esc(rDisp(gt.kcal))} kcal</span></div>`;
+    const gitems = groups[m].map((x) => x.it);
+    const gt = dayTotals({ items: gitems });
+    // R31: a meal group's kcal understates by exactly as much as the group is
+    // incomplete, so the group says so where the number is, not somewhere else.
+    const gcov = macroCoverage({ items: gitems });
+    const gnote = gcov.partial ? ` <small class="mcov">${esc(coverageNote(gcov))}</small>` : '';
+    html += `<div class="mealgrp"><div class="mealhead"><span>${esc(m)}</span><span>${esc(rDisp(gt.kcal))} kcal${gnote}</span></div>`;
     groups[m].forEach((row) => {
       const it = row.it, idx = row.idx;
       const dot = CONF_DOT[it.confidence] || 'muted';
@@ -1239,16 +1318,30 @@ function renderDay() {
       // must not share a thumb path with a routine one, kept intact.
       const open = it._auto ? '' : ` onclick="openItemEdit(${idx})"`;
       const edited = it.edited_at ? `<span class="src" title="edited">· edited</span>` : '';
+      // R31: an unresolved row states the absence instead of printing zeros. Every
+      // macro slot would otherwise read 0 through rDisp(undefined), which is the
+      // understatement this slice exists to remove, shown at item level.
+      const macroMeta = itemHasMacros(it)
+        ? `P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib`
+        : `<span class="munres">composition not recorded</span>`;
+      const kcalCell = itemHasMacros(it)
+        ? `${esc(rDisp(it.kcal))}<small> kcal</small>`
+        : `<span class="munres">—</span>`;
       html += `<div class="mitem"><div class="mmain"${open}>
           <div class="mname">${esc(it.name)}</div>
-          <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib · <span class="src">${esc(it.source || '')}</span>${edited}</div>
+          <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · ${macroMeta} · <span class="src">${esc(it.source || '')}</span>${edited}</div>
           ${chip}
-        </div><div class="mkcal"${open}>${esc(rDisp(it.kcal))}<small> kcal</small></div>${rm}</div>`;
+        </div><div class="mkcal"${open}>${kcalCell}</div>${rm}</div>`;
     });
     html += `</div>`;
   });
 
-  html += `<div class="daytot"><span>Total (est.)</span><span>${esc(rDisp(t.kcal))} kcal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>`;
+  // R31: the day total is the headline number, so its coverage rides WITH it rather
+  // than in a note elsewhere on the screen. D53 -- provenance may collapse behind a
+  // tap, a statement that the number is incomplete may not.
+  const dcov = macroCoverage(day);
+  const dnote = dcov.partial ? `<div class="daycov">${esc(coverageNote(dcov))}</div>` : '';
+  html += `<div class="daytot"><span>Total (est.)</span><span>${esc(rDisp(t.kcal))} kcal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}`;
   const w = day.water_l || 0;
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
       <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
@@ -1355,8 +1448,15 @@ const ITEM_MACROS = [['kcal', 'kcal'], ['protein_g', 'Protein g'], ['fat_g', 'Fa
 function itemEditHTML(it, idx, focus) {
   const mealSel = `<select id="ieMeal"${focus === 'meal' ? ' autofocus' : ''}>` + MEALS.map((m) =>
     `<option value="${esc(m)}"${it.meal === m ? ' selected' : ''}>${esc(m)}</option>`).join('') + `</select>`;
+  // R31: an unresolved item has no macros, so its fields open EMPTY rather than at
+  // 0 -- the same treatment `grams` already gets one row down, for the same reason.
+  // rDisp(undefined) is "0", and a 0 sitting in an editable field is an answer the
+  // user never gave that they would have to notice in order to correct.
+  const hasM = itemHasMacros(it);
   const macros = ITEM_MACROS.map(([k, lab]) =>
-    `<div style="flex:1 1 30%"><label>${esc(lab)}</label><input id="ie_${esc(k)}" type="number" inputmode="decimal" value="${esc(rDisp(it[k]))}"></div>`).join('');
+    `<div style="flex:1 1 30%"><label>${esc(lab)}</label><input id="ie_${esc(k)}" type="number" inputmode="decimal" value="${hasM ? esc(rDisp(it[k])) : ''}"${hasM ? '' : ' disabled'}></div>`).join('');
+  const unresNote = hasM ? ''
+    : `<div class="renote">No composition was recorded for this item, so its macros are not editable here yet. Its grams, meal, time and notes still are.</div>`;
   // Provenance is SHOWN, not merely kept (D55 Fork B). A row the user cannot check
   // is a row that cannot be argued with.
   const origNote = it.orig
@@ -1374,7 +1474,7 @@ function itemEditHTML(it, idx, focus) {
       <div style="flex:1"><label>Name</label><input value="${esc(it.name || '')}" disabled></div></div>
     <div class="rerow" style="flex-wrap:wrap">${macros}</div>
     <label>Notes</label><input id="ieNotes" value="${esc(it.notes || '')}">
-    <div id="ieMsg"></div>${origNote}${aiNote}
+    <div id="ieMsg"></div>${unresNote}${origNote}${aiNote}
     <div class="rerow" style="margin-top:8px">
       <button class="btn primary" onclick="saveItemEdit(${esc(String(idx))})">Save</button>
       <button class="btn" onclick="closeItemEdit()">Cancel</button>
@@ -1395,6 +1495,15 @@ function saveItemEdit(idx) {
   // A macro is sent only when the user actually moved it. Sending all six always
   // would defeat the grams rescale -- every macro would arrive "explicitly patched"
   // at its old value and win over the factor.
+  // R31: an UNRESOLVED item's macro fields are DISABLED (see itemEditHTML), so they
+  // arrive empty and this loop patches nothing. That is deliberate. Resolving such
+  // an item -- supplying the composition and clearing the flag -- is a GESTURE, and
+  // R31 has no producer for unresolved items by Fork 6, so it grows no resolver
+  // either. Accepting macros here without clearing the flag would be the worse
+  // outcome available: normalizeItem strips macro keys while the flag is set, so
+  // the numbers would survive in memory, be ignored by every total, and vanish on
+  // the next export/restore. Refusing to take them is honest; taking and losing them
+  // is not. The gesture is designed where the off-ramp is (R30).
   ITEM_MACROS.forEach(([k]) => {
     const v = g('ie_' + k);
     if (v !== undefined && String(v).trim() !== '' && Number(v) !== Number(rDisp(it[k]))) patch[k] = v;
@@ -3298,23 +3407,37 @@ function completeDaysInWindow(kind) {
 
 // Macro mean = Σ/M (full coverage). Micro mean = Σ over days-carrying-K / N_K
 // (absence ≠ zero), with per-nutrient coverage N_K of M.
+// R31: the macro mean now has a DENOMINATOR OF ITS OWN. D10 could divide by M
+// because every complete day carried macros; a day holding an unresolved item does
+// not, and averaging it in would drag every mean down by an amount nothing on
+// screen could explain. So the rule D10 already states for micros is applied to
+// macros without amendment -- "A day without K data is excluded from K's mean,
+// never counted as 0" -- and the block reports the coverage the same way.
+//
+// `nMacro === M` whenever no unresolved item exists anywhere in the window, which
+// is every window that existed before v0.27.0. That equality is what makes this a
+// re-pointing rather than a change to D10, and it is gated as such.
 function averageOver(dateKeys) {
   const M = dateKeys.length;
   const macros = { kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0 };
   const microSum = {}, microN = {};
+  let nMacro = 0;
   dateKeys.forEach((d) => {
     const day = APP_STATE.days[d];
-    (day.items || []).forEach((it) => { Object.keys(macros).forEach((k) => { macros[k] += num(it[k]); }); });
+    if (!macroCoverage(day).partial) {
+      nMacro++;
+      (day.items || []).forEach((it) => { Object.keys(macros).forEach((k) => { macros[k] += num(it[k]); }); });
+    }
     const mr = microRollup(day);   // {K:{total, n(items carrying K), m}}
     Object.keys(mr).forEach((K) => {
       if (mr[K].n > 0) { microSum[K] = (microSum[K] || 0) + mr[K].total; microN[K] = (microN[K] || 0) + 1; }
     });
   });
   const macroAvg = {};
-  Object.keys(macros).forEach((k) => { macroAvg[k] = M ? macros[k] / M : 0; });
+  Object.keys(macros).forEach((k) => { macroAvg[k] = nMacro ? macros[k] / nMacro : 0; });
   const microAvg = {};
   Object.keys(microSum).forEach((K) => { microAvg[K] = { avg: microSum[K] / microN[K], nK: microN[K], m: M }; });
-  return { n: M, macros: macroAvg, micros: microAvg };
+  return { n: M, nMacro: nMacro, macros: macroAvg, micros: microAvg };
 }
 
 // ---- fasting candidates (D22): derived detection, persisted resolutions ----
@@ -3326,7 +3449,14 @@ function fastEvents() {
   const evs = [];
   Object.keys(APP_STATE.days).forEach((d) => {
     (APP_STATE.days[d].items || []).forEach((it) => {
-      if (num(it.kcal) > 0 && it._auto !== true && /^\d{2}:\d{2}$/.test(String(it.time)))
+      // R31: an UNRESOLVED item is food that was eaten whose composition is unknown.
+      // Read through `num(it.kcal) > 0` alone it scores 0 and does NOT break a fast --
+      // absence-as-zero again, in the one consumer where it invents a fast that did
+      // not happen rather than merely understating a total. Unknown calories are not
+      // no calories, so the item counts as a food event on the strength of having
+      // been eaten at a time, which is all this detector ever needed from it.
+      const isFoodEvent = num(it.kcal) > 0 || it.unresolved === true;
+      if (isFoodEvent && it._auto !== true && /^\d{2}:\d{2}$/.test(String(it.time)))
         evs.push(d + 'T' + it.time);
     });
   });
@@ -3409,7 +3539,16 @@ function avgBlockHTML(label, a) {
     return `<div class="avgblock"><div class="avghead">${esc(label)}</div><div class="note">No complete days yet — close a day to see averages.</div></div>`;
   }
   let html = `<div class="avgblock"><div class="avghead">${esc(label)} <small>n=${esc(a.n)}</small></div>`;
-  html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> kcal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)</div>`;
+  // R31: the macro mean's own denominator, stated in the SAME words the micro rows
+  // below already use, and only when it differs from M -- an unqualified figure and
+  // "from M of M days" say the same thing, and the second says it more noisily.
+  const nM = (a.nMacro == null) ? a.n : a.nMacro;
+  const macroCov = (nM !== a.n) ? ` <small>from ${esc(nM)} of ${esc(a.n)} days</small>` : '';
+  if (nM === 0) {
+    html += `<div class="avgmacros">No day in this window has complete composition.</div>`;
+  } else {
+    html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> kcal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
+  }
   const mk = Object.keys(a.micros);
   if (mk.length) {
     html += `<div class="avgmicros"><div class="sumhead">Micronutrients — labeled intake only</div>` + mk.map((K) => {
@@ -3512,17 +3651,24 @@ function seriesSummary(s) {
            avg: r2(sum / n), delta: r2(vals[n - 1] - vals[0]), unconverted: s.points.length - n };
 }
 // Macro trend: daily total of a nutrient over the window, COMPLETE DAYS ONLY (D10).
+// R31: and days with COMPLETE COMPOSITION only. Plotting a partial day would state
+// in geometry the understatement the summary refuses to state in text -- the
+// encoding dodge D24 refused for colour and D53 for a met/unmet cue, arriving here
+// as a dot on a line. The omission is counted so the view can say so; a silently
+// shorter series is the same lie one step quieter.
 function macroSeries(nutrient, days) {
   const cut = windowCutoff(days);
   const pts = [];
+  let omitted = 0;
   Object.keys(APP_STATE.days || {}).forEach((d) => {
     if (d < cut) return;
     const day = APP_STATE.days[d];
     if (!day || day.status !== 'complete') return;          // complete days only (labeled in the view)
+    if (macroCoverage(day).partial) { omitted++; return; }
     pts.push({ t: d, v: Math.round(num(dayTotals(day)[nutrient]) * 10) / 10 });
   });
   pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  return { nutrient: nutrient, points: pts };
+  return { nutrient: nutrient, points: pts, omitted: omitted };
 }
 // Fasting stats over a window, CONFIRMED only (D22). Streak = consecutive days
 // (ending today, else yesterday) with a confirmed fast; pending candidates in-window
@@ -3646,8 +3792,14 @@ function renderTrends() {
     macroShown = true;
     const mv = ms.points.map((p) => p.v);
     const avg = Math.round(mv.reduce((a, b) => a + b, 0) / mv.length);
+    // R31: days omitted for incomplete composition are STATED. A series that just
+    // got shorter looks like days that were never logged. The word "unresolved" is
+    // avoided deliberately -- the fasting row above uses it for something else
+    // entirely, and two meanings on adjacent rows is one meaning too many.
+    const omit = ms.omitted > 0
+      ? ` <small class="tcov">${esc(ms.omitted)} day${ms.omitted === 1 ? '' : 's'} omitted — composition not recorded</small>` : '';
     html += `<div class="trow"><div class="thead">Energy <small>kcal · complete days only</small></div>${sparklineSVG(ms.points)}`
-      + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}</div></div>`;
+      + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}${omit}</div></div>`;
   }
   if (!bio && fs.count === 0 && fs.pending === 0 && !macroShown)
     html += `<div class="note" style="margin:8px 0 0">Keep logging — trends appear here once you have a few days of data (${esc(winLabel)}).</div>`;
@@ -4682,9 +4834,14 @@ function renderHistory() {
     const t = dayTotals(day);
     const flag = day.status !== 'complete' ? '<span class="flag">in progress</span>' : '';
     const items = String((day.items || []).length);
+    // R31: the history row prints the same understated kcal the day view does, so it
+    // carries the same sentence. Enumerating surfaces was never the rule -- "every
+    // partial total says so" is, and this is one.
+    const hcov = macroCoverage(day);
+    const hnote = hcov.partial ? ` · <span class="hcov">${esc(coverageNote(hcov))}</span>` : '';
     return `<div class="hrow">
         <div class="hd"><span class="hdate">${esc(fmtDateSmart(d, true))}</span>${flag}</div>
-        <div class="hmeta">${esc(rDisp(t.kcal))} kcal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L</div>
+        <div class="hmeta">${esc(rDisp(t.kcal))} kcal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
       </div>`;
   }).join('');
 }
@@ -4803,6 +4960,7 @@ const VERSION_LOG = [
   { v: '0.26.0', d: '2026-09-08', note: 'Capture is more likely to work, and when it does not it now hands you something. If the model answers with prose instead of the data — tables, commentary, nutrients a photo cannot show — that reply is put straight into the paste box for you to use, instead of being thrown away while the app reported a timeout. The app also now asks the provider for data-only replies rather than only requesting it in words, caps how long an answer can run, and will not start a second attempt it has no time to finish. The copyable prompt spells out what not to include, since when you paste it yourself those words are the only thing steering the reply.' },
   { v: '0.26.1', d: '2026-09-08', note: 'Capture now shows where the time went. Every capture — whether it works or not — reports the photo size actually sent, how long preparing it took, how long the provider took to start answering versus to finish, how many calls were made and why. If capture is slow, the breakdown says which part was slow, and it can be selected and copied. Nothing about how capture works has changed; this release only makes it visible.' },
   { v: '0.26.2', d: '2026-09-08', note: 'Capture should be markedly faster. A timing breakdown from a real capture showed all 41 seconds went on the model deliberating before it wrote a single character — the reply itself arrived instantly once it started. The app now asks for the quickest setting for this kind of request, which is reading a photo and returning a short list. If a provider will not accept that setting the request is made without it rather than failing. Nothing else changed, so the breakdown from your next capture is directly comparable with the last one.' },
+  { v: '0.27.0', d: '2026-09-09', note: 'Groundwork, and one fix. A day can now hold food whose portion is known but whose composition is not, without quietly under-reporting what you ate: any total built partly from such items says so — "from 3 of 4 items" — on the day total, on each meal, on the history row and above the ring, in the same words the micronutrient rows have always used. Averages and the energy trend leave those days out rather than folding in a number that is too low, and say how many days they used. Nothing you can log today produces such an item yet — that arrives with the next release — so no day of yours changes: same totals, same averages, same trend line. The fix: a meal like that now correctly counts as having eaten, so it breaks a fast instead of being read as zero calories.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -7178,7 +7336,9 @@ window.HT = {
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
-  averageOver, completeDaysInWindow, clearDay,
+  averageOver, avgBlockHTML, completeDaysInWindow, clearDay,
+  // R31 macro coverage (D67)
+  macroCoverage, itemHasMacros, coverageNote, MACRO_KEYS, migrateV6toV7, SCHEMA_VERSION,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor,
   setSupplement, applySupplementToToday, normalizeSupplement,

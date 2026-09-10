@@ -2374,7 +2374,7 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 
 **Amended by R31's sequencing (Fork 7 there):** H1's schema bump reads **v6 → v7** above, but R31 takes v7, so **R30's calibration fields are v7 → v8**. The ruling is unchanged; only its number moved.
 
-**Status: NOT BUILT — every fork ruled, blocked on R31**, which is registered below and builds first by F1.
+**Status: NOT BUILT — every fork ruled; the R31 prerequisite is BUILT (v0.27.0, D67), so nothing blocks it.** Note the schema consequence above: R31 took v7, so R30's calibration fields are v7 → v8.
 
 ### R31 — Macro coverage: the invariant D10 asserted, and the item that breaks it — PRE-REGISTERED (received 2026-09-09 as R30 Fork F1)
 
@@ -2425,4 +2425,58 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 
 **Defect pass required before this is evidence** (D60): at minimum — restoring the `num()` coercion must fail `R31-absent`; removing the coverage annotation must fail `R31-total`; including partial days must fail `R31-avg-exclude`; and dropping `unresolved` from the allowlist must fail `R31-flag`. **Per D60 Clause 4 the fixtures must be as falsifiable as the assertions** — `R31-not-zero` in particular must contain a zero that *could* leak, or it measures nothing.
 
-**Status: BUILDING.**
+**Status: BUILT — v0.27.0. Evidence below.**
+
+#### R31 — evidence (v0.27.0, D67)
+
+**Built to the pre-registration above; every fork resolved from the log, none referred up.**
+
+| case | verdict |
+|---|---|
+| R31-absent **GATE** | an unresolved item carries no macro key at all — not 0, not null; portion, name and flag survive |
+| R31-absent CONTROL | a resolved item is untouched — every macro present, no flag |
+| R31-not-zero **GATE** | on a day whose ONLY item is unresolved, no digit reaches its kcal cell and no macro figure its meta line |
+| R31-not-zero CONTROL | both assertions find the zeros once the cells print them |
+| R31-total **GATE** ×2 | the day-total row says *"from 2 of 3 items"*, **and the meal group head says it separately** |
+| R31-ring **GATE** | the goal block states coverage above the ring, not behind a disclosure control |
+| R31-ring CONTROL | a fully-resolved day carries no coverage line |
+| R31-avg-exclude **GATE** ×2 | the mean is 400/2 = 200, not 900/3 = 300; the block states *"from 2 of 3 days"* |
+| R31-avg-unchanged **GATE** | with no unresolved item in the window, `nMacro === M` and every mean is what v0.26.2 returned |
+| R31-trend **GATE** ×2 | the partial day is omitted from the series, and the omission is stated |
+| R31-flag **GATE** | `unresolved` survives export → restore, macros still absent afterwards |
+| R31-export **GATE** | displayed total and exported item set agree on a day containing an unresolved item |
+| R31-migrate **GATE** ×2 | `days` byte-identical through v6 → v7; a v6 blob migrates in place under the stable key on boot, snapshot taken |
+| R31-guard **GATE** | v8 refused, v7 accepted — the guard moved, it did not merely tighten |
+| R31-edit **GATE** | the editor opens an unresolved item's macro fields empty and disabled, and says why |
+| R31-fast **GATE** | an unresolved item **breaks a fast** — read as 0 kcal it would not count as eating |
+| R31-history **GATE** | the partial day's history row carries the sentence; the resolved day's row does not |
+| R31-vocab | no evaluative word on any coverage surface; the planted word is found by the same test |
+
+**Proven against the defect — ten planted, and the pass found a gate that could not fail.**
+
+| planted defect | fails |
+|---|---|
+| `num()` coercion restored on the macro keys | R31-absent ×2 |
+| the day-total coverage note removed | R31-total (day) — **initially PASSED** |
+| the meal-group coverage note removed | R31-total (meal) |
+| averages include partial days | R31-avg-exclude ×4 |
+| `unresolved` dropped from the `normalizeItem` allowlist | R31-flag |
+| the trend series plots partial days | R31-trend ×4 |
+| the goal-block coverage line removed | R31-ring ×2 |
+| the fast detector reading `num(it.kcal) > 0` alone | R31-fast ×2 |
+| the history-row coverage note removed | R31-history |
+| the editor's macro fields enabled, at `rDisp(undefined)` | R31-edit |
+
+**The day-total gate was not evidence, and that is the finding.** It asserted *"the day-total row says so"* against the **whole day view**, and the **meal group head** — which carries the same sentence for the same three items — satisfied it once the day-total note was deleted. Two surfaces making one claim, asserted on their union, let either go missing behind the other. Each is now asserted where it lives, and both fail against their own removal.
+
+**D60 Clause 4's fourth instance**, and the first where the flaw was the assertion's **scope** rather than the fixture's reach.
+
+**Eleven existing version assertions re-pinned** — each a case that deliberately asserted "my slice bumped nothing", now naming v7 and R31. Two fixtures moved with them: the forward-guard "future blob" (v7 → v8, or it stops being ahead of `SCHEMA_VERSION`) and R23's own forward-guard case. **One re-pin was over-applied and put back:** `migrateV5toV6` stamps 6, because it is one step of the chain and not the chain.
+
+**Two consumers the pre-registration did not enumerate** were found by looking rather than by trusting the list: the **history row** (short, not wrong) and the **fasting detector**, which read an unresolved item as 0 kcal and therefore as *not eating* — inventing a fast that did not happen, which is worse than any understated total. Both are gated above.
+
+**Count delta: 1530 → 1579** (+49), re-pinned deliberately in the same commit.
+
+**1579/1579 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
+
+**Status: BUILT — v0.27.0.**
