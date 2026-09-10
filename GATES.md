@@ -2240,11 +2240,17 @@ Two real failures on device, and they share a shape:
 
 **Ruled in the brief, and built to as stated:** single item in frame → the confirm question is **identity**, not grams; multi-item plates keep the dominant-anchors-the-rest design; above threshold resolve with the off-ramp visible; **below threshold do not resolve at all** — no provisional answer in the field, straight to the off-ramp, because a displayed default anchors even when labelled uncertain. Off-ramp in three depths: ranked candidates with **no confidence figures shown**, "none of these" → unresolved path, corpus search eventually.
 
-#### One thing to say before the forks: the threshold is the weaker of the two defences
+#### The slice's framing — RULED 2026-09-09: the threshold is the WEAKER defence
+
+**Adopted as this slice's framing, correcting the brief that commissioned it.** The brief led with the threshold and the off-ramp; its own survey inverts the emphasis, and the inversion is ruled rather than merely noted.
 
 The wine was almost certainly returned **confidently**. A confidence threshold does not catch a confidently wrong answer; it catches a hesitant one. What catches the wine case is the **shape of the question** — asking *what is this* before *how much of it* — and the off-ramp remaining visible **above** threshold, both of which the brief already rules.
 
-Recorded because it decides how the slice is judged on device: *identity is asked first* is the load-bearing gate. *Below threshold nothing is rendered* is a second, narrower defence, and if the next capture is again confidently wrong that is **not** evidence the threshold is set wrong.
+**IDENTITY IS ASKED FIRST is the load-bearing gate.** *Below threshold nothing is rendered* is a second, narrower one.
+
+**And the consequence, ruled with it: if the next capture is again confidently wrong, that is NOT evidence the threshold is misset.** It is the load-bearing gate under test, and the threshold has nothing to say about that case. Recorded because the opposite reading is the natural one to reach for on device, and because it would send the next session to tune a constant that was never the mechanism — the same shape D65 refused when it instrumented instead of guessing a fourth time.
+
+A brief corrected by its own survey is a fact the next session should be able to see, so it is recorded here rather than folded silently into the fork list.
 
 #### Survey — what is actually shipped
 
@@ -2256,9 +2262,11 @@ Recorded because it decides how the slice is judged on device: *identity is aske
 
 An item with grams and no macros contributes **0 kcal to a total that presents itself as complete** — understated, and looking exact. That is the failure D8 exists to prevent, arriving through the daily ring instead of through a micronutrient. **The off-ramp cannot be built honestly without macro coverage**, and macro coverage touches the daily total, the ring, the averages and export. This is Fork F, and it is the largest cost in the brief by a wide margin.
 
-**2. The identity rail the off-ramp would reuse renders nothing on a fresh install.**
+**2. The identity rail the off-ramp would reuse renders nothing on a fresh install. — RULED 2026-09-09: this changes what the slice IS.**
 
-`photoIdentityOptions` returns `''` when `presets.length === 0`, and presets ship empty by the v4 multi-user rule. So the only shipped way to correct an identity is **a re-pick over the user's own presets**, and for a user with none there is **no identity correction at all** — which is the state both motivating failures happened in. The off-ramp is not an improvement on the rail; for a new user it is the first rail there is.
+`photoIdentityOptions` returns `''` when `presets.length === 0`, and presets ship empty by the v4 multi-user rule. So the only shipped way to correct an identity is **a re-pick over the user's own presets**, and for a user with none there is **no identity correction at all** — which is the state both motivating failures happened in.
+
+**Ruled into the record: the off-ramp is not an improvement on the identity rail; for a new user it is the first rail there is.** The brief reads as a refinement of an existing correction path. There is no existing correction path on a clean profile — which is every distributed install by the v4 multi-user rule, and was the profile both failures were reported from. That reframes the slice from *making a correction better* to *there being one at all*, and it raises the stakes on Forks D and E, which decide what that first rail can actually do.
 
 **3. A candidate pick has no macros, and this is the crux of the slice.**
 
@@ -2288,7 +2296,8 @@ D64: `response_format` is an API-path lever and the paste path *"only ever gets 
 - **A2 — conditional ("only when unsure").** Rejected. A wrongly-confident model does not self-report unsure — the wine case *is* that failure — so the branch would be absent exactly when it is needed, and the reply shape becomes variable for no gain.
 - **How many: 3** (the answer plus two). Five invites deference-by-menu and does not fit beside a grams control on a phone; two barely differs from one. Output cost is negligible against the 477-char reply D66 measured.
 - **`p`, not `confidence`** (survey 7), a number in `[0,1]`, **never displayed** — read only by the threshold, written only to the calibration record.
-- **`AI_TEMPLATE_VERSION`: 3 → 4 (recommended).** D11 ties the number to the item contract and this changes it. D64's counter-precedent — *"bumping would tell a user their saved copy is incompatible when it still produces valid output"* — argues the other way, since a v3 copy still parses. **The distinction offered: a v3 copy still produces a valid meal but cannot produce an off-ramp**, so it is degraded rather than merely older. Your call; the honest alternative is to leave it at 3 and accept that the version has stopped tracking the contract.
+- **`AI_TEMPLATE_VERSION`: 3 → 4 — RULED 2026-09-09.** D11 ties the number to the item contract and this changes it. D64's counter-precedent — *"bumping would tell a user their saved copy is incompatible when it still produces valid output"* — argued the other way, since a v3 copy still parses. **Ruled on the distinction that separates the two cases: a v3 copy still produces a valid meal but cannot produce an off-ramp**, so it is degraded rather than merely older, which is what D64's clause was protecting against claiming. Leaving it at 3 was refused for the stated reason — it would mean accepting that the version has stopped tracking the contract, which is the number's only job.
+- **The rest of Fork A is still OPEN**: A1 versus A2, the candidate count of 3, and `p` as the key name. The version ruling settles what happens *when* the contract changes, not *what* it changes to.
 
 **Fork B — what "single item in frame" means.**
 - **B1 (recommended): one item in the parsed reply, decided once at draft construction and frozen for the life of the draft.** The question is a framing decision made when the draft opens; a question that re-shapes itself as rows are excluded is a moving target, and D51's confirm-first grammar wants one stable question.
@@ -2353,4 +2362,12 @@ D64: `response_format` is an API-path lever and the paste path *"only ever gets 
 
 The matcher and its evaluation set (D62's stated next). The corpus. Whether macro coverage (Fork F) is its own slice — that ruling changes what R30 is. Whether the calibration data ever tunes anything, which the brief explicitly defers.
 
-**Status: NOT BUILT. Awaiting rulings on Forks A–I.**
+#### Ruling log
+
+| ruled | what |
+|---|---|
+| 2026-09-09 | **Framing adopted, correcting the brief** — the threshold is the weaker defence; *identity is asked first* is the load-bearing gate; a confidently-wrong capture is not evidence the threshold is misset |
+| 2026-09-09 | **Survey 2 adopted as a change to what the slice is** — with zero presets there is no identity correction at all, so the off-ramp is the first rail rather than a better one |
+| 2026-09-09 | **Fork A, version sub-fork** — `AI_TEMPLATE_VERSION` 3 → 4, on the degraded-not-merely-older distinction |
+
+**Status: NOT BUILT.** Fork A's version sub-fork is ruled; **A1-vs-A2, the candidate count and the `p` key remain open**, as do **Forks B–I**. Fork F still decides the size of the slice.
