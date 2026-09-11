@@ -2572,3 +2572,106 @@ Promoting it means:
 #### Not scheduled
 
 The matcher and its evaluation set are what D62 named as next, and nothing is upstream of them. This is recorded so it is a candidate with a name and a shape, not a sentence at the end of a governance entry. **Status: NAMED, NOT SCHEDULED, NOT BUILT.**
+
+### R33 — Partial meals: the plate and the consumption are two different things — PRE-REGISTERED, FORKS OPEN (received 2026-09-11; NOT built)
+
+**A truncated brief.** The anticipation section ends mid-sentence — *"I'd rather over-ask early than have the"* — so Fork E is written against the argument as far as it got, and the missing clause is flagged rather than guessed.
+
+**Motivation, twice in real use:** a sushi bowl eaten half at one sitting and half later; and a takeout tray the model estimated at ~450 g, corrected to ~790 g for the **plate**, with no way to say roughly half of it was eaten. Whatever is saved is either an overstatement (log the tray) or a fabrication (invent a number). **The app asks what is on the plate and then goes quiet**, so a takeout container saves as if the container was eaten.
+
+**Ruled and built to:** the plate is a **fact** that does not change; consumption is an **event** that can happen more than once. Step 1 confirms the plate — weights anchor and propagate as shipped, counts are confirmed individually because counts do not share a scale — and **the confirmed plate contributes nothing to totals**. Step 2 records consumption, possibly several times, in the unit the user actually knows. **Totals come from consumption events, never from the plate.** A recall badge marks a plate with remainder; a plate is **never auto-consumed**.
+
+#### Survey — what is shipped, and what it means for this
+
+**1. A consumption event is already exactly what an item IS.** `name, meal, time, kcal, protein_g, …, grams, confidence, source` — every field a consumption event needs, a saved item already has. That is the observation the whole slice should be built on: **if a consumption event is an ordinary item carrying a `plateId`, then `dayTotals`, `averageOver`, `macroCoverage`, `macroSeries`, `fastEvents`, `renderHistory`, the undo grammar and R23's editor all keep working untouched**, and R33 becomes additive rather than a re-derivation of every consumer.
+
+**2. A plate is not an item, and putting one in `day.items` inverts R31's trap into a worse form.** Twelve analysis and display consumers read `day.items`: `dayTotals`, `averageOver`, `macroCoverage`, `microRollup`, `macroSeries`, `fastEvents`, `renderDay`, `renderHistory`, `timelineForDay`, `isEmptyDay`, `isFirstRun`, and the days-logged rollup. A plate row flagged `plate: true` must be excluded from **every one of them**, and each miss is a **silent overstatement**.
+
+**R31 is the evidence that the enumeration is unreliable.** Its ruling named four surfaces; the build found two more — the history row and the fasting detector — and one of those produced a *wrong answer* rather than a short one. An absent macro that leaks reads as **0** and understates; a plate row that leaks reads as **a whole takeout tray** and overstates. Same failure class, opposite sign, larger magnitude.
+
+**3. The fasting detector is the sharpest case, and it is already load-bearing.** `fastEvents` selects any item with `kcal > 0` or `unresolved === true`. A plate saved at 19:00 and eaten at 20:00 and 23:00 would break the fast **at the moment the food was served**, not eaten — and R31 has just made that selector *more* inclusive. Under a plates-are-items design this needs a guard that will eventually be forgotten; under a separate store it cannot arise.
+
+**4. `mealId` already groups a photo meal and survives revision.** `photoReopen(mealId)` rebuilds a draft from saved rows, which is structurally close to "reopen the plate" — but it reopens **items**, and a plate has to persist whether or not anything has been eaten from it yet. The grouping mechanism transfers; the lifetime does not.
+
+**5. Counts do not exist anywhere in the data model.** `grams`, `portion_g`, `per100`, `ai_grams`, the slider bounds, `ozHint` — everything is mass. *"10 pieces of sushi"* has no representation at all. **This is the largest new primitive in the brief**, and it is the half most likely to be under-estimated, because the sentence describing it is shorter than the sentence describing fractions.
+
+**6. R30 just made the draft's first question identity-shaped**, and the draft is where plate confirmation would live. So step 1 is largely the draft that already exists — R33's work there is to stop the draft's output from reaching totals directly, not to build a new surface.
+
+#### The forks
+
+**Fork A — where a plate lives. The central one.**
+- **A1 (recommended): a new top-level `plates` store**, keyed by plate id, each carrying its date, its confirmed items with frozen per-100 g composition, and its confirmation time. **Safety by construction: no consumer can accidentally count a plate, because plates are not in the collection anything totals.** D59's escalation clause has to be argued rather than assumed — and it is satisfiable: a plate is *user-authored data*, exported and restorable, which is the test the corpus failed.
+- **A2: plate rows inside `day.items`, flagged and excluded.** Rejected on survey 2's number: twelve consumers, each miss an overstatement, against a project that has twice enumerated consumers and twice missed some.
+- **A3: plates in the `timeline` store.** Rejected: that store holds signals and events, and `timelineForDay` already merges food items in as a read-only overlay. A plate is a persistent object, not a moment.
+
+**Fork B — what a consumption event is.**
+- **B1 (recommended): an ordinary item, plus `plateId` and the statement that produced it** (fraction, or count and unit). Every existing consumer keeps working; the record carries its own provenance, which is D57's shape.
+- **B2: a new record type.** Rejected — it would re-derive all twelve consumers to gain nothing the link does not already give.
+- **Macros are frozen at write time**, absolute, exactly as every other item stores them — with the plate's per-100 g kept on the plate as what they were computed from. D62 Fork 3's freeze principle: a saved object whose numbers silently change between two readings means the same gesture produces two different meals.
+
+**Fork C — how the common case collapses. The frequency rule.**
+- **C1 (recommended): the draft's primary action becomes "Ate all of it"**, one tap that writes the plate *and* a single 100 % consumption event. **The tap count for an ordinary meal is identical to v0.28.0** — the button changes its words, not its cost. "Ate some of it" is the secondary control beside it, and only it opens the fraction/count question.
+- **C2: always ask how much was eaten.** Rejected: it puts the rare case's ceremony on every meal, which is the inversion the brief warns about and the toggles got right.
+- **C3: save the plate, then a separate consumption step.** Rejected: two ceremonies for the common case.
+- **Consequence accepted deliberately:** a plate object is created for *every* meal, including fully-eaten ones. That is one code path rather than two, it is what makes *"actually, I had more later"* possible without re-photographing, and it costs a row nobody sees. The recall badge must therefore key on **remainder**, not on existence.
+
+**Fork D — counts, the new primitive.**
+- **D1: template v4 → v5 adds optional `count` and `unit` per item.** A count is a visual fact the model can see, unlike D62 Fork 4's dish-vs-components classification, so the objection that ruled that one out does not apply here.
+- **D2: the user declares countability at the plate step.** No template change, but it puts manual entry on exactly the case the brief calls out by name.
+- **D3 (recommended): hybrid** — the model *may* return `count`/`unit`, the user may always set or override, absent is fine and falls back to mass. A wrong count is corrected by the same gesture that would otherwise have to create it.
+- **The cost to rule on explicitly: this is the second template bump in consecutive slices** (v3 → v4 in R30, v4 → v5 here). Every bump tells users their saved copy is out of date, and two in a row is churn on the one artefact the no-key path depends on. **An alternative worth your consideration is D2 for this slice with D1 as a named follow-on** — slower for count meals, and it keeps R30's template stable while it is still unproven on device.
+- **Counts must not enter `photoShared`.** The brief rules it and the code agrees: the shared correction is a geometry hypothesis over mass. A count item is pinned individually and contributes no ratio.
+
+**Fork E — the anticipation trigger.** *(Written against a truncated argument.)*
+- **E1 (recommended): key on signals the app already produces, not on words.**
+  - **The user's own upward correction of the plate.** In the motivating case the model said 450 g and the user said 790 g — **a 1.75× upward correction to a large absolute weight is the user telling the app, in its own units, that this is bigger than one serving.** It is language-independent, needs no new field, and fires at exactly the moment the misunderstanding happens.
+  - **Absolute portion above a surfaced threshold**, as a floor for the case where the model got it right first time.
+  - **A model flag**, only if D1/D3 is ruled and only as a third input.
+- **E2: name keywords** (tray, platter, family, sharing). Rejected: brittle, language-dependent, and it is the model's job rather than a regular expression's.
+- **E3: absolute grams alone.** Rejected as the *only* signal — a 600 g steak is one person's dinner and a 300 g dessert platter is not.
+- **The shape of the ask matters as much as the trigger: non-blocking, with "all of it" as the one-tap default.** A modal that must be answered would put the rare case's ceremony back on the common case through the side door.
+- **Threshold conservative and surfaced**, same discipline as R30's G1 — over-ask early, because the picks are also the only evidence that could ever tune it.
+- **Flagged: the brief's argument for over-asking is cut off mid-sentence.** I have built the recommendation on over-asking being cheap; if the missing clause says something else, this fork changes.
+
+**Fork F — the recall badge, and when a plate stops asking.**
+- **F1 (recommended): the badge appears while a plate has remainder, and the plate object never expires or is deleted.** What expires is the *prompting*: after a bounded window the badge stops offering, and the plate remains reachable rather than vanishing.
+- **The sushi case requires the window to cross midnight** — half now, half tomorrow — so a plate from yesterday must be able to show on today.
+- Open: the window's length, and whether it is a constant or a setting. Recommend a constant, for the reason G1 gives about second knobs.
+
+**Fork G — does an open plate change what a day claims?**
+- **G1 (recommended): no coverage annotation, and no change to D10.** R31's *"from N of M items"* is about **composition being unknown**; an open plate is food **not yet claimed to have been eaten**. Different claims, and merging them would make one sentence mean two things. A day's totals are honest with a plate open: nothing was counted, and nothing was asserted.
+- **But completing a day with remainder must not silently close the question** — the badge is the surface, and `toggleDayStatus` never auto-consumes. The brief rules that and it is gated, not assumed.
+
+**Fork H — which input paths get plates.**
+- **H1 (recommended): the photo path in this slice**, where both motivating cases came from. **Manual entry and the scan path have the identical problem** — a typed 790 g container, a scanned 500 g tub — and are **recorded as the escalation with their shape named**, the way R25 named macro coverage rather than smuggling it. Doing all three here makes R33 three slices.
+
+**Fork I — remainder, editing, and deletion.**
+- **I1 (recommended): the remainder is DERIVED — plate total minus the sum of its events — and never stored.** Deleting an event returns the remainder for free, editing one re-derives it, and there is no second number that can drift from the first.
+- **This is D62 Fork 3's question with the opposite answer, and the reason it is opposite is worth stating:** a composite's composition is an *answer* that must not change under the user, so it is frozen; a remainder is *arithmetic over the user's own events* and must change the moment they do. Freezing it would be storing a stale subtraction.
+- Open: what deleting a **plate** with events does — orphan them, refuse, or cascade. Recommend refuse-with-reason, since a cascade is a multi-item delete behind a single tap.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| R33-plate-not-counted **GATE** | a confirmed plate contributes **nothing** to `dayTotals`, `averageOver`, `macroSeries`, `microRollup`, `macroCoverage`, `renderHistory` or `fastEvents` — asserted **per consumer by name**, not on their union |
+| R33-fast **GATE** | the plate does **not** break a fast at the time it was confirmed; each consumption event **does**, at its own time |
+| R33-consumption | a consumption event contributes exactly as an ordinary item, through every consumer above |
+| R33-two-events **GATE** | one plate, two events, two times: totals equal the sum of the events, and neither equals the plate |
+| R33-remainder | remainder is derived, not stored; deleting an event restores it; editing one re-derives it |
+| R33-never-auto **GATE** | a plate with remainder at day close is never auto-consumed, and the object survives |
+| R33-one-tap **GATE** | "Ate all of it" writes plate + one 100 % event in a single gesture, and the gesture count for a whole meal is **unchanged from v0.28.0** |
+| R33-counts **GATE** | a countable plate confirms counts individually, and a count item contributes **no ratio** to `photoShared` |
+| R33-ask **GATE** | the trigger fires on a large upward correction and on a large absolute portion, is non-blocking, and defaults to "all of it" |
+| R33-badge | a plate with remainder shows the recall badge; a fully consumed one does not; a plate from yesterday can still show today |
+| R33-export | plates and `plateId` survive export → restore (the allowlist trap, ninth occurrence) |
+| R33-migrate / R33-guard | v8 → v9 in place with `days` byte-identical; v10 refused |
+| R33-vocab | M7 over the plate question, the consumption question and the badge |
+
+**Defect pass required before this is evidence** (D60). Per **Clause 5**, every case above that dereferences a plate or an event must **guard the dereference**, so a missing store fails the named gate rather than aborting the suite. Per **Clause 4**, `R33-plate-not-counted` must assert **per consumer** — asserting on a single total would pass with a plate leaking into any of the other eleven.
+
+#### What this pre-registration does not settle
+
+The matcher and its evaluation set (still D62's stated next, still unblocked). Manual and scan plates (Fork H's escalation). Whether counts arrive from the template or the user (Fork D, and its template-churn cost). The missing end of the anticipation argument.
+
+**Status: NOT BUILT. Awaiting rulings on Forks A–I.**
