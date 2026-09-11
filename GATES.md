@@ -2521,9 +2521,9 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 | the lead block's off-ramp removed | R30-plate-unchanged |
 | absent `alts` treated as unsure | R30-degrade ×2 |
 
-**`R30-order` passed against an alphabetical sort because the fixture was already alphabetical** (`Alpha / Bravo / Charlie`). The assertion was right; the data made it unfalsifiable. **D60 Clause 4's fifth instance.**
+**`R30-order` passed against an alphabetical sort because the fixture was already alphabetical** (`Alpha / Bravo / Charlie`). The assertion was right; the data made it unfalsifiable. **D60 Clause 4's fifth instance**, now recorded in that clause's register.
 
-**`R30-record` detected its defect by throwing** — `recItem.ai_alts.length` on a dropped field raised a TypeError and aborted the synchronous suite, so the failure arrived as `HARNESS: uncaught exception` and every later case silently did not run. The suite went red and the harness behaved correctly, but **a gate that can only report through the crash handler is not reporting**. Guarded so it fails as itself. A **new shape** for this family: not an assertion that could not fail, but one that could not fail *by name*.
+**`R30-record` detected its defect by throwing** — `recItem.ai_alts.length` on a dropped field raised a TypeError and aborted the synchronous suite, so the failure arrived as `HARNESS: uncaught exception` and every later case silently did not run. The suite went red and the harness behaved correctly, but **a gate that can only report through the crash handler is not reporting**. Guarded so it fails as itself. A **new shape** for this family: not an assertion that could not fail, but one that could not fail *by name*. **Ruled into D60 as Clause 5** (2026-09-11).
 
 **Two live defects were found by the gates during the build**, both the same structural cause — the grams lead block **replaces** the lead item's row, so on a plate the dominant item had nowhere to render its alternatives (Fork C1's entire subject) and an unresolved lead item had nowhere to state its absence. The lead block now carries both.
 

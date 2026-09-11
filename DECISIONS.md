@@ -2045,7 +2045,7 @@ Instance 6 is the proof that the existing bar is insufficient. `CLAUDE.md`'s wor
 
 **A new or materially changed gate is not evidence until it has been RUN AGAINST THE DEFECT IT CLOSES AND SEEN TO FAIL.** The failing run is part of the gate's evidence and is recorded in `GATES.md` alongside the passing one.
 
-Three clauses, each earned by a specific instance:
+Three clauses, each earned by a specific instance — **and two more added by amendment below** (Clause 4, 2026-09-08; Clause 5, 2026-09-11):
 
 **1. Exhibited, not asserted.** It is not enough to reason that a gate would fail; the defect is planted — the pre-slice behaviour restored, or the property mutated false — the suite is run, and the named cases are observed failing. Instance 6 survived every amount of reasoning and died in the first minute of being run against the unpinned build.
 
@@ -2081,6 +2081,41 @@ In every case the assertion was correct, well-named, and would have caught the d
 **The practical diagnostic, since this is what actually catches it:** when a planted defect leaves the suite green, suspect the fixture first. An assertion that names the right property and still passes against its own defect is almost always measuring a state that some *other* code established.
 
 **And the positive pattern, from the fourth defect of R26.** Removing the ancestor walk in `promptBoxFor` broke no gate — legitimately, because the visible-box fallback independently satisfies the property whenever only one surface is open. The temptation is a caveat: *"this mutation is safe for an unrelated reason."* The better answer is to **construct the case where the mechanism is not optional** — both surfaces open at once, two boxes visible, only the tapped card's may be written. That makes the walk load-bearing and the mutation falsifiable, and it replaces a note nobody would re-read with a gate that fails. **Prefer constructing the discriminating case over recording why the gate could not fail.**
+
+### Amendment — the Clause 4 register, extended (2026-09-11)
+
+The table above closed at three instances on 2026-09-08 and was never extended, so **instance 4 was recorded in D67 and not carried back here.** The register is the thing future sessions count from, so it is completed rather than left to be reassembled from three separate entries.
+
+| # | slice | assertion | why the fixture could not exhibit the failure |
+|---|---|---|---|
+| 4 | R31 (D67) | *"the day-total row says so"* | asserted against the **whole day view**, where the **meal group head** carries the same sentence for the same items and satisfied it once the day-total note was deleted |
+| 5 | R30 (D68) | the candidate list renders in the model's order | the fixture was `Alpha / Bravo / Charlie` — **already alphabetical**, so a planted alphabetical sort was a no-op and the gate passed with the defect in |
+
+**Instance 4 was the first where the flaw was the assertion's SCOPE rather than the fixture's reach** — two surfaces make the same claim, and asserting on their union lets either go missing behind the other. The repair is the same shape as Clause 4's positive pattern: assert each claim **where it lives**.
+
+**Instance 5 is the plainest statement of the clause there has been.** The assertion named exactly the right property, the defect was exactly the one it guards against, and the two never met because the test data could not tell them apart. **Fixture data must be chosen so that the wrong answers are DIFFERENT from the right one** — the names now disagree with alphabetical, reverse and by-length ordering, so only the model's own order satisfies the case.
+
+### Amendment — Clause 5: A GATE MUST BE ABLE TO FAIL BY NAME (2026-09-11)
+
+**Found in R30's defect pass.** With `ai_alts` dropped from the `normalizeItem` allowlist, `R30-record` read `recItem.ai_alts.length` on a field that was no longer there, raised a `TypeError`, and **aborted the synchronous suite**. What the run reported was:
+
+```
+FAIL  HARNESS: uncaught exception aborted the synchronous suite -- cases after it did NOT run
+```
+
+The suite went red. The harness did exactly what it was built to do — D56's handler exists for this, and without it the run would have printed a green-looking summary over a silently reduced count. **Nothing in the machinery misbehaved.**
+
+**And the gate still did not report.** It crashed. The verdict named the harness, not the property: *something threw*, not *the offered list is no longer stored*. A reader of that run learns the suite is broken and nothing about which contract was violated — and the defect pass, which matches failures against the case it planted them for, scored it as **passing with the defect in**, because no line carrying `R30-record` was ever printed.
+
+**Clause 5, binding:** *a gate is evidence only if it can fail AS ITSELF.* A case that signals its defect by taking the suite down is not evidence, **for the same reason as one that cannot fail at all: the verdict does not identify what broke.** Clauses 1–4 ask whether a gate *can* fail; this one asks whether the failure *arrives with the gate's name on it*.
+
+**It is worse than an ordinary miss, in a way worth stating.** An abort stops every case after it, so one planted defect yields an unknown number of **unmeasured** properties — the run cannot distinguish "these still hold" from "these were never reached". That is D56's silent-skip shape, produced by a gate rather than suffered by one.
+
+**The practical rule, since this is what prevents it:** an assertion that dereferences something a defect could remove must **guard the dereference** — `!!x && x.length === 3` rather than `x.length === 3`. The guard costs nothing when the property holds and is the whole difference between a named failure and a crash. The same applies to any case that indexes an array, walks a chain of optional fields, or calls a method on a value the code under test is responsible for creating.
+
+**The diagnostic:** when a planted defect produces `HARNESS: uncaught exception`, the suite has told you the truth and the gate has not. Find the case that threw and guard it, then re-run — the defect is not proven closed until the failure prints the gate's own name.
+
+**And the honest limit, as with the rest of D60:** this is still discipline, not enforcement. A mutation runner that asserted *"gate X, and only gate X, fails for defect Y"* would catch Clauses 1, 4 and 5 mechanically. Until it exists, the defect pass catches these only because its output is read case by case rather than as a pass/fail total — which is the same reason the three earlier instances were caught, and worth preserving as a habit.
 
 ### Relationship to `CLAUDE.md`
 
@@ -2605,7 +2640,7 @@ A glass of wine was identified as apple juice, and the confirm modal then asked 
 
 **`R30-order` passed against a planted alphabetical sort** — because the fixture was `Alpha / Bravo / Charlie`, already in alphabetical order. The assertion was right and the data made it unfalsifiable. The names now disagree with alphabetical, reverse and by-length ordering, so only the model's own order satisfies it. **D60 Clause 4's fifth instance.**
 
-**`R30-record` detected its defect by throwing.** With `ai_alts` dropped from the allowlist, `recItem.ai_alts.length` raised a TypeError and took the synchronous suite down — so the failure arrived as `HARNESS: uncaught exception` rather than as the named case. The harness behaved correctly and the suite went red, but **a gate that can only report through the crash handler is not reporting**: the run says "something broke", not "this property is violated", and every case after it silently did not run. Guarded so it fails as itself. That is a **new shape** for the D56/D60 family — not an assertion that could not fail, but one that could not fail *by name*.
+**`R30-record` detected its defect by throwing.** With `ai_alts` dropped from the allowlist, `recItem.ai_alts.length` raised a TypeError and took the synchronous suite down — so the failure arrived as `HARNESS: uncaught exception` rather than as the named case. The harness behaved correctly and the suite went red, but **a gate that can only report through the crash handler is not reporting**: the run says "something broke", not "this property is violated", and every case after it silently did not run. Guarded so it fails as itself. That is a **new shape** for the D56/D60 family — not an assertion that could not fail, but one that could not fail *by name*. **It is now D60 Clause 5**, and `R30-order` joined the Clause 4 register as its fifth instance.
 
 The other ten behaved: resolving below the floor fails `R30-below-none`; rendering `p` fails `R30-no-numbers`; never opening the identity question fails `R30-identity-first`; an alt pick keeping the top-1 macros fails `R30-alt`; keeping the rejected name fails `R30-none-of-these`; suppressing `altsMismatch` fails `R30-top1`; re-deriving `single` from live items fails `R30-frozen`; removing the preset lookup fails `R30-preset`; stripping the lead block's off-ramp fails `R30-plate-unchanged`; and treating absent `alts` as unsure fails `R30-degrade`.
 
