@@ -2532,3 +2532,43 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 **1637/1637 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
 
 **Status: BUILT — v0.28.0.**
+
+### R32 — The mutation runner: "gate X, and only gate X, fails for defect Y" — NAMED CANDIDATE (2026-09-11; not scheduled)
+
+**Named rather than pre-registered, and deliberately not next.** D60 has carried the same sentence since it was written — *"the enforcing mechanism would be a mutation pass… until that exists, D60 is a discipline, not a guarantee"* — and a caveat that appears in three amendments without ever becoming a task is a caveat the project has learned to live with. This entry exists so it can be scheduled instead of restated.
+
+#### What it asserts
+
+For each entry in a defect registry: **plant defect Y, run the suite, and require that gate X fails — and that nothing else does.**
+
+The second half is the part that does the new work. The ad-hoc passes run so far only check that the named gate appears among the failures.
+
+- **"gate X fails"** mechanises **Clause 1** (exhibited, not asserted) and **Clause 4** (the fixture must be able to exhibit the failure) — a gate that cannot fail, or whose fixture makes the assertion true regardless, shows up as a defect nothing catches.
+- **"and ONLY gate X"** mechanises **Clause 5** (fail by name) and adds something no clause currently states: **isolation**. A defect that fails eleven gates means the suite is not localising, and a defect that fails `HARNESS: uncaught exception` instead of its gate is Clause 5's exact shape, caught automatically rather than by reading the output case by case.
+
+That last point is the whole value. Both instances D60 now records as Clause 5 and Clause 4 #5 were found because a human read a twelve-line table line by line and noticed two rows that said the wrong thing. **That is not a mechanism, it is attention, and attention is what this project has watched decay five times in the gate layer.**
+
+#### What already exists, and what it is missing
+
+Two throwaway runners were written this session — ten defects for R31, twelve for R30 — and both did the core loop: restore a pristine copy, apply one find/replace patch, refresh the shell hash, run the data-layer gate, collect `FAIL` lines, restore. They found three gates that were not evidence. **The prototype is proven; what is missing is that it lives in a scratchpad and dies with the session.**
+
+Promoting it means:
+
+- a **committed defect registry** — `(name, file, find, replace, expected gate)` — that lives beside the gates it verifies and is reviewed when they change;
+- the **"and only"** assertion, which neither prototype had;
+- a **verdict line** in the runner's own grammar, so it joins `run-all-gates.sh` as a gate that prints `GATE: PASS` or `GATE: FAIL` and can never be silently skipped (D56 failure shape #4, which this runner would otherwise be a fresh instance of).
+
+#### The design ruling to make first, since it decides whether this is worth having
+
+**A patch that no longer applies must FAIL, not skip.** Both prototypes printed `PATCH-MISS` when a find-string had drifted out of the code. If that is ever treated as "nothing to test here", the runner becomes a check that silently stops checking — **D56's shape, arriving inside the tool built to prevent it**, and the most predictable way this slice could produce a worse outcome than not existing. The registry's patches rot every time the code they target is edited, which is often, so this is not a corner case; it is the normal weather.
+
+#### Open forks, recorded and not resolved
+
+- **Where the registry lives**, and whether a defect is a literal find/replace pair (brittle, but a miss is loud) or something structural (robust, and quietly wrong when it matches the wrong thing).
+- **Runtime.** A defect run is a full data-layer run; R30's twelve took roughly twenty minutes of wall clock on this machine, and the memory-pressure note in D67 applies to anything that launches Chrome repeatedly. Whether the registry is run per-slice on the gates a slice touched, or whole and rarely, is the scheduling question.
+- **Scope: data-layer only, or the CDP gates too.** The CDP gates are where four of D56's six instances lived, which argues for including them, and they are also the slowest and the flakiest, which argues against.
+- **What it does about a gate with a legitimately unfalsifiable property** (Clause 2's paired-gate case) — the registry needs a way to say "this one is expected not to fail here" without that becoming the exemption marker D60 explicitly refused.
+
+#### Not scheduled
+
+The matcher and its evaluation set are what D62 named as next, and nothing is upstream of them. This is recorded so it is a candidate with a name and a shape, not a sentence at the end of a governance entry. **Status: NAMED, NOT SCHEDULED, NOT BUILT.**

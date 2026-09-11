@@ -2061,7 +2061,7 @@ A defect run is a full suite run per planted defect. R23 cost eight; R24 cost fo
 
 **No mechanism is provided for marking a gate "unfalsifiable, skip the proof."** D56 refused the same thing for a blocked gate script and the reasoning carries: an exemption marker would let the suite go green while a gate proved nothing, which is instance 6 with a config file in front of it. Clause 2 is the honest path — state the blind spot, pair it with something that can fail.
 
-**And this rule is NOT machine-enforced, which is its own weakness and is recorded rather than glossed.** It depends on the author remembering, and a check that depends on remembering is precisely the category this project has watched decay four times in the gate layer alone. The rule is therefore written where it binds, but it should not be mistaken for a solution: **the enforcing mechanism would be a mutation pass** — a runner that flips a known set of properties false and asserts that a named gate fails for each — and until that exists, D60 is a discipline, not a guarantee. Naming that gap is the point; a governance claim that oversells its own enforcement is the D54 shape.
+**And this rule is NOT machine-enforced, which is its own weakness and is recorded rather than glossed.** It depends on the author remembering, and a check that depends on remembering is precisely the category this project has watched decay four times in the gate layer alone. The rule is therefore written where it binds, but it should not be mistaken for a solution: **the enforcing mechanism would be a mutation pass** — a runner that flips a known set of properties false and asserts that a named gate fails for each — and until that exists, D60 is a discipline, not a guarantee. **That runner is now a named candidate slice — R32 in `GATES.md` — rather than a standing caveat.** Naming that gap is the point; a governance claim that oversells its own enforcement is the D54 shape.
 
 
 ### Amendment — Clause 4: THE FIXTURE IS AS FALSIFIABLE AS THE ASSERTION (2026-09-08)
@@ -2115,7 +2115,7 @@ The suite went red. The harness did exactly what it was built to do — D56's ha
 
 **The diagnostic:** when a planted defect produces `HARNESS: uncaught exception`, the suite has told you the truth and the gate has not. Find the case that threw and guard it, then re-run — the defect is not proven closed until the failure prints the gate's own name.
 
-**And the honest limit, as with the rest of D60:** this is still discipline, not enforcement. A mutation runner that asserted *"gate X, and only gate X, fails for defect Y"* would catch Clauses 1, 4 and 5 mechanically. Until it exists, the defect pass catches these only because its output is read case by case rather than as a pass/fail total — which is the same reason the three earlier instances were caught, and worth preserving as a habit.
+**And the honest limit, as with the rest of D60:** this is still discipline, not enforcement. A mutation runner that asserted *"gate X, and only gate X, fails for defect Y"* would catch Clauses 1, 4 and 5 mechanically. Until it exists, the defect pass catches these only because its output is read case by case rather than as a pass/fail total — which is the same reason the three earlier instances were caught, and worth preserving as a habit. **It is now named: R32, with its registry, its "and only" assertion and its patch-drift ruling recorded in `GATES.md`. Not scheduled — but a task rather than a caveat.**
 
 ### Relationship to `CLAUDE.md`
 
