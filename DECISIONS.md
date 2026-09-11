@@ -2560,3 +2560,59 @@ The full suite failed once during this slice with **three** gates down — `bm-s
 ### Flagged, not touched
 
 R30 is now unblocked. Its off-ramp has somewhere honest to land, and the identity-first question can be built against a totals layer that no longer has to pretend an unresolved item ate nothing.
+
+## D68 — Identity before portion, and the off-ramp that does not pretend (R30, 2026-09-11)
+
+`APP_VERSION → 0.28.0`; **schema v7 → v8**; **`AI_TEMPLATE_VERSION` 3 → 4**. All nine forks ruled as recommended; R31 shipped first as F1 required, so the off-ramp has somewhere honest to land.
+
+### What was wrong
+
+A glass of wine was identified as apple juice, and the confirm modal then asked for the **grams**. The question presupposed the identity and moved attention to the number, so a volume was corrected for a drink that was not being had. Alcohol versus sugar: not close, invisible in the photo, material in the record. A single item resolved as "chicken nugget" the same way.
+
+**The framing, ruled 2026-09-09 and built to:** the threshold is the **weaker** defence. It catches a hesitant answer, not a confidently wrong one, and the wine was almost certainly returned confidently. *Identity is asked first* is the load-bearing gate; below-threshold suppression is the narrower second. **A confidently-wrong next capture is not evidence the threshold is misset.**
+
+### The forks, as built
+
+**A1 — the template asks for three.** Each item now carries `alts: [{name, p}]`, best first, with `alts[0]` required to equal `name`. The primary contract is untouched, so a degraded reply still parses. The key is **`p`, not `confidence`**: `confidence` already means the item ordinal `eyeballed | weighed | measured`, and shipping the model's number under that name would have met the item contract at ingest.
+
+**The top1 rule is enforced by detection, not repair.** A reply whose list contradicts its own `name` keeps `name` authoritative — `per100` describes it — and drops to `unsure`. Reordering the list to match would hide exactly the degradation the rule exists to detect; discarding the meal would throw away a paid call over a self-inconsistency the user can simply answer.
+
+**`AI_TEMPLATE_VERSION` 3 → 4**, on the distinction that separates this from D64's counter-precedent: a v3 copy still produces a valid **meal** but cannot produce an **off-ramp**, so it is degraded rather than merely older.
+
+**B1 — `single` is decided once**, at draft construction, and frozen. The named price: excluding a plate down to one row does not summon the identity question, and adding a row does not dissolve it. Gated as `R30-frozen` rather than left to be discovered.
+
+**C1 — the plate keeps its design**, and the low-confidence dominant item carries the off-ramp *beside* its estimate. Suppressing it would strand the shared-scale correction, which needs an estimate to anchor from.
+
+**D1 — one renderer, two mounts**, and a third that the build found: the grams lead block **replaces** the lead item's row, so on a plate the dominant item — the very item C1 is about — had nowhere to show its alternatives. Both `R30-plate-unchanged` and `R30-none-of-these` failed on it. The lead block now carries the off-ramp and the composition-absent note.
+
+**E1 — a candidate is a name, not a nutrition profile.** Picking one that is not a preset routes to R31's unresolved path with the name recorded. Keeping the top-1 macros under a different name would be apple-juice numbers labelled "wine": **the original error wearing a correction**, which is D8 pointed at its own off-ramp.
+
+**G1 — `IDENTITY_CONFIDENCE_MIN = 0.75`**, top candidate only, no margin rule. `p` absent on a present list counts as below. **Absent `alts` is not below-threshold** — the model did not answer the question, and an empty off-ramp is worse than none.
+
+**H1 — recorded, not consumed.** `ai_alts` in offered order with each `p`, plus `identity_pick`. D57's correction-loop shape one field along. Confirming a lone answer records `asis`; confirming one of three records `confirm` at rank 0 — collapsing them would over-report agreement.
+
+**I1 — a lookup, not a matcher.** A candidate matching a preset name case-insensitively resolves through the existing rail and comes back with real macros. No scoring, no ranking, no evaluation set.
+
+### A conflict between two ruled items, named rather than resolved quietly
+
+`R30-degrade` was pre-registered as *"a reply with no `alts` produces today's draft **exactly**"*. That cannot hold beside the headline rule: a single-item reply gets an identity-shaped question whether or not a list came with it.
+
+**Resolved from the log, not referred up.** G1's stated reason — *"an empty off-ramp is worse than none"* — is about not showing an empty **list**, and *"resolve, rail visible"* is about **resolution state**. Neither is about question shape, which the headline rule governs unconditionally. So a no-`alts` reply resolves, shows no candidate buttons, and is still asked about. The gate keeps its purpose — **paste-path parity: same items, same `per100`, same propagation** — and its wording was re-pointed rather than quietly reinterpreted. **The wording was mine, not the ruling's**, which is why this is recorded rather than merely done.
+
+### The defect pass, and two gates that were not evidence
+
+**Twelve planted, and two did not fail.**
+
+**`R30-order` passed against a planted alphabetical sort** — because the fixture was `Alpha / Bravo / Charlie`, already in alphabetical order. The assertion was right and the data made it unfalsifiable. The names now disagree with alphabetical, reverse and by-length ordering, so only the model's own order satisfies it. **D60 Clause 4's fifth instance.**
+
+**`R30-record` detected its defect by throwing.** With `ai_alts` dropped from the allowlist, `recItem.ai_alts.length` raised a TypeError and took the synchronous suite down — so the failure arrived as `HARNESS: uncaught exception` rather than as the named case. The harness behaved correctly and the suite went red, but **a gate that can only report through the crash handler is not reporting**: the run says "something broke", not "this property is violated", and every case after it silently did not run. Guarded so it fails as itself. That is a **new shape** for the D56/D60 family — not an assertion that could not fail, but one that could not fail *by name*.
+
+The other ten behaved: resolving below the floor fails `R30-below-none`; rendering `p` fails `R30-no-numbers`; never opening the identity question fails `R30-identity-first`; an alt pick keeping the top-1 macros fails `R30-alt`; keeping the rejected name fails `R30-none-of-these`; suppressing `altsMismatch` fails `R30-top1`; re-deriving `single` from live items fails `R30-frozen`; removing the preset lookup fails `R30-preset`; stripping the lead block's off-ramp fails `R30-plate-unchanged`; and treating absent `alts` as unsure fails `R30-degrade`.
+
+### Re-pinned, deliberately, in the same commit
+
+**Count delta: 1579 → 1637** (+58). **Twenty-eight existing assertions moved with the schema and the template version** — each a case that deliberately pinned "my slice bumped nothing", now naming v8 and R30. Two fixtures moved with them (the forward-version blob and R23's guard case), and `R6-save`'s additive-field list went from five to seven, its claim unchanged: the photo path writes an ordinary item plus declared extras, never a different kind of record.
+
+### Not built, and deliberately
+
+The third depth of the off-ramp — search over a corpus — stays deferred (I1). Naming an unidentified item later is not built either: `photoPickNone` records the model's guesses as provenance and leaves the food called *"Unidentified item"*, because a name the user explicitly rejected must not be what the log calls it. **The matcher and its evaluation set are what D62 named as next, and nothing is upstream of them now.**

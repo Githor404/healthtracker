@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 7;
-const APP_VERSION      = '0.27.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 8;
+const APP_VERSION      = '0.28.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -189,6 +189,33 @@ function normalizeMicros(micros) {
   Object.keys(micros).forEach((k) => { out[k] = clampNonNeg(micros[k]); });
   return Object.keys(out).length ? out : null;
 }
+// R30: the offered candidate list at an untrusted boundary. Order is PRESERVED --
+// it is the datum, not a presentation choice -- and a missing `p` stays missing
+// rather than becoming 0, because "the model gave no number" and "the model said
+// zero" are different facts about the same pick.
+function normalizeAltList(raw) {
+  if (!Array.isArray(raw)) return null;
+  const out = [];
+  for (let i = 0; i < raw.length && out.length < IDENTITY_CANDIDATES_MAX; i++) {
+    const a = raw[i] || {};
+    const nm = (a.name == null) ? '' : String(a.name).trim();
+    if (!nm) continue;
+    const n = Number(a.p);
+    const e = { name: nm };
+    if (Number.isFinite(n)) e.p = Math.max(0, Math.min(1, n));
+    out.push(e);
+  }
+  return out.length ? out : null;
+}
+const IDENTITY_PICK_KINDS = ['confirm', 'asis', 'alt', 'preset', 'none'];
+function normalizeIdentityPick(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (IDENTITY_PICK_KINDS.indexOf(raw.kind) < 0) return null;
+  const out = { kind: raw.kind };
+  const r = Number(raw.rank);
+  if (Number.isFinite(r) && r >= 0) out.rank = Math.floor(r);
+  return out;
+}
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
   it = it || {};
@@ -258,6 +285,14 @@ function normalizeItem(it, clampMacros) {
   // the meal. Fifth occurrence of the allowlist trap, so it is round-tripped rather
   // than reasoned about.
   if (it.added === true) out.added = true;
+  // R30 / D68 -- the calibration record. EIGHTH occurrence of the allowlist trap, so
+  // it is round-tripped rather than reasoned about, and gated export -> restore in
+  // the same commit. `ai_alts` is coerced elementwise because it arrives from a
+  // paste boundary: names escaped at render, `p` clamped to [0,1] or dropped.
+  const alts = normalizeAltList(it.ai_alts);
+  if (alts) out.ai_alts = alts;
+  const pick = normalizeIdentityPick(it.identity_pick);
+  if (pick) out.identity_pick = pick;
   if (it.mealId != null && String(it.mealId) !== '') out.mealId = String(it.mealId);
   // R22 / D55 edit provenance -- declared HERE TOO, in the same commit as the
   // signal normalizer. The item edit UI is a later slice, but a half-declared
@@ -539,6 +574,32 @@ function migrateV6toV7(v6, nowISO) {
   if (typeof v6.knownDropped === 'number') out.knownDropped = v6.knownDropped;
   return out;
 }
+// R30 -- v7 -> v8. Structural passthrough, same shape and same reason as v6 -> v7:
+// no existing item carries `ai_alts` or `identity_pick`, so `days` comes through
+// byte-identical and only `version` moves.
+//
+// Why it bumps at all, on D29's asymmetry test: an older app strips both fields.
+// Losing them degrades a FUTURE calibration input rather than corrupting content --
+// which is the side of the line that historically did NOT bump (ai_grams,
+// ai_identity, pinned, mealId all rode along without one). It bumps here because
+// `unresolved` travels with them on the same item: an older app that strips the flag
+// reads the absent macros as 0 and under-reports the day, which is R31's argument
+// and is about content. The forward guard is the thing doing the protecting.
+function migrateV7toV8(v7, nowISO) {
+  const out = {
+    version: 8,
+    days: (v7.days && typeof v7.days === 'object') ? v7.days : {},
+    current: typeof v7.current === 'string' ? v7.current : '',
+    settings: (v7.settings && typeof v7.settings === 'object') ? v7.settings : defaultSettings(),
+    priceLog: (v7.priceLog && typeof v7.priceLog === 'object') ? v7.priceLog : {},
+    timeline: (v7.timeline && typeof v7.timeline === 'object') ? v7.timeline : {},
+    fastLog: (v7.fastLog && typeof v7.fastLog === 'object') ? v7.fastLog : {},
+    regimens: (v7.regimens && typeof v7.regimens === 'object') ? v7.regimens : { active: '', list: [], log: {} },
+    migratedAt: typeof v7.migratedAt === 'string' ? v7.migratedAt : nowISO,
+  };
+  if (typeof v7.knownDropped === 'number') out.knownDropped = v7.knownDropped;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -550,6 +611,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 4) < 5) out = migrateV4toV5(out, nowISO);
   if ((out.version || 5) < 6) out = migrateV5toV6(out, nowISO);
   if ((out.version || 6) < 7) out = migrateV6toV7(out, nowISO);
+  if ((out.version || 7) < 8) out = migrateV7toV8(out, nowISO);
   return out;
 }
 
@@ -727,8 +789,8 @@ function boot() {
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
 // Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
-// absent -> reject; 1 -> chained in-place migrate; 2..6 -> normalized up; 7 -> as-is;
-// > 7 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
+// absent -> reject; 1 -> chained in-place migrate; 2..7 -> normalized up; 8 -> as-is;
+// > 8 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -746,7 +808,7 @@ function parseImport(raw) {
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
     return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v7 upgrades, v7 as-is
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v8 upgrades, v8 as-is
 }
 
 function showPrerestore(json) {
@@ -4138,7 +4200,11 @@ function renderAverages() {
 }
 
 // ---- first-run onboarding + AI prompt template (DECISIONS.md D11) ---------
-const AI_TEMPLATE_VERSION = 3;   // R6: v3 returns grams + per-100g + scale_linked + dominance
+const AI_TEMPLATE_VERSION = 4;   // R30: v4 adds `alts` -- three ranked identifications per item
+// D11 ties this number to the ITEM CONTRACT, and v4 changes it. D64 kept it at 3 for a
+// wording-only hardening on the reasoning that a saved copy still produces valid output;
+// the distinction that moves it here is that a v3 copy still produces a valid MEAL but
+// cannot produce an OFF-RAMP -- degraded, rather than merely older.
 
 // One canonical template. It requests macros only (no micros — a photo can't
 // show them), eyeballed confidence, soluble_fiber_g present, and the exact meal
@@ -4148,9 +4214,16 @@ const AI_PROMPT_TEMPLATE =
 'Reply with JSON ONLY - no prose, no markdown, straight quotes only.\n\n' +
 'Format:\n' +
 '{"meal":"<breakfast|lunch|dinner|snack|drink|supplement>","items":[\n' +
-'  {"name":"<food>","grams":<n>,"per100":{"kcal":<n>,"protein_g":<n>,"fat_g":<n>,"carb_g":<n>,"fiber_g":<n>,"soluble_fiber_g":<n>},"scale_linked":true,"dominance":1,"notes":"<assumptions>"}\n' +
+'  {"name":"<food>","alts":[{"name":"<food>","p":<0-1>},{"name":"<other>","p":<0-1>},{"name":"<other>","p":<0-1>}],\n' +
+'   "grams":<n>,"per100":{"kcal":<n>,"protein_g":<n>,"fat_g":<n>,"carb_g":<n>,"fiber_g":<n>,"soluble_fiber_g":<n>},"scale_linked":true,"dominance":1,"notes":"<assumptions>"}\n' +
 ']}\n\n' +
 'Rules:\n' +
+'- "alts" lists THREE identifications of that item, best first. The FIRST must be\n' +
+'  identical to "name", and "per100" must describe that first one.\n' +
+'- "p" is how confident you are in that identification, 0 to 1. Answer honestly:\n' +
+'  a low number is useful and a confident wrong answer is not. Do not round to 1.\n' +
+'- Offer genuinely different foods as the alternatives - a drink that could be wine\n' +
+'  or apple juice, a cut that could be tenderloin or sirloin. Not spellings of one food.\n' +
 '- "grams" is your best estimate of the edible weight of THAT item as served.\n' +
 '- "per100" is macros per 100 g of that food - NOT the whole portion.\n' +
 '- Estimate macros only. Do not include vitamins or minerals - a photo cannot show them.\n' +
@@ -4176,8 +4249,8 @@ const AI_PROMPT_TEMPLATE =
 // two cannot drift apart.
 const AI_PROMPT_SAMPLE =
 '{"meal":"lunch","items":[' +
-'{"name":"Grilled chicken breast","grams":150,"per100":{"kcal":165,"protein_g":31,"fat_g":3.6,"carb_g":0,"fiber_g":0,"soluble_fiber_g":0},"scale_linked":true,"dominance":1,"notes":"assumed skinless"},' +
-'{"name":"Mixed salad with olive oil","grams":200,"per100":{"kcal":90,"protein_g":2,"fat_g":7,"carb_g":5,"fiber_g":2.5,"soluble_fiber_g":0.5},"scale_linked":true,"dominance":2,"notes":"dressing estimated"}]}';
+'{"name":"Grilled chicken breast","alts":[{"name":"Grilled chicken breast","p":0.82},{"name":"Grilled turkey breast","p":0.11},{"name":"Grilled pork loin","p":0.07}],"grams":150,"per100":{"kcal":165,"protein_g":31,"fat_g":3.6,"carb_g":0,"fiber_g":0,"soluble_fiber_g":0},"scale_linked":true,"dominance":1,"notes":"assumed skinless"},' +
+'{"name":"Mixed salad with olive oil","alts":[{"name":"Mixed salad with olive oil","p":0.64},{"name":"Mixed salad, undressed","p":0.26},{"name":"Coleslaw","p":0.1}],"grams":200,"per100":{"kcal":90,"protein_g":2,"fat_g":7,"carb_g":5,"fiber_g":2.5,"soluble_fiber_g":0.5},"scale_linked":true,"dominance":2,"notes":"dressing estimated"}]}';
 
 // The template ships the user's declared primary nutrient inline, so the model
 // ranks by what this user actually tracks (D35 conflict (ii) made it declarable
@@ -4185,6 +4258,48 @@ const AI_PROMPT_SAMPLE =
 function aiPromptText() {
   const k = (typeof primaryNutrientKey === 'function') ? primaryNutrientKey() : 'kcal';
   return AI_PROMPT_TEMPLATE.replace('PRIMARY_NUTRIENT', NUTRIENT_LABELS[k] || k);
+}
+
+// ---- R30 / D68: identity candidates and the floor that reads them ---------
+// Fork A1: the model returns THREE identifications per item, best first, each with
+// its own `p`. Fork G1: ONE surfaced constant, applied to the top candidate's `p`
+// alone. No margin rule (top1 - top2) in v1 -- a second knob before any calibration
+// data exists is the pre-D65 guessing pattern with an extra variable in it.
+//
+// Deliberately conservative: over-asking is cheap and builds the calibration data
+// fastest, which is the only thing that can eventually move this number.
+const IDENTITY_CONFIDENCE_MIN = 0.75;
+const IDENTITY_CANDIDATES_MAX = 3;
+
+// The list AS THE MODEL OFFERED IT -- order preserved, never re-sorted by the app.
+// `p` absent or unreadable becomes null rather than 0: 0 is a confidence the model
+// stated, null is one it did not, and G1 routes them the same way while the record
+// must still tell them apart.
+function parseAltList(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (let i = 0; i < raw.length && out.length < IDENTITY_CANDIDATES_MAX; i++) {
+    const a = raw[i] || {};
+    const nm = (a.name == null) ? '' : String(a.name).trim();
+    if (!nm) continue;
+    const n = Number(a.p);
+    out.push({ name: nm, p: Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : null });
+  }
+  return out;
+}
+// Three states, and the middle one is the whole slice.
+//   'none'   -- no list: the model did not answer the identity question. Resolve and
+//               show the rail (G1) -- an EMPTY off-ramp is worse than none.
+//   'sure'   -- top candidate at or above the floor: resolve, off-ramp stays visible.
+//   'unsure' -- below the floor, `p` missing, or the list CONTRADICTS `name`:
+//               do not resolve at all. A displayed default anchors even when
+//               labelled uncertain, which is why nothing is filled in.
+function identityState(it) {
+  const alts = (it && it.alts) || [];
+  if (!alts.length) return 'none';
+  if (it.altsMismatch) return 'unsure';
+  if (alts[0].p == null) return 'unsure';
+  return alts[0].p >= IDENTITY_CONFIDENCE_MIN ? 'sure' : 'unsure';
 }
 
 // First-run derived from state — no stored flag (D11).
@@ -4251,8 +4366,34 @@ function renderPhotoDraftInner() {
   // The lead question. Dual-unit is DISPLAY ONLY -- the slider, the exact field
   // and the record are grams; the question speaks ounces because that is the unit
   // the user's own knowledge of a steak is stored in.
+  // R30: the IDENTITY question, and it comes before the portion one. Two shapes:
+  //
+  //   'unsure' -- NOTHING is filled in. No name in the question, no grams control,
+  //               no macro figures. A displayed default anchors even when labelled
+  //               uncertain, which is the whole reason this branch renders no field
+  //               at all rather than a field with a caveat next to it.
+  //   otherwise -- the answer is offered for confirmation, with the off-ramp beside
+  //               it. One tap in the common case, zero extra when it is right.
   let lead = '';
-  if (leadOpen) {
+  const idOpen = photoIdentityOpen(d);
+  if (idOpen) {
+    const it0 = d.items[0];
+    const st0 = identityState(it0);
+    if (st0 === 'unsure') {
+      lead = `<div class="pmlead">
+        <div class="pmq">What is this?</div>
+        <div class="pmnote">Not identified confidently enough to fill in, so it has not been.</div>
+        ${identityOptionsHTML(0, it0)}
+      </div>`;
+    } else {
+      lead = `<div class="pmlead">
+        <div class="pmq">Is this <b>${esc(it0.name)}</b>?</div>
+        <button type="button" class="btn primary pmok" onclick="photoConfirmIdentity(0)">Yes, that\u2019s it</button>
+        <div class="pmnote">Or pick another:</div>
+        ${identityOptionsHTML(0, it0)}
+      </div>`;
+    }
+  } else if (leadOpen) {
     const lt = d.items[li];
     const oz = photoWeightShaped(lt) ? ozHint(lt.aiGrams) : '';
     const amt = `${esc(rDisp(lt.aiGrams))} g${oz ? ` (${esc(oz)})` : ''}`;
@@ -4265,6 +4406,8 @@ function renderPhotoDraftInner() {
         <span class="pmunit">g</span>
       </div>
       <button type="button" class="btn primary pmok" onclick="photoConfirmLead()">Confirm ${amt}</button>
+      ${photoItemUnresolved(lt) ? `<div class="pmnote"><span class="pmunres">composition not recorded</span></div>` : ''}
+      ${identityOptionsHTML(li, lt)}
     </div>`;
   }
   const rows = d.items.map((it, i) => {
@@ -4286,7 +4429,20 @@ function renderPhotoDraftInner() {
     const est = num(it.aiGrams) > 0 ? `<small>est. ${esc(rDisp(it.aiGrams))} g</small>` : '';
     const ex = it.excluded === true;
     const exBtn = `<button type="button" class="linklike pmexb" onclick="photoToggleExclude(${i})">${ex ? 'put back' : 'not on the plate'}</button>`;
-    return `<div class="pmrow${ex ? ' pmex' : ''}">
+    // R30 / R31: an item whose identity was rejected has no composition, so the row
+    // states that instead of printing the per100 arithmetic for a food the user
+    // said it is not. The portion control stays -- the grams are still known.
+    const unres = photoItemUnresolved(it);
+    const meta = unres
+      ? `<span class="pmunres">composition not recorded</span>${est}`
+      : `${esc(rDisp(m.kcal))} kcal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}${est}`;
+    // Fork C1: on a PLATE the off-ramp sits on every row, beside the estimate rather
+    // than instead of it. Suppressing a low-confidence dominant item here would
+    // strand the shared-scale correction -- there would be nothing to anchor from
+    // and nothing to propagate -- so the estimate stands and the alternatives are
+    // simply reachable. On a single-item draft the lead block already carries them.
+    const offramp = (!d.single && !it.added) ? identityOptionsHTML(i, it) : photoIdentityOptions(i);
+    return `<div class="pmrow${ex ? ' pmex' : ''}${unres ? ' pmrowunres' : ''}">
       <div class="pmhead"><b>${esc(it.name)}</b>${fixed}${ex ? `<small class="pmfix">not saved</small>` : ''}</div>
       <div class="pmctl">
         <input type="range" min="10" max="${esc(smax)}" step="5" value="${esc(g)}"
@@ -4294,15 +4450,21 @@ function renderPhotoDraftInner() {
         <input type="number" inputmode="decimal" class="pmg" value="${esc(g)}" onchange="photoSetGrams(${i}, this.value)" aria-label="${esc(it.name)} grams exact">
         <span class="pmunit">g</span>${pin}
       </div>
-      <div class="pmmeta">${esc(rDisp(m.kcal))} kcal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}
-        ${est}</div>
-      <div class="pmid-wrap">${photoIdentityOptions(i)}${exBtn}</div>
+      <div class="pmmeta">${meta}</div>
+      <div class="pmid-wrap">${offramp}${exBtn}</div>
     </div>`;
   }).join('');
-  const tot = photoKeptItems(d).reduce((a, it) => {
+  // R30/R31: the draft total is a total, so it obeys the same rule as every other
+  // one -- it sums what it knows and says how much of the meal that was.
+  const kept = photoKeptItems(d);
+  const tot = kept.reduce((a, it) => {
+    if (photoItemUnresolved(it)) return a;
     const m = photoItemMacros(d, it);
     return { kcal: a.kcal + m.kcal, protein_g: a.protein_g + m.protein_g };
   }, { kcal: 0, protein_g: 0 });
+  const knownN = kept.filter((it) => !photoItemUnresolved(it)).length;
+  const draftCov = (knownN < kept.length)
+    ? ` <small class="pmcov">${esc(coverageNote({ n: knownN, m: kept.length, partial: true }))}</small>` : '';
   // D8, said out loud: micros that arrived were REFUSED, not quietly absent.
   const mstrip = (d.microsStripped > 0)
     ? `<div class="pmnote pmwarn">micronutrients in the reply were stripped \u2014 a photo cannot show them</div>` : '';
@@ -4315,7 +4477,7 @@ function renderPhotoDraftInner() {
   // picker above it, all of which are inline. In the footer it would compete for the
   // thumb with Save, which is the one control D51 protected.
   el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}${photoAddFormHTML()}
-    <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein</div>
+    <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
     </div>`;
 }
 // R21: the ONE door into a draft. The paste path and the direct-call path both
@@ -4325,7 +4487,14 @@ function openPhotoDraft(text) {
   const rep2 = document.getElementById('ingestReport');
   const r = parsePhotoMeal(text);
   if (!r.ok) { if (rep2) rep2.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
+  // R30 Fork B1: "single item in frame" is decided HERE, once, and frozen for the
+  // life of the draft. Re-deriving it from the live item list would let the question
+  // re-shape itself as rows are excluded (R25) or added -- a moving target, where
+  // D51's confirm-first grammar wants one stable question. The consequence is
+  // deliberate: excluding a plate down to one row does not summon the identity
+  // question, and adding a row does not dissolve it.
   PHOTO_DRAFT = { mealId: newMealId(), meal: r.meal, items: r.items,
+                  single: r.items.length === 1,
                   microsStripped: r.microsStripped || 0 };
   if (rep2) rep2.innerHTML = '';
   renderPhotoDraft();
@@ -4961,6 +5130,7 @@ const VERSION_LOG = [
   { v: '0.26.1', d: '2026-09-08', note: 'Capture now shows where the time went. Every capture — whether it works or not — reports the photo size actually sent, how long preparing it took, how long the provider took to start answering versus to finish, how many calls were made and why. If capture is slow, the breakdown says which part was slow, and it can be selected and copied. Nothing about how capture works has changed; this release only makes it visible.' },
   { v: '0.26.2', d: '2026-09-08', note: 'Capture should be markedly faster. A timing breakdown from a real capture showed all 41 seconds went on the model deliberating before it wrote a single character — the reply itself arrived instantly once it started. The app now asks for the quickest setting for this kind of request, which is reading a photo and returning a short list. If a provider will not accept that setting the request is made without it rather than failing. Nothing else changed, so the breakdown from your next capture is directly comparable with the last one.' },
   { v: '0.27.0', d: '2026-09-09', note: 'Groundwork, and one fix. A day can now hold food whose portion is known but whose composition is not, without quietly under-reporting what you ate: any total built partly from such items says so — "from 3 of 4 items" — on the day total, on each meal, on the history row and above the ring, in the same words the micronutrient rows have always used. Averages and the energy trend leave those days out rather than folding in a number that is too low, and say how many days they used. Nothing you can log today produces such an item yet — that arrives with the next release — so no day of yours changes: same totals, same averages, same trend line. The fix: a meal like that now correctly counts as having eaten, so it breaks a fast instead of being read as zero calories.' },
+  { v: '0.28.0', d: '2026-09-11', note: 'Photos of a single item now ask WHAT it is before asking how much. A glass of wine read as apple juice, and the old question went straight to the portion — so you corrected the volume of a drink you were not having. The assistant is now asked for three possible identifications per item, and you pick: the best guess is offered for a one-tap yes, the alternatives are one tap away, and "None of these" logs the portion without inventing a composition for it. When the assistant is not confident, nothing is filled in at all — an answer on screen pulls you towards it even when it is labelled uncertain. Plates of several items are unchanged: the biggest item still anchors the rest, and now carries the same alternatives beside it. Which options you were shown and which you took are saved with the meal, so the confidence cut-off can eventually be tuned from your own picks rather than guessed.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5907,10 +6077,20 @@ function parsePhotoMeal(raw) {
       return { ok: false, error: at + 'missing "per100" — this looks like the older template; copy the current one.' };
     const g = clampNonNeg(e.grams);
     if (!(g > 0)) return { ok: false, error: at + '"grams" must be a positive number.' };
+    // R30: the offered list, kept in the model's order. `altsMismatch` records that
+    // the reply contradicted itself -- `per100` describes `name`, so a list whose
+    // first entry is a DIFFERENT food means the numbers and the top candidate are
+    // about different things. The app does not repair that by reordering (which
+    // would hide the degradation the top1 rule exists to detect) and does not throw
+    // the meal away either: `name` stays authoritative and the item drops to
+    // 'unsure', so the user is asked rather than told.
+    const altList = parseAltList(e.alts);
     items.push({
       name: String(e.name), notes: e.notes == null ? '' : String(e.notes),
       aiGrams: g, grams: g,
       aiIdentity: String(e.name),
+      alts: altList,
+      altsMismatch: altList.length > 0 && altList[0].name !== String(e.name).trim(),
       per100: {
         kcal: clampNonNeg(e.per100.kcal), protein_g: clampNonNeg(e.per100.protein_g),
         fat_g: clampNonNeg(e.per100.fat_g), carb_g: clampNonNeg(e.per100.carb_g),
@@ -5951,7 +6131,11 @@ function photoGrams(draft, it) {
 }
 function photoItemMacros(draft, it) {
   const g = photoGrams(draft, it) / 100;
-  const p = it.per100;
+  // R30: an unresolved item has no per-100 g profile. Returning zeros here would be
+  // the understatement R31 exists to remove, re-entering through the draft; every
+  // caller checks `photoItemUnresolved` first, and this is the guard that makes a
+  // caller which forgets fail loudly at the row rather than quietly in a total.
+  const p = it.per100 || { kcal: NaN, protein_g: NaN, fat_g: NaN, carb_g: NaN, fiber_g: NaN, soluble_fiber_g: NaN };
   return { kcal: p.kcal * g, protein_g: p.protein_g * g, fat_g: p.fat_g * g,
            carb_g: p.carb_g * g, fiber_g: p.fiber_g * g, soluble_fiber_g: p.soluble_fiber_g * g };
 }
@@ -6478,10 +6662,102 @@ function photoLeadIndex(draft) {
   const items = (draft && draft.items) || [];
   return items.length ? 0 : -1;          // already dominance-ordered by the parser
 }
+// R30: on a SINGLE-item draft the identity question comes first, and the portion
+// question cannot be answered until it is settled -- you cannot weigh a thing you
+// have not identified. On a plate this is always false, so the grams-first lead the
+// dominant item anchors from is untouched (Fork C1).
+function photoIdentityOpen(draft) {
+  return !!(draft && draft.single && draft.items.length > 0 && draft.items[0].idDone !== true);
+}
 function photoLeadOpen(draft) {
   const i = photoLeadIndex(draft);
+  if (photoIdentityOpen(draft)) return false;
   return i >= 0 && !draft.items[i].pinned;
 }
+// An item whose identity was rejected or left unnamed: grams known, composition
+// absent. The draft-side twin of R31's `unresolved`, and it reaches the record as
+// exactly that flag.
+function photoItemUnresolved(it) { return !!(it && it.unres === true); }
+
+// ---- the off-ramp, ONE renderer with two mounts (Fork D1) -----------------
+// Mounted inside the lead block for a single-item draft, and behind each row's
+// existing identity rail on a plate. NO CONFIDENCE FIGURES ARE RENDERED, ever:
+// showing them makes people defer to the model and corrupts the pick as calibration
+// data, which is the one thing this slice is collecting.
+function identityOptionsHTML(idx, it) {
+  const alts = (it && it.alts) || [];
+  const rows = alts.map((a, r) =>
+    `<button type="button" class="pmalt" onclick="photoPickCandidate(${idx}, ${r})">${esc(a.name)}</button>`
+  ).join('');
+  return `<div class="pmalts">${rows}` +
+    `<button type="button" class="pmaltnone" onclick="photoPickNone(${idx})">None of these</button>` +
+    `${photoIdentityOptions(idx)}</div>`;
+}
+
+// ---- the three picks ------------------------------------------------------
+// Every one of them settles the identity and records WHAT WAS OFFERED AND WHAT WAS
+// TAKEN. No consumer reads it in this slice (H1) -- the threshold will eventually
+// self-tune from it, and that needs a floor of evidence first.
+function photoSettle(idx, pick) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const it = PHOTO_DRAFT.items[idx];
+  it.idDone = true;
+  it.idPick = pick;
+  renderPhotoDraft();
+  return { ok: true, item: it, pick: pick };
+}
+// Accepting what the model said. Recorded as a PICK of rank 0 when a list was
+// offered and as 'asis' when none was -- confirming a lone answer and choosing it
+// over two alternatives are different acts, and a calibration record that collapsed
+// them would over-report agreement.
+function photoConfirmIdentity(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const it = PHOTO_DRAFT.items[idx];
+  const offered = (it.alts || []).length > 0;
+  return photoSettle(idx, { kind: offered ? 'confirm' : 'asis', rank: offered ? 0 : null });
+}
+// Fork E1 + I1. A candidate is a NAME AND A NUMBER -- the model gave no per-100 g
+// profile for it. So:
+//   * rank 0 is the answer already on the item: accept it whole, macros and all;
+//   * a name that matches one of the user's own presets resolves THROUGH THE
+//     EXISTING RAIL (I1's exception -- a lookup, not a matcher: no scoring, no
+//     ranking, no evaluation set), and comes back with real macros;
+//   * anything else routes to the unresolved path. Keeping the top-1 macros under a
+//     different name would be apple-juice numbers labelled "wine": the original
+//     error wearing a correction, which is D8 pointed at its own off-ramp.
+function photoPickCandidate(idx, rank) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const it = PHOTO_DRAFT.items[idx];
+  const alts = it.alts || [];
+  const r = Number(rank);
+  if (!(r >= 0 && r < alts.length)) return { ok: false, error: 'No such candidate.' };
+  if (r === 0 && !it.altsMismatch) return photoConfirmIdentity(idx);
+  const nm = alts[r].name;
+  const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  const match = presets.filter((x) => String(x.name).toLowerCase() === nm.toLowerCase())[0];
+  if (match) {
+    const sr = photoSetIdentity(idx, match.id);
+    if (sr.ok) return photoSettle(idx, { kind: 'preset', rank: r });
+    // A preset with no portion weight cannot be scaled (R25 F-fix1 refuses to
+    // assume one). Refused rather than silently falling through to unresolved --
+    // the user picked a real food and deserves to know why it did not take.
+    return sr;
+  }
+  it.name = nm;
+  it.unres = true;
+  return photoSettle(idx, { kind: 'alt', rank: r });
+}
+// The floor under the whole off-ramp: never a forced bad pick. The model's guesses
+// are kept in the RECORD (ai_identity, ai_alts) rather than on the item, because a
+// name the user explicitly rejected must not be what the log calls the food.
+function photoPickNone(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const it = PHOTO_DRAFT.items[idx];
+  it.name = 'Unidentified item';
+  it.unres = true;
+  return photoSettle(idx, { kind: 'none', rank: null });
+}
+
 // Confirming is DATA, not a skip: it pins at the estimate (r = 1.0) and records
 // the correction-loop pair with accepted == ai_grams. An item never touched
 // carries no `pinned` field at all, so the two never collapse in the record.
@@ -6687,10 +6963,9 @@ function photoSave() {
   if (!kept.length) return { ok: false, error: 'Nothing to save.' };
   const written = kept.map((it) => {
     const m = photoItemMacros(PHOTO_DRAFT, it);
-    return normalizeItem({
+    const unres = photoItemUnresolved(it);
+    const rec = {
       name: it.name, meal: PHOTO_DRAFT.meal, time: nowTime(),
-      kcal: m.kcal, protein_g: m.protein_g, fat_g: m.fat_g, carb_g: m.carb_g,
-      fiber_g: m.fiber_g, soluble_fiber_g: m.soluble_fiber_g,
       // R25 Fork A: an ADDED item carries its OWN claim. Inheriting `ai-paste` would
       // say a model reported a food no model ever saw, which is the honesty rule
       // (D8) pointed at its own draft.
@@ -6699,6 +6974,14 @@ function photoSave() {
       added: it.added === true,
       notes: it.notes,
       tzo: nowTZO(),
+      // R30 Fork H1 -- RECORDED, NOT CONSUMED. Nothing in this slice reads these.
+      // The threshold will eventually self-tune from them, and that needs a floor of
+      // evidence, gradual movement and an inspectable statement of where it landed.
+      // D57's correction-loop shape, one field along: what was offered, kept beside
+      // what was taken, exactly as `ai_grams` sits beside `grams`.
+      ai_alts: (it.alts && it.alts.length) ? it.alts : undefined,
+      identity_pick: it.idPick || undefined,
+      unresolved: unres || undefined,
       // D57 / R23: BOTH halves of the correction loop are now written. `grams` is
       // what the user accepted, `ai_grams` what the model guessed. Until v6 only the
       // guess survived, so reopen had to RECONSTRUCT the accepted portion by dividing
@@ -6707,7 +6990,16 @@ function photoSave() {
       grams: photoGrams(PHOTO_DRAFT, it),
       ai_grams: it.aiGrams, ai_identity: it.aiIdentity,
       pinned: it.pinned === true, mealId: mealId,
-    }, true);
+    };
+    // The macros are attached only when there ARE macros. An unresolved item gets
+    // none -- not zeros -- and normalizeItem strips the keys anyway while the flag
+    // is set; assembling them here and relying on that would make this line's
+    // correctness depend on a detail two functions away.
+    if (!unres) {
+      rec.kcal = m.kcal; rec.protein_g = m.protein_g; rec.fat_g = m.fat_g;
+      rec.carb_g = m.carb_g; rec.fiber_g = m.fiber_g; rec.soluble_fiber_g = m.soluble_fiber_g;
+    }
+    return normalizeItem(rec, true);
   });
   written.forEach((x) => day.items.push(x));
   Store.saveState(APP_STATE); refresh();
@@ -6760,14 +7052,28 @@ function photoReopen(mealId) {
       const g = num(r.ai_grams) > 0 ? num(r.ai_grams) : 100;
       const acc = num(r.grams) > 0 ? num(r.grams) : g;
       const shown = 100 / acc;    // rebuild per-100 g from the stored absolute macros
-      return { name: r.name, notes: r.notes, aiGrams: g, grams: acc,
+      // R30: an UNRESOLVED row has no macros to rebuild from. Running the division
+      // anyway yields a per-100 g profile of all zeros, which would reopen as a food
+      // that contains nothing -- a composition the record explicitly does not claim,
+      // arriving through arithmetic rather than through anyone asserting it. The
+      // identity stays open so the reopened draft can settle it.
+      const wasUnres = r.unresolved === true;
+      const base = { name: r.name, notes: r.notes, aiGrams: g, grams: acc,
                aiIdentity: r.ai_identity || r.name,
-               per100: { kcal: num(r.kcal) * shown, protein_g: num(r.protein_g) * shown,
-                         fat_g: num(r.fat_g) * shown, carb_g: num(r.carb_g) * shown,
-                         fiber_g: num(r.fiber_g) * shown, soluble_fiber_g: num(r.soluble_fiber_g) * shown },
+               alts: normalizeAltList(r.ai_alts) || [],
+               altsMismatch: false,
+               idDone: !wasUnres, idPick: r.identity_pick || undefined,
                scaleLinked: true, dominance: i + 1, pinned: r.pinned === true };
+      if (wasUnres) { base.unres = true; base.per100 = null; return base; }
+      base.per100 = { kcal: num(r.kcal) * shown, protein_g: num(r.protein_g) * shown,
+                      fat_g: num(r.fat_g) * shown, carb_g: num(r.carb_g) * shown,
+                      fiber_g: num(r.fiber_g) * shown, soluble_fiber_g: num(r.soluble_fiber_g) * shown };
+      return base;
     }),
   };
+  // Fork B1 again, on the other door into a draft: `single` is a property of the
+  // draft, so the reopened one needs it too, decided the same way and once.
+  PHOTO_DRAFT.single = PHOTO_DRAFT.items.length === 1;
   renderPhotoDraft();
   return { ok: true, items: PHOTO_DRAFT.items.length };
 }
@@ -7337,6 +7643,11 @@ window.HT = {
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
   averageOver, avgBlockHTML, completeDaysInWindow, clearDay,
+  // R30 identity-first (D68)
+  parseAltList, identityState, identityOptionsHTML, photoIdentityOpen, photoItemUnresolved,
+  photoConfirmIdentity, photoPickCandidate, photoPickNone,
+  normalizeAltList, normalizeIdentityPick, migrateV7toV8,
+  IDENTITY_CONFIDENCE_MIN, IDENTITY_CANDIDATES_MAX,
   // R31 macro coverage (D67)
   macroCoverage, itemHasMacros, coverageNote, MACRO_KEYS, migrateV6toV7, SCHEMA_VERSION,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,

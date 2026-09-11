@@ -2374,7 +2374,7 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 
 **Amended by R31's sequencing (Fork 7 there):** H1's schema bump reads **v6 → v7** above, but R31 takes v7, so **R30's calibration fields are v7 → v8**. The ruling is unchanged; only its number moved.
 
-**Status: NOT BUILT — every fork ruled; the R31 prerequisite is BUILT (v0.27.0, D67), so nothing blocks it.** Note the schema consequence above: R31 took v7, so R30's calibration fields are v7 → v8.
+**Status: BUILT — v0.28.0 (D68). Evidence below.** The R31 prerequisite shipped as v0.27.0; R30's calibration fields took v7 → v8 as the sequencing note said they would.
 
 ### R31 — Macro coverage: the invariant D10 asserted, and the item that breaks it — PRE-REGISTERED (received 2026-09-09 as R30 Fork F1)
 
@@ -2480,3 +2480,55 @@ The matcher and its evaluation set (D62's stated next). The corpus. Whether macr
 **1579/1579 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
 
 **Status: BUILT — v0.27.0.**
+
+#### R30 — evidence (v0.28.0, D68)
+
+**Built to the rulings above. Schema v7 → v8, `AI_TEMPLATE_VERSION` 3 → 4.**
+
+| case | verdict |
+|---|---|
+| R30-identity-first **GATE** ×4 | a single-item reply opens the IDENTITY question with the portion question closed; no slider and no exact field in the lead block; the R6 grams question arrives second, unchanged |
+| R30-below-none **GATE** ×3 | below the floor: no field, no macro figure, no asserted identity — and the model's guess appears **inside** the candidate list, not as the answer above it |
+| R30-above-offramp **GATE** | above the floor the answer is offered for a one-tap yes **and** the alternatives plus "None of these" stay one tap away |
+| R30-order **GATE** | the list renders in the model's order, on names where alphabetical, reverse and by-length each give a different answer |
+| R30-no-numbers **GATE** ×2 + CONTROL | no confidence figure anywhere in the rendered draft; the number is recorded while never rendered; a planted `0.82` is found by the same test |
+| R30-none-of-these **GATE** ×4 | routes to R31's unresolved path; portion kept, flag set, **no macro keys**, and not left wearing the rejected name |
+| R30-record **GATE** ×4 | offered list stored in order with each `p`, plus which rank was taken; survives export → restore |
+| R30-top1 **GATE** ×2 | `alts[0].name === name` on every parsed item; a self-contradicting reply keeps `name` authoritative and drops to the off-ramp |
+| R30-alt **GATE** | picking a different candidate takes the name and refuses the first one's macros |
+| R30-preset **GATE** ×2 | a candidate matching a preset name resolves through the existing rail, with real macros (I1's lookup) |
+| R30-plate-unchanged **GATE** ×4 | a plate opens no identity question, keeps today's grams-first lead, carries the off-ramp on the dominant item, and still computes R = 1.5 |
+| R30-frozen **GATE** | excluding a plate down to one row does **not** summon the identity question (B1's stated price) |
+| R30-degrade **GATE** ×4 | absent `alts` is not below-threshold; identity resolves with no candidate buttons; every number is what it was before the slice |
+| R30-parity **GATE** ×5 | template ↔ parser agree; the sample obeys the template; R27's hardening and D8's honesty line survive |
+| R30-vocab + CONTROL | no evaluative or confidence vocabulary on the identity surface |
+| R30-migrate / R30-guard **GATE** ×2 | v7 → v8 passthrough with `days` byte-identical; v9 refused |
+
+**Proven against the defect — twelve planted, and the pass found TWO gates that could not fail.**
+
+| planted defect | fails |
+|---|---|
+| `identityState` resolves below the floor | R30-below-none ×4 |
+| the candidate button renders `p` | R30-no-numbers ×2 |
+| the app sorts the candidate list | R30-order — **initially PASSED** |
+| `photoIdentityOpen` always false | R30-identity-first ×4 |
+| an alt pick keeps the top-1 macros | R30-alt |
+| "none of these" keeps the rejected name | R30-none-of-these |
+| `ai_alts` dropped from the allowlist | R30-record — **initially took the SUITE DOWN** |
+| `altsMismatch` hardcoded false | R30-top1 ×2 |
+| `single` re-derived from live items | R30-frozen |
+| the preset lookup removed | R30-preset ×2 |
+| the lead block's off-ramp removed | R30-plate-unchanged |
+| absent `alts` treated as unsure | R30-degrade ×2 |
+
+**`R30-order` passed against an alphabetical sort because the fixture was already alphabetical** (`Alpha / Bravo / Charlie`). The assertion was right; the data made it unfalsifiable. **D60 Clause 4's fifth instance.**
+
+**`R30-record` detected its defect by throwing** — `recItem.ai_alts.length` on a dropped field raised a TypeError and aborted the synchronous suite, so the failure arrived as `HARNESS: uncaught exception` and every later case silently did not run. The suite went red and the harness behaved correctly, but **a gate that can only report through the crash handler is not reporting**. Guarded so it fails as itself. A **new shape** for this family: not an assertion that could not fail, but one that could not fail *by name*.
+
+**Two live defects were found by the gates during the build**, both the same structural cause — the grams lead block **replaces** the lead item's row, so on a plate the dominant item had nowhere to render its alternatives (Fork C1's entire subject) and an unresolved lead item had nowhere to state its absence. The lead block now carries both.
+
+**Count delta: 1579 → 1637** (+58), re-pinned deliberately in the same commit. Twenty-eight existing assertions moved with the schema and the template version; `R6-save`'s additive-field list went from five to seven with its claim unchanged.
+
+**1637/1637 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
+
+**Status: BUILT — v0.28.0.**

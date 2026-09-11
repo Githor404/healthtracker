@@ -265,6 +265,17 @@
   .mcov{font-weight:400;color:var(--warn);font-variant-numeric:tabular-nums}
   .munres{color:var(--muted);font-style:italic}
   .hcov{color:var(--warn);font-variant-numeric:tabular-nums}
+  /* R30 identity off-ramp. The candidates are a LIST OF CHOICES, styled as equals:
+     no ranking cue, no emphasis on the first, and no confidence figure anywhere --
+     making one look like the answer is the deference this slice is trying not to
+     manufacture. "None of these" is equally reachable, never a smaller way out. */
+  .pmalts{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
+  .pmalt,.pmaltnone{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
+    background:var(--card);color:var(--fg);font-size:14px;font-family:inherit;cursor:pointer}
+  .pmaltnone{border-style:dashed;color:var(--muted)}
+  .pmunres{color:var(--muted);font-style:italic}
+  .pmrowunres .pmhead b{color:var(--muted)}
+  .pmcov{font-weight:400;color:var(--warn);font-variant-numeric:tabular-nums}
   .waterrow{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin:8px 0}
   .wbtns{display:flex;gap:6px}
   .wbtns button{width:auto;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;cursor:pointer}

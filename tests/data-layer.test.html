@@ -63,7 +63,7 @@ window.setLS({});
   setLS({}); HT.boot();
   var s = HT.state();
   res(HT.Store.tier === 'local', '1: tier local');
-  res(s.version === 7 && s.current === td, '1: schema v7, current = today');
+  res(s.version === 8 && s.current === td, '1: schema v8, current = today');
   res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
   res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
   res(s.settings && s.settings.supplement.enabled === false, '1: supplement off by default');
@@ -81,7 +81,7 @@ window.setLS({});
   var v1json = JSON.stringify(v1);
   setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.version === 7, '2: version bumped to 7 (chained v1->…->v7)');
+  res(s.version === 8, '2: version bumped to 8 (chained v1->…->v8)');
   res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
   res(!!s.settings && !!s.priceLog && !!s.timeline && !!s.fastLog, '2: settings + priceLog + timeline + fastLog added');
   res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
@@ -98,9 +98,9 @@ window.setLS({});
   res(r3.source === 'store', '3: second boot loads from store (no re-migrate)');
   res(HT.state().migratedAt === firstMigAt, '3: migratedAt unchanged');
 
-  // 4. Forward-version blob in storage is protected (now > 7 -- R31 took v7, and a
+  // 4. Forward-version blob in storage is protected (now > 8 -- R30 took v8, and a
   // fixture that stops being ahead of SCHEMA_VERSION stops testing the guard)
-  var futureBlob = JSON.stringify({ version: 8, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
+  var futureBlob = JSON.stringify({ version: 9, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
   setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
   res(r4.source === 'future', '4: forward blob -> source future');
   res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
@@ -125,7 +125,7 @@ window.setLS({});
   // round-trip equality at all (settings gained signalUnits + fasting; blob gained
   // timeline + fastLog; v6 added the accepted portion). ----
   var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
-  var S1 = { version: 7, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  var S1 = { version: 8, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
@@ -154,14 +154,14 @@ window.setLS({});
   // 9. Restore routing: v1/v2/v3 migrate; version-absent rejected; >4 rejected
   setLS({}); HT.boot(); window.__confirm = true;
   var r9a = HT.restore(v1json);
-  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 7, '9: v1 paste -> migrated to v7');
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 8, '9: v1 paste -> migrated to v8');
   res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
   setLS({}); HT.boot();
   var before9 = JSON.stringify(HT.state());
   var r9b = HT.restore(JSON.stringify({ days: { '2026-07-08': { status:'complete', items:[], water_l:0 } }, current:'x' }));
   res(!r9b.ok && /Unrecognized|version/i.test(r9b.error || ''), '9: version-absent paste REJECTED (legacy removed)');
   var r9c = HT.restore(futureBlob);
-  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>7 paste rejected');
+  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>8 paste rejected');
   res(JSON.stringify(HT.state()) === before9, '9: state untouched by rejected pastes');
 
   // 10. Restore v2: micros coerced/clamped, unknown key preserved, source validated
@@ -205,7 +205,7 @@ window.setLS({});
   res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
 
   // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version": 7') >= 0, '14: export carries version 7');
+  res(HT.exportJSON().indexOf('"version": 8') >= 0, '14: export carries version 8');
   setLS({}); HT.boot(); window.__confirm = true;
   var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
   res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
@@ -280,7 +280,7 @@ window.setLS({});
   var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
   res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement', 'I8: v1 full-days migrated (source inferred) then merged');
   res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
-  res(!HT.ingest(JSON.stringify({ version:8, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>7 full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:9, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>8 full-days rejected');
 
   // I9. complete-day append -> reopens + reports
   setLS({}); HT.boot();
@@ -501,7 +501,7 @@ window.setLS({});
       'F7: template demands JSON only, straight quotes, soluble_fiber_g');
   res(tmpl.indexOf('grams') >= 0 && tmpl.indexOf('per100') >= 0 && tmpl.indexOf('scale_linked') >= 0 && tmpl.indexOf('dominance') >= 0,
       'F7/R6: template v3 asks for grams, per-100g, scale_linked and dominance');
-  res(HT.AI_TEMPLATE_VERSION === 3, 'F7/R6: AI_TEMPLATE_VERSION bumped with the item contract');
+  res(HT.AI_TEMPLATE_VERSION === 4, 'F7/R6: AI_TEMPLATE_VERSION bumped with the item contract -- v4 adds `alts`, and D11 ties the number to that contract'.replace(/`/g, ''));
   res(['breakfast','lunch','dinner','snack','drink','supplement'].every(function(m){ return tmpl.indexOf(m) >= 0; }), 'F7: template spells out the full meal enum');
   // ---- R27 / D64: the capture failure that presented as a timeout ----------
   // Diagnosed in order: the counter incremented TWICE, which proves the reply
@@ -1015,7 +1015,7 @@ window.setLS({});
   var m45 = HT.migrateV4toV5({ version:4, days:{}, current:'', settings:{}, priceLog:{}, timeline:{}, fastLog:{} }, '2026-07-20T00:00:00Z');
   res(m45.version===5 && !!m45.regimens && m45.regimens.list.length===0 && !!m45.fastLog, 'TL6: migrateV4toV5 adds empty regimens, version 5');
   var m1 = HT.migrateToLatest({ version:1, days:{}, current:'' }, '2026-07-18T00:00:00Z');
-  res(m1.version===7 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v7');
+  res(m1.version===8 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v8');
 
   // TL7: normalizeTimeline restore hardening (incl. hostile medication) + round-trip
   var nt = HT.normalizeTimeline({
@@ -1207,7 +1207,7 @@ window.setLS({});
 
   // FX6: schema v4 migration end-to-end (a v3 blob gains fastLog on boot)
   setLS({'healthtracker-log': JSON.stringify({version:3,days:{'2026-06-01':{status:'complete',items:[],water_l:0}},current:'2026-06-01',settings:{},priceLog:{},timeline:{}})}); HT.boot();
-  res(HT.state().version===7 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 7');
+  res(HT.state().version===8 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 8');
 
   // FX7: tolerance-matched identity + inert orphan
   setLS({}); HT.boot();
@@ -1838,7 +1838,7 @@ window.setLS({});
   var migKeep = HT.migrateToLatest({ version:1, current:'2026-01-06',
     days:{ '2026-01-06': { status:'complete', items:[{ name:'V1tz', kcal:300, tzo:FOREIGN }], water_l:0 } } }, new Date().toISOString());
   res(migKeep.days['2026-01-06'].items[0].tzo === FOREIGN, 'TZ-preserve: a v1 blob that carries tzo keeps it through v1->v6 migration');
-  res(HT.state().version === 7, 'TZ-preserve: this slice bumped nothing — the schema is at 7 because R31 bumped it, not this (Fork 1)');
+  res(HT.state().version === 8, 'TZ-preserve: this slice bumped nothing — the schema is at 8 because R30 bumped it, not this (Fork 1)');
 
   // ---- TZ-inert + TZ-absent-flows: Pin 1, nothing consumes the field ---------
   setLS({}); HT.boot();
@@ -3182,7 +3182,7 @@ window.setLS({});
 
   // ---- SE cases that need no DOM (behavior + invariants) --------------------
   setLS({}); HT.boot();
-  res(HT.state().version === 7, 'SE-noschema: presentation only — this slice bumped nothing; v7 is R31’s');
+  res(HT.state().version === 8, 'SE-noschema: presentation only — this slice bumped nothing; v8 is R30’s');
   var seBefore = HT.exportJSON();
   HT.openSheet(); HT.setSheetMode('quick'); HT.setSheetMode('photo'); HT.setSheetMode('manual');
   HT.setSheetMode('signal'); HT.setSheetMode('med'); HT.closeSheet();
@@ -3287,7 +3287,7 @@ window.setLS({});
   res(labRecs.every(function(r){ return r.panelId===lp.panelId; }) && lp.panelId!=='',
       'LB-A: every value in the panel shares one panelId (exact grouping, not inferred)');
   res(HT.labPanels().length===1 && HT.labPanels()[0].values.length===3, 'LB-A: the panel is a DERIVED grouping, never a record of its own');
-  res(HT.state().version===7, 'LB-C: this slice bumped nothing; v7 is R31’s');
+  res(HT.state().version===8, 'LB-C: this slice bumped nothing; v8 is R30’s');
 
   // LB-B: LAB_SPEC merged into the runtime lookup, but NOT into SIGNAL_SPEC.
   res(HT.isLabType('apo_b') && !HT.isLabType('weight') && !!HT.SIGNAL_BY_TYPE['apo_b'] && HT.SIGNAL_BY_TYPE['apo_b'].kind==='biometric',
@@ -3647,7 +3647,7 @@ window.setLS({});
   res(HT.state().settings.primaryNutrient==='fiber_g', 'RR-primary: it round-trips export -> restore EXACT (explicit normalizer allowlist addition)');
   res(HT.normalizeState({ version:5, settings:{ primaryNutrient:'weight' } }).settings.primaryNutrient==='',
       'RR-primary: a hostile/invalid declaration is dropped at the restore boundary');
-  res(HT.state().version===7, 'RR-primary: this slice bumped nothing; v7 is R31’s');
+  res(HT.state().version===8, 'RR-primary: this slice bumped nothing; v8 is R30’s');
 
   // ==========================================================================
   // R8 — ring fullness. Trailing-24h live ring, ghost plan-arcs, centre tenant.
@@ -3714,7 +3714,7 @@ window.setLS({});
       'R8-ghost: a malformed sleep window is rejected at the authoring boundary');
   res(HT.normalizeRegimens({list:[{id:'r',name:'n',entries:[],sleep:{start:'bad',end:'x'}}]}).list[0].sleep===undefined,
       'R8-ghost: a malformed sleep window is dropped at the restore boundary');
-  res(HT.state().version===7, 'R8-ghost: a field on an existing store — this slice bumped nothing; v7 is R31’s');
+  res(HT.state().version===8, 'R8-ghost: a field on an existing store — this slice bumped nothing; v8 is R30’s');
 
   // R8-centre: the centre carries the open-gap counter, in D22 grammar.
   setLS({}); HT.boot(); fixClock();
@@ -4693,8 +4693,9 @@ window.setLS({});
     confidence: 'eyeballed', source: 'ai-paste', notes: pmItem.notes, tzo: pmItem.tzo }, true);
   var stripped = JSON.parse(JSON.stringify(pmItem));
   delete stripped.grams; delete stripped.ai_grams; delete stripped.ai_identity; delete stripped.pinned; delete stripped.mealId;
+  delete stripped.ai_alts; delete stripped.identity_pick;   // R30: the additive list is now seven
   res(JSON.stringify(stripped) === JSON.stringify(manualTwin),
-      'R6-save: a saved photo-meal item is BYTE-IDENTICAL to a manual item plus the additive fields');
+      'R6-save: a saved photo-meal item is BYTE-IDENTICAL to a manual item plus the additive fields -- seven of them now, and the claim is unchanged: the photo path writes an ORDINARY item plus declared extras, never a different kind of record');
 
   // R6-roundtrip: all four fields survive export -> restore.
   var pmExp = JSON.parse(HT.exportJSON());
@@ -4709,7 +4710,7 @@ window.setLS({});
       HT.normalizeItem({ name:'x', pinned:'yes' }, true).pinned === undefined &&
       HT.normalizeItem({ name:'x', mealId:'' }, true).mealId === undefined,
       'R6-roundtrip: the fields are coerced at the boundary — pinned only from a real true, empty mealId dropped');
-  res(HT.state().version === 7, 'R6-roundtrip: this slice bumped nothing; v7 is R31’s');
+  res(HT.state().version === 8, 'R6-roundtrip: this slice bumped nothing; v8 is R30’s');
 
   // R6-unanchored: saving with nothing pinned is allowed.
   setLS({}); HT.boot(); fixClock();
@@ -5891,8 +5892,8 @@ window.setLS({});
       'R23-roundtrip: an unparseable portion clamps, and an ABSENT one stays absent -- never 0, which would claim a weightless meal');
 
   // ---- R23-bump: schema v6, and the forward guard moves with it ----
-  res(JSON.parse(HT.exportJSON()).version === 7,
-      'R23-bump: the schema is v7 (R31’s bump). R23’s reason for v6 stands unchanged: every additive item field before it was a future calibration input, and the accepted portion is CONTENT THE USER AUTHORED, which is the other side of D29’s asymmetry test');
+  res(JSON.parse(HT.exportJSON()).version === 8,
+      'R23-bump: the schema is v8 (R30’s bump). R23’s reason for v6 stands unchanged: every additive item field before it was a future calibration input, and the accepted portion is CONTENT THE USER AUTHORED, which is the other side of D29’s asymmetry test');
   var v5blob = { version: 5, days: { '2026-01-05': { status: 'complete', items: [
       { name: 'Old scan', meal: 'lunch', kcal: 210, confidence: 'measured', source: 'scan',
         notes: 'scanned 150 g' }], water_l: 0 } }, current: '2026-01-05',
@@ -5903,9 +5904,9 @@ window.setLS({});
   res(m56.days['2026-01-05'].items[0].grams === undefined &&
       m56.days['2026-01-05'].items[0].notes === 'scanned 150 g',
       'R23-bump: and it invents NO portion. Mining "scanned 150 g" out of user-editable notes would be an INFERENCE about what a number meant, which is exactly the editorialising D4’s surviving principle forbids');
-  var fwd = HT.parseImport(JSON.stringify({ version: 8, days: {} }));
+  var fwd = HT.parseImport(JSON.stringify({ version: 9, days: {} }));
   res(fwd.ok === false && String(fwd.error).indexOf('newer version') >= 0,
-      'R23-bump: the forward guard moved with the schema -- v8 is refused, never silently loaded down');
+      'R23-bump: the forward guard moved with the schema -- v9 is refused, never silently loaded down');
 
   // ---- R23-complete: Fork F, and the shipped inconsistency it closes ----
   setLS({}); HT.boot(); fixClock();
@@ -6276,8 +6277,8 @@ window.setLS({});
   // portion, which is a different slice's reason. The claim R20 made -- that an
   // older app preserves a bm record unrendered rather than stripping it -- is what
   // is asserted here, now against the current version.
-  res(JSON.parse(HT.exportJSON()).version === 7,
-      'R20-nobump: R20 bumped nothing of its own; v7 is R31’s, and a bm record still round-trips unrendered rather than being stripped');
+  res(JSON.parse(HT.exportJSON()).version === 8,
+      'R20-nobump: R20 bumped nothing of its own; v8 is R30’s, and a bm record still round-trips unrendered rather than being stripped');
   setLS({}); HT.boot(); fixClock();
 
   // ================= R31 -- macro coverage (D67) =============================
@@ -6464,23 +6465,23 @@ window.setLS({});
       'R31-migrate: migrateV6toV7 stamps its own version');
   res(JSON.stringify(m67.days) === daysBefore,
       'R31-migrate GATE: and the days come through BYTE-IDENTICAL -- no existing item is unresolved, so a v6 blob has nothing to convert and nothing may be invented for it');
-  res(HT.migrateToLatest({ version: 6, days: {}, current: '', settings: {}, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } }, '2026-09-09T00:00:00.000Z').version === 7,
-      'R31-migrate: and the chain reaches 7, so a v6 blob on disk boots forward rather than sitting one version behind');
+  res(HT.migrateToLatest({ version: 6, days: {}, current: '', settings: {}, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } }, '2026-09-09T00:00:00.000Z').version === 8,
+      'R31-migrate: and the chain reaches 8 (R30 took v8), so a v6 blob on disk boots all the way forward rather than stopping at the version that introduced its first missing field');
   setLS({ 'healthtracker-log': JSON.stringify(v6blob) });
   var bootR = HT.boot();
-  res(bootR.source === 'migrated' && HT.state().version === 7 &&
+  res(bootR.source === 'migrated' && HT.state().version === 8 &&
       HT.state().days['2026-02-01'].items[0].kcal === 90,
       'R31-migrate GATE: a v6 blob migrates IN PLACE under the stable key on boot, content intact (D1)');
   res(window.__ls._has('healthtracker-log-premigration'),
       'R31-migrate: with the untouched original snapshotted first (D7)');
 
   // ---- R31-guard: the forward guard moved WITH the schema ------------------
-  res(HT.SCHEMA_VERSION === 7,
-      'R31-guard: SCHEMA_VERSION is 7');
-  res(HT.parseImport(JSON.stringify({ version: 8, days: {} })).ok === false,
-      'R31-guard GATE: and version 8 is refused. The guard is what protects an OLDER app from this blob -- it would strip `unresolved`, coerce the absent macros to 0, and show a day that silently under-reports. The bump is what arms the guard');
-  res(HT.parseImport(JSON.stringify({ version: 7, days: {} })).ok === true,
-      'R31-guard CONTROL: v7 itself is accepted -- the guard moved, it did not merely tighten');
+  res(HT.SCHEMA_VERSION === 8,
+      'R31-guard: SCHEMA_VERSION is 8');
+  res(HT.parseImport(JSON.stringify({ version: 9, days: {} })).ok === false,
+      'R31-guard GATE: and version 9 is refused. The guard is what protects an OLDER app from this blob -- it would strip `unresolved`, coerce the absent macros to 0, and show a day that silently under-reports. The bump is what arms the guard');
+  res(HT.parseImport(JSON.stringify({ version: 8, days: {} })).ok === true,
+      'R31-guard CONTROL: v8 itself is accepted -- the guard moved, it did not merely tighten');
 
   // ---- R31-edit: the editor refuses rather than half-accepting -------------
   var ieU = HT.itemEditHTML(HT.normalizeItem(r31unres('Mystery'), true), 0, '');
@@ -6532,6 +6533,247 @@ window.setLS({});
       'R31-vocab: no evaluative word reaches any coverage surface -- a partial total is a fact about the record, never a verdict on the day');
   res((new RegExp('\\bgood\\b')).test(r31Cov + ' good '),
       'R31-vocab CONTROL: the planted word IS found by the same test, so the assertion is not vacuous');
+
+  setLS({}); HT.boot(); fixClock();
+
+  // ================= R30 -- identity-first confirmation (D68) ================
+  // The wine was read as apple juice and the modal asked for the GRAMS, so a volume
+  // got corrected for a drink that was not being had. The question shape is the
+  // load-bearing fix; the threshold is the narrower second defence. Both are gated,
+  // and the surface is what is asserted -- a parse that knows the right answer while
+  // the screen shows the wrong one is the failure this slice exists to remove.
+  setLS({}); HT.boot();
+  if (!document.getElementById('photoDraft')) { var pdEl = document.createElement('div'); pdEl.id = 'photoDraft'; document.body.appendChild(pdEl); }
+  function r30draftHTML(){ return document.getElementById('photoDraft').innerHTML; }
+  function r30lead(h){ var i = h.indexOf('class="pmlead"'); if (i < 0) return ''; var j = h.indexOf('class="pmrow', i); return h.slice(i, j < 0 ? h.length : j); }
+  function r30item(name, p, alts, extra){
+    var o = { name: name, grams: 200, per100: { kcal: 100, protein_g: 5, fat_g: 2, carb_g: 10, fiber_g: 1, soluble_fiber_g: 0 },
+              scale_linked: true, dominance: 1, notes: '' };
+    if (alts !== null) o.alts = alts || [{ name: name, p: p }, { name: 'Second guess', p: 0.2 }, { name: 'Third guess', p: 0.05 }];
+    if (extra) Object.keys(extra).forEach(function(k){ o[k] = extra[k]; });
+    return o;
+  }
+  function r30reply(items, meal){ return JSON.stringify({ meal: meal || 'lunch', items: items }); }
+
+  // ---- R30-top1: the degradation check for Fork A -------------------------
+  var pr1 = HT.parsePhotoMeal(HT.AI_PROMPT_SAMPLE);
+  res(pr1.ok === true && pr1.items.length === 2,
+      'R30-top1: the shipped SAMPLE still parses (R6 self-consistency, now at template v4)');
+  res(pr1.items.every(function(it){ return it.alts.length === 3 && it.alts[0].name === it.name; }),
+      'R30-top1 GATE: alts[0].name === name on every parsed item, and three candidates arrive. Asking for alternatives could have moved the top answer; this is that worry turned into something a gate can see');
+  res(pr1.items.every(function(it){ return it.altsMismatch === false; }),
+      'R30-top1: so nothing is flagged as self-contradictory');
+  var prM = HT.parsePhotoMeal(r30reply([ r30item('Red wine', 0.9, [{ name: 'Apple juice', p: 0.9 }, { name: 'Red wine', p: 0.3 }]) ]));
+  res(prM.ok === true && prM.items[0].name === 'Red wine' && prM.items[0].altsMismatch === true,
+      'R30-top1 GATE: a reply whose list CONTRADICTS its own name keeps `name` authoritative (per100 describes it) and is flagged -- the app does not reorder the list, which would hide exactly the degradation this rule exists to detect');
+  res(HT.identityState(prM.items[0]) === 'unsure',
+      'R30-top1: and a self-contradicting reply drops to the off-ramp rather than resolving on either reading');
+
+  // ---- R30-identity-first GATE: the question shape ------------------------
+  HT.openPhotoDraft(r30reply([ r30item('Grilled chicken', 0.9) ]));
+  var dSure = HT.photoDraft();
+  res(dSure.single === true, 'R30-identity-first: a one-item reply makes a single-item draft');
+  res(HT.photoIdentityOpen(dSure) === true && HT.photoLeadOpen(dSure) === false,
+      'R30-identity-first GATE: the IDENTITY question is open and the portion question is NOT -- you cannot answer how much until you know of what');
+  var hSure = r30draftHTML(), leadSure = r30lead(hSure);
+  res(leadSure.indexOf('Is this') >= 0 && leadSure.indexOf('Grilled chicken') >= 0,
+      'R30-identity-first GATE: the lead question asks about the IDENTITY, naming it for a one-tap yes');
+  res(leadSure.indexOf('<input') < 0,
+      'R30-identity-first GATE: and NO grams control -- neither slider nor exact field -- is in the lead block while identity is unsettled');
+  res(hSure.indexOf('AI estimated:') < 0,
+      'R30-identity-first: the old grams-first question is not rendered underneath it either');
+
+  // ---- R30-above-offramp: resolve, but the way out stays visible ----------
+  res(HT.identityState(dSure.items[0]) === 'sure',
+      'R30-above-offramp: p=0.9 clears the floor');
+  res(leadSure.indexOf('photoPickCandidate(0, 1)') >= 0 && leadSure.indexOf('None of these') >= 0,
+      'R30-above-offramp GATE: above the threshold the answer is offered AND the alternatives plus "None of these" are one tap away -- confidently wrong is the case the threshold cannot catch, so the way out does not disappear when the model is sure');
+  var okR = HT.photoConfirmIdentity(0);
+  res(okR.ok === true && okR.pick.kind === 'confirm' && okR.pick.rank === 0,
+      'R30-above-offramp: confirming records a PICK of rank 0 -- accepting is data, not the absence of it');
+  res(HT.photoIdentityOpen(HT.photoDraft()) === false && HT.photoLeadOpen(HT.photoDraft()) === true,
+      'R30-identity-first GATE: and only once identity is settled does the portion question open');
+  res(r30draftHTML().indexOf('AI estimated:') >= 0,
+      'R30-identity-first: which is the R6 grams question, unchanged, arriving second instead of first');
+
+  // ---- R30-below-none GATE: nothing is filled in --------------------------
+  HT.openPhotoDraft(r30reply([ r30item('Chicken nugget', 0.4) ]));
+  var dLow = HT.photoDraft();
+  res(HT.identityState(dLow.items[0]) === 'unsure', 'R30-below-none: p=0.4 is under the floor');
+  var hLow = r30draftHTML(), leadLow = r30lead(hLow);
+  res(leadLow.indexOf('What is this?') >= 0,
+      'R30-below-none GATE: below the floor the question presupposes nothing');
+  res(leadLow.indexOf('<input') < 0 && !/\d+\s*kcal/.test(leadLow) && leadLow.indexOf('Is this') < 0,
+      'R30-below-none GATE: no field, no macro figure and no asserted identity reach the lead block -- a displayed default anchors even when labelled uncertain, so none is displayed');
+  res(hLow.indexOf('Chicken nugget') >= 0,
+      'R30-below-none: the model’s guess is still OFFERED as one candidate among three -- refusing to resolve is not refusing to show the options');
+  var lowPos = hLow.indexOf('Chicken nugget');
+  res(hLow.slice(0, lowPos).indexOf('pmalt') >= 0,
+      'R30-below-none GATE: and it appears INSIDE the candidate list rather than as the answer above it');
+
+  // ---- R30-order + R30-no-numbers -----------------------------------------
+  // The names deliberately disagree with alphabetical order, with length order and
+  // with reverse-alphabetical: only the order the model gave satisfies this. The
+  // first version used Alpha/Bravo/Charlie and PASSED against a planted
+  // alphabetical sort, because the fixture was already in that order.
+  HT.openPhotoDraft(r30reply([ r30item('Zucchini fritter', 0.4, [{ name: 'Zucchini fritter', p: 0.4 }, { name: 'Apple fritter', p: 0.35 }, { name: 'Meat pie', p: 0.25 }]) ]));
+  var hOrd = r30draftHTML();
+  res(hOrd.indexOf('Zucchini fritter') < hOrd.indexOf('Apple fritter') && hOrd.indexOf('Apple fritter') < hOrd.indexOf('Meat pie'),
+      'R30-order GATE: the list renders in the MODEL’S order, never re-sorted by the app -- the names are chosen so that alphabetical, reverse and by-length all give a DIFFERENT answer');
+  var hOrdTxt = hOrd.replace(/<[^>]*>/g, ' ');
+  res(!/0\.\d/.test(hOrdTxt) && hOrdTxt.indexOf('%') < 0,
+      'R30-no-numbers GATE: no confidence figure appears anywhere in the rendered draft -- showing them makes people defer to the model and corrupts the pick as calibration data');
+  res(/0\.\d/.test(hOrdTxt + ' 0.82 '),
+      'R30-no-numbers CONTROL: the same test FINDS a planted 0.82, so the assertion is not vacuous');
+  res(hOrd.indexOf('0.4') < 0 && HT.photoDraft().items[0].alts[0].p === 0.4,
+      'R30-no-numbers GATE: the number is RECORDED while never being rendered -- which is the whole arrangement: read by the threshold, written to the record, never shown');
+
+  // ---- R30-none-of-these GATE: the floor under the off-ramp ---------------
+  var noneR = HT.photoPickNone(0);
+  res(noneR.ok === true && noneR.pick.kind === 'none',
+      'R30-none-of-these: the pick is recorded as a refusal of every candidate');
+  var itNone = HT.photoDraft().items[0];
+  res(HT.photoItemUnresolved(itNone) === true && itNone.name === 'Unidentified item',
+      'R30-none-of-these GATE: the item goes to the UNRESOLVED path, and is not left wearing a name the user just rejected');
+  res(itNone.aiIdentity === 'Zucchini fritter',
+      'R30-none-of-these: the model’s guess survives as provenance rather than as the food’s name');
+  var hNone = r30draftHTML();
+  res(hNone.indexOf('composition not recorded') >= 0 && hNone.indexOf('from 0 of 1 items') >= 0,
+      'R30-none-of-these GATE: the row states the absence and the draft total says how much of the meal it knows -- R31’s sentence, reached from the path it was built for');
+  HT.photoSetGrams(0, 250);
+  var savedNone = HT.photoSave();
+  res(savedNone.ok === true && savedNone.items[0].unresolved === true && savedNone.items[0].grams === 250,
+      'R30-none-of-these GATE: it saves with the portion the user accepted and the unresolved flag set');
+  res(HT.MACRO_KEYS.every(function(k){ return savedNone.items[0][k] === undefined; }),
+      'R30-none-of-these GATE: and with NO macro keys -- not zeros. Keeping the top-1 macros under a rejected name would be the original error wearing a correction');
+
+  // ---- R30-record: offered list and pick, in order, through a round trip ---
+  var recItem = savedNone.items[0];
+  res(!!recItem.ai_alts && recItem.ai_alts.length === 3 && recItem.ai_alts[0].name === 'Zucchini fritter' &&
+      recItem.ai_alts[1].name === 'Apple fritter' && recItem.ai_alts[2].name === 'Meat pie',
+      'R30-record GATE: the offered list is stored IN THE ORDER IT WAS OFFERED');
+  res(!!recItem.ai_alts && recItem.ai_alts[0].p === 0.4 && recItem.ai_alts[2].p === 0.25,
+      'R30-record GATE: with each candidate’s stated confidence beside it');
+  res(recItem.identity_pick && recItem.identity_pick.kind === 'none',
+      'R30-record GATE: and which rank was taken -- here, none of them');
+  var expR = HT.exportJSON();
+  HT.restore(expR);
+  var backR = HT.state().days[HT.state().current].items.filter(function(i){ return i.unresolved === true; })[0];
+  res(!!backR && !!backR.ai_alts && backR.ai_alts.length === 3 && backR.ai_alts[0].name === 'Zucchini fritter' &&
+      backR.ai_alts[0].p === 0.4 && backR.identity_pick.kind === 'none',
+      'R30-record GATE: all of it survives export -> restore -- the allowlist trap, eighth occurrence, gated in the commit that adds the fields');
+  res(!!backR.ai_alts && backR.ai_alts[1].name === 'Apple fritter' && backR.ai_alts[2].name === 'Meat pie',
+      'R30-record: including the ORDER, which is the datum and not a presentation choice');
+
+  // ---- R30-alt: picking a different candidate -----------------------------
+  setLS({}); HT.boot();
+  HT.openPhotoDraft(r30reply([ r30item('Apple juice', 0.4, [{ name: 'Apple juice', p: 0.4 }, { name: 'Red wine', p: 0.38 }, { name: 'Grape juice', p: 0.22 }]) ]));
+  var altR = HT.photoPickCandidate(0, 1);
+  var itAlt = HT.photoDraft().items[0];
+  res(altR.ok === true && itAlt.name === 'Red wine' && HT.photoItemUnresolved(itAlt) === true,
+      'R30-alt GATE: picking the wine takes the NAME and refuses the juice’s macros -- a candidate is a name and a number, never a nutrition profile (Fork E1)');
+  res(altR.pick.kind === 'alt' && altR.pick.rank === 1,
+      'R30-alt: and the rank taken is recorded');
+
+  // ---- R30-preset: I1’s one exception, a lookup and not a matcher -------
+  setLS({}); HT.boot();
+  var st30 = HT.state();
+  st30.settings.presets = [{ id: 'p-wine', name: 'Red wine', portion_g: 150, kcal: 125,
+                             protein_g: 0, fat_g: 0, carb_g: 4, fiber_g: 0, soluble_fiber_g: 0 }];
+  HT.resave();
+  HT.openPhotoDraft(r30reply([ r30item('Apple juice', 0.4, [{ name: 'Apple juice', p: 0.4 }, { name: 'RED WINE', p: 0.38 }, { name: 'Grape juice', p: 0.22 }]) ]));
+  var preR = HT.photoPickCandidate(0, 1);
+  var itPre = HT.photoDraft().items[0];
+  res(preR.ok === true && preR.pick.kind === 'preset',
+      'R30-preset GATE: a candidate whose name matches one of the user’s own presets resolves THROUGH the existing rail (I1’s exception -- a case-insensitive lookup, with no scoring, no ranking and no evaluation set)');
+  res(HT.photoItemUnresolved(itPre) !== true && Math.abs(itPre.per100.kcal - 125 * 100 / 150) < 1e-9,
+      'R30-preset GATE: so it comes back with REAL macros, which is the difference between an off-ramp that resolves and one that only records');
+
+  // ---- R30-plate-unchanged: repointed, not weakened -----------------------
+  setLS({}); HT.boot();
+  HT.openPhotoDraft(r30reply([
+      r30item('Steak', 0.4, [{ name: 'Steak', p: 0.4 }, { name: 'Pork chop', p: 0.35 }, { name: 'Lamb', p: 0.25 }]),
+      Object.assign(r30item('Potatoes', 0.9), { dominance: 2 }) ]));
+  var dPlate = HT.photoDraft();
+  res(dPlate.single === false && HT.photoIdentityOpen(dPlate) === false,
+      'R30-plate-unchanged GATE: a multi-item plate opens NO identity question -- the dominant item anchors the rest, and that design is right for plates');
+  var hPlate = r30draftHTML();
+  res(hPlate.indexOf('AI estimated:') >= 0 && r30lead(hPlate).indexOf('<input') >= 0,
+      'R30-plate-unchanged GATE: it opens today’s grams-first lead, slider and all');
+  res(hPlate.indexOf('photoPickCandidate(0, 1)') >= 0,
+      'R30-plate-unchanged GATE: and the low-confidence DOMINANT item carries the off-ramp beside its estimate rather than instead of it (Fork C1) -- suppressing it would strand the shared-scale correction, which needs an estimate to anchor from');
+  var shBefore = HT.photoShared(dPlate);
+  HT.photoSetGrams(0, 300);
+  var shAfter = HT.photoShared(HT.photoDraft());
+  res(shBefore.anchored === false && shAfter.anchored === true && Math.abs(shAfter.R - 1.5) < 1e-9,
+      'R30-plate-unchanged GATE: and propagation is arithmetically what it was -- pinning the dominant item at 300 g against a 200 g estimate still gives R = 1.5');
+
+  // ---- R30-frozen: Fork B1, and the price of it ---------------------------
+  setLS({}); HT.boot();
+  HT.openPhotoDraft(r30reply([ r30item('Soup', 0.9), Object.assign(r30item('Bread', 0.9), { dominance: 2 }) ]));
+  HT.photoToggleExclude(1);
+  res(HT.photoDraft().single === false && HT.photoIdentityOpen(HT.photoDraft()) === false,
+      'R30-frozen GATE: excluding a plate down to one row does NOT summon the identity question -- `single` is decided once at construction, because a question that re-shapes itself mid-draft is a moving target (Fork B1, and this is the price of it, named rather than discovered)');
+
+  // ---- R30-degrade: paste-path parity when no list arrives -----------------
+  // RE-POINTED from the pre-registration, and said out loud. It read "produces
+  // today's draft EXACTLY", which cannot hold beside the headline rule: a
+  // single-item reply gets an identity-shaped question whether or not a list came
+  // with it. G1's reason -- "an empty off-ramp is worse than none" -- is about not
+  // showing an EMPTY LIST, and "resolve, rail visible" is about resolution state;
+  // neither is about question shape. So the numbers are what must be unchanged.
+  setLS({}); HT.boot();
+  var noAlts = HT.parsePhotoMeal(r30reply([ r30item('Old template item', 0, null) ]));
+  res(noAlts.ok === true && noAlts.items[0].alts.length === 0,
+      'R30-degrade: a v3-template reply still parses, with no candidate list');
+  res(HT.identityState(noAlts.items[0]) === 'none',
+      'R30-degrade GATE: absent `alts` is NOT treated as below-threshold -- the model did not answer the question, and suppressing the identity for that would punish the user for the template they saved');
+  HT.openPhotoDraft(r30reply([ r30item('Old template item', 0, null) ]));
+  var hNo = r30draftHTML();
+  res(hNo.indexOf('Is this') >= 0 && r30lead(hNo).indexOf('None of these') >= 0 && hNo.indexOf('pmalt"') < 0,
+      'R30-degrade GATE: the identity is RESOLVED and offered for confirmation, with no candidate buttons to show -- the question shape follows the item count, the list follows the reply');
+  var noItem = HT.photoDraft().items[0];
+  res(noItem.per100.kcal === 100 && noItem.aiGrams === 200 && noItem.scaleLinked === true,
+      'R30-degrade GATE: and every number is what it was before this slice -- same per100, same estimate, same propagation input (paste-path parity, D64)');
+  HT.photoConfirmIdentity(0);
+  var savedNo = HT.photoSave();
+  res(savedNo.ok === true && savedNo.items[0].ai_alts === undefined && savedNo.items[0].identity_pick.kind === 'asis',
+      'R30-degrade: it saves with no offered list (there was none) and a pick recorded as `asis` -- confirming a lone answer and choosing it over two alternatives are different acts, and the record keeps them apart');
+
+  // ---- R30-parity: the template and the parser still agree ----------------
+  res(HT.AI_TEMPLATE_VERSION === 4 && HT.AI_PROMPT_TEMPLATE.indexOf('"alts"') >= 0,
+      'R30-parity GATE: the shipped template asks for the field the parser reads');
+  res(HT.AI_PROMPT_TEMPLATE.indexOf('identical to "name"') >= 0 && HT.AI_PROMPT_TEMPLATE.indexOf('"p" is how confident') >= 0,
+      'R30-parity GATE: including the top1 rule and the meaning of `p`, since on the copy-prompt path the words are the only mechanism there is (D64)');
+  res(HT.AI_PROMPT_TEMPLATE.indexOf('JSON ONLY') >= 0 && HT.AI_PROMPT_TEMPLATE.indexOf('start with { and end with }') >= 0,
+      'R30-parity: and R27’s hardening is still in it, unremoved by this slice');
+  res(HT.parsePhotoMeal(HT.AI_PROMPT_SAMPLE).ok === true,
+      'R30-parity GATE: the adjacent SAMPLE obeys the template it sits beside, gated against the real parser so the two cannot drift');
+  res(HT.AI_PROMPT_TEMPLATE.indexOf('vitamins or minerals') >= 0,
+      'R30-parity: and the D8 honesty line -- macros only, never micronutrients from a photo -- is kept verbatim');
+
+  // ---- R30-vocab: M7 over the new surfaces --------------------------------
+  setLS({}); HT.boot();
+  HT.openPhotoDraft(r30reply([ r30item('Something', 0.4) ]));
+  var vSurf = r30draftHTML().replace(/<[^>]*>/g, ' ').toLowerCase();
+  var vBan = ['should', 'improv', 'better', 'worse', ' good ', ' bad ', 'recommend', 'wrong', 'mistake', 'confidence'];
+  res(vBan.every(function(w){ return vSurf.indexOf(w) < 0; }),
+      'R30-vocab: no evaluative word and no confidence vocabulary on the identity surface -- the question asks what a thing is, it does not grade the answer');
+  res((vSurf + ' you should do better ').indexOf('should') >= 0,
+      'R30-vocab CONTROL: the planted word IS found by the same test');
+
+  // ---- R30-migrate / R30-guard: v7 -> v8 ----------------------------------
+  var v7blob = { version: 7, days: { '2026-06-01': { status: 'complete', items: [
+      { name: 'Toast', meal: 'breakfast', time: '08:00', kcal: 90, protein_g: 3, fat_g: 1,
+        carb_g: 17, fiber_g: 1, soluble_fiber_g: 0, confidence: 'weighed', notes: '', source: 'manual' }
+      ], water_l: 0 } }, current: '2026-06-01', settings: {}, priceLog: {}, timeline: {},
+      fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  var daysB4 = JSON.stringify(v7blob.days);
+  var m78 = HT.migrateV7toV8(v7blob, '2026-09-11T00:00:00.000Z');
+  res(m78.version === 8 && JSON.stringify(m78.days) === daysB4,
+      'R30-migrate GATE: v7 -> v8 is a structural passthrough -- no existing item carries the new fields, so `days` comes through byte-identical');
+  res(HT.SCHEMA_VERSION === 8 && HT.parseImport(JSON.stringify({ version: 9, days: {} })).ok === false,
+      'R30-guard GATE: the forward guard moved with the schema -- v9 refused');
 
   setLS({}); HT.boot(); fixClock();
 
