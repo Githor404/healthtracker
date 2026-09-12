@@ -2131,8 +2131,6 @@ The suite went red. The harness did exactly what it was built to do — D56's ha
 
 **The diagnostic:** read the defect's blast radius, not just its verdict. One planted defect should ideally fail **one named gate and its own controls**. Many failures mean *re-aim*; zero means Clause 1 or 4; a `HARNESS` line means Clause 5; and a failure raised by a different subsystem entirely means the defect never reached the gate at all.
 
-**And the unifying statement, which is what makes this worth a clause rather than a note:** Clause 5 asks that a failure arrive with the gate's name on it; Clause 6 asks that the defect be narrow enough for that name to mean something. **A sharp defect and a named failure are the same requirement seen from two ends** — a blunt defect cannot produce a meaningful named failure, and a gate that cannot name its failure cannot show a sharp defect was caught.
-
 ### Relationship to `CLAUDE.md`
 
 The brief's working rule — *"pre-registered, re-runnable gate evidence"* — is the weaker statement and is now incomplete, as instance 6 demonstrated by satisfying it completely. **D60 is the binding form.** Per the project's own rule that ruled contracts live in `DECISIONS.md` and bind equally with the brief, no edit to `CLAUDE.md` is required for this to hold; the brief is left alone rather than partially updated, since it is already behind the code in other respects and a half-refreshed brief is worse than one known to be historical.
@@ -2530,6 +2528,23 @@ Four defects planted; the fourth needed its fixture repaired first. *"A provider
 
 **Count delta: 1521 → 1530** (+9), re-pinned deliberately in the same commit.
 
+### Closed by measurement (2026-09-11)
+
+The next capture on the device:
+
+```
+656 kB · 960x1280 · encode 0.1s | call 1 · first byte 10.7s · done 10.7s
+· HTTP 200 · reply 640 chars · json_object sent · effort low | total 10.8s
+```
+
+**41.2s -> 10.7s.** One call, `effort low` accepted and applied.
+
+The signature is unchanged — first byte and done are still identical — so the time is still **all deliberation before the first token**. There is simply far less of it.
+
+**And the cause is isolated, because both competing explanations moved the wrong way.** The payload was **2.6x larger** (656 kB against 249 kB) and the reply **longer** (640 chars against 477, now carrying three identity candidates), and it was still four times faster. Neither upload size nor output length can account for a speed-up that happened while both increased.
+
+D65 named `reasoning_effort` as the strongest candidate and refused to change it in the same slice that measured it. That refusal is what makes this one line conclusive rather than suggestive. **The question is closed.**
+
 ### Flagged, not touched
 
 The capture identified a single item in frame as *"chicken nugget"* — the identity-first case discussed under the dish fork (D62). **Deliberately not addressed here**: touching the template in this commit would have made the next first-byte measurement unattributable, which is the whole point of the slice. Recorded so it is picked up as its own question rather than lost.
@@ -2760,52 +2775,26 @@ Worth carrying: **a frequency ruling binds at every level it can be violated at,
 
 **Manual entry and the scan path have the identical problem** — a typed 790 g container, a scanned 500 g tub — and are Fork H's recorded escalation. **The template's `count`/`unit` field is Fork D's named follow-up.** Neither is smuggled in here.
 
-## D70 — Provenance belongs where the estimate was made, and the gate aimed at the wrong object (2026-09-11)
+## D70 — Provenance belongs where the estimate was made (2026-09-11)
 
-Governance only. **No code, no schema change, no `APP_VERSION` bump.** Generalised out of R33, because the finding is not about plates.
+Governance only. No code, no schema change, no `APP_VERSION` bump.
 
-### The rule
+**The rule.** A provenance field records a claim made at a particular moment. Store it with that moment, not with whatever record uses the number later.
 
-**A provenance field means something only at the point where the claim it records was made. Carried downstream, it does not become stale — it silently reinterprets.**
+**What goes wrong, concretely.** `ai_grams` beside `grams` means *estimated* beside *accepted*. R33 made `grams` mean *eaten*. An event carrying `ai_grams: 450` and `grams: 395` then reads as *the model over-estimated by 12%*, when the truth is *the user corrected it upward by 75%* — the opposite sign, from two fields that are each individually correct. Carrying the pair in both places is worse rather than safer: the inversion then happens once per consumption event instead of once per plate.
 
-`ai_grams` beside `grams` is D57's correction loop: *what the model estimated*, kept beside *what the user accepted*. The pair answers one question — **how good is the model's portion estimate?** — and it answers it at exactly one place: the moment the portion was confirmed.
+**What moved and what did not.** To the plate: `ai_grams`, `ai_identity`, `ai_alts`, `identity_pick`, `pinned`, `added`. Staying on the event: `confidence` and `source`, which describe *that record's* own reliability and origin.
 
-R33 split a meal into a **plate** (what was served) and **consumption events** (what was eaten). On an event, `grams` is the amount eaten. Nothing about `ai_grams` changed; the field beside it did. So an event carrying `ai_grams: 450` and `grams: 395` — half of a plate the user had corrected from 450 g to 790 g — reads as *the model over-estimated by 12 %*, when the truth is *the user corrected it upward by 75 %*.
+**The part to remember.** When a slice splits one object into two, **every assertion touching the original is suspect even if it still passes** — passing may only mean the two halves have not diverged in that case. Nine assertions across six slices were asserting the right claim at the wrong address and stayed green until R33 separated the plate from the event. A fully-eaten plate would have kept `grams == plate grams` and hidden the error entirely.
 
-**Not a rounding error, not a stale value: the opposite sign, computed from two fields that were each individually correct.**
+## D71 — How these entries are written (2026-09-11)
 
-And carrying the fields in both places is worse than putting them in one wrong place, because it produces that inversion **once per consumption event** instead of once per plate — inflating the very dataset the fields exist to build.
+Ruled after D70 came back unreadable.
 
-**So: the correction loop, the identity calibration and the added-by-the-user marker live on the plate. The event carries what it ate.** Stated generally, for the next time this shape appears:
+**Lead with the plain statement, then the rule someone can act on.** An entry has to be usable by a reader who is not holding the rest of the corpus.
 
-> **Ask where the claim was MADE, not where the number is USED.** A provenance field follows its subject, and its subject is the act it describes — the estimate, the identification, the measurement — not whatever record happens to be downstream of it.
+**Taxonomy goes last, or not at all.** Placing a finding against its siblings — *"this is Clause 5's shape, not Clause 4's"* — is legible only to someone who already knows both. It reads as precision and carries nothing.
 
-The same test applies to every field of this kind already shipped: `ai_identity` (the identification), `ai_alts` and `identity_pick` (R30's calibration, one act per plate item), `pinned` (the scale anchoring), `added` (a fact about what was served). All five moved. `confidence` and `source` did **not** — they describe *this record's* reliability and origin, which genuinely is a property of each event.
+**Cross-references are pointers, not arguments.** Name the entry; do not re-derive it.
 
-### The failure shape, and it is a new one
-
-**Nine assertions across six slices — R6, R21, R23, R25, R30 and R61 — were asserting the right claim at the wrong address, and the entire suite stayed green.**
-
-They stayed green because they were, at the time, correct: there was only one record, so "on the item" and "where the estimate was made" were the same place. R33 separated those two things, and every one of those assertions silently followed the *record* rather than the *claim*.
-
-This is a new member of the D56/D60 family, and the distinction is worth stating precisely:
-
-| shape | what it looks like |
-|---|---|
-| D56 | a check that **stopped checking** — silently skipped, quarantined, unexecuted |
-| D60 Clause 1 | a check that **cannot fail** — asserts nothing that could be false |
-| D60 Clause 4 | a check whose **fixture** cannot reach the property |
-| D60 Clause 5 | a check that fails, but **not by name** |
-| **this** | a check that **runs, can fail, and is aimed at the wrong object** |
-
-**It is the hardest of the family to detect, because nothing about it is anomalous.** It executes, it asserts a real property, it fails when that property is broken, and its name is accurate. What has moved is the *referent* — and no amount of adversarial attention to the assertion finds that, because the assertion is not where the error is.
-
-**What does find it: a structural change that separates two things previously fused.** R33 split one record into two, and the nine assertions declared themselves within one run — not by failing for the right reason, but by failing at all. That is worth recording as the detection mechanism, because it is not a discipline anyone can practise on demand; it is a thing that *happens* to you, and the only available response is to read each failure as a question about **address** rather than about correctness.
-
-**The practical rule this yields:** when a slice separates one object into two, every assertion touching the original is suspect **even if it still passes** — because passing may mean the two halves have not yet diverged in that case. R33's re-addressing was driven by failures; a case that happened to be green for a fully-eaten plate (`grams == plate grams`) would have hidden the same error. **A green assertion across a structural split is not evidence that its address survived.**
-
-### What this does not claim
-
-That the nine assertions were badly written. They were correct when written, correct in their claims, and correct after re-addressing; only the world underneath them changed. **A log that recorded this as sloppiness would be recording the wrong lesson** — the lesson is that provenance has a home, that home is the act rather than the record, and that a suite cannot tell you when a record has stopped being that act.
-
-Related: **D57** (the correction loop these fields implement), **D60** (the gate-evidence family this extends), **D69** (the slice that surfaced it).
+**The test:** would this sentence tell a reader what to DO if they had never read another entry? If not, cut it, or move it to the end.
