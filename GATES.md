@@ -2674,4 +2674,58 @@ The matcher and its evaluation set are what D62 named as next, and nothing is up
 
 The matcher and its evaluation set (still D62's stated next, still unblocked). Manual and scan plates (Fork H's escalation). Whether counts arrive from the template or the user (Fork D, and its template-churn cost). The missing end of the anticipation argument.
 
-**Status: NOT BUILT. Awaiting rulings on Forks A–I.**
+**Status: BUILT — v0.29.0 (D69). Evidence below.** All nine forks ruled as recommended on 2026-09-11, Fork D taking the stated alternative.
+
+#### R33 — evidence (v0.29.0, D69)
+
+**All nine forks as ruled; Fork D took the stated alternative (user-declared counts now, template field named as the follow-up).**
+
+| case | verdict |
+|---|---|
+| R33-one-tap **GATE** ×2 | "Ate all of it" writes plate + one 100 % event in one gesture; "all" is recorded as a **statement**, not the absence of one |
+| R33-plate-not-counted **GATE** ×6 | a confirmed plate contributes nothing to `dayTotals`, `macroCoverage`, `microRollup`, `averageOver`, `fastEvents` or `renderHistory` — asserted **per consumer, by name** |
+| R33-partial **GATE** ×2 | half of a 790 g tray logs 395 g and 592.5 kcal — the day counts the half, not the tray |
+| R33-two-events **GATE** ×3 | the second sitting is **bounded by what is left**; two events sum to the whole tray, and only then; two fast-breaking moments from one plate |
+| R33-fast **GATE** | the plate breaks no fast at the time it was served; each consumption does, at its own time |
+| R33-remainder **GATE** ×2 | derived, not stored — deleting an event returns it |
+| R33-never-auto **GATE** | closing the day consumes nothing; the plate keeps its remainder |
+| R33-delete ×2 | deleting a plate with events is refused, and the plate survives |
+| R33-counts **GATE** ×4 | a declared count contributes **no ratio** to the shared scale; "6 of 10" logs 180 g of 300 g; the statement stays a count |
+| R33-ask **GATE** ×4 + CONTROL | 450 → 790 g fires the question; an uncorrected 450 g does not; a 900 g portion fires on size alone; every row preselected at "all" |
+| R33-badge **GATE** ×3 | an untouched plate asks; a finished one does not; the recall surface renders nothing when there is nothing left |
+| R33-export **GATE** ×4 | plate, `plateId`, `plateIdx` and the statement survive export → restore, and the remainder still derives on the far side |
+| R33-migrate / R33-guard **GATE** ×2 | v8 → v9 passthrough with `days` byte-identical; v10 refused |
+| R33-vocab + CONTROL | the consumption question asks how much was eaten and does not grade the answer |
+
+**Proven against the defect — thirteen planted, ten in the final set, all ten failing their own gate by name.**
+
+| planted defect | fails |
+|---|---|
+| the remainder ignores its events | R33-remainder ×2 |
+| the second sitting is unbounded | R33-two-events ×2 |
+| "ate all of it" silently logs half | R33-one-tap ×2 |
+| the plate reaches `dayTotals` | R33-plate-not-counted |
+| the `ate` statement is not recorded | R33-export ×2 |
+| `plateId` dropped from the allowlist | R33-export ×3 |
+| counts enter the shared scale | R33-counts |
+| the anticipation trigger never fires | R33-ask ×2 |
+| closing the day consumes the remainder | R33-never-auto |
+| deleting a plate cascades | R33-delete ×2 |
+
+**Three defects had to be withdrawn or re-aimed, and each taught something different.**
+
+**The write-site census fires before the gate.** The first plate-leak defect was planted in `photoSave`, and `check-writesites.sh` caught it — aborting the run before the harness started. Detected loudly by the **outer** defence, it never reached the gate it was meant to prove, which reads identically to a gate that cannot fail.
+
+**A property true by construction has no mutation.** *fast-detector-sees-the-plate* passed with the defect in: no change to `fastEvents` can make a plate break a fast, because a plate is not an item. That is Fork A's whole point and **D60 Clause 2** — withdrawn and paired with the defect that *can* break it, rather than recorded as a caveat.
+
+**A defect that breaks everything proves nothing about one gate.** Two defects — "write no event at all", "push every plate row into the day" — killed an earlier block, so the named gate never ran. Five early dereferences are now guarded, **and both defects were re-aimed surgically**: *"ate all of it" logs half*, and *the plate reaches `dayTotals` and nothing else*. Both then failed their own gate immediately. **A sharp defect and a named failure are the same requirement seen from two ends.**
+
+**The CDP gate caught two things the data layer could not.** `capture-outcome-gate.ps1` pinned `nActions -eq 2` and failed at all three widths: D51's footer now holds **three** outcome actions, which is a deliberate change — "Ate all of it" and "Ate some of it" are both outcome commitments, which is what that footer was ruled to hold. Re-pointed to three, claim unchanged and now asserted over all of them at 360 px, 390 px and 1200 px.
+
+It also caught **the common case paying for the rare one**: a *"pieces (optional)"* input on every draft row, doing nothing for most foods and pushing a two-item draft into scrolling on a 360 px phone. The count is now declared inside the consumption question, where it is the only thing that changes anything. Fork C's frequency rule, reappearing one level down and found by a pixel gate rather than by review.
+
+**Count delta: 1637 → 1679** (+42), re-pinned deliberately in the same commit. Twenty-seven version assertions moved v8 → v9; **nine were re-addressed from the item to the plate** when the correction loop moved (D69); the D29 write-site manifest gained `consumeFromPlate` and **lost `photoSave`**, which no longer writes items at all.
+
+**1679/1679 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
+
+**Status: BUILT — v0.29.0.**

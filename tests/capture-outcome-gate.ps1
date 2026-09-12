@@ -104,6 +104,7 @@ $install = @'
       slider: __g.rect('.pmlead input[type=range]'),
       primary:__g.rect('#outcomeFoot .btn:nth-of-type(1)'),
       second: __g.rect('#outcomeFoot .btn:nth-of-type(2)'),
+      third:  __g.rect('#outcomeFoot .btn:nth-of-type(3)'),
       nActions: document.querySelectorAll('#outcomeFoot .btn').length,
       spin:   __g.rect('#outcomeMsg .byokspin'),
       footInView: (function(){ var r = __g.rect('#outcomeFoot'); return r.inView; })(),
@@ -243,16 +244,24 @@ try {
     Go $w $h $mob
 
     # SUCCESS, short list -- the common case.
+    # R33: THREE outcome actions now, not two. D51 made this footer the outcome
+    # COMMITMENT surface, and "Ate all of it" / "Ate some of it" are both outcome
+    # commitments -- the second is not a draft edit that wandered in. The claim is
+    # unchanged and is asserted over all three: in view, at or above the touch
+    # floor, with the footer fixed while the body scrolls.
+    # Slot order: 1 = ate all (primary), 2 = ate some, 3 = discard.
     $S = Measure-Success 2
     $sOk = $S.state -eq 'success' -and $S.shown -and
            $S.lead.inView -and $S.slider.inView -and
            $S.primary.inView -and $S.second.inView -and
            $S.primary.h -ge $MIN_ACTION_H -and $S.second.h -ge $MIN_ACTION_H -and
            $S.footHTML -like '*photoSave()*' -and $S.footHTML -like '*photoDiscard()*' -and
-           $S.nActions -eq 2 -and
+           $S.footHTML -like '*photoAskConsumption(true)*' -and
+           $S.nActions -eq 3 -and
+           $S.third.inView -and $S.third.h -ge $MIN_ACTION_H -and
            $S.captureSurfaceClean -and (-not $S.pageOverflowX) -and $S.pageScrollY -eq 0
-    Write-Host ("  {0,-17} success : lead={1} slider={2} save={3}({4}px) discard={5} bodyScrolls={6} oneState={7} -> {8}" -f `
-      $name, $S.lead.inView, $S.slider.inView, $S.primary.inView, $S.primary.h, $S.second.inView, $S.bodyScrolls, $S.captureSurfaceClean, $sOk)
+    Write-Host ("  {0,-17} success : lead={1} slider={2} ateAll={3}({4}px) ateSome={5}({6}px) discard={7} bodyScrolls={8} oneState={9} -> {10}" -f `
+      $name, $S.lead.inView, $S.slider.inView, $S.primary.inView, $S.primary.h, $S.second.inView, $S.second.h, $S.third.inView, $S.bodyScrolls, $S.captureSurfaceClean, $sOk)
 
     # SUCCESS, LONG list -- the footer must not travel with the content.
     $L = Measure-Success 9
@@ -284,7 +293,7 @@ try {
     if (-not ($sOk -and $lOk -and $fOk -and $pOk)) { $allOk = $false }
   }
 
-  Write-Host ("  thresholds        : exactly one outcome state; lead, slider and BOTH actions fully inside the viewport with the page unscrolled; actions >={0}px tall; footer fixed while the body scrolls; capture surface carries no outcome" -f $MIN_ACTION_H)
+  Write-Host ("  thresholds        : exactly one outcome state; lead, slider and ALL THREE actions fully inside the viewport with the page unscrolled; actions >={0}px tall; footer fixed while the body scrolls; capture surface carries no outcome" -f $MIN_ACTION_H)
   Write-Host "-----------------------------------------"
   if ($allOk) {
     Write-Host "CAPTURE OUTCOME GATE: PASS (one explicit state per capture, in view without scrolling, at every width)"

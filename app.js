@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 8;
-const APP_VERSION      = '0.28.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 9;
+const APP_VERSION      = '0.29.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -92,7 +92,7 @@ function defaultSettings() {
   return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
-  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
 }
 
 // ---- storage adapter: localStorage -> memory ------------------------------
@@ -216,6 +216,155 @@ function normalizeIdentityPick(raw) {
   if (Number.isFinite(r) && r >= 0) out.rank = Math.floor(r);
   return out;
 }
+// ---- R33 / D69: PLATES ----------------------------------------------------
+// THE PLATE IS A FACT; THE CONSUMPTION IS AN EVENT. Conflating them is what made
+// partial meals impossible: the app asked what was on the plate and then went
+// quiet, so a takeout tray saved as if the tray had been eaten.
+//
+// Fork A ruled a SEPARATE TOP-LEVEL STORE rather than a flagged row in `day.items`,
+// and the argument is safety by construction over safety by enumeration. Twelve
+// analysis and display consumers read `day.items` -- dayTotals, averageOver,
+// macroCoverage, microRollup, macroSeries, fastEvents, renderDay, renderHistory,
+// timelineForDay, isEmptyDay, isFirstRun, the days-logged rollup -- and under a flag
+// every one of them needs a guard it could be missing. R31 is the evidence that
+// enumerating them is unreliable: its ruling named four surfaces and the build found
+// two more, one of which produced a WRONG answer rather than a short one.
+//
+// The signs are not symmetric. An absent macro that leaks reads as 0 and
+// UNDERSTATES; a plate row that leaks reads as a whole takeout tray and OVERSTATES.
+//
+// And `fastEvents` decides it alone: a plate confirmed at 19:00 and eaten at 20:00
+// and 23:00 would break the fast at the moment the food was SERVED. R31 widened that
+// selector to include unresolved items, so the guard would have to be remembered
+// there too. In a store of its own the question cannot arise.
+const PLATE_RECALL_DAYS = 2;        // how long a plate keeps OFFERING (F1); the object never expires
+
+// A plate item freezes the composition it was confirmed with, so a consumption
+// event computed later is computed from what the user actually confirmed (D62's
+// freeze principle). `count` is a DENOMINATOR, not a second unit system: when it is
+// present the user may state consumption as "6 of 10", and grams follow from the
+// ratio. Absent, the item is continuous and stated as a fraction.
+// THE CORRECTION LOOP LIVES HERE, not on the event, and the reason is the slice's
+// own distinction. `ai_grams` beside `grams` means ESTIMATED beside ACCEPTED (D57) --
+// a question about confirming the plate, asked once. On a consumption event `grams`
+// is what was EATEN, so an event carrying ai_grams 450 and grams 395 (half of a
+// corrected 790 g plate) would tell a calibration analysis the model over-estimated
+// by 12%, when the user had in fact corrected it UP by 75%.
+//
+// Carrying the fields on both would not fix that: it would produce the wrong answer
+// in the one analysis the fields exist for, and produce it N times per plate. So the
+// identification and the portion correction belong to the plate; the event carries
+// what it ate. This MOVED four slices' worth of assertions to a new address, with
+// their claims unchanged -- see D69.
+function normalizePlateItem(raw) {
+  const r = raw || {};
+  const nm = String(r.name == null ? '' : r.name);
+  const out = { name: nm, grams: clampNonNeg(r.grams) };
+  if (r.per100 && typeof r.per100 === 'object') {
+    out.per100 = {};
+    MACRO_KEYS.forEach((k) => { out.per100[k] = clampNonNeg(r.per100[k]); });
+  }
+  const c = Number(r.count);
+  if (Number.isFinite(c) && c > 0) out.count = Math.floor(c);
+  if (r.unresolved === true) out.unresolved = true;
+  if (r.added === true) out.added = true;
+  if (r.pinned === true) out.pinned = true;
+  if (r.scale_linked === false || r.scaleLinked === false) out.scale_linked = false;
+  if (r.ai_grams != null && String(r.ai_grams) !== '') out.ai_grams = clampNonNeg(r.ai_grams);
+  if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
+  const alts = normalizeAltList(r.ai_alts);
+  if (alts) out.ai_alts = alts;
+  const pick = normalizeIdentityPick(r.identity_pick);
+  if (pick) out.identity_pick = pick;
+  out.notes = String(r.notes == null ? '' : r.notes);
+  if (CONFIDENCES.includes(r.confidence)) out.confidence = r.confidence;
+  if (SOURCES.includes(r.source)) out.source = r.source;
+  return out;
+}
+function normalizePlate(raw) {
+  const r = raw || {};
+  const id = String(r.id == null ? '' : r.id);
+  if (!id) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date))) return null;   // day keys validated at every boundary
+  const items = Array.isArray(r.items) ? r.items.map(normalizePlateItem).filter((x) => x.name !== '') : [];
+  if (!items.length) return null;
+  const out = { id: id, date: String(r.date), items: items,
+                meal: MEALS.includes(r.meal) ? r.meal : 'snack',
+                time: String(r.time == null ? '' : r.time) };
+  if (r.mealId != null && String(r.mealId) !== '') out.mealId = String(r.mealId);
+  const tzo = normalizeTzo(r.tzo);
+  if (tzo !== undefined) out.tzo = tzo;
+  return out;
+}
+function normalizePlates(o) {
+  const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const out = {};
+  Object.keys(src).forEach((k) => {
+    const pl = normalizePlate(src[k]);
+    if (pl && pl.id === k) out[k] = pl;      // a row whose key disagrees with its id is dropped, not repaired
+  });
+  return out;
+}
+let PLATE_SEQ = 0;
+function newPlateId() { PLATE_SEQ++; return 'pl' + Date.now().toString(36) + '-' + PLATE_SEQ; }
+
+// ---- the remainder, DERIVED (Fork I) --------------------------------------
+// Plate total minus the sum of its events, computed on every read and stored
+// nowhere. Deleting an event returns the remainder for free; editing one re-derives
+// it; there is no second number that can drift from the first.
+//
+// This is D62 Fork 3's question with the OPPOSITE answer, and the reason is the
+// whole distinction: a composite's composition is an ANSWER, which must hold still
+// or the same gesture produces two different meals. A remainder is ARITHMETIC OVER
+// THE USER'S OWN EVENTS, and freezing it would be storing a stale subtraction.
+function plateEvents(plateId) {
+  const out = [];
+  const days = (APP_STATE && APP_STATE.days) || {};
+  Object.keys(days).forEach((d) => {
+    (days[d].items || []).forEach((it) => { if (it.plateId === plateId) out.push(it); });
+  });
+  return out;
+}
+function plateRemainder(plate) {
+  if (!plate) return null;
+  const evs = plateEvents(plate.id);
+  const per = plate.items.map((pi, idx) => {
+    const eaten = evs.filter((e) => num(e.plateIdx) === idx)
+                     .reduce((a, e) => a + num(e.grams), 0);
+    const left = Math.max(0, num(pi.grams) - eaten);
+    return { idx: idx, name: pi.name, grams: num(pi.grams), eaten: eaten, left: left,
+             count: pi.count, fraction: num(pi.grams) > 0 ? left / num(pi.grams) : 0 };
+  });
+  const totalG = per.reduce((a, x) => a + x.grams, 0);
+  const leftG = per.reduce((a, x) => a + x.left, 0);
+  // A gram of slack absorbs rounding: three "a third" events must not leave a
+  // remainder of 0.4 g and an open plate forever.
+  return { plateId: plate.id, items: per, totalGrams: totalG, leftGrams: leftG,
+           open: leftG > 1, events: evs.length };
+}
+function getPlate(id) { return ((APP_STATE && APP_STATE.plates) || {})[id] || null; }
+// Whole days between two YYYY-MM-DD keys, computed on UTC midnights so a DST
+// boundary inside the window cannot turn 2 days into 1.98 and round the wrong way.
+function dayGap(fromKey, toKey) {
+  const a = Date.parse(String(fromKey) + 'T00:00:00Z');
+  const b = Date.parse(String(toKey) + 'T00:00:00Z');
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return Infinity;
+  return Math.round((b - a) / 86400000);
+}
+// Plates still OFFERING, newest first. The object never expires (F1) -- what
+// expires is the prompting, so a plate eaten from across midnight still asks.
+function openPlates(today) {
+  const plates = (APP_STATE && APP_STATE.plates) || {};
+  const t = today || todayKey();
+  return Object.keys(plates).map((k) => plates[k])
+    .filter((pl) => {
+      const gap = dayGap(pl.date, t);
+      if (!(gap >= 0 && gap <= PLATE_RECALL_DAYS)) return false;
+      return plateRemainder(pl).open;
+    })
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
   it = it || {};
@@ -293,6 +442,16 @@ function normalizeItem(it, clampMacros) {
   if (alts) out.ai_alts = alts;
   const pick = normalizeIdentityPick(it.identity_pick);
   if (pick) out.identity_pick = pick;
+  // R33 / D69 -- the consumption event's link to the plate it came from, and the
+  // statement that produced it. NINTH occurrence of the allowlist trap, so it is
+  // round-tripped rather than reasoned about. Losing `plateId` would orphan the
+  // event and make the derived remainder read the plate as untouched -- the recall
+  // badge would then ask about food already eaten, which is the overstatement this
+  // slice exists to prevent, arriving through a dropped field.
+  if (it.plateId != null && String(it.plateId) !== '') out.plateId = String(it.plateId);
+  if (it.plateIdx != null && Number.isFinite(Number(it.plateIdx)) && Number(it.plateIdx) >= 0)
+    out.plateIdx = Math.floor(Number(it.plateIdx));
+  if (it.ate && typeof it.ate === 'object' && !Array.isArray(it.ate)) out.ate = normalizeAte(it.ate);
   if (it.mealId != null && String(it.mealId) !== '') out.mealId = String(it.mealId);
   // R22 / D55 edit provenance -- declared HERE TOO, in the same commit as the
   // signal normalizer. The item edit UI is a later slice, but a half-declared
@@ -600,6 +759,28 @@ function migrateV7toV8(v7, nowISO) {
   if (typeof v7.knownDropped === 'number') out.knownDropped = v7.knownDropped;
   return out;
 }
+// R33 -- v8 -> v9. Structural passthrough: `plates` starts empty, so no existing
+// day changes and `days` comes through byte-identical. The bump is for the same
+// reason as v6 -> v7: an older app strips the store, and a plate with remainder
+// would then be silently gone while its consumption events remained -- the
+// remainder is derived, so what survives is a set of events referencing a plate
+// that no longer exists. The forward guard is what protects that older app.
+function migrateV8toV9(v8, nowISO) {
+  const out = {
+    version: 9,
+    days: (v8.days && typeof v8.days === 'object') ? v8.days : {},
+    current: typeof v8.current === 'string' ? v8.current : '',
+    settings: (v8.settings && typeof v8.settings === 'object') ? v8.settings : defaultSettings(),
+    priceLog: (v8.priceLog && typeof v8.priceLog === 'object') ? v8.priceLog : {},
+    plates: (v8.plates && typeof v8.plates === 'object') ? v8.plates : {},
+    timeline: (v8.timeline && typeof v8.timeline === 'object') ? v8.timeline : {},
+    fastLog: (v8.fastLog && typeof v8.fastLog === 'object') ? v8.fastLog : {},
+    regimens: (v8.regimens && typeof v8.regimens === 'object') ? v8.regimens : { active: '', list: [], log: {} },
+    migratedAt: typeof v8.migratedAt === 'string' ? v8.migratedAt : nowISO,
+  };
+  if (typeof v8.knownDropped === 'number') out.knownDropped = v8.knownDropped;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -612,6 +793,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 5) < 6) out = migrateV5toV6(out, nowISO);
   if ((out.version || 6) < 7) out = migrateV6toV7(out, nowISO);
   if ((out.version || 7) < 8) out = migrateV7toV8(out, nowISO);
+  if ((out.version || 8) < 9) out = migrateV8toV9(out, nowISO);
   return out;
 }
 
@@ -624,6 +806,7 @@ function normalizeState(o) {
     current: typeof o.current === 'string' ? o.current : '',
     settings: normalizeSettings(o.settings),
     priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
+    plates: normalizePlates(o.plates),         // R33: the served-food store, separate from what was eaten
     timeline: normalizeTimeline(o.timeline),   // D20: source-agnostic signal store
     fastLog: normalizeFastLog(o.fastLog),      // D22: persisted fasting resolutions
     regimens: normalizeRegimens(o.regimens),   // D27: timeline templates + fulfillment log
@@ -764,6 +947,7 @@ function boot() {
   if (!state.settings || typeof state.settings !== 'object') { state.settings = defaultSettings(); dirty = true; }
   if (!state.priceLog || typeof state.priceLog !== 'object') { state.priceLog = {}; dirty = true; }
   if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
+  if (!state.plates || typeof state.plates !== 'object') { state.plates = {}; dirty = true; }         // R33
   if (!state.fastLog || typeof state.fastLog !== 'object') { state.fastLog = {}; dirty = true; }       // D22
   if (!state.regimens || typeof state.regimens !== 'object') { state.regimens = { active: '', list: [], log: {} }; dirty = true; }   // D27
   // R18: boot took a SAME-VERSION blob as-is and only patched settings with ad-hoc
@@ -789,8 +973,8 @@ function boot() {
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
 // Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
-// absent -> reject; 1 -> chained in-place migrate; 2..7 -> normalized up; 8 -> as-is;
-// > 8 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
+// absent -> reject; 1 -> chained in-place migrate; 2..8 -> normalized up; 9 -> as-is;
+// > 9 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -808,7 +992,7 @@ function parseImport(raw) {
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
     return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v8 upgrades, v8 as-is
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v9 upgrades, v9 as-is
 }
 
 function showPrerestore(json) {
@@ -1334,6 +1518,52 @@ function dayStatusBadge(dateKey, day) {
   if (dateKey >= todayKey()) return '';                        // today (or ahead): the now-hand says it
   return ' <span class="dstat">not closed · excluded from averages</span>';
 }
+// ---- R33 Fork F: the recall badge -----------------------------------------
+// A plate with remainder ASKS. The object itself never expires and is never
+// auto-consumed (ruled): what expires is the prompting, after PLATE_RECALL_DAYS, so
+// the half-now-half-tomorrow case still finds its plate the next morning while a
+// forgotten one stops nagging.
+function plateRecallHTML() {
+  const open = openPlates(APP_STATE.current);
+  if (!open.length) return '';
+  const rows = open.map((pl) => {
+    const rem = plateRemainder(pl);
+    const pct = rem.totalGrams > 0 ? Math.round(100 * rem.leftGrams / rem.totalGrams) : 0;
+    const names = pl.items.map((x) => x.name).join(', ');
+    return `<button type="button" class="plrow" onclick="openPlateConsume('${esc(pl.id)}')">
+      <span class="plname">${esc(names)}</span>
+      <span class="plleft">${esc(pct)}% left \u00b7 ${esc(fmtDateSmart(pl.date, true))}</span>
+    </button>`;
+  }).join('');
+  return `<div class="plrecall"><div class="plhead">Food left from earlier \u2014 tap to log what you ate</div>${rows}</div>`;
+}
+// Re-open a PLATE (not a draft) to record another consumption event against it.
+// The remaining fraction is what is offered, so "the rest" is the default reading.
+function openPlateConsume(plateId) {
+  const pl = getPlate(plateId);
+  if (!pl) return { ok: false, error: 'No such plate.' };
+  const rem = plateRemainder(pl);
+  PHOTO_DRAFT = {
+    mealId: newMealId(), meal: pl.meal, plateId: pl.id, fromPlate: true,
+    single: pl.items.length === 1, consumeOpen: true, consumeAsked: true,
+    items: pl.items.map((pi, i) => ({
+      name: pi.name, notes: '', aiGrams: num(pi.ai_grams) || num(pi.grams),
+      grams: num(pi.grams), aiIdentity: pi.ai_identity || pi.name,
+      per100: pi.per100 || null, unres: pi.unresolved === true,
+      count: pi.count, scaleLinked: true, dominance: i + 1, pinned: true,
+      idDone: true, alts: [], altsMismatch: false,
+    })),
+    ate: pl.items.map((pi, i) => {
+      const left = rem.items[i] ? rem.items[i].fraction : 1;
+      return pi.count ? normalizeAte({ kind: 'count', count: Math.round(pi.count * left), of: pi.count })
+                      : normalizeAte({ kind: 'fraction', fraction: left });
+    }),
+  };
+  renderPhotoDraft();
+  try { renderCaptureOutcome(); } catch (e) {}
+  return { ok: true, plateId: pl.id };
+}
+
 function renderDay() {
   const host = document.getElementById('dayView');
   if (!host || !APP_STATE) return;
@@ -1351,6 +1581,7 @@ function renderDay() {
       <button class="navbtn" onclick="stepDay(1)" ${di < 0 || di >= dates.length - 1 ? 'disabled' : ''}>›</button>
     </div>`;
 
+  html += plateRecallHTML();
   html += renderGoalsHTML(t, day);
 
   const groups = {};
@@ -4476,7 +4707,15 @@ function renderPhotoDraftInner() {
   // scrolling -- and adding an item is draft EDITING, like every slider and identity
   // picker above it, all of which are inline. In the footer it would compete for the
   // thumb with Save, which is the one control D51 protected.
-  el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}${photoAddFormHTML()}
+  // R33: the anticipation trigger OPENS the question rather than waiting to be
+  // found. Non-blocking by construction -- it is a section of the draft, not a
+  // modal, and "all" is preselected on every row, so the one-tap path survives it.
+  if (!d.consumeOpen && !d.consumeAsked && plateLooksShared(d).ask) {
+    d.consumeAsked = true; d.consumeOpen = true;
+    d.ate = d.items.map(() => ({ kind: 'all', fraction: 1 }));
+  }
+  const consumeHTML = d.consumeOpen ? consumeQuestionHTML(d) : '';
+  el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}${photoAddFormHTML()}${consumeHTML}
     <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
     </div>`;
 }
@@ -4588,9 +4827,20 @@ function renderCaptureOutcome() {
     // preserved by construction -- the surface moved, the draft did not.
     title.textContent = 'Meal captured — confirm and save';
     msg.innerHTML = traceHTML;
-    foot.innerHTML =
-      `<button class="btn primary" onclick="photoSave()">Save meal</button>` +
-      `<button class="btn" onclick="photoDiscard()">Discard</button>`;
+    // R33 Fork C: THE BUTTON CHANGES ITS WORDS, NOT ITS PRICE. "Ate all of it" is
+    // one tap and writes the plate plus a single 100% consumption event, so an
+    // ordinary meal costs exactly what it cost in v0.28.0. Only "Ate some of it"
+    // opens the second question, and the anticipation trigger opens it for you when
+    // the plate looks like more than one serving.
+    const d33 = PHOTO_DRAFT;
+    const open33 = !!(d33 && d33.consumeOpen);
+    foot.innerHTML = open33
+      ? `<button class="btn primary" onclick="photoSaveSome()">Log what I ate</button>` +
+        `<button class="btn" onclick="photoAskConsumption(false)">Back</button>` +
+        `<button class="btn" onclick="photoDiscard()">Discard</button>`
+      : `<button class="btn primary" onclick="photoSave()">Ate all of it</button>` +
+        `<button class="btn" onclick="photoAskConsumption(true)">Ate some of it</button>` +
+        `<button class="btn" onclick="photoDiscard()">Discard</button>`;
   } else if (st === 'pending') {
     title.textContent = 'Reading your photo';
     msg.innerHTML = `<div class="opend"><span class="byokspin"></span>${esc(busyMsg)}</div>` +
@@ -5131,6 +5381,7 @@ const VERSION_LOG = [
   { v: '0.26.2', d: '2026-09-08', note: 'Capture should be markedly faster. A timing breakdown from a real capture showed all 41 seconds went on the model deliberating before it wrote a single character — the reply itself arrived instantly once it started. The app now asks for the quickest setting for this kind of request, which is reading a photo and returning a short list. If a provider will not accept that setting the request is made without it rather than failing. Nothing else changed, so the breakdown from your next capture is directly comparable with the last one.' },
   { v: '0.27.0', d: '2026-09-09', note: 'Groundwork, and one fix. A day can now hold food whose portion is known but whose composition is not, without quietly under-reporting what you ate: any total built partly from such items says so — "from 3 of 4 items" — on the day total, on each meal, on the history row and above the ring, in the same words the micronutrient rows have always used. Averages and the energy trend leave those days out rather than folding in a number that is too low, and say how many days they used. Nothing you can log today produces such an item yet — that arrives with the next release — so no day of yours changes: same totals, same averages, same trend line. The fix: a meal like that now correctly counts as having eaten, so it breaks a fast instead of being read as zero calories.' },
   { v: '0.28.0', d: '2026-09-11', note: 'Photos of a single item now ask WHAT it is before asking how much. A glass of wine read as apple juice, and the old question went straight to the portion — so you corrected the volume of a drink you were not having. The assistant is now asked for three possible identifications per item, and you pick: the best guess is offered for a one-tap yes, the alternatives are one tap away, and "None of these" logs the portion without inventing a composition for it. When the assistant is not confident, nothing is filled in at all — an answer on screen pulls you towards it even when it is labelled uncertain. Plates of several items are unchanged: the biggest item still anchors the rest, and now carries the same alternatives beside it. Which options you were shown and which you took are saved with the meal, so the confidence cut-off can eventually be tuned from your own picks rather than guessed.' },
+  { v: '0.29.0', d: '2026-09-11', note: 'Partial meals. What is on the plate and what you ate are now two different things, so a takeout tray no longer logs as though you ate the tray. Confirm what was served, then say how much of it you had — a half, a third, or "6 of 10" where you have told the app the plate holds 10 pieces. You can come back to the same plate later and log the rest as its own meal, at its own time. Eating the whole thing is still one tap: the Save button now says "Ate all of it". When a plate looks like more than one serving — usually because you corrected the estimate sharply upwards — the app asks how much you ate instead of assuming all of it. Food with some left over shows at the top of the day until you log it or it ages out; nothing is ever counted as eaten on your behalf.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6951,7 +7202,216 @@ function photoSetIdentity(idx, presetId) {
 // Save. Records are written ONLY here. Each item is an ordinary ai-paste item --
 // source and confidence unchanged from D8, because anchoring improves an estimate
 // and does not make it weighed -- plus the four additive correction-loop fields.
-function photoSave() {
+// ---- R33 Fork E: ask, rather than wait ------------------------------------
+// The finding that prompted the slice is that the second question is not obvious.
+// So the app asks -- and it keys on facts the USER supplied, not on a judgement
+// about a photograph.
+//
+// The load-bearing signal is the user's own upward correction of the plate. In the
+// motivating case the model estimated 450 g and the user said 790 g: a 1.75x
+// correction to a large absolute weight is the user stating, in the app's own
+// units, that this is bigger than one serving. It needs no new field, it is
+// language-independent, and it fires at the exact moment the misunderstanding
+// happens. Name keywords (tray, platter, sharing) were rejected -- brittle,
+// language-dependent, and a model's job rather than a regular expression's.
+//
+// Absolute size is the floor, for the case where the estimate was right first time.
+// It is not sufficient alone: a 600 g steak is one person's dinner.
+const ANTICIPATE_RATIO = 1.5;      // accepted / estimated, upward
+const ANTICIPATE_GRAMS = 700;      // accepted grams on one item
+function plateLooksShared(draft) {
+  const items = photoKeptItems(draft || {});
+  let corrected = false, large = false;
+  items.forEach((it) => {
+    const acc = photoGrams(draft, it), est = num(it.aiGrams);
+    if (est > 0 && acc / est >= ANTICIPATE_RATIO) corrected = true;
+    if (acc >= ANTICIPATE_GRAMS) large = true;
+  });
+  return { ask: corrected || large, corrected: corrected, large: large };
+}
+// Fork D, as ruled: the user declares countability HERE, at the plate step. The
+// template field is the named follow-up -- two bumps in consecutive slices would
+// churn the one artefact the no-key path depends on, and D63 is the reminder of
+// what happens when that path breaks.
+function photoSetCount(idx, n) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const c = Math.floor(num(n));
+  if (c > 0) PHOTO_DRAFT.items[idx].count = c; else delete PHOTO_DRAFT.items[idx].count;
+  renderPhotoDraft();
+  return { ok: true, count: PHOTO_DRAFT.items[idx].count };
+}
+// The consumption question's state lives on the draft, so a re-render cannot lose a
+// half-answered statement.
+function photoAskConsumption(on) {
+  if (!PHOTO_DRAFT) return { ok: false };
+  PHOTO_DRAFT.consumeOpen = (on !== false);
+  if (PHOTO_DRAFT.consumeOpen && !PHOTO_DRAFT.ate) {
+    PHOTO_DRAFT.ate = PHOTO_DRAFT.items.map(() => ({ kind: 'all', fraction: 1 }));
+  }
+  renderPhotoDraft();
+  return { ok: true, open: PHOTO_DRAFT.consumeOpen };
+}
+function photoSetAte(idx, kind, a, b) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  PHOTO_DRAFT.ate = PHOTO_DRAFT.ate || PHOTO_DRAFT.items.map(() => ({ kind: 'all', fraction: 1 }));
+  if (kind === 'count') PHOTO_DRAFT.ate[idx] = normalizeAte({ kind: 'count', count: a, of: b });
+  else if (kind === 'all') PHOTO_DRAFT.ate[idx] = normalizeAte({ kind: 'all' });
+  else PHOTO_DRAFT.ate[idx] = normalizeAte({ kind: 'fraction', fraction: a });
+  renderPhotoDraft();
+  return { ok: true, ate: PHOTO_DRAFT.ate[idx] };
+}
+// "Ate some of it" -> save with the stated fractions. "Ate all of it" -> save with
+// none, which photoSave reads as `all`. Both are one call; only the second is one tap.
+function photoSaveSome() { return photoSave((PHOTO_DRAFT && PHOTO_DRAFT.ate) || null); }
+
+// The consumption question. Fractions for continuous items, counts where the user
+// declared one -- asked in the unit they actually know.
+const ATE_FRACTIONS = [['all', 1], ['\u00be', 0.75], ['\u00bd', 0.5], ['\u2153', 1 / 3], ['\u00bc', 0.25]];
+function consumeQuestionHTML(draft) {
+  const items = photoKeptItems(draft);
+  const ate = draft.ate || items.map(() => ({ kind: 'all', fraction: 1 }));
+  const rows = items.map((it, i) => {
+    const a = ate[i] || { kind: 'all', fraction: 1 };
+    const cnt = num(it.count);
+    let ctl;
+    if (cnt > 0) {
+      const eaten = a.kind === 'count' ? a.count : Math.round(cnt * num(a.fraction));
+      ctl = `<div class="pmctl"><input type="number" inputmode="numeric" class="pmg" min="0" max="${esc(cnt)}"
+               value="${esc(eaten)}" onchange="photoSetAte(${i}, 'count', this.value, ${esc(cnt)})"
+               aria-label="${esc(it.name)} eaten"> <span class="pmunit">of ${esc(cnt)}</span></div>`;
+    } else {
+      ctl = `<div class="pmfracs">` + ATE_FRACTIONS.map(([lab, f]) => {
+        const on = Math.abs(num(a.fraction) - f) < 0.005;
+        return `<button type="button" class="pmfrac${on ? ' pmfracon' : ''}"
+          onclick="photoSetAte(${i}, ${f === 1 ? `'all'` : `'fraction'`}, ${f})">${esc(lab)}</button>`;
+      }).join('') + `</div>`
+      + `<div class="pmcount"><label for="pmcnt${i}">or count pieces</label>
+           <input id="pmcnt${i}" type="number" inputmode="numeric" min="0" class="pmcnt" value=""
+                  onchange="photoSetCount(${i}, this.value)" aria-label="${esc(it.name)} piece count"></div>`;
+    }
+    return `<div class="pmate"><div class="pmatehead">${esc(it.name)}</div>${ctl}</div>`;
+  }).join('');
+  return `<div class="pmconsume"><div class="pmq">How much of this did you eat?</div>${rows}</div>`;
+}
+
+// ---- R33: the plate is written FIRST, and it contributes nothing -----------
+// Every meal creates a plate, including one eaten whole (Fork C's accepted
+// consequence): one code path rather than two, and it is what makes "actually, I
+// had more later" possible without re-photographing. The recall badge keys on
+// REMAINDER, not on existence, so a finished plate never asks.
+function plateFromDraft(draft, dateKey) {
+  const kept = photoKeptItems(draft);
+  return {
+    id: newPlateId(), date: dateKey, meal: draft.meal, time: nowTime(), tzo: nowTZO(),
+    mealId: draft.mealId,
+    items: kept.map((it) => {
+      const pi = { name: it.name, grams: photoGrams(draft, it), notes: it.notes || '' };
+      if (!photoItemUnresolved(it) && it.per100) {
+        pi.per100 = {};
+        MACRO_KEYS.forEach((k) => { pi.per100[k] = num(it.per100[k]); });
+      } else { pi.unresolved = true; }
+      if (num(it.count) > 0) pi.count = Math.floor(num(it.count));
+      // The correction loop, and the identity calibration with it (R30 H1).
+      if (num(it.aiGrams) > 0) pi.ai_grams = num(it.aiGrams);
+      if (it.aiIdentity) pi.ai_identity = String(it.aiIdentity);
+      if (it.alts && it.alts.length) pi.ai_alts = it.alts;
+      if (it.idPick) pi.identity_pick = it.idPick;
+      if (it.added === true) pi.added = true;
+      if (it.pinned === true) pi.pinned = true;
+      if (it.scaleLinked === false) pi.scale_linked = false;
+      pi.confidence = it.added ? (it.confidence || 'eyeballed') : 'eyeballed';
+      pi.source = it.added ? (it.source || 'manual') : 'ai-paste';
+      return pi;
+    }),
+  };
+}
+// One consumption statement per plate item. `all` is the common case and is written
+// as an explicit statement rather than as the absence of one -- "I ate all of it" is
+// a thing the user said, and a record that could not tell it from an unanswered
+// question would lose the distinction the whole slice exists to draw.
+function normalizeAte(raw) {
+  const r = raw || {};
+  if (r.kind === 'all') return { kind: 'all', fraction: 1 };
+  if (r.kind === 'count') {
+    const e = Math.max(0, Math.floor(num(r.count))), of = Math.max(1, Math.floor(num(r.of)));
+    return { kind: 'count', count: Math.min(e, of), of: of, fraction: Math.min(e, of) / of };
+  }
+  const f = Math.max(0, Math.min(1, num(r.fraction)));
+  return { kind: 'fraction', fraction: f };
+}
+// THE EVENT. An ordinary item (Fork B) -- which is what makes this slice additive
+// rather than a re-derivation of twelve consumers -- carrying the plate it came
+// from, which item of it, and the statement that produced it. Macros are FROZEN at
+// write time, absolute, exactly as every other item stores them.
+function consumeFromPlate(plateId, statements, opts) {
+  const plate = getPlate(plateId);
+  if (!plate) return { ok: false, error: 'No such plate.' };
+  const o = opts || {};
+  const dk = o.date || APP_STATE.current;
+  const day = APP_STATE.days[dk];
+  if (!day) return { ok: false, error: 'No such day.' };
+  const rem = plateRemainder(plate);
+  const mealId = o.mealId || newMealId();
+  // R33: the undo snapshot may be supplied by the caller. `photoSave` removes the
+  // meal it is revising BEFORE getting here, so a snapshot taken now would be taken
+  // after the deletion and undo would restore a state the replaced items were
+  // already gone from -- a revision that could not be undone, which is what
+  // R6-revise caught.
+  const priorCopy = Array.isArray(o.priorCopy) ? o.priorCopy : JSON.parse(JSON.stringify(day.items));
+  const written = [];
+  plate.items.forEach((pi, idx) => {
+    const ate = normalizeAte((statements && statements[idx]) || (o.all ? { kind: 'all' } : null));
+    if (!(ate.fraction > 0)) return;
+    // Never more than is left. The remainder is derived, so this bound is read from
+    // the events themselves rather than from a stored number that could disagree.
+    const avail = rem.items[idx] ? rem.items[idx].left : num(pi.grams);
+    const g = Math.min(num(pi.grams) * ate.fraction, avail);
+    if (!(g > 0)) return;
+    // NO ai_grams / ai_identity / ai_alts / identity_pick / pinned here: those are
+    // properties of confirming the plate and live on it. What the event carries is
+    // what was eaten, plus the link and the statement that produced it.
+    const rec = { name: pi.name, meal: plate.meal, time: nowTime(), tzo: nowTZO(),
+                  confidence: pi.confidence || 'eyeballed',
+                  source: pi.source || 'ai-paste', notes: pi.notes || '',
+                  grams: g, mealId: mealId, plateId: plate.id, plateIdx: idx, ate: ate };
+    if (pi.unresolved === true || !pi.per100) { rec.unresolved = true; }
+    else {
+      const sc = g / 100;
+      MACRO_KEYS.forEach((k) => { rec[k] = num(pi.per100[k]) * sc; });
+    }
+    written.push(normalizeItem(rec, true));
+  });
+  if (!written.length) return { ok: false, error: 'Nothing was recorded as eaten.' };
+  if (day.status === 'complete') day.status = 'in_progress';
+  written.forEach((x) => day.items.push(x));
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Logged ' + written.length + ' item' + (written.length === 1 ? '' : 's'), function () {
+    APP_STATE.days[dk].items = priorCopy;
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, mealId: mealId, items: written, plateId: plate.id,
+           remainder: plateRemainder(getPlate(plate.id)) };
+}
+// Fork I: refused, never cascaded. Deleting a plate that has events would be a
+// multi-item delete behind a single tap, and the events would be left referencing
+// nothing -- the remainder is derived from them, so the arithmetic would simply
+// stop existing rather than come out wrong, which is harder to notice.
+function deletePlate(plateId) {
+  const plate = getPlate(plateId);
+  if (!plate) return { ok: false, error: 'No such plate.' };
+  const evs = plateEvents(plateId);
+  if (evs.length) return { ok: false, refused: true,
+    error: 'This plate has ' + evs.length + ' logged item' + (evs.length === 1 ? '' : 's') + '. Delete those first.' };
+  delete APP_STATE.plates[plateId];
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+
+// R33: `photoSave(statements)` -- no argument, or `{all:true}`, is "I ate all of
+// it", which is Fork C's one tap. A statements array is the partial path. The plate
+// is confirmed either way, and NOTHING here writes to totals except through
+// consumeFromPlate.
+function photoSave(statements) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items.length) return { ok: false, error: 'Nothing to save.' };
   const day = curDay(); if (!day) return { ok: false };
   const mealId = PHOTO_DRAFT.mealId || newMealId();
@@ -7001,20 +7461,88 @@ function photoSave() {
     }
     return normalizeItem(rec, true);
   });
-  written.forEach((x) => day.items.push(x));
-  Store.saveState(APP_STATE); refresh();
+  // R33: `written` above is no longer what reaches the day. The plate is confirmed
+  // as a fact, and the consumption events are derived from the statement -- so the
+  // path that used to write straight to totals now cannot, which is the structural
+  // half of "totals come from consumption events, never from the plate".
   const dk = APP_STATE.current;
-  offerUndo((prior.length ? 'Revised ' : 'Logged ') + written.length + ' item' + (written.length === 1 ? '' : 's'), function () {
-    APP_STATE.days[dk].items = priorCopy;
-    Store.saveState(APP_STATE); refresh();
-  });
+  // R33: a draft opened FROM a plate records another event against it -- it must
+  // not mint a second plate, which would double the served food and make every
+  // remainder wrong in the generous direction.
+  if (PHOTO_DRAFT.fromPlate && PHOTO_DRAFT.plateId) {
+    const rr = consumeFromPlate(PHOTO_DRAFT.plateId, statements || PHOTO_DRAFT.ate || null,
+                                { date: dk, mealId: mealId, priorCopy: priorCopy,
+                                  all: !(statements || PHOTO_DRAFT.ate) });
+    PHOTO_DRAFT = null; renderPhotoDraft();
+    return rr.ok ? { ok: true, plateId: rr.plateId, mealId: rr.mealId, items: rr.items, remainder: rr.remainder }
+                 : rr;
+  }
+  const plate = plateFromDraft(PHOTO_DRAFT, dk);
+  APP_STATE.plates = APP_STATE.plates || {};
+  APP_STATE.plates[plate.id] = normalizePlate(plate);
+  Store.saveState(APP_STATE);
+  const st = Array.isArray(statements) ? statements : null;
+  const r = consumeFromPlate(plate.id, st, { date: dk, mealId: mealId, priorCopy: priorCopy, all: !st });
+  if (!r.ok) {
+    // The plate stands even when nothing was eaten from it yet -- that is the
+    // whole point of it being a separate fact, and the recall badge will ask.
+    PHOTO_DRAFT = null; renderPhotoDraft();
+    return { ok: true, plateId: plate.id, items: [], mealId: mealId,
+             remainder: plateRemainder(getPlate(plate.id)), nothingEaten: true };
+  }
   PHOTO_DRAFT = null;
   renderPhotoDraft();
-  return { ok: true, mealId: mealId, items: written, anchored: photoShared({ items: PHOTO_DRAFT ? PHOTO_DRAFT.items : [] }).anchored };
+  return { ok: true, plateId: plate.id, mealId: mealId, items: r.items,
+           remainder: r.remainder, priorReplaced: prior.length };
 }
 
 // Reopen a saved photo-meal for revision -- the same widget, restored by mealId.
+// R33: plates are found by the meal they were confirmed for, so a revision reaches
+// the FACT rather than re-deriving it from the events.
+function plateByMealId(mealId) {
+  const plates = (APP_STATE && APP_STATE.plates) || {};
+  const k = Object.keys(plates).filter((id) => plates[id].mealId === mealId)[0];
+  return k ? plates[k] : null;
+}
+// R33: reopening a photo meal now reopens its PLATE. Rebuilding the draft from the
+// day's items cannot work any more and must not be made to: an event carries what
+// was eaten, so a half-eaten plate would reopen as a plate half its real size, and
+// every subsequent correction would compound from the wrong base. The plate is the
+// record of what was served and is what a revision is about.
 function photoReopen(mealId) {
+  const pl = plateByMealId(mealId);
+  if (pl) {
+    const rem = plateRemainder(pl);
+    PHOTO_DRAFT = {
+      mealId: mealId, meal: pl.meal, plateId: pl.id, fromPlate: true, revise: true,
+      single: pl.items.length === 1,
+      items: pl.items.map((pi, i) => ({
+        name: pi.name, notes: pi.notes || '',
+        aiGrams: (pi.ai_grams != null ? num(pi.ai_grams) : undefined),
+        grams: num(pi.grams), aiIdentity: pi.ai_identity || pi.name,
+        per100: pi.per100 || null, unres: pi.unresolved === true,
+        count: pi.count, added: pi.added === true, pinned: pi.pinned === true,
+        scaleLinked: pi.scale_linked !== false,
+        alts: pi.ai_alts || [], altsMismatch: false,
+        idPick: pi.identity_pick, idDone: true,
+        confidence: pi.confidence, source: pi.source,
+        dominance: i + 1,
+      })),
+      ate: pl.items.map((pi, i) => {
+        const left = rem.items[i] ? rem.items[i].fraction : 1;
+        return pi.count ? normalizeAte({ kind: 'count', count: Math.round(pi.count * left), of: pi.count })
+                        : normalizeAte({ kind: 'fraction', fraction: left });
+      }),
+    };
+    renderPhotoDraft();
+    return { ok: true, items: PHOTO_DRAFT.items.length, plateId: pl.id };
+  }
+  return photoReopenLegacy(mealId);
+}
+// Pre-v9 meals have no plate -- they were written before plates existed. They
+// reopen the old way, from their items, which is exactly as good as the app was
+// before and is not a fix for them (D57's phrasing for the same situation).
+function photoReopenLegacy(mealId) {
   const day = curDay(); if (!day) return { ok: false };
   const rows = day.items.filter((x) => x.mealId === mealId);
   if (!rows.length) return { ok: false, error: 'That meal is not on this day.' };
@@ -7643,6 +8171,12 @@ window.HT = {
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
   averageOver, avgBlockHTML, completeDaysInWindow, clearDay,
+  // R33 plates (D69)
+  normalizePlate, normalizePlates, normalizePlateItem, normalizeAte, plateFromDraft,
+  consumeFromPlate, plateRemainder, plateEvents, getPlate, openPlates, deletePlate,
+  plateLooksShared, photoSetCount, photoAskConsumption, photoSetAte, photoSaveSome,
+  openPlateConsume, plateRecallHTML, migrateV8toV9, dayGap, plateByMealId, photoReopenLegacy,
+  ANTICIPATE_RATIO, ANTICIPATE_GRAMS, PLATE_RECALL_DAYS,
   // R30 identity-first (D68)
   parseAltList, identityState, identityOptionsHTML, photoIdentityOpen, photoItemUnresolved,
   photoConfirmIdentity, photoPickCandidate, photoPickNone,

@@ -2592,6 +2592,10 @@ The full suite failed once during this slice with **three** gates down — `bm-s
 
 **Not a reason to re-run until green.** Individual passes are not the evidence; the runner's header says why. The verdict this slice rests on is a clean full-suite run.
 
+**Second occurrence, R33 (2026-09-11), which turns it from an anecdote into a pattern.** A full-suite run was again killed by the OS for low memory, at **85% of 15.7 GB with 2.34 GB free** and the user's own Chrome holding **6.4 GB across 51 processes**. No orphaned CDP instances were left by the killed runs — checked, zero — so the pressure is the working environment rather than anything the suite leaks.
+
+**What this means practically:** a killed run is not a failed run and must not be recorded as one, and a run that dies this way tells you nothing about the code. Re-running is legitimate here in a way that re-running a FAILED suite is not, and the distinction is worth keeping sharp: a kill is the absence of a verdict, a failure is a verdict. D56's runner refuses to let silence count as a pass; this note refuses to let a kill count as a fail.
+
 ### Flagged, not touched
 
 R30 is now unblocked. Its off-ramp has somewhere honest to land, and the identity-first question can be built against a totals layer that no longer has to pretend an unresolved item ate nothing.
@@ -2651,3 +2655,79 @@ The other ten behaved: resolving below the floor fails `R30-below-none`; renderi
 ### Not built, and deliberately
 
 The third depth of the off-ramp — search over a corpus — stays deferred (I1). Naming an unidentified item later is not built either: `photoPickNone` records the model's guesses as provenance and leaves the food called *"Unidentified item"*, because a name the user explicitly rejected must not be what the log calls it. **The matcher and its evaluation set are what D62 named as next, and nothing is upstream of them now.**
+
+## D69 — The plate is a fact, the consumption is an event (R33, 2026-09-11)
+
+`APP_VERSION → 0.29.0`; **schema v8 → v9**; new top-level store `plates`. All nine forks ruled as recommended, Fork D taking the stated alternative.
+
+**Motivation, twice in real use:** a sushi bowl eaten half at one sitting and half later; and a takeout tray the model estimated at ~450 g, corrected to ~790 g for the **plate**, with no way to say roughly half of it was eaten. The app asked what was on the plate and then went quiet, so a takeout container saved as if the container had been eaten — an overstatement, or else a fabricated number for what was actually consumed.
+
+### Fork A — safety by construction, not by enumeration
+
+A plate could have been a flagged row in `day.items`. It is a separate store because **twelve analysis and display consumers read `day.items`** — `dayTotals`, `averageOver`, `macroCoverage`, `microRollup`, `macroSeries`, `fastEvents`, `renderDay`, `renderHistory`, `timelineForDay`, `isEmptyDay`, `isFirstRun`, the days-logged rollup — and under a flag every one needs a guard it could be missing.
+
+**R31 is the evidence that enumerating them is unreliable:** its ruling named four surfaces and the build found two more, one of which produced a *wrong* answer rather than a short one. And the signs are not symmetric — **an absent macro that leaks reads as 0 and understates; a plate row that leaks reads as a whole takeout tray and overstates.**
+
+`fastEvents` decides it alone: a plate confirmed at 19:00 and eaten at 20:00 and 23:00 would break the fast at the moment the food was **served**. R31 had just widened that selector to include unresolved items. In a store of its own the question cannot arise, which the defect pass then demonstrated in an unexpected way (below).
+
+### Fork B — the finding that made the slice additive
+
+**A consumption event is already exactly what an item IS.** Every field it needs, a saved item has. So an event is an ordinary item carrying `plateId`, `plateIdx` and the statement that produced it — and `dayTotals`, `averageOver`, `macroCoverage`, `microRollup`, `macroSeries`, `fastEvents`, `renderHistory`, the undo grammar and R23's editor all keep working untouched.
+
+### What the pre-registration got wrong, and it is worth stating plainly
+
+The survey concluded the slice was **additive**. It is additive for the twelve *consumers* — and it was not additive at all for four slices' worth of **correction-loop provenance**, which had to move.
+
+`ai_grams` beside `grams` means **estimated beside accepted** (D57). On a consumption event `grams` is what was **eaten**, so an event carrying `ai_grams: 450` and `grams: 395` — half of a plate corrected to 790 g — would tell a calibration analysis the model **over-estimated by 12%**, when the user had in fact corrected it **up by 75%**. Carrying the fields on both the plate and the event would not have fixed that; it would have produced the wrong answer N times per plate instead of once.
+
+**So the correction loop and the identity calibration moved to the plate**, where the identification and the portion correction actually happened: `ai_grams`, `ai_identity`, `ai_alts`, `identity_pick`, `pinned`, `added`. The event carries what it ate. **Nine assertions across R6, R21, R23, R25, R30 and R61 were re-addressed**, each with its claim intact and each saying so in its own text. R30's calibration record moved one day after shipping, for the reason that the address was wrong rather than the ruling.
+
+`photoReopen` moved with them: reopening a photo meal now reopens its **plate**, because rebuilding a draft from the day's items would reconstruct a half-eaten plate as a plate half its real size, and every later correction would compound from the wrong base. Pre-v9 meals have no plate and fall back to the old reconstruction — not a fix for them, and exactly as good as the app was before.
+
+### Fork C — the common case does not pay
+
+The draft's primary action is **"Ate all of it"**: one tap, writing the plate *and* a single 100 % consumption event. **The button changed its words, not its price.** "Ate some of it" is the secondary control, and the anticipation trigger opens the question for you.
+
+A plate is created for **every** meal, including one eaten whole. One code path rather than two, and it is what makes *"actually, I had more later"* possible without re-photographing. The recall badge keys on **remainder**, so a finished plate never asks.
+
+### Fork D — counts, taking the alternative
+
+**The user declares countability at the plate step; no template change.** The ruling took the stated cost seriously: `AI_TEMPLATE_VERSION` went 3 → 4 one release ago, and a second bump in consecutive slices churns the one artefact the no-key path depends on — with D63 as the reminder of what happens when that path breaks. **The template field is the named follow-up.**
+
+`count` is a **denominator**, not a second unit system: with it present, consumption may be stated as *"6 of 10"* and grams follow from the ratio. Counts contribute **no ratio** to the shared scale correction, as ruled — that mechanism is a geometry hypothesis over mass.
+
+### Fork E — the trigger keys on a fact the user supplied
+
+Not on a judgement about a photograph. **The user's own upward correction of the plate**: 450 g → 790 g is a 1.75× statement, in the app's own units, that this is bigger than one serving. No new field, language-independent, and it fires at the exact moment the misunderstanding happens. Absolute size is the floor for the case where the estimate was right first time; name keywords were rejected as brittle and a model's job rather than a regular expression's.
+
+The ask is **non-blocking**: a section of the draft with every row preselected at "all", so the one-tap path survives the question being open.
+
+### Fork I — the remainder is derived
+
+Plate total minus the sum of its events, computed on every read and stored nowhere. Deleting an event returns the remainder for free; editing one re-derives it. **D62 Fork 3's question with the opposite answer**, and the reason is the distinction the slice is built on: a composite's composition is an **answer** that must hold still, while a remainder is **arithmetic over the user's own events** and must not.
+
+### The defect pass, and three things it taught
+
+**Thirteen planted in all — eleven, then two re-aimed. Three did not behave first time, and each failure was a different shape.**
+
+**1. The write-site census fires before the gate.** The first version of *plate-written-into-day-items* planted the extra write in `photoSave` — and `check-writesites.sh` caught it, aborting the run before the data-layer harness started. The defect was detected loudly by the **outer** defence and never reached the gate it was meant to prove. Re-aimed through `consumeFromPlate`, which is already on the manifest. **Layered defences mean a planted defect can be stopped short of the gate under test**, and that reads identically to a gate that cannot fail.
+
+**2. D60 Clause 5, one layer out — and the deeper lesson underneath it.** Two defects crashed the suite in an **earlier** block, so the named gate never executed. The crash was not in the gate; it was in a pre-existing case dereferencing `items[0]` on a day the defect had emptied. Five early dereferences are now guarded so a defect's real gate survives to name itself.
+
+**But guarding was not the whole answer, and the rest of it generalises.** Both defects were *too broad*: "write no consumption event at all" and "push every plate row into the day" break the photo path wholesale, and **a defect that breaks everything is always caught by something.** What a gate must be shown to catch is a defect touching **only its property**. Re-aimed surgically — *"ate all of it" silently logs half*, and *the plate reaches `dayTotals` and nothing else* — both fail their own gate by name, immediately.
+
+**The rule worth carrying:** when a planted defect fails a dozen unrelated cases, that is not proof the gate works; it is a sign the defect is too blunt to prove anything about the gate. A sharp defect and a named failure are the same requirement seen from two ends.
+
+**3. A property true by construction has no mutation.** *fast-detector-sees-the-plate* passed with the defect in, because no mutation of `fastEvents` can make a plate break a fast — a plate is not an item. That is Fork A's whole point, and it is **D60 Clause 2**: the property is unfalsifiable *by that mutation*, and the honest response is to pair it with the defect that **can** break it — `plate-written-into-day-items` — rather than invent one that does not reach it. The defect was dropped rather than recorded as a caveat, per Clause 4's positive pattern.
+
+**Also worth noting: the census caught `photoSave` LEAVING the manifest.** It no longer writes items at all — it confirms a plate and delegates. A census that had merely gained a name would have said less than one that also lost the one it replaced.
+
+### Re-pinned, deliberately, in the same commit
+
+**Count delta: 1637 → 1679** (+42). **Twenty-seven version assertions** moved v8 → v9; **nine** were re-addressed from the item to the plate; **five** early dereferences guarded; and the D29 write-site manifest gained `consumeFromPlate` and lost `photoSave`.
+
+**Defect pass: thirteen planted, ten in the final set, all ten failing their own gate by name.**
+
+### Not built, and named
+
+**Manual entry and the scan path have the identical problem** — a typed 790 g container, a scanned 500 g tub — and are Fork H's recorded escalation. **The template's `count`/`unit` field is Fork D's named follow-up.** Neither is smuggled in here.

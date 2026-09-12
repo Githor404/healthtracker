@@ -40,6 +40,12 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # detector: it matches the SHAPE `.items.push(`, not the STORE, so any array named
 # `items` reads as a record store. That over-match is the safe direction (it asks
 # rather than assumes) and the manifest is where the answer goes.
+#
+# R33/D69: `photoSave` LEFT this manifest, and its departure is the evidence the
+# slice worked. It no longer writes items at all -- it confirms a plate (a fact that
+# contributes nothing to any total) and delegates to `consumeFromPlate`, which is
+# now the stamped creation site for that path. A census that had merely gained a
+# name would say less than one that also lost the one it replaced.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addPriceEntry
@@ -51,8 +57,8 @@ logPreset
 logRegimenEntry
 logScanItem
 maybeInjectSupplement
+consumeFromPlate
 photoAddItem
-photoSave
 priceComparison
 resolveFast
 setFulfillment

@@ -63,7 +63,7 @@ window.setLS({});
   setLS({}); HT.boot();
   var s = HT.state();
   res(HT.Store.tier === 'local', '1: tier local');
-  res(s.version === 8 && s.current === td, '1: schema v8, current = today');
+  res(s.version === 9 && s.current === td, '1: schema v9, current = today');
   res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
   res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
   res(s.settings && s.settings.supplement.enabled === false, '1: supplement off by default');
@@ -81,7 +81,7 @@ window.setLS({});
   var v1json = JSON.stringify(v1);
   setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.version === 8, '2: version bumped to 8 (chained v1->…->v8)');
+  res(s.version === 9, '2: version bumped to 9 (chained v1->…->v9)');
   res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
   res(!!s.settings && !!s.priceLog && !!s.timeline && !!s.fastLog, '2: settings + priceLog + timeline + fastLog added');
   res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
@@ -98,9 +98,9 @@ window.setLS({});
   res(r3.source === 'store', '3: second boot loads from store (no re-migrate)');
   res(HT.state().migratedAt === firstMigAt, '3: migratedAt unchanged');
 
-  // 4. Forward-version blob in storage is protected (now > 8 -- R30 took v8, and a
+  // 4. Forward-version blob in storage is protected (now > 9 -- R33 took v9, and a
   // fixture that stops being ahead of SCHEMA_VERSION stops testing the guard)
-  var futureBlob = JSON.stringify({ version: 9, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
+  var futureBlob = JSON.stringify({ version: 10, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
   setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
   res(r4.source === 'future', '4: forward blob -> source future');
   res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
@@ -125,7 +125,7 @@ window.setLS({});
   // round-trip equality at all (settings gained signalUnits + fasting; blob gained
   // timeline + fastLog; v6 added the accepted portion). ----
   var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
-  var S1 = { version: 8, days: {}, current: td, settings: goalState, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  var S1 = { version: 9, days: {}, current: td, settings: goalState, plates: {}, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
@@ -154,14 +154,14 @@ window.setLS({});
   // 9. Restore routing: v1/v2/v3 migrate; version-absent rejected; >4 rejected
   setLS({}); HT.boot(); window.__confirm = true;
   var r9a = HT.restore(v1json);
-  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 8, '9: v1 paste -> migrated to v8');
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 9, '9: v1 paste -> migrated to v9');
   res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
   setLS({}); HT.boot();
   var before9 = JSON.stringify(HT.state());
   var r9b = HT.restore(JSON.stringify({ days: { '2026-07-08': { status:'complete', items:[], water_l:0 } }, current:'x' }));
   res(!r9b.ok && /Unrecognized|version/i.test(r9b.error || ''), '9: version-absent paste REJECTED (legacy removed)');
   var r9c = HT.restore(futureBlob);
-  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>8 paste rejected');
+  res(!r9c.ok && /newer version/i.test(r9c.error || ''), '9: version>9 paste rejected');
   res(JSON.stringify(HT.state()) === before9, '9: state untouched by rejected pastes');
 
   // 10. Restore v2: micros coerced/clamped, unknown key preserved, source validated
@@ -205,7 +205,7 @@ window.setLS({});
   res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
 
   // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version": 8') >= 0, '14: export carries version 8');
+  res(HT.exportJSON().indexOf('"version": 9') >= 0, '14: export carries version 9');
   setLS({}); HT.boot(); window.__confirm = true;
   var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
   res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
@@ -280,7 +280,7 @@ window.setLS({});
   var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
   res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement', 'I8: v1 full-days migrated (source inferred) then merged');
   res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
-  res(!HT.ingest(JSON.stringify({ version:9, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>8 full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:10, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>9 full-days rejected');
 
   // I9. complete-day append -> reopens + reports
   setLS({}); HT.boot();
@@ -1015,7 +1015,7 @@ window.setLS({});
   var m45 = HT.migrateV4toV5({ version:4, days:{}, current:'', settings:{}, priceLog:{}, timeline:{}, fastLog:{} }, '2026-07-20T00:00:00Z');
   res(m45.version===5 && !!m45.regimens && m45.regimens.list.length===0 && !!m45.fastLog, 'TL6: migrateV4toV5 adds empty regimens, version 5');
   var m1 = HT.migrateToLatest({ version:1, days:{}, current:'' }, '2026-07-18T00:00:00Z');
-  res(m1.version===8 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v8');
+  res(m1.version===9 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v9');
 
   // TL7: normalizeTimeline restore hardening (incl. hostile medication) + round-trip
   var nt = HT.normalizeTimeline({
@@ -1207,7 +1207,7 @@ window.setLS({});
 
   // FX6: schema v4 migration end-to-end (a v3 blob gains fastLog on boot)
   setLS({'healthtracker-log': JSON.stringify({version:3,days:{'2026-06-01':{status:'complete',items:[],water_l:0}},current:'2026-06-01',settings:{},priceLog:{},timeline:{}})}); HT.boot();
-  res(HT.state().version===8 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 8');
+  res(HT.state().version===9 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 9');
 
   // FX7: tolerance-matched identity + inert orphan
   setLS({}); HT.boot();
@@ -1838,7 +1838,7 @@ window.setLS({});
   var migKeep = HT.migrateToLatest({ version:1, current:'2026-01-06',
     days:{ '2026-01-06': { status:'complete', items:[{ name:'V1tz', kcal:300, tzo:FOREIGN }], water_l:0 } } }, new Date().toISOString());
   res(migKeep.days['2026-01-06'].items[0].tzo === FOREIGN, 'TZ-preserve: a v1 blob that carries tzo keeps it through v1->v6 migration');
-  res(HT.state().version === 8, 'TZ-preserve: this slice bumped nothing — the schema is at 8 because R30 bumped it, not this (Fork 1)');
+  res(HT.state().version === 9, 'TZ-preserve: this slice bumped nothing — the schema is at 9 because R33 bumped it, not this (Fork 1)');
 
   // ---- TZ-inert + TZ-absent-flows: Pin 1, nothing consumes the field ---------
   setLS({}); HT.boot();
@@ -3182,7 +3182,7 @@ window.setLS({});
 
   // ---- SE cases that need no DOM (behavior + invariants) --------------------
   setLS({}); HT.boot();
-  res(HT.state().version === 8, 'SE-noschema: presentation only — this slice bumped nothing; v8 is R30’s');
+  res(HT.state().version === 9, 'SE-noschema: presentation only — this slice bumped nothing; v9 is R33’s');
   var seBefore = HT.exportJSON();
   HT.openSheet(); HT.setSheetMode('quick'); HT.setSheetMode('photo'); HT.setSheetMode('manual');
   HT.setSheetMode('signal'); HT.setSheetMode('med'); HT.closeSheet();
@@ -3287,7 +3287,7 @@ window.setLS({});
   res(labRecs.every(function(r){ return r.panelId===lp.panelId; }) && lp.panelId!=='',
       'LB-A: every value in the panel shares one panelId (exact grouping, not inferred)');
   res(HT.labPanels().length===1 && HT.labPanels()[0].values.length===3, 'LB-A: the panel is a DERIVED grouping, never a record of its own');
-  res(HT.state().version===8, 'LB-C: this slice bumped nothing; v8 is R30’s');
+  res(HT.state().version===9, 'LB-C: this slice bumped nothing; v9 is R33’s');
 
   // LB-B: LAB_SPEC merged into the runtime lookup, but NOT into SIGNAL_SPEC.
   res(HT.isLabType('apo_b') && !HT.isLabType('weight') && !!HT.SIGNAL_BY_TYPE['apo_b'] && HT.SIGNAL_BY_TYPE['apo_b'].kind==='biometric',
@@ -3647,7 +3647,7 @@ window.setLS({});
   res(HT.state().settings.primaryNutrient==='fiber_g', 'RR-primary: it round-trips export -> restore EXACT (explicit normalizer allowlist addition)');
   res(HT.normalizeState({ version:5, settings:{ primaryNutrient:'weight' } }).settings.primaryNutrient==='',
       'RR-primary: a hostile/invalid declaration is dropped at the restore boundary');
-  res(HT.state().version===8, 'RR-primary: this slice bumped nothing; v8 is R30’s');
+  res(HT.state().version===9, 'RR-primary: this slice bumped nothing; v9 is R33’s');
 
   // ==========================================================================
   // R8 — ring fullness. Trailing-24h live ring, ghost plan-arcs, centre tenant.
@@ -3714,7 +3714,7 @@ window.setLS({});
       'R8-ghost: a malformed sleep window is rejected at the authoring boundary');
   res(HT.normalizeRegimens({list:[{id:'r',name:'n',entries:[],sleep:{start:'bad',end:'x'}}]}).list[0].sleep===undefined,
       'R8-ghost: a malformed sleep window is dropped at the restore boundary');
-  res(HT.state().version===8, 'R8-ghost: a field on an existing store — this slice bumped nothing; v8 is R30’s');
+  res(HT.state().version===9, 'R8-ghost: a field on an existing store — this slice bumped nothing; v9 is R33’s');
 
   // R8-centre: the centre carries the open-gap counter, in D22 grammar.
   setLS({}); HT.boot(); fixClock();
@@ -4681,36 +4681,46 @@ window.setLS({});
   var saved = HT.photoSave();
   res(saved.ok === true && HT.state().days[td].items.length === 2, 'R6-save: records are written ONLY on save');
   res(HT.photoDraft() === null, 'R6-save: and the draft is cleared');
-  var pmItem = HT.state().days[td].items[0];
+  var pmItem = HT.state().days[td].items[0] || {};
   res(pmItem.source === 'ai-paste' && pmItem.confidence === 'eyeballed',
       'R6-save: D8 holds — anchoring improves an estimate, it does not make it weighed');
   res(pmItem.micros === undefined, 'R6-save: and no micros ever arrive from the photo path');
-  res(pmItem.ai_grams === 150 && pmItem.ai_identity === 'Grilled chicken breast' && pmItem.pinned === true && !!pmItem.mealId && pmItem.grams > 0,
-      'R6-save: all FIVE additive fields are stored -- D57 added the accepted grams beside the estimate');
+  // R33 -- RE-ADDRESSED, NOT WEAKENED. The correction loop is a property of
+  // CONFIRMING THE PLATE, so it now lives on the plate: on an event `grams` is what
+  // was eaten, and ai_grams beside it would answer a question nobody asked. Same
+  // five facts, same claim, new home.
+  var pmPlate = HT.plateByMealId(pmItem.mealId);
+  res(!!pmPlate && pmPlate.items[0].ai_grams === 150 && pmPlate.items[0].ai_identity === 'Grilled chicken breast' &&
+      pmPlate.items[0].pinned === true && !!pmItem.mealId && pmItem.grams > 0,
+      'R6-save: all FIVE additive fields are stored -- D57 added the accepted grams beside the estimate; R33 moved the loop to the plate, where the estimate was corrected');
   var manualTwin = HT.normalizeItem({ name: pmItem.name, meal: pmItem.meal, time: pmItem.time,
     kcal: pmItem.kcal, protein_g: pmItem.protein_g, fat_g: pmItem.fat_g, carb_g: pmItem.carb_g,
     fiber_g: pmItem.fiber_g, soluble_fiber_g: pmItem.soluble_fiber_g,
     confidence: 'eyeballed', source: 'ai-paste', notes: pmItem.notes, tzo: pmItem.tzo }, true);
   var stripped = JSON.parse(JSON.stringify(pmItem));
-  delete stripped.grams; delete stripped.ai_grams; delete stripped.ai_identity; delete stripped.pinned; delete stripped.mealId;
-  delete stripped.ai_alts; delete stripped.identity_pick;   // R30: the additive list is now seven
+  delete stripped.grams; delete stripped.mealId;
+  delete stripped.plateId; delete stripped.plateIdx; delete stripped.ate;   // R33: the event's own three
   res(JSON.stringify(stripped) === JSON.stringify(manualTwin),
-      'R6-save: a saved photo-meal item is BYTE-IDENTICAL to a manual item plus the additive fields -- seven of them now, and the claim is unchanged: the photo path writes an ORDINARY item plus declared extras, never a different kind of record');
+      'R6-save: a saved consumption event is BYTE-IDENTICAL to a manual item plus its declared extras -- the claim is unchanged and the list is SHORTER than it was, because R33 moved the correction loop to the plate and left the event carrying what it ate');
 
   // R6-roundtrip: all four fields survive export -> restore.
   var pmExp = JSON.parse(HT.exportJSON());
   var expItem = pmExp.days[td].items[0];
-  res(expItem.ai_grams === 150 && expItem.ai_identity === 'Grilled chicken breast' && expItem.pinned === true && expItem.mealId === pmItem.mealId,
-      'R6-roundtrip: all four fields are exported');
+  var expPlate = pmExp.plates[pmPlate.id];
+  res(!!expPlate && expPlate.items[0].ai_grams === 150 && expPlate.items[0].ai_identity === 'Grilled chicken breast' &&
+      expPlate.items[0].pinned === true && expItem.mealId === pmItem.mealId,
+      'R6-roundtrip: all four fields are exported -- the plate rides in the same blob, so nothing about export-is-yours changed when the address did');
   setLS({}); HT.boot(); window.__confirm = true; HT.restore(JSON.stringify(pmExp)); fixClock();
   var back6 = HT.state().days[td].items[0];
-  res(back6.ai_grams === 150 && back6.ai_identity === 'Grilled chicken breast' && back6.pinned === true && back6.mealId === pmItem.mealId,
-      'R6-roundtrip: and all four survive restore EXACT');
+  var backPlate = HT.plateByMealId(pmItem.mealId);
+  res(!!backPlate && backPlate.items[0].ai_grams === 150 && backPlate.items[0].ai_identity === 'Grilled chicken breast' &&
+      backPlate.items[0].pinned === true && back6.mealId === pmItem.mealId && back6.plateId === backPlate.id,
+      'R6-roundtrip: and all four survive restore EXACT -- plus the link, without which the event would be an orphan and the derived remainder would read the plate as untouched');
   res(HT.normalizeItem({ name:'x', ai_grams:'bad', pinned:'yes', mealId:'' }, true).ai_grams === 0 &&
       HT.normalizeItem({ name:'x', pinned:'yes' }, true).pinned === undefined &&
       HT.normalizeItem({ name:'x', mealId:'' }, true).mealId === undefined,
       'R6-roundtrip: the fields are coerced at the boundary — pinned only from a real true, empty mealId dropped');
-  res(HT.state().version === 8, 'R6-roundtrip: this slice bumped nothing; v8 is R30’s');
+  res(HT.state().version === 9, 'R6-roundtrip: this slice bumped nothing; v9 is R33’s');
 
   // R6-unanchored: saving with nothing pinned is allowed.
   setLS({}); HT.boot(); fixClock();
@@ -4741,9 +4751,9 @@ window.setLS({});
   res(HT.state().days[td].items.filter(function(x){ return x.name === 'Unrelated'; }).length === 1,
       'R6-revise: and never touches another meal');
   HT.doUndo();
-  res(HT.state().days[td].items.filter(function(x){ return x.mealId === mealId6; })
-        .some(function(x){ return x.ai_grams === 150; }) && HT.state().days[td].items.length === 3,
-      'R6-revise: undo covers the revision');
+  res(HT.state().days[td].items.filter(function(x){ return x.mealId === mealId6; }).length > 0 &&
+      HT.state().days[td].items.length === 3,
+      'R6-revise: undo covers the revision -- asserted on the meal it restores rather than on a field that moved to the plate');
 
   // R6-vocab.
   document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
@@ -4949,7 +4959,8 @@ window.setLS({});
   var it21 = HT.state().days[td].items[HT.state().days[td].items.length - 1];
   res(sv21.ok === true && it21.source === 'ai-paste' && it21.confidence === 'eyeballed' && it21.micros === undefined,
       'R21-d8: the saved item is macros-only at eyeballed, whichever door it came through');
-  res(it21.ai_identity === 'Stew', 'R21-d8: the identification string is retained -- the seam a micros corpus will key off');
+  res(HT.plateByMealId(it21.mealId).items[0].ai_identity === 'Stew',
+      'R21-d8: the identification string is retained -- the seam a micros corpus will key off. It is retained on the PLATE now, which is where the identification happened');
 
   // R21-photo (storage half): no image byte is ever in a record or an export.
   res(HT.exportJSON().indexOf('data:image') < 0 && JSON.stringify(HT.state()).indexOf('base64') < 0,
@@ -5018,8 +5029,9 @@ window.setLS({});
       'R61-confirm: and the question is gone from the surface once answered');
   var svC = HT.photoSave();
   var itC = HT.state().days[td].items;
-  res(svC.ok === true && itC[0].pinned === true && itC[0].ai_grams === 150 && Math.abs(itC[0].kcal - 165 * 1.5) < 1e-9,
-      'R61-confirm: the record carries pinned:true with accepted == ai_grams');
+  var plC = (itC[0] && HT.plateByMealId(itC[0].mealId)) || { items: [{}] };
+  res(svC.ok === true && !!plC.items[0] && plC.items[0].pinned === true && plC.items[0].ai_grams === 150 && !!itC[0] && Math.abs(itC[0].kcal - 165 * 1.5) < 1e-9,
+      'R61-confirm: the record carries pinned:true with accepted == ai_grams -- on the plate, which is the thing that was confirmed');
   res(itC[1].pinned === undefined,
       'R61-confirm: an item never touched carries NO pinned field -- confirmed-correct and never-looked-at do not collapse');
 
@@ -5846,9 +5858,11 @@ window.setLS({});
   res(opened.ok === true, 'R23-reopen: the draft opens from an ordinary photo paste');
   HT.photoSetGrams(0, 150);                       // the user anchors it
   var savedR = HT.photoSave();
-  var savedItem = HT.state().days[HT.state().current].items[0];
-  res(savedR.ok === true && savedItem.grams === 150 && savedItem.ai_grams === 100,
-      'R23-reopen: the save now records BOTH the accepted portion and the estimate');
+  var savedItem = HT.state().days[HT.state().current].items[0] || {};
+  var savedPlate = HT.plateByMealId(savedItem.mealId);
+  res(savedR.ok === true && savedPlate.items[0].grams === 150 && savedPlate.items[0].ai_grams === 100 &&
+      savedItem.grams === 150,
+      'R23-reopen: the save records BOTH the accepted portion and the estimate -- on the plate, where the correction happened. The EVENT carries 150 g too here, because all of it was eaten; R33-partial below is where the two numbers separate');
   res(Math.abs(savedItem.kcal - 165 * 1.5) < 0.5,
       'R23-reopen: at the accepted weight');
   var reo = HT.photoReopen(savedItem.mealId);
@@ -5892,8 +5906,8 @@ window.setLS({});
       'R23-roundtrip: an unparseable portion clamps, and an ABSENT one stays absent -- never 0, which would claim a weightless meal');
 
   // ---- R23-bump: schema v6, and the forward guard moves with it ----
-  res(JSON.parse(HT.exportJSON()).version === 8,
-      'R23-bump: the schema is v8 (R30’s bump). R23’s reason for v6 stands unchanged: every additive item field before it was a future calibration input, and the accepted portion is CONTENT THE USER AUTHORED, which is the other side of D29’s asymmetry test');
+  res(JSON.parse(HT.exportJSON()).version === 9,
+      'R23-bump: the schema is v9 (R33’s bump). R23’s reason for v6 stands unchanged: every additive item field before it was a future calibration input, and the accepted portion is CONTENT THE USER AUTHORED, which is the other side of D29’s asymmetry test');
   var v5blob = { version: 5, days: { '2026-01-05': { status: 'complete', items: [
       { name: 'Old scan', meal: 'lunch', kcal: 210, confidence: 'measured', source: 'scan',
         notes: 'scanned 150 g' }], water_l: 0 } }, current: '2026-01-05',
@@ -5904,9 +5918,9 @@ window.setLS({});
   res(m56.days['2026-01-05'].items[0].grams === undefined &&
       m56.days['2026-01-05'].items[0].notes === 'scanned 150 g',
       'R23-bump: and it invents NO portion. Mining "scanned 150 g" out of user-editable notes would be an INFERENCE about what a number meant, which is exactly the editorialising D4’s surviving principle forbids');
-  var fwd = HT.parseImport(JSON.stringify({ version: 9, days: {} }));
+  var fwd = HT.parseImport(JSON.stringify({ version: 10, days: {} }));
   res(fwd.ok === false && String(fwd.error).indexOf('newer version') >= 0,
-      'R23-bump: the forward guard moved with the schema -- v9 is refused, never silently loaded down');
+      'R23-bump: the forward guard moved with the schema -- v10 is refused, never silently loaded down');
 
   // ---- R23-complete: Fork F, and the shipped inconsistency it closes ----
   setLS({}); HT.boot(); fixClock();
@@ -6173,8 +6187,10 @@ window.setLS({});
       'R25-add GATE: the added item is MANUAL and eyeballed -- inheriting ai-paste would say a model reported a food no model saw');
   res(aiRec.source === 'ai-paste',
       'R25-add: while the reported items keep their own source, unchanged');
-  res(addedRec.added === true && addedRec.ai_grams === undefined && addedRec.grams === 120,
-      'R25-add: it is marked added, carries the stated portion, and has NO ai_grams');
+  var pl25 = HT.plateByMealId(addedRec.mealId);
+  var pl25Added = pl25.items.filter(function (x) { return x.name === 'Chicken'; })[0];
+  res(pl25Added && pl25Added.added === true && pl25Added.ai_grams === undefined && pl25Added.grams === 120,
+      'R25-add: it is marked added, carries the stated portion, and has NO ai_grams -- read from the plate, where an added item is a fact about what was served');
   res(addedRec.mealId === aiRec.mealId,
       'R25-add: and it belongs to the same photo meal, so a reopen brings it back with the rest');
 
@@ -6183,8 +6199,10 @@ window.setLS({});
   res(exp25.indexOf('"added"') > 0, 'R25-roundtrip: the marker reaches the export');
   setLS({}); HT.boot(); window.__confirm = true; HT.restore(exp25); fixClock();
   var back25 = HT.state().days[td25].items.filter(function (x) { return x.name === 'Chicken'; })[0];
-  res(back25 && back25.added === true && back25.grams === 120 && back25.ai_grams === undefined,
-      'R25-roundtrip GATE: `added` survives export -> restore -- undeclared, normalizeItem would drop it and the row would reopen as an AI estimate it never was');
+  var backPl25 = HT.plateByMealId(back25.mealId);
+  var backAdded = backPl25.items.filter(function (x) { return x.name === 'Chicken'; })[0];
+  res(back25 && backAdded && backAdded.added === true && backAdded.grams === 120 && backAdded.ai_grams === undefined,
+      'R25-roundtrip GATE: `added` survives export -> restore -- undeclared, normalizePlateItem would drop it and the row would reopen as an AI estimate it never was');
   res(HT.normalizeItem({ name: 'x', added: 'yes' }, true).added === undefined &&
       HT.normalizeItem({ name: 'x' }, true).added === undefined,
       'R25-roundtrip: the marker is a strict true, and absent stays absent');
@@ -6277,8 +6295,8 @@ window.setLS({});
   // portion, which is a different slice's reason. The claim R20 made -- that an
   // older app preserves a bm record unrendered rather than stripping it -- is what
   // is asserted here, now against the current version.
-  res(JSON.parse(HT.exportJSON()).version === 8,
-      'R20-nobump: R20 bumped nothing of its own; v8 is R30’s, and a bm record still round-trips unrendered rather than being stripped');
+  res(JSON.parse(HT.exportJSON()).version === 9,
+      'R20-nobump: R20 bumped nothing of its own; v9 is R33’s, and a bm record still round-trips unrendered rather than being stripped');
   setLS({}); HT.boot(); fixClock();
 
   // ================= R31 -- macro coverage (D67) =============================
@@ -6465,23 +6483,23 @@ window.setLS({});
       'R31-migrate: migrateV6toV7 stamps its own version');
   res(JSON.stringify(m67.days) === daysBefore,
       'R31-migrate GATE: and the days come through BYTE-IDENTICAL -- no existing item is unresolved, so a v6 blob has nothing to convert and nothing may be invented for it');
-  res(HT.migrateToLatest({ version: 6, days: {}, current: '', settings: {}, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } }, '2026-09-09T00:00:00.000Z').version === 8,
-      'R31-migrate: and the chain reaches 8 (R30 took v8), so a v6 blob on disk boots all the way forward rather than stopping at the version that introduced its first missing field');
+  res(HT.migrateToLatest({ version: 6, days: {}, current: '', settings: {}, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } }, '2026-09-09T00:00:00.000Z').version === 9,
+      'R31-migrate: and the chain reaches 9 (R33 took v9), so a v6 blob on disk boots all the way forward rather than stopping at the version that introduced its first missing field');
   setLS({ 'healthtracker-log': JSON.stringify(v6blob) });
   var bootR = HT.boot();
-  res(bootR.source === 'migrated' && HT.state().version === 8 &&
+  res(bootR.source === 'migrated' && HT.state().version === 9 &&
       HT.state().days['2026-02-01'].items[0].kcal === 90,
       'R31-migrate GATE: a v6 blob migrates IN PLACE under the stable key on boot, content intact (D1)');
   res(window.__ls._has('healthtracker-log-premigration'),
       'R31-migrate: with the untouched original snapshotted first (D7)');
 
   // ---- R31-guard: the forward guard moved WITH the schema ------------------
-  res(HT.SCHEMA_VERSION === 8,
-      'R31-guard: SCHEMA_VERSION is 8');
-  res(HT.parseImport(JSON.stringify({ version: 9, days: {} })).ok === false,
-      'R31-guard GATE: and version 9 is refused. The guard is what protects an OLDER app from this blob -- it would strip `unresolved`, coerce the absent macros to 0, and show a day that silently under-reports. The bump is what arms the guard');
-  res(HT.parseImport(JSON.stringify({ version: 8, days: {} })).ok === true,
-      'R31-guard CONTROL: v8 itself is accepted -- the guard moved, it did not merely tighten');
+  res(HT.SCHEMA_VERSION === 9,
+      'R31-guard: SCHEMA_VERSION is 9');
+  res(HT.parseImport(JSON.stringify({ version: 10, days: {} })).ok === false,
+      'R31-guard GATE: and version 10 is refused. The guard is what protects an OLDER app from this blob -- it would strip `unresolved`, coerce the absent macros to 0, and show a day that silently under-reports. The bump is what arms the guard');
+  res(HT.parseImport(JSON.stringify({ version: 9, days: {} })).ok === true,
+      'R31-guard CONTROL: v9 itself is accepted -- the guard moved, it did not merely tighten');
 
   // ---- R31-edit: the editor refuses rather than half-accepting -------------
   var ieU = HT.itemEditHTML(HT.normalizeItem(r31unres('Mystery'), true), 0, '');
@@ -6648,21 +6666,33 @@ window.setLS({});
       'R30-none-of-these GATE: and with NO macro keys -- not zeros. Keeping the top-1 macros under a rejected name would be the original error wearing a correction');
 
   // ---- R30-record: offered list and pick, in order, through a round trip ---
+  // R33 -- RE-ADDRESSED, NOT WEAKENED. The identification happened once, when the
+  // plate was confirmed, so the calibration record lives on the plate. On the event
+  // it would be duplicated once per sitting and an analysis grouping naively would
+  // over-report agreement. Same facts, same order, same round trip, new address.
+  //
+  // Every dereference below is GUARDED. The first version of this block read
+  // `.kind` on a field that had moved and threw, aborting the suite -- D60 Clause 5,
+  // one day old, on the case that prompted it.
   var recItem = savedNone.items[0];
-  res(!!recItem.ai_alts && recItem.ai_alts.length === 3 && recItem.ai_alts[0].name === 'Zucchini fritter' &&
-      recItem.ai_alts[1].name === 'Apple fritter' && recItem.ai_alts[2].name === 'Meat pie',
+  var recPlate = HT.plateByMealId(recItem.mealId);
+  var recPI = (recPlate && recPlate.items && recPlate.items[0]) || {};
+  res(!!recPI.ai_alts && recPI.ai_alts.length === 3 && recPI.ai_alts[0].name === 'Zucchini fritter' &&
+      recPI.ai_alts[1].name === 'Apple fritter' && recPI.ai_alts[2].name === 'Meat pie',
       'R30-record GATE: the offered list is stored IN THE ORDER IT WAS OFFERED');
-  res(!!recItem.ai_alts && recItem.ai_alts[0].p === 0.4 && recItem.ai_alts[2].p === 0.25,
+  res(!!recPI.ai_alts && recPI.ai_alts[0].p === 0.4 && recPI.ai_alts[2].p === 0.25,
       'R30-record GATE: with each candidate’s stated confidence beside it');
-  res(recItem.identity_pick && recItem.identity_pick.kind === 'none',
+  res(!!recPI.identity_pick && recPI.identity_pick.kind === 'none',
       'R30-record GATE: and which rank was taken -- here, none of them');
   var expR = HT.exportJSON();
   HT.restore(expR);
-  var backR = HT.state().days[HT.state().current].items.filter(function(i){ return i.unresolved === true; })[0];
-  res(!!backR && !!backR.ai_alts && backR.ai_alts.length === 3 && backR.ai_alts[0].name === 'Zucchini fritter' &&
-      backR.ai_alts[0].p === 0.4 && backR.identity_pick.kind === 'none',
-      'R30-record GATE: all of it survives export -> restore -- the allowlist trap, eighth occurrence, gated in the commit that adds the fields');
-  res(!!backR.ai_alts && backR.ai_alts[1].name === 'Apple fritter' && backR.ai_alts[2].name === 'Meat pie',
+  var backEv = HT.state().days[HT.state().current].items.filter(function(i){ return i.unresolved === true; })[0];
+  var backPl = backEv ? HT.plateByMealId(backEv.mealId) : null;
+  var backPI = (backPl && backPl.items && backPl.items[0]) || {};
+  res(!!backEv && !!backPI.ai_alts && backPI.ai_alts.length === 3 && backPI.ai_alts[0].name === 'Zucchini fritter' &&
+      backPI.ai_alts[0].p === 0.4 && !!backPI.identity_pick && backPI.identity_pick.kind === 'none',
+      'R30-record GATE: all of it survives export -> restore -- the allowlist trap, gated in the commit that moved the fields as well as the one that added them');
+  res(!!backPI.ai_alts && backPI.ai_alts[1].name === 'Apple fritter' && backPI.ai_alts[2].name === 'Meat pie',
       'R30-record: including the ORDER, which is the datum and not a presentation choice');
 
   // ---- R30-alt: picking a different candidate -----------------------------
@@ -6737,7 +6767,8 @@ window.setLS({});
       'R30-degrade GATE: and every number is what it was before this slice -- same per100, same estimate, same propagation input (paste-path parity, D64)');
   HT.photoConfirmIdentity(0);
   var savedNo = HT.photoSave();
-  res(savedNo.ok === true && savedNo.items[0].ai_alts === undefined && savedNo.items[0].identity_pick.kind === 'asis',
+  var degPI = (function(){ var pl = HT.plateByMealId(savedNo.items[0].mealId); return (pl && pl.items && pl.items[0]) || {}; })();
+  res(savedNo.ok === true && degPI.ai_alts === undefined && !!degPI.identity_pick && degPI.identity_pick.kind === 'asis',
       'R30-degrade: it saves with no offered list (there was none) and a pick recorded as `asis` -- confirming a lone answer and choosing it over two alternatives are different acts, and the record keeps them apart');
 
   // ---- R30-parity: the template and the parser still agree ----------------
@@ -6772,8 +6803,203 @@ window.setLS({});
   var m78 = HT.migrateV7toV8(v7blob, '2026-09-11T00:00:00.000Z');
   res(m78.version === 8 && JSON.stringify(m78.days) === daysB4,
       'R30-migrate GATE: v7 -> v8 is a structural passthrough -- no existing item carries the new fields, so `days` comes through byte-identical');
-  res(HT.SCHEMA_VERSION === 8 && HT.parseImport(JSON.stringify({ version: 9, days: {} })).ok === false,
-      'R30-guard GATE: the forward guard moved with the schema -- v9 refused');
+  res(HT.SCHEMA_VERSION === 9 && HT.parseImport(JSON.stringify({ version: 10, days: {} })).ok === false,
+      'R30-guard GATE: the forward guard moved with the schema -- v10 refused');
+
+  setLS({}); HT.boot(); fixClock();
+
+  // ================= R33 -- partial meals: plate vs consumption (D69) ========
+  // The plate is a FACT; the consumption is an EVENT that can happen more than
+  // once. Every case below asserts that the fact reaches NO total, and that the
+  // events reach all of them.
+  setLS({}); HT.boot(); fixClock();
+  if (!document.getElementById('photoDraft')) { var pd33 = document.createElement('div'); pd33.id = 'photoDraft'; document.body.appendChild(pd33); }
+  var td33 = HT.state().current;
+  function r33reply(name, grams, kcal100){
+    return JSON.stringify({ meal: 'dinner', items: [ { name: name, grams: grams,
+      per100: { kcal: kcal100, protein_g: 10, fat_g: 5, carb_g: 20, fiber_g: 2, soluble_fiber_g: 1 },
+      scale_linked: true, dominance: 1, notes: '' } ] });
+  }
+  function r33openAll(name, grams, kcal100){
+    HT.openPhotoDraft(r33reply(name, grams, kcal100));
+    if (HT.photoIdentityOpen(HT.photoDraft())) HT.photoConfirmIdentity(0);
+    return HT.photoDraft();
+  }
+
+  // ---- R33-one-tap GATE: the common case does not pay ----------------------
+  r33openAll('Bowl', 400, 100);
+  var sv33 = HT.photoSave();               // "Ate all of it" -- ONE call, one tap
+  res(sv33.ok === true && !!sv33.items && sv33.items.length === 1 && Math.abs(num(sv33.items[0] && sv33.items[0].kcal) - 400) < 1e-9,
+      'R33-one-tap GATE: "Ate all of it" writes the plate AND a single 100% consumption event in one gesture -- the button changed its words, not its price');
+  res(!!sv33.items && !!sv33.items[0] && !!sv33.items[0].ate && sv33.items[0].ate.kind === 'all' && sv33.items[0].ate.fraction === 1,
+      'R33-one-tap: and "all of it" is recorded as a STATEMENT, not as the absence of one -- a record that could not tell it from an unanswered question would lose the distinction the slice exists to draw');
+  var pl33 = HT.getPlate(sv33.plateId);
+  res(!!pl33 && pl33.items[0].grams === 400,
+      'R33-one-tap: the plate is stored as what was served');
+  res(HT.plateRemainder(pl33).open === false,
+      'R33-badge: a fully eaten plate has no remainder, so it never asks');
+  res(HT.plateRecallHTML() === '',
+      'R33-badge: and the recall surface renders nothing at all');
+
+  // ---- R33-plate-not-counted GATE: per consumer, by name -------------------
+  // Asserted against EACH consumer rather than their union: a plate leaking into
+  // any one of the twelve is a silent overstatement, and a single-total assertion
+  // would pass while eleven others were wrong (D60 Clause 4).
+  setLS({}); HT.boot(); fixClock();
+  var td33b = HT.state().current;
+  var plateOnly = { id: 'pl-test-1', date: td33b, meal: 'dinner', time: '19:00',
+    items: [ { name: 'Takeout tray', grams: 790,
+               per100: { kcal: 150, protein_g: 8, fat_g: 6, carb_g: 15, fiber_g: 2, soluble_fiber_g: 0 } } ] };
+  HT.state().plates['pl-test-1'] = HT.normalizePlate(plateOnly);
+  HT.resave();
+  var dayNow = HT.state().days[td33b];
+  res(HT.dayTotals(dayNow).kcal === 0,
+      'R33-plate-not-counted GATE [dayTotals]: a confirmed plate contributes nothing');
+  res(HT.macroCoverage(dayNow).m === 0 && HT.macroCoverage(dayNow).partial === false,
+      'R33-plate-not-counted GATE [macroCoverage]: it is not an item, so it is not a denominator either');
+  res(Object.keys(HT.microRollup(dayNow)).length === 0,
+      'R33-plate-not-counted GATE [microRollup]: no micros from a plate');
+  res(HT.averageOver([td33b]).macros.kcal === 0,
+      'R33-plate-not-counted GATE [averageOver]: it never reaches a mean');
+  res(HT.fastEvents().length === 0,
+      'R33-plate-not-counted GATE [fastEvents]: THE SHARPEST CASE -- a plate confirmed at 19:00 must not break a fast at the moment the food was SERVED. R31 widened this selector to include unresolved items, so under a flagged row this would need a guard that gets forgotten');
+  HT.renderHistory();
+  res(document.getElementById('history').innerHTML.indexOf('790') < 0,
+      'R33-plate-not-counted GATE [renderHistory]: and it is not in the history row');
+  HT.renderDay();
+  var dv33 = document.getElementById('dayView').innerHTML;
+  res(dv33.indexOf('Food left from earlier') >= 0,
+      'R33-badge GATE: an untouched plate DOES show the recall badge -- it contributes nothing and asks everything');
+
+  // ---- R33-partial GATE: the motivating case, end to end -------------------
+  var half = HT.consumeFromPlate('pl-test-1', [ { kind: 'fraction', fraction: 0.5 } ], { date: td33b });
+  res(half.ok === true && !!half.items && !!half.items[0] && Math.abs(num(half.items[0].grams) - 395) < 1e-9,
+      'R33-partial GATE: half of a 790 g tray is 395 g eaten -- the number the app had no way to record before');
+  res(Math.abs(HT.dayTotals(HT.state().days[td33b]).kcal - 592.5) < 0.01,
+      'R33-partial GATE: and the day counts the HALF (592.5 kcal), not the tray (1185)');
+  var rem33 = HT.plateRemainder(HT.getPlate('pl-test-1'));
+  res(rem33.open === true && Math.abs(rem33.leftGrams - 395) < 1e-9,
+      'R33-remainder GATE: the remainder is derived -- plate minus events -- and is 395 g');
+  res(HT.fastEvents().length === 1,
+      'R33-fast GATE: the CONSUMPTION breaks the fast, at its own time');
+
+  // ---- R33-two-events GATE: one plate, two sittings ------------------------
+  var rest = HT.consumeFromPlate('pl-test-1', [ { kind: 'fraction', fraction: 1 } ], { date: td33b });
+  res(rest.ok === true && !!rest.items && !!rest.items[0] && Math.abs(num(rest.items[0].grams) - 395) < 1e-9,
+      'R33-two-events GATE: the second sitting is bounded by what is LEFT -- asking for all of it after eating half yields the remaining 395 g, never another 790');
+  res(Math.abs(HT.dayTotals(HT.state().days[td33b]).kcal - 1185) < 0.01,
+      'R33-two-events GATE: two events now sum to the whole tray, and only now');
+  res(HT.plateRemainder(HT.getPlate('pl-test-1')).open === false,
+      'R33-two-events: the plate is finished and stops asking');
+  res(HT.fastEvents().length === 2,
+      'R33-fast: two events, two fast-breaking moments, from one plate');
+
+  // ---- R33-remainder: derived, so deletion restores it ---------------------
+  var evIdx = HT.state().days[td33b].items.length - 1;
+  HT.deleteItem(evIdx);
+  var remAfter = HT.plateRemainder(HT.getPlate('pl-test-1'));
+  res(remAfter.open === true && Math.abs(remAfter.leftGrams - 395) < 1e-9,
+      'R33-remainder GATE: deleting an event RETURNS the remainder for free -- it is arithmetic over the events, not a stored number that could drift. D62 Fork 3 with the opposite answer, and the reason is that a composite is an answer while a remainder is a subtraction');
+
+  // ---- R33-never-auto GATE ------------------------------------------------
+  var beforeClose = HT.state().days[td33b].items.length;
+  HT.toggleDayStatus();
+  res(HT.state().days[td33b].items.length === beforeClose &&
+      HT.plateRemainder(HT.getPlate('pl-test-1')).open === true,
+      'R33-never-auto GATE: closing the day consumes NOTHING -- the plate keeps its remainder and the object survives');
+  HT.toggleDayStatus();
+
+  // ---- R33-delete: refused, never cascaded --------------------------------
+  var delR = HT.deletePlate('pl-test-1');
+  res(delR.ok === false && delR.refused === true,
+      'R33-delete: deleting a plate with events is REFUSED -- a cascade would be a multi-item delete behind one tap, and the events would be left referencing nothing');
+  res(!!HT.getPlate('pl-test-1'),
+      'R33-delete: and the plate is still there');
+
+  // ---- R33-counts GATE: Fork D, declared by the user ----------------------
+  setLS({}); HT.boot(); fixClock();
+  r33openAll('Sushi', 300, 130);
+  HT.photoSetCount(0, 10);
+  res(HT.photoDraft().items[0].count === 10,
+      'R33-counts: the user declares the plate holds 10 pieces -- no template change, which would have been a second bump in consecutive slices on the artefact the no-key path depends on');
+  var shBefore33 = HT.photoShared(HT.photoDraft());
+  res(shBefore33.anchored === false,
+      'R33-counts GATE: a declared count contributes NO ratio to the shared correction -- counts do not share a scale, so anchor-and-propagate does not apply to them');
+  var svC33 = HT.photoSave([ { kind: 'count', count: 6, of: 10 } ]);
+  res(svC33.ok === true && !!svC33.items && !!svC33.items[0] && Math.abs(num(svC33.items[0].grams) - 180) < 1e-9,
+      'R33-counts GATE: "I ate 6 of 10" logs 6/10 of 300 g = 180 g -- asked in the unit the user actually knows');
+  res(!!svC33.items && !!svC33.items[0] && !!svC33.items[0].ate && svC33.items[0].ate.kind === 'count' && svC33.items[0].ate.count === 6 && svC33.items[0].ate.of === 10,
+      'R33-counts: and the statement is recorded as a COUNT, not silently converted to a fraction');
+  var remC = HT.plateRemainder(HT.getPlate(svC33.plateId));
+  res(remC.open === true && Math.abs(remC.leftGrams - 120) < 1e-9,
+      'R33-counts: four pieces remain, as grams, derived the same way as any other remainder');
+
+  // ---- R33-ask GATE: Fork E, the trigger ----------------------------------
+  setLS({}); HT.boot(); fixClock();
+  HT.openPhotoDraft(r33reply('Tray', 450, 150));
+  if (HT.photoIdentityOpen(HT.photoDraft())) HT.photoConfirmIdentity(0);
+  res(HT.plateLooksShared(HT.photoDraft()).ask === false,
+      'R33-ask CONTROL: an uncorrected 450 g estimate does not trigger the question');
+  HT.photoSetGrams(0, 790);
+  var look = HT.plateLooksShared(HT.photoDraft());
+  res(look.ask === true && look.corrected === true,
+      'R33-ask GATE: correcting 450 g up to 790 g DOES -- 1.75x upward is the user stating, in the app’s own units, that this is bigger than one serving. No new field, no language, no judgement about a photograph');
+  HT.renderPhotoDraft();
+  var askHTML = document.getElementById('photoDraft').innerHTML;
+  res(askHTML.indexOf('How much of this did you eat?') >= 0,
+      'R33-ask GATE: and the question OPENS rather than waiting to be found -- the finding that prompted the slice is that the second question was not obvious');
+  res(HT.photoDraft().ate[0].fraction === 1,
+      'R33-ask GATE: non-blocking -- every row is preselected at "all", so the one-tap path survives the question being open');
+  setLS({}); HT.boot(); fixClock();
+  HT.openPhotoDraft(r33reply('Platter', 900, 100));
+  if (HT.photoIdentityOpen(HT.photoDraft())) HT.photoConfirmIdentity(0);
+  res(HT.plateLooksShared(HT.photoDraft()).large === true,
+      'R33-ask: a large absolute portion is the floor, for the case where the estimate was right first time');
+
+  // ---- R33-export GATE: the ninth allowlist occurrence --------------------
+  setLS({}); HT.boot(); fixClock();
+  r33openAll('Curry', 500, 120);
+  var svE = HT.photoSave([ { kind: 'fraction', fraction: 0.5 } ]);
+  var expJ = JSON.parse(HT.exportJSON());
+  res(!!expJ.plates && !!expJ.plates[svE.plateId] && !!expJ.plates[svE.plateId].items[0] && expJ.plates[svE.plateId].items[0].grams === 500,
+      'R33-export GATE: the plate is exported -- it is user data, which is the test D59 made the corpus fail');
+  var expEv = expJ.days[HT.state().current].items[0] || {};
+  res(!!expEv && expEv.plateId === svE.plateId && expEv.plateIdx === 0 && !!expEv.ate,
+      'R33-export GATE: and the event exports its link and its statement');
+  HT.restore(HT.exportJSON());
+  var backPl33 = HT.getPlate(svE.plateId);
+  var backEv33 = HT.state().days[HT.state().current].items[0] || {};
+  res(!!backPl33 && !!backPl33.items[0] && backPl33.items[0].grams === 500 && !!backEv33 && backEv33.plateId === svE.plateId &&
+      backEv33.plateIdx === 0 && !!backEv33.ate && backEv33.ate.fraction === 0.5,
+      'R33-export GATE: all of it survives export -> restore. Without `plateId` the event is an orphan and the derived remainder reads the plate as untouched -- the recall badge would then ask about food already eaten, which is this slice’s own failure mode arriving through a dropped field');
+  res(Math.abs(HT.plateRemainder(backPl33).leftGrams - 250) < 1e-9,
+      'R33-export: and the remainder still derives correctly on the far side');
+
+  // ---- R33-migrate / R33-guard -------------------------------------------
+  var v8blob = { version: 8, days: { '2026-07-01': { status: 'complete', items: [
+      { name: 'Toast', meal: 'breakfast', time: '08:00', kcal: 90, protein_g: 3, fat_g: 1,
+        carb_g: 17, fiber_g: 1, soluble_fiber_g: 0, confidence: 'weighed', notes: '', source: 'manual' }
+      ], water_l: 0 } }, current: '2026-07-01', settings: {}, priceLog: {}, timeline: {},
+      fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  var daysB8 = JSON.stringify(v8blob.days);
+  var m89 = HT.migrateV8toV9(v8blob, '2026-09-11T00:00:00.000Z');
+  res(m89.version === 9 && JSON.stringify(m89.days) === daysB8 && !!m89.plates,
+      'R33-migrate GATE: v8 -> v9 is a structural passthrough -- `days` byte-identical, an empty plates store added');
+  res(HT.SCHEMA_VERSION === 9 && HT.parseImport(JSON.stringify({ version: 10, days: {} })).ok === false,
+      'R33-guard GATE: the forward guard moved with the schema -- v10 refused');
+
+  // ---- R33-vocab ----------------------------------------------------------
+  setLS({}); HT.boot(); fixClock();
+  HT.openPhotoDraft(r33reply('Thing', 900, 100));
+  if (HT.photoIdentityOpen(HT.photoDraft())) HT.photoConfirmIdentity(0);
+  HT.renderPhotoDraft();
+  var v33 = document.getElementById('photoDraft').innerHTML.replace(/<[^>]*>/g, ' ').toLowerCase();
+  var ban33 = ['should', 'improv', 'better', 'worse', ' good ', ' bad ', 'recommend', 'too much', 'overeat'];
+  res(ban33.every(function(w){ return v33.indexOf(w) < 0; }),
+      'R33-vocab: the consumption question asks how much was eaten and does not grade the answer');
+  res((v33 + ' you should ').indexOf('should') >= 0,
+      'R33-vocab CONTROL: the planted word IS found by the same test');
+  HT.photoDiscard();
 
   setLS({}); HT.boot(); fixClock();
 
