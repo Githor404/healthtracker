@@ -2045,7 +2045,7 @@ Instance 6 is the proof that the existing bar is insufficient. `CLAUDE.md`'s wor
 
 **A new or materially changed gate is not evidence until it has been RUN AGAINST THE DEFECT IT CLOSES AND SEEN TO FAIL.** The failing run is part of the gate's evidence and is recorded in `GATES.md` alongside the passing one.
 
-Three clauses, each earned by a specific instance — **and two more added by amendment below** (Clause 4, 2026-09-08; Clause 5, 2026-09-11):
+Three clauses, each earned by a specific instance — **and three more added by amendment below** (Clause 4, 2026-09-08; Clauses 5 and 6, 2026-09-11):
 
 **1. Exhibited, not asserted.** It is not enough to reason that a gate would fail; the defect is planted — the pre-slice behaviour restored, or the property mutated false — the suite is run, and the named cases are observed failing. Instance 6 survived every amount of reasoning and died in the first minute of being run against the unpinned build.
 
@@ -2116,6 +2116,22 @@ The suite went red. The harness did exactly what it was built to do — D56's ha
 **The diagnostic:** when a planted defect produces `HARNESS: uncaught exception`, the suite has told you the truth and the gate has not. Find the case that threw and guard it, then re-run — the defect is not proven closed until the failure prints the gate's own name.
 
 **And the honest limit, as with the rest of D60:** this is still discipline, not enforcement. A mutation runner that asserted *"gate X, and only gate X, fails for defect Y"* would catch Clauses 1, 4 and 5 mechanically. Until it exists, the defect pass catches these only because its output is read case by case rather than as a pass/fail total — which is the same reason the three earlier instances were caught, and worth preserving as a habit. **It is now named: R32, with its registry, its "and only" assertion and its patch-drift ruling recorded in `GATES.md`. Not scheduled — but a task rather than a caveat.**
+
+### Amendment — Clause 6: A DEFECT THAT BREAKS EVERYTHING PROVES NOTHING ABOUT ONE GATE (2026-09-11)
+
+**R33's defect pass planted thirteen and withdrew or re-aimed three. Each failed for a different reason, and the three together make one rule.**
+
+**1 — The outer defence fired first.** The plate-leak defect was planted in `photoSave`, and `check-writesites.sh` — the D29 record-write census — caught it and aborted the run **before the data-layer harness started**. The defect was detected loudly, by name, by a check that had nothing to do with the gate under test, and the gate never executed. From the pass's point of view that is indistinguishable from a gate that cannot fail.
+
+**2 — The property had no possible mutation.** *"A plate does not break a fast"* could not be falsified by any change to `fastEvents`, because a plate is not an item — which is the entire point of putting plates in their own store. That is **Clause 2**, and it was handled as Clause 4's positive pattern requires: the defect was **withdrawn and paired** with one that can break the property (`plate-written-into-day-items`), rather than kept as a caveat explaining why the gate could not fail.
+
+**3 — Two defects were simply too blunt.** *"Write no consumption event at all"* and *"push every plate row into the day"* break the photo path wholesale. An earlier block died, the named gate never ran, and the run reported a dozen unrelated failures. Guarding the early dereferences helped, but guarding was not the answer: **the defects were re-aimed** — *"ate all of it" silently logs half*, and *the plate reaches `dayTotals` and nothing else* — and both then failed their own gate immediately.
+
+**Clause 6, binding:** *a gate is proven by a defect that touches ONLY its property.* A defect broad enough to break the app is always caught by something, and being caught by something is not evidence about **this** gate. When a planted defect fails a dozen unrelated cases, that is not a strong result — it is a sign the defect is too blunt to say anything about the gate it was written for.
+
+**The diagnostic:** read the defect's blast radius, not just its verdict. One planted defect should ideally fail **one named gate and its own controls**. Many failures mean *re-aim*; zero means Clause 1 or 4; a `HARNESS` line means Clause 5; and a failure raised by a different subsystem entirely means the defect never reached the gate at all.
+
+**And the unifying statement, which is what makes this worth a clause rather than a note:** Clause 5 asks that a failure arrive with the gate's name on it; Clause 6 asks that the defect be narrow enough for that name to mean something. **A sharp defect and a named failure are the same requirement seen from two ends** — a blunt defect cannot produce a meaningful named failure, and a gate that cannot name its failure cannot show a sharp defect was caught.
 
 ### Relationship to `CLAUDE.md`
 
@@ -2680,7 +2696,7 @@ The survey concluded the slice was **additive**. It is additive for the twelve *
 
 `ai_grams` beside `grams` means **estimated beside accepted** (D57). On a consumption event `grams` is what was **eaten**, so an event carrying `ai_grams: 450` and `grams: 395` — half of a plate corrected to 790 g — would tell a calibration analysis the model **over-estimated by 12%**, when the user had in fact corrected it **up by 75%**. Carrying the fields on both the plate and the event would not have fixed that; it would have produced the wrong answer N times per plate instead of once.
 
-**So the correction loop and the identity calibration moved to the plate**, where the identification and the portion correction actually happened: `ai_grams`, `ai_identity`, `ai_alts`, `identity_pick`, `pinned`, `added`. The event carries what it ate. **Nine assertions across R6, R21, R23, R25, R30 and R61 were re-addressed**, each with its claim intact and each saying so in its own text. R30's calibration record moved one day after shipping, for the reason that the address was wrong rather than the ruling.
+**So the correction loop and the identity calibration moved to the plate**, where the identification and the portion correction actually happened (generalised as **D70**: provenance belongs where the estimate was made): `ai_grams`, `ai_identity`, `ai_alts`, `identity_pick`, `pinned`, `added`. The event carries what it ate. **Nine assertions across R6, R21, R23, R25, R30 and R61 were re-addressed**, each with its claim intact and each saying so in its own text. R30's calibration record moved one day after shipping, for the reason that the address was wrong rather than the ruling.
 
 `photoReopen` moved with them: reopening a photo meal now reopens its **plate**, because rebuilding a draft from the day's items would reconstruct a half-eaten plate as a plate half its real size, and every later correction would compound from the wrong base. Pre-v9 meals have no plate and fall back to the old reconstruction — not a fix for them, and exactly as good as the app was before.
 
@@ -2722,6 +2738,18 @@ Plate total minus the sum of its events, computed on every read and stored nowhe
 
 **Also worth noting: the census caught `photoSave` LEAVING the manifest.** It no longer writes items at all — it confirms a plate and delegates. A census that had merely gained a name would have said less than one that also lost the one it replaced.
 
+### The CDP gate caught two things the data layer could not
+
+**D51's footer now holds three outcome actions, not two.** `capture-outcome-gate.ps1` pins `nActions -eq 2`, and it failed at all three widths. This is a **deliberate change to D51**, not a regression: "Ate all of it" and "Ate some of it" are both outcome *commitments*, which is exactly what that footer was ruled to hold — neither is a draft edit that wandered in. The gate is re-pointed to three, and its claim is unchanged and now asserted over all of them: in view, at or above the 44 px touch floor, footer fixed while the body scrolls, at 360 px, 390 px and 1200 px.
+
+**And it caught the common case paying for the rare one.** The first implementation put a *"pieces (optional)"* input on **every draft row** — a control that does nothing for most foods, because most foods are not countable — and a two-item draft began scrolling on a 360 px phone. The count is now declared **inside the consumption question**, the only place it changes anything. Fork D is unaffected: the count is still a plate fact the user declares.
+
+**The frequency rule was ruled at the GESTURE level and broke at the CONTROL level.** Fork C asked whether confirming a plate and stating consumption cost two ceremonies, and that was built correctly — one tap, one button, renamed rather than added to. Then the same rule was violated one layer down, by a control rather than a step, and nothing in the gesture-level reasoning had any purchase on it.
+
+**Only a pixel gate saw it.** The data layer was at 1679/1679 throughout, and rightly: no assertion is false because a draft is taller. The failure existed only as geometry, at one width, in a measurement nobody would think to write as a claim about counts.
+
+Worth carrying: **a frequency ruling binds at every level it can be violated at, and the levels below the gesture are not reachable by argument.** A control added *while we are here* costs the common case as much as a ceremony does and is harder to notice, because it never reads as a step.
+
 ### Re-pinned, deliberately, in the same commit
 
 **Count delta: 1637 → 1679** (+42). **Twenty-seven version assertions** moved v8 → v9; **nine** were re-addressed from the item to the plate; **five** early dereferences guarded; and the D29 write-site manifest gained `consumeFromPlate` and lost `photoSave`.
@@ -2731,3 +2759,53 @@ Plate total minus the sum of its events, computed on every read and stored nowhe
 ### Not built, and named
 
 **Manual entry and the scan path have the identical problem** — a typed 790 g container, a scanned 500 g tub — and are Fork H's recorded escalation. **The template's `count`/`unit` field is Fork D's named follow-up.** Neither is smuggled in here.
+
+## D70 — Provenance belongs where the estimate was made, and the gate aimed at the wrong object (2026-09-11)
+
+Governance only. **No code, no schema change, no `APP_VERSION` bump.** Generalised out of R33, because the finding is not about plates.
+
+### The rule
+
+**A provenance field means something only at the point where the claim it records was made. Carried downstream, it does not become stale — it silently reinterprets.**
+
+`ai_grams` beside `grams` is D57's correction loop: *what the model estimated*, kept beside *what the user accepted*. The pair answers one question — **how good is the model's portion estimate?** — and it answers it at exactly one place: the moment the portion was confirmed.
+
+R33 split a meal into a **plate** (what was served) and **consumption events** (what was eaten). On an event, `grams` is the amount eaten. Nothing about `ai_grams` changed; the field beside it did. So an event carrying `ai_grams: 450` and `grams: 395` — half of a plate the user had corrected from 450 g to 790 g — reads as *the model over-estimated by 12 %*, when the truth is *the user corrected it upward by 75 %*.
+
+**Not a rounding error, not a stale value: the opposite sign, computed from two fields that were each individually correct.**
+
+And carrying the fields in both places is worse than putting them in one wrong place, because it produces that inversion **once per consumption event** instead of once per plate — inflating the very dataset the fields exist to build.
+
+**So: the correction loop, the identity calibration and the added-by-the-user marker live on the plate. The event carries what it ate.** Stated generally, for the next time this shape appears:
+
+> **Ask where the claim was MADE, not where the number is USED.** A provenance field follows its subject, and its subject is the act it describes — the estimate, the identification, the measurement — not whatever record happens to be downstream of it.
+
+The same test applies to every field of this kind already shipped: `ai_identity` (the identification), `ai_alts` and `identity_pick` (R30's calibration, one act per plate item), `pinned` (the scale anchoring), `added` (a fact about what was served). All five moved. `confidence` and `source` did **not** — they describe *this record's* reliability and origin, which genuinely is a property of each event.
+
+### The failure shape, and it is a new one
+
+**Nine assertions across six slices — R6, R21, R23, R25, R30 and R61 — were asserting the right claim at the wrong address, and the entire suite stayed green.**
+
+They stayed green because they were, at the time, correct: there was only one record, so "on the item" and "where the estimate was made" were the same place. R33 separated those two things, and every one of those assertions silently followed the *record* rather than the *claim*.
+
+This is a new member of the D56/D60 family, and the distinction is worth stating precisely:
+
+| shape | what it looks like |
+|---|---|
+| D56 | a check that **stopped checking** — silently skipped, quarantined, unexecuted |
+| D60 Clause 1 | a check that **cannot fail** — asserts nothing that could be false |
+| D60 Clause 4 | a check whose **fixture** cannot reach the property |
+| D60 Clause 5 | a check that fails, but **not by name** |
+| **this** | a check that **runs, can fail, and is aimed at the wrong object** |
+
+**It is the hardest of the family to detect, because nothing about it is anomalous.** It executes, it asserts a real property, it fails when that property is broken, and its name is accurate. What has moved is the *referent* — and no amount of adversarial attention to the assertion finds that, because the assertion is not where the error is.
+
+**What does find it: a structural change that separates two things previously fused.** R33 split one record into two, and the nine assertions declared themselves within one run — not by failing for the right reason, but by failing at all. That is worth recording as the detection mechanism, because it is not a discipline anyone can practise on demand; it is a thing that *happens* to you, and the only available response is to read each failure as a question about **address** rather than about correctness.
+
+**The practical rule this yields:** when a slice separates one object into two, every assertion touching the original is suspect **even if it still passes** — because passing may mean the two halves have not yet diverged in that case. R33's re-addressing was driven by failures; a case that happened to be green for a fully-eaten plate (`grams == plate grams`) would have hidden the same error. **A green assertion across a structural split is not evidence that its address survived.**
+
+### What this does not claim
+
+That the nine assertions were badly written. They were correct when written, correct in their claims, and correct after re-addressing; only the world underneath them changed. **A log that recorded this as sloppiness would be recording the wrong lesson** — the lesson is that provenance has a home, that home is the act rather than the record, and that a suite cannot tell you when a record has stopped being that act.
+
+Related: **D57** (the correction loop these fields implement), **D60** (the gate-evidence family this extends), **D69** (the slice that surfaced it).
