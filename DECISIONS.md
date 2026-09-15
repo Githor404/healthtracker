@@ -2846,3 +2846,23 @@ Recorded because it is the first real-world evidence for three slices, and becau
 **The directional rule is enforced structurally, not remembered.** `eval/score.py` prints no figure without its denominator, and below 30 rows every figure is prefixed `DIRECTIONAL`. A percentage over seven rows reads exactly like a percentage over seven hundred once it has been copied into a sentence, so the label travels with the number.
 
 `eval/build.py` regenerates it from an export and is committable. `eval/set.json` is the user's eating history in another shape and is not.
+
+## D73 — A document that states a rule its enforcer does not implement (2026-09-14)
+
+Governance only. No code, no schema change, no `APP_VERSION` bump.
+
+**What happened.** `eval/README.md` stated that `tolabel.json` was not committable. `.gitignore` covered `set.json` and not `tolabel.json`. The file — real dish names and dates — was committed to a public repo. Caught before the push, so amending removed it; had it been pushed it would have been permanent.
+
+**The rule: when a document states a rule that something else enforces, verify it against the enforcer, in the same change.** One `git check-ignore` would have caught this. Prose asserting a guarantee is not the guarantee.
+
+**Why it is worth an entry.** This is D3's shape — *never assert safety we don't have* — in documentation rather than in code. D3 ruled that a confirm dialog must not claim a backup exists when the write failed. A README claiming a file is protected when the ignore rule omits it is the same failure with a different surface, and it is the first instance of that shape here.
+
+**And the narrower lesson: I ignored the instance, not the category.** The first fix covered `set.json` alone. `.gitignore` now covers the export, both generated data files, a labels file that does not exist yet, and any predictions file — because the next data artefact will be created by a future session that has not read this entry.
+
+## D74 — Two limits on the evaluation set (2026-09-14)
+
+Governance only. Ruled before labelling starts, because both would otherwise be discovered by their consequences.
+
+**`undecidable` is a finished label, not a skipped row.** If no corpus row is correct for a query, that is a **finding about the corpus** and as complete an answer as naming a row. The tooling counts *labelled*, *undecidable* and *not yet looked at* as three states, with the first two both resolved — **a workflow that reports "no row fits" as unfinished work applies pressure to invent an answer**, and an invented row is noise in the truth column, which is worse than a smaller set.
+
+**One labeller, who is also the user the matcher serves.** The set is labelled by the app's author, whose meals it contains and whose matcher it will score. **It measures agreement with one person's judgement, not correctness.** Nothing fixes that, and it is not a reason to stop — a matcher that agrees with its only user is doing most of its job. But no figure from this set may be called accuracy without the qualification, and a disagreement between matcher and label is not automatically the matcher being wrong.

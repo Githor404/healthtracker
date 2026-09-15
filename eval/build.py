@@ -83,7 +83,7 @@ def build_worklist(blob):
                 ('query', q), ('asked_by', 'model' if model_q else 'accepted'),
                 ('times_logged', 0), ('dates', []),
                 ('example_notes', (it.get('notes') or '')[:180]),
-                ('human_judged', False), ('corpus_row', None),
+                ('human_judged', False), ('corpus_row', None), ('undecidable', False),
             ]))
             e['times_logged'] += 1
             if date not in e['dates']:
@@ -132,10 +132,15 @@ def main(src, outdir):
     io.open(os.path.join(outdir, 'tolabel.json'), 'w', encoding='utf-8', newline='').write(
         json.dumps(OrderedDict([
             ('generated_from', src),
-            ('instructions', 'Set corpus_row to the identifier of the correct row. '
-                             'Leave null if undecidable; do not guess. An unlabelled '
-                             'entry is honest, a guessed one is noise.'),
-            ('truth', 'NONE until a human sets corpus_row'),
+            ('instructions',
+             'Set corpus_row to the identifier of the correct row. If NO row is '
+             'correct, set undecidable:true and leave corpus_row null -- that is a '
+             'FINDING ABOUT THE CORPUS and a finished label, not a skipped one. '
+             'Never guess: a guessed row is noise in the truth column, which is '
+             'worse than a smaller set.'),
+            ('truth', 'NONE until a human sets corpus_row or marks undecidable'),
+            ('labeller', 'single (the app author). See D74: this set measures '
+                         'agreement with ONE PERSON JUDGEMENT, not correctness.'),
             ('queries', work),
         ]), indent=2, ensure_ascii=False) + '\n')
 
@@ -143,7 +148,11 @@ def main(src, outdir):
     print('name-only (barcode, no portion):    %d' % len(name_only))
     print('distinct queries to label:          %d' % len(work))
     print('  of which human-judged (seed):     %d' % len(seed))
-    print('  of which already labelled:        %d' % len([w for w in work if w['corpus_row']]))
+    done = [w for w in work if w['corpus_row']]
+    undec = [w for w in work if w.get('undecidable')]
+    print('  labelled with a row:              %d' % len(done))
+    print('  marked undecidable (a FINDING):   %d' % len(undec))
+    print('  not yet looked at:                %d' % (len(work) - len(done) - len(undec)))
     print('  asked by model / accepted name:   %d / %d'
           % (len([w for w in work if w['asked_by'] == 'model']),
              len([w for w in work if w['asked_by'] == 'accepted'])))

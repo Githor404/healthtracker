@@ -99,10 +99,16 @@ def main(set_path, pred_path, tolabel_path=None):
         tl = json.load(io.open(tolabel_path, encoding='utf-8'))
         qs = tl.get('queries', [])
         done = [q for q in qs if q.get('corpus_row')]
+        undec = [q for q in qs if q.get('undecidable')]
         seed = [q for q in qs if q.get('human_judged')]
         print('')
-        print('  labelling worklist: %d of %d queries labelled; %d human-judged (seed)'
-              % (len(done), len(qs), len(seed)))
+        # "undecidable" is counted as PROGRESS, never as a gap. A workflow that
+        # reports it as unfinished pressures the labeller into inventing an answer,
+        # which is the one thing that would poison the truth column.
+        print('  labelling worklist: %d of %d resolved  (%d labelled, %d undecidable)'
+              % (len(done) + len(undec), len(qs), len(done), len(undec)))
+        print('  %d not yet looked at; %d human-judged (seed)'
+              % (len(qs) - len(done) - len(undec), len(seed)))
         print('  NOTE: these are the dish cases the matcher exists for. Until they are')
         print('  labelled, nothing above measures that job (D72).')
     print('')
