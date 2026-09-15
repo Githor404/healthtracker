@@ -2798,3 +2798,37 @@ Ruled after D70 came back unreadable.
 **Cross-references are pointers, not arguments.** Name the entry; do not re-derive it.
 
 **The test:** would this sentence tell a reader what to DO if they had never read another entry? If not, cut it, or move it to the end.
+
+## D72 — What the export cannot measure (2026-09-14)
+
+Governance only. No code, no schema change, no `APP_VERSION` bump. Ruled when the first real export arrived, before anything was computed from it.
+
+**The rule: a field records what the user DID, which is not the same as what it appears to measure. Before computing a statistic over the log, ask what had to happen for the row to exist.**
+
+Three limits, ruled. The evaluation set is built from the scanned rows only, and the others are refused rather than caveated.
+
+### 1. `ai_grams` / `grams` cannot measure the model's portion bias
+
+The pair looks like a correction loop and is one — but only over a **selected** subset. The user corrected an estimate **only when an actual weight was available**, and plausibly corrected it *because* the estimate looked wrong. Selection is correlated with the error being measured, so any ratio computed across the log measures **the user's correcting behaviour**, not the model's accuracy.
+
+Identical pairs (155/155, 70/70) are the sharper trap. They are not agreement. They mean the estimate was accepted, which could mean it was right **or** that there was no way to check. **Neither is evidence**, and they cannot be separated after the fact.
+
+This does not retire the field. D57 stores it so the loop can be measured *when the two cases become distinguishable* — which needs the app to record that a weight was consulted, not just that a number was accepted. Until then the ratio is not a metric.
+
+### 2. `fastLog` cannot measure fasting
+
+Days are not reliably closed and fasts are not reliably resolved, so gaps are **logging artifacts**. The 1,132-hour entry is the plain case: it is the interval between two log events, not a fast. Any streak, mean or longest-fast figure over this export describes **logging habits**.
+
+### 3. The eval set's own limit, which follows from the same reasoning
+
+Only the **scanned** rows carry external truth: a barcode determines the product independently of the app, the model and the user. That is what makes them usable and everything else not.
+
+**But the barcoded rows are also selected, and selected against the matcher's actual job.** A barcode means the app already resolved the food without a matcher. The cases the matcher exists for — *lotus leaf sticky rice*, *siu mai*, *bean curd skin rolls* — are precisely the ones with no barcode and therefore no external truth in this export.
+
+**So the set can measure whether a matcher returns a composition consistent with a known product. It cannot measure the thing the matcher is for.** Stated here rather than discovered when the first accuracy number looks good.
+
+### What the set is, as built
+
+**7 rows** with barcode, query string and per-100 g composition truth; **1 name-only** row (barcode and product name from the price log, no logged portion, so no composition). One product was scanned twice and its two independent derivations **agree**, which is the only internal check available and it passes.
+
+`eval/build.py` regenerates it from an export and is committable. `eval/set.json` is the user's eating history in another shape and is not.

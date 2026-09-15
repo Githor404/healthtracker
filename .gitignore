@@ -7,3 +7,17 @@ reference/
 # Transient test-harness artifacts (created + removed by the gates; never committed).
 tests/.swbump
 tests/.zxing.tmp
+
+# REAL USER DATA. The repo is public-facing and fixture-synthetic forever (CLAUDE.md),
+# so an actual export -- barcodes, meals, weights, sleep, BP, fasting history -- must
+# never be committable. Kept in-tree because the evaluation set is built from it, and
+# ignored so that decision cannot be undone by a stray `git add -A`.
+export.json
+export*.json
+*.export.json
+
+# The evaluation set is DERIVED from that export -- product names, barcodes and what
+# was eaten on which day. The generator (eval/build.py) is committable; its output is
+# the user's eating history in another shape and is not. Whether it ever becomes
+# public is the user's call, not a default.
+eval/set.json
