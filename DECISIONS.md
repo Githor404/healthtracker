@@ -2827,8 +2827,22 @@ Only the **scanned** rows carry external truth: a barcode determines the product
 
 **So the set can measure whether a matcher returns a composition consistent with a known product. It cannot measure the thing the matcher is for.** Stated here rather than discovered when the first accuracy number looks good.
 
+### What the first export already demonstrates
+
+Recorded because it is the first real-world evidence for three slices, and because a log that only records failures is not a record.
+
+**R30's off-ramp worked on the case that motivated it.** The 2026-09-12 plate is wine-as-apple-juice caught in the act: the model answered `apple juice` at **p = 0.42**, below the 0.75 floor, so nothing was filled in; the user picked **rank 1** (`white wine`); and because a candidate is a name and not a nutrition profile, the item landed **unresolved with no macros** rather than logging apple-juice numbers under "wine". Every clause of Fork E1 doing its job on real data.
+
+**R33 is in use.** Three plates, two partial consumptions — a third of a 205 g tofu plate on 09-13 — and the remainder derived rather than stored.
+
+**D70's move is confirmed against real data.** All five plate items carry `ai_alts` and `identity_pick`; no consumption event does. The provenance sits where the identification happened.
+
 ### What the set is, as built
 
-**7 rows** with barcode, query string and per-100 g composition truth; **1 name-only** row (barcode and product name from the price log, no logged portion, so no composition). One product was scanned twice and its two independent derivations **agree**, which is the only internal check available and it passes.
+**7 rows** with barcode, query string and per-100 g composition truth; **1 name-only** row (barcode and product name from the price log, no logged portion, so no composition). One product was scanned twice, at 100 g and at 40 g, and both derivations give the same profile — the only internal check available, and it passes.
+
+**And a labelling worklist: 26 distinct queries, none labelled.** Five are marked `human_judged` — the plates where a candidate was actually chosen between. **That is a seed, not a set.** The worklist separates the 21 strings the model proposed from the 5 names the user accepted, because the accepted ones are worth labelling first. (The split exists because an R33 consumption event carries no `ai_identity`: D70 moved it to the plate.)
+
+**The directional rule is enforced structurally, not remembered.** `eval/score.py` prints no figure without its denominator, and below 30 rows every figure is prefixed `DIRECTIONAL`. A percentage over seven rows reads exactly like a percentage over seven hundred once it has been copied into a sentence, so the label travels with the number.
 
 `eval/build.py` regenerates it from an export and is committable. `eval/set.json` is the user's eating history in another shape and is not.

@@ -21,3 +21,6 @@ export*.json
 # the user's eating history in another shape and is not. Whether it ever becomes
 # public is the user's call, not a default.
 eval/set.json
+eval/tolabel.json
+eval/labels.json
+eval/*predictions*.json
