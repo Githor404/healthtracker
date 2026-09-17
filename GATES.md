@@ -3089,3 +3089,69 @@ Verified on the same day:
 | H5-404 **GATE** | a 404 with *"No matches found!"* renders as a no-match (Fork E), not as an error |
 
 **Status: RULED 2026-09-17. NOT built. Blocked on H4.**
+
+### H6 — A consolidated medication list for a pharmacist — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built)
+
+**Why it exists.** The family case that started H4 was a 20-pill regimen that nobody had a consolidated list of. Neither H4 nor H5 contained that list. With the scan-list ruling (D77 §1), the user asked whether the scan list plus copy already provides it. That check is the first thing below.
+
+#### The check: does the scan list plus copy answer this?
+
+**Short answer: it answers the family case as ruled, with three limits, and it does not answer the user's own list.**
+
+For one person, a pharmacist's list needs:
+- every current medication;
+- its strength;
+- how it is taken;
+- who prescribed it.
+
+With the Rx number, a pharmacy that dispensed the medication can pull the rest from its own records.
+
+| need | scan list + copy ("someone else's") | medication record (the user's own) |
+|---|---|---|
+| one person only | yes, provided only one other person is ever scanned: "someone else's" is a single bucket (limit 1) | yes, by construction |
+| every current medication | yes, for what was scanned; but old scans of a stopped drug stay in the log, so the reader has to judge what is current | yes, with H4 Fork F's `stopped` date |
+| drug and strength as printed | yes | yes |
+| how it is taken | **no**: the directions are shown at capture but are not in the ruled entry fields (limit 2) | yes (`printed.directions`) |
+| prescriber | **no**, for the same reason | yes |
+| Rx number | yes | yes |
+| one line per medication | **no**: a refill scanned twice appears twice, because it is a log, not a list (limit 3) | yes (fills sit under the medication) |
+| a copy action | yes, as ruled | **not in H4** |
+
+**The limits, in order of how much they matter.**
+1. **"Someone else's" is one bucket.** Scans for two family members land together, and the date is the only thing separating them. For six bottles scanned in one sitting, that is enough. For two people, or one person across several visits, it is the category problem again, one level down. Nothing computes over the scan list, so the result is a list that is hard to read, not a wrong number.
+2. **The entry fields leave out directions and prescriber**, and those are most of what a medication review asks about. Both are on the label and already shown at capture, so adding them as printed costs nothing new. It would, however, change the ruled field list.
+3. **It is a log, not a list.** Duplicates from refills stay visible. Removing them by Rx number is simple, but it is a feature to build, not something the scan list already does.
+
+**The user's own list is a different object.** For the user's own medications, the list is the medication record, and H4 as ruled has no copy action on it. That is the one piece of H6 that is certainly needed.
+
+#### The forks
+
+**Fork A — does H6 stay a separate slice?**
+- **A1 (recommended): no. Fold two small pieces into H4, and keep the name H6 for what remains.**
+  - **"Copy my medications"** on the medication record: one line per current medication, with the name, strength, directions, prescriber and Rx number as printed.
+  - **Copy on the scan list**, filterable by whose and by date.
+  - **What remains in H6** is limit 1: scans for several other people.
+- **A2: keep H6 as its own slice, after H4.** Cleaner sequencing, but the family case waits for it.
+- **A3: the scan list plus copy only, as already ruled.** This answers the family case with limits 1–3 and leaves the user's own list with no way to copy it.
+
+**Fork B — add directions and prescriber to scan entries (limit 2).**
+- **B1 (recommended): add them, as printed.** Same fields, same verbatim rule, same reason as in the record (transcription is not assertion). They are already on screen at capture.
+- **B2: keep the ruled field list.** Then, for directions to travel, the user has to copy them at the moment of capture.
+
+**Fork C — scans for several other people (limit 1).**
+- **C1 (recommended): named, not built.** Grouping by date covers the case that started all this. If a second person does appear, the fix is a free-text label on **scan entries only**. That is harmless there, because nothing computes over the scan list, and it keeps the medication record single-person as ruled.
+- **C2: add the label now.** That adds a second tap at capture, for a case that has not happened yet.
+
+**Fork D — what the copied list says about itself.**
+- **D1 (recommended): a header line.** It gives the date the list was copied and a plain statement of its source: *"From HealthTracker, as printed on pharmacy labels. Not checked for interactions or completeness."*
+- **No indication column.** Under D77 §2, printed directions carry whatever the label printed and nothing more.
+
+#### Pre-registered gates (under A1)
+
+| case | asserts |
+|---|---|
+| H6-own-copy **GATE** | one line per current medication; stopped medications left out; every string as printed; no indication column; the header present |
+| H6-scan-copy **GATE** | the copy follows its whose and date filters: a "someone else's" entry never appears in a "mine" copy, and vice versa |
+| H6-plain | the copied text is plain text with the header; no markup survives, and nothing is added beyond the fields (D78 §4) |
+
+**Status: PRE-REGISTERED, FORKS OPEN. NOT built.**
