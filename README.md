@@ -18,6 +18,11 @@ tap away.
   have them), and save calibrated presets for one-tap logging.
 - **Price intelligence** *(Phase 2+)*. Optional price + store capture, plus nearby
   community prices from Open Prices.
+- **Medications from a pharmacy label.** Photograph a label, or paste a reading
+  from your own AI assistant, and it is recorded exactly as printed. You confirm
+  the name and strength first. Your own medications go into a list you can copy
+  for a pharmacist; someone else's are shown and kept only in a scan list on this
+  device. The app does not say what a drug is for and does not check interactions.
 
 ## Privacy — a stated feature
 
@@ -31,6 +36,11 @@ tap away.
   supported, but the real safeguard is export — do it regularly. Some privacy
   browsers (e.g. DuckDuckGo) clear data aggressively; on iOS, use Safari or Add
   to Home Screen for reliable offline use and camera scanning.
+- **Photos sent with your own key.** If you save an AI provider key in Settings,
+  a photo you choose to capture (a meal or a pharmacy label) is sent once, to that
+  provider, and never stored. A label photo carries everything printed on it,
+  including the patient's name and address: the fields the app leaves out stay
+  out of the record, not out of what is sent.
 - **Location** is used only when you explicitly ask for nearby prices, is sent
   only as an Open Prices query parameter, and is **never stored**.
 - Data from OpenFoodFacts / Open Prices is community-sourced and treated as

@@ -2966,6 +2966,89 @@ Forks C to E are about these.
 
 **Status: RULED 2026-09-17. NOT built.**
 
+#### H4 — evidence (v0.30.0, D82)
+
+Built to the rulings above (D77, D79, D81). **123 new assertions**, grouped by case:
+
+| case | n | asserts |
+|---|---|---|
+| H4-verbatim **GATE** | 2 | every printed field is saved and survives export → restore **byte-identical**; the fixture holds mixed case, "50 mg", "TAB", a trailing space and a prose date (Clause 4) |
+| H4-absent **GATE** | 3 | an omitted, blank or null field is absent on the record, in the export, and after restore |
+| H4-refuse **GATE** + CONTROL | 4 + 1 | all six claims stripped, counted and named under their reason; no refused value in the draft, record, export or scan list; a clean reply shows no refusal line |
+| H4-refuse | 2 | differently spelled claim keys are still refused; a printed field outside the contract is counted as not kept (D3) |
+| H4-middle **GATE** ×2 | 2 | on one reply, the printed strength survives, **and** the class does not get through |
+| H4-printed-words **GATE** + CONTROL | 2 + 1 | "FOR BLOOD PRESSURE" is stored verbatim and marked as label text (C1, C3); directions naming no use carry no mark |
+| H4-person **GATE** | 3 | patient name, address and pharmacy phone: stripped and counted as tidiness, named on the draft, absent from the record, export and scan list |
+| H4-identity-first **GATE** | 4 + 3 | the question asks name, generic name and strength, nothing else; quantity sits below it; nothing saves before confirmation; below the floor the name is empty, the readings are offered, and strength is still shown |
+| H4-alts **GATE** | 4 + 5 | the model's order; no `p` shown; a self-contradicting list drops to unsure; "None of these" on a *confident* reply keeps no name; the offered list is recorded in order; a picked alternative is saved as rank 1 |
+| H4-refill **GATE** ×3 | 3 + 4 | same name and strength → offered, not applied; a different strength → a new medication, even under the same Rx number; a matching Rx number outranks a name difference; a fill does not rewrite the reading; a printed generic name does not break the match (D81) |
+| H4-no-schedule **GATE** | 2 | no dose event, no regimen entry, no food item, no `scheduled` flag |
+| H4-whose **GATE** | 5 + 5 | mine → offered and logged; someone else's → logged, **nothing** written to the medication store, no save offered or accepted; the paste path refuses to read until whose is chosen; the shipped paste path preselects nothing |
+| H4-scanlist-local **GATE** | 3 + 2 | absent from the export and the pre-restore backup; a restore neither reads nor clears it; a restored blob cannot plant one; with storage refused, it lives in memory |
+| H4-scanlist-fields | 3 | the eight ruled fields, verbatim, and only those; an unconfirmed name is logged as Unreadable label with no strength |
+| H4-two-names **GATE** ×3 | 3 | both names kept; one name → the other absent; `generic_name` is never filled in by the app |
+| H4-own-copy / H4-copy-header / H4-copy-plain **GATE** | 3 + 1 + 2 + 1 | one line per current medication, as printed, with no indication column; the header on both copies; plain text with no escaping; resuming a medication puts it back on the list |
+| H4-scan-copy **GATE** / H4-no-dedup | 2 + 2 + 1 | the whose filter holds in both directions; someone else's never appears in "my medications"; the date filter applies; two scans of one prescription stay two lines |
+| H4-escape | 3 | printed strings, candidates and unknown key names are escaped in the draft, the confirmed view and both lists |
+| H4-honest-limit **GATE** + CONTROL | 3 + 1 | on the capture surface above the send buttons, for both label kinds; absent for a meal; in the shipped paste path, before the prompt |
+| H4-kind / H4-hygiene | 12 + 2 | the meal request is byte-identical (R21-parity); the label template is sent whole and only for a label; the reply lands in the label draft with whose attached, inside the one modal; an unparseable label reply lands in the **label** paste box with a message saying where it is; the pending title names a label; the photo and key are nowhere; the scan list holds the reading, never the photo |
+| H4-export **GATE** / H4-migrate **GATE** / H4-guard **GATE** + CONTROL | 2 + 1 + 2 + 1 + 1 | the store exports and restores whole; the restore boundary rebuilds each medication from its allowlist; v9 → v10 passes through with `days` byte-identical and migrates in place on boot; v11 refused, v10 accepted |
+| H4-reasons **GATE** + CONTROL | 1 + 1 + 3 | the policy table has a reason on every entry, and an entry stripped of its reason is found; six claims, three tidiness entries, and the kept fields are all transcription |
+| H4-template / H4-parse / H4-shell / H4-manual / H4-tz | 5 + 1 + 3 + 2 + 1 | the sample obeys the parser; the templates are separate artefacts, and the label template refuses each item by name with no prop or framing advice; empty replies are refused; the shell holds the draft inside the modal, the Medications card is flat, and the meal paste path is untouched; a typed label is `manual` and is not a scan; medications and fills carry `tzo` |
+
+**The fixture that could not fail, fixed before the defect pass.** "None of these" was first exercised on a self-contradicting reply, and on that reply the name is *already* withheld. A defect that kept the name would have passed. It now runs on a confident reply, where the name is filled in, and the fixture asserts that first. **D60 Clause 4, applied before the run rather than discovered by it.** H4-absent gained a restore step for the same reason: without it, a restore boundary that filled blanks back in could not show.
+
+**Proven against the defect: 45 planted, and every one fails its own named gate.** The runner applied one defect at a time, ran the data-layer harness directly (bypassing the runner's preconditions, so a defect reaches its own gate rather than stopping at sw-hash), and restored both files byte-identical afterwards.
+
+| planted defect | fails |
+|---|---|
+| values trimmed · `form` lower-cased | H4-verbatim |
+| blank fields stored as "" at parse · filled in at restore | H4-absent · H4-absent (after restore) |
+| refused keys dropped silently | H4-refuse (all six) |
+| refused values stored | H4-refuse (record), H4-middle (class through) |
+| a refusal also deletes the strength | H4-middle (strength survives) |
+| "FOR …" stripped from directions · the C3 mark removed | H4-printed-words ×2 |
+| tidiness values stored | H4-person |
+| save without confirmation · name filled below the floor · quantity asked first | H4-identity-first ×3 (+ H4-alts contradiction) |
+| candidates sorted · `p` shown · "None of these" keeps the name | H4-alts ×3 |
+| refill applied automatically · strength ignored · Rx number ignored | H4-refill ×3 |
+| saving also logs a scheduled dose | H4-no-schedule |
+| someone else's reading saved on Done · paste defaults to mine | H4-whose ×2 |
+| scan list written into `APP_STATE` · restore clears the scan list | H4-scanlist-local ×2 |
+| prescriber dropped from scan entries | H4-scanlist-fields |
+| generic name filled from the name | H4-two-names ×2 |
+| stopped medications copied · header removed · whose filter ignored · refills de-duplicated | H4-own-copy, H4-copy-header, H4-scan-copy, H4-no-dedup |
+| an input value unescaped | H4-escape |
+| honest limit removed from the capture surface · removed from the shipped paste path | H4-honest-limit ×2 |
+| label template never sent · meal text altered by one character | H4-kind ×2 |
+| label photo kept in state | H4-hygiene |
+| `meds` dropped at restore · fills dropped at restore | H4-export (+ H4-verbatim after restore) |
+| v9 → v10 step missing from the chain | H4-migrate |
+| a policy entry without its reason | H4-reasons |
+| unparseable label reply sent to the meal box | H4-kind (fallback) |
+| typed label logged as a scan | H4-manual |
+| medication stamped without `tzo` | H4-tz |
+| label draft moved outside the modal body · whose radio preselected | H4-shell · H4-whose (shipped) |
+
+**The final tree was run again, after two small UI fixes (below) that no defect targets: all 45 caught, and every run finished with a SUMMARY line.** The notes below come from the first pass.
+
+**Two runner notes, recorded rather than smoothed over.**
+- **One planted defect was malformed.** It removed an `if` and left its `else` dangling, so app.js did not load. That run is a broken plant, not a gate result. Re-planted with the `if` intact, it fails H4-absent.
+- **Four defect runs printed their named failure but no SUMMARY line.** Re-run, three completed with exactly their expected failures. The fourth (`refuse-leak`) completed on a manual re-run, at **1797/1802**, with its five expected failures. So these runs did not abort the suite. They are the same intermittent empty headless dump that failed a full-suite run earlier the same day (D75's evidence).
+
+**Layout, checked by hand and not a committed gate.** The label draft, the refill offer, the capture surface with a label kind chosen, and the Medications card were rendered inside a 390 px iframe:
+- no horizontal overflow;
+- the footer stays in view;
+- the candidates wrap.
+
+The first attempt used a 390 px window and showed an overflow that does not exist, because headless Chrome lays out at 504 px regardless (D82). The review found two defects: an empty-name "Yes" that did nothing when tapped (it now says why), and a "Stopped" button that read like a status (now "Mark stopped").
+
+**Count delta: 1679 → 1802** (+123), re-pinned deliberately in the same change. **27 existing assertions moved from v9 to v10**, each claim unchanged. The D29 write-site manifest gained `createMedFromDraft`, `addMedFill` and `logScan` (18 sites).
+
+**Full suite, one invocation: 1802/1802 ALL PASS. `counted: 1 harness + 2 static + 8 CDP = 11 verdicts`. `SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)`, runner exit 0.** The meal capture gates (`capture-outcome`, `photo-lead`) pass unchanged: the kind choice defaults to Meal, and the meal request is byte-identical.
+
+**Status: BUILT — v0.30.0 (D82). Not pushed; awaiting review before H5.**
+
 ### H5 — Drug information: sourced, stored, copyable — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built; depends on H4)
 
 **The brief's source cannot be called from this app. Verified 2026-09-17, and it changes the slice.**

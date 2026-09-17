@@ -3095,3 +3095,61 @@ Governance only; nothing is built. This rules the open item in D80.
 - **H5 searches each printed name exactly** (D80's contract), and shows which name found each result.
 - **Scan entries and copied lines carry both names when both are printed.** This is the same no-judgement rule; keeping only one name there would force the same choice again.
 - **Fork F's refill match does not change.** It still keys on the printed `name` and strength, and on the Rx number. A generic name printed on one fill but not another must not break the match.
+
+## D82 — H4 built: medication capture from a pharmacy label (2026-09-17)
+
+`APP_VERSION → 0.30.0`; **schema v9 → v10**; a new top-level store, `meds`; and a local scan list (`healthtracker-scans`) kept outside `APP_STATE`. Built to D77, D79 and D81. The evidence is in GATES.md under H4.
+
+### What was built
+
+- **A capture kind, chosen before sending**: Meal / My label / Someone else's label, on the capture surface.
+  - Choosing a label shows the honest limit above the buttons that send.
+  - The meal request is byte-identical to 0.29.0, and a test asserts it.
+- **A label template and its own parser** (`LABEL_TEMPLATE_VERSION = 1`). Printed values are kept verbatim; a value with no visible characters is absent.
+- **One policy table** (`LABEL_REFUSED`, `LABEL_KEPT`). Every entry carries its reason: claim, tidiness, or transcription. The harness fails if an entry has no reason.
+- **The label draft lives in the single outcome modal** (D51).
+  - The draft asks for name and strength first, plus a generic name if one is printed separately.
+  - Below the confidence floor, the name is left empty.
+  - Nothing saves until the user confirms name and strength.
+- **Mine**: "Save to my medications". A refill match (by Rx number, or by name and strength) is offered, never applied.
+- **Someone else's**: "Done" or "Copy". The reading is logged to the scan list and never saved.
+- **Settings › Medications** contains:
+  - my medications, each with "Mark stopped" or "Resume", and "Copy my medications";
+  - the scan list, with whose and date filters, a delete button per entry, and "Copy scan list";
+  - the no-key paste path: the honest limit, the label prompt, and a whose choice with nothing preselected;
+  - "Type a label by hand", which saves with source `manual`.
+- **README**: a Medications feature bullet, and a privacy bullet about photos sent with the user's own key.
+
+### Decisions made during the build, not separately ruled
+
+1. **A scan whose name was never confirmed is logged as "Unreadable label"**, with no strength and no generic name. This is D68's "None of these" rule, applied as recommended for this open detail. Directions, prescriber and Rx number are kept as read.
+2. **A scan is logged when the draft ends, however it ends**: saved, added as a fill, "Don't save" or "Done". A label typed by hand is not a scan.
+3. **A different strength is never a refill, even under a matching Rx number.** The ruling puts the Rx number above a difference in *name*; it does not say the Rx number overrides strength. A strength change is the clinically meaningful case F1 exists to protect.
+4. **Values keep their surrounding whitespace.** "60 " stays "60 ". The refill comparison trims and case-folds; storage does neither.
+5. **A number returned for a text field keeps its digits, as a string.** Objects, arrays and empty strings are not readings; they are counted as not kept.
+6. **Unknown keys are counted and named on the draft, not dropped silently** (D3). Their names are escaped.
+7. **B1's `source: 'manual'` needed a way in.** "Type a label by hand" opens the same draft with no reading. It is small and falls within B1, but it was not ruled on its own.
+8. **A medication is stopped, never deleted.** It can be marked stopped and resumed. A mistaken save can be undone immediately with the existing undo; one noticed later can only be marked stopped.
+
+### D29 write-site census
+
+- **Three new write sites.**
+  - `createMedFromDraft` and `addMedFill` are stamped: every medication and every fill carries `tzo`.
+  - `logScan` is exempt. The scan list is a date-only local log outside `APP_STATE`, and D77 ruled its fields.
+- **The census pattern now also matches** `meds[id] =`, `.fills.push(` and `scans.push(`.
+- **A gap found, not fixed.** The census comment listed "the five persisted record stores", and R33's `plates` store was never added. A plate write does not match the pattern, so a new plate write site would go unnoticed. It is named here rather than fixed inside this slice.
+
+### Found while building
+
+- **Two CSS tokens the shipped styles rely on do not exist.**
+  - `.pmalt`, `.pmaltnone`, `.pmfrac`, `.pmcount` and `.plrow` use `var(--card)` and `var(--fg)`, and neither theme defines them.
+  - So those controls fall back to a transparent background and inherited text colour. That renders acceptably, which is why nobody noticed.
+  - H4's styles use the tokens that do exist. The existing ones are not fixed here.
+- **Headless screenshots narrower than about 500 px are cropped, not narrow.** With a 390 px `--window-size`, Chrome still lays the page out at 504 px, so the first layout check showed an overflow that does not exist. Checked again inside a 390 px iframe: no horizontal overflow. The CDP gates avoid this by emulating the device; a one-off screenshot does not.
+- **A literal closing script tag inside a harness string ends the harness.** The escape test's fixture key contained `</script>`, which closed the inline script. The whole suite then produced no results at all. The fixture now splits the tag.
+- **Intermittent empty dumps.** Four defect runs, and one full-suite run earlier the same day, produced no SUMMARY line; every re-run completed. The runner reports this as a failure by name, which is correct. The likely cause is the headless dump under memory pressure, not the harness.
+
+### Count and pins
+
+- **Count delta: 1679 → 1802** (+123).
+- **27 existing assertions moved from v9 to v10**, each claim unchanged (the same number R33 moved). That took 26 edits; one assertion followed its fixture, the forward-version blob, which moved to v11.

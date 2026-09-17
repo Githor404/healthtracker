@@ -13,9 +13,10 @@ set -uo pipefail
 DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$DIR"
 
-# Writes into the five persisted record stores: day.items, timeline[date],
-# priceLog[bc].entries, fastLog[start], regimens.log[date][entryId].
-WRITE_RE='(\.items\.push\(|\.entries\.push\(|timeline\[[^]]+\][^;]*\.push\(|fastLog\[[^]]+\][[:space:]]*=[^=]|\.log\[[^]]+\]\[[^]]+\][[:space:]]*=[^=])'
+# Writes into the persisted record stores: day.items, timeline[date],
+# priceLog[bc].entries, fastLog[start], regimens.log[date][entryId] -- and, from H4,
+# meds[id], a medication's fills, and the local scan list (scans.push).
+WRITE_RE='(\.items\.push\(|\.entries\.push\(|timeline\[[^]]+\][^;]*\.push\(|fastLog\[[^]]+\][[:space:]]*=[^=]|\.log\[[^]]+\]\[[^]]+\][[:space:]]*=[^=]|meds\[[^]]+\][[:space:]]*=[^=]|\.fills\.push\(|scans\.push\()'
 
 # Enclosing function for each match. grep does the matching (its ERE is the one
 # the pattern is written for); awk only maps a line number to the `function NAME(`
@@ -46,8 +47,17 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # contributes nothing to any total) and delegates to `consumeFromPlate`, which is
 # now the stamped creation site for that path. A census that had merely gained a
 # name would say less than one that also lost the one it replaced.
+#
+# H4/D82: three new sites. `createMedFromDraft` (meds[id] =) and `addMedFill`
+# (fills.push) are STAMPED -- the medication and each fill carry the device offset.
+# `logScan` (scans.push) is EXEMPT: the scan list is a date-only local log, outside
+# APP_STATE and never exported, and D77 ruled its fields; a time zone on it would be
+# a field nobody asked for, on a record nothing computes over.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
+addMedFill
+createMedFromDraft
+logScan
 addPriceEntry
 addSignal
 applySupplementToToday

@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 9;
-const APP_VERSION      = '0.29.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 10;
+const APP_VERSION      = '0.30.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -92,7 +92,7 @@ function defaultSettings() {
   return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
-  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
 }
 
 // ---- storage adapter: localStorage -> memory ------------------------------
@@ -781,6 +781,29 @@ function migrateV8toV9(v8, nowISO) {
   if (typeof v8.knownDropped === 'number') out.knownDropped = v8.knownDropped;
   return out;
 }
+// H4 -- v9 -> v10. Structural passthrough: `meds` starts empty, so `days` comes
+// through byte-identical. The bump is REQUIRED, not optional (D77 §5): the existing
+// medication record turns "50 mg" into a number and a unit, so a label's as-printed
+// reading needs a store that never passes through that normaliser -- and an older
+// app would strip the store whole, leaving refills and fills with nothing to belong
+// to. The forward guard is what protects that older app.
+function migrateV9toV10(v9, nowISO) {
+  const out = {
+    version: 10,
+    days: (v9.days && typeof v9.days === 'object') ? v9.days : {},
+    current: typeof v9.current === 'string' ? v9.current : '',
+    settings: (v9.settings && typeof v9.settings === 'object') ? v9.settings : defaultSettings(),
+    priceLog: (v9.priceLog && typeof v9.priceLog === 'object') ? v9.priceLog : {},
+    plates: (v9.plates && typeof v9.plates === 'object') ? v9.plates : {},
+    meds: (v9.meds && typeof v9.meds === 'object' && !Array.isArray(v9.meds)) ? v9.meds : {},
+    timeline: (v9.timeline && typeof v9.timeline === 'object') ? v9.timeline : {},
+    fastLog: (v9.fastLog && typeof v9.fastLog === 'object') ? v9.fastLog : {},
+    regimens: (v9.regimens && typeof v9.regimens === 'object') ? v9.regimens : { active: '', list: [], log: {} },
+    migratedAt: typeof v9.migratedAt === 'string' ? v9.migratedAt : nowISO,
+  };
+  if (typeof v9.knownDropped === 'number') out.knownDropped = v9.knownDropped;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -794,6 +817,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 6) < 7) out = migrateV6toV7(out, nowISO);
   if ((out.version || 7) < 8) out = migrateV7toV8(out, nowISO);
   if ((out.version || 8) < 9) out = migrateV8toV9(out, nowISO);
+  if ((out.version || 9) < 10) out = migrateV9toV10(out, nowISO);
   return out;
 }
 
@@ -807,6 +831,7 @@ function normalizeState(o) {
     settings: normalizeSettings(o.settings),
     priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
     plates: normalizePlates(o.plates),         // R33: the served-food store, separate from what was eaten
+    meds: normalizeMeds(o.meds),               // H4: medications as printed on their labels (D77)
     timeline: normalizeTimeline(o.timeline),   // D20: source-agnostic signal store
     fastLog: normalizeFastLog(o.fastLog),      // D22: persisted fasting resolutions
     regimens: normalizeRegimens(o.regimens),   // D27: timeline templates + fulfillment log
@@ -948,6 +973,7 @@ function boot() {
   if (!state.priceLog || typeof state.priceLog !== 'object') { state.priceLog = {}; dirty = true; }
   if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
   if (!state.plates || typeof state.plates !== 'object') { state.plates = {}; dirty = true; }         // R33
+  if (!state.meds || typeof state.meds !== 'object' || Array.isArray(state.meds)) { state.meds = {}; dirty = true; }   // H4
   if (!state.fastLog || typeof state.fastLog !== 'object') { state.fastLog = {}; dirty = true; }       // D22
   if (!state.regimens || typeof state.regimens !== 'object') { state.regimens = { active: '', list: [], log: {} }; dirty = true; }   // D27
   // R18: boot took a SAME-VERSION blob as-is and only patched settings with ad-hoc
@@ -973,8 +999,8 @@ function boot() {
 function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
 
 // Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
-// absent -> reject; 1 -> chained in-place migrate; 2..8 -> normalized up; 9 -> as-is;
-// > 9 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
+// absent -> reject; 1 -> chained in-place migrate; 2..9 -> normalized up; 10 -> as-is;
+// > 10 -> reject (the forward guard moves with SCHEMA_VERSION, never behind it).
 function parseImport(raw) {
   const text = cleanJSON(raw);
   if (!text) return { ok: false, error: 'Nothing to import.' };
@@ -992,7 +1018,7 @@ function parseImport(raw) {
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
     return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v9 upgrades, v9 as-is
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v10 upgrades, v10 as-is
 }
 
 function showPrerestore(json) {
@@ -4760,7 +4786,7 @@ function doPhotoPaste() {
 function captureOutcomeState() {
   // A draft outranks a stale busy line: the answer arrived, whatever the last
   // pending message said.
-  if (PHOTO_DRAFT) return 'success';
+  if (PHOTO_DRAFT || LABEL_DRAFT) return 'success';
   if (BYOK_BUSY && BYOK_BUSY.phase === 'sending') return 'pending';
   if (BYOK_BUSY && BYOK_BUSY.phase === 'error') return 'error';
   return 'none';
@@ -4790,6 +4816,13 @@ function captureRetry() {
 // that floor made into a button instead of a sentence.
 function capturePasteInstead() {
   byokBusy(null);
+  if (LAST_CAPTURE_KIND !== 'meal') {
+    try { openSettings(); } catch (e) {}
+    const md = document.getElementById('medsDetails'); if (md) md.open = true;
+    const lb = document.getElementById('labelPasteBox');
+    if (lb) { try { lb.focus(); lb.scrollIntoView({ block: 'center' }); } catch (e) {} }
+    return { ok: true, where: 'label' };
+  }
   try { if (typeof openSheet === 'function') openSheet('photo'); } catch (e) {}
   const box = document.getElementById('ingestBox');
   if (box) { try { box.focus(); box.scrollIntoView({ block: 'center' }); } catch (e) {} }
@@ -4821,7 +4854,13 @@ function renderCaptureOutcome() {
   // compared against a working run.
   const traceTxt = byokTraceLine();
   const traceHTML = traceTxt ? `<div class="otrace">${esc(traceTxt)}</div>` : '';
-  if (st === 'success') {
+  if (st === 'success' && LABEL_DRAFT) {
+    // H4: the label draft shares THIS modal (D51: one place an outcome is shown).
+    title.textContent = LABEL_DRAFT.source === 'manual' ? 'Type the label'
+      : (LABEL_DRAFT.whose === 'other' ? 'Someone else’s label — read' : 'Label read — confirm the name and strength');
+    msg.innerHTML = LABEL_DRAFT.source === 'manual' ? '' : traceHTML;
+    foot.innerHTML = labelOutcomeFoot(LABEL_DRAFT);
+  } else if (st === 'success') {
     // The draft renders into #photoDraft, which now lives in this body. The
     // markup is UNCHANGED and shared with the paste path, so R21-parity is
     // preserved by construction -- the surface moved, the draft did not.
@@ -4842,7 +4881,7 @@ function renderCaptureOutcome() {
         `<button class="btn" onclick="photoAskConsumption(true)">Ate some of it</button>` +
         `<button class="btn" onclick="photoDiscard()">Discard</button>`;
   } else if (st === 'pending') {
-    title.textContent = 'Reading your photo';
+    title.textContent = LAST_CAPTURE_KIND !== 'meal' ? 'Reading the label' : 'Reading your photo';
     msg.innerHTML = `<div class="opend"><span class="byokspin"></span>${esc(busyMsg)}</div>` +
       `<div class="osub">The photo is sent once, to the provider you configured. Nothing else is sent, ` +
       `and the photo is never stored.</div>` + traceHTML;
@@ -4958,12 +4997,22 @@ function byokNoteVerdict(r) {
 // settings issues a call; this runs only from an explicit capture-send.
 function byokCapture(file, source) {
   if (!byokConfigured()) return Promise.resolve({ ok: false, kind: 'config', error: 'No key saved.' });
+  // H4 / I1: the capture kind is the user's choice, read ONCE here. A meal capture
+  // sends exactly what it always sent (R21-parity); a label capture sends the label
+  // template and lands in the label draft with the whose answer attached.
+  const capKind = CAPTURE_KIND;
+  LAST_CAPTURE_KIND = capKind;
+  const isLabel = capKind !== 'meal';
+  const callOpts = isLabel ? { text: LABEL_DIRECT_PREFIX + LABEL_TEMPLATE } : {};
+  const openDraft = isLabel
+    ? function (t) { return openLabelDraft(t, { whose: capKind === 'label-other' ? 'other' : 'mine', source: 'label-photo' }); }
+    : openPhotoDraft;
   const cap = byokCap();
   if (cap.exhausted) {
     byokBusy('error', 'Daily cap reached (' + cap.cap + '). Paste instead, or raise it in Settings.');
     return Promise.resolve({ ok: false, kind: 'cap' });
   }
-  byokBusy('sending', 'Reading the photo\u2026');
+  byokBusy('sending', isLabel ? 'Reading the label\u2026' : 'Reading the photo\u2026');
   const capT0 = nowMs();                 // R27: the retry must know what it has left
   byokTraceReset();                      // R28: one trace per capture
   byokLog('capture: source=' + (source === 'library' ? 'library' : 'camera') +
@@ -4978,9 +5027,9 @@ function byokCapture(file, source) {
     byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
     byokStartTick('Sending to your provider\u2026');
     byokCount();
-    return byokCall(img.dataUrl, {}).then(byokNoteVerdict).then(function (r1) {
+    return byokCall(img.dataUrl, callOpts).then(byokNoteVerdict).then(function (r1) {
       if (r1.ok) {
-        const d1 = openPhotoDraft(r1.text);
+        const d1 = openDraft(r1.text);
         if (d1.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 1 }; }
         // RETRY ONCE, and only for a malformed BODY -- a rejected key or a dead
         // network will fail the same way twice and spending a second call on it
@@ -4997,9 +5046,9 @@ function byokCapture(file, source) {
           return byokFallback(r1.text, 'The reply did not match the template, and too little time was left to ask again. It is below, paste-ready.');
         byokStartTick('That reply did not parse. Asking once more\u2026');
         byokCount();
-        return byokCall(img.dataUrl, { budget: left }).then(byokNoteVerdict).then(function (r2) {
+        return byokCall(img.dataUrl, Object.assign({}, callOpts, { budget: left })).then(byokNoteVerdict).then(function (r2) {
           if (r2.ok) {
-            const d2 = openPhotoDraft(r2.text);
+            const d2 = openDraft(r2.text);
             if (d2.ok) { byokStopTick(); byokBusy(null); return { ok: true, source: 'call', attempts: 2 }; }
             return byokFallback(r2.text, 'The reply did not match the template twice.');
           }
@@ -5020,11 +5069,15 @@ function byokCapture(file, source) {
 // NEVER A DEAD END. Whatever failed, the raw reply (when there is one) lands in
 // the paste box and the user is one tap from the path that has always worked --
 // with the photo still in hand.
+let LAST_CAPTURE_KIND = 'meal';
 function byokFallback(raw, message) {
   byokStopTick();
-  const box = document.getElementById('ingestBox');
+  const isLabel = LAST_CAPTURE_KIND !== 'meal';
+  const box = document.getElementById(isLabel ? 'labelPasteBox' : 'ingestBox');
   if (box && raw) box.value = String(raw);
-  byokBusy('error', String(message || 'That did not work.') + ' Use Copy prompt and paste the reply instead.');
+  byokBusy('error', String(message || 'That did not work.') + (isLabel
+    ? ' Use Copy label prompt in Settings › Medications and paste the reply there instead.'
+    : ' Use Copy prompt and paste the reply instead.'));
   return { ok: false, kind: 'fallback', fellBack: true, hasRaw: !!raw };
 }
 // The instant a photo comes back, SOMETHING is on screen. The old handler could
@@ -5097,7 +5150,7 @@ function renderByok() {
     `<div class="note">Used today: ${esc(cap.used)} of ${esc(cap.cap)}.</div>` +
     citeBlock('How your key and photos are handled',
       `<small class="labcite">The key is stored on this device only, is never included in an export or a backup, ` +
-      `and is sent nowhere except to the provider you choose, when you capture a meal. The photo is never stored.</small>`);
+      `and is sent nowhere except to the provider you choose, when you capture a meal or a label. The photo is never stored.</small>`);
 }
 function saveByok() {
   const k = document.getElementById('byokKey');
@@ -5136,15 +5189,20 @@ function renderCaptureBtn() {
     : '';
   const verifyC = (stC.state === 'verified') ? ''
     : ` <button type="button" class="linklike" onclick="byokTest()">verify now</button>`;
+  const lblKind = CAPTURE_KIND !== 'meal';
   el.innerHTML = busyC + testingC + (byokConfigured()
-    ? `<div class="caprow">` +
+    ? captureKindHTML() +
+      (lblKind ? `<div class="pmnote lblimit">${esc(LABEL_HONEST_LIMIT)}</div>` : '') +
+      `<div class="caprow">` +
       `<button class="btn primary" onclick="document.getElementById('captureFile').click()">Take photo</button>` +
       `<button class="btn" onclick="document.getElementById('captureLib').click()">Choose photo</button>` +
       `</div>` +
       (testingC ? '' :
         `<div class="byoks ${stC.state === 'verified' ? 'byokok' : (stC.state === 'failed' ? 'byokbad' : '')}">` +
         `${esc(byokStatusLine())}${verifyC}</div>`) +
-      `<div class="note">Take one now, or choose one you already have. One call to your provider with the photo and the template below. Nothing else is sent.</div>`
+      (lblKind
+        ? `<div class="note">Take one now, or choose one you already have. One call to your provider with the photo and the label template (Settings › Medications). Nothing else is sent.</div>`
+        : `<div class="note">Take one now, or choose one you already have. One call to your provider with the photo and the template below. Nothing else is sent.</div>`)
     : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`);
 }
 
@@ -5294,7 +5352,7 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderCaptureBtn(); renderCaptureOutcome(); }
+function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -5382,6 +5440,7 @@ const VERSION_LOG = [
   { v: '0.27.0', d: '2026-09-09', note: 'Groundwork, and one fix. A day can now hold food whose portion is known but whose composition is not, without quietly under-reporting what you ate: any total built partly from such items says so — "from 3 of 4 items" — on the day total, on each meal, on the history row and above the ring, in the same words the micronutrient rows have always used. Averages and the energy trend leave those days out rather than folding in a number that is too low, and say how many days they used. Nothing you can log today produces such an item yet — that arrives with the next release — so no day of yours changes: same totals, same averages, same trend line. The fix: a meal like that now correctly counts as having eaten, so it breaks a fast instead of being read as zero calories.' },
   { v: '0.28.0', d: '2026-09-11', note: 'Photos of a single item now ask WHAT it is before asking how much. A glass of wine read as apple juice, and the old question went straight to the portion — so you corrected the volume of a drink you were not having. The assistant is now asked for three possible identifications per item, and you pick: the best guess is offered for a one-tap yes, the alternatives are one tap away, and "None of these" logs the portion without inventing a composition for it. When the assistant is not confident, nothing is filled in at all — an answer on screen pulls you towards it even when it is labelled uncertain. Plates of several items are unchanged: the biggest item still anchors the rest, and now carries the same alternatives beside it. Which options you were shown and which you took are saved with the meal, so the confidence cut-off can eventually be tuned from your own picks rather than guessed.' },
   { v: '0.29.0', d: '2026-09-11', note: 'Partial meals. What is on the plate and what you ate are now two different things, so a takeout tray no longer logs as though you ate the tray. Confirm what was served, then say how much of it you had — a half, a third, or "6 of 10" where you have told the app the plate holds 10 pieces. You can come back to the same plate later and log the rest as its own meal, at its own time. Eating the whole thing is still one tap: the Save button now says "Ate all of it". When a plate looks like more than one serving — usually because you corrected the estimate sharply upwards — the app asks how much you ate instead of assuming all of it. Food with some left over shows at the top of the day until you log it or it ages out; nothing is ever counted as eaten on your behalf.' },
+  { v: '0.30.0', d: '2026-09-17', note: 'Medications from a pharmacy label. Choose My label or Someone else’s label, take a photo, and the label is read exactly as printed — name, strength, directions, prescriber, Rx number. You confirm the name and strength first. Your own are kept in Settings › Medications, with refills offered rather than assumed, and a list you can copy for a pharmacist. Someone else’s are shown and kept only in a scan list on this device. The app does not say what a drug is for or check interactions.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -6727,7 +6786,7 @@ function byokCall(dataUrl, opts) {
   const o = opts || {};
   const body = o.ping
     ? { model: prov.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
-    : byokBody(dataUrl, AI_DIRECT_PREFIX + aiPromptText(), prov.model, byokCaps(prov, o));
+    : byokBody(dataUrl, (o.text != null ? String(o.text) : AI_DIRECT_PREFIX + aiPromptText()), prov.model, byokCaps(prov, o));
   const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
   // The ping is bounded by the test's own 15 s race, so its abort must not sit
   // BEHIND that race or it would never be the thing that fires.
@@ -8068,6 +8127,736 @@ function renderVersionLine() {
   if (el) el.textContent = versionLine(APP_VERSION, VERSION_LOG);
 }
 
+// ===========================================================================
+// H4 -- MEDICATION CAPTURE FROM A PHARMACY LABEL (D77, D79, D81; GATES.md H4)
+// ---------------------------------------------------------------------------
+// A label is printed text, so the reading is EVIDENCE and is stored exactly as
+// printed: "metoprolol tartrate" is not "metoprolol", "50 mg" is not 50. Anything
+// the app later needs in another shape is derived BESIDE the reading, never in
+// place of it (D55/D70). That is why this is a new store (`meds`, schema v10) and
+// not the D20 medication record, whose normaliser turns "50 mg" into a number and
+// a unit from a closed list.
+//
+// Whose: asked once, at capture. "Mine" is offered to the medication record;
+// "someone else's" is shown and logged to the scan list, and nothing is saved.
+// So the medication record is single-person BY CONSTRUCTION and carries no whose
+// field (D77 §1). This is a scan list, not a privacy control.
+// ===========================================================================
+
+// The label contract: every field optional, absent when not legible, verbatim.
+const LABEL_FIELDS = ['name', 'generic_name', 'strength', 'form', 'quantity', 'directions',
+  'prescriber', 'rx_number', 'fill_date', 'din', 'ndc', 'manufacturer'];
+
+// D77 §2: ONE policy table, and every entry says WHY. Two different policies
+// share this list -- claims the model must not make, and fields nothing needs --
+// plus the fields kept verbatim because transcription is not assertion. A future
+// session adding or removing an entry must see which rule it is touching, so the
+// reason is data, and labelPolicyIssues() fails the harness on an entry without one.
+const LABEL_REASONS = {
+  claim: 'a claim the label reader does not make',
+  tidiness: 'not needed here',
+  transcription: 'transcription is not assertion',
+};
+const LABEL_KEPT = LABEL_FIELDS.map((k) => ({ key: k, reason: 'transcription' }));
+const LABEL_REFUSED = [
+  { key: 'drug_class', label: 'drug class', reason: 'claim',
+    aliases: ['class', 'drugclass', 'therapeutic_class', 'pharmacologic_class', 'category'] },
+  { key: 'indication', label: 'indication', reason: 'claim',
+    aliases: ['indications', 'used_for', 'use', 'uses', 'purpose', 'treats', 'treatment_for', 'condition', 'reason'] },
+  { key: 'mechanism', label: 'mechanism', reason: 'claim',
+    aliases: ['mechanism_of_action', 'moa', 'how_it_works'] },
+  { key: 'interactions', label: 'interactions', reason: 'claim',
+    aliases: ['interaction', 'drug_interactions', 'contraindications'] },
+  { key: 'dose_advice', label: 'dose advice', reason: 'claim',
+    aliases: ['dosing_advice', 'dose_recommendation', 'recommended_dose', 'advice', 'recommendation'] },
+  { key: 'appropriate', label: 'whether it is appropriate', reason: 'claim',
+    aliases: ['appropriateness', 'is_appropriate', 'suitability', 'suitable', 'safe_for_you'] },
+  { key: 'patient_name', label: 'patient name', reason: 'tidiness',
+    aliases: ['patient', 'patientname', 'name_of_patient'] },
+  { key: 'patient_address', label: 'patient address', reason: 'tidiness',
+    aliases: ['address', 'patient_addr'] },
+  { key: 'pharmacy_phone', label: 'pharmacy phone', reason: 'tidiness',
+    aliases: ['phone', 'telephone', 'pharmacy_telephone', 'pharmacy_phone_number'] },
+];
+function labelKeyNorm(k) { return String(k == null ? '' : k).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, ''); }
+const LABEL_REFUSED_BY_KEY = LABEL_REFUSED.reduce((m, e) => {
+  m[e.key] = e; (e.aliases || []).forEach((a) => { m[a] = e; }); return m;
+}, {});
+// The load-time check the H4-reasons gate reads. An entry with no reason, or a
+// reason the table does not define, is a policy nobody can see.
+function labelPolicyIssues(kept, refused) {
+  const out = [];
+  (kept || LABEL_KEPT).forEach((e) => { if (!e || e.reason !== 'transcription') out.push('kept ' + (e && e.key) + ' has no transcription reason'); });
+  (refused || LABEL_REFUSED).forEach((e) => {
+    if (!e || !LABEL_REASONS[e.reason] || e.reason === 'transcription') out.push('refused ' + (e && e.key) + ' has no claim/tidiness reason');
+  });
+  return out;
+}
+
+// ---- the template (I1): its own version, never the meal template's ---------
+const LABEL_TEMPLATE_VERSION = 1;
+const LABEL_TEMPLATE =
+'You are reading a pharmacy label from a photo, for a medication list.\n' +
+'Reply with JSON ONLY - no prose, no markdown, straight quotes only.\n\n' +
+'Format (every field is optional):\n' +
+'{"name":"<the drug name line>","alts":[{"name":"<reading>","p":<0-1>},{"name":"<other reading>","p":<0-1>},{"name":"<other reading>","p":<0-1>}],\n' +
+' "generic_name":"<a separate generic or ingredient name>","strength":"<strength>","form":"<form>",\n' +
+' "quantity":"<quantity>","directions":"<directions>","prescriber":"<prescriber>","rx_number":"<Rx number>",\n' +
+' "fill_date":"<fill date>","din":"<DIN>","ndc":"<NDC>","manufacturer":"<manufacturer>"}\n\n' +
+'Rules:\n' +
+'- Copy every value EXACTLY as printed: the same words, spelling, capitals,\n' +
+'  abbreviations and units. Do not expand, correct, shorten or translate anything.\n' +
+'- Leave a field out if it is not printed or you cannot read it. Never guess one.\n' +
+'- "alts" lists THREE readings of the drug name line, best first. The FIRST must be\n' +
+'  identical to "name". Offer other ways the printed letters could read - a worn\n' +
+'  TARTRATE that could be SUCCINATE - not other drugs used for the same thing.\n' +
+'- "p" is how sure you are of that reading, 0 to 1. A low number is useful and a\n' +
+'  confident wrong reading is not. Do not round to 1.\n' +
+'- If a generic or ingredient name is printed separately from the name line, put it\n' +
+'  in "generic_name". Otherwise leave it out.\n' +
+'- Copy the directions as printed, including any words about what they are for.\n' +
+'  Do not ADD anything: no drug class, no statement of what the drug is for, no\n' +
+'  mechanism, no interactions, no dose advice, and nothing about whether it is\n' +
+'  appropriate.\n' +
+'- Do not include the patient name, the patient address, or the pharmacy phone number.\n\n' +
+'Nothing else. No commentary. Your entire reply must start with { and end with }.';
+const LABEL_DIRECT_PREFIX =
+  'Label template v' + LABEL_TEMPLATE_VERSION + '. Reply with the JSON object ONLY: ' +
+  'no markdown fence, no prose before or after it.\n\n';
+// Adjacent sample that obeys the template -- gated against the real parser.
+const LABEL_SAMPLE =
+'{"name":"METOPROLOL TARTRATE","alts":[{"name":"METOPROLOL TARTRATE","p":0.86},' +
+'{"name":"METOPROLOL SUCCINATE","p":0.1},{"name":"METOPROLOL TARTRATE HCTZ","p":0.04}],' +
+'"strength":"50 mg","form":"TAB","quantity":"60","directions":"TAKE 1 TABLET BY MOUTH TWICE DAILY",' +
+'"prescriber":"DR. A. SAMPLE","rx_number":"1234567","fill_date":"2026-09-01"}';
+// D77 §3: the honest limit of any refusal, stated before the first send.
+const LABEL_HONEST_LIMIT =
+  'A label photo shows everything printed on it, including the patient’s name and address, ' +
+  'and the whole photo goes to your provider. Fields this app leaves out stay out of the record, ' +
+  'not out of what is sent.';
+const LABEL_COPY_SOURCE = 'From HealthTracker, as printed on pharmacy labels. Not checked for interactions or completeness.';
+const LABEL_UNREADABLE = 'Unreadable label';
+
+// ---- parsing: transcription kept, claims and tidiness refused -- and SAID ----
+// A value is kept only if it is a string with something in it (verbatim, not
+// trimmed) or a finite number (its own digits). Anything else is not a reading.
+function labelValue(v) {
+  if (typeof v === 'string') return /\S/.test(v) ? v : null;
+  if (typeof v === 'number' && Number.isFinite(v)) return String(v);
+  return null;
+}
+function parseLabelReply(raw) {
+  const text = cleanJSON(raw);
+  if (!text) return { ok: false, error: 'Nothing to read.' };
+  let o; try { o = JSON.parse(text); } catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
+  if (!o || typeof o !== 'object' || Array.isArray(o))
+    return { ok: false, error: 'Expected one {...} object from the label template.' };
+  const printed = {}, refused = [], other = [];
+  let unreadable = 0;
+  Object.keys(o).forEach((k) => {
+    if (k === 'alts') return;
+    if (LABEL_FIELDS.indexOf(k) >= 0) {
+      const v = labelValue(o[k]);
+      if (v != null) printed[k] = v;
+      else if (o[k] != null && o[k] !== '') unreadable++;
+      return;
+    }
+    const pol = LABEL_REFUSED_BY_KEY[labelKeyNorm(k)];
+    if (pol) { if (!refused.some((r) => r.key === pol.key)) refused.push({ key: pol.key, label: pol.label, reason: pol.reason }); return; }
+    other.push(String(k));
+  });
+  if (!Object.keys(printed).length)
+    return { ok: false, error: 'The reply carried nothing read from the label.' };
+  const alts = parseAltList(o.alts);
+  const nm = printed.name == null ? '' : String(printed.name).trim();
+  return { ok: true, printed: printed, alts: alts,
+           altsMismatch: alts.length > 0 && nm !== '' && alts[0].name !== nm,
+           refused: refused, other: other, unreadable: unreadable };
+}
+// C3: directions that name a use are marked as LABEL text. A false positive only
+// adds a provenance tag, so the pattern is deliberately loose.
+function labelDirectionsNameUse(s) { return /\b(for|to treat|treats?|used for)\b/i.test(String(s == null ? '' : s)); }
+
+// ---- the medication store ---------------------------------------------------
+const MED_SOURCES = ['label-photo', 'label-paste', 'manual'];
+let MED_SEQ = 0;
+function newMedId() { MED_SEQ++; return 'md' + Date.now().toString(36) + '-' + MED_SEQ; }
+function normalizePrinted(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  LABEL_FIELDS.forEach((k) => { const v = labelValue(raw[k]); if (v != null) out[k] = v; });
+  return out;
+}
+function normalizeFill(raw) {
+  const r = raw || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date))) return null;
+  const out = { date: String(r.date) };
+  ['fill_date', 'quantity', 'rx_number'].forEach((k) => { const v = labelValue(r[k]); if (v != null) out[k] = v; });
+  if (MED_SOURCES.indexOf(r.source) >= 0) out.source = r.source;
+  const tzo = normalizeTzo(r.tzo);
+  if (tzo !== undefined) out.tzo = tzo;
+  return out;
+}
+function normalizeMed(raw) {
+  const r = raw || {};
+  const id = String(r.id == null ? '' : r.id);
+  if (!id) return null;
+  const printed = normalizePrinted(r.printed);
+  if (!printed.name) return null;                 // a medication always has a name, even "Unreadable label"
+  const out = { id: id, source: MED_SOURCES.indexOf(r.source) >= 0 ? r.source : 'manual', printed: printed,
+                created: /^\d{4}-\d{2}-\d{2}$/.test(String(r.created)) ? String(r.created) : '',
+                fills: Array.isArray(r.fills) ? r.fills.map(normalizeFill).filter(Boolean) : [] };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(r.stopped))) out.stopped = String(r.stopped);
+  if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
+  const alts = normalizeAltList(r.ai_alts);
+  if (alts) out.ai_alts = alts;
+  const pick = normalizeIdentityPick(r.identity_pick);
+  if (pick) out.identity_pick = pick;
+  const tzo = normalizeTzo(r.tzo);
+  if (tzo !== undefined) out.tzo = tzo;
+  return out;
+}
+function normalizeMeds(o) {
+  const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const out = {};
+  Object.keys(src).forEach((k) => {
+    const m = normalizeMed(src[k]);
+    if (m && m.id === k) out[k] = m;           // a row whose key disagrees with its id is dropped, not repaired
+  });
+  return out;
+}
+function medList(includeStopped) {
+  const meds = (APP_STATE && APP_STATE.meds) || {};
+  return Object.keys(meds).map((k) => meds[k])
+    .filter((m) => includeStopped || !m.stopped)
+    .sort((a, b) => String(a.printed.name).localeCompare(String(b.printed.name)));
+}
+function getMed(id) { return ((APP_STATE && APP_STATE.meds) || {})[id] || null; }
+function medLatestRx(m) {
+  const f = (m.fills || []).filter((x) => x.rx_number != null);
+  return f.length ? f[f.length - 1].rx_number : m.printed.rx_number;
+}
+
+// ---- F1: refills, offered never applied -------------------------------------
+// Trimming and case-folding ONLY. A fuzzy match is built to forgive exactly the
+// one-word difference between tartrate and succinate.
+function medKey(s) { return String(s == null ? '' : s).trim().toLowerCase(); }
+function findRefill(printed) {
+  const p = printed || {};
+  const st = medKey(p.strength);
+  const meds = medList(true).sort((a, b) => (a.stopped ? 1 : 0) - (b.stopped ? 1 : 0));
+  // A different strength is a different medication -- never a refill, whatever else matches.
+  const sameStrength = (m) => medKey(m.printed.strength) === st;
+  const rx = medKey(p.rx_number);
+  if (rx) {
+    const byRx = meds.find((m) => sameStrength(m) &&
+      (medKey(m.printed.rx_number) === rx || (m.fills || []).some((f) => medKey(f.rx_number) === rx)));
+    if (byRx) return { medId: byRx.id, by: 'rx' };
+  }
+  const nm = medKey(p.name);
+  if (!nm) return null;
+  const byName = meds.find((m) => sameStrength(m) && medKey(m.printed.name) === nm);
+  return byName ? { medId: byName.id, by: 'name' } : null;
+}
+
+// ---- the scan list: local, outside APP_STATE, never exported (D77 §1) -------
+// Outside the log BY CONSTRUCTION, the way the BYOK key is (D45 Fork F): export,
+// the D3 pre-restore backup and restore serialize APP_STATE, and this is not in it.
+const SCANS_KEY = 'healthtracker-scans';
+const SCAN_FIELDS = ['name', 'generic_name', 'strength', 'directions', 'prescriber', 'rx_number'];
+let _scansMem = null;                        // D1: memory fallback when storage refuses
+let SCAN_SEQ = 0;
+function normalizeScan(raw) {
+  const r = raw || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.date))) return null;
+  if (r.whose !== 'mine' && r.whose !== 'other') return null;
+  const out = { id: String(r.id || ''), date: String(r.date), whose: r.whose };
+  SCAN_FIELDS.forEach((k) => { const v = labelValue(r[k]); if (v != null) out[k] = v; });
+  if (!out.name) return null;
+  if (MED_SOURCES.indexOf(r.source) >= 0) out.source = r.source;
+  if (r.saved === 'new' || r.saved === 'fill') out.saved = r.saved;
+  return out;
+}
+function scanListRead() {
+  if (_scansMem) return _scansMem.slice();
+  try {
+    const raw = localStorage.getItem(SCANS_KEY);
+    if (!raw) return [];
+    const a = JSON.parse(raw);
+    return Array.isArray(a) ? a.map(normalizeScan).filter(Boolean) : [];
+  } catch (e) { return []; }
+}
+function scanListWrite(list) {
+  try { localStorage.setItem(SCANS_KEY, JSON.stringify(list)); _scansMem = null; return true; }
+  catch (e) { _scansMem = list.slice(); return false; }
+}
+function scanListReset() { _scansMem = null; }
+function logScan(d, saved) {
+  const e = { id: 'sc' + Date.now().toString(36) + '-' + (++SCAN_SEQ), date: todayKey(),
+              whose: d.whose === 'other' ? 'other' : 'mine', source: d.source };
+  const p = labelPrintedForSave(d);
+  SCAN_FIELDS.forEach((k) => { if (p[k] != null) e[k] = p[k]; });
+  if (saved) e.saved = saved;
+  const scans = scanListRead();
+  scans.push(e);                             // D29 census: EXEMPT (a date-only local log -- see check-writesites.sh)
+  scanListWrite(scans);
+  return e;
+}
+function deleteScan(id) {
+  const list = scanListRead();
+  const next = list.filter((e) => e.id !== id);
+  if (next.length === list.length) return { ok: false };
+  scanListWrite(next);
+  refresh();
+  return { ok: true };
+}
+
+// ---- the draft ----------------------------------------------------------------
+let LABEL_DRAFT = null;
+function labelDraft() { return LABEL_DRAFT; }
+function labelIdentityState(d) {
+  if (!d) return 'none';
+  return identityState({ alts: d.alts, altsMismatch: d.altsMismatch });
+}
+// The one door into a label draft. The call path and the paste path both come
+// through here, so an identical reply produces an identical draft.
+function openLabelDraft(text, opts) {
+  const o = opts || {};
+  const rep = document.getElementById('labelReport');
+  if (PHOTO_DRAFT) return { ok: false, error: 'Finish the meal draft first.' };
+  const r = parseLabelReply(text);
+  if (!r.ok) { if (rep) rep.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
+  const printed = Object.assign({}, r.printed);
+  const d = { whose: o.whose === 'other' ? 'other' : 'mine',
+              source: MED_SOURCES.indexOf(o.source) >= 0 ? o.source : 'label-paste',
+              printed: printed, aiName: r.printed.name || '', alts: r.alts, altsMismatch: r.altsMismatch,
+              refused: r.refused, other: r.other, unreadable: r.unreadable,
+              identity: 'open', pick: null, refill: null };
+  // Below the floor NOTHING is filled in (R30): the name is withheld from the
+  // field, and kept only as the model's reading. Strength is always shown.
+  if (labelIdentityState(d) === 'unsure' || !d.aiName) delete d.printed.name;
+  LABEL_DRAFT = d;
+  if (rep) rep.innerHTML = '';
+  renderLabelDraft();
+  return Object.assign({ ok: true }, r);
+}
+// B1: a typed medication is the same object with source 'manual'. No reading, no
+// candidates, no scan -- the user is the transcriber.
+function openManualLabel() {
+  if (PHOTO_DRAFT) return { ok: false, error: 'Finish the meal draft first.' };
+  LABEL_DRAFT = { whose: 'mine', source: 'manual', printed: {}, aiName: '', alts: [], altsMismatch: false,
+                  refused: [], other: [], unreadable: 0, identity: 'open', pick: null, refill: null };
+  try { closeSettings(); } catch (e) {}
+  renderLabelDraft();
+  return { ok: true };
+}
+function labelSetField(key, value) {
+  const d = LABEL_DRAFT;
+  if (!d || LABEL_FIELDS.indexOf(key) < 0) return { ok: false };
+  const v = labelValue(value);
+  if (v == null) delete d.printed[key]; else d.printed[key] = v;
+  if (key === 'name' || key === 'strength') d.refill = null;
+  return { ok: true };
+}
+function labelConfirm() {
+  const d = LABEL_DRAFT;
+  if (!d) return { ok: false };
+  const nm = d.printed.name == null ? '' : String(d.printed.name).trim();
+  // Every exit paints (D46): an empty name is SAID, not a button that does nothing.
+  if (!nm) { toast('Type the name as printed, or choose None of these'); return { ok: false, error: 'Type the name as printed, or choose None of these.' }; }
+  const i = d.alts.findIndex((a) => a.name === nm);
+  if (i === 0) d.pick = { kind: 'confirm', rank: 0 };
+  else if (i > 0) d.pick = { kind: 'alt', rank: i };
+  else if (d.source === 'manual') d.pick = null;
+  else if (nm === String(d.aiName).trim()) d.pick = { kind: 'asis' };
+  else d.pick = { kind: 'none' };               // the user typed something the reply did not offer
+  d.identity = 'confirmed';
+  renderLabelDraft();
+  return { ok: true, pick: d.pick };
+}
+function labelPickAlt(i) {
+  const d = LABEL_DRAFT;
+  if (!d || !d.alts[i]) return { ok: false };
+  d.printed.name = d.alts[i].name;
+  d.pick = { kind: i === 0 ? 'confirm' : 'alt', rank: i };
+  d.identity = 'confirmed';
+  d.refill = null;
+  renderLabelDraft();
+  return { ok: true };
+}
+// "None of these" keeps NO name (D68's photoPickNone rule): the field empties for
+// the user to type, and an untyped name is saved as "Unreadable label".
+function labelPickNone() {
+  const d = LABEL_DRAFT;
+  if (!d) return { ok: false };
+  delete d.printed.name;
+  d.pick = { kind: 'none' };
+  d.identity = 'confirmed';
+  d.refill = null;
+  renderLabelDraft();
+  return { ok: true };
+}
+function labelReopenIdentity() {
+  const d = LABEL_DRAFT;
+  if (!d) return { ok: false };
+  d.identity = 'open'; d.refill = null;
+  renderLabelDraft();
+  return { ok: true };
+}
+// What leaves the draft. An unconfirmed identity is not a name: it is saved or
+// logged as "Unreadable label", with no name-shaped fields beside it.
+function labelPrintedForSave(d) {
+  const p = Object.assign({}, d.printed);
+  const confirmed = d.identity === 'confirmed';
+  if (!confirmed) { delete p.generic_name; delete p.strength; }
+  if (!confirmed || p.name == null || !String(p.name).trim()) p.name = LABEL_UNREADABLE;
+  return p;
+}
+function labelFill(d, p) {
+  const f = { date: todayKey(), source: d.source, tzo: nowTZO() };
+  ['fill_date', 'quantity', 'rx_number'].forEach((k) => { if (p[k] != null) f[k] = p[k]; });
+  return f;
+}
+function labelClose() { LABEL_DRAFT = null; renderLabelDraft(); refresh(); }
+function labelNeedsIdentity(d) {
+  if (d.identity === 'confirmed') return false;
+  toast('First confirm the name and strength');
+  return true;
+}
+// Save, for MINE. A match is OFFERED as a refill, never applied (F1).
+function labelSave() {
+  const d = LABEL_DRAFT;
+  if (!d) return { ok: false };
+  if (d.whose !== 'mine') return { ok: false, error: 'Someone else’s label is never saved.' };
+  if (labelNeedsIdentity(d)) return { ok: false, error: 'identity' };
+  const p = labelPrintedForSave(d);
+  const match = findRefill(p);
+  if (match && !d.refill) { d.refill = match; renderLabelDraft(); return { ok: false, offered: match }; }
+  return labelSaveAsNew();
+}
+function labelSaveAsNew() {
+  const d = LABEL_DRAFT;
+  if (!d || d.whose !== 'mine') return { ok: false };
+  if (labelNeedsIdentity(d)) return { ok: false, error: 'identity' };
+  const r = createMedFromDraft(d);
+  if (d.source !== 'manual') logScan(d, 'new');
+  labelClose();
+  offerUndo('Saved ' + r.printed.name, function () { if (APP_STATE.meds) delete APP_STATE.meds[r.id]; Store.saveState(APP_STATE); refresh(); });
+  toast('Saved to your medications');
+  return { ok: true, medId: r.id, record: r };
+}
+function createMedFromDraft(d) {
+  const p = labelPrintedForSave(d);
+  const rec = { id: newMedId(), source: d.source, created: todayKey(), printed: p,
+                fills: [labelFill(d, p)], tzo: nowTZO() };
+  if (d.aiName) rec.ai_identity = d.aiName;
+  if (d.alts && d.alts.length) rec.ai_alts = d.alts.map((a) => (a.p == null ? { name: a.name } : { name: a.name, p: a.p }));
+  if (d.pick) rec.identity_pick = Object.assign({}, d.pick);
+  if (!APP_STATE.meds || typeof APP_STATE.meds !== 'object') APP_STATE.meds = {};
+  APP_STATE.meds[rec.id] = rec;
+  Store.saveState(APP_STATE);
+  return rec;
+}
+function labelSaveAsFill() {
+  const d = LABEL_DRAFT;
+  if (!d || d.whose !== 'mine' || !d.refill) return { ok: false };
+  const m = getMed(d.refill.medId);
+  if (!m) { d.refill = null; renderLabelDraft(); return { ok: false }; }
+  const p = labelPrintedForSave(d);
+  const fill = labelFill(d, p);
+  addMedFill(m, fill);
+  if (d.source !== 'manual') logScan(d, 'fill');
+  labelClose();
+  offerUndo('Added a fill of ' + m.printed.name, function () {
+    const i = m.fills.indexOf(fill); if (i >= 0) m.fills.splice(i, 1); Store.saveState(APP_STATE); refresh();
+  });
+  toast('Added as a fill');
+  return { ok: true, medId: m.id, fill: fill };
+}
+function addMedFill(m, fill) {
+  if (!Array.isArray(m.fills)) m.fills = [];
+  m.fills.push(fill);
+  Store.saveState(APP_STATE);
+  return fill;
+}
+function labelBackFromRefill() {
+  if (!LABEL_DRAFT) return { ok: false };
+  LABEL_DRAFT.refill = null; renderLabelDraft();
+  return { ok: true };
+}
+// Every scan is logged, however the draft ends. Nothing here writes a medication.
+function labelDontSave() {
+  const d = LABEL_DRAFT;
+  if (!d) return { ok: false };
+  const e = d.source !== 'manual' ? logScan(d, null) : null;
+  labelClose();
+  return { ok: true, scan: e };
+}
+function labelDone() { return labelDontSave(); }
+
+// ---- copy: the list leaves the app with its header (D79) --------------------
+function medLine(p, rx) {
+  const parts = [p.name + (p.generic_name ? ' (' + p.generic_name + ')' : '')];
+  if (p.strength) parts.push(p.strength);
+  if (p.directions) parts.push(p.directions);
+  if (p.prescriber) parts.push('Prescriber: ' + p.prescriber);
+  if (rx) parts.push('Rx ' + rx);
+  return parts.join(' — ');
+}
+function copyHeader(title) {
+  return title + ' — copied ' + todayKey() + '\n' + LABEL_COPY_SOURCE;
+}
+function medListText() {
+  const lines = medList(false).map((m) => medLine(m.printed, medLatestRx(m)));
+  return copyHeader('My medications') + '\n\n' + (lines.length ? lines.join('\n') : '(none saved)');
+}
+function scanListFiltered(f) {
+  const o = f || {};
+  return scanListRead().filter((e) =>
+    (!o.whose || o.whose === 'all' || e.whose === o.whose) &&
+    (!o.date || o.date === 'all' || e.date === o.date));
+}
+function scanListText(f) {
+  const o = f || {};
+  const who = o.whose === 'mine' ? ' (mine)' : (o.whose === 'other' ? ' (someone else’s)' : '');
+  const day = (o.date && o.date !== 'all') ? ', ' + o.date : '';
+  // A refill scanned twice is two lines: a log is not a list, and deciding that two
+  // scans are one prescription would be a judgement (D79).
+  const lines = scanListFiltered(o).map((e) =>
+    e.date + ' · ' + (e.whose === 'other' ? 'someone else’s' : 'mine') + ' · ' + medLine(e, e.rx_number));
+  return copyHeader('Scanned labels' + who + day) + '\n\n' + (lines.length ? lines.join('\n') : '(no scans)');
+}
+function copyTextOut(text, what) {
+  let done = false;
+  const box = document.getElementById('medsCopyBox');
+  if (box) { box.value = text; box.style.display = 'block'; }
+  if (box && box.offsetParent !== null) {
+    try { box.focus(); box.select(); try { box.setSelectionRange(0, text.length); } catch (e) {} done = document.execCommand('copy'); } catch (e) { done = false; }
+  }
+  if (done) { toast(what + ' copied'); return { ok: true, via: 'selection', text: text }; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { toast(what + ' copied'); },
+      function () { toast('Copy did not work — the text is in the box, select it and copy'); });
+    return { ok: true, via: 'clipboard', text: text };
+  }
+  toast('The text is in the box — select it and copy');
+  return { ok: true, via: 'manual', text: text };
+}
+function copyMedList() { return copyTextOut(medListText(), 'Medication list'); }
+let SCAN_FILTER = { whose: 'all', date: 'all' };
+function setScanFilter(k, v) { SCAN_FILTER[k] = String(v); renderMeds(); return SCAN_FILTER; }
+function copyScanList() { return copyTextOut(scanListText(SCAN_FILTER), 'Scan list'); }
+function labelReadingText(d) {
+  const p = labelPrintedForSave(d);
+  return copyHeader('Label reading') + '\n\n' + medLine(p, p.rx_number) +
+    LABEL_FIELDS.filter((k) => ['name', 'generic_name', 'strength', 'directions', 'prescriber', 'rx_number'].indexOf(k) < 0 && p[k] != null)
+      .map((k) => '\n' + k.replace(/_/g, ' ') + ': ' + p[k]).join('');
+}
+function copyLabelReading() { return LABEL_DRAFT ? copyTextOut(labelReadingText(LABEL_DRAFT), 'Label reading') : { ok: false }; }
+function medStop(id) {
+  const m = getMed(id); if (!m) return { ok: false };
+  m.stopped = todayKey(); Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+function medResume(id) {
+  const m = getMed(id); if (!m) return { ok: false };
+  delete m.stopped; Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+
+// ---- capture kind (I1): chosen by the user before sending, never guessed ----
+const CAPTURE_KINDS = ['meal', 'label-mine', 'label-other'];
+let CAPTURE_KIND = 'meal';
+function setCaptureKind(k) {
+  CAPTURE_KIND = CAPTURE_KINDS.indexOf(k) >= 0 ? k : 'meal';
+  try { renderCaptureBtn(); } catch (e) {}
+  return CAPTURE_KIND;
+}
+function captureKind() { return CAPTURE_KIND; }
+function captureKindHTML() {
+  const b = (k, t) => `<button type="button" class="capk${CAPTURE_KIND === k ? ' capkon' : ''}" ` +
+    `aria-pressed="${CAPTURE_KIND === k ? 'true' : 'false'}" onclick="setCaptureKind('${k}')">${t}</button>`;
+  return `<div class="capkind" role="group" aria-label="What are you photographing?">` +
+    b('meal', 'Meal') + b('label-mine', 'My label') + b('label-other', 'Someone else’s label') + `</div>`;
+}
+
+// ---- rendering ---------------------------------------------------------------
+function renderLabelDraft() {
+  try { renderLabelDraftInner(); } finally { try { renderCaptureOutcome(); } catch (e) {} }
+}
+function labelInput(key, label, d, extra) {
+  const v = d.printed[key] == null ? '' : d.printed[key];
+  return `<label class="lbl">${esc(label)}${extra || ''}</label>` +
+    `<input class="lbin" data-label-field="${esc(key)}" value="${esc(v)}" ` +
+    `oninput="labelSetField('${key}', this.value)" autocomplete="off">`;
+}
+function labelRefusalHTML(d) {
+  const out = [];
+  const claims = d.refused.filter((r) => r.reason === 'claim').map((r) => r.label);
+  const tidy = d.refused.filter((r) => r.reason === 'tidiness').map((r) => r.label);
+  if (claims.length) out.push(`<div class="pmnote pmwarn lbrefused" data-reason="claim">Left out of this record: ` +
+    `${esc(claims.join(', '))} — ${esc(LABEL_REASONS.claim)}.</div>`);
+  if (tidy.length) out.push(`<div class="pmnote lbrefused" data-reason="tidiness">Left out of this record: ` +
+    `${esc(tidy.join(', '))} — ${esc(LABEL_REASONS.tidiness)}.</div>`);
+  if (d.other.length) out.push(`<div class="pmnote lbother">Not part of a label reading here, so not kept: ` +
+    `${esc(d.other.join(', '))}.</div>`);
+  if (d.unreadable) out.push(`<div class="pmnote lbother">${esc(d.unreadable)} field(s) came back in a form that is not a reading, so not kept.</div>`);
+  return out.join('');
+}
+function renderLabelDraftInner() {
+  const el = document.getElementById('labelDraft');
+  if (!el) return;
+  const d = LABEL_DRAFT;
+  if (!d) { el.innerHTML = ''; return; }
+  const st = labelIdentityState(d);
+  const whoseLine = d.whose === 'other'
+    ? `<div class="pmnote lbwhose" data-whose="other">Someone else’s label: shown here and added to your scan list. Nothing is saved to your medications.</div>`
+    : `<div class="pmnote lbwhose" data-whose="mine">Your label: you can save it to your medications.</div>`;
+  let ident;
+  if (d.identity === 'open') {
+    const unsure = st === 'unsure' || (d.source !== 'manual' && !d.aiName);
+    const alts = d.alts.length
+      ? `<div class="pmalts">` + d.alts.map((a, i) =>
+          `<button type="button" class="pmalt" onclick="labelPickAlt(${i})">${esc(a.name)}</button>`).join('') +
+        `<button type="button" class="pmaltnone" onclick="labelPickNone()">None of these</button></div>`
+      : (d.source === 'manual' ? '' :
+        `<div class="pmalts"><button type="button" class="pmaltnone" onclick="labelPickNone()">None of these</button></div>`);
+    const q = d.source === 'manual' ? 'Type the name and strength exactly as printed.'
+      : (unsure ? 'Which does the label say?' : 'Does the label say this?');
+    ident = `<div class="pmlead lbident">
+      <div class="pmq">${esc(q)}</div>
+      ${unsure && d.source !== 'manual' ? '<div class="pmnote">Not read confidently enough to fill in, so the name has not been.</div>' : ''}
+      ${labelInput('name', 'Name', d)}
+      ${labelInput('generic_name', 'Generic name', d, ' <small>(if printed separately)</small>')}
+      ${labelInput('strength', 'Strength', d)}
+      <button type="button" class="btn primary pmok" onclick="labelConfirm()">Yes, that’s what it says</button>
+      ${alts}
+    </div>`;
+  } else {
+    const p = labelPrintedForSave(d);
+    ident = `<div class="pmlead lbident lbok">
+      <div class="pmq"><b>${esc(p.name)}</b>${p.generic_name ? ' (' + esc(p.generic_name) + ')' : ''}${p.strength ? ' · ' + esc(p.strength) : ''}</div>
+      ${d.pick && d.pick.kind === 'none' ? labelInput('name', 'Name as printed', d) : ''}
+      <button type="button" class="linklike" onclick="labelReopenIdentity()">Change the name or strength</button>
+    </div>`;
+  }
+  const dirMark = labelDirectionsNameUse(d.printed.directions)
+    ? ' <small class="lbprinted" data-printed="directions">printed on the label, not a statement by this app</small>' : '';
+  const rest = `<div class="lbrest"><div class="pmnote">Also on the label (edit anything that was misread):</div>
+    ${labelInput('directions', 'Directions', d, dirMark)}
+    ${labelInput('quantity', 'Quantity', d)}
+    ${labelInput('form', 'Form', d)}
+    ${labelInput('prescriber', 'Prescriber', d)}
+    ${labelInput('rx_number', 'Rx number', d)}
+    ${labelInput('fill_date', 'Fill date', d)}
+    ${labelInput('din', 'DIN', d)}
+    ${labelInput('ndc', 'NDC', d)}
+    ${labelInput('manufacturer', 'Manufacturer', d)}
+  </div>`;
+  let refill = '';
+  if (d.refill) {
+    const m = getMed(d.refill.medId);
+    if (m) refill = `<div class="pmconsume lbrefill"><div class="pmatehead">Looks like a refill of ` +
+      `<b>${esc(m.printed.name)}</b>${m.printed.strength ? ' ' + esc(m.printed.strength) : ''}` +
+      `${m.stopped ? ' (stopped ' + esc(m.stopped) + ')' : ''}.</div>` +
+      `<div class="pmnote">${d.refill.by === 'rx' ? 'Same Rx number.' : 'Same name and strength.'} ` +
+      `A fill is added under it; its name is not changed.</div></div>`;
+  }
+  el.innerHTML = `<div class="pmdraft lbdraft">${labelRefusalHTML(d)}${whoseLine}${refill}${ident}${rest}</div>`;
+}
+function labelOutcomeFoot(d) {
+  if (d.whose === 'other') {
+    return `<button class="btn primary" onclick="labelDone()">Done</button>` +
+      `<button class="btn" onclick="copyLabelReading()">Copy</button>`;
+  }
+  if (d.refill) {
+    return `<button class="btn primary" onclick="labelSaveAsFill()">Add as a fill</button>` +
+      `<button class="btn" onclick="labelSaveAsNew()">Save as a new medication</button>` +
+      `<button class="btn" onclick="labelBackFromRefill()">Back</button>`;
+  }
+  return `<button class="btn primary" onclick="labelSave()">Save to my medications</button>` +
+    `<button class="btn" onclick="labelDontSave()">${d.source === 'manual' ? 'Cancel' : 'Don’t save'}</button>`;
+}
+function renderLabelPromptCard() {
+  const box = document.getElementById('labelPromptBox');
+  if (box) box.value = LABEL_TEMPLATE;
+  const ver = document.getElementById('labelPromptVersion');
+  if (ver) ver.textContent = 'label template v' + LABEL_TEMPLATE_VERSION;
+}
+function copyLabelPrompt() {
+  const box = document.getElementById('labelPromptBox');
+  if (box) box.value = LABEL_TEMPLATE;
+  let done = false;
+  if (box && box.offsetParent !== null) {
+    try { box.focus(); box.select(); try { box.setSelectionRange(0, LABEL_TEMPLATE.length); } catch (e) {} done = document.execCommand('copy'); } catch (e) { done = false; }
+  }
+  if (done) { toast('Label prompt copied'); return { ok: true, via: 'selection' }; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(LABEL_TEMPLATE).then(function () { toast('Label prompt copied'); },
+      function () { toast('Copy did not work — the prompt is in the box, select it and copy'); });
+    return { ok: true, via: 'clipboard' };
+  }
+  toast('The prompt is in the box — select it and copy');
+  return { ok: true, via: 'manual' };
+}
+function doLabelPaste() {
+  const box = document.getElementById('labelPasteBox');
+  const who = document.querySelector('input[name="labelWhose"]:checked');
+  const whose = who ? who.value : '';
+  const rep = document.getElementById('labelReport');
+  if (whose !== 'mine' && whose !== 'other') {
+    if (rep) rep.innerHTML = `<div class="ireport bad">Choose whose label this is first.</div>`;
+    return { ok: false, error: 'whose' };
+  }
+  const r = openLabelDraft(box ? box.value : '', { whose: whose, source: 'label-paste' });
+  if (r.ok) { if (box) box.value = ''; try { closeSettings(); } catch (e) {} }
+  return r;
+}
+function renderMeds() {
+  const el = document.getElementById('medsBox');
+  if (!el) return;
+  const cur = medList(false);
+  const stopped = medList(true).filter((m) => m.stopped);
+  const row = (m) => {
+    const p = m.printed, lastFill = (m.fills || []).slice(-1)[0];
+    return `<div class="medrow"><div class="medmain"><b>${esc(p.name)}</b>` +
+      `${p.generic_name ? ' <span class="medgen">(' + esc(p.generic_name) + ')</span>' : ''}` +
+      `${p.strength ? ' · ' + esc(p.strength) : ''}` +
+      `${p.directions ? '<div class="medsub">' + esc(p.directions) + '</div>' : ''}` +
+      `<div class="medsub">${p.prescriber ? esc(p.prescriber) + ' · ' : ''}` +
+      `${medLatestRx(m) ? 'Rx ' + esc(medLatestRx(m)) + ' · ' : ''}` +
+      `${esc((m.fills || []).length)} fill(s)${lastFill ? ', last recorded ' + esc(lastFill.date) : ''}</div></div>` +
+      (m.stopped
+        ? `<button type="button" class="btn medbtn" onclick="medResume('${esc(m.id)}')">Resume</button>`
+        : `<button type="button" class="btn medbtn" onclick="medStop('${esc(m.id)}')">Mark stopped</button>`) +
+      `</div>`;
+  };
+  const scans = scanListRead();
+  const dates = scans.map((e) => e.date).filter((v, i, a) => a.indexOf(v) === i).sort().reverse();
+  const shown = scanListFiltered(SCAN_FILTER).slice().reverse();
+  const opt = (v, t, cur0) => `<option value="${esc(v)}"${cur0 === v ? ' selected' : ''}>${esc(t)}</option>`;
+  el.innerHTML =
+    `<div class="medsec">My medications</div>` +
+    (cur.length ? cur.map(row).join('') : `<div class="note">None saved yet. Photograph a label with <b>My label</b> selected, paste a reading below, or type one.</div>`) +
+    (stopped.length ? `<details class="medstopped"><summary>Stopped (${esc(stopped.length)})</summary>${stopped.map(row).join('')}</details>` : '') +
+    `<button type="button" class="btn" onclick="copyMedList()"${cur.length ? '' : ' disabled'}>Copy my medications</button>` +
+    `<div class="medsec">Scan list <small>(this device only; not in your export)</small></div>` +
+    `<div class="row"><div><label>Whose</label><select onchange="setScanFilter('whose', this.value)">` +
+      opt('all', 'All', SCAN_FILTER.whose) + opt('mine', 'Mine', SCAN_FILTER.whose) + opt('other', 'Someone else’s', SCAN_FILTER.whose) +
+    `</select></div><div><label>Date</label><select onchange="setScanFilter('date', this.value)">` +
+      opt('all', 'All dates', SCAN_FILTER.date) + dates.map((x) => opt(x, x, SCAN_FILTER.date)).join('') +
+    `</select></div></div>` +
+    (shown.length ? shown.map((e) =>
+      `<div class="medrow scanrow"><div class="medmain"><span class="medsub">${esc(e.date)} · ` +
+      `${e.whose === 'other' ? 'someone else’s' : 'mine'}</span><br><b>${esc(e.name)}</b>` +
+      `${e.generic_name ? ' (' + esc(e.generic_name) + ')' : ''}${e.strength ? ' · ' + esc(e.strength) : ''}` +
+      `${e.rx_number ? ' · Rx ' + esc(e.rx_number) : ''}</div>` +
+      `<button type="button" class="btn medbtn" aria-label="Delete this scan" onclick="deleteScan('${esc(e.id)}')">Delete</button></div>`).join('')
+      : `<div class="note">No scans${scans.length ? ' match this filter' : ' yet'}.</div>`) +
+    `<button type="button" class="btn" onclick="copyScanList()"${shown.length ? '' : ' disabled'}>Copy scan list</button>` +
+    `<textarea id="medsCopyBox" readonly style="display:none"></textarea>`;
+}
+
 function main() {
   boot();
   requestPersistentStorage();
@@ -8078,6 +8867,7 @@ function main() {
   renderSignalForm();
   renderMedForm();
   renderPromptCard();
+  renderLabelPromptCard();
   renderPhotoDraft();
   renderFastingForm();
   renderPrimaryNutrientForm();
@@ -8201,6 +8991,16 @@ window.HT = {
   ZXING, SCAN_FORMATS,
   // Phase 2 Slice 3 — personal price capture (D18)
   addPriceEntry, priceComparison, storeHistory, normalizePriceLog, priceCaptureHTML,
+  // H4 — medication capture from a label (D77, D79, D81)
+  LABEL_FIELDS, LABEL_REFUSED, LABEL_KEPT, LABEL_REASONS, LABEL_TEMPLATE, LABEL_TEMPLATE_VERSION, LABEL_DIRECT_PREFIX,
+  LABEL_SAMPLE, LABEL_HONEST_LIMIT, LABEL_COPY_SOURCE, LABEL_UNREADABLE, labelPolicyIssues, parseLabelReply,
+  labelDirectionsNameUse, openLabelDraft, openManualLabel, labelDraft, labelSetField, labelConfirm, labelPickAlt,
+  labelPickNone, labelReopenIdentity, labelSave, labelSaveAsNew, labelSaveAsFill, labelBackFromRefill, labelDontSave,
+  labelDone, renderLabelDraft, labelOutcomeFoot, labelIdentityState, labelPrintedForSave, copyLabelReading,
+  normalizeMed, normalizeMeds, medList, getMed, findRefill, medStop, medResume, medListText, copyMedList,
+  migrateV9toV10, SCANS_KEY, scanListRead, scanListReset, scanListText, scanListFiltered, deleteScan,
+  setScanFilter, copyScanList, renderMeds, setCaptureKind, captureKind, doLabelPaste,
+  renderLabelPromptCard, copyLabelPrompt,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
