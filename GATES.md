@@ -3088,6 +3088,7 @@ Verified on the same day:
 | 2026-09-17 | **The three findings are ruled as constraints**: exact matching only; a missing Mechanism of Action section renders as absent; the DPD gap is named wherever a drug has no US label (D78 §3) |
 | 2026-09-17 | **D20 is closed: no interactions, ever** (D78 §4) |
 | 2026-09-17 | **Query contract pre-registered** in D78 §2, with measured sizes: a manufacturer list from `count`, then one label per fetch |
+| 2026-09-17 | **Printed brand names are searched too, exact after case-folding** (D80). Measured: US brands resolve, and none of the nine Canadian brands tested do. Generic names move to the same case-folded lookup |
 
 **What the rulings change in this entry.**
 - **The first blocker is resolved** (this entry's Fork A). H5 is still blocked on H4 being built.
@@ -3101,6 +3102,16 @@ Verified on the same day:
 | H5-two-step **GATE** | the manufacturer list comes from `count`, and every label fetch uses `limit=1`: no request asks for more than one full label (checked with a CDP network trace) |
 | H5-case **GATE** | the query is the confirmed name upper-cased, stored beside the printed name; the printed name itself is unchanged |
 | H5-404 **GATE** | a 404 with *"No matches found!"* renders as a no-match (Fork E), not as an error |
+
+**Gates added by the brand ruling (D80).**
+
+| case | asserts |
+|---|---|
+| H5-brand **GATE** ×3 | a printed "LIPITOR" finds the stored "Lipitor"; a longer stored brand that contains the printed one does not match; a Canadian brand with no match says so, and the DPD line applies |
+| H5-casefold **GATE** | both lookups compare stored spellings after case-folding, and query every spelling that matched, so neither depends on how openFDA cases a field |
+| H5-case | replaced: the upper-cased query is gone (D80); the printed name is still stored unchanged |
+
+**Open (D80):** an optional `generic_name` field in H4's contract, transcribed as printed, so a label that prints both names keeps the one that resolves.
 
 **Status: RULED 2026-09-17. NOT built. Blocked on H4.**
 

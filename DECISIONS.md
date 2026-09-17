@@ -3005,6 +3005,7 @@ Base URL: `https://api.fda.gov/drug/label.json`. No API key.
 - **Never request a list of full labels.** One full label is about 50–65 KB, and five are 256 KB. The manufacturer list comes from `count`, and only the label the user picks is fetched. From that label, only `description`, `indications_and_usage`, `mechanism_of_action` and the citation fields are kept.
 - **Rate limits without a key:** 240 requests per minute and 1,000 per day, per IP address.
 - **Open for the build:** whether a printed **brand** name is also searched exactly, via `openfda.brand_name.exact`. "LOPRESSOR" matches, but the Canadian "TEVA-METOPROLOL" does not.
+  **Ruled in D80:** yes, with exact matching after case-folding; the upper-casing above is replaced for both names.
 
 ### 3. Three findings, ruled as constraints
 
@@ -3039,3 +3040,39 @@ Governance only; nothing is built. All four H6 forks are ruled as recommended.
 **A refill scanned twice appears twice, and stays that way.** De-duplicating the log would mean deciding that two scans are the same prescription, and that is a judgement. The duplicate is honest.
 
 **What remains under the name H6** is only the case of scans for several other people.
+
+## D80 — Brand names are searched too; US brands resolve and Canadian ones do not (H5, 2026-09-17)
+
+Governance only; nothing is built. This rules D78 §2's open item.
+
+**Ruled: a printed brand name is searched as well as the generic name, with exact matching only.**
+
+### Exact, but not case-sensitive. Measured 2026-09-17
+
+openFDA stores each brand name the way its labeler wrote it: "Lipitor", "Crestor", and both "LOPRESSOR" and "Lopressor". `.exact` is case-sensitive. So upper-casing the printed brand fails, even though it works for generic names: `"LIPITOR"` finds nothing, while `"Lipitor"` finds one label.
+
+**The contract, for both brand and generic names:**
+1. Run `search=openfda.<field>:"<NAME>"&count=openfda.<field>.exact&limit=100`. This cheap call lists the spellings openFDA has stored for the name.
+2. Keep only the stored spellings that equal the printed name after case-folding. A longer stored name that merely contains the printed one is **not** a match. This is the same equivalence H4 Fork F uses for refills.
+3. Look labels up with `openfda.<field>.exact:"<spelling>"`, combining every matching spelling with OR.
+
+**This replaces D78 §2's upper-casing for generic names.** In the measurement, every stored generic name was upper-case, so upper-casing happened to work. The contract should not depend on how openFDA happens to case a field.
+
+### The measured limit
+
+Thirteen printed brand names were tested. DPD confirmed all but Lopressor as Canadian products.
+
+| brands | kind | resolve in openFDA |
+|---|---|---|
+| TEVA-METOPROLOL, APO-METOPROLOL, PMS-METOPROLOL-L, SANDOZ METOPROLOL, APO-ATORVASTATIN, TEVA-ATORVASTATIN, APO-LEVOTHYROXINE | Canadian generic-company brands | **0 of 7** |
+| MONOCOR, ELTROXIN | brands sold only in Canada | **0 of 2** |
+| LIPITOR, CRESTOR, SYNTHROID | brands sold in both countries | 3 of 3 |
+| LOPRESSOR | US brand | yes (two stored spellings, three labels) |
+
+**US brand names resolve, and Canadian brand names do not: none of the nine tested did.** A label whose only printed name is a Canadian company brand (APO-, TEVA-, PMS-, SANDOZ) gives the lookup nothing that openFDA can find. This is the DPD gap (D78 §3) appearing a second time. The first time, it was a drug with no US label; here, it is a US label that the Canadian name cannot reach.
+
+**When nothing matches, the app says so, and D78 §3's DPD line applies.** Searching the brand and the generic name is two exact lookups on two printed names. It is not a retry with a looser query.
+
+### Open, and it decides how often the lookup can work in Canada
+
+H4's contract has a single `name` field. If a label prints both a brand and a generic name, the second has nowhere to go. That matters because when the brand is Canadian, the generic name is what resolves, and it may then never be captured. **Recommended:** add an optional `generic_name` field, transcribed as printed, beside `name`. **Not ruled.**
