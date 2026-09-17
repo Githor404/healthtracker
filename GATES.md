@@ -3364,3 +3364,54 @@ The nested keys (`regimens.active`, `list`, `log`) are not mistaken for stores: 
 **A defect pass is required before this counts as evidence** (D60). Under Clause 4, the refill case must be proven against a removal that only hides the medication from the list while leaving it findable. The control is what shows the fixture can reach the refill path at all.
 
 **Status: PRE-REGISTERED, FORKS OPEN. NOT built. The data-loss implication above needs a ruling first.**
+
+### H4.2 — the capture surface follows the chosen kind (fixed, v0.30.1, D84)
+
+**Reported from the device against 0.30.0:** Log → Log medication or supplement → Photo · AI paste showed the **meal** prompt. Two candidates were offered with the report: the kind choice is not wired to this entry point, or it is and the prompt card renders `AI_PROMPT_TEMPLATE` unconditionally.
+
+**Measured on the shipped page before touching anything** (headless, driving the real `index.html`):
+
+| with `kind = label-mine` | measured |
+|---|---|
+| prompt box | *"You are helping me log a meal from a photo…"* — the **meal** template |
+| version line | `template v4` |
+| Read button | `Read photo meal` |
+| a **label** reply pasted into that box | refused: *"Expected {"meal":…, "items":[…]} from the photo template."* |
+
+So the second candidate was right, and the same cause reached further than the report: the version line, the Read button and the parser all ignored the kind. A fourth fault came out of the fix: the kind chooser rendered **only when a key was configured**, so the person using the copy-prompt path could not choose a label at all.
+
+**Gated where it broke** — on the shipped page, through its own `HT`, for all three kinds.
+
+| case | asserts |
+|---|---|
+| H4.2-prompt **GATE** ×3 | kind Meal renders the meal template, the meal version and "Read photo meal"; kinds My label and Someone else's render the label template, `label template v1` and "Read label" |
+| H4.2-prompt CONTROL ×2 | the two templates differ from their first line and all three surfaces exist, so a right render is distinguishable from a wrong one; and an unconditional renderer leaves a **different** box — the state that shipped in v0.30.0 |
+| H4.2-copy **GATE** | Copy prompt on a label kind copies the label template, not the meal one |
+| H4.2-nokey **GATE** + CONTROL | the chooser renders with **no key saved** (the control first asserts the page has no key in this run) |
+| H4.2-paste **GATE** ×2 + CONTROL | the pane's reader parses by kind, taking `whose` from it; Meal still parses as a meal; and the control reproduces the report — a label reply through the meal reader is refused |
+
+**Proven against the defect (D60): seven new plants, each failing its own named gate.**
+
+| planted defect | fails |
+|---|---|
+| the prompt card ignores the kind (**the defect that shipped**) | H4.2-prompt (label kinds) |
+| the version line ignores the kind | H4.2-prompt |
+| the Read button label is static | H4.2-prompt |
+| the reader always parses a meal | H4.2-paste |
+| `whose` fixed to "mine" instead of taken from the kind | H4.2-paste |
+| Copy always copies the meal prompt | H4.2-copy |
+| the chooser renders only with a key | H4.2-nokey |
+
+The full list is **51 plants, each failing its own named gate**, run on the final tree. Two runner notes, both the same shape as last time: one plant was invalid JavaScript and one produced a broken edit, and each was re-planted rather than counted; three runs printed their named failure with no SUMMARY line and completed on a re-run.
+
+**Two gates re-pointed, claim unchanged.** The failed-capture fallback used to send a label reply to the Settings box. With the pane reading labels, that box is the pane's, so the two cases now assert that the raw reply lands on the surface the capture came from and that the reader there is the label reader. What they protect — the reply the user paid for reaches a box they can act on — is what it was.
+
+**Count delta: 1802 → 1817** (+15), re-pinned in the same change.
+
+**A second cause for "PRODUCED NO VERDICT", found here and worth separating from the first.** A suite run was stopped and restarted after a re-pin. Stopping the task did not kill the gates it had already launched, so two suites ran at once, and the CDP gates bind **fixed debug ports** (D68 recorded the same collision between two gate scripts sharing ports). Five gates then failed with *"an internal WebSocket error occurred"*, and one gate appeared in the log twice, once failing and once passing.
+
+That symptom is indistinguishable from the memory-pressure failure D67 recorded. So before blaming memory, check that only one suite is running: `Get-CimInstance Win32_Process` for `*gate.ps1*` and for `run-all-gates`. The clean re-run is the evidence below.
+
+**Full suite, one invocation: 1817/1817 ALL PASS. `SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)`, runner exit 0.**
+
+**Status: BUILT — v0.30.1 (D84).**

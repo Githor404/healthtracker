@@ -3191,3 +3191,44 @@ Tests and docs only. No shell change, no `APP_VERSION` bump.
 - It also fails on a new unclassified store, a store removed from `emptyState()`, a dropped pattern, and a store list it cannot read.
 
 **Limit.** Classification works at the level of top-level keys. A new *kind* of write into an existing record store, such as a new array inside `meds`, still needs its pattern added by hand. The census guarantees only that no store is invisible to it.
+
+## D84 — The prompt card ignored the capture kind (H4.2, 2026-09-17)
+
+`APP_VERSION → 0.30.1`; schema unchanged at v10. Reported from the device against 0.30.0: **Log → Log medication or supplement → Photo · AI paste showed the MEAL prompt.**
+
+### What was actually wrong: four faults, one cause
+
+The capture kind switched the template that was **sent**, and nothing else on the surface.
+
+- The prompt card rendered `AI_PROMPT_TEMPLATE` unconditionally, so "My label" still showed the meal prompt.
+- The version line read `template v4` for every kind.
+- The pane's Read button was always the **meal** reader, so a label reply pasted there was refused with *"Expected {"meal":…, "items":[…]} from the photo template."* — the parse failure the report predicted.
+- Found while fixing: the kind chooser rendered **only when a key was configured**, so the person who most needs the copy-prompt path — the one with no key — could not choose a label at all.
+
+### Why every H4 gate passed
+
+They assert the template constant, the policy table and the body of the call. All three were right. What shipped wrong was the **card on the page**, rendering the other constant.
+
+This is D63's shape — *the template was correct and the box was empty while every assertion passed* — and it is the second time this same card has produced it.
+
+**The rule: when one control changes what another surface means, gate the SURFACE, not only the value it is supposed to carry.** The constant the code sends and the constant the page shows are two facts. Only one of them was ever asserted.
+
+### The fix
+
+- One kind, one surface: the prompt text, the version line, the heading, the note and the Read button all follow `CAPTURE_KIND`, and `setCaptureKind` repaints them.
+- A box opts in with `data-prompt-kind="capture"`. Settings' own meal prompt card does not follow the kind, because it is a meal card by name.
+- The pane's Read button routes through `doCapturePaste`, which parses by kind and takes `whose` from it.
+- The kind chooser and the honest limit render with or without a key.
+
+### One thing deliberately simplified
+
+The failed-capture fallback used to put a label reply in the Settings box, because that was where the label paste path lived. With the pane reading labels, that sent the user away from the box in front of them.
+
+There is now **one paste box, on the surface the capture came from**. Two gates were re-pointed to say so, and their claim is unchanged: the reply the user paid for reaches a box they can act on.
+
+### Gated where it broke
+
+- **`H4.2-prompt`** drives the **shipped page** through its own `HT`, for all three kinds, and asserts the box contents, the version line and the button label. Its control shows what an unconditional renderer leaves in that box.
+- **`H4.2-copy`**: Copy takes what the surface is showing.
+- **`H4.2-nokey`**: the chooser exists with no key saved.
+- **`H4.2-paste`**: the reader routes by kind, with a control that reproduces the reported failure — a label reply through the meal reader.

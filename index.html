@@ -642,13 +642,13 @@
            modal -- is one path with one source of truth. -->
       <input id="captureFile" type="file" accept="image/*" capture="environment" style="display:none" onchange="onCaptureFile(this)">
       <input id="captureLib" type="file" accept="image/*" style="display:none" onchange="onCaptureFile(this)">
-      <h2>AI photo prompt <small id="promptVersion" class="pver" data-prompt-version></small></h2>
+      <h2><span id="promptHeadText">AI photo prompt</span> <small id="promptVersion" class="pver" data-prompt-version data-prompt-kind="capture"></small></h2>
       <button class="btn" onclick="copyPrompt(this)">⇪ Copy prompt</button>
-      <textarea id="promptTemplate" data-prompt-box readonly></textarea>
-      <div class="note">Two ways to read a photo. With an API key saved, <b>Take photo</b> or <b>Choose photo</b> sends it for you. Without one, copy this prompt to your own AI assistant with the photo, then paste its JSON reply below. Either way: macros only — never micronutrients from a photo.</div>
+      <textarea id="promptTemplate" data-prompt-box data-prompt-kind="capture" readonly></textarea>
+      <div class="note" id="promptNote">Two ways to read a photo. With an API key saved, <b>Take photo</b> or <b>Choose photo</b> sends it for you. Without one, copy this prompt to your own AI assistant with the photo, then paste its JSON reply below. Either way: macros only — never micronutrients from a photo.</div>
       <h2>Ingest · paste JSON</h2>
       <textarea id="ingestBox" placeholder="Paste JSON from your AI assistant (items) — or a full export to merge days. Non-destructive."></textarea>
-      <button class="btn primary" onclick="doPhotoPaste()">Read photo meal</button>
+      <button class="btn primary" id="paneReadBtn" onclick="doCapturePaste()">Read photo meal</button>
         <button class="btn" onclick="doIngest()">Ingest</button>
       <div id="ingestReport"></div>
       <div class="note">Never overwrites a day that has items. AI-paste items are macros-only (micros stripped) at eyeballed confidence.</div>

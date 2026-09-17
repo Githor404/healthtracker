@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 10;
-const APP_VERSION      = '0.30.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.30.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4816,13 +4816,6 @@ function captureRetry() {
 // that floor made into a button instead of a sentence.
 function capturePasteInstead() {
   byokBusy(null);
-  if (LAST_CAPTURE_KIND !== 'meal') {
-    try { openSettings(); } catch (e) {}
-    const md = document.getElementById('medsDetails'); if (md) md.open = true;
-    const lb = document.getElementById('labelPasteBox');
-    if (lb) { try { lb.focus(); lb.scrollIntoView({ block: 'center' }); } catch (e) {} }
-    return { ok: true, where: 'label' };
-  }
   try { if (typeof openSheet === 'function') openSheet('photo'); } catch (e) {}
   const box = document.getElementById('ingestBox');
   if (box) { try { box.focus(); box.scrollIntoView({ block: 'center' }); } catch (e) {} }
@@ -5072,12 +5065,12 @@ function byokCapture(file, source) {
 let LAST_CAPTURE_KIND = 'meal';
 function byokFallback(raw, message) {
   byokStopTick();
-  const isLabel = LAST_CAPTURE_KIND !== 'meal';
-  const box = document.getElementById(isLabel ? 'labelPasteBox' : 'ingestBox');
+  // D84: ONE box, on the surface the capture came from. The pane now shows the
+  // label prompt and reads a label reply, so sending the user to Settings for a
+  // second box was sending them away from the box they were looking at.
+  const box = document.getElementById('ingestBox');
   if (box && raw) box.value = String(raw);
-  byokBusy('error', String(message || 'That did not work.') + (isLabel
-    ? ' Use Copy label prompt in Settings › Medications and paste the reply there instead.'
-    : ' Use Copy prompt and paste the reply instead.'));
+  byokBusy('error', String(message || 'That did not work.') + ' Use Copy prompt and paste the reply instead.');
   return { ok: false, kind: 'fallback', fellBack: true, hasRaw: !!raw };
 }
 // The instant a photo comes back, SOMETHING is on screen. The old handler could
@@ -5190,10 +5183,13 @@ function renderCaptureBtn() {
   const verifyC = (stC.state === 'verified') ? ''
     : ` <button type="button" class="linklike" onclick="byokTest()">verify now</button>`;
   const lblKind = CAPTURE_KIND !== 'meal';
-  el.innerHTML = busyC + testingC + (byokConfigured()
-    ? captureKindHTML() +
-      (lblKind ? `<div class="pmnote lblimit">${esc(LABEL_HONEST_LIMIT)}</div>` : '') +
-      `<div class="caprow">` +
+  // D84: the kind chooser and the honest limit render WITH OR WITHOUT a key. The
+  // kind decides which prompt the surface shows and how a pasted reply is parsed,
+  // so a user with no key -- the paste path -- has to be able to choose it too.
+  el.innerHTML = busyC + testingC +
+    captureKindHTML() +
+    (lblKind ? `<div class="pmnote lblimit">${esc(LABEL_HONEST_LIMIT)}</div>` : '') + (byokConfigured()
+    ? `<div class="caprow">` +
       `<button class="btn primary" onclick="document.getElementById('captureFile').click()">Take photo</button>` +
       `<button class="btn" onclick="document.getElementById('captureLib').click()">Choose photo</button>` +
       `</div>` +
@@ -5203,7 +5199,9 @@ function renderCaptureBtn() {
       (lblKind
         ? `<div class="note">Take one now, or choose one you already have. One call to your provider with the photo and the label template (Settings › Medications). Nothing else is sent.</div>`
         : `<div class="note">Take one now, or choose one you already have. One call to your provider with the photo and the template below. Nothing else is sent.</div>`)
-    : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`);
+    : (lblKind
+        ? `<div class="note">Add your own API key in Settings to send a label photo directly. Without one, copy the label prompt below, send it to your own AI assistant with the photo, and paste the reply here.</div>`
+        : `<div class="note">Add your own API key in Settings to send a photo directly. Without one, use Copy prompt below.</div>`));
 }
 
 // R26: EVERY prompt box, not the first one getElementById happens to return.
@@ -5212,10 +5210,48 @@ function renderCaptureBtn() {
 // EMPTY, on every build since v0.9.0. Selected by attribute so a third card would
 // be filled too, rather than silently joining the dead one.
 function promptBoxes() { return Array.prototype.slice.call(document.querySelectorAll('[data-prompt-box]')); }
+// D84: THE CAPTURE SURFACE FOLLOWS THE CHOSEN KIND. The kind switched the template
+// that was SENT and nothing else, so with "My label" chosen the pane still showed
+// the meal prompt, still called itself template v4, and its Read button still
+// parsed the reply as a meal -- a label reply pasted there was rejected as "not the
+// photo template". The gates asserted the constant and the send path; the card is
+// neither. That is D63's shape: the template was right and the surface was wrong.
+//
+// Marked surfaces (`data-prompt-kind="capture"`) follow the kind; Settings' own
+// meal prompt card does not, because it is a meal card by name.
+function promptFollowsKind(el) { return !!(el && el.getAttribute && el.getAttribute('data-prompt-kind') === 'capture'); }
+function promptIsLabel(el) { return promptFollowsKind(el) && CAPTURE_KIND !== 'meal'; }
 function renderPromptCard() {
-  promptBoxes().forEach(function (box) { box.value = AI_PROMPT_TEMPLATE; });
+  const lbl = CAPTURE_KIND !== 'meal';
+  promptBoxes().forEach(function (box) { box.value = promptIsLabel(box) ? LABEL_TEMPLATE : AI_PROMPT_TEMPLATE; });
   Array.prototype.forEach.call(document.querySelectorAll('[data-prompt-version]'),
-    function (ver) { ver.textContent = 'template v' + AI_TEMPLATE_VERSION; });
+    function (ver) {
+      ver.textContent = promptIsLabel(ver) ? ('label template v' + LABEL_TEMPLATE_VERSION)
+                                           : ('template v' + AI_TEMPLATE_VERSION);
+    });
+  const head = document.getElementById('promptHeadText');
+  if (head) head.textContent = lbl ? 'Pharmacy label prompt' : 'AI photo prompt';
+  const note = document.getElementById('promptNote');
+  if (note) note.innerHTML = lbl
+    ? 'Two ways to read a label. With an API key saved, <b>Take photo</b> or <b>Choose photo</b> sends it for you. ' +
+      'Without one, copy this prompt to your own AI assistant with the photo, then paste its JSON reply below. ' +
+      'Either way: the label is copied as printed, and the app adds nothing about what a drug is for.'
+    : 'Two ways to read a photo. With an API key saved, <b>Take photo</b> or <b>Choose photo</b> sends it for you. ' +
+      'Without one, copy this prompt to your own AI assistant with the photo, then paste its JSON reply below. ' +
+      'Either way: macros only \u2014 never micronutrients from a photo.';
+  const btn = document.getElementById('paneReadBtn');
+  if (btn) btn.textContent = lbl ? 'Read label' : 'Read photo meal';
+}
+// The pane's one Read button, routed by the kind the user chose -- so the reply is
+// parsed as what it is, rather than always as a meal (D84).
+function doCapturePaste() {
+  if (CAPTURE_KIND === 'meal') return doPhotoPaste();
+  const box = document.getElementById('ingestBox');
+  const r = openLabelDraft(box ? box.value : '', {
+    whose: CAPTURE_KIND === 'label-other' ? 'other' : 'mine',
+    source: 'label-paste', reportId: 'ingestReport' });
+  if (r.ok && box) box.value = '';
+  return r;
 }
 // The box the FINGER was on, not the first in the document. Copying from Settings
 // used to select a textarea inside the hidden photo pane -- which cannot be
@@ -5239,8 +5275,8 @@ function promptBoxFor(from) {
   return visible[0] || boxes[0] || null;
 }
 function copyPrompt(from) {
-  const text = aiPromptText();
   const box = promptBoxFor(from);
+  const text = promptIsLabel(box) ? LABEL_TEMPLATE : aiPromptText();
   // FILL FIRST, unconditionally. Whatever happens to the clipboard, the manual
   // route must be followable -- "select it and copy" is only honest advice if the
   // text is actually there.
@@ -5441,6 +5477,7 @@ const VERSION_LOG = [
   { v: '0.28.0', d: '2026-09-11', note: 'Photos of a single item now ask WHAT it is before asking how much. A glass of wine read as apple juice, and the old question went straight to the portion — so you corrected the volume of a drink you were not having. The assistant is now asked for three possible identifications per item, and you pick: the best guess is offered for a one-tap yes, the alternatives are one tap away, and "None of these" logs the portion without inventing a composition for it. When the assistant is not confident, nothing is filled in at all — an answer on screen pulls you towards it even when it is labelled uncertain. Plates of several items are unchanged: the biggest item still anchors the rest, and now carries the same alternatives beside it. Which options you were shown and which you took are saved with the meal, so the confidence cut-off can eventually be tuned from your own picks rather than guessed.' },
   { v: '0.29.0', d: '2026-09-11', note: 'Partial meals. What is on the plate and what you ate are now two different things, so a takeout tray no longer logs as though you ate the tray. Confirm what was served, then say how much of it you had — a half, a third, or "6 of 10" where you have told the app the plate holds 10 pieces. You can come back to the same plate later and log the rest as its own meal, at its own time. Eating the whole thing is still one tap: the Save button now says "Ate all of it". When a plate looks like more than one serving — usually because you corrected the estimate sharply upwards — the app asks how much you ate instead of assuming all of it. Food with some left over shows at the top of the day until you log it or it ages out; nothing is ever counted as eaten on your behalf.' },
   { v: '0.30.0', d: '2026-09-17', note: 'Medications from a pharmacy label. Choose My label or Someone else’s label, take a photo, and the label is read exactly as printed — name, strength, directions, prescriber, Rx number. You confirm the name and strength first. Your own are kept in Settings › Medications, with refills offered rather than assumed, and a list you can copy for a pharmacist. Someone else’s are shown and kept only in a scan list on this device. The app does not say what a drug is for or check interactions.' },
+  { v: '0.30.1', d: '2026-09-17', note: 'Fix: with My label or Someone else\u2019s label chosen, the photo screen now shows the pharmacy-label prompt and reads a pasted label reply as a label. It was showing the meal prompt, and refusing label replies. The three choices also appear without an API key, because they decide which prompt you copy.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8422,7 +8459,7 @@ function labelIdentityState(d) {
 // through here, so an identical reply produces an identical draft.
 function openLabelDraft(text, opts) {
   const o = opts || {};
-  const rep = document.getElementById('labelReport');
+  const rep = document.getElementById(o.reportId || 'labelReport');
   if (PHOTO_DRAFT) return { ok: false, error: 'Finish the meal draft first.' };
   const r = parseLabelReply(text);
   if (!r.ok) { if (rep) rep.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
@@ -8670,6 +8707,7 @@ let CAPTURE_KIND = 'meal';
 function setCaptureKind(k) {
   CAPTURE_KIND = CAPTURE_KINDS.indexOf(k) >= 0 ? k : 'meal';
   try { renderCaptureBtn(); } catch (e) {}
+  try { renderPromptCard(); } catch (e) {}      // D84: the prompt, its version, the note and the Read button follow
   return CAPTURE_KIND;
 }
 function captureKind() { return CAPTURE_KIND; }
@@ -9000,7 +9038,7 @@ window.HT = {
   normalizeMed, normalizeMeds, medList, getMed, findRefill, medStop, medResume, medListText, copyMedList,
   migrateV9toV10, SCANS_KEY, scanListRead, scanListReset, scanListText, scanListFiltered, deleteScan,
   setScanFilter, copyScanList, renderMeds, setCaptureKind, captureKind, doLabelPaste,
-  renderLabelPromptCard, copyLabelPrompt,
+  renderLabelPromptCard, copyLabelPrompt, doCapturePaste, promptIsLabel, promptFollowsKind,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

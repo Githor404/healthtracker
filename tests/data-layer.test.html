@@ -2107,6 +2107,57 @@ window.setLS({});
     res(!!hd && !hd.hasAttribute('open'), 'SE-history: collapsed state resets on reload (no persisted open attribute in the shell)');
     res(!!(hd && hd.querySelector('#history')), 'SE-history: the day list is inside the collapsible, expandable in one tap');
 
+    // ------------------------------------------------------------------
+    // H4.2 (D84) -- THE SHIPPED CAPTURE SURFACE FOLLOWS THE CHOSEN KIND.
+    // H4's gates asserted the template CONSTANT and the SEND path, and both were
+    // right while the card on the page rendered the other constant. That is D63's
+    // shape, so this is asserted on the shipped page, through its own HT.
+    // ------------------------------------------------------------------
+    var SEW = SEDOC.defaultView;
+    res(!!(SEW && SEW.HT), 'H4.2-prompt: the shipped page exposes its own app instance to drive');
+    if (SEW && SEW.HT) {
+      var seBox = function () { return SEDOC.getElementById('promptTemplate'); };
+      var seVer = function () { return SEDOC.getElementById('promptVersion'); };
+      var seBtn = function () { return SEDOC.getElementById('paneReadBtn'); };
+      var mealHead = SEW.HT.AI_PROMPT_TEMPLATE.slice(0, 40);
+      var lblHead = SEW.HT.LABEL_TEMPLATE.slice(0, 40);
+      res(mealHead !== lblHead && seBox() && seVer() && seBtn(),
+          'H4.2-prompt CONTROL: the two templates differ from their first line, and the three surfaces exist -- so the cases below can tell a right render from a wrong one');
+      SEW.HT.setCaptureKind('meal');
+      var mv = seBox().value, mvv = seVer().textContent;
+      res(mv.indexOf(mealHead) === 0 && mv.indexOf(lblHead) < 0 && mvv.indexOf('label') < 0 &&
+          /^template v\d+$/.test(mvv) && seBtn().textContent === 'Read photo meal',
+          'H4.2-prompt GATE: kind Meal renders the MEAL template, the meal version and "Read photo meal"');
+      ['label-mine', 'label-other'].forEach(function (k) {
+        SEW.HT.setCaptureKind(k);
+        var v = seBox().value, vv = seVer().textContent;
+        res(v.indexOf(lblHead) === 0 && v.indexOf(mealHead) < 0 && vv.indexOf('label template v') === 0 &&
+            seBtn().textContent === 'Read label',
+            'H4.2-prompt GATE: kind ' + k + ' renders the LABEL template, the label version and "Read label"');
+      });
+      // The planted control the report asked for: what an unconditional renderer
+      // puts in the box, next to what the kind-aware one does.
+      SEW.HT.setCaptureKind('label-mine');
+      var kindAware = seBox().value;
+      seBox().value = SEW.HT.AI_PROMPT_TEMPLATE;
+      res(seBox().value !== kindAware && kindAware.indexOf(lblHead) === 0,
+          'H4.2-prompt CONTROL: a renderer that ignored the kind would leave a DIFFERENT box here -- which is exactly what shipped in v0.30.0');
+      SEW.HT.renderPromptCard();
+      res(seBox().value === kindAware, 'H4.2-prompt: and a repaint restores the kind\u2019s own template');
+      // Copy takes what the surface is showing, not the meal prompt regardless.
+      SEW.HT.copyPrompt(seBox());
+      res(seBox().value.indexOf(lblHead) === 0,
+          'H4.2-copy GATE: Copy prompt on a label kind copies the LABEL template');
+      res(SEDOC.getElementById('captureBox').textContent.indexOf('name and address') >= 0,
+          'H4.2-prompt: and the honest limit is on the shipped surface for a label kind');
+      res(SEW.HT.byokConfigured() === false,
+          'H4.2-nokey CONTROL: the shipped page has no key in this run, so the next case measures the no-key surface');
+      res(SEDOC.querySelectorAll('#captureBox .capk').length === 3,
+          'H4.2-nokey GATE: the kind chooser renders WITHOUT a key -- it decides which prompt the page shows, not just what a key would send');
+      SEW.HT.setCaptureKind('meal');
+      SEW.HT.renderPromptCard();
+    }
+
     // H4 in the SHIPPED shell. The label draft sits inside the one outcome modal
     // (D51); the medication list, the scan list and the no-key paste path are one
     // flat settings entry; and the paste path states the honest limit before the
@@ -3244,13 +3295,17 @@ window.setLS({});
       document.getElementById('ingestBox').value = '';
       FETCH_SCRIPT = [{ status: 200, body: junk }, { status: 200, body: junk }];
       return HT.byokCapture(FILE).then(function (r) {
+        // D84 re-points these two: there is ONE paste box, on the surface the
+        // capture came from, and that surface is set to read a label. The claim is
+        // unchanged -- the reply the user paid for reaches a box they can act on.
         res(r.fellBack === true && FETCHES.length === 2 &&
-            document.getElementById('labelPasteBox').value.indexOf('sorry') >= 0 &&
-            document.getElementById('ingestBox').value.indexOf('sorry') < 0,
-            'H4-kind: a label reply that does not parse lands in the LABEL paste box, never the meal one');
+            document.getElementById('ingestBox').value.indexOf('sorry') >= 0,
+            'H4-kind: a label reply that does not parse lands in the paste box on the surface it came from');
         var b = HT.byokBusyState();
-        res(!!b && /Medications/.test(b.message) && HT.labelDraft() === null,
-            'H4-kind: the message says where that box is, and no draft is fabricated');
+        res(!!b && /Copy prompt/.test(b.message) && HT.labelDraft() === null,
+            'H4-kind: the message points at the prompt on that same surface, and no draft is fabricated');
+        res(HT.captureKind() === 'label-mine' && HT.doCapturePaste().ok === false,
+            'H4-kind: and the Read button there is the LABEL reader -- the unparseable reply fails as a label, not as a meal');
         res(outcome().title === 'That did not work', 'H4-kind: the failure is stated in the one modal');
         HT.byokBusyClear();
         HT.setCaptureKind('label-mine');
@@ -7522,6 +7577,29 @@ window.setLS({});
   h4open({ name: 'Other drug', strength: '3 mg', rx_number: 'RX-9' }, 'other'); HT.labelConfirm(); HT.labelDone();
   res(HT.scanListText({ whose: 'other' }).split('\n').filter(function (l) { return l.indexOf('Other drug') >= 0; }).length === 2,
       'H4-no-dedup: two scans of one prescription stay two entries and copy as two lines -- a log, not a list (D79)');
+
+
+  // ---- H4.2 (D84): the pane's one Read button routes by kind ----------------
+  h4fresh();
+  HT.setCaptureKind('label-other');
+  document.getElementById('ingestBox').value = HT.LABEL_SAMPLE;
+  var h4cp = HT.doCapturePaste();
+  res(h4cp.ok === true && !!HT.labelDraft() && HT.labelDraft().whose === 'other' &&
+      HT.labelDraft().source === 'label-paste' && document.getElementById('ingestBox').value === '',
+      'H4.2-paste GATE: with a label kind chosen, the pane reader parses the reply as a LABEL, with whose taken from the kind');
+  HT.labelDone();
+  HT.setCaptureKind('meal');
+  document.getElementById('ingestBox').value = HT.AI_PROMPT_SAMPLE;
+  var h4cm = HT.doCapturePaste();
+  res(h4cm.ok === true && !!HT.photoDraft() && HT.labelDraft() === null,
+      'H4.2-paste GATE: and with Meal chosen it parses as a meal, exactly as before');
+  HT.photoDiscard();
+  document.getElementById('ingestBox').value = HT.LABEL_SAMPLE;
+  var h4cx = HT.doCapturePaste();
+  res(h4cx.ok === false && /photo template/i.test(String(h4cx.error || '')) && HT.labelDraft() === null,
+      'H4.2-paste CONTROL: a label reply through the MEAL reader is refused -- which is what the shipped pane did for EVERY kind before D84');
+  document.getElementById('ingestBox').value = '';
+  HT.setCaptureKind('meal');
 
   // ---- H4-escape ---------------------------------------------------------------------------------
   h4fresh();
