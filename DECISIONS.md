@@ -3153,3 +3153,29 @@ Governance only; nothing is built. This rules the open item in D80.
 
 - **Count delta: 1679 → 1802** (+123).
 - **27 existing assertions moved from v9 to v10**, each claim unchanged (the same number R33 moved). That took 26 edits; one assertion followed its fixture, the forward-version blob, which moved to v11.
+
+## D83 — The write-site census classifies every store (2026-09-17)
+
+Tests and docs only. No shell change, no `APP_VERSION` bump.
+
+**What was wrong.** The D29 census matched record writes with a single hand-written pattern, which covered only the stores someone had remembered to add. R33 added the `plates` store and nobody added it to the pattern. A new plate write site would therefore have gone in unstamped and still passed. It was not a defect when R33 shipped; it was a defect waiting for the next slice that writes plates.
+
+**The rule: every top-level store must be classified, and the store list comes from the app, not from memory.**
+- The census reads the store list from `emptyState()` in app.js.
+- Each store must be one of two things: a record store, with the pattern (or patterns) that detect a record being created in it; or a named non-record store, with the reason it holds no records.
+- A store the app gains fails the census until someone classifies it.
+- A pattern for a store the app no longer has also fails.
+- Stores that live outside `APP_STATE`, such as H4's scan list, are listed separately.
+
+**The classification today.**
+- **Record stores:** `days`, `priceLog`, `plates`, `meds`, `timeline`, `fastLog` and `regimens`, plus the scan list outside the state.
+- **Not record stores:** `version` and `current`, which are scalars describing the blob; and `settings`, which holds configuration and templates.
+
+**What the census now sees.** `photoSave` returns to the manifest, for the plate it creates. It is stamped: `plateFromDraft` sets `tzo`. R33's note that `photoSave` left the manifest still holds for items, because it writes none. The census now finds 19 write sites.
+
+**Proven against the defect** (see GATES.md, D83).
+- The pre-change census passes an unregistered plate write.
+- The new census fails that same write by name.
+- It also fails on a new unclassified store, a store removed from `emptyState()`, a dropped pattern, and a store list it cannot read.
+
+**Limit.** Classification works at the level of top-level keys. A new *kind* of write into an existing record store, such as a new array inside `meds`, still needs its pattern added by hand. The census guarantees only that no store is invisible to it.

@@ -13,10 +13,58 @@ set -uo pipefail
 DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$DIR"
 
-# Writes into the persisted record stores: day.items, timeline[date],
-# priceLog[bc].entries, fastLog[start], regimens.log[date][entryId] -- and, from H4,
-# meds[id], a medication's fills, and the local scan list (scans.push).
-WRITE_RE='(\.items\.push\(|\.entries\.push\(|timeline\[[^]]+\][^;]*\.push\(|fastLog\[[^]]+\][[:space:]]*=[^=]|\.log\[[^]]+\]\[[^]]+\][[:space:]]*=[^=]|meds\[[^]]+\][[:space:]]*=[^=]|\.fills\.push\(|scans\.push\()'
+# ---- STORE COVERAGE (D83) -----------------------------------------------------
+# The write pattern used to be ONE hand-written regex covering the stores someone
+# remembered. R33 added `plates` and nobody added it here, so a new plate write site
+# would have joined unstamped and passed -- not a defect on the day, a defect the
+# NEXT plate-writing slice would have created. That is fixed by CATEGORY, not by
+# adding one alternation: the store list is read from emptyState() in app.js, and
+# every store must be classified below. A store the app gains fails this check until
+# someone decides whether it holds records.
+#
+# RECORD stores, each with the pattern(s) that find a record being created in it:
+STORE_PATTERNS="days|\.items\.push\(
+priceLog|\.entries\.push\(
+plates|plates\[[^]]+\][[:space:]]*=[^=]
+meds|meds\[[^]]+\][[:space:]]*=[^=]
+meds|\.fills\.push\(
+timeline|timeline\[[^]]+\][^;]*\.push\(
+fastLog|fastLog\[[^]]+\][[:space:]]*=[^=]
+regimens|\.log\[[^]]+\]\[[^]]+\][[:space:]]*=[^=]
+scans|scans\.push\("
+# NOT record stores, with the reason:
+#   version, current -- scalars about the blob, not records;
+#   settings         -- configuration and templates (goals, presets, units), which
+#                       describe how to record, not what happened.
+NOT_RECORD_STORES="version current settings"
+# Stores that live OUTSIDE APP_STATE, so emptyState() cannot list them:
+#   scans -- the local scan list (H4, D77 §1), in its own localStorage key.
+OUTSIDE_STATE="scans"
+
+# Top-level keys of emptyState(): the object literal it returns, with every nested
+# {...} removed first so a nested key (regimens.log) is not mistaken for a store.
+ES_BODY=$(sed -n '/^function emptyState()/,/^}/p' app.js | tr -d '\n' | sed -E 's/^[^{]*\{[^{]*\{//; s/\}[^}]*\}[^}]*$//')
+while printf '%s' "$ES_BODY" | grep -q '{[^{}]*}'; do ES_BODY=$(printf '%s' "$ES_BODY" | sed -E 's/\{[^{}]*\}//g'); done
+STATE_STORES=$(printf '%s' "$ES_BODY" | grep -oE '[A-Za-z_]+[[:space:]]*:' | tr -d ': ' | sort -u)
+[ -n "$STATE_STORES" ] || { echo "writesites: FAIL - could not read the store list from emptyState()"; exit 1; }
+PATTERN_STORES=$(printf '%s\n' "$STORE_PATTERNS" | cut -d'|' -f1 | sort -u)
+
+UNCLASSIFIED=""
+for st in $STATE_STORES; do
+  if ! printf '%s\n' $PATTERN_STORES $NOT_RECORD_STORES | grep -qxF "$st"; then UNCLASSIFIED="$UNCLASSIFIED $st"; fi
+done
+STALE=""
+for st in $PATTERN_STORES; do
+  if ! printf '%s\n' $STATE_STORES $OUTSIDE_STATE | grep -qxF "$st"; then STALE="$STALE $st"; fi
+done
+if [ -n "$UNCLASSIFIED" ] || [ -n "$STALE" ]; then
+  echo "writesites: FAIL - the store list and the census disagree"
+  [ -n "$UNCLASSIFIED" ] && echo "  UNCLASSIFIED store(s) in emptyState():$UNCLASSIFIED -- add a record pattern, or list it as not a record store, with the reason"
+  [ -n "$STALE" ] && echo "  pattern(s) for store(s) the app no longer has:$STALE"
+  exit 1
+fi
+
+WRITE_RE="($(printf '%s\n' "$STORE_PATTERNS" | cut -d'|' -f2- | paste -sd'|' -))"
 
 # Enclosing function for each match. grep does the matching (its ERE is the one
 # the pattern is written for); awk only maps a line number to the `function NAME(`
@@ -48,6 +96,11 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # now the stamped creation site for that path. A census that had merely gained a
 # name would say less than one that also lost the one it replaced.
 #
+# D83: `photoSave` is BACK, for a different write. It creates the PLATE
+# (APP_STATE.plates[id] =), which the census could not see until `plates` was
+# classified. It is STAMPED: plateFromDraft sets tzo. R33's point above stands --
+# photoSave writes no items -- and the census now also sees the plate it does write.
+#
 # H4/D82: three new sites. `createMedFromDraft` (meds[id] =) and `addMedFill`
 # (fills.push) are STAMPED -- the medication and each fill carry the device offset.
 # `logScan` (scans.push) is EXEMPT: the scan list is a date-only local log, outside
@@ -58,6 +111,7 @@ addManualEntry
 addMedFill
 createMedFromDraft
 logScan
+photoSave
 addPriceEntry
 addSignal
 applySupplementToToday
@@ -78,7 +132,7 @@ EOF
 EXPECTED=$(printf '%s\n' "$MANIFEST" | sort -u)
 
 if [ "$FOUND" = "$EXPECTED" ]; then
-  echo "writesites: OK ($(printf '%s\n' "$FOUND" | grep -c .) sites, manifest matches)"
+  echo "writesites: OK ($(printf '%s\n' "$FOUND" | grep -c .) sites, manifest matches; stores classified: $(printf '%s\n' $STATE_STORES | paste -sd' ' -))"
   exit 0
 fi
 

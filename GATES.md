@@ -3280,3 +3280,22 @@ With the Rx number, a pharmacy that dispensed the medication can pull the rest f
 | 2026-09-17 | **Limit 3 accepted as stated**: a refill scanned twice appears twice |
 
 **Status: RULED 2026-09-17, and FOLDED INTO H4.** What remains under this name is scans for several other people. It is named, not built, and needs its own ruling first, because a bucket per person would be the whose field arriving by another route.
+
+### D83 — the write-site census classifies every store (2026-09-17; tests and docs only, no version bump)
+
+**Claim.** Every top-level store in `emptyState()` is classified: either a record store with its creation pattern, or a store that holds no records, with the reason. A store the app gains fails the census until it is classified. The plate store, which the census never covered, is now covered, and `photoSave` is registered for the plate it creates.
+
+**Proven against the defect (D60).** Each case ran in a throwaway copy of `app.js`, against the new census and, where it matters, the pre-change one (`0421f16`).
+
+| planted | new census | old census |
+|---|---|---|
+| none | OK, 19 sites, 10 stores classified | OK, 18 sites |
+| a new function writing `APP_STATE.plates[id] =` | **FAIL**, and the function is named as unregistered | **OK** (the gap, reproduced) |
+| a new top-level store, `widgets`, in `emptyState()` | **FAIL** — unclassified: `widgets` | not run |
+| `meds` removed from `emptyState()` | **FAIL** — pattern for a store the app no longer has: `meds` | not run |
+| the `plates` pattern dropped from the census | **FAIL** — unclassified: `plates` | not run |
+| `emptyState()` renamed, so the store list cannot be read | **FAIL** — could not read the store list | not run |
+
+The nested keys (`regimens.active`, `list`, `log`) are not mistaken for stores: the clean run lists exactly the ten top-level keys.
+
+**`bash tests/run-data-layer.sh`**: census OK with 19 sites; **1802/1802 ALL PASS**.
