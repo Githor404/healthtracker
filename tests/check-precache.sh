@@ -26,5 +26,6 @@ while IFS= read -r p; do
 done <<< "$paths"
 
 echo "-----------------------------------------"
-if [ "$missing" -eq 0 ]; then echo "PRECACHE: PASS"; exit 0; fi
-echo "PRECACHE: FAIL ($missing missing)"; exit 1
+# The GATE: line is the verdict run-all-gates.sh reads (D56, D75).
+if [ "$missing" -eq 0 ]; then echo "PRECACHE: PASS"; echo "GATE: PASS"; exit 0; fi
+echo "PRECACHE: FAIL ($missing missing)"; echo "GATE: FAIL"; exit 1

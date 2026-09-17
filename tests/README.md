@@ -136,8 +136,8 @@ bash tests/run-all-gates.sh
 GATE_TIMEOUT=900 bash tests/run-all-gates.sh   # per-gate seconds, default 600
 ```
 
-Runs the data-layer harness and every `*-gate.ps1`, and holds each to the same
-bar: **presence and a verdict, or fail — by name.**
+Runs the data-layer harness, the static checks, and every `*-gate.ps1`, and holds
+each to the same bar: **presence and a verdict, or fail — by name.**
 
 A gate must PRINT a `GATE: PASS` / `GATE: FAIL` line. One that prints neither
 fails the suite exactly as a missing file does. **There is no third outcome
@@ -155,6 +155,34 @@ a check that stops checking while everything reports green — keeps arriving:
 Run the gates through this, not one at a time by hand. **The hand-run loop is
 where the silent skip lived** — a `grep 'GATE:'` prints nothing for an unrunnable
 gate and moves on to the next one, and nothing in the repository was wrong.
+
+### Every check is wired, and the count says what it counts (D75)
+
+Every `tests/check-*.sh` is on one of two lists in the runner:
+
+| list | checks | run by |
+|---|---|---|
+| `STATIC_CHECKS` | `check-guidance.sh`, `check-precache.sh` | the runner, judged like any gate |
+| `IN_HARNESS` | `check-sw-hash.sh`, `check-version.sh`, `check-writesites.sh`, `check-zxing.sh` | `run-data-layer.sh`, as preconditions |
+
+A `check-*.sh` on neither list fails the suite as **unwired**. If the harness
+stops calling an `IN_HARNESS` check, that check fails as **not-called**. This
+matters because the harness itself would still pass. A new check joins one list
+in the commit that adds it.
+
+**The count is the number of verdict lines the runner prints:** 1 harness + the
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 2 + 8 = **11**. The
+`IN_HARNESS` checks are part of the harness's verdict and are not counted again.
+Every run prints the sum, and the suite fails if the passes don't add up to it:
+
+```
+counted: 1 harness + 2 static + 8 CDP = 11 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)
+```
+
+**Quote the number together with that line.** A bare count can't be told apart
+from a count that lost a gate. Until D75 the runner never ran
+`check-precache.sh` or `check-guidance.sh`, while GATES.md counted both.
 
 ## Environment dependency — antivirus exclusion for `tests/`
 

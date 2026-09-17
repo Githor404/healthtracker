@@ -2866,3 +2866,30 @@ Governance only. Ruled before labelling starts, because both would otherwise be 
 **`undecidable` is a finished label, not a skipped row.** If no corpus row is correct for a query, that is a **finding about the corpus** and as complete an answer as naming a row. The tooling counts *labelled*, *undecidable* and *not yet looked at* as three states, with the first two both resolved — **a workflow that reports "no row fits" as unfinished work applies pressure to invent an answer**, and an invented row is noise in the truth column, which is worse than a smaller set.
 
 **One labeller, who is also the user the matcher serves.** The set is labelled by the app's author, whose meals it contains and whose matcher it will score. **It measures agreement with one person's judgement, not correctness.** Nothing fixes that, and it is not a reason to stop — a matcher that agrees with its only user is doing most of its job. But no figure from this set may be called accuracy without the qualification, and a disagreement between matcher and label is not automatically the matcher being wrong.
+
+## D75 — A check nothing runs is not a gate; the count says what it counts (2026-09-17)
+
+Tests and docs only. No shell change, no `APP_VERSION` bump.
+
+**What happened.** `tests/run-all-gates.sh` is the full-suite runner, and it never executed `check-precache.sh` or `check-guidance.sh`, even though GATES.md counted both as gates. A green `SUITE: PASS (9 of 9 …)` therefore said nothing about either. Reproduced: the old runner passes with a phantom path in `PRECACHE`, and with prop advice planted in the README. Both checks passed when run by hand, so nothing shipped wrong. The gap was in what a green run meant.
+
+**The rule: every `tests/check-*.sh` must be wired, meaning the runner executes it, or the harness calls it and the runner can see that call. An unwired check fails the suite by name.** A new check joins a list in the same commit that adds it, as a new CDP gate joins the census.
+
+**What changed.**
+
+- The runner executes `check-precache.sh` and `check-guidance.sh` and judges them by the same rules as every other gate. Both now print a `GATE: PASS` / `GATE: FAIL` line, so there is no special case.
+- The runner holds two lists. `STATIC_CHECKS` holds the checks it runs itself. `IN_HARNESS` holds `check-sw-hash`, `check-version`, `check-writesites` and `check-zxing`, which `run-data-layer.sh` runs as preconditions. The suite fails on any `check-*.sh` that is on neither list, and on any `IN_HARNESS` check the harness no longer calls outside a comment. The second failure matters because a precondition whose call has been removed has nothing left to fail on, so the harness still passes.
+
+**How the count is arrived at.** The suite's number is **the number of verdict lines the runner prints**:
+
+> 1 data-layer harness + the checks in `STATIC_CHECKS` + every `*-gate.ps1` (pinned by the census)
+
+Today that is 1 + 2 + 8 = **11**. The four `IN_HARNESS` checks count as part of the harness's verdict, not a second time. Every run prints the sum on a `counted:` line, and the suite fails if the passes do not add up to it. **Quote the number together with that line.** A bare count cannot be told apart from one that lost a gate.
+
+**Why the method has to be written down.** GATES.md has recorded eleven, thirteen, fourteen, fifteen and sixteen gates green, and then nine. The hand-collected counts listed the static checks one by one. The runner's nine listed none of them and never ran two of them. None of those numbers said what it counted, so a smaller number could not be told apart from a lost gate. The counts recorded before this entry stand as written. Comparing across this change needs the method above.
+
+**Limit.** The call-site check matches text. An `IN_HARNESS` call on a line that never executes, such as inside a disabled branch, would still count as a call. The check does catch deletion and commenting-out, which is how a call normally disappears.
+
+This is D56's failure shape, a check that silently stops checking, now found in the runner's own call list.
+
+Evidence: GATES.md, "D75".

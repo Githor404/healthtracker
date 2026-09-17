@@ -2729,3 +2729,36 @@ It also caught **the common case paying for the rare one**: a *"pieces (optional
 **1679/1679 ALL PASS. SUITE: PASS (9 of 9 produced a verdict, and every verdict was PASS), runner exit 0.**
 
 **Status: BUILT — v0.29.0.**
+
+### D75 — the runner runs every check the record counts, and says how it counts (2026-09-17; tests and docs only, no version bump)
+
+**Claim.** A green `run-all-gates.sh` now covers `check-precache.sh` and `check-guidance.sh`. Any `check-*.sh` that nothing runs fails the suite by name. The printed count carries the method used to reach it.
+
+**Proven against the defect (D60).** The test bed is a throwaway copy of the repo: the real shell files, the real two checks, and the runner under test, with the harness and the eight CDP gates stubbed to print `GATE: PASS`. Each copy carries one planted defect. The old runner is `17cfba2`'s.
+
+| planted defect | new runner | old runner |
+|---|---|---|
+| none | PASS — `11 of 11` | PASS — `9 of 9` |
+| prop advice appended to the README | FAIL `check-guidance.sh`, offending line shown | **PASS** |
+| phantom path added to `PRECACHE` | FAIL `check-precache.sh`, missing path shown | **PASS** |
+| `check-guidance.sh` deleted | FAIL `check-guidance.sh(missing)` | not run |
+| `check-precache.sh` exits 0 and prints no verdict | FAIL `check-precache.sh(no-verdict)` | not run |
+| `check-precache.sh` prints PASS, exits 1 | FAIL `check-precache.sh(rc-mismatch)` | not run |
+| a new `check-new.sh` that nothing runs | FAIL `check-new.sh(unwired)` | not run |
+| the harness's `check-zxing.sh` call commented out | FAIL `check-zxing.sh(not-called)`, **while the harness line still passed** | not run |
+| the pass tally reset partway through the run | FAIL `count-mismatch(passed 8, counted 11)` | not run |
+
+The two **PASS** cells in the old-runner column reproduce the gap. The not-called row shows why that check exists: once a precondition's call is removed, the harness has nothing left to fail on.
+
+**Count method from here on:** `counted: 1 harness + 2 static + 8 CDP = 11 verdicts`, plus 4 checks inside the harness that count toward its verdict. Earlier counts in this file stand as written, but they used different methods and never said which (D75).
+
+**Limit.** The not-called check matches text, so a call on a line that never executes would still count as a call.
+
+**Real suite: two full runs, both recorded.**
+
+- **First run: `SUITE: FAIL`.** `data-layer` executed 0 of 1679 and printed no SUMMARY line. The other ten verdicts passed, and `counted:` read 11. Run alone immediately afterwards, the harness passed 1679/1679 in 6 s, and nothing it loads had changed. Memory was 80% used, and the user's own Chrome held 6.4 GB across 47 processes. That is the pressure D67 recorded. This time it showed up as an empty harness DOM dump.
+- The user then closed a 3.4 GB tab, bringing memory to 66% used and Chrome to 3.5 GB across 33 processes. **Second run: 1679/1679 ALL PASS. `counted: 1 harness + 2 static + 8 CDP = 11 verdicts`. `SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)`, runner exit 0.**
+
+The solo pass of the harness is not the evidence. The second full run is.
+
+**Status: BUILT.**

@@ -26,14 +26,15 @@ CONTROL_HITS=$(printf '%s\n' "$CONTROL" | grep -oiE "$TERMS" | wc -l | tr -d ' '
 if [ "$CONTROL_HITS" -ne 3 ]; then
   echo "guidance: FAIL - the CONTROL did not match ($CONTROL_HITS of 3 terms)."
   echo "  The matcher is broken, so a clean scan below would mean nothing."
+  echo "GATE: FAIL"
   exit 1
 fi
 
 # ---- the three surfaces ----------------------------------------------------
 PANE=$(sed -n '/id="pane-photo"/,/id="pane-manual"/p' index.html)
 TMPL=$(sed -n '/^const AI_PROMPT_TEMPLATE/,/^const AI_PROMPT_SAMPLE/p' app.js)
-[ -n "$PANE" ] || { echo "guidance: FAIL - the photo pane was not found in index.html"; exit 1; }
-[ -n "$TMPL" ] || { echo "guidance: FAIL - AI_PROMPT_TEMPLATE was not found in app.js"; exit 1; }
+[ -n "$PANE" ] || { echo "guidance: FAIL - the photo pane was not found in index.html"; echo "GATE: FAIL"; exit 1; }
+[ -n "$TMPL" ] || { echo "guidance: FAIL - AI_PROMPT_TEMPLATE was not found in app.js"; echo "GATE: FAIL"; exit 1; }
 
 FOUND=0
 for pair in "photo pane (index.html)|$PANE" "AI_PROMPT_TEMPLATE (app.js)|$TMPL" "README.md|$(cat README.md)"; do
@@ -47,6 +48,8 @@ for pair in "photo pane (index.html)|$PANE" "AI_PROMPT_TEMPLATE (app.js)|$TMPL" 
   fi
 done
 
-[ "$FOUND" -eq 0 ] || exit 1
+# The GATE: line is the verdict run-all-gates.sh reads (D56, D75).
+[ "$FOUND" -eq 0 ] || { echo "GATE: FAIL"; exit 1; }
 echo "guidance: OK (control matched 3/3; no prop, framing or angle advice on the 3 photo surfaces)"
+echo "GATE: PASS"
 exit 0
