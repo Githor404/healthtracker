@@ -2908,7 +2908,40 @@ Forks C to E are about these.
 - Whether strength gets alternatives.
 - **A consolidated-list export for a pharmacist.** That is the motivating artefact, but it is not in the brief. Flagged, not assumed.
 
-**Status: PRE-REGISTERED, FORKS OPEN. NOT built.**
+#### Ruling log
+
+| ruled | what |
+|---|---|
+| 2026-09-17 | Forks **A, B, C, D, F, G, H, I as recommended**. Schema **v9 → v10** taken: it is required, not optional (D77 §5) |
+| 2026-09-17 | **Fork E replaced by a scan list** (D77 §1): neither "own medications only" nor a `for` field. Whose is asked at capture. Mine → offered to the medication record. Someone else's → shown and logged, and nothing is saved. The scan list stays local, is not exported, and keeps the Rx number |
+| 2026-09-17 | **C and D state their reason per entry**: *claim*, *tidiness*, or *transcription is not assertion* (D77 §2). D1 is tidiness, not safety |
+| 2026-09-17 | **The honest limit is stated on the capture surface before the first send** (D77 §3). It replaces E1's pre-send notice about the patient's name |
+| 2026-09-17 | **Survey conflicts 3 and 4 settled**: D55/D69/D70 and D45 Fork H as written, and "middle row" defined (D77 §6) |
+
+**What the scan list changes in this entry.**
+- **Fork E1** ("own medications only") and **E2** (a `for` field) are both superseded. The medication record has no whose field.
+- **Fork F** matches only against the medication record, which now holds only the user's own medications.
+- **Build detail, not a new fork:** the whose tap can be part of the kind choice (**Meal / My label / Someone else's label**), so it costs no extra tap.
+- **Storage.** The scan list lives **outside `APP_STATE`**, in its own localStorage key, as the BYOK key does (D45 Fork F). That way export, the D3 pre-restore backup and restore cannot carry it, by construction. Clearing site data loses it; as ruled, copy is the way to move it.
+- **Details still open for the build:**
+  - What a scan entry records when the identity was not confirmed. Recommended: the "None of these" rule, meaning "Unreadable label" and no strength.
+  - Whether entries can be deleted. Recommended: yes, since it is the user's log.
+  - Whether the printed `fill_date` goes in the entry alongside the scan date. H6 bears on this.
+
+**Gates added or changed by the rulings.**
+
+| case | asserts |
+|---|---|
+| H4-reasons **GATE** | every refused entry carries a reason (`claim` or `tidiness`), and every kept field carries `transcription`; an entry without a reason fails the gate |
+| H4-honest-limit **GATE** | the statement that the model sees the whole label is on the label-capture surface before the first send |
+| H4-whose **GATE** ×2 | a "mine" scan is logged to the scan list and offered to the medication record; a "someone else's" scan is logged to the scan list and writes **nothing** to the medication store (asserted on the store itself, not on the UI) |
+| H4-scanlist-local **GATE** | the scan list is absent from the export and from the pre-restore backup, and a restore neither reads nor clears it (asserted against the code that enforces this, not against the README, per D73) |
+| H4-scanlist-fields | each entry holds drug, strength, Rx number, date and whose, with printed values kept as printed |
+| H4-scanlist-copy | copy produces the entries as plain text, filterable by whose |
+| H4-person | unchanged, but its reason is now recorded as tidiness, not safety |
+| H4-middle | unchanged; its definition is confirmed (D77 §6) |
+
+**Status: RULED 2026-09-17. NOT built.**
 
 ### H5 — Drug information: sourced, stored, copyable — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built; depends on H4)
 

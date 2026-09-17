@@ -1226,6 +1226,8 @@ Judged **this slice** rather than post-launch: it is a CSS-and-one-wrapper chang
 
 The app **MAY** call a user-supplied vision endpoint, **only**: (a) with a key the user entered themselves, (b) on an explicit capture-send, (c) sending only the meal photo and the perception template — nothing else. **The share-sheet/paste path (D11) remains** as the no-key fallback. **BYOK is an addition, never a replacement**, and every failure lands back on it.
 
+**Amended by D77 §4 (2026-09-17):** bound (c) now reads *"only the photo the user chose for this capture, and the template for its kind"*, so a medication label can be sent. Every other clause stands.
+
 ### Key hygiene — by construction, not by rule (Fork F, ruled)
 
 **The key never enters `APP_STATE`.** It lives in its own localStorage key, `healthtracker-byok`, alongside its own per-day counter. This is the whole rule, and it is structural: **export, the D3 pre-restore backup, and restore cannot carry the key because it is not in the object they serialize.** An exclusion filter would have been a rule a future normalizer change could quietly break — and `normalizeSettings` is an allowlist rebuild that has surprised this project once already. A structural fact needs no vigilance.
@@ -2913,3 +2915,56 @@ Governance only. No code, no schema change, no `APP_VERSION` bump.
 - before any labelling, rule how a label is chosen without a candidate list that shares the matcher's reasoning. **That question is open and is not answered here.**
 
 **This amends D62's sequencing.** D62 said the matcher had *"no remaining upstream blocker"*, and that the evaluation set *"needs no persistence, no corpus substrate and no further rulings"*. The first claim no longer holds, because the corpus is upstream of the matcher. The second holds for storage but not for labels: a label is a corpus row, so labelling needs corpus content to label against. D62's forks are unaffected. GATES.md's notes calling the matcher and its set *"stated next, still unblocked"* (under R30, R32 and R33) are superseded by this entry.
+
+## D77 — Medication capture, ruled before build: a scan list answers "whose", and each refusal says why (H4, 2026-09-17)
+
+Governance only; H4 is not built. No code yet, and no `APP_VERSION` bump. The forks and gates are in GATES.md under H4; this entry records the rulings that bind beyond that slice.
+
+### 1. Whose medication: asked once, at capture, and answered by where the record goes
+
+**The problem is a category, not an exposure.** The app has one profile and no concept of whose. A label scanned for someone else would land in the user's medication list, and anything computed across that list would silently mix two people.
+
+**Ruled: a scan list.**
+- **It is local and separate from the medication record.** Every scan is logged there with drug, strength, Rx number, date and whose.
+- **Whose is asked at capture, with one tap: "yours or someone else's?"** Capture is the only moment the app can know; working it out later would be guessing.
+- **"Mine"**: the reading is offered for saving into the medication record, as H4 describes.
+- **"Someone else's"**: the reading is shown and the scan is logged, and nothing enters the medication record. Reading a label is a lookup and saving it is a record; they are different acts.
+- **So the medication record is single-person by construction.** It has no whose field, and none of its consumers need one.
+- **The scan list stays local and is not exported.** The copy button covers anything that needs moving.
+- **The Rx number is kept.** Anyone holding the prescription already has a photo of it on the device, so the app holding the drug name and Rx number is strictly less than what is already there.
+
+**Superseded within the same ruling:** a `for` field on the medication record, which was first named as the fix. The scan list removes the problem instead of modelling it.
+
+**Record this as a scan list, not a privacy control.** The user framed this as privacy twice, once for the patient name on the label and once for the Rx number, and neither framing held up. A future session must not read how either field is handled as a privacy rule.
+
+### 2. Every refusal entry carries its reason, because the reasons differ
+
+One list that encodes two policies is how a future session adds or removes the wrong entry. So each entry states which policy it follows:
+
+| entries | handling | reason |
+|---|---|---|
+| drug class, indication, mechanism, interactions, dose advice, appropriateness | refused: stripped, counted and named on the draft | **claim**: the model would be asserting this, not reading it |
+| patient name, patient address, pharmacy phone | refused: stripped and counted | **tidiness**: nothing uses these. This is not a safety rule |
+| directions, and every other contract field | kept verbatim | **transcription is not assertion** |
+
+The reason is stored as data in the code, not only written here, and a gate asserts that every entry has one.
+
+**The consequence, stated plainly.** If a label prints *"TAKE 1 TABLET DAILY FOR BLOOD PRESSURE"*, the record **contains** an indication, even though the app never states one. "The app makes no claims about indications" is true of the app's claims and false of its contents. Nothing that reads medication records may treat "the app stated no indication" as "there is no indication".
+
+### 3. The honest limit of any refusal
+
+The model sees the whole label, whatever it returns. Refusing a field keeps it out of the **record**, not out of the **request**. The capture surface says so before the first send.
+
+### 4. D45's bound is amended
+
+*"Only the meal photo and the perception template"* becomes *"only the photo the user chose for this capture, and the template for its kind"*. Every other clause of D45 stands: the key, the photo hygiene, the service-worker bypass, and the fallback to paste.
+
+### 5. Schema v9 → v10 for the medication store
+
+**This bump is required, not optional.** The existing medication record turns "50 mg" into a number and a unit, which is exactly what H4 forbids. So the as-printed reading needs a record that never passes through that normaliser. The scan list lives outside `APP_STATE` (§1 keeps it out of export), so it needs no schema change.
+
+### 6. References corrected
+
+- **The brief's "D4 two-objects rule", "R1.1" and "asking-price refusal" belong to another project's log.**
+- **The rule the brief meant is D55/D69/D70:** a derived value is kept beside the observation, never in place of it. **The refusal machinery it meant is D45 Fork H.**
+- **"Middle row" means one reply, two assertions:** the refused field is stripped, **and** the legitimate field survives. Both are asserted against the same response, so a refusal that removes too much fails the gate.
