@@ -3110,8 +3110,9 @@ Verified on the same day:
 | H5-brand **GATE** ×3 | a printed "LIPITOR" finds the stored "Lipitor"; a longer stored brand that contains the printed one does not match; a Canadian brand with no match says so, and the DPD line applies |
 | H5-casefold **GATE** | both lookups compare stored spellings after case-folding, and query every spelling that matched, so neither depends on how openFDA cases a field |
 | H5-case | replaced: the upper-cased query is gone (D80); the printed name is still stored unchanged |
+| H5-no-match **CONTROL** | in the same run, the lookup finds a known-present name whose stored spelling differs in case from the query; without this, H5-no-match is not evidence (D80) |
 
-**Open (D80):** an optional `generic_name` field in H4's contract, transcribed as printed, so a label that prints both names keeps the one that resolves.
+**Open (D80):** an optional `generic_name` field in H4's contract, transcribed as printed, so a label that prints both names keeps the one that resolves. **Ruled in D81: yes.**
 
 **Status: RULED 2026-09-17. NOT built. Blocked on H4.**
 

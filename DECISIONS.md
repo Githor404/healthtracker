@@ -3041,7 +3041,7 @@ Governance only; nothing is built. All four H6 forks are ruled as recommended.
 
 **What remains under the name H6** is only the case of scans for several other people.
 
-## D80 — Brand names are searched too; US brands resolve and Canadian ones do not (H5, 2026-09-17)
+## D80 — Brand names are searched too; nine of nine Canadian brands tested found nothing (H5, 2026-09-17)
 
 Governance only; nothing is built. This rules D78 §2's open item.
 
@@ -3069,10 +3069,16 @@ Thirteen printed brand names were tested. DPD confirmed all but Lopressor as Can
 | LIPITOR, CRESTOR, SYNTHROID | brands sold in both countries | 3 of 3 |
 | LOPRESSOR | US brand | yes (two stored spellings, three labels) |
 
-**US brand names resolve, and Canadian brand names do not: none of the nine tested did.** A label whose only printed name is a Canadian company brand (APO-, TEVA-, PMS-, SANDOZ) gives the lookup nothing that openFDA can find. This is the DPD gap (D78 §3) appearing a second time. The first time, it was a drug with no US label; here, it is a US label that the Canadian name cannot reach.
+**Nine of nine Canadian brand names found nothing, and three of three brands sold in both countries resolved.** That split is structural, not patchy coverage: openFDA indexes US labelling, so a brand name used only in Canada has no US label to match. The claim is about the thirteen names tested and that mechanism; it is not a coverage estimate. So a label whose only printed name is a Canadian company brand (APO-, TEVA-, PMS-, SANDOZ) gives the lookup nothing that openFDA can find. This is the DPD gap (D78 §3) appearing a second time. The first time, it was a drug with no US label; here, it is a US label that the Canadian name cannot reach.
 
 **When nothing matches, the app says so, and D78 §3's DPD line applies.** Searching the brand and the generic name is two exact lookups on two printed names. It is not a retry with a looser query.
 
+### Why the case-sensitivity catch mattered
+
+Upper-casing worked for generic names, and it would have returned nothing for every brand. **A lookup that finds nothing looks exactly like a drug with no label**, so the defect would have shipped as a stream of honest-looking "no US label found" answers. This is the presence-versus-value failure: the absence of a result was about to be read as a fact about the drug, when it was a fact about the query.
+
+**The rule: when a lookup's empty result is shown to the user as an answer, the same test run must prove that the lookup finds a known-present item whose stored form differs from the query.** This is a planted control, the way `check-guidance.sh` proves its matcher can match. Without it, "not found" cannot be told apart from a broken query. The gate is the control on H5-no-match.
+
 ### Open, and it decides how often the lookup can work in Canada
 
-H4's contract has a single `name` field. If a label prints both a brand and a generic name, the second has nowhere to go. That matters because when the brand is Canadian, the generic name is what resolves, and it may then never be captured. **Recommended:** add an optional `generic_name` field, transcribed as printed, beside `name`. **Not ruled.**
+H4's contract has a single `name` field. If a label prints both a brand and a generic name, the second has nowhere to go. That matters because when the brand is Canadian, the generic name is what resolves, and it may then never be captured. **Recommended:** add an optional `generic_name` field, transcribed as printed, beside `name`. **Ruled in D81: yes.**
