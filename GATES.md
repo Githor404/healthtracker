@@ -3299,3 +3299,68 @@ With the Rx number, a pharmacy that dispensed the medication can pull the rest f
 The nested keys (`regimens.active`, `list`, `log`) are not mistaken for stores: the clean run lists exactly the ten top-level keys.
 
 **`bash tests/run-data-layer.sh`**: census OK with 19 sites; **1802/1802 ALL PASS**.
+
+### H4.1 — Removing a medication saved by mistake — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built)
+
+**The question as received.** "Mark stopped" is right for a medication you took and then stopped. A mis-scanned record is different: the wrong drug or the wrong strength, saved by accident. Marking it stopped keeps a wrong fact in the list permanently. Either propose a delete, or argue that undo plus "Mark stopped" already covers the case.
+
+**Undo plus "Mark stopped" does not cover it, for three reasons.**
+1. **Undo lasts only a few seconds.** A misread is usually noticed later: reading the list, at the pharmacy, or at the next refill.
+2. **"Stopped" states something false.** It says *I took this and then stopped*. For a misread, neither half is true, and the copied list, the export and anything that reads them later inherit that claim. The Stopped section is visible in the app, and the record is in the export.
+3. **A stopped record still takes part in refill matching.** `findRefill` searches stopped medications too, so that a genuinely resumed prescription is recognised. A stopped misread would therefore be offered as the match for the next real label with the same name and strength, carrying the wrong record forward. For example, "Metoprolol Succinate 50 mg" misread from a tartrate label would be offered against the next real succinate label.
+
+**The data-loss implication, stated before anything is built:** once the undo window has passed, a removal cannot be reversed. The only way back is an export taken before the removal. Under the working rules, a storage change like this is ruled on before it is built.
+
+#### The forks
+
+**Fork A — what "remove" means.**
+- **A1 (recommended): a hard delete, named for its purpose: "Remove — saved by mistake".**
+  - The medication and its fills disappear from the store, the list, both copy actions, refill matching and the next export.
+  - It is confirmed first, then can be undone for the usual window (the existing undo mechanism).
+- **A2: a retraction.** The record stays, flagged `retracted` with a date and a reason, and every consumer excludes it. This would keep the misread as evidence of how labels get misread. **Rejected, for two reasons.**
+  - Every consumer has to honour the flag: four today (the list, both copies, refill matching), and H5 would add a fifth. That is R33's argument against flags: safety that depends on listing every consumer.
+  - D72 already rules that corrections seen only when someone happened to notice are not a metric, so the evidence a retraction keeps could not be used.
+- **A3: no delete.** Rejected, for the three reasons above.
+
+**Fork B — keeping it distinct from "Mark stopped".**
+- **B1 (recommended): the confirmation dialog explains the difference.** For example: *"Remove METOPROLOL TARTRATE 50 mg and its 2 recorded fills? Use this only if it was never your medication, or was read wrong. If you took it and stopped, cancel and use Mark stopped — that keeps it in your history."*
+  - The fill count is shown because a medication with several fills is almost certainly real history.
+- **The dialog promises nothing it cannot keep (D3).** It says the removal can be undone right afterwards, and says nothing about later.
+- **The control does not look like an equal of "Mark stopped" (R19).** It is a smaller, destructive-styled "Remove…" on the row (the `.clrday` precedent), not a second full-size button beside "Mark stopped".
+
+**Fork C — removing a single mistaken fill.** *(A scope question.)*
+- **C1 (recommended): include it.**
+  - Tapping "Add as a fill" on the wrong medication is the more likely mis-tap, and it leaves a wrong fill under the right medication.
+  - Each fill gets its own remove, with the same confirm-then-undo.
+  - This needs the fills listed on the row; today only their count is shown.
+  - Removing the last fill leaves the medication in place. If the medication itself is wrong, it is removed under A1.
+- **C2: whole medications only, in this slice.** Smaller. A wrong fill could then be fixed only by removing the medication and scanning again.
+
+**Fork D — the scan list.**
+- **D1 (recommended): leave it unchanged.** The scan list is a log of scans, and the scan did happen. Removing a medication does not delete or edit its scan entry. Each scan entry already has its own delete.
+
+**Fork E — restoring an older export.**
+- This is a statement, not a choice. Restoring an export taken before a removal brings the medication back. That is restore's contract (D5), not a leak.
+
+**Fork F — correcting a record instead of removing it.** *(Named, not recommended now.)*
+- A misread strength could be corrected in place, with the original kept alongside it (D55's edit contract). For "right drug, wrong digit", that is the more precise fix.
+- It would mean applying the item-edit machinery to a new record type, which is a larger slice. Removing and scanning again covers the case today.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| H4.1-remove **GATE** | a removed medication is gone from the store, the list, "Copy my medications", refill matching and the export |
+| H4.1-fills **GATE** | its fills go with it, and nothing still references the removed id |
+| H4.1-decline **GATE** | declining the confirmation changes nothing |
+| H4.1-undo **GATE** | undo restores the record exactly: deep-equal, including fills and provenance |
+| H4.1-refill **GATE** + CONTROL | after the removal, a label that used to match it is saved as new, with no offer; the control shows that the same label **was** offered a refill before the removal |
+| H4.1-words **GATE** | the confirmation names the medication, its fill count, and "Mark stopped" as the alternative, and promises no recovery beyond undo (D3) |
+| H4.1-distinct | "Remove" is not styled or sized like "Mark stopped" (measured in the shipped page, R19) |
+| H4.1-scan | a removal leaves the scan list untouched |
+| H4.1-fill **GATE** (if C1) | removing one fill leaves the medication and its other fills, and the refill offer uses only the remaining fills |
+| H4.1-census | a removal creates nothing, so the write-site census does not change (R22's `editRecord` precedent) |
+
+**A defect pass is required before this counts as evidence** (D60). Under Clause 4, the refill case must be proven against a removal that only hides the medication from the list while leaving it findable. The control is what shows the fixture can reach the refill path at all.
+
+**Status: PRE-REGISTERED, FORKS OPEN. NOT built. The data-loss implication above needs a ruling first.**
