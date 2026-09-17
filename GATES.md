@@ -3415,3 +3415,29 @@ That symptom is indistinguishable from the memory-pressure failure D67 recorded.
 **Full suite, one invocation: 1817/1817 ALL PASS. `SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)`, runner exit 0.**
 
 **Status: BUILT — v0.30.1 (D84).**
+
+### H4.3 — the keyless floor, gated as a floor (2026-09-17, D85; tests and docs only, no version bump)
+
+**Why it exists.** Three defects have shipped that worked with a key and were dead without one: two in D63 (the Settings prompt box empty for weeks; a copy that could not work from Settings) and the kind chooser in D84. Each was gated afterwards, one feature at a time.
+
+**The case.** `H4.3-keyless` drives the **shipped page with no key saved** and asserts every route that does not go through a provider, in one verdict that names what is missing:
+
+- the kind question is askable — three kinds on the surface;
+- each kind shows **its own** prompt in the box, and its Read button is present and enabled;
+- Copy fills the box, whichever kind is chosen;
+- **both readers produce a record**: a pasted label reply opens a label draft with its whose, and a pasted meal reply opens a meal draft;
+- the Settings label path is present, with its prompt, its paste box and its whose question.
+
+**CONTROL:** the key-only controls (Take photo / Choose photo) are **absent** in the same run, so the case cannot pass by accidentally measuring a configured page. A fixture assertion confirms the page has no key before any of it (Clause 4).
+
+**Proven against the defect.** Each plant gates one keyless route on `byokConfigured()`:
+
+| planted defect | fails |
+|---|---|
+| the prompt card renders only with a key | H4.3-keyless |
+| the pane's reader returns early without a key | H4.3-keyless |
+| Copy returns early without a key | H4.3-keyless |
+| the Settings label prompt renders only with a key | H4.3-keyless |
+| the kind chooser renders only with a key (**what shipped in v0.30.0**) | H4.3-keyless, and H4.2-nokey |
+
+**Count delta: 1817 → 1819** (+2), re-pinned in the same change.

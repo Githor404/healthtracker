@@ -3232,3 +3232,46 @@ There is now **one paste box, on the surface the capture came from**. Two gates 
 - **`H4.2-copy`**: Copy takes what the surface is showing.
 - **`H4.2-nokey`**: the chooser exists with no key saved.
 - **`H4.2-paste`**: the reader routes by kind, with a control that reproduces the reported failure — a label reply through the meal reader.
+
+## D85 — The keyless floor is a floor, and it has now broken three times (H4.3, 2026-09-17)
+
+Tests and docs only. No shell change, no `APP_VERSION` bump.
+
+### The fault, at its weight
+
+In v0.30.0 the capture-kind chooser rendered **only when an API key was saved**. The kind decides which prompt the page shows and how a pasted reply is parsed, so without a key there was no way to choose a label at all.
+
+**The person that shut out is exactly the person the copy-prompt path exists for.** D45 ruled the key path an addition and the paste path the floor: *"BYOK is an addition, never a replacement, and every failure lands back on it."* For anyone without a key, medication capture did not degrade. It was absent.
+
+It shipped because the person who tested it had a key.
+
+### Three times now
+
+| # | shipped | defect | dead for |
+|---|---|---|---|
+| 1 | v0.9.0 → v0.25.1 (D63) | two cards shared `id="promptTemplate"`, so Settings' prompt box was **empty on every build for weeks** | anyone copying the prompt from Settings |
+| 2 | same slice (D63) | `copyPrompt` always reached for the first box, which is inside the hidden photo pane, so the copy silently failed and the stated recovery was impossible | anyone copying from Settings |
+| 3 | v0.30.0 (D84) | the kind chooser rendered only with a key | **every** keyless user of medication capture |
+
+Each was gated afterwards, one feature at a time. That is the pattern this entry is about: **the floor was being tested one plank at a time, by whoever last stepped on it.**
+
+### What else is gated on the key: audited, 2026-09-17
+
+There is no `visionReady()` in this repo; the gate is `byokConfigured()`, and it has four call sites.
+
+| site | gates | verdict |
+|---|---|---|
+| `byokCapture` | making the provider call | **correct** — there is nothing to call without a key |
+| `renderCaptureBtn` | Take photo / Choose photo, and the no-key note | **correct after D84** — the chooser and the honest limit moved out of this branch |
+| `byokStatusLine` | the key's own status line | **correct** — it describes the key |
+| `byokSave` | reporting whether a save configured the path | **correct** |
+
+The daily cap (`byokCap`) and the status (`BYOK_STATE`) gate only sending and reporting. **So one branch was wrong, and D84 fixed it.** That is a reading of the code, which is what the previous two instances also passed.
+
+### The rule: gate the floor as a floor
+
+Reading call sites is how this was missed twice. **`H4.3-keyless` asserts the whole keyless route on the shipped page, with no key saved**, in one case: the kind question is askable; each of the three kinds shows its own prompt; copy fills the box; both readers turn a pasted reply into a draft; and the Settings label path is present with its whose question. Its control asserts the key-only controls are absent, so the case cannot pass by measuring a configured page.
+
+**A feature that has a keyless route adds it to that case.** One more plank on a floor that is tested as a floor, rather than one more feature-shaped gate that will be complete until the next feature.
+
+**Proven against the defect:** gating the prompt card, the reader, copy, or the Settings prompt on `byokConfigured()` each fails the floor case by name, as does the chooser gating that shipped.

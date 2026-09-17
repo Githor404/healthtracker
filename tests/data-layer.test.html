@@ -2158,6 +2158,62 @@ window.setLS({});
       SEW.HT.renderPromptCard();
     }
 
+    // ------------------------------------------------------------------
+    // H4.3 (D85) -- THE KEYLESS FLOOR, GATED AS A FLOOR.
+    // Three defects have now shipped that worked with a key and were dead
+    // without one (D63 twice, D84 once). Each was gated afterwards, one feature
+    // at a time. This asserts the whole floor on the SHIPPED page with NO key:
+    // every route from a photo to a record that does not go through a provider.
+    // ------------------------------------------------------------------
+    if (SEW && SEW.HT) {
+      var kl = [];
+      var need = function (cond, what) { if (!cond) kl.push(what); };
+      need(SEW.HT.byokConfigured() === false, 'the fixture has no key');      // Clause 4: the floor is only a floor here
+      // 1. the kind question is askable
+      need(SEDOC.querySelectorAll('#captureBox .capk').length === 3, 'the kind chooser');
+      // 2. every kind offers a prompt to copy, and it is the right one
+      ['meal', 'label-mine', 'label-other'].forEach(function (k) {
+        SEW.HT.setCaptureKind(k);
+        var box = SEDOC.getElementById('promptTemplate');
+        var want = k === 'meal' ? SEW.HT.AI_PROMPT_TEMPLATE : SEW.HT.LABEL_TEMPLATE;
+        need(box && box.value.slice(0, 40) === want.slice(0, 40), 'the ' + k + ' prompt in the box');
+        var btn = SEDOC.getElementById('paneReadBtn');
+        need(btn && !btn.disabled && btn.textContent.length > 0, 'the ' + k + ' read button, enabled');
+      });
+      // 3. and the copy action fills it, whichever kind is chosen
+      SEW.HT.setCaptureKind('label-mine');
+      SEDOC.getElementById('promptTemplate').value = '';
+      SEW.HT.copyPrompt(SEDOC.getElementById('promptTemplate'));
+      need(SEDOC.getElementById('promptTemplate').value.slice(0, 40) === SEW.HT.LABEL_TEMPLATE.slice(0, 40),
+           'copy fills the box with no key');
+      // 4. both readers actually produce a record, driven through the shipped page
+      SEW.HT.setCaptureKind('label-other');
+      SEDOC.getElementById('ingestBox').value = SEW.HT.LABEL_SAMPLE;
+      var klLabel = SEW.HT.doCapturePaste();
+      need(klLabel.ok === true && !!SEW.HT.labelDraft() && SEW.HT.labelDraft().whose === 'other', 'the label reader');
+      SEW.HT.labelDone();
+      SEW.HT.setCaptureKind('meal');
+      SEDOC.getElementById('ingestBox').value = SEW.HT.AI_PROMPT_SAMPLE;
+      var klMeal = SEW.HT.doCapturePaste();
+      need(klMeal.ok === true && !!SEW.HT.photoDraft(), 'the meal reader');
+      SEW.HT.photoDiscard();
+      SEDOC.getElementById('ingestBox').value = '';
+      // 5. the second label route -- Settings, where the list lives
+      need(SEDOC.getElementById('labelPromptBox') && SEDOC.getElementById('labelPromptBox').value.length > 0,
+           'the label prompt in Settings');
+      need(!!SEDOC.getElementById('labelPasteBox') &&
+           SEDOC.querySelectorAll('[data-setting="meds"] input[name="labelWhose"]').length === 2,
+           'the Settings paste path with its whose question');
+      res(kl.length === 0,
+          'H4.3-keyless GATE: with NO key, every keyless route works on the shipped page -- the kind question, all three prompts, copy, both readers, and the Settings label path' +
+          (kl.length ? ' :: MISSING ' + kl.join(' | ') : ''));
+      // The control: the same check, run against a surface the key gate hides.
+      res(kl.length === 0 && SEDOC.querySelectorAll('#captureBox .caprow').length === 0,
+          'H4.3-keyless CONTROL: and the key-only controls (Take photo / Choose photo) are correctly absent -- so this case is measuring a keyless page, not a configured one');
+      SEW.HT.setCaptureKind('meal');
+      SEW.HT.renderPromptCard();
+    }
+
     // H4 in the SHIPPED shell. The label draft sits inside the one outcome modal
     // (D51); the medication list, the scan list and the no-key paste path are one
     // flat settings entry; and the paste path states the honest limit before the
