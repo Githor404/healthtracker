@@ -2920,6 +2920,7 @@ Forks C to E are about these.
 | 2026-09-17 | **H6 folded in** (D79): "Copy my medications" on the medication record, and copy on the scan list filtered by whose and by date |
 | 2026-09-17 | **Scan entries gain directions and prescriber**, as printed (D79, amending D77 §1) |
 | 2026-09-17 | **A refill scanned twice stays as two entries**, because de-duplicating would be a judgement (D79) |
+| 2026-09-17 | **`generic_name` added**: optional, transcribed as printed, alongside `name` (D81) |
 
 **What the scan list changes in this entry.**
 - **Fork E1** ("own medications only") and **E2** (a `for` field) are both superseded. The medication record has no whose field.
@@ -2954,6 +2955,14 @@ Forks C to E are about these.
 | H4-copy-plain | the copy is plain text; no markup survives, and nothing is added beyond the fields and the header |
 | H4-no-dedup | two scans of one prescription remain two entries, and copy as two lines |
 | H4-scanlist-fields | extended: entries also hold directions and prescriber, as printed |
+
+**Gates added by D81.**
+
+| case | asserts |
+|---|---|
+| H4-two-names **GATE** ×3 | a label printing both names keeps both verbatim; a label printing one has only that field, and the other is absent; `generic_name` is never filled from a lookup |
+| H4-scanlist-fields / H4-own-copy | extended: both names are carried when both are printed |
+| H4-refill | unchanged: a `generic_name` present on one fill and absent on another does not break the match |
 
 **Status: RULED 2026-09-17. NOT built.**
 

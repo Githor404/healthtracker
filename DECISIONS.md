@@ -3082,3 +3082,16 @@ Upper-casing worked for generic names, and it would have returned nothing for ev
 ### Open, and it decides how often the lookup can work in Canada
 
 H4's contract has a single `name` field. If a label prints both a brand and a generic name, the second has nowhere to go. That matters because when the brand is Canadian, the generic name is what resolves, and it may then never be captured. **Recommended:** add an optional `generic_name` field, transcribed as printed, beside `name`. **Ruled in D81: yes.**
+
+## D81 — A label's two names are two fields (H4, 2026-09-17)
+
+Governance only; nothing is built. This rules the open item in D80.
+
+**Ruled: an optional `generic_name` field, transcribed as printed, alongside `name`.** A Canadian label can print both a company brand and the generic name, and in openFDA only the generic resolves (D80). With a single field, transcription would have to choose between the name that is prominent and the name that is useful. So there are two fields, both verbatim, and no judgement about which matters.
+
+**What follows:**
+- **Neither field is derived from the other.** A label that prints only one name has only that field, and the other stays absent (H4-absent). The app never fills `generic_name` from a lookup.
+- **The template asks for both names as printed**, and says to leave out any name that is not printed. `LABEL_TEMPLATE_VERSION` stays at 1, because nothing is built yet.
+- **H5 searches each printed name exactly** (D80's contract), and shows which name found each result.
+- **Scan entries and copied lines carry both names when both are printed.** This is the same no-judgement rule; keeping only one name there would force the same choice again.
+- **Fork F's refill match does not change.** It still keys on the printed `name` and strength, and on the Rx number. A generic name printed on one fill but not another must not break the match.
