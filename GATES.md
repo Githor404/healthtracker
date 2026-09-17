@@ -2762,3 +2762,7 @@ The two **PASS** cells in the old-runner column reproduce the gap. The not-calle
 The solo pass of the harness is not the evidence. The second full run is.
 
 **Status: BUILT.**
+
+### D76 — the evaluation set: PARKED (2026-09-17)
+
+**Parked, not outstanding. Nothing about it is waiting.** This supersedes the notes under R30, R32 and R33 calling the matcher and its evaluation set *"stated next, still unblocked"*. The matcher needs the micros corpus, which is unbuilt and not next. Labels picked before the corpus exists would come from a shortlist made by the matcher's own reasoning. The scaffold and the local worklist are kept. **The set becomes live again when the corpus does.** DECISIONS.md D76 gives the reasoning and the question that must be ruled before labelling starts.

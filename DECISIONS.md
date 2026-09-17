@@ -2312,6 +2312,8 @@ Two different operations, for two different reasons, and the split is the substa
 
 Recorded here because a governance log is read by future sessions as evidence, and a project that keeps finding tractable questions upstream of a hard one has found a way to look busy. **Tractability is not priority** (D59), and this is the entry that says so about its own sequence.
 
+**Amended by D76 (2026-09-17):** the corpus turned out to be upstream of the matcher, and the evaluation set is parked until the corpus exists. The paragraphs above stay as the record of what was believed on 2026-09-08.
+
 ### What this entry does not rule
 
 The matcher. The mask's word-1 slot list. The grouping gesture's surface. ~~Whether a composite's components may themselves be composites — deferred deliberately, because the answer is obvious in the small (yes) and dangerous in the large (unbounded recursion in a nutrition calculation), and nothing needs it yet.~~ **Nesting was deferred here and ruled within the hour — see the amendment below.** The sentence is struck rather than removed, because a deferral that was closed immediately is a different fact from one that still stands, and the next session should be able to see which.
@@ -2893,3 +2895,21 @@ Today that is 1 + 2 + 8 = **11**. The four `IN_HARNESS` checks count as part of 
 This is D56's failure shape, a check that silently stops checking, now found in the runner's own call list.
 
 Evidence: GATES.md, "D75".
+
+## D76 — The evaluation set is parked (2026-09-17)
+
+Governance only. No code, no schema change, no `APP_VERSION` bump.
+
+**Status: PARKED, not outstanding. Nobody is waiting on labels.** The scaffold stays: `eval/build.py`, `eval/score.py` and `eval/README.md`. The local `set.json` and `tolabel.json` stay as they are. Nothing is deleted.
+
+**Why.**
+
+1. **The set was sequenced against a matcher that is not coming soon.** It exists to score the matcher. The matcher needs the micros corpus (D59), because that is what it searches, and the corpus is unbuilt and not next. A set labelled now would sit for months, and by then it would be re-derived from a fuller log anyway.
+2. **Labelling now would be circular.** With no corpus to search, a label would be chosen from a pick-list shortlist, and the shortlist would be produced by the same reasoning the matcher uses. A label picked from it measures agreement with that reasoning, not correctness. This tightens D74's limit: the set already measured agreement with one person, and a shortlist would make that person's choices depend on the matcher's own reasoning. The original design did not have that circularity.
+
+**Reactivation: when the corpus exists.** At that point:
+
+- regenerate the set from the export of that time (`python eval/build.py export.json eval/`) rather than labelling the September worklist;
+- before any labelling, rule how a label is chosen without a candidate list that shares the matcher's reasoning. **That question is open and is not answered here.**
+
+**This amends D62's sequencing.** D62 said the matcher had *"no remaining upstream blocker"*, and that the evaluation set *"needs no persistence, no corpus substrate and no further rulings"*. The first claim no longer holds, because the corpus is upstream of the matcher. The second holds for storage but not for labels: a label is a corpus row, so labelling needs corpus content to label against. D62's forks are unaffected. GATES.md's notes calling the matcher and its set *"stated next, still unblocked"* (under R30, R32 and R33) are superseded by this entry.

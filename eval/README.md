@@ -1,5 +1,16 @@
 # Matcher evaluation set
 
+> **Status: PARKED (D76, 2026-09-17), not outstanding. Nobody is waiting on labels.**
+>
+> The matcher this set scores needs the micros corpus (D59), which is unbuilt and
+> not next. Without a corpus, a label would be picked from a shortlist made by the
+> matcher's own reasoning. That measures agreement with the reasoning, not
+> correctness.
+>
+> **Live again when the corpus is.** Then regenerate the set from the export of
+> that time instead of labelling the worklist below. Before labelling, rule how a
+> label is chosen without a candidate list that shares the matcher's reasoning.
+
 Built from a real export. **Read D72 before quoting any number from it.**
 
 ## What is here
@@ -9,7 +20,7 @@ Built from a real export. **Read D72 before quoting any number from it.**
 | `build.py` | regenerates the inputs from an export | yes |
 | `score.py` | scores a matcher's predictions | yes |
 | `set.json` | 7 rows with **barcode truth**, 1 name-only | **no** — real eating history |
-| `tolabel.json` | 26 distinct queries awaiting human labels | **no** — same |
+| `tolabel.json` | 26 distinct queries, unlabelled; **parked** (D76) | **no** — same |
 
 ```
 python eval/build.py export.json eval/
@@ -32,9 +43,9 @@ Four limits — the first three ruled in **D72**, the fourth in **D74** — repe
 
 2. **`fastLog` cannot measure fasting.** Days are not closed and fasts are not resolved; gaps are logging artifacts. Any streak or mean describes logging habits.
 
-3. **One labeller, who is also the user.** See below — the set measures agreement with a single person's judgement.
+3. **The barcoded rows are selected against the matcher's job.** A barcode means the app already resolved the food *without* a matcher. The cases the matcher exists for have no barcode and therefore no external truth here. This set can measure whether a matcher returns a composition consistent with a known product; **it cannot measure the thing the matcher is for.**
 
-4. **The barcoded rows are selected against the matcher's job.** A barcode means the app already resolved the food *without* a matcher. The cases the matcher exists for have no barcode and therefore no external truth here. This set can measure whether a matcher returns a composition consistent with a known product; **it cannot measure the thing the matcher is for.**
+4. **One labeller, who is also the user.** See below — the set measures agreement with a single person's judgement.
 
 ## The directional rule
 
@@ -42,7 +53,7 @@ Four limits — the first three ruled in **D72**, the fourth in **D74** — repe
 
 ## Labelling
 
-More **scans** will not fix limit 4 — they are the wrong population. What closes it is labelling `tolabel.json`: naming the correct corpus row for dishes actually eaten.
+More **scans** will not fix limit 3 — they are the wrong population. What closes it is labelling: naming the correct corpus row for dishes actually eaten. **Labelling is parked (D76)** until the corpus exists, and it will start from a regenerated worklist, not this one.
 
 ### `undecidable` is a finished label, not a skipped row
 
