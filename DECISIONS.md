@@ -3275,3 +3275,56 @@ Reading call sites is how this was missed twice. **`H4.3-keyless` asserts the wh
 **A feature that has a keyless route adds it to that case.** One more plank on a floor that is tested as a floor, rather than one more feature-shaped gate that will be complete until the next feature.
 
 **Proven against the defect:** gating the prompt card, the reader, copy, or the Settings prompt on `byokConfigured()` each fails the floor case by name, as does the chooser gating that shipped.
+
+## D86 — H5 built: drug information from openFDA, stored with its citation (2026-09-17)
+
+`APP_VERSION → 0.31.0`; **schema v10 → v11**; a new top-level store, `labels`. Built to D78, D80 and D81. Evidence in GATES.md under H5.
+
+### What was built
+
+- **The lookup, on demand only.** From a saved medication: "Drug info" opens a panel; nothing reaches the network until the user taps.
+- **The query contract of D78 §2 and D80**, verified live again at build time:
+  - step one asks openFDA for the **stored spellings** of a printed name (a count);
+  - only spellings equal to the printed name **after case-folding** are kept, and every one of them is queried;
+  - step two lists **manufacturers** (a count);
+  - step three fetches **one** label, newest first, for the manufacturer the user picks;
+  - an NDC printed on the label skips straight to the exact product;
+  - a 404 is a **no match**, which is an answer.
+- **The generic name is searched first**, then the brand (D81): when the brand is Canadian, the generic is what resolves.
+- **The document** keeps the three sections as fetched, with org, set id, version, effective date, retrieval date, the source's own disclaimer and the DailyMed link. A document missing any of that is refused at the store boundary.
+- **Stored only on an explicit save**, in its own capped store (40 documents). At the cap the save asks, and the only thing it may drop is a document no medication points at.
+- **A newer version is offered, never applied**: taking it keeps the old text beside the new one (D55).
+- **No match** says so, names the Canadian gap (DPD), offers the copy-prompt path with a prompt that states it carries no label text, and links out to DailyMed.
+- **Two copies:** the label text with its citation, and a prompt carrying that text, one question stem and fixed instructions. **Exactly one label per prompt** — that is how "no interactions, ever" holds on the copy path.
+- **Standing context** on the surface (G1), never a verdict on one medication.
+- **README**: a feature bullet and a privacy bullet — the confirmed name is sent to openFDA only when asked, and never in the background.
+
+### Decisions made during the build
+
+1. **`labels` is a top-level store, not a field on the medication.** Two medications can point at one document, and the store is capped as a whole. It bumps the schema because an older app would strip documents the user chose to keep.
+2. **It is not a record store** for the D29 census (D83's classification): a label document records nothing the user did, and carries the source's dates and the retrieval date rather than a device offset.
+3. **The panel lives inside the Medications card.** The capture outcome modal is for captures (D51); this is reference material attached to a record, and it belongs where the record is.
+4. **Sections are `<details>`, open on demand.** The label text is long; the citation and the standing context must stay visible above it.
+
+### What the defect pass found — five gates that could not fail
+
+The pass is 81 plants. Five of them passed against their own gate, and each was a different hole:
+
+| plant | why it passed | repair |
+|---|---|---|
+| the v9 → v10 migration step deleted | the v10 → v11 step that follows produces a compatible shape, so the **end state** could not show a missing step | **`H5-chain`**: the chain is asserted to call every migrator, one per schema version |
+| a section truncated to 200 characters | the fixture's section was shorter than 200 characters (**Clause 4**, seventh instance) | the fixture section is now longer than any plausible truncation |
+| the app adding *"This is what you take it for"* | the banned-phrase list did not cover that wording | the check is a set of patterns, and the control plants that exact sentence |
+| a fetch on every render | it broke a scripted call-path case first, so the suite reported *"something threw"* rather than the property (**Clause 5**) | the on-demand claim is asserted in the synchronous block, where nothing can fail ahead of it |
+| a 404 classified as an error | the flow reaches "no match" for several reasons, so the **end state** could not tell them apart | the classifier is asserted directly: 404 → no match, 500 → an error with its status |
+
+Two of the five are the same shape as each other and as D83's census gap: **a gate that asserts the end state cannot see a missing step in the middle.**
+
+### Found while building, and fixed here
+
+**A control character has been in the shipped stylesheet since v0.20.1.** `.cited>summary::before` carried a raw `0x14` where the CSS escape for the circled i belongs, so every citation block in the app has rendered as a replacement glyph followed by "D8" — on the provenance surface D53 built, and on every lab and source block since. Repaired, and gated: **`SE-ctrl`** asserts the shipped shell contains no control characters and that the marker resolves to the character it was meant to be. Found by looking at a screenshot, which is the only way it could have been found.
+
+### Runner notes, recorded because both cost real time
+
+- **The defect runner has no lock.** Two diagnostic scripts ran while a pass was in flight; each snapshotted a tree with a plant in it and restored that snapshot afterwards, leaving a defect behind and producing failures that looked like the build's. **Never run anything that snapshots the tree while a pass is running**, and check the tree afterwards.
+- **A planted defect must not block the browser.** The escape fixture used `onerror=alert(1)`; unescaped, the alert blocked headless Chrome, so the page never reported and the defect read as a hang rather than as a failed gate (**Clause 5** again). The payload now sets a flag, which the gate also asserts was never set.

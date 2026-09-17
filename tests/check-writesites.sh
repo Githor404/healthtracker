@@ -35,8 +35,13 @@ scans|scans\.push\("
 # NOT record stores, with the reason:
 #   version, current -- scalars about the blob, not records;
 #   settings         -- configuration and templates (goals, presets, units), which
-#                       describe how to record, not what happened.
-NOT_RECORD_STORES="version current settings"
+#                       describe how to record, not what happened;
+#   labels           -- H5 label DOCUMENTS fetched from openFDA. They are not
+#                       records of anything the user did: each carries the source's
+#                       own dates and the retrieval date, and a device offset on one
+#                       would describe nothing (D29's purpose is when a record was
+#                       made, here that is the source's business).
+NOT_RECORD_STORES="version current settings labels"
 # Stores that live OUTSIDE APP_STATE, so emptyState() cannot list them:
 #   scans -- the local scan list (H4, D77 §1), in its own localStorage key.
 OUTSIDE_STATE="scans"

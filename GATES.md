@@ -3208,6 +3208,61 @@ Verified on the same day:
 
 **Status: RULED 2026-09-17. NOT built. Blocked on H4.**
 
+#### H5 — evidence (v0.31.0, D86)
+
+Built to D78, D80 and D81. **72 new assertions.**
+
+**The contract was verified live again at build time**, exactly as coded:
+
+| step | verified |
+|---|---|
+| stored spellings for a printed generic | 4 terms, of which one is the case-folded exact match |
+| manufacturers for that exact name | 48, as a count, 3.9 KB |
+| one label, newest first | ~50 KB; `set_id`, `version`, `effective_time` present; **`mechanism_of_action` absent on 4 of the 5 newest labels** |
+| a printed brand, case-folded | stored as `Lipitor`; `LOPRESSOR` and `Lopressor` both exist for the same product |
+| an NDC | exact, one result |
+| no match | **404** with `"No matches found!"` |
+| by set id, for the newer-version check | 200, one result |
+| the OR of two spellings, AND a manufacturer | accepted, one label back |
+
+| case | n | asserts |
+|---|---|---|
+| H5-exact **GATE** | 3 | the printed name matches only the spelling that equals it after case-folding — not the combination product, the injection, or the misspelling; an empty name matches nothing |
+| H5-casefold **GATE** | 2 | a printed brand finds its stored spelling whatever the case, and **every** matching spelling is queried |
+| H5-brand **GATE** | 3 | a longer stored brand containing the printed one is not a match; a Canadian brand matches nothing; the generic is searched first |
+| H5-two-step **GATE** | 7 + 3 | spellings and manufacturers come from counts; only the chosen label is fetched, `limit=1`, newest first; an NDC is an exact product lookup; nothing is stored before the user saves |
+| H5-selection **GATE** | 1 | each stored section is the source field, byte for byte |
+| H5-cite **GATE** | 2 + 4 | org, set id, version, effective date, retrieval date, disclaimer and link; a document missing any of them is refused at the store boundary; unknown and blank sections are dropped |
+| H5-missing-section **GATE** | 3 | an absent section is stored as absent, says so in place, and is never filled from a neighbour |
+| H5-many **GATE** | 1 | the manufacturers are listed and nothing is chosen automatically |
+| H5-404 **GATE** | 2 | a 404 is classified as a no-match; a 500 is still an error, with its status — the two are distinguishable |
+| H5-no-loosen **GATE** | 2 | every query carries the whole printed name, and no query is a looser match |
+| H5-no-match **GATE** | 4 | it says so, names the DPD gap, links out, stores nothing, and the copy-prompt says it carries no label text |
+| H5-copy **GATE** | 2 | the copied text carries its citation; the prompt carries label text, citation, one stem, the instructions, and its version |
+| H5-no-interactions **GATE** + CONTROL | 4 + 1 | no surface, prompt or copy carries two medications' text; the control shows the two documents differ, so a leak would show |
+| H5-no-this-person **GATE** + CONTROL | 2 + 1 | nothing the app writes links an indication to the user, with the label text exempt because those are the label's words; the standing context is on the surface |
+| H5-on-demand **GATE** | 2 | boot, capture, save, restore, every render and opening a saved document make **no** request |
+| H5-offline **GATE** | 4 | a saved document opens and copies with no request; an unsaved lookup with no connection says so and points at what still works |
+| H5-stale **GATE** | 4 + 1 | a newer version is offered, never applied; taking it keeps the old text beside it; the superseded text survives restore |
+| H5-cap **GATE** | 2 + 2 | at the cap the save asks; a declined ask stores and evicts nothing; accepted, it drops only a document nothing points at, and never a day, an item or a medication |
+| H5-export **GATE** | 2 | the document and the medication's link to it export and restore whole |
+| H5-migrate / H5-guard **GATE** | 2 + 1 | v10 → v11 passes `days` through byte-identical and adds an empty store; v12 refused, v11 accepted |
+| H5-chain **GATE** | 2 | `migrateToLatest` calls every migrator, one per schema version |
+| H5-escape **GATE** | 2 | every fetched string is escaped at render, and the planted payload never ran |
+
+**Proven against the defect: 81 plants, each failing its own named gate.** Twenty-six are H5's, including a looser query after a no-match, a section borrowed from a neighbour, a citation made optional, a prompt carrying every stored document, the app adding *"this is what you take it for"*, a silent eviction at the cap, a fetch on every render, and a 404 read as an error.
+
+**Five gates could not fail, and each was repaired before the pass was evidence** (see D86 for the table). Two of them share a shape worth naming: **asserting the end state cannot see a missing step in the middle** — a deleted migration step is masked by the next one, and a 404 reaches "no match" the same way a failure does. Both are now asserted where the step happens.
+
+**SE-ctrl — a defect found by looking at a screenshot.** `.cited>summary::before` has carried a raw control character since v0.20.1, so every citation block rendered as a replacement glyph plus "D8". Repaired, and gated: the shipped shell must contain no control characters, and the marker must resolve to the circled i. Planting the control character back fails both.
+
+**Full suite, one invocation: 1891/1891 ALL PASS.** `SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)`, runner exit 0.
+
+**Count delta: 1819 → 1891** (+72), re-pinned in the same change.
+
+**Status: BUILT — v0.31.0 (D86).**
+
+
 ### H6 — A consolidated medication list for a pharmacist — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built)
 
 **Why it exists.** The family case that started H4 was a 20-pill regimen that nobody had a consolidated list of. Neither H4 nor H5 contained that list. With the scan-list ruling (D77 §1), the user asked whether the scan list plus copy already provides it. That check is the first thing below.

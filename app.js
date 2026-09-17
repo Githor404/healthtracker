@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 10;
-const APP_VERSION      = '0.30.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 11;
+const APP_VERSION      = '0.31.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -92,7 +92,7 @@ function defaultSettings() {
   return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
-  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, labels: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
 }
 
 // ---- storage adapter: localStorage -> memory ------------------------------
@@ -804,6 +804,28 @@ function migrateV9toV10(v9, nowISO) {
   if (typeof v9.knownDropped === 'number') out.knownDropped = v9.knownDropped;
   return out;
 }
+// H5 -- v10 -> v11. Structural passthrough: `labels` starts empty, so `days` and
+// every other store come through byte-identical. It bumps because an older app
+// STRIPS the store, and what is lost is a document the user chose to keep, with
+// the citation that makes it quotable -- content, not precision (D29's asymmetry).
+function migrateV10toV11(v10, nowISO) {
+  const out = {
+    version: 11,
+    days: (v10.days && typeof v10.days === 'object') ? v10.days : {},
+    current: typeof v10.current === 'string' ? v10.current : '',
+    settings: (v10.settings && typeof v10.settings === 'object') ? v10.settings : defaultSettings(),
+    priceLog: (v10.priceLog && typeof v10.priceLog === 'object') ? v10.priceLog : {},
+    plates: (v10.plates && typeof v10.plates === 'object') ? v10.plates : {},
+    meds: (v10.meds && typeof v10.meds === 'object' && !Array.isArray(v10.meds)) ? v10.meds : {},
+    labels: (v10.labels && typeof v10.labels === 'object' && !Array.isArray(v10.labels)) ? v10.labels : {},
+    timeline: (v10.timeline && typeof v10.timeline === 'object') ? v10.timeline : {},
+    fastLog: (v10.fastLog && typeof v10.fastLog === 'object') ? v10.fastLog : {},
+    regimens: (v10.regimens && typeof v10.regimens === 'object') ? v10.regimens : { active: '', list: [], log: {} },
+    migratedAt: typeof v10.migratedAt === 'string' ? v10.migratedAt : nowISO,
+  };
+  if (typeof v10.knownDropped === 'number') out.knownDropped = v10.knownDropped;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -818,6 +840,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 7) < 8) out = migrateV7toV8(out, nowISO);
   if ((out.version || 8) < 9) out = migrateV8toV9(out, nowISO);
   if ((out.version || 9) < 10) out = migrateV9toV10(out, nowISO);
+  if ((out.version || 10) < 11) out = migrateV10toV11(out, nowISO);
   return out;
 }
 
@@ -832,6 +855,7 @@ function normalizeState(o) {
     priceLog: normalizePriceLog(o.priceLog),   // D18: was passthrough — now coerced at the boundary
     plates: normalizePlates(o.plates),         // R33: the served-food store, separate from what was eaten
     meds: normalizeMeds(o.meds),               // H4: medications as printed on their labels (D77)
+    labels: normalizeLabels(o.labels),         // H5: FDA label documents, with the citation that travels with them (D78)
     timeline: normalizeTimeline(o.timeline),   // D20: source-agnostic signal store
     fastLog: normalizeFastLog(o.fastLog),      // D22: persisted fasting resolutions
     regimens: normalizeRegimens(o.regimens),   // D27: timeline templates + fulfillment log
@@ -974,6 +998,7 @@ function boot() {
   if (!state.timeline || typeof state.timeline !== 'object') { state.timeline = {}; dirty = true; }   // D20
   if (!state.plates || typeof state.plates !== 'object') { state.plates = {}; dirty = true; }         // R33
   if (!state.meds || typeof state.meds !== 'object' || Array.isArray(state.meds)) { state.meds = {}; dirty = true; }   // H4
+  if (!state.labels || typeof state.labels !== 'object' || Array.isArray(state.labels)) { state.labels = {}; dirty = true; }   // H5
   if (!state.fastLog || typeof state.fastLog !== 'object') { state.fastLog = {}; dirty = true; }       // D22
   if (!state.regimens || typeof state.regimens !== 'object') { state.regimens = { active: '', list: [], log: {} }; dirty = true; }   // D27
   // R18: boot took a SAME-VERSION blob as-is and only patched settings with ad-hoc
@@ -5478,6 +5503,7 @@ const VERSION_LOG = [
   { v: '0.29.0', d: '2026-09-11', note: 'Partial meals. What is on the plate and what you ate are now two different things, so a takeout tray no longer logs as though you ate the tray. Confirm what was served, then say how much of it you had — a half, a third, or "6 of 10" where you have told the app the plate holds 10 pieces. You can come back to the same plate later and log the rest as its own meal, at its own time. Eating the whole thing is still one tap: the Save button now says "Ate all of it". When a plate looks like more than one serving — usually because you corrected the estimate sharply upwards — the app asks how much you ate instead of assuming all of it. Food with some left over shows at the top of the day until you log it or it ages out; nothing is ever counted as eaten on your behalf.' },
   { v: '0.30.0', d: '2026-09-17', note: 'Medications from a pharmacy label. Choose My label or Someone else’s label, take a photo, and the label is read exactly as printed — name, strength, directions, prescriber, Rx number. You confirm the name and strength first. Your own are kept in Settings › Medications, with refills offered rather than assumed, and a list you can copy for a pharmacist. Someone else’s are shown and kept only in a scan list on this device. The app does not say what a drug is for or check interactions.' },
   { v: '0.30.1', d: '2026-09-17', note: 'Fix: with My label or Someone else\u2019s label chosen, the photo screen now shows the pharmacy-label prompt and reads a pasted label reply as a label. It was showing the meal prompt, and refusing label replies. The three choices also appear without an API key, because they decide which prompt you copy.' },
+  { v: '0.31.0', d: '2026-09-17', note: 'Drug information for a saved medication, on request: the US prescribing information — description, indications and mechanism — selected from the FDA label and kept with its source, version and the date you fetched it. Copy the label text, or a prompt that carries it with your question, so an assistant answers from the label instead of from memory. The app never says what a drug is for you, and never checks interactions — that is what a pharmacist’s medication review is for. US labelling only; Canadian-only products are named as not found rather than guessed at.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8343,6 +8369,7 @@ function normalizeMed(raw) {
   const out = { id: id, source: MED_SOURCES.indexOf(r.source) >= 0 ? r.source : 'manual', printed: printed,
                 created: /^\d{4}-\d{2}-\d{2}$/.test(String(r.created)) ? String(r.created) : '',
                 fills: Array.isArray(r.fills) ? r.fills.map(normalizeFill).filter(Boolean) : [] };
+  if (r.labelSetId != null && String(r.labelSetId) !== '') out.labelSetId = String(r.labelSetId);   // H5: the one document it points at
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(r.stopped))) out.stopped = String(r.stopped);
   if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
   const alts = normalizeAltList(r.ai_alts);
@@ -8864,6 +8891,7 @@ function renderMeds() {
       `<div class="medsub">${p.prescriber ? esc(p.prescriber) + ' · ' : ''}` +
       `${medLatestRx(m) ? 'Rx ' + esc(medLatestRx(m)) + ' · ' : ''}` +
       `${esc((m.fills || []).length)} fill(s)${lastFill ? ', last recorded ' + esc(lastFill.date) : ''}</div></div>` +
+      `<button type="button" class="btn medbtn" onclick="drugOpen('${esc(m.id)}')">${medDoc(m) ? 'Drug info \u2713' : 'Drug info'}</button>` +
       (m.stopped
         ? `<button type="button" class="btn medbtn" onclick="medResume('${esc(m.id)}')">Resume</button>`
         : `<button type="button" class="btn medbtn" onclick="medStop('${esc(m.id)}')">Mark stopped</button>`) +
@@ -8874,6 +8902,7 @@ function renderMeds() {
   const shown = scanListFiltered(SCAN_FILTER).slice().reverse();
   const opt = (v, t, cur0) => `<option value="${esc(v)}"${cur0 === v ? ' selected' : ''}>${esc(t)}</option>`;
   el.innerHTML =
+    `<div id="drugInfo"></div>` +
     `<div class="medsec">My medications</div>` +
     (cur.length ? cur.map(row).join('') : `<div class="note">None saved yet. Photograph a label with <b>My label</b> selected, paste a reading below, or type one.</div>`) +
     (stopped.length ? `<details class="medstopped"><summary>Stopped (${esc(stopped.length)})</summary>${stopped.map(row).join('')}</details>` : '') +
@@ -8893,6 +8922,453 @@ function renderMeds() {
       : `<div class="note">No scans${scans.length ? ' match this filter' : ' yet'}.</div>`) +
     `<button type="button" class="btn" onclick="copyScanList()"${shown.length ? '' : ' disabled'}>Copy scan list</button>` +
     `<textarea id="medsCopyBox" readonly style="display:none"></textarea>`;
+  try { renderDrugInfo(); } catch (e) {}      // the panel lives inside this card's markup
+}
+
+// ===========================================================================
+// H5 -- DRUG INFORMATION: SOURCED, STORED, COPYABLE (D78, D80, D81)
+// ---------------------------------------------------------------------------
+// The source is openFDA, decided by measurement: DailyMed sends no CORS header,
+// so a page on another origin cannot read it and this app has no server (D78 §1).
+// openFDA serves the SAME FDA label documents, and its fields ARE the LOINC
+// sections -- so the app SELECTS sections and never paraphrases a label.
+//
+// Matching is exact, and exact means case-folded (D80): openFDA stores each name
+// as its labeler wrote it ("Lipitor", and both "LOPRESSOR" and "Lopressor"), and
+// `.exact` is case-sensitive. Upper-casing worked for generic names and would have
+// returned nothing for every brand -- and a lookup that finds nothing looks exactly
+// like a drug with no label.
+// ===========================================================================
+
+const FDA_BASE = 'https://api.fda.gov/drug/label.json';
+const FDA_ORG = 'U.S. Food and Drug Administration (openFDA)';
+const FDA_APPLICABILITY = 'US labelling';
+// openFDA's own words, stored with every document and shown with it (D78 §1).
+const FDA_DISCLAIMER = 'Do not rely on openFDA to make decisions regarding medical care. ' +
+  'The drug labeling provided in this API may not be the labeling on currently distributed products.';
+const DAILYMED_URL = 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=';
+// Three sections, by the brief. Each is a field openFDA split out by LOINC code.
+const FDA_SECTIONS = [
+  { key: 'description', label: 'Description' },
+  { key: 'indications_and_usage', label: 'Indications and usage' },
+  { key: 'mechanism_of_action', label: 'Mechanism of action' },
+];
+const FDA_TIMEOUT_MS = 20000;
+const LABEL_DOC_CAP = 40;                 // documents kept; the log always wins (D13's shape)
+const DPD_LINE = 'US labelling only. Health Canada\u2019s Drug Product Database is the Canadian source, and it is not connected.';
+// G1: standing context for the whole surface, never a verdict on one medication.
+const DRUG_CONTEXT = [
+  'US prescribing information for this product. What a drug is approved for is not necessarily what it was prescribed for \u2014 that is between you and your prescriber.',
+  'This app does not check interactions. A pharmacist\u2019s medication review (MedsCheck, in Ontario) is built for that, and your medication list is what to bring.',
+];
+const LABEL_QUESTION_TEMPLATE_VERSION = 1;
+const LABEL_QUESTION_STEMS = ['Explain this section in plain language.', 'What does this term mean: ___'];
+
+// ---- the query contract (D78 §2, D80), built as pure strings so a gate can read them
+function fdaQ(s) { return '"' + String(s == null ? '' : s).replace(/["\\]/g, ' ') + '"'; }
+function fdaURL(search, extra) { return FDA_BASE + '?search=' + encodeURIComponent(search) + (extra || ''); }
+// Step 1: the spellings openFDA has stored for a printed name. Cheap -- a count.
+function fdaTermsURL(field, printed) {
+  return fdaURL('openfda.' + field + ':' + fdaQ(printed), '&count=openfda.' + field + '.exact&limit=100');
+}
+// Step 2: keep only the stored spellings EQUAL to the printed name after case-folding.
+// A longer stored name that merely contains it is not a match (D80).
+function fdaExactSpellings(terms, printed) {
+  const want = String(printed == null ? '' : printed).trim().toLowerCase();
+  if (!want) return [];
+  return (terms || []).map((t) => String(t && t.term != null ? t.term : ''))
+    .filter((t) => t.trim().toLowerCase() === want);
+}
+// Step 3: query every matching spelling (OR), never a looser string.
+function fdaNameClause(field, spellings) {
+  return (spellings || []).map((s) => 'openfda.' + field + '.exact:' + fdaQ(s)).join(' ');
+}
+function fdaMfrURL(clause) { return fdaURL(clause, '&count=openfda.manufacturer_name.exact&limit=100'); }
+// ONE label per fetch: a full label is ~50-65 KB and five are 256 KB, so the
+// manufacturer list comes from a count and only the chosen label is fetched.
+function fdaLabelURL(clause, mfr) {
+  return fdaURL(clause + ' AND openfda.manufacturer_name.exact:' + fdaQ(mfr), '&sort=effective_time:desc&limit=1');
+}
+function fdaNdcURL(ndc) { return fdaURL('openfda.product_ndc.exact:' + fdaQ(ndc), '&limit=1'); }
+function fdaSetIdURL(setId) { return fdaURL('set_id:' + fdaQ(setId), '&limit=1'); }
+
+// ---- the document: selected sections plus the citation that travels with them
+function fdaFirst(a) { return (Array.isArray(a) && a.length) ? String(a[0]) : ''; }
+function fdaSectionText(v) {
+  const t = Array.isArray(v) ? v.join('\n\n') : (typeof v === 'string' ? v : '');
+  return /\S/.test(t) ? t : '';
+}
+function fdaDoc(result, opts) {
+  const r = result || {}, o = opts || {}, of = r.openfda || {};
+  const setId = String(r.set_id || of.spl_set_id || '');
+  if (!setId) return null;
+  const sections = {};
+  // An absent section stays ABSENT -- it is never filled from a neighbour (D78 §3).
+  FDA_SECTIONS.forEach((s) => { const t = fdaSectionText(r[s.key]); if (t) sections[s.key] = t; });
+  return {
+    set_id: setId,
+    version: String(r.version == null ? '' : r.version),
+    effective_time: String(r.effective_time || ''),
+    retrieved: todayKey(),
+    org: FDA_ORG,
+    cite: 'FDA label ' + setId + (r.version ? ' v' + r.version : '') + (r.effective_time ? ', effective ' + r.effective_time : ''),
+    applicability: FDA_APPLICABILITY,
+    disclaimer: FDA_DISCLAIMER,
+    url: DAILYMED_URL + setId,
+    generic_name: fdaFirst(of.generic_name),
+    brand_name: fdaFirst(of.brand_name),
+    manufacturer: fdaFirst(of.manufacturer_name),
+    matched_by: String(o.matchedBy || ''),
+    sections: sections,
+  };
+}
+// Restore boundary: an allowlist rebuild, like every other store. A document
+// without its citation is refused rather than shown as sourced (D78 §1).
+function normalizeLabelDoc(raw) {
+  const r = raw || {};
+  const setId = String(r.set_id == null ? '' : r.set_id);
+  if (!setId) return null;
+  if (!r.org || !r.disclaimer || !r.retrieved) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(r.retrieved))) return null;
+  const out = { set_id: setId, version: String(r.version == null ? '' : r.version),
+                effective_time: String(r.effective_time || ''), retrieved: String(r.retrieved),
+                org: String(r.org), cite: String(r.cite || ''), applicability: String(r.applicability || ''),
+                disclaimer: String(r.disclaimer), url: String(r.url || (DAILYMED_URL + setId)),
+                generic_name: String(r.generic_name || ''), brand_name: String(r.brand_name || ''),
+                manufacturer: String(r.manufacturer || ''), matched_by: String(r.matched_by || ''),
+                sections: {} };
+  const src = (r.sections && typeof r.sections === 'object' && !Array.isArray(r.sections)) ? r.sections : {};
+  FDA_SECTIONS.forEach((s) => { const t = fdaSectionText(src[s.key]); if (t) out.sections[s.key] = t; });
+  // D55: a newer version is stored BESIDE the old one, never over it.
+  if (Array.isArray(r.superseded)) {
+    const prev = r.superseded.map(function (p) {
+      const q = p || {};
+      if (!q.version && !q.retrieved) return null;
+      const o2 = { version: String(q.version == null ? '' : q.version), retrieved: String(q.retrieved || ''),
+                   effective_time: String(q.effective_time || ''), sections: {} };
+      const ps = (q.sections && typeof q.sections === 'object') ? q.sections : {};
+      FDA_SECTIONS.forEach((s) => { const t = fdaSectionText(ps[s.key]); if (t) o2.sections[s.key] = t; });
+      return o2;
+    }).filter(Boolean);
+    if (prev.length) out.superseded = prev;
+  }
+  return out;
+}
+function normalizeLabels(o) {
+  const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
+  const out = {};
+  Object.keys(src).forEach((k) => {
+    const d = normalizeLabelDoc(src[k]);
+    if (d && d.set_id === k) out[k] = d;
+  });
+  return out;
+}
+function labelDocs() { return (APP_STATE && APP_STATE.labels) || {}; }
+function getLabelDoc(setId) { return labelDocs()[setId] || null; }
+function medDoc(med) { return (med && med.labelSetId) ? getLabelDoc(med.labelSetId) : null; }
+function labelDocUnattached(setId) {
+  return !medList(true).some((m) => m.labelSetId === setId);
+}
+// B1's budget: a cap, and nothing is evicted silently. At the cap the save ASKS,
+// and the only thing it may drop is a document no medication points at.
+function saveLabelDoc(doc, medId) {
+  if (!doc || !doc.set_id) return { ok: false };
+  if (!APP_STATE.labels || typeof APP_STATE.labels !== 'object') APP_STATE.labels = {};
+  const fresh = !APP_STATE.labels[doc.set_id];
+  if (fresh && Object.keys(APP_STATE.labels).length >= LABEL_DOC_CAP) {
+    const spare = Object.keys(APP_STATE.labels).filter(labelDocUnattached)
+      .sort((a, b) => String(APP_STATE.labels[a].retrieved).localeCompare(String(APP_STATE.labels[b].retrieved)))[0];
+    if (!spare) return { ok: false, atCap: true, evictable: false };
+    const ask = 'You have ' + LABEL_DOC_CAP + ' saved label documents, which is the cap.\n\n' +
+      'Save this one and remove the oldest document that no medication points at?';
+    if (!window.confirm(ask)) return { ok: false, atCap: true, declined: true };
+    delete APP_STATE.labels[spare];
+  }
+  APP_STATE.labels[doc.set_id] = doc;
+  const med = getMed(medId);
+  if (med) med.labelSetId = doc.set_id;
+  Store.saveState(APP_STATE);
+  return { ok: true, setId: doc.set_id };
+}
+function detachLabelDoc(medId) {
+  const med = getMed(medId);
+  if (!med || !med.labelSetId) return { ok: false };
+  const setId = med.labelSetId;
+  delete med.labelSetId;
+  if (labelDocUnattached(setId) && APP_STATE.labels) delete APP_STATE.labels[setId];
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+
+// ---- the call. ON DEMAND ONLY: every one of these runs from a tap ------------
+function drugFetch(url) {
+  const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, FDA_TIMEOUT_MS);
+  return fetch(url, { signal: ctl ? ctl.signal : undefined }).then(function (res) {
+    clearTimeout(timer);
+    return res.text().then(function (raw) {
+      let j = null; try { j = JSON.parse(raw); } catch (e) { j = null; }
+      // A 404 from openFDA is "no matches found" -- an ANSWER, not an error (D78 §2).
+      if (res.status === 404) return { ok: false, kind: 'none' };
+      if (!res.ok) return { ok: false, kind: 'http', status: res.status,
+                            error: 'The source answered ' + res.status + '.' };
+      if (!j) return { ok: false, kind: 'malformed', error: 'The source\u2019s reply could not be read.' };
+      return { ok: true, data: j };
+    });
+  }).catch(function (e) {
+    clearTimeout(timer);
+    const name = String((e && e.name) || '');
+    if (name === 'AbortError') return { ok: false, kind: 'timeout', error: 'The source did not answer in time.' };
+    return { ok: false, kind: 'offline', error: 'No connection to the source. Anything you have saved still opens.' };
+  });
+}
+
+// ---- the flow ----------------------------------------------------------------
+let DRUG_VIEW = null;      // { medId, phase, ... } -- null means the surface is closed
+function drugView() { return DRUG_VIEW; }
+function drugClose() { DRUG_VIEW = null; renderDrugInfo(); return { ok: true }; }
+function drugSet(v) { DRUG_VIEW = v; renderDrugInfo(); return v; }
+// Both printed names are searched, each exactly: the generic first, because that is
+// what resolves when the brand is Canadian (D80).
+function drugNameQueries(med) {
+  const p = (med && med.printed) || {};
+  const out = [];
+  if (p.generic_name) out.push({ field: 'generic_name', printed: p.generic_name });
+  if (p.name) out.push({ field: p.generic_name ? 'brand_name' : 'generic_name', printed: p.name });
+  if (p.name && !p.generic_name) out.push({ field: 'brand_name', printed: p.name });
+  return out;
+}
+function drugOpen(medId) {
+  const med = getMed(medId);
+  if (!med) return { ok: false };
+  const saved = medDoc(med);
+  if (saved) return drugSet({ medId: medId, phase: 'doc', doc: saved, saved: true });
+  return drugSet({ medId: medId, phase: 'idle' });
+}
+// The lookup, from a tap. Nothing here runs on boot, on capture, on a refill or
+// on restore -- and a gate watches the network to say so.
+function drugLookup(medId) {
+  const med = getMed(medId);
+  if (!med) return Promise.resolve({ ok: false });
+  drugSet({ medId: medId, phase: 'loading', message: 'Looking for the label\u2026' });
+  const ndc = med.printed.ndc;
+  const start = ndc ? drugFetch(fdaNdcURL(ndc)).then(function (r) {
+    if (r.ok && r.data && r.data.results && r.data.results.length) {
+      return { exact: fdaDoc(r.data.results[0], { matchedBy: 'the NDC printed on the label' }) };
+    }
+    return { exact: null, offline: r.kind === 'offline' || r.kind === 'timeout' ? r : null };
+  }) : Promise.resolve({ exact: null });
+  return start.then(function (pre) {
+    if (pre.exact) return drugSet({ medId: medId, phase: 'doc', doc: pre.exact, saved: false });
+    const queries = drugNameQueries(med);
+    if (!queries.length) return drugSet({ medId: medId, phase: 'none', why: 'no-name' });
+    return drugResolveNames(medId, queries, 0);
+  });
+}
+function drugResolveNames(medId, queries, i) {
+  if (i >= queries.length) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+  const q = queries[i];
+  return drugFetch(fdaTermsURL(q.field, q.printed)).then(function (r) {
+    if (!r.ok && (r.kind === 'offline' || r.kind === 'timeout'))
+      return drugSet({ medId: medId, phase: 'error', message: r.error });
+    const spellings = r.ok ? fdaExactSpellings((r.data || {}).results, q.printed) : [];
+    // A no-match is NEVER retried with a looser query -- that is how succinate text
+    // would be shown for tartrate. The next PRINTED name is a different exact
+    // lookup, not a loosening of this one.
+    if (!spellings.length) return drugResolveNames(medId, queries, i + 1);
+    const clause = fdaNameClause(q.field, spellings);
+    return drugFetch(fdaMfrURL(clause)).then(function (m) {
+      if (!m.ok) {
+        if (m.kind === 'none') return drugResolveNames(medId, queries, i + 1);
+        return drugSet({ medId: medId, phase: 'error', message: m.error || 'The source could not be read.' });
+      }
+      const mfrs = ((m.data || {}).results || []).map(function (x) {
+        return { name: String(x.term || ''), count: Number(x.count) || 0 };
+      }).filter(function (x) { return x.name; });
+      if (!mfrs.length) return drugResolveNames(medId, queries, i + 1);
+      return drugSet({ medId: medId, phase: 'choose', clause: clause, matchedBy: q.printed,
+                       field: q.field, mfrs: mfrs });
+    });
+  });
+}
+function drugPickManufacturer(mfr) {
+  const v = DRUG_VIEW;
+  if (!v || v.phase !== 'choose') return Promise.resolve({ ok: false });
+  drugSet(Object.assign({}, v, { phase: 'loading', message: 'Fetching that label\u2026' }));
+  return drugFetch(fdaLabelURL(v.clause, mfr)).then(function (r) {
+    if (!r.ok) return drugSet(Object.assign({}, v, { phase: 'error', message: r.error || 'No label came back.' }));
+    const first = ((r.data || {}).results || [])[0];
+    const doc = fdaDoc(first, { matchedBy: v.matchedBy });
+    if (!doc) return drugSet(Object.assign({}, v, { phase: 'error', message: 'That label could not be read.' }));
+    return drugSet({ medId: v.medId, phase: 'doc', doc: doc, saved: false });
+  });
+}
+function drugSave() {
+  const v = DRUG_VIEW;
+  if (!v || v.phase !== 'doc' || !v.doc) return { ok: false };
+  const r = saveLabelDoc(v.doc, v.medId);
+  if (!r.ok) {
+    if (r.atCap && !r.evictable) toast('Saved documents are at the cap. Remove one from a medication first.');
+    else if (r.atCap) toast('Not saved');
+    return r;
+  }
+  drugSet({ medId: v.medId, phase: 'doc', doc: getLabelDoc(r.setId), saved: true });
+  refresh();
+  toast('Saved with its source');
+  return r;
+}
+// A newer version is OFFERED, never applied silently, and the old text stays (D55).
+function drugCheckNewer() {
+  const v = DRUG_VIEW;
+  if (!v || !v.doc || !v.saved) return Promise.resolve({ ok: false });
+  const cur = v.doc;
+  drugSet(Object.assign({}, v, { phase: 'loading', message: 'Checking for a newer version\u2026' }));
+  return drugFetch(fdaSetIdURL(cur.set_id)).then(function (r) {
+    if (!r.ok) return drugSet(Object.assign({}, v, { phase: 'doc', message: r.error || 'The source could not be reached.' }));
+    const fresh = fdaDoc(((r.data || {}).results || [])[0], { matchedBy: cur.matched_by });
+    if (!fresh) return drugSet(Object.assign({}, v, { phase: 'doc', message: 'No label came back.' }));
+    if (String(fresh.version) === String(cur.version))
+      return drugSet(Object.assign({}, v, { phase: 'doc', message: 'This is still version ' + esc(cur.version) + ', checked ' + todayKey() + '.' }));
+    return drugSet(Object.assign({}, v, { phase: 'doc', newer: fresh }));
+  });
+}
+function drugAcceptNewer() {
+  const v = DRUG_VIEW;
+  if (!v || !v.newer || !v.doc) return { ok: false };
+  const old = v.doc, fresh = v.newer;
+  const keep = { version: old.version, retrieved: old.retrieved, effective_time: old.effective_time, sections: old.sections };
+  fresh.superseded = (old.superseded || []).concat([keep]);
+  const r = saveLabelDoc(fresh, v.medId);
+  if (!r.ok) return r;
+  drugSet({ medId: v.medId, phase: 'doc', doc: getLabelDoc(fresh.set_id), saved: true });
+  refresh();
+  return { ok: true, kept: keep.version };
+}
+
+// ---- copy: the artifact, and the prompt that grounds a question in it ---------
+function drugCiteLines(doc) {
+  return [doc.org + ' \u2014 ' + doc.cite, doc.applicability + '. Retrieved ' + doc.retrieved + '. ' + doc.url, doc.disclaimer];
+}
+function drugSectionLines(doc) {
+  const out = [];
+  FDA_SECTIONS.forEach(function (s) {
+    out.push('## ' + s.label);
+    out.push(doc.sections[s.key] ? doc.sections[s.key] : '(This label has no ' + s.label + ' section.)');
+  });
+  return out;
+}
+function drugCopyText(doc) {
+  const d = doc || (DRUG_VIEW && DRUG_VIEW.doc);
+  if (!d) return '';
+  return [drugLabelTitle(d)].concat(drugCiteLines(d), [''], drugSectionLines(d)).join('\n');
+}
+function drugLabelTitle(doc) {
+  return (doc.brand_name || doc.generic_name || 'Label') +
+    (doc.generic_name && doc.brand_name && doc.generic_name !== doc.brand_name ? ' (' + doc.generic_name + ')' : '') +
+    (doc.manufacturer ? ' \u2014 ' + doc.manufacturer : '');
+}
+// F1: ONE label, a question stem, and instructions. No medication list, no second
+// drug, no personal data -- which is how "no interactions, ever" holds on the copy
+// path too: the app never assembles two drugs into one prompt.
+function drugPromptText(doc, stem) {
+  const d = doc || (DRUG_VIEW && DRUG_VIEW.doc);
+  if (!d) return '';
+  return ['Question template v' + LABEL_QUESTION_TEMPLATE_VERSION + '. Below is the US prescribing information for one medication.',
+          '', 'MY QUESTION: ' + String(stem || LABEL_QUESTION_STEMS[0]),
+          '', 'ANSWER FROM THE LABEL TEXT BELOW ONLY.',
+          '- If the label does not answer the question, say so.',
+          '- Do not advise me on my own treatment, and do not tell me what to take.',
+          '- This is one label. Do not bring in any other medication.',
+          '', '--- LABEL TEXT ---', drugLabelTitle(d)]
+    .concat(drugCiteLines(d), [''], drugSectionLines(d)).join('\n');
+}
+// The no-match path still hands over a prompt, and SAYS it carries no label text.
+function drugNoMatchPrompt(med, stem) {
+  const p = (med && med.printed) || {};
+  return ['Question template v' + LABEL_QUESTION_TEMPLATE_VERSION + '. I could not find a US label for this medication, so there is NO label text below.',
+          '', 'MEDICATION, as printed on the pharmacy label:',
+          (p.name || '') + (p.generic_name ? ' (' + p.generic_name + ')' : '') + (p.strength ? ' ' + p.strength : ''),
+          '', 'MY QUESTION: ' + String(stem || LABEL_QUESTION_STEMS[0]),
+          '', '- No label text was available, so say what you cannot know from a label.',
+          '- Do not advise me on my own treatment.',
+          '- This is one medication. Do not bring in any other.'].join('\n');
+}
+function drugCopyDoc() { const t = drugCopyText(); return t ? copyTextOut(t, 'Label text') : { ok: false }; }
+function drugCopyPrompt(stem) {
+  const v = DRUG_VIEW;
+  if (!v) return { ok: false };
+  const med = getMed(v.medId);
+  const t = v.doc ? drugPromptText(v.doc, stem) : drugNoMatchPrompt(med, stem);
+  return t ? copyTextOut(t, 'Prompt') : { ok: false };
+}
+
+// ---- rendering ----------------------------------------------------------------
+function drugContextHTML() {
+  return `<div class="drugctx">` + DRUG_CONTEXT.map((c) => `<div class="pmnote">${esc(c)}</div>`).join('') + `</div>`;
+}
+function drugStemsHTML() {
+  return `<div class="pmalts">` + LABEL_QUESTION_STEMS.map((s) =>
+    `<button type="button" class="pmalt" onclick="drugCopyPrompt('${esc(s).replace(/'/g, '&#39;')}')">${esc(s)}</button>`).join('') + `</div>`;
+}
+function renderDrugInfo() {
+  const el = document.getElementById('drugInfo');
+  if (!el) return;
+  const v = DRUG_VIEW;
+  if (!v) { el.innerHTML = ''; return; }
+  const med = getMed(v.medId);
+  if (!med) { el.innerHTML = ''; return; }
+  const head = `<div class="drughead"><b>${esc(med.printed.name)}</b>` +
+    `${med.printed.strength ? ' \u00b7 ' + esc(med.printed.strength) : ''}` +
+    `<button type="button" class="linklike" onclick="drugClose()">Close</button></div>`;
+  let body = '';
+  if (v.phase === 'idle') {
+    body = `<div class="pmnote">Look up the US prescribing information for this medication. Nothing is sent until you tap.</div>` +
+      `<button class="btn primary" onclick="drugLookup('${esc(v.medId)}')">Look up the label</button>`;
+  } else if (v.phase === 'loading') {
+    body = `<div class="opend"><span class="byokspin"></span>${esc(v.message || 'Working\u2026')}</div>`;
+  } else if (v.phase === 'error') {
+    body = `<div class="omsg obad">${esc(v.message || 'That did not work.')}</div>` +
+      `<div class="pmnote">Anything you have already saved still opens without a connection.</div>` +
+      `<button class="btn" onclick="drugLookup('${esc(v.medId)}')">Try again</button>`;
+  } else if (v.phase === 'none') {
+    const p = med.printed;
+    body = `<div class="omsg obad">No US label found for ${esc(p.generic_name || p.name || 'this medication')}.</div>` +
+      `<div class="pmnote">${esc(DPD_LINE)}</div>` +
+      `<div class="pmnote">You can still ask your own assistant \u2014 the prompt says no label text was available.</div>` +
+      drugStemsHTML() +
+      `<a class="linklike" target="_blank" rel="noopener" href="https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query=${encodeURIComponent(med.printed.generic_name || med.printed.name || '')}">Search DailyMed yourself</a>`;
+  } else if (v.phase === 'choose') {
+    body = `<div class="pmnote">${esc(v.mfrs.length)} manufacturer(s) file a label for ${esc(v.matchedBy)}. Every one is a real FDA label; they differ by who filed it. Pick one.</div>` +
+      `<div class="druglist">` + v.mfrs.map((m) =>
+        `<button type="button" class="plrow" onclick="drugPickManufacturer('${esc(String(m.name)).replace(/'/g, '&#39;')}')">` +
+        `<span>${esc(m.name)}</span><span class="plleft">${esc(m.count)}</span></button>`).join('') + `</div>`;
+  } else if (v.phase === 'doc' && v.doc) {
+    const d = v.doc;
+    const secs = FDA_SECTIONS.map((s) => d.sections[s.key]
+      ? `<details class="drugsec"><summary>${esc(s.label)}</summary><div class="drugtext" data-label-text>${esc(d.sections[s.key])}</div></details>`
+      : `<div class="pmnote drugabsent">This label has no ${esc(s.label)} section.</div>`).join('');
+    const newer = v.newer
+      ? `<div class="pmconsume"><div class="pmatehead">A newer version is available: v${esc(v.newer.version)}` +
+        `${v.newer.effective_time ? ', effective ' + esc(v.newer.effective_time) : ''}.</div>` +
+        `<div class="pmnote">Taking it keeps this one beside it.</div>` +
+        `<button class="btn primary" onclick="drugAcceptNewer()">Take the newer version</button></div>`
+      : '';
+    body = `<div class="drugtitle">${esc(drugLabelTitle(d))}</div>` +
+      (v.message ? `<div class="pmnote">${esc(v.message)}</div>` : '') + newer +
+      citeBlock('Source', drugCiteLines(d).map((l) => `<small class="labcite">${esc(l)}</small>`).join('') +
+        `<small class="labcite"><a href="${esc(d.url)}" target="_blank" rel="noopener">This label on DailyMed</a></small>`) +
+      secs + drugContextHTML() +
+      `<div class="row" style="margin-top:8px">` +
+      (v.saved
+        ? `<button class="btn" onclick="drugCheckNewer()">Check for a newer version</button>` +
+          `<button class="btn" onclick="detachLabelDoc('${esc(v.medId)}')">Remove this document</button>`
+        : `<button class="btn primary" onclick="drugSave()">Save with this medication</button>`) +
+      `<button class="btn" onclick="drugCopyDoc()">Copy the label text</button></div>` +
+      `<div class="medsec">Ask your own assistant, grounded in this label</div>` +
+      `<div class="pmnote">The prompt carries this label text and its source, and one question. It never carries a second medication.</div>` +
+      drugStemsHTML();
+  }
+  el.innerHTML = `<div class="drugpanel">${head}${body}</div>`;
 }
 
 function main() {
@@ -9039,6 +9515,14 @@ window.HT = {
   migrateV9toV10, SCANS_KEY, scanListRead, scanListReset, scanListText, scanListFiltered, deleteScan,
   setScanFilter, copyScanList, renderMeds, setCaptureKind, captureKind, doLabelPaste,
   renderLabelPromptCard, copyLabelPrompt, doCapturePaste, promptIsLabel, promptFollowsKind,
+  // H5 — drug information from openFDA (D78, D80, D81)
+  FDA_BASE, FDA_SECTIONS, FDA_DISCLAIMER, FDA_ORG, DPD_LINE, DRUG_CONTEXT, LABEL_DOC_CAP,
+  LABEL_QUESTION_TEMPLATE_VERSION, LABEL_QUESTION_STEMS, DAILYMED_URL,
+  fdaTermsURL, fdaExactSpellings, fdaNameClause, fdaMfrURL, fdaLabelURL, fdaNdcURL, fdaSetIdURL,
+  fdaDoc, normalizeLabelDoc, normalizeLabels, labelDocs, getLabelDoc, medDoc, saveLabelDoc, detachLabelDoc,
+  drugView, drugOpen, drugClose, drugLookup, drugPickManufacturer, drugSave, drugCheckNewer, drugAcceptNewer,
+  drugCopyText, drugPromptText, drugNoMatchPrompt, drugCopyDoc, drugCopyPrompt, drugNameQueries, drugFetch,
+  renderDrugInfo, migrateV10toV11,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

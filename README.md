@@ -18,6 +18,12 @@ tap away.
   have them), and save calibrated presets for one-tap logging.
 - **Price intelligence** *(Phase 2+)*. Optional price + store capture, plus nearby
   community prices from Open Prices.
+- **Drug information, sourced.** On request, the US prescribing information for a
+  medication — description, indications, mechanism — selected from the FDA label
+  and stored with its citation and retrieval date. Copy the label text, or a
+  prompt that carries it with your question. The app never says what a drug is for
+  *you*, and never checks interactions: that is what a pharmacist's medication
+  review is for.
 - **Medications from a pharmacy label.** Photograph a label, or paste a reading
   from your own AI assistant, and it is recorded exactly as printed. You confirm
   the name and strength first. Your own medications go into a list you can copy
@@ -41,6 +47,9 @@ tap away.
   provider, and never stored. A label photo carries everything printed on it,
   including the patient's name and address: the fields the app leaves out stay
   out of the record, not out of what is sent.
+- **Drug information** is fetched only when you ask for it, medication by
+  medication: the name printed on your label is sent to openFDA (the US FDA) as a
+  search, and nothing else goes with it. It never runs in the background.
 - **Location** is used only when you explicitly ask for nearby prices, is sent
   only as an Open Prices query parameter, and is **never stored**.
 - Data from OpenFoodFacts / Open Prices is community-sourced and treated as
