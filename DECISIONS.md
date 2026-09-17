@@ -409,6 +409,8 @@ Medication design: **no `MEDICATION_SPEC` registry** (names are open-ended, unli
 
 **Deferred intent — contraindication / interaction capability (recorded, intentionally undetermined).** The reason medication captures *maximum structured detail now* (name/dose/dose_unit/form/route as real fields, not notes) is to be the **foundation** for a future capability that could surface **drug–drug / drug–supplement contraindications or interactions** — but **its exact form is deliberately undecided**, and building it is **not** in this slice or the near-term slate. If it is ever pursued it is a **separate strategic decision** (D17-level), because it crosses into **medical-advice territory** and would require explicit guardrails (not a diagnosis; "consult a professional"; sourcing/liability posture; almost certainly a third-party interaction dataset, which touches the device/data-egress and D17 postures). Recorded here so the structured schema's *purpose* is not lost and so the feature is understood as **deferred and intentionally undetermined**, never an implied commitment.
 
+**Closed by D78 §4 (2026-09-17): no interactions, ever.** The paragraph above stays as the record of what was left open on 2026-07-18.
+
 **Deploy posture.** Weight + full biometric set (incl. breath ketones, steps, mood/energy, BP-paired), events (incl. alcohol, red_light, hbot), and the medication kind ship as **one v0.4.0** — one deploy, one "Updated to v0.4.0" changelog. Also the **first clean force-and-notify test:** a device already on 0.3.0 auto-updates on reopen with zero taps + the notice.
 
 **Explicitly NOT in this slice (deferred, do not build):** medication scheduling/reminders/recurrence (the `scheduled` flag marks intent only); correlation/analysis views across kinds (Slice X+); week-level overlay (with week-analytics); any device adapter (behind the strategic gate).
@@ -2968,3 +2970,53 @@ The model sees the whole label, whatever it returns. Refusing a field keeps it o
 - **The brief's "D4 two-objects rule", "R1.1" and "asking-price refusal" belong to another project's log.**
 - **The rule the brief meant is D55/D69/D70:** a derived value is kept beside the observation, never in place of it. **The refusal machinery it meant is D45 Fork H.**
 - **"Middle row" means one reply, two assertions:** the refused field is stripped, **and** the legitimate field survives. Both are asserted against the same response, so a refusal that removes too much fails the gate.
+
+## D78 — Drug information comes from openFDA, by measurement; interactions are closed (H5, 2026-09-17)
+
+Governance only; H5 is not built. The forks and gates are in GATES.md under H5.
+
+### 1. The source, decided by measurement
+
+**DailyMed cannot be the transport.** Checked on 2026-09-17 with the app's origin: DailyMed's API sends no `Access-Control-Allow-Origin` header, on either the GET or the preflight. A page on github.io therefore cannot read its responses, and the app has no server to read them for it.
+
+**openFDA serves the same FDA label documents**, with `Access-Control-Allow-Origin: *`.
+
+**Ruled:**
+- openFDA is the transport.
+- The label document is the citation.
+- The DailyMed page for the label's set ID is linked. A link is navigation, not a fetch, so CORS does not block it.
+- openFDA's two statements travel with every stored section:
+  - *"Do not rely on openFDA to make decisions regarding medical care."*
+  - *"The drug labeling provided in this API may not be the labeling on currently distributed products."*
+
+### 2. The query contract, pre-registered (verified 2026-09-17)
+
+Base URL: `https://api.fda.gov/drug/label.json`. No API key.
+
+| step | request | measured |
+|---|---|---|
+| list the manufacturers | `search=openfda.generic_name.exact:"<NAME>"&count=openfda.manufacturer_name.exact&limit=100` | 3.9 KB; 48 manufacturers for METOPROLOL TARTRATE |
+| fetch the chosen label | `search=openfda.generic_name.exact:"<NAME>"+AND+openfda.manufacturer_name.exact:"<MFR>"&sort=effective_time:desc&limit=1` | about 47 KB |
+| fetch the exact product, when the label printed an NDC | `search=openfda.product_ndc.exact:"<NDC>"&limit=1` | about 64 KB, 1 result |
+
+- **`.exact` is case-sensitive.** `"metoprolol tartrate"` matches nothing, while `"METOPROLOL TARTRATE"` matches 158 labels. So the query string is a **derived value**: the confirmed printed name, upper-cased, stored beside the printed name and never in place of it (D55/D70).
+- **No match comes back as HTTP 404** with `"No matches found!"`. The app treats that as a no-match, not an error.
+- **Never request a list of full labels.** One full label is about 50–65 KB, and five are 256 KB. The manufacturer list comes from `count`, and only the label the user picks is fetched. From that label, only `description`, `indications_and_usage`, `mechanism_of_action` and the citation fields are kept.
+- **Rate limits without a key:** 240 requests per minute and 1,000 per day, per IP address.
+- **Open for the build:** whether a printed **brand** name is also searched exactly, via `openfda.brand_name.exact`. "LOPRESSOR" matches, but the Canadian "TEVA-METOPROLOL" does not.
+
+### 3. Three findings, ruled as constraints
+
+- **Exact matching only.** A phrase search for "metoprolol tartrate" also returns the tartrate/hydrochlorothiazide combination product, an injection and a misspelled entry. So there is no "contains" match, no dropping of the salt name, and no retry with a looser query.
+- **A missing Mechanism of Action section renders as absent**, not as an error, and no other section fills its place.
+- **The gap in Canadian coverage is named where it matters.** A drug with no US label, such as domperidone, gets a line naming Health Canada's Drug Product Database (DPD) as the Canadian source, which is not connected.
+
+### 4. D20's deferred intent is closed: no interactions, ever
+
+The D20 addendum left drug–drug and drug–supplement interaction checking open as a possible future capability. **That door is now closed.** No surface, prompt or export combines information about two medications. The app's honest position is that a pharmacist needs the consolidated medication list, and that a pharmacist's medication review (MedsCheck, in Ontario) is the service built to check interactions.
+
+### 5. The boundary on indications
+
+**The app never says what a drug is for this person.** A label's indications say what the product is approved for, not what it was prescribed for.
+
+This rule governs what the **app** writes. A printed direction that names an indication is still kept verbatim, under D77 §2. So H5's vocabulary gate must skip fields that are verbatim label text, and must also assert that those fields are displayed as label text.

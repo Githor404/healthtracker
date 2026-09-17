@@ -3065,6 +3065,27 @@ Verified on the same day:
 - Any label section beyond the three.
 - **Whether to show a US label at all for a product bought in Canada under a different name.** Flagged, because the formulation and the approved uses can differ between the two countries.
 
-**Status: PRE-REGISTERED, FORKS OPEN. NOT built. Blocked on two things:**
-- **H4 Fork A.** Without a medication record there is nothing to attach a document to.
-- **This entry's Fork A.** The brief's named source cannot be called from the app.
+#### Ruling log
+
+| ruled | what |
+|---|---|
+| 2026-09-17 | **Fork A: openFDA**, decided by the measured CORS finding. Its warnings travel with the text, and the DailyMed page is linked (D78 §1) |
+| 2026-09-17 | Forks **B–H as recommended** |
+| 2026-09-17 | **The three findings are ruled as constraints**: exact matching only; a missing Mechanism of Action section renders as absent; the DPD gap is named wherever a drug has no US label (D78 §3) |
+| 2026-09-17 | **D20 is closed: no interactions, ever** (D78 §4) |
+| 2026-09-17 | **Query contract pre-registered** in D78 §2, with measured sizes: a manufacturer list from `count`, then one label per fetch |
+
+**What the rulings change in this entry.**
+- **The first blocker is resolved** (this entry's Fork A). H5 is still blocked on H4 being built.
+- **H5-no-this-person must skip verbatim printed fields** and assert that they are displayed as label text. Under D77 §2, a record's directions can name an indication, and a vocabulary gate that fails on them would effectively force the app to edit the label.
+- **A lookup from a "someone else's" scan** is recommended to be viewable and copyable but never stored, because stored documents attach to medication records, and those are only the user's own. This is a build detail under D77 §1, not a new fork.
+
+**Gates added by the contract.**
+
+| case | asserts |
+|---|---|
+| H5-two-step **GATE** | the manufacturer list comes from `count`, and every label fetch uses `limit=1`: no request asks for more than one full label (checked with a CDP network trace) |
+| H5-case **GATE** | the query is the confirmed name upper-cased, stored beside the printed name; the printed name itself is unchanged |
+| H5-404 **GATE** | a 404 with *"No matches found!"* renders as a no-match (Fork E), not as an error |
+
+**Status: RULED 2026-09-17. NOT built. Blocked on H4.**
