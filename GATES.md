@@ -2917,6 +2917,9 @@ Forks C to E are about these.
 | 2026-09-17 | **C and D state their reason per entry**: *claim*, *tidiness*, or *transcription is not assertion* (D77 §2). D1 is tidiness, not safety |
 | 2026-09-17 | **The honest limit is stated on the capture surface before the first send** (D77 §3). It replaces E1's pre-send notice about the patient's name |
 | 2026-09-17 | **Survey conflicts 3 and 4 settled**: D55/D69/D70 and D45 Fork H as written, and "middle row" defined (D77 §6) |
+| 2026-09-17 | **H6 folded in** (D79): "Copy my medications" on the medication record, and copy on the scan list filtered by whose and by date |
+| 2026-09-17 | **Scan entries gain directions and prescriber**, as printed (D79, amending D77 §1) |
+| 2026-09-17 | **A refill scanned twice stays as two entries**, because de-duplicating would be a judgement (D79) |
 
 **What the scan list changes in this entry.**
 - **Fork E1** ("own medications only") and **E2** (a `for` field) are both superseded. The medication record has no whose field.
@@ -2940,6 +2943,17 @@ Forks C to E are about these.
 | H4-scanlist-copy | copy produces the entries as plain text, filterable by whose |
 | H4-person | unchanged, but its reason is now recorded as tidiness, not safety |
 | H4-middle | unchanged; its definition is confirmed (D77 §6) |
+
+**Gates added by H6's rulings (D79).**
+
+| case | asserts |
+|---|---|
+| H4-own-copy **GATE** | one line per current medication; stopped medications left out; every string as printed; no indication column; the header present |
+| H4-scan-copy **GATE** | the copy follows its whose and date filters: a "someone else's" entry never appears in a "mine" copy, and vice versa |
+| H4-copy-header **GATE** | every copied list starts with the copy date and *"Not checked for interactions or completeness"* |
+| H4-copy-plain | the copy is plain text; no markup survives, and nothing is added beyond the fields and the header |
+| H4-no-dedup | two scans of one prescription remain two entries, and copy as two lines |
+| H4-scanlist-fields | extended: entries also hold directions and prescriber, as printed |
 
 **Status: RULED 2026-09-17. NOT built.**
 
@@ -3154,4 +3168,11 @@ With the Rx number, a pharmacy that dispensed the medication can pull the rest f
 | H6-scan-copy **GATE** | the copy follows its whose and date filters: a "someone else's" entry never appears in a "mine" copy, and vice versa |
 | H6-plain | the copied text is plain text with the header; no markup survives, and nothing is added beyond the fields (D78 §4) |
 
-**Status: PRE-REGISTERED, FORKS OPEN. NOT built.**
+#### Ruling log
+
+| ruled | what |
+|---|---|
+| 2026-09-17 | **Forks A–D as recommended** (D79). "Copy my medications" and scan-list copy move into H4, with their gates renamed H4-own-copy and H4-scan-copy. Scan entries gain directions and prescriber. The several-people case is named, not built. Copied lists carry the header |
+| 2026-09-17 | **Limit 3 accepted as stated**: a refill scanned twice appears twice |
+
+**Status: RULED 2026-09-17, and FOLDED INTO H4.** What remains under this name is scans for several other people. It is named, not built, and needs its own ruling first, because a bucket per person would be the whose field arriving by another route.

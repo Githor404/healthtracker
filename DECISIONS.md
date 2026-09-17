@@ -2928,6 +2928,7 @@ Governance only; H4 is not built. No code yet, and no `APP_VERSION` bump. The fo
 
 **Ruled: a scan list.**
 - **It is local and separate from the medication record.** Every scan is logged there with drug, strength, Rx number, date and whose.
+  **Amended by D79:** entries also hold directions and prescriber, as printed.
 - **Whose is asked at capture, with one tap: "yours or someone else's?"** Capture is the only moment the app can know; working it out later would be guessing.
 - **"Mine"**: the reading is offered for saving into the medication record, as H4 describes.
 - **"Someone else's"**: the reading is shown and the scan is logged, and nothing enters the medication record. Reading a label is a lookup and saving it is a record; they are different acts.
@@ -3020,3 +3021,21 @@ The D20 addendum left drug–drug and drug–supplement interaction checking ope
 **The app never says what a drug is for this person.** A label's indications say what the product is approved for, not what it was prescribed for.
 
 This rule governs what the **app** writes. A printed direction that names an indication is still kept verbatim, under D77 §2. So H5's vocabulary gate must skip fields that are verbatim label text, and must also assert that those fields are displayed as label text.
+
+## D79 — The medication list is a copy action in H4, not a slice of its own (H6, 2026-09-17)
+
+Governance only; nothing is built. All four H6 forks are ruled as recommended.
+
+**The list is a copy action.** H4 builds the medication record, but had no way to copy it, which made the missing copy action a gap in H4 rather than a slice of its own. **H4 now includes:**
+- **"Copy my medications"** on the medication record: one line per current medication, with name, strength, directions, prescriber and Rx number, all as printed.
+- **Copy on the scan list**, filterable by whose and by date.
+
+**Scan entries gain directions and prescriber, as printed.** Without them, the scan list holds only a drug name and a number, which is not what anyone reviewing medications needs. They are printed text, so they fall under "transcription is not assertion" (D77 §2). **This amends D77 §1's field list.**
+
+**Scans for several other people: named, not built.** The fix would be a separate bucket for each person, which is the whose field arriving by another route. If it is ever needed, it gets its own deliberate ruling rather than creeping in.
+
+**Every copied list starts with a header:** the date it was copied, and *"From HealthTracker, as printed on pharmacy labels. Not checked for interactions or completeness."* This makes D78 §4's closure visible at the moment the list leaves the app, which is exactly when someone might assume it was checked.
+
+**A refill scanned twice appears twice, and stays that way.** De-duplicating the log would mean deciding that two scans are the same prescription, and that is a judgement. The duplicate is honest.
+
+**What remains under the name H6** is only the case of scans for several other people.
