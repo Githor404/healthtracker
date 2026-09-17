@@ -2909,3 +2909,129 @@ Forks C to E are about these.
 - **A consolidated-list export for a pharmacist.** That is the motivating artefact, but it is not in the brief. Flagged, not assumed.
 
 **Status: PRE-REGISTERED, FORKS OPEN. NOT built.**
+
+### H5 — Drug information: sourced, stored, copyable — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built; depends on H4)
+
+**The brief's source cannot be called from this app. Verified 2026-09-17, and it changes the slice.**
+
+DailyMed's v2 API (`https://dailymed.nlm.nih.gov/dailymed/services/v2/`) answers `spls.json` and `spls/{setid}.xml` with **no `Access-Control-Allow-Origin` header**, on both the GET and the preflight. The full headers were checked with `Origin: https://githor404.github.io`. A browser page on another origin cannot read those responses, and this app has no server (D45: *"no server of ours exists or is created"*). **So the in-app DailyMed lookup, as written, cannot be built.** Fork A is where the source comes from instead.
+
+Verified on the same day:
+
+| source | CORS | what it gives | notes |
+|---|---|---|---|
+| **DailyMed** v2 | **none** | a list of labels by name (`spls.json?drug_name=`), and the full label XML by set ID, with sections marked by LOINC code | 254 labels for "metoprolol tartrate"; a search for "metoprolol" returns tartrate and succinate together. One sampled repackager label has DESCRIPTION (34089-3), INDICATIONS & USAGE (34067-9) and CLINICAL PHARMACOLOGY (34090-1), but **no MECHANISM OF ACTION section (43679-0)** |
+| **openFDA** `drug/label.json` | `Access-Control-Allow-Origin: *` | the **same FDA label documents** (same `set_id`, `version`, `effective_time`), with `description`, `indications_and_usage` and `mechanism_of_action` already split out as text fields by LOINC section; also `openfda.generic_name`, `brand_name`, `manufacturer_name`, `rxcui` and `product_ndc` | 164 labels for generic "metoprolol tartrate", from **53 distinct manufacturers and repackagers**. Limits: 240 requests/min and 1,000/day per IP without a key. It states: *"Do not rely on openFDA to make decisions regarding medical care"* and *"The drug labeling provided in this API may not be the labeling on currently distributed products."* Updated weekly |
+| **Health Canada DPD** `api/drug/` | `Access-Control-Allow-Origin: *` | product records by DIN: brand, company, descriptor, active ingredients, form, route, schedule | **No label text.** Canadian product monographs are PDFs outside the API, so DPD can identify a Canadian product but cannot supply the three sections |
+
+**Sizes, relevant to Fork B.** For one metoprolol tartrate label, the three sections are 1.1 KB, 3.6 KB and 1.9 KB, about **6.7 KB** in total. The user's entire current export is **41 KB**. The sections for twenty medications would take roughly three times the space of the whole log.
+
+**Two more findings constrain the matching.**
+- **A phrase search pulls in other drugs.** openFDA's search for `"metoprolol tartrate"` excludes succinate, but **includes `METOPROLOL TARTRATE AND HYDROCHLOROTHIAZIDE`**, a combination product and so a different drug. It also includes `METOPROLOL TARTRATE INJECTION` and a misspelled `METOROPROLOL TARTRATE`. Matching must use the **exact** generic name, not "contains".
+- **Domperidone returns nothing.** A drug sold in Canada but not approved in the US has no US label at all. So the DPD gap is not a caveat on some answers: for some medications, it is the whole answer.
+
+**Conflicts between the brief and the log, named.**
+1. **"NO INTERACTIONS, ever" closes a door D20 deliberately left open.** The D20 addendum records interaction and contraindication checking as *deferred intent, intentionally undetermined*, and says pursuing it would be a separate strategic decision. This brief rules it out permanently. That is a legitimate ruling, but it **amends D20** and should be recorded as doing so.
+2. **This is the second kind of health content in the app, as opposed to data about the user's own behaviour, and D21/D32 govern it.** D32 ruled on the first kind, reference ranges: *"sourced, cited, versioned"*, with *"worth discussing with your doctor"* as standing context. A label's indications are the same kind of content. The brief's boundaries fit D32, and the ruling entry should cite it.
+3. **"D32's shape: org, citation, version"** matches the shipped `{org, cite, version, applicability}` in `BM_SOURCES` and `citeBlock`. `applicability` is where "US labelling" belongs.
+
+#### The forks
+
+**Fork A — the source. The central fork, and a new one.**
+- **A1 (recommended): openFDA as the transport, with the FDA label document as the citation.**
+  - The document is the same FDA label that DailyMed shows. The record cites `set_id`, `version` and `effective_time`, and links to the DailyMed page for that set ID. A link is navigation, not a fetch, so CORS does not block it.
+  - The brief's section selection still works, because openFDA's fields *are* the LOINC sections. The app selects fields and never paraphrases.
+  - **Costs to rule on:**
+    - openFDA's own two warnings, "do not rely on this for medical care" and "this may not be the labeling on products currently sold", must travel with the text;
+    - the daily limit per IP address;
+    - openFDA flattens each section into one string, so headings run inline and table structure is lost.
+- **A2: a CORS proxy in front of DailyMed.** Rejected: a third party would see every drug name the user looks up. D45's "no server" bound covers a rented server as much as one we write.
+- **A3: link out only.** The app opens a DailyMed search for the confirmed name in a new tab. Nothing is fetched or stored, and copying is done by hand.
+  - It can always be built, and it is the right **fallback under A1**: offline, over the daily limit, or no match.
+  - Rejected as the main path: the copy-prompt form (part 2 of the brief) would lose its guarantee that the pasted text is the actual label.
+- **A4: ask NLM to add CORS to DailyMed.** Not something the build can do. Recorded because it is the only way DailyMed itself becomes callable.
+
+**Fork B — stored text versus fetched on open.** *(The brief's first fork.)*
+- **B1 (recommended): store the three sections as fetched, with the citation, and only when the user explicitly saves.** The brief's own argument holds: this is a citation, not a model's recollection. Stored text is also what lets copy work offline, including at a pharmacy counter. Size: about 7 KB per medication.
+- **The budget is a separate capped store, not the log** (D13's pattern: a cap, and the log always wins). Unlike D13's product cache, this store is not disposable, because the user chose to keep it. So nothing is ever evicted silently; at the cap, saving another document asks first.
+- **B2: store only the citation, and fetch the text on open.** Smaller, and always current. But it fails offline, and it depends on the label still being served. openFDA itself says its text may not match current labelling, and a label can be withdrawn.
+- **Staleness, under either option.** The stored copy shows its retrieval date and label version. A "check for a newer version" action compares `version` and never overwrites silently: the new text is stored beside the old one (D55).
+
+**Fork C — many labels for one generic.** *(The brief's second fork.)*
+- **C1 (recommended): the candidate list is manufacturers, filtered by exact generic name**, and also by the label's NDC or manufacturer if H4 Fork D2 is ruled in.
+  - The user picks one label. The app never picks a "representative" label on the user's behalf.
+  - With an NDC, the lookup is exact. With only a name, the list can be 50 long, so it is sorted newest first by `effective_time` and labelled by manufacturer.
+- **C2: take the newest label automatically.** Rejected. Repackagers such as REMEDYREPACK and Bryant Ranch dominate the newest entries, and their text can lag the original manufacturer's. Choosing silently would make "which label" an invisible decision.
+- **C3: prefer the brand-name manufacturer's label.** Plausible, but deciding whose text is canonical is a pharmacology judgement the app should not encode. Recorded, not recommended.
+- **RxCUI:** openFDA returns `openfda.rxcui` on every label, so the named escalation would cost one extra query field rather than a new API. It stays named, not built, as the brief rules.
+
+**Fork D — is the stored document in the export?** *(The brief's third fork.)*
+- **D1 (recommended): yes, with its citation.**
+  - The user chose to keep it, and D5's export is the user's backup, so leaving it out would mean a restore silently loses it.
+  - The text is public, so it costs no privacy beyond the medication name, which is already exported.
+- **D2: no; fetch it again after a restore.** Rejected under B1: it makes restore depend on the network, and it fails for any label withdrawn in the meantime.
+
+**Fork E — no match.** *(The brief leans toward saying so plainly and offering the copy-prompt path anyway.)*
+- **E1 (recommended, matching the brief's lean):**
+  - The app says *"No US label found for metoprolol tartrate in openFDA."*
+  - It then offers the copy-prompt path **without label text**, with the prompt stating that none was available, plus the A3 link-out.
+  - **A no-match is never filled from a looser search**: no dropping the salt, no "contains" match. That is exactly how succinate text would end up shown for tartrate.
+- **A drug with no US label gets a specific line:** *"US labelling only. Health Canada's Drug Product Database is the Canadian source, and it is not connected."* The DPD gap is stated where it matters, not only in the README.
+- **A missing section is stated per section** (*"This label has no Mechanism of Action section"*). It is never filled from a neighbouring section such as Clinical Pharmacology.
+
+**Fork F — the copy-prompt: what goes in it.**
+- **F1 (recommended): three parts, in order.**
+  1. The label text as stored, with its citation.
+  2. A question stem that the user completes.
+  3. Fixed instructions: answer from the label text provided; say when the label does not answer the question; do not advise on this person's treatment.
+
+  **Only that one label goes in: no medication list, no second drug, no personal data.** That is how "no interactions, ever" also holds on the copy path, because the app never puts two drugs into one prompt.
+- **Question stems:** offered as starters, and none of them about interactions or suitability. Open: which stems. Recommended: two or three plain ones, such as *"Explain this section in plain language"* and *"What does this term mean: ___"*.
+- **Versioned** like the other templates (`LABEL_QUESTION_TEMPLATE_VERSION`).
+
+**Fork G — where the boundaries appear.**
+- **G1 (recommended): standing context on the drug-information view, per D32.** Two lines, shown on the view rather than attached to any item:
+  - *"US prescribing information for this product. What a drug is approved for is not necessarily what it was prescribed for — that is between you and your prescriber."*
+  - *"This app does not check interactions. A pharmacist's medication review (MedsCheck, in Ontario) is built for that, and your medication list is what to bring."*
+
+  openFDA's own disclaimer is shown alongside. None of this is a verdict on a particular medication.
+- **The `reason` field the user can type on a dose event** (D20) is the user's own statement, not the app's, and this slice does not affect it.
+
+**Fork H — the privacy statement.**
+- **H1 (recommended): the README and the in-app about line gain a sentence.** It says that a drug-information lookup sends the medication name the user confirmed to openFDA (the US FDA), only when the user asks, and nothing else. This has the same shape as the existing sentence about Open Prices and location. Today the README says *"nothing is sent to any server by the app itself"*. That is already qualified by OpenFoodFacts, Open Prices and BYOK, and without this sentence it would be wrong.
+- **The lookup never runs in the background**: not on capture, not on a refill, not on restore.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| H5-selection **GATE** | each stored section is **byte-identical** to the source field: no truncation, rewording or summarising |
+| H5-cite **GATE** | every stored section carries the org, `set_id`, `version`, `effective_time`, the retrieval date and the source's disclaimer; a record missing any of them is refused at the store boundary |
+| H5-exact **GATE** ×3 | "metoprolol tartrate" matches **none** of: succinate, "METOPROLOL TARTRATE AND HYDROCHLOROTHIAZIDE", "METOROPROLOL TARTRATE" |
+| H5-no-loosen **GATE** | after a no-match, the app never retries with a shortened or "contains" query |
+| H5-no-match **GATE** | a no-match says so, offers the copy-prompt (stated as having no label text) and the link-out, and stores nothing |
+| H5-missing-section **GATE** | a label without a MECHANISM OF ACTION section says so, and no other section fills the slot |
+| H5-many | 50 manufacturers render as a list for the user to pick from; nothing is chosen automatically |
+| H5-no-interactions **GATE** + CONTROL | no surface, prompt or export combines two medications' label text; the copy-prompt contains exactly one label |
+| H5-copy ×2 | copied text carries its citation; the copied prompt carries the label text, citation, stem and instructions |
+| H5-no-this-person **GATE** | no rendered string links an indication to the user ("for your…", "you take this for…"); a vocabulary gate like M7's, with a planted control |
+| H5-on-demand **GATE** | no request reaches openFDA without an explicit tap, and none on capture, refill, boot or restore (checked with a CDP network trace) |
+| H5-export | stored documents and their citations survive export → restore |
+| H5-stale | a newer `version` is offered, never applied silently, and the old text stays |
+| H5-offline | a saved document opens and copies offline; an unsaved lookup made offline says so and offers the link-out |
+| H5-escape | every fetched string is escaped at render |
+| H5-cap | saving past the store's cap asks first, and the log is never evicted to make room |
+
+**A defect pass is required before this counts as evidence** (D60). H5-exact's fixtures must include the real near-misses listed above. H5-on-demand is a network-trace gate, and it must be seen to fail against a planted background fetch.
+
+#### What this pre-registration does not settle
+
+- RxNorm/RxCUI matching (the named escalation).
+- A Canadian source. DPD has no label text, and Canadian monographs are PDFs.
+- A consolidated-list artefact for a MedsCheck (flagged in H4).
+- Any label section beyond the three.
+- **Whether to show a US label at all for a product bought in Canada under a different name.** Flagged, because the formulation and the approved uses can differ between the two countries.
+
+**Status: PRE-REGISTERED, FORKS OPEN. NOT built. Blocked on two things:**
+- **H4 Fork A.** Without a medication record there is nothing to attach a document to.
+- **This entry's Fork A.** The brief's named source cannot be called from the app.
