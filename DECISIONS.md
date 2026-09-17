@@ -2139,6 +2139,18 @@ The suite went red. The harness did exactly what it was built to do — D56's ha
 
 The brief's working rule — *"pre-registered, re-runnable gate evidence"* — is the weaker statement and is now incomplete, as instance 6 demonstrated by satisfying it completely. **D60 is the binding form.** Per the project's own rule that ruled contracts live in `DECISIONS.md` and bind equally with the brief, no edit to `CLAUDE.md` is required for this to hold; the brief is left alone rather than partially updated, since it is already behind the code in other respects and a half-refreshed brief is worse than one known to be historical.
 
+### Amendment — the Clause 4 register reaches six, and it is a class (2026-09-17)
+
+| # | slice | assertion | why the fixture could not exhibit the failure |
+|---|---|---|---|
+| 6 | H4 (D82) | "None of these" keeps no name | the case used a reply whose candidate list contradicted its own name, and for that reply the name is **already** withheld. A defect that kept the name could not change the outcome. The case now uses a confident reply, where the name is filled in first, and the fixture asserts that before the pick |
+
+**Instance 6 was found by reading the fixture before the defect pass ran.** It is the first instance caught that way; the earlier five were caught by a green run against a planted defect.
+
+The same reading added a restore step to H4-absent. That test never crossed the restore boundary, where `normalizePrinted` runs. It is recorded here, next to the register rather than in it: the assertion was missing a code path, not measuring the wrong state.
+
+**This is a recurring class, not a run of incidents.** There have been six instances in five slices over eleven days: R25 (twice), R26, R31, R30 and H4. Expect one in any slice that has a defect pass. For each planted defect, work out which starting state lets that defect change the outcome. Do this before the run, because that is when fixing the fixture costs least.
+
 ## D61 — The third rail: adding what the photo could not show, and the denominator nobody was writing (R25, 2026-09-07)
 
 `APP_VERSION → 0.25.0`; **schema unchanged at v6** — `added` is an additive optional item field, and the v6 bump for `grams` (D57) already covered the authored-content case. Seven forks ruled (A1, B1, C1, D1, E1, F1 + F-fix1, G).
