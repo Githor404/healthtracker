@@ -2766,3 +2766,146 @@ The solo pass of the harness is not the evidence. The second full run is.
 ### D76 — the evaluation set: PARKED (2026-09-17)
 
 **Parked, not outstanding. Nothing about it is waiting.** This supersedes the notes under R30, R32 and R33 calling the matcher and its evaluation set *"stated next, still unblocked"*. The matcher needs the micros corpus, which is unbuilt and not next. Labels picked before the corpus exists would come from a shortlist made by the matcher's own reasoning. The scaffold and the local worklist are kept. **The set becomes live again when the corpus does.** DECISIONS.md D76 gives the reasoning and the question that must be ruled before labelling starts.
+
+### H4 — Medication capture: a photographed label populates the record — PRE-REGISTERED, FORKS OPEN (received 2026-09-17; NOT built)
+
+**Four things in the brief do not match the repo. They are named first because three of them change the forks.**
+
+1. **There is no medication list for a refill to match against.** The manual entry (`pane-med`, `addMedicationFromForm`) writes a **dose event** to `timeline[date]`, which records *taking* something at a time. Regimens (D27) hold medication **template entries**. Nothing in the app is a standing "medications I have". The brief's refill fork assumes that object exists. Fork A is where it would come from.
+2. **The existing record normalises what this brief says must stay as printed.** `dose` is a clamped number, and `dose_unit`, `form` and `route` are closed lists that silently drop anything else (D20 addendum). "50 mg" becomes `dose: 50, dose_unit: 'mg'`, and "TAB" or "tablet, extended release" becomes `form: ''`. Capturing into that record would destroy the reading at the first boundary.
+3. **"D4's two-objects rule" is not in D4.** D4 is superseded, and it was about legacy migration. The rule the brief describes, that a derived object is kept *beside* what was observed and never in its place, is closest to **D55** (a correction is kept beside the original), **D69** (the plate is a fact, the consumption is an event) and **D70** (provenance stays where the estimate was made). This entry is written against that rule. If a different entry was meant, it needs naming.
+4. **"R1.1" and its asking-price refusal are not in this repo.** The in-repo machinery with that shape is **D45 Fork H**. Micros are detected by key, stripped, counted and stated on the draft (`photoMicroHits` → `microsStripped` → *"micronutrients in the reply were stripped"*), and the ingest report counts the same thing. The brief's "middle row" is restated below as a gate, in this entry's own words, and needs confirming.
+
+**D45 needs amending under every fork.** D45 bounds the vision call to *"only the meal photo and the perception template"*. A label photo is outside that bound.
+
+**Motivation.** Medications are typed by hand today. A pharmacy label is printed text on a flat surface, the easiest input this app has had. The case that started this is a family member's 20-pill regimen that nobody had a consolidated list of.
+
+**The brief's contract, as received.** Every field is optional and absent when not legible. Strings are kept exactly as printed. The fields are `name, strength, form, quantity, directions, prescriber, rx_number, fill_date`, plus `alts[{name, p}]` per R30. Refused by name, counted and stated on the surface: drug class, indication, mechanism, interactions, dose advice, and whether the drug is appropriate. Identity comes first: the user confirms name and strength, not quantity.
+
+#### Survey — what is shipped, and what it means for this
+
+**1. The capture pipeline is meal-shaped from end to end.** `byokCapture` → `byokCall` → `openPhotoDraft` → `parsePhotoMeal`, and the parser rejects any reply without `items[].per100` and `grams`. A label needs its own template, parser and confirm surface. Reusable as they are:
+- the key and its hygiene (D45 Fork F);
+- the downscale;
+- the call, its timeouts and its one retry (R27–R29);
+- the fallback into the paste box, so a failure is never a dead end;
+- the capture outcome modal (D51);
+- R30's `parseAltList`, `identityState` and floor.
+
+**2. Refusal is detected by key today, not by words.** `photoMicroHits` counts `micros` and the canonical micro keys. That works because a meal reply has one free-text field, `notes`. A label reply has three (`name`, `directions`, `prescriber`), and a printed label can legitimately carry words from the refused classes. Fork C covers this.
+
+**3. Real labels carry more than the contract.** Commonly printed, and not in the brief's list:
+- the **patient's name and address**;
+- the pharmacy's name and phone number;
+- the **DIN** (Canada) or **NDC** (US);
+- the manufacturer of the dispensed generic;
+- refills remaining;
+- auxiliary warning stickers, such as *"MAY CAUSE DROWSINESS"* or *"AVOID GRAPEFRUIT JUICE"*.
+
+Forks C to E are about these.
+
+**4. The photo leaves the device carrying a person's health data.** D45's photo hygiene keeps the image out of every store and export, but the call itself sends it to the user's provider. A meal photo identifies no one. A pharmacy label names the patient, their address and their prescriber. In the family case, that is **another person's** data going out on the user's own key, while D45 was ruled for *"one user, their own key, their own device"*.
+
+**5. A medication record today belongs to the one profile the app has.** Every record lands on this profile's `timeline`, where D20's correlation work and D27's regimens read it as the user's own. The family member's twenty pills would land there too.
+
+**6. The no-key path needs a second copyable artefact.** D11's fallback is a copyable template. A label template has to be versioned separately from `AI_TEMPLATE_VERSION`, which D11 ties to the food item contract.
+
+#### The forks
+
+**Fork A — what a captured label becomes. The central one.**
+- **A1 (recommended): a new standing object, a *medication*, in its own store** (`meds`, keyed by id). It holds the as-printed reading, its capture provenance and the confirmed identity. **Dose events stay what they are**: timeline records of taking something, which may reference a medication by id. This is D69's split again: the bottle is a fact and a dose is an event. A1 is also the only option that gives Fork F's refill question something to match against, and it produces the consolidated list the motivating case lacked.
+- **A2: the label fills in the existing manual form, and saving logs a dose event.** Smallest build. Rejected: it logs a dose nobody took at capture time, it loses the as-printed strings in `normalizeSignal` (conflict 2 above), and it still leaves no list.
+- **A3: the label fills in a regimen entry** (D27). Rejected: a regimen is a daily template with times, and a label is not a schedule (Fork G keeps it that way).
+- **The cost of A1, to rule on explicitly:** a **schema bump from v9 to v10** and a new top-level store. That brings the same allowlist, export/restore and migration work every store has needed; R33 was the allowlist trap's ninth occurrence.
+
+**Fork B — typed and captured medications: one record type or two.** *(The brief's second fork.)*
+- **B1 (recommended): one type that carries its `source`**, one of `label-photo`, `label-paste` or `manual`. A typed medication is the same object with `source: 'manual'` and no capture provenance. Food items already work this way (`scan | ai-paste | manual | preset`), and it gives the pharmacist one list.
+- **B2: two types.** Rejected: the consolidated list would have to merge them.
+- **Keep both the printed reading and anything derived from it (the D55/D70 rule).** The reading is stored **verbatim** as `printed: {name, strength, form, quantity, directions, prescriber, rx_number, fill_date}`. Any structured value the app needs later is a **derived** field stored beside it, never a replacement. Examples are a numeric dose for a dose event, or a normalised query for H5. The existing manual form keeps its closed lists for **dose events**, and the new medication record does not use them.
+- **Open:** whether the manual form starts creating medications, or keeps logging dose events only. Recommended: it stays a dose-event form, and a later slice gives it a "pick from my medications" chooser.
+
+**Fork C — refusal by key or by words, and the label that prints a refused word.**
+- **C1 (recommended): refuse by key, count and state, without scanning values for vocabulary.**
+  - Any key in the reply that is outside the contract and names refused content is stripped, counted, and named on the draft (*"stripped: drug class, indication"*). Examples are `class`, `drug_class`, `indication`, `used_for`, `purpose`, `mechanism`, `interactions`, `dose_advice` and `appropriate`.
+  - The template refuses the same list by name, as R27 did for tables and commentary.
+- **The collision the brief does not address.** A real label can **print** an indication (*"TAKE 1 TABLET DAILY FOR BLOOD PRESSURE"*) or an interaction warning (an auxiliary sticker). Under "as printed", that text is evidence. Under the refused list, it is refused content. **C1 keeps printed text wherever the contract has a field for it**, so `directions` is stored verbatim, including *"FOR BLOOD PRESSURE"*. The refusal targets what the **model adds**, not words that were on the label.
+- **C2: also scan the free-text fields for refused words, and strip matches.** Rejected for two reasons. It would edit printed directions, which are the evidence this slice exists to keep. And a word list cannot tell *"for blood pressure"* (printed) from *"a beta blocker used for blood pressure"* (added by the model).
+- **C3: accept printed text, but mark `directions` that contain indication-like words as "from the label".** Cheap, and it shows the user where the words came from. Recommended **in addition to** C1, not instead of it.
+- **A limit, stated now:** C1 cannot catch a model that *invents* an indication inside `directions`. The defence is the confirm surface, where the user reads the draft against the label in their hand, as for every as-printed field.
+
+**Fork D — fields printed on the label that the contract does not list.**
+- **D1 (recommended): refuse the patient's name and address and the pharmacy phone by name.** The template refuses them, and if a reply includes them anyway they are stripped, counted and never stored. They identify a person, and nothing in this slice needs them. The photo still carries them to the provider (Fork E).
+- **D2 (recommended, and a scope question): add `din`, `ndc` and `manufacturer` as optional as-printed fields.**
+  - A DIN or NDC printed on the label is an **exact product identifier**. With it, telling tartrate from succinate is a lookup rather than a name match.
+  - The manufacturer narrows H5's many-labels problem.
+  - **This is beyond the brief's scope, which is why it is a fork.** Refills remaining and the pharmacy's name are not recommended, because nothing would use them.
+- **D3: the brief's eight fields only.** Anything else is dropped. Recommended: count it as "not in contract" rather than dropping it silently.
+
+**Fork E — whose label, and what the photo carries.**
+- **E1 (recommended): this slice is for the user's own medications, and says so.**
+  - A family member is served by their own install, since the app is free and local, or by E2 later.
+  - Before the first send, the capture surface states that a label photo includes the patient's name and address and goes to the user's provider.
+- **E2: a per-record `for` field naming whose medication it is**, kept off the user's timeline and regimens. This serves the motivating case directly. **But it is a new concept in a single-profile app**, and every consumer that reads medications would have to respect it. So it needs its own ruling, not a default.
+- **E3: crop or redact the photo before sending.** Not reliably buildable on the device, because the app cannot find the name on the label without reading it. Recorded, not offered.
+- **The D45 amendment, needed under every option:** *"only the meal photo and the perception template"* becomes *"only the photo the user chose for this capture, and the template for its kind"*.
+
+**Fork F — a label for a drug already on the list (a refill).** *(Needs A1.)*
+- **F1 (recommended): match on the confirmed `name` and `strength` as printed, comparing after trimming and case-folding only.**
+  - A match is **offered, not applied**: *"Looks like a refill of Metoprolol Tartrate 50 mg. Add it as a fill?"*
+  - An accepted fill is appended to the medication's `fills[]`, carrying the fill date, quantity, Rx number and capture provenance. The medication's identity is not rewritten.
+  - **A different strength is a different medication**, never a refill, and the two are never merged. A dose change is clinically meaningful, and the list must show both until the user retires one.
+  - **A matching `rx_number` is the strongest signal**, and outranks the name when present.
+- **F2: fuzzy name matching.** Rejected: "metoprolol tartrate" and "metoprolol succinate" differ by one word, which is exactly the difference a fuzzy match is built to forgive.
+- **Open:** retiring a medication that was stopped or replaced, which the list needs in order to stay true. Recommended: a `stopped` date rather than a delete, so the pharmacist sees the history.
+
+**Fork G — directions: text or a schedule.** *(The brief leans toward text.)*
+- **G1 (recommended, matching the brief's lean): verbatim text only.**
+  - Nothing is derived from the directions: no schedule, no regimen entry, no reminder.
+  - *"TAKE 1 TABLET TWICE DAILY"* is shown exactly as printed. Parsing it is inference, and the D20 addendum already deferred scheduling explicitly.
+- **G2: parse the directions into a suggested regimen entry that the user confirms.** Rejected for this slice. A suggestion anchors the user even after confirmation (R30's reasoning about displayed defaults), and "twice daily" has no times on it.
+- The user can still turn a medication into a regimen entry by hand in the existing regimen editor.
+
+**Fork H — identity first, and what the candidate list is for here.**
+- **H1 (recommended): the first question confirms name and strength together.**
+  - Quantity, fill date and the other fields are shown below it and are editable, but not asked about.
+  - R30's floor applies to `alts[0].p`, and below the floor nothing is filled in.
+- **The candidates are about legibility, not pharmacology.**
+  - `alts` answers "what does the label say", so the alternatives are other *readings* of worn print ("metoprolol tartrate" / "metoprolol succinate"), not other drugs in the same class.
+  - The template says so. It turns R30's instruction to offer "genuinely different foods" around, for printed text.
+- **Strength gets no alternatives in v1**, but it is always shown for confirmation. Open: whether it should get them, for a worn "25" versus "75".
+- **"None of these" keeps no name, following D68's `photoPickNone` rule.** The medication is saved as "Unreadable label", with the model's readings kept as provenance, and the user types the name.
+
+**Fork I — templates, the paste path and versioning.**
+- **I1 (recommended): a separate `LABEL_TEMPLATE` with its own version (`LABEL_TEMPLATE_VERSION = 1`).** It is copyable like the meal template and has its own parser. The meal template and `AI_TEMPLATE_VERSION` do not change.
+- **The user chooses the capture kind before sending** ("Meal" or "Label" on the capture surface); the app never guesses it from the photo. A wrong guess would send the wrong template, and the resulting parse failure would look like a bad reply.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| H4-verbatim **GATE** | every as-printed field survives capture → save → export → restore **byte-identical**: "metoprolol tartrate" is not "metoprolol", "50 mg" is not `50`, "TAB" is not `tablet` |
+| H4-absent **GATE** | a field the reply omits is **absent** on the record — never `''`, never `0`, never a default |
+| H4-refuse **GATE** + CONTROL | each refused key (class, indication, mechanism, interactions, dose advice, appropriateness) is stripped, counted and **named** on the draft; a control reply with none of them shows no refusal line |
+| H4-middle **GATE** ×2 | one reply that carries both a printed strength and a refused class, asserted both ways on that same reply: the strength **survives** the refusal, and keeping the strength does **not** let the class through |
+| H4-printed-words **GATE** | `directions` containing "FOR BLOOD PRESSURE" is stored verbatim (C1); **if C3 is ruled**, it is also marked as label text |
+| H4-person **GATE** | a patient name, address or pharmacy phone in a reply is stripped, counted, and absent from both the record and the export (D1) |
+| H4-identity-first **GATE** | the first question asks for name + strength; quantity is not asked; below the floor nothing is filled in |
+| H4-alts **GATE** | `alts` render per R30: the model's order, no `p` shown, a top-1 contradiction drops to unsure, "None of these" keeps no name |
+| H4-refill **GATE** ×3 | same name + strength → a fill is **offered**, not applied; a different strength → a new medication; a matching `rx_number` outranks a name difference (F1) |
+| H4-no-schedule **GATE** | saving a label creates **no** regimen entry, **no** dose event and **no** `scheduled` flag (G1) |
+| H4-kind | the label template is sent only when "Label" was chosen; the meal path is byte-identical to v0.29.0 (R21-parity) |
+| H4-hygiene | the photo is in no store and no export, and the key is in no string (D45, re-run on the new path) |
+| H4-export / H4-migrate / H4-guard | the new store survives export → restore (the allowlist trap's tenth occurrence); v9 → v10 in place, with `days` byte-identical; v11 refused |
+| H4-escape | every printed string is escaped at render, including the refusal names |
+
+**A defect pass is required before this counts as evidence** (D60). Per **Clause 4**, H4-verbatim's fixture must contain strings a normaliser *would* change (mixed case, a unit after a space, an abbreviation), or the gate cannot fail. Per **Clause 5**, every case that dereferences the new store must guard the dereference.
+
+#### What this pre-registration does not settle
+
+- H5's lookup, which depends on this.
+- Linking dose events to a medication (Fork B's open question).
+- Retiring a medication (Fork F's open question).
+- Whether strength gets alternatives.
+- **A consolidated-list export for a pharmacist.** That is the motivating artefact, but it is not in the brief. Flagged, not assumed.
+
+**Status: PRE-REGISTERED, FORKS OPEN. NOT built.**
