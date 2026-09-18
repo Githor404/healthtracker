@@ -3328,3 +3328,45 @@ Two of the five are the same shape as each other and as D83's census gap: **a ga
 
 - **The defect runner has no lock.** Two diagnostic scripts ran while a pass was in flight; each snapshotted a tree with a plant in it and restored that snapshot afterwards, leaving a defect behind and producing failures that looked like the build's. **Never run anything that snapshots the tree while a pass is running**, and check the tree afterwards.
 - **A planted defect must not block the browser.** The escape fixture used `onerror=alert(1)`; unescaped, the alert blocked headless Chrome, so the page never reported and the defect read as a hang rather than as a failed gate (**Clause 5** again). The payload now sets a flag, which the gate also asserts was never set.
+
+## D87 — An end-state assertion cannot see a missing step in the middle (2026-09-17)
+
+Governance only. No code, no schema change, no `APP_VERSION` bump.
+
+**The rule: when a process has steps, assert the steps. An assertion about the end state cannot see a step that was deleted, because the step after it produces a compatible end state.**
+
+Three instances, all found by defect passes inside a week:
+
+| # | process | the end-state assertion | what it could not see |
+|---|---|---|---|
+| 1 | the migration chain | *"a v9 blob boots at the current schema, content intact"* | the v9 → v10 step **deleted**: the v10 → v11 step that follows produced the same shape, and every gate stayed green (D86) |
+| 2 | the openFDA error route | *"a drug with no US label shows the no-match surface"* | a **404 classified as an error**: the flow reaches no-match for several reasons, so the surface could not tell them apart (D86) |
+| 3 | the D29 write-site census | *"the set of write sites matches the manifest"* | a **store nobody added to the pattern**: `plates` was invisible to the census for two slices, and the totals agreed anyway (D83) |
+
+**What it looks like from inside.** The gate names the right property, the planted defect is exactly the one it guards against, and the two never meet — because something downstream repairs the state before the assertion reads it. That is D60 Clause 4's shape one level along: Clause 4 is about the state a fixture *starts* in, and this is about everything between the defect and the assertion.
+
+**How to apply.**
+
+- **Name the steps.** A chain of migrators. A fetch → classify → parse → store path. An error route with more than one way in.
+- **Assert each step where it happens.** `H5-chain` asserts the chain calls every migrator; `H5-404` asserts the classifier rather than where the flow lands; D83's census asserts that every store is classified rather than that the totals agree.
+- **In the defect pass, plant a DELETION of each step.** If the suite stays green, the gate is an end-state gate and that step is unguarded. This is the cheapest detector there is, and it is how all three were found.
+
+**Applied so far:** the migration chain, the openFDA classifier, the store census. **Not audited yet:** the capture path (downscale → call → parse → draft), restore (parse → normalize → save) and ingest (parse → coerce → merge). Recorded as the next places to plant a deleted step, rather than claimed as covered.
+
+## D88 — No gate reads the page the way a person does (2026-09-17)
+
+Governance only. No code, no schema change, no `APP_VERSION` bump.
+
+**The instance.** `.cited>summary::before` carried a raw control character from v0.20.1 (2026-09-06) until v0.31.0 (2026-09-17). Every citation block in the app rendered as a replacement glyph followed by `D8` — the lab sources, the bowel-movement reference, and the provenance blocks D53 built precisely so that sourcing would be visible. About a month, on every surface that cites anything.
+
+**How it survived.** The character is invisible in the source: an editor shows a one-character oddity inside a CSS string, and a diff shows a line nobody re-reads. Every gate that touches this surface asserts **strings and structure** — that the block exists, is closed by default, carries a summary and a body, and hides no safety line. All of that was true, and all of it was green, while the marker painted a box.
+
+**It also survived the on-device pass**, which happens every release. A person reading a citation line reads past a small glyph they half-expect. That is what decoration means.
+
+**The standing limit, stated so it is not rediscovered:** the suite reads the DOM, the CSS text and the geometry. **Nothing in it looks at the rendered page.** The CDP gates come closest, and they measure boxes — a box can be exactly the right size and paint nothing legible.
+
+**What follows, which is deliberately narrow.**
+
+- **The class is gated where a text gate can reach it:** no control characters in the shipped shell, and the citation marker must resolve to the character it was meant to be (`SE-ctrl`). A screenshot found it; a text gate can keep it out.
+- **The limit is not closed by that**, and saying it was would be D3's shape — asserting a safety we do not have.
+- **When a slice touches a visible surface, look at it.** H4 and H5 both rendered the page at 390 px, and both found defects that way: a confirm button that did nothing when the name was empty, a control labelled like a status, and this. **Screenshots are not evidence and not a gate.** They are the only step in the process that reads the page.
