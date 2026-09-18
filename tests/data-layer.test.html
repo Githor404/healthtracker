@@ -2215,6 +2215,53 @@ window.setLS({});
       SEW.HT.renderPromptCard();
     }
 
+    // H4.1 (D89): the destructive control is not a peer of the affirmative one,
+    // measured in the shipped page rather than asserted from the class name (R19).
+    if (SEW && SEW.HT) {
+      SEW.HT.openLabelDraft(JSON.stringify({ name: 'SHELL DRUG', strength: '1 mg' }),
+                            { whose: 'mine', source: 'label-paste' });
+      SEW.HT.labelConfirm();
+      var shellMed = SEW.HT.labelSave();
+      SEW.HT.renderMeds();
+      // The card lives in Settings, which is hidden until it is opened -- a hidden
+      // element measures zero, and a zero-vs-zero comparison would pass for the
+      // wrong reason (D60 Clause 4).
+      try { SEW.openSettings(); } catch (e) {}
+      var medsDet = SEDOC.getElementById('medsDetails');
+      if (medsDet) medsDet.open = true;
+      // the MEDICATION's own control, not a fill's -- the fills render first
+      var rmEl = SEDOC.querySelector('#medsBox .medrmmed');
+      var stopEl = SEDOC.querySelector('#medsBox .medbtn');
+      var rmBox = rmEl ? rmEl.getBoundingClientRect() : null;
+      var stopBox = stopEl ? stopEl.getBoundingClientRect() : null;
+      var rmStyle = rmEl ? SEW.getComputedStyle(rmEl) : null;
+      var stopStyle = stopEl ? SEW.getComputedStyle(stopEl) : null;
+      res(!!rmEl && !!stopEl && !!rmBox && rmBox.width > 0 && stopBox.width > 0,
+          'H4.1-distinct: (fixture) both controls are on the shipped row and LAID OUT -- a hidden panel measures zero, and zero equals zero');
+      // R19's claim is about WEIGHT and THUMB PATH, not height: this label wraps to
+      // two lines, so it is taller while being smaller type with no chrome. The
+      // measurements that carry the claim are the type, the weight, the chrome, and
+      // that the two controls do not occupy the same tap zone.
+      var rmOverlap = !(rmBox.right <= stopBox.left || rmBox.left >= stopBox.right ||
+                        rmBox.bottom <= stopBox.top || rmBox.top >= stopBox.bottom);
+      res(!!rmStyle && !!stopStyle &&
+          parseFloat(rmStyle.fontSize) < parseFloat(stopStyle.fontSize) &&
+          parseFloat(rmStyle.fontWeight) < parseFloat(stopStyle.fontWeight) &&
+          rmStyle.borderTopStyle === 'none' && stopStyle.borderTopStyle !== 'none' &&
+          !rmOverlap,
+          'H4.1-distinct GATE: Remove is smaller and lighter than Mark stopped, carries no button chrome, and sits outside its tap zone (R19)' +
+          ' :: remove ' + rmStyle.fontSize + '/' + rmStyle.fontWeight + '/' + rmStyle.borderTopStyle +
+          ' vs stopped ' + stopStyle.fontSize + '/' + stopStyle.fontWeight + '/' + stopStyle.borderTopStyle +
+          ', overlap ' + rmOverlap);
+      res(/remove/i.test(rmEl.textContent) && /mistake/i.test(rmEl.textContent),
+          'H4.1-distinct GATE: and it is named for its purpose, not "delete"');
+      var shellFills = (SEW.HT.getMed(shellMed.medId) || { fills: [] }).fills.length;
+      res(shellFills > 0 && !!SEDOC.querySelector('#medsBox .medfills') &&
+          SEDOC.querySelectorAll('#medsBox .medrmfill').length === shellFills,
+          'H4.1-fill GATE: every fill is LISTED on the shipped row with its own remove -- a fill that is only counted cannot be removed (Fork C1)');
+      try { SEW.closeSettings(); } catch (e) {}
+    }
+
     // SE-ctrl (D86): a stray CONTROL CHARACTER in the shell. `.cited>summary::before`
     // carried one where the CSS escape for the circled i belongs, so every citation
     // block in the app has rendered as a replacement glyph plus "D8" since v0.20.1 --
@@ -8207,6 +8254,123 @@ window.setLS({});
   res(HT.SCHEMA_VERSION === 11 && HT.parseImport(JSON.stringify({ version: 12, days: {} })).ok === false &&
       HT.parseImport(JSON.stringify({ version: 11, days: {} })).ok === true,
       'H5-guard GATE: the forward guard moved with the schema -- v12 refused, v11 accepted');
+  HT.scanListReset();
+
+
+  // ==========================================================================
+  // H4.1 -- removing what should never have been saved (D89)
+  // ==========================================================================
+  h4fresh(); fixClock();
+  h4open(H4P); HT.labelConfirm();
+  var rmId = HT.labelSave().medId;
+  HT.saveLabelDoc(HT.fdaDoc({ set_id: 'set-rm', version: '1', effective_time: '20260101',
+    description: ['RM-DOC-TEXT'], openfda: { generic_name: ['METOPROLOL TARTRATE'] } }, {}), rmId);
+  // a second fill, so the confirm has a count to name and C1 has something to remove
+  h4open(h4with({ rx_number: 'RX-0099', alts: null })); HT.labelConfirm(); HT.labelSave(); HT.labelSaveAsFill();
+  res(HT.getMed(rmId).fills.length === 2, 'H4.1: (fixture) the medication has two fills and a saved document');
+
+  // the words, before anything is removed
+  var rmWords = HT.medRemoveWords(HT.getMed(rmId));
+  res(rmWords.indexOf(H4P.name) > 0 && rmWords.indexOf('2 recorded fills') > 0 &&
+      rmWords.indexOf('Mark stopped') > 0 && rmWords.indexOf('read wrong') > 0,
+      'H4.1-words GATE: the confirmation names the medication, its fill count, and Mark stopped as the alternative');
+  res(rmWords.indexOf('undo this straight afterwards') > 0 &&
+      !/recover|restore|always|permanent(ly)? saved|get it back later/i.test(rmWords),
+      'H4.1-words GATE: and promises nothing beyond the undo -- no recovery it cannot deliver (D3)');
+
+  // declining changes nothing
+  window.__confirm = false;
+  var rmDecline = HT.removeMed(rmId);
+  res(rmDecline.ok === false && rmDecline.declined === true && !!HT.getMed(rmId) &&
+      HT.getMed(rmId).fills.length === 2 && !!HT.getLabelDoc('set-rm'),
+      'H4.1-decline GATE: declining the confirmation removes nothing -- not the medication, not its fills, not its document');
+
+  // the refill CONTROL first: the same label IS offered a refill while it exists
+  window.__confirm = true;
+  h4open(h4with({ rx_number: 'RX-1111', alts: null })); HT.labelConfirm();
+  var offBefore = HT.labelSave();
+  res(offBefore.ok === false && !!offBefore.offered && offBefore.offered.medId === rmId,
+      'H4.1-refill CONTROL: before the removal, a matching label IS offered as a refill -- so the case below measures the removal');
+  HT.labelDontSave();
+
+  var rmScansBefore = JSON.parse(JSON.stringify(HT.scanListRead()));
+  var rmCopyBefore = HT.medListText();
+  var rmExpBefore = HT.exportJSON();
+  var rmRes = HT.removeMed(rmId);
+  res(rmRes.ok === true && HT.getMed(rmId) === null && Object.keys(HT.state().meds).length === 0,
+      'H4.1-remove GATE: the medication is gone from the store');
+  res(HT.medListText().indexOf(H4P.name) < 0 && rmCopyBefore.indexOf(H4P.name) > 0 &&
+      HT.exportJSON().indexOf(H4P.name) < 0 && rmExpBefore.indexOf(H4P.name) > 0,
+      'H4.1-remove GATE: and from "Copy my medications" and the export -- both of which carried it a moment before');
+  HT.renderMeds();
+  // Only the MEDICATIONS half: the scan list keeps its entry by ruling (D1), so
+  // searching the whole card would assert the opposite of what was decided.
+  var rmSurface = document.getElementById('medsBox').innerHTML.split('Scan list')[0];
+  res(rmSurface.indexOf(H4P.name) < 0 && document.getElementById('medsBox').innerHTML.indexOf(H4P.name) > 0,
+      'H4.1-remove GATE: gone from the medication list on the surface -- while the scan list still shows the scan (D1)');
+  res(JSON.stringify(HT.state().meds).indexOf('RX-0099') < 0 && HT.exportJSON().indexOf('RX-0099') < 0,
+      'H4.1-fills GATE: its fills go with it -- nothing is left referencing a medication that no longer exists');
+  res(!HT.getLabelDoc('set-rm') && HT.exportJSON().indexOf('RM-DOC-TEXT') < 0,
+      'H4.1-remove GATE: and the document saved with it, which nothing else points at, goes too');
+  res(deepEqual(rmScansBefore, HT.scanListRead()) && rmScansBefore.length > 0,
+      'H4.1-scan GATE: the scan list is UNCHANGED by the removal, entry for entry -- the scan happened, whatever became of the record (D1)');
+  h4open(h4with({ rx_number: 'RX-2222', alts: null })); HT.labelConfirm();
+  var offAfter = HT.labelSave();
+  res(offAfter.ok === true && !offAfter.offered,
+      'H4.1-refill GATE: after the removal the same label is saved as NEW, with no refill offered -- a stopped record would still have been offered');
+
+  // undo puts back exactly what was taken
+  h4fresh(); fixClock();
+  h4open(H4P); HT.labelConfirm();
+  var undoId = HT.labelSave().medId;
+  HT.saveLabelDoc(HT.fdaDoc({ set_id: 'set-undo', version: '2', effective_time: '20260202',
+    description: ['UNDO-DOC'], openfda: { generic_name: ['X'] } }, {}), undoId);
+  var beforeUndo = JSON.parse(JSON.stringify(HT.getMed(undoId)));
+  var beforeDoc = JSON.parse(JSON.stringify(HT.getLabelDoc('set-undo')));
+  HT.removeMed(undoId);
+  HT.doUndo();
+  res(!!HT.getMed(undoId) && deepEqual(HT.getMed(undoId), beforeUndo),
+      'H4.1-undo GATE: undo restores the record EXACTLY -- printed reading, fills, provenance and its document link');
+  res(!!HT.getLabelDoc('set-undo') && deepEqual(HT.getLabelDoc('set-undo'), beforeDoc),
+      'H4.1-undo GATE: and the document that went with it');
+
+  // ---- H4.1-fill: one mistaken fill, and the medication stays ------------------
+  h4fresh(); fixClock();
+  h4open(H4P); HT.labelConfirm();
+  var fId = HT.labelSave().medId;
+  h4open(h4with({ rx_number: 'RX-WRONG', alts: null })); HT.labelConfirm(); HT.labelSave(); HT.labelSaveAsFill();
+  h4open(h4with({ rx_number: 'RX-RIGHT', alts: null })); HT.labelConfirm(); HT.labelSave(); HT.labelSaveAsFill();
+  res(HT.getMed(fId).fills.length === 3, 'H4.1-fill: (fixture) three fills, the middle one a mis-tap');
+  var fWords = HT.fillRemoveWords(HT.getMed(fId), HT.getMed(fId).fills[1]);
+  res(fWords.indexOf('RX-WRONG') > 0 && fWords.indexOf('The medication stays') > 0,
+      'H4.1-fill GATE: the confirmation names the fill and says the medication stays');
+  window.__confirm = false;
+  res(HT.removeFill(fId, 1).declined === true && HT.getMed(fId).fills.length === 3,
+      'H4.1-decline GATE: a declined fill removal changes nothing');
+  window.__confirm = true;
+  var fRes = HT.removeFill(fId, 1);
+  var fMed = HT.getMed(fId);
+  var fLeft = (fMed && fMed.fills) || [];
+  res(fRes.ok === true && !!fMed && fLeft.length === 2 && JSON.stringify(fLeft).indexOf('RX-WRONG') < 0 &&
+      JSON.stringify(fLeft).indexOf('RX-RIGHT') > 0,
+      'H4.1-fill GATE: the mistaken fill is gone, the other fills and the medication stay');
+  res(!!HT.getMed(fId) && HT.medLatestRx(HT.getMed(fId)) === 'RX-RIGHT',
+      'H4.1-fill GATE: and the copied list reads the fills that are LEFT -- the removed one no longer speaks for it');
+  HT.doUndo();
+  var fBack = HT.getMed(fId);
+  res(!!fBack && (fBack.fills || []).length === 3 && (fBack.fills[1] || {}).rx_number === 'RX-WRONG',
+      'H4.1-undo GATE: undo puts the fill back where it was');
+  window.__confirm = true;
+
+  // ---- H4.1-census: a removal creates nothing ---------------------------------
+  // The census DOES see removeMed: its undo closure writes `meds[id] = snapshot`,
+  // which is the shape the detector matches. What the claim actually is: neither
+  // removal MINTS a record. The undo writes back what it took, with the stamp it
+  // already had -- so neither function stamps a new one.
+  res(String(HT.removeMed).indexOf('nowTZO(') < 0 && String(HT.removeFill).indexOf('nowTZO(') < 0 &&
+      String(HT.removeFill).indexOf('.push(') < 0,
+      'H4.1-census GATE: neither removal mints a record -- no new stamp is taken, and the undo writes back the record it removed, with the stamp it already had (registered EXEMPT in the D29 manifest)');
+  h4fresh();          // leave no medication behind: a later case counts the store
   HT.scanListReset();
 
   freeClock();

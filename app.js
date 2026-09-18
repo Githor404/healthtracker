@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 11;
-const APP_VERSION      = '0.31.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.32.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5504,6 +5504,7 @@ const VERSION_LOG = [
   { v: '0.30.0', d: '2026-09-17', note: 'Medications from a pharmacy label. Choose My label or Someone else’s label, take a photo, and the label is read exactly as printed — name, strength, directions, prescriber, Rx number. You confirm the name and strength first. Your own are kept in Settings › Medications, with refills offered rather than assumed, and a list you can copy for a pharmacist. Someone else’s are shown and kept only in a scan list on this device. The app does not say what a drug is for or check interactions.' },
   { v: '0.30.1', d: '2026-09-17', note: 'Fix: with My label or Someone else\u2019s label chosen, the photo screen now shows the pharmacy-label prompt and reads a pasted label reply as a label. It was showing the meal prompt, and refusing label replies. The three choices also appear without an API key, because they decide which prompt you copy.' },
   { v: '0.31.0', d: '2026-09-17', note: 'Drug information for a saved medication, on request: the US prescribing information — description, indications and mechanism — selected from the FDA label and kept with its source, version and the date you fetched it. Copy the label text, or a prompt that carries it with your question, so an assistant answers from the label instead of from memory. The app never says what a drug is for you, and never checks interactions — that is what a pharmacist’s medication review is for. US labelling only; Canadian-only products are named as not found rather than guessed at.' },
+  { v: '0.32.0', d: '2026-09-17', note: 'Remove a medication that was saved by mistake \u2014 the wrong drug, or the wrong strength, read off a label. Mark stopped is still there for one you took and stopped; removing is for one that was never yours or was read wrong, and it takes its fills and its saved label document with it. A single mistaken fill can be removed on its own, leaving the medication. Both ask first and can be undone straight afterwards. Your scan list keeps the scan either way.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8717,6 +8718,80 @@ function labelReadingText(d) {
       .map((k) => '\n' + k.replace(/_/g, ' ') + ': ' + p[k]).join('');
 }
 function copyLabelReading() { return LABEL_DRAFT ? copyTextOut(labelReadingText(LABEL_DRAFT), 'Label reading') : { ok: false }; }
+// ---- H4.1 / D89: removing what should never have been saved ------------------
+// "Mark stopped" is the right word for a medication taken and then stopped. A
+// MIS-SCANNED record is a different thing: marking it stopped would assert "I took
+// this and stopped", which is false in both halves, and the copied list, the export
+// and refill matching all inherit that claim -- findRefill searches stopped
+// medications too, so a stopped misread is offered against the next real label with
+// the same name and strength. So a removal exists, named for its purpose.
+//
+// It is a HARD delete (Fork A1), not a hidden flag: a flag would have to be honoured
+// by every consumer -- the list, both copies, refill matching, and H5's documents --
+// which is R33's argument against safety by enumeration.
+function medRemoveWords(med) {
+  const p = med.printed || {};
+  const n = (med.fills || []).length;
+  return 'Remove ' + p.name + (p.strength ? ' ' + p.strength : '') +
+    ' and its ' + n + ' recorded fill' + (n === 1 ? '' : 's') + '?\n\n' +
+    'Use this only if it was never your medication, or was read wrong. ' +
+    'If you took it and stopped, cancel and use Mark stopped \u2014 that keeps it in your history.\n\n' +
+    'You can undo this straight afterwards.';        // D3: nothing is promised beyond the undo
+}
+function fillRemoveWords(med, fill) {
+  const bits = [fill.date];
+  if (fill.fill_date) bits.push('filled ' + fill.fill_date);
+  if (fill.quantity) bits.push('qty ' + fill.quantity);
+  if (fill.rx_number) bits.push('Rx ' + fill.rx_number);
+  return 'Remove this fill (' + bits.join(' \u00b7 ') + ') from ' + med.printed.name + '?\n\n' +
+    'The medication stays. You can undo this straight afterwards.';
+}
+function removeMed(medId) {
+  const med = getMed(medId);
+  if (!med) return { ok: false };
+  if (!window.confirm(medRemoveWords(med))) return { ok: false, declined: true };
+  // Everything the removal takes is captured first, so undo can put it back exactly.
+  const snapshot = JSON.parse(JSON.stringify(med));
+  const setId = med.labelSetId || '';
+  delete APP_STATE.meds[medId];
+  // A document nobody points at any more goes with it -- it was saved WITH this
+  // medication, and leaving it would hold a slot in the capped store for a record
+  // that no longer exists. Undo restores it too.
+  const docSnap = (setId && labelDocUnattached(setId) && getLabelDoc(setId))
+    ? JSON.parse(JSON.stringify(getLabelDoc(setId))) : null;
+  if (docSnap) delete APP_STATE.labels[setId];
+  if (DRUG_VIEW && DRUG_VIEW.medId === medId) DRUG_VIEW = null;
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Removed ' + snapshot.printed.name, function () {
+    APP_STATE.meds[medId] = snapshot;
+    if (docSnap) {
+      if (!APP_STATE.labels || typeof APP_STATE.labels !== 'object') APP_STATE.labels = {};
+      APP_STATE.labels[docSnap.set_id] = docSnap;
+    }
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, removed: snapshot, docRemoved: !!docSnap };
+}
+// Fork C1: the likelier mis-tap is "Add as a fill" on the wrong medication, which
+// leaves a wrong fill under a medication that is otherwise right. Removing the last
+// fill leaves the medication standing; if the medication is wrong, removeMed is the
+// action for that.
+function removeFill(medId, idx) {
+  const med = getMed(medId);
+  const i = Math.floor(Number(idx));
+  if (!med || !Array.isArray(med.fills) || !med.fills[i]) return { ok: false };
+  const fill = med.fills[i];
+  if (!window.confirm(fillRemoveWords(med, fill))) return { ok: false, declined: true };
+  const snapshot = JSON.parse(JSON.stringify(fill));
+  med.fills.splice(i, 1);
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Removed a fill of ' + med.printed.name, function () {
+    const m = getMed(medId);
+    if (m) { if (!Array.isArray(m.fills)) m.fills = []; m.fills.splice(i, 0, snapshot); Store.saveState(APP_STATE); refresh(); }
+  });
+  return { ok: true, removed: snapshot, left: med.fills.length };
+}
+
 function medStop(id) {
   const m = getMed(id); if (!m) return { ok: false };
   m.stopped = todayKey(); Store.saveState(APP_STATE); refresh();
@@ -8877,6 +8952,21 @@ function doLabelPaste() {
   if (r.ok) { if (box) box.value = ''; try { closeSettings(); } catch (e) {} }
   return r;
 }
+// The fills, listed rather than counted: a mistaken one cannot be removed if the
+// row only says how many there are (Fork C1).
+function medFillsHTML(m) {
+  const fills = m.fills || [];
+  if (!fills.length) return '';
+  return `<details class="medfills"><summary>${esc(fills.length)} fill(s)</summary>` +
+    fills.map((f, i) => {
+      const bits = [f.date];
+      if (f.fill_date) bits.push('filled ' + f.fill_date);
+      if (f.quantity) bits.push('qty ' + f.quantity);
+      if (f.rx_number) bits.push('Rx ' + f.rx_number);
+      return `<div class="medfill"><span class="medsub">${esc(bits.join(' \u00b7 '))}</span>` +
+        `<button type="button" class="medrm medrmfill" onclick="removeFill('${esc(m.id)}', ${esc(i)})">Remove this fill</button></div>`;
+    }).join('') + `</details>`;
+}
 function renderMeds() {
   const el = document.getElementById('medsBox');
   if (!el) return;
@@ -8890,7 +8980,10 @@ function renderMeds() {
       `${p.directions ? '<div class="medsub">' + esc(p.directions) + '</div>' : ''}` +
       `<div class="medsub">${p.prescriber ? esc(p.prescriber) + ' · ' : ''}` +
       `${medLatestRx(m) ? 'Rx ' + esc(medLatestRx(m)) + ' · ' : ''}` +
-      `${esc((m.fills || []).length)} fill(s)${lastFill ? ', last recorded ' + esc(lastFill.date) : ''}</div></div>` +
+      `${esc((m.fills || []).length)} fill(s)${lastFill ? ', last recorded ' + esc(lastFill.date) : ''}</div>` +
+      medFillsHTML(m) +
+      `<button type="button" class="medrm medrmmed" onclick="removeMed('${esc(m.id)}')">Remove \u2014 saved by mistake</button>` +
+      `</div>` +
       `<button type="button" class="btn medbtn" onclick="drugOpen('${esc(m.id)}')">${medDoc(m) ? 'Drug info \u2713' : 'Drug info'}</button>` +
       (m.stopped
         ? `<button type="button" class="btn medbtn" onclick="medResume('${esc(m.id)}')">Resume</button>`
@@ -9522,6 +9615,9 @@ window.HT = {
   fdaDoc, normalizeLabelDoc, normalizeLabels, labelDocs, getLabelDoc, medDoc, saveLabelDoc, detachLabelDoc,
   drugView, drugOpen, drugClose, drugLookup, drugPickManufacturer, drugSave, drugCheckNewer, drugAcceptNewer,
   drugCopyText, drugPromptText, drugNoMatchPrompt, drugCopyDoc, drugCopyPrompt, drugNameQueries, drugFetch,
+  // H4.1 — removing what should never have been saved (D89)
+  removeMed, removeFill, medRemoveWords, fillRemoveWords, medFillsHTML,
+  medLatestRx, medLine,
   renderDrugInfo, migrateV10toV11,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,

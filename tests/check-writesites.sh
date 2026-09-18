@@ -111,12 +111,20 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # `logScan` (scans.push) is EXEMPT: the scan list is a date-only local log, outside
 # APP_STATE and never exported, and D77 ruled its fields; a time zone on it would be
 # a field nobody asked for, on a record nothing computes over.
+#
+# H4.1/D89: `removeMed` is EXEMPT, and it is the first site here that writes without
+# creating. Its UNDO closure puts a snapshot back (`meds[id] = snapshot`), so the
+# record and its stamp are the ones that already existed. Stamping it on the way back
+# would REWRITE history: the medication would claim to have been created at the
+# moment someone undid a mistake. The detector matches the shape of the write, not
+# its intent, which is exactly why the manifest carries the reason.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
 createMedFromDraft
 logScan
 photoSave
+removeMed
 addPriceEntry
 addSignal
 applySupplementToToday

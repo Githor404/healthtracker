@@ -3418,7 +3418,35 @@ The nested keys (`regimens.active`, `list`, `log`) are not mistaken for stores: 
 
 **A defect pass is required before this counts as evidence** (D60). Under Clause 4, the refill case must be proven against a removal that only hides the medication from the list while leaving it findable. The control is what shows the fixture can reach the refill path at all.
 
-**Status: PRE-REGISTERED, FORKS OPEN. NOT built. The data-loss implication above needs a ruling first.**
+**Status: BUILT — v0.32.0 (D89).** Forks A1, B1, C1 and D1 ruled as recommended on 2026-09-17, with the data-loss implication ruled with them. Evidence below.
+
+#### H4.1 — evidence (v0.32.0, D89)
+
+Forks A1, B1, C1 and D1 built as recommended. **25 new assertions.**
+
+| case | n | asserts |
+|---|---|---|
+| H4.1-words **GATE** | 2 | the confirmation names the medication, its fill count and "Mark stopped" as the alternative, and promises nothing beyond the undo (D3) |
+| H4.1-decline **GATE** | 2 | a declined confirmation removes nothing — not the medication, not its fills, not its document; the same for a fill |
+| H4.1-remove **GATE** | 4 | the medication leaves the store, "Copy my medications", the export and the medication list — each asserted against the same surface a moment earlier — and the document nothing else points at goes with it |
+| H4.1-fills **GATE** | 1 | its fills go with it; nothing is left referencing a medication that no longer exists |
+| H4.1-refill **GATE** + CONTROL | 2 | the control shows a matching label **was** offered a refill while the record existed; afterwards the same label saves as new, with no offer — which a stopped record would still have given |
+| H4.1-scan **GATE** | 1 | the scan list is unchanged by the removal, entry for entry (D1) |
+| H4.1-undo **GATE** | 4 | undo restores the record exactly, deep-equal, with its document; a removed fill goes back at its own index |
+| H4.1-fill **GATE** | 5 | the confirmation names the fill and says the medication stays; the mistaken fill goes and the others stay; the copied list reads the fills that are left; every fill is listed on the shipped row with its own control |
+| H4.1-distinct **GATE** | 3 | measured in the shipped page: Remove is smaller and lighter than Mark stopped, carries no button chrome, sits outside its tap zone, and is named for its purpose |
+| H4.1-census **GATE** | 1 | neither removal **mints** a record: no new stamp is taken, and the undo writes back what it removed with the stamp it already had |
+
+**Proven against the defect: 13 plants, each failing its own named gate**, including the one the pre-registration named — a removal that only **hides** the medication while leaving it findable, which fails both the store case and the refill case.
+
+**Four gates could not fail and were repaired first** (D89 has the table): two dereferenced a medication the defect had removed and aborted the suite instead of failing by name (Clause 5); the scan case asserted only that the list was non-empty; no case asserted that the fills are listed; and one plant changed which fill was snapshotted rather than which was removed.
+
+**One gate was re-pointed after measuring the shipped page.** "Remove" is *taller* than "Mark stopped", because its label wraps while being smaller type with no chrome. Height was the wrong proxy for R19's claim; the case now measures type, weight, chrome and overlap: **remove 12px/400/none vs stopped 13px/700/solid, no overlap.**
+
+**The census answered a claim this slice got wrong.** The pre-registration said a removal creates nothing, so the D29 census would not change. It does change: `removeMed`'s undo closure writes `meds[id] = snapshot`, which is the shape the detector matches, and the census failed the suite by name until the site was registered. It is **exempt**, with the reason recorded — the undo puts back a record that already existed, and stamping it on the way back would have the medication claim it was created at the moment someone undid a mistake. The gate now asserts what is actually true: neither removal mints a record.
+
+**Count delta: 1891 → 1916** (+25), re-pinned in the same change. The D29 manifest gained `removeMed` (20 sites).
+
 
 ### H4.2 — the capture surface follows the chosen kind (fixed, v0.30.1, D84)
 

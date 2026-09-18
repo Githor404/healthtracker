@@ -3370,3 +3370,42 @@ Governance only. No code, no schema change, no `APP_VERSION` bump.
 - **The class is gated where a text gate can reach it:** no control characters in the shipped shell, and the citation marker must resolve to the character it was meant to be (`SE-ctrl`). A screenshot found it; a text gate can keep it out.
 - **The limit is not closed by that**, and saying it was would be D3's shape — asserting a safety we do not have.
 - **When a slice touches a visible surface, look at it.** H4 and H5 both rendered the page at 390 px, and both found defects that way: a confirm button that did nothing when the name was empty, a control labelled like a status, and this. **Screenshots are not evidence and not a gate.** They are the only step in the process that reads the page.
+
+## D89 — H4.1 built: removing what should never have been saved (2026-09-17)
+
+`APP_VERSION → 0.32.0`; schema unchanged at v11. Forks A1, B1, C1 and D1 ruled as recommended, with the data-loss implication ruled with them.
+
+### What was built
+
+- **"Remove — saved by mistake"** on a medication row. It takes the medication, its fills, and the label document saved with it if nothing else points at that document.
+- **The confirmation names** the medication, its fill count, and "Mark stopped" as the alternative for one that was actually taken. It says the removal can be undone straight afterwards, **and nothing more** (D3).
+- **A single fill can be removed** on its own, leaving the medication and its other fills. The fills are now **listed** on the row rather than counted, because a fill that is only counted cannot be removed.
+- **Both are undoable** through the existing undo, and the undo restores exactly what was taken, the document included.
+- **The scan list is untouched** by either removal. The scan happened.
+
+### The data-loss ruling, recorded where it binds
+
+Once the undo window has passed, a removal cannot be reversed; the only way back is an export taken beforehand. That is why the confirmation promises the undo and nothing after it, and why removal is named for a mis-scan rather than offered as general tidying. Restoring an older export brings the medication back, but that is restore's contract (D5), not a recovery path for this action.
+
+### Why a hard delete rather than a flag
+
+A retraction flag would have to be honoured by every consumer — the list, both copy actions, refill matching, and H5's documents. That is safety by enumeration, which R33 rejected for plates and which this project has walked into repeatedly. The evidence a retraction would keep is also unusable: D72 rules that corrections noticed only when someone happened to notice are not a metric.
+
+### The census caught a claim this slice got wrong
+
+The pre-registration said a removal creates nothing, so the D29 write-site census would not change. **It does change.** `removeMed`'s undo closure writes `meds[id] = snapshot`, which is the shape the detector matches, and the census failed the suite by name until the site was registered.
+
+It is registered **exempt**, and the reason is worth keeping: the undo puts back a record that already existed. Stamping it on the way back would rewrite history — the medication would claim to have been created at the moment someone undid a mistake. This is the first site in the manifest that **writes without creating**, and the detector matches the shape of a write rather than its intent, which is why the manifest carries reasons at all.
+
+### What the defect pass found
+
+Thirteen plants, and four of them exposed gates that could not fail by name:
+
+| plant | what it showed | repair |
+|---|---|---|
+| the fill removal also deletes the medication | two cases dereferenced the medication the defect had removed, so the suite reported *"something threw"* (**Clause 5**) | the dereferences are guarded, and each case fails as itself |
+| the removal filters the scan list | the scan case asserted only that the list was **non-empty**, which stayed true | it now asserts the list is unchanged **entry for entry** |
+| the fills are not listed | no case asserted the listing — only a fixture mentioned it | a case asserts every fill is listed on the shipped row with its own control |
+| the removal removes the wrong fill | the plant changed which fill was **snapshotted**, not which was spliced, so undo caught it and the removal gate did not | the plant now splices the wrong index, which is the defect it was meant to be |
+
+**And one gate was re-pointed after measurement.** `H4.1-distinct` first asserted that "Remove" is **shorter** than "Mark stopped". Measured in the shipped page, it is taller: the label wraps to two lines while being smaller type with no chrome. Height was the wrong proxy for R19's claim, which is about weight and thumb path. The case now measures type size, font weight, the absence of button chrome, and that the two controls do not overlap.
