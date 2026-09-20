@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 11;
-const APP_VERSION      = '0.32.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.32.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1426,8 +1426,16 @@ function microRollup(day) {
 function macroCoverage(day) {
   const items = (day && day.items) || [];
   const n = items.filter(itemHasMacros).length;
-  return { n: n, m: items.length, partial: n < items.length };
+  // D90: `partial` is `n < m`, which is FALSE when m is 0 -- a day with nothing on
+  // it is not PARTIALLY covered, it is not covered at all. That missing distinction
+  // is what let every macro aggregate read an empty day as a real zero.
+  return { n: n, m: items.length, partial: n < items.length, absent: items.length === 0 };
 }
+// D90: the single predicate every macro AGGREGATE asks. A day contributes its
+// totals only when it has items AND all of them carry composition. Both exclusions
+// are absence (D8); they differ only in what the surface says about them, so they
+// are counted separately and never merged into one number.
+const dayHasMacros = (day) => { const c = macroCoverage(day); return !c.absent && !c.partial; };
 // The sentence every partial surface says, in ONE place -- four surfaces state this
 // claim and a hand-written copy in each is four chances for the same number to be
 // described two ways. The micro rollup's wording is matched deliberately: the user
@@ -3768,7 +3776,7 @@ function averageOver(dateKeys) {
   let nMacro = 0;
   dateKeys.forEach((d) => {
     const day = APP_STATE.days[d];
-    if (!macroCoverage(day).partial) {
+    if (dayHasMacros(day)) {
       nMacro++;
       (day.items || []).forEach((it) => { Object.keys(macros).forEach((k) => { macros[k] += num(it[k]); }); });
     }
@@ -3889,7 +3897,7 @@ function avgBlockHTML(label, a) {
   const nM = (a.nMacro == null) ? a.n : a.nMacro;
   const macroCov = (nM !== a.n) ? ` <small>from ${esc(nM)} of ${esc(a.n)} days</small>` : '';
   if (nM === 0) {
-    html += `<div class="avgmacros">No day in this window has complete composition.</div>`;
+    html += `<div class="avgmacros">No day in this window has complete macro data.</div>`;
   } else {
     html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> kcal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
   }
@@ -4003,16 +4011,22 @@ function seriesSummary(s) {
 function macroSeries(nutrient, days) {
   const cut = windowCutoff(days);
   const pts = [];
-  let omitted = 0;
+  let omitted = 0, empty = 0;
   Object.keys(APP_STATE.days || {}).forEach((d) => {
     if (d < cut) return;
     const day = APP_STATE.days[d];
     if (!day || day.status !== 'complete') return;          // complete days only (labeled in the view)
-    if (macroCoverage(day).partial) { omitted++; return; }
+    const cov = macroCoverage(day);
+    // D90: a day marked complete with nothing on it is NOT a zero-intake day. In
+    // the log that found this, all three such days sat inside fast windows the user
+    // had themselves resolved as "ate, didn't log" -- two recorded facts in the same
+    // store contradicting each other, and the chart drew the wrong one.
+    if (cov.absent) { empty++; return; }
+    if (cov.partial) { omitted++; return; }
     pts.push({ t: d, v: Math.round(num(dayTotals(day)[nutrient]) * 10) / 10 });
   });
   pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  return { nutrient: nutrient, points: pts, omitted: omitted };
+  return { nutrient: nutrient, points: pts, omitted: omitted, empty: empty };
 }
 // Fasting stats over a window, CONFIRMED only (D22). Streak = consecutive days
 // (ending today, else yesterday) with a confirmed fast; pending candidates in-window
@@ -4140,8 +4154,15 @@ function renderTrends() {
     // got shorter looks like days that were never logged. The word "unresolved" is
     // avoided deliberately -- the fasting row above uses it for something else
     // entirely, and two meanings on adjacent rows is one meaning too many.
-    const omit = ms.omitted > 0
-      ? ` <small class="tcov">${esc(ms.omitted)} day${ms.omitted === 1 ? '' : 's'} omitted — composition not recorded</small>` : '';
+    // D90: two reasons, counted and stated separately. "Composition not recorded"
+    // and "nothing logged" are different facts about different days; one number
+    // covering both would describe neither. The first clause is byte-unchanged --
+    // R31's gate asserts it verbatim, and that property did not change.
+    const omitWord = (k) => `${esc(k)} day${k === 1 ? '' : 's'} omitted`;
+    const why = [];
+    if (ms.omitted > 0) why.push(`${omitWord(ms.omitted)} — composition not recorded`);
+    if (ms.empty > 0) why.push(`${omitWord(ms.empty)} — nothing logged`);
+    const omit = why.length ? ` <small class="tcov">${why.join(' · ')}</small>` : '';
     html += `<div class="trow"><div class="thead">Energy <small>kcal · complete days only</small></div>${sparklineSVG(ms.points)}`
       + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}${omit}</div></div>`;
   }
@@ -5505,6 +5526,7 @@ const VERSION_LOG = [
   { v: '0.30.1', d: '2026-09-17', note: 'Fix: with My label or Someone else\u2019s label chosen, the photo screen now shows the pharmacy-label prompt and reads a pasted label reply as a label. It was showing the meal prompt, and refusing label replies. The three choices also appear without an API key, because they decide which prompt you copy.' },
   { v: '0.31.0', d: '2026-09-17', note: 'Drug information for a saved medication, on request: the US prescribing information — description, indications and mechanism — selected from the FDA label and kept with its source, version and the date you fetched it. Copy the label text, or a prompt that carries it with your question, so an assistant answers from the label instead of from memory. The app never says what a drug is for you, and never checks interactions — that is what a pharmacist’s medication review is for. US labelling only; Canadian-only products are named as not found rather than guessed at.' },
   { v: '0.32.0', d: '2026-09-17', note: 'Remove a medication that was saved by mistake \u2014 the wrong drug, or the wrong strength, read off a label. Mark stopped is still there for one you took and stopped; removing is for one that was never yours or was read wrong, and it takes its fills and its saved label document with it. A single mistaken fill can be removed on its own, leaving the medication. Both ask first and can be undone straight afterwards. Your scan list keeps the scan either way.' },
+  { v: '0.32.1', d: '2026-09-19', note: 'A day you marked complete but left empty no longer counts as a zero in your averages and trends. A day with no food recorded is not a day with no food eaten, so it is left out and the figures say how many days they were built from. If you have days like that, your averages and the energy chart will move \u2014 they were being pulled down by days that held nothing.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9580,7 +9602,7 @@ window.HT = {
   normalizeAltList, normalizeIdentityPick, migrateV7toV8,
   IDENTITY_CONFIDENCE_MIN, IDENTITY_CANDIDATES_MAX,
   // R31 macro coverage (D67)
-  macroCoverage, itemHasMacros, coverageNote, MACRO_KEYS, migrateV6toV7, SCHEMA_VERSION,
+  macroCoverage, itemHasMacros, dayHasMacros, coverageNote, MACRO_KEYS, migrateV6toV7, SCHEMA_VERSION,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor,
   setSupplement, applySupplementToToday, normalizeSupplement,

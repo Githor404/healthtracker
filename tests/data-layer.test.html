@@ -432,12 +432,19 @@ window.setLS({});
   var allKeys = HT.completeDaysInWindow('all');
   res(allKeys.indexOf(d3) >= 0 && allKeys.indexOf(d8) >= 0 && allKeys.indexOf(d2) < 0, 'A2: all-time = every complete day');
 
-  // A3. macro mean = sum/M; a fasting complete day counts as a real 0-intake day
+  // A3. RE-POINTED BY D90. This case asserted the defect, and had since Phase 1.
+  // D10 read "every complete day has them (0 for a fasting day)", and this case
+  // pinned that reading: a day with nothing on it counted as a real 0-intake day
+  // and halved the mean. Measuring the author's own log showed all three such days
+  // sitting inside fast windows THEY had resolved as "ate, didn't log" -- so the
+  // empty day was never a fast, it was an unfinished log, and the app held both
+  // facts at once. The mean now divides by the days that have macro data.
   setLS({}); HT.boot();
   HT.state().days[dayOffset(-1)] = mkDay([ mkItem({ kcal:100 }) ]);
-  HT.state().days[dayOffset(-2)] = mkDay([]);   // fasting complete day
+  HT.state().days[dayOffset(-2)] = mkDay([]);   // complete, nothing on it
   var a3 = HT.averageOver(HT.completeDaysInWindow('week'));
-  res(a3.n === 2 && a3.macros.kcal === 50, 'A3: macro mean = sum/M incl fasting day (100/2 = 50)');
+  res(a3.n === 2 && a3.nMacro === 1 && a3.macros.kcal === 100,
+      'A3 (re-pointed by D90): the empty day is counted in M and excluded from the mean -- 100/1, not 100/2. The old expectation of 50 WAS the defect, gated as correct');
 
   // A4. micro per-nutrient coverage + absence != zero
   setLS({}); HT.boot();
@@ -8372,6 +8379,120 @@ window.setLS({});
       'H4.1-census GATE: neither removal mints a record -- no new stamp is taken, and the undo writes back the record it removed, with the stamp it already had (registered EXEMPT in the D29 manifest)');
   h4fresh();          // leave no medication behind: a later case counts the store
   HT.scanListReset();
+
+
+  // ---- D90 / Fork C: a complete day with NO items is ABSENCE, not zero -------
+  // R31's ruling one level up. R31 handled an ITEM with no composition; this is a
+  // DAY with no items. `macroCoverage.partial` is `n < m`, which is false at m=0,
+  // so an empty day passed every filter and was averaged and plotted as a real 0.
+  //
+  // Found by measuring the author's own log: three complete-but-empty days, all
+  // three inside fast windows the user had themselves resolved "ate, didn't log".
+  // Two recorded facts in one store contradicting each other -- no inference
+  // needed to see which one the chart should not have drawn.
+  //
+  // FIXTURE, per D60 Clause 4: three resolved days (100, 300, 500) plus one empty.
+  // Excluding the empty day the mean is 900/3 = 300; including it as a zero it is
+  // 900/4 = 225. A fixture where the two coincide would pass either way. Three
+  // resolved days is also the minimum TREND_MIN_POINTS needs to render the row,
+  // so the same fixture reaches the shipped caption.
+  function d90mk(items, status){ return { status: status || 'complete', items: items, water_l: 0 }; }
+  function d90food(name, kcal){ return { name: name, meal: 'lunch', time: '12:00', kcal: kcal,
+      protein_g: 10, fat_g: 5, carb_g: 20, fiber_g: 2, soluble_fiber_g: 1,
+      confidence: 'measured', notes: '', source: 'manual' }; }
+  function d90unres(name){ return { name: name, meal: 'lunch', time: '12:30', grams: 180,
+      unresolved: true, confidence: 'eyeballed', notes: '', source: 'manual' }; }
+
+  setLS({}); HT.boot();
+  var d90empty = '2026-05-04';
+  var s90 = HT.state();
+  s90.days['2026-05-01'] = d90mk([ d90food('A', 100) ]);
+  s90.days['2026-05-02'] = d90mk([ d90food('B', 300) ]);
+  s90.days['2026-05-03'] = d90mk([ d90food('C', 500) ]);
+  s90.days[d90empty]     = d90mk([]);                       // complete, nothing on it
+  s90.current = '2026-05-03'; HT.resave();
+
+  // -- the predicate itself ---------------------------------------------------
+  var cvE = HT.macroCoverage(s90.days[d90empty]);
+  res(cvE.m === 0 && cvE.partial === false && cvE.absent === true,
+      'D90-absent GATE: an empty day reports absent -- and still reports partial:false, because `n < m` was never wrong, it was just silent at m=0');
+  res(HT.dayHasMacros(s90.days['2026-05-01']) === true &&
+      HT.dayHasMacros(s90.days[d90empty]) === false &&
+      HT.dayHasMacros(d90mk([ d90food('X', 50), d90unres('Y') ])) === false,
+      'D90-predicate GATE: one predicate answers all three cases -- resolved day yes, empty day no, macro-short day no');
+
+  // -- averages ---------------------------------------------------------------
+  var av90 = HT.averageOver(['2026-05-01','2026-05-02','2026-05-03',d90empty]);
+  res(av90.n === 4 && av90.nMacro === 3,
+      'D90-avg-exclude: four complete days, three with macro data -- the empty day is counted in M and excluded from the mean, exactly as D10 already rules for micros');
+  res(av90.macros.kcal === 300,
+      'D90-avg-exclude GATE: the mean is 900/3 = 300. Averaging the empty day in gives 900/4 = 225, so the excluded day cannot hide in the arithmetic');
+  res(av90.macros.kcal !== 225,
+      'D90-avg-exclude GATE: stated as the negative too -- 225 is exactly what v0.32.0 returns for this fixture, and it is the shipped wrong number this slice exists to correct');
+  res(HT.avgBlockHTML('7-day', av90).indexOf('from 3 of 4 days') >= 0,
+      'D90-avg-denominator GATE: and the block states the denominator on the surface, in the words the micro rows already use');
+
+  // -- the series does not draw it --------------------------------------------
+  var ser90 = HT.macroSeries('kcal', 'all');
+  res(ser90.empty === 1 && ser90.omitted === 0,
+      'D90-series GATE: the empty day is counted as empty, not as macro-short -- two different facts, two different counters');
+  res(ser90.points.length === 3 && ser90.points.every(function(p){ return p.t !== d90empty; }),
+      'D90-series GATE: and it is not plotted. A zero drawn here states in geometry the absence the text refuses to state -- R31 Fork 4, one level up');
+  res(ser90.points.concat([{ t: d90empty, v: 0 }]).every(function(p){ return p.t !== d90empty; }) === false,
+      'D90-series CONTROL: the same predicate FINDS the empty day once it is in the series -- the gate is not vacuous');
+
+  // -- the shipped caption ----------------------------------------------------
+  if (!document.getElementById('trends')) { var t90 = document.createElement('div'); t90.id = 'trends'; document.body.appendChild(t90); }
+  HT.setTrendWindow('all'); HT.renderTrends();
+  var tr90 = document.getElementById('trends').innerHTML;
+  res(tr90.indexOf('1 day omitted \u2014 nothing logged') >= 0,
+      'D90-stated GATE: the omission is STATED on the shipped page -- a series that is merely shorter looks like days that were never logged, which is the opposite of what happened here');
+  res(tr90.indexOf('composition not recorded') < 0,
+      'D90-stated: and it does NOT borrow R31\u2019s sentence -- nothing was recorded to have a composition, so that sentence would be false here');
+  res(tr90.indexOf('n=3') >= 0,
+      'D90-stated: the plotted count on the surface matches the series, so the caption and the chart cannot disagree');
+
+  // -- both reasons, each in its own words ------------------------------------
+  HT.state().days['2026-05-05'] = d90mk([ d90food('D', 400), d90unres('Mystery') ]);
+  HT.resave();
+  var ser90b = HT.macroSeries('kcal', 'all');
+  res(ser90b.omitted === 1 && ser90b.empty === 1,
+      'D90-two-reasons GATE: a macro-short day and an empty day are counted separately, never summed into one "2 days omitted"');
+  HT.renderTrends();
+  var tr90b = document.getElementById('trends').innerHTML;
+  res(tr90b.indexOf('1 day omitted \u2014 composition not recorded') >= 0 &&
+      tr90b.indexOf('1 day omitted \u2014 nothing logged') >= 0,
+      'D90-two-reasons GATE: and the surface says both, each with its own count and its own reason');
+
+  // -- narrowness: the branch does not leak -----------------------------------
+  setLS({}); HT.boot();
+  var s90c = HT.state();
+  s90c.days['2026-06-01'] = d90mk([ d90food('A', 100) ]);
+  s90c.days['2026-06-02'] = d90mk([ d90food('B', 300) ]);
+  s90c.days['2026-06-03'] = d90mk([ d90food('C', 500) ]);
+  s90c.current = '2026-06-03'; HT.resave();
+  var av90c = HT.averageOver(['2026-06-01','2026-06-02','2026-06-03']);
+  res(av90c.nMacro === av90c.n && av90c.macros.kcal === 300,
+      'D90-unchanged GATE: with no empty day in the window, nMacro === M and every mean is exactly what v0.32.0 returned -- this is a re-pointing, not a change to what a logged day means');
+  res(HT.avgBlockHTML('7-day', av90c).indexOf(' of 3 days') < 0,
+      'D90-unchanged: and the block adds no denominator it does not need');
+  HT.setTrendWindow('all'); HT.renderTrends();
+  var tr90c = document.getElementById('trends').innerHTML;
+  res(tr90c.indexOf('nothing logged') < 0 && tr90c.indexOf('omitted') < 0,
+      'D90-unchanged: a window with nothing to omit says nothing about omissions');
+
+  // -- the DAY view is untouched: this slice corrects AGGREGATES --------------
+  // A day you are looking at shows what it holds; that it holds nothing is visible
+  // without a sentence. "from 0 of 0 items" would be the coverage note describing
+  // a denominator that does not exist.
+  HT.state().days['2026-06-04'] = d90mk([]);
+  HT.state().current = '2026-06-04'; HT.resave(); HT.renderDay();
+  var dv90 = document.getElementById('dayView').innerHTML;
+  res(dv90.indexOf('from 0 of 0 items') < 0,
+      'D90-dayview GATE: an empty day carries no coverage sentence -- coverageNote never renders a denominator of zero');
+  HT.renderHistory();
+  res(document.getElementById('history').innerHTML.indexOf('from 0 of 0 items') < 0,
+      'D90-dayview: nor does the history row, which already prints "0 items" and is self-describing');
 
   freeClock();
 

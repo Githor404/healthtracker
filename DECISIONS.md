@@ -166,7 +166,7 @@ Read-only. Two windows, both **complete-days-only** (manual-close discipline —
 - **7-day = calendar window**: complete days whose date key is ≥ (today − 6 days). **Not** "last 7 complete days" — logging gaps thin the sample honestly.
 - **All-time**: all complete days.
 
-**Macros** (kcal, P, F, C, fiber, soluble): every complete day has them (0 for a fasting day), so the mean is Σ(day totals) / **M** over the M complete days in the window — full coverage. The supplement, when enabled, is a *persisted* item and is therefore already in the totals; no render-time addition (the predecessor's understatement bug stays dead).
+**Macros** (kcal, P, F, C, fiber, soluble): every complete day has them (0 for a fasting day), so the mean is Σ(day totals) / **M** over the M complete days in the window — full coverage. — **AMENDED TWICE: by R31/D67** (a day holding an item with no composition is excluded, and the macro mean gets a denominator of its own) **and by D90** (a complete day with NO ITEMS has no macro data either, and the parenthesis above — *“0 for a fasting day”* — is **withdrawn**: measured against a real log, every such day sat inside a fast window the user had themselves resolved as *ate, didn’t log*). The rule that survives is the one this entry already states for micros: **a day without the data is excluded, never counted as 0.** The supplement, when enabled, is a *persisted* item and is therefore already in the totals; no render-time addition (the predecessor's understatement bug stays dead).
 
 **Micros — per-nutrient coverage, absence ≠ zero:** for each micro K, a complete day "carries K" iff some item in it has K. K's mean = Σ(daily K over days carrying K) / **N_K**, annotated **"from N_K of M complete days."** A day whose only micro is iron feeds iron's mean and coverage, never sodium's. A day without K data is **excluded** from K's mean, never counted as 0. Both the daily summary and the averages micro block carry the honesty label **"Micronutrients — labeled intake only"** — micros never originate from the AI-paste channel (D8), so the label states where they *can* come from (scan / manual label).
 
@@ -3409,3 +3409,63 @@ Thirteen plants, and four of them exposed gates that could not fail by name:
 | the removal removes the wrong fill | the plant changed which fill was **snapshotted**, not which was spliced, so undo caught it and the removal gate did not | the plant now splices the wrong index, which is the defect it was meant to be |
 
 **And one gate was re-pointed after measurement.** `H4.1-distinct` first asserted that "Remove" is **shorter** than "Mark stopped". Measured in the shipped page, it is taller: the label wraps to two lines while being smaller type with no chrome. Height was the wrong proxy for R19's claim, which is about weight and thumb path. The case now measures type size, font weight, the absence of button chrome, and that the two controls do not overlap.
+## D90 — A complete day with no items is an absence, not a zero (amends D10) — v0.32.1 (2026-09-19)
+
+Ruled as H7 Fork C, and **shipped before H7** because H7 would have inherited it. `APP_VERSION → 0.32.1`; schema unchanged at v11. Aggregates only; no stored data changes.
+
+### The defect
+
+`macroCoverage(day)` returned `partial: n < m`. At `m = 0` that is `0 < 0` → **false**. A day marked complete with nothing on it was therefore **not** partial, passed every filter, and was averaged and plotted as a **genuine zero**.
+
+**D10 licensed it in terms:** *"every complete day has them (**0 for a fasting day**)"*. That sentence is the defect, and it is now amended.
+
+### Why the premise is false, from the log rather than from argument
+
+Measured against the author's real export (aggregates only; the export is gitignored and never enters the repo):
+
+- the 28-day window holds **10 complete days**, of which **3 have no items**;
+- the shipped series plotted all three as `0 kcal`;
+- the effect on the figures was **−33%** on energy, protein and fibre alike (energy 993 vs 1490 kcal).
+
+And the app **already held the contradicting fact**. The fast log contains five entries and **every one is resolved `ate_didnt_log`** — the only state present in the store. All three empty days fall inside those windows: `2026-09-01` inside a 1132-hour entry, `2026-09-05` and `2026-09-06` inside a 67-hour one. **Three of three.**
+
+So this is not an inference about what an empty day means. It is **two recorded facts in one store contradicting each other**: the day says *complete and empty*, and the user's own resolution says *I ate and did not log it*. The chart drew the wrong one.
+
+### The ruling
+
+**A day with no items has no macro data.** It is excluded from the macro mean and from every series, it is **counted in M** so the denominator still describes the window honestly, and the surface says how many days were left out and why. This is **R31's ruling one level up**: R31 handled an *item* with no composition, and this is a *day* with no items. Both are D8 — absence is not zero.
+
+- `macroCoverage` gains **`absent`** (`m === 0`). `partial` is unchanged, because `n < m` was never wrong — it was **silent** at `m = 0`.
+- **`dayHasMacros(day)`** is the single predicate every macro aggregate asks. One predicate rather than two checks at each call site, because the next consumer's author will copy whatever is there.
+- The exclusions are **counted separately and never merged**. *"Composition not recorded"* and *"nothing logged"* are different facts about different days; one number covering both would describe neither. R31's sentence is **byte-unchanged** where it applies.
+
+**Scope: aggregates only.** The day view and the history row are untouched. A day you are looking at shows what it holds, and that it holds nothing is visible without a sentence — *"from 0 of 0 items"* would be a coverage note describing a denominator that does not exist. Gated both ways.
+
+**A second class of day is fixed as a side effect, and it is worth naming.** R33's plate-only day also has `m === 0` — a plate recorded, no consumption logged. It too was averaging in as a zero. The same predicate covers it, for the same reason.
+
+### The defect was not unnoticed. It was gated as correct.
+
+`A3`, from Phase 1, asserted it directly:
+
+```
+// A3. macro mean = sum/M; a fasting complete day counts as a real 0-intake day
+res(a3.n === 2 && a3.macros.kcal === 50, 'A3: macro mean = sum/M incl fasting day (100/2 = 50)');
+```
+
+The case is re-pointed to `nMacro === 1` and a mean of `100`, and it carries the history in its own comment. **A gate that pins a premise is only as good as the premise** — which is the general point, and the reason D10's sentence is amended in the log rather than quietly worked around in code. This is the second correction to D10's macro clause; R31/D67 was the first, and that one was a re-pointing that left the premise standing. This one removes it.
+
+### The defect pass
+
+Five plants, **all five failing their named gates**:
+
+| plant | gates that failed |
+|---|---|
+| the average counts the zero again (the exact v0.32.0 line) | `D90-avg-exclude` ×3, `D90-avg-denominator`, `A3` |
+| the series draws the zero again | `D90-series` ×2, `D90-stated` ×2, `D90-two-reasons` ×2 |
+| `absent` is never true | 13 gates, `D90-absent` and `D90-predicate` among them |
+| one count covers both reasons | `D90-stated` ×2, `D90-two-reasons` |
+| the empty day is dropped from **M** as well as N (the over-correction) | `D90-avg-exclude`, `D90-avg-denominator`, `R31-avg-exclude` ×2, `A3` |
+
+The fourth plant is the one worth keeping: it is the *plausible* wrong fix, not an obvious breakage, and without the two-reasons gate it would have passed. The fifth is the over-correction — dropping the day from the denominator too would have made the window describe fewer days than it covers.
+
+**One runner note, not a code finding.** The third plant first reported **no SUMMARY**, which under D60 Clause 5 reads as a hang rather than a named failure. Re-run in isolation it produced a clean verdict and failed 13 gates by name. This is the **known intermittent** — an empty headless dump under memory pressure or a CDP port collision — and it is recorded here because a defect pass that reports "no verdict" must be re-run before the plant is blamed, or a working gate gets rewritten to chase a phantom.

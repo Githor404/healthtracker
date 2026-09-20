@@ -3524,6 +3524,32 @@ That symptom is indistinguishable from the memory-pressure failure D67 recorded.
 | the kind chooser renders only with a key (**what shipped in v0.30.0**) | H4.3-keyless, and H4.2-nokey |
 
 **Count delta: 1817 → 1819** (+2), re-pinned in the same change.
+### D90 — a complete day with no items is an absence, not a zero (H7 Fork C, shipped first) — v0.32.1
+
+Ruled out of the H7 pre-registration and **built before H7**, because H7's typical would have been computed from the same wrong set. Amends D10; no schema change.
+
+**The wrong number, measured before it was fixed.** In the author's 28-day window: 10 complete days, **3 of them empty**, all three plotted as `0 kcal`. Energy typical read **993 kcal** where the six days that actually held food read **1490** — a **33%** understatement, identical across protein and fibre. All three empty days sit inside fast-log windows resolved **`ate_didnt_log`**, so the app held the contradicting fact already.
+
+| case | asserts |
+|---|---|
+| D90-absent **GATE** | an empty day reports `absent`, and still reports `partial: false` — `n < m` was never wrong, only silent at `m = 0` |
+| D90-predicate **GATE** | one predicate answers all three cases: resolved day yes, empty day no, macro-short day no |
+| D90-avg-exclude **GATE** | the mean is 900/3 = 300; averaging the empty day in gives 900/4 = 225, so the excluded day cannot hide in the arithmetic — **stated as the negative too** |
+| D90-avg-denominator **GATE** | the block states *"from 3 of 4 days"* on the surface, in the words the micro rows already use |
+| D90-series **GATE** | the empty day is counted as `empty`, not as macro-short, and is **not plotted** |
+| D90-series CONTROL | the same predicate **finds** the empty day once it is in the series — the gate is not vacuous |
+| D90-stated **GATE** | the shipped page says *"1 day omitted — nothing logged"*, and does **not** borrow R31's *"composition not recorded"* |
+| D90-two-reasons **GATE** | a macro-short day and an empty day are counted and stated **separately**, never summed into one *"2 days omitted"* |
+| D90-unchanged **GATE** | with no empty day in the window, `nMacro === M` and every mean is exactly what v0.32.0 returned — a re-pointing, not a change to what a logged day means |
+| D90-dayview **GATE** | the day view and the history row carry **no** coverage sentence for an empty day — *"from 0 of 0 items"* never renders |
+| A3 (re-pointed) | the Phase-1 case that **asserted the defect** now asserts the ruling, and carries the history in its comment |
+
+**Defect pass: five plants, five named failures.** Including the two that matter — *one count covers both reasons* (the plausible wrong fix, which only the two-reasons gate catches) and *the empty day is dropped from M as well as N* (the over-correction, which would have made the window describe fewer days than it covers).
+
+**Runner note.** One plant first reported **no SUMMARY**, which under Clause 5 reads as a hang. Re-run in isolation it failed **13 gates by name**. That is the known intermittent — empty headless dump or CDP port collision — and a defect pass reporting *no verdict* must be re-run before the plant is blamed, or a working gate gets rewritten to chase a phantom.
+
+**Suite: 1935 assertions, all passing** (1916 → 1935; +18 D90 cases, A3 re-pointed in place).
+
 ### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, FORKS OPEN (received 2026-09-19; NOT built)
 
 **Four things in the brief do not match the repo, and three of them change the forks. One of them is a defect in shipped code that this slice would otherwise have built on top of.**
