@@ -3524,3 +3524,152 @@ That symptom is indistinguishable from the memory-pressure failure D67 recorded.
 | the kind chooser renders only with a key (**what shipped in v0.30.0**) | H4.3-keyless, and H4.2-nokey |
 
 **Count delta: 1817 → 1819** (+2), re-pinned in the same change.
+### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, FORKS OPEN (received 2026-09-19; NOT built)
+
+**Four things in the brief do not match the repo, and three of them change the forks. One of them is a defect in shipped code that this slice would otherwise have built on top of.**
+
+1. **No food nutrient has a sourced reference band today.** The brief allows a D32 band to render alongside typical "where a nutrient ALSO has one". `LAB_SPEC` holds fourteen analytes and **every one is a blood measure** — HbA1c, fasting glucose, lipids, ferritin, TSH, eGFR. The closest trap is `vit_d_25oh`, which is **serum vitamin D status, not dietary vitamin D intake**; rendering a 75 nmol/L sufficiency threshold beside a dietary µg figure would be two different quantities sharing a name. So the clause is **dormant**: there is nothing to draw. Making it live means introducing a new class of sourced content (Health Canada DRIs), with its own org, citation, version and jurisdiction obligations. **Fork F.**
+2. **D24's colour rule was applied to signal goals only. The food goal strip already ships evaluative colour, and no gate has ever looked at it.** `goalCellsHTML` renders `class="goalcell ${gp.status}"`, where `goalProgress` returns `met` / `short` / `over` / **`good`**; `index.html:238` colours `.short,.over` with `var(--warn)` and `.met,.good` with `var(--good)`. The shipped DOM contains the literal class name **`good`**. M7's banned list includes `' good'` — but the seven vocabulary gates in the harness read the Mirror, the capture box, the rhythm rings, the gap surfaces and the ring legend. **None reads the food goal strip.** This is D24's own objection — *"the evaluative word 'good' re-encoded past the text grep"* — shipped and ungated. The brief's colour rule for H7 cannot be ruled without ruling this. **Fork G.**
+3. **The brief's windows exist nowhere in the app.** Trends offers 30 / 90 / all (`TREND_WINDOW`); averages offer a 7-day calendar window and all-time (`completeDaysInWindow`). **There is no 28-day window anywhere**, and no 3-day one. H7 introduces a third window vocabulary onto a surface that already has two. **Fork J.**
+4. **The zero-vs-absence fork is already answered, wrongly, in shipped code — and the real log proves it.** This is the finding that matters most, so it has its own section.
+
+#### The defect this slice would have been built on
+
+`macroCoverage(day)` returns `partial: n < m`. For a day with **no items**, that is `0 < 0` → **false**. So an empty day marked complete is **not** partial, passes `macroSeries`'s filter, and is plotted as a **genuine zero**. D10 licensed exactly this, in terms: *"every complete day has them (**0 for a fasting day**)"*.
+
+**Measured against the real log (2026-09-19; aggregates only, the export stays out of the repo):**
+
+| the 28-day window | count |
+|---|---|
+| days with any log | 15 |
+| marked complete | 10 |
+| plotted by `macroSeries` today | 9 |
+| …of those, **empty days plotted as zero** | **3** |
+| days with actual items | **6** |
+| omitted as macro-short (R31) | 1 |
+
+| nutrient | typical as shipped | excluding empty days | error |
+|---|---|---|---|
+| Energy | 993 kcal (n=9) | **1490 kcal** (n=6) | **−33%** |
+| Protein | 41.8 g (n=9) | **62.6 g** (n=6) | **−33%** |
+| Fibre | 7.4 g (n=9) | **11.0 g** (n=6) | **−33%** |
+
+**D10's premise is false in this log.** The three empty days are `2026-09-01`, `2026-09-05` and `2026-09-06`. The fast log holds five entries and **every one resolves to `ate_didnt_log`** — the only state present in the store. All three empty days fall **inside** those windows:
+
+- `2026-09-01` — inside `2026-07-17 .. 2026-09-02` (1132 h), resolved *ate, didn't log*
+- `2026-09-05` and `2026-09-06` — inside `2026-09-04 .. 2026-09-07` (67 h), resolved *ate, didn't log*
+
+**Three of three.** The app holds the user's own statement that food was eaten on those days and not recorded, and plots 0 kcal for them anyway. That is D8 — absence is not zero — failing on the daily macro path, which is the failure R31 was built to prevent, arriving through a door R31 did not cover: R31 handled *an item with no composition*, and this is *a day with no items*.
+
+**This is a defect in v0.32.0, not merely an H7 design question.** It is stated here rather than fixed quietly because the repair changes a published number and contradicts a sentence in D10, and both need ruling. **Fork C.**
+
+#### Survey — what is shipped, and what it means for this
+
+**1. Two honesty pins already exist and work.** `macroSeries` takes complete days only and counts macro-short days into `omitted`; `renderTrends` captions that as *"N days omitted — composition not recorded"*, and the closing note reads *"figures only, no interpretation."* H7 extends this surface rather than inventing its grammar.
+
+**2. The reference line is already deliberately neutral.** `sparklineSVG(points, refVal)` draws `.tref` as a neutral dashed line, and D24 ruled that neutrality. A typical line is the same object with a different origin: **derived from the user's own data rather than declared by them**, which is the distinction the brief is drawing and which nothing in the app names yet.
+
+**3. `TREND_MIN_POINTS = 3` is the existing minimum-history precedent** — *"never draw a 2-point trend"*. Fork D is about whether 3 is enough for a *typical*, which is a stronger claim than a trend.
+
+**4. The macro row is hardwired to `kcal`.** One row, `macroSeries('kcal', win)`, labelled *"Energy · kcal · complete days only"*. There is no nutrient picker on Trends. The brief's generic surface needs one built.
+
+**5. `averageOver` already carries an `nMacro` denominator** (R31/D67), and the micro means carry per-nutrient denominators. A typical is a mean with a denominator, so the arithmetic exists; what does not exist is a **band**.
+
+**6. The spread in the real data is the design problem.** The six usable days in the 28-day window:
+
+```
+2026-09-02    684 kcal    27 g protein    11.0 g fibre    5 items
+2026-09-04    250 kcal     4 g protein     3.0 g fibre    1 item
+2026-09-07   1736 kcal   100 g protein     9.5 g fibre    5 items
+2026-09-08   2226 kcal    59 g protein    12.7 g fibre   10 items
+2026-09-11   3930 kcal   175 g protein    28.8 g fibre    7 items
+2026-09-13    115 kcal    11 g protein     1.2 g fibre    1 item
+```
+
+A **34× range**, two single-item days that are plainly partial logging rather than genuine low intake, and a mean (1490) that sits above four of the six values. The median is 1210. **The 7-day leg of the brief's trail has n = 1 today.** The longest gap between logged days is 16. A single number called "typical" drawn from this is arithmetically correct and descriptively empty — which is the honest answer to the brief's own question, *"whether a 28-day typical is meaningful at my logging frequency"*. **Today: no.** That shapes Fork B and Fork D more than any aesthetic consideration.
+
+#### The forks
+
+**Fork A — where this lives.**
+- **A1 (recommended): Trends, as a new row type.** Trends already owns the window buttons, the complete-days-only label, the omitted caption and the *"figures only, no interpretation"* close. It is also **not** the surface read first — the ring is — which suits a descriptive figure that must never read as a target.
+- **A2: the Day view, beside the goal strip.** Rejected as the default: it places a *descriptive* band inside the one surface that is *prescriptive* by construction, adjacent to cells that are currently green when you are under a ceiling (conflict 2). The two would read as one statement.
+- **A3: its own screen.** Rejected: a fifth destination for one chart, and it would duplicate the window controls.
+
+**Fork B — how "typical" is computed, and what is drawn.**
+- **B1 (recommended): draw the band, not a point — and make the band the primary object.** *Typical* renders as the **interquartile range** of the usable days with the **median** marked, not a mean line. Rationale from measurement, not taste: the mean (1490) exceeds four of the six values because one day is 3930. A mean is the right summary for a symmetric sample and this sample is not one. The name of the feature is already *typical-band*; the band should be the thing.
+- **B2: mean, matching `averageOver`.** The consistency argument is real — every other surface says "avg". Rejected on the measurement above, but if ruled, **the range must render beside it always**, never the mean alone.
+- **B3: trimmed mean.** Rejected: a third averaging rule in one app, and at n=6 trimming discards a third of the sample.
+- **Consequence to rule explicitly:** B1 puts a **median** on a surface where every neighbouring row says *avg*. The ordinal rows already use median (D52), so the word exists in the app — but it would now mean two things on one screen unless captioned.
+
+**Fork C — a complete day with no items: zero or absence.**
+- **C1 (recommended): absence.** It is excluded from the typical, excluded from the bars, and counted in the denominator caption alongside macro-short days. This is D10's own micro rule — *"a day without K data is excluded from K's mean, never counted as 0"* — applied to a day without any data, and it is R31's ruling one level up.
+- **C2: zero, per D10's current text.** Rejected on the measurement: all three such days are inside `ate_didnt_log` windows. D10's premise that an empty complete day is a fast is **not what this log contains**.
+- **C3: read the fast log — a confirmed fast is a zero, an `ate_didnt_log` window is an absence.** Genuinely attractive, and the data supports it exactly. **Deferred, not rejected**: it couples the macro path to `fastLog`, and D22 keeps fasting's vocabulary off other surfaces. Worth its own slice if fasting days later become common; today the store contains **no confirmed fasts at all**, so C3 and C1 produce identical output on this log and C1 costs nothing.
+- **Ruling needed beyond H7:** C1 **amends D10's stated premise** and **changes the shipped Energy sparkline** — three points disappear from it and the caption count rises. That is a visible change to an existing surface, so it is named rather than slipped in.
+
+**Fork D — minimum history.**
+- **D1 (recommended): a floor of usable days, below which no typical is drawn** — the surface instead states how many days it has and what it needs. `TREND_MIN_POINTS = 3` is the precedent, but a trend claims *direction* and a typical claims *normality*, which needs more.
+- **The honest consequence, stated before it is ruled:** at a floor of **10**, this surface renders **nothing on your own data today** (6 usable days in 28). At **5**, it renders from six days spanning 34×. Both are defensible; neither is comfortable. Recommending **8**, with the explicit note that it is a judgement call and the first surface in this app whose honest behaviour on the author's real log is *to show nothing*.
+- **Open:** whether the floor is per-nutrient (fibre and energy have the same usable days here, but a micro would not).
+
+**Fork E — composition with the goal cells.**
+- **E1 (recommended): no relationship is drawn, and none is implied.** A goal is declared; a typical is observed. The chart never compares them, never renders a goal line on the typical band, and never says which side of the goal the typical falls. If both are on screen the user makes that comparison, which is theirs to make.
+- **E2: render the goal as a second reference line.** Rejected: two lines on one chart, one declared and one derived, is the fastest possible route to reading *typical* as *target* — the exact confusion the brief exists to prevent.
+
+**Fork F — D32 bands (dormant today).**
+- **F1 (recommended): build the seam, leave it empty.** The renderer accepts an optional sourced band and draws it distinctly and cited; **no food nutrient supplies one in H7**, so the path is reachable only by the gates. D63's dead-path rule is respected because no surface offers it — it is not a button that silently fails. R31 Fork 6 set this precedent exactly.
+- **F2: introduce DRIs now.** Rejected for this slice: a new sourced-content class with jurisdiction obligations (Health Canada vs IOM vs EFSA all differ), and the 25-OH-D disclosure in `LAB_SPEC` shows how much care one threshold already takes.
+- **F3: drop the clause.** Rejected: the seam is cheap and the brief asked for it.
+
+**Fork G — colour, and the shipped conflict it exposes.**
+- **G1 (recommended for H7 itself): the H7 surface encodes direction only, in a palette that is not the warn/good pair.** Above-typical and below-typical take two tints of a **single neutral hue**, differing in lightness, never `var(--good)` / `var(--warn)`. Direction is a fact; the green/amber pair is the evaluative claim, because those two tokens mean *good* and *bad* everywhere else in this app.
+- **G2: no colour at all.** The safest reading of D24. Rejected only because the brief explicitly permits direction colour — but it is the fallback if G1's palette cannot be made to read as non-evaluative.
+- **G-open — the separate ruling this slice must not make silently.** The **food goal strip's `met`/`good` green and `short`/`over` amber** are the encoding D24 forbade, on a surface D24 did not name, unexamined by any of the seven vocabulary gates. H7 does not touch it — but placing a scrupulously neutral chart one screen away from it makes the inconsistency the user's problem rather than the record's. **Three options, needing a ruling of their own:** strip the colour to match D24; record a deliberate M7 amendment permitting it for *user-declared nutrient goals* (D24 left that door open: *"a deliberate, recorded M7 amendment, never a default"*); or leave it and record that the rule is scoped to signals only. **Recommended: the second**, because a floor the user set for themselves is a different object from a derived typical — but that is a ruling, not a default, and the class name `good` should go regardless.
+
+**Fork H — which nutrient.**
+- **H1 (recommended): a generic surface with a user-chosen nutrient, macros only in this slice** — the six `MACRO_KEYS`. The picker is new; the series function already takes a nutrient argument.
+- **Why macros only.** Micros carry **per-nutrient denominators** (D10), so a micro typical needs two coverage statements at once — *"from 4 of 28 days, and those days carry iron on 6 of 19 items"* — which is a second honesty pin stacked on the first. Deferrable without dishonesty; not skippable if micros are included.
+- **The per-nutrient specifics the brief asked about, measured rather than guessed:** units are not the problem (the row is labelled and `rDisp` handles both). Bar ranges are not the problem either (derived per nutrient). **`soluble_fiber_g` is the problem** — it is 0 on most items by contract (*"always present, 0 when unknown"*), so its typical is a floor, not a value, and it would draw a band around a number that mostly means *unknown*. Recommend **excluding `soluble_fiber_g` from the picker** and saying why on the surface, or ruling that it stays and carries its own caveat.
+- **Default nutrient:** `kcal`, matching the row that exists today so nothing regresses for a user who never opens the picker.
+
+**Fork I — the direction marker's wording.**
+- **I1 (recommended): the marker always states both numbers it compares** — *"yesterday 74 g · typical 62 g"* — and never renders a bare arrow, a bare percentage or a word. The brief's own test: a direction marker is a fact if it states the two numbers and a claim if it does not. Gated by asserting both figures are present in the marker's text.
+
+**Fork J — the trail's windows.**
+- **J1 (recommended): the trail is `last 3 days · 7 days · 28 days` as the brief specifies, and it is *independent* of the 30/90/all buttons**, which continue to control the rows around it. The trail is a fixed comparison, not a window selector.
+- **Named consequence:** a user reading Trends at "90d" will see a trail that says 28. The trail's legs must therefore be **labelled with their own spans**, not inherit the header's. And on this log the 7-day leg is **n = 1**, which Fork D's floor must cover per-leg, not only for the band as a whole.
+
+#### Data implications
+
+- **No schema change.** Every figure is derived from `days`; nothing new is stored. `TREND_WINDOW` and a nutrient choice are UI state (Fork open: whether the chosen nutrient persists into `settings` — recommended **yes**, as a display preference beside the existing primary-nutrient choice, which *would* be a settings write and needs the D29 census check).
+- **Fork C changes a published number.** The shipped Energy sparkline loses three points and its caption count rises. No stored data changes; the correction is in what is drawn from it.
+- **D29 write-site census:** unchanged if the nutrient choice is not persisted; **one new site** if it is. To be confirmed by running the census, not asserted — H4.1 registered a claim of "no change" that the census falsified.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| H7-typical-complete **GATE** | typical is computed from **complete days only**, and the rendered denominator states how many — *"from N of M days"* — with a planted in-progress day proving the case can fail |
+| H7-empty-absent **GATE** | a complete day with **no items** is excluded from the typical and from the bars, and counted in the caption; planted control returns it as a zero and the case fails **by name** |
+| H7-shipped-energy | the existing Energy row, on a fixture containing an empty complete day, **omits it and says so** — the D10 correction asserted where it is visible, not only in the series function |
+| H7-macro-short | a macro-short day (R31 `unresolved`) is excluded and counted in the same caption, not a second one |
+| H7-denominator-renders | the denominator is **on the surface**, not merely in the returned object — asserted against the shipped page's DOM |
+| H7-no-evaluative **GATE** | M7's banned list over the whole H7 surface, **with the planted-evaluative control** proving the grep is not vacuous (the R24-vocab pattern) |
+| H7-colour-split **GATE** | bars above and below typical carry **different** classes, and a planted control that renders every bar one colour **fails the case by name** |
+| H7-colour-not-evaluative | the H7 surface uses **neither** `var(--good)` **nor** `var(--warn)`, and emits no class named `good`, `met`, `short` or `over` |
+| H7-trail-numbers | each trail leg's figure equals the value recomputed from the underlying days for that span, and each leg **states its own span and its own n** |
+| H7-trail-sparse | a leg with fewer than the floor's days renders its count instead of a figure — driven by a fixture with **n = 1**, which is this log's real 7-day case |
+| H7-min-history **GATE** | below the floor, **no band and no typical figure render at all**; planted control drops the floor check and the case fails |
+| H7-band-cited | a sourced band, when supplied, renders **visually distinct** from typical and carries org, citation and version — the dormant Fork F path, reachable only by this gate |
+| H7-band-absent | with no sourced band supplied, **nothing band-shaped renders** and no citation chrome appears |
+| H7-direction-fact | the direction marker's text contains **both** compared figures; planted control renders a bare arrow and the case fails |
+| H7-goal-independence | the chart renders **identically** with and without a nutrient goal set — byte-identical output, the SG1 / FX3 pattern, proving E1 rather than asserting it |
+| H7-picker | choosing each macro nutrient renders that nutrient's series, asserted on the shipped page for **every** key in the picker, with a planted control where the choice is ignored (the D84 pattern, whose defect was exactly this) |
+| H7-census | the D29 write-site census is **run**, and the manifest matches whatever persisting the nutrient choice actually does |
+
+**Two limits, recorded with the gates rather than discovered after them.**
+
+- **D88 still stands:** no gate reads this page as a person does. Every assertion above reads the DOM. That a band *looks* like a target to someone glancing at it is not gateable, and the colour gates bound the encoding, not the impression.
+- **The floor in Fork D cannot be gated as correct** — only as enforced. Whether 8 days is enough for a number to be called *typical* is a judgement, and the gate can only prove the app refuses below whatever number is ruled.
+
+**Stopping here for rulings.** Nothing is built. The forks needing an explicit answer are **C** (a shipped defect and a D10 amendment), **D** (a floor that blanks this surface on your own data), **G** (the H7 palette, and separately the shipped goal-strip colour), and **H** (macros only, and `soluble_fiber_g`).
