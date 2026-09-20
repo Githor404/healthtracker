@@ -2151,6 +2151,8 @@ The same reading added a restore step to H4-absent. That test never crossed the 
 
 **This is a recurring class, not a run of incidents.** There have been six instances in five slices over eleven days: R25 (twice), R26, R31, R30 and H4. Expect one in any slice that has a defect pass. For each planted defect, work out which starting state lets that defect change the outcome. Do this before the run, because that is when fixing the fixture costs least.
 
+> **SEVENTH INSTANCE (2026-09-20, H7/D95): ten evenly spaced days, where the mean and the median are both 550.** The *“typical is the mean”* plant changed nothing and Fork B1's ruling went untested. It is registered here as the seventh, and it also generalises past this fixture — see [[D96]]: **a ruling that picks one statistic, one ordering or one policy over another needs a fixture where the alternatives DIFFER.** That question is asked from the ruling's side and can be answered before anything is run, which is where the register above says the cost is lowest.
+
 ## D61 — The third rail: adding what the photo could not show, and the denominator nobody was writing (R25, 2026-09-07)
 
 `APP_VERSION → 0.25.0`; **schema unchanged at v6** — `added` is an additive optional item field, and the v6 bump for `grams` (D57) already covered the authored-content case. Seven forks ruled (A1, B1, C1, D1, E1, F1 + F-fix1, G).
@@ -3507,6 +3509,25 @@ The detail that makes this unambiguous: **the signal branch of `goalRingBoxHTML`
 
 Proof by **output equality**, not by assertion — the SG1 / FX3 pattern. The same totals against a goal that is **met** and one that is **short** must emit identical classes and identical stroke colours; only the numbers may differ. Plus the word grep this surface never had, with its planted control, and a fixture check proving the two sides genuinely differ in status (D60 Clause 4).
 
+### ADDENDUM (2026-09-20, from H7/D95) — the same fact about reach, pointing the other way
+
+D91 found a surface **no gate read**: `class="goalcell good"` shipped for eleven versions past a banned list containing the string `" good"`, because nothing pointed that list at the food goal surface.
+
+H7 found the **opposite**, and it is worth reading beside it. The plant that put an evaluative word on the new Typical row failed **M7** and **SG7** as well as `H7-no-evaluative` — the Mirror's own vocabulary gates already read the Trends surface, so **the new row inherited their cover the moment it was rendered there.** Nobody wrote a gate for it; it arrived already covered.
+
+**Two facts about reach, pointing opposite ways:**
+
+| | what happened | what it cost |
+|---|---|---|
+| **D91** | a surface rendered **outside** every vocabulary gate's reach | eleven versions of the encoding D24 forbade, ungated |
+| **D95** | a surface rendered **inside** an already-gated one | cover for free, before its own gate existed |
+
+**The rule they jointly make is about placement, not about diligence.** A vocabulary gate reads a *region of the DOM*, so **where a new surface is rendered decides whether it is covered before anyone decides to cover it.** Rendering inside an already-read region is the cheapest coverage available, and rendering outside one is a silent opt-out that no amount of care elsewhere compensates for.
+
+So the question to ask of any new rendered surface is not only *"does it have a gate?"* but **"is it inside one?"** — and when the answer is no, that is a decision being made, whether or not anyone notices making it.
+
+`H7-no-evaluative` was still written, and still earns its place: it adds **"target"** and **"goal"** to the banned list **for that row specifically**, because the entire point of the row is that it is neither. Inherited cover is cover for the general rule, not for the claim the surface makes on its own.
+
 **The standing consequence, recorded so it is not rediscovered:** a vocabulary gate covers the surface it is pointed at and no other. There is no grep over "the app". When a slice adds a rendered surface that states anything about a user's numbers, **pointing the banned list at it is part of building it** — and the count of such gates (now eight) is a count of surfaces reviewed, not a measure of coverage.
 
 ## D92 — A gate that would fail if the code were right (2026-09-19; doc-only)
@@ -3700,3 +3721,43 @@ Five further plants exposed problems in the gates or the runner rather than the 
 ### One cross-check worth keeping
 
 The `evaluative-word-on-the-row` plant failed **M7 and SG7** as well as `H7-no-evaluative` — the Mirror's own vocabulary gates already read the Trends surface, so the new row inherited their cover the moment it was rendered there. That is the opposite of [[D91]]'s finding, and a useful one: **placing a new surface inside an already-gated one is the cheapest way to be covered.** `H7-no-evaluative` is still worth having, because it adds **"target"** and **"goal"** to the banned list for this row specifically — the entire point of the row is that it is neither.
+## D96 — A fixture must be able to distinguish the thing the ruling chose between (2026-09-20; doc-only)
+
+**The rule.** Any ruling that picks **one statistic, one ordering or one policy over another** needs a fixture in which the **alternatives give different answers**. Otherwise the gate asserts a distinction the data cannot carry: it names the right property, passes, and says nothing about the choice it was written to protect.
+
+### The instance
+
+Fork B1 ruled **median, not mean**, for a stated reason: the distribution is skewed by single-item days. H7's fixture was ten complete days at 100, 200 … 1000.
+
+**Mean 550. Median 550.**
+
+So the plant *"typical is the mean"* changed nothing, `H7-quantiles` passed with the defect in, and **B1's entire ruling was untested** — while the gate named exactly the right property and the assertion was exactly the right assertion. Nothing was wrong except the data underneath.
+
+The repair mirrors the log that motivated the ruling: **one day at 4,000** among days of a few hundred, the way `2026-09-11` sits at 3,930 in the real export. The quantiles do not move (550, 325, 775) and the mean becomes 850 — and the fixture now asserts **that difference** explicitly, plus that the outlier **does not move the band**, which is the property that makes a median the right summary.
+
+### How this relates to D60 Clause 4, and why it is worth its own line
+
+It **is** a Clause 4 instance — the starting state made the assertion true regardless of the code — and it is registered as the **seventh**. But Clause 4 is stated from the **defect's** side: *can the planted defect change the outcome?* That question is asked once per plant, during the pass, and it found this one only after the fact.
+
+This rule is stated from the **ruling's** side, and can be asked **before** anything is run:
+
+> **For each ruling that rejected an alternative, what would the rejected alternative produce on this fixture?** If the answer is *"the same thing"*, the fixture cannot test the ruling.
+
+That is a cheap, mechanical question with a predictable answer shape, and it belongs in the pre-registration rather than the defect pass. D60's register already noted that instance 6 was the first caught by **reading the fixture before the run**; this is the reading rule that would have caught instance 7 the same way.
+
+### Where it bites, beyond medians
+
+The shape recurs wherever a choice is made and a fixture is symmetric with respect to it:
+
+- **mean vs median vs trimmed mean** — any symmetric sample makes all three agree;
+- **stable vs unstable sort** — a list with no duplicate keys cannot tell them apart;
+- **first-wins vs last-wins** on a merge — a fixture with no conflicting keys cannot show which;
+- **inclusive vs exclusive** bounds — a fixture with no value **on** the boundary tests neither;
+- **round-half-up vs round-half-even** — no value at exactly .5 and the rule is untested;
+- **absence vs zero** — the D90 family: a fixture where the absent value **would have been** zero proves nothing.
+
+Each is the same failure: a ruling that distinguishes two behaviours, tested on data where the two behaviours coincide.
+
+### The practical form
+
+**A pre-registration that rules between alternatives names the fixture property that separates them.** Not the fixture itself — the *property*: "skewed, so mean ≠ median", "contains duplicate keys", "contains a value exactly on the boundary". One clause, written when the ruling is made, while the alternatives are still in mind. By the time the defect pass runs, the rejected alternative has usually been forgotten, which is exactly why the gate looked right.
