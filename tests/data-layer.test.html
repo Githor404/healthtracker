@@ -2215,9 +2215,16 @@ window.setLS({});
       res(kl.length === 0,
           'H4.3-keyless GATE: with NO key, every keyless route works on the shipped page -- the kind question, all three prompts, copy, both readers, and the Settings label path' +
           (kl.length ? ' :: MISSING ' + kl.join(' | ') : ''));
-      // The control: the same check, run against a surface the key gate hides.
-      res(kl.length === 0 && SEDOC.querySelectorAll('#captureBox .caprow').length === 0,
-          'H4.3-keyless CONTROL: and the key-only controls (Take photo / Choose photo) are correctly absent -- so this case is measuring a keyless page, not a configured one');
+      // The control establishes that the page under test really is KEYLESS, and it
+      // must do that INDEPENDENTLY of the gate. It used to read
+      //     kl.length === 0 && ...caprow absent
+      // which ANDs in the gate's own condition, so it could never pass while the
+      // gate failed: every plant "failed the control" too, and the control
+      // certified nothing the gate had not already said. Found by re-running this
+      // very plant during D93's scope check (D94). A control that repeats the
+      // gate's condition is the vacuous-control family wearing a second hat.
+      res(SEDOC.querySelectorAll('#captureBox .caprow').length === 0,
+          'H4.3-keyless CONTROL: the key-only controls (Take photo / Choose photo) are absent, so this case is measuring a keyless page and not a configured one -- asserted INDEPENDENTLY of the gate, or it certifies nothing');
       SEW.HT.setCaptureKind('meal');
       SEW.HT.renderPromptCard();
     }

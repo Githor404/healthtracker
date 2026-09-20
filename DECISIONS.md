@@ -3602,3 +3602,56 @@ It asserts **what is permitted** as well as what is not, because a gate that onl
 **So what is lost is the tail of the output, not the results.** That makes an inconclusive run whose named gates failed strong evidence rather than none — but still not a complete verdict, because the assertions *after* the truncation point are genuinely unknown. Re-running remains the right response; the refinement is that the truncation is an output-capture failure under sustained load, and not a sign that the plant did something strange.
 
 All three are recorded here rather than in a scratch file because the defect pass is the machinery the rest of this log leans on, and **a pass that cannot fail is the same hazard as a gate that cannot fail** — [[D92]]'s point arriving one level out.
+## D94 — Scope check: how far back does the clean-tree abort reach? (2026-09-20; tests and docs only)
+
+D93 found that a defect pass run from a **clean tree** tests nothing while appearing to run: a plant changes the shell, `check-version` aborts before the harness executes, and no assertion runs. **A recorded pass that could not have executed is worse than an unrun one** — it is evidence asserting something it never tested, which is [[D92]]'s shape applied to the pass rather than to a gate. So the question is not "is it fixed" but "what does it invalidate".
+
+### The decisive test, measured rather than argued
+
+**An aborted run produces zero assertion output.** Measured directly during D93's diagnosis: **552 bytes**, ending at `VERSION CHECK: FAIL`, with **no PASS lines, no FAIL lines and no SUMMARY**. `check-version` runs ahead of the harness, so nothing downstream of it ever speaks.
+
+That gives a self-certifying property: **any recorded pass whose result names a gate that failed is proof the harness executed.** No reasoning about historical tree state is needed — the evidence is in what the record contains.
+
+### Applying it to the record
+
+Every defect-pass result statement in `GATES.md` and `DECISIONS.md` was enumerated. **All of them name failures** — *"81 plants, each failing its own named gate"*, *"13 plants, each failing its own named gate"*, *"51 plants… run on the final tree"*, *"seven new plants, each failing its own named gate"*, *"45 planted, and every one fails its own named gate"*, *"thirteen planted, ten in the final set, all ten failing their own gate by name"*, *"each fails the floor case by name"*, *"restoring the previous CSS fails three of the four"*, *"reads `paths=3 dots=2 drawn=100%` → FAIL"*.
+
+**Not one reports zero named failures.** That is the shape an aborted pass would have, and it does not appear.
+
+The passes that *also* report gates which could **not** fail — *"the pass found two gates that could not fail"*, *"TWO gates"*, *"five gates that could not fail"* — are the strongest cases of all, because those findings sit **inside runs where other plants failed by name**. A mixed result is only possible from a run that executed.
+
+### The four candidates, individually
+
+Commits touching `tests/` but not `app.js` or `index.html` are the only ones that could have run a pass from a tree carrying no bump. There are four:
+
+| pass | how it ran | status |
+|---|---|---|
+| **D75** (runner) | a **throwaway copy of the repo**, with the harness and all eight CDP gates stubbed to print `GATE: PASS` — `check-version` lives inside the harness leg and never executed | **safe by construction** |
+| **D83** (census) | a **throwaway copy of `app.js`**, with `check-writesites.sh` invoked **directly**, not through the runner | **safe by construction** |
+| **D85** (keyless floor) | plants into `app.js` on a no-bump slice — **the one genuinely ambiguous case** | **re-run and re-verified** |
+| **D93** (item row) | the actual occurrence, caught at the time | **caught, fixed** |
+
+**D85 was not argued, it was re-run.** Its decisive plant — the kind chooser rendered only with a key, *which is what actually shipped in v0.30.0* — was replanted against today's tree with release metadata carried. Result: `SUMMARY 1951/1953 — 2 FAILED`, `H4.2-nokey GATE` and `H4.3-keyless GATE`, both by name. **D85's gates catch the defect they were written for.**
+
+### Conclusion
+
+**No recorded defect pass is in doubt.** And the reason this went unnoticed is a workflow fact rather than a code one: passes have always run **pre-commit**, while the slice's own version bump sat uncommitted in the working tree and satisfied `check-version` by accident. **D93 was the first pass ever run from a clean tree**, because it was the first slice whose gates were written *after* the preceding slice was committed.
+
+**The failure mode is conspicuous, not silent.** An abort makes **every plant at once** look unable to fail. A pass reporting that would be unbelievable on its face — which is why it was caught on its first occurrence, and why the record can be cleared by inspection rather than by re-running everything.
+
+### What the scope check found on its own account
+
+**D85's control was coupled to its gate.** It read `kl.length === 0 && ...caprow absent` — ANDing in the gate's own condition — so it could **never pass while the gate failed**. Every plant "failed the control" too, and the control certified nothing the gate had not already said. Its job is to establish **independently** that the page under test is keyless; it now asserts only that, and the replant confirms the change: three failures became two, with the control passing while the gate fails.
+
+**This is the vacuous-control family wearing a second hat.** D60's clauses catch a control that cannot fire. This is a control that **fires whenever the gate does**, which is the same emptiness read from the other end: it moves with the thing it is supposed to hold still against. **A control ANDed with its gate's condition is not a control.**
+
+### The intermittent, characterised
+
+Recorded as settled, replacing the two earlier speculative notes (*"memory pressure or a CDP port collision"*):
+
+- **five occurrences** across this session's defect passes;
+- roughly **one run in six**, and **a different plant every time** — `absent-never-true`, `the-facts-are-dropped`, `provenance-word-dropped`, `dot-carries-a-verdict-too`, and the first D85 replant;
+- always inside a **long sequential series** of suite runs;
+- and in **every** case the assertions had **already executed**: the output carries the full PASS/FAIL stream with the expected gates failing **by name**, then stops before the summary — *"no SUMMARY line (the suite did not finish)"*.
+
+**What is lost is the tail of the output, not the results.** It is an **output-capture failure under sustained load** — not a plant misbehaving, and not the memory flake it was first filed as. The practical consequence: an inconclusive run whose named gates fired is **strong evidence but not a complete verdict**, because assertions after the truncation point are genuinely unknown. Re-run, then read; do not rewrite a working gate to chase it.

@@ -3548,6 +3548,8 @@ Ruled out of the H7 pre-registration and **built before H7**, because H7's typic
 
 **Runner note.** One plant first reported **no SUMMARY**, which under Clause 5 reads as a hang. Re-run in isolation it failed **13 gates by name**. That is the known intermittent — empty headless dump or CDP port collision — and a defect pass reporting *no verdict* must be re-run before the plant is blamed, or a working gate gets rewritten to chase a phantom.
 
+> **Superseded by D94.** The two causes guessed here were both wrong. Characterised over five occurrences: an **output-capture failure under sustained load** — the assertions execute and the expected gates fail by name, and only the tail of the output is lost. The results are not lost.
+
 **Suite: 1935 assertions, all passing** (1916 → 1935; +18 D90 cases, A3 re-pointed in place).
 
 ### D91 — the food goal surface joins the vocabulary invariant — v0.32.2
@@ -3605,6 +3607,8 @@ The flaw is in how it was nearly read. The pass scored that plant **OK** because
 **The intermittent, characterised.** Four occurrences across three passes, one run in six, **a different plant each time**, always inside a long sequential series — and in every case **the assertions had already executed**: the output carries the full PASS/FAIL stream with the expected gates failing by name, then stops before the summary. **What is lost is the tail of the output, not the results.** Re-running stays the right response, but the truncation is an output-capture failure under load, not a sign the plant did something strange.
 
 **Suite: 1953 assertions, all passing** (1943 → 1953).
+
+**Scope check → [[D94]].** "How far back does the clean-tree abort reach?" is answered there and the answer is **nowhere**: an aborted run produces **zero assertion output** (measured at 552 bytes, ending at `VERSION CHECK: FAIL`), so any recorded pass naming a failed gate is self-certifying — and every recorded pass names one. The only genuinely ambiguous case, **D85**, was **re-run rather than argued** and its gates fired by name. The scope check also found that **D85's control was ANDed with its gate's own condition** and so could never pass while the gate failed; it is now asserted independently.
 
 ### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, **FORKS RULED** (received 2026-09-19; NOT built — Fork C shipped separately as D90)
 
