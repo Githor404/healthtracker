@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 11;
-const APP_VERSION      = '0.32.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.33.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4089,6 +4089,195 @@ function sparklineSVG(points, refVal, opts) {
   }
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${ref}<polyline points="${pts}"/>${dot}</svg>`;
 }
+// ---- H7: the typical band (D95) -------------------------------------------
+// "Typical" is the user's OWN recent normal. It is DESCRIPTIVE: it is never a
+// target, it is never compared to a declared goal (Fork E1), and nothing on the
+// surface says whether a day is good.
+//
+// 28 days, and the number is load-bearing: 28 = 4 x 7, so every weekday appears
+// exactly four times. 30 does not divide by 7, so two weekdays appear five times
+// -- and WHICH two depends on the day the app is opened. The measured drift is
+// only ~2.3%, and that is not the argument: a reference whose value depends on
+// which day you look at it is not a reference at any size. The 30/90/all buttons
+// keep their unevenness, because a trend line claims no single number.
+const TYPICAL_WINDOW   = 28;
+const TYPICAL_MIN_DAYS = 8;          // Fork D floor
+const TRAIL_LEGS       = [3, 7, 28]; // Fork J1: fixed, independent of the buttons
+// Fork H: macros only. `soluble_fiber_g` is excluded -- it is "always present, 0
+// when unknown" by contract, so most of its values mean UNKNOWN rather than zero,
+// and a band drawn round that is the D90 zero again, drawn prettier.
+const TYPICAL_KEYS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
+let TYPICAL_NUTRIENT = 'kcal';
+// UI state only, deliberately NOT persisted in this slice. Persisting it is a
+// settings write, which brings the D29 census, the normalizer allowlist and a
+// migration question with it -- and none of that was ruled. Recorded as a
+// narrowing rather than left as a silent choice.
+
+const r1 = (v) => Math.round(v * 10) / 10;
+
+// Linear-interpolation quantile (the numpy default), stated here because the
+// gates assert exact values and a quantile rule that is not written down is a
+// premise waiting to be asserted by accident (D92).
+function quantileSorted(a, q) {
+  if (!a || !a.length) return null;
+  const pos = (a.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return lo === hi ? a[lo] : a[lo] + (a[hi] - a[lo]) * (pos - lo);
+}
+
+// The window, its exclusions, and the summary drawn from it. Exclusions follow
+// D90 exactly: a day with nothing logged is ABSENCE, a day whose composition is
+// incomplete is macro-short, and the two are counted separately because they are
+// different facts about different days.
+function typicalWindow(nutrient, win) {
+  const cut = windowCutoff(win);
+  const keys = [];
+  let omitted = 0, empty = 0;
+  Object.keys(APP_STATE.days || {}).forEach((d) => {
+    if (d < cut) return;
+    const day = APP_STATE.days[d];
+    if (!day || day.status !== 'complete') return;
+    const cov = macroCoverage(day);
+    if (cov.absent) { empty++; return; }
+    if (cov.partial) { omitted++; return; }
+    keys.push(d);
+  });
+  keys.sort();
+  const points = keys.map((d) => ({ t: d, v: r1(num(dayTotals(APP_STATE.days[d])[nutrient])) }));
+  const values = points.map((p) => p.v).slice().sort((a, b) => a - b);
+  const n = values.length;
+  return {
+    nutrient: nutrient, win: win, points: points, values: values,
+    n: n, m: n + omitted + empty, omitted: omitted, empty: empty,
+    enough: n >= TYPICAL_MIN_DAYS,
+    median: quantileSorted(values, 0.5),
+    q1: quantileSorted(values, 0.25),
+    q3: quantileSorted(values, 0.75),
+  };
+}
+
+// Fork F1: the seam is built and left EMPTY. `sourced` is an optional
+// {lo, hi, org, cite, version}; no food nutrient supplies one today, because
+// every D32 analyte is a blood measure -- 25-OH vitamin D is serum STATUS, not
+// dietary intake. Introducing DRIs is a new sourced-content class and its own
+// decision. The path is reachable only by its gate, which is R31 Fork 6's
+// precedent, not D63's dead path: no surface offers it.
+function typicalSVG(model, sourced) {
+  const W = 240, H = 56, pad = 3;
+  if (!model.points.length) return '';
+  let mx = Math.max.apply(null, model.values);
+  if (model.enough) mx = Math.max(mx, model.q3);
+  if (sourced) mx = Math.max(mx, num(sourced.hi));
+  mx = mx || 1;
+  const yFor = (v) => H - pad - (Math.max(v, 0) / mx) * (H - 2 * pad);   // bars are magnitudes from 0
+  const n = model.points.length, slot = (W - 2 * pad) / n;
+  const bw = Math.max(2, Math.min(14, slot * 0.7));
+  const bars = model.points.map((p, i) => {
+    const x = pad + slot * i + (slot - bw) / 2, y = yFor(p.v);
+    // Fork G1: DIRECTION only, as two tints of ONE hue. Never var(--good) or
+    // var(--warn) -- those two tokens mean good and bad everywhere else in this
+    // app, and re-using them here would be D24's objection with a new address.
+    const dir = model.enough ? (p.v >= model.median ? 'above' : 'below') : 'flat';
+    return `<rect class="tbar ${dir}" x="${r1(x)}" y="${r1(y)}" width="${r1(bw)}" height="${r1(H - pad - y)}"/>`;
+  }).join('');
+  const band = model.enough
+    ? `<rect class="tbandrect" x="${pad}" y="${r1(yFor(model.q3))}" width="${W - 2 * pad}" height="${r1(yFor(model.q1) - yFor(model.q3))}"/>` : '';
+  const med = model.enough
+    ? `<line class="tmed" x1="${pad}" y1="${r1(yFor(model.median))}" x2="${W - pad}" y2="${r1(yFor(model.median))}"/>` : '';
+  const src = sourced
+    ? `<rect class="tsrcband" x="${pad}" y="${r1(yFor(num(sourced.hi)))}" width="${W - 2 * pad}" height="${r1(yFor(num(sourced.lo)) - yFor(num(sourced.hi)))}"/>` : '';
+  return `<svg class="tbsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${band}${src}${bars}${med}</svg>`;
+}
+
+function typicalUnit(nutrient) { return nutrient === 'kcal' ? 'kcal' : 'g'; }
+
+// Fork J1. Each leg reports a SPAN, not a typical, so the floor does not gate it
+// -- a floor of 8 applied per leg would blank the 3-day leg permanently, since 3
+// is never 8. What every leg must do instead is state its own span and its own n,
+// so a one-day leg cannot be read as a settled figure.
+function typicalTrail(nutrient) {
+  return TRAIL_LEGS.map((w) => {
+    const m = typicalWindow(nutrient, w);
+    return { days: w, n: m.n, value: m.n ? m.median : null };
+  });
+}
+
+// Fork I1. A direction marker is a FACT if it states the two numbers it compares
+// and a CLAIM if it does not -- so the arrow never travels alone. It needs a
+// typical to compare against, which is the one place Fork D's floor reaches the
+// trail.
+function typicalDirection(nutrient) {
+  const t = typicalWindow(nutrient, TYPICAL_WINDOW);
+  const r = typicalWindow(nutrient, TRAIL_LEGS[0]);
+  if (!t.enough || !r.n) return null;
+  return { days: TRAIL_LEGS[0], n: r.n, recent: r.median, typical: t.median, unit: typicalUnit(nutrient) };
+}
+
+function setTypicalNutrient(k) {
+  if (TYPICAL_KEYS.indexOf(k) < 0) return;
+  TYPICAL_NUTRIENT = k;
+  renderTrends();
+}
+
+function typicalPickerHTML() {
+  return '<div class="twin tpick">' + TYPICAL_KEYS.map((k) =>
+    `<button type="button" class="${k === TYPICAL_NUTRIENT ? 'on' : ''}" onclick="setTypicalNutrient('${esc(k)}')">${esc(NUTRIENT_LABELS[k] || k)}</button>`
+  ).join('') + '</div>';
+}
+
+// `sourced` is Fork F1's seam: an optional {lo, hi, label, org, cite, version}.
+// Nothing supplies one -- no food nutrient has a D32 band, because every analyte
+// there is a blood measure. Reachable only by its gate, and offered by no surface.
+function typicalRowHTML(sourced) {
+  const nut = TYPICAL_NUTRIENT, unit = typicalUnit(nut);
+  const model = typicalWindow(nut, TYPICAL_WINDOW);
+  const label = NUTRIENT_LABELS[nut] || nut;
+  let html = `<div class="trow tbrow"><div class="thead">Typical <small>${esc(label)} \u00b7 your own last ${esc(TYPICAL_WINDOW)} days \u00b7 complete days only</small></div>`;
+  html += typicalPickerHTML();
+
+  if (!model.enough) {
+    // Fork D1, and the cost was ruled with it: on a sparse log this surface shows
+    // NOTHING. That is the honest outcome -- a band drawn from six days spanning
+    // 115 to 3,930 kcal would be arithmetically correct and descriptively empty.
+    html += `<div class="tsum">No typical yet \u2014 ${esc(model.n)} of ${esc(TYPICAL_MIN_DAYS)} days needed.`
+      + ` <small class="tcov">A day with nothing logged is not a zero, and a day whose composition is incomplete cannot be totalled \u2014 neither counts toward this.</small></div>`;
+  } else {
+    html += typicalSVG(model, sourced || null);
+    html += `<div class="tsum">typical ${esc(rDisp(model.median))} ${esc(unit)}`
+      + ` <small>median of ${esc(model.n)} of ${esc(model.m)} days \u00b7 middle half ${esc(rDisp(model.q1))}\u2013${esc(rDisp(model.q3))}</small></div>`;
+  }
+
+  // The exclusions, in D90's words, each with its own count.
+  const why = [];
+  if (model.omitted > 0) why.push(`${esc(model.omitted)} day${model.omitted === 1 ? '' : 's'} \u2014 composition not recorded`);
+  if (model.empty > 0) why.push(`${esc(model.empty)} day${model.empty === 1 ? '' : 's'} \u2014 nothing logged`);
+  if (why.length) html += `<div class="tsum"><small class="tcov">left out: ${why.join(' \u00b7 ')}</small></div>`;
+
+  // The trail. Fixed legs, each labelled with its own span and n (Fork J1).
+  html += '<div class="ttrail">' + typicalTrail(nut).map((leg) => {
+    const span = `last ${esc(leg.days)} days`;
+    return leg.n
+      ? `<span class="tleg">${span} <b>${esc(rDisp(leg.value))}</b> <small>${esc(leg.n)} day${leg.n === 1 ? '' : 's'}</small></span>`
+      : `<span class="tleg">${span} <small>no complete days</small></span>`;
+  }).join('') + '</div>';
+
+  // A sourced band, where one exists, is drawn as an OUTLINE and named as someone
+  // else's figure, so it can never read as part of the user's own typical.
+  if (sourced && model.enough) {
+    html += `<div class="tsum"><small class="tsrcline">${esc(sourced.label || 'reference range')} `
+      + `${esc(rDisp(sourced.lo))}–${esc(rDisp(sourced.hi))} ${esc(unit)} — an outside reference, drawn as an outline and separate from your typical</small></div>`
+      + citeBlock('Source', `<small class="labcite">${esc(sourced.org)} — ${esc(sourced.cite)}`
+        + `${sourced.version ? ' (' + esc(sourced.version) + ')' : ''}</small>`);
+  }
+
+  const dir = typicalDirection(nut);
+  if (dir) {
+    const arrow = dir.recent > dir.typical ? '\u2191' : (dir.recent < dir.typical ? '\u2193' : '\u2192');
+    html += `<div class="tsum tdir"><span class="tarrow">${arrow}</span> last ${esc(dir.days)} days `
+      + `${esc(rDisp(dir.recent))} ${esc(unit)} \u00b7 typical ${esc(rDisp(dir.typical))} ${esc(unit)}`
+      + ` <small>from ${esc(dir.n)} day${dir.n === 1 ? '' : 's'}</small></div>`;
+  }
+  return html + '</div>';
+}
 function setTrendWindow(d) { TREND_WINDOW = d; renderTrends(); }
 function renderTrends() {
   const el = document.getElementById('trends'); if (!el || !APP_STATE) return;
@@ -4174,6 +4363,9 @@ function renderTrends() {
     html += `<div class="trow"><div class="thead">Energy <small>kcal · complete days only</small></div>${sparklineSVG(ms.points)}`
       + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}${omit}</div></div>`;
   }
+  // H7 (Fork A1): a row of its own on Trends. It is deliberately NOT gated on the
+  // 30/90/all buttons -- those choose how much to draw, and the typical is content.
+  html += typicalRowHTML();
   if (!bio && fs.count === 0 && fs.pending === 0 && !macroShown)
     html += `<div class="note" style="margin:8px 0 0">Keep logging — trends appear here once you have a few days of data (${esc(winLabel)}).</div>`;
   else
@@ -5536,6 +5728,7 @@ const VERSION_LOG = [
   { v: '0.32.0', d: '2026-09-17', note: 'Remove a medication that was saved by mistake \u2014 the wrong drug, or the wrong strength, read off a label. Mark stopped is still there for one you took and stopped; removing is for one that was never yours or was read wrong, and it takes its fills and its saved label document with it. A single mistaken fill can be removed on its own, leaving the medication. Both ask first and can be undone straight afterwards. Your scan list keeps the scan either way.' },
   { v: '0.32.1', d: '2026-09-19', note: 'A day you marked complete but left empty no longer counts as a zero in your averages and trends. A day with no food recorded is not a day with no food eaten, so it is left out and the figures say how many days they were built from. If you have days like that, your averages and the energy chart will move \u2014 they were being pulled down by days that held nothing.' },
   { v: '0.32.2', d: '2026-09-19', note: 'Your goal cells and the goal ring no longer turn green or amber depending on whether you have met a goal. They show the same numbers as before \u2014 what you have had, your target, floor or ceiling, and the percentage \u2014 without the app passing judgement on them in colour. This is the rule the app already followed for weight, sleep and the other signals, applied to food, where it had been missed.' },
+  { v: '0.33.0', d: '2026-09-20', note: 'A new Typical row in Trends shows your recent days for one macro against your own normal \u2014 the middle day of your last 28, and the middle half of them as a band. Pick the nutrient: energy, protein, fat, carbs or fibre. It needs eight complete days before it will draw anything, and it says how many it has. It is a description of what you have been eating, not a target, and it is never compared to your goals.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9611,7 +9804,12 @@ window.HT = {
   normalizeAltList, normalizeIdentityPick, migrateV7toV8,
   IDENTITY_CONFIDENCE_MIN, IDENTITY_CANDIDATES_MAX,
   // R31 macro coverage (D67)
-  macroCoverage, itemHasMacros, dayHasMacros, coverageNote, MACRO_KEYS, migrateV6toV7, SCHEMA_VERSION,
+  macroCoverage, itemHasMacros, dayHasMacros, coverageNote, MACRO_KEYS,
+  // H7 (D95)
+  typicalWindow, typicalSVG, typicalTrail, typicalDirection, typicalRowHTML,
+  typicalPickerHTML, setTypicalNutrient, quantileSorted, typicalUnit,
+  TYPICAL_WINDOW, TYPICAL_MIN_DAYS, TYPICAL_KEYS, TRAIL_LEGS,
+  getTypicalNutrient: () => TYPICAL_NUTRIENT, migrateV6toV7, SCHEMA_VERSION,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor,
   setSupplement, applySupplementToToday, normalizeSupplement,

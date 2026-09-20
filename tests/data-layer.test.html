@@ -8484,7 +8484,15 @@ window.setLS({});
   res(HT.avgBlockHTML('7-day', av90c).indexOf(' of 3 days') < 0,
       'D90-unchanged: and the block adds no denominator it does not need');
   HT.setTrendWindow('all'); HT.renderTrends();
-  var tr90c = document.getElementById('trends').innerHTML;
+  // SCOPED TO THE ROW IT NAMES. Read against the whole Trends surface this case
+  // broke the moment H7 added a row that EXPLAINS the same exclusions in prose --
+  // a neighbour satisfying, or here breaking, an assertion meant for one cell.
+  // R31 hit this from the other side and the rule is the same: assert where the
+  // claim lives. The claim is about the ENERGY row.
+  var energyRow90 = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
+    .filter(function (r) { var h = r.querySelector('.thead'); return h && /^Energy/.test(h.textContent); })[0];
+  var tr90c = energyRow90 ? energyRow90.innerHTML : '';
+  res(!!energyRow90, 'D90-unchanged fixture: the Energy row is on the surface to be read at all (D60 Clause 4)');
   res(tr90c.indexOf('nothing logged') < 0 && tr90c.indexOf('omitted') < 0,
       'D90-unchanged: a window with nothing to omit says nothing about omissions');
 
@@ -8640,6 +8648,227 @@ window.setLS({});
   res(d93unres.indexOf('composition not recorded') >= 0 &&
       banned93.filter(function(w){ return d93unres.indexOf(w) >= 0; }).length === 0,
       'D93-vocab GATE: a row that states an ABSENCE still says nothing evaluative -- the sentence R31 added is a fact about the record, not a mark against the user');
+
+  // ---- H7 / D95: the typical band -------------------------------------------
+  // FIXTURE, exact by construction AND DELIBERATELY SKEWED.
+  //
+  // The first version of this fixture ran 100..1000 in even steps, where the mean
+  // and the median are both 550 -- so the plant "typical is the mean" changed
+  // nothing, the gate passed with the defect in, and Fork B1's entire ruling
+  // (median BECAUSE single-item days skew the mean) was untested. D60 Clause 4,
+  // seventh instance. The repair mirrors the real log that motivated B1: one day
+  // at 4000, the way 2026-09-11 sits at 3930 among days of a few hundred.
+  //
+  // Ten complete days at dk(-1)..dk(-10): kcal = 100*i, protein = i, except the
+  // oldest, which is 4000 and 40.
+  //   kcal sorted [100..900, 4000]  median 550,  q1 325,  q3 775,  MEAN 850
+  //   protein     [1..9, 40]        median 5.5,               MEAN 8.5
+  // (linear-interpolation quantiles: pos = (n-1)q, interpolated between
+  // neighbours -- 9*0.5 = 4.5 -> 500 + 100*0.5 = 550.)
+  // Five values fall below the median and five at or above it, so the colour
+  // split still has something to split, and the outlier does not move the
+  // quantiles at all -- which is the property that makes a median worth using.
+  setLS({}); HT.boot();
+  var h7 = HT.state();
+  function h7item(kcal, prot){ return { name: 'F', meal: 'lunch', time: '12:00', kcal: kcal,
+      protein_g: prot, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+      confidence: 'measured', notes: '', source: 'manual' }; }
+  function h7fill(){
+    var st = HT.state(); st.days = {};
+    for (var i = 1; i <= 10; i++) st.days[dk(-i)] = { status:'complete', water_l:0,
+      items:[ i === 10 ? h7item(4000, 40) : h7item(i*100, i) ] };
+    HT.resave();
+  }
+  h7fill();
+  if (!document.getElementById('trends')) { var h7el = document.createElement('div'); h7el.id = 'trends'; document.body.appendChild(h7el); }
+
+  var w7 = HT.typicalWindow('kcal', HT.TYPICAL_WINDOW);
+  res(w7.n === 10 && w7.median === 550 && w7.q1 === 325 && w7.q3 === 775,
+      'H7-quantiles: the typical is the MEDIAN and the band is the middle half, computed by the stated rule -- 550, 325 to 775 on a fixture whose answer is known in advance');
+  var mean7 = w7.values.reduce(function(a,b){ return a+b; }, 0) / w7.values.length;
+  res(mean7 === 850 && mean7 !== w7.median,
+      'H7-quantiles GATE (Clause 4): the fixture is SKEWED, so a mean and a median give different answers -- 850 against 550. The first version of this fixture was evenly spaced, where both are 550, and the "typical is the mean" plant passed straight through it');
+  res(Math.max.apply(null, w7.values) === 4000 && w7.q3 === 775,
+      'H7-quantiles GATE: and the outlier does not move the band at all -- which is the property that makes a median the right summary here, asserted rather than asserted-about');
+  res(HT.quantileSorted([1,2,3,4], 0.5) === 2.5 && HT.quantileSorted([5], 0.5) === 5,
+      'H7-quantiles: the rule interpolates between neighbours and degenerates correctly at n=1');
+
+  // -- complete days only, and the denominator on the surface ------------------
+  HT.state().days[dk(-11)] = { status:'in_progress', water_l:0, items:[ h7item(99999, 999) ] };
+  HT.resave();
+  var w7b = HT.typicalWindow('kcal', HT.TYPICAL_WINDOW);
+  res(w7b.n === 10 && w7b.median === 550,
+      'H7-typical-complete GATE: an in-progress day does not reach the typical -- its 99999 would move the median to 600 if it did, so the exclusion cannot hide in the arithmetic');
+  HT.renderTrends();
+  var h7row = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
+    .filter(function(r){ var h = r.querySelector('.thead'); return h && /^Typical/.test(h.textContent); })[0];
+  res(!!h7row, 'H7-fixture: the Typical row is on the Trends surface (D60 Clause 4)');
+  var h7text = h7row ? h7row.textContent : '';
+  res(/median of 10 of 10 days/.test(h7text),
+      'H7-denominator-renders GATE: the denominator is ON THE SURFACE, not merely in the returned object -- "from N of M" is the claim, and a figure without it is an argument');
+  res(h7text.indexOf('typical 550') >= 0 && /middle half 325.*775/.test(h7text),
+      'H7-denominator-renders: and the figures rendered are the ones computed');
+
+  // -- the two exclusions, each counted and named (D90 carried into H7) --------
+  delete HT.state().days[dk(-11)];
+  HT.state().days[dk(-12)] = { status:'complete', water_l:0, items:[] };                 // nothing logged
+  HT.state().days[dk(-13)] = { status:'complete', water_l:0, items:[
+    h7item(400, 4), { name:'X', meal:'lunch', time:'13:00', grams:50, unresolved:true, confidence:'eyeballed', notes:'', source:'manual' } ] };
+  HT.resave();
+  var w7c = HT.typicalWindow('kcal', HT.TYPICAL_WINDOW);
+  res(w7c.n === 10 && w7c.empty === 1 && w7c.omitted === 1 && w7c.m === 12,
+      'H7-macro-short GATE: a macro-short day and an empty day are both excluded and counted SEPARATELY, and both sit in the denominator M');
+  HT.renderTrends();
+  var h7t2 = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
+    .filter(function(r){ var h = r.querySelector('.thead'); return h && /^Typical/.test(h.textContent); })[0].textContent;
+  res(h7t2.indexOf('1 day — composition not recorded') >= 0 && h7t2.indexOf('1 day — nothing logged') >= 0,
+      'H7-macro-short GATE: and the surface names both reasons in D90\u2019s words, never merged into one count');
+  res(/median of 10 of 12 days/.test(h7t2),
+      'H7-macro-short GATE: the denominator moves with them -- 10 of 12, so the excluded days are visible as a number and not only as a sentence');
+
+  // -- colour encodes DIRECTION, never a verdict (Fork G1) ---------------------
+  h7fill(); HT.renderTrends();
+  var h7svg = document.querySelector('#trends .tbsvg');
+  res(!!h7svg, 'H7-colour fixture: the chart is drawn at all');
+  var bars7 = Array.prototype.slice.call(h7svg.querySelectorAll('.tbar'));
+  var above7 = bars7.filter(function(b){ return b.classList.contains('above'); });
+  var below7 = bars7.filter(function(b){ return b.classList.contains('below'); });
+  res(bars7.length === 10 && above7.length === 5 && below7.length === 5,
+      'H7-colour-split GATE: bars above and below the typical carry DIFFERENT classes -- five each on a fixture built to split evenly');
+  res(new Set(bars7.map(function(b){ return b.getAttribute('class'); })).size === 2,
+      'H7-colour-split GATE: exactly two distinct bar classes, so a single-colour chart fails this case rather than passing it quietly');
+  res(new Set(['tbar above','tbar above','tbar above']).size === 1,
+      'H7-colour-split CONTROL: the same distinctness check collapses to ONE on a set where every bar is the same -- the gate is not vacuous');
+  var h7html = h7row ? h7row.innerHTML : '';
+  res(h7svg.outerHTML.indexOf('var(--good)') < 0 && h7svg.outerHTML.indexOf('var(--warn)') < 0,
+      'H7-colour-not-evaluative GATE: the chart reaches for neither the good nor the warning token -- those two mean good and bad everywhere else in this app');
+  var h7classes = (h7html.match(/class="[^"]*"/g) || []).join(' ');
+  res(['"good"',' good ','"met"',' met ','"short"',' short ','"over"',' over ']
+        .every(function(c){ return h7classes.indexOf(c) < 0; }),
+      'H7-colour-not-evaluative GATE: and no class on the row is named for a verdict');
+
+  // -- no evaluative vocabulary anywhere on the surface ------------------------
+  var banned7 = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                 'you could','try to','aim for','well done','great job','keep it up','target','goal'];
+  var surf7 = (h7row ? h7row.textContent : '').toLowerCase();
+  res(banned7.filter(function(w){ return surf7.indexOf(w) >= 0; }).length === 0,
+      'H7-no-evaluative GATE: M7\u2019s banned list over the whole Typical surface -- and "target" and "goal" are added to it here, because the entire point of this row is that it is NOT one');
+  res(banned7.filter(function(w){ return (surf7 + ' aim for your target').indexOf(w) >= 0; }).length > 0,
+      'H7-no-evaluative CONTROL: the same grep fires on planted text -- it is not vacuous');
+
+  // -- the trail: fixed legs, each stating its own span and n (Fork J1) --------
+  var trail7 = HT.typicalTrail('kcal');
+  res(trail7.length === 3 && trail7[0].days === 3 && trail7[1].days === 7 && trail7[2].days === 28,
+      'H7-trail-numbers: the trail is last 3 / 7 / 28 days, fixed, and does not follow the 30/90/all buttons');
+  res(trail7[0].n === 2 && trail7[0].value === 150 &&
+      trail7[1].n === 6 && trail7[1].value === 350 &&
+      trail7[2].n === 10 && trail7[2].value === 550,
+      'H7-trail-numbers GATE: each leg\u2019s figure is the median of exactly the days in ITS span -- 150 from two days, 350 from six, 550 from ten, each recomputed from the underlying days');
+  var legs7 = Array.prototype.slice.call(document.querySelectorAll('#trends .tleg'))
+    .map(function(l){ return l.textContent; });
+  res(legs7.length === 3 &&
+      /last 3 days.*150.*2 days/.test(legs7[0]) &&
+      /last 7 days.*350.*6 days/.test(legs7[1]) &&
+      /last 28 days.*550.*10 days/.test(legs7[2]),
+      'H7-trail-numbers GATE: and every leg prints its own SPAN and its own n on the surface -- a user reading Trends at 90d sees a trail that says 28, and the label is what stops that being a contradiction');
+
+  // -- a leg with nothing in it says so, rather than borrowing ----------------
+  var st7s = HT.state(); st7s.days = {};
+  for (var j = 10; j <= 19; j++) st7s.days[dk(-j)] = { status:'complete', water_l:0, items:[ h7item(j*100, j) ] };
+  HT.resave(); HT.renderTrends();
+  var trail7b = HT.typicalTrail('kcal');
+  res(trail7b[0].n === 0 && trail7b[0].value === null && trail7b[2].n === 10,
+      'H7-trail-sparse GATE: a leg with no complete days in its span reports NOTHING rather than reaching further back for something to show');
+  var legs7b = Array.prototype.slice.call(document.querySelectorAll('#trends .tleg')).map(function(l){ return l.textContent; });
+  res(/last 3 days.*no complete days/.test(legs7b[0]),
+      'H7-trail-sparse GATE: and the surface says so in words');
+
+  // -- the floor (Fork D1), asserted at its exact boundary ---------------------
+  var st7f = HT.state(); st7f.days = {};
+  for (var k7 = 1; k7 <= 7; k7++) st7f.days[dk(-k7)] = { status:'complete', water_l:0, items:[ h7item(k7*100, k7) ] };
+  HT.resave(); HT.renderTrends();
+  var rowsF = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
+    .filter(function(r){ var h = r.querySelector('.thead'); return h && /^Typical/.test(h.textContent); })[0];
+  res(HT.typicalWindow('kcal', HT.TYPICAL_WINDOW).enough === false &&
+      !rowsF.querySelector('.tbsvg') && rowsF.textContent.indexOf('No typical yet') >= 0,
+      'H7-min-history GATE: at SEVEN usable days, one short of the floor, NO band and no typical figure render -- the surface states what it has instead');
+  res(/7 of 8 days needed/.test(rowsF.textContent),
+      'H7-min-history GATE: and it says how many it has and how many it needs, rather than simply showing nothing');
+  HT.state().days[dk(-8)] = { status:'complete', water_l:0, items:[ h7item(800, 8) ] };
+  HT.resave(); HT.renderTrends();
+  var rowsG = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
+    .filter(function(r){ var h = r.querySelector('.thead'); return h && /^Typical/.test(h.textContent); })[0];
+  res(!!rowsG.querySelector('.tbsvg') && rowsG.textContent.indexOf('No typical yet') < 0,
+      'H7-min-history GATE: at EIGHT it draws. The boundary is asserted from both sides, so a floor moved by one cannot pass');
+
+  // -- the direction marker states both numbers (Fork I1) ---------------------
+  h7fill(); HT.renderTrends();
+  var dir7 = HT.typicalDirection('kcal');
+  res(dir7 && dir7.recent === 150 && dir7.typical === 550 && dir7.days === 3,
+      'H7-direction-fact: the marker compares the last 3 days against the typical, and holds both figures');
+  var dirEl = document.querySelector('#trends .tdir');
+  res(!!dirEl && dirEl.textContent.indexOf('150') >= 0 && dirEl.textContent.indexOf('550') >= 0,
+      'H7-direction-fact GATE: BOTH compared figures are in the marker\u2019s text -- a direction marker is a fact if it states the two numbers it compares and a claim if it does not');
+  res(/last 3 days/.test(dirEl.textContent) && /typical/.test(dirEl.textContent),
+      'H7-direction-fact GATE: and it names what each number IS, so the arrow is never travelling alone');
+  res(('\u2193 last 3 days 150 kcal').replace(/[0-9]/g, '').indexOf('150') < 0,
+      'H7-direction-fact CONTROL: stripped of its figures the same marker no longer satisfies the check -- a bare arrow fails this case');
+
+  // -- the goal is not compared to, byte for byte (Fork E1) -------------------
+  var noGoal7 = document.querySelector('#trends .tbrow').innerHTML;
+  HT.state().settings.goals = { kcal: { value: 2000, direction: 'max' }, fiber_g: { value: 30, direction: 'min' } };
+  HT.resave(); HT.renderTrends();
+  var withGoal7 = document.querySelector('#trends .tbrow').innerHTML;
+  res(noGoal7 === withGoal7,
+      'H7-goal-independence GATE: the Typical row is BYTE-IDENTICAL with and without nutrient goals set -- E1 proven by output equality rather than asserted, so a goal line cannot creep onto a descriptive chart');
+  res(withGoal7.indexOf('2000') < 0 && withGoal7.indexOf('ceiling') < 0,
+      'H7-goal-independence GATE: and no goal figure or direction word reaches the surface at all');
+  HT.state().settings.goals = {}; HT.resave();
+
+  // -- the nutrient picker (Fork H1) ------------------------------------------
+  res(HT.TYPICAL_KEYS.join(',') === 'kcal,protein_g,fat_g,carb_g,fiber_g',
+      'H7-picker GATE: macros only, and soluble_fiber_g is NOT offered -- it is 0 by contract on most items, so a band round it would be a band round "unknown"');
+  var seen7 = [];
+  HT.TYPICAL_KEYS.forEach(function(k){
+    HT.setTypicalNutrient(k);
+    var r = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
+      .filter(function(x){ var h = x.querySelector('.thead'); return h && /^Typical/.test(h.textContent); })[0];
+    seen7.push({ k: k, med: HT.typicalWindow(k, HT.TYPICAL_WINDOW).median, txt: r.textContent });
+  });
+  res(seen7.every(function(x){ return x.txt.indexOf('typical ' + (Math.abs(x.med - Math.round(x.med)) < 0.05 ? String(Math.round(x.med)) : x.med.toFixed(1))) >= 0; }),
+      'H7-picker GATE: choosing each nutrient renders THAT nutrient\u2019s figure -- asserted for every key in the picker, which is the defect D84 shipped in another surface');
+  res(seen7[0].med === 550 && seen7[1].med === 5.5 && seen7[0].txt !== seen7[1].txt,
+      'H7-picker GATE: and the surfaces actually DIFFER between nutrients -- a picker that is ignored would render the same row five times and pass a weaker check');
+  HT.setTypicalNutrient('kcal');
+
+  // -- the sourced band: the seam, and the fact that nothing fills it ---------
+  var withSrc = HT.typicalRowHTML({ lo: 25, hi: 38, label: 'reference range', org: 'Example Body', cite: 'Example Guideline', version: '2020' });
+  var srcBox = document.createElement('div'); srcBox.innerHTML = withSrc;
+  res(!!srcBox.querySelector('.tsrcband') && !!srcBox.querySelector('.tbandrect'),
+      'H7-band-cited GATE: a sourced band renders ALONGSIDE the typical band, as a separate element');
+  // Read through the DOM, not by substring. The first version of this check was
+  // /class="tsrcband"[^>]*fill=/ -- order-dependent, so a plant that put fill=
+  // BEFORE class= sailed past it and the pass scored the plant vacuous.
+  res(srcBox.querySelector('.tsrcband').getAttribute('fill') === null,
+      'H7-band-cited GATE: and it is drawn as an outline rather than a fill, so it cannot be mistaken for the user\u2019s own typical -- asserted on the ATTRIBUTE, whatever order it is written in');
+  res(withSrc.indexOf('Example Body') >= 0 && withSrc.indexOf('Example Guideline') >= 0 && withSrc.indexOf('2020') >= 0,
+      'H7-band-cited GATE: it carries org, citation and version -- D32\u2019s requirement, not a decoration');
+  var noSrc = HT.typicalRowHTML();
+  var noBox = document.createElement('div'); noBox.innerHTML = noSrc;
+  // Keyed on the citation BLOCK, not on the string 'labcite': a plant that merely
+  // renamed the inner class slipped past the substring version of this check.
+  res(!noBox.querySelector('.tsrcband') && !noBox.querySelector('.cited') && !noBox.querySelector('.labcite'),
+      'H7-band-absent GATE: with no sourced band supplied, nothing band-shaped and no citation chrome renders -- the seam is DORMANT, and no food nutrient fills it today');
+  res(noSrc.indexOf('tbandrect') >= 0,
+      'H7-band-absent: the user\u2019s own typical band is still drawn -- the exclusion is narrow');
+
+  // -- nothing is persisted by this surface (D29) ----------------------------
+  var beforePick = localStorage.getItem('healthtracker-log');
+  HT.setTypicalNutrient('fiber_g');
+  res(localStorage.getItem('healthtracker-log') === beforePick,
+      'H7-census GATE: choosing a nutrient writes NOTHING to storage -- the choice is UI state in this slice, deliberately, so the D29 write-site census is unchanged and the claim is proven rather than asserted');
+  HT.setTypicalNutrient('kcal');
+
 
 
 

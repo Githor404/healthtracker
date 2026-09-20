@@ -21,6 +21,7 @@
     --lane-track:#c9d2de;
     --bg:#f4f6fa; --panel:#ffffff; --line:#e4e9f0;
     --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b; --accent:#2fb3a3;
+    --tbhi:#5b6b80; --tblo:#b3bdcb; --tbband:#e6eaf0;
   }
   @media (prefers-color-scheme: dark){
     :root{
@@ -29,6 +30,7 @@
       --lane-track:#2a323f;
       --bg:#12161c; --panel:#1b212b; --line:#2a323f;
       --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484; --accent:#3fbfae;
+      --tbhi:#9fb2cc; --tblo:#57657a; --tbband:#2b3341;
     }
   }
   *{box-sizing:border-box}
@@ -435,6 +437,25 @@
   .spark line.tref{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
   .tsum{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
   .tgoal{color:var(--muted);font-weight:600}
+  /* H7 (D95). DIRECTION is encoded as two tints of ONE hue differing in lightness.
+     var(--good) and var(--warn) are deliberately absent: those tokens mean "good"
+     and "bad" everywhere else here, so reusing them would be D24's objection with
+     a new address. A bar above the middle day is not a better bar. */
+  .tpick{margin:6px 0 2px;flex-wrap:wrap}
+  .tbsvg{display:block;width:100%;height:56px;margin:6px 0 4px}
+  .tbsvg .tbandrect{fill:var(--tbband)}
+  .tbsvg .tbar{fill:var(--tblo)}
+  .tbsvg .tbar.above{fill:var(--tbhi)}
+  .tbsvg .tbar.below,.tbsvg .tbar.flat{fill:var(--tblo)}
+  .tbsvg .tmed{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
+  /* The sourced band (Fork F1) is drawn as an OUTLINE, never a fill, so it can
+     never be mistaken for the typical band behind it. Dormant: nothing supplies one. */
+  .tbsvg .tsrcband{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:2 2}
+  .ttrail{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}
+  .tleg{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tleg b{color:var(--txt);font-weight:700}
+  .tdir{margin-top:5px}
+  .tarrow{font-weight:700;color:var(--txt)}
   .thint{color:var(--muted);font-weight:600}
   .nudgeoffer,.nudgefocus{padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
   .nudgetitle{font-weight:700;font-size:14px}

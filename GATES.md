@@ -3610,6 +3610,37 @@ The flaw is in how it was nearly read. The pass scored that plant **OK** because
 
 **Scope check → [[D94]].** "How far back does the clean-tree abort reach?" is answered there and the answer is **nowhere**: an aborted run produces **zero assertion output** (measured at 552 bytes, ending at `VERSION CHECK: FAIL`), so any recorded pass naming a failed gate is self-certifying — and every recorded pass names one. The only genuinely ambiguous case, **D85**, was **re-run rather than argued** and its gates fired by name. The scope check also found that **D85's control was ANDed with its gate's own condition** and so could never pass while the gate failed; it is now asserted independently.
 
+### H7 / D95 — the typical band, BUILT — v0.33.0
+
+All ten forks ruled before a line was written. No schema change; nothing persisted by the surface.
+
+| case | asserts |
+|---|---|
+| H7-quantiles **GATE** | the fixture is **skewed**, so a mean and a median differ — 850 against 550 — and the outlier does **not** move the band |
+| H7-typical-complete **GATE** | an in-progress day never reaches the typical; its 99999 would move the median if it did |
+| H7-denominator-renders **GATE** | *"median of N of M days"* is **on the surface**, not only in the returned object |
+| H7-macro-short **GATE** | an empty day and a macro-short day are excluded, counted **separately**, and both sit in M |
+| H7-colour-split **GATE** | bars above and below carry **different** classes — five each on a fixture built to split evenly, with a vacuity control |
+| H7-colour-not-evaluative **GATE** | neither `var(--good)` nor `var(--warn)`, and no class named for a verdict |
+| H7-no-evaluative **GATE** | M7's list plus **"target"** and **"goal"**, because the whole point of this row is that it is neither — with a control |
+| H7-trail-numbers **GATE** | each leg is the median of exactly **its own** span (150 / 350 / 550), and prints its span and its n |
+| H7-trail-sparse **GATE** | a leg with no complete days says so rather than reaching further back |
+| H7-min-history **GATE** | at **seven** days nothing draws and the surface says 7 of 8; at **eight** it draws — the boundary asserted from both sides |
+| H7-direction-fact **GATE** | **both** compared figures are in the marker's text; a bare arrow fails |
+| H7-goal-independence **GATE** | the row is **byte-identical** with and without goals set (SG1 / FX3) |
+| H7-picker **GATE** | every nutrient renders **its own** figure, the surfaces differ, and `soluble_fiber_g` is not offered |
+| H7-band-cited **GATE** | a sourced band renders as an **outline** (asserted on the attribute, in any order) with org, citation and version |
+| H7-band-absent **GATE** | with none supplied, nothing band-shaped and no citation chrome — the seam is **dormant** |
+| H7-census **GATE** | choosing a nutrient writes **nothing** to storage |
+
+**Defect pass: sixteen plants, sixteen failing their own named gates.** The first run found six problems, one of them serious: **the fixture could not tell a median from a mean.** Ten evenly spaced days (100…1000) have mean == median == 550, so the `typical-is-the-mean` plant changed nothing and Fork B1's ruling was untested — **D60 Clause 4, seventh instance.** Repaired by mirroring the real log: one day at 4,000, which leaves the quantiles untouched and moves the mean to 850.
+
+Four more were gate or runner faults, not code faults: an **order-dependent** `fill=` regex a plant walked around; a substring check on `labcite` a renamed class slipped past; an anchor containing `·` that matched nothing because `app.js` carries the literal escape; and a plant calling `resave()`, which is not in scope — **invalid JS aborts the suite, which under Clause 5 reads as a hang.**
+
+**A contradiction in the pre-registration, found in the build.** It said the floor applies *per trail leg*; 3 is never 8, so that blanks the 3-day leg permanently on every possible log. Resolved: the floor gates anything offered **as a typical**; a leg reports a **span** and always renders, stating its own n.
+
+**Suite: 1996 assertions, all passing** (1953 → 1996).
+
 ### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, **FORKS RULED** (received 2026-09-19; NOT built — Fork C shipped separately as D90)
 
 **Four things in the brief do not match the repo, and three of them change the forks. One of them is a defect in shipped code that this slice would otherwise have built on top of.**

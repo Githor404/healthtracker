@@ -3655,3 +3655,48 @@ Recorded as settled, replacing the two earlier speculative notes (*"memory press
 - and in **every** case the assertions had **already executed**: the output carries the full PASS/FAIL stream with the expected gates failing **by name**, then stops before the summary — *"no SUMMARY line (the suite did not finish)"*.
 
 **What is lost is the tail of the output, not the results.** It is an **output-capture failure under sustained load** — not a plant misbehaving, and not the memory flake it was first filed as. The practical consequence: an inconclusive run whose named gates fired is **strong evidence but not a complete verdict**, because assertions after the truncation point are genuinely unknown. Re-run, then read; do not rewrite a working gate to chase it.
+## D95 — H7 built: the typical band, a nutrient against the user's own recent normal — v0.33.0 (2026-09-20)
+
+All ten forks ruled before a line was written. `APP_VERSION → 0.33.0`; **no schema change**, nothing new stored, nothing persisted by the surface.
+
+### What was built
+
+A **Typical** row in Trends. For one macro at a time, it draws the user's recent complete days as bars against **their own middle day** over a fixed 28, with the **middle half** of those days as a band behind them. Under it: a trail of *last 3 days · 7 days · 28 days*, each printing its own span and its own n, and a direction marker that always states **both** numbers it compares.
+
+- **Fork B1 — median, not mean**, and the reason is recorded so it is not read as a general preference: **the distribution is skewed by single-item days.** In the log that motivated this, one day sits at 3,930 kcal among days of a few hundred, and the mean sits above four of the six values. The middle half is the Tukey-style band a median deserves. Elsewhere this app still says *avg*; here it says **median**, and the caption says so.
+- **Fork D1 — a floor of eight usable days**, and the cost was ruled with it: **on a sparse log this surface shows nothing.** It says how many days it has and how many it needs. A band drawn from six days spanning 115 to 3,930 kcal would be arithmetically correct and descriptively empty.
+- **Fork G1 — direction only.** Above and below the middle day are **two tints of one hue** differing in lightness. `var(--good)` and `var(--warn)` are absent by construction and by gate: those two tokens mean *good* and *bad* everywhere else here, and reusing them would be [[D91]]'s finding with a new address. **A bar above the middle day is not a better bar.**
+- **Fork H1 — macros only**, and `soluble_fiber_g` is **not offered**: it is *"always present, 0 when unknown"* by contract, so most of its values mean **unknown**, and a band drawn round that is [[D90]]'s zero again, drawn prettier.
+- **Fork E1 — the goal is never compared to.** A goal is declared; a typical is observed. The row renders **byte-identically** with and without nutrient goals set, which is proven by equality rather than asserted.
+- **Fork F1 — the sourced-band seam is built and left empty.** No food nutrient has a D32 band: every analyte there is a blood measure, and 25-OH vitamin D is serum **status**, not dietary intake. The renderer accepts one, draws it as an **outline** so it can never be mistaken for the user's own band, and carries org, citation and version. Nothing supplies one; the path is reachable only by its gates.
+- **Fork J1 — two vocabularies, kept deliberately.** The 30/90/all buttons choose how much to draw; the trail's legs are the content, fixed and independent of them. **28 = 4×7**, so every weekday appears exactly four times. The disqualifying property of 30 is **instability, not magnitude**: the drift is ~2.3%, and a reference whose value depends on which day you open the app is not a reference at any size. The same unevenness costs a trend line nothing, because no single number is claimed from it.
+
+**One narrowing, recorded rather than left silent.** The chosen nutrient is **UI state and is not persisted**. Persisting it is a settings write, which brings the D29 census, the normalizer allowlist and a migration question with it, and none of that was ruled. Gated: choosing a nutrient writes **nothing** to storage.
+
+### A contradiction in the pre-registration, found in the build
+
+The pre-registration said Fork D's floor *"applies per trail leg, not only to the band"*, and Fork J's proposal repeated it. **Both cannot hold: 3 is never 8, so a floor of eight applied per leg blanks the 3-day leg permanently** — by construction, on every possible log.
+
+Resolved the coherent way: **the floor gates anything offered as a typical** — the band, and the direction marker that compares against it. **A leg reports a span, not a typical**, so it always renders, and what it must do instead is state its own n. A leg with nothing in it says *"no complete days"* rather than reaching further back for something to show. Recorded here because the pre-registration is the record and it was wrong on this point.
+
+### The defect pass, and the fixture that could not tell a median from a mean
+
+Sixteen plants. **The first run scored `typical-is-the-mean` VACUOUS**, and the reason is the finding: the fixture ran ten days at 100, 200 … 1000, evenly spaced — where **the mean and the median are both 550.** The plant changed nothing, the gate passed with the defect in, and **Fork B1's entire ruling was untested.**
+
+That is **D60 Clause 4, seventh instance**, and the sharpest one yet: the gate was not weak, and the assertion named the right property. The *fixture* was symmetric, so the two answers coincided — a fixture cannot distinguish a median from a mean unless the data is skewed, which is precisely the condition B1 exists for. **The repair mirrors the log that motivated the ruling:** one day at 4,000 among days of a few hundred. The quantiles are unchanged (550, 325, 775) and the mean moves to 850 — and the fixture now asserts that difference explicitly, plus that the outlier **does not move the band**, which is the property that makes a median the right summary.
+
+Five further plants exposed problems in the gates or the runner rather than the code:
+
+| plant | what it showed | repair |
+|---|---|---|
+| the sourced band is drawn as a fill | the check was `/class="tsrcband"[^>]*fill=/` — **order-dependent**, so a plant writing `fill=` *before* `class=` sailed past it | read through the **DOM**: the element's `fill` attribute must be absent, however the tag is written |
+| the citation is dropped | `H7-band-absent` keyed on the literal string `labcite`, so a plant that merely **renamed the class** slipped past | keyed on the citation **block** and the element, not a substring |
+| the denominator is not rendered | the plant reported **PLANT FAILED (anchor ×0)**: `app.js` carries the literal six characters `·`, and a non-raw anchor turned it into the character | the anchor stops short of the escape |
+| the choice is persisted | the plant called `resave()`, which is not in scope — **invalid JS aborted the suite**, which under Clause 5 reads as a hang | `Store.saveState(APP_STATE)`; a plant must be valid code or it tests nothing |
+| the citation is dropped | the runner **expected the wrong gate** (`H7-band-absent`) — an error in the expectation, not in the gate | expectation corrected to the gate that actually guards it |
+
+**Final: sixteen plants, sixteen failing their own named gates.** The intermittent appeared on three runs and each was re-run to a clean verdict, per [[D94]].
+
+### One cross-check worth keeping
+
+The `evaluative-word-on-the-row` plant failed **M7 and SG7** as well as `H7-no-evaluative` — the Mirror's own vocabulary gates already read the Trends surface, so the new row inherited their cover the moment it was rendered there. That is the opposite of [[D91]]'s finding, and a useful one: **placing a new surface inside an already-gated one is the cheapest way to be covered.** `H7-no-evaluative` is still worth having, because it adds **"target"** and **"goal"** to the banned list for this row specifically — the entire point of the row is that it is neither.
