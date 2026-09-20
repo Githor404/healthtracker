@@ -8541,6 +8541,100 @@ window.setLS({});
       shortCells.indexOf('40') >= 0 && metRing.indexOf('%') >= 0,
       'D91-facts: and every FACT survives -- what you had, your target, floor or ceiling, and the percentage. Neutrality removed the verdict, not the information');
 
+  // ---- D93: the item row joins the vocabulary invariant ---------------------
+  // RULED: `.dot.good` stays. A confidence dot judges the EVIDENCE -- "weighed"
+  // is better provenance than "eyeballed", which is neither personal nor
+  // contested, and making it visible is most of what this app is for. D24 bans
+  // direction-of-good about the USER'S BEHAVIOUR: met versus unmet.
+  //
+  // But the token was cleared by RULING while the SURFACE stayed unexamined, and
+  // those are different states. This is the gate for the surface. It reads the
+  // rendered rows through the DOM rather than by slicing strings, so nesting
+  // cannot silently change what is being asserted.
+  //
+  // SCOPE, stated so a later reader does not widen it by accident: this checks
+  // APP-AUTHORED vocabulary, with a controlled fixture. An item NAMED "Better
+  // Butter" is user content -- escaped, never vocabulary-checked -- and a gate
+  // that grepped user data would fire on the user's own groceries.
+  setLS({}); HT.boot();
+  var d93 = HT.state();
+  var d93day = d93.current;
+  function d93item(name, conf){ return { name: name, meal: 'lunch', time: '12:00', grams: 180,
+      kcal: 200, protein_g: 10, fat_g: 5, carb_g: 20, fiber_g: 2, soluble_fiber_g: 1,
+      confidence: conf, notes: '', source: 'manual' }; }
+  d93.days[d93day] = { status: 'in_progress', water_l: 0, items: [
+    d93item('Rice', 'weighed'), d93item('Beans', 'measured'), d93item('Stew', 'eyeballed') ] };
+  HT.resave(); HT.renderDay();
+
+  var d93rows = Array.prototype.slice.call(document.querySelectorAll('#dayView .mitem'));
+  res(d93rows.length === 3, 'D93-fixture: three item rows rendered -- a gate over an empty surface asserts nothing (D60 Clause 4)');
+
+  var d93html = d93rows.map(function(r){ return r.outerHTML; }).join(' ');
+  var d93text = d93rows.map(function(r){ return r.textContent; }).join(' ').toLowerCase();
+
+  // What IS permitted here: the four provenance tokens, on the confidence dot.
+  var PROV93 = ['good', 'accent', 'warn', 'muted'];
+  var dots93 = [];
+  d93rows.forEach(function(r){
+    Array.prototype.slice.call(r.querySelectorAll('.dot')).forEach(function(d){ dots93.push(d); });
+  });
+  res(dots93.length === 3 && dots93.every(function(d){
+        var cs = Array.prototype.slice.call(d.classList);
+        return cs.length === 2 && cs[0] === 'dot' && PROV93.indexOf(cs[1]) >= 0;
+      }),
+      'D93-permitted GATE: every confidence dot carries exactly `dot` plus ONE provenance token -- this is what the surface is allowed to encode in colour');
+  res(dots93.map(function(d){ return d.classList[1]; }).join(',') === 'good,accent,warn',
+      'D93-permitted GATE: and the token follows the CONFIDENCE, weighed/measured/eyeballed -- it is a statement about the evidence, which is why it is allowed to stay');
+
+  // What is NOT permitted: a provenance token anywhere but the dot.
+  var stray93 = [];
+  d93rows.forEach(function(r){
+    Array.prototype.slice.call(r.querySelectorAll('*')).forEach(function(el){
+      if (el.classList.contains('dot')) return;
+      Array.prototype.slice.call(el.classList).forEach(function(c){
+        if (PROV93.indexOf(c) >= 0) stray93.push(el.className);
+      });
+    });
+  });
+  res(stray93.length === 0,
+      'D93-scoped GATE: no element BUT the dot carries a provenance token -- the colour is licensed for the evidence, not for the row' + (stray93.length ? (' [' + stray93.join(',') + ']') : ''));
+
+  // What is NOT permitted: any token encoding a verdict about the user.
+  var VERDICT93 = ['met', 'short', 'over', 'compliant', 'ontrack', 'on-track', 'success', 'fail', 'bad'];
+  var verdicts93 = [];
+  d93rows.forEach(function(r){
+    Array.prototype.slice.call(r.querySelectorAll('*')).concat([r]).forEach(function(el){
+      Array.prototype.slice.call(el.classList).forEach(function(c){
+        if (VERDICT93.indexOf(c) >= 0) verdicts93.push(c);
+      });
+    });
+  });
+  res(verdicts93.length === 0,
+      'D93-verdict GATE: no class on the item row encodes met/unmet, compliant/short or good/bad ABOUT THE USER -- that is the distinction the dot survives on' + (verdicts93.length ? (' [' + verdicts93.join(',') + ']') : ''));
+  res(VERDICT93.filter(function(c){ return (verdicts93.join(',') + ',met').indexOf(c) >= 0; }).length > 0,
+      'D93-verdict CONTROL: the same check FINDS a verdict token once one is present -- it is not vacuous');
+
+  // The visible text carries no evaluative vocabulary at all.
+  var banned93 = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                  'you could','try to','aim for','well done','great job','keep it up'];
+  res(banned93.filter(function(w){ return d93text.indexOf(w) >= 0; }).length === 0,
+      'D93-vocab GATE: M7\u2019s banned list over the item row\u2019s VISIBLE TEXT -- the dot is a coloured circle with no words, so the token never reaches the reader as vocabulary');
+  res(banned93.filter(function(w){ return (d93text + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
+      'D93-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
+  res(d93text.indexOf('weighed') >= 0 && d93text.indexOf('eyeballed') >= 0 && d93text.indexOf('manual') >= 0,
+      'D93-vocab: and the provenance WORDS are still there -- the row says how the number was arrived at, which is the thing being protected');
+
+  // The unresolved row states absence and still carries no verdict (R31 x D93).
+  d93.days[d93day].items.push({ name: 'Sauce', meal: 'lunch', time: '12:30', grams: 60,
+    unresolved: true, confidence: 'eyeballed', notes: '', source: 'manual' });
+  HT.resave(); HT.renderDay();
+  var d93unres = Array.prototype.slice.call(document.querySelectorAll('#dayView .mitem'))
+    .map(function(r){ return r.textContent; }).join(' ').toLowerCase();
+  res(d93unres.indexOf('composition not recorded') >= 0 &&
+      banned93.filter(function(w){ return d93unres.indexOf(w) >= 0; }).length === 0,
+      'D93-vocab GATE: a row that states an ABSENCE still says nothing evaluative -- the sentence R31 added is a fact about the record, not a mark against the user');
+
+
 
   freeClock();
 

@@ -3538,14 +3538,67 @@ The arithmetic is correct. The premise — that a complete day with no items is 
 - **The assertion count does not.** 1916 assertions passed, and one of them asserted a wrong number. A count measures how much was checked, never whether the checks were checking the right thing.
 - **Review does not, reliably.** A3 reads as correct, because it *is* correct given its premise. The error is one level up, in prose, in another file.
 
-### What can actually be done
+### Recorded as UNREACHABLE BY CURRENT MACHINERY
 
-No mechanical detector is proposed, and one should not be invented to feel safer. Three practices, in descending order of how much they are worth:
+This is the part to keep prominent, and it is stated as a limit rather than as a problem with a solution attached. **Neither of this project's two defences reaches this failure, and no rule stated here closes it.**
 
-1. **When a premise is amended, search the harness for gates that encode it — as part of the amendment.** D90 found A3 only because the suite happened to fail. Had the arithmetic coincided, nothing would have flagged it. The amendment is the moment to look, not the fix.
-2. **Treat a test that goes red during a repair as evidence about the test, not only about the repair.** Ask which of the two states the premise supports before assuming the code is at fault.
-3. **Prefer gates that assert a behaviour with its reason attached.** A3 would have been readable as suspect if it had said *why* 50 was right. The re-pointed case now carries its own history in its comment, and that is the cheap part of the lesson.
+- **The defect pass cannot.** Planting defects proves a gate fails when the code is **wrong**. A3 fails when the code is **right**. No plant will ever reveal it, because plants search the wrong direction.
+- **The assertion pin cannot.** **1,916 assertions passed, and one of them asserted a wrong number.** The count measures how much was checked. It is structurally incapable of saying whether a check checks the right thing.
+
+Adding a third mechanism is not proposed, because the ones that exist fail here for a reason no additional automation removes: **every gate compares the code to an expectation, and the fault is in the expectation.** A machine that could audit expectations would need the thing the expectations are supposed to encode.
+
+**If anything reaches it, it is a review of what each assertion CLAIMS rather than whether it passes — and that is a reading task, not a gate.** Reading 1,953 assertions for their claims is real work with no green tick at the end, and pretending otherwise by writing a rule here would be the same move as a gate that cannot fail: comfort standing in for coverage.
+
+Two practices are worth the small amount they cost, offered as habits rather than as a closure:
+
+1. **When a premise is amended, search the harness for gates that encode it, as part of the amendment.** D90 found A3 only because the arithmetic happened to change; had the numbers coincided, nothing would have flagged it.
+2. **Treat a test that goes red during a repair as evidence about the test, not only about the repair.** Ask which state the premise supports before concluding the code is at fault.
 
 ### The standing line
 
 **A passing suite says the code does what the tests say. It never says the tests say the right thing.** Every premise stated in DECISIONS.md and pinned in the harness is load-bearing in both files at once, and amending it in one place leaves it defended in the other.
+
+**This entry is a named blind spot, not a solved problem.** It sits beside D88 — *no gate reads the page as a person does* — as the second standing limit this project has recorded and cannot gate away. Both are answered by a person looking, and both should be re-read whenever a suite's greenness is about to be offered as evidence that something is right.
+## D93 — The confidence dot stays, and the item row gets the gate it never had (2026-09-19)
+
+Found while checking D91 for orphaned CSS: `CONF_DOT = { weighed: 'good', measured: 'accent', eyeballed: 'warn' }`, rendering `<span class="dot good">` on every item row — the same two colour tokens D91 had just removed from the goal cells, on a surface no vocabulary gate reads. Tests and gates only; no version bump.
+
+### Ruled: it stays
+
+**A confidence dot judges the EVIDENCE, not the user.** *"Weighed" versus "eyeballed"* is a statement about provenance quality, and making it visible is most of what this app is for — the honesty rule in the brief exists to keep estimates from wearing the clothes of measurements.
+
+D24 bans **direction-of-good about the user's behaviour** — met versus unmet. Its reasoning was that the direction is **personal and contested**: a ceiling set while cutting and the same ceiling set while recovering mean opposite things, and the app cannot tell which. **Neither half of that applies here.** A weighed measurement being better evidence than a guess is not personal, and it is not contested. The two cases look alike only because they share a CSS token.
+
+### The reach argument still held, and the gap was real
+
+**Cleared by ruling and covered by a gate are different states, and this surface had only the first.** No vocabulary gate read the item row. So the token was licensed by an argument while the surface it sits on remained unexamined — which is exactly the shape D91 recorded one surface earlier, and recording the shape twice without closing it the second time would have been the reach failure repeating with a better excuse.
+
+### The gate
+
+It asserts **what is permitted** as well as what is not, because a gate that only forbids cannot tell a licensed token from a missing one:
+
+- **Permitted, asserted positively:** every confidence dot carries exactly `dot` plus **one** of the four provenance tokens, and the token **follows the confidence** (weighed → good, measured → accent, eyeballed → warn). A dot that stopped tracking the confidence would be decoration, and the gate says so.
+- **Forbidden, asserted negatively:** no element **other than the dot** carries a provenance token — the colour is licensed for the evidence, not for the row — and **no class anywhere on the row** names a verdict about the user (`met`, `short`, `over`, `compliant`, `ontrack`, `success`, `fail`, `bad`).
+- **The visible text** carries no M7 vocabulary at all. This is what makes the dot defensible in the end: it is a coloured circle with **no words**, so the token never reaches the reader as vocabulary — while the provenance **words** (`weighed`, `eyeballed`, `manual`) are asserted to still be there.
+- **Controls** on both the verdict-token check and the word grep, so neither is vacuous.
+- **R31 × D93:** a row stating *"composition not recorded"* still says nothing evaluative — an absence is a fact about the record, not a mark against the user.
+
+**Scope, stated so a later reader does not widen it by accident.** This checks **app-authored vocabulary against a controlled fixture**. An item *named* "Better Butter" is user content — escaped, never vocabulary-checked — and a gate that grepped user data would fire on somebody's groceries. The rows are read through the **DOM**, not by slicing HTML, so nesting cannot quietly change what is being asserted.
+
+**Defect pass: six plants, six named failures** — a row carrying a verdict class, a provenance token off the dot, a dot that ignores the confidence, an evaluative word in the meta line, the provenance word dropped, and a dot carrying a verdict token alongside its provenance one.
+
+### Three runner findings, all worth more than the gate
+
+**1. A defect pass on a CLEAN tree is silently disabled.** All six plants first returned **no verdict at all**. The cause was not the intermittent: a plant modifies `app.js`, which changes the shell, and **`check-version` then fails the run before the harness executes** — *"shell changed since last commit but APP_VERSION did not bump"*. The D90 and D91 passes only worked because uncommitted work was already in flight and had carried a bump with it. **Every plant must now carry a version bump**, and a defect pass run straight after a commit would otherwise test nothing while looking like it ran.
+
+**2. The D91 lesson paid for itself immediately.** That pass had scored a plant **OK** because its expected gate appeared in the failure list, even though the suite produced no SUMMARY — and a named failure does not prove the rest of the suite ran. The runner was changed to treat **no verdict as inconclusive, checked first**. One pass later that ordering is what surfaced finding (1) as six honest *inconclusive* results instead of six silent vacuous passes.
+
+**3. The intermittent, finally characterised.** It appeared **four times** across this session's three defect passes, and the pattern is now clear enough to state instead of merely noting:
+
+- it strikes **one run out of six**, and **a different plant each time** — `absent-never-true`, then `the-facts-are-dropped`, then `provenance-word-dropped`, then `dot-carries-a-verdict-too`;
+- it always occurs inside a **long sequential series** of suite runs;
+- and, crucially, **the assertions had all executed.** The saved output carries the full PASS/FAIL stream, the expected gates failing by name among it, and then stops before the summary: *"no SUMMARY line (the suite did not finish)"*.
+
+**So what is lost is the tail of the output, not the results.** That makes an inconclusive run whose named gates failed strong evidence rather than none — but still not a complete verdict, because the assertions *after* the truncation point are genuinely unknown. Re-running remains the right response; the refinement is that the truncation is an output-capture failure under sustained load, and not a sign that the plant did something strange.
+
+All three are recorded here rather than in a scratch file because the defect pass is the machinery the rest of this log leans on, and **a pass that cannot fail is the same hazard as a gate that cannot fail** — [[D92]]'s point arriving one level out.

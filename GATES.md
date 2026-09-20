@@ -3577,6 +3577,35 @@ The flaw is in how it was nearly read. The pass scored that plant **OK** because
 
 **Suite: 1943 assertions, all passing** (1935 → 1943).
 
+### D93 — the item row joins the vocabulary invariant (2026-09-19; tests and docs only, no version bump)
+
+`CONF_DOT = { weighed: 'good', measured: 'accent', eyeballed: 'warn' }` puts `var(--good)` on an item row — the same token D91 had just removed from the goal cells, on a surface no vocabulary gate read. **Ruled: it stays.** A confidence dot judges the **evidence**, not the user, and D24's reasoning (direction-of-good is personal and contested) applies to neither half of *weighed versus eyeballed*. **But cleared by ruling and covered by a gate are different states**, and this surface had only the first.
+
+| case | asserts |
+|---|---|
+| D93-fixture | three item rows rendered — a gate over an empty surface asserts nothing (D60 Clause 4) |
+| D93-permitted **GATE** | every confidence dot carries exactly `dot` **plus one** provenance token — what the surface *is* allowed to encode in colour |
+| D93-permitted **GATE** | and the token **follows the confidence** (weighed → good, measured → accent, eyeballed → warn) — a dot that stopped tracking it would be decoration |
+| D93-scoped **GATE** | **no element but the dot** carries a provenance token — the colour is licensed for the evidence, not for the row |
+| D93-verdict **GATE** | no class on the row names a verdict about the user: `met`, `short`, `over`, `compliant`, `ontrack`, `success`, `fail`, `bad` |
+| D93-verdict CONTROL | the same check **finds** a verdict token once one is present |
+| D93-vocab **GATE** | M7's banned list over the row's **visible text** — the dot is a coloured circle with **no words**, so the token never reaches the reader as vocabulary |
+| D93-vocab CONTROL | the same grep fires on planted evaluative text |
+| D93-vocab | and the provenance **words** are still there — the row says how the number was arrived at, which is the thing being protected |
+| D93-vocab **GATE** | a row stating *"composition not recorded"* (R31) still says nothing evaluative — an absence is a fact about the record, not a mark against the user |
+
+**Scope:** app-authored vocabulary against a controlled fixture. An item *named* "Better Butter" is user content — escaped, never vocabulary-checked. Rows are read through the **DOM**, not by slicing HTML.
+
+**Defect pass: six plants, six named failures.**
+
+**Runner finding — a defect pass on a CLEAN tree tests nothing while looking like it ran.** All six plants first returned no verdict. Not the intermittent: a plant changes the shell, and `check-version` then aborts the run **before the harness executes** — and satisfying it needs a full release's metadata, `APP_VERSION` bumped *and* a dated `VERSION_LOG` entry that is the newest. The D90 and D91 passes only worked because uncommitted work was already carrying a bump. **Every plant must now carry one.**
+
+**Runner finding — the D91 lesson paid immediately.** That pass had scored a plant **OK** because its expected gate appeared in the failure list, though the suite produced no SUMMARY; a named failure does not prove the rest of the suite ran. The runner now treats **no verdict as inconclusive, checked first** — and one pass later that ordering is exactly what surfaced the `check-version` abort as six honest *inconclusive* results instead of six silent vacuous passes.
+
+**The intermittent, characterised.** Four occurrences across three passes, one run in six, **a different plant each time**, always inside a long sequential series — and in every case **the assertions had already executed**: the output carries the full PASS/FAIL stream with the expected gates failing by name, then stops before the summary. **What is lost is the tail of the output, not the results.** Re-running stays the right response, but the truncation is an output-capture failure under load, not a sign the plant did something strange.
+
+**Suite: 1953 assertions, all passing** (1943 → 1953).
+
 ### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, **FORKS RULED** (received 2026-09-19; NOT built — Fork C shipped separately as D90)
 
 **Four things in the brief do not match the repo, and three of them change the forks. One of them is a defect in shipped code that this slice would otherwise have built on top of.**
