@@ -3851,3 +3851,136 @@ That distinction is also the answer to "why two vocabularies":
 
 **What this does not touch.** The averages block keeps 7-day and all-time. Nothing here proposes a fourth window; J1 adds **3 and 28** to a vocabulary that already contains 7.
 
+### H8 — The derived query term: what was printed, and what was actually sent — PRE-REGISTERED, FORKS OPEN (received 2026-09-20; NOT built)
+
+**A citation correction first, because this repo has a standing note about it.** The brief cites *"collectibles' D4 reading-versus-query"*. **In this repo D4 is retired** — it was legacy migration, superseded by CLAUDE.md v4. The in-repo rules that carry that shape are **D55** (a correction is kept beside the original), **D70** (provenance stays where the estimate was made), and **H4 Fork B1**, which named this exact field eleven days ago: *"Any structured value the app needs later is a derived field stored beside it, never a replacement. Examples are a numeric dose for a dose event, or **a normalised query for H5**."* This entry is written against those.
+
+**The ruling already given, carried in unchanged:** the printed string is **never modified**; a query term is **derived beside it**; the derivation is **visible and editable**; and the openFDA query is **not loosened**.
+
+#### What the device pass actually established
+
+The bug report was withdrawn and the measurement stands on its own. Against the live API, using the exact URLs `app.js` builds:
+
+| query | result |
+|---|---|
+| `openfda.generic_name:"fluocinonide"` | **200** — three spellings, exact match `FLUOCINONIDE` (46 labels), **26 manufacturers** |
+| `openfda.brand_name:"Lyderm"` | **404** — as expected, a Canadian brand |
+| `openfda.generic_name:"fluocinonide 0.05%"` | **404** |
+| `…:"Fluocinonide Gel 0.05%"` | **404** |
+| `…:"Fluocinonide Topical Gel USP, 0.05%"` | **404** |
+
+**The two-field design reaches the query.** `H5-brand GATE` asserts on `FETCHES[0].url` — the outgoing request, decoded — not on a constant, so a design that failed to reach the query would fail it by name. The generic *was* tried. The bare INN resolves; anything with a form or strength attached does not.
+
+**So the gap is between two contracts that are each right on their own:** D79 stores the generic **exactly as printed**, and a pharmacy label rarely prints the bare INN. D80 matches **exactly**, and rightly. Neither is wrong; they simply do not meet.
+
+#### The deciding case, measured — and the measurement moves it
+
+The brief named **"fluocinonide acetonide" versus "fluocinonide"** as the case that decides how much may be stripped. Measured:
+
+- **`fluocinonide acetonide` does not exist** — 404. The real pair is `fluocinonide` (substance `FLUOCINONIDE`) and **`fluocinolone acetonide`** (substance `FLUOCINOLONE ACETONIDE`) — **two different substances**, one letter apart in the stem.
+- Stripping `acetonide` from `fluocinolone acetonide` yields `fluocinolone`, which resolves to **nothing**. It **fails safe**: the app falls through to the next printed name and reports no match.
+
+**So the named case argues *for* stripping.** The case that argues against is a different one, and it is the more common shape:
+
+| printed name | labels | last word stripped | labels | |
+|---|---|---|---|---|
+| metoprolol tartrate | 157 | metoprolol | **12** | **lands on a real, different term** |
+| metoprolol succinate | 144 | metoprolol | **12** | **lands on a real, different term** |
+| amlodipine besylate | 127 | amlodipine | **4** | **lands on a real, different term** |
+| hydroxyzine hydrochloride | 146 | hydroxyzine | **2** | **lands on a real, different term** |
+| bupropion hydrochloride | 239 | bupropion | **3** | **lands on a real, different term** |
+| diclofenac sodium | 275 | diclofenac | **15** | **lands on a real, different term** |
+| levothyroxine sodium | 275 | levothyroxine | NONE | fail-safe |
+| fluocinolone acetonide | 42 | fluocinolone | NONE | fail-safe |
+| triamcinolone acetonide | 213 | triamcinolone | NONE | fail-safe |
+
+**Six of nine land on a real, different term.** `metoprolol tartrate` → `metoprolol` is **D80's succinate/tartrate hazard reached by stripping instead of by loose matching** — the same wrong label, through a different door. **A trailing chemical word is therefore not safe to strip by rule**, and the intuition that "the salt is not part of the ingredient name" is exactly wrong for querying: openFDA treats the salt as part of the name, because it identifies the product.
+
+The brief's prior survives for **form and strength**, which is what it actually claimed — and the refinement is that *salt and ester words are not form or strength*, however chemical they look.
+
+#### The corpus measurement that kills the obvious rule
+
+A sample of **1000 distinct `generic_name` spellings**, one request, pure string analysis after:
+
+| property | count |
+|---|---|
+| contain a comma | **144** (14.4%) |
+| …comma then a **number** (a strength suffix) | **1** |
+| …comma then a **word** (a combination product) | **143** |
+| contain a `%` | 20 |
+| contain a dosage form word | 12 |
+| contain `USP`/`NF` | 0 |
+
+**A "strip everything after the comma" rule would be wrong 143 times out of 144.** The commas in this corpus are overwhelmingly **ingredient separators**, not strength separators: `AVOBENZONE, HOMOSALATE, OCTISALATE, OCTOCRYLENE`, `DEXTROMETHORPHAN HBR, GUAIFENESIN`, `TITANIUM DIOXIDE, ZINC OXIDE`. Stripping across a comma turns a combination product into a different, single-ingredient one — and it would do so silently, which is the failure mode the brief asked to have surfaced.
+
+The single counter-example is `DICLOFENAC SODIUM TOPICAL GEL, 1%` — and notice it is *also* the shape a real pharmacy label prints.
+
+#### The tension this slice has to resolve honestly
+
+**Deriving a query term IS a loosening**, and the brief forbids loosening. The distinction that makes this legitimate has to be stated rather than assumed:
+
+> **The loosening happens in the DERIVATION, which is visible and editable. The MATCH stays exact.**
+
+Every query still goes out as `.exact` against a specific spelling, and a no-match is still never retried with a looser string. What changes is that the app may compute a **second candidate reading** of what the label says, show it, and let the user correct it before it is used. That is a different act from widening a match, and if that distinction does not hold, **A3 (no derivation, manual edit only) is the honest slice.**
+
+#### The forks
+
+**Fork A — how much may be stripped. The central one.**
+- **A1 (recommended): a closed allowlist of FORM and STRENGTH tokens, trailing only, never across a comma.** Nothing else is ever removed.
+  - **Removable:** dosage forms (`gel, cream, ointment, lotion, foam, spray, solution, suspension, syrup, tablet(s), capsule(s), injection, patch, drops, film, powder, granules`), route words (`topical, oral, ophthalmic, otic, nasal`), compendial marks (`USP, NF`), release qualifiers (`ER, XR, SR, DR`), and strength tokens (a number optionally followed by `% mg mcg g mL/ml IU`).
+  - **Never removable:** any word not on that list — which is what protects `tartrate`, `succinate`, `besylate`, `hydrochloride`, `sodium`, `acetonide`.
+  - **Never across a comma**, on the 143-of-144 measurement.
+  - **Stops at the first non-removable token**, scanning from the end, so `FLUOCINONIDE, DIMETHICONE` is untouched and `Fluocinonide Topical Gel USP, 0.05%` reduces only as far as the comma allows.
+- **A2: strip after the first comma.** **Rejected by measurement** — wrong 143 times in 144.
+- **A3: no derivation; the user types the query.** Genuinely defensible and the honest fallback if A1's list proves leaky. Cost: every Canadian-brand label needs manual work, which is the case the slice exists for. **Recommended as the behaviour when A1 strips nothing** — the box is there either way.
+- **A4: ask openFDA to derive it** (loose search, take the top term). **Rejected: that is the loosening D78/D80 forbid, wearing a different hat.**
+- **Open, and it needs your ruling:** whether `ER/XR/SR/DR` belong on the removable list. They are release qualifiers, not ingredients — but `METOPROLOL SUCCINATE ER TABLETS` is a real stored spelling, so stripping them can move a hit to a miss as easily as a miss to a hit.
+
+**Fork B — when the derived term differs from the printed one.**
+- **B1 (recommended): both are always on screen, and the app never substitutes silently.** The panel shows *"printed: Fluocinonide Topical Gel USP, 0.05% · searching: fluocinonide"* with the second editable. The brief's requirement — *"I must be able to see what was actually sent"* — is met **before** the request, not only after.
+- **B2: derive silently, show only on failure.** Rejected: the one case where you most need to see the query is the one where it succeeded on a term you did not choose.
+
+**Fork C — is the derived term stored, or recomputed each time?**
+- **C1 (recommended): stored, beside the printed value, as a derived field** (`query: {generic, brand}` or similar). An edit must survive, and D72's rule — the export should show what the app actually did — argues the same way. **Cost, to rule explicitly: a schema bump, the D29 census, and the `normalizePrinted` allowlist, which is the trap this repo has walked into eight times.**
+- **C2: recomputed at lookup time, never stored.** Cheaper, no schema change — but an edit then lives nowhere, which contradicts the ruling that it be editable.
+
+**Fork D — query order, and how many attempts.**
+- **D1 (recommended): printed first, derived second, each as its own exact lookup, each named on the surface.** Order: printed generic → derived generic → printed brand → derived brand, stopping at the first that resolves. Four attempts at most, each visible.
+- **D2: derived only, when it differs.** Rejected: the printed string is the honest first reading and sometimes matches exactly.
+
+**Fork E — what the no-match message says.**
+- **E1 (recommended): it lists every string tried, in order.** Today it says *"no US label found"*, which is true and unhelpful — it was the absence of this list that made the device pass look like a bug. The message becomes evidence rather than a verdict.
+
+**Fork F — combination products.**
+- **F1 (recommended): a printed name containing a comma is queried as printed and never reduced.** The measurement says openFDA stores combinations as comma-joined strings, so the printed string is the one with a chance of matching.
+
+**Fork G — scope: whose labels.**
+- **G1 (recommended): the medication record only.** The scan list (D77) is a local log of what was scanned, not a queryable record, and H5 does not read it.
+
+#### Data implications
+
+- **C1 is a schema change** and brings the allowlist trap with it. The export gains a field that says what was sent, which is the point.
+- **Nothing is ever written to `printed`.** Gated by byte-equality across a derivation and an edit.
+- **No new network behaviour.** The same two-step count-then-label contract, the same `.exact` matching, the same 404-is-no-match reading.
+
+#### Pre-registered gates
+
+| case | asserts |
+|---|---|
+| H8-printed-untouched **GATE** | `printed` is **byte-identical** before and after derivation, after an edit, and across export → restore; a planted write to `printed` fails it |
+| H8-derive-closed **GATE** | only allowlisted tokens are ever removed — `tartrate`, `succinate`, `besylate`, `hydrochloride`, `sodium`, `acetonide` **survive**, each asserted by name |
+| H8-derive-comma **GATE** | a name containing a comma is **never** reduced across it; `FLUOCINONIDE, DIMETHICONE` and a four-ingredient sunscreen are untouched |
+| H8-derive-stops **GATE** | the scan stops at the first non-removable token from the end, so a form word **before** an ingredient word is not reached |
+| H8-visible **GATE** | both strings are on the shipped page **before** any request, and the derived one is in an editable control |
+| H8-editable **GATE** | an edited term is what goes out — asserted on the **outgoing URL**, the `FETCHES[0].url` pattern that settled this device report |
+| H8-no-loosen **GATE** | every request is still `.exact` against one spelling, and a no-match is **never** retried with a looser string — the D80 assertion, re-run against the new path |
+| H8-order **GATE** | printed generic → derived generic → printed brand → derived brand, stopping at the first that resolves, with a planted reordering failing by name |
+| H8-tried-list **GATE** | the no-match surface lists **every** string tried, in order |
+| H8-fluocinonide | the motivating case end to end: `Fluocinonide Topical Gel USP, 0.05%` derives `fluocinonide`, which resolves — driven by the recorded openFDA response, not the live API |
+| H8-metoprolol **GATE** | `metoprolol tartrate` derives **itself**, unchanged, because `tartrate` is not removable — the measured hazard, gated as the thing that must not happen |
+| H8-flag | the derived field survives **export → restore** (the allowlist trap, ninth occurrence) |
+| H8-census | the D29 write-site census is **run**, and the manifest matches whatever C1 actually writes |
+
+**The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
+
+**Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
