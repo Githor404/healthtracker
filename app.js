@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 11;
-const APP_VERSION      = '0.33.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 12;
+const APP_VERSION      = '0.34.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -826,6 +826,16 @@ function migrateV10toV11(v10, nowISO) {
   if (typeof v10.knownDropped === 'number') out.knownDropped = v10.knownDropped;
   return out;
 }
+// H8 -- v11 -> v12. Structural passthrough: no store is added, and every store
+// comes through byte-identical. It bumps because an older app STRIPS `query`, and
+// what is lost is the term the USER CHOSE to send. Re-deriving would then send a
+// different string than the one they picked, silently -- D29's asymmetry test on
+// the side that makes it a wrong action rather than a degraded one.
+function migrateV11toV12(v11, nowISO) {
+  const out = Object.assign({}, v11, { version: 12 });
+  out.migratedAt = typeof v11.migratedAt === 'string' ? v11.migratedAt : nowISO;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -841,6 +851,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 8) < 9) out = migrateV8toV9(out, nowISO);
   if ((out.version || 9) < 10) out = migrateV9toV10(out, nowISO);
   if ((out.version || 10) < 11) out = migrateV10toV11(out, nowISO);
+  if ((out.version || 11) < 12) out = migrateV11toV12(out, nowISO);
   return out;
 }
 
@@ -5729,6 +5740,7 @@ const VERSION_LOG = [
   { v: '0.32.1', d: '2026-09-19', note: 'A day you marked complete but left empty no longer counts as a zero in your averages and trends. A day with no food recorded is not a day with no food eaten, so it is left out and the figures say how many days they were built from. If you have days like that, your averages and the energy chart will move \u2014 they were being pulled down by days that held nothing.' },
   { v: '0.32.2', d: '2026-09-19', note: 'Your goal cells and the goal ring no longer turn green or amber depending on whether you have met a goal. They show the same numbers as before \u2014 what you have had, your target, floor or ceiling, and the percentage \u2014 without the app passing judgement on them in colour. This is the rule the app already followed for weight, sleep and the other signals, applied to food, where it had been missed.' },
   { v: '0.33.0', d: '2026-09-20', note: 'A new Typical row in Trends shows your recent days for one macro against your own normal \u2014 the middle day of your last 28, and the middle half of them as a band. Pick the nutrient: energy, protein, fat, carbs or fibre. It needs eight complete days before it will draw anything, and it says how many it has. It is a description of what you have been eating, not a target, and it is never compared to your goals.' },
+  { v: '0.34.0', d: '2026-09-20', note: 'Drug lookup now shows you exactly what it will search for, next to what your label actually says \u2014 and you can edit it. A pharmacy label prints things like \u201cFluocinonide Topical Gel USP, 0.05%\u201d, and the US database stores the plain ingredient name, so the app trims the dosage form and strength and searches for that. What is printed on your label is never changed. If no label is found, it now lists every term it searched for.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8595,6 +8607,12 @@ function normalizeMed(raw) {
                 created: /^\d{4}-\d{2}-\d{2}$/.test(String(r.created)) ? String(r.created) : '',
                 fills: Array.isArray(r.fills) ? r.fills.map(normalizeFill).filter(Boolean) : [] };
   if (r.labelSetId != null && String(r.labelSetId) !== '') out.labelSetId = String(r.labelSetId);   // H5: the one document it points at
+  // H8/D98: the DERIVED query term, stored beside `printed` and never in place of
+  // it. Added to this normalizer in the same commit that introduced the field --
+  // the allowlist trap has been walked into eight times, so it is the build's
+  // first obligation rather than a note, and export -> restore is gated.
+  const mq = normalizeQuery(r.query);
+  if (mq) out.query = mq;
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(r.stopped))) out.stopped = String(r.stopped);
   if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
   const alts = normalizeAltList(r.ai_alts);
@@ -9447,12 +9465,122 @@ function drugClose() { DRUG_VIEW = null; renderDrugInfo(); return { ok: true }; 
 function drugSet(v) { DRUG_VIEW = v; renderDrugInfo(); return v; }
 // Both printed names are searched, each exactly: the generic first, because that is
 // what resolves when the brand is Canadian (D80).
+// ---- H8: the derived query term (D98) -------------------------------------
+// D79 stores the generic EXACTLY AS PRINTED; D80 matches EXACTLY. Both are right
+// and they do not meet: a pharmacy label prints "Fluocinonide Topical Gel USP,
+// 0.05%" and openFDA stores "FLUOCINONIDE". So a query term is derived BESIDE the
+// printed string -- never instead of it -- shown before anything is sent, and
+// editable. The loosening lives in the DERIVATION, which the user can see and
+// correct. The MATCH stays exact: one spelling per request, and a no-match is
+// still never retried with a looser string.
+//
+// THE LIST IS CONTENT AND IT STAYS SHORT. A missing token fails safe (no match,
+// falls through); a wrongly added one shows a WRONG LABEL AS RIGHT. Measured
+// against 1000 openFDA spellings: this list alters 2.6% of them, every alteration
+// preserves the substance, and no combination product is touched. D96 governs any
+// change to it -- a fixture must contain a name the change would alter.
+const QUERY_DROP = [
+  // dosage forms
+  'gel', 'cream', 'ointment', 'lotion', 'foam', 'spray', 'solution', 'suspension',
+  'syrup', 'tablet', 'tablets', 'capsule', 'capsules', 'injection', 'patch',
+  'drop', 'drops', 'film', 'powder', 'granule', 'granules',
+  // routes
+  'topical', 'oral', 'ophthalmic', 'otic', 'nasal',
+  // compendial marks
+  'usp', 'nf',
+  // release qualifiers (ruled in)
+  'er', 'xr', 'sr', 'dr',
+];
+// A NUMBER IS ONLY A STRENGTH WHEN IT CARRIES A UNIT. Measured: POLYETHYLENE
+// GLYCOL 400 and POLYETHYLENE GLYCOL 3350 are DIFFERENT SUBSTANCES, so a bare
+// trailing number is part of the identity, not a package descriptor.
+const QUERY_STRENGTH = /^[\d.]+\s*(%|mg|mcg|g|ml|iu)$/i;
+// A comma followed by a WORD is the measured signature of a COMBINATION product:
+// 143 of the 144 comma-bearing spellings in a 1000-term sample. Such a name is
+// never reduced -- not even partially, which is what stops one ingredient's
+// strength being stripped while its siblings keep theirs.
+const QUERY_COMBINATION = /,\s*[^\d\s]/;
+
+function queryTokenDrops(tok) {
+  const t = String(tok == null ? '' : tok).replace(/,+$/, '').trim().toLowerCase();
+  if (!t) return true;
+  if (QUERY_DROP.indexOf(t) >= 0) return true;
+  return QUERY_STRENGTH.test(t);
+}
+
+// Pure, and the only place a printed name is ever reduced.
+function deriveQueryTerm(printed) {
+  const raw = String(printed == null ? '' : printed).trim();
+  if (!raw) return '';
+  if (QUERY_COMBINATION.test(raw)) return raw;
+  const toks = raw.split(/\s+/);
+  while (toks.length && queryTokenDrops(toks[toks.length - 1])) {
+    toks.pop();
+    while (toks.length && /,$/.test(toks[toks.length - 1])) {
+      toks[toks.length - 1] = toks[toks.length - 1].replace(/,+$/, '');
+      if (!toks[toks.length - 1]) toks.pop(); else break;
+    }
+  }
+  const out = toks.join(' ').replace(/,+$/, '').trim();
+  return out || raw;                      // never reduce a name to nothing
+}
+
+// The term that will actually be sent: the user's edit if there is one, else the
+// derivation. `printed` is not consulted for anything but deriving.
+function medQueryTerm(med, field) {
+  const q = (med && med.query) || {};
+  if (q[field] != null && String(q[field]).trim() !== '') return String(q[field]);
+  return deriveQueryTerm(((med && med.printed) || {})[field]);
+}
+// An edit is stored; clearing it returns the field to the derivation.
+function setMedQuery(medId, field, value) {
+  const med = getMed(medId);
+  if (!med || QUERY_FIELDS.indexOf(field) < 0) return { ok: false };
+  const v = String(value == null ? '' : value).trim();
+  if (!med.query || typeof med.query !== 'object') med.query = {};
+  if (!v || v === deriveQueryTerm((med.printed || {})[field])) delete med.query[field];
+  else med.query[field] = v;
+  if (!Object.keys(med.query).length) delete med.query;
+  Store.saveState(APP_STATE);
+  renderDrugInfo();
+  return { ok: true, term: medQueryTerm(med, field) };
+}
+const QUERY_FIELDS = ['generic_name', 'name'];
+function normalizeQuery(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  QUERY_FIELDS.forEach((k) => { const v = labelValue(raw[k]); if (v != null) out[k] = v; });
+  return Object.keys(out).length ? out : null;
+}
+
+// What the panel shows before anything is sent, and what the no-match surface
+// lists afterwards: every string that will be or was tried, in order.
+// One place builds the sentence the no-match surface shows, so the gate and the
+// surface cannot describe the same list two ways.
+function drugTriedText(med) {
+  return drugTriedList(med).map((t) =>
+    esc(t.printed) + (t.derived ? ' <small>(shortened)</small>' : '')).join(' \u00b7 ');
+}
+function drugTriedList(med) {
+  return drugNameQueries(med).map(function (q) {
+    return { field: q.field, printed: q.printed, derived: q.derived === true };
+  });
+}
 function drugNameQueries(med) {
   const p = (med && med.printed) || {};
   const out = [];
-  if (p.generic_name) out.push({ field: 'generic_name', printed: p.generic_name });
-  if (p.name) out.push({ field: p.generic_name ? 'brand_name' : 'generic_name', printed: p.name });
-  if (p.name && !p.generic_name) out.push({ field: 'brand_name', printed: p.name });
+  // Fork D1: printed FIRST, derived SECOND, each as its own exact lookup and each
+  // named on the surface. The derived term is a second READING of the label, not
+  // a looser match of the first.
+  const add = (field, printed, srcField) => {
+    if (!printed) return;
+    out.push({ field: field, printed: printed, derived: false });
+    const d = medQueryTerm(med, srcField);
+    if (d && d !== printed) out.push({ field: field, printed: d, derived: true, from: printed });
+  };
+  add('generic_name', p.generic_name, 'generic_name');
+  add(p.generic_name ? 'brand_name' : 'generic_name', p.name, 'name');
+  if (p.name && !p.generic_name) add('brand_name', p.name, 'name');
   return out;
 }
 function drugOpen(medId) {
@@ -9627,6 +9755,27 @@ function drugStemsHTML() {
   return `<div class="pmalts">` + LABEL_QUESTION_STEMS.map((s) =>
     `<button type="button" class="pmalt" onclick="drugCopyPrompt('${esc(s).replace(/'/g, '&#39;')}')">${esc(s)}</button>`).join('') + `</div>`;
 }
+// Fork B1: BOTH strings, always, and the outgoing one editable -- before any
+// request, not only after one fails. The one case where you most need to see the
+// query is the one where it SUCCEEDED on a term you did not choose.
+// `onchange` only: `oninput` would re-render on every keystroke and steal focus.
+function drugQueryRowHTML(med) {
+  const p = (med && med.printed) || {};
+  const rows = QUERY_FIELDS.filter((f) => p[f]).map((f) => {
+    const term = medQueryTerm(med, f);
+    const label = f === 'generic_name' ? 'Generic name' : 'Name';
+    const edited = !!(med.query && med.query[f]);
+    const note = edited ? 'edited by you'
+      : (term !== p[f] ? 'shortened to the ingredient name \u2014 edit it if that is wrong' : '');
+    return `<div class="qrow"><div class="qline"><span>${esc(label)}, as printed</span>`
+      + `<b>${esc(p[f])}</b></div>`
+      + `<div class="qline"><span>searching for</span>`
+      + `<input type="text" class="qin" value="${esc(term)}" aria-label="search term"`
+      + ` onchange="setMedQuery('${esc(med.id)}','${esc(f)}',this.value)"></div>`
+      + (note ? `<small class="qnote">${esc(note)}</small>` : '') + `</div>`;
+  });
+  return rows.length ? `<div class="qbox">${rows.join('')}</div>` : '';
+}
 function renderDrugInfo() {
   const el = document.getElementById('drugInfo');
   if (!el) return;
@@ -9640,6 +9789,7 @@ function renderDrugInfo() {
   let body = '';
   if (v.phase === 'idle') {
     body = `<div class="pmnote">Look up the US prescribing information for this medication. Nothing is sent until you tap.</div>` +
+      drugQueryRowHTML(med) +
       `<button class="btn primary" onclick="drugLookup('${esc(v.medId)}')">Look up the label</button>`;
   } else if (v.phase === 'loading') {
     body = `<div class="opend"><span class="byokspin"></span>${esc(v.message || 'Working\u2026')}</div>`;
@@ -9649,7 +9799,15 @@ function renderDrugInfo() {
       `<button class="btn" onclick="drugLookup('${esc(v.medId)}')">Try again</button>`;
   } else if (v.phase === 'none') {
     const p = med.printed;
+    // Fork E1: the message becomes EVIDENCE rather than a verdict. "No US label
+    // found" is true and unhelpful, and it was the absence of this list that made
+    // a working lookup read as a bug on the device pass.
+    const tried = drugTriedText(med);
     body = `<div class="omsg obad">No US label found for ${esc(p.generic_name || p.name || 'this medication')}.</div>` +
+      (tried ? `<div class="pmnote">Searched for: ${tried}</div>` : '') +
+      drugQueryRowHTML(med) +
+      `<div class="pmnote">Edit a search term above and look up again if one of these is wrong.</div>` +
+      `<button class="btn" onclick="drugLookup('${esc(v.medId)}')">Look up again</button>` +
       `<div class="pmnote">${esc(DPD_LINE)}</div>` +
       `<div class="pmnote">You can still ask your own assistant \u2014 the prompt says no label text was available.</div>` +
       drugStemsHTML() +
@@ -9847,7 +10005,10 @@ window.HT = {
   // H4.1 — removing what should never have been saved (D89)
   removeMed, removeFill, medRemoveWords, fillRemoveWords, medFillsHTML,
   medLatestRx, medLine,
-  renderDrugInfo, migrateV10toV11,
+  renderDrugInfo, migrateV10toV11, migrateV11toV12,
+  // H8 (D98)
+  deriveQueryTerm, medQueryTerm, setMedQuery, drugTriedList, drugTriedText, normalizeQuery,
+  QUERY_DROP, QUERY_FIELDS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

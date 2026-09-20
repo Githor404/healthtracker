@@ -3851,6 +3851,30 @@ That distinction is also the answer to "why two vocabularies":
 
 **What this does not touch.** The averages block keeps 7-day and all-time. Nothing here proposes a fourth window; J1 adds **3 and 28** to a vocabulary that already contains 7.
 
+### H8 / D98 — the derived query term, BUILT — v0.34.0 (schema v11 -> v12)
+
+The printed string is never modified; a query term is derived beside it, shown before anything is sent, and editable. The match stays exact.
+
+| case | asserts |
+|---|---|
+| H8-derive **GATE** | `Fluocinonide Topical Gel USP, 0.05%` reduces to the ingredient name openFDA actually stores |
+| H8-metoprolol **GATE** | a **salt word survives** — stripping it lands on `metoprolol`, a real and different product set |
+| H8-derive-closed **GATE** | besylate, hydrochloride, sodium, acetonide all survive, each by name, and none is on the list to begin with |
+| H8-derive-comma **GATE** | a combination is returned untouched, and is **never partially reduced** |
+| H8-derive-stops **GATE** | a **bare number** is identity, not strength (PEG 400 ≠ PEG 3350); a name is never reduced to nothing |
+| H8-printed-untouched **GATE** | `printed` is unchanged after a derivation and after an edit |
+| H8-editable **GATE** | an edit is stored, is what the term resolves to, and clearing it returns to the derivation |
+| H8-flag **GATE** | `query` survives export → restore — the allowlist trap, **ninth occurrence** |
+| H8-order **GATE** | printed → derived → printed brand, in order, each flagged; a name deriving to itself adds no second query |
+| H8-no-loosen **GATE** | every term, printed and derived alike, goes out as its own exact query for exactly that string |
+| H8-visible **GATE** | both strings on the shipped panel **before** any request, the outgoing one editable and labelled |
+| H8-tried-list **GATE** | the no-match list names every string tried, in order, marking which were shortened |
+| H8-census **GATE** | rendering writes nothing — **counted**, with a control proving the counter moves |
+
+**Defect pass: ten plants, ten failing their own named gates** — after three faults in the gates themselves: a census that compared content and so could not see a redundant save (**vacuous**), two unguarded dereferences that turned a plant into *"something threw"* (**Clause 5**), and a runner expectation naming a gate that passes in memory because normalization happens at restore.
+
+**Suite: 2027 assertions, all passing** (1996 → 2027).
+
 ### H8 — The derived query term: what was printed, and what was actually sent — PRE-REGISTERED, FORKS OPEN (received 2026-09-20; NOT built)
 
 **A citation correction first, because this repo has a standing note about it.** The brief cites *"collectibles' D4 reading-versus-query"*. **In this repo D4 is retired** — it was legacy migration, superseded by CLAUDE.md v4. The in-repo rules that carry that shape are **D55** (a correction is kept beside the original), **D70** (provenance stays where the estimate was made), and **H4 Fork B1**, which named this exact field eleven days ago: *"Any structured value the app needs later is a derived field stored beside it, never a replacement. Examples are a numeric dose for a dose event, or **a normalised query for H5**."* This entry is written against those.

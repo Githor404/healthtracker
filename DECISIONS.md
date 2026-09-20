@@ -3761,3 +3761,100 @@ Each is the same failure: a ruling that distinguishes two behaviours, tested on 
 ### The practical form
 
 **A pre-registration that rules between alternatives names the fixture property that separates them.** Not the fixture itself — the *property*: "skewed, so mean ≠ median", "contains duplicate keys", "contains a value exactly on the boundary". One clause, written when the ruling is made, while the alternatives are still in mind. By the time the defect pass runs, the rejected alternative has usually been forgotten, which is exactly why the gate looked right.
+## D97 — Two findings about string rules, both measured against the corpus (2026-09-20; doc-only)
+
+Both came out of H8's measurement, and both are recorded because they generalise past drug names.
+
+### 1. Chemical-looking is not the test
+
+**The prior, stated plainly so the inversion is visible:** the ruling claimed *form and strength* are safe to strip because they are package descriptors, not part of the ingredient name — and then extended that to **salt and ester words**, because they look chemical.
+
+**The measurement says the opposite.** Stripping a trailing chemical word from nine real names:
+
+| printed | labels | stripped | labels | |
+|---|---|---|---|---|
+| metoprolol tartrate | 157 | metoprolol | **12** | lands on a real, different term |
+| metoprolol succinate | 144 | metoprolol | **12** | lands on a real, different term |
+| amlodipine besylate | 127 | amlodipine | **4** | lands on a real, different term |
+| hydroxyzine hydrochloride | 146 | hydroxyzine | **2** | lands on a real, different term |
+| bupropion hydrochloride | 239 | bupropion | **3** | lands on a real, different term |
+| diclofenac sodium | 275 | diclofenac | **15** | lands on a real, different term |
+| levothyroxine sodium | 275 | levothyroxine | none | fail-safe |
+| fluocinolone acetonide | 42 | fluocinolone | none | fail-safe |
+| triamcinolone acetonide | 213 | triamcinolone | none | fail-safe |
+
+**Six of nine.** `bupropion hydrochloride` has 239 labels and `bupropion` has 3 — they are **different product sets**, not the same drug named two ways. A salt word is **part of the substance's identity**, because it identifies the product that was dispensed.
+
+**This is D80's succinate-for-tartrate hazard reached by stripping instead of by loose matching** — the same wrong label, through a different door. And the rule that survives is not about chemistry at all:
+
+> **Chemical-looking is not the test.** What may be removed is what the *source* treats as a package descriptor, and the only way to know that is to ask the source. A token's appearance says nothing about whether the thing indexing it considers it part of the name.
+
+**The case that was expected to decide it did not.** `fluocinolone acetonide → fluocinolone` resolves to **nothing** and falls through safely, so it would have argued *for* stripping. Picking the deciding case by intuition picked the wrong one; the corpus picked the right ones.
+
+### 2. The comma: 143 of 144, and the worst outcome this feature can produce
+
+Of **1000** distinct `generic_name` spellings, **144 contain a comma**:
+
+- **143** are **combination products** — `AVOBENZONE, HOMOSALATE, OCTISALATE, OCTOCRYLENE`, `DEXTROMETHORPHAN HBR, GUAIFENESIN`, `TITANIUM DIOXIDE, ZINC OXIDE`;
+- **1** is a strength suffix — `DICLOFENAC SODIUM TOPICAL GEL, 1%`.
+
+**A "strip everything after the comma" rule would be wrong 143 times out of 144.** It would silently convert a combination product into a **different single-ingredient product** — and that is not a miss. A miss shows nothing and falls through. This shows **a plausible label for the wrong drug**, which is the worst outcome this feature can produce, and it does it quietly, with a confident-looking answer.
+
+The rule is obvious, reads correctly, handles the motivating case, and is wrong 99.3% of the time it fires. **Keep it as the standing example of why an obvious string rule needs its corpus checked before it is written, not after it ships.**
+
+### What the two have in common
+
+Both are rules about **string shape** standing in for knowledge about **meaning**, and in both the intuition is not merely imperfect but **inverted**: the comma looks like a separator between a name and its strength and is almost always a separator between ingredients; a salt word looks like a descriptor and is almost always part of the identity.
+
+**The generalisation, which is cheap and was skipped both times:** before writing a rule over strings from a source, **run it over a sample of that source and count what it changes.** One request returned 1000 spellings here, and it overturned two positions that had been argued from first principles. [[D96]] is the sibling rule for fixtures; this is the same discipline pointed at the rule itself.
+
+## D98 — H8 built: the derived query term, beside the printed one — v0.34.0 (2026-09-20)
+
+`APP_VERSION → 0.34.0`; **schema v11 → v12**. The printed string is never modified; a query term is derived **beside** it, shown **before** anything is sent, and **editable**. The match stays exact.
+
+### What it does
+
+D79 stores the generic **exactly as printed**; D80 matches **exactly**. Both are right, and they do not meet: a pharmacy label prints `Fluocinonide Topical Gel USP, 0.05%` and openFDA stores `FLUOCINONIDE`. The lookup now derives the second from the first, shows both, and lets the user correct the one that goes out.
+
+- **The order:** printed generic → derived generic → printed brand → derived brand, each its own exact lookup, each flagged for what it is, stopping at the first that resolves. A name that derives to itself adds **no** second query.
+- **The no-match message lists every string tried**, marking which the app shortened. *"No US label found"* alone is true and unhelpful — and it was the absence of that list that made a working lookup read as a bug on the device pass.
+- **The panel shows what will be sent before the request**, not only after one fails. The case where you most need to see the query is the one where it **succeeded** on a term you did not choose.
+
+### The tension, resolved by stating it rather than assuming it
+
+**Deriving a query term IS a loosening**, and the ruling forbade loosening. The distinction that makes it legitimate:
+
+> **The loosening lives in the DERIVATION, which is visible and editable. The MATCH stays exact.**
+
+Every request still goes out `.exact` against one spelling, and a no-match is still never retried with a looser string. A derived term is a **second reading of the label**, not a widened match of the first. A3 — no derivation, the user types the term — stays recorded as the fallback if that distinction ever fails to hold.
+
+### The rule, and the two refinements measurement forced
+
+The allowlist is **closed and short**: dosage forms, routes, compendial marks, release qualifiers (`ER/XR/SR/DR`, ruled in), and a strength token. Everything else survives — which is what protects `tartrate`, `succinate`, `besylate`, `hydrochloride`, `sodium`, `acetonide` (see [[D97]]).
+
+**A1 as ruled said "never across a comma", and the motivating case requires crossing one.** `Fluocinonide Topical Gel USP, 0.05%` only reduces to `fluocinonide` if `, 0.05%` goes; a literal comma barrier leaves `Fluocinonide Topical Gel USP`, which is still a 404. **Both cannot hold**, so it was tested rather than argued: a trailing-token scan that stops at the first non-removable token leaves **141 of 143** combinations untouched on its own — **the ingredient word after the comma was doing the protecting, not the comma.**
+
+The two it *did* alter forced the refinements:
+
+1. **A bare number is not a strength.** `GLYCERIN, HYPROMELLOSE, POLYETHYLENE GLYCOL 400` lost its `400` — but **PEG 400 and PEG 3350 are different substances**. A number counts as a strength **only when it carries a unit** (`% mg mcg g mL IU`).
+2. **A combination is never partially reduced.** `AVOBENZONE 3%, HOMOSALATE 15%, OCTISALATE 5%, OCTOCRYLENE 10%` lost one ingredient's strength while its siblings kept theirs, producing a string that is neither the label nor a query. A comma followed by a word — the measured signature of a combination — now returns the name untouched.
+
+**Re-measured after the refinements: 0 of 143 combinations altered, 12 of 12 intended cases correct, 26 of 1000 terms altered (2.6%), and every one of 14 sampled alterations resolves while preserving the substance** — every salt word survives (`MICONAZOLE NITRATE`, `CHLORHEXIDINE GLUCONATE`, `OLOPATADINE HYDROCHLORIDE`).
+
+### Fork C, and the allowlist trap as the first obligation
+
+The derived term is **stored**, so an edit survives and the export shows what was actually sent. That is a schema bump, and the trap that comes with it has been walked into **eight times**, so it was the build's first obligation rather than a note: `query` joined `normalizeMed` **in the same edit that introduced the field**, and export → restore is gated.
+
+**The bump's reason, on D29's asymmetry test:** an older app strips `query`, and what is lost is **the term the user chose to send**. Re-deriving would then send a different string than the one they picked, silently — the side of the line that makes it a wrong action rather than a degraded one.
+
+### The defect pass: ten plants, ten named failures — and three faults in the gates
+
+| plant | what it showed | repair |
+|---|---|---|
+| rendering writes to storage | `H8-census` compared the stored **content**, and a redundant save rewrites the same bytes — so the gate could not see the write at all (**VACUOUS**) | it **counts** writes now, with a control proving the counter moves |
+| an edit is not stored | two cases dereferenced `med.query` after the plant stopped it being created, so the suite reported *"something threw"* (**Clause 5**) | both dereferences guarded; each case fails as itself |
+| the normalizer drops `query` | the runner expected `H8-editable`, which passes in memory — normalization happens at **restore** | expectation corrected to `H8-flag`, the gate that actually guards it |
+
+Two further gate corrections came from the first green run rather than from a plant: `printed` is compared **canonically** rather than byte-for-byte, because the record is built in the draft's key order and rebuilt in `LABEL_FIELDS` order — key order is serialisation, not the reading; and the tried-list is asserted on the **list data**, because the derived term `Fluocinonide` is a substring of the printed name and a substring check would have passed with the derived entry missing entirely.
+
+**Suite: 2027 assertions, all passing** (1996 → 2027).
