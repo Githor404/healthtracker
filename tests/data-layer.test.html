@@ -8494,6 +8494,54 @@ window.setLS({});
   res(document.getElementById('history').innerHTML.indexOf('from 0 of 0 items') < 0,
       'D90-dayview: nor does the history row, which already prints "0 items" and is self-describing');
 
+  // ---- D91: the food goal surface joins the vocabulary invariant ------------
+  // THE GAP IS THE FINDING, not the green border. Seven vocabulary gates existed
+  // when this was written; all seven read the Mirror, the capture box, the rhythm
+  // rings, the gap surfaces or the ring legend. None read the food goal surface,
+  // so `class="goalcell good"` with a border in var(--good) shipped from v0.6.1
+  // to v0.32.1 -- past a banned list that contains the string " good", because
+  // nothing ever pointed that list at this HTML.
+  //
+  // Proof by OUTPUT EQUALITY rather than by assertion (the SG1 / FX3 pattern):
+  // the same totals against a goal that is MET and a goal that is SHORT must emit
+  // the same classes and the same stroke colours. Only the numbers may differ.
+  function cls91(h){ return (String(h).match(/class="[^"]*"/g) || []).join('|'); }
+  function stroke91(h){ return (String(h).match(/stroke="[^"]*"/g) || []).join('|'); }
+
+  setLS({}); HT.boot();
+  var t91 = { fiber_g: 30, kcal: 500, protein_g: 10, fat_g: 5, carb_g: 20, soluble_fiber_g: 1 };
+  function goals91(v){ HT.state().settings.goals = { fiber_g: { value: v, direction: 'min' } }; HT.resave(); }
+
+  goals91(20);  var metCells = HT.goalCellsHTML(t91), metRing = HT.goalRingBoxHTML('fiber_g', t91);
+  goals91(40);  var shortCells = HT.goalCellsHTML(t91), shortRing = HT.goalRingBoxHTML('fiber_g', t91);
+
+  res(HT.goalProgress(30, { value: 20, direction: 'min' }).status === 'met' &&
+      HT.goalProgress(30, { value: 40, direction: 'min' }).status === 'short',
+      'D91-fixture: the two goals really are met and short -- a fixture where both sides agreed would pass whatever the render did (D60 Clause 4)');
+
+  res(cls91(metCells) === cls91(shortCells),
+      'D91-cells GATE: the goal cell emits the SAME classes whether the goal is met or short -- proven by equality, not asserted');
+  res(cls91(metCells).indexOf('good') < 0 && cls91(metCells).indexOf('met') < 0 &&
+      cls91(shortCells).indexOf('short') < 0 && cls91(shortCells).indexOf('over') < 0,
+      'D91-cells GATE: and no class is named for a verdict -- `goalcell good` was the evaluative word itself, sitting in the DOM');
+  res(cls91(metRing) === cls91(shortRing) && stroke91(metRing) === stroke91(shortRing),
+      'D91-ring GATE: the nutrient goal ring draws the same stroke either way -- the arc length is the fact, the colour was the verdict');
+  res(stroke91(metRing).indexOf('var(--warn)') < 0 && stroke91(shortRing).indexOf('var(--warn)') < 0,
+      'D91-ring GATE: and never reaches for the warning colour, which means "bad" everywhere else in this app');
+
+  var surf91 = (metCells + ' ' + shortCells + ' ' + metRing + ' ' + shortRing).toLowerCase();
+  var banned91 = ['should','improv','better','worse',' good',' bad','on track','recommend',
+                  'you could','try to','aim for','well done','great job','keep it up'];
+  res(banned91.filter(function(w){ return surf91.indexOf(w) >= 0; }).length === 0,
+      'D91-vocab GATE: M7\u2019s banned list, pointed at the food goal surface for the first time -- this is the gate whose ABSENCE was the finding');
+  res(banned91.filter(function(w){ return (surf91 + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
+      'D91-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
+
+  res(metCells.indexOf('30') >= 0 && metCells.indexOf('20') >= 0 && metCells.indexOf('floor') >= 0 &&
+      shortCells.indexOf('40') >= 0 && metRing.indexOf('%') >= 0,
+      'D91-facts: and every FACT survives -- what you had, your target, floor or ceiling, and the percentage. Neutrality removed the verdict, not the information');
+
+
   freeClock();
 
   var seDone = false;

@@ -3550,7 +3550,34 @@ Ruled out of the H7 pre-registration and **built before H7**, because H7's typic
 
 **Suite: 1935 assertions, all passing** (1916 → 1935; +18 D90 cases, A3 re-pointed in place).
 
-### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, FORKS OPEN (received 2026-09-19; NOT built)
+### D91 — the food goal surface joins the vocabulary invariant — v0.32.2
+
+D24 ruled *"no met/unmet colour, ever"* for signal goals. The **food** goal surface did exactly what that rule forbids, in three places, from v0.6.1 to v0.32.1: a cell border in `var(--good)`, the percentage text in `var(--good)`, and a ring stroke in `var(--warn)` — with the class name **`good`** sitting in the DOM, past a banned list that contains the string `" good"`, because **nothing ever pointed that list at this HTML**.
+
+**Eight vocabulary gates now exist; before this one there were seven, and all seven read some other surface.** The gap is the finding.
+
+| case | asserts |
+|---|---|
+| D91-fixture | the two goals really are **met** and **short** — a fixture where both sides agreed would pass whatever the render did (D60 Clause 4) |
+| D91-cells **GATE** | the goal cell emits the **same classes** whether the goal is met or short — **proven by equality**, not asserted (the SG1 / FX3 pattern) |
+| D91-cells **GATE** | and no class is named for a verdict — `goalcell good` was the evaluative word itself |
+| D91-ring **GATE** | the nutrient goal ring draws the **same stroke** either way — the arc length is the fact, the colour was the verdict |
+| D91-ring **GATE** | and never reaches for `var(--warn)`, which means *bad* everywhere else in this app |
+| D91-vocab **GATE** | M7's banned list, pointed at the food goal surface **for the first time** — the gate whose absence was the finding |
+| D91-vocab CONTROL | the same grep fires on planted evaluative text — it is not vacuous |
+| D91-facts | every **fact** survives: what you had, the target, floor or ceiling, the percentage. Neutrality removed the verdict, not the information |
+
+**Defect pass: six plants, six named failures** — each of the three encodings restored separately, plus an evaluative word planted on the cell, the facts dropped, and `goalProgress` pinned to always return `met` (which fails the fixture case, proving that check is not decorative).
+
+**No existing case broke when the encoding was removed.** Nothing in 1935 assertions had ever read those classes — which is the gap stated as a measurement rather than as an argument.
+
+**Runner note — the intermittent's second appearance in one session, and a flaw it exposed.** The `facts dropped` plant first reported **no SUMMARY** while still printing its named failure; re-run alone it gave `1942/1943 — 1 FAILED`, exactly one named failure. That is the same empty-dump intermittent D90 recorded, twice now in consecutive defect passes, and the reading is that **rapid sequential suite runs provoke it**, not any particular plant.
+
+The flaw is in how it was nearly read. The pass scored that plant **OK** because its expected gate appeared in the failure list — but **a named failure appearing does not prove the rest of the suite ran.** With no SUMMARY, every *other* gate's verdict is unknown, so the correct classification is **inconclusive, re-run** — not pass. A defect pass that accepts "the gate I expected failed" as sufficient has stopped checking whether anything else broke, which is the same shape as D92 one level out: the check answered the question it was asked and not the question that mattered.
+
+**Suite: 1943 assertions, all passing** (1935 → 1943).
+
+### H7 — The typical-band chart: a nutrient against my own recent normal — PRE-REGISTERED, **FORKS RULED** (received 2026-09-19; NOT built — Fork C shipped separately as D90)
 
 **Four things in the brief do not match the repo, and three of them change the forks. One of them is a defect in shipped code that this slice would otherwise have built on top of.**
 
@@ -3699,3 +3726,64 @@ A **34× range**, two single-item days that are plainly partial logging rather t
 - **The floor in Fork D cannot be gated as correct** — only as enforced. Whether 8 days is enough for a number to be called *typical* is a judgement, and the gate can only prove the app refuses below whatever number is ruled.
 
 **Stopping here for rulings.** Nothing is built. The forks needing an explicit answer are **C** (a shipped defect and a D10 amendment), **D** (a floor that blanks this surface on your own data), **G** (the H7 palette, and separately the shipped goal-strip colour), and **H** (macros only, and `soluble_fiber_g`).
+
+#### H7 — RULINGS (2026-09-19). The pre-registration above stands as written; this is what was decided.
+
+**Fork C — ruled: absence. Shipped FIRST, as its own slice, before H7.** D90, v0.32.1. The defect was a live wrong number on a shipped chart and H7 would have inherited it. D10's parenthesis — *"0 for a fasting day"* — is **withdrawn**, marked in place on D10 itself.
+
+**Fork D — ruled: a history floor of 8 usable days**, as recommended, **and the cost is recorded rather than discovered**: on the author's real data this surface **shows nothing today** (6 usable days in 28). That is the honest outcome and better than drawing a band from six days spanning 115 to 3,930 kcal. The floor applies **per trail leg**, not only to the band.
+
+**Fork B — ruled: median, not mean** — and the reason is recorded so it is not read as a general preference: **the distribution is skewed by single-item days.** The measured mean (1490 kcal) sits above four of the six values because one day is 3,930. Where a distribution is not skewed, this app's other surfaces continue to say *avg*, and the H7 surface says **median** because that is what it computes.
+
+**Fork F — ruled: dormant stays dormant.** No food nutrient carries a sourced band, and introducing DRIs is a **new sourced-content class** with its own jurisdiction obligations — its own decision, not a line in this slice. The renderer's seam is built and reachable only by its gate.
+
+**Fork G — ruled: the H7 palette as recommended** (direction only; two tints of a single neutral hue; never `var(--good)` / `var(--warn)`). **And the goal strip ruled separately and immediately: D91, v0.32.2.**
+
+The M7 exception the pre-registration recommended was **not** carved, and the reasoning is the part worth keeping: *"Carving an M7 exception for user-declared goals would have been an exception made for the case in front of us, and D24 already rejected that reasoning for signals. Direction-of-good is no less personal for food."*
+
+**Fork H — ruled: macros only. `soluble_fiber_g` excluded**, on the stated ground that *a band around a number that mostly means unknown is the same failure as the zero, drawn prettier.*
+
+**Fork J — ruled: two vocabularies, as proposed.**
+
+The trail is **last 3 days · 7 days · 28 days**, fixed, independent of the 30/90/all buttons, with **every leg printing its own span and its own n**. The buttons choose how much to draw; the trail's legs are the content. A reference that changes meaning when the user changes the zoom is not a reference.
+
+**The disqualifying property is INSTABILITY, not magnitude — recorded that way deliberately.** 28 = 4×7, so every weekday appears exactly four times; 30 does not divide by 7, so two weekdays appear five times, and **which two depends on the day the app is opened**. The measured drift is **2.3%**, and *that number is not the argument*. A 2.3% drift is small. **A reference whose value depends on which day you open the app is not a reference at any size** — and the same unevenness costs a *trend line* nothing, because no single number is being claimed from it. This is why the two vocabularies are kept rather than merged: they are different kinds of object, and only one of them makes a claim that has to hold still.
+
+J2 (moving the buttons to 28 · 91 · all) was considered and set aside: it would unify the vocabularies at whole weeks, but it churns a control the user knows for a benefit a series does not need.
+
+**Forks A, E and I were not separately ruled and stand as recommended** — A1 (Trends, as a new row type), E1 (no relationship drawn between a declared goal and an observed typical), I1 (the direction marker states both numbers it compares). Recorded as *standing unless corrected* rather than as rulings, so the distinction is not lost.
+
+#### H7 Fork J — the trail's windows: the proposal as put, and RULED as J1 (2026-09-19)
+
+**The question as put:** align the trail to the app's windows, or add 3/7/28 as a further set and say why two vocabularies coexist.
+
+**What exists.** Two window vocabularies already:
+
+| surface | windows | what they are |
+|---|---|---|
+| Trends (`TREND_WINDOW`) | 30 · 90 · all | a **viewing control** — how much history to draw |
+| Averages (`completeDaysInWindow`) | 7 (calendar) · all | **computed figures** — D10's complete-days-only means |
+
+**A measured fact that decides more of this than the tidiness argument.** 28 = 4×7, so every weekday appears exactly four times. 30 does not divide by 7, so two weekdays appear five times — and **which two depends on the day you happen to open the app.** Under a plausible weekly pattern (weekends higher), a 30-day mean **moves by up to 2.3% depending on the weekday you look at it**; the worst error against the true weekly mean is 1.5%. For 28 days the spread is **exactly zero**, as it is for 7 and for 91.
+
+The magnitude is small and should not be oversold. **The property is the point:** a number offered as *typical* that is different on Thursday than it was on Monday, from the same data, is not a reference. For a *trend line* — which is what 30 and 90 currently draw — the same unevenness costs nothing, because no single number is being claimed.
+
+That distinction is also the answer to "why two vocabularies":
+
+> **The buttons choose how much to draw. The trail's legs are the content.** A reference that changes meaning when the user changes the zoom is not a reference — and if the trail followed the buttons, "typical" would mean a different thing on each one.
+
+**J1 (recommended): keep both vocabularies, and make the trail's legs fixed and self-labelling.**
+- Trail legs **last 3 days · 7 days · 28 days**, independent of the 30/90/all buttons.
+- **7 and 28 are whole weeks** and carry the typical; the 3-day leg is explicitly the *recent* end of a comparison and claims no typicality — it is labelled as three days, which states its own limitation.
+- **Every leg prints its own span and its own n.** A user reading Trends at "90d" sees a trail that says 28, and the label is what stops that being a contradiction. On the current log the 7-day leg is **n = 1**, so Fork D's floor must apply **per leg**, not only to the band.
+- The 7-day leg **reuses `completeDaysInWindow('week')`** — the same computation the averages block already shows, so the two surfaces cannot disagree.
+
+**J2: change the Trends buttons to 28 · 91 · all, unifying the vocabularies at whole weeks.**
+- Intellectually the cleanest: one vocabulary, every window weekday-even, and the trail's legs become a subset of the buttons rather than a second set. 91 = 13×7.
+- **Cost:** it changes a control the user already knows, for a benefit (weekday evenness) that a *series* does not need — nobody reads a single number off the 90-day sparkline. And "91" invites the question the label cannot answer in the space available.
+- **Recommended only if** you would rather have one vocabulary than a well-labelled second one. I lean against, but it is a genuine call and the argument above is the whole of it.
+
+**J3: align the trail to 7 · 30 · 90.** Rejected. It adopts the weekday unevenness measured above into the one place it actually matters, to avoid a second vocabulary that labelling already handles — and it loses the 3-day leg, which is the only part of the trail that answers *"where am I lately"*.
+
+**What this does not touch.** The averages block keeps 7-day and all-time. Nothing here proposes a fourth window; J1 adds **3 and 28** to a vocabulary that already contains 7.
+

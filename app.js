@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 11;
-const APP_VERSION      = '0.32.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.32.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1465,11 +1465,17 @@ function goalRingBoxHTML(key, t) {
   if (!g) return '';
   if (isNutrientGoal(key)) {
     const gp = goalProgress(num(t[key]), g);
-    return `<div class="ringbox" onclick="clearSwap()">${ringSVG(gp.pct / 100, gp.status)}<div class="ringval">` +
+    // D91: the nutrient ring is as neutral as the signal ring below it. The arc
+    // length is the fact; the colour was the verdict. `goalProgress` still returns
+    // `status` -- D24's line is between COMPUTING the gap and ENCODING a judgement
+    // about it, and only the second was ever forbidden.
+    return `<div class="ringbox" onclick="clearSwap()">${ringSVG(gp.pct / 100, 'neutral')}<div class="ringval">` +
       `<b>${esc(rDisp(gp.current))}</b><span>of ${esc(rDisp(gp.target))} ${esc(NUTRIENT_LABELS[key] || key)}</span>` +
-      `<span class="gpct ${esc(gp.status)}">${esc(gp.pct)}%</span></div></div>`;
+      `<span class="gpct">${esc(gp.pct)}%</span></div></div>`;
   }
-  // Signal goal: fully neutral -- no met/unmet colour or word (D24).
+  // Signal goal: fully neutral -- no met/unmet colour or word (D24). D91: so is the
+  // nutrient branch above. This comment sat three lines below code doing the
+  // opposite for eleven versions, because no gate read this surface.
   const spec = SIGNAL_BY_TYPE[key];
   const sm = seriesSummary(signalSeries(key, 'all'));
   const cur = sm.n ? sm.latest : 0;
@@ -1514,7 +1520,9 @@ function goalCellsHTML(t) {
   let html = '<div class="goalstrip">';
   html += nut.map((k) => {
     const gp = goalProgress(num(t[k]), goals[k]);
-    return `<div class="goalcell ${esc(gp.status)}" onclick="swapGoal('${esc(k)}')"><span>${esc(NUTRIENT_LABELS[k] || k)}</span>` +
+    // D91: no status class. "18 / 30 · floor · 60%" already says everything the
+    // green border said, and says it in words the user can argue with.
+    return `<div class="goalcell" onclick="swapGoal('${esc(k)}')"><span>${esc(NUTRIENT_LABELS[k] || k)}</span>` +
       `<b>${esc(rDisp(gp.current))}/${esc(rDisp(gp.target))}</b>` +
       `<small>${esc(gp.direction === 'max' ? 'ceiling' : 'floor')} · ${esc(gp.pct)}%</small>` +
       `<button class="grm" onclick="event.stopPropagation();removeGoal('${esc(k)}')" title="remove goal">×</button></div>`;
@@ -5527,6 +5535,7 @@ const VERSION_LOG = [
   { v: '0.31.0', d: '2026-09-17', note: 'Drug information for a saved medication, on request: the US prescribing information — description, indications and mechanism — selected from the FDA label and kept with its source, version and the date you fetched it. Copy the label text, or a prompt that carries it with your question, so an assistant answers from the label instead of from memory. The app never says what a drug is for you, and never checks interactions — that is what a pharmacist’s medication review is for. US labelling only; Canadian-only products are named as not found rather than guessed at.' },
   { v: '0.32.0', d: '2026-09-17', note: 'Remove a medication that was saved by mistake \u2014 the wrong drug, or the wrong strength, read off a label. Mark stopped is still there for one you took and stopped; removing is for one that was never yours or was read wrong, and it takes its fills and its saved label document with it. A single mistaken fill can be removed on its own, leaving the medication. Both ask first and can be undone straight afterwards. Your scan list keeps the scan either way.' },
   { v: '0.32.1', d: '2026-09-19', note: 'A day you marked complete but left empty no longer counts as a zero in your averages and trends. A day with no food recorded is not a day with no food eaten, so it is left out and the figures say how many days they were built from. If you have days like that, your averages and the energy chart will move \u2014 they were being pulled down by days that held nothing.' },
+  { v: '0.32.2', d: '2026-09-19', note: 'Your goal cells and the goal ring no longer turn green or amber depending on whether you have met a goal. They show the same numbers as before \u2014 what you have had, your target, floor or ceiling, and the percentage \u2014 without the app passing judgement on them in colour. This is the rule the app already followed for weight, sleep and the other signals, applied to food, where it had been missed.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

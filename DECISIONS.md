@@ -3469,3 +3469,83 @@ Five plants, **all five failing their named gates**:
 The fourth plant is the one worth keeping: it is the *plausible* wrong fix, not an obvious breakage, and without the two-reasons gate it would have passed. The fifth is the over-correction — dropping the day from the denominator too would have made the window describe fewer days than it covers.
 
 **One runner note, not a code finding.** The third plant first reported **no SUMMARY**, which under D60 Clause 5 reads as a hang rather than a named failure. Re-run in isolation it produced a clean verdict and failed 13 gates by name. This is the **known intermittent** — an empty headless dump under memory pressure or a CDP port collision — and it is recorded here because a defect pass that reports "no verdict" must be re-run before the plant is blamed, or a working gate gets rewritten to chase a phantom.
+## D91 — D24's colour rule reaches the surface it was never applied to — v0.32.2 (2026-09-19)
+
+Ruled alongside H7 Fork G, and built immediately rather than folded into H7: H7 was about to place a scrupulously neutral chart one screen away from a surface doing the opposite, which would have made the inconsistency the user's problem rather than the record's. `APP_VERSION → 0.32.2`; no schema change; no stored data touched.
+
+### What shipped for eleven versions
+
+D24 ruled, for signal goals: **"No met/unmet color, ever.** A green 'under your ceiling' line is the evaluative word 'good' **re-encoded past the text grep** — an honesty invariant satisfiable by changing the encoding is not an invariant."
+
+The **food** goal surface did exactly that, in three places:
+
+| site | what it encoded |
+|---|---|
+| `goalCellsHTML` | `class="goalcell ${gp.status}"` → `.met,.good{border-color:var(--good)}` / `.short,.over{border-color:var(--warn)}` |
+| `goalRingBoxHTML` (nutrient branch) | `ringSVG(pct, gp.status)` → a ring stroke in `var(--warn)` when over or short |
+| the same function | `<span class="gpct ${gp.status}">` → the percentage itself in `var(--good)` |
+
+The DOM carried the literal class name **`good`**. M7's banned list contains the string `" good"`. The word grep would have caught this on the first run — **it was never pointed at this HTML.**
+
+### The gap is the finding; the green border is where it surfaced
+
+Seven vocabulary gates existed. All seven read the Mirror, the capture box, the rhythm rings, the gap surfaces, or the ring legend. **None read the food goal surface.** So the rule was enforced everywhere it had already been thought about, and nowhere it had not — which is the definition of a gate that describes its author's attention rather than the product.
+
+The detail that makes this unambiguous: **the signal branch of `goalRingBoxHTML` carries the comment *"Signal goal: fully neutral — no met/unmet colour or word (D24)"* three lines below the nutrient branch that did the opposite.** The rule was known, written down, and applied to one branch of one function.
+
+**That is a different failure from not knowing the rule**, and it is the one worth recording. A rule nobody has written down is a gap in the record. A rule written down, understood, and applied to the branch the author was looking at is a gap in **reach** — and no amount of restating the rule fixes it. Only pointing a gate at the other surface does.
+
+### The ruling
+
+**No met/unmet colour on the food goal surface either.** The numbers stay exactly as they were — what you had, the target, floor or ceiling, the percentage. Only the verdict is removed.
+
+`goalProgress` **still returns `status`**, and that is deliberate. D24's line is between **computing** the gap and **encoding a judgement** about it; only the second was ever forbidden. The arithmetic has consumers that are not colour.
+
+**Why this rather than the M7 amendment.** The pre-registration recommended the other option: record a deliberate amendment permitting evaluative colour for *user-declared* nutrient goals, on the argument that a floor you set for yourself is a different object from a derived typical. **That was not taken**, and the reason is worth keeping: D24 already considered and rejected the "but the user declared it" argument for signals, on the ground that **direction-of-good is personal** — and it is no less personal for food. A ceiling someone set while cutting and a ceiling someone set while recovering are the same number wearing opposite meanings, and the app cannot tell which.
+
+### Gated where it broke
+
+Proof by **output equality**, not by assertion — the SG1 / FX3 pattern. The same totals against a goal that is **met** and one that is **short** must emit identical classes and identical stroke colours; only the numbers may differ. Plus the word grep this surface never had, with its planted control, and a fixture check proving the two sides genuinely differ in status (D60 Clause 4).
+
+**The standing consequence, recorded so it is not rediscovered:** a vocabulary gate covers the surface it is pointed at and no other. There is no grep over "the app". When a slice adds a rendered surface that states anything about a user's numbers, **pointing the banned list at it is part of building it** — and the count of such gates (now eight) is a count of surfaces reviewed, not a measure of coverage.
+
+## D92 — A gate that would fail if the code were right (2026-09-19; doc-only)
+
+Recorded beside the vacuous-gate family, and distinct from every member of it. **D60 Clause 5, D87 and D88 all describe gates that cannot fail.** This one fails readily — **it fails when the code is correct.**
+
+### The shape
+
+A test that encodes a **premise** rather than a behaviour becomes the premise's defender. When the premise is wrong, the test does not merely miss the defect: it **converts the defect into a protected invariant.**
+
+That is strictly worse than having no test, and the reason is about people rather than arithmetic. With no test, the next person to notice the behaviour investigates it. With this test, they find **an assertion telling them the behaviour is intended** — signed, named, and passing. The gate does not hide the defect. It **argues for it**, and it does so at exactly the moment someone tries to repair it, because that is when it turns red.
+
+### The instance
+
+`A3`, written in Phase 1 and green for every release since:
+
+```
+// A3. macro mean = sum/M; a fasting complete day counts as a real 0-intake day
+res(a3.n === 2 && a3.macros.kcal === 50, 'A3: macro mean = sum/M incl fasting day (100/2 = 50)');
+```
+
+The arithmetic is correct. The premise — that a complete day with no items is a fasting day, and its zero is real — is the sentence D90 withdrew from D10 after measuring a real log where **all three such days sat inside fast windows the user had themselves resolved as *ate, didn't log***.
+
+**The failure mode, played out.** The D90 fix was applied, the suite went red, and the red test was a Phase-1 case asserting a number that had been wrong for the app's whole life. The correct response was to re-point it. A plausible and much cheaper response — *"my change broke a passing test, so my change is wrong"* — would have reverted the fix and left a 33% understatement in place, with a green suite and a documented reason to leave it alone.
+
+### Why the usual defences do not catch it
+
+- **The defect pass does not.** Planting defects proves a gate fails when the code is wrong. A3 fails when the code is **right**, which no plant will ever reveal.
+- **The assertion count does not.** 1916 assertions passed, and one of them asserted a wrong number. A count measures how much was checked, never whether the checks were checking the right thing.
+- **Review does not, reliably.** A3 reads as correct, because it *is* correct given its premise. The error is one level up, in prose, in another file.
+
+### What can actually be done
+
+No mechanical detector is proposed, and one should not be invented to feel safer. Three practices, in descending order of how much they are worth:
+
+1. **When a premise is amended, search the harness for gates that encode it — as part of the amendment.** D90 found A3 only because the suite happened to fail. Had the arithmetic coincided, nothing would have flagged it. The amendment is the moment to look, not the fix.
+2. **Treat a test that goes red during a repair as evidence about the test, not only about the repair.** Ask which of the two states the premise supports before assuming the code is at fault.
+3. **Prefer gates that assert a behaviour with its reason attached.** A3 would have been readable as suspect if it had said *why* 50 was right. The re-pointed case now carries its own history in its comment, and that is the cheap part of the lesson.
+
+### The standing line
+
+**A passing suite says the code does what the tests say. It never says the tests say the right thing.** Every premise stated in DECISIONS.md and pinned in the harness is load-bearing in both files at once, and amending it in one place leaves it defended in the other.
