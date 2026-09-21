@@ -4008,6 +4008,30 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### D106 — a wholly different drug is the worse mismatch — v0.36.3
+
+D105 guarded combinations and let a label for an entirely different drug through in silence. It named combinations **because that was the case in front of it**.
+
+| case | asserts |
+|---|---|
+| D106-different **GATE** | a label for a wholly different drug is caught — amlodipine against a bisoprolol record |
+| D106-different **GATE** | the question names **both** — the drug on the label and the one the bottle prints |
+| D106-different **GATE** | and says neither *wrong* nor *mistake* — two facts, not a verdict |
+| D106-different **GATE** | a label sharing the bottle's **first word** raises no question — the D103 truncation, not a mismatch |
+| D106-different **GATE** | declining saves nothing and reports **which kind** of mismatch; accepting still saves |
+
+**It took nothing new:** the first-word comparison built for D103's truncated salts already saw it; D105 simply never asked for a non-combination.
+
+**A D105 gate was superseded, not left standing** — it asserted the old behaviour, and a gate defending an overtaken ruling is [[D92]]'s shape: it would have turned red on the fix and argued for reverting it.
+
+**Three faults in the pass, all mine:** the new block **ate the next case's fixture** (so *"declining saves nothing"* had to mean the attachment is **unchanged**, not absent — otherwise it asserted the previous case's cleanup); an **unguarded dereference** turned a plant into *"something threw"* (Clause 5); and a plant anchor retyped with `
+
+` and nested quotes **could not match**, twice — it is now taken **verbatim from `app.js`** rather than reproduced.
+
+**Defect pass: five plants, five named failures.**
+
+**Suite: 2108 assertions, all passing** (2103 → 2108).
+
 ### D105 — a wrong label stuck on a medication — v0.36.2
 
 A plain bisoprolol record carried a saved document for the **combination** product, and "Remove this document" appeared dead.

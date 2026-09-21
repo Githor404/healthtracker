@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.36.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.36.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5746,6 +5746,7 @@ const VERSION_LOG = [
   { v: '0.36.0', d: '2026-09-21', note: 'Drug lookup copes with the way pharmacy labels actually print names. A strength written with a space — “2.5 MG” — is now recognised and left out of the search; before, only “2.5MG” was. And when a label shortens a name to fit its field, as with “Fumar” for “Fumarate”, the app now shows you the full spellings the US database holds that start with what your label says, and you choose. It never guesses which one you meant, and what your label printed is kept exactly as it was. Products that combine your drug with another ingredient are listed separately, under their own heading.' },
   { v: '0.36.1', d: '2026-09-21', note: 'Fix: when no exact match was found, the list of close spellings often did not appear \u2014 including after you had edited the search term yourself, which is exactly when you need it. It now considers every term it tried, from either name field, and shortens each one before looking. The \u201cno label found\u201d line no longer names a single term, because it was naming the wrong one; the list of what was searched sits underneath it. A term you typed is now marked \u201cyour edit\u201d rather than \u201cshortened\u201d.' },
   { v: '0.36.2', d: '2026-09-21', note: 'Fix: a label for a combination product \u2014 your drug plus another ingredient \u2014 can no longer be saved against a medication that prints only one, without a question that names the extra ingredient. Fix: \u201cRemove this document\u201d appeared to do nothing. It was working, but the panel kept showing the old document; it now clears and says so, and if there is nothing to remove it says that too. And when you choose a spelling from the suggestions, the app now records which one you chose and whether it came from the combination list.' },
+  { v: '0.36.3', d: '2026-09-21', note: 'The check that asks before saving a combination label now also asks before saving a label for a different drug altogether \u2014 it names the drug on the label and the one your medication prints, and you decide. A label whose name starts with the same drug as yours is saved without a question, as before.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9858,10 +9859,10 @@ function drugSave() {
   // attention -- and it names the extra ingredient, because "this is a
   // combination" is a category and "AND hydrochlorothiazide" is the fact.
   const med0 = getMed(v.medId);
-  const extra = med0 ? drugExtraForMed(med0, v.doc) : [];
-  if (extra.length) {
-    if (!window.confirm(drugComboWords(med0, v.doc, extra)))
-      return { ok: false, declined: true, extra: extra };
+  const mism = med0 ? drugMismatch(med0, v.doc) : null;
+  if (mism) {
+    if (!window.confirm(drugMismatchWords(med0, v.doc, mism)))
+      return { ok: false, declined: true, mismatch: mism.kind, extra: mism.extra || [] };
   }
   const r = saveLabelDoc(v.doc, v.medId);
   if (!r.ok) {
@@ -9882,6 +9883,38 @@ function drugExtraForMed(med, doc) {
   if (!fdaIsCombination(docName)) return [];
   const mine = [p.generic_name, p.name, medQueryTerm(med, 'generic_name'), medQueryTerm(med, 'name')];
   return fdaExtraIngredients(docName, mine);
+}
+// D106: every mismatch this app can SEE, in one place. A combination carries an
+// ingredient the bottle does not print; a different drug shares no ingredient at
+// all. The second is worse -- a combination at least contains the right drug --
+// and it used to pass in silence because D105's ruling named combinations, which
+// was the case in front of us rather than the whole class.
+function drugMismatch(med, doc) {
+  const p = (med && med.printed) || {};
+  const docName = String((doc && (doc.generic_name || doc.name)) || '').trim();
+  if (!docName) return null;
+  const extra = drugExtraForMed(med, doc);
+  if (extra.length) return { kind: 'combination', docName: docName, extra: extra };
+  if (fdaIsCombination(docName)) return null;          // a combination that matches
+  // The same first-word comparison D105 built for truncated salts: the label says
+  // FUMARATE where the bottle says FUMAR, so heads are what can be compared.
+  const heads = [p.generic_name, p.name, medQueryTerm(med, 'generic_name'), medQueryTerm(med, 'name')]
+    .map((n) => String(n || '').trim().toLowerCase().split(/\s+/)[0]).filter((x) => x);
+  const docHead = docName.toLowerCase().split(/\s+/)[0];
+  if (docHead && heads.indexOf(docHead) < 0)
+    return { kind: 'different', docName: docName, printed: String(p.name || p.generic_name || '').trim() };
+  return null;
+}
+// Named, never categorised: "this is the wrong drug" is a verdict, and
+// "this label is for AMLODIPINE, your medication prints BISOPROLOL FUMAR 2.5MG"
+// is two facts the reader can check against the bottle in their hand.
+function drugDiffWords(med, m) {
+  return 'This label is for ' + m.docName + '.\n\n'
+    + 'Your medication prints "' + m.printed + '".\n\n'
+    + 'Save it against this medication anyway?';
+}
+function drugMismatchWords(med, doc, m) {
+  return m.kind === 'combination' ? drugComboWords(med, doc, m.extra) : drugDiffWords(med, m);
 }
 function drugComboWords(med, doc, extra) {
   const p = (med && med.printed) || {};
@@ -10263,7 +10296,7 @@ window.HT = {
   deriveQueryTerm, medQueryTerm, setMedQuery, drugTriedList, drugTriedText, normalizeQuery,
   fdaPrefixURL, fdaPrefixMatches, fdaIsCombination, drugOfferSpellings, drugPickSpelling,
   drugPrefixCandidates, fdaIngredients, fdaExtraIngredients, drugExtraForMed, drugComboWords,
-  normalizeQueryPick, detachLabelDoc,
+  normalizeQueryPick, detachLabelDoc, drugMismatch, drugMismatchWords, drugDiffWords,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },

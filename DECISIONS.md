@@ -4255,3 +4255,50 @@ The second is [[D96]] again: **a fixture that cannot distinguish the presence of
 A single-ingredient label for a **wholly different drug** — amlodipine saved against a bisoprolol record — raises **no question**, because the ruling was about combination products. That is gated as the current behaviour rather than left ambiguous. **Whether a wrong drug should also be questioned is a separate ruling**, and it is the same shape as this one: the app can see the mismatch, and today it says nothing.
 
 **Suite: 2103 assertions, all passing** (2086 → 2103).
+## D106 — A wholly different drug is the worse mismatch, not a lesser one — v0.36.3 (2026-09-21)
+
+[[D105]] guarded **combination** labels and left a label for an entirely different drug — amlodipine saved against a bisoprolol record — going through in silence. D105 named combinations **because that was the case in front of it**, not because the class stopped there.
+
+> *"A wholly different drug is a worse mismatch than a combination, not a lesser one."*
+
+A combination at least contains the right drug. This does not.
+
+### What it took
+
+Nothing new. **The first-word comparison built for D105's truncated salts already saw it** — the label says `FUMARATE` where the bottle says `FUMAR`, so heads were already what got compared. D105 simply never asked the question for a non-combination.
+
+Every mismatch the app **can see** is now in one place: a combination carrying an ingredient the bottle does not print, and a label sharing **no** ingredient at all. Both ask the same shape of question; neither refuses.
+
+**The wording states two facts and no verdict:**
+
+> This label is for **AMLODIPINE BESYLATE**.
+> Your medication prints **"BISOPROLOL FUMAR 2.5MG"**.
+> Save it against this medication anyway?
+
+Gated to contain neither *wrong* nor *mistake*. **"This is the wrong drug" is a verdict; those two lines are facts the reader can check against the bottle in their hand** — and accepting still saves, because the user may have a reason the app cannot see.
+
+**The narrowness is gated with the fixture the ruling asked for:** a label sharing the bottle's first word — `BISOPROLOL FUMARATE` against `BISOPROLOL FUMAR` — raises **no** question. That is the truncation D103 exists for, not a mismatch. Without that fixture the guard could have been "question everything" and passed.
+
+### A D105 gate was superseded rather than left standing
+
+D105 gated that a different-drug label raises **no** question. That was true of D105 and is now wrong, so it was **replaced**, not added beside. A gate still asserting the old behaviour is [[D92]]'s shape — **a test defending a ruling that has been overtaken** — and it would have turned red on the fix and argued for reverting it.
+
+### Three faults in the pass, all mine
+
+| | what happened | what it says |
+|---|---|---|
+| **the block ate the next fixture** | it ran while D105's combination document was still attached, and its cleanup detached it, breaking the detach case that follows | *"declining saves nothing"* had to mean **the attachment is unchanged**, not absent — asserting absence would have asserted the **previous case's cleanup**, not this case's behaviour. The block now hands the fixture back as it found it. |
+| **an unguarded dereference** | the plant that stops the mismatch being detected leaves it null, and calling the wording function on null made the suite report *"something threw"* | **Clause 5**: guarded, and the case fails as itself |
+| **a plant anchor that could not match** | the anchor was retyped with `\n\n` and nested quotes, and mangled twice | the anchor is now **taken verbatim from `app.js`** rather than retyped — the same escaping trap this repo has hit repeatedly, and the only reliable answer is to copy the bytes rather than reproduce them |
+
+**Defect pass: five plants, five failing their own named gates.**
+
+**Suite: 2108 assertions, all passing** (2103 → 2108).
+
+### The standing rule this pair leaves behind
+
+From [[D105]], recorded as its own line because it generalises past that control:
+
+> **`{ok: true}` with an unchanged panel and `{ok: false}` with an unchanged panel are identical to the person holding the phone.** The verdict lives on the surface.
+
+A return value is a fact about the code. **What the user can act on is what changed on screen** — and a function that succeeds without saying so has failed at the only layer that counts.

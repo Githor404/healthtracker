@@ -8989,8 +8989,49 @@ window.setLS({});
                    name: 'amlodipine besylate', generic_name: 'AMLODIPINE BESYLATE',
                    manufacturer: 'Zydus', sections: { description: 'D' },
                    org: 'FDA', fetchedAt: '2026-09-21' };
-  res(HT.drugExtraForMed(HT.getMed(d105id), other105).length === 0,
-      'D105-guard GATE: and a single-ingredient label for a DIFFERENT drug raises none either -- the ruling was about combination products, and whether a wholly wrong drug should also be questioned is a separate question this does not answer');
+  // SUPERSEDED BY D106. This asserted that a label for a wholly different drug
+  // raised NO question, which was true of D105 and is no longer the behaviour:
+  // a different drug is the WORSE mismatch, not a lesser one -- a combination at
+  // least contains the right drug. D105's ruling named combinations because that
+  // was the case in front of it, not because the class stopped there.
+  var mm106 = HT.drugMismatch(HT.getMed(d105id), other105);
+  res(!!mm106 && mm106.kind === 'different' && mm106.docName === 'AMLODIPINE BESYLATE',
+      'D106-different GATE: a label for a WHOLLY DIFFERENT drug is caught -- amlodipine against a bisoprolol record, which used to save in silence');
+  // GUARDED (Clause 5): a plant that stops the mismatch being detected leaves
+  // mm106 null, and an unguarded call here made the suite report "something
+  // threw" instead of failing this case by name.
+  var dw106 = mm106 ? HT.drugMismatchWords(HT.getMed(d105id), other105, mm106) : '';
+  res(dw106.indexOf('AMLODIPINE BESYLATE') >= 0 && dw106.indexOf('BISOPROLOL FUMAR 2.5MG') >= 0 &&
+      /anyway\?/i.test(dw106),
+      'D106-different GATE: and the question names BOTH -- the drug on the label and the one the bottle prints -- so the reader checks two facts rather than accepting a verdict');
+  res(dw106.toLowerCase().indexOf('wrong') < 0 && dw106.toLowerCase().indexOf('mistake') < 0,
+      'D106-different GATE: it does not tell the user they are wrong -- it states what each says and asks. A combination CAN be right and so can this');
+
+  // THE SHARED-FIRST-WORD FIXTURE: the same drug, differently spelled, is saved
+  // without a question. Without this the guard could be "question everything".
+  res(HT.drugMismatch(HT.getMed(d105id), single105) === null,
+      'D106-different GATE: a label sharing the bottle\u2019s FIRST WORD raises no question -- BISOPROLOL FUMARATE against BISOPROLOL FUMAR is the truncation D103 exists for, not a mismatch');
+
+  // and it is a question, not a refusal
+  HT.drugSet({ medId: d105id, phase: 'doc', doc: other105, saved: false });
+  window.__confirm = false;
+  var dd106 = HT.drugSave();
+  // D105's combination document is still attached here, so "saves nothing" means
+  // the attachment is UNCHANGED -- not absent. Asserting absence would have been
+  // asserting the previous case's cleanup, not this case's behaviour.
+  res(dd106 && dd106.declined === true && dd106.mismatch === 'different' &&
+      HT.getMed(d105id).labelSetId === 'set-combo' && !HT.state().labels['set-other'],
+      'D106-different GATE: declining saves nothing -- no new document, no re-link -- and the refusal says WHICH kind of mismatch it was');
+  window.__confirm = true;
+  var da106 = HT.drugSave();
+  res(da106 && da106.ok === true && HT.getMed(d105id).labelSetId === 'set-other',
+      'D106-different GATE: accepting still saves -- the user may have a reason the app cannot see');
+  // Hand the fixture back as it was found: the detach case below needs the
+  // combination document attached, and a case that quietly consumes the next
+  // case's fixture is a defect pass waiting to happen.
+  delete HT.state().labels['set-other'];
+  HT.getMed(d105id).labelSetId = 'set-combo';
+  HT.resave();
 
   // -- detach: the surface moves, and a refusal says so ----------------------
   HT.drugOpen(d105id); HT.renderDrugInfo();
