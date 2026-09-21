@@ -4008,6 +4008,26 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### H9.1 / D102 — the starved column, and the half-renamed pair — v0.35.1
+
+Found on device the day after H9. `.medrow` is a `space-between` flex row; at 16px its three buttons need **301px of a 268px row**, and a flex child's default `min-width:auto` is its **longest word**, so the text **starved rather than wrapped**: **25px wide, three characters per line, 116 lines tall** at 360px.
+
+| case | asserts |
+|---|---|
+| H9-column **GATE** @360 / @390 | the description takes **≥80% of its row** — measured as a share, at both widths |
+| H9-column **GATE** @360 / @390 | and reads as prose — **≥20 characters per line** |
+| H9-column CONTROL @360 / @390 | restoring the narrow shape drops it to **9%** and **18%**, so the measurement catches it |
+| H9-dose-pair **GATE** | the entry and the submit both say **dose** — *"Log a dose I took"* then *"Log this dose"* — gated as a **pair** so they cannot drift apart |
+| H9-dose-pair **GATE** | and the submit no longer claims to log a **medication** |
+
+**Fixed as a class:** `.medfill`, `.drughead` and `.plrow` carry the same shape and were repaired with it.
+
+**Every layout gate passed throughout, because nothing overflowed.** The row never left its box — it grew 116 lines tall inside it. That is [[D101]] one day later on a different quantity: total height could not see an above-the-fold invariant, and horizontal overflow cannot see an unreadable column.
+
+**Recorded, not a defect:** there are **three** surfaces that add a medication (sheet-foot label capture, Settings *"Type a label by hand"*, Settings *"Read label"*), and **no gate asserts they agree**.
+
+**Suite: 2047 assertions, all passing** (2039 → 2047).
+
 ### H9 / D100 — legibility and step count, BUILT — v0.35.0
 
 18 computed sizes → **4** (16/20/24/32); 5 weights → **3** (400/600/700); 719 elements below 16px → **0**; 254 of 262 controls below 16px → **0 of 263**. Measured cost +729px against +734px predicted.

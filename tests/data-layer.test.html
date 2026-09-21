@@ -2376,6 +2376,73 @@ window.setLS({});
           ' :: remove ' + rmStyle.fontSize + '/' + rmStyle.fontWeight + '/' + rmStyle.borderTopStyle +
           ' vs stopped ' + stopStyle.fontSize + '/' + stopStyle.fontWeight + '/' + stopStyle.borderTopStyle +
           ', overlap ' + rmOverlap);
+      // ---- H9.1 / D102: a text column must not be starved by its neighbours --
+      // `.medrow` is a flex row. A flex child's default min-width is AUTO, which
+      // is its longest word, so a text block cannot shrink below that -- it
+      // starves rather than wraps. At the old type the buttons were small enough
+      // to leave the text most of the row; at 16px they need more than the row is
+      // wide, and the description collapsed to 25px: THREE CHARACTERS PER LINE,
+      // 116 lines tall. The overflow gate passed throughout, because nothing
+      // overflowed -- a column can become unreadable while staying inside its box.
+      //
+      // Measured at BOTH widths, because the starvation is a function of how much
+      // room the buttons leave and that changes with the viewport.
+      [360, 390].forEach(function (vwTest) {
+        var savedW = seFrame.style.width;
+        seFrame.style.width = vwTest + 'px';
+        SEW.HT.renderMeds();
+        var dRow = SEDOC.querySelector('#medsBox .medrow');
+        var dSub = SEDOC.querySelector('#medsBox .medsub');
+        if (!dRow || !dSub) { res(false, 'H9-column fixture: a medication row with directions renders at ' + vwTest + 'px'); seFrame.style.width = savedW; return; }
+        var rowW = dRow.getBoundingClientRect().width;
+        var subW = dSub.getBoundingClientRect().width;
+        var share = rowW ? subW / rowW : 0;
+        res(rowW > 0 && share >= 0.8,
+            'H9-column GATE @' + vwTest + 'px: the description takes a sensible share of the row -- ' +
+            Math.round(subW) + 'px of ' + Math.round(rowW) + 'px (' + Math.round(share * 100) + '%)');
+        // A width share is the claim; characters per line is what it is FOR.
+        var cs2 = SEW.getComputedStyle(dSub);
+        var lh = parseFloat(cs2.lineHeight) || parseFloat(cs2.fontSize) * 1.2;
+        var lines = Math.max(1, Math.round(dSub.getBoundingClientRect().height / lh));
+        var cpl = Math.round((dSub.textContent || '').trim().length / lines);
+        res(cpl >= 20,
+            'H9-column GATE @' + vwTest + 'px: and it reads as prose rather than a stack of fragments -- ~' +
+            cpl + ' characters per line over ' + lines + ' line(s)');
+        // CONTROL: restore the starved shape and confirm the same measurement catches it.
+        var mm = SEDOC.querySelector('#medsBox .medmain');
+        var savedCss = mm.getAttribute('style') || '';
+        dRow.style.flexWrap = 'nowrap';
+        mm.style.flex = '0 1 auto';
+        mm.style.minWidth = 'auto';
+        var badShare = dRow.getBoundingClientRect().width
+          ? SEDOC.querySelector('#medsBox .medsub').getBoundingClientRect().width / dRow.getBoundingClientRect().width
+          : 0;
+        res(badShare < 0.8,
+            'H9-column CONTROL @' + vwTest + 'px: the same measurement FINDS the starved column when the narrow shape is put back -- ' +
+            Math.round(badShare * 100) + '% of the row, so the gate is not vacuous');
+        mm.setAttribute('style', savedCss);
+        dRow.style.flexWrap = '';
+        seFrame.style.width = savedW;
+      });
+      SEW.HT.renderMeds();
+
+      // ---- H9.1: the entry and the submit say the same thing ----------------
+      // E3 renamed the ENTRY; the submit inside it still said "Log medication",
+      // which is the same ambiguity one level down -- a route named for a dose
+      // that ends in a button claiming to log a medication.
+      var seFootBtns = SEDOC.querySelectorAll('.sheetfoot button');
+      var doseEntry = null;
+      Array.prototype.forEach.call(seFootBtns, function (b) {
+        if ((b.getAttribute('onclick') || '').indexOf("setSheetMode('med')") >= 0) doseEntry = b;
+      });
+      var doseSubmit = SEDOC.querySelector('#pane-med [onclick="addMedicationFromForm()"]');
+      res(!!doseEntry && !!doseSubmit &&
+          /dose/i.test(doseEntry.textContent) && /dose/i.test(doseSubmit.textContent),
+          'H9-dose-pair GATE: the entry and the submit both say DOSE -- "' +
+          (doseEntry ? doseEntry.textContent.trim() : '?') + '" then "' +
+          (doseSubmit ? doseSubmit.textContent.trim() : '?') + '" -- gated as a PAIR so they cannot drift apart again');
+      res(!!doseSubmit && !/^log medication$/i.test(doseSubmit.textContent.trim()),
+          'H9-dose-pair GATE: and the submit no longer claims to log a MEDICATION, which is what the route was renamed to stop');
       res(/remove/i.test(rmEl.textContent) && /mistake/i.test(rmEl.textContent),
           'H4.1-distinct GATE: and it is named for its purpose, not "delete"');
       var shellFills = (SEW.HT.getMed(shellMed.medId) || { fills: [] }).fills.length;

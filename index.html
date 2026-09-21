@@ -301,7 +301,14 @@
   .lbrefill{margin:0 0 10px}
   .lbrest{margin:10px 0 0}
   .medsec{font-weight:700;font-size:16px;margin:14px 0 4px}
-  .medrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+  /* H9/D102: WRAPS, and the text block takes the full row. Before the 16px
+     floor the buttons were small enough to leave the text most of the row; at
+     16px they need more than the row is wide, and a flex child's default
+     min-width:auto means the text cannot shrink below its longest word -- so it
+     starved to 25px (three characters per line, 116 lines tall) instead of
+     wrapping. `min-width:0` is what lets it wrap at all. */
+  .medrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+  .medmain{flex:1 1 100%;min-width:0}
   .medmain{min-width:0;overflow-wrap:anywhere;font-size:16px}
   .medsub{font-size:16px;color:var(--muted)}
   .medgen{color:var(--muted)}
@@ -316,6 +323,7 @@
   .medfills{margin:4px 0 0}
   .medfills>summary{font-size:16px;color:var(--muted)}
   .medfill{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0}
+  .medfill>*{min-width:0}
   /* H5 drug information. The label text is the artifact: it gets room, a monospace
      measure like every other quoted source, and its own scroll rather than squeezing
      the citation off the surface. */
@@ -327,7 +335,8 @@
   .qin{flex:1 1 140px;min-width:0;font-size:16px;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--txt)}
   .qnote{display:block;font-size:16px;color:var(--muted);margin-top:2px}
   .drugpanel{margin:8px 0;padding:10px;border:1px solid var(--accent);border-radius:12px}
-  .drughead{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:16px}
+  .drughead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;font-size:16px}
+  .drughead>b{flex:1 1 auto;min-width:0}
   .drugtitle{font-weight:700;font-size:16px;margin:6px 0}
   .drugsec{margin:6px 0}
   .drugsec>summary{font-size:16px}
@@ -338,7 +347,8 @@
   .drugctx{margin:8px 0 0}
   .plrecall{margin:0 0 10px;padding:8px 10px;border:1px solid var(--warn);border-radius:10px}
   .plhead{font-size:16px;color:var(--warn);margin:0 0 6px}
-  .plrow{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:44px;align-items:center;
+  .plrow>*{min-width:0}
+  .plrow{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;width:100%;min-height:44px;align-items:center;
     padding:6px 8px;margin:4px 0 0;border:1px solid var(--line);border-radius:8px;background:var(--card);
     color:var(--fg);font-size:16px;font-family:inherit;text-align:left;cursor:pointer}
   .plleft{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -814,7 +824,7 @@
         </div>
         <label class="checkline"><input type="checkbox" id="medScheduled"> Standing / recurring dose (marks intent — no reminders yet)</label>
         <label>Notes</label><input id="medNotes" placeholder="optional">
-        <button class="btn primary" style="margin-top:10px" onclick="addMedicationFromForm()">Log medication</button>
+        <button class="btn primary" style="margin-top:10px" onclick="addMedicationFromForm()">Log this dose</button>
         <div class="note">Name is enough for a quick log; dose and the rest are optional. Kept structured (not buried in notes) so it can be correlated later.</div>
       </details>
       </div>

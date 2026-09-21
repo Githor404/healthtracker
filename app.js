@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.35.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.35.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5742,6 +5742,7 @@ const VERSION_LOG = [
   { v: '0.33.0', d: '2026-09-20', note: 'A new Typical row in Trends shows your recent days for one macro against your own normal \u2014 the middle day of your last 28, and the middle half of them as a band. Pick the nutrient: energy, protein, fat, carbs or fibre. It needs eight complete days before it will draw anything, and it says how many it has. It is a description of what you have been eating, not a target, and it is never compared to your goals.' },
   { v: '0.34.0', d: '2026-09-20', note: 'Drug lookup now shows you exactly what it will search for, next to what your label actually says \u2014 and you can edit it. A pharmacy label prints things like \u201cFluocinonide Topical Gel USP, 0.05%\u201d, and the US database stores the plain ingredient name, so the app trims the dosage form and strength and searches for that. What is printed on your label is never changed. If no label is found, it now lists every term it searched for.' },
   { v: '0.35.0', d: '2026-09-20', note: 'Bigger, plainer type everywhere. Nothing on screen is smaller than 16 pixels now, including every text box and dropdown \u2014 which also stops your phone zooming in every time you tap a field. The app used eighteen different text sizes; it now uses four, and tells things apart by weight instead. And \u201cMedication\u201d in the Log sheet now goes to the pharmacy-label reader, which is what people were looking for there; the form for recording a dose you took is still there, named \u201cLog a dose I took\u201d.' },
+  { v: '0.35.1', d: '2026-09-21', note: 'Fix: in Settings \u203a Medications, a medication\u2019s directions were squeezed into a column a few characters wide and stacked into a tall column of fragments. The text now takes the full width of the row and the buttons sit below it. The same squeeze is fixed in the scan list, the fills list and the drug-information panel. The button that records a dose you took now says \u201cLog this dose\u201d, matching the entry that leads to it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

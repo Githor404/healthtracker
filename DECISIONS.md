@@ -4012,3 +4012,53 @@ Sixteen spacing rules tightened — margins, padding and flex gaps. **Nothing sh
 Several of the cuts were paying for type that no longer exists: `.rmini` carried `padding:2px 0 3px` sized around **9.5px** text and now carries 16px; `.navbtn` had 6px of vertical padding around 20px type. **A floor does not only add height — it makes the old spacing wrong**, because padding was chosen against the old type size.
 
 **Measured margin after: the goal cells sit at 724px, 21px clear of the 745px fold** — up from 2px after the first pass, which was not headroom at all. Reported because *"48px with no headroom is a constraint that breaks again on the next element anyone adds"*, and 21px is one added row of controls, not one added pixel.
+## D102 — A column can become unreadable without overflowing — v0.35.1 (2026-09-21)
+
+Found on device, one day after H9 shipped: in Settings › Medications, a medication's directions were confined to a column about six characters wide and stacked into a tall run of fragments.
+
+### What it was
+
+`.medrow` is a `space-between` flex row — a text block, then buttons at `flex:0 0 auto`. Measured on the shipped page:
+
+| | 360px | 390px |
+|---|---|---|
+| description width | **25px** (7% of viewport) | 55px (14%) |
+| characters per line | **3** | 6 |
+| lines in the row | **116** | 50 |
+| worst sub-line | **10px — one character per line** | 33px |
+
+The three buttons need **301px of a 268px row** at 16px type. Before the floor they were small enough to leave the text most of the row.
+
+**The mechanism generalises past this row.** A flex child's default `min-width` is **`auto`**, which resolves to its **longest word**. It cannot shrink below that, so when its neighbours take the room it **starves rather than wraps**. `min-width: 0` is what permits wrapping at all. The diagnosis on the device was exactly right: *a row laid out as fixed columns at the old size now starves one of them.*
+
+### Fixed as a class, not an instance
+
+The same shape existed in three more `space-between` rows carrying text, each checked because the floor put the same pressure on all of them:
+
+- **`.medfill`** — the fills list,
+- **`.drughead`** — the drug panel header, where a long medication name meets a Close button,
+- **`.plrow`** — the manufacturer list, where names like *Sun Pharmaceutical Industries, Inc.* would starve identically.
+
+`.medrow` now wraps with the text block at `flex:1 1 100%; min-width:0`, so the description takes the whole row and the buttons sit beneath it. **After: 268px of a 268px row at 360px, 2 lines, ~35 characters per line**, and the same at 390.
+
+### Why every layout gate passed
+
+**Nothing overflowed.** The row stayed inside its box the entire time — it simply grew 116 lines tall while its text column shrank to three characters. The overflow check measured the page's horizontal extent and reported, correctly, that no element crossed the viewport edge.
+
+**This is [[D101]] again, one day later, on a different quantity.** There, total page height could not see an above-the-fold invariant. Here, horizontal overflow could not see an unreadable column. In both the instrument was sound, re-runnable and pointed at the wrong number — and in both it returned a confident result that was true and irrelevant.
+
+The question D101 asked of a measurement holds here unchanged: **what exactly does the rule constrain, and does this number change when that constraint is violated?** Overflow does not change when a column starves; it changes when something escapes its container, which is a different failure.
+
+**The gate that now exists measures the thing itself:** the description's rendered width as a **share of its row**, at 360px and 390px, with characters-per-line as the readability check beside it — and a control that restores the narrow shape and watches the same measurement drop to **9%** and **18%**.
+
+### And the pair that was renamed half-way
+
+H9's Fork E3 renamed the *entry* to **"Log a dose I took"** and left the submit inside it saying **"Log medication"** — the same ambiguity E3 existed to remove, surviving one level below where it was fixed. Someone arriving correctly could still believe that button adds a medication to their list; it writes a timeline dose event.
+
+Renamed to **"Log this dose"**, and **gated as a pair**: the entry and the submit must both say *dose*, and the submit must not claim to log a medication. A rename that fixes a route and not its destination is half a fix, and the pair gate is what stops the two drifting apart again.
+
+### Recorded, not a defect: three surfaces for one outcome
+
+There are **three** ways to add a medication — the label capture from the sheet foot, Settings › *"Type a label by hand"*, and Settings › *"Read label"* (paste). All three genuinely add a medication, so this is not the naming collision E3 fixed.
+
+**But no gate asserts they agree.** Three entry points into one record shape, each with its own surface, and nothing checks that a medication saved through one is the same object as a medication saved through another. Recorded so it is a known shape rather than a discovery.
