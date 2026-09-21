@@ -4143,3 +4143,61 @@ Replaced with cases that **drive the real functions through the fetch mock** and
 ### Recorded on citations
 
 The brief that opened this used an R-number. **R-numbers in briefs are the author's own relay labels, not identifiers in this repo**, and are not recorded as references. This slice is **H8/D98 → D103**.
+## D104 — The pick list that never rendered, and a defect made of two faults — v0.36.1 (2026-09-21)
+
+Reported from the device one release after D103: **every D103 gate passed and the pick list did not appear.**
+
+### The record, kept as it came
+
+```
+Generic as printed:  SANDOZ BISOPROLOL 2.5 MG      <- the BRAND, in the generic field
+Searching for:       BISOPROLOL fumar 2.5 mg       <- the user's own edit
+Name as printed:     BISOPROLOL FUMAR 2.5MG        <- the GENERIC, in the name field
+Searching for:       BISOPROLOL FUMAR              <- derived
+```
+
+The fields are swapped — a separate capture defect, **not repaired here** — and the fixture keeps them that way, because tidying the record would remove the condition that produced this.
+
+### Two faults, and the question each answers
+
+**Is the pick suppressed for a term marked "edited by you"? No.** There is no edit-awareness in that code at all. The prefix was taken **verbatim** from the last generic-field term, which was the edit — `BISOPROLOL fumar 2.5 mg`, strength and all. Nothing in the source begins with that. **The edit was not rejected; it was used underived**, while the app derives its own terms as a matter of course.
+
+**Does it only fire on the generic index? Yes**, and that is the deeper one. `BISOPROLOL FUMAR` prefix-matches both stored spellings — but it sat on the **brand_name** side, because capture had put the generic in the name field. The one candidate that would have worked was never considered. **Which index a printed string lands in is an accident of capture, and it was silently deciding whether the user got offered a choice.**
+
+**Fixed:** every tried term is **derived** before it is used as a prefix, and **every** tried term is a candidate regardless of field. A stored spelling is offered if it begins with **any** of them.
+
+### The finding that matters more than the fix: the defect was a CONJUNCTION
+
+The defect pass planted each fault separately, and **neither reproduced the failure**:
+
+- with the prefix used verbatim, `BISOPROLOL FUMAR` is **still** a candidate, because `drugNameQueries` had already pushed the derived brand term;
+- with only generic-field terms considered, the **derived** edit `BISOPROLOL fumar` still prefix-matches.
+
+**Each fix is independently sufficient, so each fault alone is survivable.** Only both together empty the list — which is exactly the state that shipped.
+
+**A defect pass that plants one fault at a time reports success while the shipped bug walks free.** The pass now carries a plant that restores **both**, and it fails `D104-surface` by name. The two single-fault plants are kept with the honest, weaker expectation — they reach `D104-candidates` and no further — rather than being written up as if they proved more.
+
+This is a new shape beside [[D96]]. D96 says a fixture must distinguish what a ruling chose between. This says: **a plant must reproduce the defect that actually occurred, and when a defect required several conditions at once, so must the plant.** A one-fault-at-a-time pass silently assumes the faults are independent.
+
+### And the gates were reading the wrong layer
+
+Every D103 gate passed. They drove the real functions, read the **outgoing URL** and the **stored record**, and all of that was correct — the list simply never reached the DOM. D103 had itself been a repair for gates that read `String(fn)` instead of behaviour; **the repair moved one layer up and stopped one layer short.**
+
+The new gates **render the surface** and assert `BISOPROLOL FUMARATE` is **on the page**. That is now the third layer this slice has had to be dragged through — source text, then function behaviour, then the DOM — and the rule worth keeping is that **the layer a gate reads must be the layer the user meets.**
+
+### Two smaller repairs
+
+- **The no-match headline named one term** — `printed.generic_name`, which on this label was the **brand**. It pointed at the wrong name while four terms had been tried. It now names **none**, and the searched list underneath carries the evidence.
+- **A term the user typed was marked "(shortened)"**, because one flag meant both *app-derived* and *user-edited*. They are different facts, and the app did not shorten what the user wrote. Now: **"your edit"**.
+
+### The fixture had a dead branch
+
+The first candidate token's mocked response was a **404**, which takes the `!r.ok` path — so the `!best` branch, the one that tries a **second** token, was never exercised and a plant on it scored vacuous. The first token now **answers 200 with a non-matching term**, which is the case that branch exists for.
+
+**Defect pass: eight plants, eight failing their own named gates.**
+
+**Suite: 2086 assertions, all passing** (2074 → 2086).
+
+### Still open, named and not touched
+
+The capture put the **brand in the generic field and the generic in the name field**. That is a defect in the capture contract, not in the lookup, and patching it inside a lookup fix would bury it. It wants its own measurement.

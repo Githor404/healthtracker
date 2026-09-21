@@ -3845,6 +3845,84 @@ window.setLS({});
               'D103-realpath GATE: which lands on the manufacturer step, the same one an exact match reaches');
         });
       });
+    }).then(function () {
+      // ---- D104: the device record, and the SURFACE that never rendered ----
+      // Reported from v0.36.0: every D103 gate passed and the pick list did not
+      // appear. Two faults, either alone enough to empty it -- the prefix was
+      // used VERBATIM (the user's edit still carried "2.5 mg", and nothing begins
+      // with that), and only generic_name-field terms were considered (the term
+      // that matched sat on the brand_name side, because capture had put the
+      // generic in the name field).
+      //
+      // THE RECORD IS THE DEVICE'S, FIELDS SWAPPED AND ALL -- brand in the
+      // generic field, generic in the name field. Tidying it would remove the
+      // condition that produced the defect.
+      setLS({}); HT.boot(); fixClock();
+      HT.openLabelDraft(JSON.stringify({ name: 'BISOPROLOL FUMAR 2.5MG',
+                                         generic_name: 'SANDOZ BISOPROLOL 2.5 MG', strength: '2.5 mg' }),
+                        { whose: 'mine', source: 'label-paste' });
+      HT.labelConfirm();
+      var dId = HT.labelSave().medId;
+      HT.setMedQuery(dId, 'generic_name', 'BISOPROLOL fumar 2.5 mg');   // the user's own edit
+      var dMed = HT.getMed(dId);
+      var dPrinted = JSON.stringify(dMed.printed);
+
+      res(HT.drugPrefixCandidates(HT.drugNameQueries(dMed)).join('|')
+            .toLowerCase().indexOf('bisoprolol fumar') >= 0,
+          'D104-candidates GATE: every tried term is DERIVED before it is used as a prefix, so the user\u2019s edited "BISOPROLOL fumar 2.5 mg" becomes a usable prefix instead of one nothing can begin with');
+      res(HT.drugPrefixCandidates([{ printed: 'BISOPROLOL FUMAR 2.5MG', field: 'brand_name' }])
+            .join('') === 'BISOPROLOL FUMAR',
+          'D104-candidates GATE: and a term from the BRAND field is a candidate too -- which index a printed string landed in is an accident of capture, not a reason to withhold the choice');
+
+      // four exact queries miss, then the candidate list answers
+      // The first token tried is SANDOZ, and it ANSWERS -- with a term that does
+      // not match. That is the case the second-token path exists for, and a 404
+      // here would take the `!r.ok` branch instead and never exercise it.
+      FETCHES = []; FETCH_SCRIPT = [
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 200, body: JSON.stringify({ results: [
+            { term: 'SANDOZ SOMETHING ELSE', count: 3 }] }) },
+        { status: 200, body: JSON.stringify({ results: [
+            { term: 'BISOPROLOL FUMARATE', count: 31 },
+            { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }] }) }];
+      return HT.drugLookup(dId).then(function () {
+        var v = HT.drugView();
+        res(v.phase === 'pick',
+            'D104-surface GATE: the pick list is REACHED on the device record -- an edited generic term that prefix-matches, with the fields swapped');
+        // THE SURFACE, not the view object: this is what failed on the device.
+        HT.renderDrugInfo();
+        var el = document.getElementById('drugInfo');
+        var html = el.innerHTML, txt = el.textContent;
+        res(txt.indexOf('BISOPROLOL FUMARATE') >= 0,
+            'D104-surface GATE: and BISOPROLOL FUMARATE is ON THE PAGE -- every D103 gate passed while this did not render, because they read the URL and the view and never the DOM');
+        res(txt.indexOf('HYDROCHLOROTHIAZIDE') >= 0 && html.indexOf('pickcombo') > 0,
+            'D104-surface GATE: the combination is offered too, under its own heading');
+        var rows = Array.prototype.slice.call(el.querySelectorAll('.plrow'));
+        res(rows.length === 2 && rows[0].textContent.indexOf('HYDROCHLOROTHIAZIDE') < 0,
+            'D104-surface GATE: the single-ingredient spelling is still first');
+        res(JSON.stringify(HT.getMed(dId).printed) === dPrinted,
+            'D104-surface GATE: and both printed strings are untouched throughout');
+
+        // the headline, and the word used for a user's own edit
+        var tried = HT.drugTriedText(HT.getMed(dId));
+        res(tried.indexOf('your edit') >= 0 && tried.indexOf('BISOPROLOL fumar 2.5 mg') >= 0,
+            'D104-words GATE: a term the USER typed is marked "your edit", not "(shortened)" -- the app did not shorten it and should not say it did');
+        res(tried.indexOf('(shortened)') >= 0,
+            'D104-words GATE: while a term the app DID shorten still says so -- the two are different facts');
+        HT.drugSet({ medId: dId, phase: 'none', why: 'no-match' });
+        HT.renderDrugInfo();
+        var noneTxt = document.getElementById('drugInfo').textContent;
+        res(noneTxt.indexOf('No US label found.') >= 0 &&
+            noneTxt.indexOf('No US label found for SANDOZ') < 0,
+            'D104-words GATE: and the no-match headline names NO single term -- it named printed.generic_name, which on this label was the BRAND, pointing at the wrong name while four terms had been tried');
+        res(noneTxt.indexOf('Searched for:') >= 0,
+            'D104-words GATE: what was actually searched is listed underneath, where it can be read as evidence');
+        res(FETCHES.filter(function (f) { return f.url.indexOf('limit=1000') > 0; }).length === 2,
+            'D104-surface GATE: two candidate requests were made -- the first token answered and matched nothing, so the second was tried, which is the branch a 404 fixture would never reach');
+      });
     });
   }
   seFrame.src = '../index.html';

@@ -4008,6 +4008,31 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### D104 — the pick list that never rendered — v0.36.1
+
+Reported one release after D103: **every D103 gate passed and the list did not appear.**
+
+| case | asserts |
+|---|---|
+| D104-candidates **GATE** | every tried term is **derived** before use as a prefix, so a user's edit is usable |
+| D104-candidates **GATE** | and a term from the **brand** field is a candidate too |
+| D104-surface **GATE** | the pick list is **reached** on the device record — edited generic term, fields swapped |
+| D104-surface **GATE** | and `BISOPROLOL FUMARATE` is **on the page** — the DOM, which is what failed |
+| D104-surface **GATE** | the combination is offered under its own heading; the single is still first |
+| D104-surface **GATE** | two candidate requests — the first token answered and matched nothing, so the second was tried |
+| D104-words **GATE** | a term the user typed says **"your edit"**, not "(shortened)" |
+| D104-words **GATE** | the no-match headline names **no** single term; the searched list carries the evidence |
+
+**The defect was a CONJUNCTION.** Planted separately, **neither fault reproduced it**: with the prefix verbatim, the derived brand term is still a candidate; with only generic-field terms, the derived edit still matches. Each fix is independently sufficient, so **a pass that plants one fault at a time reports success while the shipped bug walks free.** A plant restoring **both** now fails by name; the two single-fault plants keep the weaker, honest expectation.
+
+**The gates were reading the wrong layer — again.** D103 was itself a repair for gates reading `String(fn)`; it moved to function behaviour and the outgoing URL and **stopped one layer short of the DOM**. Source text, then behaviour, then the page: **the layer a gate reads must be the layer the user meets.**
+
+**Defect pass: eight plants, eight named failures.** The fixture also had a dead branch — the first token's mock returned 404, taking `!r.ok` and never exercising the second-token path.
+
+**Suite: 2086 assertions, all passing** (2074 → 2086).
+
+**Still open, named and untouched:** capture put the brand in the generic field and the generic in the name field. That is the capture contract, not the lookup.
+
 ### H8.1 / D103 — the truncated salt, and the strength that was never stripped — v0.36.0
 
 From one real pharmacy label: `BISOPROLOL FUMAR  2.5MG` with `Sandoz Bisoprolol 2.5 MG` second — a truncated salt, an unspaced strength, a double space, and a second brand name, kept verbatim as the fixture.

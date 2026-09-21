@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.36.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.36.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5744,6 +5744,7 @@ const VERSION_LOG = [
   { v: '0.35.0', d: '2026-09-20', note: 'Bigger, plainer type everywhere. Nothing on screen is smaller than 16 pixels now, including every text box and dropdown \u2014 which also stops your phone zooming in every time you tap a field. The app used eighteen different text sizes; it now uses four, and tells things apart by weight instead. And \u201cMedication\u201d in the Log sheet now goes to the pharmacy-label reader, which is what people were looking for there; the form for recording a dose you took is still there, named \u201cLog a dose I took\u201d.' },
   { v: '0.35.1', d: '2026-09-21', note: 'Fix: in Settings \u203a Medications, a medication\u2019s directions were squeezed into a column a few characters wide and stacked into a tall column of fragments. The text now takes the full width of the row and the buttons sit below it. The same squeeze is fixed in the scan list, the fills list and the drug-information panel. The button that records a dose you took now says \u201cLog this dose\u201d, matching the entry that leads to it.' },
   { v: '0.36.0', d: '2026-09-21', note: 'Drug lookup copes with the way pharmacy labels actually print names. A strength written with a space — “2.5 MG” — is now recognised and left out of the search; before, only “2.5MG” was. And when a label shortens a name to fit its field, as with “Fumar” for “Fumarate”, the app now shows you the full spellings the US database holds that start with what your label says, and you choose. It never guesses which one you meant, and what your label printed is kept exactly as it was. Products that combine your drug with another ingredient are listed separately, under their own heading.' },
+  { v: '0.36.1', d: '2026-09-21', note: 'Fix: when no exact match was found, the list of close spellings often did not appear \u2014 including after you had edited the search term yourself, which is exactly when you need it. It now considers every term it tried, from either name field, and shortens each one before looking. The \u201cno label found\u201d line no longer names a single term, because it was naming the wrong one; the list of what was searched sits underneath it. A term you typed is now marked \u201cyour edit\u201d rather than \u201cshortened\u201d.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9619,11 +9620,12 @@ function normalizeQuery(raw) {
 // surface cannot describe the same list two ways.
 function drugTriedText(med) {
   return drugTriedList(med).map((t) =>
-    esc(t.printed) + (t.derived ? ' <small>(shortened)</small>' : '')).join(' \u00b7 ');
+    esc(t.printed) + (t.edited ? ' <small>(your edit)</small>'
+                    : (t.derived ? ' <small>(shortened)</small>' : ''))).join(' \u00b7 ');
 }
 function drugTriedList(med) {
   return drugNameQueries(med).map(function (q) {
-    return { field: q.field, printed: q.printed, derived: q.derived === true };
+    return { field: q.field, printed: q.printed, derived: q.derived === true, edited: q.edited === true };
   });
 }
 function drugNameQueries(med) {
@@ -9636,7 +9638,11 @@ function drugNameQueries(med) {
     if (!printed) return;
     out.push({ field: field, printed: printed, derived: false });
     const d = medQueryTerm(med, srcField);
-    if (d && d !== printed) out.push({ field: field, printed: d, derived: true, from: printed });
+    // D104: an EDIT and a DERIVATION are different things, and the surface said
+    // "(shortened)" for both. A user who typed a term should not be told the app
+    // shortened it.
+    const edited = !!(med && med.query && med.query[srcField]);
+    if (d && d !== printed) out.push({ field: field, printed: d, derived: true, edited: edited, from: printed });
   };
   add('generic_name', p.generic_name, 'generic_name');
   add(p.generic_name ? 'brand_name' : 'generic_name', p.name, 'name');
@@ -9701,19 +9707,55 @@ function drugResolveNames(medId, queries, i) {
 // abbreviation table expands one into the other -- that is the kind of rule that
 // is right until it is not. Instead the stored spellings that BEGIN WITH what was
 // printed are listed, and the user picks one.
-function drugOfferSpellings(medId, queries) {
-  const gen = (queries || []).filter((q) => q.field === 'generic_name').slice(-1)[0];
-  const derived = gen ? String(gen.printed) : '';
-  const token = derived.split(/\s+/)[0] || '';
-  if (!token) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
-  return drugFetch(fdaPrefixURL('generic_name', token)).then(function (r) {
-    if (!r.ok) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
-    const m = fdaPrefixMatches(((r.data || {}).results) || [], derived);
-    if (!m.singles.length && !m.combos.length)
-      return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
-    return drugSet({ medId: medId, phase: 'pick', derived: derived,
-                     singles: m.singles, combos: m.combos });
+// The candidates a no-match offers. D104 fixed two faults here at once:
+//
+//  - EVERY tried term is DERIVED before it is used as a prefix. A term that came
+//    from the user's own edit is not special, but it is also not pre-shortened --
+//    "BISOPROLOL fumar 2.5 mg" carries a strength, and nothing in the source
+//    begins with that. Deriving it first is what makes an edit usable.
+//  - EVERY tried term is a candidate, whatever FIELD it came from. The term that
+//    matched here was on the brand_name side, because the capture put the generic
+//    in the name field -- and a remedy that only looked at generic_name queries
+//    could not see it. Which index a printed string landed in is an accident of
+//    capture; it should not decide whether the user is offered a choice.
+function drugPrefixCandidates(queries) {
+  const seen = {}, out = [];
+  (queries || []).forEach(function (q) {
+    const d = deriveQueryTerm(q.printed);
+    const k = String(d).trim().toLowerCase();
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    out.push(d);
   });
+  return out;
+}
+const PREFIX_FETCH_CAP = 3;              // one request per distinct first token
+function drugOfferSpellings(medId, queries) {
+  const cands = drugPrefixCandidates(queries);
+  const tokens = [];
+  cands.forEach(function (c) {
+    const t = String(c).split(/\s+/)[0] || '';
+    if (t && tokens.indexOf(t) < 0) tokens.push(t);
+  });
+  if (!tokens.length) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+  const tryToken = function (i) {
+    if (i >= tokens.length || i >= PREFIX_FETCH_CAP)
+      return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+    return drugFetch(fdaPrefixURL('generic_name', tokens[i])).then(function (r) {
+      if (!r.ok) return tryToken(i + 1);
+      const terms = ((r.data || {}).results) || [];
+      // A stored spelling is a candidate if it begins with ANY term that was tried.
+      let best = null;
+      for (let c = 0; c < cands.length; c++) {
+        const m = fdaPrefixMatches(terms, cands[c]);
+        if (m.singles.length || m.combos.length) { best = { m: m, term: cands[c] }; break; }
+      }
+      if (!best) return tryToken(i + 1);
+      return drugSet({ medId: medId, phase: 'pick', derived: best.term,
+                       singles: best.m.singles, combos: best.m.combos });
+    });
+  };
+  return tryToken(0);
 }
 // An explicit pick. The chosen spelling is stored BESIDE the printed string --
 // which is never touched -- and then queried exactly, like any other term.
@@ -9902,7 +9944,11 @@ function renderDrugInfo() {
     // found" is true and unhelpful, and it was the absence of this list that made
     // a working lookup read as a bug on the device pass.
     const tried = drugTriedText(med);
-    body = `<div class="omsg obad">No US label found for ${esc(p.generic_name || p.name || 'this medication')}.</div>` +
+    // D104: this named `printed.generic_name` -- one of four terms tried, and on
+    // the device it was the BRAND, because capture had put it in the generic
+    // field. A headline that names one term points at the wrong name; the list
+    // below already says what was actually searched.
+    body = `<div class="omsg obad">No US label found.</div>` +
       (tried ? `<div class="pmnote">Searched for: ${tried}</div>` : '') +
       drugQueryRowHTML(med) +
       `<div class="pmnote">Edit a search term above and look up again if one of these is wrong.</div>` +
@@ -10127,6 +10173,7 @@ window.HT = {
   // H8 (D98)
   deriveQueryTerm, medQueryTerm, setMedQuery, drugTriedList, drugTriedText, normalizeQuery,
   fdaPrefixURL, fdaPrefixMatches, fdaIsCombination, drugOfferSpellings, drugPickSpelling,
+  drugPrefixCandidates,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
