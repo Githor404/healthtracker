@@ -3858,3 +3858,49 @@ The derived term is **stored**, so an edit survives and the export shows what wa
 Two further gate corrections came from the first green run rather than from a plant: `printed` is compared **canonically** rather than byte-for-byte, because the record is built in the draft's key order and rebuilt in `LABEL_FIELDS` order — key order is serialisation, not the reading; and the tried-list is asserted on the **list data**, because the derived term `Fluocinonide` is a substring of the printed name and a substring check would have passed with the derived entry missing entirely.
 
 **Suite: 2027 assertions, all passing** (1996 → 2027).
+## D99 — What a computed-size audit sees that a declaration audit cannot (2026-09-20; doc-only)
+
+Three findings from H9's measurement pass, recorded before the build because they outlive this slice.
+
+### 1. 7.9px, in no stylesheet
+
+```
+small@7.9  <  button.rmini@9.5  <  div.rgrid@16
+```
+
+`<small>` is `font-size: smaller` **from the user-agent sheet**. It is relative, so on a button already set to 9.5px it **compounds** to 7.9px. Seven elements, all of them the regimen mini-buttons that show an hour.
+
+**No `font-size` declaration anywhere in this repo produces that number.** A grep of the stylesheet — the obvious audit, and the one that would have been run — cannot see it, because the value exists only after inheritance and the UA default are applied. **Only a computed-size audit on the rendered page finds it.**
+
+**Second repo, same shape.** That makes it a class rather than an incident: **wherever a relative size meets an explicit one, the result is invisible to source review.** The rule that follows is not "check for `smaller`" but the stronger one — *no relative font sizes at all*, because a rule that cannot be grepped cannot be reviewed, and the next `<small>` will land inside a sized control without anyone noticing.
+
+### 2. The app zooms on every field focus, today
+
+**254 of 262 form controls compute below 16px.** Inputs, selects and the slider are all at **15px**; only `.fab` reaches 16.
+
+iOS zooms the viewport when a focused field is under 16px. This is **behaviour, not typography** — the app cannot opt out of it, and no amount of care elsewhere compensates. It is the measurement that decided the floor at 16 rather than 14: a 14px body floor would have left this defect standing everywhere a control did not happen to clear it.
+
+### 3. The newest surfaces are the smallest, and they are mine
+
+| surface | built | largest size present |
+|---|---|---|
+| **Typical row** | H7, yesterday | **13px** |
+| **query row** | H8, today | **13px** |
+| scan list | H4 | 14px |
+| med rows | H4 | 14px |
+| drug panel | H5 | 14px |
+| goal cells | older | 15px |
+
+**The two surfaces built in the last two days are the only two with nothing at 14px or above.**
+
+The rule — *a slice's own chrome gets sized last and smallest, because the author reads it at desk distance on a large screen* — was carried into this slice as a known constraint, written down in the brief, and **it still described my own work from the previous two days.** Knowing a bias and being subject to it are independent.
+
+**What follows is a check, not a resolution.** Being aware of the tendency did not prevent it, so the countermeasure has to be mechanical: **the floor gate reads every surface, and the newest surfaces are asserted by name** (`H9-newest`), because those are the ones the author has most recently looked at on a large screen and least recently on a phone.
+
+### And one non-finding, checked rather than assumed
+
+H9's step count reported that `Settings → Medications → Read label` did not reach a draft, and flagged it as needing a check — *"either a harness artefact or a dead control, and the second would be the fifth this week."*
+
+**It is neither.** `doLabelPaste()` requires a *whose* radio and the harness never chose one; it returned `{ok: false, error: 'whose'}` and rendered *"Choose whose label this is first."* **The control works and refuses for a stated reason.**
+
+Done properly the route is **5 taps** — `Settings → mine → [paste] → Read label → Yes, that's what it says → Save` — which is **one fewer than the 6-tap Photo route**. So the shorter path is the buried one, and the path that looks right (`Log → Medication`) goes somewhere else entirely. That is recorded here because it strengthens the route ruling, and because **a flagged observation that turns out to be nothing is worth the same write-up as one that turns out to be something** — otherwise only the alarming half of the record survives.

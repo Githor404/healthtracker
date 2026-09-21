@@ -4185,3 +4185,18 @@ Larger type lengthens surfaces, which adds scrolling and therefore steps. Simula
 **Held back deliberately, named so they do not drift in:** the **palette**, and the **density** question (too much on every surface). Both are next; both want their own ruling. Fork F is the one place density touches this slice, and it is deferred rather than resolved.
 
 **Stopping here for rulings.** Fork A's floor, Fork B's scale size, and Fork E's route change are the three that need you.
+
+#### RULINGS (2026-09-20), and one contradiction they expose
+
+**Fork A — ruled: a 16px floor, not 14, taking the one-screen cost.** The reasoning is recorded because it overrode the recommendation on the recommendation's own evidence: **254 of 262 form controls compute under 16px, so the app zooms on every field focus today**, and a 14px body floor leaves that standing everywhere a control does not happen to clear it. The collision was measured as negligible — one screen on a 4.3-screen page, the Typical row moving 2.7 → 3.0 — and what makes that row unreachable is its position, which Fork E fixes independently. *"I would rather measure that on a phone than pre-emptively pick the smaller number, which is how the app got here."* If 16 reads badly on device, 15 is the fallback.
+
+**Fork E — ruled: take the route change.** `Log → Medication` landing in the manual dose-event form while the label path is `Log → Photo → My label` is **worse than a step problem: it is a plausible wrong destination.** Someone adding a medication from a label lands in a different feature that looks right. The route is renamed to match what it does.
+
+**Fork B — RULED AS `12/14/16/20/28`, WHICH CANNOT STAND WITH A 16px FLOOR.** Two of the five sizes are below it. The contradiction was latent in the pre-registration — B1 proposed 12 and 14 while A1 proposed a 14px floor, so 12 was already beneath its own recommended floor — and the 16px ruling makes it unavoidable rather than creating it. **Not resolved here.** What the measurement says about the shape:
+
+- Sizes **already at or above 16px** in the shipped app are **16, 20, 22, 24, 32** — five values, one of which (22, a single element) is plainly a stray.
+- So the floor-respecting collapse of the *existing* app is **16 / 20 / 24 / 32** — **four** sizes, not five, and it costs exactly the +734px already measured, because that simulation raised everything under 16 up to 16 and left everything above it alone.
+- A fifth size means **inventing** one the app does not currently use (18 for emphasis inside body text), which is a design addition rather than a collapse, and it would cost more than the measured figure.
+
+**The consequence to rule with it, because it is the real cost of 16:** the pre-registration's own argument against a 16px floor was that *"with a 16px floor and a 24px heading there is little room left to say 'this matters less'"*. That objection survives the ruling — it was outweighed, not answered. With size compressed into 16–32, **weight** has to carry the hierarchy that size no longer can. **Colour cannot**, because the palette is explicitly held back to its own slice. So the build leans on weight alone, and whether that is enough is a device question, not a measurable one.
+
