@@ -3705,16 +3705,27 @@ window.setLS({});
                         { whose: 'mine', source: 'label-paste' });
       HT.labelConfirm();
       var noId = HT.labelSave().medId;
+      // Three now: the two exact name queries, then D103's candidate-list request.
       FETCHES = []; FETCH_SCRIPT = [{ status: 404, body: '{"error":{"code":"NOT_FOUND","message":"No matches found!"}}' },
+                                    { status: 404, body: '{"error":{"code":"NOT_FOUND","message":"No matches found!"}}' },
                                     { status: 404, body: '{"error":{"code":"NOT_FOUND","message":"No matches found!"}}' }];
       return HT.drugLookup(noId).then(function () {
         var v = HT.drugView();
         res(v.phase === 'none',
             'H5-404 GATE: a 404 from the source is a NO MATCH, not an error');
-        res(FETCHES.every(function (f) { return decodeURIComponent(f.url).indexOf('"DOMPERIDONE MALEATE"') > 0; }),
-            'H5-no-loosen GATE: every query carries the WHOLE printed name -- no word is dropped to find something');
+        // RE-POINTED BY D103. One request now deliberately drops words: the
+        // candidate-list fetch on the first token, whose result is a LIST TO PICK
+        // FROM rather than an answer. So the claim is split, because the original
+        // conjunction would have made the remedy impossible to build honestly.
+        var isCandidateList = function (f) { return f.url.indexOf('limit=1000') > 0; };
+        var answering = FETCHES.filter(function (f) { return !isCandidateList(f); });
+        res(answering.length > 0 && answering.every(function (f) {
+              return decodeURIComponent(f.url).indexOf('"DOMPERIDONE MALEATE"') > 0; }),
+            'H5-no-loosen GATE: every query that can produce a DOCUMENT carries the WHOLE printed name -- no word is dropped to find something');
         res(FETCHES.every(function (f) { return f.url.indexOf('.exact') > 0 || f.url.indexOf('count=') > 0; }),
-            'H5-no-loosen GATE: and no query is a looser match');
+            'H5-no-loosen GATE: and no query is a looser MATCH -- every one is exact or a count');
+        res(FETCHES.filter(isCandidateList).length <= 1,
+            'H5-no-loosen GATE: at most ONE request drops words, and it is the candidate list -- a count, which returns no label text and can answer nothing on its own (D103)');
         res(JSON.stringify(HT.state().labels) === '{}',
             'H5-no-match GATE: nothing is stored for a drug with no US label');
         HT.renderMeds(); HT.renderDrugInfo();
@@ -3784,6 +3795,55 @@ window.setLS({});
             now.superseded.length === 1 && now.superseded[0].sections.description === 'OLD-TEXT',
             'H5-stale GATE: taking it keeps the old text beside the new one (D55)');
         HT.drugClose();
+      });
+    }).then(function () {
+      // ---- D103 on the REAL path, not on a helper or a source string -------
+      // The defect pass caught these gates checking the wrong thing: a plant in
+      // drugOfferSpellings scored VACUOUS and one in drugPickSpelling scored
+      // INCONCLUSIVE, because the assertions read fdaPrefixURL and
+      // String(drugPickSpelling) rather than what the functions actually did.
+      setLS({}); HT.boot(); fixClock();
+      HT.openLabelDraft(JSON.stringify({ name: 'Sandoz Bisoprolol 2.5 MG',
+                                         generic_name: 'BISOPROLOL FUMAR  2.5MG', strength: '2.5 mg' }),
+                        { whose: 'mine', source: 'label-paste' });
+      HT.labelConfirm();
+      var bId = HT.labelSave().medId;
+      var bPrinted = JSON.stringify(HT.getMed(bId).printed);
+      // two exact name queries 404, then the candidate list returns the real pair
+      FETCHES = []; FETCH_SCRIPT = [
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+        { status: 200, body: JSON.stringify({ results: [
+            { term: 'BISOPROLOL FUMARATE', count: 31 },
+            { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }] }) }];
+      return HT.drugLookup(bId).then(function () {
+        var v = HT.drugView();
+        var last = FETCHES[FETCHES.length - 1];
+        res(v.phase === 'pick' && v.singles.length === 1 && v.combos.length === 1,
+            'D103-realpath GATE: a truncated salt that matches nothing exactly ends in a PICK LIST, not a dead end');
+        res(decodeURIComponent(last.url).indexOf('openfda.generic_name:"BISOPROLOL"') > 0,
+            'D103-realpath GATE: and the candidate request goes out on the FIRST TOKEN -- asserted on the OUTGOING URL, because a plant that sent the whole derived term passed a check on fdaPrefixURL itself');
+        res(last.url.indexOf('count=') > 0 && last.url.indexOf('limit=1000') > 0,
+            'D103-realpath GATE: it is a count, so it can return no label text and answer nothing on its own');
+        res(JSON.stringify(HT.getMed(bId).printed) === bPrinted,
+            'D103-realpath GATE: offering the list leaves `printed` untouched');
+        // Now PICK, and watch the record rather than the source text.
+        FETCHES = []; FETCH_SCRIPT = [{ status: 200, body: JSON.stringify({ results: [
+            { term: 'Unichem Pharmaceuticals', count: 7 }] }) }];
+        return HT.drugPickSpelling('BISOPROLOL FUMARATE').then(function () {
+          var med = HT.getMed(bId);
+          res(JSON.stringify(med.printed) === bPrinted &&
+              med.printed.generic_name === 'BISOPROLOL FUMAR  2.5MG',
+              'D103-realpath GATE: picking a spelling leaves the PRINTED string byte-identical -- double space and truncation and all -- which a check on String(drugPickSpelling) could not see');
+          res(med.query && med.query.generic_name === 'BISOPROLOL FUMARATE',
+              'D103-realpath GATE: the choice is stored BESIDE it');
+          res(decodeURIComponent(FETCHES[0].url).indexOf('openfda.generic_name.exact:"BISOPROLOL FUMARATE"') > 0,
+              'D103-realpath GATE: and the chosen spelling is queried EXACTLY -- the candidate list was wider, the match never was');
+          res(HT.drugView().phase === 'choose',
+              'D103-realpath GATE: which lands on the manufacturer step, the same one an exact match reaches');
+        });
       });
     });
   }
@@ -8708,6 +8768,87 @@ window.setLS({});
   res(h8editWrites > 0,
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
+
+  // ---- D103: the truncated salt, and the strength that was never stripped ---
+  // THE FIXTURE IS A REAL PHARMACY LABEL, reported from the device:
+  //     "BISOPROLOL FUMAR  2.5MG"   with "Sandoz Bisoprolol 2.5 MG" second.
+  // It carries four awkward things at once -- a TRUNCATED SALT (Fumarate cut to
+  // Fumar by a fixed-width field), an UNSPACED strength, a DOUBLE SPACE before
+  // it, and a second brand name -- which is why it is kept verbatim rather than
+  // tidied into something a rule would find easy.
+  var D103LABEL = 'BISOPROLOL FUMAR  2.5MG';
+
+  // D96's triplet: the fixture must contain names the fix ALTERS and names it
+  // must NOT. If any of the three read the same with and without the fix, the
+  // fixture cannot test the ruling.
+  res(HT.deriveQueryTerm('Bisoprolol Fumar 2.5 MG') === 'Bisoprolol Fumar',
+      'D103-strength GATE: a SPACED strength comes off -- "2.5 MG" is two tokens and the conventional way a label prints it, and the derivation used to no-op on it, failing invisibly for most labels');
+  res(HT.deriveQueryTerm('POLYETHYLENE GLYCOL 400') === 'POLYETHYLENE GLYCOL 400' &&
+      HT.deriveQueryTerm('POLYETHYLENE GLYCOL 3350') === 'POLYETHYLENE GLYCOL 3350',
+      'D103-strength GATE: a BARE number still does not -- PEG 400 and PEG 3350 are different substances (D98), so a number with no unit is identity');
+  res(HT.deriveQueryTerm('VITAMIN 12 COMPLEX') === 'VITAMIN 12 COMPLEX' &&
+      HT.deriveQueryTerm('OMEGA 3 CONCENTRATE') === 'OMEGA 3 CONCENTRATE',
+      'D103-strength GATE: and a number followed by a word that is NOT a unit is left alone -- the pair comes off only when the unit is one of the ruled closed set');
+  res(HT.deriveQueryTerm('SOMETHING MG') === 'SOMETHING MG',
+      'D103-strength GATE: a trailing unit with no number in front of it is not a strength, and stays');
+  res(HT.deriveQueryTerm(D103LABEL) === 'BISOPROLOL FUMAR',
+      'D103-strength GATE: the real label -- double space and unspaced strength -- derives to the truncated salt, unchanged in every other way');
+  res(HT.deriveQueryTerm('metoprolol tartrate 25 mg') === 'metoprolol tartrate',
+      'D103-strength GATE: and the salt still survives the strength coming off -- the fix widens what counts as a STRENGTH, never what counts as a name');
+
+  // -- the prefix list: what the source stores, filtered locally --------------
+  // These are the real openFDA counts, measured 2026-09-21.
+  var D103TERMS = [{ term: 'BISOPROLOL FUMARATE', count: 31 },
+                   { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }];
+  var pm = HT.fdaPrefixMatches(D103TERMS, 'BISOPROLOL FUMAR');
+  res(pm.singles.length === 1 && pm.singles[0].term === 'BISOPROLOL FUMARATE' &&
+      pm.combos.length === 1 && pm.combos[0].term === 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+      'D103-prefix GATE: the stored spellings beginning with the truncated name are found, and the COMBINATION is separated from the single-ingredient one');
+  res(HT.fdaIsCombination('BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE') === true &&
+      HT.fdaIsCombination('AVOBENZONE, HOMOSALATE') === true &&
+      HT.fdaIsCombination('BISOPROLOL FUMARATE') === false &&
+      HT.fdaIsCombination('SODIUM CHLORIDE') === false,
+      'D103-prefix GATE: a combination is an ingredient separator -- "and" or a comma -- and a two-word single ingredient is not one');
+  res(HT.fdaPrefixMatches(D103TERMS, 'BISOPROLOL FUMARATE').singles.length === 0,
+      'D103-prefix GATE: an EXACT term is not offered back as a candidate for itself -- the list is what to try INSTEAD, and a term that already matched would never reach this path');
+  res(decodeURIComponent(HT.fdaPrefixURL('generic_name', 'BISOPROLOL')).indexOf('openfda.generic_name:"BISOPROLOL"') > 0 &&
+      HT.fdaPrefixURL('generic_name', 'BISOPROLOL').indexOf('count=openfda.generic_name.exact') > 0,
+      'D103-prefix GATE: ONE request, on the first token, and it is a COUNT -- the filtering happens locally, so no looser query is ever sent');
+
+  // -- the surface: a heading, not a sort position ---------------------------
+  var d103id = h5med({ name: 'Sandoz Bisoprolol 2.5 MG', generic_name: D103LABEL, alts: null });
+  res(!!HT.getMed(d103id), 'D103-fixture: the real label saves as a medication (D60 Clause 4)');
+  var d103printed = JSON.stringify(HT.getMed(d103id).printed);
+  HT.drugOpen(d103id);
+  HT.drugSet({ medId: d103id, phase: 'pick', derived: 'BISOPROLOL FUMAR',
+                             singles: pm.singles, combos: pm.combos });
+  HT.renderDrugInfo();
+  var d103html = document.getElementById('drugInfo').innerHTML;
+  var d103box = document.createElement('div'); d103box.innerHTML = d103html;
+  var rows103 = Array.prototype.slice.call(d103box.querySelectorAll('.plrow'));
+  res(rows103.length === 2 && rows103[0].textContent.indexOf('BISOPROLOL FUMARATE') >= 0 &&
+      rows103[0].textContent.indexOf('HYDROCHLOROTHIAZIDE') < 0,
+      'D103-combo GATE: the single-ingredient spelling is FIRST -- the combination is never the first row and never the easiest tap');
+  res(!!d103box.querySelector('.pickcombo') &&
+      d103box.querySelector('.pickcombo').textContent.indexOf('HYDROCHLOROTHIAZIDE') >= 0,
+      'D103-combo GATE: and the combination sits under its OWN HEADING -- sorting orders, a heading MARKS, and at 31 against 22 labels ordering would not have separated two rows that read as variants of one thing');
+  res(/combination products/i.test(d103box.querySelector('.pickcombo').textContent) &&
+      /another ingredient/i.test(d103box.querySelector('.pickcombo').textContent),
+      'D103-combo GATE: the heading says what makes them different -- they contain the drug AND something else');
+  res(d103html.indexOf('drugPickSpelling') > 0 && d103html.indexOf('selected') < 0,
+      'D103-combo GATE: every candidate is OFFERED and none is chosen -- the app has decided nothing here');
+
+  // -- the pick is stored beside the printed string, which never moves --------
+  res(JSON.stringify(HT.getMed(d103id).printed) === d103printed,
+      'D103-printed GATE: rendering the pick list leaves `printed` byte-identical -- what the label said is not edited by what the app offers');
+  HT.setMedQuery(d103id, 'generic_name', 'BISOPROLOL FUMARATE');
+  res(HT.getMed(d103id).query.generic_name === 'BISOPROLOL FUMARATE' &&
+      JSON.stringify(HT.getMed(d103id).printed) === d103printed &&
+      HT.getMed(d103id).printed.generic_name === D103LABEL,
+      'D103-printed GATE: and a chosen spelling is stored BESIDE it -- the record keeps "BISOPROLOL FUMAR" exactly as printed next to the "BISOPROLOL FUMARATE" that was picked');
+  res(String(HT.drugPickSpelling).indexOf('setMedQuery') > 0 &&
+      String(HT.drugPickSpelling).indexOf('fdaNameClause') > 0,
+      'D103-printed GATE: picking stores the choice and then queries that spelling EXACTLY -- the match never loosens, only the candidate list is wider');
 
   // ---- D90 / Fork C: a complete day with NO items is ABSENCE, not zero -------
   // R31's ruling one level up. R31 handled an ITEM with no composition; this is a

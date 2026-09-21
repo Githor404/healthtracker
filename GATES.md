@@ -4008,6 +4008,29 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### H8.1 / D103 — the truncated salt, and the strength that was never stripped — v0.36.0
+
+From one real pharmacy label: `BISOPROLOL FUMAR  2.5MG` with `Sandoz Bisoprolol 2.5 MG` second — a truncated salt, an unspaced strength, a double space, and a second brand name, kept verbatim as the fixture.
+
+| case | asserts |
+|---|---|
+| D103-strength **GATE** | a **spaced** strength comes off (`2.5 MG`), which the derivation used to no-op on |
+| D103-strength **GATE** | a **bare** number does not (PEG 400 ≠ PEG 3350, D98) |
+| D103-strength **GATE** | a number then a **non-unit** word does not; a **lone unit** with no number does not |
+| D103-strength **GATE** | the **salt survives** the strength coming off — the fix widens *strength*, never *name* |
+| D103-prefix **GATE** | the stored spellings beginning with the truncated name are found, combinations separated |
+| D103-prefix **GATE** | an **exact** term is never offered back as a candidate for itself |
+| D103-prefix **GATE** | **one** request, on the first token, and it is a **count** — filtering is local |
+| D103-combo **GATE** | the single-ingredient spelling is **first**; the combination sits under its **own heading**, saying it contains the drug **and another ingredient** |
+| D103-realpath **GATE** ×8 | the same claims driven through the **real functions** and read off the **outgoing URL** and the **stored record** |
+| H5-no-loosen (re-pointed) | a request that can produce a **document** carries the whole printed name; the candidate list is a count; **at most one** request drops words |
+
+**Measured:** `bisoprolol fumar` matches `BISOPROLOL FUMARATE` (31 labels) and `BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE` (22). Truncation is the common case — **58%** of openFDA generic names exceed 16 characters, **27%** exceed 25, and **129 of 295** salt-bearing names are long enough to be cut.
+
+**Defect pass: ten plants, ten named failures**, after two scored vacuous/inconclusive for one reason — **a source-string assertion says what the code looks like, not what it does.** `String(drugPickSpelling)` passed while the function wrote to `printed`. Replaced with cases that drive the real path. **One plant was withdrawn rather than repaired**: it aimed at D103's code for a property D98 owns, and a plant that cannot express a defect is the wrong plant.
+
+**Suite: 2074 assertions, all passing** (2047 → 2074).
+
 ### H9.1 / D102 — the starved column, and the half-renamed pair — v0.35.1
 
 Found on device the day after H9. `.medrow` is a `space-between` flex row; at 16px its three buttons need **301px of a 268px row**, and a flex child's default `min-width:auto` is its **longest word**, so the text **starved rather than wrapped**: **25px wide, three characters per line, 116 lines tall** at 360px.

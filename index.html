@@ -343,6 +343,15 @@
   .drugtext{white-space:pre-wrap;font-size:16px;line-height:1.5;max-height:340px;overflow:auto;
     margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
   .drugabsent{color:var(--muted);font-style:italic}
+  /* D103: combination products sit under their OWN HEADING, visually separated,
+     after the single-ingredient list. Never auto-selected, never the first row,
+     and never the easiest tap -- sorting would only have ordered them, and at 31
+     against 22 labels ordering does not separate two rows that read as variants
+     of one thing. */
+  .pickcombo{margin-top:12px;padding-top:10px;border-top:2px dashed var(--line)}
+  .pickcombohead{font-weight:700;font-size:16px;margin-bottom:4px}
+  .pickname{min-width:0;overflow-wrap:anywhere}
+  .pickn{flex:0 0 auto;color:var(--muted)}
   .druglist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto;margin:6px 0}
   .drugctx{margin:8px 0 0}
   .plrecall{margin:0 0 10px;padding:8px 10px;border:1px solid var(--warn);border-radius:10px}

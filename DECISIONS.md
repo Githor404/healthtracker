@@ -4062,3 +4062,84 @@ Renamed to **"Log this dose"**, and **gated as a pair**: the entry and the submi
 There are **three** ways to add a medication — the label capture from the sheet foot, Settings › *"Type a label by hand"*, and Settings › *"Read label"* (paste). All three genuinely add a medication, so this is not the naming collision E3 fixed.
 
 **But no gate asserts they agree.** Three entry points into one record shape, each with its own surface, and nothing checks that a medication saved through one is the same object as a medication saved through another. Recorded so it is a known shape rather than a discovery.
+## D103 — The truncated salt, and the strength that was never stripped — v0.36.0 (2026-09-21)
+
+Both found from one real pharmacy label, reported from the device:
+
+```
+BISOPROLOL FUMAR  2.5MG          (primary name)
+Sandoz Bisoprolol 2.5 MG         (second name)
+```
+
+It carries four awkward things at once — a **truncated salt**, an **unspaced strength**, a **double space** before it, and a **second brand name** — so it is kept verbatim as the fixture rather than tidied into something a rule finds easy.
+
+### 1. A spaced strength was never stripped
+
+`QUERY_STRENGTH` wanted the number and unit in **one token**. `2.5 MG` is two: `2.5` is a bare number, which D98 protects because **PEG 400 and PEG 3350 are different substances**, and `MG` alone is not on the drop list. So the derivation was a **no-op on the conventional print form** — it defeated H8 for most labels and **failed invisibly**, producing a derived term identical to the printed one and no second query at all.
+
+**Fixed as A1 across a token boundary:** a number and a unit come off **together**, and only when the unit is one of the already-ruled closed set. Under [[D96]] the fixture contains names the fix **alters** and names it must **not**:
+
+| | |
+|---|---|
+| `Bisoprolol Fumar 2.5 MG` | → `Bisoprolol Fumar` **(altered)** |
+| `POLYETHYLENE GLYCOL 400` | unchanged — a bare number is identity |
+| `VITAMIN 12 COMPLEX` | unchanged — a number then a **non-unit** word |
+| `SOMETHING MG` | unchanged — a lone unit with no number is not a strength |
+| `metoprolol tartrate 25 mg` | → `metoprolol tartrate` — the **salt survives** |
+
+That last row is the shape of the whole fix: **it widens what counts as a STRENGTH, never what counts as a NAME.**
+
+### 2. The salt arrives truncated, and that is the common case
+
+Pharmacy systems cut names to a fixed field width, so `Fumarate` prints as `Fumar`. Measured against 1000 distinct openFDA generic names:
+
+| a label field of | truncates |
+|---|---|
+| 16 chars | **58%** |
+| 20 chars | **43%** |
+| 25 chars | **27%** |
+
+**29.5% carry a salt word, and 129 of those exceed 25 characters** — they arrive with the salt cut in half. `DIPHENHYDRAMINE HYDROCHLORIDE` → `DIPHENHYDRAMINE HYDROCHLO`. This is not an edge case.
+
+**No abbreviation table.** `Fumar → Fumarate` is right here and is exactly the kind of rule that is right until it is not. Instead, on a no-match the app fetches **one count request on the derived term's first token**, filters **locally** to the stored spellings that **begin with** what was printed, and offers them. The user picks; the chosen spelling is then queried **exactly**.
+
+**The printed string is never touched.** The pick is stored beside it, so the record keeps `BISOPROLOL FUMAR  2.5MG` — double space and all — next to the `BISOPROLOL FUMARATE` that was chosen.
+
+### Combination products get a heading, not a sort position
+
+Measured for this exact case, `bisoprolol fumar` matches:
+
+| spelling | labels |
+|---|---|
+| `BISOPROLOL FUMARATE` | 31 |
+| `BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE` | **22** |
+
+**Sorting orders; a heading marks.** At 31 against 22 the risk was never position — it is two rows reading as **variants of one thing**, which is precisely the plausible wrong choice [[D97]] recorded. Combinations sit under their own labelled section, after the singles, saying that they contain the drug **and another ingredient**. Never auto-selected, never first, never the easiest tap.
+
+### The no-loosen gate had to be re-pointed, and the distinction is the whole remedy
+
+`H5-no-loosen` asserted that **every** request carries the whole printed name. The candidate-list request deliberately sends one token, so by that gate's literal wording the ruled remedy *is* the thing D80 forbids.
+
+Split into the distinction the remedy rests on:
+
+- a request that can produce a **document** carries the whole printed name;
+- the candidate list is a **count** — it returns no label text and **can answer nothing on its own**;
+- **at most one** request ever drops words, and it is that one.
+
+**If that distinction fails, the remedy is loosening under another name.** It is gated as three claims rather than one conjunction, because the conjunction made an honest build impossible.
+
+### The defect pass, and the gate flaw it exposed
+
+**Ten plants, ten failing their own named gates** — after two scored **VACUOUS** and **INCONCLUSIVE** for the same reason:
+
+> **A source-string assertion says what the code LOOKS like, not what it DOES.**
+
+`D103-prefix` asserted on `fdaPrefixURL` directly and `D103-printed` on `String(drugPickSpelling)`. A plant that made `drugOfferSpellings` send the **whole derived term** walked straight past the first; a plant that made `drugPickSpelling` **write to `printed`** walked past the second. Both gates named the right property and read the wrong object.
+
+Replaced with cases that **drive the real functions through the fetch mock** and read the **outgoing URL** and the **stored record** — the same `FETCHES[0].url` shape that settled an earlier device report. Both plants now fail by name.
+
+**One plant was withdrawn rather than repaired.** `a-bare-number-strips-too` aimed at D103's code for a property **D98 owns**: PEG 400 is protected by `QUERY_STRENGTH` requiring a unit, and the pair rule cannot strip a bare trailing number at all. **A plant that cannot express a defect is not a weak plant, it is the wrong plant** — and withdrawing it is the honest outcome, not a gap.
+
+### Recorded on citations
+
+The brief that opened this used an R-number. **R-numbers in briefs are the author's own relay labels, not identifiers in this repo**, and are not recorded as references. This slice is **H8/D98 → D103**.

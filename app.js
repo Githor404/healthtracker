@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.35.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.36.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5743,6 +5743,7 @@ const VERSION_LOG = [
   { v: '0.34.0', d: '2026-09-20', note: 'Drug lookup now shows you exactly what it will search for, next to what your label actually says \u2014 and you can edit it. A pharmacy label prints things like \u201cFluocinonide Topical Gel USP, 0.05%\u201d, and the US database stores the plain ingredient name, so the app trims the dosage form and strength and searches for that. What is printed on your label is never changed. If no label is found, it now lists every term it searched for.' },
   { v: '0.35.0', d: '2026-09-20', note: 'Bigger, plainer type everywhere. Nothing on screen is smaller than 16 pixels now, including every text box and dropdown \u2014 which also stops your phone zooming in every time you tap a field. The app used eighteen different text sizes; it now uses four, and tells things apart by weight instead. And \u201cMedication\u201d in the Log sheet now goes to the pharmacy-label reader, which is what people were looking for there; the form for recording a dose you took is still there, named \u201cLog a dose I took\u201d.' },
   { v: '0.35.1', d: '2026-09-21', note: 'Fix: in Settings \u203a Medications, a medication\u2019s directions were squeezed into a column a few characters wide and stacked into a tall column of fragments. The text now takes the full width of the row and the buttons sit below it. The same squeeze is fixed in the scan list, the fills list and the drug-information panel. The button that records a dose you took now says \u201cLog this dose\u201d, matching the entry that leads to it.' },
+  { v: '0.36.0', d: '2026-09-21', note: 'Drug lookup copes with the way pharmacy labels actually print names. A strength written with a space — “2.5 MG” — is now recognised and left out of the search; before, only “2.5MG” was. And when a label shortens a name to fit its field, as with “Fumar” for “Fumarate”, the app now shows you the full spellings the US database holds that start with what your label says, and you choose. It never guesses which one you meant, and what your label printed is kept exactly as it was. Products that combine your drug with another ingredient are listed separately, under their own heading.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9337,6 +9338,32 @@ function fdaExactSpellings(terms, printed) {
 function fdaNameClause(field, spellings) {
   return (spellings || []).map((s) => 'openfda.' + field + '.exact:' + fdaQ(s)).join(' ');
 }
+// D103: the candidate list a no-match offers. ONE request, on the derived term's
+// FIRST TOKEN, and the filtering happens locally -- so the app never sends a
+// looser query and never accepts a looser match. What comes back is a list to
+// choose from, not an answer.
+function fdaPrefixURL(field, token) {
+  return fdaURL('openfda.' + field + ':' + fdaQ(token), '&count=openfda.' + field + '.exact&limit=1000');
+}
+// A combination product carries an ingredient separator. Same signature D98
+// measured at 143 of 144, and the reason these are shown under their own heading:
+// "bisoprolol fumar" matches BISOPROLOL FUMARATE (31 labels) and BISOPROLOL
+// FUMARATE AND HYDROCHLOROTHIAZIDE (22) -- close enough in weight that ordering
+// would not separate them, and two rows that read as variants of one thing are
+// exactly the plausible wrong choice D97 warned about.
+function fdaIsCombination(term) { return /(^|\s)and(\s|$)|,/i.test(String(term == null ? '' : term)); }
+function fdaPrefixMatches(terms, derived) {
+  const want = String(derived == null ? '' : derived).trim().toLowerCase();
+  if (!want) return { singles: [], combos: [] };
+  const hits = (terms || []).map((t) => ({ term: String((t && t.term) || ''), count: Number(t && t.count) || 0 }))
+    .filter((t) => {
+      const v = t.term.trim().toLowerCase();
+      return t.term && v.indexOf(want) === 0 && v !== want;
+    })
+    .sort((a, b) => b.count - a.count);
+  return { singles: hits.filter((h) => !fdaIsCombination(h.term)),
+           combos: hits.filter((h) => fdaIsCombination(h.term)) };
+}
 function fdaMfrURL(clause) { return fdaURL(clause, '&count=openfda.manufacturer_name.exact&limit=100'); }
 // ONE label per fetch: a full label is ~50-65 KB and five are 256 KB, so the
 // manufacturer list comes from a count and only the chosen label is fetched.
@@ -9514,6 +9541,14 @@ const QUERY_DROP = [
 // GLYCOL 400 and POLYETHYLENE GLYCOL 3350 are DIFFERENT SUBSTANCES, so a bare
 // trailing number is part of the identity, not a package descriptor.
 const QUERY_STRENGTH = /^[\d.]+\s*(%|mg|mcg|g|ml|iu)$/i;
+// A1 as ruled, across a TOKEN BOUNDARY. "2.5 MG" is the conventional way a label
+// prints a strength, and it is two tokens: `2.5` is a bare number, which D98
+// protects because PEG 400 and PEG 3350 are different substances, and `MG` alone
+// is not on the drop list. So the derivation silently did nothing at all -- it
+// defeated the feature for most labels and failed invisibly. The pair is removed
+// only together, and only when the unit is one of the already-ruled closed set.
+const QUERY_UNIT = /^(%|mg|mcg|g|ml|iu)$/i;
+const QUERY_NUMBER = /^[\d.]+$/;
 // A comma followed by a WORD is the measured signature of a COMBINATION product:
 // 143 of the 144 comma-bearing spellings in a 1000-term sample. Such a name is
 // never reduced -- not even partially, which is what stops one ingredient's
@@ -9533,7 +9568,13 @@ function deriveQueryTerm(printed) {
   if (!raw) return '';
   if (QUERY_COMBINATION.test(raw)) return raw;
   const toks = raw.split(/\s+/);
-  while (toks.length && queryTokenDrops(toks[toks.length - 1])) {
+  for (;;) {
+    const last = toks.length ? toks[toks.length - 1].replace(/,+$/, '') : '';
+    const prev = toks.length > 1 ? toks[toks.length - 2].replace(/,+$/, '') : '';
+    // A bare unit comes off ONLY with the number in front of it. A trailing unit
+    // on its own is left alone -- it may be part of a name.
+    if (QUERY_UNIT.test(last) && QUERY_NUMBER.test(prev)) { toks.pop(); toks.pop(); continue; }
+    if (!toks.length || !queryTokenDrops(toks[toks.length - 1])) break;
     toks.pop();
     while (toks.length && /,$/.test(toks[toks.length - 1])) {
       toks[toks.length - 1] = toks[toks.length - 1].replace(/,+$/, '');
@@ -9630,7 +9671,7 @@ function drugLookup(medId) {
   });
 }
 function drugResolveNames(medId, queries, i) {
-  if (i >= queries.length) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+  if (i >= queries.length) return drugOfferSpellings(medId, queries);
   const q = queries[i];
   return drugFetch(fdaTermsURL(q.field, q.printed)).then(function (r) {
     if (!r.ok && (r.kind === 'offline' || r.kind === 'timeout'))
@@ -9653,6 +9694,45 @@ function drugResolveNames(medId, queries, i) {
       return drugSet({ medId: medId, phase: 'choose', clause: clause, matchedBy: q.printed,
                        field: q.field, mfrs: mfrs });
     });
+  });
+}
+// The truncated-salt remedy. A pharmacy label prints "BISOPROLOL FUMAR" because
+// the field is a fixed width; openFDA stores "BISOPROLOL FUMARATE". No
+// abbreviation table expands one into the other -- that is the kind of rule that
+// is right until it is not. Instead the stored spellings that BEGIN WITH what was
+// printed are listed, and the user picks one.
+function drugOfferSpellings(medId, queries) {
+  const gen = (queries || []).filter((q) => q.field === 'generic_name').slice(-1)[0];
+  const derived = gen ? String(gen.printed) : '';
+  const token = derived.split(/\s+/)[0] || '';
+  if (!token) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+  return drugFetch(fdaPrefixURL('generic_name', token)).then(function (r) {
+    if (!r.ok) return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+    const m = fdaPrefixMatches(((r.data || {}).results) || [], derived);
+    if (!m.singles.length && !m.combos.length)
+      return drugSet({ medId: medId, phase: 'none', why: 'no-match' });
+    return drugSet({ medId: medId, phase: 'pick', derived: derived,
+                     singles: m.singles, combos: m.combos });
+  });
+}
+// An explicit pick. The chosen spelling is stored BESIDE the printed string --
+// which is never touched -- and then queried exactly, like any other term.
+function drugPickSpelling(term) {
+  const v = DRUG_VIEW;
+  if (!v || v.phase !== 'pick') return Promise.resolve({ ok: false });
+  const med = getMed(v.medId);
+  if (!med) return Promise.resolve({ ok: false });
+  setMedQuery(v.medId, 'generic_name', term);
+  drugSet(Object.assign({}, v, { phase: 'loading', message: 'Looking for the label\u2026' }));
+  const clause = fdaNameClause('generic_name', [term]);
+  return drugFetch(fdaMfrURL(clause)).then(function (r) {
+    if (!r.ok) return drugSet({ medId: v.medId, phase: 'none', why: 'no-match' });
+    const mfrs = (((r.data || {}).results) || []).map(function (x) {
+      return { name: String(x.term || ''), count: Number(x.count) || 0 };
+    }).filter(function (x) { return x.name; });
+    if (!mfrs.length) return drugSet({ medId: v.medId, phase: 'none', why: 'no-match' });
+    return drugSet({ medId: v.medId, phase: 'choose', clause: clause, matchedBy: term,
+                     field: 'generic_name', mfrs: mfrs });
   });
 }
 function drugPickManufacturer(mfr) {
@@ -9831,6 +9911,25 @@ function renderDrugInfo() {
       `<div class="pmnote">You can still ask your own assistant \u2014 the prompt says no label text was available.</div>` +
       drugStemsHTML() +
       `<a class="linklike" target="_blank" rel="noopener" href="https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query=${encodeURIComponent(med.printed.generic_name || med.printed.name || '')}">Search DailyMed yourself</a>`;
+  } else if (v.phase === 'pick') {
+    // Offered, never chosen. The exact match found nothing, so what is on screen
+    // is a LIST OF WHAT THE SOURCE STORES -- the app has not decided anything.
+    const pickRow = (c) => `<button type="button" class="plrow" onclick="drugPickSpelling('${esc(String(c.term)).replace(/'/g, '&#39;')}')">`
+      + `<span class="pickname">${esc(c.term)}</span>`
+      + `<span class="pickn">${esc(c.count)} label${c.count === 1 ? '' : 's'}</span></button>`;
+    body = `<div class="pmnote">No exact match for <b>${esc(v.derived)}</b>. `
+      + `Pharmacy labels cut long names to fit, so a salt can arrive shortened. `
+      + `These are the spellings the source stores that begin with it — pick the one on your label.</div>`
+      + (v.singles.length ? `<div class="druglist">${v.singles.map(pickRow).join('')}</div>` : '')
+      + (v.combos.length
+         ? `<div class="pickcombo"><div class="pickcombohead">Combination products</div>`
+           + `<div class="pmnote">These contain <b>${esc(v.derived)}</b> <b>and another ingredient</b>. `
+           + `They are a different product from the one above — check your label before choosing one.</div>`
+           + `<div class="druglist">${v.combos.map(pickRow).join('')}</div></div>`
+         : '')
+      + `<div class="pmnote">${esc(DPD_LINE)}</div>`
+      + drugQueryRowHTML(med)
+      + `<div class="pmnote">Or edit the search term above and look up again.</div>`;
   } else if (v.phase === 'choose') {
     body = `<div class="pmnote">${esc(v.mfrs.length)} manufacturer(s) file a label for ${esc(v.matchedBy)}. Every one is a real FDA label; they differ by who filed it. Pick one.</div>` +
       `<div class="druglist">` + v.mfrs.map((m) =>
@@ -10027,6 +10126,8 @@ window.HT = {
   renderDrugInfo, migrateV10toV11, migrateV11toV12,
   // H8 (D98)
   deriveQueryTerm, medQueryTerm, setMedQuery, drugTriedList, drugTriedText, normalizeQuery,
+  fdaPrefixURL, fdaPrefixMatches, fdaIsCombination, drugOfferSpellings, drugPickSpelling,
+  drugSet,
   QUERY_DROP, QUERY_FIELDS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
