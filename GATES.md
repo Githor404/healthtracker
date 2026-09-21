@@ -4008,3 +4008,180 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### H9 — Legibility and step count — PRE-REGISTERED, FORKS OPEN (received 2026-09-20; NOT built)
+
+Both passes were **measured before any fork was written**, on the shipped `index.html` in a 360px iframe under headless Chrome, with a populated log so every surface renders. Nothing below is an impression.
+
+---
+
+## PART 1 — THE TYPE SCALE, AS MEASURED
+
+**18 distinct computed sizes** across 752 elements that show text or are interactive.
+
+| px | count | examples |
+|---|---|---|
+| **7.9** | 7 | `small` inside `button.rmini` |
+| 9 | 2 | `span.tltag.food` |
+| 9.2 | 2 | `small` inside `.avghead` |
+| 9.5 | 7 | `button.rmini` |
+| 10 | 34 | `span.src`, `small.tcov` |
+| 10.5 | 9 | `button.rlkey` |
+| 10.8 | 4 | `small` |
+| 11 | 128 | `button.on`, `span.rcsub` |
+| 11.5 | 5 | `div.mmeta`, `summary` |
+| 12 | 128 | `button.topbtn`, `button.clrday` |
+| 13 | 52 | `button.linklike`, `span.fmain` |
+| 14 | 112 | `button.grm`, `b`, `summary` |
+| 15 | 229 | `b`, `div.mname`, `div.mkcal`, `button.btn.big` |
+| 16 | 20 | `h1`, `div.daysel`, `span.hdate` |
+| 20 | 4 | `button.navbtn`, `button.rm` |
+| 22 | 1 | `span` |
+| 24 | 7 | `button.sheetx`, `h2` |
+| 32 | 1 | `b` |
+
+**Below a floor, cumulative:**
+
+| floor | elements under it |
+|---|---|
+| < 16px | **719 (96%)** |
+| < 15px | 490 (65%) |
+| < 14px | **378 (50%)** |
+| < 13px | 326 (43%) |
+| < 12px | 198 (26%) |
+| < 11px | 65 (9%) |
+
+### The three findings the declarations would not have shown
+
+**1. 7.9px exists, and it is in no stylesheet.** The chain is `small@7.9 < button.rmini@9.5 < div.rgrid@16`. `<small>` is `font-size:smaller` from the UA sheet, applied on top of a 9.5px button — **it compounds**. Seven elements, all of them the regimen mini-buttons showing hours (`14`, `15`, `16`…). A grep for `font-size` finds nothing here, which is exactly why the audit had to read computed values.
+
+**2. 254 of 262 form controls are under 16px.** Inputs, selects and the slider all compute to **15px**. Only `.fab` reaches 16. **This is behavioural, not aesthetic: iOS zooms the viewport on focus for every field below 16px** — so the app currently zooms on essentially every text entry in it.
+
+**3. The newest surfaces are the smallest, and they are mine.** Checked hardest as instructed:
+
+| surface | sizes present | largest |
+|---|---|---|
+| **Typical row** (H7, yesterday) | 10×5, 11×1, 12×14, 13×1 | **13px** |
+| **query row** (H8, today) | 10×4, 11×1, 13×4 | **13px** |
+| scan list (H4) | 12×1, 13×1, 14×2 | 14px |
+| goal cells (older) | 10×2, 14×1, 15×1 | 15px |
+| med rows (H4) | 12×6, 13×2, 14×3 | 14px |
+| drug panel (H5) | 10×4, 11×1, 12×1, 13×5, 14×3 | 14px |
+
+**The two surfaces built in the last two days are the only two with nothing at 14px or above.** The prediction was correct and it was correct about my own work: a slice's own chrome gets sized last and smallest, because the author reads it at desk distance on a large screen.
+
+---
+
+## PART 2 — STEP COUNT, AS MEASURED
+
+Counted by **clicking the real controls on the shipped page** and asserting the destination was reached. Typing and pasting are listed but **not** counted as taps.
+
+| path | taps | note |
+|---|---|---|
+| 1. open → today's log visible | **0** | the log is the landing surface |
+| 2. photo → saved meal | **4** | `+ Log` → `Photo` → *[paste]* → `Read photo meal` → `Ate all of it` |
+| 3. label → saved medication | **6** | `+ Log` → `Photo` → `My label` → *[paste]* → `Read` → `Yes, that's what it says` → `Save to my medications` |
+| 4. medication → drug lookup result | **3** to fire, **4** to reach label text | `Settings` → `Drug information` → `Look up the label` → *[network]* → pick a manufacturer |
+| 5. open → the Typical row | **0** | but see scroll, below |
+
+**The longest path is 3, at six taps.**
+
+### "0 taps" is not the same as "on screen"
+
+At 360×760 the main page is **3233px — 4.3 screens**:
+
+| destination | top | screens down |
+|---|---|---|
+| day ring | 185px | 0.2 |
+| goal strip | 575px | 0.8 |
+| today's first item row | 710px | 0.9 |
+| Trends block | 1862px | 2.5 |
+| **the Typical row** | **2079px** | **2.7** |
+| the typical chart itself | 2199px | 2.9 |
+| averages | 2810px | 3.7 |
+| history | 3050px | 4.0 |
+
+**Path 5 costs zero taps and about 2.7 screens of scrolling.** Path 1 is honest at 0 taps for the ring, but today's first logged item is already 0.9 screens down.
+
+### A structural finding the count turned up
+
+**`Log → Medication` is not the label path.** `#pane-med` is the **manual dose-event form** (`medName`, `medDose`, `medRoute`, "Log medication") — recording that you *took* something. Saving a medication *from a label* runs through `Log → Photo → My label`, or through `Settings → Medications`. A user who taps `Log` then `Medication` intending to add a medication from a pharmacy label lands in a different feature that looks plausible. That is a naming collision, not a step count, and it is why path 3 begins with `Photo`.
+
+**One unresolved observation, recorded rather than claimed:** the `Settings → Medications → Read label` route did **not** reach a draft in the harness (2 taps, destination not reached), while the Photo route did. That may be a harness artefact — the draft renders into the capture-outcome modal, which the Settings route may not open — or it may be real. **It needs checking before any fork rests on it**, and no fork below does.
+
+---
+
+## THE COLLISION, MEASURED RATHER THAN ARGUED
+
+Larger type lengthens surfaces, which adds scrolling and therefore steps. Simulated by raising every computed size below a floor **up to** that floor and changing nothing else:
+
+| floor | page height | vs now | Typical row at | screens down |
+|---|---|---|---|---|
+| now | 3233px | — | 2079px | 2.7 |
+| 12px | 3280px | +47px | 2115px | 2.8 |
+| 13px | 3414px | +181px | 2158px | 2.8 |
+| **14px** | 3597px | **+364px** | 2228px | **2.9** |
+| 15px | 3799px | +566px | 2350px | 3.1 |
+| 16px | 3967px | +734px | 2437px | 3.2 |
+
+**They barely trade.** A 14px floor costs **half a screen** on a page that is already 4.3 screens, and moves the Typical row from 2.7 to 2.9 screens down — **0.2 of a screen**. Even a 16px floor costs one screen and 0.5.
+
+**So the collision is real and it is not the binding constraint.** The Typical row is hard to reach because it is 2.7 screens down *now*, not because type might grow; the remedy is to move the destination, which is independent of the floor. **This is recorded as the measurement resolving it**, and it means no fork below needs to shrink anything back to pay for anything else.
+
+---
+
+## THE FORKS
+
+**Fork A — the floor.**
+- **A1 (recommended): 14px body floor, 16px on form controls.** 14px clears 378 elements (50% of the surface) and costs half a screen. 16px on controls is **not a preference** — below it iOS zooms on focus, which is a behaviour the app cannot opt out of.
+- **A2: 15px body floor.** Costs 566px. Defensible, and 15px is already the single most common size (229 elements), so it is where the app's own weight already sits.
+- **A3: 16px everywhere.** Costs one full screen and flattens the hierarchy — with a 16px floor and a 24px heading there is little room left to say "this matters less".
+- **Recommended A1**, with the note that A2 is the one to pick if the device pass says 14px still reads small, because the measured cost of the difference is 200px.
+
+**Fork B — how far to collapse the scale.**
+- **B1 (recommended): five sizes.** `12 / 14 / 16 / 20 / 28`, plus 16 on controls. Eighteen distinct sizes is not a scale; five is enough for caption, body, emphasis, heading, and the one big number.
+- **B2: four (14 / 16 / 20 / 28)** — simpler, but nothing below body size, so coverage notes and provenance lines compete with content.
+- **Open:** whether 12px may survive **only** for the D53 provenance lines and the `.tcov` coverage notes, which are deliberately quiet. Those are the places a smaller size is doing real work rather than saving space.
+
+**Fork C — the UA compounding (`font-size:smaller`).**
+- **C1 (recommended): no relative font sizes anywhere; `<small>` gets an explicit size.** 7.9px exists because nothing declared it. A rule that cannot be grepped cannot be reviewed.
+- **C2: keep `smaller` but never nest it.** Rejected: that is a rule about authoring discipline rather than about the stylesheet, and it fails silently the next time a `<small>` lands inside a sized button.
+
+**Fork D — where the floor does and does not reach.**
+- **D1 (recommended): the floor covers all rendered text including SVG labels, and the gate reads computed styles on the shipped page.** The audit that found 7.9px is the gate.
+- **Open:** the sparkline and typical-band charts currently carry no text at all. If the floor forces labels onto them, that is new content, not a resize — **out of this slice.**
+
+**Fork E — the longest path (3: label → medication, 6 taps).**
+- **E1 (recommended): cut the kind chooser when the intent is already known.** Entering via a label-specific entry point makes `My label` redundant; that is one tap of the six.
+- **E2: cut the identity confirmation.** **Rejected outright** — R30 ruled identity-first, and D84 shipped a defect there this week. Six taps with a confirmation is better than five without it.
+- **E3: make `Log → Medication` reach the label path** (the naming collision above), so the path is `Log → Medication → [paste] → Read → Confirm → Save` = 5 taps, and the manual dose form gets its own clearly-named entry. **This is the honest fix and it is a naming change as much as a step change.**
+- **Recommended E3, with E1 folded into it.**
+
+**Fork F — path 5, the Typical row at 2.7 screens.**
+- **F1 (recommended): nothing in this slice, and the reason is recorded.** Moving it up is either a *placement* change (which competes with the day view for the top of the page) or a *density* change (which the brief explicitly held back). Naming it here so the measurement is on record and the fix goes with the density ruling.
+- **F2: a jump-to control.** Rejected: it adds a tap to fix a scroll, which trades the wrong way.
+
+---
+
+## PRE-REGISTERED GATES
+
+| case | asserts |
+|---|---|
+| H9-floor **GATE** | on the **shipped page at 360px**, computed font size ≥ the ruled floor for **every** element that renders text — with a planted 10px element failing it by name |
+| H9-controls **GATE** | every `input`, `select`, `textarea` computes to **≥ 16px** — the iOS zoom behaviour, gated as behaviour |
+| H9-scale **GATE** | the number of **distinct computed sizes** is ≤ the ruled count, measured the same way (18 today) |
+| H9-no-relative **GATE** | no `font-size: smaller/larger/%` survives in the stylesheet, and **no element computes below the floor via inheritance** — the 7.9px case, which no declaration grep would catch |
+| H9-newest **GATE** | the Typical row, the query row and the scan list each carry **no size below the floor**, asserted per surface — the surfaces that were sized last |
+| H9-steps **GATE** | the five paths cost **at most** their ruled tap counts, counted by clicking the shipped page and asserting the destination is reached |
+| H9-steps CONTROL | a planted extra confirmation step **raises** the count and fails the case — the counter is not vacuous |
+| H9-collision | page height and the Typical row's offset are **recorded before and after**, and the change is within the ruled budget — so a later slice cannot quietly pay for length by shrinking type |
+| H9-contrast | *(not in this slice — see below)* |
+
+**The limits, recorded with the gates.**
+
+- **A computed-size floor is not legibility.** It is the one part of legibility that can be gated. Contrast, line length, spacing and weight are not measured here and no gate below implies them — and **the palette is explicitly out of this slice**.
+- **D88 still stands**: no gate reads the page as a person does. The floor gate proves no text is below a number; it cannot say the page reads well at arm's length.
+- **The tap counter counts taps, not effort.** A six-tap path with one decision is not obviously worse than a four-tap path with two, and nothing here measures that difference.
+
+**Held back deliberately, named so they do not drift in:** the **palette**, and the **density** question (too much on every surface). Both are next; both want their own ruling. Fork F is the one place density touches this slice, and it is deferred rather than resolved.
+
+**Stopping here for rulings.** Fork A's floor, Fork B's scale size, and Fork E's route change are the three that need you.
