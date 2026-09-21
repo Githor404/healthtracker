@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.34.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.35.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5741,6 +5741,7 @@ const VERSION_LOG = [
   { v: '0.32.2', d: '2026-09-19', note: 'Your goal cells and the goal ring no longer turn green or amber depending on whether you have met a goal. They show the same numbers as before \u2014 what you have had, your target, floor or ceiling, and the percentage \u2014 without the app passing judgement on them in colour. This is the rule the app already followed for weight, sleep and the other signals, applied to food, where it had been missed.' },
   { v: '0.33.0', d: '2026-09-20', note: 'A new Typical row in Trends shows your recent days for one macro against your own normal \u2014 the middle day of your last 28, and the middle half of them as a band. Pick the nutrient: energy, protein, fat, carbs or fibre. It needs eight complete days before it will draw anything, and it says how many it has. It is a description of what you have been eating, not a target, and it is never compared to your goals.' },
   { v: '0.34.0', d: '2026-09-20', note: 'Drug lookup now shows you exactly what it will search for, next to what your label actually says \u2014 and you can edit it. A pharmacy label prints things like \u201cFluocinonide Topical Gel USP, 0.05%\u201d, and the US database stores the plain ingredient name, so the app trims the dosage form and strength and searches for that. What is printed on your label is never changed. If no label is found, it now lists every term it searched for.' },
+  { v: '0.35.0', d: '2026-09-20', note: 'Bigger, plainer type everywhere. Nothing on screen is smaller than 16 pixels now, including every text box and dropdown \u2014 which also stops your phone zooming in every time you tap a field. The app used eighteen different text sizes; it now uses four, and tells things apart by weight instead. And \u201cMedication\u201d in the Log sheet now goes to the pharmacy-label reader, which is what people were looking for there; the form for recording a dose you took is still there, named \u201cLog a dose I took\u201d.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8356,6 +8357,23 @@ function setSheetMode(mode) {
   if (mode === 'quick') renderQuickChips();
   return { ok: true, mode: mode };
 }
+// H9 Fork E3 + E1: "Medication" in the sheet head now REACHES THE LABEL PATH,
+// because a route named for a thing must go to that thing. It used to be a link
+// inside Manual that opened the manual DOSE-EVENT form -- a plausible wrong
+// destination for someone adding a medication from a label. That form is still
+// there and is now named "Log a dose I took", which is what it does.
+//
+// It also folds in E1: the entry already knows the intent, so the kind chooser
+// is preset rather than asked. That is the tap this cut -- 6 to 5.
+function openLabelCapture() {
+  setSheetMode('photo');
+  setCaptureKind('label-mine');
+  const lit = document.getElementById('mode-label');
+  const pho = document.getElementById('mode-photo');
+  if (pho) pho.classList.remove('on');
+  if (lit) lit.classList.add('on');
+  return { ok: true };
+}
 // Scan is the default mode: the only path that returns micronutrients in one tap.
 function openSheet(mode) {
   const sheet = document.getElementById('entrySheet'), scrim = document.getElementById('sheetScrim');
@@ -9969,7 +9987,7 @@ window.HT = {
   TYPICAL_WINDOW, TYPICAL_MIN_DAYS, TYPICAL_KEYS, TRAIL_LEGS,
   getTypicalNutrient: () => TYPICAL_NUTRIENT, migrateV6toV7, SCHEMA_VERSION,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
-  renderPromptCard, copyPrompt, promptBoxes, promptBoxFor,
+  renderPromptCard, copyPrompt, promptBoxes, promptBoxFor, openLabelCapture,
   setSupplement, applySupplementToToday, normalizeSupplement,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice

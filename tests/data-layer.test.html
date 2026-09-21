@@ -1975,15 +1975,118 @@ window.setLS({});
           'R19-demote: the destructive control is far narrower than the affirmative one -- no full-width red bar');
       res(rc.top - rd.bottom >= 16,
           'R19-demote: and separated from it, so the thumb path to "complete" does not end on "clear"');
-      res(parseFloat(sc.fontSize) < parseFloat(sd.fontSize) && parseFloat(sc.fontWeight) < parseFloat(sd.fontWeight),
-          'R19-demote: smaller and lighter than the action it sits under');
+      // RE-POINTED BY H9. This read "smaller AND lighter". The 16px floor removed
+      // the size half everywhere in the app, so the conjunction became
+      // unsatisfiable -- not because the control stopped being demoted, but
+      // because size is no longer a carrier anything can use. The property R19
+      // protects is that the destructive control is NOT MISTAKABLE for the
+      // affirmative one; size was one carrier of that, never the claim. The same
+      // repair H4.1-distinct took when HEIGHT turned out to be the wrong proxy.
+      res(parseFloat(sc.fontWeight) < parseFloat(sd.fontWeight),
+          'R19-demote (re-pointed): LIGHTER than the action it sits under -- with a 16px floor, weight carries the demotion size no longer can');
+      res(sc.backgroundColor !== sd.backgroundColor || sc.borderStyle !== sd.borderStyle,
+          'R19-demote (re-pointed): and it carries different chrome, so the two do not read as one pair of buttons');
       res(sc.color !== sd.color, 'R19-demote: and muted at rest rather than shouting in the destructive colour');
     }
     res(SEDOC.querySelector('#mode-scan').className.indexOf('on') >= 0 && SEDOC.querySelector('#pane-scan').className.indexOf('on') >= 0,
         'SE-modes: Scan is the DEFAULT mode');
+
+    // ---- H9 / D100: the type scale, measured on the shipped page -----------
+    // COMPUTED, not declared. 7.9px existed because <small> is font-size:smaller
+    // from the UA sheet and compounds on an already-small parent; no declaration
+    // in this repo produced it, so only this kind of audit finds it (D99).
+    var h9els = SEDOC.querySelectorAll('body *');
+    var h9sizes = {}, h9weights = {}, h9ctl = [], h9under = [];
+    for (var h9i = 0; h9i < h9els.length; h9i++) {
+      var h9e = h9els[h9i], h9t = '';
+      for (var h9c = 0; h9c < h9e.childNodes.length; h9c++)
+        if (h9e.childNodes[h9c].nodeType === 3) h9t += h9e.childNodes[h9c].nodeValue;
+      var h9isCtl = /^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(h9e.tagName);
+      if (!h9t.trim() && !h9isCtl) continue;
+      var h9cs = SEDOC.defaultView.getComputedStyle(h9e);
+      var h9px = Math.round(parseFloat(h9cs.fontSize) * 10) / 10;
+      var h9w = parseInt(h9cs.fontWeight, 10);
+      h9sizes[h9px] = (h9sizes[h9px] || 0) + 1;
+      h9weights[h9w] = (h9weights[h9w] || 0) + 1;
+      if (h9px < 16) h9under.push(h9e.tagName.toLowerCase() + '@' + h9px);
+      if (h9isCtl && h9px < 16) h9ctl.push(h9e.tagName.toLowerCase() + '@' + h9px);
+    }
+    var h9keys = Object.keys(h9sizes).map(Number).sort(function (a, b) { return a - b; });
+    var h9wk = Object.keys(h9weights).map(Number).sort(function (a, b) { return a - b; });
+
+    res(h9under.length === 0,
+        'H9-floor GATE: NOTHING on the shipped page renders below 16px' +
+        (h9under.length ? ' :: ' + h9under.slice(0, 6).join(', ') : ''));
+    res(h9ctl.length === 0,
+        'H9-controls GATE: every input, select, textarea and button is at least 16px -- BEHAVIOURAL, because iOS zooms the viewport on focus below it, and 254 of 262 controls were under it before this slice' +
+        (h9ctl.length ? ' :: ' + h9ctl.slice(0, 6).join(', ') : ''));
+    // The property is that the scale is CLOSED, not that every size appears in
+    // every fixture -- this page does not render the 32px figure, and asserting
+    // the exact set would make the gate depend on what the fixture happens to show.
+    var h9allowed = [16, 20, 24, 32];
+    res(h9keys.length > 1 && h9keys.length <= 4 &&
+        h9keys.every(function (k) { return h9allowed.indexOf(k) >= 0; }),
+        'H9-scale GATE: every rendered size is one of the four 16/20/24/32 -- a COLLAPSE of what the app already used (18 distinct sizes before), with the stray 22 dropped :: ' + h9keys.join(','));
+    res(h9wk.length <= 3 && h9wk.every(function (w) { return w === 400 || w === 600 || w === 700; }),
+        'H9-weight GATE: exactly three weights, 400/600/700 -- with size compressed into 16-32, weight carries the hierarchy size no longer can, and a stray 650 and 800 are gone :: ' + h9wk.join(','));
+
+    // The floor has to hold through INHERITANCE, not just declarations.
+    var h9small = SEDOC.querySelectorAll('small, sub, sup');
+    var h9smallBad = [];
+    for (var h9s = 0; h9s < h9small.length; h9s++) {
+      var h9sp = parseFloat(SEDOC.defaultView.getComputedStyle(h9small[h9s]).fontSize);
+      if (h9sp < 16) h9smallBad.push(h9small[h9s].tagName.toLowerCase() + '@' + h9sp);
+    }
+    res(h9small.length > 0 && h9smallBad.length === 0,
+        'H9-no-relative GATE: every <small>, <sub> and <sup> computes at or above the floor -- these are the tags the UA sheet sizes RELATIVELY, and 7.9px came from one compounding on a 9.5px button' +
+        (h9smallBad.length ? ' :: ' + h9smallBad.join(', ') : ''));
+    res(SEDOC.documentElement.innerHTML.indexOf('font-size:smaller') < 0 &&
+        SEDOC.documentElement.innerHTML.indexOf('font-size: smaller') < 0,
+        'H9-no-relative GATE: and no relative font-size is declared either -- a rule that cannot be grepped cannot be reviewed');
+
+    // The newest surfaces, by name. Knowing the bias did not prevent it (D99),
+    // so the countermeasure is mechanical rather than a reminder.
+    ['.tbrow', '.qbox', '.medrow', '.drugpanel', '.goalcell'].forEach(function (selN) {
+      var rootN = SEDOC.querySelector(selN);
+      if (!rootN) return;
+      var badN = [], innerN = rootN.querySelectorAll('*');
+      for (var n9 = 0; n9 < innerN.length; n9++) {
+        var e9 = innerN[n9], t9 = '';
+        for (var c9 = 0; c9 < e9.childNodes.length; c9++)
+          if (e9.childNodes[c9].nodeType === 3) t9 += e9.childNodes[c9].nodeValue;
+        if (!t9.trim() && !/^(INPUT|SELECT|TEXTAREA|BUTTON)$/.test(e9.tagName)) continue;
+        var p9 = parseFloat(SEDOC.defaultView.getComputedStyle(e9).fontSize);
+        if (p9 < 16) badN.push(e9.tagName.toLowerCase() + '@' + p9);
+      }
+      res(badN.length === 0,
+          'H9-newest GATE: ' + selN + ' carries nothing below the floor -- the newest surfaces are asserted BY NAME, because they are the ones the author has most recently read on a large screen and least recently on a phone' +
+          (badN.length ? ' :: ' + badN.join(', ') : ''));
+    });
+
+    // Fork E3: a route named for a thing goes to that thing.
+    var h9foot = SEDOC.querySelector('.sheetfoot');
+    var h9label = h9foot && h9foot.querySelector('[onclick*="openLabelCapture"]');
+    var h9dose = h9foot && h9foot.querySelector('[onclick*="setSheetMode(\'med\')"]');
+    res(!!h9label && /medication from its label/i.test(h9label.textContent),
+        'H9-route GATE: the sheet offers a label entry that says what it does -- adding a medication FROM ITS LABEL');
+    res(!!h9dose && /dose I took/i.test(h9dose.textContent),
+        'H9-route GATE: and the manual dose form is named for the dose it records, not for "medication" -- it was a plausible wrong destination for someone holding a pharmacy label');
+    res(String(SEDOC.defaultView.HT.openLabelCapture).indexOf("setCaptureKind('label-mine')") > 0,
+        'H9-route GATE: the entry PRESETS the kind rather than asking, which is the tap it cut -- 6 to 5');
+
     var foot = SEDOC.querySelector('.sheetfoot');
-    res(!!foot && /event or biometric/i.test(foot.textContent) && /medication or supplement/i.test(foot.textContent),
-        'SE-modes: both secondary entries sit at the foot of the sheet (not as tabs)');
+    var footTxt = foot ? foot.textContent : '';
+    // RE-POINTED BY H9. This keyed on the phrase "medication or supplement",
+    // which E3 renamed on purpose: that entry opens the manual DOSE form, and a
+    // route named for a thing must go to that thing. Keyed now on the ruling's
+    // real constraint rather than on wording, so the next rename does not break
+    // a case that was never about the words.
+    res(!!foot && /event or biometric/i.test(footTxt) && /dose I took/i.test(footTxt)
+        && /medication from its label/i.test(footTxt),
+        'SE-modes: the secondary entries sit at the foot of the sheet -- the dose form, the label reader and the event/biometric entry');
+    res(!SEDOC.querySelector('#mode-med') && !SEDOC.querySelector('#mode-label')
+        && SEDOC.querySelectorAll('.modes .modebtn').length === 4,
+        'SE-modes GATE: and NONE of them is promoted to a food tab -- the four food modes stay four, because that ordering reflects data quality and not convenience');
     res(seIn('#pane-signal', '#sigType') && seIn('#pane-med', '#medName'), 'SE-modes: the secondary entries carry the real signal + medication forms');
 
     // SE-paste (ruling 3): Photo mode reaches the paste field directly, and that
@@ -2258,12 +2361,18 @@ window.setLS({});
       // that the two controls do not occupy the same tap zone.
       var rmOverlap = !(rmBox.right <= stopBox.left || rmBox.left >= stopBox.right ||
                         rmBox.bottom <= stopBox.top || rmBox.top >= stopBox.bottom);
+      // RE-POINTED TWICE, and the history is the point. It first asserted Remove
+      // was SHORTER than Mark stopped; measured, it was TALLER, because the label
+      // wraps -- height was the wrong proxy. It moved to type size, weight, chrome
+      // and non-overlap. H9's 16px floor has now removed the SIZE half as well,
+      // everywhere in the app. What is left is weight, chrome and thumb path, and
+      // that is the whole of what R19 ever claimed: a destructive control must not
+      // be MISTAKABLE for the affirmative one. Size and height were carriers.
       res(!!rmStyle && !!stopStyle &&
-          parseFloat(rmStyle.fontSize) < parseFloat(stopStyle.fontSize) &&
           parseFloat(rmStyle.fontWeight) < parseFloat(stopStyle.fontWeight) &&
           rmStyle.borderTopStyle === 'none' && stopStyle.borderTopStyle !== 'none' &&
           !rmOverlap,
-          'H4.1-distinct GATE: Remove is smaller and lighter than Mark stopped, carries no button chrome, and sits outside its tap zone (R19)' +
+          'H4.1-distinct GATE: Remove is LIGHTER than Mark stopped, carries no button chrome, and sits outside its tap zone (R19, re-pointed by H9’s floor)' +
           ' :: remove ' + rmStyle.fontSize + '/' + rmStyle.fontWeight + '/' + rmStyle.borderTopStyle +
           ' vs stopped ' + stopStyle.fontSize + '/' + stopStyle.fontWeight + '/' + stopStyle.borderTopStyle +
           ', overlap ' + rmOverlap);

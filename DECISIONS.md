@@ -3904,3 +3904,111 @@ H9's step count reported that `Settings → Medications → Read label` did not 
 **It is neither.** `doLabelPaste()` requires a *whose* radio and the harness never chose one; it returned `{ok: false, error: 'whose'}` and rendered *"Choose whose label this is first."* **The control works and refuses for a stated reason.**
 
 Done properly the route is **5 taps** — `Settings → mine → [paste] → Read label → Yes, that's what it says → Save` — which is **one fewer than the 6-tap Photo route**. So the shorter path is the buried one, and the path that looks right (`Log → Medication`) goes somewhere else entirely. That is recorded here because it strengthens the route ruling, and because **a flagged observation that turns out to be nothing is worth the same write-up as one that turns out to be something** — otherwise only the alarming half of the record survives.
+## D100 — H9 built: a 16px floor, four sizes, three weights, and a route that goes where its name says — v0.35.0 (2026-09-20)
+
+`APP_VERSION → 0.35.0`; no schema change. Both passes were **measured before anything was written**, and every number below was re-measured after.
+
+### The size scale
+
+**18 distinct computed sizes → 4: `16 / 20 / 24 / 32`.** A **collapse of what the app already used**, not a new design: the sizes already at or above 16 were 16/20/22/24/32, and the stray 22 (a single element) folded into 20. 160 declarations rewritten.
+
+| | before | after |
+|---|---|---|
+| distinct sizes | 18 | **4** |
+| elements below 16px | 719 (96%) | **0** |
+| form controls below 16px | **254 of 262** | **0 of 263** |
+| page height at 360px | 3233px (4.3 screens) | 3962px (5.2) |
+
+**The floor was ruled at 16, not 14, against the recommendation and on the recommendation's own evidence:** 254 of 262 controls computed under 16px, so the app zoomed the viewport on every field focus. A 14px body floor would have left that standing everywhere a control did not happen to clear it. **16px on a control is behaviour, not typography.**
+
+**The collision prediction held to within 5px.** It was measured beforehand as +734px and came in at **+729px**; the Typical row was predicted at 3.2 screens and landed at 3.2. Half a screen on a page that was already 4.3, which is why nothing had to shrink back to pay for it.
+
+### The weight scale
+
+**5 weights → 3: `400 / 600 / 700`.** Also a collapse — 400 and 700 already carried 677 of 708 elements; a stray 650 (one element) and 800 (seven) folded in. Mapped to jobs: **400** body and values, **600** labels and item names, **700** headings, active states and the number that matters.
+
+This is load-bearing now in a way it was not before. With size compressed into 16–32, **weight carries the hierarchy size no longer can**, and colour cannot help because the palette is held to its own slice.
+
+### `font-size: smaller` is gone, and the gate proves why it mattered
+
+`small, sub, sup` now carry an explicit 16px. The defect pass measured the counterfactual precisely: **with the rule deleted, `<small>` computes at 13.3px** — the UA's `smaller` is ~0.83×, so even from a *16px* parent it lands below the floor. The original 7.9px came from the same multiplier applied to a 9.5px button.
+
+**A relative size is not made safe by raising its parent.** That is the general form, and it is why the rule is *no relative font sizes* rather than *no small parents*.
+
+### The route (Fork E3 + E1)
+
+`Add a medication from its label` now sits at the sheet foot and opens the label reader with the kind **preset**. The manual dose form is renamed **`Log a dose I took`**, which is what it records.
+
+Before, `Log → Manual → Log medication or supplement` led to the dose-event form while the label path was `Log → Photo → My label`. That is **worse than a step count: it is a plausible wrong destination**. Someone holding a pharmacy label lands in a different feature that looks right.
+
+**Label path: 6 taps → 5.**
+
+### Two conflicts the build exposed
+
+**1. The fifth tab broke a prior ruling.** The first attempt put *Medication* in the sheet head. The sheet ruling says **four food modes plus secondary entries at the foot**, with ordering reflecting **data quality, not convenience** — and a fifth tab promotes a secondary entry on exactly the convenience argument that ruling subordinates.
+
+It also measured badly on its own terms: **493px of buttons in a 283px bar**, with *Medication* at 394–505px — **entirely off-screen**, making the new route *less* reachable than the link it replaced. The foot entries are already always visible, so a foot entry gives **the same 5 taps with nothing broken**. The bar now **wraps rather than scrolls**, so no mode can hide off the edge again.
+
+**2. The floor removed the size half of two distinctness gates.** `R19-demote` and `H4.1-distinct` both asserted *"smaller AND lighter"*. With 16px everywhere the conjunction is unsatisfiable — not because the controls stopped being demoted, but because **size is no longer a carrier anything can use**. Both re-pointed onto **weight, chrome and thumb path**.
+
+That is `H4.1-distinct`'s **second** re-pointing: first from *shorter* (measured **taller** — the label wraps), now from *size*. Each time a carrier went, the claim survived unchanged: **a destructive control must not be mistakable for the affirmative one.** Size and height were always carriers of that property, never the property.
+
+`SE-modes` was re-pointed too, for a different reason: it keyed on the **wording** *"medication or supplement"*, which E3 renamed deliberately. It now asserts the ruling's actual constraint — the entries are at the foot and **none is promoted to a food tab** — which is stronger than the string it replaced and survives the next rename.
+
+### The defect pass: eleven plants, eleven named failures — after two vacuous ones
+
+| plant | what it showed | repair |
+|---|---|---|
+| `small` set to `inherit` | **vacuous**: `inherit` from a 16px parent *is* 16px, so the plant was a safe change that tested nothing | the plant now **deletes** the rule, restoring the UA's `smaller` → 13.3px |
+| a fourth weight on `.mkcal` | **vacuous**: `.mkcal` is not rendered by the shipped-page fixture, so the weight never reached the audit | re-pointed onto `.modebtn`, which always renders |
+
+Both are [[D96]] again — **a plant must be able to reproduce the defect on the fixture that will judge it**, and neither of these could.
+
+### The limits, recorded with the gates
+
+- **A computed-size floor is not legibility.** It is the part of legibility that can be gated. Contrast, line length, spacing and rhythm are not measured here and no gate implies them.
+- **[[D88]] still stands.** The floor gate proves no text is below a number; it cannot say the page reads well at arm's length. **If 16 reads badly on device, the fallback is 15**, and that is a phone judgement rather than a measurement.
+- **The pre-registration's own objection survives the ruling.** *"With a 16px floor and a 24px heading there is little room left to say this matters less"* was **outweighed, not answered** — and the two re-pointed gates are the first bill for it. Whether three weights carry what four extra sizes used to is the open question this slice hands to the device pass.
+
+**Held back deliberately:** the palette, and the density question. Fork F (the Typical row at 3.2 screens) is the one place density touches this slice, and it is **named and deferred** rather than resolved.
+
+**Suite: 2039 assertions, all passing** (2027 → 2039).
+## D101 — Total page height was the wrong proxy for an above-the-fold invariant (2026-09-20)
+
+H9's collision measurement was careful, re-runnable, and **predicted the wrong thing correctly**.
+
+### What was measured, and what it missed
+
+The collision was simulated before the build by raising every computed size to a floor and measuring **page height** and the **scroll depth of each destination**. It predicted a 16px floor would cost **+734px** and move the Typical row from 2.7 to 3.2 screens.
+
+**It was right: +729px measured, and 3.2 screens.**
+
+Then the ring gate failed. On its seeded scene at 390×745 the **goal cells sat at 792px — 47px below the fold** — breaking a ruled invariant: *checklist, + Log, goal cells and legend above the fold*.
+
+**The page grew exactly as predicted and the invariant broke anyway**, because the invariant is not about how long the page is. It is about **which elements fall inside the first 745 pixels**. Total height cannot distinguish a page that grew at the bottom from one that grew above the fold, and only the second breaks this rule.
+
+### The rule
+
+**A layout collision check must measure MEMBERSHIP of the constrained region, not the size of the page.**
+
+This is [[D96]]'s shape from the measurement side. D96 says a *fixture* must be able to distinguish the thing a ruling chose between. This says a **measurement** must be able to distinguish the thing a ruling protects. In both, the instrument was sound and pointed at the wrong quantity — and in both, it produced a confident number that was true and irrelevant.
+
+The general question to ask of any pre-build measurement: **what exactly does the rule constrain, and does this number change when that constraint is violated?** Page height does not change when the fold is breached; it changes when anything anywhere grows.
+
+### The fixture detail that would have hidden it forever
+
+The invariant fails **only when the regimen checklist has entries**. With an empty checklist the goal cells sit at 632px, comfortably above the fold, and every measurement reports success.
+
+**A fixture without a regimen would have passed this forever** — and a regimen user is precisely who the checklist exists for. The ring gate caught it because its seed builds a *populated* scene: a regimen with two entries, a week of days, two goals. That seed was written for arc-band geometry, not for the fold, and it caught a fold defect years of empty-state checking would not have.
+
+**Recorded as a property of fixtures rather than of this bug:** the state that stresses a layout invariant is a **populated** one, and the emptier the fixture the more invariants it silently satisfies.
+
+### The repair, and why the scope boundary did not get to decide it
+
+**Ruled: spacing only, and in scope for H9 rather than borrowed from the density slice.** *"Density is about how much is on the surface; this is the gaps between four elements that are all staying. Letting the scope boundary push us to shrink the ring, move a ruled layout, or weaken an invariant would be the boundary making a worse decision than the constraint would."*
+
+Sixteen spacing rules tightened — margins, padding and flex gaps. **Nothing shrank, nothing moved, no type got smaller, the ring kept its 328px and every element kept its order.**
+
+Several of the cuts were paying for type that no longer exists: `.rmini` carried `padding:2px 0 3px` sized around **9.5px** text and now carries 16px; `.navbtn` had 6px of vertical padding around 20px type. **A floor does not only add height — it makes the old spacing wrong**, because padding was chosen against the old type size.
+
+**Measured margin after: the goal cells sit at 724px, 21px clear of the 745px fold** — up from 2px after the first pass, which was not headroom at all. Reported because *"48px with no headroom is a constraint that breaks again on the next element anyone adds"*, and 21px is one added row of controls, not one added pixel.

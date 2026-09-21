@@ -45,12 +45,12 @@
   }
   .top h1{font-size:16px;margin:0;font-weight:700}
   #storeBadge{
-    text-align:center;font-size:12px;padding:6px 12px;
+    text-align:center;font-size:16px;padding:6px 12px;
     background:var(--panel);border-bottom:1px solid var(--line);color:var(--muted);
   }
-  .wrap{max-width:480px;margin:0 auto;padding:14px}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
-  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+  .wrap{max-width:480px;margin:0 auto;padding:10px 14px 14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:8px 16px 16px;margin-bottom:14px}
+  .card h2{font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
   .kv{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
   .kv:first-child{border-top:none}
   .kv .k{color:var(--muted)}
@@ -73,7 +73,7 @@
   .pmex-wrap{display:flex}
   /* R28: the timing breakdown. Monospace and small, but SELECTABLE -- it exists
      to be read off a phone and pasted into a bug report. */
-  .otrace{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:1.5;
+  .otrace{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:16px;line-height:1.5;
           color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:8px;
           padding:6px 8px;margin:6px 0;user-select:text;-webkit-user-select:text;word-break:break-word}
   .caprow{display:flex;gap:8px}
@@ -82,8 +82,8 @@
   .rewrap{padding:10px 12px;border:1px solid var(--accent);border-radius:12px;background:var(--panel)}
   .rerow{display:flex;gap:8px;align-items:flex-end}
   .rerow .btn{flex:1 1 0;min-height:44px}
-  .renote{margin-top:6px;color:var(--muted);font-size:11.5px;line-height:1.45}
-  .tledit{color:var(--muted);font-size:10.5px;border:1px solid var(--line);border-radius:6px;padding:0 4px;margin-left:4px}
+  .renote{margin-top:6px;color:var(--muted);font-size:16px;line-height:1.45}
+  .tledit{color:var(--muted);font-size:16px;border:1px solid var(--line);border-radius:6px;padding:0 4px;margin-left:4px}
   .tlmain[role=button]{cursor:pointer}
   .bmwrap{margin-top:10px}
   /* R20.1: the control is 48px TALL, and that is the touch target. On a range
@@ -100,56 +100,56 @@
     background:var(--accent);border:2px solid var(--panel);box-shadow:0 1px 4px rgba(0,0,0,.3);margin-top:-11px}
   .bmslider::-moz-range-track{height:6px;border-radius:3px;background:var(--line)}
   .bmslider::-moz-range-thumb{width:28px;height:28px;border-radius:50%;background:var(--accent);border:2px solid var(--panel)}
-  .bmends{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:11.5px;line-height:1.35}
+  .bmends{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:16px;line-height:1.35}
   .bmends span{max-width:46%}
   .bmends span:last-child{text-align:right}
   /* R20.1: the readout sits ABOVE the track. A finger on a slider occludes
      whatever is under and beside it exactly while sliding -- which is precisely
      when the readout is being read. A mouse never shows this defect. */
-  .bmread{margin:2px 0 6px;font-size:15px;line-height:1.4;min-height:21px}
-  .bmread b{font-size:16.5px}
+  .bmread{margin:2px 0 6px;font-size:16px;line-height:1.4;min-height:21px}
+  .bmread b{font-size:20px}
   .bmref{margin-top:10px}
-  .bmrefline{font-size:12.5px;line-height:1.45}
-  .byoks{font-size:12.5px;margin-top:10px;line-height:1.4;display:flex;align-items:center;gap:7px}
+  .bmrefline{font-size:16px;line-height:1.45}
+  .byoks{font-size:16px;margin-top:10px;line-height:1.4;display:flex;align-items:center;gap:7px}
   .byoks.byokok{color:var(--good)}
   .byoks.byokbad{color:var(--bad)}
   .byoks.byoktesting{color:var(--muted)}
   .byokspin{width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:byokspin .8s linear infinite;flex:0 0 auto}
   @keyframes byokspin{to{transform:rotate(360deg)}}
   @media (prefers-reduced-motion:reduce){.byokspin{animation:none}}
-  .note{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.45}
-  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
-  textarea{width:100%;min-height:88px;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.45;resize:vertical}
-  .btn{display:inline-block;width:auto;padding:11px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;font-size:14px;cursor:pointer}
+  .note{font-size:16px;color:var(--muted);margin-top:12px;line-height:1.45}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:16px}
+  textarea{width:100%;min-height:88px;margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:16px;line-height:1.45;resize:vertical}
+  .btn{display:inline-block;width:auto;padding:11px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;font-size:16px;cursor:pointer}
   .btn:active{opacity:.6}
   .btn.danger{border-color:var(--bad);color:var(--bad)}
-  .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:800;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:23;max-width:90%;text-align:center}
+  .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:700;font-size:16px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:23;max-width:90%;text-align:center}
   .toast.show{opacity:1}
   .hrow{padding:9px 0;border-top:1px solid var(--line)}
   .hrow:first-child{border-top:none}
   .hd{display:flex;align-items:center;gap:8px}
   .hdate{font-weight:700;font-variant-numeric:tabular-nums}
-  .flag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px}
-  .hmeta{font-size:12px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+  .flag{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px}
+  .hmeta{font-size:16px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
   .vnotice{border-color:var(--accent)}
-  .vnhead{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:800;font-size:14px;color:var(--accent)}
+  .vnhead{display:flex;align-items:center;justify-content:space-between;gap:10px;font-weight:700;font-size:16px;color:var(--accent)}
   .vnx{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;padding:0 2px;width:auto;cursor:pointer}
-  .vnrow{font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.45}
+  .vnrow{font-size:16px;color:var(--muted);margin-top:6px;line-height:1.45}
   .vnrow b{color:var(--txt);font-variant-numeric:tabular-nums}
   #ingestReport{margin-top:10px}
-  .ireport{font-size:12px;color:var(--muted);padding:5px 0;border-top:1px solid var(--line);line-height:1.4}
+  .ireport{font-size:16px;color:var(--muted);padding:5px 0;border-top:1px solid var(--line);line-height:1.4}
   .ireport:first-child{border-top:none}
   .ireport.bad{color:var(--bad)}
-  label{display:block;font-size:11px;color:var(--muted);margin:6px 0 3px}
-  input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font-size:15px}
+  label{display:block;font-size:16px;color:var(--muted);margin:6px 0 3px}
+  input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font-size:16px}
   .row{display:flex;gap:8px}.row>div{flex:1;min-width:0}
-  details>summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:14px;list-style:none}
+  details>summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:16px;list-style:none}
   details>summary::-webkit-details-marker{display:none}
-  .daynav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px}
-  .navbtn{width:40px;padding:6px 0;font-size:20px;font-weight:800;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--accent);cursor:pointer}
+  .daynav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:0}
+  .navbtn{width:40px;padding:2px 0;font-size:20px;font-weight:700;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--accent);cursor:pointer}
   .navbtn:disabled{opacity:.3}
-  .daysel{text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
-  .dstat{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px;vertical-align:2px}
+  .daysel{text-align:center;font-weight:700;font-variant-numeric:tabular-nums}
+  .dstat{font-size:16px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--warn);border:1px solid var(--warn);border-radius:8px;padding:1px 6px;vertical-align:2px}
   .dstat.done{color:var(--good);border-color:var(--good)}
   /* D35 rhythm ring — CATEGORICAL colour only. No zones, no met/unmet, no bands. */
   .rring{width:100%;height:100%;display:block;overflow:visible}
@@ -170,15 +170,15 @@
   .rring path.rpending{stroke-dasharray:5 4}
   .rring .ra-open{stroke-dasharray:4 4;opacity:.55}
   .rdim{opacity:.12 !important}
-  .rlegend{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:8px}
-  .rlkey{display:inline-flex;align-items:center;gap:4px;padding:3px 7px;border:1px solid transparent;border-radius:9px;background:none;color:var(--muted);font:inherit;font-size:10.5px;cursor:pointer}
+  .rlegend{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;margin-top:1px}
+  .rlkey{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border:1px solid transparent;border-radius:9px;background:none;color:var(--muted);font:inherit;font-size:16px;cursor:pointer}
   .rlkey.on{border-color:var(--line);color:var(--txt)}
   .rlswatch{width:8px;height:8px;border-radius:2px;flex:0 0 auto}
-  .rviewsel{display:flex;gap:4px;justify-content:center;margin-bottom:4px}
-  .rviewsel button{width:auto;font-size:11px;font-weight:700;padding:4px 11px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .rviewsel{display:flex;gap:4px;justify-content:center;margin-bottom:2px}
+  .rviewsel button{width:auto;font-size:16px;font-weight:700;padding:4px 11px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--muted);cursor:pointer}
   .rviewsel button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .rresolve{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:9px;border:1px solid var(--line);border-radius:12px;font-size:12px;color:var(--muted)}
-  .rresolve .btn{padding:6px 11px;font-size:12px}
+  .rresolve{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px;padding:9px;border:1px solid var(--line);border-radius:12px;font-size:16px;color:var(--muted)}
+  .rresolve .btn{padding:6px 11px;font-size:16px}
   .rk-eat{stroke:var(--accent)}
   .rk-sleep{stroke:#7b86c4}
   .rk-exercise{stroke:var(--good)}
@@ -188,30 +188,30 @@
   .rk-sleepplan{stroke:#7b86c4;stroke-width:5;opacity:.26}
   .rk-plantick{stroke:var(--muted);stroke-width:1.5;opacity:.5}
   .rcenter{gap:1px;inset:31%;padding:0}
-  .rcenter b{font-size:24px;font-weight:800;line-height:1.05}
-  .rcenter b.rcdate{font-size:18px}
-  .rcsub{font-size:9.5px;color:var(--muted);line-height:1.2}
+  .rcenter b{font-size:24px;font-weight:700;line-height:1.05}
+  .rcenter b.rcdate{font-size:20px}
+  .rcsub{font-size:16px;color:var(--muted);line-height:1.2}
   .rctap{color:var(--accent);font-weight:700;margin-top:3px}
-  .rcenter .btn{margin-top:5px;padding:6px 10px;font-size:12px}
+  .rcenter .btn{margin-top:5px;padding:6px 10px;font-size:16px}
   .rctrl{gap:4px}
-  .rcin{width:80%;padding:5px;font-size:13px;text-align:center}
+  .rcin{width:80%;padding:5px;font-size:16px;text-align:center}
   .rcstate{color:var(--accent);font-weight:700;margin-top:3px}
   .rring path.ra-sleepopen{stroke-dasharray:6 4;stroke-linecap:butt;opacity:.75}
-  .rrrange{text-align:center;font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:.04em}
+  .rrrange{text-align:center;font-size:16px;color:var(--muted);margin-top:2px;letter-spacing:.04em}
   .rkey.rk-sleepplan{background:#7b86c4;opacity:.3}
   .rkey.rk-plantick{background:var(--muted);opacity:.5}
   .rring path.rpending{stroke-dasharray:5 4}
   .rk-eatdot{fill:var(--accent)}
-  .rrcap{margin:8px 0 2px;font-size:12px;color:var(--muted)}
+  .rrcap{margin:8px 0 2px;font-size:16px;color:var(--muted)}
   .rrrow{display:flex;align-items:center;gap:7px;padding:2px 0;flex-wrap:wrap}
   .rrmuted{color:var(--muted)}
   .rkey{flex:0 0 auto;width:10px;height:10px;border-radius:3px;background:var(--line)}
   .rkey.rk-eat{background:var(--accent)}.rkey.rk-sleep{background:#7b86c4}
   .rkey.rk-exercise{background:var(--good)}.rkey.rk-fast{background:var(--muted)}
   .rkey.rk-open{background:var(--muted);opacity:.5}.rkey.rk-window{background:var(--accent);opacity:.3}
-  .rglabel{margin-top:8px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .rglabel{margin-top:8px;font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
   .rgrid{display:flex;flex-wrap:wrap;gap:2px;margin-top:10px;justify-content:flex-start}
-  .rmini{flex:0 0 auto;width:44px;padding:2px 0 3px;border:1px solid transparent;border-radius:10px;background:none;color:var(--muted);font:inherit;font-size:9.5px;cursor:pointer;text-align:center;line-height:1.1}
+  .rmini{flex:0 0 auto;width:44px;padding:0;border:1px solid transparent;border-radius:10px;background:none;color:var(--muted);font:inherit;font-size:16px;cursor:pointer;text-align:center;line-height:1.1}
   .rmini small{display:block;margin-top:1px;font-variant-numeric:tabular-nums}
   /* R17: minis are DIGESTS with their own geometry -- fixed px, overflow hidden,
      nothing drawn outside the box, so neighbours can never overlap. */
@@ -225,43 +225,43 @@
   /* D35 addendum: the ring is the centerpiece, so it renders at centerpiece
      scale -- ~80% of viewport width, capped so desktop stays sane. Both ring
      SVGs carry a viewBox, so arcs, labels and the now-hand scale with it. */
-  .ringbox{position:relative;width:var(--ringw);height:var(--ringw);margin:6px auto 0}
+  .ringbox{position:relative;width:var(--ringw);height:var(--ringw);margin:2px auto 0}
   .ring{width:100%;height:100%;display:block}
   .ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-  .ringval b{font-size:32px;font-weight:800;line-height:1.05}
-  .ringval span{font-size:11px;color:var(--muted)}
+  .ringval b{font-size:32px;font-weight:700;line-height:1.05}
+  .ringval span{font-size:16px;color:var(--muted)}
   .gpct{margin-top:3px;font-weight:700}
   .primsel{display:flex;gap:4px;justify-content:center;margin:8px 0}
-  .primsel button{width:auto;font-size:11px;font-weight:700;padding:5px 9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .primsel button{width:auto;font-size:16px;font-weight:700;padding:5px 9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--muted);cursor:pointer}
   .primsel button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-  .goalstrip{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .goalstrip{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
   .goalcell{position:relative;flex:1 1 calc(50% - 6px);min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:7px 9px}
-  .goalcell span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
-  .goalcell b{font-size:15px;font-variant-numeric:tabular-nums}
-  .goalcell small{display:block;font-size:10px;color:var(--muted)}
-  .grm{position:absolute;top:4px;right:6px;background:none;border:none;color:var(--muted);font-size:14px;padding:0;width:auto;cursor:pointer}
+  .goalcell span{display:block;font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+  .goalcell b{font-size:16px;font-variant-numeric:tabular-nums}
+  .goalcell small{display:block;font-size:16px;color:var(--muted)}
+  .grm{position:absolute;top:4px;right:6px;background:none;border:none;color:var(--muted);font-size:16px;padding:0;width:auto;cursor:pointer}
   .summary{margin:8px 0}
-  .sumhead{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:2px}
-  .sumrow{display:flex;justify-content:space-between;font-size:12px;padding:3px 0;font-variant-numeric:tabular-nums}
+  .sumhead{font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:2px}
+  .sumrow{display:flex;justify-content:space-between;font-size:16px;padding:3px 0;font-variant-numeric:tabular-nums}
   .mealgrp{margin-top:12px}
-  .mealhead{display:flex;justify-content:space-between;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:2px}
+  .mealhead{display:flex;justify-content:space-between;font-size:16px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:2px}
   .mitem{display:flex;align-items:flex-start;gap:8px;padding:9px 0;border-top:1px solid var(--line)}
   .mmain{flex:1;min-width:0}
-  .mname{font-size:15px;font-weight:600}
-  .mmeta{font-size:11.5px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
-  .src{font-size:10px;text-transform:uppercase;letter-spacing:.04em;opacity:.75}
+  .mname{font-size:16px;font-weight:600}
+  .mmeta{font-size:16px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
+  .src{font-size:16px;text-transform:uppercase;letter-spacing:.04em;opacity:.75}
   .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:3px;vertical-align:1px}
   .dot.good{background:var(--good)}.dot.accent{background:var(--accent)}.dot.warn{background:var(--warn)}.dot.muted{background:var(--muted)}
-  .mkcal{font-size:15px;font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}
-  .mkcal small{font-size:11px;color:var(--muted);font-weight:400}
+  .mkcal{font-size:16px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+  .mkcal small{font-size:16px;color:var(--muted);font-weight:400}
   .rm{color:#e67a7a;background:none;border:none;font-size:20px;padding:0 4px;width:auto;cursor:pointer}
-  .mealchip{display:inline-block;width:auto;margin-top:5px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px;background:var(--bg);color:var(--accent);border:1px solid var(--line);text-transform:capitalize;cursor:pointer}
+  .mealchip{display:inline-block;width:auto;margin-top:5px;font-size:16px;font-weight:700;padding:2px 9px;border-radius:10px;background:var(--bg);color:var(--accent);border:1px solid var(--line);text-transform:capitalize;cursor:pointer}
   .daytot{display:flex;justify-content:space-between;font-weight:700;padding:9px 0 4px;border-top:2px solid var(--line);margin-top:6px}
   /* R31 macro coverage. Not decoration: each of these carries a statement that a
      number on screen is incomplete, so none of them is hidden, collapsed or
      faded below legibility (D53 -- provenance may hide, safety may not). */
-  .daycov{font-size:12px;color:var(--warn);text-align:right;padding:2px 0 0;font-variant-numeric:tabular-nums}
-  .goalcov{font-size:12px;color:var(--warn);padding:6px 10px;margin:0 0 8px;border:1px solid var(--warn);border-radius:8px;line-height:1.35}
+  .daycov{font-size:16px;color:var(--warn);text-align:right;padding:2px 0 0;font-variant-numeric:tabular-nums}
+  .goalcov{font-size:16px;color:var(--warn);padding:6px 10px;margin:0 0 8px;border:1px solid var(--warn);border-radius:8px;line-height:1.35}
   .mcov{font-weight:400;color:var(--warn);font-variant-numeric:tabular-nums}
   .munres{color:var(--muted);font-style:italic}
   .hcov{color:var(--warn);font-variant-numeric:tabular-nums}
@@ -271,7 +271,7 @@
      manufacture. "None of these" is equally reachable, never a smaller way out. */
   .pmalts{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 0}
   .pmalt,.pmaltnone{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
-    background:var(--card);color:var(--fg);font-size:14px;font-family:inherit;cursor:pointer}
+    background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
   .pmaltnone{border-style:dashed;color:var(--muted)}
   .pmunres{color:var(--muted);font-style:italic}
   .pmrowunres .pmhead b{color:var(--muted)}
@@ -279,42 +279,42 @@
   /* R33 plates. The consumption question is a SECTION of the draft, never a modal:
      it must be answerable without blocking, and the one-tap path has to survive it
      being open. Fraction buttons clear the 44px touch floor like every other pick. */
-  .pmcount{display:flex;align-items:center;gap:8px;margin:4px 0 0;font-size:12px;color:var(--muted)}
+  .pmcount{display:flex;align-items:center;gap:8px;margin:4px 0 0;font-size:16px;color:var(--muted)}
   .pmcount .pmcnt{width:74px;min-height:40px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
-    background:var(--card);color:var(--fg);font-size:14px;font-family:inherit}
+    background:var(--card);color:var(--fg);font-size:16px;font-family:inherit}
   .pmconsume{margin:10px 0 0;padding:10px;border:1px solid var(--accent);border-radius:10px}
   .pmate{margin:8px 0 0}
-  .pmatehead{font-weight:600;font-size:13px;margin:0 0 4px}
+  .pmatehead{font-weight:600;font-size:16px;margin:0 0 4px}
   .pmfracs{display:flex;flex-wrap:wrap;gap:6px}
   .pmfrac{min-width:52px;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;
-    background:var(--card);color:var(--fg);font-size:15px;font-family:inherit;cursor:pointer}
+    background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
   .pmfracon{border-color:var(--accent);background:var(--accent);color:var(--card);font-weight:700}
   /* H4 medication capture. The kind choice is three equals: the user states what
      the photo is before it is sent, and nothing hints at which is expected. */
   .capkind{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
   .capk{flex:1 1 auto;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;
-    background:var(--panel);color:var(--txt);font-size:14px;font-family:inherit;cursor:pointer}
+    background:var(--panel);color:var(--txt);font-size:16px;font-family:inherit;cursor:pointer}
   .capkon{border-color:var(--accent);background:var(--accent);color:#fff;font-weight:700}
   .lblimit{margin:0 0 8px}
-  .lbl{display:block;margin:8px 0 2px;font-size:12px;color:var(--muted)}
+  .lbl{display:block;margin:8px 0 2px;font-size:16px;color:var(--muted)}
   .lbprinted{color:var(--muted);font-style:italic}
   .lbrefill{margin:0 0 10px}
   .lbrest{margin:10px 0 0}
-  .medsec{font-weight:700;font-size:13px;margin:14px 0 4px}
+  .medsec{font-weight:700;font-size:16px;margin:14px 0 4px}
   .medrow{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
-  .medmain{min-width:0;overflow-wrap:anywhere;font-size:14px}
-  .medsub{font-size:12px;color:var(--muted)}
+  .medmain{min-width:0;overflow-wrap:anywhere;font-size:16px}
+  .medsub{font-size:16px;color:var(--muted)}
   .medgen{color:var(--muted)}
-  .medbtn{padding:7px 12px;font-size:13px;flex:0 0 auto;min-height:40px}
+  .medbtn{padding:7px 12px;font-size:16px;flex:0 0 auto;min-height:40px}
   .medstopped{margin:6px 0}
   /* H4.1: the destructive action is NOT a peer of Mark stopped (R19) -- no button
      chrome, smaller, muted until touched, and it never shares the thumb path of the
      affirmative control beside it. The .clrday precedent. */
   .medrm{display:inline-block;width:auto;margin:4px 0 0;padding:6px 0;background:none;border:none;
-    color:var(--muted);font-size:12px;font-weight:400;text-decoration:underline;cursor:pointer;font-family:inherit}
+    color:var(--muted);font-size:16px;font-weight:400;text-decoration:underline;cursor:pointer;font-family:inherit}
   .medrm:hover,.medrm:active{color:var(--bad)}
   .medfills{margin:4px 0 0}
-  .medfills>summary{font-size:12px;color:var(--muted)}
+  .medfills>summary{font-size:16px;color:var(--muted)}
   .medfill{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:3px 0}
   /* H5 drug information. The label text is the artifact: it gets room, a monospace
      measure like every other quoted source, and its own scroll rather than squeezing
@@ -322,30 +322,30 @@
   .qbox{margin:8px 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
   .qrow + .qrow{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
   .qline{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;margin-bottom:3px}
-  .qline span{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;flex:0 0 auto}
-  .qline b{font-size:13px;word-break:break-word}
-  .qin{flex:1 1 140px;min-width:0;font-size:13px;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--txt)}
-  .qnote{display:block;font-size:11px;color:var(--muted);margin-top:2px}
+  .qline span{font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;flex:0 0 auto}
+  .qline b{font-size:16px;word-break:break-word}
+  .qin{flex:1 1 140px;min-width:0;font-size:16px;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--txt)}
+  .qnote{display:block;font-size:16px;color:var(--muted);margin-top:2px}
   .drugpanel{margin:8px 0;padding:10px;border:1px solid var(--accent);border-radius:12px}
-  .drughead{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
-  .drugtitle{font-weight:700;font-size:14px;margin:6px 0}
+  .drughead{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:16px}
+  .drugtitle{font-weight:700;font-size:16px;margin:6px 0}
   .drugsec{margin:6px 0}
-  .drugsec>summary{font-size:13px}
-  .drugtext{white-space:pre-wrap;font-size:12.5px;line-height:1.5;max-height:340px;overflow:auto;
+  .drugsec>summary{font-size:16px}
+  .drugtext{white-space:pre-wrap;font-size:16px;line-height:1.5;max-height:340px;overflow:auto;
     margin-top:6px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
   .drugabsent{color:var(--muted);font-style:italic}
   .druglist{display:flex;flex-direction:column;gap:6px;max-height:300px;overflow:auto;margin:6px 0}
   .drugctx{margin:8px 0 0}
   .plrecall{margin:0 0 10px;padding:8px 10px;border:1px solid var(--warn);border-radius:10px}
-  .plhead{font-size:12px;color:var(--warn);margin:0 0 6px}
+  .plhead{font-size:16px;color:var(--warn);margin:0 0 6px}
   .plrow{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:44px;align-items:center;
     padding:6px 8px;margin:4px 0 0;border:1px solid var(--line);border-radius:8px;background:var(--card);
-    color:var(--fg);font-size:13px;font-family:inherit;text-align:left;cursor:pointer}
+    color:var(--fg);font-size:16px;font-family:inherit;text-align:left;cursor:pointer}
   .plleft{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
-  .waterrow{display:flex;justify-content:space-between;align-items:center;font-size:14px;margin:8px 0}
+  .waterrow{display:flex;justify-content:space-between;align-items:center;font-size:16px;margin:8px 0}
   .wbtns{display:flex;gap:6px}
-  .wbtns button{width:auto;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;cursor:pointer}
-  .btn.big{width:100%;padding:13px;font-size:15px;margin-top:8px}
+  .wbtns button{width:auto;font-size:16px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;cursor:pointer}
+  .btn.big{width:100%;padding:13px;font-size:16px;margin-top:8px}
   .btn.close{background:var(--accent);color:#fff;border-color:var(--accent)}
   .btn.reopen{background:var(--bg);color:var(--good);border-color:var(--good)}
   /* R19: a rare destructive action must not share the size, weight and thumb
@@ -353,56 +353,56 @@
      unbolded and muted at rest; it carries the destructive colour on press,
      where the intent is already deliberate. */
   .dayclr{display:flex;justify-content:center;margin-top:26px}
-  .clrday{width:auto;padding:6px 10px;background:none;border:none;color:var(--muted);font-size:12px;font-weight:400;text-decoration:underline;cursor:pointer}
+  .clrday{width:auto;padding:6px 10px;background:none;border:none;color:var(--muted);font-size:16px;font-weight:400;text-decoration:underline;cursor:pointer}
   .clrday:hover,.clrday:active{color:var(--bad)}
   .mafield{margin-bottom:8px}
   .uinput{display:flex;align-items:center;gap:6px}
   .uinput input{flex:1}
-  .unit{font-size:12px;color:var(--muted);min-width:34px;font-weight:700}
-  .warn{font-size:12px;color:var(--warn);padding:3px 0}
+  .unit{font-size:16px;color:var(--muted);min-width:34px;font-weight:700}
+  .warn{font-size:16px;color:var(--warn);padding:3px 0}
   #maWarn{margin-bottom:4px}
   .micros{margin-top:10px}
-  .micros>summary{font-size:13px;color:var(--txt);font-weight:600}
+  .micros>summary{font-size:16px;color:var(--txt);font-weight:600}
   .presetrow{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
   .presetrow:first-child{border-top:none}
   .pmain{flex:1;min-width:0}.pname{font-weight:600}
-  .pmeta{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
-  .presetrow .btn{padding:7px 12px;font-size:13px}
+  .pmeta{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .presetrow .btn{padding:7px 12px;font-size:16px}
   .prm{color:#e67a7a;background:none;border:none;font-size:20px;padding:0 4px;width:auto;cursor:pointer}
   .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
   .avgblock{padding:8px 0;border-top:1px solid var(--line)}
   .avgblock:first-child{border-top:none}
-  .avghead{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:3px}
-  .avgmacros{font-size:14px;font-variant-numeric:tabular-nums}
+  .avghead{font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700;margin-bottom:3px}
+  .avgmacros{font-size:16px;font-variant-numeric:tabular-nums}
   .avgmicros{margin-top:4px}
-  .avgmrow{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;font-variant-numeric:tabular-nums}
+  .avgmrow{display:flex;justify-content:space-between;font-size:16px;padding:2px 0;font-variant-numeric:tabular-nums}
   #onboarding h2{margin-top:0}
-  .obtext{font-size:13px;color:var(--muted);margin:6px 0;line-height:1.5}
-  .oblist{font-size:13px;color:var(--muted);margin:6px 0;padding-left:18px;line-height:1.55}
+  .obtext{font-size:16px;color:var(--muted);margin:6px 0;line-height:1.5}
+  .oblist{font-size:16px;color:var(--muted);margin:6px 0;padding-left:18px;line-height:1.55}
   .oblist b{color:var(--txt)}
-  .pver{font-size:11px;color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
+  .pver{font-size:16px;color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
   #promptTemplate,#promptTemplateSettings{min-height:150px}
-  .checkline{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--txt);margin:8px 0}
+  .checkline{display:flex;align-items:center;gap:8px;font-size:16px;color:var(--txt);margin:8px 0}
   .checkline input{width:auto}
-  .about{font-size:11px;color:var(--muted);text-align:center;padding:16px 6px;line-height:1.6}
+  .about{font-size:16px;color:var(--muted);text-align:center;padding:16px 6px;line-height:1.6}
   .about a{color:var(--accent)}
-  .scanhead{margin:10px 0 4px;font-size:15px}
-  .scanbrand{color:var(--muted);font-size:12px;font-weight:400}
-  .scansrc{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:1px 6px;vertical-align:2px}
+  .scanhead{margin:10px 0 4px;font-size:16px}
+  .scanbrand{color:var(--muted);font-size:16px;font-weight:400}
+  .scansrc{font-size:16px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border:1px solid var(--line);border-radius:8px;padding:1px 6px;vertical-align:2px}
   .scanmodes{margin:8px 0}
   .scanmodes button:disabled{opacity:.4;cursor:default}
-  .scanmuted{color:var(--muted);font-size:12px}
-  .linklike{background:none;border:none;color:var(--accent);font-weight:700;font-size:13px;padding:8px 0 0;width:auto;cursor:pointer}
+  .scanmuted{color:var(--muted);font-size:16px}
+  .linklike{background:none;border:none;color:var(--accent);font-weight:700;font-size:16px;padding:8px 0 0;width:auto;cursor:pointer}
   .scanmsg{margin-top:8px}
   .scancam{margin-top:10px}
   .scanvidwrap{position:relative;border-radius:12px;overflow:hidden;background:#000}
   .scanvidwrap video{width:100%;max-height:300px;object-fit:cover;display:block}
   .scanreticle{position:absolute;left:10%;right:10%;top:50%;height:64px;transform:translateY(-50%);border:2px solid var(--accent);border-radius:8px;opacity:.75;pointer-events:none}
   .pricecap{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
-  .tlrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+  .tlrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:16px}
   .tlrow:first-child{border-top:none}
-  .tltime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:12px}
-  .tltag{font-size:9px;text-transform:uppercase;letter-spacing:.04em;font-weight:800;border-radius:6px;padding:1px 5px;min-width:58px;text-align:center;flex:0 0 auto}
+  .tltime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:16px}
+  .tltag{font-size:16px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;border-radius:6px;padding:1px 5px;min-width:58px;text-align:center;flex:0 0 auto}
   .tltag.food{background:var(--accent);color:#fff}
   .tltag.event{border:1px solid var(--warn);color:var(--warn)}
   .tltag.biometric{border:1px solid var(--good);color:var(--good)}
@@ -420,29 +420,29 @@
   }
   /* Wide viewports wrap as well (belt-and-suspenders for wide non-hover screens). */
   @media (min-width:600px){ .chipstrip{flex-wrap:wrap;overflow-x:visible} }
-  .chip{flex:0 0 auto;width:auto;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--txt);font-size:13px;font-weight:700;white-space:nowrap;cursor:pointer}
+  .chip{flex:0 0 auto;width:auto;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--txt);font-size:16px;font-weight:700;white-space:nowrap;cursor:pointer}
   .chip:active{background:var(--accent);border-color:var(--accent);color:#fff}
-  .tundo{pointer-events:auto;width:auto;background:none;border:none;color:#fff;font-weight:800;text-decoration:underline;font-size:13px;padding:0 0 0 6px;cursor:pointer}
-  .fcand{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+  .tundo{pointer-events:auto;width:auto;background:none;border:none;color:#fff;font-weight:700;text-decoration:underline;font-size:16px;padding:0 0 0 6px;cursor:pointer}
+  .fcand{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);font-size:16px}
   .fcand .fmain{flex:1;min-width:150px}
   .fcand .fmain small{color:var(--muted);margin-left:6px}
   .fcand.done .fmain{color:var(--good)}
   .fcand.denied .fmain{color:var(--muted)}
   .fbtns{display:flex;gap:6px;flex:0 0 auto}
-  .fbtns button{width:auto;font-size:12px;font-weight:700;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);cursor:pointer}
-  .fundo{width:auto;background:none;border:none;color:var(--accent);font-weight:700;font-size:12px;cursor:pointer}
-  .flong{color:var(--warn);font-weight:700;font-size:11px}
+  .fbtns button{width:auto;font-size:16px;font-weight:700;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);cursor:pointer}
+  .fundo{width:auto;background:none;border:none;color:var(--accent);font-weight:700;font-size:16px;cursor:pointer}
+  .flong{color:var(--warn);font-weight:700;font-size:16px}
   .twin{display:flex;gap:6px;margin-bottom:6px}
-  .twin button{width:auto;font-size:12px;font-weight:700;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--muted);cursor:pointer}
+  .twin button{width:auto;font-size:16px;font-weight:700;padding:5px 12px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--muted);cursor:pointer}
   .twin button.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .trow{padding:10px 0;border-top:1px solid var(--line)}
-  .thead{font-size:13px;font-weight:700}.thead small{color:var(--muted);font-weight:600;font-size:11px}
+  .thead{font-size:16px;font-weight:700}.thead small{color:var(--muted);font-weight:600;font-size:16px}
   .tcov{color:var(--warn)}
   .spark{display:block;width:100%;height:40px;margin:6px 0 4px}
   .spark polyline{stroke:var(--accent);fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
   .spark circle{fill:var(--accent)}
   .spark line.tref{stroke:var(--muted);stroke-width:1;stroke-dasharray:3 3}
-  .tsum{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tsum{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
   .tgoal{color:var(--muted);font-weight:600}
   /* H7 (D95). DIRECTION is encoded as two tints of ONE hue differing in lightness.
      var(--good) and var(--warn) are deliberately absent: those tokens mean "good"
@@ -459,41 +459,49 @@
      never be mistaken for the typical band behind it. Dormant: nothing supplies one. */
   .tbsvg .tsrcband{fill:none;stroke:var(--muted);stroke-width:1;stroke-dasharray:2 2}
   .ttrail{display:flex;gap:12px;flex-wrap:wrap;margin-top:4px}
-  .tleg{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .tleg{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
   .tleg b{color:var(--txt);font-weight:700}
   .tdir{margin-top:5px}
   .tarrow{font-weight:700;color:var(--txt)}
   .thint{color:var(--muted);font-weight:600}
   .nudgeoffer,.nudgefocus{padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
-  .nudgetitle{font-weight:700;font-size:14px}
-  .nudgewhy{color:var(--muted);font-size:13px;margin-top:4px;line-height:1.45}
-  .nudgeadh{color:var(--muted);font-size:12px;margin-top:6px;font-variant-numeric:tabular-nums}
+  .nudgetitle{font-weight:700;font-size:16px}
+  .nudgewhy{color:var(--muted);font-size:16px;margin-top:4px;line-height:1.45}
+  .nudgeadh{color:var(--muted);font-size:16px;margin-top:6px;font-variant-numeric:tabular-nums}
   .nudgebtns{display:flex;align-items:center;gap:12px;margin-top:10px}
   .nbrowsewrap{margin-top:8px}
   .nbrowse{margin-top:6px;border-top:1px solid var(--line)}
-  .nbrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
-  .nbtitle small{color:var(--muted);text-transform:uppercase;font-size:9px;letter-spacing:.04em;font-weight:800;margin-left:6px}
-  #regimenChecklist:not(:empty){margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--line)}
-  .rgtitle{font-weight:800;font-size:13px}
-  .rgwindow{color:var(--muted);font-size:12px;margin:2px 0 6px}
-  .rgrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:13px}
+  .nbrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:16px}
+  .nbtitle small{color:var(--muted);text-transform:uppercase;font-size:16px;letter-spacing:.04em;font-weight:700;margin-left:6px}
+  #regimenChecklist:not(:empty){margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+  .rgtitle{font-weight:700;font-size:16px}
+  .rgwindow{color:var(--muted);font-size:16px;margin:2px 0 6px}
+  .rgrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:16px}
   .rgrow:first-of-type{border-top:none}
-  .rgtime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:12px}
-  .rgtag{font-size:9px;text-transform:uppercase;letter-spacing:.04em;font-weight:800;border-radius:6px;padding:1px 5px;min-width:44px;text-align:center;flex:0 0 auto}
+  .rgtime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:16px}
+  .rgtag{font-size:16px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;border-radius:6px;padding:1px 5px;min-width:44px;text-align:center;flex:0 0 auto}
   .rgtag.food{background:var(--accent);color:#fff}.rgtag.medication{border:1px solid var(--bad);color:var(--bad)}.rgtag.event{border:1px solid var(--warn);color:var(--warn)}
   .rgmain{flex:1;min-width:0}.rgmain small{color:var(--muted)}
   .rgrow.done .rgmain{color:var(--muted)}
   .rgbtns{display:flex;gap:10px;flex:0 0 auto}
-  .rgmrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px}
-  .rgtpl{white-space:pre-wrap;font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;max-height:200px;overflow:auto;margin-top:8px}
+  .rgmrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:16px}
+  .rgtpl{white-space:pre-wrap;font-size:16px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;max-height:200px;overflow:auto;margin-top:8px}
 
   /* D30 — single entry point: main surface is display + attestation; one
      persistent + opens the entry sheet; authoring/config lives in a flat
      settings panel. Presentation only; no behavior changes. */
-  .topbtn{position:absolute;right:12px;top:calc(8px + env(safe-area-inset-top));background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--muted);font:inherit;font-size:12px;font-weight:700;padding:5px 10px;cursor:pointer}
+  /* H9/D99: the UA sheet sizes <small>, <sub> and <sup> RELATIVELY, so they
+     compound on an already-small parent -- that is where 7.9px came from, and no
+     declaration in this file produced it. Explicit sizes here mean every rendered
+     size is greppable, which is the only form of the rule that survives review. */
+  small,sub,sup{font-size:16px}
+  /* 16px on form controls is BEHAVIOURAL: below it iOS zooms the viewport on
+     focus. 254 of 262 controls were under it before this slice. */
+  input,select,textarea,button{font-size:16px}
+  .topbtn{position:absolute;right:12px;top:calc(8px + env(safe-area-inset-top));background:var(--bg);border:1px solid var(--line);border-radius:10px;color:var(--muted);font:inherit;font-size:16px;font-weight:700;padding:5px 10px;cursor:pointer}
   .topbtn:active{opacity:.6}
-  .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));min-height:52px;padding:0 20px;border-radius:26px;border:none;background:var(--accent);color:#fff;font:inherit;font-size:16px;font-weight:800;line-height:1;cursor:pointer;z-index:16;box-shadow:0 4px 16px rgba(0,0,0,.24)}
-  .fab span{font-size:22px;font-weight:400;vertical-align:-1px;margin-right:2px}
+  .fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));min-height:52px;padding:0 20px;border-radius:26px;border:none;background:var(--accent);color:#fff;font:inherit;font-size:16px;font-weight:700;line-height:1;cursor:pointer;z-index:16;box-shadow:0 4px 16px rgba(0,0,0,.24)}
+  .fab span{font-size:20px;font-weight:400;vertical-align:-1px;margin-right:2px}
   .fab:active{opacity:.75}
   .scrim{position:fixed;inset:0;background:rgba(0,0,0,.42);z-index:17}
   /* R21.5: the capture outcome OWNS THE SCREEN. It sits above the entry sheet
@@ -503,10 +511,10 @@
      in the DOM at all times and opens in one tap -- "sourced and reachable" holds
      without "permanently on screen". Safety text never goes in here. */
   .cited{margin-top:6px}
-  .cited>summary{cursor:pointer;color:var(--muted);font-size:11.5px;line-height:1.5;list-style:none;
+  .cited>summary{cursor:pointer;color:var(--muted);font-size:16px;line-height:1.5;list-style:none;
     display:inline-flex;align-items:center;gap:5px;padding:4px 0;min-height:24px}
   .cited>summary::-webkit-details-marker{display:none}
-  .cited>summary::before{content:"\24D8";font-size:13px;opacity:.85}
+  .cited>summary::before{content:"\24D8";font-size:16px;opacity:.85}
   .cited>summary:hover{color:var(--fg)}
   .citebody{margin-top:2px;padding-left:2px;border-left:2px solid var(--line);padding-left:8px}
   .citebody .labcite{display:block;margin-top:4px}
@@ -519,18 +527,22 @@
   .ofoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));
          display:flex;gap:8px;background:var(--panel);width:100%;max-width:480px;margin:0 auto;box-sizing:border-box}
   .ofoot .btn{flex:1 1 0;min-height:46px}
-  .omsg{font-size:15px;line-height:1.5}
+  .omsg{font-size:16px;line-height:1.5}
   .omsg.obad{color:var(--bad)}
-  .opend{display:flex;align-items:center;gap:10px;font-size:15px;line-height:1.5}
-  .osub{color:var(--muted);font-size:12.5px;line-height:1.45;margin-top:10px}
+  .opend{display:flex;align-items:center;gap:10px;font-size:16px;line-height:1.5}
+  .osub{color:var(--muted);font-size:16px;line-height:1.45;margin-top:10px}
   @media (min-width:560px){.omodal{left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);
     width:496px;max-height:86vh;border-radius:18px;border:1px solid var(--line)}}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:90vh;display:flex;flex-direction:column}
   .panel{position:fixed;inset:0;z-index:18;background:var(--bg);display:flex;flex-direction:column}
   .sheethead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto;padding-top:calc(10px + env(safe-area-inset-top))}
   .sheet .sheethead{border-radius:18px 18px 0 0;padding-top:10px}
-  .modes{display:flex;gap:6px;flex:1;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
-  .modebtn{flex:0 0 auto;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--muted);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  /* H9: WRAPS rather than scrolls. At 16px five modes do not fit 360px, and a
+     horizontally scrolled bar hides its last entry -- which is exactly where the
+     new Medication route landed, making it less reachable than the link it
+     replaced. Measured: 493px of buttons in a 283px bar. */
+  .modes{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+  .modebtn{flex:0 0 auto;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--muted);font:inherit;font-size:16px;font-weight:700;cursor:pointer}
   .modebtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .sheetx{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:2px 8px}
   .sheetbody{overflow-y:auto;padding:14px;flex:1 1 auto;-webkit-overflow-scrolling:touch;width:100%;max-width:480px;margin:0 auto}
@@ -538,53 +550,53 @@
   .pane{display:none}
   .pane.on{display:block}
   .sheetfoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px calc(10px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:8px;align-items:flex-start;background:var(--panel)}
-  .qchip{display:inline-block;max-width:100%;margin:0 6px 6px 0;padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;font-size:13px;font-weight:700;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
+  .qchip{display:inline-block;max-width:100%;margin:0 6px 6px 0;padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font:inherit;font-size:16px;font-weight:700;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:top}
   .qchip:active{opacity:.6}
   .labfrow{border-top:1px solid var(--line);padding:10px 0}
   .labfrow:first-child{border-top:none}
-  .labfname{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-weight:700;font-size:14px}
+  .labfname{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-weight:700;font-size:16px}
   .labfname>span{flex:0 1 auto;min-width:0}
-  .labfname small{flex:0 1 auto;min-width:0;color:var(--muted);font-weight:600;font-size:10px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .labfname small{flex:0 1 auto;min-width:0;color:var(--muted);font-weight:600;font-size:16px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .labfmain{display:flex;gap:8px;margin-top:6px}
   .labfmain input{flex:1 1 auto;min-width:0}
   .labfmain select{flex:0 0 108px}
   .labfref{display:flex;gap:6px;align-items:center;margin-top:6px}
-  .labfref>span{flex:0 0 auto;font-size:11px;color:var(--muted)}
-  .labfref input{flex:1 1 0;min-width:0;padding:7px;font-size:14px}
+  .labfref>span{flex:0 0 auto;font-size:16px;color:var(--muted)}
+  .labfref input{flex:1 1 0;min-width:0;padding:7px;font-size:16px}
   .labrow{border-top:1px solid var(--line);padding:9px 0}
   .labrow:first-of-type{border-top:none}
   .labhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
   .labval{font-weight:700;font-variant-numeric:tabular-nums}
-  .labmeta{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
-  .labband{font-size:12px;margin-top:3px}
+  .labmeta{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .labband{font-size:16px;margin-top:3px}
   .labband.labnorange{color:var(--muted)}
-  .labcite{display:block;color:var(--muted);font-size:10px;margin-top:1px}
-  .labtrend{font-size:12px;color:var(--muted);margin-top:2px}
+  .labcite{display:block;color:var(--muted);font-size:16px;margin-top:1px}
+  .labtrend{font-size:16px;color:var(--muted);margin-top:2px}
   .labov{border-left:2px solid var(--line);padding-left:7px;margin-top:4px}
   .pmdraft{margin-top:10px}
   /* R6.1 -- the lead question. Confirm-first, sliders-second: it reads as a
      question, so it sits above the list and carries its own weight. */
   .pmlead{border:1px solid var(--line);border-radius:12px;padding:11px;margin-bottom:11px;background:var(--panel)}
-  .pmq{font-size:15px;line-height:1.35}
+  .pmq{font-size:16px;line-height:1.35}
   .pmok{width:100%;margin-top:9px}
-  .pmbusy{font-size:12.5px;color:var(--muted);padding:9px 0}
+  .pmbusy{font-size:16px;color:var(--muted);padding:9px 0}
   .pmbusy.pmwarn{color:var(--warn)}
-  .pmnote{font-size:12px;color:var(--muted);margin-bottom:8px}
+  .pmnote{font-size:16px;color:var(--muted);margin-bottom:8px}
   .pmnote.pmwarn{color:var(--warn)}
   .pmrow{border-top:1px solid var(--line);padding:9px 0}
   .pmrow:first-of-type{border-top:none}
-  .pmhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:14px}
-  .pmfix{color:var(--muted);font-size:10px}
+  .pmhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:16px}
+  .pmfix{color:var(--muted);font-size:16px}
   .pmctl{display:flex;align-items:center;gap:8px;margin-top:6px}
   .pmctl input[type=range]{flex:1;min-width:0;padding:0}
   .pmg{flex:0 0 66px;text-align:right;padding:6px}
-  .pmunit{font-size:12px;color:var(--muted)}
-  .pmmeta{font-size:11.5px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
+  .pmunit{font-size:16px;color:var(--muted)}
+  .pmmeta{font-size:16px;color:var(--muted);margin-top:4px;font-variant-numeric:tabular-nums}
   .pmmeta small{margin-left:6px;opacity:.8}
   .pmid-wrap{margin-top:5px}
-  .pmid{font-size:12px;padding:5px}
+  .pmid{font-size:16px;padding:5px}
   .pmtot{margin-top:10px;font-weight:700;font-variant-numeric:tabular-nums}
-  .qchip small{display:block;color:var(--muted);font-weight:600;font-size:11px}
+  .qchip small{display:block;color:var(--muted);font-weight:600;font-size:16px}
 </style>
 </head>
 <body>
@@ -648,7 +660,7 @@
       <div class="modes">
         <button type="button" id="mode-scan"   class="modebtn on" onclick="setSheetMode('scan')">Scan</button>
         <button type="button" id="mode-quick"  class="modebtn"    onclick="setSheetMode('quick')">Quick</button>
-        <button type="button" id="mode-photo"  class="modebtn"    onclick="setSheetMode('photo')">Photo · AI paste</button>
+        <button type="button" id="mode-photo"  class="modebtn"    onclick="setSheetMode('photo')">Photo</button>
         <button type="button" id="mode-manual" class="modebtn"    onclick="setSheetMode('manual')">Manual</button>
       </div>
       <button type="button" class="sheetx" onclick="closeSheet()" aria-label="Close">&times;</button>
@@ -809,7 +821,8 @@
     </div>
     <div class="sheetfoot">
       <button type="button" class="linklike" onclick="setSheetMode('signal')">Log event or biometric</button>
-      <button type="button" class="linklike" onclick="setSheetMode('med')">Log medication or supplement</button>
+      <button type="button" class="linklike" onclick="openLabelCapture()">Add a medication from its label</button>
+      <button type="button" class="linklike" onclick="setSheetMode('med')">Log a dose I took</button>
       <button type="button" class="linklike" onclick="setSheetMode('lab')">Log a lab panel</button>
     </div>
   </div>
@@ -817,7 +830,7 @@
   <div id="settingsScrim" class="scrim" style="display:none" onclick="closeSettings()"></div>
   <div id="settingsPanel" class="panel" style="display:none" role="dialog" aria-modal="true" aria-label="Settings">
     <div class="sheethead">
-      <div class="modes"><b style="font-size:14px">Settings</b></div>
+      <div class="modes"><b style="font-size:16px">Settings</b></div>
       <button type="button" class="sheetx" onclick="closeSettings()" aria-label="Close">&times;</button>
     </div>
     <div class="wrap">

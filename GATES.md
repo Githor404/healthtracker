@@ -4008,6 +4008,28 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### H9 / D100 — legibility and step count, BUILT — v0.35.0
+
+18 computed sizes → **4** (16/20/24/32); 5 weights → **3** (400/600/700); 719 elements below 16px → **0**; 254 of 262 controls below 16px → **0 of 263**. Measured cost +729px against +734px predicted.
+
+| case | asserts |
+|---|---|
+| H9-floor **GATE** | nothing on the **shipped page** renders below 16px, by computed style |
+| H9-controls **GATE** | every input, select, textarea and button is ≥16px — **behavioural**, because iOS zooms on focus below it |
+| H9-scale **GATE** | every rendered size is one of the four — asserted as **closure**, not as an exact set, so the gate does not depend on what the fixture happens to show |
+| H9-weight **GATE** | exactly three weights, 400/600/700 |
+| H9-no-relative **GATE** | every `<small>`, `<sub>`, `<sup>` computes at or above the floor, **and** no relative font-size is declared |
+| H9-newest **GATE** | `.tbrow`, `.qbox`, `.medrow`, `.drugpanel`, `.goalcell` each carry nothing below the floor — **by name**, because knowing the bias did not prevent it |
+| H9-route **GATE** | the label entry says what it does, the dose form is named for the dose, and the entry **presets** the kind |
+| SE-modes **GATE** (re-pointed) | the secondary entries sit at the foot and **none is promoted to a food tab** — the constraint, not the wording |
+| R19-demote / H4.1-distinct (re-pointed) | weight, chrome and thumb path — the floor removed size as a carrier |
+
+**Defect pass: eleven plants, eleven failing their own named gates** — after two vacuous ones repaired. `small` set to `inherit` was a *safe* change (inherit from 16px is 16px); deleting the rule instead reproduces the defect at **13.3px**, because the UA's `smaller` is ~0.83× and lands below the floor **even from a 16px parent**. A fourth weight planted on `.mkcal` never reached the audit because the fixture does not render it. Both are [[D96]]: a plant must reproduce the defect **on the fixture that will judge it**.
+
+**Suite: 2039 assertions, all passing.**
+
+**And the fold invariant the type floor broke → [[D101]].** `ring-size-gate` failed after the build: on its **populated** scene the goal cells sat **47px below the fold**, breaking *checklist, + Log, goal cells and legend above the fold*. The collision measurement had predicted the page growth correctly (+729 against +734) and **could not see this**, because total height cannot distinguish a page that grew at the bottom from one that grew above the fold. Repaired with **spacing only** — sixteen margin, padding and gap rules, nothing shrunk or moved — and several of those cuts were paying for type that no longer exists (`.rmini` carried padding sized around 9.5px text). **Measured margin after: 724px, 21px clear of the 745px fold**, up from 2px after the first pass.
+
 ### H9 — Legibility and step count — PRE-REGISTERED, FORKS OPEN (received 2026-09-20; NOT built)
 
 Both passes were **measured before any fork was written**, on the shipped `index.html` in a 360px iframe under headless Chrome, with a populated log so every surface renders. Nothing below is an impression.
