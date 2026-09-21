@@ -8928,6 +8928,101 @@ window.setLS({});
       String(HT.drugPickSpelling).indexOf('fdaNameClause') > 0,
       'D103-printed GATE: picking stores the choice and then queries that spelling EXACTLY -- the match never loosens, only the candidate list is wider');
 
+  // ---- D105: a wrong label stuck on a medication ---------------------------
+  // Reported from the device: the saved document was the COMBINATION product,
+  // and "Remove this document" appeared to do nothing. Three gaps let that
+  // happen, and each is gated here.
+  setLS({}); HT.boot();
+  var d105id = h5med({ name: 'BISOPROLOL FUMAR 2.5MG', generic_name: 'SANDOZ BISOPROLOL 2.5 MG', alts: null });
+  res(!!HT.getMed(d105id), 'D105-fixture: the device record saves (D60 Clause 4)');
+
+  // -- the extra ingredient, named -------------------------------------------
+  res(HT.fdaIngredients('BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE').join('|') ===
+        'BISOPROLOL FUMARATE|HYDROCHLOROTHIAZIDE',
+      'D105-extra GATE: a combination is split into the ingredients it names');
+  res(HT.fdaExtraIngredients('BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+        ['BISOPROLOL FUMAR 2.5MG']).join('|') === 'HYDROCHLOROTHIAZIDE',
+      'D105-extra GATE: and the EXTRA one is found by comparing first words -- the label says FUMARATE where the bottle says FUMAR, and a whole-string compare would call both ingredients extra');
+  res(HT.fdaExtraIngredients('BISOPROLOL FUMARATE', ['BISOPROLOL FUMAR 2.5MG']).length === 0,
+      'D105-extra GATE: a single-ingredient label that matches the bottle adds nothing');
+
+  // -- the guard: a combination is not saved silently ------------------------
+  var d105doc = { set_id: 'set-combo', version: '1', effective_time: '20260101',
+                  name: 'bisoprolol fumarate and hydrochlorothiazide',
+                  generic_name: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+                  manufacturer: 'Teva', sections: { description: 'D' },
+                  org: 'FDA', fetchedAt: '2026-09-21' };
+  var d105med = HT.getMed(d105id);
+  var extra105 = HT.drugExtraForMed(d105med, d105doc);
+  res(extra105.join('|') === 'HYDROCHLOROTHIAZIDE',
+      'D105-guard GATE: this document carries an ingredient the medication does not print');
+  var words105 = HT.drugComboWords(d105med, d105doc, extra105);
+  // COUNTED, not searched. The document's own name already contains the extra
+  // ingredient, so `indexOf` passed even with the naming removed -- the gate
+  // could not tell whether the EXTRA was named or merely echoed.
+  res(words105.split('HYDROCHLOROTHIAZIDE').length - 1 >= 2 && /anyway\?/i.test(words105),
+      'D105-guard GATE: and the question NAMES the extra ingredient, not just the document -- "this is a combination" is a category, "it also covers hydrochlorothiazide" is the fact');
+
+  HT.drugSet({ medId: d105id, phase: 'doc', doc: d105doc, saved: false });
+  window.__confirm = false;
+  var declined105 = HT.drugSave();
+  res(declined105 && declined105.declined === true &&
+      !HT.getMed(d105id).labelSetId && JSON.stringify(HT.state().labels) === '{}',
+      'D105-guard GATE: declining saves NOTHING -- no document, no link. After many taps nobody remembers which row they hit, so the guard is in the app rather than in their attention');
+  window.__confirm = true;
+  var saved105 = HT.drugSave();
+  res(saved105 && saved105.ok === true && HT.getMed(d105id).labelSetId === 'set-combo',
+      'D105-guard GATE: and accepting still saves -- it is a question, not a refusal; a combination CAN be the right label');
+
+  // -- a single-ingredient label is not questioned ---------------------------
+  var single105 = { set_id: 'set-single', version: '1', effective_time: '20260101',
+                    name: 'bisoprolol fumarate', generic_name: 'BISOPROLOL FUMARATE',
+                    manufacturer: 'Unichem', sections: { description: 'D' },
+                    org: 'FDA', fetchedAt: '2026-09-21' };
+  res(HT.drugExtraForMed(HT.getMed(d105id), single105).length === 0,
+      'D105-guard GATE: a matching single-ingredient label raises no question -- the guard is narrow, not a speed bump on every save');
+  // The narrowness, tested where it can actually fail: a single-ingredient label
+  // for a DIFFERENT drug. The ruling was about COMBINATIONS, so this raises no
+  // question either -- and a fixture that matched the bottle could never show
+  // the difference, because it has no extras with or without the test.
+  var other105 = { set_id: 'set-other', version: '1', effective_time: '20260101',
+                   name: 'amlodipine besylate', generic_name: 'AMLODIPINE BESYLATE',
+                   manufacturer: 'Zydus', sections: { description: 'D' },
+                   org: 'FDA', fetchedAt: '2026-09-21' };
+  res(HT.drugExtraForMed(HT.getMed(d105id), other105).length === 0,
+      'D105-guard GATE: and a single-ingredient label for a DIFFERENT drug raises none either -- the ruling was about combination products, and whether a wholly wrong drug should also be questioned is a separate question this does not answer');
+
+  // -- detach: the surface moves, and a refusal says so ----------------------
+  HT.drugOpen(d105id); HT.renderDrugInfo();
+  var before105 = document.getElementById('drugInfo').innerHTML;
+  res(before105.indexOf('Remove this document') > 0,
+      'D105-detach fixture: the document is attached and the control is on the panel');
+  var det105 = HT.detachLabelDoc(d105id);
+  var after105 = document.getElementById('drugInfo').innerHTML;
+  res(det105.ok === true && !HT.getMed(d105id).labelSetId,
+      'D105-detach GATE: the document is detached from the medication');
+  res(after105 !== before105 && after105.indexOf('Remove this document') < 0,
+      'D105-detach GATE: AND THE PANEL CHANGES. The work was always done -- labelSetId cleared, the document dropped -- but DRUG_VIEW still held the old doc, so the panel re-rendered the same thing and the control read as dead');
+  res(JSON.stringify(HT.state().labels) === '{}',
+      'D105-detach GATE: and an unattached document is dropped from the store, not orphaned');
+  var again105 = HT.detachLabelDoc(d105id);
+  res(again105.ok === false && again105.why === 'none-attached',
+      'D105-detach GATE: a second tap is REFUSED WITH A REASON -- it used to return {ok:false} in silence, which is indistinguishable from a dead control');
+
+  // -- a pick is recorded, the way identity_pick is --------------------------
+  HT.drugSet({ medId: d105id, phase: 'pick', derived: 'BISOPROLOL FUMAR',
+               singles: [{ term: 'BISOPROLOL FUMARATE', count: 31 }],
+               combos: [{ term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }] });
+  HT.drugPickSpelling('BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');
+  var pick105 = (HT.getMed(d105id) || {}).query_pick;
+  res(!!pick105 && pick105.term === 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE' &&
+      pick105.from === 'combination' && pick105.of === 'BISOPROLOL FUMAR',
+      'D105-pick GATE: a pick records WHAT was chosen and FROM WHICH HEADING -- it used to land in query.generic_name, indistinguishable from a term typed by hand, so afterwards nobody could say what had been chosen');
+  var rt105 = HT.exportJSON();
+  window.__confirm = true; HT.restore(rt105);
+  res(((HT.getMed(d105id) || {}).query_pick || {}).from === 'combination',
+      'D105-pick GATE: and it survives export -> restore -- the allowlist joined in the same edit that added the field (tenth occurrence)');
+
   // ---- D90 / Fork C: a complete day with NO items is ABSENCE, not zero -------
   // R31's ruling one level up. R31 handled an ITEM with no composition; this is a
   // DAY with no items. `macroCoverage.partial` is `n < m`, which is false at m=0,

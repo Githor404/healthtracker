@@ -4201,3 +4201,57 @@ The first candidate token's mocked response was a **404**, which takes the `!r.o
 ### Still open, named and not touched
 
 The capture put the **brand in the generic field and the generic in the name field**. That is a defect in the capture contract, not in the lookup, and patching it inside a lookup fix would bury it. It wants its own measurement.
+## D105 — A wrong label stuck on a medication, and the three gaps that let it happen — v0.36.2 (2026-09-21)
+
+Reported from the device: a plain bisoprolol record carried a saved document for **bisoprolol fumarate and hydrochlorothiazide** — the combination product. Two controls were involved and neither did its job.
+
+### The question the report asked, answered from the record
+
+> *"Does it store which candidate was picked and from which heading?"*
+
+**No.** A pick put the chosen spelling into `query.generic_name` and nothing else — no note that it **was** a pick, and no note of which heading it came from. It was **indistinguishable from a term typed by hand.** The record already holds `identity_pick` for exactly this kind of choice (R30), so the asymmetry was the finding: one choice was recorded properly and the other was not.
+
+**That is the third gap, and the report named it before the code was read.** A pick is now recorded as `query_pick: { term, from: 'combination' | 'single', at, of }`.
+
+### 1. A combination label could be saved against a single-ingredient record, silently
+
+**The guard belongs in the app, not in the user's attention.** *"After many taps on a phone, nobody knows which row they tapped."* A combination document is no longer saved against a record that prints one ingredient without a question that **names the extra ingredient** — *"It also covers HYDROCHLOROTHIAZIDE, which your medication does not print."*
+
+**Ingredients are compared by FIRST WORD.** The label says `FUMARATE` where the bottle says `FUMAR`, so a whole-string comparison would have called **both** ingredients extra and questioned every save — the truncation [[D103]] exists for would have poisoned the guard built on top of it.
+
+It is a **question, not a refusal**: a combination can be the right label, and accepting still saves.
+
+### 2. "Remove this document" did the work and said nothing
+
+**The hypothesis in the report was that H5's unattached-only rule refused it silently. That is not what happened.** `detachLabelDoc` returned `{ok: true}`, cleared `labelSetId`, and dropped the document from the store. **The work was always done.**
+
+But `DRUG_VIEW` still held the old document, and `refresh()` does not touch the drug panel — only `drugSet` does — so the panel re-rendered the same thing, including the same button.
+
+**A successful action that leaves the surface identical reads exactly like a dead control**, and it is worse than a refusal: the user may tap it repeatedly against an already-detached record, each tap now genuinely returning `{ok:false}` in silence. Both halves are fixed — the panel clears and says so, **and** a real refusal says so too.
+
+**The general form:** a control's verdict lives on the surface, not in the return value. `{ok:true}` with an unchanged panel is indistinguishable from `{ok:false}` with an unchanged panel, and the user can only see the panel.
+
+### 3. The pick recorded nothing — see above
+
+### No schema bump, and the reason stated rather than assumed
+
+`query_pick` is **additive provenance**. On D29's asymmetry test as [[D96]]'s sibling R31 stated it: an older app strips it and **nothing behaves differently** — the term still goes out, the lookup still works. What is lost is the record of **how** the term was chosen, which is *less information*, not a *wrong value*. R31 drew that line explicitly, and a bump is for the other side of it.
+
+It joins `normalizeMed` in the **same edit that introduces it** — the allowlist trap, tenth occurrence — with export → restore gated.
+
+### The defect pass, and two vacuous gates it caught
+
+**Nine plants, nine failing their own named gates** — after two scored **VACUOUS**, both gate faults:
+
+| plant | what it showed | repair |
+|---|---|---|
+| the question does not name the ingredient | the check read `indexOf('HYDROCHLOROTHIAZIDE')`, which the **document's own name already satisfies** — so it could not tell whether the extra was **named** or merely **echoed** | it **counts occurrences**: once inside the doc name, once more as the thing the label adds |
+| every save is questioned | the narrowness check used a single-ingredient label that **matches the bottle**, which has no extras with or without the combination test | it now uses a label for a **different drug**, where removing the test does fire a question |
+
+The second is [[D96]] again: **a fixture that cannot distinguish the presence of a rule from its absence cannot test the rule.**
+
+### An adjacent case the ruling did not cover, named not built
+
+A single-ingredient label for a **wholly different drug** — amlodipine saved against a bisoprolol record — raises **no question**, because the ruling was about combination products. That is gated as the current behaviour rather than left ambiguous. **Whether a wrong drug should also be questioned is a separate ruling**, and it is the same shape as this one: the app can see the mismatch, and today it says nothing.
+
+**Suite: 2103 assertions, all passing** (2086 → 2103).

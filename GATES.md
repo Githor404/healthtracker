@@ -4008,6 +4008,30 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### D105 — a wrong label stuck on a medication — v0.36.2
+
+A plain bisoprolol record carried a saved document for the **combination** product, and "Remove this document" appeared dead.
+
+| case | asserts |
+|---|---|
+| D105-extra **GATE** | a combination splits into its ingredients, and the **extra** one is found by comparing **first words** — the label says FUMARATE where the bottle says FUMAR |
+| D105-guard **GATE** | a combination document is not saved against a single-ingredient record without a question that **names the extra ingredient** (counted, because the doc name echoes it) |
+| D105-guard **GATE** | declining saves **nothing**; accepting still saves — a question, not a refusal |
+| D105-guard **GATE** | a matching label, and a label for a **different drug**, raise none — the guard is narrow |
+| D105-detach **GATE** | the document detaches **and the panel changes** — the work was always done, but `DRUG_VIEW` held the old doc and `refresh()` does not touch the drug panel |
+| D105-detach **GATE** | a second tap is **refused with a reason**, not `{ok:false}` in silence |
+| D105-pick **GATE** | a pick records **what** was chosen and **from which heading**, and survives export → restore |
+
+**The report's hypothesis was wrong in an instructive way.** Detach was never refused — it returned `{ok:true}` and did everything. **A successful action that leaves the surface identical is indistinguishable from a dead control**, and worse than a refusal. A control's verdict lives on the surface, not in its return value.
+
+**No schema bump for `query_pick`**, and the reason is recorded: on D29's asymmetry test, stripping it changes no behaviour — it makes an audit thinner, not a value wrong, which is the side R31 put below the bump line.
+
+**Defect pass: nine plants, nine named failures** — after two vacuous gates: one read `indexOf` on a string the **document's own name** already contained, the other tested narrowness with a fixture that had no extras either way ([[D96]] again).
+
+**Named, not built:** a single-ingredient label for a **wholly different drug** raises no question, because the ruling was about combinations. Whether it should is a separate ruling.
+
+**Suite: 2103 assertions, all passing** (2086 → 2103).
+
 ### D104 — the pick list that never rendered — v0.36.1
 
 Reported one release after D103: **every D103 gate passed and the list did not appear.**

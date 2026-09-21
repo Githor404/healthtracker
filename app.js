@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.36.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.36.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5745,6 +5745,7 @@ const VERSION_LOG = [
   { v: '0.35.1', d: '2026-09-21', note: 'Fix: in Settings \u203a Medications, a medication\u2019s directions were squeezed into a column a few characters wide and stacked into a tall column of fragments. The text now takes the full width of the row and the buttons sit below it. The same squeeze is fixed in the scan list, the fills list and the drug-information panel. The button that records a dose you took now says \u201cLog this dose\u201d, matching the entry that leads to it.' },
   { v: '0.36.0', d: '2026-09-21', note: 'Drug lookup copes with the way pharmacy labels actually print names. A strength written with a space — “2.5 MG” — is now recognised and left out of the search; before, only “2.5MG” was. And when a label shortens a name to fit its field, as with “Fumar” for “Fumarate”, the app now shows you the full spellings the US database holds that start with what your label says, and you choose. It never guesses which one you meant, and what your label printed is kept exactly as it was. Products that combine your drug with another ingredient are listed separately, under their own heading.' },
   { v: '0.36.1', d: '2026-09-21', note: 'Fix: when no exact match was found, the list of close spellings often did not appear \u2014 including after you had edited the search term yourself, which is exactly when you need it. It now considers every term it tried, from either name field, and shortens each one before looking. The \u201cno label found\u201d line no longer names a single term, because it was naming the wrong one; the list of what was searched sits underneath it. A term you typed is now marked \u201cyour edit\u201d rather than \u201cshortened\u201d.' },
+  { v: '0.36.2', d: '2026-09-21', note: 'Fix: a label for a combination product \u2014 your drug plus another ingredient \u2014 can no longer be saved against a medication that prints only one, without a question that names the extra ingredient. Fix: \u201cRemove this document\u201d appeared to do nothing. It was working, but the panel kept showing the old document; it now clears and says so, and if there is nothing to remove it says that too. And when you choose a spelling from the suggestions, the app now records which one you chose and whether it came from the combination list.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8634,6 +8635,15 @@ function normalizeMed(raw) {
   // first obligation rather than a note, and export -> restore is gated.
   const mq = normalizeQuery(r.query);
   if (mq) out.query = mq;
+  // D105: additive provenance, so it joins the normalizer in the same edit that
+  // introduces it. NO SCHEMA BUMP, and the reason is D29's asymmetry test
+  // applied honestly: an older app strips this and nothing behaves differently
+  // -- the term still goes out, the lookup still works. What is lost is the
+  // RECORD of how the term was chosen, which is less information rather than a
+  // wrong value. R31 drew that line: a bump is for a stripped field that makes a
+  // number wrong, not for one that makes an audit thinner.
+  const qp = normalizeQueryPick(r.query_pick);
+  if (qp) out.query_pick = qp;
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(r.stopped))) out.stopped = String(r.stopped);
   if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
   const alts = normalizeAltList(r.ai_alts);
@@ -9352,6 +9362,24 @@ function fdaPrefixURL(field, token) {
 // FUMARATE AND HYDROCHLOROTHIAZIDE (22) -- close enough in weight that ordering
 // would not separate them, and two rows that read as variants of one thing are
 // exactly the plausible wrong choice D97 warned about.
+// The ingredients a combination names, split on the separators that make it one.
+function fdaIngredients(term) {
+  return String(term == null ? '' : term)
+    .split(/\s+AND\s+|,/i)
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+}
+// What this label carries that the medication does not print. Compared on the
+// FIRST WORD, because the label says FUMARATE where the bottle says FUMAR -- the
+// truncation D103 exists for would otherwise make every ingredient look extra.
+function fdaExtraIngredients(docName, printedNames) {
+  const mine = (printedNames || []).map((n) => String(n || '').trim().toLowerCase().split(/\s+/)[0])
+    .filter((x) => x);
+  return fdaIngredients(docName).filter((ing) => {
+    const head = ing.toLowerCase().split(/\s+/)[0];
+    return head && mine.indexOf(head) < 0;
+  });
+}
 function fdaIsCombination(term) { return /(^|\s)and(\s|$)|,/i.test(String(term == null ? '' : term)); }
 function fdaPrefixMatches(terms, derived) {
   const want = String(derived == null ? '' : derived).trim().toLowerCase();
@@ -9474,12 +9502,25 @@ function saveLabelDoc(doc, medId) {
 }
 function detachLabelDoc(medId) {
   const med = getMed(medId);
-  if (!med || !med.labelSetId) return { ok: false };
+  // D105: a refusal SAYS SO. This returned {ok:false} in silence, and a control
+  // that does nothing and says nothing is indistinguishable from a dead one.
+  if (!med) return { ok: false, why: 'no-med' };
+  if (!med.labelSetId) {
+    toast('No document is attached to this medication');
+    return { ok: false, why: 'none-attached' };
+  }
   const setId = med.labelSetId;
   delete med.labelSetId;
   if (labelDocUnattached(setId) && APP_STATE.labels) delete APP_STATE.labels[setId];
-  Store.saveState(APP_STATE); refresh();
-  return { ok: true };
+  Store.saveState(APP_STATE);
+  // D105: AND THE SURFACE MOVES. The work was always done -- labelSetId cleared,
+  // the document dropped -- but DRUG_VIEW still held the old doc, so the panel
+  // re-rendered the same thing and the control read as dead. `refresh()` does
+  // not touch the drug panel; only drugSet does.
+  drugSet({ medId: medId, phase: 'idle' });
+  refresh();
+  toast('Document removed from this medication');
+  return { ok: true, setId: setId };
 }
 
 // ---- the call. ON DEMAND ONLY: every one of these runs from a tap ------------
@@ -9607,6 +9648,16 @@ function setMedQuery(medId, field, value) {
   return { ok: true, term: medQueryTerm(med, field) };
 }
 const QUERY_FIELDS = ['generic_name', 'name'];
+function normalizeQueryPick(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const term = labelValue(raw.term);
+  if (term == null) return null;
+  const out = { term: term, from: (raw.from === 'combination') ? 'combination' : 'single' };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(raw.at))) out.at = String(raw.at);
+  const of = labelValue(raw.of);
+  if (of != null) out.of = of;
+  return out;
+}
 function normalizeQuery(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const out = {};
@@ -9765,6 +9816,15 @@ function drugPickSpelling(term) {
   const med = getMed(v.medId);
   if (!med) return Promise.resolve({ ok: false });
   setMedQuery(v.medId, 'generic_name', term);
+  // D105: RECORD THAT IT WAS A PICK, AND FROM WHICH HEADING. Before this the
+  // chosen spelling landed in query.generic_name and was indistinguishable from
+  // a term typed by hand -- so afterwards nobody could say what had been chosen,
+  // which is exactly the question a wrong saved document raises. Recorded the
+  // way R30 records identity_pick, for the same reason.
+  const combo = (v.combos || []).some(function (c) { return c.term === term; });
+  med.query_pick = { term: String(term), from: combo ? 'combination' : 'single',
+                     at: todayKey(), of: String(v.derived || '') };
+  Store.saveState(APP_STATE);
   drugSet(Object.assign({}, v, { phase: 'loading', message: 'Looking for the label\u2026' }));
   const clause = fdaNameClause('generic_name', [term]);
   return drugFetch(fdaMfrURL(clause)).then(function (r) {
@@ -9792,6 +9852,17 @@ function drugPickManufacturer(mfr) {
 function drugSave() {
   const v = DRUG_VIEW;
   if (!v || v.phase !== 'doc' || !v.doc) return { ok: false };
+  // D105: A COMBINATION LABEL IS NOT SAVED AGAINST A SINGLE-INGREDIENT RECORD
+  // without saying what it adds. After many taps on a phone nobody remembers
+  // which row they hit, so the guard belongs here rather than in their
+  // attention -- and it names the extra ingredient, because "this is a
+  // combination" is a category and "AND hydrochlorothiazide" is the fact.
+  const med0 = getMed(v.medId);
+  const extra = med0 ? drugExtraForMed(med0, v.doc) : [];
+  if (extra.length) {
+    if (!window.confirm(drugComboWords(med0, v.doc, extra)))
+      return { ok: false, declined: true, extra: extra };
+  }
   const r = saveLabelDoc(v.doc, v.medId);
   if (!r.ok) {
     if (r.atCap && !r.evictable) toast('Saved documents are at the cap. Remove one from a medication first.');
@@ -9802,6 +9873,24 @@ function drugSave() {
   refresh();
   toast('Saved with its source');
   return r;
+}
+// The ingredients this document names that the medication's own printed names do
+// not. Empty when the label matches what is on the bottle.
+function drugExtraForMed(med, doc) {
+  const p = (med && med.printed) || {};
+  const docName = String((doc && (doc.generic_name || doc.name)) || '');
+  if (!fdaIsCombination(docName)) return [];
+  const mine = [p.generic_name, p.name, medQueryTerm(med, 'generic_name'), medQueryTerm(med, 'name')];
+  return fdaExtraIngredients(docName, mine);
+}
+function drugComboWords(med, doc, extra) {
+  const p = (med && med.printed) || {};
+  const own = String(p.generic_name || p.name || 'your medication').trim();
+  const docName = String((doc && (doc.generic_name || doc.name)) || 'this label');
+  return 'This label is for ' + docName + '.\n\n'
+    + 'It also covers ' + extra.join(' and ') + ', which your medication does not print \u2014 '
+    + '"' + own + '" names one ingredient.\n\n'
+    + 'Save it against this medication anyway?';
 }
 // A newer version is OFFERED, never applied silently, and the old text stays (D55).
 function drugCheckNewer() {
@@ -10173,7 +10262,8 @@ window.HT = {
   // H8 (D98)
   deriveQueryTerm, medQueryTerm, setMedQuery, drugTriedList, drugTriedText, normalizeQuery,
   fdaPrefixURL, fdaPrefixMatches, fdaIsCombination, drugOfferSpellings, drugPickSpelling,
-  drugPrefixCandidates,
+  drugPrefixCandidates, fdaIngredients, fdaExtraIngredients, drugExtraForMed, drugComboWords,
+  normalizeQueryPick, detachLabelDoc,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
