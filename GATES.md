@@ -4379,3 +4379,18 @@ Two meal captures aborted at 120s with **no first byte**. Measured cause: an xAI
 **Why the seam is gated and not only the end-to-end path.** The offline and not-reachable branches both arise from **one failed probe** — [[D107]]'s trap, where a plant on one sibling may never reach the other. An end-to-end fixture reaches only the branch its scenario takes; a **pure seam can be asked about every branch directly**, which is what kept three plants on the same side of one condition distinguishable.
 
 **Named and not fixed:** `byokCall` clears its budget timer the moment headers arrive, so a response that sends headers and then stalls is **never aborted** — worse than the timeout it escapes. Nobody is trapped (cancel is always offered), which is why this is a hazard rather than an outage. Out of this slice.
+### D110 — the budget must survive the first byte — v0.37.1
+
+A response that sends headers and then stalls had **no deadline at all**. Fixed as a class: `byokCall` and `drugFetch` both cleared the budget at the first byte; `byokProbe` reads no body and is the control.
+
+| case | asserts |
+|---|---|
+| D110-stall **GATE** | a stalled body **is aborted**, and the abort came from the **app's deadline, not the fixture's safety net**; the net stood itself down |
+| D110-stall **GATE** | a stall sends **no D108 probe** — it has a first byte, so one rule still covers both — and the trace says *stalled mid-body* |
+| D110-ceiling **GATE** | `bodyDeadlineMs`: headers at 119s of a 120s budget leave **1000**, never 120000; a spent budget leaves **0**; control at 0s leaves the full budget |
+| D110-words **GATE** | the verdict says the provider **started answering and stopped**, **states when** the first byte arrived, and is **not** the no-first-byte wording |
+| D110-debt **GATE** | the re-armed deadline is cleared on the **stall**, the **success** and the **reject** paths — counted, not reviewed |
+| D110-fda **GATE** | the drug path aborts its own stall with **its own wording**, `kind` stays `'timeout'` so the `offline||timeout` grouping still catches it, and the shipped 20s budget is read back **through the reset seam** ([[D109]]) |
+| HARNESS **GATE** | the assertion chain that never finishes **fails by name**, never as a missing SUMMARY |
+
+**Why E2 was refused.** Letting the hang itself be the signal turns a defect pass into a stopwatch: a hang is a **no-verdict**, and a no-verdict is precisely how the characterised output-capture intermittent presents, so the plant would be unreadable against the flake. That is not hypothetical — it happened in this very slice, twice, before the nets went in.

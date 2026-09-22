@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.37.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.37.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5752,6 +5752,7 @@ const VERSION_LOG = [
   { v: '0.36.3', d: '2026-09-21', note: 'The check that asks before saving a combination label now also asks before saving a label for a different drug altogether \u2014 it names the drug on the label and the one your medication prints, and you decide. A label whose name starts with the same drug as yours is saved without a question, as before.' },
   { v: '0.36.4', d: '2026-09-21', note: 'Fix: after removing a wrong document, the next lookup reused the spelling you had picked to find it \u2014 going straight to a manufacturer list instead of offering the suggestions again. Removing a document now also clears the choice that found it, a picked spelling for a combination product is never reused without asking, and the panel says when a search term was picked by you rather than shortened by the app, so you can change it before anything else appears.' },
   { v: '0.37.0', d: '2026-09-22', note: 'When a photo capture comes back with nothing at all, the app now checks whether your provider is answering and tells you which silence it was \u2014 the provider not responding, your device being offline, or the request simply not coming back. The check sends no key and no data.' },
+  { v: '0.37.1', d: '2026-09-22', note: 'Fix: a reply that began arriving and then stopped had no time limit at all, so a capture or a drug lookup could wait indefinitely. Both now keep the same overall limit after the first byte, and say when the answer started and when the app gave up.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -7097,6 +7098,26 @@ function byokErr(kind, message) { return { ok: false, kind: kind, error: message
 //
 // This is the SECOND time the distinction cost a diagnosis, which is why the
 // answer belongs on the surface and not in a log.
+// D110/G: a re-armed deadline must be cleared on EVERY exit, success included.
+// A rule is what failed the last three times, so the count is instrumented and
+// gated rather than reviewed: every body deadline armed increments it, every
+// one cleared decrements it, and a gate reads zero after each path.
+let TIMER_DEBT = 0;
+function timerDebt() { return TIMER_DEBT; }
+// Arms a deadline for what is LEFT of an existing budget and hands back the one
+// way to stand it down. The ceiling stays the ceiling: this is the SAME budget
+// continuing past the first byte, never a fresh one.
+// B1a: what is LEFT of the budget, never a fresh one, and never negative. Pure,
+// because a fresh-budget defect survives every timing assertion at harness scale
+// -- 80ms twice is still fast -- and can only be pinned on the arithmetic.
+function bodyDeadlineMs(budget, sentAt, now) {
+  return Math.max(0, budget - ((now == null ? nowMs() : now) - sentAt));
+}
+function armBodyDeadline(ctl, budget, sentAt) {
+  TIMER_DEBT++;
+  let t = setTimeout(function () { if (ctl) ctl.abort(); }, bodyDeadlineMs(budget, sentAt));
+  return function () { if (t) { clearTimeout(t); t = 0; TIMER_DEBT--; } };
+}
 let BYOK_PROBE_TIMEOUT_MS = 8000;   // a ~200-byte GET, measured live at 0.24s;
                                     // past 8s the path is itself the evidence
 function setByokProbeTimeout(ms) { BYOK_PROBE_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 8000; }
@@ -7150,10 +7171,14 @@ function byokCall(dataUrl, opts) {
   // R28: per-attempt timing. Recorded for the CAPTURE call only -- the ping has
   // its own budget and its own surface, and mixing them would make the line lie.
   const caps0 = byokCaps(prov, o);
+  // Read once: the body deadline is measured from the SAME instant as the
+  // header deadline, so the two cannot drift apart.
+  const sentAt = nowMs();
+  let gotFirstByte = false;
   const att = o.ping ? null : byokTraceAttempt({
     jsonMode: !!(caps0 && caps0.jsonMode),
     effort: (caps0 && caps0.reasoningEffort) || null,
-    sentAt: nowMs(),
+    sentAt: sentAt,
   });
   return fetch(prov.base + '/chat/completions', {
     method: 'POST',
@@ -7165,8 +7190,15 @@ function byokCall(dataUrl, opts) {
     BYOK_INFLIGHT = null;
     // Headers are here: this is TIME TO FIRST BYTE. Everything after it is the
     // provider writing the body.
+    gotFirstByte = true;
     if (att) { att.ttfbMs = nowMs() - att.sentAt; att.status = res.status; }
+    // D110: THE BUDGET SURVIVES THE FIRST BYTE. Clearing the timer here and then
+    // reading the body unguarded left a stalled response with NO deadline at all
+    // -- worse than the timeout it escaped, because the ceiling simply stopped
+    // existing. Re-armed for what is LEFT of the same budget.
+    const standDown = armBodyDeadline(ctl, budget, sentAt);
     return res.text().then(function (raw) {
+      standDown();
       if (att) att.totalMs = nowMs() - att.sentAt;
       // VERIFIED against the live API 2026-09-04: xAI answers a bad key with 400,
       // not 401 -- "Incorrect API key provided. You can obtain an API key from
@@ -7210,16 +7242,24 @@ function byokCall(dataUrl, opts) {
       if (!content) return byokErr('malformed', 'The reply carried no content.');
       if (att) att.outcome = 'reply ' + content.length + ' chars';
       return { ok: true, text: content };
-    });
+    }, function (e) { standDown(); throw e; });
   }).catch(function (e) {
     clearTimeout(timer);
     BYOK_INFLIGHT = null;
     const name = String((e && e.name) || '');
-    if (att) { att.totalMs = nowMs() - att.sentAt; att.outcome = (name === 'AbortError' ? (BYOK_CANCELLED ? 'cancelled' : 'aborted at budget') : 'network error'); }
+    if (att) { att.totalMs = nowMs() - att.sentAt; att.outcome = (name === 'AbortError' ? (BYOK_CANCELLED ? 'cancelled' : (gotFirstByte ? 'stalled mid-body, aborted at budget' : 'aborted at budget')) : 'network error'); }
     if (name === 'AbortError' && BYOK_CANCELLED) return byokErr('cancelled', 'Cancelled.');
     const timedOut = (name === 'AbortError');
     const kind = timedOut ? 'timeout' : 'network';
-    const said = timedOut
+    // D110: a stall is not the same silence as a no-answer, and the sentence says
+    // WHEN the first byte arrived. With headers at 119s the body window is one
+    // second, and the bare wording would read as though the provider had time.
+    // The trace already held the number; the words now carry it too.
+    const stalled = timedOut && gotFirstByte;
+    const said = stalled
+      ? ('The provider started answering at ' + Math.round((att && att.ttfbMs != null ? att.ttfbMs : 0) / 1000) +
+         's and stopped; gave up at ' + Math.round((nowMs() - sentAt) / 1000) + 's. That call counted \u2014 check your provider console.')
+      : timedOut
       ? ('The provider did not answer within ' + Math.round(budget / 1000) +
          ' seconds. If it answered afterwards, that call still counted \u2014 check your provider console.')
       : 'The call could not be made.';
@@ -9387,7 +9427,12 @@ const FDA_SECTIONS = [
   { key: 'indications_and_usage', label: 'Indications and usage' },
   { key: 'mechanism_of_action', label: 'Mechanism of action' },
 ];
-const FDA_TIMEOUT_MS = 20000;
+// A seam, so the drug path's own stall can be gated in milliseconds instead of
+// twenty seconds. Per [[D109]] the SHIPPED default is read back through the
+// reset -- a gate that reads the live variable would measure the fixture.
+let FDA_TIMEOUT_MS = 20000;
+function setFdaTimeout(ms) { FDA_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 20000; }
+function fdaTimeout() { return FDA_TIMEOUT_MS; }
 const LABEL_DOC_CAP = 40;                 // documents kept; the log always wins (D13's shape)
 const DPD_LINE = 'US labelling only. Health Canada\u2019s Drug Product Database is the Canadian source, and it is not connected.';
 // G1: standing context for the whole surface, never a verdict on one medication.
@@ -9607,10 +9652,18 @@ function detachLabelDoc(medId) {
 // ---- the call. ON DEMAND ONLY: every one of these runs from a tap ------------
 function drugFetch(url) {
   const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const sentAt = nowMs();
+  let gotFirstByte = false;
   const timer = setTimeout(function () { if (ctl) ctl.abort(); }, FDA_TIMEOUT_MS);
   return fetch(url, { signal: ctl ? ctl.signal : undefined }).then(function (res) {
     clearTimeout(timer);
+    // D110: the SAME defect byokCall had, in the drug path -- one repair, its own
+    // wording. A stalled openFDA body hung a lookup exactly as a stalled capture
+    // body hung a capture: headers in, deadline gone, no ceiling left.
+    gotFirstByte = true;
+    const standDown = armBodyDeadline(ctl, FDA_TIMEOUT_MS, sentAt);
     return res.text().then(function (raw) {
+      standDown();
       let j = null; try { j = JSON.parse(raw); } catch (e) { j = null; }
       // A 404 from openFDA is "no matches found" -- an ANSWER, not an error (D78 §2).
       if (res.status === 404) return { ok: false, kind: 'none' };
@@ -9618,10 +9671,16 @@ function drugFetch(url) {
                             error: 'The source answered ' + res.status + '.' };
       if (!j) return { ok: false, kind: 'malformed', error: 'The source\u2019s reply could not be read.' };
       return { ok: true, data: j };
-    });
+    }, function (e) { standDown(); throw e; });
   }).catch(function (e) {
     clearTimeout(timer);
     const name = String((e && e.name) || '');
+    // C1: the kind stays 'timeout'. A new kind would silently drop out of the
+    // `kind === 'offline' || kind === 'timeout'` grouping two call sites below --
+    // a behaviour change in the drug path as a side effect of a capture fix.
+    if (name === 'AbortError' && gotFirstByte)
+      return { ok: false, kind: 'timeout', error: 'The source started answering at ' +
+               Math.round((nowMs() - sentAt) / 1000) + 's and stopped before the reply was complete.' };
     if (name === 'AbortError') return { ok: false, kind: 'timeout', error: 'The source did not answer in time.' };
     return { ok: false, kind: 'offline', error: 'No connection to the source. Anything you have saved still opens.' };
   });
@@ -10294,7 +10353,10 @@ window.HT = {
   photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
   setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState,
   // H10/D108 -- which silence was it
-  byokProbe, byokProbeURL, byokReachVerdict, byokOnLine, setByokProbeTimeout, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
+  byokProbe, byokProbeURL, byokReachVerdict, byokOnLine, setByokProbeTimeout,
+  setFdaTimeout, fdaTimeout,
+  // H11/D110 -- the budget survives the first byte
+  timerDebt, armBodyDeadline, bodyDeadlineMs, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
   BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease, byokPatch, byokNoteVerdict,
   captureOutcomeState, renderCaptureOutcome, captureOutcomeDismiss, captureRetry, capturePasteInstead,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,

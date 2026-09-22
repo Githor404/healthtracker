@@ -3206,9 +3206,40 @@ window.setLS({});
         var g = x.createLinearGradient(0, 0, w, h);
         g.addColorStop(0, '#873'); g.addColorStop(1, '#39a');
         x.fillStyle = g; x.fillRect(0, 0, w, h);
-        return new Promise(function (r) {
-          c.toBlob(function (b) {
-            b.arrayBuffer().then(function (ab) {
+        return new Promise(function (r, rej) {
+          // D110: this await was UNBOUNDED and did not check for a null blob.
+          // toBlob hands back null when the canvas cannot be encoded -- which a
+          // 2400x1800 canvas does on a machine short of memory -- and then
+          // nothing ever settles. A hang here reads exactly like the output-
+          // capture intermittent, which is how it survived two runs undiagnosed.
+          //
+          // The encode is an ENVIRONMENT condition, not the thing under test, so
+          // it gets ONE retry. The net stays: a genuine stall still fails by name,
+          // and a second failure is reported rather than retried forever.
+          var tries = 0;
+          var net = setTimeout(function () {
+            rej(new Error('wExifImage: toBlob never called back -- the fixture stalled, and a stalled fixture must SAY so'));
+          }, 8000);
+          function attempt() {
+            tries++;
+            // Two ways the encode fails under memory pressure, and only one of
+            // them is a null blob: toBlob can also simply never call back. The
+            // retry covers BOTH, or it covers the case that happens to be easier
+            // to imagine -- which is how this cost three more runs.
+            var called = false;
+            var per = setTimeout(function () {
+              if (!called && tries < 3) attempt();
+            }, 2500);
+            c.toBlob(function (b) {
+              called = true; clearTimeout(per);
+              if (!b) {
+                if (tries < 3) { attempt(); return; }
+                clearTimeout(net);
+                rej(new Error('wExifImage: toBlob failed three times -- the canvas could not be encoded'));
+                return;
+              }
+              b.arrayBuffer().then(function (ab) {
+                clearTimeout(net);
               var src = new Uint8Array(ab);
               var tiff = [0x4D,0x4D,0x00,0x2A,0x00,0x00,0x00,0x08, 0x00,0x01,
                           0x01,0x12,0x00,0x03,0x00,0x00,0x00,0x01,
@@ -3221,9 +3252,11 @@ window.setLS({});
               out.set(src.subarray(0, 2), 0);
               out.set(app1, 2);
               out.set(src.subarray(2), 2 + app1.length);
-              r(new W.File([out], 'IMG_2201.JPG', { type: 'image/jpeg' }));
-            });
-          }, 'image/jpeg', 0.9);
+                r(new W.File([out], 'IMG_2201.JPG', { type: 'image/jpeg' }));
+              }, function (e) { clearTimeout(net); rej(e); });
+            }, 'image/jpeg', 0.9);
+          }
+          attempt();
         });
       }
       function wVisible() {
@@ -3691,6 +3724,135 @@ window.setLS({});
           res(r.kind === 'cancelled' && FETCHES.filter(function (f) { return String(f.url).indexOf('/models') > 0; }).length === 0,
               'D108-scope GATE: a CANCELLED call never probes -- the user already knows why it stopped');
           HT.setByokCallTimeout(120000);
+          window.fetch = SCRIPTED_FETCH;
+        });
+      });
+
+    }).then(function () {
+      // ---- H11/D110: THE BUDGET MUST SURVIVE THE FIRST BYTE ------------------
+      // A response that sends headers and then stalls had NO deadline at all:
+      // byokCall cleared its timer on headers and read the body unguarded. Worse
+      // than the 120s timeout it escaped, because the ceiling stopped existing.
+      //
+      // THE FIXTURE IS THE ONE THAT HUNG THE SUITE, and it carries a SAFETY NET.
+      // Without one, removing the fix makes the suite HANG -- and a hang is a
+      // no-verdict, which is precisely how the characterised output-capture
+      // intermittent presents. The plant would be unreadable against the flake.
+      // So the net turns the absence of the fix into a NAMED failure, and the
+      // gates below assert the abort came from the APP'S deadline, not the net.
+      // B1a on the arithmetic, where a fresh-budget defect is actually visible.
+      res(HT.bodyDeadlineMs(120000, 0, 119000) === 1000,
+          'D110-ceiling GATE: headers at 119s of a 120s budget leave the body ONE second -- the remainder, not a fresh budget');
+      res(HT.bodyDeadlineMs(120000, 0, 119000) !== 120000,
+          'D110-ceiling GATE: and emphatically not the whole budget again -- a fresh one would quietly double the ceiling the message promises');
+      res(HT.bodyDeadlineMs(120000, 0, 130000) === 0,
+          'D110-ceiling GATE: a budget already spent leaves zero, never a negative delay that fires instantly-but-for-the-wrong-reason');
+      res(HT.bodyDeadlineMs(120000, 0, 0) === 120000,
+          'D110-ceiling CONTROL: headers at 0s leave the full budget -- the remainder rule is not just returning a small number');
+      var NET_ARMED = 0, NET_FIRED = 0;
+      function stalledBody(i) {
+        // A body that never settles -- with a net comfortably LONGER than the
+        // deadline, so a working fix always wins the race and the net can never
+        // mask one. The net clears itself on abort: it must not become the very
+        // orphan timer this slice forbids.
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          NET_ARMED++;
+          var net = setTimeout(function () { NET_FIRED++; NET_ARMED--; rej(new Error('NET')); }, 900);
+          if (sig) sig.addEventListener('abort', function () {
+            clearTimeout(net); NET_ARMED--;
+            var e = new Error('aborted'); e.name = 'AbortError'; rej(e);
+          });
+        });
+      }
+
+      byokReset(SECRET);
+      HT.setByokCallTimeout(80);
+      FETCHES = [];
+      var stallT0 = Date.now();
+      window.fetch = function (u, i) {
+        FETCHES.push({ url: String(u), init: i });
+        if (String(u).indexOf('/models') > 0)
+          return Promise.resolve({ ok: false, status: 401, text: function () { return Promise.resolve('{}'); } });
+        // HEADERS ARRIVE. The body never does.
+        return Promise.resolve({ ok: true, status: 200, text: function () { return stalledBody(i); } });
+      };
+      return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+        var spent = Date.now() - stallT0;
+        res(r.ok === false && r.kind === 'timeout',
+            'D110-stall GATE: a response that sends headers and then STALLS is aborted -- before this it had no deadline at all, which is worse than the timeout it escaped');
+        res(NET_FIRED === 0,
+            'D110-stall GATE: and the abort came from the APP\u2019S deadline, not the fixture\u2019s safety net -- a net that fired first would prove nothing about the fix');
+        res(NET_ARMED === 0,
+            'D110-stall GATE: the net stood itself down too -- the net must not become the orphan timer this slice forbids');
+        res(spent < 900,
+            'D110-ceiling GATE: the 120s ceiling HOLDS across the first byte -- the body continues the SAME budget and never starts a fresh one');
+        res(String(r.error).indexOf('started answering') > 0 && String(r.error).indexOf('stopped') > 0,
+            'D110-words GATE: the verdict says the provider STARTED ANSWERING AND STOPPED -- a stall is not the same silence as a no-answer');
+        res(/started answering at \d+s/.test(String(r.error)) && /gave up at \d+s/.test(String(r.error)),
+            'D110-words GATE: and it states WHEN the first byte arrived -- with headers at 119s the body window is one second, and the bare sentence would read as though the provider had time');
+        res(String(r.error).indexOf('did not answer within') < 0,
+            'D110-words GATE: the stall wording is NOT the no-first-byte wording -- collapsing them would throw away the one thing the first byte told us');
+        res(FETCHES.filter(function (f) { return String(f.url).indexOf('/models') > 0; }).length === 0,
+            'D110-stall GATE: and a stall sends NO D108 probe -- it HAS a first byte, so one rule still covers both, not two');
+        res(HT.timerDebt() === 0,
+            'D110-debt GATE: the re-armed deadline was cleared on the STALL path');
+        res(HT.byokTraceLine().indexOf('stalled mid-body') > 0,
+            'D110-stall GATE: the trace says the body stalled, not merely that the budget ran out');
+      }).then(function () {
+        // SUCCESS must stand the deadline down too -- G, gated rather than reviewed.
+        byokReset(SECRET);
+        HT.setByokCallTimeout(4000);
+        window.fetch = function (u, i) {
+          FETCHES.push({ url: String(u), init: i });
+          return Promise.resolve({ ok: true, status: 200, text: function () {
+            return Promise.resolve(JSON.stringify({ choices: [{ message: { content: '{"items":[]}' } }] })); } });
+        };
+        return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+          res(r.ok === true && HT.timerDebt() === 0,
+              'D110-debt GATE: and cleared on the SUCCESS path -- a rule is what failed the last three times, so the count is instrumented, not reviewed');
+        });
+      }).then(function () {
+        // HEADERS THEN A REJECT -- the third exit from the body read.
+        byokReset(SECRET);
+        window.fetch = function (u, i) {
+          FETCHES.push({ url: String(u), init: i });
+          if (String(u).indexOf('/models') > 0)
+            return Promise.resolve({ ok: false, status: 401, text: function () { return Promise.resolve('{}'); } });
+          return Promise.resolve({ ok: true, status: 200, text: function () {
+            return Promise.reject(new TypeError('Failed to fetch')); } });
+        };
+        return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+          res(r.ok === false && HT.timerDebt() === 0,
+              'D110-debt GATE: and cleared when the body REJECTS -- every exit, not the two that were convenient');
+          HT.setByokCallTimeout(120000);
+          window.fetch = SCRIPTED_FETCH;
+        });
+      }).then(function () {
+        // A1 -- THE SAME DEFECT IN THE DRUG PATH. drugFetch cleared its deadline
+        // at the first byte exactly as byokCall did: one defect, one repair, its
+        // own wording.
+        HT.setFdaTimeout(0);
+        res(HT.fdaTimeout() === 20000,
+            'D110-fda GATE: the SHIPPED openFDA budget is 20s, read back through the reset seam -- reading the live variable would measure whatever this fixture just set it to (D109)');
+        HT.setFdaTimeout(80);
+        NET_FIRED = 0; NET_ARMED = 0;
+        var fdaT0 = Date.now();
+        window.fetch = function (u, i) {
+          return Promise.resolve({ ok: true, status: 200, text: function () { return stalledBody(i); } });
+        };
+        return HT.drugFetch('https://api.fda.test/x').then(function (r) {
+          res(r.ok === false && r.kind === 'timeout',
+              'D110-fda GATE: a stalled openFDA body is aborted -- it hung a lookup exactly as a stalled capture body hung a capture');
+          res(['offline', 'timeout'].indexOf(r.kind) >= 0,
+              'D110-fda GATE: and the kind stays timeout, so the two call sites that group offline||timeout still catch it -- a new kind would have changed drug-path behaviour as a side effect of a capture fix');
+          res(String(r.error).indexOf('started answering') > 0,
+              'D110-fda GATE: with its OWN wording, naming the source rather than borrowing the provider\u2019s sentence');
+          res(NET_FIRED === 0 && NET_ARMED === 0 && (Date.now() - fdaT0) < 900,
+              'D110-fda GATE: aborted by the app\u2019s deadline, not the net, and the net stood down');
+          res(HT.timerDebt() === 0,
+              'D110-debt GATE: the drug path clears its re-armed deadline too');
+          HT.setFdaTimeout(0);
           window.fetch = SCRIPTED_FETCH;
         });
       });
@@ -9829,6 +9991,19 @@ window.setLS({});
   // Safety net: if the iframe never fires (file:// oddity), still emit a summary
   // so the gate fails loudly rather than hanging with no SUMMARY line.
   setTimeout(function(){ if (sePending) { res(false, 'SE: the shipped index.html did not load into the harness iframe'); sePending = false; finish(); } }, 15000);
+  // D110, one layer up from the slice that found it: a hang anywhere in the
+  // assertion chain produces NO SUMMARY, and a missing SUMMARY is exactly how
+  // the characterised output-capture intermittent presents. So a real stall is
+  // unreadable against the flake -- it cost three runs and a wrong diagnosis.
+  // The chain now fails BY NAME, which is E1's ruling applied where it is
+  // needed rather than only where it was asked for.
+  setTimeout(function () {
+    if (!seDone) {
+      sePending = false;
+      res(false, 'HARNESS GATE: the assertion chain never finished -- a hang must fail by name, never as a missing SUMMARY that reads like the intermittent');
+      finish();
+    }
+  }, 420000);
 })();
 </script>
 </body>

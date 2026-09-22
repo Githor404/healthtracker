@@ -3968,6 +3968,7 @@ Both are [[D96]] again — **a plant must be able to reproduce the defect on the
 
 - **A computed-size floor is not legibility.** It is the part of legibility that can be gated. Contrast, line length, spacing and rhythm are not measured here and no gate implies them.
 - **[[D88]] still stands.** The floor gate proves no text is below a number; it cannot say the page reads well at arm's length. **If 16 reads badly on device, the fallback is 15**, and that is a phone judgement rather than a measurement.
+  - **CONFIRMED ON DEVICE, 2026-09-22: 16 reads right; the 15px fallback is not needed and the question is closed.** Recorded here rather than only in the slice that asked it, because an open question answered somewhere else stays open where anyone would look for it.
 - **The pre-registration's own objection survives the ruling.** *"With a 16px floor and a 24px heading there is little room left to say this matters less"* was **outweighed, not answered** — and the two re-pointed gates are the first bill for it. Whether three weights carry what four extra sizes used to is the open question this slice hands to the device pass.
 
 **Held back deliberately:** the palette, and the density question. Fork F (the Typical row at 3.2 screens) is the one place density touches this slice, and it is **named and deferred** rather than resolved.
@@ -4385,3 +4386,69 @@ Eight plants. **Three of them sit on the failed-probe side of the verdict** — 
 **Defect pass: eight plants, eight failing their own named gates.** Two returned *no verdict* on the first run and both failed by name on re-run — the characterised output-capture intermittent, and exactly the reason [[D94]] rules that a no-verdict pass is re-run **before the plant is blamed**.
 
 **Suite: 2152 assertions, all passing** (2124 → 2152).
+
+## D109 — A gate that reads a value the fixture may set first measures the fixture — 2026-09-22
+
+Found building [[D108]]. The gate read:
+
+```js
+res(HT.byokTimeouts().probe === 8000, 'the SHIPPED probe budget is 8s ...');
+```
+
+It names the right number. It reads the **live** variable — and the harness had already called `setByokProbeTimeout(20)` forty lines earlier, because every never-answering stub in the suite now also swallows the probe. So the assertion compared the harness's own copy of the value against the number it hoped to find, and **would have passed on whatever it was set to** had the shrink happened to be 8000.
+
+**The general shape.** A gate that reads mutable state pins nothing if the fixture is allowed to write that state first. It is worse than no gate, because it **looks** specific: a named constant, an exact number, a sentence explaining why the number is that number. Everything about it reads like a pin except the thing it measures.
+
+**It is [[D103]]'s fault with the layers swapped.** There, `String(drugPickSpelling)` asserted the *source* while the function wrote somewhere else — the gate read a layer that could not see the behaviour. Here the gate reads the right layer at the wrong *time*. Both are the same question unasked: **between this assertion and the thing it claims about, who else can write?**
+
+**The repair is a seam, not a discipline.** "Remember to restore the value first" is a rule, and rules are what failed. `setByokProbeTimeout(0)` resets to the shipped default by contract, so the gate asks the code for its own number instead of trusting whatever is currently in the box:
+
+```js
+HT.setByokProbeTimeout(0);            // the reset seam yields the SHIPPED default
+res(HT.byokTimeouts().probe === 8000, '...');
+HT.setByokProbeTimeout(20);           // back to the harness's value
+```
+
+**Where else this applies:** every `set*Timeout` seam the harness shrinks for speed — the call budget, the test budget, the decode timeout, the bitmap lease — and any future setting a fixture adjusts. A gate on a shipped default reads it through the reset, or reads the source, and never reads the live variable.
+
+**Caught by luck, not by process.** The gate failed on its first run only because the shrink ran before it. Had the harness set the probe budget *after* this block, it would have passed for the wrong reason and been recorded as evidence.
+
+## D110 — The budget must survive the first byte — v0.37.1 (2026-09-22)
+
+The hazard [[D108]] named and deliberately did not fix: `byokCall` cleared its deadline **the moment headers arrived** and then read the body unguarded. A response that sends headers and then stalls had **no ceiling at all** — worse than the 120-second timeout it escaped, because the promise the app makes simply stopped existing.
+
+### Fixed as a class
+
+Measured before building: three `AbortController` fetch sites, and **two had it**.
+
+| site | before |
+|---|---|
+| `byokCall` | `clearTimeout(timer)` on headers, then unguarded `res.text()` |
+| `drugFetch` | **identical** — a stalled openFDA body hung a lookup exactly as a stalled capture body hung a capture |
+| `byokProbe` | resolves *on* headers and reads no body — the control, correct as-is |
+
+The deadline is re-armed for **what is left of the same budget** (B1a: no body floor, so the 120-second ceiling holds), and the verdict says **when the first byte arrived** — *"The provider started answering at 119s and stopped; gave up at 120s. That call counted."* With a one-second body window the bare sentence would read as though the provider had had time.
+
+`kind` stays `'timeout'` (C1): a new kind would have silently dropped out of the drug path's `kind === 'offline' || kind === 'timeout'` grouping at two call sites — a behaviour change there as a side effect of a fix here. A stall gets **no probe** (D1): it *has* a first byte, so [[D108]]'s single rule still covers both cases.
+
+**G is instrumented, not reviewed.** `TIMER_DEBT` counts every re-armed deadline and every stand-down, and a gate reads zero after the stall, the success and the reject paths. *"Remember to clear the timer" is a rule, and rules are what failed the last three times.*
+
+### What the build found
+
+**1. The safety net was necessary, exactly as ruled.** Without it the first plant — removing the re-arm — **hangs**, and a hang is a no-verdict. With it, that plant fails by name, including *"the abort came from the app's deadline, not the fixture's safety net."*
+
+**2. A DETERMINISTIC HANG READ AS THE INTERMITTENT, AND THE EVIDENCE AGAINST THAT WAS ALREADY ON SCREEN.** Two runs ended with no SUMMARY. Both were called the characterised output-capture flake and re-run; the third passed, which appeared to confirm it. **Both failures had stopped at the identical assertion and the identical count — 2024.** The intermittent loses the *tail* under load, at no fixed point. Two runs stopping at the same number is not a flake, and the discriminator was in the output from the first re-run onward.
+
+> **The rule this adds to [[D94]]:** a no-verdict is not evidence *of* the intermittent. Re-running is right, and it is not enough — **compare where the runs stopped.** Two identical stopping points are evidence *against* the flake, and the only thing that tells a stall from a load artefact.
+
+**3. The harness had the very defect this slice was fixing.** `wExifImage` awaited `c.toBlob` with **no deadline and no null check**. A 2400×1800 canvas on a machine that had been short of memory all session hands back nothing, and the suite dies silently. Repaired with the same shape ruled for the fixture — a net that makes a stall **say so** — plus a **chain-level net**, so any future hang anywhere in the harness reports itself by name instead of producing a missing SUMMARY that reads like the flake. *E1's reasoning holds wherever a hang can happen, not only where it was asked for.*
+
+**4. A retry that covered the failure I could picture.** The first repair handled a **null blob**. The actual failure was `toBlob` **never calling back at all**, which the null check cannot see. It cost three more runs. **When a flake has two failure modes, fixing the one that is easier to imagine leaves the other exactly where it was** — and the fixture then fails in the same silent way it did before, while looking repaired.
+
+**5. A fresh-budget defect is invisible to timing assertions at harness scale.** 80ms twice is still fast, so no threshold loose enough to avoid flaking could catch it. The arithmetic came out as a pure seam, `bodyDeadlineMs`, gated on the numbers that matter: 119s of a 120s budget leaves **1000**, a spent budget leaves **0**, and a control at 0s leaves the full **120000** so the rule is not merely returning something small.
+
+**6. One plant was malformed JS** and aborted the suite — a bad plant, not a weak gate. Rewritten to drop **only** the clock, it then failed exactly one gate (*states WHEN the first byte arrived*) while the *started answering and stopped* gate still passed: the isolation the plant existed to prove.
+
+**Defect pass: eight plants, eight failing their own named gates.**
+
+**Suite: 2174 assertions, all passing** (2152 → 2174).
