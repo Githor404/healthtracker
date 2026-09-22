@@ -136,7 +136,7 @@ if [ -z "$BROWSER" ]; then echo "ERROR: no headless Chrome/Edge found" >&2; exit
 # --virtual-time-budget: the D30 cases load the SHIPPED index.html into an iframe,
 # so the dump must wait for that async load rather than snapshotting mid-flight.
 OUT=$("$BROWSER" --headless --disable-gpu --no-sandbox --allow-file-access-from-files \
-  --virtual-time-budget=20000 --dump-dom "$URL" 2>/dev/null \
+  --virtual-time-budget=45000 --dump-dom "$URL" 2>/dev/null \
   | grep -oE '<p class="(r|s)">[^<]*</p>' | sed -E 's/<[^>]+>//g')
 
 echo "$OUT"
@@ -155,7 +155,7 @@ echo "-----------------------------------------"
 # AUTHORED is a static lower-bound cross-check only: it counts source LINES
 # containing a res( call, so multi-line calls and helper reuse make it an
 # approximation, not an equality. The PIN is the enforcing mechanism.
-EXPECTED_ASSERTIONS=2174
+EXPECTED_ASSERTIONS=2197
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

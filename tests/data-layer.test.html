@@ -2529,6 +2529,11 @@ window.setLS({});
     // SHIPPED default is pinned by its own gate -- shrinking it here must not be
     // able to hide a change to the number that actually ships.
     HT.setByokProbeTimeout(20);
+    // The bitmap LEASE was shortened; the decode timeout behind it was not, and it
+    // is 20000 -- the whole virtual-time budget. So whenever the preferred decoder
+    // failed, the fallback's own deadline consumed the run and the page was dumped
+    // with no SUMMARY. Shortening the leash alone only moved the wait.
+    HT.setByokDecodeTimeout(400);
     // The scripted stub, kept so the cases that REPLACE window.fetch can put it
     // back. Leaving a never-answering stub in place hung every later case behind
     // a 120-second budget -- the same trap this slice is fixing, in the harness.
@@ -3165,6 +3170,7 @@ window.setLS({});
         return;
       }
       W.HT.setByokBitmapLease(20);
+      W.HT.setByokDecodeTimeout(400);   // same reason, and this is the window that stalled
       var WFETCH = [];
       var WSCRIPT = [];
       W.fetch = function (u, i) {
@@ -3206,57 +3212,32 @@ window.setLS({});
         var g = x.createLinearGradient(0, 0, w, h);
         g.addColorStop(0, '#873'); g.addColorStop(1, '#39a');
         x.fillStyle = g; x.fillRect(0, 0, w, h);
+        // D111: the encode is SYNCHRONOUS now. c.toBlob never called back on this
+        // machine in roughly half of all runs -- not a null blob, which a retry
+        // could absorb, but a callback that simply never arrived -- and each time
+        // it took the whole suite down with it. toDataURL has no callback to miss,
+        // so the failure mode is removed rather than retried. The canvas keeps its
+        // size, so what the case actually asserts is untouched.
         return new Promise(function (r, rej) {
-          // D110: this await was UNBOUNDED and did not check for a null blob.
-          // toBlob hands back null when the canvas cannot be encoded -- which a
-          // 2400x1800 canvas does on a machine short of memory -- and then
-          // nothing ever settles. A hang here reads exactly like the output-
-          // capture intermittent, which is how it survived two runs undiagnosed.
-          //
-          // The encode is an ENVIRONMENT condition, not the thing under test, so
-          // it gets ONE retry. The net stays: a genuine stall still fails by name,
-          // and a second failure is reported rather than retried forever.
-          var tries = 0;
-          var net = setTimeout(function () {
-            rej(new Error('wExifImage: toBlob never called back -- the fixture stalled, and a stalled fixture must SAY so'));
-          }, 8000);
-          function attempt() {
-            tries++;
-            // Two ways the encode fails under memory pressure, and only one of
-            // them is a null blob: toBlob can also simply never call back. The
-            // retry covers BOTH, or it covers the case that happens to be easier
-            // to imagine -- which is how this cost three more runs.
-            var called = false;
-            var per = setTimeout(function () {
-              if (!called && tries < 3) attempt();
-            }, 2500);
-            c.toBlob(function (b) {
-              called = true; clearTimeout(per);
-              if (!b) {
-                if (tries < 3) { attempt(); return; }
-                clearTimeout(net);
-                rej(new Error('wExifImage: toBlob failed three times -- the canvas could not be encoded'));
-                return;
-              }
-              b.arrayBuffer().then(function (ab) {
-                clearTimeout(net);
-              var src = new Uint8Array(ab);
-              var tiff = [0x4D,0x4D,0x00,0x2A,0x00,0x00,0x00,0x08, 0x00,0x01,
-                          0x01,0x12,0x00,0x03,0x00,0x00,0x00,0x01,
-                          (orientation >> 8) & 255, orientation & 255, 0x00,0x00,
-                          0x00,0x00,0x00,0x00];
-              var payload = [0x45,0x78,0x69,0x66,0x00,0x00].concat(tiff);
-              var len = payload.length + 2;
-              var app1 = [0xFF,0xE1, (len >> 8) & 255, len & 255].concat(payload);
-              var out = new Uint8Array(src.length + app1.length);
-              out.set(src.subarray(0, 2), 0);
-              out.set(app1, 2);
-              out.set(src.subarray(2), 2 + app1.length);
-                r(new W.File([out], 'IMG_2201.JPG', { type: 'image/jpeg' }));
-              }, function (e) { clearTimeout(net); rej(e); });
-            }, 'image/jpeg', 0.9);
-          }
-          attempt();
+          var url;
+          try { url = c.toDataURL('image/jpeg', 0.9); }
+          catch (e) { rej(new Error('wExifImage: toDataURL threw -- ' + (e && e.message))); return; }
+          var b64 = String(url).slice(String(url).indexOf(',') + 1);
+          var bin = W.atob ? W.atob(b64) : atob(b64);
+          var src = new Uint8Array(bin.length);
+          for (var q = 0; q < bin.length; q++) src[q] = bin.charCodeAt(q);
+          var tiff = [0x4D,0x4D,0x00,0x2A,0x00,0x00,0x00,0x08, 0x00,0x01,
+                      0x01,0x12,0x00,0x03,0x00,0x00,0x00,0x01,
+                      (orientation >> 8) & 255, orientation & 255, 0x00,0x00,
+                      0x00,0x00,0x00,0x00];
+          var payload = [0x45,0x78,0x69,0x66,0x00,0x00].concat(tiff);
+          var len = payload.length + 2;
+          var app1 = [0xFF,0xE1, (len >> 8) & 255, len & 255].concat(payload);
+          var out = new Uint8Array(src.length + app1.length);
+          out.set(src.subarray(0, 2), 0);
+          out.set(app1, 2);
+          out.set(src.subarray(2), 2 + app1.length);
+          r(new W.File([out], 'IMG_2201.JPG', { type: 'image/jpeg' }));
         });
       }
       function wVisible() {
@@ -4258,6 +4239,11 @@ window.setLS({});
       return HT.drugPickSpelling('BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE').then(function () {
         res(HT.getMed(rId).query_pick.from === 'combination',
             'D107-reuse fixture: the combination pick is stored');
+        // D111: gated at the REAL call site. The sequence gate calls setMedQuery
+        // with 'pick' itself, so it proved the seam and proved nothing about
+        // drugPickSpelling -- a plant that stopped passing 'pick' scored VACUOUS.
+        res(HT.medQuerySrc(HT.getMed(rId), 'generic_name') === 'pick',
+            'D111-seq GATE: the PICK PATH itself records the term as picked -- a scenario that sets the provenance by hand can never show that the pick does');
         // the stored pick is LEGIBLE before any manufacturer list settles it
         HT.renderDrugInfo();
         var qrow = document.getElementById('drugInfo').textContent;
@@ -9277,6 +9263,113 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- H12/D111: the panel stopped asserting what it never stored ---------
+  // "edited by you" was an INFERENCE -- an override present, no pick record --
+  // presented as a fact, and the fact it asserted was about the USER. Reported
+  // from the device: a term PICKED from the suggestions was labelled as the
+  // user's own typing, and D107's clear -- keyed on the pick RECORD -- was
+  // structurally blind to it.
+  // Distinct printed names per fixture: two records with the same name are the
+  // same medication to the app, so a shared name silently gave back one record
+  // and the second fixture was never created.
+  var D111N = 0;
+  function d111med(gen) {
+    D111N++;
+    HT.openLabelDraft(JSON.stringify({ name: 'SANDOZ BISOPROLOL 2.5 MG #' + D111N,
+      generic_name: gen, strength: '2.5 mg' }), { whose: 'mine', source: 'label-paste' });
+    HT.labelConfirm();
+    return HT.labelSave().medId;
+  }
+  function d111attach(id, setId, gen) {
+    HT.drugSet({ medId: id, phase: 'doc', saved: false, doc: {
+      set_id: setId, version: '1', effective_time: '20260101', name: 'combo',
+      generic_name: gen, manufacturer: 'Teva', sections: { description: 'D' },
+      org: 'FDA', fetchedAt: '2026-09-22' } });
+    window.__confirm = true;
+    HT.drugSave();
+  }
+
+  // -- the seam: NOT RECORDED is its own state, never 'typed' ---------------
+  res(HT.medQuerySrc({ query: { generic_name: 'X' } }, 'generic_name') === null,
+      'D111-src GATE: an override with NO recorded source reads as not-recorded -- never as typed, which is the claim the panel was inventing');
+  res(HT.medQuerySrc({ query: { generic_name: 'X' }, query_src: { generic_name: 'typed' } }, 'generic_name') === 'typed',
+      'D111-src GATE: a recorded edit reads as typed');
+  res(HT.medQuerySrc({ query: { generic_name: 'X' }, query_src: { generic_name: 'pick' } }, 'generic_name') === 'pick',
+      'D111-src GATE: a recorded pick reads as pick');
+  res(HT.medQuerySrc({ query_src: { generic_name: 'typed' } }, 'generic_name') === null,
+      'D111-src GATE: provenance without an override is not a claim -- there is no term for it to be about');
+  res(HT.medQuerySrc({ query: { generic_name: 'X' }, query_src: { generic_name: 'guessed' } }, 'generic_name') === null,
+      'D111-src GATE: an unrecognised source value is NOT RECORDED rather than trusted');
+  res(HT.normalizeQuerySrc({ generic_name: 'pick', nonsense: 'pick' }).nonsense === undefined &&
+      HT.normalizeQuerySrc({ generic_name: 'sideways' }) === null,
+      'D111-src GATE: the normalizer keeps only the two query fields and the two ruled values');
+
+  // -- THE RULED SEQUENCE: edit, pick the combination, save, detach, reopen --
+  var s111 = d111med('BISOPROLOL FUMAR 2.5MG');
+  HT.setMedQuery(s111, 'generic_name', 'BISOPROLOL fumar 2.5 mg');
+  res(HT.medQuerySrc(HT.getMed(s111), 'generic_name') === 'typed',
+      'D111-seq GATE: a hand edit records itself as TYPED');
+  res(HT.drugQueryRowHTML(HT.getMed(s111)).indexOf('edited by you') > 0,
+      'D111-seq GATE: and the panel says edited by you -- now a FACT rather than the absence of a pick record');
+
+  HT.setMedQuery(s111, 'generic_name', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', 'pick');
+  res(HT.medQuerySrc(HT.getMed(s111), 'generic_name') === 'pick',
+      'D111-seq GATE: a pick over an edited term REPLACES the provenance -- a surviving typed flag would show a pick as the user\u2019s own words');
+  var row111 = HT.drugQueryRowHTML(HT.getMed(s111));
+  res(row111.indexOf('picked by you') > 0 && row111.indexOf('edited by you') < 0,
+      'D111-seq GATE: and the panel says PICKED, not edited');
+
+  d111attach(s111, 'set-d111-a', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');
+  res(HT.getMed(s111).labelSetId === 'set-d111-a', 'D111-seq fixture: the combination document is attached');
+  HT.detachLabelDoc(s111);
+  var m111 = HT.getMed(s111);
+  res(!(m111.query && m111.query.generic_name) && !m111.query_pick,
+      'D111-seq GATE: detaching clears the term that came from the document');
+  res(!(m111.query_src && m111.query_src.generic_name),
+      'D111-seq GATE: and the provenance goes with the term it described -- a source for a term that no longer exists is a claim about nothing');
+  var after111 = HT.drugQueryRowHTML(m111);
+  res(after111.indexOf('edited by you') < 0 && after111.indexOf('picked by you') < 0,
+      'D111-seq GATE: and on reopening the panel claims NO provenance, because there is no override left to have one');
+
+  // -- THE LEGACY STATE THE DEVICE IS ACTUALLY IN ---------------------------
+  // A term chosen on a build that had no query_pick at all: an override, and no
+  // record of any kind. This is what D107's clear could not see.
+  var l111 = d111med('BISOPROLOL FUMAR 2.5MG');
+  var lm111 = HT.getMed(l111);
+  lm111.query = { generic_name: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE' };
+  delete lm111.query_src; delete lm111.query_pick;
+  var rowL = HT.drugQueryRowHTML(lm111);
+  res(rowL.indexOf('edited by you') < 0,
+      'D111-legacy GATE: a term with NO provenance is NOT labelled edited by you -- the panel told the user they had typed something they had picked');
+  res(rowL.indexOf('source not recorded') > 0,
+      'D111-legacy GATE: it says what is true instead -- search term (source not recorded)');
+  res(rowL.indexOf('picked by you') < 0,
+      'D111-legacy GATE: and it does not claim a pick either -- the rule cuts in BOTH directions');
+  d111attach(l111, 'set-d111-b', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');
+  HT.detachLabelDoc(l111);
+  res(!((HT.getMed(l111).query || {}).generic_name),
+      'D111-legacy GATE: and detaching CLEARS it -- keyed on the document being rejected rather than on a pick record that never existed');
+
+  // -- THE CONTROL D107 EXISTS TO PROTECT -----------------------------------
+  var t111 = d111med('BISOPROLOL FUMAR 2.5MG');
+  HT.setMedQuery(t111, 'generic_name', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');          // genuinely typed
+  d111attach(t111, 'set-d111-c', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');
+  HT.detachLabelDoc(t111);
+  res((HT.getMed(t111).query || {}).generic_name === 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+      'D111-typed CONTROL: a term recorded as TYPED survives the detach even when it equals the document\u2019s own generic name -- the user wrote that one, and D107\u2019s principle is intact');
+  res(HT.medQuerySrc(HT.getMed(t111), 'generic_name') === 'typed',
+      'D111-typed CONTROL: and it is still recorded as theirs');
+
+  // -- export -> restore: a provenance field that does not survive the round
+  //    trip quietly becomes NOT RECORDED again (the allowlist trap, tenth) ---
+  var x111 = d111med('BISOPROLOL FUMAR 2.5MG');
+  HT.setMedQuery(x111, 'generic_name', 'BISOPROLOL FUMARATE', 'pick');
+  var exp111 = HT.exportJSON();
+  res(exp111.indexOf('"query_src"') >= 0, 'D111-flag: the provenance reaches the export at all');
+  window.__confirm = true; HT.restore(exp111);
+  res(((HT.getMed(x111) || {}).query_src || {}).generic_name === 'pick',
+      'D111-flag GATE: query_src survives export -> restore -- it joined the normalizer in the same edit that introduced it');
+
   // ---- D103: the truncated salt, and the strength that was never stripped ---
   // THE FIXTURE IS A REAL PHARMACY LABEL, reported from the device:
   //     "BISOPROLOL FUMAR  2.5MG"   with "Sandoz Bisoprolol 2.5 MG" second.
@@ -10003,7 +10096,15 @@ window.setLS({});
       res(false, 'HARNESS GATE: the assertion chain never finished -- a hang must fail by name, never as a missing SUMMARY that reads like the intermittent');
       finish();
     }
-  }, 420000);
+  }, 35000);   // SIZED BETWEEN two measurements, not against one. At 420000
+               // -- sized against the 600s gate leash -- it could never fire, because
+               // Chrome dumps the DOM at --virtual-time-budget and exits: dead code
+               // that read like protection. At 15000 it fired on a HEALTHY run that
+               // simply took a while, truncating the count and inventing a failure.
+               // A net must sit ABOVE the slowest healthy run and BELOW the hard
+               // deadline; both earlier numbers were picked against one of those and
+               // never measured against the other. The budget was raised to 45000 to
+               // leave that gap somewhere to be.
 })();
 </script>
 </body>

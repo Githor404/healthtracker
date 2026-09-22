@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.37.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.37.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5753,6 +5753,7 @@ const VERSION_LOG = [
   { v: '0.36.4', d: '2026-09-21', note: 'Fix: after removing a wrong document, the next lookup reused the spelling you had picked to find it \u2014 going straight to a manufacturer list instead of offering the suggestions again. Removing a document now also clears the choice that found it, a picked spelling for a combination product is never reused without asking, and the panel says when a search term was picked by you rather than shortened by the app, so you can change it before anything else appears.' },
   { v: '0.37.0', d: '2026-09-22', note: 'When a photo capture comes back with nothing at all, the app now checks whether your provider is answering and tells you which silence it was \u2014 the provider not responding, your device being offline, or the request simply not coming back. The check sends no key and no data.' },
   { v: '0.37.1', d: '2026-09-22', note: 'Fix: a reply that began arriving and then stopped had no time limit at all, so a capture or a drug lookup could wait indefinitely. Both now keep the same overall limit after the first byte, and say when the answer started and when the app gave up.' },
+  { v: '0.37.2', d: '2026-09-22', note: 'The drug panel used to label every search term you had not just picked as \u201cedited by you\u201d, including terms it had no record of. It now says which it is \u2014 picked, edited, or source not recorded \u2014 and removing a document also clears a term that came from that document rather than from you.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8752,6 +8753,13 @@ function normalizeMed(raw) {
   // number wrong, not for one that makes an audit thinner.
   const qp = normalizeQueryPick(r.query_pick);
   if (qp) out.query_pick = qp;
+  // D111: joins the normalizer in the same edit that introduces it -- the
+  // allowlist trap, tenth time of asking. No schema bump, by D105's reasoning:
+  // an older app strips this and the term still goes out and the lookup still
+  // works. What is lost is a claim about provenance, which then correctly reads
+  // as NOT RECORDED rather than as a wrong value.
+  const qs = normalizeQuerySrc(r.query_src);
+  if (qs) out.query_src = qs;
   if (/^\d{4}-\d{2}-\d{2}$/.test(String(r.stopped))) out.stopped = String(r.stopped);
   if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
   const alts = normalizeAltList(r.ai_alts);
@@ -9623,6 +9631,12 @@ function detachLabelDoc(medId) {
     return { ok: false, why: 'none-attached' };
   }
   const setId = med.labelSetId;
+  // D111: read the document's own generic name BEFORE dropping it. D107's clear
+  // was keyed on the pick RECORD, which made it structurally blind to exactly the
+  // records that need it most -- every term chosen before provenance existed. The
+  // document is the thing being rejected, so the document names what to clear.
+  const doc = (APP_STATE.labels || {})[setId];
+  const docGeneric = doc ? String(doc.generic_name || '') : '';
   delete med.labelSetId;
   if (labelDocUnattached(setId) && APP_STATE.labels) delete APP_STATE.labels[setId];
   // D107: THE CHOICE GOES WITH THE DOCUMENT. Detaching used to remove the
@@ -9630,14 +9644,24 @@ function detachLabelDoc(medId) {
   // same term, matched, and went straight to a manufacturer list -- reusing a
   // result the user had just rejected. A hand-typed term is left alone: the user
   // wrote that, and only the pick belonged to the document.
-  if (med.query_pick) {
-    const picked = med.query_pick.term;
-    if (med.query && med.query.generic_name === picked) {
-      delete med.query.generic_name;
-      if (!Object.keys(med.query).length) delete med.query;
+  const qterm = (med.query && med.query.generic_name) || '';
+  const qsrc = medQuerySrc(med, 'generic_name');
+  const fromPick = !!(qterm && med.query_pick && med.query_pick.term === qterm);
+  const isDocTerm = !!(qterm && docGeneric && qterm.toLowerCase() === docGeneric.toLowerCase());
+  // A term the user TYPED is still theirs and survives -- that is D107's principle
+  // intact. What changes is the unknown case: a term matching the document being
+  // rejected, with no record of having been typed, is the document's and goes with
+  // it. Clearing it costs one retype and is visible; keeping it routed the user
+  // silently back to the label they had just thrown away.
+  if (qterm && (fromPick || (isDocTerm && qsrc !== 'typed'))) {
+    delete med.query.generic_name;
+    if (!Object.keys(med.query).length) delete med.query;
+    if (med.query_src) {
+      delete med.query_src.generic_name;
+      if (!Object.keys(med.query_src).length) delete med.query_src;
     }
-    delete med.query_pick;
   }
+  if (med.query_pick) delete med.query_pick;
   Store.saveState(APP_STATE);
   // D105: AND THE SURFACE MOVES. The work was always done -- labelSetId cleared,
   // the document dropped -- but DRUG_VIEW still held the old doc, so the panel
@@ -9775,19 +9799,51 @@ function medQueryTerm(med, field) {
   return deriveQueryTerm(((med && med.printed) || {})[field]);
 }
 // An edit is stored; clearing it returns the field to the derivation.
-function setMedQuery(medId, field, value) {
+// D111: `src` defaults to 'typed' because the ONLY caller that is not a person
+// typing is the pick, and it says so. A default of 'unknown' would re-create the
+// thing being fixed: a term with no provenance that the app had every chance to
+// record.
+function setMedQuery(medId, field, value, src) {
   const med = getMed(medId);
   if (!med || QUERY_FIELDS.indexOf(field) < 0) return { ok: false };
   const v = String(value == null ? '' : value).trim();
+  const how = (QUERY_SRCS.indexOf(src) >= 0) ? src : 'typed';
   if (!med.query || typeof med.query !== 'object') med.query = {};
-  if (!v || v === deriveQueryTerm((med.printed || {})[field])) delete med.query[field];
-  else med.query[field] = v;
+  if (!med.query_src || typeof med.query_src !== 'object') med.query_src = {};
+  if (!v || v === deriveQueryTerm((med.printed || {})[field])) {
+    delete med.query[field];
+    delete med.query_src[field];            // the term goes, its provenance goes with it
+  } else {
+    med.query[field] = v;
+    med.query_src[field] = how;
+  }
   if (!Object.keys(med.query).length) delete med.query;
+  if (!Object.keys(med.query_src).length) delete med.query_src;
   Store.saveState(APP_STATE);
   renderDrugInfo();
   return { ok: true, term: medQueryTerm(med, field) };
 }
 const QUERY_FIELDS = ['generic_name', 'name'];
+// D111: POSITIVE PROVENANCE. `edited` used to be inferred -- an override was
+// present and no pick record was, so the panel said "edited by you". That is an
+// inference presented as a fact, and the fact it asserted was about the USER.
+// Stored now, per field, and where it was never stored the surface says so
+// rather than guessing in either direction.
+const QUERY_SRCS = ['typed', 'pick'];
+function normalizeQuerySrc(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  QUERY_FIELDS.forEach(function (k) {
+    if (QUERY_SRCS.indexOf(raw[k]) >= 0) out[k] = raw[k];
+  });
+  return Object.keys(out).length ? out : null;
+}
+function medQuerySrc(med, field) {
+  const q = (med && med.query) || {};
+  if (q[field] == null || String(q[field]).trim() === '') return null;   // no override, no provenance question
+  const sv = (med && med.query_src) || {};
+  return QUERY_SRCS.indexOf(sv[field]) >= 0 ? sv[field] : null;          // null = NOT RECORDED, never 'typed'
+}
 function normalizeQueryPick(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const term = labelValue(raw.term);
@@ -9970,7 +10026,7 @@ function drugPickSpelling(term) {
   if (!v || v.phase !== 'pick') return Promise.resolve({ ok: false });
   const med = getMed(v.medId);
   if (!med) return Promise.resolve({ ok: false });
-  setMedQuery(v.medId, 'generic_name', term);
+  setMedQuery(v.medId, 'generic_name', term, 'pick');
   // D105: RECORD THAT IT WAS A PICK, AND FROM WHICH HEADING. Before this the
   // chosen spelling landed in query.generic_name and was indistinguishable from
   // a term typed by hand -- so afterwards nobody could say what had been chosen,
@@ -10184,11 +10240,17 @@ function drugQueryRowHTML(med) {
     // D107: a PICK and a hand EDIT are different things, and this said "edited by
     // you" for both. A wrong pick has to be legible here, before a manufacturer
     // list makes it look settled.
-    const picked = !!(med.query_pick && med.query_pick.term === term);
-    const edited = !picked && !!(med.query && med.query[f]);
+    // D111: three states, and the third is the point. An override whose source
+    // was never recorded is NOT an edit -- saying so told the user they had typed
+    // something they had picked. The surface may not claim provenance the app
+    // never stored, in either direction.
+    const src = medQuerySrc(med, f);
+    const override = !!(med.query && med.query[f]);
+    const picked = (src === 'pick') || !!(med.query_pick && med.query_pick.term === term);
     const note = picked ? 'picked by you from the suggestions \u2014 change it here if it is wrong'
-      : (edited ? 'edited by you'
-      : (term !== p[f] ? 'shortened to the ingredient name \u2014 edit it if that is wrong' : ''));
+      : (src === 'typed' ? 'edited by you'
+      : (override ? 'search term (source not recorded)'
+      : (term !== p[f] ? 'shortened to the ingredient name \u2014 edit it if that is wrong' : '')));
     return `<div class="qrow"><div class="qline"><span>${esc(label)}, as printed</span>`
       + `<b>${esc(p[f])}</b></div>`
       + `<div class="qline"><span>searching for</span>`
@@ -10465,7 +10527,7 @@ window.HT = {
   deriveQueryTerm, medQueryTerm, setMedQuery, drugTriedList, drugTriedText, normalizeQuery,
   fdaPrefixURL, fdaPrefixMatches, fdaIsCombination, drugOfferSpellings, drugPickSpelling,
   drugPrefixCandidates, fdaIngredients, fdaExtraIngredients, drugExtraForMed, drugComboWords,
-  normalizeQueryPick, detachLabelDoc, drugMismatch, drugMismatchWords, drugDiffWords,
+  normalizeQueryPick, normalizeQuerySrc, medQuerySrc, QUERY_SRCS, drugQueryRowHTML, detachLabelDoc, drugMismatch, drugMismatchWords, drugDiffWords,
   drugPickNeedsReview,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,

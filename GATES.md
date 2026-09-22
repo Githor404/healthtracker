@@ -4394,3 +4394,17 @@ A response that sends headers and then stalls had **no deadline at all**. Fixed 
 | HARNESS **GATE** | the assertion chain that never finishes **fails by name**, never as a missing SUMMARY |
 
 **Why E2 was refused.** Letting the hang itself be the signal turns a defect pass into a stopwatch: a hang is a **no-verdict**, and a no-verdict is precisely how the characterised output-capture intermittent presents, so the plant would be unreadable against the flake. That is not hypothetical — it happened in this very slice, twice, before the nets went in.
+### D111 — provenance is stored, not inferred — v0.37.2
+
+The panel called every override it had no pick record for **"edited by you"**. The device's term had been **picked**, on a build older than the field that records picks.
+
+| case | asserts |
+|---|---|
+| D111-src **GATE** | an override with **no recorded source** reads as not-recorded — never `typed`; an unrecognised value is not-recorded rather than trusted; provenance without an override is not a claim |
+| D111-seq **GATE** | edit → `typed`; pick → `pick`, **replacing** the edit's provenance; **the pick path itself** records it, gated after a real `drugPickSpelling` |
+| D111-seq **GATE** | detach clears the term **and** its provenance, and the reopened panel claims neither edit nor pick |
+| D111-legacy **GATE** | a term with **no** provenance is not labelled edited, says *"search term (source not recorded)"*, does **not** claim a pick, and **is cleared on detach** — keyed on the document, not on a pick record that never existed |
+| D111-typed **CONTROL** | a term recorded as **typed** survives the detach even when it equals the document's own generic name |
+| D111-flag **GATE** | `query_src` survives export → restore — the allowlist trap, tenth time of asking |
+
+**The family this belongs to.** [[D93]]'s confidence dot and [[D91]]'s goal colours are the same fault: a surface asserting more than the data supports. This one asserted it **about the user**, which is why the unknown case gets its own words rather than the friendlier of the two guesses.

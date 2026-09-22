@@ -4469,3 +4469,50 @@ The deadline is re-armed for **what is left of the same budget** (B1a: no body f
 **Defect pass: eight plants, eight failing their own named gates.**
 
 **Suite: 2174 assertions, all passing** (2152 → 2174).
+
+## D111 — A label asserted a fact the app never recorded, and the fact was about the user — v0.37.2 (2026-09-22)
+
+Reported from the device. The generic field read **"Searching for: BISOPROLOL FUMARATE AND HYDR…"** labelled **"edited by you"** — after the combination document had been detached — and the next lookup went straight to that combination's 12 manufacturers.
+
+### What the record actually held
+
+Neither of the two explanations offered. There was **no provenance flag at all**:
+
+```js
+const picked = !!(med.query_pick && med.query_pick.term === term);
+const edited = !picked && !!(med.query && med.query[f]);        // an INFERENCE
+```
+
+**"edited by you" was what the panel said when it saw an override and no pick record.** The term had been *picked*, on a build where `query_pick` did not yet exist — the pick list began rendering in [[D104]] (v0.36.1) and provenance arrived in [[D105]] (v0.36.2), both the same day. Nothing dropped it; it was never written. (`query_pick` **is** in the normalizer, added in D105's own commit, and `drugSave` never touches it — both checked before concluding.)
+
+**This is the confidence dot ([[D93]]) and the goal colours ([[D91]]) again — the surface making a claim the data cannot support — except that this claim was about the person.** The app told the user they had typed something they had chosen from a list it offered them.
+
+### And it made D107 structurally blind
+
+[[D107]]'s clear is keyed on the pick **record**:
+
+```js
+if (med.query_pick) { ... }
+```
+
+So it could never reach **exactly the records that need it most**: every term chosen before provenance existed. The device's record is one. That is D107's own failure mode surviving inside D107's fix, and every fixture written for it had a `query_pick` in it.
+
+### The repair
+
+**Provenance is stored**, per field: `query_src` ∈ `typed | pick`, written by `setMedQuery` (default `typed`, because the only non-human caller is the pick and it now says so). Additive, **in the normalizer in the same edit**, no schema bump by D105's reasoning — an older app strips it and the term still goes out; what is lost is a claim about provenance, which then correctly reads as *not recorded*.
+
+**Three states on the surface, and the third is the point.** Picked, edited, or — where nothing was recorded — **"search term (source not recorded)"**. The rule cuts both ways: the panel may not claim an edit, and may not claim a pick either.
+
+**Detach keys on the DOCUMENT, not the pick record.** A term matching the generic name of the document being rejected is cleared when provenance is `pick` **or unknown**; a term recorded as `typed` survives, so D107's principle is intact. Clearing an unknown costs one retype and is visible; keeping it routed the user silently back to the label they had just thrown away.
+
+### What the build found
+
+**1. A plant scored VACUOUS because the scenario set the thing it was testing.** The sequence gate calls `setMedQuery(..., 'pick')` itself, so removing `'pick'` from `drugPickSpelling` changed nothing any gate saw. It proved the seam and proved **nothing about the call site**. Repaired by asserting provenance after a real `drugPickSpelling`. *A fixture that hands the code the value under test measures the fixture* — [[D109]] again, one layer along: there the fixture set a mutable value first, here it supplies an argument the production path is supposed to supply.
+
+**2. The harness net shipped in [[D110]] could never fire.** It was set at 420000 ms against the 600 s gate leash, while `run-data-layer.sh` runs Chrome with `--virtual-time-budget=20000`: the DOM is dumped and the process exits at the budget, so the guarantee was **dead code that read like protection**. Set to 15000 it then fired on a **healthy** run that merely took a while, truncating the count and inventing a failure — proved by the output: **2197 assertions printed while the counter reported 2045**. A net must sit **above the slowest healthy run and below the hard deadline**; both numbers had been chosen against one bound and never measured against the other. Budget raised to 45000, net at 35000.
+
+**3. The fixture stall was not a flake to retry but a failure mode to remove.** `c.toBlob` on the 2400×1800 canvas never called back in roughly half of all runs — not a null blob, which a retry absorbs, but a callback that never arrives. `toDataURL` is synchronous: there is no callback to miss. Three consecutive clean runs after. **The decode timeout behind the shortened bitmap lease was still 20000 — the entire virtual-time budget — in both windows**, so whenever the preferred decoder failed the fallback's own deadline consumed the run. Shortening the leash alone had only moved the wait.
+
+**Defect pass: eight plants, eight failing their own named gates.**
+
+**Suite: 2197 assertions, all passing** (2174 → 2197).
