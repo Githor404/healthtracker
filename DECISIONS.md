@@ -4341,6 +4341,23 @@ The repair is a second scenario for the case fix 2 actually exists for — **a c
 
 **Suite: 2124 assertions, all passing** (2108 → 2124).
 
+### Confirmed from the device, 2026-09-22
+
+Clearing the field and typing `BISOPROLOL FUMARATE` by hand **returns 24 manufacturers for the plain generic**. *"The stuck pick was the only thing routing me to the combination."*
+
+**Both device-reported numbers reproduce exactly against the live API** (checked 2026-09-22):
+
+| query | manufacturers |
+|---|---|
+| `openfda.generic_name.exact:"BISOPROLOL FUMARATE"` | **24** — the workaround's result |
+| `openfda.generic_name.exact:"BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE"` | **12** — the stuck pick's result |
+
+And the list the re-offer is built from: the prefix probe sends the **first token only**, `openfda.generic_name:"BISOPROLOL"`, which returns exactly two stored spellings — **BISOPROLOL FUMARATE (31 labels)** and **BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE (22)** — so the two candidates the pick list needs are both there, split by [[D103]]'s combination heading.
+
+**What this confirms, stated narrowly: the DIAGNOSIS, not the fix.** The stored pick was the sole cause, and removing it by any route resolves it — which is what the record claimed and is now measured from the device end as well. **The automatic routes are still unconfirmed on device**: detach clearing the pick, and a surviving combination pick sending the lookup back to the spelling list. Those are gated and green, and gated-and-green is not the same as seen.
+
+**One false alarm worth keeping, because it nearly became a defect report.** Probing the API by hand with the *whole* derived phrase — `openfda.generic_name:"BISOPROLOL FUMAR"` — returns `NOT_FOUND`, which looks exactly like a broken remedy. The app never sends that: `drugOfferSpellings` queries the **first token**. *A measurement of a shape the code does not use is not evidence about the code* — the same error as reading the wrong layer ([[D103]]), made with live data instead of a source string, which is precisely what makes it convincing.
+
 ### A note on the pick that is not deleted
 
 Fix 2 **does not delete** the surviving pick — it declines to act on it. It is still what the user chose, still shown on the surface, and still theirs to change. **Silently deleting a choice to avoid re-asking about it would be the same fault in the other direction**: the app deciding, without saying so, what the user meant.
