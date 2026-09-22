@@ -4358,4 +4358,24 @@ Larger type lengthens surfaces, which adds scrolling and therefore steps. Simula
 - A fifth size means **inventing** one the app does not currently use (18 for emphasis inside body text), which is a design addition rather than a collapse, and it would cost more than the measured figure.
 
 **The consequence to rule with it, because it is the real cost of 16:** the pre-registration's own argument against a 16px floor was that *"with a 16px floor and a 24px heading there is little room left to say 'this matters less'"*. That objection survives the ruling — it was outweighed, not answered. With size compressed into 16–32, **weight** has to carry the hierarchy that size no longer can. **Colour cannot**, because the palette is explicitly held back to its own slice. So the build leans on weight alone, and whether that is enough is a device question, not a measurable one.
+### D108 — which silence was it? — v0.37.0
 
+Two meal captures aborted at 120s with **no first byte**. Measured cause: an xAI datacenter incident on `us-east-1.api.x.ai`, **01:02–01:28 UTC on 22 Sept** — the window the captures fell in. **No config change**: `grok-4.6` is live, vision-capable, not rerouted, and `reasoning_effort` is unchanged. What the slice fixes is that the app could not **say** which silence it was.
+
+| case | asserts |
+|---|---|
+| D108-words **GATE** | a probe that answered says the API is **reachable** — never *down*, never *offline*, and never *up*: a 401 from the edge does not prove inference is alive |
+| D108-words **GATE** | a failed probe with `onLine` **false** names the **device** and never the provider |
+| D108-words **GATE** | a failed probe with `onLine` **true** says **both**, because `onLine` true is not evidence the connection works; an **unknown** reading takes the same cautious wording, never *offline* |
+| D108-words **GATE** | the two failed-probe wordings are **different sentences**; `byokOnLine` is a seam onto the real navigator, not a literal |
+| D108-shape **GATE** | the probe URL derives from `provider.base`, and a **different row yields a different URL** — no hardcoded host |
+| D108-shape **GATE** | the **shipped** budget is 8s, read through the reset seam so the harness's own 20ms cannot stand in for it |
+| D108-probe **GATE** | a budget abort with no first byte sends **exactly one** probe: a **GET, no body, no `Authorization`**, and the key nowhere in the request |
+| D108-probe **GATE** | the timeout still says what it always said — the verdict is **added**, never substituted — and it rides the **trace** too |
+| D108-noprobe **GATE** | a failure that **did** get a first byte sends **no probe at all**, says nothing about reachability, and still says *something* |
+| D108-network **GATE** | a rejected fetch **is** probed; *"Check the connection."* is gone, because it named a cause it had not measured |
+| D108-sw **GATE** | the probe is **cross-origin**, so the service worker passes it through — unlike the capture POST it is a GET, so half the D45 Fork G margin is gone, and a cached probe would be a memory rather than a measurement |
+
+**Why the seam is gated and not only the end-to-end path.** The offline and not-reachable branches both arise from **one failed probe** — [[D107]]'s trap, where a plant on one sibling may never reach the other. An end-to-end fixture reaches only the branch its scenario takes; a **pure seam can be asked about every branch directly**, which is what kept three plants on the same side of one condition distinguishable.
+
+**Named and not fixed:** `byokCall` clears its budget timer the moment headers arrive, so a response that sends headers and then stalls is **never aborted** — worse than the timeout it escapes. Nobody is trapped (cancel is always offered), which is why this is a hazard rather than an outage. Out of this slice.

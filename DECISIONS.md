@@ -4343,3 +4343,45 @@ The repair is a second scenario for the case fix 2 actually exists for — **a c
 ### A note on the pick that is not deleted
 
 Fix 2 **does not delete** the surviving pick — it declines to act on it. It is still what the user chose, still shown on the surface, and still theirs to change. **Silently deleting a choice to avoid re-asking about it would be the same fault in the other direction**: the app deciding, without saying so, what the user meant.
+
+## D108 — Which silence was it? — v0.37.0 (2026-09-22)
+
+Two meal captures in a row aborted at **120.0s with no first byte**, `600 kB · call 1 · json_object sent · effort low`. The request shape was unchanged, so the app was sending what it sent when the same call returned a first byte at 10.7s.
+
+**The cause was measured, not argued.** An xAI datacenter incident on `us-east-1.api.x.ai` opened **01:02:42 UTC** on 22 September and fully resolved at **01:28:30 GMT** — **21:02 → 21:28 local**, the window the captures fell in. Five minutes after resolution, an unauthenticated probe from this machine answered in **223 ms**. Against the current docs: `grok-4.6` is live, **not** in the May-15 retirement list, still documented as *"text and image inputs"*, and `reasoning_effort` is unchanged at `low | medium | high (default) | xhigh`.
+
+**No provider-config change was made, and that is the point.** Nothing in the config was wrong. Changing the model would have credited a fix to a change that did not make one — the provider was down, and is up. `grok-4.7` (launched the same day, same context, same modalities, same effort ladder) is parked until there is evidence to want it.
+
+**What the slice fixes is the app's own blindness.** *"The provider isn't answering"* and *"this request didn't come back"* render identically on the phone: a 120-second abort. It was the **second** time that distinction cost a diagnosis. So on an abort with no first byte the app now runs **one unauthenticated GET** — `{provider.base}/models`, no key, no body, no photo — and says which silence it was.
+
+### The ruling that made it honest
+
+`navigator.onLine` is trustworthy **only when it reports FALSE**. `true` means the device has an interface, not that it reaches the internet — a dead cell signal, a captive portal and one bar in a tunnel all report online. So a failed probe with `onLine` true is **not evidence that the connection works**, and the app must not name the provider alone on it:
+
+| condition | what the app says |
+|---|---|
+| probe answered | *"The provider's API is reachable — this request didn't come back."* |
+| probe failed, `onLine` **false** | *"Your device is offline."* |
+| probe failed, `onLine` **true** *or unknown* | *"Couldn't reach the provider. It may be down, or your connection may not be getting through."* |
+
+The third is less satisfying and more true. **It is the same discipline as the positive verdict**: a 401 from the edge proves the API is *reachable*, not that inference is alive, so the wording says reachable and never *"up"*. Both cases are one rule — **the sentence may not outrun the measurement.**
+
+### What the build found
+
+**1. A gate that pinned the harness's own number.** `byokTimeouts().probe === 8000` read the **live** value, which the harness had already shrunk to 20 ms for speed. It would have passed on whatever it was set to. Repaired by reading through the reset seam (`setByokProbeTimeout(0)` → the shipped default). Generally: **a gate that reads a mutable value pins nothing if the fixture is allowed to set it first** — the assertion looks specific and measures the fixture.
+
+**2. The probe was keyed on the failure KIND, not on the first byte.** The first condition read `!timedOut || !att || att.ttfbMs == null`, so a **mid-body drop** — headers arrived, body never did — would have been probed, spending a request to repeat what was already known. The rule is about *silence*, and a first byte means there was no silence. `!att || att.ttfbMs == null` is both simpler and the actual rule. Found by building the fixture, not by reasoning about it.
+
+**3. A hazard found while building that fixture, named and NOT fixed.** `byokCall` **clears its budget timer the moment headers arrive**, so a response that sends headers and then stalls forever is never aborted — worse than the 120-second timeout it escapes. The first attempt at the no-probe fixture hung the whole suite on exactly this. The cancel button keeps nobody trapped ([[D60]] R21.3-alive), which is why this is a hazard rather than an outage. **Out of this slice, and written down so it is not re-discovered by accident.**
+
+**4. Half the service-worker margin is gone.** The capture call passes the SW untouched because it is **non-GET and cross-origin** (D45 Fork G). The probe is a **GET**, so it rests on the cross-origin return **alone**. Gated, because **a probe served from a cache is a memory, not a measurement.**
+
+**5. An empty message.** Dropping the network lead sentence left a no-probe network failure surfacing `''` — a failure with no words. Caught by the fixture and gated by name.
+
+### The defect pass
+
+Eight plants. **Three of them sit on the failed-probe side of the verdict** — the offline and not-reachable branches both arise from one failed probe, which is precisely [[D107]]'s trap: sibling branches where a plant on one may never reach the other. They stayed distinguishable, and the reason is worth keeping: **the wording is gated through the pure seam with explicit arguments, not only end to end.** An end-to-end fixture can only reach the branch its scenario happens to take; a seam can be asked about every branch directly. *Gating the seam is what stops sibling branches from hiding each other.*
+
+**Defect pass: eight plants, eight failing their own named gates.** Two returned *no verdict* on the first run and both failed by name on re-run — the characterised output-capture intermittent, and exactly the reason [[D94]] rules that a no-verdict pass is re-run **before the plant is blamed**.
+
+**Suite: 2152 assertions, all passing** (2124 → 2152).

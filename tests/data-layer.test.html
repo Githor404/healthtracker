@@ -2524,6 +2524,11 @@ window.setLS({});
     // that every outcome is visible. The lease is shortened here so the fallback
     // engages immediately instead of spending five virtual seconds per capture.
     HT.setByokBitmapLease(20);
+    // H10/D108: every never-answering stub below now also swallows the PROBE, so
+    // the probe budget is shrunk here for the same reason the lease is. The
+    // SHIPPED default is pinned by its own gate -- shrinking it here must not be
+    // able to hide a change to the number that actually ships.
+    HT.setByokProbeTimeout(20);
     // The scripted stub, kept so the cases that REPLACE window.fetch can put it
     // back. Leaving a never-answering stub in place hung every later case behind
     // a 120-second budget -- the same trap this slice is fixing, in the harness.
@@ -3544,6 +3549,152 @@ window.setLS({});
         HT.setByokCallTimeout(120000);
         window.fetch = SCRIPTED_FETCH;          // hand the scripted stub back
       });
+    }).then(function () {
+      // ---- H10/D108: WHICH SILENCE WAS IT? -----------------------------------
+      // Two silences are identical on the phone -- the provider not answering, and
+      // this request not coming back. One unauthenticated GET separates them.
+      //
+      // navigator.onLine is trustworthy ONLY when FALSE: true means the device has
+      // an interface, not that it reaches the internet. So each wording is gated
+      // against the EXACT condition that produces it, and the branch for a failed
+      // probe with onLine true must never name the provider alone.
+      var VR = HT.byokReachVerdict;
+      res(VR(true, true) === 'The provider\u2019s API is reachable \u2014 this request didn\u2019t come back.',
+          'D108-words GATE: a probe that ANSWERED says the API is reachable, and blames nothing');
+      res(VR(true, true).indexOf('down') < 0 && VR(true, true).indexOf('offline') < 0,
+          'D108-words GATE: and a reachable provider is never called down or offline');
+      res(VR(true, true).indexOf('is up') < 0,
+          'D108-words GATE: nor up -- a 401 from the edge proves the API is REACHABLE, not that inference is alive, and the wording may not outrun the measurement');
+      res(VR(false, false) === 'Your device is offline.',
+          'D108-words GATE: a failed probe with onLine FALSE names the DEVICE');
+      res(VR(false, false).indexOf('provider') < 0,
+          'D108-words GATE: and never the provider -- onLine false is the one reading that is trustworthy');
+      res(VR(false, true) === 'Couldn\u2019t reach the provider. It may be down, or your connection may not be getting through.',
+          'D108-words GATE: a failed probe with onLine TRUE says BOTH, because onLine true is not evidence the connection works');
+      res(VR(false, true) !== VR(false, false),
+          'D108-words GATE: the two failed-probe wordings are different sentences -- collapsing them would blame the provider for a tunnel');
+      res(VR(false, null) === VR(false, true),
+          'D108-words GATE: an UNKNOWN onLine reads as the cautious wording, never as offline');
+      res(HT.byokOnLine() === (typeof navigator.onLine === 'boolean' ? navigator.onLine : null),
+          'D108-words GATE: byokOnLine is a seam onto the real navigator, not a literal');
+
+      // F1: the probe URL is a PROVIDER ROW, not a constant -- a second provider
+      // gets a probe without a code change.
+      res(HT.byokProbeURL(HT.BYOK_PROVIDERS.grok) === 'https://api.x.ai/v1/models',
+          'D108-shape GATE: the probe URL derives from the provider base');
+      res(HT.byokProbeURL({ base: 'https://example.test/v9' }) === 'https://example.test/v9/models',
+          'D108-shape GATE: and a DIFFERENT provider row yields a different probe URL -- no hardcoded host');
+      // The capture POST is bypassed by the service worker because it is non-GET
+      // AND cross-origin (D45 Fork G). The probe is a GET, so it rests on the
+      // cross-origin return ALONE -- and a probe served from a cache is not a
+      // measurement, it is a memory.
+      res(new URL(HT.byokProbeURL(HT.BYOK_PROVIDERS.grok)).origin !== location.origin,
+          'D108-sw GATE: the probe is CROSS-ORIGIN, so the service worker passes it through untouched -- unlike the capture POST it is a GET, so half the old margin is gone and a cached probe would be a memory rather than a measurement');
+      // Reading the LIVE value here would have read the harness's own 20ms and
+      // called it the shipped number -- the gate would have passed on whatever it
+      // was set to, which is no pin at all. The reset seam gives the real default.
+      HT.setByokProbeTimeout(0);
+      res(HT.byokTimeouts().probe === 8000,
+          'D108-shape GATE: the SHIPPED probe budget is 8s -- measured at 0.24s live, so past 8s the path is itself the evidence');
+      HT.setByokProbeTimeout(20);
+
+      // The probe's request, read off the WIRE and never off String(fn) -- D103:
+      // a source-string assertion passed while the function did the other thing.
+      byokReset(SECRET);
+      HT.setByokCallTimeout(40);
+      FETCHES = [];
+      window.fetch = function (u, i) {
+        FETCHES.push({ url: String(u), init: i });
+        if (String(u).indexOf('/models') > 0)
+          return Promise.resolve({ ok: false, status: 401, text: function () { return Promise.resolve('{}'); } });
+        return new Promise(function (_, rej) {
+          var sig = i && i.signal;
+          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+        });
+      };
+      return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+        var probes = FETCHES.filter(function (f) { return String(f.url).indexOf('/models') > 0; });
+        res(probes.length === 1,
+            'D108-probe GATE: a budget abort with NO FIRST BYTE sends exactly ONE probe -- one per failed capture, and it never retries');
+        var pi = (probes[0] && probes[0].init) || {};
+        res(String(pi.method || 'GET').toUpperCase() === 'GET' && pi.body == null,
+            'D108-probe GATE: the probe is a GET with NO BODY -- a simple request, so no preflight');
+        res(!pi.headers || !/[Aa]uthorization/.test(JSON.stringify(pi.headers)),
+            'D108-probe GATE: and carries NO Authorization header -- no key leaves the device for a diagnostic');
+        res(JSON.stringify(probes[0]).indexOf(SECRET) < 0,
+            'D108-probe GATE: the key appears nowhere in the probe request at all');
+        res(r.kind === 'timeout' && String(r.error).indexOf('still counted') > 0,
+            'D108-probe GATE: the timeout still says what it always said -- the verdict is ADDED, never substituted');
+        res(String(r.error).indexOf(VR(true, HT.byokOnLine())) > 0,
+            'D108-probe GATE: and the REACHED verdict is appended to it');
+        res(HT.byokTraceLine().indexOf('probe: API reachable') > 0,
+            'D108-probe GATE: the verdict rides the TRACE too -- the trace is the thing that gets pasted back');
+      }).then(function () {
+        // THE CASE THAT MUST NOT PROBE. Headers arrived, so the provider already
+        // proved it answers and a probe could only repeat what is known.
+        byokReset(SECRET);
+        HT.setByokCallTimeout(40);
+        FETCHES = [];
+        window.fetch = function (u, i) {
+          FETCHES.push({ url: String(u), init: i });
+          if (String(u).indexOf('/models') > 0)
+            return Promise.resolve({ ok: false, status: 401, text: function () { return Promise.resolve('{}'); } });
+          // HEADERS RESOLVE, then the body drops. Note what this fixture could
+          // NOT be: a body that never resolves hangs forever, because byokCall
+          // clears its budget timer the moment headers arrive. That is a real
+          // hazard, named in the record and out of this slice.
+          return Promise.resolve({ ok: true, status: 200, text: function () {
+            return Promise.reject(new TypeError('Failed to fetch'));
+          } });
+        };
+        return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+          res(FETCHES.filter(function (f) { return String(f.url).indexOf('/models') > 0; }).length === 0,
+              'D108-noprobe GATE: a timeout that DID get a first byte sends NO probe -- the provider already proved it answers');
+          res(String(r.error).indexOf('reachable') < 0 && String(r.error).indexOf('offline') < 0,
+              'D108-noprobe GATE: and says nothing about reachability or the device, because nothing measured either');
+          res(String(r.error).length > 0,
+              'D108-noprobe GATE: it still SAYS something -- a failure with no words was the shape this branch nearly shipped');
+        });
+      }).then(function () {
+        // A REJECTED FETCH -- the branch where the app used to guess hardest.
+        byokReset(SECRET);
+        FETCHES = [];
+        window.fetch = function (u, i) {
+          FETCHES.push({ url: String(u), init: i });
+          return Promise.reject(new TypeError('Failed to fetch'));
+        };
+        return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
+          res(FETCHES.filter(function (f) { return String(f.url).indexOf('/models') > 0; }).length === 1,
+              'D108-network GATE: a REJECTED fetch is probed too -- the branch that used to say Check the connection and know nothing');
+          res(r.kind === 'network' && String(r.error).indexOf(VR(false, HT.byokOnLine())) > 0,
+              'D108-network GATE: and the message IS the verdict, read through the seam rather than written as a literal');
+          res(String(r.error).indexOf('Check the connection.') < 0,
+              'D108-network GATE: the old guess is gone -- it named a cause it had not measured');
+          res(HT.byokTraceLine().indexOf('probe: no answer') > 0,
+              'D108-network GATE: and the trace records that the probe got nothing');
+        });
+      }).then(function () {
+        // CANCELLED never probes: the user already knows why it stopped.
+        byokReset(SECRET);
+        HT.setByokCallTimeout(4000);
+        FETCHES = [];
+        window.fetch = function (u, i) {
+          FETCHES.push({ url: String(u), init: i });
+          return new Promise(function (_, rej) {
+            var sig = i && i.signal;
+            if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          });
+        };
+        var pc = HT.byokCall('data:image/jpeg;base64,AA', {});
+        HT.byokCancel();
+        return pc.then(function (r) {
+          res(r.kind === 'cancelled' && FETCHES.filter(function (f) { return String(f.url).indexOf('/models') > 0; }).length === 0,
+              'D108-scope GATE: a CANCELLED call never probes -- the user already knows why it stopped');
+          HT.setByokCallTimeout(120000);
+          window.fetch = SCRIPTED_FETCH;
+        });
+      });
+
     }).then(function () {
       // R21-egress: the per-day cap, whose counter lives with the KEY.
       byokReset(SECRET);

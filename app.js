@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.36.4';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.37.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5190,6 +5190,8 @@ function byokTraceLine() {
     if (a.totalMs != null) parts.push('done ' + secs(a.totalMs));
     if (a.status) parts.push('HTTP ' + a.status);
     if (a.outcome) parts.push(a.outcome);
+    // E1: the verdict rides the trace too -- the trace is what gets pasted back.
+    if (a.probe) parts.push(a.probe);
     parts.push(a.jsonMode ? 'json_object sent' : 'no json_object');
     // R29: the effort actually sent, so a change in first-byte time is attributable
     // to it rather than to the weather.
@@ -5214,7 +5216,8 @@ function byokStartTick(label) {
 // load, so a gate would assert a number nobody uses.
 function byokTimeouts() {
   return { call: BYOK_CALL_TIMEOUT_MS, test: BYOK_TEST_TIMEOUT_MS,
-           decode: BYOK_DECODE_TIMEOUT_MS, lease: BYOK_BITMAP_LEASE_MS };
+           decode: BYOK_DECODE_TIMEOUT_MS, lease: BYOK_BITMAP_LEASE_MS,
+           probe: BYOK_PROBE_TIMEOUT_MS };
 }
 function byokCancel() {
   BYOK_CANCELLED = true;
@@ -5748,6 +5751,7 @@ const VERSION_LOG = [
   { v: '0.36.2', d: '2026-09-21', note: 'Fix: a label for a combination product \u2014 your drug plus another ingredient \u2014 can no longer be saved against a medication that prints only one, without a question that names the extra ingredient. Fix: \u201cRemove this document\u201d appeared to do nothing. It was working, but the panel kept showing the old document; it now clears and says so, and if there is nothing to remove it says that too. And when you choose a spelling from the suggestions, the app now records which one you chose and whether it came from the combination list.' },
   { v: '0.36.3', d: '2026-09-21', note: 'The check that asks before saving a combination label now also asks before saving a label for a different drug altogether \u2014 it names the drug on the label and the one your medication prints, and you decide. A label whose name starts with the same drug as yours is saved without a question, as before.' },
   { v: '0.36.4', d: '2026-09-21', note: 'Fix: after removing a wrong document, the next lookup reused the spelling you had picked to find it \u2014 going straight to a manufacturer list instead of offering the suggestions again. Removing a document now also clears the choice that found it, a picked spelling for a combination product is never reused without asking, and the panel says when a search term was picked by you rather than shortened by the app, so you can change it before anything else appears.' },
+  { v: '0.37.0', d: '2026-09-22', note: 'When a photo capture comes back with nothing at all, the app now checks whether your provider is answering and tells you which silence it was \u2014 the provider not responding, your device being offline, or the request simply not coming back. The check sends no key and no data.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -7085,6 +7089,49 @@ function byokBody(dataUrl, text, model, caps) {
   return b;
 }
 function byokErr(kind, message) { return { ok: false, kind: kind, error: message }; }
+// ---- H10/D108: WHICH SILENCE WAS IT? ----------------------------------------
+// A capture that never got a first byte leaves two silences that are identical on
+// the phone: the provider not answering, and this request not coming back. One
+// unauthenticated GET separates them. No key, no body, no photo -- a simple
+// request, so no preflight, and nothing of the user's crosses the wire.
+//
+// This is the SECOND time the distinction cost a diagnosis, which is why the
+// answer belongs on the surface and not in a log.
+let BYOK_PROBE_TIMEOUT_MS = 8000;   // a ~200-byte GET, measured live at 0.24s;
+                                    // past 8s the path is itself the evidence
+function setByokProbeTimeout(ms) { BYOK_PROBE_TIMEOUT_MS = (Number(ms) > 0) ? Number(ms) : 8000; }
+// Derived from the provider row, never hardcoded, so a second provider gets a
+// probe as a table row rather than a code change (R21).
+function byokProbeURL(prov) { return (prov && prov.base ? String(prov.base) : '') + '/models'; }
+// REACHED means the API edge answered -- ANY status, 401 included. That is the
+// whole of what this probe knows: it does not prove inference is alive, and the
+// wording it feeds must not pretend otherwise.
+function byokProbe(prov) {
+  const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, BYOK_PROBE_TIMEOUT_MS);
+  let p;
+  try {
+    p = fetch(byokProbeURL(prov), { method: 'GET', signal: ctl ? ctl.signal : undefined });
+  } catch (e) { clearTimeout(timer); return Promise.resolve(false); }
+  return p.then(function () { clearTimeout(timer); return true; })
+          .catch(function () { clearTimeout(timer); return false; });
+}
+// navigator.onLine is trustworthy ONLY when it reports FALSE. `true` means the
+// device has an interface, not that it reaches the internet -- a dead cell signal,
+// a captive portal and one bar in a tunnel all report online. So a failed probe
+// with onLine true is NOT evidence that the connection works, and the app must not
+// name the provider alone on it. Unknown is never read as offline.
+function byokOnLine() {
+  try { return (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') ? navigator.onLine : null; }
+  catch (e) { return null; }
+}
+// Pure seam -- the condition in, the sentence out -- so each wording is gated
+// against the exact state that produces it and nothing else.
+function byokReachVerdict(reached, onLine) {
+  if (reached) return 'The provider\u2019s API is reachable \u2014 this request didn\u2019t come back.';
+  if (onLine === false) return 'Your device is offline.';
+  return 'Couldn\u2019t reach the provider. It may be down, or your connection may not be getting through.';
+}
 function byokCall(dataUrl, opts) {
   const s = byokSettings();
   const prov = BYOK_PROVIDERS[s.provider];
@@ -7170,10 +7217,29 @@ function byokCall(dataUrl, opts) {
     const name = String((e && e.name) || '');
     if (att) { att.totalMs = nowMs() - att.sentAt; att.outcome = (name === 'AbortError' ? (BYOK_CANCELLED ? 'cancelled' : 'aborted at budget') : 'network error'); }
     if (name === 'AbortError' && BYOK_CANCELLED) return byokErr('cancelled', 'Cancelled.');
-    if (name === 'AbortError')
-      return byokErr('timeout', 'The provider did not answer within ' + Math.round(budget / 1000) +
-        ' seconds. If it answered afterwards, that call still counted \u2014 check your provider console.');
-    return byokErr('network', 'The call could not be made. Check the connection.');
+    const timedOut = (name === 'AbortError');
+    const kind = timedOut ? 'timeout' : 'network';
+    const said = timedOut
+      ? ('The provider did not answer within ' + Math.round(budget / 1000) +
+         ' seconds. If it answered afterwards, that call still counted \u2014 check your provider console.')
+      : 'The call could not be made.';
+    // A1: a budget abort with NO FIRST BYTE gets a probe, and so does a rejected
+    // fetch -- the place the app used to guess hardest ("Check the connection.").
+    // A timeout that DID get headers does not: the provider already proved it
+    // answers, so a probe could only repeat what is known. The ping is out too --
+    // it has its own budget and its own surface, and mixing them would make the
+    // line lie. G: exactly one probe per failed capture, and it never retries.
+    // Keyed on the FIRST BYTE, not on the failure kind. A mid-body drop --
+    // headers arrived, the body never did -- is a rejected fetch like any
+    // other, and keying on kind would have probed it. The probe exists to
+    // explain a SILENCE, and a first byte means there was no silence.
+    const probeWanted = !o.ping && (!att || att.ttfbMs == null);
+    if (!probeWanted) return byokErr(kind, said);
+    return byokProbe(prov).then(function (reached) {
+      if (att) att.probe = reached ? 'probe: API reachable' : 'probe: no answer';
+      const verdict = byokReachVerdict(reached, byokOnLine());
+      return byokErr(kind, said + ' ' + verdict);
+    });
   });
 }
 // The provider's OWN error text, for a diagnosable failure -- never the key, and
@@ -10226,7 +10292,9 @@ window.HT = {
   // R24 -- take-or-choose
   byokHeicMessage, captureSourceOf, byokDecodeBitmap,
   photoMicroHits, byokBusyState, byokBusyClear, byokKeyIssue, byokSetStatus, byokStatusLine, byokPaint,
-  setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
+  setByokTestTimeout, setByokCallTimeout, byokTimeouts, byokCancel, byokState,
+  // H10/D108 -- which silence was it
+  byokProbe, byokProbeURL, byokReachVerdict, byokOnLine, setByokProbeTimeout, onCaptureFile, byokEncode, byokBounds, byokDecodeImage,
   BYOK_MIN_DATAURL, setByokDecodeTimeout, setByokBitmapLease, byokPatch, byokNoteVerdict,
   captureOutcomeState, renderCaptureOutcome, captureOutcomeDismiss, captureRetry, capturePasteInstead,
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
