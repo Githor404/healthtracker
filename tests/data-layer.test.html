@@ -3923,6 +3923,123 @@ window.setLS({});
         res(FETCHES.filter(function (f) { return f.url.indexOf('limit=1000') > 0; }).length === 2,
             'D104-surface GATE: two candidate requests were made -- the first token answered and matched nothing, so the second was tried, which is the branch a 404 fixture would never reach');
       });
+    }).then(function () {
+      // ---- D107: detach removed the DOCUMENT and left the CHOICE ----------
+      // The whole reported sequence, on the real path: pick the combination,
+      // save it, detach it, look up again -- and the pick must be OFFERED again
+      // rather than the rejected term reused.
+      setLS({}); HT.boot(); fixClock();
+      HT.openLabelDraft(JSON.stringify({ name: 'BISOPROLOL FUMAR 2.5MG',
+                                         generic_name: 'SANDOZ BISOPROLOL 2.5 MG', strength: '2.5 mg' }),
+                        { whose: 'mine', source: 'label-paste' });
+      HT.labelConfirm();
+      var rId = HT.labelSave().medId;
+      var rPrinted = JSON.stringify(HT.getMed(rId).printed);
+
+      // pick the combination from the list
+      HT.drugSet({ medId: rId, phase: 'pick', derived: 'BISOPROLOL FUMAR',
+                   singles: [{ term: 'BISOPROLOL FUMARATE', count: 31 }],
+                   combos: [{ term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }] });
+      FETCHES = []; FETCH_SCRIPT = [{ status: 200, body: JSON.stringify({ results: [
+          { term: 'Teva Pharmaceuticals USA, Inc.', count: 12 }] }) }];
+      return HT.drugPickSpelling('BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE').then(function () {
+        res(HT.getMed(rId).query_pick.from === 'combination',
+            'D107-reuse fixture: the combination pick is stored');
+        // the stored pick is LEGIBLE before any manufacturer list settles it
+        HT.renderDrugInfo();
+        var qrow = document.getElementById('drugInfo').textContent;
+        res(qrow.indexOf('picked by you') >= 0 && qrow.indexOf('edited by you') < 0,
+            'D107-visible GATE: the panel says the term was PICKED, not edited -- a wrong pick has to be legible here, before a manufacturer list makes it look settled');
+
+        // save the wrong document, then detach it
+        var doc = { set_id: 'set-wrong', version: '1', effective_time: '20260101',
+                    name: 'combo', generic_name: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+                    manufacturer: 'Teva', sections: { description: 'D' },
+                    org: 'FDA', fetchedAt: '2026-09-21' };
+        HT.drugSet({ medId: rId, phase: 'doc', doc: doc, saved: false });
+        window.__confirm = true;
+        HT.drugSave();
+        res(HT.getMed(rId).labelSetId === 'set-wrong', 'D107-reuse fixture: the wrong document is attached');
+        HT.detachLabelDoc(rId);
+        var med2 = HT.getMed(rId);
+        res(!med2.labelSetId && !med2.query_pick &&
+            !(med2.query && med2.query.generic_name),
+            'D107-detach GATE: detaching clears the PICK that produced the document, not only the document -- the choice belonged to it');
+        res(JSON.stringify(med2.printed) === rPrinted,
+            'D107-detach GATE: and the printed strings are untouched throughout');
+
+        // look up again -- the pick must be OFFERED, not reused
+        FETCHES = []; FETCH_SCRIPT = [
+          { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+          { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+          { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+          { status: 404, body: '{"error":{"code":"NOT_FOUND"}}' },
+          { status: 200, body: JSON.stringify({ results: [
+              { term: 'SANDOZ SOMETHING', count: 2 }] }) },
+          { status: 200, body: JSON.stringify({ results: [
+              { term: 'BISOPROLOL FUMARATE', count: 31 },
+              { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }] }) }];
+        return HT.drugLookup(rId).then(function () {
+          var v = HT.drugView();
+          res(v.phase === 'pick',
+              'D107-reoffer GATE: looking up again OFFERS THE SPELLING PICK -- it used to reuse the stored term, match it exactly, and go straight to a manufacturer list for the document just rejected');
+          res(v.phase !== 'choose',
+              'D107-reoffer GATE: and does NOT land on a manufacturer list, which is what the device saw');
+          HT.renderDrugInfo();
+          var txt = document.getElementById('drugInfo').textContent;
+          res(txt.indexOf('BISOPROLOL FUMARATE') >= 0 && txt.indexOf('Combination products') >= 0,
+              'D107-reoffer GATE: both spellings are on the page again, the combination under its own heading');
+          res(FETCHES.every(function (f) {
+                return decodeURIComponent(f.url).indexOf('HYDROCHLOROTHIAZIDE') < 0; }),
+              'D107-reoffer GATE: and the rejected combination term is never sent again -- the candidates come from what the LABEL prints, not from the cleared pick');
+
+          // and the reuse guard holds even when a pick survives by another route
+          HT.setMedQuery(rId, 'generic_name', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');
+          HT.getMed(rId).query_pick = { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+                                        from: 'combination', at: '2026-09-21', of: 'BISOPROLOL FUMAR' };
+          res(HT.drugPickNeedsReview(HT.getMed(rId)) === true,
+              'D107-reuse GATE: a stored COMBINATION pick against a single-ingredient record is flagged for review however it got there -- reaching a combination through a reused term skips the save guard entirely, because that guard fires on SAVE and a reused term reaches the manufacturer list first');
+          HT.getMed(rId).query_pick = { term: 'BISOPROLOL FUMARATE', from: 'single',
+                                        at: '2026-09-21', of: 'BISOPROLOL FUMAR' };
+          res(HT.drugPickNeedsReview(HT.getMed(rId)) === false,
+              'D107-reuse GATE: and a single-ingredient pick is reused without fuss -- the review is narrow, not a second confirmation on every lookup');
+
+          // ---- fix 2, END TO END: a combination pick that SURVIVED ---------
+          // Detaching now clears the pick, so the case above can never reach the
+          // review branch -- which is why three plants on it scored vacuous. A
+          // pick survives when the record predates D107, or when its document
+          // was never attached at all, and THAT is what this covers.
+          HT.setMedQuery(rId, 'generic_name', 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE');
+          HT.getMed(rId).query_pick = { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE',
+                                        from: 'combination', at: '2026-09-21', of: 'BISOPROLOL FUMAR' };
+          HT.resave();
+          FETCHES = []; FETCH_SCRIPT = [
+            { status: 200, body: JSON.stringify({ results: [{ term: 'SANDOZ SOMETHING', count: 2 }] }) },
+            { status: 200, body: JSON.stringify({ results: [
+                { term: 'BISOPROLOL FUMARATE', count: 31 },
+                { term: 'BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE', count: 22 }] }) }];
+          return HT.drugLookup(rId).then(function () {
+            res(HT.drugView().phase === 'pick',
+                'D107-review GATE: a SURVIVING combination pick sends the lookup back to the spelling list instead of being queried -- the save guard fires on SAVE, and a reused term reaches the manufacturer list before that, so reuse did not weaken the guard, it SKIPPED it');
+            res(FETCHES.every(function (f) {
+                  return decodeURIComponent(f.url).indexOf('HYDROCHLOROTHIAZIDE') < 0; }),
+                'D107-review GATE: and the stored combination term is never sent -- the candidates come from what the label prints, with the stored pick ignored');
+            res(FETCHES.every(function (f) { return f.url.indexOf('limit=1000') > 0; }),
+                'D107-review GATE: no exact name query runs at all on this path -- it goes straight to offering the list, because the term it would have used is the one under review');
+            res(HT.getMed(rId).query_pick && HT.getMed(rId).query_pick.from === 'combination',
+                'D107-review GATE: and the pick is NOT quietly deleted -- it is still what the user chose, still on the surface, and still theirs to change');
+            // Asserted on the CANDIDATE LIST, not on the outcome. Dropping the
+            // ignoreStored flag leaves the outcome intact here, because the
+            // name-field candidate still matches -- so a plant on it was
+            // survivable and told us nothing. What the flag is FOR is that the
+            // term under review is not among the candidates at all.
+            var revCands = HT.drugPrefixCandidates(HT.drugNameQueries(HT.getMed(rId), { ignoreStored: true }));
+            res(revCands.join('|').indexOf('HYDROCHLOROTHIAZIDE') < 0 &&
+                revCands.join('|').indexOf('BISOPROLOL FUMAR') >= 0,
+                'D107-review GATE: the candidates for the re-offer EXCLUDE the term under review and come from what the label prints -- offering a list built from the choice being questioned would be asking about it with itself');
+          });
+        });
+      });
     });
   }
   seFrame.src = '../index.html';

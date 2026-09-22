@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.36.3';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.36.4';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5747,6 +5747,7 @@ const VERSION_LOG = [
   { v: '0.36.1', d: '2026-09-21', note: 'Fix: when no exact match was found, the list of close spellings often did not appear \u2014 including after you had edited the search term yourself, which is exactly when you need it. It now considers every term it tried, from either name field, and shortens each one before looking. The \u201cno label found\u201d line no longer names a single term, because it was naming the wrong one; the list of what was searched sits underneath it. A term you typed is now marked \u201cyour edit\u201d rather than \u201cshortened\u201d.' },
   { v: '0.36.2', d: '2026-09-21', note: 'Fix: a label for a combination product \u2014 your drug plus another ingredient \u2014 can no longer be saved against a medication that prints only one, without a question that names the extra ingredient. Fix: \u201cRemove this document\u201d appeared to do nothing. It was working, but the panel kept showing the old document; it now clears and says so, and if there is nothing to remove it says that too. And when you choose a spelling from the suggestions, the app now records which one you chose and whether it came from the combination list.' },
   { v: '0.36.3', d: '2026-09-21', note: 'The check that asks before saving a combination label now also asks before saving a label for a different drug altogether \u2014 it names the drug on the label and the one your medication prints, and you decide. A label whose name starts with the same drug as yours is saved without a question, as before.' },
+  { v: '0.36.4', d: '2026-09-21', note: 'Fix: after removing a wrong document, the next lookup reused the spelling you had picked to find it \u2014 going straight to a manufacturer list instead of offering the suggestions again. Removing a document now also clears the choice that found it, a picked spelling for a combination product is never reused without asking, and the panel says when a search term was picked by you rather than shortened by the app, so you can change it before anything else appears.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9513,6 +9514,19 @@ function detachLabelDoc(medId) {
   const setId = med.labelSetId;
   delete med.labelSetId;
   if (labelDocUnattached(setId) && APP_STATE.labels) delete APP_STATE.labels[setId];
+  // D107: THE CHOICE GOES WITH THE DOCUMENT. Detaching used to remove the
+  // document and leave the pick that produced it, so the next lookup queried the
+  // same term, matched, and went straight to a manufacturer list -- reusing a
+  // result the user had just rejected. A hand-typed term is left alone: the user
+  // wrote that, and only the pick belonged to the document.
+  if (med.query_pick) {
+    const picked = med.query_pick.term;
+    if (med.query && med.query.generic_name === picked) {
+      delete med.query.generic_name;
+      if (!Object.keys(med.query).length) delete med.query;
+    }
+    delete med.query_pick;
+  }
   Store.saveState(APP_STATE);
   // D105: AND THE SURFACE MOVES. The work was always done -- labelSetId cleared,
   // the document dropped -- but DRUG_VIEW still held the old doc, so the panel
@@ -9680,8 +9694,9 @@ function drugTriedList(med) {
     return { field: q.field, printed: q.printed, derived: q.derived === true, edited: q.edited === true };
   });
 }
-function drugNameQueries(med) {
+function drugNameQueries(med, opts) {
   const p = (med && med.printed) || {};
+  const ignoreStored = !!(opts && opts.ignoreStored);
   const out = [];
   // Fork D1: printed FIRST, derived SECOND, each as its own exact lookup and each
   // named on the surface. The derived term is a second READING of the label, not
@@ -9689,11 +9704,11 @@ function drugNameQueries(med) {
   const add = (field, printed, srcField) => {
     if (!printed) return;
     out.push({ field: field, printed: printed, derived: false });
-    const d = medQueryTerm(med, srcField);
+    const d = ignoreStored ? deriveQueryTerm(printed) : medQueryTerm(med, srcField);
     // D104: an EDIT and a DERIVATION are different things, and the surface said
     // "(shortened)" for both. A user who typed a term should not be told the app
     // shortened it.
-    const edited = !!(med && med.query && med.query[srcField]);
+    const edited = !ignoreStored && !!(med && med.query && med.query[srcField]);
     if (d && d !== printed) out.push({ field: field, printed: d, derived: true, edited: edited, from: printed });
   };
   add('generic_name', p.generic_name, 'generic_name');
@@ -9710,6 +9725,15 @@ function drugOpen(medId) {
 }
 // The lookup, from a tap. Nothing here runs on boot, on capture, on a refill or
 // on restore -- and a gate watches the network to say so.
+// D107: a stored pick that the guard would have questioned is never acted on
+// without asking again. Reaching a combination label through a REUSED term skips
+// the confirmation entirely -- the save guard fires when a document is saved, and
+// a reused term arrives at the manufacturer list before that ever happens.
+function drugPickNeedsReview(med) {
+  const qp = med && med.query_pick;
+  if (!qp || qp.from !== 'combination') return false;
+  return drugExtraForMed(med, { generic_name: qp.term }).length > 0;
+}
 function drugLookup(medId) {
   const med = getMed(medId);
   if (!med) return Promise.resolve({ ok: false });
@@ -9725,6 +9749,11 @@ function drugLookup(medId) {
     if (pre.exact) return drugSet({ medId: medId, phase: 'doc', doc: pre.exact, saved: false });
     const queries = drugNameQueries(med);
     if (!queries.length) return drugSet({ medId: medId, phase: 'none', why: 'no-name' });
+    // Offered again rather than reused. The candidates come from what the LABEL
+    // prints, not from the stored pick, so the list is the one the user saw
+    // before they chose -- with their previous choice marked on it.
+    if (drugPickNeedsReview(med))
+      return drugOfferSpellings(medId, drugNameQueries(med, { ignoreStored: true }));
     return drugResolveNames(medId, queries, 0);
   });
 }
@@ -10027,9 +10056,14 @@ function drugQueryRowHTML(med) {
   const rows = QUERY_FIELDS.filter((f) => p[f]).map((f) => {
     const term = medQueryTerm(med, f);
     const label = f === 'generic_name' ? 'Generic name' : 'Name';
-    const edited = !!(med.query && med.query[f]);
-    const note = edited ? 'edited by you'
-      : (term !== p[f] ? 'shortened to the ingredient name \u2014 edit it if that is wrong' : '');
+    // D107: a PICK and a hand EDIT are different things, and this said "edited by
+    // you" for both. A wrong pick has to be legible here, before a manufacturer
+    // list makes it look settled.
+    const picked = !!(med.query_pick && med.query_pick.term === term);
+    const edited = !picked && !!(med.query && med.query[f]);
+    const note = picked ? 'picked by you from the suggestions \u2014 change it here if it is wrong'
+      : (edited ? 'edited by you'
+      : (term !== p[f] ? 'shortened to the ingredient name \u2014 edit it if that is wrong' : ''));
     return `<div class="qrow"><div class="qline"><span>${esc(label)}, as printed</span>`
       + `<b>${esc(p[f])}</b></div>`
       + `<div class="qline"><span>searching for</span>`
@@ -10099,7 +10133,12 @@ function renderDrugInfo() {
       + drugQueryRowHTML(med)
       + `<div class="pmnote">Or edit the search term above and look up again.</div>`;
   } else if (v.phase === 'choose') {
-    body = `<div class="pmnote">${esc(v.mfrs.length)} manufacturer(s) file a label for ${esc(v.matchedBy)}. Every one is a real FDA label; they differ by who filed it. Pick one.</div>` +
+    // D107: the term that produced this list is shown ABOVE it. A stored pick
+    // used to become invisible the moment a manufacturer list appeared, which is
+    // the point at which it starts looking settled -- and on the device it was a
+    // combination product reached by reusing a rejected choice.
+    body = drugQueryRowHTML(med) +
+      `<div class="pmnote">${esc(v.mfrs.length)} manufacturer(s) file a label for ${esc(v.matchedBy)}. Every one is a real FDA label; they differ by who filed it. Pick one.</div>` +
       `<div class="druglist">` + v.mfrs.map((m) =>
         `<button type="button" class="plrow" onclick="drugPickManufacturer('${esc(String(m.name)).replace(/'/g, '&#39;')}')">` +
         `<span>${esc(m.name)}</span><span class="plleft">${esc(m.count)}</span></button>`).join('') + `</div>`;
@@ -10297,6 +10336,7 @@ window.HT = {
   fdaPrefixURL, fdaPrefixMatches, fdaIsCombination, drugOfferSpellings, drugPickSpelling,
   drugPrefixCandidates, fdaIngredients, fdaExtraIngredients, drugExtraForMed, drugComboWords,
   normalizeQueryPick, detachLabelDoc, drugMismatch, drugMismatchWords, drugDiffWords,
+  drugPickNeedsReview,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },

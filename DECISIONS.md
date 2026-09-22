@@ -4302,3 +4302,44 @@ From [[D105]], recorded as its own line because it generalises past that control
 > **`{ok: true}` with an unchanged panel and `{ok: false}` with an unchanged panel are identical to the person holding the phone.** The verdict lives on the surface.
 
 A return value is a fact about the code. **What the user can act on is what changed on screen** — and a function that succeeds without saying so has failed at the only layer that counts.
+## D107 — Detach removed the document and left the choice that produced it — v0.36.4 (2026-09-21)
+
+Reported from the device: after detaching the wrong combination label, **Drug info stopped offering the spelling pick** and went straight to *"12 manufacturers file a label for BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE"*.
+
+**The diagnosis in the report was exactly right**, and reproduced on the shipped page:
+
+```
+after DETACH:
+  labelSetId         = undefined
+  labels store       = []
+  query.generic_name = "BISOPROLOL FUMARATE AND HYDROCHLOROTHIAZIDE"   <= SURVIVES
+  query_pick         = {... from: "combination" ...}                   <= SURVIVES
+```
+
+The next lookup queried the combination term **exactly**, matched, and produced a manufacturer list — **reusing the result the user had just rejected**, with nothing said.
+
+### Three fixes, in the order the report gave them
+
+**1. Detaching clears the pick.** A hand-typed term is left alone: the user wrote that one, and only the pick belonged to the document.
+
+**2. A combination pick against a single-ingredient record is never reused silently**, however it got there. This matters more than it looks: **the save guard fires on SAVE, and a reused term reaches the manufacturer list before that** — so reuse did not weaken [[D105]]'s guard, it **skipped** it. The lookup goes back to the spelling list, with candidates built from what the **label prints** rather than from the choice being questioned.
+
+**3. A stored pick is legible before a manufacturer list settles it.** The query row now renders **above** the list — it previously appeared only in the idle and no-match phases, so a pick became invisible at exactly the moment the surface starts to look decided. And it says **"picked by you from the suggestions — change it here if it is wrong"**, because calling a pick *"edited by you"* was the D105 wording fault surviving in a second place.
+
+### What the defect pass found: two fixes, one scenario, and three vacuous plants
+
+**Fix 1 and fix 2 prevent the same outcome.** The end-to-end case — pick, save, detach, look up again — only ever exercised the **first**, because once detach clears the pick, `drugPickNeedsReview` can never fire. Three plants on fix 2 scored **VACUOUS**: not because the fix was wrong, but because **nothing in the suite reached it**.
+
+**This is [[D104]]'s conjunction finding inverted.** There, two *faults* were each necessary, and no single-fault plant reproduced the defect. Here, two *fixes* are each **sufficient**, and the first to run hides whether the second works at all. Both come from one blind spot: **assuming that a scenario exercises everything its outcome depends on.**
+
+The repair is a second scenario for the case fix 2 actually exists for — **a combination pick that survives**: a record from before this change, or one whose document was never attached. There the lookup must return to the list rather than query the stored term.
+
+**And one plant stayed survivable after that.** Dropping the `ignoreStored` flag leaves the outcome intact, because a *different* candidate — the name field's derived term — still matches. So the gate was re-pointed off the outcome and onto **the candidate list itself**: the term under review must not be among the candidates. *Offering a list built from the choice being questioned would be asking about it with itself.*
+
+**Defect pass: six plants, six failing their own named gates.**
+
+**Suite: 2124 assertions, all passing** (2108 → 2124).
+
+### A note on the pick that is not deleted
+
+Fix 2 **does not delete** the surviving pick — it declines to act on it. It is still what the user chose, still shown on the surface, and still theirs to change. **Silently deleting a choice to avoid re-asking about it would be the same fault in the other direction**: the app deciding, without saying so, what the user meant.

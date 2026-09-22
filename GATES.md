@@ -4008,6 +4008,27 @@ Every query still goes out as `.exact` against a specific spelling, and a no-mat
 **The limit, recorded with the gates.** No gate can say the allowlist is *complete*. It can only say that what is on it is removed and what is not on it survives. The list is **content**, and a missing token is a miss that fails safe (no match, falls through) while a wrongly-added token is a **wrong label shown as right** — so the list should stay short and grow only on evidence, and [[D96]] applies to any future change to it: a fixture must contain a name the change would alter.
 
 **Stopping here for rulings.** Fork A's removable list, the `ER/XR/SR/DR` question inside it, and Fork C's schema cost are the three that need you.
+### D107 — detach removed the document and left the choice — v0.36.4
+
+After detaching the wrong combination label, the next lookup **reused the rejected pick**, matched it exactly, and went straight to a manufacturer list.
+
+| case | asserts |
+|---|---|
+| D107-detach **GATE** | detaching clears the **pick** that produced the document, not only the document; printed strings untouched |
+| D107-reoffer **GATE** | looking up again **offers the spelling pick**, does **not** land on a manufacturer list, and never re-sends the rejected term |
+| D107-review **GATE** | a **surviving** combination pick sends the lookup back to the list; no exact name query runs; the pick is **not** deleted |
+| D107-review **GATE** | the re-offer's candidates **exclude the term under review** — a list built from the choice being questioned would be asking about it with itself |
+| D107-reuse **GATE** | a combination pick is flagged however it got there; a single-ingredient pick is reused without fuss |
+| D107-visible **GATE** | the panel says **"picked by you"**, above the manufacturer list rather than only in the idle phase |
+
+**Why fix 2 matters beyond fix 1:** the save guard fires on **save**, and a reused term reaches the manufacturer list **before** that — so reuse did not weaken [[D105]]'s guard, it **skipped** it.
+
+**Three plants scored vacuous, and the reason generalises.** Fix 1 and fix 2 prevent the same outcome, so the end-to-end case only exercised the first — once detach clears the pick, the review branch can never fire. **This is [[D104]]'s conjunction finding inverted:** there two *faults* were each necessary; here two *fixes* are each **sufficient**, and the first to run hides whether the second works. Same blind spot — assuming a scenario exercises everything its outcome depends on. Repaired with a second scenario, and one gate re-pointed off the **outcome** onto the **candidate list**, because a different candidate still rescued the outcome.
+
+**Defect pass: six plants, six named failures.**
+
+**Suite: 2124 assertions, all passing** (2108 → 2124).
+
 ### D106 — a wholly different drug is the worse mismatch — v0.36.3
 
 D105 guarded combinations and let a label for an entirely different drug through in silence. It named combinations **because that was the case in front of it**.
