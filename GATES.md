@@ -4408,3 +4408,18 @@ The panel called every override it had no pick record for **"edited by you"**. T
 | D111-flag **GATE** | `query_src` survives export → restore — the allowlist trap, tenth time of asking |
 
 **The family this belongs to.** [[D93]]'s confidence dot and [[D91]]'s goal colours are the same fault: a surface asserting more than the data supports. This one asserted it **about the user**, which is why the unknown case gets its own words rather than the friendlier of the two guesses.
+### D112 — stop fabricating times — v0.38.0
+
+Eight `nowTime()` call sites, seven of which reach a record. One helper: `stampTime(dayKey)`.
+
+| case | asserts |
+|---|---|
+| D112-seam **GATE** | today stamps the clock; a day that is not today stamps nothing; a **future** day likewise — the rule is "is this today", not "is this past" |
+| D112-manual / preset / scan / supp / plate / photo **GATE** | each path onto a past day carries **no** time, each onto today carries the clock, and a time the **user typed** survives on any day |
+| D112-consume **GATE** | eating onto a past day while **today is on screen** carries no time — the stamp reads the landing day, not the viewed one |
+| D112-lab **GATE** | a lab value carries no time (was the constant `'09:00'`), and its value is untouched |
+| D112-signal **CONTROL** | a biometric logged while a past day is on screen lands on **today**; called without a time it stores none — the clock lives in the form, not the write path |
+| D112-edit **GATE** | a record with no time can be edited without inventing one; `'25:99'` and prose are still refused |
+| D112-fast **GATE** | an untimed item cannot anchor a fast boundary |
+
+**Recorded rather than gated:** `photoSave`'s own record builder is vestigial — its array never reaches the day (`app.js:7968`). A plant on it is vacuous by construction, and no gate is claimed for it.

@@ -9263,6 +9263,149 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D112: a clock stamp is honest only when the record lands on TODAY ---
+  // Every path that writes to the VIEWED day stamped nowTime() regardless, and
+  // the day nav lets that day be any past date -- so back-filling last Tuesday's
+  // lunch recorded it at tonight's clock. An invented time is D19's fabrication;
+  // it stayed harmless only because nothing sorted by it, and H12 sorts by it.
+  setLS({}); HT.boot(); fixClock();
+  var D112T = HT.localDate();
+  var D112P = '2026-09-12';                       // a day that is not today
+  HT.state().days[D112P] = { status: 'in_progress', items: [], water_l: 0 };
+
+  res(HT.stampTime(D112T) !== '' && /^\d{2}:\d{2}$/.test(HT.stampTime(D112T)),
+      'D112-seam GATE: logging onto TODAY still stamps the clock -- the fix removes a fabrication, not the feature');
+  res(HT.stampTime(D112P) === '',
+      'D112-seam GATE: a day that is not today gets NO time -- absent is what was actually known');
+  res(HT.stampTime('2099-01-01') === '',
+      'D112-seam GATE: and a FUTURE day too -- the rule is "is this today", not "is this in the past"');
+
+  // ---- the five food paths, each onto a PAST day and then onto today -------
+  function d112last(dk) { var a = HT.state().days[dk].items; return a[a.length - 1] || {}; }
+
+  HT.state().current = D112P;
+  HT.addManualEntry({ name: 'Backfilled lunch', meal: 'lunch', kcal: 500 });
+  res(d112last(D112P).time === '',
+      'D112-manual GATE: back-filling a past day stores NO time -- it used to store tonight\u2019s clock on a lunch eaten last Tuesday');
+  HT.state().current = D112T;
+  HT.addManualEntry({ name: 'Lunch now', meal: 'lunch', kcal: 500 });
+  res(/^\d{2}:\d{2}$/.test(d112last(D112T).time),
+      'D112-manual CONTROL: and logging today still stamps the clock');
+  HT.state().current = D112P;
+  HT.addManualEntry({ name: 'Typed time', meal: 'lunch', kcal: 10, time: '13:15' });
+  res(d112last(D112P).time === '13:15',
+      'D112-manual GATE: a time the USER typed is kept on a past day -- the rule removes invention, never the user\u2019s own answer');
+
+  var d112p = HT.saveManualPreset({ name: 'D112 preset', kcal: 42 }, '');
+  HT.state().current = D112P; HT.logPreset(d112p.preset.id);
+  res(d112last(D112P).time === '', 'D112-preset GATE: a preset logged onto a past day carries no time');
+  HT.state().current = D112T; HT.logPreset(d112p.preset.id);
+  res(/^\d{2}:\d{2}$/.test(d112last(D112T).time), 'D112-preset CONTROL: and onto today it carries the clock');
+
+  var d112rec = HT.mapOffProduct({ status: 1, product: { product_name: 'Bar',
+    nutriments: { 'energy-kcal_100g': 100 } } }, '3017620422003');
+  HT.state().current = D112P; HT.logScanItem(d112rec, 'per_100g', 100, 'snack');
+  res(d112last(D112P).time === '', 'D112-scan GATE: a scanned product logged onto a past day carries no time');
+  HT.state().current = D112T; HT.logScanItem(d112rec, 'per_100g', 100, 'snack');
+  res(/^\d{2}:\d{2}$/.test(d112last(D112T).time), 'D112-scan CONTROL: and onto today it carries the clock');
+
+  HT.setSupplement(true, 'Stack', { kcal: 10 });
+  HT.state().days['2026-09-11'] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.maybeInjectSupplement(HT.state(), '2026-09-11');
+  res(d112last('2026-09-11').time === '' && d112last('2026-09-11')._auto === true,
+      'D112-supp GATE: the supplement injected into a past day by INGEST carries no time -- pasting yesterday\u2019s items used to give yesterday a 21:47 supplement');
+
+  var d112pl = HT.plateFromDraft({ meal: 'dinner', items: [] }, D112P);
+  res(d112pl.time === '', 'D112-plate GATE: a plate served on a past day carries no time');
+  res(HT.plateFromDraft({ meal: 'dinner', items: [] }, D112T).time !== '',
+      'D112-plate CONTROL: and a plate served today does');
+
+  // consumeFromPlate takes an explicit opts.date, so the stamp must read the day
+  // the record LANDS on. Reading the viewed day here would fabricate again, one
+  // argument along -- which is exactly what the first build of this fix did.
+  HT.state().plates = HT.state().plates || {};
+  HT.state().plates['pl-d112'] = { id: 'pl-d112', date: D112P, meal: 'dinner', time: '',
+    items: [{ name: 'Stew', grams: 200, kcal: 300, protein_g: 10, fat_g: 10, carb_g: 20,
+              fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'ai-paste' }] };
+  HT.state().current = D112T;                     // VIEWING today, logging onto the past day
+  HT.consumeFromPlate('pl-d112', [{ kind: 'fraction', fraction: 1 }], { date: D112P });
+  res(d112last(D112P).time === '',
+      'D112-consume GATE: eating from a plate onto a PAST day carries no time even while TODAY is the day on screen -- the stamp reads the landing day, not the viewed one');
+
+  // The canonical sample, not a hand-rolled object: the first fixture produced a
+  // draft photoSave refused, so the gate asserted on an unrelated row and the
+  // plant scored VACUOUS. Using the shape the app itself ships removes the guess.
+  if (!document.getElementById('photoDraft')) { var pd112 = document.createElement('div'); pd112.id = 'photoDraft'; document.body.appendChild(pd112); }
+  HT.openPhotoDraft(HT.AI_PROMPT_SAMPLE);
+  HT.state().current = D112P;
+  var d112ps = HT.photoSave();
+  // Named, not "the last item": the plate consumption above also lands on this day
+  // with a blank time, so a last-item assertion passed without ever seeing the
+  // photo record -- it scored VACUOUS in the defect pass and was right to.
+  var d112soup = HT.state().days[D112P].items.filter(function (x) { return x.name === 'Grilled chicken breast'; })[0];
+  res(d112ps.ok === true && !!d112soup, 'D112-photo fixture: the photo meal really was saved onto the past day');
+  res(d112soup && d112soup.time === '', 'D112-photo GATE: a photo meal saved onto a past day carries no time');
+  // Where photoSave's OWN stamp actually lands. The census counted eight nowTime()
+  // calls; measuring what each one REACHES showed this one never reaches a day
+  // record -- photoSave writes the day through plateFromDraft + consumeFromPlate,
+  // and the per-item time it builds rides on the PLATE's item list, which
+  // consumeFromPlate does not read. Gated where it lands rather than where it
+  // looked like it landed, because a plant on it scored VACUOUS twice.
+  var d112plates = Object.keys(HT.state().plates || {}).map(function (k) { return HT.state().plates[k]; })
+                     .filter(function (pl) { return pl.date === D112P && (pl.items || []).length; });
+  var d112pi = d112plates.length ? d112plates[d112plates.length - 1].items[0] : null;
+  res(!!d112pi, 'D112-photo fixture: the photo save really did create a plate on the past day');
+  res(d112pi && (d112pi.time === '' || d112pi.time == null),
+      'D112-photo GATE: and the plate item it built carries no time either');
+
+  // ---- the lab constant ---------------------------------------------------
+  HT.addLabPanel('2026-09-10', [{ type: 'apo_b', value: 0.8, unit: '' }]);
+  var d112lab = (HT.state().timeline['2026-09-10'] || []).filter(function (r) { return r.type === 'apo_b'; })[0] || {};
+  res(d112lab.time === '',
+      'D112-lab GATE: a lab value carries NO time -- it was stamped with the constant 09:00, a moment no form ever asked for and no surface ever showed');
+  res(d112lab.value === 0.8,
+      'D112-lab GATE: and the value itself is untouched -- the draw DATE is what identifies a panel');
+
+  // ---- THE HONEST HALF, gated so the census does not read as all-broken ----
+  // The addSignal family defaults to localDate() and only ever writes to today,
+  // so its clock stamp was never a fabrication. A census that reported only the
+  // broken paths would have left that unclear.
+  HT.state().current = D112P;                     // a past day is ON SCREEN
+  HT.addSignal({ type: 'weight', value: 70, unit: 'kg', time: '08:30' });
+  res((HT.state().timeline[D112P] || []).length === 0,
+      'D112-signal CONTROL: a biometric logged while a past day is on screen does NOT land on that day -- addSignal defaults to localDate()');
+  var d112sig = (HT.state().timeline[D112T] || []).filter(function (r) { return r.type === 'weight'; })[0] || {};
+  res(d112sig.time === '08:30',
+      'D112-signal CONTROL: it lands on TODAY carrying the time it was given -- unchanged by this slice');
+  // Measured while writing this gate, and worth keeping: addSignal does NOT stamp
+  // a clock of its own. The now() fallback lives in the FORM handler
+  // (addSignalFromForm / addMedicationFromForm / logBP), which is why this family
+  // was never a fabrication -- it stamps now() only on a record it is also filing
+  // under localDate(). The clock and the day come from the same instant.
+  res(HT.addSignal({ type: 'hrv', value: 60, unit: 'ms' }).ok === true &&
+      ((HT.state().timeline[D112T] || []).filter(function (r) { return r.type === 'hrv'; })[0] || {}).time === '',
+      'D112-signal CONTROL: and called WITHOUT a time it stores none -- the clock stamp lives in the form, not in the write path');
+
+  // ---- the blank-time lift ------------------------------------------------
+  HT.state().current = D112P;
+  // The item edited here is the one the USER gave a time to ('13:15'). Blanking an
+  // already-blank record is a no-op, which D55's contract refuses -- so a fixture
+  // that reached for "the last item" would have tested the refusal, not the lift.
+  var d112idx = 0;
+  HT.state().days[D112P].items.forEach(function (x, n) { if (x.name === 'Typed time') d112idx = n; });
+  res(HT.state().days[D112P].items[d112idx].time === '13:15', 'D112-edit fixture: the record under test HAS a time to remove');
+  var d112ed = HT.editRecord(D112P, d112idx, { time: '' }, 'items');
+  res(d112ed.ok === true && HT.state().days[D112P].items[d112idx].time === '',
+      'D112-edit GATE: a record with NO time can be edited without inventing one -- the boundary used to demand a value the user did not have, which is how a blank became a fabrication');
+  res(HT.editRecord(D112P, d112idx, { time: '25:99' }, 'items').ok === false,
+      'D112-edit GATE: and a MALFORMED time is still refused -- blank is allowed, nonsense is not');
+  res(HT.editRecord(D112P, d112idx, { time: 'half past' }, 'items').ok === false,
+      'D112-edit GATE: prose is refused too, so the lift did not open the field to anything');
+
+  // ---- the consequence, stated rather than discovered later ---------------
+  res(HT.fastEvents().every(function (e) { return e.indexOf(D112P + 'T') !== 0 || /T\d{2}:\d{2}$/.test(e); }),
+      'D112-fast GATE: an untimed item cannot anchor a fast boundary -- fastEvents already requires HH:MM, so a back-filled meal is excluded rather than placed at a time it did not happen');
+
   // ---- H12/D111: the panel stopped asserting what it never stored ---------
   // "edited by you" was an INFERENCE -- an override present, no pick record --
   // presented as a fact, and the fact it asserted was about the USER. Reported

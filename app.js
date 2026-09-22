@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.37.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.38.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1171,6 +1171,20 @@ function offerSignalUndo(records, label) {
 // toggle recorded a wall-clock start while its duration was measured on the seam.
 // In production both are the same clock, which is exactly why the inconsistency
 // could sit unnoticed -- it only shows up under an injected clock.
+// D112: A CLOCK STAMP IS HONEST ONLY WHEN THE RECORD LANDS ON TODAY.
+//
+// Every path that writes to the VIEWED day used nowTime() unconditionally, and
+// the day nav lets that day be any past date -- so back-filling last Tuesday's
+// lunch recorded it at tonight's clock time. The time was not merely wrong, it
+// was INVENTED, which is D19's fabrication: a value nobody lived, indelible in
+// a way a blank is not.
+//
+// It stayed harmless only because nothing sorted by it. H12's time-ordered day
+// record makes it load-bearing, which is why this ships first and alone.
+//
+// One helper rather than eight patched call sites, per [[D50]]: the next write
+// path inherits the rule instead of deciding it again.
+function stampTime(dayKey) { return String(dayKey) === localDate() ? nowTime() : ''; }
 function nowTime() {
   const d = nowDate();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -1185,11 +1199,11 @@ function fillable(day) {
 
 // Build the configured supplement as a flagged, non-deletable item. Nutrients are
 // user-attested label amounts, so micros are allowed (source 'supplement').
-function buildSupplementItem(sup) {
+function buildSupplementItem(sup, dayKey) {
   const n = (sup && sup.nutrients) || {};
   return normalizeItem({
     name: (sup && sup.name) || 'Daily supplement',
-    meal: 'supplement', time: nowTime(),
+    meal: 'supplement', time: stampTime(dayKey),
     kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
     fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g,
     confidence: 'measured', notes: 'auto-applied daily supplement',
@@ -1204,7 +1218,7 @@ function maybeInjectSupplement(state, dayKey) {
   if (!sup.enabled) return false;
   const day = state.days[dayKey];
   if (!day || day.items.some((i) => i._auto)) return false;
-  day.items.push(buildSupplementItem(sup));
+  day.items.push(buildSupplementItem(sup, dayKey));
   return true;
 }
 
@@ -1217,8 +1231,8 @@ function applySupplementToToday() {
   const sup = APP_STATE.settings.supplement || {};
   const hasAuto = today.items.some((i) => i._auto);
   if (sup.enabled) {
-    if (hasAuto) today.items = today.items.map((i) => (i._auto ? buildSupplementItem(sup) : i));   // edit: rebuild in place
-    else today.items.push(buildSupplementItem(sup));                                                // enable: inject
+    if (hasAuto) today.items = today.items.map((i) => (i._auto ? buildSupplementItem(sup, localDate()) : i));   // edit: rebuild in place
+    else today.items.push(buildSupplementItem(sup, localDate()));                                                // enable: inject
   } else if (hasAuto) {
     today.items = today.items.filter((i) => !i._auto);                                              // disable: remove standing dose
   }
@@ -2017,7 +2031,11 @@ function manualWarnings(raw) {
 function addManualEntry(raw) {
   if (!raw || !raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Name required' };
   const warnings = manualWarnings(raw);
-  const item = normalizeItem(Object.assign({}, raw, { source: 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
+  // D112: the fallback lives HERE, in the testable core, rather than in the form
+  // reader -- so the rule holds for every caller, not only the one with a DOM.
+  const typed = (raw.time != null && String(raw.time).trim() !== '') ? String(raw.time).trim() : null;
+  const item = normalizeItem(Object.assign({}, raw, { time: typed == null ? stampTime(APP_STATE.current) : typed,
+                                                     source: 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
   const day = curDay(); if (!day) return { ok: false, error: 'No current day' };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
   day.items.push(item);
@@ -2071,7 +2089,7 @@ function logPreset(id) {
   const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
   const p = presets.find((x) => x.id === id);
   if (!p) return { ok: false };
-  const item = buildPresetItem(p, nowTime());
+  const item = buildPresetItem(p, stampTime(APP_STATE.current));
   const day = curDay(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';
   day.items.push(item);
@@ -2210,12 +2228,12 @@ function scalePortion(rec, mode, customGrams) {
 
 // A scanned item is a labeled source (honesty rule): source 'scan', confidence
 // 'measured', barcode retained. Runs through normalizeItem -> contract-clean.
-function buildScanItem(rec, mode, customGrams, meal) {
+function buildScanItem(rec, mode, customGrams, meal, dayKey) {
   const s = scalePortion(rec, mode, customGrams);
   return normalizeItem({
     name: rec.name || ('Product ' + rec.barcode),
     meal: MEALS.indexOf(meal) >= 0 ? meal : 'snack',
-    time: nowTime(),
+    time: stampTime(dayKey === undefined ? localDate() : dayKey),
     kcal: s.kcal, protein_g: s.protein_g, fat_g: s.fat_g, carb_g: s.carb_g,
     fiber_g: s.fiber_g, soluble_fiber_g: s.soluble_fiber_g,
     confidence: 'measured', source: 'scan', barcode: rec.barcode,
@@ -2232,7 +2250,7 @@ function buildScanItem(rec, mode, customGrams, meal) {
   }, true);
 }
 function logScanItem(rec, mode, customGrams, meal) {
-  const item = buildScanItem(rec, mode, customGrams, meal);
+  const item = buildScanItem(rec, mode, customGrams, meal, APP_STATE.current);
   const day = curDay(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (same rule as manual/ingest)
   day.items.push(item);
@@ -3427,9 +3445,15 @@ function editRecord(date, idx, patch, collection) {
       // other entry point is a native <input type="time"> that constrains the value
       // for it. This boundary takes a patch object from a caller, so it validates.
       const t = String(raw == null ? '' : raw).trim();
-      const m = /^(\d{2}):(\d{2})$/.exec(t);
-      if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return { ok: false, error: 'Time must be HH:MM.' };
-      next.time = t;
+      // D112: BLANK IS ALLOWED, malformed is not. A record with no time could not
+      // be edited at all without first inventing one -- the boundary demanded a
+      // value the user did not have, which is how a blank became a fabrication.
+      if (t === '') { next.time = ''; }
+      else {
+        const m = /^(\d{2}):(\d{2})$/.exec(t);
+        if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return { ok: false, error: 'Time must be HH:MM.' };
+        next.time = t;
+      }
     } else if (k === 'notes') {
       next.notes = String(raw == null ? '' : raw);
     } else if (k === 'meal') {
@@ -3717,7 +3741,7 @@ function updateMicroCount(prefix, countId) {
 function readManualForm() {
   const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
   const raw = {
-    name: g('maName'), meal: g('maMeal'), time: g('maTime') || nowTime(), confidence: g('maConf'),
+    name: g('maName'), meal: g('maMeal'), time: g('maTime'), confidence: g('maConf'),
     kcal: g('maKcal'), protein_g: g('maP'), fat_g: g('maF'), carb_g: g('maC'),
     fiber_g: g('maFib'), soluble_fiber_g: g('maSol'),
   };
@@ -5754,6 +5778,7 @@ const VERSION_LOG = [
   { v: '0.37.0', d: '2026-09-22', note: 'When a photo capture comes back with nothing at all, the app now checks whether your provider is answering and tells you which silence it was \u2014 the provider not responding, your device being offline, or the request simply not coming back. The check sends no key and no data.' },
   { v: '0.37.1', d: '2026-09-22', note: 'Fix: a reply that began arriving and then stopped had no time limit at all, so a capture or a drug lookup could wait indefinitely. Both now keep the same overall limit after the first byte, and say when the answer started and when the app gave up.' },
   { v: '0.37.2', d: '2026-09-22', note: 'The drug panel used to label every search term you had not just picked as \u201cedited by you\u201d, including terms it had no record of. It now says which it is \u2014 picked, edited, or source not recorded \u2014 and removing a document also clears a term that came from that document rather than from you.' },
+  { v: '0.38.0', d: '2026-09-22', note: 'Logging something onto a day that is not today no longer stamps it with the current clock time. Back-filling last Tuesday\u2019s lunch used to record it at tonight\u2019s time; it is now recorded with no time, which is what was actually known. Lab panel values are no longer stamped 09:00, and a record with no time can be edited without inventing one.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -5987,7 +6012,10 @@ function addLabPanel(date, entries) {
     const raw = {
       type: e.type, kind: 'biometric', value: e.value, source: 'lab',
       unit: (spec.units.indexOf(e.unit) >= 0 ? e.unit : spec.unit),
-      time: /^\d{2}:\d{2}$/.test(String(e.time)) ? String(e.time) : '09:00',
+      // D112: was the constant '09:00'. A panel has a DRAW DATE, not a moment in
+      // the day, and no form ever supplied one -- so every lab value in the app
+      // carried a time nobody entered and nothing displayed. Absent is the truth.
+      time: /^\d{2}:\d{2}$/.test(String(e.time)) ? String(e.time) : '',
       date: d, notes: e.notes == null ? '' : e.notes, panelId: panelId,
     };
     // The reporting lab prints an interval for every analyte, so it is storable on
@@ -7775,7 +7803,7 @@ function consumeQuestionHTML(draft) {
 function plateFromDraft(draft, dateKey) {
   const kept = photoKeptItems(draft);
   return {
-    id: newPlateId(), date: dateKey, meal: draft.meal, time: nowTime(), tzo: nowTZO(),
+    id: newPlateId(), date: dateKey, meal: draft.meal, time: stampTime(dateKey), tzo: nowTZO(),
     mealId: draft.mealId,
     items: kept.map((it) => {
       const pi = { name: it.name, grams: photoGrams(draft, it), notes: it.notes || '' };
@@ -7843,7 +7871,10 @@ function consumeFromPlate(plateId, statements, opts) {
     // NO ai_grams / ai_identity / ai_alts / identity_pick / pinned here: those are
     // properties of confirming the plate and live on it. What the event carries is
     // what was eaten, plus the link and the statement that produced it.
-    const rec = { name: pi.name, meal: plate.meal, time: nowTime(), tzo: nowTZO(),
+    // D112: stamped from `dk` -- the day the record LANDS on -- not from the
+    // viewed day. consumeFromPlate takes an explicit opts.date, so reading
+    // APP_STATE.current here would fabricate a time again, one argument along.
+    const rec = { name: pi.name, meal: plate.meal, time: stampTime(dk), tzo: nowTZO(),
                   confidence: pi.confidence || 'eyeballed',
                   source: pi.source || 'ai-paste', notes: pi.notes || '',
                   grams: g, mealId: mealId, plateId: plate.id, plateIdx: idx, ate: ate };
@@ -7898,7 +7929,7 @@ function photoSave(statements) {
     const m = photoItemMacros(PHOTO_DRAFT, it);
     const unres = photoItemUnresolved(it);
     const rec = {
-      name: it.name, meal: PHOTO_DRAFT.meal, time: nowTime(),
+      name: it.name, meal: PHOTO_DRAFT.meal, time: stampTime(APP_STATE.current),
       // R25 Fork A: an ADDED item carries its OWN claim. Inheriting `ai-paste` would
       // say a model reported a food no model ever saw, which is the honesty rule
       // (D8) pointed at its own draft.
@@ -10462,7 +10493,7 @@ window.HT = {
   // Phase 4 Layer-1 adherence — quick-log chips (D21)
   chipOrder, CHIP_DEFAULT, chipLabel, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
-  ingest, maybeInjectSupplement, buildSupplementItem, fillable,
+  ingest, maybeInjectSupplement, buildSupplementItem, fillable, stampTime,
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,

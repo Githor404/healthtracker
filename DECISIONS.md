@@ -4516,3 +4516,48 @@ So it could never reach **exactly the records that need it most**: every term ch
 **Defect pass: eight plants, eight failing their own named gates.**
 
 **Suite: 2197 assertions, all passing** (2174 → 2197).
+
+## D112 — A clock stamp is honest only when the record lands on today — v0.38.0 (2026-09-22)
+
+First slice of H12, ruled to ship **alone and first**: the day record about to be built sorts by time, so a fabricated time had to stop being written before anything relied on it.
+
+**Back-filling last Tuesday's lunch stamped it with tonight's clock.** Every path that writes to the **viewed** day called `nowTime()` unconditionally, and the day nav lets that day be any date. The time was not merely wrong, it was **invented** — [[D19]]'s fabrication, indelible in a way a blank is not. It stayed harmless only because nothing sorted by it.
+
+### The census, which is the finding
+
+Three sites were surfaced by inspection; **the census found eight**, and measuring what each one *reaches* reduced that to **seven that matter**.
+
+| site | lands on | was |
+|---|---|---|
+| `addManualEntry` | `curDay()` | `nowTime()` |
+| `logPreset` | `curDay()` | `nowTime()` |
+| `logScanItem` | `curDay()` | `nowTime()` |
+| `consumeFromPlate` | `o.date \|\| APP_STATE.current` | `nowTime()` |
+| `plateFromDraft` | its `dateKey` | `nowTime()` |
+| `maybeInjectSupplement` (via ingest) | any date | `nowTime()` |
+| `addLabPanel` | the panel date | the constant `'09:00'` |
+| `photoSave`'s record builder | **nothing** | `nowTime()` — see below |
+
+**One helper, not eight patches** — `stampTime(dayKey)`, per [[D50]]'s lesson. The next write path inherits the rule instead of deciding it again.
+
+**The honest half, gated so the census does not read as all-broken.** The `addSignal` family files under `localDate()` and therefore only ever writes to **today**; a past day can be on screen and a logged biometric still lands on today. And measured while writing that gate: **`addSignal` stamps no clock of its own** — the `nowTime()` fallback lives in the *form handlers*. That is precisely why the family was never a fabrication: **the clock and the day come from the same instant.**
+
+### Three things the build found
+
+**1. The right helper reading the wrong day.** `consumeFromPlate` takes an explicit `opts.date`, and the first build stamped from `APP_STATE.current`. It would have fabricated again **one argument along** — the fix applied, the defect intact. The rule is not "call the helper" but **"pass the day the record lands on"**, and it now has its own gate: eating onto a past day while today is the day on screen.
+
+**2. A gate that tested the refusal instead of the lift.** The blank-time gate reached for *the last item on the day*, which by then already had a blank time — and blanking an already-blank record is a **no-op**, which [[D55]]'s edit contract correctly refuses. The assertion failed for a reason that had nothing to do with the thing under test. It now edits the record the **user gave a time to**.
+
+**3. A plant that could never fail, twice — because the code it planted on is unreachable.** `photoSave` builds a full item record and the array is discarded: `photoSave` writes the day through `plateFromDraft` + `consumeFromPlate`, and the builder is vestigial from before [[D69]]. **The code says so itself** at `app.js:7968` — *"R33: `written` above is no longer what reaches the day."*
+
+> **The general form, and it is [[D75]] one layer along.** A check nothing runs is not a gate; **code nothing reads is not a behaviour**, and a plant on it is guaranteed vacuous. A census of *call sites* is not a census of *effects* — the eight had to be walked to their landing places before the number meant anything. The dead builder is named here and **left in place**: deleting forty lines is its own change, not a rider on this one.
+
+**Nothing in the suite pinned the old behaviour in either direction.** After the build, all 2197 existing assertions still passed — the fabrication was untested, not merely wrong.
+
+**Defect pass: eleven plants, eleven failing their own named gates**, plus the twelfth site recorded as unreachable rather than gated.
+
+**Suite: 2225 assertions, all passing** (2197 → 2225).
+
+### What this changes for the person
+
+A record logged onto a day that is not today carries **no time**, which is what was actually known. A time the user **types** is kept, on any day — the rule removes invention, never their own answer. An untimed item can now be **edited without inventing one**; a malformed time is still refused. And an untimed item **cannot anchor a fast boundary** — `fastEvents` already requires `HH:MM`, so a back-filled meal is excluded rather than placed at a time it did not happen.
