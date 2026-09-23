@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.38.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.39.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2995,6 +2995,11 @@ function normalizeSignal(raw) {
   if (origS) rec.orig = origS;
   const edA = normalizeEditedAt(raw.edited_at);
   if (edA) rec.edited_at = edA;
+  // D113: wake provenance, allow-listed in the same edit that introduces it --
+  // the allowlist trap, eleventh time of asking. Without it an export -> restore
+  // would return an INFERRED night as though it had been observed, which is the
+  // one thing the flag exists to prevent.
+  if (rec.type === 'sleep' && WAKE_SRCS.indexOf(raw.wake_src) >= 0) rec.wake_src = raw.wake_src;
   return rec;
 }
 
@@ -3071,7 +3076,7 @@ function timelineForDay(date) {
   if (day) (day.items || []).forEach((it) => rows.push({ time: it.time || '', row: 'food', name: it.name, kcal: it.kcal }));
   ((APP_STATE.timeline && APP_STATE.timeline[date]) || []).forEach((s, idx) =>
     rows.push({ time: s.time || '', row: s.kind, type: s.type, value: s.value, unit: s.unit, notes: s.notes,
-                name: s.name, dose: s.dose, dose_unit: s.dose_unit, idx: idx }));
+                name: s.name, dose: s.dose, dose_unit: s.dose_unit, wake_src: s.wake_src, idx: idx }));
   rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   return rows;
 }
@@ -3236,7 +3241,15 @@ function addSignalFromForm() {
     if (String(g('sigValue')).trim() === '' || String(g('sigDia')).trim() === '') { toast('Enter systolic and diastolic'); return; }
     r = logBP(g('sigValue'), g('sigDia'), g('sigTime') || nowTime(), g('sigNotes'));
   } else {
-    r = addSignal({ type: type, value: g('sigValue'), unit: g('sigUnit'), time: g('sigTime') || nowTime(), notes: g('sigNotes') });
+    // D113: a sleep entry typed into the form IS typed, and says so -- otherwise
+    // the hand path and the toggle path would differ by a field for no reason,
+    // and R16's byte-identity invariant would be broken by bookkeeping rather
+    // than by substance. A record arriving any other way (ingest, restore, an
+    // older app) carries NO flag, because its provenance is genuinely unknown
+    // and inventing 'typed' for it would be D111's fault exactly.
+    const sigRaw = { type: type, value: g('sigValue'), unit: g('sigUnit'), time: g('sigTime') || nowTime(), notes: g('sigNotes') };
+    if (type === 'sleep') sigRaw.wake_src = 'typed';
+    r = addSignal(sigRaw);
   }
   if (!r.ok) { toast(r.error || 'Could not log'); return; }
   ['sigValue', 'sigDia', 'sigNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
@@ -3305,6 +3318,10 @@ function renderTimelineOverlay() {
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain"${openA}>${esc(r.name)}${dose}${note}${edited}</span>${rm}</div>`;
     }
     const spec = SIGNAL_BY_TYPE[r.type];
+    // D113: a sleep row says when the night ENDED, and says so when that end was
+    // inferred rather than answered.
+    if (r.type === 'sleep')
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
     const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
     return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(spec ? spec.label : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
@@ -5672,7 +5689,16 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-function refresh() { renderBadge(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
+// The auto-close runs at the head of a render, once, and cannot re-enter:
+// closing calls refresh() itself, and a second pass would find nothing open.
+let AUTOCLOSE_BUSY = false;
+function refresh() {
+  if (!AUTOCLOSE_BUSY) {
+    AUTOCLOSE_BUSY = true;
+    try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
+    AUTOCLOSE_BUSY = false;
+  }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -5779,6 +5805,7 @@ const VERSION_LOG = [
   { v: '0.37.1', d: '2026-09-22', note: 'Fix: a reply that began arriving and then stopped had no time limit at all, so a capture or a drug lookup could wait indefinitely. Both now keep the same overall limit after the first byte, and say when the answer started and when the app gave up.' },
   { v: '0.37.2', d: '2026-09-22', note: 'The drug panel used to label every search term you had not just picked as \u201cedited by you\u201d, including terms it had no record of. It now says which it is \u2014 picked, edited, or source not recorded \u2014 and removing a document also clears a term that came from that document rather than from you.' },
   { v: '0.38.0', d: '2026-09-22', note: 'Logging something onto a day that is not today no longer stamps it with the current clock time. Back-filling last Tuesday\u2019s lunch used to record it at tonight\u2019s time; it is now recorded with no time, which is what was actually known. Lab panel values are no longer stamped 09:00, and a record with no time can be edited without inventing one.' },
+  { v: '0.39.0', d: '2026-09-22', note: 'If you forget to mark yourself awake, the app now asks in a dialog rather than in the ring, and fills in the time you usually wake \u2014 worked out from your own nights, one tap to accept. If you never answer, after a day the night is closed at that usual time and marked as an estimate rather than left running. It needs eight of your own recorded nights before it will suggest anything.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8152,6 +8179,63 @@ const FORGOT_OFF_MIN = {
 const SLEEP_OPEN_MAX_MIN = FORGOT_OFF_MIN.sleep;   // retained name; one source now
 const SLEEP_MIN_SEGMENT_MIN = 5;            // Fork C (R16): kept, never discarded
 
+// ---- D113: a forgotten night closes on the sleeper's own pattern ----------
+// AMENDS [[D38]] ("never auto-closed") and [[D112]] ("an invented time must not
+// be written"). Neither is absolute any more, and the line between them is:
+//
+//   A FABRICATED time is made up from something unrelated -- the current clock,
+//   a constant -- and stored as fact. An INFERRED time is derived from the
+//   person's OWN record, MARKED as inferred, and written only after they were
+//   asked and did not answer. D19 forbids the first; this permits the second,
+//   and the FLAG is what makes them different objects rather than the same
+//   object with a nicer name.
+const WAKE_MIN_NIGHTS = 8;                  // C1: dormant below this, no default ever
+const WAKE_WINDOW_DAYS = 28;                // D95's window
+const SLEEP_AUTO_CLOSE_MIN = 24 * 60;       // A1: the 11h mark ASKS; a full day CLOSES
+// G1: three values stored, two shown. 'typed' is any moment the person supplied
+// -- tapping off as they wake, or entering a time. 'accepted' is the app's own
+// suggestion taken unchanged. 'inferred' is never answered at all.
+const WAKE_SRCS = ['typed', 'accepted', 'inferred'];
+function minutesToHHMM(m) {
+  const x = ((Math.round(m) % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY;
+  return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0');
+}
+// A sleep record is bedtime + duration, so the wake moment is derived, never stored.
+function sleepWakeMin(rec) {
+  const b = timeToMinutes(rec && rec.time);
+  const h = num(rec && rec.value);
+  if (b == null || !(h > 0)) return null;
+  return Math.round(b + h * 60) % MIN_PER_DAY;
+}
+// THE SUB-RULE, ON ITS OWN AND GATED BY NAME: an inferred night NEVER feeds the
+// pattern. Otherwise the app learns from its own guesses and the estimate drifts
+// toward itself -- a closed loop that would present as rising confidence.
+function observedWakeMins(today) {
+  const out = [];
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  const first = shiftDate(today, -(WAKE_WINDOW_DAYS - 1));
+  Object.keys(tl).forEach(function (d) {
+    if (d < first || d > today) return;
+    (tl[d] || []).forEach(function (r) {
+      if (!r || r.type !== 'sleep') return;
+      if (r.wake_src === 'inferred') return;        // the closed loop, refused here
+      const w = sleepWakeMin(r);
+      if (w != null) out.push(w);
+    });
+  });
+  return out;
+}
+// B1: the MEDIAN, per D95's choice of median over mean for a typical value.
+// A median of minutes-past-midnight is sound for wake times clustered in a
+// morning band; it would misbehave for a sleeper who wakes either side of
+// midnight. Stated rather than solved.
+function typicalWake(today) {
+  const mins = observedWakeMins(today || todayKey()).sort(function (a, b) { return a - b; });
+  if (mins.length < WAKE_MIN_NIGHTS) return { enough: false, n: mins.length, min: null, hhmm: '' };
+  const m = Math.round(quantileSorted(mins, 0.5));
+  return { enough: true, n: mins.length, min: m, hhmm: minutesToHHMM(m) };
+}
+
 function sleepOpenState() { return laneOpenState('sleep'); }
 function laneOpenState(lane) {
   const spec = LANE_ACTIONS[lane];
@@ -8176,7 +8260,7 @@ function laneOn(lane) {
 }
 // Close into an ordinary record, byte-identical to the manual path for that lane:
 // minutes for a practice, hours for sleep.
-function closeLaneSegment(lane, endAbs, endDateKey) {
+function closeLaneSegment(lane, endAbs, endDateKey, src) {
   const spec = LANE_ACTIONS[lane];
   const st = laneOpenState(lane);
   if (!spec || !st.open) return { ok: false, error: 'No ' + lane + ' segment is open.' };
@@ -8187,8 +8271,12 @@ function closeLaneSegment(lane, endAbs, endDateKey) {
     return { ok: false, error: 'That end is not after the start.' };
   }
   const prev = APP_STATE.settings.laneOpen[lane];
-  const r = addSignal({ type: spec.type, time: String(st.start).slice(11),
-                        value: spec.toValue(mins), unit: spec.unit, date: endDateKey });
+  const sig = { type: spec.type, time: String(st.start).slice(11),
+                value: spec.toValue(mins), unit: spec.unit, date: endDateKey };
+  // D113: sleep alone carries wake provenance. The other lanes have a typical
+  // DURATION, not a typical END, so there is nothing for them to be inferred from.
+  if (lane === 'sleep') sig.wake_src = WAKE_SRCS.indexOf(src) >= 0 ? src : 'typed';
+  const r = addSignal(sig);
   if (!r.ok) return r;
   delete APP_STATE.settings.laneOpen[lane];
   Store.saveState(APP_STATE); refresh();
@@ -8202,8 +8290,8 @@ function closeLaneSegment(lane, endAbs, endDateKey) {
   });
   return { ok: true, record: r.record, minutes: mins, short: mins < SLEEP_MIN_SEGMENT_MIN };
 }
-function laneOff(lane) { return closeLaneSegment(lane, absMinutes(todayKey(), nowMinutes()), todayKey()); }
-function resolveLaneOpen(lane, endHHMM) {
+function laneOff(lane) { return closeLaneSegment(lane, absMinutes(todayKey(), nowMinutes()), todayKey(), 'typed'); }
+function resolveLaneOpen(lane, endHHMM, src) {
   const st = laneOpenState(lane);
   if (!st.open) return { ok: false, error: 'Nothing open on that lane.' };
   const m = timeToMinutes(endHHMM);
@@ -8211,7 +8299,74 @@ function resolveLaneOpen(lane, endHHMM) {
   const dm = isoToDayMin(st.start);
   let endAbs = absMinutes(dm.date, m), endDate = dm.date, guard = 0;
   while (endAbs <= st.startAbs && guard++ < 3) { endDate = shiftDate(endDate, 1); endAbs = absMinutes(endDate, m); }
-  return closeLaneSegment(lane, endAbs, endDate);
+  return closeLaneSegment(lane, endAbs, endDate, src);
+}
+// A1: NO TIMER. D38 Fork F rules the open counter deliberately stale, and
+// contradicting it to buy a convenience would be reversing a ruling. So this
+// runs on the next render past the threshold, and on nothing else.
+function maybeAutoCloseSleep() {
+  const st = laneOpenState('sleep');
+  if (!st.open || st.minutes < SLEEP_AUTO_CLOSE_MIN) return { ok: false, why: 'not-stale' };
+  const tw = typicalWake(todayKey());
+  // C1: with no pattern there is nothing to infer FROM, so the segment stays
+  // open exactly as D38 has it. A default would be the fabrication this avoids.
+  if (!tw.enough) return { ok: false, why: 'no-pattern', n: tw.n };
+  return resolveLaneOpen('sleep', tw.hhmm, 'inferred');
+}
+// ---- the forgotten-off dialog (H12 Fork F2: it left the ring centre) ------
+// Snoozed for the SESSION rather than answered-or-nothing: reappearing on every
+// render is the nagging the ruling refused, and the 24h auto-close is the
+// backstop that makes silence safe to allow. Transient by design -- a reload
+// asks again, exactly as D38 Fork A reasons about view state.
+let ASK_SNOOZED = {};
+function askSnooze(lane) { ASK_SNOOZED[lane] = true; renderSleepAsk(); }
+function askLane() {
+  const open = openLanes().filter(function (k) {
+    return laneOpenState(k).pending && !ASK_SNOOZED[k];
+  });
+  return open.length ? open[0] : '';
+}
+// The prefill, and the one place that decides whether an answer is the user's
+// own or the app's suggestion taken unchanged.
+function askPrefill(lane) {
+  if (lane !== 'sleep') return { hhmm: '', n: 0 };
+  const tw = typicalWake(todayKey());
+  return tw.enough ? { hhmm: tw.hhmm, n: tw.n } : { hhmm: '', n: tw.n };
+}
+// D1, THE RULING THAT MATTERS: a prefill tapped through is ANCHORED by the
+// app's estimate, so folding it into 'typed' would put the guess back through
+// the door the flag exists to close. Equal to the suggestion means accepted.
+function askResolve(lane, value) {
+  const pre = askPrefill(lane);
+  const src = (pre.hhmm && String(value) === pre.hhmm) ? 'accepted' : 'typed';
+  const r = resolveLaneOpen(lane, value, src);
+  if (r.ok) { delete ASK_SNOOZED[lane]; renderSleepAsk(); }
+  return r;
+}
+function askDiscard(lane) { const r = discardLaneOpen(lane); renderSleepAsk(); return r; }
+function sleepAskHTML() {
+  const lane = askLane();
+  if (!lane) return '';
+  const spec = LANE_ACTIONS[lane];
+  const st = laneOpenState(lane);
+  const pre = askPrefill(lane);
+  const note = pre.hhmm
+    ? `<div class="asknote">Filled in with the time you usually wake, from ${esc(String(pre.n))} of your own nights. Change it if it is wrong.</div>`
+    : '';
+  return `<div class="askwrap"><div class="askbox" role="dialog" aria-modal="true" aria-label="${esc(spec.label)} ended when?">` +
+    `<div class="askhead">${esc(spec.label)} ended when?</div>` +
+    `<div class="asksub">Open ${esc(hoursLabel(st.minutes))}.</div>` +
+    `<input id="askEndAt" type="time" class="askin" value="${esc(pre.hhmm)}">` + note +
+    `<div class="askrow">` +
+      `<button type="button" class="btn primary" onclick="askResolve('${esc(lane)}',(document.getElementById('askEndAt')||{}).value)">Save</button>` +
+      `<button type="button" class="btn" onclick="askSnooze('${esc(lane)}')">Not now</button>` +
+    `</div>` +
+    `<button type="button" class="linklike" onclick="askDiscard('${esc(lane)}')">discard this segment</button>` +
+    `</div></div>`;
+}
+function renderSleepAsk() {
+  const el = document.getElementById('sleepAsk');
+  if (el) el.innerHTML = sleepAskHTML();
 }
 function discardLaneOpen(lane) {
   if (!laneOpenState(lane).open) return { ok: false };
@@ -8331,13 +8486,10 @@ function laneControlHTML(lane) {
       `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
   }
   const st = laneOpenState(lane);
-  if (st.open && st.pending) {
-    return `<div class="ringval rcenter rctrl" onclick="event.stopPropagation()">` +
-      `<span class="rcsub">open ${esc(hoursLabel(st.minutes))} \u2014 ${esc(spec.label.toLowerCase())} ended when?</span>` +
-      `<input id="laneEndAt" type="time" class="rcin">` +
-      `<button type="button" class="btn" onclick="resolveLaneOpen('${esc(lane)}',(document.getElementById('laneEndAt')||{}).value)">Save</button>` +
-      `<button type="button" class="linklike" onclick="discardLaneOpen('${esc(lane)}')">discard</button></div>`;
-  }
+  // H12 Fork F2 + D113: the forgotten-off QUESTION has left the centre for its own
+  // dialog. The summoned centre is now exactly one thing -- a two-state toggle for
+  // the lane that was summoned -- and the question gets room for a prefill and an
+  // explanation that never fitted inside a 31%-inset disc.
   return `<div class="ringval rcenter rctrl" onclick="event.stopPropagation()">` +
     (st.open ? `<span class="rcsub">${esc(spec.state)} \u00b7 ${esc(hoursLabel(st.minutes))}</span>` +
                `<button type="button" class="btn" onclick="laneOff('${esc(lane)}')">${esc(spec.label)} off</button>`
@@ -8345,6 +8497,17 @@ function laneControlHTML(lane) {
     `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
 }
 function sleepControlHTML() { return laneControlHTML('sleep'); }
+// G1: THREE STATES STORED, TWO SHOWN. Typed and accepted both read plainly --
+// both are the person's answer on the surface -- while an inferred night says
+// so and wears a tilde. Storing more than is shown is the safe direction.
+function sleepRowLabel(rec) {
+  const w = sleepWakeMin(rec);
+  if (w == null) return 'Sleep';
+  const t = minutesToHHMM(w);
+  return rec && rec.wake_src === 'inferred'
+    ? ('Sleep (woke ~' + t + ', inferred)')
+    : ('Sleep (woke ' + t + ')');
+}
 
 function rhythmCenterHTML(model) {
   // R13: the centre is DISPLAY-ONLY at rest. R16 adds ONE exception with a hard
@@ -10494,6 +10657,10 @@ window.HT = {
   chipOrder, CHIP_DEFAULT, chipLabel, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable, stampTime,
+  // D113 -- a forgotten night closes on the sleeper's own pattern
+  WAKE_MIN_NIGHTS, WAKE_WINDOW_DAYS, SLEEP_AUTO_CLOSE_MIN, WAKE_SRCS, minutesToHHMM,
+  sleepWakeMin, observedWakeMins, typicalWake, maybeAutoCloseSleep,
+  askLane, askPrefill, askResolve, askDiscard, askSnooze, sleepAskHTML, renderSleepAsk, sleepRowLabel,
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,

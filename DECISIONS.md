@@ -988,7 +988,7 @@ Real nights are fragmented. A single bed→wake interval forces a fiction; a liv
 
 **Toggle-on opens a pending segment; toggle-off closes it into an ordinary interval record** — byte-identical to the manual bed→wake path (gated). `sleep_hours` derives as the **sum** of a day's segments, one point per day rather than one per segment. The ring draws each segment on the sleep anchor with the **wake gap between them visible**. The **morning manual path remains**, and existing hours-only scalars stay valid and draw nothing.
 
-**FORGOTTEN-OFF is the honesty core.** An open segment past **`SLEEP_OPEN_MAX_MIN` (11 h, surfaced)** becomes a **pending candidate** — *"sleep ended when?"* — resolved by the user with an end time, or discarded. **Never auto-closed, never auto-trusted.** Three-state grammar per D22, and while pending it **counts in nothing** (gated: `sleep_hours` sees zero points).
+**FORGOTTEN-OFF is the honesty core.** An open segment past **`SLEEP_OPEN_MAX_MIN` (11 h, surfaced)** becomes a **pending candidate** — *"sleep ended when?"* — resolved by the user with an end time, or discarded. **Never auto-closed, never auto-trusted.** — **AMENDED BY [[D113]] for sleep alone:** past **24 h**, and only where the sleeper's own history supplies a typical wake time, the segment closes at that time and is **marked inferred**. The 11-hour question is unchanged; what changed is that silence now has an end. *Never auto-**trusted** still holds — that is what the mark is for.* Three-state grammar per D22, and while pending it **counts in nothing** (gated: `sleep_hours` sees zero points).
 
 ### Forks, as ruled
 
@@ -4521,6 +4521,8 @@ So it could never reach **exactly the records that need it most**: every term ch
 
 First slice of H12, ruled to ship **alone and first**: the day record about to be built sorts by time, so a fabricated time had to stop being written before anything relied on it.
 
+**AMENDED BY [[D113]]:** this decision forbids a **fabricated** time — one taken from something unrelated and stored as fact. It does **not** forbid an **inferred** one: derived from the person's own record, marked as inferred, and written only after they were asked and did not answer. The flag is what makes those different objects rather than the same object with a nicer name.
+
 **Back-filling last Tuesday's lunch stamped it with tonight's clock.** Every path that writes to the **viewed** day called `nowTime()` unconditionally, and the day nav lets that day be any date. The time was not merely wrong, it was **invented** — [[D19]]'s fabrication, indelible in a way a blank is not. It stayed harmless only because nothing sorted by it.
 
 ### The census, which is the finding
@@ -4561,3 +4563,49 @@ Three sites were surfaced by inspection; **the census found eight**, and measuri
 ### What this changes for the person
 
 A record logged onto a day that is not today carries **no time**, which is what was actually known. A time the user **types** is kept, on any day — the rule removes invention, never their own answer. An untimed item can now be **edited without inventing one**; a malformed time is still refused. And an untimed item **cannot anchor a fast boundary** — `fastEvents` already requires `HH:MM`, so a back-filled meal is excluded rather than placed at a time it did not happen.
+
+## D113 — A forgotten night closes on the sleeper's own pattern — v0.39.0 (2026-09-22)
+
+**Amends [[D38]]** (*"never auto-closed"*) and **[[D112]]** (*"an invented time must not be written"*), shipped one commit earlier. Neither reads as absolute now, and the line between them is the whole of this decision:
+
+> A **fabricated** time is made up from something unrelated — the current clock, a constant — and stored as fact. An **inferred** time is derived from the person's **own record**, **marked** as inferred, and written only after they were asked and did not answer. [[D19]] forbids the first. This permits the second, **and the flag is what makes them different objects rather than the same object with a nicer name.**
+
+### What ships
+
+The forgotten-off question **leaves the ring centre for its own dialog** (completing H12's Fork F2, so the summoned centre is now exactly one thing — a toggle), and it **prefills the sleeper's typical wake time**: the **median** wake over observed nights in the last 28 days, with a floor of **eight**. Past **24 hours** — not the 11-hour question, a full day later — the segment closes at that time, marked **inferred**, and reads *"Sleep (woke ~06:30, inferred)"*.
+
+**No timer.** [[D38]] Fork F rules the open counter deliberately stale, so the close happens on the next render and on nothing else. Contradicting that to buy a convenience would be reversing a ruling for comfort.
+
+**Dormant below the floor.** With fewer than eight observed nights there is no prefill **and no auto-close** — the segment stays open exactly as D38 has it. *"From my own history, not a default"* requires it, and a default would be the fabrication this avoids.
+
+**Sleep only.** Sauna, meditation and red light have a typical **duration**, not a typical **end**; D42's thresholds still ask and still never close.
+
+### THE SUB-RULE, ON ITS OWN: an inferred night never feeds the pattern
+
+Gated by name, because burying it in the median would be burying the thing that keeps the median honest. An app that learned from its own guesses would **drift toward them**, and the drift would present as **rising confidence**: more nights, tighter cluster, a more and more certain estimate of a number it had largely made up. The refusal lives in `observedWakeMins`, one line, so nothing downstream has to remember it.
+
+### Three values, one field — [[D111]] applied before the fact
+
+`wake_src` is `typed | accepted | inferred`. **Accepting a prefill is not the same evidence as typing one**: it is anchored by the app's own estimate, and folding it into *observed* would put the guess back through the door the flag exists to close. Three values cost no more than two, and a later analysis picks its own bar.
+
+**The stated purpose, recorded so a future correlation carries its own caveat:** correlating glucose against sleep timing is meaningful on **observed** nights. Without the flag, such a correlation would partly be measuring the app's assumption against the CGM — and would look exactly like a finding.
+
+**Three stored, two shown** ([[G1]]): typed and accepted read identically on the surface, because both are the person's answer; only an inferred night wears the tilde. Storing more than is shown is the safe direction. A night with **no** recorded provenance — anything from before this slice — claims none, per D111.
+
+### Four invariants re-pointed, carrying their history ([[D92]])
+
+D38 and D42's gates said the question lives in the centre and that a segment is *never* auto-closed. Both are amended rather than deleted, and the re-points say so. **The byte-identity invariant found a real gap while being re-pointed:** a sleep record typed into the form carried no provenance while a toggle-off did, so the two paths would have differed **by bookkeeping rather than by substance**. The form now records `typed`, and identity holds across all four lanes — with the one lane that gained a field gaining it on both sides. A record arriving any other way still carries **no** flag, because its provenance is genuinely unknown.
+
+### What the defect pass found
+
+**Two plants scored VACUOUS, and both were fixture faults of one kind: an assertion that *searched* for a record by shape found one the case had not created.** The typed-provenance gate matched one of the eight **seeded** nights, so it passed without ever looking at what `askResolve` wrote. The repair is general — **use the handle the call hands back**, not a search over the store. This is the third instance in one session, after the photo row and the already-blank record.
+
+**And one plant was not a defect at all.** The lane-generic auto-close changed which lane `st` described while the close still named `'sleep'` explicitly, so an open sauna was never closed by it. **A plant that does not produce the defect cannot fail a gate**, and that is a bad plant rather than a weak gate. Its fixture also had to be strengthened to make the wrong behaviour *possible* ([[D96]]): without eight seeded nights a lane-generic close would decline for want of a pattern, and the gate would have passed on a genuine defect.
+
+**A tooling finding:** the defect-pass runner decoded the harness with the system codepage and died on a curly quote in a gate message — ASCII-lucky until this slice wrote one. It reads UTF-8 explicitly now.
+
+**And a fixture's clock is shared state.** This block advances the pinned clock by tens of hours; leaving it advanced made **H7's trail assertions fail three sections later**, nowhere near the cause. Every block that moves it puts it back.
+
+**Defect pass: twelve plants, twelve failing their own named gates.**
+
+**Suite: 2255 assertions, all passing** (2225 → 2255).

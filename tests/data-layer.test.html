@@ -5255,9 +5255,16 @@ window.setLS({});
   var toggled = HT.state().timeline[td][HT.state().timeline[td].length-1];
   res(HT.state().settings.laneOpen.sleep===undefined, 'R16-identical: and the open segment is cleared');
   setLS({}); HT.boot(); fixClock();
-  var manual = HT.addSignal({ type:'sleep', time:'14:00', value:3, unit:'h' });
+  // D113 re-point, carrying its history: the invariant is unchanged -- the two
+  // paths still produce the SAME record -- but a sleep record now carries how its
+  // END was determined, and a hand-typed entry is 'typed' exactly as a toggle-off
+  // is. The fixture supplies what the FORM supplies; identity now includes the
+  // provenance rather than being achieved by leaving it out.
+  var manual = HT.addSignal({ type:'sleep', time:'14:00', value:3, unit:'h', wake_src:'typed' });
   res(JSON.stringify(toggled)===JSON.stringify(manual.record),
-      'R16-identical: a toggle-produced record is BYTE-IDENTICAL to the manual bed-to-wake record');
+      'R16-identical: a toggle-produced record is BYTE-IDENTICAL to the manual bed-to-wake record -- including wake_src, which D113 added to both rather than to one');
+  res(toggled.wake_src === 'typed',
+      'R16-identical: and toggling off records the wake as TYPED -- the person supplied that moment by tapping at it');
 
   // R16-segments: a fragmented night is segments; sleep_hours is their SUM.
   setLS({}); HT.boot(); fixClock();
@@ -5298,7 +5305,14 @@ window.setLS({});
       'R16-forgotten: nothing was written while pending');
   res(HT.seriesSummary(HT.signalSeries('sleep_hours','all')).n===0,
       'R16-forgotten: a pending segment COUNTS IN NOTHING');
-  res(/sleep ended when/.test(HT.sleepControlHTML()), 'R16-forgotten: it asks when sleep ended rather than guessing');
+  // D113 re-point: the question still exists and still has a field, but it left
+  // the ring centre for its own dialog (H12 Fork F2). "Rather than guessing" is
+  // now precise rather than absolute: it ASKS first, and only infers after a full
+  // day, only from the person's own nights, and only marked.
+  res(/ended when/.test(HT.sleepAskHTML()) && HT.sleepAskHTML().indexOf('askEndAt') >= 0,
+      'R16-forgotten: it asks when sleep ended, in its own dialog, with a field to answer in');
+  res(HT.sleepControlHTML().indexOf('ended when') < 0,
+      'R16-forgotten: and the ring centre no longer carries the question -- the summoned centre is one thing, a toggle');
   var badEnd = HT.resolveSleepOpen('nope');
   res(badEnd.ok===false && HT.sleepOpenState().open===true, 'R16-forgotten: an unparseable end resolves nothing');
   var resolved = HT.resolveSleepOpen('07:30');
@@ -5493,7 +5507,12 @@ window.setLS({});
     res((expL.timeline[td]||[]).filter(function(r){return r.type===lc.type;}).length===1,
         'R18-segments: ' + lc.lane + ' round-trips through export');
     setLS({}); HT.boot(); fixClock();
-    var man = HT.addSignal({ type:lc.type, time:'14:00', value:lc.manual, unit:lc.unit });
+    // D113: sleep alone carries wake provenance, and the hand path supplies it
+    // exactly as the form does -- so identity holds across all four lanes, with
+    // the one lane that gained a field gaining it on BOTH sides.
+    var manRaw = { type:lc.type, time:'14:00', value:lc.manual, unit:lc.unit };
+    if (lc.type === 'sleep') manRaw.wake_src = 'typed';
+    var man = HT.addSignal(manRaw);
     res(JSON.stringify(toggled)===JSON.stringify(man.record),
         'R18-identical: a toggled ' + lc.lane + ' record is BYTE-IDENTICAL to the manual one');
     FIXED = new Date(td + 'T14:00:00').getTime();
@@ -5532,8 +5551,14 @@ window.setLS({});
         'R181-candidate: ' + lane + ' is NEVER auto-closed -- no record is written at the threshold');
     res(HT.state().settings.laneOpen[lane] && HT.state().settings.laneOpen[lane].start === td + 'T08:00',
         'R181-candidate: ' + lane + ' keeps its TRUE start -- the question is about the end, not the beginning');
-    res(HT.laneControlHTML(lane).indexOf('ended when?') >= 0 && HT.laneControlHTML(lane).indexOf('laneEndAt') >= 0,
-        'R181-candidate: ' + lane + ' asks when it ended, with a field to say so -- it never invents an end time');
+    // D113 re-point: the question moved to the dialog, so it is asked there. The
+    // clause it used to carry -- "it never invents an end time" -- is now the
+    // NEXT assertion's job, and for sleep it is amended rather than dropped: six
+    // hours past the threshold, still open and still unwritten.
+    res(HT.sleepAskHTML().indexOf('ended when?') >= 0 && HT.sleepAskHTML().indexOf('askEndAt') >= 0,
+        'R181-candidate: ' + lane + ' asks when it ended in the dialog, with a field to say so');
+    res(HT.laneControlHTML(lane).indexOf('laneEndAt') < 0,
+        'R181-candidate: ' + lane + ' no longer asks inside the ring centre');
     FIXED = base181 + thr * 60000 + 6 * 3600000;
     res(HT.laneOpenState(lane).open === true && (HT.state().timeline[td] || []).length === 0,
         'R181-candidate: ' + lane + ' six hours PAST the threshold is still open and still unwritten');
@@ -9262,6 +9287,143 @@ window.setLS({});
   res(h8editWrites > 0,
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
+
+  // ---- D113: a forgotten night closes on the sleeper's own pattern --------
+  // AMENDS D38 (never auto-closed) and D112 (an invented time must not be
+  // written). The line: a FABRICATED time comes from something unrelated and is
+  // stored as fact; an INFERRED one is derived from the person's own record,
+  // MARKED, and written only after they were asked and did not answer.
+  setLS({}); HT.boot(); fixClock();
+  var D113T = HT.localDate();
+  // Seven nights waking 06:30 and one waking 10:00: the MEDIAN is 06:30 and the
+  // MEAN is 06:56, so a fixture that could not tell them apart would pass on
+  // either (D96). Bedtime 23:00 + 7.5h = 06:30; 23:00 + 11h = 10:00.
+  function d113night(back, hours, src) {
+    var d = HT.shiftDate(D113T, -back);
+    var raw = { type: 'sleep', time: '23:00', value: hours, unit: 'h', date: d };
+    if (src) raw.wake_src = src;
+    return HT.addSignal(raw);
+  }
+  for (var i113 = 1; i113 <= 7; i113++) d113night(i113, 7.5, 'typed');
+  d113night(8, 11, 'typed');
+
+  var tw113 = HT.typicalWake(D113T);
+  res(tw113.enough === true && tw113.n === 8,
+      'D113-pattern GATE: eight observed nights are enough, and the count is the OBSERVED count');
+  res(tw113.hhmm === '06:30',
+      'D113-pattern GATE: the typical wake is the MEDIAN (06:30), not the mean (06:56) -- D95\u2019s choice, and the fixture can tell them apart');
+
+  // ---- THE SUB-RULE, ON ITS OWN: inferred nights never feed the pattern ----
+  // Otherwise the app learns from its own guesses and the estimate drifts toward
+  // itself -- a closed loop that would present as rising confidence.
+  for (var j113 = 9; j113 <= 13; j113++) d113night(j113, 11, 'inferred');
+  var tw113b = HT.typicalWake(D113T);
+  res(tw113b.n === 8,
+      'D113-loop GATE: five INFERRED nights do not enter the count -- the pattern is built from observed nights only');
+  res(tw113b.hhmm === '06:30',
+      'D113-loop GATE: and they do not move the estimate -- an app that learned from its own guesses would drift toward them, and the drift would present as rising confidence');
+  res(HT.observedWakeMins(D113T).length === 8,
+      'D113-loop GATE: the observed set itself excludes them, so nothing downstream has to remember to');
+
+  // ---- C1: below the floor there is no pattern, no prefill, no auto-close --
+  setLS({}); HT.boot(); fixClock();
+  for (var k113 = 1; k113 <= 7; k113++) d113night(k113, 7.5, 'typed');
+  var tw113c = HT.typicalWake(D113T);
+  res(tw113c.enough === false && tw113c.n === 7 && tw113c.hhmm === '',
+      'D113-floor GATE: seven nights is not a pattern -- eight is the floor, and below it the app offers nothing');
+  res(HT.askPrefill('sleep').hhmm === '',
+      'D113-floor GATE: and the dialog prefills NOTHING rather than a default -- \u201cmy own history, not a default\u201d requires it');
+
+  // ---- A1: no timer. The 11h mark ASKS; a full day CLOSES ---------------
+  HT.sleepOn();
+  FIXED += 23 * 3600 * 1000;                       // 23h open: past the question
+  res(HT.sleepOpenState().pending === true, 'D113-close fixture: past the 11h threshold it is pending');
+  HT.refresh();
+  res(HT.sleepOpenState().open === true,
+      'D113-close GATE: with NO pattern it is still open at 23h -- and would be at any hour, because there is nothing to infer from');
+  FIXED += 2 * 3600 * 1000;                        // 25h open
+  HT.refresh();
+  res(HT.sleepOpenState().open === true,
+      'D113-close GATE: still open past 24h without a pattern -- C1 holds at the auto-close too, not only at the prefill');
+
+  setLS({}); HT.boot(); fixClock();
+  for (var m113 = 1; m113 <= 8; m113++) d113night(m113, 7.5, 'typed');
+  HT.sleepOn();
+  FIXED += 23 * 3600 * 1000;
+  HT.refresh();
+  res(HT.sleepOpenState().open === true,
+      'D113-close GATE: at 23h open, WITH a pattern, it is still open -- the question gets a full day to be answered');
+  FIXED += 2 * 3600 * 1000;
+  HT.refresh();
+  res(HT.sleepOpenState().open === false,
+      'D113-close GATE: past 24h it closes on the next render -- no timer, because D38 Fork F rules the counter deliberately stale and reversing that to buy a convenience is not a trade this project makes');
+  var d113rec = (HT.state().timeline[HT.localDate()] || []).filter(function (r) { return r.type === 'sleep' && r.wake_src === 'inferred'; })[0];
+  res(!!d113rec,
+      'D113-close GATE: and the night is written, marked INFERRED');
+  res(d113rec && HT.minutesToHHMM(HT.sleepWakeMin(d113rec)) === '06:30',
+      'D113-close GATE: at the sleeper\u2019s own typical wake time, not at a constant');
+
+  // ---- F1: sleep only -----------------------------------------------------
+  setLS({}); HT.boot(); fixClock();
+  // The eight nights matter HERE: without them there is no pattern, so a
+  // lane-generic auto-close would decline for want of one and the gate would pass
+  // on a defect. The fixture has to make the wrong behaviour POSSIBLE (D96).
+  for (var s113 = 1; s113 <= 8; s113++) d113night(s113, 7.5, 'typed');
+  HT.laneOn('sauna');
+  FIXED += 30 * 3600 * 1000;
+  HT.refresh();
+  res(HT.laneOpenState('sauna').open === true,
+      'D113-scope GATE: sauna thirty hours open is NOT auto-closed -- a sauna has a typical duration, not a typical end, so there is nothing to infer from');
+
+  // ---- D1: accepting a prefill is not the same evidence as typing ---------
+  setLS({}); HT.boot(); fixClock();
+  for (var p113 = 1; p113 <= 8; p113++) d113night(p113, 7.5, 'typed');
+  HT.sleepOn(); FIXED += 12 * 3600 * 1000;
+  res(HT.askPrefill('sleep').hhmm === '06:30' && HT.askPrefill('sleep').n === 8,
+      'D113-ask GATE: the dialog prefills the typical wake time, with the number of nights it came from');
+  // THE RECORD THE CALL HANDS BACK, not one found by searching. A search for a
+  // sleep record with wake_src 'typed' matched one of the eight SEEDED nights, so
+  // the assertion passed without ever looking at what askResolve wrote -- and the
+  // plant that made everything read 'accepted' scored VACUOUS because of it.
+  var acc113 = (HT.askResolve('sleep', '06:30') || {}).record;
+  res(acc113 && acc113.wake_src === 'accepted',
+      'D113-ask GATE: taking the suggestion unchanged records ACCEPTED -- folding it into typed would put the app\u2019s own estimate back through the door the flag exists to close');
+
+  setLS({}); HT.boot(); fixClock();
+  for (var q113 = 1; q113 <= 8; q113++) d113night(q113, 7.5, 'typed');
+  HT.sleepOn(); FIXED += 12 * 3600 * 1000;
+  var typ113 = (HT.askResolve('sleep', '07:15') || {}).record;
+  res(typ113 && typ113.wake_src === 'typed',
+      'D113-ask GATE: changing the suggestion records TYPED -- three values, one field, and a later analysis picks its own bar');
+
+  // ---- G1: three states stored, two shown ---------------------------------
+  res(HT.sleepRowLabel({ time: '23:00', value: 7.5, wake_src: 'inferred' }) === 'Sleep (woke ~06:30, inferred)',
+      'D113-label GATE: an inferred night SAYS so, and wears a tilde');
+  res(HT.sleepRowLabel({ time: '23:00', value: 7.5, wake_src: 'typed' }) === 'Sleep (woke 06:30)' &&
+      HT.sleepRowLabel({ time: '23:00', value: 7.5, wake_src: 'accepted' }) === 'Sleep (woke 06:30)',
+      'D113-label GATE: typed and accepted read IDENTICALLY -- three states stored, two shown, which is the safe direction');
+  res(HT.sleepRowLabel({ time: '23:00', value: 7.5 }) === 'Sleep (woke 06:30)',
+      'D113-label GATE: and a night with NO recorded provenance claims none either -- D111 holds here too');
+
+  // ---- the flag survives the round trip (the allowlist trap, eleventh) ----
+  var exp113 = HT.exportJSON();
+  res(exp113.indexOf('"wake_src"') >= 0, 'D113-flag: the provenance reaches the export at all');
+  function d113flags() {
+    var n = 0, tl = HT.state().timeline || {};
+    Object.keys(tl).forEach(function (d) {
+      (tl[d] || []).forEach(function (r) { if (r.type === 'sleep' && r.wake_src) n++; });
+    });
+    return n;
+  }
+  var before113 = d113flags();
+  res(before113 > 0, 'D113-flag fixture: there are flagged nights to lose');
+  window.__confirm = true; HT.restore(exp113);
+  res(d113flags() === before113,
+      'D113-flag GATE: wake_src survives export -> restore -- without it an INFERRED night would come back looking observed, which is the one thing the flag exists to prevent');
+  // Every block that moves FIXED puts it back. This one moves it by tens of hours,
+  // and leaving it advanced made H7's trail assertions fail three sections later --
+  // a fixture's clock is shared state, and the failure surfaces nowhere near it.
+  FIXED = new Date(D113T + 'T14:00:00').getTime(); fixClock();
 
   // ---- D112: a clock stamp is honest only when the record lands on TODAY ---
   // Every path that writes to the VIEWED day stamped nowTime() regardless, and

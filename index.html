@@ -552,6 +552,14 @@
   .osub{color:var(--muted);font-size:16px;line-height:1.45;margin-top:10px}
   @media (min-width:560px){.omodal{left:50%;right:auto;bottom:auto;top:50%;transform:translate(-50%,-50%);
     width:496px;max-height:86vh;border-radius:18px;border:1px solid var(--line)}}
+  .askwrap{position:fixed;inset:0;z-index:22;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+  .askbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px}
+  .askhead{font-size:20px;font-weight:600}
+  .asksub{font-size:16px;color:var(--muted)}
+  .askin{font-size:16px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)}
+  .asknote{font-size:16px;color:var(--muted)}
+  .askrow{display:flex;gap:8px;flex-wrap:wrap}
+  .askrow .btn{flex:1 1 auto}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:90vh;display:flex;flex-direction:column}
   .panel{position:fixed;inset:0;z-index:18;background:var(--bg);display:flex;flex-direction:column}
   .sheethead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto;padding-top:calc(10px + env(safe-area-inset-top))}
@@ -674,6 +682,7 @@
   <button id="fab" class="fab" onclick="openSheet()" aria-label="Log something"><span aria-hidden="true">+</span> Log</button>
 
   <div id="sheetScrim" class="scrim" style="display:none" onclick="closeSheet()"></div>
+  <div id="sleepAsk"></div>
   <div id="entrySheet" class="sheet" style="display:none" role="dialog" aria-modal="true" aria-label="Log something">
     <div class="sheethead">
       <div class="modes">

@@ -4423,3 +4423,20 @@ Eight `nowTime()` call sites, seven of which reach a record. One helper: `stampT
 | D112-fast **GATE** | an untimed item cannot anchor a fast boundary |
 
 **Recorded rather than gated:** `photoSave`'s own record builder is vestigial — its array never reaches the day (`app.js:7968`). A plant on it is vacuous by construction, and no gate is claimed for it.
+### D113 — a forgotten night closes on the sleeper's own pattern — v0.39.0
+
+Amends D38 and D112. A **fabricated** time comes from something unrelated and is stored as fact; an **inferred** one is derived from the person's own record, marked, and written only after they were asked and did not answer.
+
+| case | asserts |
+|---|---|
+| D113-pattern **GATE** | eight observed nights are enough; the typical wake is the **median** (06:30), not the mean (06:56) — the fixture can tell them apart |
+| D113-loop **GATE** | **inferred nights never feed the pattern** — they do not enter the count and do not move the estimate; the observed set excludes them at source |
+| D113-floor **GATE** | seven nights is not a pattern; the dialog prefills **nothing** rather than a default |
+| D113-close **GATE** | still open at 23 h; closes past **24 h on the next render**, at the sleeper's own typical time, marked **inferred**; with no pattern it stays open at any hour |
+| D113-scope **GATE** | sauna thirty hours open is **not** auto-closed |
+| D113-ask **GATE** | the prefill carries the night count; taking it unchanged records **accepted**, changing it records **typed** |
+| D113-label **GATE** | inferred wears the tilde and says so; typed and accepted read **identically**; no provenance claims none |
+| D113-flag **GATE** | `wake_src` survives export → restore — without it an inferred night returns looking observed |
+| R16 / R181 **re-pointed** | the question is asked **in the dialog**, not the centre; byte-identity now **includes** provenance, gained on both paths rather than one |
+
+**Why the sub-rule has its own gate.** An app that learned from its own guesses would drift toward them, and the drift would present as **rising confidence**. Burying that inside the median gate would bury the thing that keeps the median honest.
