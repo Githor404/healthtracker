@@ -4796,3 +4796,63 @@ This is now written **in `tests/data-layer.test.html` itself**, beside the gate-
 **The corpus assets in the repo (3.3 MB) are accepted** as static data that changes only on a source refresh. **To revisit if refreshes accumulate versions in history** — the cost is not the file, it is the number of copies git ends up keeping.
 
 **`corpusAcquire` stays dormant, and the trigger ships in the same slice as the first reader.** Stated as a rule because both halves fail on their own: *a trigger with no reader is dead code; a reader with no trigger is a feature silently holding no data.* Neither is visible in a passing suite, which is why it is written down rather than remembered.
+
+## D118 — The micronutrient panel: what Cronometer does, what we take, and where the 46 slots do not fit (2026-09-23; doc-only)
+
+Prior-art study for the panel slice, which stays deferred. No code. Recorded now because the study was the condition on deferring it, and because the slot mapping turned up a problem the panel will have to solve rather than inherit.
+
+### Borrowed
+
+**Grouped sections with real nesting** — General / Carbohydrates / Lipids / Protein / Vitamins / Minerals, and parts under their whole: Fat → Polyunsaturated → Omega-3 → ALA/DHA/EPA. A flat list of 46 rows is a spreadsheet; the nesting is what makes it readable.
+
+**THREE states per nutrient, not two.** This is the one genuinely new idea and it fits our data exactly:
+
+| shown | means | in the corpus |
+|---|---|---|
+| `–` | not measured, and **excluded from any percentage** | `NaN` |
+| `0.00` | measured, and it is zero | `0.0` |
+| `<0.01` | present, below display precision | `0 < v < 0.005` |
+
+**Too small to show is not none**, and the first two are already distinguishable in the corpus because absence is NaN and zero is zero ([[D8]], [[D90]], [[D115]]). **The third is a display rule, not a storage one** — no schema change, which is the rare case of prior art costing nothing to adopt.
+
+**Source on every food, in search results as well as in detail** — not only on the opened row. Ours must anyway: the CNF licence requires attribution to travel with the value ([[D114]]).
+
+**Any percentage states its basis once on the page** — "based on…" — rather than leaving the reader to infer what 100% meant.
+
+### Refused, and on which ruling
+
+**% of target on every row.** Each target is a claim, and [[D32]] requires a citation for one. Where no sourced target exists the honest alternatives are **"typical" from the user's own history** ([[D95]]) or **nothing at all** — never a number that looks like a recommendation because it is printed beside a percentage.
+
+**The Nutrition Scores composite.** One number standing for a day's nutrition is the shape this project already refused in Oura's "78": a score is a judgement wearing arithmetic.
+
+**Highlighted %-rings as the first thing seen.** The panel is **opt-in** — depth on demand, not by default.
+
+### Where we are already ahead, and should stay
+
+Cronometer has **no food-level or day-level completeness count**: gaps are found by scanning for dashes. Our **"from N of M items"** is a summary it never gives. Keep it, and consider a per-food **"41 of 46 slots measured"** beside the source — which the corpus can compute for free, since a row's populated count is the non-NaN count.
+
+### The 46 slots mapped, and the nine that do not fit
+
+| group | slots |
+|---|---|
+| General | 7 |
+| Carbohydrates | 3 |
+| Lipids | 12 |
+| **Protein** | **1** |
+| Vitamins | 15 |
+| Minerals | 8 |
+
+**Nine of forty-six do not fit cleanly, in four kinds:**
+
+1. **Not a nutrient at all** — `Ash [207]`, an analytical residue nobody eats toward.
+2. **The same quantity in another unit** — `Energy kJ [268]` beside `kcal [208]`; `Vitamin A IU [318]` beside `RAE [320]`. These are alternate expressions, not second nutrients, and nesting one under the other implies a part-whole relation that is not there.
+3. **Computed equivalents, whose children are inputs rather than parts** — `Vitamin A RAE [320]` (retinol plus carotenoid conversion), `Total niacin equivalent [409]` (includes tryptophan conversion), `Dietary folate equivalents [815]`. Each is *derived from* its siblings, so drawing it as their parent inverts the relationship.
+4. **Neither macro nor micro** — `Alcohol [221]`, `Caffeine [262]`, `Theobromine [263]`. Cronometer files them under General; that works, but it is a bucket, not a category.
+
+### Two findings the panel must answer rather than inherit
+
+**A nested group can be complete-looking and incomplete.** Omega-3 in our slot list is `DHA [621]`, `DPA [631]` and `20:3 n-3 [861]` — and **not ALA or EPA**, neither of which cleared the ≥90% bar. A nested "Omega-3" heading would show three members and silently omit the two a reader actually looks for. **That is [[D8]]'s rule at group level**: an understated total that looks complete is worse than an absence, and the group heading is what does the understating. So a group needs the same completeness treatment as a day — *"3 of 5 omega-3 fatty acids carried"* — or it must not be drawn as a group.
+
+**A section with one row is a heading pretending to be a section.** **Protein has exactly one slot** (`[203]`); no amino acid cleared the bar. Rendering a "Protein" section containing protein is worse than folding it into General, and the panel has to decide which — on the evidence, not on symmetry with Cronometer, whose protein section is full because its corpus carries amino acids and ours does not.
+
+**Neither is a defect in the corpus.** Both follow from the ≥90% bar working as ruled. They are facts about what the sources populate, and the panel's job is to show them honestly rather than to hide them behind a tidy heading.
