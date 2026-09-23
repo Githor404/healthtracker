@@ -13,7 +13,10 @@
 #      NOTHING -- there is no half-corpus, because both stores commit in ONE
 #      transaction or neither does (D59)
 #   B. the real shipped asset acquires: fetch -> install -> hydrate, and the row
-#      count matches what the encoder wrote
+#      count matches what the encoder wrote -- for BOTH namespaces, with the
+#      Canadian one driven under a real en-CA locale override. The gate FAILS if
+#      the override did not take, because a gate that silently tests the default
+#      while claiming the override is worse than no gate at all.
 #   C. values survive the round trip, NaN survives as ABSENCE, and zero survives
 #      as zero -- absence is never zero (D8/D90), which is the whole reason the
 #      sentinel is NaN
@@ -64,6 +67,10 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     $msg = Receive-One
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
+}
+function Eval([string]$expr) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
+  return $r.result.result.value
 }
 function EvalAsync([string]$expr) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
@@ -131,6 +138,7 @@ try {
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
   Invoke-CDP 'Runtime.enable' $null | Out-Null
+  Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 2500
 
@@ -187,34 +195,77 @@ try {
   if (-not $A.zeroIsZero) { $fails += "ZERO read back as absence -- absence is never zero, and neither is zero absence" }
   if (-not $A.unknownNull) { $fails += "an unknown food returned a row instead of null" }
 
-  # --- B: the REAL shipped asset, fetched and installed ---------------------
-  $script2 = @'
+  # --- B: the REAL shipped asset, for EACH namespace ------------------------
+  # Locale selects the SOURCE NAMESPACE (D114), so the Canadian path has to be
+  # driven under a Canadian locale rather than assumed to work because the
+  # default one did.
+  $seen = @{}
+  foreach ($case in @(@{ locale = ''; expect = 'fdc' }, @{ locale = 'en-CA'; expect = 'cnf' })) {
+    $loc = $case.locale
+    $want = $case.expect
+    # Emulation.setLocaleOverride moves Intl but NOT navigator.language, which is
+    # what corpusNamespace() reads -- measured: with it, both cases ran fdc and
+    # the gate said so. Network.setUserAgentOverride's acceptLanguage is the one
+    # that moves navigator.language.
+    $ua = Eval 'navigator.userAgent'
+    if ($loc -ne '') {
+      try { Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua; acceptLanguage = $loc } | Out-Null }
+      catch { $fails += "could not set the locale to $loc -- the Canadian path was NOT exercised"; continue }
+    } else {
+      try { Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua; acceptLanguage = 'en-US' } | Out-Null } catch { }
+    }
+    Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
+    Start-Sleep -Milliseconds 2200
+
+    $script2 = @'
 (async function () {
   await new Promise(function (r) {
     const d = indexedDB.deleteDatabase(HT.CORPUS_DB);
     d.onsuccess = d.onerror = d.onblocked = function () { r(); };
   });
+  const lang = String((navigator && navigator.language) || '');
+  const ns = HT.corpusNamespace();
   const r = await HT.corpusAcquire(true);
   const st = HT.corpusState();
-  const meta = await (await fetch('./corpus/dist/' + HT.corpusNamespace() + '.json')).json();
+  const meta = await (await fetch('./corpus/dist/' + ns + '.json')).json();
   const row = await HT.corpusLookup(meta.index[0][0]);
-  return JSON.stringify({ ok: r.ok, why: r.why || '', ns: st.ns, rows: st.rows,
-                          declared: meta.rows, cols: st.cols, declaredCols: meta.cols,
+  return JSON.stringify({ lang: lang, ns: ns, ok: r.ok, why: r.why || '',
+                          rows: st.rows, declared: meta.rows,
+                          cols: st.cols, declaredCols: meta.cols,
                           attribution: String(st.attribution || ''),
                           firstRowLen: row ? row.length : -1 });
 })()
 '@
-  $b = EvalAsync $script2
-  if ($b -like 'EXCEPTION*') { $fails += "the page threw on acquisition: $b" }
-  $B = if ($b -like 'EXCEPTION*') { [pscustomobject]@{} } else { $b | ConvertFrom-Json }
+    $b = EvalAsync $script2
+    if ($b -like 'EXCEPTION*') { $fails += "the page threw on acquisition ($want): $b"; continue }
+    $B = $b | ConvertFrom-Json
+    $seen[$want] = $B
 
-  if (-not $B.ok) { $fails += "the real shipped corpus did not acquire (why=$($B.why))" }
-  if ($B.rows -ne $B.declared) { $fails += "installed rows $($B.rows) != the $($B.declared) the encoder wrote" }
-  if ($B.cols -ne $B.declaredCols) { $fails += "installed cols $($B.cols) != the declared $($B.declaredCols)" }
-  if ($B.firstRowLen -ne $B.declaredCols) { $fails += "a row of the real corpus is not cols wide" }
-  if ([string]::IsNullOrEmpty($B.attribution)) { $fails += "the real corpus carries no attribution" }
+    # THE LOAD-BEARING ASSERTION: the override must have actually taken. Without
+    # this the en-CA case would quietly re-run the default one and report PASS.
+    if ($want -eq 'cnf' -and ($B.lang -notlike '*CA*')) {
+      $fails += "the en-CA override did not take (navigator.language='$($B.lang)') -- the Canadian path was NOT exercised"
+    }
+    if ($B.ns -ne $want) { $fails += "locale '$loc' selected namespace '$($B.ns)', expected '$want'" }
+    if (-not $B.ok) { $fails += "[$want] the real corpus did not acquire (why=$($B.why))" }
+    if ($B.rows -ne $B.declared) { $fails += "[$want] installed rows $($B.rows) != the $($B.declared) the encoder wrote" }
+    if ($B.cols -ne $B.declaredCols) { $fails += "[$want] installed cols $($B.cols) != declared $($B.declaredCols)" }
+    if ($B.firstRowLen -ne $B.declaredCols) { $fails += "[$want] a row of the real corpus is not cols wide" }
+    if ([string]::IsNullOrEmpty($B.attribution)) { $fails += "[$want] the real corpus carries no attribution" }
+  }
+  # The two namespaces must be DIFFERENT corpora, or the locale switch did
+  # nothing observable and both cases were the same test run twice.
+  if ($seen.ContainsKey('fdc') -and $seen.ContainsKey('cnf') -and
+      $seen['fdc'].rows -eq $seen['cnf'].rows) {
+    $fails += "both namespaces reported the same row count -- the locale switch selected the same corpus twice"
+  }
 
-  Write-Host ("corpus: ns={0} rows={1} cols={2} (encoder declared {3}x{4})" -f $B.ns, $B.rows, $B.cols, $B.declared, $B.declaredCols)
+  foreach ($k in @('fdc', 'cnf')) {
+    if ($seen.ContainsKey($k)) {
+      Write-Host ("corpus[{0}]: lang='{1}' rows={2} cols={3} (encoder declared {4}x{5})" -f `
+        $k, $seen[$k].lang, $seen[$k].rows, $seen[$k].cols, $seen[$k].declared, $seen[$k].declaredCols)
+    }
+  }
   Write-Host ("        atomicity refused-and-clean={0}, NaN=absence={1}, zero=zero={2}" -f ($A.refused -and $A.nothingWritten), $A.nanIsNull, $A.zeroIsZero)
 } catch {
   Write-Host "ERROR: $($_.Exception.Message)"

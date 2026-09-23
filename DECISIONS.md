@@ -4763,3 +4763,36 @@ I first wrote the round trip as a harness case with a 6-second net, watched it r
 ### Still not built
 
 The panel, and the matcher. The repo now carries **3.3 MB** of corpus assets, which is a real and deliberate addition to a repo otherwise measured in kilobytes — noted here so it is a decision on the record rather than a surprise later.
+
+## D117 — The Canadian path was the one not being tested, and a harness limit stated where it will be met (2026-09-23)
+
+Gate and documentation only. No shell change, no `APP_VERSION` bump.
+
+### The primary path was the unexercised one
+
+[[D116]]'s corpus gate ran under the default locale, so it proved **`fdc`** — and the user of this app is in Canada, where **`cnf`** is the path that will actually run. *Default-locale coverage proved the path I won't use.* The gate now drives **both**, and the Canadian case is driven under a real `en-CA` locale rather than assumed to work because the default one did.
+
+**The load-bearing assertion is that the override took effect**, and writing it was not ceremony:
+
+> `Emulation.setLocaleOverride` moves `Intl` but **not** `navigator.language`, which is what `corpusNamespace()` reads. Measured: with it, **both cases ran `fdc` and reported identical row counts**. Without the assertion the gate would have printed PASS while testing the default twice and calling one of them Canadian.
+
+`Network.setUserAgentOverride`'s `acceptLanguage` is the one that moves `navigator.language`. Both namespaces now verify against their own encoder output:
+
+| locale | `navigator.language` | namespace | rows × cols |
+|---|---|---|---|
+| default | `en-US` | `fdc` | 7,793 × 46 |
+| override | **`en-CA`** | **`cnf`** | **5,690 × 46** |
+
+And a third assertion guards the pair: **the two namespaces must report different row counts**, or the switch selected the same corpus twice and both cases were one test run twice. That is the failure the first version actually had, so it is gated rather than trusted.
+
+### A limit of the harness, stated where the next author will hit it
+
+**IndexedDB on a `file://` origin neither succeeds nor fails: `indexedDB.open()` never calls back.** No handler fires, nothing throws, nothing times out. A harness case touching it does not test it — it **hangs**, and a hang produces no SUMMARY, which is indistinguishable from the characterised output-capture intermittent ([[D110]]).
+
+This is now written **in `tests/data-layer.test.html` itself**, beside the gate-integrity note, because that is where someone about to write such a case will be looking — not in a decision entry they have no reason to open. Anything needing IndexedDB, a service worker, a real origin or CORS belongs in a `*-gate.ps1` CDP gate.
+
+### Two conditions recorded against [[D116]]'s open flags
+
+**The corpus assets in the repo (3.3 MB) are accepted** as static data that changes only on a source refresh. **To revisit if refreshes accumulate versions in history** — the cost is not the file, it is the number of copies git ends up keeping.
+
+**`corpusAcquire` stays dormant, and the trigger ships in the same slice as the first reader.** Stated as a rule because both halves fail on their own: *a trigger with no reader is dead code; a reader with no trigger is a feature silently holding no data.* Neither is visible in a passing suite, which is why it is written down rather than remembered.

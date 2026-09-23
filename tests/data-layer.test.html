@@ -48,6 +48,19 @@ window.setLS({});
   }
   window.__confirm = true;
   window.confirm = function(){ return window.__confirm; };
+  // ---- A LIMIT OF THIS HARNESS, stated where the next author will hit it ----
+  // THIS FILE RUNS FROM A file:// ORIGIN, AND INDEXEDDB THERE NEITHER SUCCEEDS
+  // NOR FAILS: indexedDB.open() simply never calls back. Neither handler fires,
+  // no error is thrown, and nothing times out. So a case that touches IndexedDB
+  // here does not test it -- it HANGS, and a hang produces no SUMMARY, which is
+  // indistinguishable from the characterised output-capture intermittent (D110).
+  //
+  // Anything needing IndexedDB, a service worker, a real origin, or CORS belongs
+  // in a *-gate.ps1 CDP gate, which serves the app over http where those work.
+  // The corpus round trip lives in tests/corpus-gate.ps1 for exactly this reason
+  // (D116): it was written here first, reported the limitation through a net,
+  // and was moved rather than left as a green assertion over untested code.
+  //
   // GATE INTEGRITY: finish() is invoked from the iframe callback, so a SYNCHRONOUS
   // throw in the body below would otherwise still print a green-looking SUMMARY
   // with a silently reduced count. Record any such throw as a hard failure.

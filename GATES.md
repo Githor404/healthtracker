@@ -4468,3 +4468,13 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | corpus-gate **GATE** | CDP | against the **real asset**: a mis-sized payload is refused and **writes nothing**; a well-formed one installs, hydrates and reads back, with NaN as absence and zero as zero; the attribution travels with the data |
 
 **Exit 2 is for "could not run at all."** A throw inside the page is the code failing and fails the gate — classifying it as an environment error made a planted defect return no verdict.
+### D117 — both namespaces, and the override proven — no version bump
+
+| case | asserts |
+|---|---|
+| corpus-gate **GATE** | the **default** locale selects `fdc` and installs 7,793 × 46 |
+| corpus-gate **GATE** | an **`en-CA`** locale selects `cnf` and installs 5,690 × 46 — the path this user actually takes |
+| corpus-gate **GATE** | **the override took effect**: `navigator.language` really is Canadian, or the case fails by name |
+| corpus-gate **GATE** | the two namespaces report **different row counts**, or the switch selected the same corpus twice |
+
+**Why the override is asserted and not assumed.** `Emulation.setLocaleOverride` moves `Intl` but not `navigator.language`. Measured: with it, both cases ran `fdc` and the gate said so. `Network.setUserAgentOverride`'s `acceptLanguage` is what moves it. A gate that silently tests the default while claiming the override is worse than no gate.
