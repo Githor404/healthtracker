@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.41.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.42.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1187,6 +1187,342 @@ function offerSignalUndo(records, label) {
 function stampTime(dayKey) { return String(dayKey) === localDate() ? nowTime() : ''; }
 
 
+
+// ---- D120: the micronutrient panel -----------------------------------------
+// OPT-IN, closed by default: depth on demand, never the first thing seen.
+//
+// PROVENANCE IS STRUCTURAL, NOT A FLAG. Labelled micros live in `it.micros` and
+// reference micros live in `it.ref.micros`, in separate maps -- so the existing
+// rollup keeps counting exactly what it always counted, and nothing can sum the
+// two by forgetting to check a field. A cited corpus value is not fiction, which
+// is why the honesty rule admits it; but generic cheddar is not YOUR cheddar,
+// which is why it is never folded into a labelled figure without saying so.
+
+// THREE STATES, and the third is the one a dash cannot express. Cronometer's
+// "<0.01" is a display rule over stored values -- no schema change -- but it is
+// meaningless until each unit declares its own step: g, mg and ug cannot share
+// one. Below the step is PRESENT AND TOO SMALL TO SHOW, which is not nothing.
+const PANEL_STEP = { g: 0.01, mg: 0.01, ug: 0.1, mcg: 0.1, kcal: 1, kJ: 1, IU: 1, NE: 0.01 };
+const PANEL_STEP_DEFAULT = 0.01;
+function panelStep(unit) {
+  const u = String(unit == null ? '' : unit).trim();
+  return PANEL_STEP[u] != null ? PANEL_STEP[u] : PANEL_STEP_DEFAULT;
+}
+// 'absent'  -- not measured. Excluded from every percentage and every total.
+// 'zero'    -- measured, and it is zero.
+// 'trace'   -- present, below the displayed step.
+// 'value'   -- present and displayable.
+function panelState(v, unit) {
+  if (v == null || typeof v !== 'number' || v !== v) return 'absent';
+  if (v === 0) return 'zero';
+  return Math.abs(v) < panelStep(unit) ? 'trace' : 'value';
+}
+function panelText(v, unit) {
+  const st = panelState(v, unit);
+  if (st === 'absent') return '\u2013';
+  if (st === 'zero') return '0.00';
+  if (st === 'trace') return '<' + panelStep(unit);
+  const step = panelStep(unit);
+  const dp = step >= 1 ? 0 : (String(step).split('.')[1] || '').length;
+  return Number(v).toFixed(dp);
+}
+
+// ---- groups, and where a completeness claim is even possible ---------------
+// A "3 of 5 carried" claim needs a CLOSED, DECLARABLE membership. A chemical
+// family has one; "Vitamins" does not. So membership is declared only where it
+// exists, and a group without one shows its rows and makes no claim -- rather
+// than inventing a denominator so every heading can have a number.
+const PANEL_FAMILY = {
+  'Omega-3': { members: [851, 629, 621, 631, 861],
+               names: ['ALA 18:3 n-3', 'EPA 20:5 n-3', 'DHA 22:6 n-3', 'DPA 22:5 n-3', '20:3 n-3'] },
+  'Omega-6': { members: [618, 832, 854, 855],
+               names: ['LA 18:2 n-6', 'GLA 18:3 n-6', '20:3 n-6', 'AA 20:4 n-6'] },
+};
+// Carried = the intersection with the slot list. The denominator is the DECLARED
+// list, never the rendered rows -- otherwise "3 of 5" restates the rows and is
+// unfalsifiable by construction.
+function panelFamily(name, slots) {
+  const f = PANEL_FAMILY[name];
+  if (!f) return null;
+  const have = f.members.filter(function (m) { return (slots || []).indexOf(m) >= 0; });
+  const missing = f.members.filter(function (m) { return (slots || []).indexOf(m) < 0; });
+  return { name: name, carried: have.length, declared: f.members.length,
+           have: have, missing: missing,
+           label: have.length + ' of ' + f.members.length + ' carried' };
+}
+
+// COMPUTED EQUIVALENTS SIT BESIDE THEIR INPUTS, NEVER ABOVE THEM. RAE is
+// retinol plus carotenoid conversion; NE includes tryptophan; DFE weights folic
+// acid. Each is DERIVED FROM its siblings, so drawing it as their parent inverts
+// the relationship and would invite a reader to check whether the children sum
+// to it. They never will.
+const PANEL_EQUIVALENT = [320, 409, 815];
+function panelIsEquivalent(slot) { return PANEL_EQUIVALENT.indexOf(slot) >= 0; }
+
+// The app's own micro keys, on the corpus's slot numbers. Only fourteen slots
+// have an app key; the other thirty-two can still be SHOWN, they simply have no
+// labelled counterpart to be compared against.
+const PANEL_SLOT_KEY = {
+  269: 'sugars_g', 301: 'calcium_mg', 303: 'iron_mg', 304: 'magnesium_mg',
+  306: 'potassium_mg', 307: 'sodium_mg', 309: 'zinc_mg', 320: 'vitamin_a_ug',
+  328: 'vitamin_d_ug', 401: 'vitamin_c_mg', 417: 'folate_ug', 418: 'vitamin_b12_ug',
+  601: 'cholesterol_mg', 606: 'saturated_fat_g',
+};
+const PANEL_KEY_SLOT = (function () {
+  const o = {};
+  Object.keys(PANEL_SLOT_KEY).forEach(function (n) { o[PANEL_SLOT_KEY[n]] = n | 0; });
+  return o;
+})();
+
+// ---- the rollup, with the two provenances kept apart -----------------------
+// The existing microRollup is untouched and still counts LABELLED micros only,
+// exactly as it always has. This is the richer view the panel needs, and it is
+// SLOT-keyed throughout so the two sides are on the same axis.
+function panelRollup(day) {
+  const items = (day && day.items) || [];
+  const out = {};
+  const touch = function (slot) {
+    if (!out[slot]) out[slot] = { slot: slot, labelled: 0, labelledN: 0,
+                                  reference: 0, referenceN: 0, m: items.length };
+    return out[slot];
+  };
+  items.forEach(function (it) {
+    if (it && it.micros) Object.keys(it.micros).forEach(function (k) {
+      const slot = PANEL_KEY_SLOT[k];
+      if (!slot) return;                       // a micro with no slot has nothing to compare to
+      const e = touch(slot); e.labelled += num(it.micros[k]); e.labelledN += 1;
+    });
+    const rv = it && it.ref && it.ref.v;
+    if (rv) Object.keys(rv).forEach(function (n) {
+      const e = touch(n | 0); e.reference += num(rv[n]); e.referenceN += 1;
+    });
+  });
+  Object.keys(out).forEach(function (k) { out[k].m = items.length; });
+  return out;
+}
+// The one sentence the panel may print about a combined figure -- and it may
+// only print a combined figure WITH it.
+// The groups, in Cronometer's order. Nesting ONLY where the parts are genuinely
+// parts: fatty acids under their totals, sugars and fibre under carbohydrate.
+// Protein is a ROW, not a one-row section -- a heading over a single line is a
+// heading pretending to be a section.
+const PANEL_GROUPS = [
+  { name: 'General', slots: [208, 255, 207, 221, 262, 263, 268] },
+  { name: 'Carbohydrates', slots: [205], kids: { 205: [269, 291] } },
+  { name: 'Lipids', slots: [204, 601],
+    kids: { 204: [606, 645, 646], 645: [617], 646: [618, 621, 631, 832, 854, 861] } },
+  { name: 'Vitamins', slots: [320, 318, 319, 328, 401, 404, 405, 406, 409, 415, 417, 431, 806, 815, 418] },
+  { name: 'Minerals', slots: [301, 303, 304, 305, 306, 307, 309, 312] },
+];
+// Protein is deliberately not a group: it is one row in General.
+const PANEL_PROTEIN_SLOT = 203;
+
+function panelSlotLabel(slot) {
+  const k = PANEL_SLOT_KEY[slot];
+  if (k && MICRO_LABEL[k]) return MICRO_LABEL[k].label;
+  const names = {
+    203: 'Protein', 204: 'Fat', 205: 'Carbohydrate', 207: 'Ash', 208: 'Energy',
+    221: 'Alcohol', 255: 'Water', 262: 'Caffeine', 263: 'Theobromine',
+    268: 'Energy (kJ)', 291: 'Fibre', 305: 'Phosphorus', 312: 'Copper',
+    318: 'Vitamin A (IU)', 319: 'Retinol', 404: 'Thiamin', 405: 'Riboflavin',
+    406: 'Niacin', 409: 'Niacin equivalent', 415: 'Vitamin B-6', 431: 'Folic acid',
+    617: 'MUFA 18:1', 618: 'LA 18:2 n-6', 621: 'DHA 22:6 n-3', 631: 'DPA 22:5 n-3',
+    645: 'Monounsaturated', 646: 'Polyunsaturated', 806: 'Folate, naturally occurring',
+    815: 'Folate (DFE)', 832: 'GLA 18:3 n-6', 854: '20:3 n-6', 861: '20:3 n-3',
+    606: 'Saturated',
+  };
+  return names[slot] || ('slot ' + slot);
+}
+function panelSlotUnit(slot) {
+  const k = PANEL_SLOT_KEY[slot];
+  if (k && MICRO_LABEL[k]) return MICRO_LABEL[k].unit;
+  if (slot === 208) return 'kcal';
+  if (slot === 268) return 'kJ';
+  if (slot === 318) return 'IU';
+  if (slot === 409) return 'NE';
+  if ([319, 431, 806, 815].indexOf(slot) >= 0) return 'mcg';
+  if ([305, 312].indexOf(slot) >= 0) return 'mg';
+  return 'g';
+}
+
+function panelCoverageLine(e) {
+  if (!e) return '';
+  const parts = [];
+  if (e.labelledN) parts.push('from ' + e.labelledN + ' of ' + e.m + ' items');
+  if (e.referenceN) parts.push(e.referenceN + ' from the reference database');
+  return parts.join(' \u00b7 ');
+}
+
+// ---- D120: resolve, and the acquire trigger that ships with it -------------
+// D117: the trigger ships in the same slice as the first reader, because a
+// trigger with no reader is dead code and a reader with no trigger is a feature
+// silently holding no data. RESOLVE is the first reader -- not the panel, which
+// reads frozen values off items and must never touch the corpus (D59: no log
+// operation ever awaits the corpus).
+function corpusEnsure() {
+  const st = corpusState();
+  if (st.ready && st.ns === corpusNamespace()) return Promise.resolve({ ok: true, why: 'ready' });
+  return corpusAcquire(false);
+}
+
+// PAST MEALS NEVER REVISE (D59). The values are frozen here, at resolve time,
+// scaled to the grams this item actually was. The corpus is never consulted for
+// this item again, so a later corpus refresh cannot rewrite what was logged.
+function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance) {
+  if (!it || !meta || !row) return null;
+  const g = Number(it.grams);
+  if (!(g > 0)) return null;                  // no grams, no basis (D112)
+  const v = {};
+  (meta.slots || []).forEach(function (slot, i) {
+    const x = row[i];
+    if (typeof x === 'number' && x === x) v[slot] = x * (g / 100);
+  });
+  return {
+    ns: meta.ns, id: String(corpusId), name: String(corpusName || ''),
+    at: todayKey(), hash: meta.hash,
+    // FORENSIC ONLY, never an input to re-resolution (D59's pin). It explains
+    // what happened; it must never be used to redo it.
+    d: (typeof distance === 'number' && distance === distance) ? distance : null,
+    attribution: String(meta.attribution || ''),
+    v: v,
+  };
+}
+// Nothing here decides: the caller passes the row the USER chose (D119).
+function resolveItem(dayKey, idx, corpusId, corpusName, distance) {
+  const day = APP_STATE.days[dayKey];
+  const it = day && day.items && day.items[idx];
+  if (!it) return Promise.resolve({ ok: false, why: 'no-item' });
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (!m) return { ok: false, why: 'no-corpus' };
+    return corpusLookup(corpusId).then(function (row) {
+      if (!row) return { ok: false, why: 'no-row' };
+      const ref = resolveItemFreeze(it, m, row, corpusId, corpusName, distance);
+      if (!ref) return { ok: false, why: 'no-basis' };
+      it.ref = ref;
+      Store.saveState(APP_STATE);
+      refresh();
+      return { ok: true, ref: ref };
+    });
+  });
+}
+function clearItemRef(dayKey, idx) {
+  const day = APP_STATE.days[dayKey];
+  const it = day && day.items && day.items[idx];
+  if (!it || !it.ref) return { ok: false };
+  delete it.ref;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+
+
+// ---- "typical", where no cited target exists (F1) ---------------------------
+// D32 requires a citation for a target, and the app has no cited INTAKE targets
+// -- its sourced bands are blood analytes, which are a different thing. So the
+// panel shows no percentages at all. What it can honestly show is the user's own
+// typical, on D95's terms: the median over the same 28-day window, with the same
+// 8-day floor, DESCRIPTIVE and never prescriptive. Below the floor it shows
+// nothing rather than a thinner typical.
+function panelTypical(slot, today) {
+  const end = today || todayKey();
+  const vals = [];
+  for (let i = 0; i < TYPICAL_WINDOW; i++) {
+    const d = shiftDate(end, -i);
+    const day = APP_STATE.days[d];
+    if (!day) continue;
+    const roll = panelRollup(day)[slot];
+    if (!roll) continue;
+    const t = roll.labelled + roll.reference;
+    if (roll.labelledN + roll.referenceN > 0) vals.push(t);
+  }
+  if (vals.length < TYPICAL_MIN_DAYS) return { enough: false, n: vals.length };
+  vals.sort(function (a, b) { return a - b; });
+  return { enough: true, n: vals.length, median: quantileSorted(vals, 0.5) };
+}
+
+// ---- the panel ---------------------------------------------------------------
+function panelRowHTML(slot, e, depth) {
+  const unit = panelSlotUnit(slot);
+  const lab = e ? e.labelled : null;
+  const ref = e ? e.reference : null;
+  const hasL = !!(e && e.labelledN);
+  const hasR = !!(e && e.referenceN);
+  // A COMBINED FIGURE MAY ONLY BE SHOWN WITH THE SENTENCE THAT EXPLAINS IT.
+  // Generic cheddar is not your cheddar, so a reference value never disappears
+  // into a labelled total without the coverage line saying it is in there.
+  const total = (hasL || hasR) ? ((hasL ? lab : 0) + (hasR ? ref : 0)) : null;
+  const txt = panelText(total, unit);
+  const st = panelState(total, unit);
+  const cov = panelCoverageLine(e);
+  const eq = panelIsEquivalent(slot)
+    ? ' <span class="peq" title="a computed equivalent, derived from the rows beside it">equiv</span>' : '';
+  return '<div class="prow pd' + depth + (st === 'absent' ? ' pabs' : '') + '">'
+    + '<span class="pname">' + esc(panelSlotLabel(slot)) + eq + '</span>'
+    + '<span class="pval">' + esc(txt) + (st === 'absent' ? '' : ' <small>' + esc(unit) + '</small>') + '</span>'
+    + (cov ? '<span class="pcov">' + esc(cov) + '</span>' : '')
+    + '</div>';
+}
+
+function panelHTML(day) {
+  const roll = panelRollup(day);
+  const items = (day && day.items) || [];
+  const anyRef = items.some(function (it) { return it && it.ref; });
+  const anyVal = Object.keys(roll).length > 0;
+  if (!anyVal)
+    return '<div class="note" style="margin:0">Nothing measured yet on this day. '
+      + 'Scanned products carry what their label states; anything else can be matched '
+      + 'to the reference database from its row.</div>';
+
+  let html = '';
+  // Protein is a ROW, in General -- not a section of one line.
+  const general = PANEL_GROUPS[0];
+  PANEL_GROUPS.forEach(function (g) {
+    const slots = (g.name === 'General') ? [PANEL_PROTEIN_SLOT].concat(g.slots) : g.slots;
+    let body = '';
+    slots.forEach(function (slot) {
+      body += panelRowHTML(slot, roll[slot], 0);
+      const kids = (g.kids && g.kids[slot]) || [];
+      kids.forEach(function (k) {
+        body += panelRowHTML(k, roll[k], 1);
+        const gk = (g.kids && g.kids[k]) || [];
+        gk.forEach(function (k2) { body += panelRowHTML(k2, roll[k2], 2); });
+      });
+    });
+    // A FAMILY MAY ONLY BE DRAWN AS A GROUP WITH ITS COMPLETENESS STATED. Our
+    // omega-3 row set is three of the five members; a heading without the count
+    // would show three and silently omit the two a reader looks for (D8 at group
+    // level, where the HEADING does the understating).
+    let fam = '';
+    if (g.name === 'Lipids') {
+      const slotList = corpusState().ready ? (CORPUS_MEM.slots || []) : [];
+      ['Omega-3', 'Omega-6'].forEach(function (fn) {
+        const f = panelFamily(fn, slotList.length ? slotList : PANEL_FAMILY[fn].members.filter(function (m) {
+          return [621, 631, 861, 618, 832, 854].indexOf(m) >= 0; }));
+        if (f) fam += '<div class="pfam">' + esc(fn) + ' \u2014 ' + esc(f.label) + '</div>';
+      });
+    }
+    html += '<div class="pgrp"><div class="phead">' + esc(g.name) + '</div>' + fam + body + '</div>';
+  });
+
+  // The licence requires the attribution to travel with any displayed value.
+  const attr = {};
+  items.forEach(function (it) { if (it && it.ref && it.ref.attribution) attr[it.ref.attribution] = 1; });
+  const cites = Object.keys(attr);
+  if (cites.length)
+    html += '<div class="pcite">Reference values: ' + esc(cites.join(' \u00b7 ')) + '</div>';
+  else if (anyRef)
+    html += '<div class="pcite">Reference values from the composition database.</div>';
+  html += '<div class="pcite">\u2013 not measured \u00b7 0.00 measured zero \u00b7 &lt;step present but below the shown step. '
+    + 'No percentages are shown: the app has no cited intake targets, and a target without a citation is a claim.</div>';
+  return html;
+}
+function renderPanel() {
+  const el = document.getElementById('microPanel');
+  if (!el) return;
+  const day = APP_STATE.days[APP_STATE.current];
+  el.innerHTML = day ? panelHTML(day) : '';
+}
+
 // ---- D119: the matcher ------------------------------------------------------
 // THE METRIC IS PINNED BEFORE ANYTHING SCORES AGAINST IT. A metric chosen after
 // seeing scores is fitted to them, and every earlier number becomes
@@ -2073,6 +2409,8 @@ function renderDay() {
   const dnote = dcov.partial ? `<div class="daycov">${esc(coverageNote(dcov))}</div>` : '';
   html += `<div class="daytot"><span>Total (est.)</span><span>${esc(rDisp(t.kcal))} kcal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}`;
   const w = day.water_l || 0;
+  // D120: OPT-IN, closed by default -- depth on demand, never the first thing seen.
+  html += `<details class="mpanel"><summary>Micronutrients</summary><div id="microPanel"></div></details>`;
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
       <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
   html += `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'End &amp; complete this day'}</button>`;
@@ -6043,7 +6381,7 @@ function refresh() {
     try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
     AUTOCLOSE_BUSY = false;
   }
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -6153,6 +6491,7 @@ const VERSION_LOG = [
   { v: '0.39.0', d: '2026-09-22', note: 'If you forget to mark yourself awake, the app now asks in a dialog rather than in the ring, and fills in the time you usually wake \u2014 worked out from your own nights, one tap to accept. If you never answer, after a day the night is closed at that usual time and marked as an estimate rather than left running. It needs eight of your own recorded nights before it will suggest anything.' },
   { v: '0.40.0', d: '2026-09-23', note: 'Groundwork for micronutrients: the app can now hold a food-composition database on your device. It is fetched once, after the app is installed, and stored locally \u2014 Canadian data if your locale is Canada, USDA data otherwise. Nothing uses it yet, and a missing value is shown as missing rather than as zero.' },
   { v: '0.41.0', d: '2026-09-23', note: 'The app can now look a food up in the composition database it holds. For a scanned product it checks the match against the label\u2019s own numbers and, when they disagree, hands you the choice instead of guessing. Nothing is ever filled in silently on the strength of a match.' },
+  { v: '0.42.0', d: '2026-09-23', note: 'A micronutrient panel, closed by default, under each day. It groups nutrients, says which were measured, which were measured as zero, and which are present but too small to show \u2014 three different things a dash cannot tell apart. Where a figure leans on the reference database rather than a label, it says so and is counted separately.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11011,6 +11350,12 @@ window.HT = {
   MATCH_AXES, MATCH_DECLINE_MAX, MATCH_MIN_AXES, MATCH_CANDIDATES,
   matchItemVector, matchDistance, matchTokens, matchIndexBuild, matchIndexReady,
   matchCandidates, matchCandidatesIn, matchIndexFrom, matchScan, matchScore, matchDeclines, matchPhoto,
+  // D120 -- the panel
+  PANEL_STEP, PANEL_FAMILY, PANEL_EQUIVALENT, panelStep, panelState, panelText,
+  PANEL_SLOT_KEY, PANEL_KEY_SLOT, PANEL_GROUPS, PANEL_PROTEIN_SLOT,
+  panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
+  panelTypical, panelRowHTML, panelHTML, renderPanel,
+  panelFamily, panelIsEquivalent, panelRollup, panelCoverageLine,
   CORPUS_DB, CORPUS_STORE_META, CORPUS_STORE_VALUES, CORPUS_CACHE,
   // D113 -- a forgotten night closes on the sleeper's own pattern
   WAKE_MIN_NIGHTS, WAKE_WINDOW_DAYS, SLEEP_AUTO_CLOSE_MIN, WAKE_SRCS, minutesToHHMM,

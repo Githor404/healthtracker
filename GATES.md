@@ -4490,3 +4490,16 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | D119-cand **GATE** | the index **proposes**: candidates carry no verdict and no distance; the giblets/gizzard pair both surface and neither is certain; a nameless query proposes nothing |
 
 **Why `=== 0` is not asserted anywhere.** The corpus is float32, so a round-tripped value is not bit-identical to its source and a distance is never exactly zero. Asserting exactness would assert what the encoding cannot deliver.
+### D120 — the micronutrient panel — v0.42.0
+
+| case | asserts |
+|---|---|
+| D120-state **GATE** | absent / zero / trace are three different things; the step is **per unit** (g 0.01, µg 0.1, kcal 1); the same number is a value in one unit and a trace in another; each renders as itself |
+| D120-family **GATE** | omega-3 is **3 of 5 carried**, names which are missing, and the **denominator is the declared membership** — not the rendered rows, which would be unfalsifiable |
+| D120-equiv **GATE** | RAE, NE and DFE are marked equivalents, and **none is drawn as a parent** |
+| D120-shape **GATE** | there is **no Protein section**; protein is a row in General |
+| D120-prov **GATE** | labelled and reference are counted **separately on the same slot**; a combined figure carries the sentence that explains it |
+| D120-freeze **GATE** | values freeze **scaled to the item's grams**, with the attribution; the distance is forensic; no grams freezes **nothing**; an absent corpus value stays absent |
+| D120-panel **GATE** | **no percentages anywhere**; the CNF attribution travels with the values; the three states are explained on the page; an empty day says so rather than rendering 46 dashes |
+| D120-optin **GATE** | the panel is a disclosure in the day view and is **closed by default** |
+| D120-typical **GATE** | below D95's eight-day floor there is **no typical at all** — gated against a fixture seeded with three days, so the floor is what decides |

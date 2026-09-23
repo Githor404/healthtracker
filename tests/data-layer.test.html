@@ -9301,6 +9301,109 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D120: the micronutrient panel -------------------------------------
+  // THREE STATES, and the third is the one a dash cannot express.
+  res(HT.panelState(null, 'mg') === 'absent' && HT.panelState(NaN, 'mg') === 'absent',
+      'D120-state GATE: not measured is ABSENT -- excluded from every total and every percentage');
+  res(HT.panelState(0, 'mg') === 'zero',
+      'D120-state GATE: a measured zero is ZERO, which is not the same claim as absent (D8/D90)');
+  res(HT.panelState(0.004, 'g') === 'trace' && HT.panelState(0.05, 'ug') === 'trace',
+      'D120-state GATE: present but below the step is TRACE -- too small to show is not none');
+  res(HT.panelState(0.05, 'g') === 'value' && HT.panelState(0.5, 'ug') === 'value',
+      'D120-state GATE: and the SAME number is a value in one unit and a trace in another');
+  res(HT.panelStep('g') === 0.01 && HT.panelStep('ug') === 0.1 && HT.panelStep('kcal') === 1,
+      'D120-state GATE: the step is PER UNIT -- g, mg and ug cannot share one, so the third state is meaningless without the table');
+  res(HT.panelText(null, 'mg') === '\u2013' && HT.panelText(0, 'mg') === '0.00' &&
+      HT.panelText(0.004, 'g') === '<0.01' && HT.panelText(0.05, 'ug') === '<0.1',
+      'D120-state GATE: each state renders as itself, and the trace names the step in the nutrient\u2019s OWN unit');
+
+  // ---- a family is a group only WITH its completeness ---------------------
+  var OURS = [618, 621, 631, 832, 854, 861];
+  var O3 = HT.panelFamily('Omega-3', OURS);
+  res(O3 && O3.carried === 3 && O3.declared === 5 && O3.label === '3 of 5 carried',
+      'D120-family GATE: omega-3 is 3 of 5 carried -- ALA and EPA did not clear the bar, and a heading without the count would omit them silently');
+  res(O3.missing.indexOf(851) >= 0 && O3.missing.indexOf(629) >= 0,
+      'D120-family GATE: and it names WHICH are missing rather than only how many');
+  var THIN = HT.panelFamily('Omega-3', [621]);
+  res(THIN.declared === 5 && THIN.carried === 1,
+      'D120-family GATE: the denominator is the DECLARED membership, not the rendered rows -- otherwise \u201c1 of 1\u201d would restate the rows and be unfalsifiable');
+
+  // ---- computed equivalents sit BESIDE their inputs ----------------------
+  res(HT.panelIsEquivalent(320) && HT.panelIsEquivalent(409) && HT.panelIsEquivalent(815),
+      'D120-equiv GATE: RAE, niacin equivalent and DFE are marked as computed equivalents');
+  res(HT.PANEL_GROUPS.every(function (g) {
+    return Object.keys(g.kids || {}).every(function (p) { return !HT.panelIsEquivalent(p | 0); });
+  }), 'D120-equiv GATE: and NONE of them is drawn as a parent -- each is derived FROM its siblings, so nesting would invite a reader to check that the children sum to it, and they never will');
+
+  // ---- protein is a row, not a one-row section ---------------------------
+  res(HT.PANEL_GROUPS.every(function (g) { return g.name !== 'Protein'; }),
+      'D120-shape GATE: there is no Protein SECTION -- a heading over a single line is a heading pretending to be a section');
+  res(HT.PANEL_PROTEIN_SLOT === 203,
+      'D120-shape GATE: protein is a row, carried in General');
+
+  // ---- the two provenances are kept apart --------------------------------
+  var DAY120 = { status: 'in_progress', water_l: 0, items: [
+    { name: 'Scanned cheese', grams: 50, micros: { calcium_mg: 350 } },
+    { name: 'Matched rice', grams: 100, ref: { ns: 'cnf', attribution: 'Canadian Nutrient File, Health Canada, 2015',
+                                               v: { 301: 10, 303: 1.2 } } } ] };
+  var R120 = HT.panelRollup(DAY120);
+  res(R120[301] && R120[301].labelled === 350 && R120[301].labelledN === 1 &&
+      R120[301].reference === 10 && R120[301].referenceN === 1,
+      'D120-prov GATE: labelled and reference are counted SEPARATELY on the same slot -- they live in different maps, so nothing can merge them by forgetting a field');
+  res(R120[303] && R120[303].labelledN === 0 && R120[303].referenceN === 1,
+      'D120-prov GATE: a slot with only a reference value carries no labelled count');
+  var COV = HT.panelCoverageLine(R120[301]);
+  res(COV.indexOf('from 1 of 2 items') >= 0 && COV.indexOf('reference database') >= 0,
+      'D120-prov GATE: a combined figure carries the sentence that explains it -- generic cheddar is not your cheddar, so a reference value never disappears into a labelled total');
+
+  // ---- the freeze ---------------------------------------------------------
+  var META120 = { ns: 'cnf', slots: [301, 303], hash: 'h', attribution: 'Canadian Nutrient File, Health Canada, 2015' };
+  var FR = HT.resolveItemFreeze({ grams: 200 }, META120, new Float32Array([50, 2]), 'c1', 'Rice', 0.07);
+  res(FR && FR.v[301] === 100 && FR.v[303] === 4,
+      'D120-freeze GATE: values are frozen SCALED to the grams the item actually was -- the corpus is never consulted for this item again (D59)');
+  res(FR.attribution.indexOf('Health Canada') >= 0,
+      'D120-freeze GATE: and the attribution is frozen WITH them, so it travels wherever the value goes');
+  res(FR.d === 0.07,
+      'D120-freeze GATE: the distance is kept as forensics -- it explains the match and is never an input to redoing it (D59\u2019s pin)');
+  res(HT.resolveItemFreeze({ }, META120, new Float32Array([50, 2]), 'c1', 'Rice', 0) === null,
+      'D120-freeze GATE: an item with no grams has no basis and freezes NOTHING rather than guessing a weight');
+  res(HT.resolveItemFreeze({ grams: 100 }, META120, new Float32Array([50, NaN]), 'c1', 'Rice', 0).v[303] === undefined,
+      'D120-freeze GATE: an absent corpus value stays absent through the freeze, never becoming zero');
+
+  // ---- the panel says what it does not do --------------------------------
+  var H120 = HT.panelHTML(DAY120);
+  res(H120.indexOf('%') < 0,
+      'D120-panel GATE: NO percentages anywhere -- the app has no cited intake targets, and D32 makes an uncited target a claim');
+  res(H120.indexOf('Health Canada') >= 0,
+      'D120-panel GATE: the CNF attribution travels with the values shown');
+  res(H120.indexOf('not measured') >= 0 && H120.indexOf('measured zero') >= 0,
+      'D120-panel GATE: and the three states are explained on the page rather than left as symbols');
+  res(HT.panelHTML({ status: 'in_progress', water_l: 0, items: [] }).indexOf('Nothing measured yet') >= 0,
+      'D120-panel GATE: an empty day says so rather than rendering 46 dashes');
+
+  // ---- opt-in -------------------------------------------------------------
+  setLS({}); HT.boot(); HT.refresh();
+  var dv120 = document.getElementById('dayView').innerHTML;
+  res(dv120.indexOf('<details class="mpanel">') >= 0,
+      'D120-optin GATE: the panel is a disclosure in the day view');
+  res(dv120.indexOf('<details class="mpanel" open') < 0,
+      'D120-optin GATE: and it is CLOSED by default -- depth on demand, never the first thing seen');
+
+  // ---- typical, below the floor, shows nothing ---------------------------
+  // THREE days carrying the slot, which is the point: with no days at all the
+  // floor could be 8 or 1 and the answer would be the same, so a plant on it
+  // scored VACUOUS. The fixture has to make the wrong behaviour POSSIBLE (D96).
+  for (var td120 = 0; td120 < 3; td120++) {
+    var dk120 = HT.shiftDate(HT.localDate(), -td120);
+    HT.state().days[dk120] = { status: 'in_progress', water_l: 0,
+      items: [{ name: 'seed', grams: 100, micros: { calcium_mg: 100 + td120 } }] };
+  }
+  var TY120 = HT.panelTypical(301, HT.localDate());
+  res(TY120.n === 3,
+      'D120-typical fixture: three days carry the slot -- between one and the floor, so the floor is what decides');
+  res(TY120.enough === false,
+      'D120-typical GATE: below D95\u2019s eight-day floor there is no typical at all -- not a thinner one');
+
   // ---- D119: the matcher --------------------------------------------------
   // THE METRIC IS PINNED, and this gate is the pin. A metric changed after
   // scores exist is fitted to them, and every earlier number becomes

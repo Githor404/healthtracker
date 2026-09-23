@@ -4907,3 +4907,49 @@ The threshold was first ruled as *"the line below which the matcher declines"*. 
 **Defect pass: ten plants, ten failing their own named gates**, first pass, no repairs.
 
 **Suite: 2,292 assertions** (2,269 → 2,292).
+
+## D120 — The micronutrient panel, the resolve step, and a refinement to the honesty rule — v0.42.0 (2026-09-23)
+
+### The amendment, and why it is a refinement rather than a retreat
+
+CLAUDE.md read: *"micronutrients enter the log only from **labeled** sources."* A corpus value is neither a label nor a model, so the panel could not have been built without either breaking the rule or working around it. **It is amended in the brief itself**, with the reasoning attached:
+
+> The rule's purpose was to keep **fiction wearing decimals** out of daily totals, and **a cited corpus value is not fiction**. It is, however, **not your food** — generic cheddar is not your cheddar. So a reference value is never summed into the same figure as a labelled one without the panel saying so. **What the rule forbids is an uncited number, not a sourced one.**
+
+**Provenance is structural, not a flag.** Labelled micros stay in `it.micros`; reference micros live in `it.ref.v`, keyed by corpus slot. Two maps, so the existing `microRollup` keeps counting exactly what it always counted, and **nothing can merge them by forgetting to check a field.**
+
+### Resolve is the first reader, so the trigger ships here ([[D117]])
+
+The panel reads **frozen values off items** and never touches the corpus — D59's rule is that *no log operation ever awaits the corpus*, and a panel that queried it would break the freeze that makes the whole substrate payable. So the first reader is **resolve**, and `corpusEnsure()` ships with it.
+
+`resolveItemFreeze` scales the corpus row to **the grams the item actually was**, stores the attribution alongside, and keeps the match distance as **forensics only** — D59's pin: it explains what happened and is never an input to redoing it. An item with no grams freezes **nothing**, because guessing a weight to make the arithmetic work is [[D112]]'s fabrication.
+
+### Three states, and the third needed a table before it meant anything
+
+`–` not measured · `0.00` measured zero · `<step` present but below the displayed step. A display rule over stored values, no schema change — the corpus already distinguishes the first two because absence is NaN.
+
+**But "<0.01" is meaningless until each unit declares its own step.** g, mg and µg cannot share one: 0.05 is a *value* in grams and a *trace* in micrograms. `PANEL_STEP` is pinned per unit and gated, and the trace renders in the nutrient's **own** unit.
+
+### Where a completeness claim is possible, and where it is not
+
+**A "3 of 5 carried" claim needs a closed, declarable membership.** A chemical family has one; *"Vitamins"* does not. So membership is declared only for the fatty-acid families, and a group without one shows its rows and **makes no claim** — rather than inventing a denominator so every heading can have a number.
+
+**The denominator is the declared list, never the rendered rows.** Otherwise *"3 of 3"* restates the rows and is unfalsifiable by construction. Omega-3 is **3 of 5**: ALA and EPA did not clear the ≥90% bar, and the panel names which are missing rather than only how many.
+
+**Computed equivalents sit beside their inputs, never above them.** RAE, niacin equivalent and DFE are each *derived from* their siblings; drawing one as a parent would invite a reader to check that the children sum to it, and they never will. Gated: no group lists an equivalent as a parent.
+
+**Protein is a row, not a section.** No amino acid cleared the bar, and a heading over a single line is a heading pretending to be a section.
+
+### No percentages at all, stated on the page
+
+[[D32]] requires a citation for a target, and the app has **no cited intake targets** — its sourced bands are blood analytes, which are a different thing. So the panel shows **no percentages**, and says so where a reader would look for them. What it can honestly show is the user's own **typical**, on [[D95]]'s terms: same 28-day window, same eight-day floor, descriptive and never prescriptive — and **below the floor, nothing rather than a thinner typical**.
+
+### What the defect pass found
+
+**Thirteen plants, thirteen failing their own named gates**, after one repair: the typical-floor plant scored **VACUOUS** because the fixture had no days carrying the slot, so `vals.length` was 0 and the floor could have been 8 or 1 with the same answer. **The fixture could not make the wrong behaviour possible** ([[D96]]), and was seeded with three days — between one and the floor — so the floor is what decides.
+
+**Suite: 2,321 assertions** (2,292 → 2,321).
+
+### Still open
+
+The panel renders *values*; nothing yet **offers** a resolve from an item row, so `resolveItem` has a caller only in tests. That is the next surface, and it is where [[D119]]'s decline line becomes visible: above 0.20 the user is handed the candidate list, below it a single proposal to confirm.
