@@ -4609,3 +4609,87 @@ D38 and D42's gates said the question lives in the centre and that a segment is 
 **Defect pass: twelve plants, twelve failing their own named gates.**
 
 **Suite: 2255 assertions, all passing** (2225 → 2255).
+
+## D114 — H13 part 1: the sources measured, and the slot list frozen (2026-09-22)
+
+No shell change, no `APP_VERSION` bump — nothing in the app moves yet. What ships is the **slot list**, which is append-only forever and therefore had to be settled before any code could depend on it, plus the derivation that produced it and a gate that keeps it honest.
+
+[[D59]]'s substrate and [[D62]]'s dish fork stand. This rules **source, subset, slot list and acquisition**, and scopes the matcher **out**.
+
+### What was measured (downloaded and counted, not read about)
+
+| source | download | unzipped | foods | nutrients |
+|---|---|---|---|---|
+| FDC **Foundation** (04/2026) | 469,303 B | 6.7 MB | **395, of which 363 non-null** | 226 distinct |
+| FDC **SR Legacy** (2018, frozen) | 13,456,312 B | 211 MB | **7,793** | 148 distinct |
+| **CNF 2015** | **5,226,720 B** | ~26 MB CSV | **5,690** | 152 defined, 524,674 amount rows |
+
+Nutrients clearing each coverage bar — the number that decides the slot list:
+
+| bar | Foundation | SR Legacy | CNF |
+|---|---|---|---|
+| ≥95% | 10 | 15 | **27** |
+| ≥90% | 13 | 28 | **42** |
+| ≥75% | 15 | 48 | **60** |
+
+### THE BRIEF WAS WRONG ON ITS CENTRAL POINT, AND THE MEASUREMENT CORRECTED IT
+
+The slice was framed around *"bundling everything is not possible, the subsetting rule is the slice's central decision."* **That was an assumption.** SR Legacy and CNF together are **18.7 MB zipped**, and the payload actually kept is ~7,793 × ~50 slots × f32 ≈ **1.9 MB dense**, less sparse.
+
+**So the subsetting question was mis-framed: the answer is COLUMNS, not ROWS.** Row subsetting would have manufactured not-found holes for the matcher to paper over — **making the hardest part of the project harder in order to buy space that was already there.** Column subsetting is bounded, append-only, and touches nothing the matcher searches.
+
+**Two further corrections from the same measurement.** FDC **Foundation Foods is not a candidate** — 363 usable foods, vitamin A at 14.0%, D at 14.3%, B12 at 17.6%; it is a quality reference, and anyone reaching for "the modern FDC set" lands on 363 foods with no vitamins. And **CNF is the denser source, not merely the Canadian one** (42 nutrients at ≥90% against SR Legacy's 28), so the locale ruling is right on a second and independent ground.
+
+### The sugars finding: the name problem arrives before any food name
+
+Same publisher, two datasets, one nutrient:
+
+| | name | id |
+|---|---|---|
+| Foundation | `Sugars, Total` | **1063** |
+| SR Legacy | `Total Sugars` | **2000** |
+
+**Keying slots on the FDC id would have split one nutrient in two, silently.** The shared key is the **USDA SR number** — FDC exposes it as `nutrient.number`, CNF uses it as `NutrientID` — which aligns for protein 203, calcium 301, iron 303, sodium 307, B12 418, folate 417.
+
+This is the evidence for the matcher being **its own slice**. If nutrient names — a closed, curated, ~150-entry vocabulary maintained by one publisher — are this unstable, food names across publishers will be worse. It cost twenty minutes to learn and it came from the data rather than from reasoning about the data.
+
+### THE VITAMIN A CASE, AND THE RULE IT GENERALISES TO
+
+FDC's retinol activity equivalents is **SR 320 at 88.8%** — below the bar. CNF's is **814 at 95.4%** — above it. **The two halves of one nutrient fell on opposite sides of a threshold.**
+
+> **A coverage threshold applied per-namespace can split one nutrient across the bar.** Without an override, a nutrient would **exist or not depending on locale**, and no user could diagnose why: the panel would simply have a row in Canada and no row elsewhere, with nothing on the surface to explain it. **So the bar is evaluated on the UNION, and the override table is what makes that true.**
+
+It generalises immediately: **vitamin D is FDC 328 and CNF 339** — entirely different numbers for the same quantity in the same unit. Both are named merges in `slots.json`.
+
+### The slot list: 46 = 44 derived + 2 judged, with 2 merges
+
+Kept **separately countable on purpose**. *A curated list wearing a derivation's clothes would be the failure this guards against*, and it only survives scrutiny because both sets are visible and countable.
+
+**The judged additions, named one at a time:** **vitamin D** (clears the bar in neither — 66.5% FDC, 87.9% CNF) and **sugars** (77.1% FDC, 81.6% CNF). Both are in `MICRO_SPEC` and arrive from OFF labels **today**. A corpus that cannot hold them would be **a schema that cannot hold a nutrient the app already stores** — exactly the cost the generosity ruling was written against: *an unused slot is 4 bytes; a missing one is a schema that cannot hold the value.*
+
+**A reporting fault caught before freezing.** The generator read each slot's CNF coverage off the canonical number, so **vitamin D reported CNF 0.0%** when CNF holds it at 87.9% under 339. The artifact would have understated the very evidence its own ruling rests on. Coverage is now read **through** the merge.
+
+### Acquisition — ruled here, because it is a property of the corpus
+
+**Bundled in-repo, in its own content-addressed cache, outside the atomic shell, fetched AFTER install and never inside `PRECACHE`.**
+
+- Same origin: no CORS, no third-party availability risk, no rate limit.
+- Its own cache prefix: [[D6]] Amendment A already deletes *only* `SHELL_PREFIX` caches and *"never other app caches"*, so a corpus cache survives shell generations by existing design — an app update that does not change the corpus does not re-download it.
+- **Not in `PRECACHE`**, and this is the load-bearing half: `install` does `cache.addAll(PRECACHE)`, so a failed corpus fetch inside it would fail the install and **take the offline shell down with it**. The corpus is worth having; it is not worth the shell.
+
+A device offline before the first corpus fetch has macros and no micros, and says so — which is the honesty pin, not a workaround for it.
+
+### Licence, carried into the design rather than the README
+
+CNF is usable *"without further permission"* on conditions, two of which bind code:
+
+- **Attribution travels with the value** — *"Health Canada be identified as the source (Canadian Nutrient File, Health Canada, 2015)"*, the same shape as [[D78]]'s openFDA disclaimer.
+- **Values may be re-expressed, never adjusted** — *"You may not modify the nutrient value but you may express it in different serving sizes than the 100g provided."* The corpus stores per-100 g exactly as published and scales only at portion time. This also constrains the override table: it may remap a slot's **identity**, never a **value**.
+
+FDC is US federal public domain; attribution is courtesy.
+
+### What is NOT built yet, stated plainly
+
+The encoder, the IndexedDB runtime, the acquisition path in code, and the panel. **The matcher is out of scope by ruling** ([[D76]] parked the evaluation set precisely for it), and the panel is deferred until Cronometer's per-food completeness marking has actually been looked at rather than recalled.
+
+**Gate suite: 12 verdicts** (was 11) — `tests/check-slots.sh` joins the static checks.

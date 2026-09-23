@@ -124,6 +124,7 @@ fi
 # placed deliberately. IN_HARNESS entries are NOT run here -- run-data-layer.sh
 # runs them as preconditions -- and this block only confirms it still calls them.
 STATIC_CHECKS="check-guidance.sh
+check-slots.sh
 check-precache.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh

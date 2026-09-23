@@ -4440,3 +4440,16 @@ Amends D38 and D112. A **fabricated** time comes from something unrelated and is
 | R16 / R181 **re-pointed** | the question is asked **in the dialog**, not the centre; byte-identity now **includes** provenance, gained on both paths rather than one |
 
 **Why the sub-rule has its own gate.** An app that learned from its own guesses would drift toward them, and the drift would present as **rising confidence**. Burying that inside the median gate would bury the thing that keeps the median honest.
+### D114 — the corpus slot list — no version bump
+
+The slot list is **append-only forever**, so it is the one artifact that must never drift silently.
+
+| case | asserts |
+|---|---|
+| SLOTS **GATE** | `slots.json` parses, and its own counts describe its own list — an artifact that miscounts itself is lying about the thing it exists to pin |
+| SLOTS **GATE** | slot numbers are unique and every slot carries a **unit** — a slot without one cannot hold a value that means anything |
+| SLOTS **GATE** | **every judged entry states why** — merges and additions alike. An unexplained hand-ruled entry is a curated list wearing a derivation's clothes |
+| SLOTS **GATE** | no source map points at a slot that is not in the list |
+| `derive_slots.py --check` | the stronger check: a full re-derivation from the sources must reproduce `slots.json` byte for byte. Run where the ~19 MB sources are to hand; not wired into the suite, which must run everywhere |
+
+**Why the committed check does not re-derive.** The sources are third-party archives and are deliberately not in the repo. A gate that cannot run is not a gate ([[D75]]), so the wired check tests what can be tested everywhere — self-consistency and stated reasons — and the re-derivation is named as the stronger check rather than pretended to be running.

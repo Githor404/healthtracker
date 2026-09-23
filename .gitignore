@@ -24,3 +24,12 @@ eval/set.json
 eval/tolabel.json
 eval/labels.json
 eval/*predictions*.json
+
+# The corpus SOURCES are third-party archives (~19 MB) and are never committed:
+# the repo is fixture-synthetic and public-facing, and corpus/README.md says
+# where to fetch them. The DERIVED slot list (corpus/slots.json) IS committed --
+# it is append-only forever and is the one thing that must not drift.
+corpus/*.zip
+corpus/srlegacy*
+corpus/cnf*
+corpus/slots_raw.json
