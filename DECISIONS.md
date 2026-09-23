@@ -4856,3 +4856,54 @@ Cronometer has **no food-level or day-level completeness count**: gaps are found
 **A section with one row is a heading pretending to be a section.** **Protein has exactly one slot** (`[203]`); no amino acid cleared the bar. Rendering a "Protein" section containing protein is worse than folding it into General, and the panel has to decide which — on the evidence, not on symmetry with Cronometer, whose protein section is full because its corpus carries amino acids and ours does not.
 
 **Neither is a defect in the corpus.** Both follow from the ≥90% bar working as ruled. They are facts about what the sources populate, and the panel's job is to show them honestly rather than to hide them behind a tidy heading.
+
+## D119 — The matcher: the index proposes, composition disposes, nothing resolves silently — v0.41.0 (2026-09-23)
+
+### The measurement that decided the shape
+
+**Names do not separate.** Across CNF and SR Legacy — two databases naming the same foods with no shared identifier — only **11.7%** of names match exactly, 14.8% normalised, 20.2% by token set. And **53% of pairs land in the 0.40–0.79 token-Jaccard band**, where same and different interleave:
+
+```
+0.75  Pie, fried, cherry             /  Pie, fried pies, cherry            SAME
+0.67  Turkey, giblets, simmered      /  Turkey, gizzard, cooked, simmered  DIFFERENT
+0.60  Potato, skin, microwaved       /  Potatoes, microwaved, skin         SAME
+0.43  Energy drink, with fruit juice /  Beverages, citrus juice drink      DIFFERENT
+```
+
+**So no similarity threshold on names can work**, and the token index is a **candidate generator and nothing else**. This is the sugars finding ([[D114]]) one layer out and worse: that was one publisher's closed nutrient vocabulary; this is food names across publishers.
+
+**Composition separates what names cannot.** Random corpus pairs sit at a median distance of **0.69**; at a 0.20 line only **0.6%** of them fall below.
+
+### Two modes, because the evidence differs
+
+**The distance signal exists exactly where it is least needed and is absent where it is most needed.** A **scanned** item already has composition from its label, so its corpus match can be *verified*: the corpus is not being asked what the food contains, but **which row it is**, so the micros the label omits can be borrowed. *Verify on what you know, borrow what you do not.* A **photo** item has no composition at all — the model identifies and never supplies numbers ([[D8]]) — so there is no distance to compute and nothing for a threshold to do. It returns candidates and no verdict.
+
+### The metric is pinned BEFORE anything scores against it
+
+Seven axes: `[203, 204, 205, 208, 301, 303, 307]`, mean relative difference over those present on **both** sides, minimum four. **Fibre is deliberately excluded**: it would make a better metric, and adding it would invalidate the only calibration there is. *A metric chosen after seeing scores is fitted to them*, and the gate asserts the axis list exactly so that changing it is a decision rather than a drift.
+
+### What 0.20 is, and what it is not
+
+**It only ever declines.** Above the line the matcher routes to the off-ramp and the user picks. Below it, a match is **proposed** — still a hypothesis to confirm ([[D62]]), never a result handed over. **Nothing resolves silently at any distance**, and that is the load-bearing gate: even a perfect match returns `decided: false`.
+
+**The caveat, at full weight.** 0.6% is specificity against **random** pairs, and the matcher never proposes a random pair — it proposes **name-similar** ones, which is precisely the population where compositions are also close. *So 0.6% is a floor on the false-accept rate, not an estimate of it*: it is the error rate against easy negatives, and the matcher only ever sees hard ones.
+
+**And the awkward part, recorded rather than smoothed.** Specificity is what was measured; sensitivity was not, because the same-food sample is contaminated — 343 of 1,149 name-matched pairs have distance **exactly** 0.00, CNF having incorporated USDA values, so those rows are one measurement appearing twice rather than two laboratories agreeing. **The measured half would therefore support auto-accepting below 0.20, and it is ruled against anyway**, on asymmetry of harm: *a wrong auto-accept writes a false number into the record silently; a wrong decline costs one tap.*
+
+### The direction was inverted in the ruling, and caught before it shipped
+
+The threshold was first ruled as *"the line below which the matcher declines"*. It is a **distance**: low means a good match, so that would have declined on near-perfect matches and resolved on random ones. The intent was right and the direction was not — corrected to *decline **above*** before any code existed. Recorded because the confusion is natural and will recur: **a distance and a confidence read the same way in a sentence and opposite ways in code.**
+
+### A consequence of the dense float32 encoding, found by a gate
+
+**Distances are never exactly zero.** A value round-tripped through the corpus is not bit-identical to the double it came from — 0.6 × 2 lands at 1.2000000476837158 — so an "identical composition" assertion written as `=== 0` fails. The gates compare against a tolerance, because *asserting exactness would be asserting something the encoding cannot deliver.* Small, but it would have read as a matcher bug rather than a float32 fact.
+
+### Scope, and D76's open question
+
+**The eval set is a directional regression guard, not a design-comparison instrument.** The honest core is the scanned items — label composition is ground truth, so they are distance-scored rather than identity-labelled — and the export currently holds **7 distinct scanned products**. `eval/score.py` already labels every figure `DIRECTIONAL` below 30 rows, structurally, so this needs no new discipline.
+
+**[[D76]]'s open question is half answered.** *"How is a label chosen without a candidate list that shares the matcher's reasoning?"* For **scanned** items it dissolves entirely: the label's composition is the ground truth, so there is no human label and no candidate list. For **photo** items it stands open, and [[D74]]'s `undecidable` remains a finished answer.
+
+**Defect pass: ten plants, ten failing their own named gates**, first pass, no repairs.
+
+**Suite: 2,292 assertions** (2,269 → 2,292).

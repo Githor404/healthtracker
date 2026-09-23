@@ -4478,3 +4478,15 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | corpus-gate **GATE** | the two namespaces report **different row counts**, or the switch selected the same corpus twice |
 
 **Why the override is asserted and not assumed.** `Emulation.setLocaleOverride` moves `Intl` but not `navigator.language`. Measured: with it, both cases ran `fdc` and the gate said so. `Network.setUserAgentOverride`'s `acceptLanguage` is what moves it. A gate that silently tests the default while claiming the override is worse than no gate.
+### D119 — the matcher — v0.41.0
+
+| case | asserts |
+|---|---|
+| D119-metric **GATE** | the axes are **exactly** the seven the 0.20 line was calibrated on; **fibre is not among them**; the line and the four-axis floor are pinned |
+| D119-vector **GATE** | an item is expressed **per 100 g**; a micro the label lacks is **absent, not zero**; an item with **no grams has no basis at all** and returns null |
+| D119-dist **GATE** | identical composition is zero to within float32 round-tripping; absent axes are **skipped, never zeroed**; fewer than four shared axes is **null** |
+| D119-decline **GATE** | **above** 0.20 it declines; at or below it does not; an **uncomputable** distance declines — no distance is not a good match |
+| D119-resolve **GATE** | **nothing ever resolves silently** — a perfect match still returns `decided: false`; above the line it declines to the off-ramp |
+| D119-cand **GATE** | the index **proposes**: candidates carry no verdict and no distance; the giblets/gizzard pair both surface and neither is certain; a nameless query proposes nothing |
+
+**Why `=== 0` is not asserted anywhere.** The corpus is float32, so a round-tripped value is not bit-identical to its source and a distance is never exactly zero. Asserting exactness would assert what the encoding cannot deliver.

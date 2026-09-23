@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.40.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.41.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1185,6 +1185,190 @@ function offerSignalUndo(records, label) {
 // One helper rather than eight patched call sites, per [[D50]]: the next write
 // path inherits the rule instead of deciding it again.
 function stampTime(dayKey) { return String(dayKey) === localDate() ? nowTime() : ''; }
+
+
+// ---- D119: the matcher ------------------------------------------------------
+// THE METRIC IS PINNED BEFORE ANYTHING SCORES AGAINST IT. A metric chosen after
+// seeing scores is fitted to them, and every earlier number becomes
+// incomparable. These are the SEVEN axes the 0.20 calibration was measured on --
+// fibre would make a better metric and is deliberately NOT here, because adding
+// it would invalidate the only calibration we have.
+const MATCH_AXES = [203, 204, 205, 208, 301, 303, 307];
+const MATCH_MIN_AXES = 4;            // fewer than this and the mean means little
+// THE DECLINE LINE, and it only ever declines. Above 0.20 the matcher routes to
+// the off-ramp and the user picks; below it, a match is still a HYPOTHESIS TO
+// CONFIRM (D62), never a result handed over.
+//
+// WHAT 0.20 IS AND IS NOT. Measured: 0.6% of RANDOM corpus pairs fall below it.
+// The matcher never proposes a random pair -- it proposes NAME-SIMILAR ones,
+// which is the population where compositions are also close. So 0.6% is a FLOOR
+// on the false-accept rate, not an estimate of it.
+//
+// And the awkward part, recorded rather than smoothed: the measured half would
+// support auto-accepting below 0.20, because specificity is what was measured
+// and sensitivity was not. It is ruled against anyway, on asymmetry of harm -- a
+// wrong auto-accept writes a false number into the record silently, a wrong
+// decline costs one tap.
+const MATCH_DECLINE_MAX = 0.20;
+const MATCH_CANDIDATES = 8;
+
+// Item fields expressed on the corpus's own axes. Everything is per 100 g,
+// because that is how the corpus stores it and the licence forbids storing it
+// any other way (D114).
+const MATCH_FIELD = { 203: 'protein_g', 204: 'fat_g', 205: 'carb_g', 208: 'kcal' };
+const MATCH_MICRO = { 301: 'calcium_mg', 303: 'iron_mg', 307: 'sodium_mg' };
+
+// An item's composition per 100 g, or null where it cannot be expressed -- a
+// portion of unknown weight cannot be put on a per-100g axis at all, and
+// guessing the weight to make the arithmetic work is the fabrication D112 closed.
+function matchItemVector(it) {
+  const g = Number(it && it.grams);
+  if (!(g > 0)) return null;
+  const out = {};
+  MATCH_AXES.forEach(function (slot) {
+    let v = null;
+    if (MATCH_FIELD[slot] != null) {
+      const raw = it[MATCH_FIELD[slot]];
+      if (raw != null && String(raw) !== '') v = Number(raw);
+    } else if (MATCH_MICRO[slot] != null) {
+      const m = (it && it.micros) || {};
+      const raw = m[MATCH_MICRO[slot]];
+      if (raw != null && String(raw) !== '') v = Number(raw);
+    }
+    if (v != null && v === v) out[slot] = v * (100 / g);
+  });
+  return out;
+}
+
+// Mean relative difference over the axes present on BOTH sides. An axis absent
+// on either side is SKIPPED, never zeroed: absence is not zero (D8/D90), and a
+// zero would read as perfect agreement about nothing.
+function matchDistance(vec, row, slots) {
+  if (!vec || !row) return null;
+  let used = 0, tot = 0;
+  for (let i = 0; i < MATCH_AXES.length; i++) {
+    const slot = MATCH_AXES[i];
+    const a = vec[slot];
+    const b = corpusValueAt(row, slots, slot);
+    if (a == null || a !== a || b == null) continue;
+    const m = Math.max(Math.abs(a), Math.abs(b), 1e-6);
+    tot += Math.abs(a - b) / m;
+    used++;
+  }
+  return used >= MATCH_MIN_AXES ? (tot / used) : null;
+}
+
+// ---- the token index: it PROPOSES, it never decides -------------------------
+// Names do not separate. Measured across CNF and SR Legacy: same-food pairs
+// score 0.60 and 0.75 token-Jaccard while different-food pairs score 0.43 and
+// 0.67 -- they interleave, so no similarity threshold can work. The index is
+// therefore a candidate generator and nothing else; what decides is composition
+// (a scan) or the person (a photo).
+const MATCH_STOP = ('and or with without in of the a an raw cooked boiled fresh frozen canned ' +
+  'dried prepared unprepared includes commodity usda nfs ns').split(' ');
+let MATCH_INDEX = null;
+function matchTokens(s) {
+  const t = String(s == null ? '' : s).toLowerCase()
+    .replace(/\(.*?\)/g, ' ').replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/);
+  const out = [];
+  for (let i = 0; i < t.length; i++)
+    if (t[i] && MATCH_STOP.indexOf(t[i]) < 0 && out.indexOf(t[i]) < 0) out.push(t[i]);
+  return out;
+}
+// Pure: an index over any [[id, name], ...] list. Kept separate from the cached
+// one so it can be exercised without a database, which the harness cannot host.
+function matchIndexFrom(list) {
+  const idx = {};
+  for (let r = 0; r < (list || []).length; r++) {
+    const tk = matchTokens(list[r][1]);
+    for (let i = 0; i < tk.length; i++) (idx[tk[i]] = idx[tk[i]] || []).push(r);
+  }
+  return { idx: idx, n: (list || []).length };
+}
+function matchIndexBuild() {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) { MATCH_INDEX = null; return null; }
+  MATCH_INDEX = matchIndexFrom(m.index);
+  return MATCH_INDEX;
+}
+function matchIndexReady() { return !!MATCH_INDEX; }
+
+// Pure. Returns CANDIDATES ONLY -- rank, never verdict.
+function matchCandidatesIn(index, list, name, limit) {
+  if (!index || !list) return [];
+  const q = matchTokens(name);
+  if (!q.length) return [];
+  const score = {};
+  for (let i = 0; i < q.length; i++) {
+    const rows = index.idx[q[i]] || [];
+    for (let j = 0; j < rows.length; j++) score[rows[j]] = (score[rows[j]] || 0) + 1;
+  }
+  const out = [];
+  Object.keys(score).forEach(function (r) {
+    const row = r | 0;
+    const t = matchTokens(list[row][1]);
+    const union = t.length + q.length - score[r];
+    out.push({ row: row, id: list[row][0], name: list[row][1],
+               overlap: score[r], jaccard: union > 0 ? score[r] / union : 0 });
+  });
+  out.sort(function (a, b) { return b.jaccard - a.jaccard || b.overlap - a.overlap; });
+  return out.slice(0, Math.max(1, limit || MATCH_CANDIDATES));
+}
+function matchCandidates(name, limit) {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) return [];
+  if (!MATCH_INDEX) matchIndexBuild();
+  return matchCandidatesIn(MATCH_INDEX, m.index, name, limit);
+}
+
+// ---- mode 1: a SCANNED item, verified by composition ------------------------
+// The label already gives composition, so the corpus is not being asked what the
+// food is made of -- it is being asked WHICH ROW this is, so the micros the label
+// omits can be borrowed. Verify on what is known, borrow what is not.
+function matchScan(it) {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) return { ok: false, why: 'no-corpus' };
+  const vec = matchItemVector(it);
+  if (!vec) return { ok: false, why: 'no-basis' };     // no grams: no per-100g axis
+  const cands = matchCandidates(it && it.name, MATCH_CANDIDATES);
+  if (!cands.length) return { ok: false, why: 'no-candidates' };
+  return { ok: true, vec: vec, candidates: cands };
+}
+// Scored once the rows are to hand (reading rows is async; scoring is not).
+function matchScore(vec, rows, slots) {
+  const out = [];
+  for (let i = 0; i < rows.length; i++) {
+    const d = matchDistance(vec, rows[i].row, slots);
+    out.push({ id: rows[i].id, name: rows[i].name, distance: d });
+  }
+  out.sort(function (a, b) {
+    if (a.distance == null) return 1;
+    if (b.distance == null) return -1;
+    return a.distance - b.distance;
+  });
+  const best = out.length ? out[0] : null;
+  // THE ONLY THING THE THRESHOLD DOES. Above the line: decline, and hand over.
+  // Below it: PROPOSE -- still a hypothesis the person confirms (D62).
+  if (!best || best.distance == null || best.distance > MATCH_DECLINE_MAX)
+    return { decided: false, why: 'declined', best: best, ranked: out };
+  return { decided: false, why: 'propose', best: best, ranked: out };
+}
+function matchDeclines(distance) {
+  return !(typeof distance === 'number' && distance === distance && distance <= MATCH_DECLINE_MAX);
+}
+
+// ---- mode 2: a PHOTO item, confirmed by the person --------------------------
+// There is no composition to verify against: the model identifies and never
+// supplies numbers (D8), so the only evidence is the name and the person. The
+// matcher therefore returns candidates and no verdict at all -- there is no
+// distance to compute and nothing for a threshold to do.
+function matchPhoto(name) {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) return { ok: false, why: 'no-corpus' };
+  const cands = matchCandidates(name, MATCH_CANDIDATES);
+  if (!cands.length) return { ok: false, why: 'no-candidates' };
+  return { ok: true, candidates: cands, decided: false, why: 'confirm' };
+}
 
 // ---- D114/D116: the micronutrient corpus ------------------------------------
 // SUBSTRATE per D59: IndexedDB, two object stores, written in ONE transaction,
@@ -5968,6 +6152,7 @@ const VERSION_LOG = [
   { v: '0.38.0', d: '2026-09-22', note: 'Logging something onto a day that is not today no longer stamps it with the current clock time. Back-filling last Tuesday\u2019s lunch used to record it at tonight\u2019s time; it is now recorded with no time, which is what was actually known. Lab panel values are no longer stamped 09:00, and a record with no time can be edited without inventing one.' },
   { v: '0.39.0', d: '2026-09-22', note: 'If you forget to mark yourself awake, the app now asks in a dialog rather than in the ring, and fills in the time you usually wake \u2014 worked out from your own nights, one tap to accept. If you never answer, after a day the night is closed at that usual time and marked as an estimate rather than left running. It needs eight of your own recorded nights before it will suggest anything.' },
   { v: '0.40.0', d: '2026-09-23', note: 'Groundwork for micronutrients: the app can now hold a food-composition database on your device. It is fetched once, after the app is installed, and stored locally \u2014 Canadian data if your locale is Canada, USDA data otherwise. Nothing uses it yet, and a missing value is shown as missing rather than as zero.' },
+  { v: '0.41.0', d: '2026-09-23', note: 'The app can now look a food up in the composition database it holds. For a scanned product it checks the match against the label\u2019s own numbers and, when they disagree, hands you the choice instead of guessing. Nothing is ever filled in silently on the strength of a match.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -10822,6 +11007,10 @@ window.HT = {
   // D114/D116 -- the micronutrient corpus
   corpusNamespace, corpusAssetURL, corpusOpen, corpusInstall, corpusHydrate, corpusState,
   corpusSlotIndex, corpusValueAt, corpusScale, corpusLookup, corpusAcquire,
+  // D119 -- the matcher
+  MATCH_AXES, MATCH_DECLINE_MAX, MATCH_MIN_AXES, MATCH_CANDIDATES,
+  matchItemVector, matchDistance, matchTokens, matchIndexBuild, matchIndexReady,
+  matchCandidates, matchCandidatesIn, matchIndexFrom, matchScan, matchScore, matchDeclines, matchPhoto,
   CORPUS_DB, CORPUS_STORE_META, CORPUS_STORE_VALUES, CORPUS_CACHE,
   // D113 -- a forgotten night closes on the sleeper's own pattern
   WAKE_MIN_NIGHTS, WAKE_WINDOW_DAYS, SLEEP_AUTO_CLOSE_MIN, WAKE_SRCS, minutesToHHMM,

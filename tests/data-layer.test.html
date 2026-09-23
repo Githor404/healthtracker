@@ -9301,6 +9301,96 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D119: the matcher --------------------------------------------------
+  // THE METRIC IS PINNED, and this gate is the pin. A metric changed after
+  // scores exist is fitted to them, and every earlier number becomes
+  // incomparable -- so the axes are asserted to be exactly the seven the 0.20
+  // calibration was measured on.
+  res(JSON.stringify(HT.MATCH_AXES) === JSON.stringify([203, 204, 205, 208, 301, 303, 307]),
+      'D119-metric GATE: the distance axes are exactly the seven the 0.20 line was calibrated on');
+  res(HT.MATCH_AXES.indexOf(291) < 0,
+      'D119-metric GATE: fibre is NOT an axis -- it would make a better metric, and adding it would invalidate the only calibration there is');
+  res(HT.MATCH_DECLINE_MAX === 0.20 && HT.MATCH_MIN_AXES === 4,
+      'D119-metric GATE: the decline line and the minimum-axes floor are pinned');
+
+  // ---- an item on the corpus's own axes ----------------------------------
+  var IT119 = { name: 'Cheddar cheese', grams: 50, kcal: 200, protein_g: 12.5,
+                fat_g: 16.5, carb_g: 0.6, micros: { calcium_mg: 350, sodium_mg: 320 } };
+  var V119 = HT.matchItemVector(IT119);
+  res(V119 && Math.abs(V119[208] - 400) < 0.001 && Math.abs(V119[203] - 25) < 0.001,
+      'D119-vector GATE: an item is expressed PER 100 G, because that is how the corpus stores it and the licence forbids storing it otherwise');
+  res(V119 && V119[303] === undefined,
+      'D119-vector GATE: a micro the label did not carry is ABSENT from the vector, not zero -- absence is never zero (D8/D90)');
+  res(HT.matchItemVector({ name: 'x', kcal: 100 }) === null,
+      'D119-vector GATE: an item with no grams has NO per-100g basis at all -- guessing a weight to make the arithmetic work is the fabrication D112 closed');
+
+  // ---- the distance ------------------------------------------------------
+  var SL119 = [203, 204, 205, 208, 301, 303, 307];
+  var SAME = new Float32Array([25, 33, 1.2, 400, 700, NaN, 640]);
+  // NOT `=== 0`, and the reason is the encoding: the corpus stores float32, so a
+  // value round-tripped through it is not bit-identical to the double it came
+  // from (0.6 x 2 lands at 1.2000000476837158). Distances are therefore never
+  // exactly zero, and a gate asserting exactness would be asserting something
+  // the dense f32 encoding cannot deliver.
+  res(HT.matchDistance(V119, SAME, SL119) < 1e-6,
+      'D119-dist GATE: identical composition on the shared axes is distance zero to within float32 round-tripping');
+  res(HT.matchDistance(V119, new Float32Array([25, 33, 1.2, 400, NaN, NaN, NaN]), SL119) < 1e-6,
+      'D119-dist GATE: axes absent on either side are SKIPPED, not zeroed -- a zero would read as perfect agreement about nothing');
+  res(HT.matchDistance(V119, new Float32Array([25, 33, 1.2, NaN, NaN, NaN, NaN]), SL119) === null,
+      'D119-dist GATE: fewer than four shared axes is NULL, not a confident mean over two numbers');
+  var FAR = HT.matchDistance(V119, new Float32Array([2, 0.5, 70, 350, 20, NaN, 5]), SL119);
+  res(FAR !== null && FAR > 0.5,
+      'D119-dist GATE: an unrelated food scores far above the line');
+
+  // ---- THE LINE ONLY EVER DECLINES ---------------------------------------
+  res(HT.matchDeclines(0.25) === true && HT.matchDeclines(0.69) === true,
+      'D119-decline GATE: above 0.20 the matcher DECLINES and hands over');
+  res(HT.matchDeclines(0.20) === false && HT.matchDeclines(0.0) === false,
+      'D119-decline GATE: at or below the line it does NOT decline -- but that is a proposal, never a resolution');
+  res(HT.matchDeclines(null) === true && HT.matchDeclines(NaN) === true,
+      'D119-decline GATE: an uncomputable distance declines -- no distance is not a good match');
+
+  // ---- NOTHING EVER RESOLVES SILENTLY, and this is the load-bearing gate --
+  var ROWS119 = [{ id: '1', name: 'Cheese, cheddar', row: SAME },
+                 { id: '2', name: 'Cheese, brie', row: new Float32Array([21, 28, 0.5, 334, 184, NaN, 629]) }];
+  var near = HT.matchScore(V119, ROWS119, SL119);
+  res(near.decided === false && near.why === 'propose',
+      'D119-resolve GATE: a PERFECT match is still only PROPOSED -- below the line is a hypothesis to confirm (D62), never a result handed over');
+  res(near.best && near.best.id === '1' && near.best.distance < 1e-6,
+      'D119-resolve GATE: and the nearest row is the one offered first');
+  var far = HT.matchScore(HT.matchItemVector({ name: 'y', grams: 100, kcal: 350, protein_g: 2,
+                          fat_g: 0.5, carb_g: 70, micros: { calcium_mg: 20, sodium_mg: 5 } }), ROWS119, SL119);
+  res(far.decided === false && far.why === 'declined',
+      'D119-resolve GATE: above the line it DECLINES -- routed to the off-ramp, the user picks');
+  res(HT.matchScore(V119, [], SL119).decided === false,
+      'D119-resolve GATE: with no rows at all it still decides nothing');
+
+  // ---- the token index PROPOSES, it never decides ----------------------
+  // Names do not separate: measured across CNF and SR Legacy, same-food pairs
+  // score 0.60 and 0.75 token-Jaccard while different-food pairs score 0.43
+  // and 0.67. They interleave, so no similarity threshold can work, and the
+  // index is a candidate generator and nothing else.
+  var LIST119 = [['a', 'Cheese, cheddar'], ['b', 'Cheese, brie'],
+                 ['c', 'Turkey, all classes, giblets, simmered'],
+                 ['d', 'Turkey, all classes, gizzard, cooked, simmered']];
+  var IDX119 = HT.matchIndexFrom(LIST119);
+  var C119 = HT.matchCandidatesIn(IDX119, LIST119, 'Cheddar cheese', 8);
+  res(C119.length > 0 && C119[0].id === 'a',
+      'D119-cand GATE: the index proposes, ranked by token overlap');
+  res(C119.every(function (c) { return c.distance === undefined && c.decided === undefined; }),
+      'D119-cand GATE: and a candidate carries NO verdict and NO distance -- ranking is not deciding');
+  var TUR = HT.matchCandidatesIn(IDX119, LIST119, 'Turkey giblets simmered', 8);
+  res(TUR.length >= 2 && TUR[0].jaccard < 1,
+      'D119-cand GATE: the giblets/gizzard pair both surface and neither is certain -- exactly the band where names cannot decide');
+  res(HT.matchCandidatesIn(IDX119, LIST119, '', 8).length === 0,
+      'D119-cand GATE: a nameless query proposes nothing rather than everything');
+  res(HT.matchTokens('Cheese, CHEDDAR (aged)').join(',') === 'cheese,cheddar',
+      'D119-cand GATE: tokens are case-folded, depunctuated, and parentheticals dropped');
+
+  // ---- a PHOTO item has no composition, so it gets no verdict at all -----
+  res(HT.matchPhoto('anything').ok === false,
+      'D119-photo GATE: with no corpus loaded the photo path offers nothing rather than guessing');
+
   // ---- D116: the micronutrient corpus runtime ----------------------------
   // The PURE seams first, because they are where a mis-indexed slot would turn
   // into a plausible number for the WRONG nutrient -- the worst failure this
