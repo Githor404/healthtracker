@@ -9288,6 +9288,52 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D116: the micronutrient corpus runtime ----------------------------
+  // The PURE seams first, because they are where a mis-indexed slot would turn
+  // into a plausible number for the WRONG nutrient -- the worst failure this
+  // corpus can have, and the reason the dense encoding was chosen.
+  var SL116 = [203, 301, 303, 320, 328];
+  res(HT.corpusSlotIndex(SL116, 303) === 2 && HT.corpusSlotIndex(SL116, 203) === 0,
+      'D116-slot GATE: a slot number maps to its COLUMN by position in the slot list');
+  res(HT.corpusSlotIndex(SL116, 999) === -1,
+      'D116-slot GATE: a slot that is not in the list is -1, never a column');
+  var ROW116 = new Float32Array([10, NaN, 0, 4.5, NaN]);
+  res(HT.corpusValueAt(ROW116, SL116, 203) === 10,
+      'D116-value GATE: a present value reads back');
+  res(HT.corpusValueAt(ROW116, SL116, 301) === null,
+      'D116-value GATE: NaN reads as NULL -- absence, not a number');
+  res(HT.corpusValueAt(ROW116, SL116, 303) === 0,
+      'D116-value GATE: and ZERO reads as ZERO -- absence is never zero (D8/D90), which is the whole reason the sentinel is NaN and not 0');
+  res(HT.corpusValueAt(ROW116, SL116, 999) === null,
+      'D116-value GATE: an unknown slot is null rather than whatever sits at that index');
+  res(HT.corpusValueAt(null, SL116, 203) === null,
+      'D116-value GATE: no row is null, not a throw');
+
+  // The licence permits re-expressing per serving and forbids modifying the
+  // value, so scaling happens at the point of use and never in the store.
+  res(HT.corpusScale(10, 200) === 20 && HT.corpusScale(10, 50) === 5,
+      'D116-scale GATE: per-100g values scale by grams at the point of use');
+  res(HT.corpusScale(null, 100) === null && HT.corpusScale(10, 0) === null,
+      'D116-scale GATE: an absent value scales to absent, never to zero');
+
+  // Locale selects the SOURCE NAMESPACE, because fortification differs by
+  // country -- a Canadian cereal's folate is a different number, not a
+  // differently-formatted one.
+  res(HT.corpusNamespace('en-CA') === 'cnf' && HT.corpusNamespace('fr-CA') === 'cnf',
+      'D116-ns GATE: a Canadian locale selects the CNF namespace');
+  res(HT.corpusNamespace('en-US') === 'fdc' && HT.corpusNamespace('') === 'fdc',
+      'D116-ns GATE: anything else takes FDC as the default namespace');
+  res(HT.corpusAssetURL('cnf', 'bin').indexOf('cnf.bin') > 0 &&
+      HT.corpusAssetURL('fdc', 'json').indexOf('fdc.json') > 0,
+      'D116-ns GATE: the asset URL is derived from the namespace, so one device fetches ONE corpus');
+
+  // The corpus is an ASSET, not user data (D59): never in the export.
+  var exp116 = HT.exportJSON();
+  res(exp116.indexOf('corpus') < 0 && exp116.indexOf(HT.CORPUS_DB) < 0,
+      'D116-asset GATE: the corpus appears nowhere in the export -- it is re-acquired, not restored, and a refresh can never alter history');
+  res(HT.CORPUS_CACHE.indexOf('shell') < 0,
+      'D116-asset GATE: the corpus cache has its OWN prefix, so D6 Amendment A\u2019s shell cleanup cannot evict it');
+
   // ---- D113: a forgotten night closes on the sleeper's own pattern --------
   // AMENDS D38 (never auto-closed) and D112 (an invented time must not be
   // written). The line: a FABRICATED time comes from something unrelated and is

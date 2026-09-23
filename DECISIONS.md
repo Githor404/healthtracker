@@ -4724,3 +4724,42 @@ Nothing downstream was wrong — the merge itself was correct, and the slot was 
 **Why this is not [[D109]].** D109 is a gate that reads mutable state the fixture may have written — an assertion measuring the fixture. This is narrower and in some ways worse: the instrument was **correct about the thing it was asked** (which slots exist) and **wrong in the evidence it recorded alongside** (how well populated they are). The primary output was right, so nothing failed, and only a reader comparing two numbers from different runs would ever have noticed.
 
 **What it costs to apply:** one assertion per instrument, against one value known independently. `corpus/derive_slots.py --check` now re-derives and compares byte-for-byte, which catches drift; this rule is about the run **before** there is anything to drift from.
+
+## D116 — H13 part 2: the encoder, the corpus runtime, and the acquisition path — v0.40.0 (2026-09-23)
+
+The corpus can now live on a device. Nothing reads it yet — the matcher is out of scope by ruling — but the substrate [[D59]] specified exists, holds the real data, and is gated against it.
+
+**Encoder** (`corpus/encode.py`): dense little-endian `Float32Array`, row-major, **NaN where the source has no value**, one file per namespace plus an index carrying the slot list and the licence attribution. Output matches the [[D115]] measurement to the byte — `fdc.bin` gzips to 532,155 B, the same figure the measurement script produced independently, which is the cross-check that the encoder encodes what was measured.
+
+| namespace | rows | raw | gzip |
+|---|---|---|---|
+| `fdc` | 7,793 | 1,433,912 B | 532,155 B |
+| `cnf` | 5,690 | 1,046,960 B | 426,899 B |
+
+**Runtime** per D59: IndexedDB, **two object stores written in ONE transaction**, index hydrated to RAM at boot, values left on disk and read a row at a time. A half-written corpus — an index with no values, or values with no index — would answer lookups with numbers it cannot attribute, so the two stores commit together or not at all, and a payload whose byte length is not `rows × cols × 4` is refused before either is touched. **The corpus is dense, which makes its size a checkable claim about its shape.**
+
+**Acquisition** as ruled: bundled in-repo, own cache prefix, fetched **after** install and never inside `PRECACHE`. `tests/check-precache.sh` now asserts that by name, along with the shell cleanup staying prefix-scoped — without which a shell generation would evict the corpus with it.
+
+**Licence in the design.** The attribution travels **inside the stored meta**, so it is present wherever a value is, and the encoder stores per-100 g values exactly as published; `corpusScale` re-expresses at the point of use. Re-expressing is permitted, modifying is not.
+
+### The gate had to move, and the reason is the point
+
+**IndexedDB on a `file://` origin neither succeeds nor fails — `open()` simply never calls back.** The committed harness runs from `file://`, so the round trip cannot be tested there. A harness case would **hang**, and a hang is a no-verdict, which reads exactly like the characterised output-capture intermittent ([[D110]]).
+
+So the slice is gated on **two surfaces**: the pure seams (slot → column, NaN → null, per-100 g scaling, namespace selection) in the harness where they can run, and the **round trip in a ninth CDP gate**, `corpus-gate.ps1`, served over http where IndexedDB works — and asserted against the **real committed asset**, not a fixture: 7,793 rows × 46 cols, matching what the encoder declared.
+
+I first wrote the round trip as a harness case with a 6-second net, watched it report *"IndexedDB on this origin neither succeeded nor failed"*, and removed it. **A green assertion over untested code would have been worse than no assertion**; the net is what turned a hang into that sentence.
+
+### What the defect pass found
+
+**A page exception was being classified as an environment error.** The gate exited 2 — *"could not run at all"* — when the page threw, so the plant that split the one transaction into two returned **no verdict**: the one outcome a defect pass cannot read. Exit 2 is now reserved for no browser, no CDP, no asset; **a throw inside the page is the code failing and fails the gate.** The plant then failed with seventeen named failures.
+
+**And a guard was found unreachable.** `corpusValueAt` bounds-checked `i < 0 || i >= row.length` before reading. On a `Float32Array` both cases yield `undefined`, which the `typeof` test already rejects — so a plant on the bounds half was **vacuous by construction**. It is removed rather than kept as defence that cannot be shown to defend anything, and the plant re-pointed at the `typeof` test, which is what actually does the work. This is [[D114]]'s dead-builder finding again: **code nothing can reach is not a behaviour, and a plant on it can only ever be vacuous.**
+
+**Defect pass: nine plants, nine failing their own named gates**, across both surfaces.
+
+**Suite: 13 verdicts** (was 12) — `corpus-gate.ps1` joins the CDP gates, census 8 → 9. Harness 2,269 assertions.
+
+### Still not built
+
+The panel, and the matcher. The repo now carries **3.3 MB** of corpus assets, which is a real and deliberate addition to a repo otherwise measured in kilobytes — noted here so it is a decision on the record rather than a surprise later.

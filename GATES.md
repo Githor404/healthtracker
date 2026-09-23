@@ -4453,3 +4453,18 @@ The slot list is **append-only forever**, so it is the one artifact that must ne
 | `derive_slots.py --check` | the stronger check: a full re-derivation from the sources must reproduce `slots.json` byte for byte. Run where the ~19 MB sources are to hand; not wired into the suite, which must run everywhere |
 
 **Why the committed check does not re-derive.** The sources are third-party archives and are deliberately not in the repo. A gate that cannot run is not a gate ([[D75]]), so the wired check tests what can be tested everywhere — self-consistency and stated reasons — and the re-derivation is named as the stronger check rather than pretended to be running.
+### D116 — the corpus runtime — v0.40.0
+
+Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls back and a harness case would hang — and a hang is a no-verdict.
+
+| case | surface | asserts |
+|---|---|---|
+| D116-slot **GATE** | harness | a slot maps to its **column by position**; an unknown slot is `-1`, never a column |
+| D116-value **GATE** | harness | a value reads back; **NaN reads as null**; **zero reads as zero**; an unknown slot is null rather than whatever sits at that index |
+| D116-scale **GATE** | harness | per-100 g scales by grams at the point of use; an absent value scales to **absent, never zero** |
+| D116-ns **GATE** | harness | a Canadian locale selects **CNF**, anything else **FDC**; the asset URL derives from the namespace |
+| D116-asset **GATE** | harness | the corpus is **absent from the export**, and its cache prefix is not the shell's |
+| PRECACHE **GATE** | static | the corpus is **not in `PRECACHE`** — `addAll` would fail the install and take the offline shell with it — and shell cleanup stays prefix-scoped |
+| corpus-gate **GATE** | CDP | against the **real asset**: a mis-sized payload is refused and **writes nothing**; a well-formed one installs, hydrates and reads back, with NaN as absence and zero as zero; the attribution travels with the data |
+
+**Exit 2 is for "could not run at all."** A throw inside the page is the code failing and fails the gate — classifying it as an environment error made a planted defect return no verdict.

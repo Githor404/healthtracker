@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.39.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.40.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1185,6 +1185,167 @@ function offerSignalUndo(records, label) {
 // One helper rather than eight patched call sites, per [[D50]]: the next write
 // path inherits the rule instead of deciding it again.
 function stampTime(dayKey) { return String(dayKey) === localDate() ? nowTime() : ''; }
+
+// ---- D114/D116: the micronutrient corpus ------------------------------------
+// SUBSTRATE per D59: IndexedDB, two object stores, written in ONE transaction,
+// with the INDEX hydrated to RAM at boot and the values left on disk. The corpus
+// is an ASSET, not user data -- it is not in the export, it is re-acquired
+// rather than restored, and a refresh can never alter history, because a past
+// meal froze its own numbers at save time and is never looked up again.
+//
+// ENCODING per D115: dense Float32Array, NaN for absence. Measured against a
+// sparse (slot,value) form, which is 1.15x LARGER over the wire at this
+// occupancy and larger still uncompressed for CNF. Dense is also the form in
+// which a mis-indexed slot cannot quietly become a plausible number for the
+// wrong nutrient, which is the worst failure this corpus can have.
+const CORPUS_DB = 'healthtracker-corpus';
+const CORPUS_DB_VERSION = 1;
+const CORPUS_STORE_META = 'meta';      // one record: the index + the slot list
+const CORPUS_STORE_VALUES = 'values';  // one record per food: Float32Array(cols)
+const CORPUS_CACHE = 'healthtracker-corpus-';   // its OWN prefix: D6 Amendment A
+                                                // deletes only SHELL_PREFIX caches
+let CORPUS_MEM = null;                 // the hydrated index, RAM-side
+let CORPUS_DB_HANDLE = null;
+
+// Locale selects the SOURCE NAMESPACE, not a display setting: fortification
+// differs by country, so a Canadian cereal's folate is a different number, not a
+// differently-formatted one.
+function corpusNamespace(lang) {
+  try {
+    const l = String(lang != null ? lang
+      : ((navigator && (navigator.language || '')) || '')).toLowerCase();
+    return /-ca$/.test(l) ? 'cnf' : 'fdc';
+  } catch (e) { return 'fdc'; }
+}
+function corpusAssetURL(ns, ext) { return './corpus/dist/' + ns + '.' + ext; }
+
+function corpusOpen() {
+  if (CORPUS_DB_HANDLE) return Promise.resolve(CORPUS_DB_HANDLE);
+  return new Promise(function (resolve, reject) {
+    let req;
+    try { req = indexedDB.open(CORPUS_DB, CORPUS_DB_VERSION); }
+    catch (e) { reject(e); return; }
+    req.onupgradeneeded = function () {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(CORPUS_STORE_META)) db.createObjectStore(CORPUS_STORE_META);
+      if (!db.objectStoreNames.contains(CORPUS_STORE_VALUES)) db.createObjectStore(CORPUS_STORE_VALUES);
+    };
+    req.onsuccess = function () { CORPUS_DB_HANDLE = req.result; resolve(req.result); };
+    req.onerror = function () { reject(req.error); };
+  });
+}
+
+// ONE transaction across BOTH stores (D59). A half-written corpus -- an index
+// with no values, or values with no index -- would answer lookups with numbers
+// it cannot attribute, so the two stores commit together or not at all.
+function corpusInstall(meta, buf) {
+  if (!meta || !meta.index || !meta.cols) return Promise.resolve({ ok: false, why: 'bad-meta' });
+  const cols = meta.cols | 0;
+  const rows = meta.index.length;
+  if (!buf || buf.byteLength !== rows * cols * 4)
+    return Promise.resolve({ ok: false, why: 'size-mismatch', expected: rows * cols * 4,
+                             got: buf ? buf.byteLength : 0 });
+  return corpusOpen().then(function (db) {
+    return new Promise(function (resolve, reject) {
+      const tx = db.transaction([CORPUS_STORE_META, CORPUS_STORE_VALUES], 'readwrite');
+      tx.oncomplete = function () { resolve({ ok: true, rows: rows, cols: cols }); };
+      tx.onerror = function () { reject(tx.error); };
+      tx.objectStore(CORPUS_STORE_META).put({
+        ns: meta.ns, version: meta.version, slots: meta.slots, cols: cols,
+        hash: meta.hash, attribution: meta.attribution, basis: meta.basis,
+        index: meta.index,
+      }, 'index');
+      const vs = tx.objectStore(CORPUS_STORE_VALUES);
+      const all = new Float32Array(buf);
+      for (let r = 0; r < rows; r++) {
+        vs.put(all.slice(r * cols, (r + 1) * cols), String(meta.index[r][0]));
+      }
+    });
+  });
+}
+
+function corpusHydrate() {
+  return corpusOpen().then(function (db) {
+    return new Promise(function (resolve) {
+      const tx = db.transaction([CORPUS_STORE_META], 'readonly');
+      const rq = tx.objectStore(CORPUS_STORE_META).get('index');
+      rq.onsuccess = function () {
+        CORPUS_MEM = rq.result || null;
+        resolve(CORPUS_MEM);
+      };
+      rq.onerror = function () { resolve(null); };
+    });
+  }).catch(function () { return null; });
+}
+function corpusState() {
+  const m = CORPUS_MEM;
+  return m ? { ready: true, ns: m.ns, rows: (m.index || []).length, cols: m.cols,
+               hash: m.hash, attribution: m.attribution }
+           : { ready: false, ns: corpusNamespace(), rows: 0 };
+}
+
+// PURE, and gated as such: slot -> column, NaN -> null. Absence is never zero
+// (D8/D90), and the whole point of the NaN sentinel is that zero stays a value.
+function corpusSlotIndex(slots, slot) {
+  const i = (slots || []).indexOf(slot);
+  return i < 0 ? -1 : i;
+}
+function corpusValueAt(row, slots, slot) {
+  const i = corpusSlotIndex(slots, slot);
+  if (!row) return null;
+  // The bounds half of this guard used to read `i < 0 || i >= row.length`, and
+  // the defect pass found it UNREACHABLE: on a Float32Array an out-of-range or
+  // negative index is `undefined`, which the typeof test below already rejects.
+  // A plant on it was vacuous by construction, so it is gone rather than kept as
+  // defence that cannot be shown to defend anything (D75's family).
+  const v = row[i];
+  return (typeof v === 'number' && v === v) ? v : null;      // NaN fails v === v
+}
+// Per 100 g as published, scaled to grams. The licence permits re-expressing a
+// value per serving and forbids modifying it, so scaling happens HERE, at the
+// point of use, and never in the stored corpus.
+function corpusScale(v, grams) {
+  if (v == null || !(Number(grams) > 0)) return null;
+  return v * (Number(grams) / 100);
+}
+
+function corpusLookup(id) {
+  return corpusOpen().then(function (db) {
+    return new Promise(function (resolve) {
+      const tx = db.transaction([CORPUS_STORE_VALUES], 'readonly');
+      const rq = tx.objectStore(CORPUS_STORE_VALUES).get(String(id));
+      rq.onsuccess = function () { resolve(rq.result || null); };
+      rq.onerror = function () { resolve(null); };
+    });
+  }).catch(function () { return null; });
+}
+
+// ACQUISITION (D114): fetched AFTER install, never inside PRECACHE. The install
+// handler does cache.addAll(PRECACHE), so a corpus fetch in there would fail the
+// install and take the OFFLINE SHELL down with it. The corpus is worth having;
+// it is not worth the shell. Until it arrives the app has macros and says so.
+let CORPUS_FETCHING = false;
+function corpusAcquire(force) {
+  if (CORPUS_FETCHING) return Promise.resolve({ ok: false, why: 'in-flight' });
+  const ns = corpusNamespace();
+  if (!force && CORPUS_MEM && CORPUS_MEM.ns === ns)
+    return Promise.resolve({ ok: true, why: 'already', ns: ns });
+  CORPUS_FETCHING = true;
+  return fetch(corpusAssetURL(ns, 'json'))
+    .then(function (r) { if (!r.ok) throw new Error('meta ' + r.status); return r.json(); })
+    .then(function (meta) {
+      return fetch(corpusAssetURL(ns, 'bin'))
+        .then(function (r) { if (!r.ok) throw new Error('bin ' + r.status); return r.arrayBuffer(); })
+        .then(function (buf) { return corpusInstall(meta, buf); });
+    })
+    .then(function (r) {
+      if (!r.ok) return r;
+      return corpusHydrate().then(function () { return { ok: true, ns: ns }; });
+    })
+    .catch(function (e) { return { ok: false, why: 'fetch', error: String((e && e.message) || e) }; })
+    .then(function (r) { CORPUS_FETCHING = false; return r; });
+}
+
 function nowTime() {
   const d = nowDate();
   return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -5806,6 +5967,7 @@ const VERSION_LOG = [
   { v: '0.37.2', d: '2026-09-22', note: 'The drug panel used to label every search term you had not just picked as \u201cedited by you\u201d, including terms it had no record of. It now says which it is \u2014 picked, edited, or source not recorded \u2014 and removing a document also clears a term that came from that document rather than from you.' },
   { v: '0.38.0', d: '2026-09-22', note: 'Logging something onto a day that is not today no longer stamps it with the current clock time. Back-filling last Tuesday\u2019s lunch used to record it at tonight\u2019s time; it is now recorded with no time, which is what was actually known. Lab panel values are no longer stamped 09:00, and a record with no time can be edited without inventing one.' },
   { v: '0.39.0', d: '2026-09-22', note: 'If you forget to mark yourself awake, the app now asks in a dialog rather than in the ring, and fills in the time you usually wake \u2014 worked out from your own nights, one tap to accept. If you never answer, after a day the night is closed at that usual time and marked as an estimate rather than left running. It needs eight of your own recorded nights before it will suggest anything.' },
+  { v: '0.40.0', d: '2026-09-23', note: 'Groundwork for micronutrients: the app can now hold a food-composition database on your device. It is fetched once, after the app is installed, and stored locally \u2014 Canadian data if your locale is Canada, USDA data otherwise. Nothing uses it yet, and a missing value is shown as missing rather than as zero.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -10657,6 +10819,10 @@ window.HT = {
   chipOrder, CHIP_DEFAULT, chipLabel, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
   ingest, maybeInjectSupplement, buildSupplementItem, fillable, stampTime,
+  // D114/D116 -- the micronutrient corpus
+  corpusNamespace, corpusAssetURL, corpusOpen, corpusInstall, corpusHydrate, corpusState,
+  corpusSlotIndex, corpusValueAt, corpusScale, corpusLookup, corpusAcquire,
+  CORPUS_DB, CORPUS_STORE_META, CORPUS_STORE_VALUES, CORPUS_CACHE,
   // D113 -- a forgotten night closes on the sleeper's own pattern
   WAKE_MIN_NIGHTS, WAKE_WINDOW_DAYS, SLEEP_AUTO_CLOSE_MIN, WAKE_SRCS, minutesToHHMM,
   sleepWakeMin, observedWakeMins, typicalWake, maybeAutoCloseSleep,

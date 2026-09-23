@@ -27,5 +27,25 @@ done <<< "$paths"
 
 echo "-----------------------------------------"
 # The GATE: line is the verdict run-all-gates.sh reads (D56, D75).
+# ---- D114: the corpus is NOT in PRECACHE, and that is load-bearing ----------
+# install does cache.addAll(PRECACHE), so a corpus fetch inside it would fail the
+# install and take the OFFLINE SHELL down with it. The corpus is worth having; it
+# is not worth the shell.
+if grep -n 'PRECACHE' "$DIR/sw.js" | grep -qi 'corpus'; then
+  echo "PRECACHE CHECK: FAIL - the corpus is in PRECACHE; a failed corpus fetch would fail the SW install"
+  echo "GATE: FAIL"; exit 1
+fi
+if sed -n '/const PRECACHE/,/\]/p' "$DIR/sw.js" | grep -qi 'corpus'; then
+  echo "PRECACHE CHECK: FAIL - a corpus asset is listed in PRECACHE"
+  echo "GATE: FAIL"; exit 1
+fi
+# And the shell cleanup must stay prefix-scoped, or a shell generation would
+# evict the corpus cache with it (D6 Amendment A).
+if ! grep -q "startsWith(SHELL_PREFIX)" "$DIR/sw.js"; then
+  echo "PRECACHE CHECK: FAIL - the shell cleanup is no longer prefix-scoped; it could evict the corpus cache"
+  echo "GATE: FAIL"; exit 1
+fi
+echo "precache: the corpus is absent from PRECACHE, and shell cleanup stays prefix-scoped"
+
 if [ "$missing" -eq 0 ]; then echo "PRECACHE: PASS"; echo "GATE: PASS"; exit 0; fi
 echo "PRECACHE: FAIL ($missing missing)"; echo "GATE: FAIL"; exit 1
