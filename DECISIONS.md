@@ -4688,8 +4688,39 @@ CNF is usable *"without further permission"* on conditions, two of which bind co
 
 FDC is US federal public domain; attribution is courtesy.
 
+### Encoding: DENSE, and the measurement confirmed the prior rather than overruling it
+
+Measured on the real 46 slots and the real values, because the acquisition path pays the **compressed** cost and a dense array of mostly-absent cells might have compressed hard enough to invert the answer.
+
+| | SR Legacy (7,793) | CNF (5,690) |
+|---|---|---|
+| occupied cells | **78.7%** | **93.2%** |
+| mean slots per food | 36.2 of 46 | 42.9 of 46 |
+| dense raw / gzip | 1,433,912 B / **532,155 B** | 1,046,960 B / **428,181 B** |
+| sparse raw / gzip | 1,419,283 B / 601,831 B | 1,224,955 B / 498,806 B |
+
+**Sparse is larger both raw and compressed** — 1.15× dense over the wire, and for CNF it is 1.17× larger even uncompressed. The reason is occupancy: at 79–93% populated, sparse's one-byte slot index per stored value costs more than dense pays to NaN-fill the 7–21% that are absent, and a run of NaNs is a constant four-byte pattern that gzip eats.
+
+So **dense**, and the safety argument now costs nothing: *a wrong slot index produces a plausible number for the WRONG nutrient*, which is the worst failure this corpus can have, and the encoding that cannot have that failure is also the smaller one.
+
+**Absence is NaN, never zero.** Zero is a legitimate value for most of these nutrients ([[D8]], [[D90]]), so the sentinel must be distinguishable from it. That choice is what makes the dense form honest, and it is also what makes it compress.
+
+**What a device actually pays: ~0.5 MB, not 2.4 MB.** Locale selects the namespace, so a device fetches **one** — 532 KB for the default namespace or 428 KB for Canada, gzipped. The 0.92 MB figure is both namespaces and no device needs both.
+
 ### What is NOT built yet, stated plainly
 
 The encoder, the IndexedDB runtime, the acquisition path in code, and the panel. **The matcher is out of scope by ruling** ([[D76]] parked the evaluation set precisely for it), and the panel is deferred until Cronometer's per-food completeness marking has actually been looked at rather than recalled.
 
 **Gate suite: 12 verdicts** (was 11) — `tests/check-slots.sh` joins the static checks.
+
+## D115 — An instrument measuring the thing it is about to freeze gets checked against a known value first (2026-09-22; doc-only)
+
+Found in [[D114]]. The slot-list generator read each slot's CNF coverage off the **canonical** slot number, so a merged slot reported the coverage of a number CNF does not use. **Vitamin D printed CNF 0.0%** when CNF holds it at **87.9%** under id 339.
+
+Nothing downstream was wrong — the merge itself was correct, and the slot was included on other grounds. What would have been wrong is **the record**: the artifact would have carried, permanently and in its own file, a figure understating the evidence its own ruling rests on. A future session reading *"vitamin D: CNF 0.0%"* would have concluded CNF does not carry vitamin D at all, and that is a conclusion the data does not support.
+
+> **The rule.** When an instrument's output is about to be **frozen** — append-only, committed, or otherwise expensive to revise — check it against a value already known by other means **before** freezing. Here the known value was one line away: CNF's vitamin D coverage had been measured minutes earlier, at 87.9%, while deciding whether vitamin D cleared the bar. The generator disagreed with a number already on screen and nothing compared them.
+
+**Why this is not [[D109]].** D109 is a gate that reads mutable state the fixture may have written — an assertion measuring the fixture. This is narrower and in some ways worse: the instrument was **correct about the thing it was asked** (which slots exist) and **wrong in the evidence it recorded alongside** (how well populated they are). The primary output was right, so nothing failed, and only a reader comparing two numbers from different runs would ever have noticed.
+
+**What it costs to apply:** one assertion per instrument, against one value known independently. `corpus/derive_slots.py --check` now re-derives and compares byte-for-byte, which catches drift; this rule is about the run **before** there is anything to drift from.
