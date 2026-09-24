@@ -9308,6 +9308,17 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D126: the propose card says what it PROVES ------------------------
+  // It said 'Its label and this row agree', which reads as a claim about what
+  // the food IS. Agreement on seven numbers is not identity -- two foods can
+  // agree on all of them and differ in exactly the nutrients the panel exists
+  // to show. The words now name the axes the distance was computed over.
+  var AXW = HT.matchAxisWords();
+  res(AXW.indexOf('calories') >= 0 && AXW.indexOf('protein') >= 0 && AXW.indexOf('sodium') >= 0,
+      'D126-proves GATE: the propose card names the nutrients it compared, so its claim is the size of its evidence');
+  res(AXW.split(',').length + 1 === HT.MATCH_AXES.length,
+      'D126-proves GATE: and the list is DERIVED from MATCH_AXES -- a hand-written one would be true only until someone edited the axes');
+
   // ---- D125: a resolve the user did not make -----------------------------
   // Reported from the device: 'wood ear mushrooms' showed a match to 'Tomato
   // products, canned, sauce with mushrooms' that was never chosen. Measured:

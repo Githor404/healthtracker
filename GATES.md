@@ -4581,3 +4581,14 @@ appeared **0 ms** after the tap, and the covering row was **enabled**.
 row must still land on the tap point, or the gate proves nothing (D96). And it is
 guarded against its own abort: a plant that removed the shield used to throw
 before the ramen half ran, which is the half the ruling pairs it with.
+### D126 — the propose card says what it proves — v0.46.1
+
+| case | asserts |
+|---|---|
+| D126-proves **GATE** | the propose card **names the nutrients it compared**, so its claim is the size of its evidence |
+| D126-proves **GATE** | and the list is **derived from `MATCH_AXES`** — a hand-written one would be true only until someone edited the axes |
+
+**The standing rule this serves:** a measurement is an answer to ONE question.
+Before reusing a measured quantity for a new decision, name the question it was
+measured for. Four instances in one day, each true about what it measured and
+wrong about what it was asked.

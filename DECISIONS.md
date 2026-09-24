@@ -5249,3 +5249,57 @@ Asked *"when was this written, relative to the ramen resolve?"*, the record coul
 A plant also found the gate **aborting** when the shield was absent: the shielded tap resolved, the sheet closed, and the script threw before reaching the ramen half — the half the ruling says must be judged alongside it. Guarded, so a broken shield now reports **both** fixtures.
 
 **Suite: 2,388 assertions. Defect pass: 13 plants, 13 failing their own named gates.**
+
+## D126 — A measurement is an answer to ONE question — v0.46.1 (2026-09-24)
+
+**A standing rule, recorded because it was hit four times in a single day**, in four
+different parts of the app, by four different-looking mistakes that are the same
+mistake:
+
+> **A measurement sound for one question, reused for a neighbouring question it
+> was never measured on.** Every instance was **true about what it measured and
+> wrong about what it was asked.**
+>
+> **Before reusing a measured quantity for a new decision, name the question it
+> was measured for.** If that question is not the one now being asked, the number
+> is not evidence — it is a coincidence with a decimal point.
+
+### The four instances
+
+| the measurement | the question it answered | the question it was reused for | what broke |
+|---|---|---|---|
+| [[D122]]'s state rank | do these two names **state** different preparations? | is this dish cooked, when nothing says so? | an **inferred** state buried both correct rows ([[D125]]) |
+| [[D122]]'s kcal pair | is this row **dry or cooked**? | is this row **the same food**? | egg noodles recommended for ramen, an alkaline wheat noodle (D122 amendment) |
+| `DT-header`'s HTML slice | does the header **text** carry a year? | does the header **markup** carry a year? | broke when the element gained a date control ([[D123]]) |
+| `J2`'s `[data-sid]` | does the row carry an identity? | does the row carry **this record's** identity? | hid an ending that never found its row (D123) |
+
+The pattern is not carelessness at the point of use. In each case the original
+measurement was **careful, recorded, and correct** — which is exactly why the
+reuse felt safe. What was missing was the step of saying out loud what had been
+measured, at the moment the number was asked to do something new.
+
+**This is also why [[D96]] keeps recurring.** A fixture that cannot distinguish
+the branch it was written for is the same error at the gate layer: it measures
+*something*, and the something is not the question.
+
+### The propose card, as a first application
+
+The one remaining place where numbers spoke about **identity** now says what it
+proves. It read *"Its label and this row agree. Use it?"*, which is a claim about
+what the food **is**. It now reads:
+
+> *"Its label and this row agree on protein, fat, carbohydrate, calories,
+> calcium, iron and sodium. Use it?"*
+
+**The path itself stands exactly as ruled** — scanned items only, a real label
+being compared, seven-axis composition (far stronger evidence than one number),
+and **never applied without confirmation** ([[D119]]). Only the claim is resized to
+its evidence: agreement on seven numbers does not establish identity, because two
+foods can agree on all seven and differ in exactly the nutrients the panel exists
+to show.
+
+**The sentence is derived from `MATCH_AXES`, not written out.** A hand-written
+list would be true only until someone edited the axes — which is this very rule,
+applied to the copy that describes it.
+
+**Suite: 2,390 assertions, 16 verdicts, all green.**

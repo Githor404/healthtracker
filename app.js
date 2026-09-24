@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.46.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.46.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1658,6 +1658,26 @@ function resolveRowsHTML(v) {
       esc(c.name) + kc + mism + '</button></div>';
   }).join('');
 }
+// D126: what the propose card PROVES, in its own words.
+//
+// It used to say "Its label and this row agree" -- which reads as a claim about
+// what the food IS. It is not one. What it proves is agreement on the seven axes
+// the distance was computed over, and agreement on seven numbers does not
+// establish identity: two foods can agree on all of them and differ in exactly
+// the nutrients the panel exists to show (D122's amendment, the same limit one
+// layer up). The path itself stands as ruled -- scanned items only, a real label
+// being compared, never applied without confirmation (D119).
+//
+// The list is DERIVED from MATCH_AXES rather than written out, so the sentence
+// cannot outlive the axes it describes.
+function matchAxisWords() {
+  const names = MATCH_AXES.map(function (s) {
+    const n = panelSlotLabel(s);
+    return (s === 208) ? 'calories' : String(n || '').toLowerCase();
+  });
+  if (names.length < 2) return names.join('');
+  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
 function resolveHTML() {
   const v = RESOLVE_VIEW;
   if (!v) return '';
@@ -1671,7 +1691,7 @@ function resolveHTML() {
     body = '<div class="rvsub">Nothing in the database is named like this. '
       + 'Brand names and transliterated dishes often are not \u2014 try a different word for what it is.</div>';
   else if (v.phase === 'propose')
-    body = '<div class="rvsub">Its label and this row agree. Use it?</div>'
+    body = '<div class="rvsub">Its label and this row agree on ' + esc(matchAxisWords()) + '. Use it?</div>'
       + '<div class="rcand"><button type="button" class="btn primary rcandbtn" onclick="resolvePick(\''
       + esc(String(v.best.id)) + '\',\'' + esc(String(v.best.name).replace(/'/g, ' ')) + '\','
       + Number(v.best.distance) + ',\'proposed\')">' + esc(v.best.name) + '</button></div>'
@@ -7031,6 +7051,7 @@ const VERSION_LOG = [
   { v: '0.44.0', d: '2026-09-23', note: 'When you match a cooked dish, the app no longer offers dry or raw versions as if they were the same thing \u2014 dry noodles hold about three times the nutrients per gram that cooked ones do. Matching rows come first, mismatched ones say so, and every row shows its calories per 100 g beside your own, so the right one is visible rather than guessed.' },
   { v: '0.45.0', d: '2026-09-24', note: 'Getting to an earlier day took one tap per day — fifteen taps to go back fifteen days, with no other way there. Tap the date and pick the day; the days in your history are tappable too. And four places that did something without showing you now offer the next step: after adding food, after logging a dose, after saving a medication from its label, and after matching an item to a food — each one takes you to where the result actually is.' },
   { v: '0.46.0', d: '2026-09-24', note: 'Fixes a resolve that was never chosen. A candidate list appeared exactly where you had just tapped, so a second tap landed on a row you never saw — rows under that spot now ignore the tap for a moment. Matching also stopped burying the right answer: when the app only GUESSES that a dish is cooked, it no longer reorders the list around that guess, and a row whose state differs now says “probably”. Each match also records whether you picked it or confirmed a suggestion, and when.' },
+  { v: '0.46.1', d: '2026-09-24', note: 'When the app suggests a match for a scanned item, it now says what it actually checked — “its label and this row agree on protein, fat, carbohydrate, calories, calcium, iron and sodium” — rather than simply that they agree. Agreeing on those numbers is not the same as being the same food.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11903,7 +11924,7 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
-  itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
+  matchAxisWords, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
