@@ -9301,6 +9301,66 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D122: dry and cooked are not the same food ------------------------
+  // Reported from the device: ramen logged at 270 g COOKED was offered four DRY
+  // rows first. Measured, the pair differs by 2.8x -- egg noodles are 385
+  // kcal/100g dry and 138 cooked -- so picking the wrong one overstates every
+  // micro by the same factor, silently.
+  res(HT.foodState('Pasta, egg noodles, enriched, dry') === 'dry' &&
+      HT.foodState('Pasta, egg noodles, enriched, cooked') === 'cooked' &&
+      HT.foodState('Beef, ground, raw') === 'raw',
+      'D122-state GATE: a name that says its state is read for it');
+  res(HT.foodState('Cheese, cheddar') === null,
+      'D122-state GATE: and a name that says nothing is UNKNOWN, not assumed -- 44% of corpus names carry no state word at all');
+  res(HT.foodState('Beans, kidney, dried, cooked') === 'cooked',
+      'D122-state GATE: cooked wins a tie -- the last preparation is the one the numbers describe');
+  res(HT.foodState('Soup, chicken noodle, dehydrated') === 'dry' &&
+      HT.foodState('Noodles, instant') === 'dry',
+      'D122-state GATE: dehydrated and instant are dry, which is the exact class the device hit');
+
+  res(HT.itemState({ name: 'rice, cooked', source: 'manual' }) === 'cooked',
+      'D122-item GATE: an item that names its own state is taken at its word');
+  res(HT.itemState({ name: 'ramen noodles', source: 'ai-paste' }) === 'cooked',
+      'D122-item GATE: a photographed meal is as-eaten by construction -- the template asks for \u201cas consumed\u201d');
+  res(HT.itemState({ name: 'Some Product', source: 'scan' }) === null,
+      'D122-item GATE: a scanned package is whatever its label is, which the name does not reveal -- so it stays unknown rather than assumed');
+
+  // ---- THE RULED FIXTURE: a cooked item whose top candidate is dry -------
+  // In the order the NAME ranking gives, dry comes first -- which is what the
+  // device saw, and is partly this code's own doing: matchTokens strips
+  // `cooked`/`dry` as stop words, so the ranking discards the distinction and
+  // then ranks the two as equals.
+  var RAMEN = [
+    { id: 'd1', name: 'Noodles, instant, dry', kcal: 440, state: 'dry' },
+    { id: 'd2', name: 'Pasta, egg noodles, enriched, dry', kcal: 385, state: 'dry' },
+    { id: 'c1', name: 'Pasta, egg noodles, enriched, cooked', kcal: 138, state: 'cooked' },
+    { id: 'u1', name: 'Noodle pudding', kcal: 132, state: null }];
+  res(HT.foodState(RAMEN[0].name) === 'dry' && HT.foodState(RAMEN[2].name) === 'cooked',
+      'D122-rank fixture: the top candidate really is dry and a cooked one really is present -- otherwise the ranking has nothing to reorder');
+  var RANKED = HT.resolveRank(RAMEN, 'cooked');
+  res(RANKED[0].id === 'c1',
+      'D122-rank GATE: the SAME-STATE candidate is offered first -- a cooked dish is not matched to a dry row by default');
+  res(RANKED[1].id === 'u1',
+      'D122-rank GATE: an unknown state ranks ahead of a known mismatch -- unknown is not wrong, it is unstated');
+  res(RANKED[2].id === 'd1' && RANKED[3].id === 'd2',
+      'D122-rank GATE: mismatched rows come last, and keep the name ranking D119 measured within their band');
+  res(HT.resolveRank(RAMEN, null).map(function (c) { return c.id; }).join(',') === 'd1,d2,c1,u1',
+      'D122-rank GATE: with an UNKNOWN item state nothing is reordered -- the app does not invent a state to sort by');
+
+  // ---- the row says the mismatch, and shows two facts --------------------
+  var RH122 = HT.resolveRowsHTML({ want: 'cooked', candidates: RANKED });
+  res(RH122.indexOf('385 kcal/100g') > 0 && RH122.indexOf('138 kcal/100g') > 0,
+      'D122-row GATE: every candidate shows its own kcal per 100 g -- two facts side by side, which is what makes the right pick visible');
+  res(RH122.indexOf('dry \u2014 yours is cooked') > 0,
+      'D122-row GATE: and a mismatched row SAYS SO on the row, where the choice is made');
+  res(RH122.indexOf('cooked \u2014 yours is cooked') < 0,
+      'D122-row GATE: a matching row carries no warning -- the note marks a difference, not a state');
+  res(RH122.indexOf('%') < 0,
+      'D122-row GATE: and still no score of any kind (C1 holds)');
+  var RH122u = HT.resolveRowsHTML({ want: null, candidates: RANKED });
+  res(RH122u.indexOf('yours is') < 0,
+      'D122-row GATE: with an unknown item state no row is warned about -- a warning needs something to compare against');
+
   // ---- D121: the resolve surface -----------------------------------------
   // resolvePlan is where D119's ruling actually lives, and it is pure, so the
   // rule can be asserted without a database the harness cannot host.

@@ -5004,3 +5004,48 @@ Four outcomes, and **every one of them is a question**: no candidates is its own
 **Defect pass: nine plants, nine failing their own named gates.**
 
 **Suite: 2,341 assertions** (2,321 → 2,341).
+
+## D122 — Dry and cooked are not the same food, and the matcher was treating them as one — v0.44.0 (2026-09-23)
+
+**Reported from the device against v0.43.0:** *"ramen noodles"*, logged at **270 g cooked**, was offered four **dry** instant-noodle rows first. Picking one scales dry per-100 g values onto 270 g of cooked food, and every micronutrient comes out overstated by the same factor — **silently**, because nothing on the row said which was which.
+
+**Measured, on the exact pair:**
+
+| | kcal / 100 g |
+|---|---|
+| `Pasta, egg noodles, enriched, dry` | **385** |
+| `Pasta, egg noodles, enriched, cooked` | **138** |
+
+**2.8×**, which is the *"roughly 3×"* the report estimated.
+
+### The cause is partly this code, and that is the part worth recording
+
+`matchTokens` strips `raw cooked boiled fresh dried prepared` as **stop words** — and those are the **highest-frequency state markers in the corpus**: measured across CNF, `raw` 987, `boiled` 378, `cooked` 301, `dry` 278. **The ranking discards the one distinction that separates a 385 from a 138, and then ranks the two as equals.**
+
+The stop list is **left alone**, because changing it would invalidate the ranking [[D119]] measured. State is handled as **its own signal** instead — which is also the more honest shape: state is not a name-similarity question.
+
+### Three answers, because 44% of names say nothing
+
+Measured: **55.7% of CNF names and 57.1% of FDC names** carry a state word. The rest carry none, so **unknown is a third answer and never a guess**:
+
+- **same state** — offered first,
+- **unknown** — offered next, because *unknown is not wrong, it is unstated*,
+- **mismatched** — offered last, and **saying so on the row**.
+
+Within each band the name ranking D119 measured is preserved exactly, so this reorders without re-deciding.
+
+**An item's own state:** its name wins if it says; otherwise a **photographed meal is as-eaten by construction** (the template asks for *"as consumed"*); otherwise **unknown**, because a scanned package is whatever its label is and the name does not reveal it. And with an unknown item state **nothing is reordered at all** — the app does not invent a state to sort by.
+
+### Two facts, not a verdict
+
+Every candidate now shows **its own kcal per 100 g**, beside the item's own. Dry ramen reads 440, cooked egg noodles 138, and the right pick becomes **visible rather than ranked for you**. This is not a score and not a distance — [[C1]]'s refusal stands and is still gated — it is two numbers the app already holds, put side by side.
+
+**And the panel says what picking does:** *"Its vitamins and minerals will be used for your item, scaled to its weight."* A choice whose consequence is unstated is a choice made without the thing that decides it.
+
+### Gated on the ruled fixture
+
+A **cooked item whose top candidate is dry** — the device's exact shape. The fixture asserts first that the top candidate really is dry and a cooked one really is present, because otherwise the ranking has nothing to reorder and the gate would pass on a defect ([[D96]]).
+
+**Defect pass: nine plants, nine failing their own named gates**, first pass, no repairs.
+
+**Suite: 2,358 assertions** (2,341 → 2,358).

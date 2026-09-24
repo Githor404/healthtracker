@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.43.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.44.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1354,6 +1354,69 @@ function panelCoverageLine(e) {
 }
 
 
+
+// ---- D122: state, because dry and cooked are not the same food --------------
+// REPORTED FROM THE DEVICE: "ramen noodles" logged at 270 g COOKED was offered
+// four DRY instant-noodle rows first. Picking one scales dry per-100g values to
+// 270 g of cooked food -- MEASURED at 2.8x for this exact pair:
+//
+//     Pasta, egg noodles, enriched, dry     385 kcal/100g
+//     Pasta, egg noodles, enriched, cooked  138 kcal/100g
+//
+// and the error is silent, because nothing on the row says which is which.
+//
+// THE CAUSE IS PARTLY THIS CODE. matchTokens strips `raw cooked boiled fresh
+// dried prepared` as stop words -- and those are the HIGHEST-FREQUENCY state
+// markers in the corpus (raw 987, boiled 378, cooked 301, dry 278 in CNF). The
+// ranking discards the distinction and then ranks the two as equals. The stop
+// list is left alone, because changing it would invalidate D119's measured
+// ranking; state is handled as its own signal instead.
+//
+// MEASURED COVERAGE: 55.7% of CNF names and 57.1% of FDC names carry a state
+// word. The other 44% carry none, which is why an unknown state is a THIRD
+// answer and never a guess.
+const FOOD_STATE_WORDS = {
+  dry: ['dry', 'dried', 'dehydrated', 'uncooked', 'instant', 'powder', 'powdered',
+        'mix', 'concentrate', 'flakes'],
+  raw: ['raw', 'fresh'],
+  cooked: ['cooked', 'boiled', 'baked', 'roasted', 'fried', 'steamed', 'prepared',
+           'simmered', 'grilled', 'braised', 'poached', 'stewed', 'microwaved', 'toasted'],
+};
+function foodState(name) {
+  const low = ' ' + String(name == null ? '' : name).toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' ';
+  // Cooked wins a tie: "dried beans, cooked" is a cooked food, and the last
+  // preparation is the one the numbers describe.
+  const order = ['cooked', 'dry', 'raw'];
+  for (let i = 0; i < order.length; i++) {
+    const ws = FOOD_STATE_WORDS[order[i]];
+    for (let j = 0; j < ws.length; j++)
+      if (low.indexOf(' ' + ws[j] + ' ') >= 0) return order[i];
+  }
+  return null;
+}
+// An item's own state. Its NAME wins if it says; otherwise a photographed meal
+// is as-eaten by construction (the template asks for "as consumed"), and a
+// scanned package is whatever its label is, which the name does not reveal --
+// so it stays unknown rather than being assumed.
+function itemState(it) {
+  const own = foodState(it && it.name);
+  if (own) return own;
+  if (it && (it.source === 'ai-paste' || it.source === 'preset')) return 'cooked';
+  return null;
+}
+// Same state first, unknown second, mismatched last. STABLE within each band, so
+// the name ranking D119 measured still orders what it ordered.
+function resolveRank(cands, want) {
+  const band = function (c) {
+    const st = foodState(c && c.name);
+    if (!want || !st) return 1;
+    return st === want ? 0 : 2;
+  };
+  return (cands || []).map(function (c, i) { return { c: c, i: i, b: band(c) }; })
+    .sort(function (x, y) { return x.b - y.b || x.i - y.i; })
+    .map(function (x) { return x.c; });
+}
+
 // ---- D121: the resolve surface ---------------------------------------------
 // MOVE FORWARD FROM THE MOMENT. Resolving is the next tap after a meal is saved,
 // not a control to go looking for -- and there is also a persistent route from
@@ -1404,25 +1467,38 @@ function resolveOpen(dateKey, idx, queryOverride) {
     }
     const q = (queryOverride != null && String(queryOverride).trim() !== '')
       ? String(queryOverride) : it.name;
-    const cands = matchCandidates(q, MATCH_CANDIDATES);
+    const cands0 = matchCandidates(q, MATCH_CANDIDATES);
     const vec = matchItemVector(it);
+    const want = itemState(it);
+    const cands = resolveRank(cands0, want);
     // Only a scan has a label to verify against. A photo item's macros are the
     // model's estimate, and scoring against them would be treating a guess as
     // evidence -- so the branch is taken on SOURCE, not on whether the arithmetic
     // happens to be possible.
     const scorable = (it.source === 'scan') && !!vec && cands.length;
-    if (!scorable) {
-      const plan = resolvePlan(cands, null);
-      RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q }, plan);
-      renderResolve();
-      return { ok: true, phase: plan.phase };
-    }
+    // The rows are fetched on EVERY path now, not only the scorable one: a
+    // candidate's kcal per 100 g is what makes the right pick visible, and it is
+    // data already held. Two facts side by side, never a score.
     return Promise.all(cands.map(function (c) {
-      return corpusLookup(c.id).then(function (row) { return { id: c.id, name: c.name, row: row }; });
+      return corpusLookup(c.id).then(function (row) {
+        return { id: c.id, name: c.name, row: row,
+                 kcal: row ? corpusValueAt(row, m.slots, 208) : null,
+                 state: foodState(c.name) };
+      });
     })).then(function (rows) {
-      const scored = matchScore(vec, rows.filter(function (r) { return r.row; }), m.slots);
-      const plan = resolvePlan(cands, scored);
-      RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q }, plan);
+      const byId = {};
+      rows.forEach(function (r) { byId[r.id] = r; });
+      const rich = cands.map(function (c) {
+        const r = byId[c.id] || {};
+        return { id: c.id, name: c.name, kcal: r.kcal == null ? null : r.kcal,
+                 state: r.state == null ? null : r.state };
+      });
+      const scored = scorable
+        ? matchScore(vec, rows.filter(function (r) { return r.row; }), m.slots)
+        : null;
+      const plan = resolvePlan(rich, scored);
+      RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q,
+                                     want: want, mine: vec ? vec[208] : null }, plan);
       renderResolve();
       return { ok: true, phase: plan.phase };
     });
@@ -1487,10 +1563,19 @@ function resolveRowsHTML(v) {
   // C1: NO SCORE IS SHOWN. A number the user cannot act on invites being read as
   // confidence, and D119 measured name similarity as unusable for exactly that --
   // same-food pairs at 0.60 and different-food pairs at 0.67.
+  //
+  // D122: what IS shown is the candidate's own kcal per 100 g, beside the item's.
+  // Two facts, not a verdict -- dry ramen reads 385 and cooked egg noodles 138,
+  // and the right pick becomes obvious without the app ranking it for you.
+  const want = v.want;
   return (v.candidates || []).map(function (c) {
+    const kc = (c.kcal == null || c.kcal !== c.kcal) ? '' :
+      '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' kcal/100g</span>';
+    const mism = (want && c.state && c.state !== want)
+      ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + esc(want) + '</span>' : '';
     return '<div class="rcand"><button type="button" class="btn rcandbtn" onclick="resolvePick(\'' +
       esc(String(c.id)) + '\',\'' + esc(String(c.name).replace(/'/g, ' ')) + '\',null)">' +
-      esc(c.name) + '</button></div>';
+      esc(c.name) + kc + mism + '</button></div>';
   }).join('');
 }
 function resolveHTML() {
@@ -1514,7 +1599,13 @@ function resolveHTML() {
   else
     body = '<div class="rvsub">' + (v.why === 'declined'
         ? 'The label and these rows do not agree closely enough for the app to suggest one. Pick the right one:'
-        : 'Which of these is it?') + '</div>' + resolveRowsHTML(v);
+        : 'Which of these is it?') + '</div>'
+      // SAY WHAT PICKING DOES. A choice whose consequence is unstated is a
+      // choice made without the thing that decides it.
+      + '<div class="rvsub">Its vitamins and minerals will be used for your item, scaled to its weight.'
+      + (v.mine != null && v.mine === v.mine
+          ? ' Yours is <b>' + esc(String(Math.round(v.mine))) + ' kcal/100g</b>.' : '')
+      + '</div>' + resolveRowsHTML(v);
   const search = '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value="'
     + esc(v.query || '') + '" aria-label="search the database">'
     + '<button type="button" class="btn" onclick="resolveSearch((document.getElementById(\'rvQuery\')||{}).value)">Search</button></div>';
@@ -6685,6 +6776,7 @@ const VERSION_LOG = [
   { v: '0.41.0', d: '2026-09-23', note: 'The app can now look a food up in the composition database it holds. For a scanned product it checks the match against the label\u2019s own numbers and, when they disagree, hands you the choice instead of guessing. Nothing is ever filled in silently on the strength of a match.' },
   { v: '0.42.0', d: '2026-09-23', note: 'A micronutrient panel, closed by default, under each day. It groups nutrients, says which were measured, which were measured as zero, and which are present but too small to show \u2014 three different things a dash cannot tell apart. Where a figure leans on the reference database rather than a label, it says so and is counted separately.' },
   { v: '0.43.0', d: '2026-09-23', note: 'You can now match a logged food to the nutrition database \u2014 as the next tap after saving a photo meal, or from any food row later. The app offers what it found and you choose; it never fills anything in on its own. Where it finds nothing, it says so and lets you search on a different word.' },
+  { v: '0.44.0', d: '2026-09-23', note: 'When you match a cooked dish, the app no longer offers dry or raw versions as if they were the same thing \u2014 dry noodles hold about three times the nutrients per gram that cooked ones do. Matching rows come first, mismatched ones say so, and every row shows its calories per 100 g beside your own, so the right one is visible rather than guessed.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11553,6 +11645,7 @@ window.HT = {
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
+  foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
   resolveHTML, renderResolve,
   panelFamily, panelIsEquivalent, panelRollup, panelCoverageLine,

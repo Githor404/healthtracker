@@ -4513,3 +4513,13 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | D121-walk **GATE** | the walk queues the meal just saved, is offered as the next tap, **advances** as items resolve, ends when done, and **starts empty never** |
 
 **Why the score is refused.** A number the user cannot act on invites being read as confidence, and D119 measured name similarity as unusable for exactly that — same-food pairs at 0.60, different-food pairs at 0.67.
+### D122 — state, and two facts side by side — v0.44.0
+
+| case | asserts |
+|---|---|
+| D122-state **GATE** | a name that states its state is read for it; one that says nothing is **unknown, not assumed**; **cooked wins a tie**; dehydrated and instant are dry |
+| D122-item **GATE** | an item naming its own state is taken at its word; a photographed meal is **as-eaten**; a **scanned package stays unknown** rather than assumed |
+| D122-rank **GATE** | the **same-state** candidate is offered first; **unknown ranks ahead of a known mismatch**; mismatches come last keeping D119's order within their band; an **unknown item state reorders nothing** |
+| D122-row **GATE** | every candidate shows **its own kcal per 100 g**; a mismatched row **says so**; a matching row carries **no** warning; and still **no score** |
+
+**The fixture is the device's shape:** a cooked item whose top candidate is dry — asserted to be so before the ranking is tested, or the gate would pass on a defect.
