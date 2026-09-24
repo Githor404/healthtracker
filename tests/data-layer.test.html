@@ -9308,6 +9308,41 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D129: a resolved reference survives a round trip ------------------
+  // normalizeItem is an ALLOWLIST REBUILD and D121 added `ref` without declaring
+  // it here, so every resolved item lost its corpus row, its frozen values and
+  // its attribution the first time it was exported and restored -- silently,
+  // with the day's micro totals changing and nothing saying why.
+  var REF129 = { ns: 'cnf', id: '1234', name: "Jew's ear, raw", at: '2026-09-24',
+    at_ms: 1758700000000, hash: 'h9', attribution: 'Canadian Nutrient File', d: null,
+    how: 'confirmed despite state mismatch', v: { '301': 12.5, '303': 0.4 } };
+  var IT129 = { name: 'wood ear mushrooms', meal: 'lunch', time: '19:29', kcal: 7,
+    protein_g: 0.3, fat_g: 0.06, carb_g: 1.7, fiber_g: 1.4, soluble_fiber_g: 0.1,
+    confidence: 'eyeballed', source: 'ai-paste', grams: 28, ref: REF129 };
+  var N129 = HT.normalizeItem(IT129, true);
+  res(!!N129.ref && N129.ref.id === '1234' && N129.ref.name === "Jew's ear, raw",
+      'D129-ref GATE: a resolved item keeps its reference through the normalizer every restore and import passes through');
+  res(!!N129.ref && N129.ref.v['301'] === 12.5 && N129.ref.v['303'] === 0.4,
+      'D129-ref GATE: and the FROZEN VALUES survive -- they are the micronutrients themselves, not a pointer to them');
+  res(!!N129.ref && N129.ref.attribution === 'Canadian Nutrient File',
+      'D129-ref GATE: the attribution travels with the data, as the licence requires');
+  res(!!N129.ref && N129.ref.how === 'confirmed despite state mismatch' && N129.ref.at_ms === 1758700000000,
+      'D129-ref GATE: and so do HOW it was made and WHEN -- a record that loses its provenance on restore cannot testify later');
+
+  // the whole state, through the path restore actually takes
+  var ST129 = HT.normalizeState({ version: 2, current: '2026-09-08',
+    days: { '2026-09-08': { status: 'in_progress', water_l: 0, items: [IT129] } },
+    settings: {}, priceLog: {} });
+  res(!!ST129.days['2026-09-08'].items[0].ref,
+      'D129-ref GATE: and it survives normalizeState, which is the path a restore and an import both take');
+
+  res(HT.normalizeRef({ ns: 'cnf', name: 'x', v: {} }) === null,
+      'D129-ref GATE: a reference to NO ROW is not a reference, and is dropped rather than half-kept');
+  var BAD129 = HT.normalizeRef({ id: '9', v: { '301': 'oops', '303': 0 } });
+  res(BAD129.v['301'] === undefined && BAD129.v['303'] === 0,
+      'D129-ref GATE: an unreadable value is DROPPED, never zeroed -- absence is not zero (D8), and a zeroed micronutrient is a fabricated measurement');
+  res(HT.normalizeRef({ id: '9', how: 'invented' }).how === 'picked',
+      'D129-ref GATE: an unrecognised HOW falls back rather than passing through, because the writer and the normalizer must agree on the same three answers');
   // ---- D127: guard the PICK, not the order -------------------------------
   // Device evidence against D125's resolution: with the reorder gone, the dry
   // rows returned to the top of the ramen list, the first row was labelled AND

@@ -4608,3 +4608,13 @@ Device evidence: with D125's reorder removed, the dry row was **first**, was
 **The invitation is asserted VISIBLE, not present:** `textContent` reports a hidden
 element's words too, so a plant that hid it failed nothing until the assertion
 moved to `offsetParent`.
+### D129 — a resolved reference survives a round trip — v0.47.1
+
+| case | asserts |
+|---|---|
+| D129-ref **GATE** | a resolved item keeps its reference through `normalizeItem`, with its **frozen values**, its **attribution**, and **how/when** it was made |
+| D129-ref **GATE** | and through **`normalizeState`**, which is the path a restore and an import both take |
+| D129-ref **GATE** | a reference to **no row** is dropped rather than half-kept; an unreadable value is **dropped, never zeroed** (absence is not zero); an unrecognised `how` **falls back** |
+
+**The rule:** every additive item field is declared in the normaliser in the same
+commit that writes it. `ref` was not, and the loss surfaced only at a restore.

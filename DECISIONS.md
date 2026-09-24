@@ -5506,3 +5506,51 @@ promise stands as written and this flow does not.
 **Add a source when a measurement of the user's own log shows a gap it fills** —
 the discipline [[D114]]/[[D116]] set for the corpus. **FNDDS first; MenuStat only if
 chain meals recur** in the log. Neither is acquired on the strength of this entry.
+
+## D129 — A resolved reference did not survive a round trip — v0.47.1 (2026-09-24)
+
+**Silent data loss, shipped in [[D121]] and found while building something else.**
+`normalizeItem` is an **allowlist rebuild**, and `it.ref` was never declared in it.
+Every path that normalises — **restore, import, migration** — therefore **deleted the
+reference**: the corpus row, the frozen micronutrient values, the attribution the
+licence requires, and (after [[D125]]) how and when the match was made.
+
+**Nothing said so.** The day's micronutrient totals simply changed.
+
+Proved before it was fixed: an assertion written against the current code
+**failed first**, then passed once the field was declared.
+
+### The rule it restates
+
+The same function already carries this warning, about `orig`/`edited_at`:
+
+> *"a half-declared field is the trap itself: a record edited by any future path
+> would round-trip as edited-value-without-edit-history the first time it was
+> exported."*
+
+That comment was written about a field that had **not** yet been forgotten. `ref`
+is the case where it **was**.
+
+> **Every additive item field is declared in the normaliser in the same commit
+> that writes it** — otherwise the normaliser quietly deletes it later, and the
+> loss surfaces at a restore, far from the change that caused it.
+
+### How it is declared
+
+Restore is an **untrusted boundary** ([[D5]]), so `normalizeRef` coerces rather than
+trusts: a reference with **no row id is dropped** rather than half-kept, an
+unrecognised `how` **falls back** instead of passing through, and a value that is
+not a finite number is **dropped, never zeroed** — absence is not zero ([[D8]]), and a
+zeroed micronutrient is a fabricated measurement.
+
+The three answers `how` may carry now live in **one** constant, `REF_HOWS`, read by
+both the writer and the normaliser: the two disagreeing about them is exactly how a
+valid record becomes an invalid one on restore.
+
+### Gated
+
+Through `normalizeItem` **and** through `normalizeState`, which is the path a
+restore and an import both take — plus the dropped-not-zeroed rule, the id-less
+reference, and the `how` fallback.
+
+**Suite: 2,408 assertions. Defect pass: 6 plants, 6 failing their own named gates.**

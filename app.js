@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.47.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.47.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -365,6 +365,46 @@ function openPlates(today) {
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
+// D129 -- THE RESOLVED REFERENCE MUST SURVIVE A ROUND TRIP.
+//
+// `normalizeItem` is an ALLOWLIST REBUILD, and [[D121]] added `it.ref` without
+// declaring it here. So a resolved item lost its entire reference -- corpus row,
+// frozen values, attribution, provenance -- the first time it was exported and
+// restored, and the day's micronutrient totals changed with nothing saying why.
+//
+// This is precisely the trap the orig/edited_at comment below warns about, in the
+// same function, arriving for real: "a half-declared field is the trap itself".
+// The rule it restates: EVERY ADDITIVE ITEM FIELD IS DECLARED IN THE SAME COMMIT
+// THAT WRITES IT, or the normalizer quietly deletes it later.
+//
+// Restore is an untrusted boundary (D5), so this coerces rather than trusts, and
+// a value that is not a finite number is DROPPED rather than zeroed -- absence is
+// never zero (D8), and a zeroed micronutrient is a fabricated measurement.
+function normalizeRef(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const id = String(r.id == null ? '' : r.id);
+  if (!id) return null;                     // a reference to no row is not a reference
+  const out = {
+    ns:   String(r.ns == null ? '' : r.ns),
+    id:   id,
+    name: String(r.name == null ? '' : r.name),
+    at:   /^\d{4}-\d{2}-\d{2}$/.test(String(r.at)) ? String(r.at) : '',
+    hash: String(r.hash == null ? '' : r.hash),
+    attribution: String(r.attribution == null ? '' : r.attribution),
+    how:  REF_HOWS.indexOf(r.how) >= 0 ? r.how : 'picked',
+    v: {},
+  };
+  const ms = Number(r.at_ms);
+  if (Number.isFinite(ms) && ms > 0) out.at_ms = ms;
+  const d = Number(r.d);
+  out.d = Number.isFinite(d) ? d : null;
+  const v = (r.v && typeof r.v === 'object' && !Array.isArray(r.v)) ? r.v : {};
+  Object.keys(v).forEach(function (k) {
+    const n = Number(v[k]);
+    if (Number.isFinite(n)) out.v[k] = n;
+  });
+  return out;
+}
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
   it = it || {};
@@ -457,6 +497,9 @@ function normalizeItem(it, clampMacros) {
   // signal normalizer. The item edit UI is a later slice, but a half-declared
   // field is the trap itself: a record edited by any future path would round-trip
   // as edited-value-without-edit-history the first time it was exported.
+  // D129: declared HERE, where every restore and import passes through.
+  const refI = normalizeRef(it.ref);
+  if (refI) out.ref = refI;
   const origI = normalizeOrig(it.orig);
   if (origI) out.orig = origI;
   const edI = normalizeEditedAt(it.edited_at);
@@ -1819,6 +1862,9 @@ function corpusEnsure() {
 // PAST MEALS NEVER REVISE (D59). The values are frozen here, at resolve time,
 // scaled to the grams this item actually was. The corpus is never consulted for
 // this item again, so a later corpus refresh cannot rewrite what was logged.
+// The three answers `how` can carry, in ONE place: the writer and the normalizer
+// disagreeing about them is how a valid record becomes an invalid one on restore.
+const REF_HOWS = ['picked', 'proposed', 'confirmed despite state mismatch'];
 function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how) {
   if (!it || !meta || !row) return null;
   const g = Number(it.grams);
@@ -1838,7 +1884,7 @@ function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how) {
     // HOW it was made, on D111's query_src pattern: 'picked' from the list, or
     // 'proposed' -- the app's own suggestion, confirmed. A record that cannot say
     // whether the user chose it cannot answer "did I choose this?".
-    how: (how === 'proposed' || how === 'confirmed despite state mismatch') ? how : 'picked',
+    how: REF_HOWS.indexOf(how) >= 0 ? how : 'picked',
     // FORENSIC ONLY, never an input to re-resolution (D59's pin). It explains
     // what happened; it must never be used to redo it.
     d: (typeof distance === 'number' && distance === distance) ? distance : null,
@@ -7134,6 +7180,7 @@ const VERSION_LOG = [
   { v: '0.46.0', d: '2026-09-24', note: 'Fixes a resolve that was never chosen. A candidate list appeared exactly where you had just tapped, so a second tap landed on a row you never saw — rows under that spot now ignore the tap for a moment. Matching also stopped burying the right answer: when the app only GUESSES that a dish is cooked, it no longer reorders the list around that guess, and a row whose state differs now says “probably”. Each match also records whether you picked it or confirmed a suggestion, and when.' },
   { v: '0.46.1', d: '2026-09-24', note: 'When the app suggests a match for a scanned item, it now says what it actually checked — “its label and this row agree on protein, fat, carbohydrate, calories, calcium, iron and sodium” — rather than simply that they agree. Agreeing on those numbers is not the same as being the same food.' },
   { v: '0.47.0', d: '2026-09-24', note: 'Picking a food whose state differs from yours now asks first, and says what it would cost: “This is dry. Yours is probably cooked — its nutrients would be about 3× too high. Use anyway?” A label on the row was not enough; the top row still got tapped. And the search for a different word now sits above the list instead of below it, because a database often files a dish under a name you would not think of — ramen under spaghetti or udon.' },
+  { v: '0.47.1', d: '2026-09-24', note: 'Fixes silent data loss: a food you had matched to the nutrition database lost that match — and its vitamins and minerals — the first time you exported and restored your data. Nothing said so; the day’s totals simply changed. Existing matches on your device were never at risk in normal use, only across a restore.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -12006,7 +12053,7 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
-  matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
+  normalizeRef, REF_HOWS, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
   itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
