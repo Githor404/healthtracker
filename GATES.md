@@ -4503,3 +4503,13 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | D120-panel **GATE** | **no percentages anywhere**; the CNF attribution travels with the values; the three states are explained on the page; an empty day says so rather than rendering 46 dashes |
 | D120-optin **GATE** | the panel is a disclosure in the day view and is **closed by default** |
 | D120-typical **GATE** | below D95's eight-day floor there is **no typical at all** — gated against a fixture seeded with three days, so the floor is what decides |
+### D121 — the resolve surface — v0.43.0
+
+| case | asserts |
+|---|---|
+| D121-plan **GATE** | no candidates is its own answer; a photo item gets the **list** (no distance, nothing for a threshold to do); below the line **one proposal to confirm**; above it **declines and hands over**; an uncomputable distance declines; **every phase is a question** |
+| D121-ui **GATE** | the list shows corpus names and **no score of any kind** — not a percentage, not the raw figure; no candidates renders no list |
+| D121-row **GATE** | an unresolved row carries a **route and no badge**; a resolved row says **which row it matched** and that its micros are **reference values**, with change and remove; and no longer offers the route it has taken |
+| D121-walk **GATE** | the walk queues the meal just saved, is offered as the next tap, **advances** as items resolve, ends when done, and **starts empty never** |
+
+**Why the score is refused.** A number the user cannot act on invites being read as confidence, and D119 measured name similarity as unusable for exactly that — same-food pairs at 0.60, different-food pairs at 0.67.

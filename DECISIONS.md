@@ -4953,3 +4953,54 @@ The panel reads **frozen values off items** and never touches the corpus — D59
 ### Still open
 
 The panel renders *values*; nothing yet **offers** a resolve from an item row, so `resolveItem` has a caller only in tests. That is the next surface, and it is where [[D119]]'s decline line becomes visible: above 0.20 the user is handed the candidate list, below it a single proposal to confirm.
+
+## D121 — The resolve surface: the next tap, and a persistent route — v0.43.0 (2026-09-23)
+
+### The measurement inverted the premise of the slice
+
+Against the real 35 items, in the CNF namespace the user actually uses:
+
+| source | gets at least one candidate |
+|---|---|
+| ai-paste | **26 of 27 (96%)** |
+| scan | 6 of 8 (75%) |
+
+**And no scanned item can be composition-verified: 0 of 8 carry `grams`.** `buildScanItem` does write it — [[D57]] made the portion data — but the scans were logged **16–17 July and 2–4 September**, and **D57 was ruled 7 September**. Every one predates it. The photo items are all 7–14 September and 24 of 27 carry grams.
+
+> **The panel serves the scans and the resolve surface serves the photos.** The slice was proposed on the opposite assumption — that the panel showed nothing for the 27 photo captures and the surface would fix that for them — which is true of the panel and backwards for the surface. D119's mode 1, the cleverer half, has **no subject in existing data**.
+
+**The scan path ships anyway, knowingly dormant**, and this is the reason: it is already built and gated in [[D119]], and holding it back would mean building it twice. The next real scan is its device test.
+
+### Two affordances, because they answer different questions
+
+**The next tap.** A photo meal that just landed is exactly when resolving should be offered, so `photoSave` starts a **walk** through that meal's unresolved items — offered once, dismissable, and it advances rather than asking again. *"What did I just eat."*
+
+**A persistent route.** Every already-logged row carries a chip, because all 27 existing items need one and a prompt that only fires at save time would leave them unreachable. *"What was that thing last Tuesday."*
+
+**And no badge on an unresolved row.** Twenty-seven rows announcing themselves would be worse than the silence it replaces; the panel already states coverage honestly.
+
+### `resolvePlan` is pure, and it is where D119's ruling lives
+
+Four outcomes, and **every one of them is a question**: no candidates is its own answer; a photo item gets the list because there is no distance and nothing for a threshold to do; below the line **one proposal to confirm**; above it the matcher **declines and hands over the list**. Gated that no phase applies anything.
+
+**The branch is taken on SOURCE, not on whether the arithmetic happens to be possible.** A photo item's macros are the model's estimate, and scoring against them would be treating a guess as evidence — so even a photo item with perfect grams and macros takes the no-basis branch.
+
+### No score is shown, and the reason is measured
+
+**C1.** A number the user cannot act on invites being read as confidence, and [[D119]] measured name similarity as unusable for exactly that: same-food pairs at 0.60 token-Jaccard, different-food pairs at 0.67. The list shows corpus names and nothing else.
+
+### The no-candidate class, named
+
+**Brand names** (*"Craisins"*) and **transliterated dishes** (*"siu mai"*) — three of the 35 items, and neither kind is in a composition database under that spelling. The surface says so plainly and offers a search on a different word. No amount of ranking finds what is not there, and [[D74]]'s `undecidable` stays a finished answer.
+
+### What the defect pass found
+
+**C1 was built and not gated.** The plant that showed the score scored **VACUOUS**, because nothing asserted the rendered list omits it — the ruling was implemented and unprotected. `resolveRowsHTML` is now a pure exported seam with its own gate. *A ruling that is implemented but ungated survives exactly as long as nobody edits that line.*
+
+**And a plant's EXPECTATION was wrong rather than its gate.** The same plant listed `D121-row` alongside `D121-ui`; showing a score in the list has nothing to do with the row, so the runner reported MISSED against a gate that was right not to fire. The expectation was corrected, not the gate — worth distinguishing, because "MISSED" reads like a hole in the gates and here it was a hole in the bookkeeping.
+
+**Module-level view state crossed a section boundary.** `RESOLVE_WALK`, left set by an earlier photo-save case, rendered *"find nutrients for N items"* into a later section — which is the string the row assertions matched on. Same family as [[D113]]'s pinned clock: **shared state that fails somewhere other than where it was set**. Cleared in the fixture, with the reason written beside it.
+
+**Defect pass: nine plants, nine failing their own named gates.**
+
+**Suite: 2,341 assertions** (2,321 → 2,341).

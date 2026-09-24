@@ -9301,6 +9301,102 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D121: the resolve surface -----------------------------------------
+  // resolvePlan is where D119's ruling actually lives, and it is pure, so the
+  // rule can be asserted without a database the harness cannot host.
+  var C121 = [{ id: 'a', name: 'Cheese, cheddar' }, { id: 'b', name: 'Cheese, brie' }];
+  res(HT.resolvePlan([], null).phase === 'none',
+      'D121-plan GATE: no candidates is its own answer, not an empty list');
+  var photo121 = HT.resolvePlan(C121, null);
+  res(photo121.phase === 'pick' && photo121.why === 'no-basis',
+      'D121-plan GATE: with no composition to verify against there is no distance and nothing for a threshold to do -- the LIST is the answer (D8: the model identifies, it never supplies numbers)');
+  var near121 = HT.resolvePlan(C121, { best: { id: 'a', name: 'Cheese, cheddar', distance: 0.05 } });
+  res(near121.phase === 'propose' && near121.best.id === 'a',
+      'D121-plan GATE: below the line, ONE proposal to confirm');
+  var far121 = HT.resolvePlan(C121, { best: { id: 'a', name: 'Cheese, cheddar', distance: 0.45 } });
+  res(far121.phase === 'pick' && far121.why === 'declined',
+      'D121-plan GATE: above the line the matcher DECLINES and hands over the list (D119)');
+  res(HT.resolvePlan(C121, { best: { id: 'a', name: 'x', distance: null } }).phase === 'pick',
+      'D121-plan GATE: an uncomputable distance declines too -- no distance is not a good match');
+  res(['none', 'pick', 'propose'].indexOf(photo121.phase) >= 0 &&
+      ['none', 'pick', 'propose'].indexOf(near121.phase) >= 0 &&
+      ['none', 'pick', 'propose'].indexOf(far121.phase) >= 0,
+      'D121-plan GATE: every phase is a QUESTION -- there is no phase that applies anything');
+
+  // ---- the surface shows no score ----------------------------------------
+  // C1: a number the user cannot act on invites being read as confidence, and
+  // D119 measured name similarity as unusable for exactly that -- same-food
+  // pairs at 0.60, different-food pairs at 0.67.
+  setLS({}); HT.boot(); fixClock();
+  // An earlier photo-save case leaves RESOLVE_WALK set -- module-level view
+  // state that outlives the section that set it, exactly as D113's pinned clock
+  // did. It renders "find nutrients for N items", which is what these row
+  // assertions match on, so it is cleared rather than reasoned around.
+  HT.resolveWalkDismiss();
+  HT.addManualEntry({ name: 'Cheddar', meal: 'lunch', kcal: 100, grams: 50 });
+  var D121K = HT.localDate();
+  (function () {
+    var v = { date: D121K, idx: 0, name: 'Cheddar', query: 'Cheddar', phase: 'pick', why: 'no-basis',
+              candidates: [{ id: 'a', name: 'Cheese, cheddar', jaccard: 0.66, overlap: 2 }] };
+    HT.resolveClose();
+    var html = (function () { var o = HT.resolveView(); return ''; })();
+  })();
+  res(HT.resolveView() === null, 'D121-ui fixture: the resolve view starts closed');
+  // C1 WAS BUILT AND NOT GATED, which the defect pass found by scoring a plant
+  // that showed the score as VACUOUS. A number the user cannot act on invites
+  // being read as confidence, and D119 measured name similarity as unusable for
+  // exactly that -- same-food pairs at 0.60, different-food pairs at 0.67.
+  var RH121 = HT.resolveRowsHTML({ candidates: [
+    { id: 'a', name: 'Cheese, cheddar', jaccard: 0.66, overlap: 2 },
+    { id: 'b', name: 'Cheese, brie', jaccard: 0.5, overlap: 1 }] });
+  res(RH121.indexOf('Cheese, cheddar') > 0 && RH121.indexOf('Cheese, brie') > 0,
+      'D121-ui GATE: the candidate list shows the corpus names');
+  res(RH121.indexOf('%') < 0 && RH121.indexOf('0.66') < 0 && RH121.indexOf('66') < 0,
+      'D121-ui GATE: and NO score of any kind -- not a percentage, not the raw figure');
+  res(HT.resolveRowsHTML({ candidates: [] }) === '',
+      'D121-ui GATE: no candidates renders no list rather than an empty frame');
+
+  // ---- the row affordance -------------------------------------------------
+  HT.refresh();
+  var dv121 = document.getElementById('dayView').innerHTML;
+  res(dv121.indexOf('find nutrients') >= 0,
+      'D121-row GATE: an unresolved row carries a ROUTE to resolving');
+  res(dv121.indexOf('mref') < 0,
+      'D121-row GATE: and no badge and no nag -- B1, because 27 rows shouting would be worse than the silence it replaces');
+  HT.state().days[D121K].items[0].ref = { ns: 'cnf', id: 'c1', name: 'Cheese, cheddar',
+    attribution: 'Canadian Nutrient File, Health Canada, 2015', v: { 301: 350 } };
+  HT.refresh();
+  var dv121b = document.getElementById('dayView').innerHTML;
+  res(dv121b.indexOf('Cheese, cheddar') >= 0 && dv121b.indexOf('reference values') >= 0,
+      'D121-row GATE: a RESOLVED row says which row it matched and that its micros are reference values, not label values (E1)');
+  res(dv121b.indexOf('remove') >= 0 && dv121b.indexOf('change') >= 0,
+      'D121-row GATE: and a resolve is a decision that can be withdrawn (F1)');
+  res(dv121b.indexOf('find nutrients') < 0,
+      'D121-row GATE: a resolved row no longer offers the route it has already taken');
+
+  // ---- the walk: the next tap at the moment ------------------------------
+  setLS({}); HT.boot(); fixClock();
+  HT.addManualEntry({ name: 'Rice', meal: 'lunch', kcal: 200, grams: 150 });
+  HT.addManualEntry({ name: 'Chicken', meal: 'lunch', kcal: 300, grams: 120 });
+  var WK = HT.localDate();
+  HT.state().days[WK].items.forEach(function (x) { x.mealId = 'm1'; });
+  res(HT.resolveWalkStart(WK, 'm1').n === 2,
+      'D121-walk GATE: the walk queues the items of the meal just saved');
+  HT.refresh();
+  res(document.getElementById('dayView').innerHTML.indexOf('find nutrients for 2 items') >= 0,
+      'D121-walk GATE: and the day offers it as the NEXT TAP rather than a control to go looking for');
+  HT.state().days[WK].items[0].ref = { ns: 'cnf', id: 'x', name: 'Rice, white', v: {} };
+  HT.resolveWalkNext();
+  res(HT.resolveWalkState() && HT.resolveWalkState().queue.length === 1,
+      'D121-walk GATE: a resolved item leaves the queue -- it walks forward rather than asking again');
+  HT.state().days[WK].items[1].ref = { ns: 'cnf', id: 'y', name: 'Chicken, breast', v: {} };
+  HT.resolveWalkNext();
+  res(HT.resolveWalkState() === null,
+      'D121-walk GATE: and it ends when the meal is done, rather than lingering');
+  HT.resolveWalkStart(WK, 'm1');
+  res(HT.resolveWalkState() === null,
+      'D121-walk GATE: a meal with nothing left to resolve starts no walk at all');
+
   // ---- D120: the micronutrient panel -------------------------------------
   // THREE STATES, and the third is the one a dash cannot express.
   res(HT.panelState(null, 'mg') === 'absent' && HT.panelState(NaN, 'mg') === 'absent',

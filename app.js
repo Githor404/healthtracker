@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.42.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.43.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1353,6 +1353,180 @@ function panelCoverageLine(e) {
   return parts.join(' \u00b7 ');
 }
 
+
+// ---- D121: the resolve surface ---------------------------------------------
+// MOVE FORWARD FROM THE MOMENT. Resolving is the next tap after a meal is saved,
+// not a control to go looking for -- and there is also a persistent route from
+// any row, because everything already logged needs one too. Two affordances,
+// because they answer different questions: "what did I just eat" and "what was
+// that thing last Tuesday".
+//
+// MEASURED BEFORE BUILDING: of 35 real items, 26 of 27 photo items have
+// candidates and 6 of 8 scans do -- but ZERO scans carry grams, because they all
+// predate D57, so the composition-verified branch has no subject in existing
+// data. It ships anyway and is knowingly dormant: it is built and gated in D119,
+// and holding it back would mean building it twice.
+let RESOLVE_VIEW = null;
+let RESOLVE_WALK = null;          // the "next tap" queue after a save
+
+// PURE, and this is where D119's ruling actually lives. Nothing here decides;
+// it chooses which QUESTION to ask.
+function resolvePlan(cands, scored) {
+  if (!cands || !cands.length) return { phase: 'none', why: 'no-candidates' };
+  // A photo item has no composition to verify against (D8: the model identifies,
+  // it never supplies numbers), so there is no distance and nothing for a
+  // threshold to do. The list is the answer.
+  if (!scored) return { phase: 'pick', why: 'no-basis', candidates: cands };
+  const best = scored.best;
+  // Below the line: ONE proposal, to confirm. Never applied silently.
+  if (best && !matchDeclines(best.distance))
+    return { phase: 'propose', why: 'propose', best: best, candidates: cands };
+  // Above it: the matcher declines and hands over the list (D119).
+  return { phase: 'pick', why: 'declined', best: best, candidates: cands };
+}
+
+function resolveView() { return RESOLVE_VIEW; }
+function resolveClose() { RESOLVE_VIEW = null; renderResolve(); }
+
+function resolveOpen(dateKey, idx, queryOverride) {
+  const day = APP_STATE.days[dateKey];
+  const it = day && day.items && day.items[idx];
+  if (!it) return Promise.resolve({ ok: false, why: 'no-item' });
+  RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'loading', name: it.name,
+                   query: queryOverride != null ? queryOverride : it.name };
+  renderResolve();
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (!m || !m.index) {
+      RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'none', why: 'no-corpus', name: it.name };
+      renderResolve();
+      return { ok: false, why: 'no-corpus' };
+    }
+    const q = (queryOverride != null && String(queryOverride).trim() !== '')
+      ? String(queryOverride) : it.name;
+    const cands = matchCandidates(q, MATCH_CANDIDATES);
+    const vec = matchItemVector(it);
+    // Only a scan has a label to verify against. A photo item's macros are the
+    // model's estimate, and scoring against them would be treating a guess as
+    // evidence -- so the branch is taken on SOURCE, not on whether the arithmetic
+    // happens to be possible.
+    const scorable = (it.source === 'scan') && !!vec && cands.length;
+    if (!scorable) {
+      const plan = resolvePlan(cands, null);
+      RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q }, plan);
+      renderResolve();
+      return { ok: true, phase: plan.phase };
+    }
+    return Promise.all(cands.map(function (c) {
+      return corpusLookup(c.id).then(function (row) { return { id: c.id, name: c.name, row: row }; });
+    })).then(function (rows) {
+      const scored = matchScore(vec, rows.filter(function (r) { return r.row; }), m.slots);
+      const plan = resolvePlan(cands, scored);
+      RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q }, plan);
+      renderResolve();
+      return { ok: true, phase: plan.phase };
+    });
+  });
+}
+
+// D1: a different word is the one thing that works when a name has no row at
+// all. Measured on the real data, the class is BRAND NAMES ("Craisins") and
+// TRANSLITERATED DISHES ("siu mai") -- neither is in a composition database
+// under that spelling, and no amount of ranking finds what is not there.
+function resolveSearch(text) {
+  const v = RESOLVE_VIEW;
+  if (!v) return Promise.resolve({ ok: false });
+  return resolveOpen(v.date, v.idx, text);
+}
+
+function resolvePick(id, name, distance) {
+  const v = RESOLVE_VIEW;
+  if (!v) return Promise.resolve({ ok: false });
+  return resolveItem(v.date, v.idx, id, name, distance).then(function (r) {
+    if (r.ok) { RESOLVE_VIEW = null; resolveWalkNext(); renderResolve(); }
+    return r;
+  });
+}
+
+// ---- the walk: the next tap after a save ------------------------------------
+// Not a nag and not a badge (B1). It is offered once, for the meal just saved,
+// and it walks forward through that meal's items rather than asking the user to
+// find each one again.
+function resolveWalkStart(dateKey, mealId) {
+  const day = APP_STATE.days[dateKey];
+  if (!day) return { ok: false };
+  const idxs = [];
+  (day.items || []).forEach(function (it, i) {
+    if (it && it.mealId === mealId && !it.ref) idxs.push(i);
+  });
+  RESOLVE_WALK = idxs.length ? { date: dateKey, mealId: mealId, queue: idxs } : null;
+  refresh();
+  return { ok: true, n: idxs.length };
+}
+function resolveWalkState() { return RESOLVE_WALK; }
+function resolveWalkNext() {
+  const w = RESOLVE_WALK;
+  if (!w) return { ok: false };
+  const day = APP_STATE.days[w.date];
+  w.queue = w.queue.filter(function (i) {
+    const it = day && day.items && day.items[i];
+    return it && !it.ref;
+  });
+  if (!w.queue.length) { RESOLVE_WALK = null; refresh(); return { ok: true, done: true }; }
+  return { ok: true, next: w.queue[0] };
+}
+function resolveWalkOpen() {
+  const w = RESOLVE_WALK;
+  if (!w || !w.queue.length) return Promise.resolve({ ok: false });
+  return resolveOpen(w.date, w.queue[0]);
+}
+function resolveWalkDismiss() { RESOLVE_WALK = null; refresh(); return { ok: true }; }
+
+// ---- the surface -------------------------------------------------------------
+function resolveRowsHTML(v) {
+  // C1: NO SCORE IS SHOWN. A number the user cannot act on invites being read as
+  // confidence, and D119 measured name similarity as unusable for exactly that --
+  // same-food pairs at 0.60 and different-food pairs at 0.67.
+  return (v.candidates || []).map(function (c) {
+    return '<div class="rcand"><button type="button" class="btn rcandbtn" onclick="resolvePick(\'' +
+      esc(String(c.id)) + '\',\'' + esc(String(c.name).replace(/'/g, ' ')) + '\',null)">' +
+      esc(c.name) + '</button></div>';
+  }).join('');
+}
+function resolveHTML() {
+  const v = RESOLVE_VIEW;
+  if (!v) return '';
+  const head = '<div class="rvhead">' + esc(v.name || '') + '</div>';
+  const src = CORPUS_MEM ? ('<div class="rvsub">' + esc(corpusState().attribution || '') + '</div>') : '';
+  let body = '';
+  if (v.phase === 'loading') body = '<div class="rvsub">Looking\u2026</div>';
+  else if (v.phase === 'none' && v.why === 'no-corpus')
+    body = '<div class="rvsub">The nutrition database is not on this device yet.</div>';
+  else if (v.phase === 'none')
+    body = '<div class="rvsub">Nothing in the database is named like this. '
+      + 'Brand names and transliterated dishes often are not \u2014 try a different word for what it is.</div>';
+  else if (v.phase === 'propose')
+    body = '<div class="rvsub">Its label and this row agree. Use it?</div>'
+      + '<div class="rcand"><button type="button" class="btn primary rcandbtn" onclick="resolvePick(\''
+      + esc(String(v.best.id)) + '\',\'' + esc(String(v.best.name).replace(/'/g, ' ')) + '\','
+      + Number(v.best.distance) + ')">' + esc(v.best.name) + '</button></div>'
+      + '<div class="rvsub">Or choose another:</div>' + resolveRowsHTML(v);
+  else
+    body = '<div class="rvsub">' + (v.why === 'declined'
+        ? 'The label and these rows do not agree closely enough for the app to suggest one. Pick the right one:'
+        : 'Which of these is it?') + '</div>' + resolveRowsHTML(v);
+  const search = '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value="'
+    + esc(v.query || '') + '" aria-label="search the database">'
+    + '<button type="button" class="btn" onclick="resolveSearch((document.getElementById(\'rvQuery\')||{}).value)">Search</button></div>';
+  return '<div class="rvwrap"><div class="rvbox" role="dialog" aria-modal="true" aria-label="Find nutrients">'
+    + head + src + body + search
+    + '<button type="button" class="linklike" onclick="resolveClose()">close</button></div></div>';
+}
+function renderResolve() {
+  const el = document.getElementById('resolveBox');
+  if (el) el.innerHTML = resolveHTML();
+}
+
 // ---- D120: resolve, and the acquire trigger that ships with it -------------
 // D117: the trigger ships in the same slice as the first reader, because a
 // trigger with no reader is dead code and a reader with no trigger is a feature
@@ -2393,10 +2567,19 @@ function renderDay() {
       const kcalCell = itemHasMacros(it)
         ? `${esc(rDisp(it.kcal))}<small> kcal</small>`
         : `<span class="munres">—</span>`;
+        // D121 / E1: a resolved row says WHICH row it matched and that its micros
+        // are reference values rather than label values. B1: an unresolved row
+        // gets no badge and no nag -- 27 rows shouting would be worse than the
+        // silence it replaces -- only a route, which the chip is.
+        const refline = it.ref
+          ? `<div class="mref">matched <b>${esc(it.ref.name || it.ref.id)}</b> \u00b7 reference values` +
+            ` <button class="linklike" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">change</button>` +
+            ` <button class="linklike" onclick="event.stopPropagation();clearItemRef('${esc(dk)}',${idx})">remove</button></div>`
+          : (it._auto ? '' : `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`);
       html += `<div class="mitem"><div class="mmain"${open}>
           <div class="mname">${esc(it.name)}</div>
           <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · ${macroMeta} · <span class="src">${esc(it.source || '')}</span>${edited}</div>
-          ${chip}
+          ${chip}${refline}
         </div><div class="mkcal"${open}>${kcalCell}</div>${rm}</div>`;
     });
     html += `</div>`;
@@ -2409,6 +2592,15 @@ function renderDay() {
   const dnote = dcov.partial ? `<div class="daycov">${esc(coverageNote(dcov))}</div>` : '';
   html += `<div class="daytot"><span>Total (est.)</span><span>${esc(rDisp(t.kcal))} kcal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}`;
   const w = day.water_l || 0;
+  // D121 / A1: the NEXT TAP after a save. Offered once, for the meal just
+  // logged, and it walks forward through that meal rather than asking the user
+  // to find each item again. Dismissable, and never shown twice.
+  const walk = resolveWalkState();
+  if (walk && walk.date === dk && walk.queue.length) {
+    html += `<div class="rwalk"><span>Just logged \u2014 find nutrients for ${esc(String(walk.queue.length))} item${walk.queue.length === 1 ? '' : 's'}?</span>` +
+      `<span class="rwbtns"><button class="btn" onclick="resolveWalkOpen()">Find</button>` +
+      `<button class="linklike" onclick="resolveWalkDismiss()">not now</button></span></div>`;
+  }
   // D120: OPT-IN, closed by default -- depth on demand, never the first thing seen.
   html += `<details class="mpanel"><summary>Micronutrients</summary><div id="microPanel"></div></details>`;
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
@@ -6381,7 +6573,7 @@ function refresh() {
     try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
     AUTOCLOSE_BUSY = false;
   }
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -6492,6 +6684,7 @@ const VERSION_LOG = [
   { v: '0.40.0', d: '2026-09-23', note: 'Groundwork for micronutrients: the app can now hold a food-composition database on your device. It is fetched once, after the app is installed, and stored locally \u2014 Canadian data if your locale is Canada, USDA data otherwise. Nothing uses it yet, and a missing value is shown as missing rather than as zero.' },
   { v: '0.41.0', d: '2026-09-23', note: 'The app can now look a food up in the composition database it holds. For a scanned product it checks the match against the label\u2019s own numbers and, when they disagree, hands you the choice instead of guessing. Nothing is ever filled in silently on the strength of a match.' },
   { v: '0.42.0', d: '2026-09-23', note: 'A micronutrient panel, closed by default, under each day. It groups nutrients, says which were measured, which were measured as zero, and which are present but too small to show \u2014 three different things a dash cannot tell apart. Where a figure leans on the reference database rather than a label, it says so and is counted separately.' },
+  { v: '0.43.0', d: '2026-09-23', note: 'You can now match a logged food to the nutrition database \u2014 as the next tap after saving a photo meal, or from any food row later. The app offers what it found and you choose; it never fills anything in on its own. Where it finds nothing, it says so and lets you search on a different word.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -8700,6 +8893,9 @@ function photoSave(statements) {
   Store.saveState(APP_STATE);
   const st = Array.isArray(statements) ? statements : null;
   const r = consumeFromPlate(plate.id, st, { date: dk, mealId: mealId, priorCopy: priorCopy, all: !st });
+  // D121: the moment. A photo meal that just landed is exactly when the next tap
+  // should be offered, rather than leaving it to be found later.
+  if (r && r.ok !== false) { try { resolveWalkStart(dk, mealId); } catch (e) {} }
   if (!r.ok) {
     // The plate stands even when nothing was eaten from it yet -- that is the
     // whole point of it being a separate fact, and the recall badge will ask.
@@ -11355,6 +11551,10 @@ window.HT = {
   PANEL_SLOT_KEY, PANEL_KEY_SLOT, PANEL_GROUPS, PANEL_PROTEIN_SLOT,
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
+  // D121 -- the resolve surface
+  resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
+  resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
+  resolveHTML, renderResolve,
   panelFamily, panelIsEquivalent, panelRollup, panelCoverageLine,
   CORPUS_DB, CORPUS_STORE_META, CORPUS_STORE_VALUES, CORPUS_CACHE,
   // D113 -- a forgotten night closes on the sleeper's own pattern
