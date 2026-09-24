@@ -4543,3 +4543,17 @@ other gate in the suite would notice.
 **Re-pointed, carrying their history (D92):** DT-header and D120-optin both
 asserted a rendered **string** and broke when the element gained a control. Both
 now read the DOM state. A gate that asserts markup does not assert meaning.
+### D124 — the 16px floor, on the shipped page
+
+| case | asserts |
+|---|---|
+| font-floor **coverage** | the sweep reached food rows, timeline rows, the medication list, 260+ form controls and 47+ `<small>` elements — a sweep that rendered nothing would otherwise pass loudly (D96) |
+| font-floor **GATE** | **no element renders text below 16px** (D100's floor, 1282 elements swept) |
+| font-floor **GATE** | **no form control computes below 16px** — iOS zooms the viewport on focus, which is behaviour, not typography |
+
+**Computed sizes, never a grep of declarations.** `<small>`/`<sub>`/`<sup>` are sized
+relatively by the UA sheet (D99), so they broke the floor with no declaration
+anywhere to search for. A stylesheet grep reports clean on a page that is wrong.
+
+**Known scope:** one viewport (390×844), the app's own surfaces only, and it
+catches an empty sweep rather than an unreached new surface.

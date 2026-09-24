@@ -30,12 +30,13 @@ capture-outcome-gate.ps1
 chip-layout-gate.ps1
 corpus-gate.ps1
 flow-gate.ps1
+font-floor-gate.ps1
 lab-form-gate.ps1
 offline-gate.ps1
 photo-lead-gate.ps1
 ring-size-gate.ps1
 update-gate.ps1"
-EXPECTED_GATE_SCRIPTS=10
+EXPECTED_GATE_SCRIPTS=11
 
 GS_MISSING=""
 for g in $GATE_SCRIPTS; do [ -f "$DIR/$g" ] || GS_MISSING="$GS_MISSING $g"; done

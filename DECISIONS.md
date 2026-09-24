@@ -5130,3 +5130,29 @@ Quick add ([[B3]]/[[C1]]) and repeat items ([[D1]]/[[E1]]/[[F1]]). Recorded ther
 **And my own error, recorded because it caused the collision.** I twice read an empty process listing as proof that a pass had died, and twice it had not — it was still alive, still planting. **Absence of evidence taken as proof**, which is precisely what I would fail a gate for. The lock is the right fix for exactly that reason: it is **positive evidence, held by the process itself**, so nothing has to be inferred from a silence.
 
 **Suite: 2,373 assertions** (2,358 → 2,373), plus the tenth gate script. **Defect pass: 20 plants, 20 failing their own named gates.**
+
+## D124 — The 16px floor, gated at last — computed sizes on the page, not a grep of declarations (2026-09-24)
+
+**[[D100]] ruled a 16px floor and rebuilt the app to reach it**: 18 distinct sizes collapsed to four, 160 declarations rewritten, **719 elements under 16px → 0**, and **254 of 262 form controls → 0 of 263**. The control half was the point that carried the ruling: *a control under 16px makes iOS zoom the viewport on focus, which is behaviour, not typography.* It was **confirmed on the device** four days before this entry.
+
+**And nothing gated it.** Building [[D123]] I wrote two new rules at 15px, shipped them through a green suite, and found them **by eye**, afterwards. Two violations of a ruled, device-confirmed contract, four days old, and the full suite — 2,373 assertions and ten CDP gates — said nothing.
+
+**This is [[D121]]'s finding again, and it now has two instances: a ruling implemented but ungated survives only until someone edits the line.** The code that satisfied D100 was correct on the day it shipped. What was missing was the thing that keeps it correct on a day nobody is thinking about it.
+
+### Computed sizes, not declarations — and `<small>` is why
+
+A grep of the stylesheet would have found both of my 15px rules. **It would still have been the wrong gate**, and [[D99]] is the proof: the UA stylesheet sizes `<small>`, `<sub>` and `<sup>` **relatively** (0.8em), so they sat under the floor with **no declaration anywhere to find**. A search of the source reports a clean sheet on a page that is visibly wrong.
+
+So the gate reads `getComputedStyle().fontSize` off **rendered elements on the shipped page**, which is the only place the question has an answer.
+
+### The coverage is asserted before the floor is
+
+A sweep that reached nothing would pass, and pass loudly — the [[D96]] shape: a fixture must make the wrong behaviour possible. So the gate drives the app into as much of itself as one page holds — a day with food rows, a timeline carrying a medication, a biometric and an event, the medication list, **every sheet mode**, the settings panel, and every `<details>` forced open — and then **fails if the sweep did not reach** food rows, timeline rows, medication rows, form controls, or `<small>` elements. Only then does it judge the floor.
+
+Swept on the shipped page: **1282 elements, 260 form controls, 47 `<small>` elements**, nothing below 16px.
+
+### Scope, stated
+
+It measures **one viewport** (390×844) and the app's **own** surfaces. It does not measure the OS date picker, the camera UI, or anything the browser draws for us. Nor does it prevent a *new* surface from shipping unswept — the coverage assertions catch an empty sweep, not an unreached corner. That limit is the honest one to state rather than imply the gate is total.
+
+**Eleventh CDP gate. Suite: 15 verdicts** (was 14), census 10 → 11.
