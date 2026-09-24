@@ -4520,6 +4520,12 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | D122-state **GATE** | a name that states its state is read for it; one that says nothing is **unknown, not assumed**; **cooked wins a tie**; dehydrated and instant are dry |
 | D122-item **GATE** | an item naming its own state is taken at its word; a photographed meal is **as-eaten**; a **scanned package stays unknown** rather than assumed |
 | D122-rank **GATE** | the **same-state** candidate is offered first; **unknown ranks ahead of a known mismatch**; mismatches come last keeping D119's order within their band; an **unknown item state reorders nothing** |
+**The kcal pair's limit (D125 amendment):** it separates **states**, it does not
+rank **identities** — two foods at similar calories can differ in exactly the
+nutrients the panel exists to show. Nothing in the surface sorts, marks or
+highlights by kcal proximity, and no case here should ever be written that makes
+the nearest number mean the best match.
+
 | D122-row **GATE** | every candidate shows **its own kcal per 100 g**; a mismatched row **says so**; a matching row carries **no** warning; and still **no score** |
 
 **The fixture is the device's shape:** a cooked item whose top candidate is dry — asserted to be so before the ranking is tested, or the gate would pass on a defect.
@@ -4557,3 +4563,21 @@ anywhere to search for. A stylesheet grep reports clean on a page that is wrong.
 
 **Known scope:** one viewport (390×844), the app's own surfaces only, and it
 catches an empty sweep rather than an unreached new surface.
+### D125 — a resolve the user did not make — v0.46.0
+
+Measured on the device's shape at 390×844 **before** the fix: the distance from
+the tap that opened the list to the nearest candidate row was **0 px**, the list
+appeared **0 ms** after the tap, and the covering row was **enabled**.
+
+| case | asserts |
+|---|---|
+| D125-src **GATE** (harness) | a state the **name** states is evidence; one taken from `source` is a **guess**; a scanned package states neither; and when a photographed item **names** its state, **the name wins** |
+| D125-rank **GATE** (harness) | ranking on the guess really does bury both correct rows (the fixture, or there is no defect to fix); with nothing to rank on the **matcher order stands**; a **stated** state still reorders exactly as D122 ruled |
+| D125-label **GATE** (harness) | a mismatch against an **inferred** state is labelled *"probably"*; against a **stated** one, D122's wording unhedged; the **kcal pair stays on every row** either way |
+| D125-how / D125-when **GATE** (harness) | the record says **how** (`picked` / `proposed`, D111's pattern) and carries a **time**, not only a date |
+| **resolve-gate** (CDP) | **both fixtures together**: wood ear keeps its correct rows on top and labelled; ramen still shows dry rows, labelled and priced, with no score. The **shield as a distance**: the covering row disabled, the nearest enabled control clear of the tap, a tap there resolving nothing, and the shield **lifting** |
+
+**The gate asserts the hazard still exists before asserting it is handled** — a
+row must still land on the tap point, or the gate proves nothing (D96). And it is
+guarded against its own abort: a plant that removed the shield used to throw
+before the ramen half ran, which is the half the ruling pairs it with.

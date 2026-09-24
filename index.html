@@ -671,6 +671,10 @@
 .flash{animation:htflash 1.4s ease-out 1}
 @keyframes htflash{0%{background:var(--flash,rgba(255,196,0,.34))}100%{background:transparent}}
 @media (prefers-reduced-motion:reduce){.flash{animation:none;outline:2px solid var(--flash,rgba(255,196,0,.6))}}
+/* D125: a row that lands where the thumb just tapped cannot act. It looks
+   unavailable for the moment it is, rather than looking normal and doing
+   nothing -- a control that ignores a tap without saying so is its own defect. */
+.rcandbtn.rshield{opacity:.45;pointer-events:none}
 </style>
 </head>
 <body>

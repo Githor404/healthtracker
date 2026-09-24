@@ -5050,6 +5050,42 @@ A **cooked item whose top candidate is dry** — the device's exact shape. The f
 
 **Suite: 2,358 assertions** (2,341 → 2,358).
 
+### AMENDMENT (2026-09-24, D125): what the kcal pair CANNOT do
+
+**Reported by the user, correcting their own earlier advice.** During the ramen
+resolve they judged `Pasta, egg noodles, enriched, cooked` the closest match
+because its **138 kcal/100 g** sat nearest the item's **148**. That was wrong:
+**ramen is an alkaline wheat noodle, not an egg noodle**, and for micronutrients
+the difference is real {em} egg adds **cholesterol, B12, choline and selenium**,
+which are exactly the kind of values the panel exists to show.
+
+**The limit, stated:**
+
+> **The kcal pair separates STATES. It does not rank IDENTITIES.**
+> Two foods at similar calories can differ in precisely the nutrients the panel
+> is for, so proximity in kcal is evidence about **preparation**, never about
+> **what the food is**.
+
+That is the job it was introduced for and the job it did: **440 beside 148** made
+dry-versus-cooked obvious at a glance, which no ranking had managed. The failure
+was in reading a second, unearned meaning into the same number.
+
+**The surface must not imply otherwise, and today it does not** {em} verified,
+not assumed: nothing sorts, marks or highlights candidates by kcal proximity, the
+rows carry the matcher's order alone, and the words *closest*, *nearest* and
+*best match* appear nowhere in the resolve surface. Each row shows its own kcal
+as a **fact beside the item's own**, which is what [[D122]] ruled and what [[C1]]
+refused a score in order to protect. **No change was made here** {em} the point of
+the amendment is that the next change must not quietly acquire that meaning.
+
+**The same limit binds the `propose` path more tightly, not less.** *"Its label
+and this row agree"* rests on a seven-axis composition distance, which is far
+stronger evidence than one number and **still does not establish identity**.
+It is confined to scanned items, where a real label is being compared, and it
+never applies itself without confirmation ([[D119]]) {em} but the wording is the
+one remaining place where numbers speak about what a food **is**. Flagged here
+rather than changed, because changing it is a ruling, not a repair.
+
 ## D123 — Flow, part one: the date jump, and four surfaces that did something without showing it — v0.45.0 (2026-09-24)
 
 **H16 was measured before it was designed**, which the brief required: *"Report each as it is today before proposing anything."* Every number below came from clicking real elements on the shipped page at 390×844, not from reading the source and reasoning about what the path ought to be.
@@ -5156,3 +5192,60 @@ Swept on the shipped page: **1282 elements, 260 form controls, 47 `<small>` elem
 It measures **one viewport** (390×844) and the app's **own** surfaces. It does not measure the OS date picker, the camera UI, or anything the browser draws for us. Nor does it prevent a *new* surface from shipping unswept — the coverage assertions catch an empty sweep, not an unreached corner. That limit is the honest one to state rather than imply the gate is total.
 
 **Eleventh CDP gate. Suite: 15 verdicts** (was 14), census 10 → 11.
+
+## D125 — A resolve the user did not make — v0.46.0 (2026-09-24)
+
+**Reported from the device:** on 8 September, *"wood ear mushrooms"* (28 g) carried `matched Tomato products, canned, sauce with mushrooms · reference values`. **It was never chosen.** That breaks [[D119]]/[[D121]]'s central ruling — nothing resolves without confirmation — so the first job was to establish **how** the record was written, not to guess.
+
+### How it was written
+
+`it.ref` has exactly **one writer** (`resolveItemFreeze` via `resolveItem`), reached only from `resolvePick`, which takes its item from `RESOLVE_VIEW`. So wood ear was the **open** item when a candidate row was tapped. No path resolves without a tap — that ruling held.
+
+**The walk was suspected and excluded.** `resolveWalkNext()` only filters the queue; the open is `resolveWalkOpen()`, called solely by the strip's *Find* button — and v0.43.0 is byte-identical there. The decisive evidence was a **prediction**: the walk drops an item from its queue only when that item **gets a ref**, and the photo save in question (`mealId pmmttavodn_ektw`) carried **six** items, so reaching wood ear at index 7 would require indexes 4, 5 and 6 to be resolved first. The user checked: *chashu pork belly* and *spicy miso broth* both still showed their **find nutrients** chip. **Unresolved — so the walk never advanced, and the path was wood ear's own chip.**
+
+### Defect 1: the list is tappable where the tap that opened it landed
+
+**Measured on the device's exact shape at 390×844:**
+
+| | |
+|---|---|
+| distance from the tap point to the nearest candidate row | **0 px** — a row covered it exactly |
+| time from tap to list | **0 ms** — the corpus is hydrated, so the render is synchronous |
+| the covering row, at the instant it appeared | **enabled** |
+
+One tap opens the list; **the second tap of a double-tap resolves it.** No walk, no auto-advance and no second intention required.
+
+**The fix is geometric, because the hazard is:** any resolve control landing within half a thumb of the control that opened the list is **disabled for 600 ms**, then lifts on its own. It *looks* unavailable while it is — a control that swallows a tap without saying so is its own defect — and nothing is permanently harder to reach.
+
+### Defect 2: an inferred state buried the correct answers
+
+**The matcher was not at fault, and this corrects the report's own framing.** In the user's namespace (`cnf`) the matcher returned the **two correct rows first**: `Jew's ear (cloud or wood ear, pepeao), raw` and `— dried`. The corpus **has** wood ear, under its other name, and the name matching found it.
+
+**[[D122]] then buried both.** The item is `ai-paste`, so its state was **inferred** as `cooked`; both correct rows **state** `raw` and `dried`, so both counted as mismatched and sorted last, while `Tomato products, canned, sauce with mushrooms` and `Egg, chicken, Spanish omelet` state nothing and so ranked as merely *unknown* — which D122 puts ahead of a known mismatch. The user tapped row 0.
+
+> **Correction to the report's assignment, recorded because measurement beat the guess:** wood ear was **NOT** a transliterated-name miss and does **not** belong to the no-candidate class. The corpus has it, the matcher found it at ranks 1 and 2, and **our own ranking hid it.**
+
+**THE GENERAL FORM, which is the part that outlives this bug: a ranking rule that promotes the vague over the specific will bury exactly the correct answers, because correct matches tend to be specific.**
+
+### The fix, and the conflict it had to survive
+
+Ruling all-A — *an inferred state never reorders* — **would have restored the ramen defect verbatim**, because ramen is also `ai-paste` with an inferred `cooked`, so removing the reorder puts the dry instant-noodle rows straight back on top. The user caught this before it shipped. The resolution is **evidence, not order**:
+
+- an **inferred** state never reorders; the matcher order stands
+- a mismatch against an inferred state is **still labelled**, worded to what the app knows: *"dry — yours is probably cooked"*
+- a mismatch against a **stated** state keeps D122's wording **and** its reordering
+- the **kcal pair stays on every row** — 440 beside 138 is what made the dry rows obvious, and it needs no ranking at all
+
+So D122 is **narrowed, not retired**: it governs what the name states, which is what it was measured on.
+
+### Defect 3: the record could not testify
+
+Asked *"when was this written, relative to the ramen resolve?"*, the record could not answer: `at` was `todayKey()` — a **date** — and there was no *how* at all. Both are now carried: **`at_ms`** orders two resolves seconds apart (minutes would not have), with `at` kept as-is so every existing reader still works; and **`how`** is `picked` or `proposed`, on [[D111]]'s `query_src` pattern. **A record that cannot be ordered, and cannot say whether the user chose it, cannot answer the question that was actually asked of it.**
+
+### Gated — both fixtures together, as ruled
+
+`tests/resolve-gate.ps1` (the **twelfth** CDP gate) drives **wood ear and ramen through the real `resolveOpen`** in the Canadian namespace. Wood ear asserts the two correct rows stay on top and are labelled *probably*; ramen asserts the dry rows are present, labelled and priced. **A fix that passes one and fails the other fails by name.** The shield is asserted **as a distance** — the covering row disabled, the nearest *enabled* control clear of the tap, a tap there resolving nothing, and the shield lifting — and the gate first asserts **the hazard still exists** (a row must still land on the tap point) or it would prove nothing ([[D96]]).
+
+A plant also found the gate **aborting** when the shield was absent: the shielded tap resolved, the sheet closed, and the script threw before reaching the ramen half — the half the ruling says must be judged alongside it. Guarded, so a broken shield now reports **both** fixtures.
+
+**Suite: 2,388 assertions. Defect pass: 13 plants, 13 failing their own named gates.**

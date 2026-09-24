@@ -9308,6 +9308,73 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D125: a resolve the user did not make -----------------------------
+  // Reported from the device: 'wood ear mushrooms' showed a match to 'Tomato
+  // products, canned, sauce with mushrooms' that was never chosen. Measured:
+  // the matcher returned the two CORRECT rows FIRST (Jew's ear, raw/dried --
+  // the corpus has wood ear under its other name), and D122's state rank then
+  // buried both, because each STATES a state that mismatched an INFERRED
+  // 'cooked', while the tomato sauce states none and so ranked as merely
+  // unknown. The right answers were demoted for being specific.
+  res(HT.itemStateSrc({ name: 'rice, cooked', source: 'manual' }) === 'name',
+      'D125-src GATE: a state the NAME states is evidence, and says so');
+  res(HT.itemStateSrc({ name: 'wood ear mushrooms', source: 'ai-paste' }) === 'inferred',
+      'D125-src GATE: a state taken from the SOURCE is a guess, and says so -- this is the distinction the whole fix turns on');
+  res(HT.itemStateSrc({ name: 'Some Product', source: 'scan' }) === null,
+      'D125-src GATE: and a scanned package still states nothing either way');
+  // D96: none of the three above can tell the ORDER of the two checks apart --
+  // no case has both a stated name AND an inferring source, so swapping them
+  // failed nothing. This is that case, and it is a real one: a photographed dish
+  // whose name says how it was cooked.
+  res(HT.itemStateSrc({ name: 'rice, cooked', source: 'ai-paste' }) === 'name',
+      'D125-src GATE: when a photographed item NAMES its state, the name wins over the inference -- evidence outranks a guess, which is the whole rule');
+  res(HT.itemState({ name: 'wood ear mushrooms', source: 'ai-paste' }) === 'cooked',
+      'D125-src GATE: the INFERENCE itself is unchanged -- D122 still reads a photographed meal as eaten; what changes is what may be done with it');
+
+  // the wood ear fixture, in the order the matcher returned it
+  var WOOD = [
+    { id: 'w1', name: "Jew's ear (cloud or wood ear, pepeao), raw", kcal: 25, state: 'raw' },
+    { id: 'w2', name: "Jew's ear (cloud or wood ear, pepeao), dried", kcal: 284, state: 'dry' },
+    { id: 'w3', name: 'Tomato products, canned, sauce with mushrooms', kcal: 35, state: null },
+    { id: 'w4', name: 'Egg, chicken, Spanish omelet, with onion', kcal: 150, state: null }];
+  res(HT.resolveRank(WOOD, 'cooked').map(function (c) { return c.id; }).join(',') === 'w3,w4,w1,w2',
+      'D125-rank fixture: ranking on the guess really does bury both correct rows -- or there is no defect here to fix (D96)');
+  res(HT.resolveRank(WOOD, null).map(function (c) { return c.id; }).join(',') === 'w1,w2,w3,w4',
+      'D125-rank GATE: with no state to rank on, the matcher order STANDS and the correct rows stay at the top');
+
+  // and the ramen fixture, which must not regress: D122 exists for it
+  var RAM125 = [
+    { id: 'd1', name: 'Soup, ramen noodles, any flavour, dry', kcal: 440, state: 'dry' },
+    { id: 'd2', name: 'Pasta, egg noodles, enriched, dry', kcal: 385, state: 'dry' },
+    { id: 'c1', name: 'Pasta, egg noodles, enriched, cooked', kcal: 138, state: 'cooked' }];
+  res(HT.resolveRank(RAM125, 'cooked').map(function (c) { return c.id; }).join(',') === 'c1,d1,d2',
+      'D125-rank GATE: a STATED state still reorders exactly as D122 ruled -- this fix narrows the rule, it does not retire it');
+
+  // the label carries both cases: hedged for a guess, flat for a statement
+  var RHi = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'inferred', candidates: RAM125 });
+  res(RHi.indexOf('dry \u2014 yours is probably cooked') > 0,
+      'D125-label GATE: a mismatch against an INFERRED state is still labelled, worded to what the app actually knows');
+  res(RHi.indexOf('440 kcal/100g') > 0 && RHi.indexOf('138 kcal/100g') > 0,
+      'D125-label GATE: and the kcal pair stays on every row -- 440 beside 138 is what made the dry rows obvious, and it works whether or not anything was reordered');
+  var RHn = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'name', candidates: RAM125 });
+  res(RHn.indexOf('dry \u2014 yours is cooked') > 0 && RHn.indexOf('probably') < 0,
+      'D125-label GATE: a mismatch against a STATED state keeps D122 wording, unhedged');
+  var RHw = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'inferred', candidates: WOOD });
+  res(RHw.indexOf('raw \u2014 yours is probably cooked') > 0 && RHw.indexOf('25 kcal/100g') > 0,
+      'D125-label GATE: the wood ear rows stay at the top AND say how they differ -- the evidence does the work the reordering used to');
+
+  // ---- the record can testify -------------------------------------------
+  var METAr = { ns: 'cnf', slots: [208], hash: 'h', attribution: 'CNF' };
+  var ITr = { name: 'wood ear mushrooms', grams: 28, source: 'ai-paste' };
+  var REFp = HT.resolveItemFreeze(ITr, METAr, [25], 'w1', "Jew's ear", null, 'picked');
+  var REFc = HT.resolveItemFreeze(ITr, METAr, [25], 'w1', "Jew's ear", 0.1, 'proposed');
+  res(REFp.how === 'picked' && REFc.how === 'proposed',
+      'D125-how GATE: the record says HOW it was made -- chosen from the list, or the app\u2019s own suggestion confirmed (D111 pattern)');
+  res(HT.resolveItemFreeze(ITr, METAr, [25], 'w1', 'x', null).how === 'picked',
+      'D125-how GATE: and an unstated how is never silently blank -- it records the only thing it can have been');
+  res(typeof REFp.at_ms === 'number' && REFp.at_ms > 0 && REFp.at === HT.todayKey(),
+      'D125-when GATE: the resolve carries a TIME as well as a date -- a record that cannot order two resolves cannot testify about either');
+
   // ---- D123: the date jump, and a visited day that is never created ------
   // Journey zero, measured on the shipped page: a day fifteen days back cost
   // FIFTEEN taps, one per day, with no other route. The tap count itself is

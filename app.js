@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.45.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.46.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -970,6 +970,13 @@ function normalizeRegimens(o) {
 let APP_STATE = null;
 let APP_SOURCE = 'empty';   // 'store' | 'migrated' | 'restored' | 'empty' | 'future'
 
+// Capture phase, so it runs before the handler that opens the list.
+if (typeof document !== 'undefined' && document.addEventListener) {
+  document.addEventListener('click', function (e) {
+    const t = (e.target && e.target.closest) ? e.target.closest('button,[onclick]') : null;
+    if (t) noteTap(t);
+  }, true);
+}
 function boot() {
   Store.init();
   const nowISO = new Date().toISOString();
@@ -1404,6 +1411,27 @@ function itemState(it) {
   if (it && (it.source === 'ai-paste' || it.source === 'preset')) return 'cooked';
   return null;
 }
+// WHERE the state came from, which D125 makes load-bearing: a state the NAME
+// states is evidence; one the app inferred from `source` is a guess, and a guess
+// must not reorder anything.
+//
+// MEASURED, on "wood ear mushrooms" (ai-paste, so inferred `cooked`) in the
+// Canadian corpus: the matcher returned the two CORRECT rows first --
+// "Jew's ear (cloud or wood ear, pepeao), raw" and "... dried" -- and D122's
+// rank then buried both, because each STATES a state that mismatches the guess,
+// while "Tomato products, canned, sauce with mushrooms" and "Egg, chicken,
+// Spanish omelet" state none and so ranked as merely unknown. The two right
+// answers were demoted for being specific and two wrong ones promoted for being
+// vague. The user tapped row 0 and got the tomato sauce.
+//
+// THE GENERAL FORM, which is the part worth keeping: a ranking rule that
+// promotes the vague over the specific will bury exactly the correct answers,
+// because correct matches tend to be specific.
+function itemStateSrc(it) {
+  if (foodState(it && it.name)) return 'name';
+  if (it && (it.source === 'ai-paste' || it.source === 'preset')) return 'inferred';
+  return null;
+}
 // Same state first, unknown second, mismatched last. STABLE within each band, so
 // the name ranking D119 measured still orders what it ordered.
 function resolveRank(cands, want) {
@@ -1448,6 +1476,49 @@ function resolvePlan(cands, scored) {
   return { phase: 'pick', why: 'declined', best: best, candidates: cands };
 }
 
+// ---- D125: a list must not be tappable where the tap that opened it landed --
+//
+// MEASURED on the device's exact shape, at 390x844: the distance from the point
+// the "find nutrients" chip was tapped to the nearest candidate row was ZERO --
+// a row covered the tap exactly -- the list appeared 0 ms after the tap (the
+// corpus is already hydrated, so the render is synchronous), and the covering
+// row was ENABLED the instant it appeared. One tap opens the list; the second
+// tap of a double-tap resolves it. That is the whole defect, and it needs no
+// walk, no auto-advance and no second intention.
+//
+// The shield is geometric because the ruling is geometric: whatever lands where
+// the thumb just was cannot act. It lifts on its own, so nothing is permanently
+// harder to reach -- the list is fully usable a blink later, by a tap the user
+// means to make.
+const RESOLVE_ARM_MS = 600;        // how long a tap can still be "the opening tap"
+const RESOLVE_SHIELD_PX = 24;      // half a thumb, either side
+let LAST_TAP = { top: -9999, bot: -9999, t: -9999 };
+// The BOX of the control, not the pointer's coordinates: a click synthesised by
+// a test carries clientY 0, and the thing this is about is where the control
+// was, not how the tap was produced.
+function noteTap(el) {
+  if (!el || !el.getBoundingClientRect) return;
+  const r = el.getBoundingClientRect();
+  LAST_TAP = { top: r.top, bot: r.bottom, t: nowMs() };
+}
+function resolveShieldNow() {
+  if (nowMs() - LAST_TAP.t > RESOLVE_ARM_MS) return { ok: true, shielded: 0 };
+  let n = 0;
+  Array.prototype.slice.call(document.querySelectorAll('.rcandbtn')).forEach(function (b) {
+    const r = b.getBoundingClientRect();
+    if (r.bottom >= LAST_TAP.top - RESOLVE_SHIELD_PX && r.top <= LAST_TAP.bot + RESOLVE_SHIELD_PX) {
+      b.disabled = true; b.classList.add('rshield'); n++;
+    }
+  });
+  if (n) setTimeout(resolveUnshield, RESOLVE_ARM_MS);
+  return { ok: true, shielded: n };
+}
+function resolveUnshield() {
+  Array.prototype.slice.call(document.querySelectorAll('.rcandbtn.rshield')).forEach(function (b) {
+    b.disabled = false; b.classList.remove('rshield');
+  });
+  return { ok: true };
+}
 function resolveView() { return RESOLVE_VIEW; }
 function resolveClose() { RESOLVE_VIEW = null; renderResolve(); }
 
@@ -1470,7 +1541,10 @@ function resolveOpen(dateKey, idx, queryOverride) {
     const cands0 = matchCandidates(q, MATCH_CANDIDATES);
     const vec = matchItemVector(it);
     const want = itemState(it);
-    const cands = resolveRank(cands0, want);
+    const wantSrc = itemStateSrc(it);
+    // D125: only a STATED state reorders. D122's ordering is untouched for an
+    // item whose name says what it is -- which is the case D122 was built for.
+    const cands = resolveRank(cands0, wantSrc === 'name' ? want : null);
     // Only a scan has a label to verify against. A photo item's macros are the
     // model's estimate, and scoring against them would be treating a guess as
     // evidence -- so the branch is taken on SOURCE, not on whether the arithmetic
@@ -1498,7 +1572,8 @@ function resolveOpen(dateKey, idx, queryOverride) {
         : null;
       const plan = resolvePlan(rich, scored);
       RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q,
-                                     want: want, mine: vec ? vec[208] : null }, plan);
+                                     want: want, wantSrc: wantSrc,
+                                     mine: vec ? vec[208] : null }, plan);
       renderResolve();
       return { ok: true, phase: plan.phase };
     });
@@ -1515,10 +1590,10 @@ function resolveSearch(text) {
   return resolveOpen(v.date, v.idx, text);
 }
 
-function resolvePick(id, name, distance) {
+function resolvePick(id, name, distance, how) {
   const v = RESOLVE_VIEW;
   if (!v) return Promise.resolve({ ok: false });
-  return resolveItem(v.date, v.idx, id, name, distance).then(function (r) {
+  return resolveItem(v.date, v.idx, id, name, distance, how).then(function (r) {
     if (r.ok) {
       RESOLVE_JUST = { date: v.date, idx: v.idx, name: String(name || '') };
       RESOLVE_VIEW = null; resolveWalkNext(); renderResolve();
@@ -1572,13 +1647,14 @@ function resolveRowsHTML(v) {
   // Two facts, not a verdict -- dry ramen reads 385 and cooked egg noodles 138,
   // and the right pick becomes obvious without the app ranking it for you.
   const want = v.want;
+  const hedge = (v.wantSrc === 'inferred') ? 'probably ' : '';
   return (v.candidates || []).map(function (c) {
     const kc = (c.kcal == null || c.kcal !== c.kcal) ? '' :
       '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' kcal/100g</span>';
     const mism = (want && c.state && c.state !== want)
-      ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + esc(want) + '</span>' : '';
+      ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + hedge + esc(want) + '</span>' : '';
     return '<div class="rcand"><button type="button" class="btn rcandbtn" onclick="resolvePick(\'' +
-      esc(String(c.id)) + '\',\'' + esc(String(c.name).replace(/'/g, ' ')) + '\',null)">' +
+      esc(String(c.id)) + '\',\'' + esc(String(c.name).replace(/'/g, ' ')) + '\',null,\'picked\')">' +
       esc(c.name) + kc + mism + '</button></div>';
   }).join('');
 }
@@ -1598,7 +1674,7 @@ function resolveHTML() {
     body = '<div class="rvsub">Its label and this row agree. Use it?</div>'
       + '<div class="rcand"><button type="button" class="btn primary rcandbtn" onclick="resolvePick(\''
       + esc(String(v.best.id)) + '\',\'' + esc(String(v.best.name).replace(/'/g, ' ')) + '\','
-      + Number(v.best.distance) + ')">' + esc(v.best.name) + '</button></div>'
+      + Number(v.best.distance) + ',\'proposed\')">' + esc(v.best.name) + '</button></div>'
       + '<div class="rvsub">Or choose another:</div>' + resolveRowsHTML(v);
   else
     body = '<div class="rvsub">' + (v.why === 'declined'
@@ -1618,6 +1694,11 @@ function resolveHTML() {
     + '<button type="button" class="linklike" onclick="resolveClose()">close</button></div></div>';
 }
 function renderResolve() {
+  const r = renderResolveBody();
+  try { resolveShieldNow(); } catch (e) {}
+  return r;
+}
+function renderResolveBody() {
   const el = document.getElementById('resolveBox');
   if (el) el.innerHTML = resolveHTML();
 }
@@ -1637,7 +1718,7 @@ function corpusEnsure() {
 // PAST MEALS NEVER REVISE (D59). The values are frozen here, at resolve time,
 // scaled to the grams this item actually was. The corpus is never consulted for
 // this item again, so a later corpus refresh cannot rewrite what was logged.
-function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance) {
+function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how) {
   if (!it || !meta || !row) return null;
   const g = Number(it.grams);
   if (!(g > 0)) return null;                  // no grams, no basis (D112)
@@ -1648,7 +1729,15 @@ function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance) {
   });
   return {
     ns: meta.ns, id: String(corpusId), name: String(corpusName || ''),
-    at: todayKey(), hash: meta.hash,
+    // D125: the date alone could not place one resolve relative to another, and a
+    // record that cannot be ordered cannot testify -- which is exactly what was
+    // asked of it when a resolve appeared that the user had not made. `at` keeps
+    // its meaning for everything that already reads it; `at_ms` is the ordering.
+    at: todayKey(), at_ms: nowMs(), hash: meta.hash,
+    // HOW it was made, on D111's query_src pattern: 'picked' from the list, or
+    // 'proposed' -- the app's own suggestion, confirmed. A record that cannot say
+    // whether the user chose it cannot answer "did I choose this?".
+    how: (how === 'proposed' ? 'proposed' : 'picked'),
     // FORENSIC ONLY, never an input to re-resolution (D59's pin). It explains
     // what happened; it must never be used to redo it.
     d: (typeof distance === 'number' && distance === distance) ? distance : null,
@@ -1657,7 +1746,7 @@ function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance) {
   };
 }
 // Nothing here decides: the caller passes the row the USER chose (D119).
-function resolveItem(dayKey, idx, corpusId, corpusName, distance) {
+function resolveItem(dayKey, idx, corpusId, corpusName, distance, how) {
   const day = APP_STATE.days[dayKey];
   const it = day && day.items && day.items[idx];
   if (!it) return Promise.resolve({ ok: false, why: 'no-item' });
@@ -1666,7 +1755,7 @@ function resolveItem(dayKey, idx, corpusId, corpusName, distance) {
     if (!m) return { ok: false, why: 'no-corpus' };
     return corpusLookup(corpusId).then(function (row) {
       if (!row) return { ok: false, why: 'no-row' };
-      const ref = resolveItemFreeze(it, m, row, corpusId, corpusName, distance);
+      const ref = resolveItemFreeze(it, m, row, corpusId, corpusName, distance, how);
       if (!ref) return { ok: false, why: 'no-basis' };
       it.ref = ref;
       Store.saveState(APP_STATE);
@@ -6941,6 +7030,7 @@ const VERSION_LOG = [
   { v: '0.43.0', d: '2026-09-23', note: 'You can now match a logged food to the nutrition database \u2014 as the next tap after saving a photo meal, or from any food row later. The app offers what it found and you choose; it never fills anything in on its own. Where it finds nothing, it says so and lets you search on a different word.' },
   { v: '0.44.0', d: '2026-09-23', note: 'When you match a cooked dish, the app no longer offers dry or raw versions as if they were the same thing \u2014 dry noodles hold about three times the nutrients per gram that cooked ones do. Matching rows come first, mismatched ones say so, and every row shows its calories per 100 g beside your own, so the right one is visible rather than guessed.' },
   { v: '0.45.0', d: '2026-09-24', note: 'Getting to an earlier day took one tap per day — fifteen taps to go back fifteen days, with no other way there. Tap the date and pick the day; the days in your history are tappable too. And four places that did something without showing you now offer the next step: after adding food, after logging a dose, after saving a medication from its label, and after matching an item to a food — each one takes you to where the result actually is.' },
+  { v: '0.46.0', d: '2026-09-24', note: 'Fixes a resolve that was never chosen. A candidate list appeared exactly where you had just tapped, so a second tap landed on a row you never saw — rows under that spot now ignore the tap for a moment. Matching also stopped burying the right answer: when the app only GUESSES that a dish is cooked, it no longer reorders the list around that guess, and a row whose state differs now says “probably”. Each match also records whether you picked it or confirmed a suggestion, and when.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11813,6 +11903,7 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
+  itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
