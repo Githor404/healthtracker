@@ -4523,3 +4523,23 @@ Gated on **two surfaces**, because IndexedDB on a `file://` origin never calls b
 | D122-row **GATE** | every candidate shows **its own kcal per 100 g**; a mismatched row **says so**; a matching row carries **no** warning; and still **no score** |
 
 **The fixture is the device's shape:** a cooked item whose top candidate is dry — asserted to be so before the ranking is tested, or the gate would pass on a defect.
+### D123 — the date jump, and every surface offering the next move — v0.45.0
+
+Measured first, on the shipped page at 390×844, by clicking real elements:
+journey 0 cost **15 taps** with no other route; three of the five journeys reached
+their outcome **without showing it**.
+
+| case | asserts |
+|---|---|
+| D123-jump **GATE** (harness) | a day key is validated; the range reaches the earliest logged day and today; a day **between** two logged days is reachable; **visiting it creates nothing**; a bad key and an out-of-range date are refused and neither moves the day; both neighbours are found **from an unlogged day**, so the thumb is never stranded |
+| D123-next **GATE** (harness) | the offer says what happened **and** the one move that follows; both halves escaped; **no streak, no nudge, no distance to target** |
+| D123-panel **GATE** (harness) | the panel remembers whether it is open, so a refresh cannot close the destination an ending just pointed at |
+| **J0-J4** (`tests/flow-gate.ps1`) | each journey as a **tap count on the shipped page**: J0 ≤ 2 (was 15) incl. a day with no record and **not creating it**; J1 4 with the day offered; J2 4 with the dose **in view**; J3 6 (was 8) reaching the drug surface for the medication just saved; J4 3 with the panel opened **and surviving a refresh** |
+
+**The tap-count gate fails by name whenever a journey grows a tap. Intended, and
+ruled.** Flow is a number that drifts one plausible control at a time, and no
+other gate in the suite would notice.
+
+**Re-pointed, carrying their history (D92):** DT-header and D120-optin both
+asserted a rendered **string** and broke when the element gained a control. Both
+now read the DOM state. A gate that asserts markup does not assert meaning.

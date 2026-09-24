@@ -100,6 +100,34 @@ Proven against the defect: returning `#photoDraft` to the sheet body fails the
 success cases at every width; restoring the second capture-surface paint fails
 the pending cases.
 
+## flow (H16 / D123)
+
+### `flow-gate.ps1` — each journey, as a tap count, on the shipped page
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/flow-gate.ps1
+```
+
+**Why a CDP gate.** A tap count is a property of the page: which controls exist,
+which are reachable, and what a click on a real element does. The harness asserts
+the seams underneath (`dayJump` refuses a bad key, a visited day is not created,
+the panel remembers its state) and cannot assert “this took four taps”, because
+nothing in a DOM-free core knows what a tap is.
+
+Every number it pins was **measured on the shipped page first**, at 390×844:
+
+| journey | was | pinned |
+|---|---|---|
+| 0 — a past day | **15 taps**, one per day, no other route | ≤ 2, incl. a day with **no record**, and visiting it creates nothing |
+| 1 — eat → logged → see my day | 4 | 4, and the day is **offered** |
+| 2 — a dose → on the timeline | 4, outcome 1.8 screens below the fold | 4, and the dose is **in view** |
+| 3 — a medication → drug info | 8 (3 of them hunting through Settings) | **6** |
+| 4 — an old item → the panel | 18 from today | **3** standing on the day |
+
+**It fails by name whenever a journey grows a tap. That is intended and ruled.**
+Flow is not asserted once and trusted afterwards — it is a number that drifts one
+plausible control at a time, and no other gate in the suite would notice.
+
 ## bm slider ergonomics (R20.1)
 
 ### `bm-slider-gate.ps1` — the touch target is the stop's zone
@@ -171,22 +199,50 @@ matters because the harness itself would still pass. A new check joins one list
 in the commit that adds it.
 
 **The count is the number of verdict lines the runner prints:** 1 harness + the
-`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 2 + 8 = **11**. The
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 3 + 10 = **14**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
 Every run prints the sum, and the suite fails if the passes don't add up to it:
 
 ```
-counted: 1 harness + 2 static + 8 CDP = 11 verdicts (4 more checks run inside the harness and are part of its verdict)
-SUITE: PASS (11 of 11 produced a verdict, and every verdict was PASS)
+counted: 1 harness + 3 static + 10 CDP = 14 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (14 of 14 produced a verdict, and every verdict was PASS)
 ```
 
 **Quote the number together with that line.** A bare count can't be told apart
 from a count that lost a gate. Until D75 the runner never ran
 `check-precache.sh` or `check-guidance.sh`, while GATES.md counted both.
 
+## Running a defect pass (D60) — two rules learned the hard way
+
+A defect pass plants a known defect, runs a gate, and requires the gate to fail
+**by name**. The runner is a scratchpad script, not a committed one, so these two
+rules have to live here or they are re-learned every slice.
+
+**1. Only one pass at a time, enforced by a lock.** Two runners sharing `app.js`
+do not merely race: each plants while the other measures, so **both** produce
+verdicts about a tree neither of them wrote. The output interleaves and reads as a
+suite-wide collapse. The runner must take an exclusive lock (`O_CREAT | O_EXCL`)
+and refuse to start while one is held. *This was already known in the sibling
+collectibles repo, where the same collision happened weeks earlier and a PID lock
+was the fix — and it was not ported here. When a harness finding lands in either
+repo, check whether the other has the same exposure.*
+
+**2. Read the plant back off the disk, before and after the run.** A run against a
+tree that does not carry the plant produces **no failures**, which scores as
+VACUOUS — *"your gate is worthless"* — and that is the one verdict shaped like a
+reason to go and weaken a gate that is fine. A tree that lost its plant is
+**INCONCLUSIVE**, never a verdict about the gate.
+
+**If a pass dies mid-run it leaves the tree planted.** The `finally` block only
+helps if the process lives to reach it. The reliable tell is `APP_VERSION` reading
+the **plant version** (`x.y.z+1`), which exists only between a plant and its
+restore. Check it after any pass that does not report, and do not infer from an
+empty process listing that a pass has finished — that inference was made twice in
+one session and was wrong both times.
+
 ## Environment dependency — antivirus exclusion for `tests/`
 
-The eight `*-gate.ps1` scripts drive headless Chrome over CDP: PowerShell +
+The ten `*-gate.ps1` scripts drive headless Chrome over CDP: PowerShell +
 `--remote-debugging-port` + synthetic input injection. That profile matches
 automation-malware heuristics, and it has been flagged in practice —
 **Kaspersky quarantined `bm-slider-gate.ps1` as `PDM:Trojan.Win32.Bazon.a`

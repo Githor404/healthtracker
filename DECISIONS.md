@@ -5049,3 +5049,84 @@ A **cooked item whose top candidate is dry** — the device's exact shape. The f
 **Defect pass: nine plants, nine failing their own named gates**, first pass, no repairs.
 
 **Suite: 2,358 assertions** (2,341 → 2,358).
+
+## D123 — Flow, part one: the date jump, and four surfaces that did something without showing it — v0.45.0 (2026-09-24)
+
+**H16 was measured before it was designed**, which the brief required: *"Report each as it is today before proposing anything."* Every number below came from clicking real elements on the shipped page at 390×844, not from reading the source and reasoning about what the path ought to be.
+
+### The five journeys, as they were
+
+| # | journey | taps | where the thumb went |
+|---|---|---|---|
+| 0 | a past day → I'm on it | **15** | `‹` at y=116, fifteen times |
+| 1 | eat → logged → I see my day | **4** | 802 → 381 → 660 → 210 |
+| 2 | a dose → logged → on the timeline | **4** | 802 → 787 → 578 → 130 |
+| 3 | a medication → saved → drug info | **8** | 802 → 753 → ... → **26** (the gear) → 144 → 396 |
+| 4 | an old item → resolved → in the panel | **18** from today | 15 of them are journey 0 |
+
+**Journey zero was exact as reported.** `.daysel` was a plain `<div>`, `.hrow` rows were inert, and `stepDay(+/-1)` was the whole of navigation — there was no alternative route at all.
+
+### The finding that mattered more than the tap counts
+
+**Three of the five journeys reached their outcome without showing it.** A dose landed on a timeline **1531px down — 1.8 screens below the fold**. A saved medication left its information **three taps away, inside Settings, behind a card collapsed by default**. A resolved item's numbers appeared in a panel that is **closed by default and 785px down**, which is exactly why finding it needed written directions. That is the principle's real target, and it is not a tap count.
+
+### What shipped in this commit
+
+**The date jump (ruled A3).** A transparent `<input type="date">` over the date itself, clamped to the logged range — so the tap target *is* the thing it changes, with no icon and no second control, and the OS wheel does the picking. Plus the history rows, which already rendered date, status and totals and were **inert**, now navigate: the native picker cannot say which days have data, and that is the one thing the list is good at.
+
+**A VISITED DAY IS NEVER CREATED**, and this is the rule worth carrying forward. Every day-creation site in the app calls `maybeInjectSupplement` (D8/4). Creating a day on arrival would therefore put a **supplement item — real, counted intake — on a day the user only looked at**, which is precisely the *"zero days' worth of fabricated intake"* the Phase R gate exists to forbid. So `current` may name a day with no record, the day view renders it honestly empty, and the record is created by the first thing **written** to it. **Navigation must never be a write.**
+
+A consequence found while building: `stepDay` stepped by **array index**, and `indexOf` returns `-1` for a day that is not in the log — which reads as *no previous and no next*, and would have **disabled both arrows and stranded the thumb** on any day the jump reached. Neighbours are now found by date comparison. The index form was not wrong before; it was only ever asked about days that existed.
+
+**The four endings (ruled G1).** One grammar: what just happened, and the **one** move that follows. After adding food, *See my day*. After a dose, *See it on the timeline* — which needed the timeline row to start carrying its record id, so the ending can find **that** dose rather than scrolling to a day's worth of rows. After saving a medication, *Drug info*, which opens Settings, expands the card and aims the drug surface at the medication just saved, in one tap. After a resolve pick, *See it in the panel*.
+
+The endings are **persistent, not the undo toast**: that toast clears itself after seven seconds, and an ending on a timer is a race, not a route. And the sheet is **not** auto-closed on a successful add — three items in a meal would cost three re-openings, measured as 6 taps today versus 9 — so the exit is offered instead of taken.
+
+**The panel now remembers whether it is open.** It was closing itself on every refresh, which made it unusable as the destination of anything that writes — including the resolve step whose whole purpose is to fill it. A latent defect the ending exposed.
+
+### Two gates re-pointed, carrying their history ([[D92]])
+
+Both read an **HTML substring as a proxy** for what the user sees, and both broke the moment the element gained a control — not because the rule changed.
+
+- **DT-header** sliced `innerHTML` between `class="daysel"` and the next `</div>` to assert the header carries no year. The date input's `value` is an ISO date: a year in the markup that nobody can read. It now reads `textContent`, which is what *"renders without a year"* always meant.
+- **D120-optin** matched the literal string `<details class="mpanel">`, so **any** attribute added to the panel failed it. It now reads `open` off the element, which is stricter: a property cannot be faked by a tag that merely looks right.
+
+### The rule, recorded because it has now cost two gates
+
+**A gate that asserts a rendered string asserts the markup, not the meaning.** Read the state where the state exists — `textContent` for what is read, a property for what is set, the DOM node for whether it is there. A substring of `innerHTML` passes and fails for reasons that have nothing to do with the rule it was written for, and it fails **late**, in the commit of whoever next touches the element.
+
+This is the same shape as [[D109]] (a gate that read a mutable value) and [[D115]] (a gate over unreachable code): in each, the assertion was true and about the wrong thing.
+
+### The tap-count gate
+
+`tests/flow-gate.ps1` — the **tenth** CDP gate — pins each journey as a tap count on the shipped page, because a tap count is a property of the page and nothing in a DOM-free core knows what a tap is. **It fails by name whenever a journey grows a tap, and that is intended and ruled**: flow is not asserted once and trusted afterwards, it is a number that drifts one plausible control at a time, and nothing else in the suite would notice.
+
+| journey | was | pinned |
+|---|---|---|
+| 0 | 15 | **≤ 2**, including a day with no record |
+| 1 | 4 | **4**, and the day is offered |
+| 2 | 4 | **4**, and the dose is **in view** |
+| 3 | 8 | **6** |
+| 4 | 18 from today | **3** standing on the day |
+
+**Journey 4 stays 3 taps standing on the day.** The third becomes *offered* instead of *hunted*; its 18 → 5 comes entirely from the date jump. A reduction that isn't there is not claimed.
+
+**J1 and J2 are pinned at 4, not at the slice's target of 3, and that is not a missed target.** Both spend their first two taps reaching the right form — the FAB opens on **Scan**, so Manual and the dose form are each a second tap. **The quick-add row is what removes that tap**, and it ships in the second commit; the pin moves to 3 there, in the same commit that earns it. A pin is what the page does today, not what the slice intends — a gate that pinned 3 now would be red for a reason that is not a defect.
+
+### Still to ship in this slice (second commit)
+
+Quick add ([[B3]]/[[C1]]) and repeat items ([[D1]]/[[E1]]/[[F1]]). Recorded there, not here.
+
+### The defect pass found things about the defect pass
+
+**A gate can also assert an attribute's PRESENCE instead of its value, and that is the same mistake one layer down.** `J2` matched `.tlrow[data-sid]`. The plant that nulled the row's identity still rendered `data-sid=""`, so the selector matched and the plant failed nothing. Tightening it to compare the **value** against the record the app had stored made it fail — **on clean code**, because **signal records have no `id` at all**: this app identifies a timeline record by its **index**, as `deleteSignal(date, idx)` and `openRecordEdit(date, idx)` both do. The ending had been calling `revealTimeline('undefined')`, finding nothing, and falling back to flashing the whole card — so *"See it on the timeline"* scrolled to the right place and then left the eye to find the dose, which is most of the defect it exists to remove. Fixed to the identity the app already has, with the **date captured at the moment of the offer** rather than read when it is taken ([[D54]]'s reason: an offer taken after a day-nav would otherwise reveal whatever record now sits at that index).
+
+**INCONCLUSIVE is not VACUOUS, and the difference saved twelve gates.** A run whose tree does not carry the plant reports **no failures**, which scores as VACUOUS — *"your gate is worthless"*. It is the one verdict shaped like a reason to go and weaken a gate that is fine. The runner now reads the plant back off the disk **before and after** each run, and a tree that lost it is INCONCLUSIVE, never a verdict about the gate. It fired twelve times immediately afterwards, correctly.
+
+**Two defect passes must never share a tree, and this was already known — in the other repo.** Concurrent passes destroying each other's planted trees happened in the **collectibles** repo about two weeks earlier, and a **PID lock** was the fix there. It was never ported here, so it happened again: two runners, each planting `app.js` while the other measured, both producing verdicts about a tree neither had written. The runner now takes an exclusive lock and refuses to start while one is held.
+
+**The rule the user drew from it, which is the more useful half:** *a lesson learned in one of two sibling repos and not carried to the other is the cross-repo version of citing the wrong repo's decisions.* When a harness finding lands in either repo, **check whether the other has the same exposure.**
+
+**And my own error, recorded because it caused the collision.** I twice read an empty process listing as proof that a pass had died, and twice it had not — it was still alive, still planting. **Absence of evidence taken as proof**, which is precisely what I would fail a gate for. The lock is the right fix for exactly that reason: it is **positive evidence, held by the process itself**, so nothing has to be inferred from a silence.
+
+**Suite: 2,373 assertions** (2,358 → 2,373), plus the tenth gate script. **Defect pass: 20 plants, 20 failing their own named gates.**

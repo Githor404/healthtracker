@@ -6349,8 +6349,15 @@ window.setLS({});
 
   // DT-header: month + day, no year.
   HT.state().current = td; HT.renderDay();
-  var hdr = document.getElementById('dayView').innerHTML;
-  var dayselTxt = (hdr.split('class="daysel"')[1]||'').split('</div>')[0];
+  // D123 re-point (D92, history carried): this read the day header by slicing the
+  // innerHTML between `class="daysel"` and the next `</div>`. That was a PROXY for
+  // "what the header says", and the proxy broke the moment the header gained a
+  // control: the date jump puts an <input type="date"> inside it, whose value
+  // attribute is an ISO date -- a year, in the markup, that no one can read. The
+  // assertion is unchanged in meaning and now reads the TEXT, which is what "the
+  // header renders without a year" was always about.
+  HT.renderDay();
+  var dayselTxt = (document.querySelector('.daysel') || { textContent: '' }).textContent;
   res(/\d{4}/.test(dayselTxt)===false, 'DT-header: the day header renders WITHOUT a year');
   res(new RegExp(HT.fmtMonthDay(td,true).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).test(dayselTxt),
       'DT-header: it reads weekday + month + day (e.g. "' + HT.fmtMonthDay(td,true) + '")');
@@ -9301,6 +9308,75 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D123: the date jump, and a visited day that is never created ------
+  // Journey zero, measured on the shipped page: a day fifteen days back cost
+  // FIFTEEN taps, one per day, with no other route. The tap count itself is
+  // gated on the page (tests/flow-gate.ps1); these are the seams underneath.
+  res(HT.isDayKey('2026-09-24') === true && HT.isDayKey('2026-9-24') === false &&
+      HT.isDayKey('') === false && HT.isDayKey(null) === false,
+      'D123-jump GATE: a day key is validated before it can become the current day');
+
+  // The fixture replaces the day set for the duration and puts it back after:
+  // the range is computed FROM the log, so the cases above would otherwise
+  // widen it and the assertions would be about the harness, not the jump.
+  var _jDays = HT.state().days, _jCur = HT.state().current;
+  HT.state().days = {
+    '2026-09-10': { status: 'complete', items: [], water_l: 0 },
+    '2026-09-20': { status: 'in_progress', items: [], water_l: 0 } };
+  HT.state().current = '2026-09-20';
+  var JR = HT.dayJumpRange();
+  res(JR.min === '2026-09-10',
+      'D123-jump GATE: the range reaches back to the earliest logged day');
+  res(JR.max >= HT.todayKey() && JR.max >= '2026-09-20',
+      'D123-jump GATE: and forward to today, so the picker can always come home');
+
+  res(HT.dayJump('2026-09-13').ok === true && HT.state().current === '2026-09-13',
+      'D123-jump GATE: a day BETWEEN two logged days is reachable in one call -- the whole point of the jump');
+  res(HT.state().days['2026-09-13'] === undefined,
+      'D123-jump GATE: and VISITING IT CREATED NOTHING -- every day-creation site injects the supplement (D8/4), so a created day would put real intake on a day only looked at');
+  res(HT.dayJump('2026-09-13').unlogged === true,
+      'D123-jump GATE: the jump says the day is unlogged rather than pretending it is empty-but-present');
+  res(HT.dayJump('nonsense').ok === false && HT.dayJump('1999-01-01').ok === false &&
+      HT.state().current === '2026-09-13',
+      'D123-jump GATE: a bad key and an out-of-range date are both refused, and neither moves the day');
+  // D96: the two above cannot tell the KEY check from the RANGE check -- both
+  // 'nonsense' and '1999-01-01' fall outside the range as strings, so the range
+  // guard catches them even with the key guard removed. Measured: deleting
+  // isDayKey failed nothing. This key is malformed AND lies inside the range
+  // ('2026-09-1x' sorts after 2026-09-10 and before 2026-09-24), so only the key
+  // check can refuse it.
+  res(HT.dayJump('2026-09-1x').ok === false && HT.state().current === '2026-09-13',
+      'D123-jump GATE: a malformed key that lies INSIDE the range is refused by the key check itself');
+
+  // The arrows must still work FROM a day that has no record. By array index
+  // they could not: indexOf returned -1, which reads as no-previous AND
+  // no-next, and would have stranded the thumb on the day the jump reached.
+  res(HT.neighbourDay('2026-09-13', -1) === '2026-09-10' &&
+      HT.neighbourDay('2026-09-13', 1) === '2026-09-20',
+      'D123-jump GATE: from an unlogged day both neighbours are found, so the jump can never strand the thumb');
+  res(HT.neighbourDay('2026-09-10', -1) === null && HT.neighbourDay('2026-09-20', 1) === null,
+      'D123-jump GATE: and the ends of the log have no neighbour, which is what disables the arrow');
+  HT.stepDay(-1);
+  res(HT.state().current === '2026-09-10',
+      'D123-jump GATE: stepping back from an unlogged day lands on the previous LOGGED day');
+
+  // ---- the endings: one grammar, one move -------------------------------
+  // Measured: three of the five journeys reached their outcome without showing
+  // it -- a dose 1.8 screens below the fold, a saved medication three taps deep
+  // in Settings, a resolved item in a panel closed by default 0.9 screens down.
+  var NM = HT.nextMoveHTML('Logged Metformin.', 'See it on the timeline', 'revealTimeline(\'x1\')');
+  res(NM.indexOf('Logged Metformin.') > 0 && NM.indexOf('See it on the timeline') > 0,
+      'D123-next GATE: the offer says what happened AND the one move that follows it');
+  res(NM.indexOf('<script') < 0 && HT.nextMoveHTML('<b>x</b>', 'y', 'z').indexOf('&lt;b&gt;') > 0,
+      'D123-next GATE: and both halves are escaped like every other rendered field');
+  res(NM.indexOf('%') < 0 && NM.toLowerCase().indexOf('streak') < 0 &&
+      NM.toLowerCase().indexOf('remaining') < 0 && NM.toLowerCase().indexOf('to go') < 0,
+      'D123-next GATE: no streak, no nudge, no distance-to-target -- the ending moves forward, it does not pull back');
+
+  res(HT.panelToggle(true).open === true && HT.panelToggle(false).open === false,
+      'D123-panel GATE: the micronutrient panel remembers whether it is open, so a refresh cannot close the destination an ending just pointed at');
+  HT.state().days = _jDays; HT.state().current = _jCur;
+
   // ---- D122: dry and cooked are not the same food ------------------------
   // Reported from the device: ramen logged at 270 g COOKED was offered four DRY
   // rows first. Measured, the pair differs by 2.8x -- egg noodles are 385
@@ -9539,10 +9615,17 @@ window.setLS({});
 
   // ---- opt-in -------------------------------------------------------------
   setLS({}); HT.boot(); HT.refresh();
-  var dv120 = document.getElementById('dayView').innerHTML;
-  res(dv120.indexOf('<details class="mpanel">') >= 0,
+  // D123 re-point (D92, history carried): these matched the literal string
+  // `<details class="mpanel">`, so ANY attribute added to the panel failed them --
+  // and D123 adds one, because the panel now remembers whether it is open (it was
+  // closing itself on every refresh, which made it unusable as the destination of
+  // the ending that follows a resolve). The rule is unchanged: a disclosure, shut
+  // by default. Read off the element instead of the markup, which is stricter --
+  // `open` as a property cannot be faked by a tag that merely looks right.
+  var mp120 = document.querySelector('details.mpanel');
+  res(!!mp120,
       'D120-optin GATE: the panel is a disclosure in the day view');
-  res(dv120.indexOf('<details class="mpanel" open') < 0,
+  res(!!mp120 && mp120.open === false,
       'D120-optin GATE: and it is CLOSED by default -- depth on demand, never the first thing seen');
 
   // ---- typical, below the floor, shows nothing ---------------------------

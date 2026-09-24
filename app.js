@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.44.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.45.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1519,7 +1519,11 @@ function resolvePick(id, name, distance) {
   const v = RESOLVE_VIEW;
   if (!v) return Promise.resolve({ ok: false });
   return resolveItem(v.date, v.idx, id, name, distance).then(function (r) {
-    if (r.ok) { RESOLVE_VIEW = null; resolveWalkNext(); renderResolve(); }
+    if (r.ok) {
+      RESOLVE_JUST = { date: v.date, idx: v.idx, name: String(name || '') };
+      RESOLVE_VIEW = null; resolveWalkNext(); renderResolve();
+      refresh();
+    }
     return r;
   });
 }
@@ -2606,17 +2610,20 @@ function renderDay() {
   const host = document.getElementById('dayView');
   if (!host || !APP_STATE) return;
   const dk = APP_STATE.current;
-  const day = APP_STATE.days[dk];
-  if (!day) { host.innerHTML = ''; return; }
-  const dates = Object.keys(APP_STATE.days).sort();
-  const di = dates.indexOf(dk);
-  const complete = day.status === 'complete';
+  // D123: a day the jump reached but nothing was ever written to renders as
+  // itself -- empty -- rather than as a blank screen. The blank is TRANSIENT and
+  // never stored; storing it would inject the supplement (D8/4).
+  const rec = APP_STATE.days[dk];
+  const unlogged = !rec;
+  const day = rec || blankDay();
+  const complete = !unlogged && day.status === 'complete';
   const t = dayTotals(day);
+  const jr = dayJumpRange();
 
   let html = `<div class="daynav">
-      <button class="navbtn" onclick="stepDay(-1)" ${di <= 0 ? 'disabled' : ''}>‹</button>
-      <div class="daysel">${esc(fmtDateSmart(dk, true))}${dk === todayKey() ? ' · today' : ''}${dayStatusBadge(dk, day)}</div>
-      <button class="navbtn" onclick="stepDay(1)" ${di < 0 || di >= dates.length - 1 ? 'disabled' : ''}>›</button>
+      <button class="navbtn" onclick="stepDay(-1)" ${neighbourDay(dk, -1) ? '' : 'disabled'}>‹</button>
+      <label class="daysel">${esc(fmtDateSmart(dk, true))}${dk === todayKey() ? ' · today' : ''}${unlogged ? '' : dayStatusBadge(dk, day)}<input type="date" class="dayjump" value="${esc(dk)}" min="${esc(jr.min)}" max="${esc(jr.max)}" aria-label="Jump to a date" onchange="dayJump(this.value)"></label>
+      <button class="navbtn" onclick="stepDay(1)" ${neighbourDay(dk, 1) ? '' : 'disabled'}>›</button>
     </div>`;
 
   html += plateRecallHTML();
@@ -2692,24 +2699,165 @@ function renderDay() {
       `<span class="rwbtns"><button class="btn" onclick="resolveWalkOpen()">Find</button>` +
       `<button class="linklike" onclick="resolveWalkDismiss()">not now</button></span></div>`;
   }
+  // D123: the ONE move that follows a resolve. Offered only when the walk has
+  // nothing left to ask about -- "the next move", not a menu of everything.
+  if (RESOLVE_JUST && RESOLVE_JUST.date === dk && !(walk && walk.queue.length)) {
+    html += nextMoveHTML('Resolved ' + RESOLVE_JUST.name + '.', 'See it in the panel', 'revealPanel()');
+  }
   // D120: OPT-IN, closed by default -- depth on demand, never the first thing seen.
-  html += `<details class="mpanel"><summary>Micronutrients</summary><div id="microPanel"></div></details>`;
+  // D123: and it now REMEMBERS. It was closing itself on every refresh, so the
+  // panel could not be the destination of anything that wrote -- including the
+  // resolve step whose whole purpose is to fill it.
+  html += `<details class="mpanel"${PANEL_OPEN ? ' open' : ''} ontoggle="panelToggle(this.open)"><summary>Micronutrients</summary><div id="microPanel"></div></details>`;
+  if (unlogged) html += `<div class="emptyday">Nothing logged on this day.</div>`;
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
       <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
-  html += `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'End &amp; complete this day'}</button>`;
-  html += `<div class="dayclr"><button class="clrday" onclick="clearDay()">Clear this day</button></div>`;
+  // Nothing to complete and nothing to clear on a day that has no record. The
+  // controls are absent rather than inert: a button that cannot act is a worse
+  // answer than no button (D46 -- every exit paints).
+  if (!unlogged) {
+    html += `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'End &amp; complete this day'}</button>`;
+    html += `<div class="dayclr"><button class="clrday" onclick="clearDay()">Clear this day</button></div>`;
+  }
 
   host.innerHTML = html;
 }
 
 // ---- day / goal interactions ----------------------------------------------
-function stepDay(dir) {
-  const dates = Object.keys(APP_STATE.days).sort();
-  const j = dates.indexOf(APP_STATE.current) + dir;
-  if (j < 0 || j >= dates.length) return;
-  SWAP = null; LANE_FOCUS = '';       // D35 Fork C / R13 Fork F: navigation changes the ring's subject
-  APP_STATE.current = dates[j];
+//
+// H16 / D123 -- THE DATE JUMP. Journey zero, measured on the shipped page: a day
+// fifteen days back cost FIFTEEN TAPS, one per day, and there was no other route
+// at all -- the date was a plain <div>, the history rows were inert, and
+// stepDay(+/-1) was the whole of navigation.
+//
+// A VISITED DAY IS NEVER CREATED. Every existing day-creation site carries
+// maybeInjectSupplement (D8/4), so creating a day on arrival would put a
+// supplement item -- real, counted intake -- on a day the user only LOOKED at.
+// That is precisely the "zero days' worth of fabricated intake" the Phase R gate
+// exists to forbid. So `current` may name a day with no record, the day view
+// renders it honestly empty, and the record is created by the first thing
+// WRITTEN to it, which is where the supplement has always belonged.
+function isDayKey(k) { return /^\d{4}-\d{2}-\d{2}$/.test(String(k)); }
+// The reachable range: every logged day, and today, whichever way they extend.
+// Clamped rather than open because a date picker with no bounds invites a jump to
+// 1970, and nothing there is navigable back.
+function dayJumpRange() {
+  const keys = Object.keys(APP_STATE.days).filter(isDayKey).sort();
+  const today = todayKey();
+  const lo = keys.length ? keys[0] : today, hi = keys.length ? keys[keys.length - 1] : today;
+  return { min: lo < today ? lo : today, max: hi > today ? hi : today };
+}
+function dayJump(key, reveal) {
+  const k = String(key == null ? '' : key);
+  if (!isDayKey(k)) return { ok: false, why: 'bad-key' };
+  const r = dayJumpRange();
+  if (k < r.min || k > r.max) return { ok: false, why: 'out-of-range' };
+  SWAP = null; LANE_FOCUS = ''; RESOLVE_JUST = null;   // D35 Fork C / R13 Fork F
+  APP_STATE.current = k;
   Store.saveState(APP_STATE); refresh();
+  if (reveal) revealDay();
+  return { ok: true, date: k, unlogged: !APP_STATE.days[k] };
+}
+// The nearest LOGGED day in a direction, by date rather than by array index. The
+// index form could not answer the question from an unlogged day -- indexOf
+// returned -1, which read as "no previous and no next" and would have stranded
+// the thumb on any day the jump reached.
+function neighbourDay(dk, dir) {
+  const dates = Object.keys(APP_STATE.days).filter(isDayKey).sort();
+  if (dir < 0) {
+    for (let i = dates.length - 1; i >= 0; i--) if (dates[i] < dk) return dates[i];
+    return null;
+  }
+  for (let i = 0; i < dates.length; i++) if (dates[i] > dk) return dates[i];
+  return null;
+}
+function stepDay(dir) {
+  const k = neighbourDay(APP_STATE.current, dir);
+  if (!k) return;
+  SWAP = null; LANE_FOCUS = ''; RESOLVE_JUST = null;
+  APP_STATE.current = k;
+  Store.saveState(APP_STATE); refresh();
+}
+// ---- H16 / D123: every surface ends by offering the next move ---------------
+//
+// MEASURED, and this is the finding the slice turns on: three of the five
+// journeys reached their outcome WITHOUT SHOWING IT. A dose landed on a timeline
+// 1531px down -- 1.8 screens below the fold. A saved medication left its
+// information three taps away, inside Settings, behind a collapsed card. A
+// resolved item's numbers appeared in a panel that is closed by default and 785px
+// down, which is why finding it needed written directions.
+//
+// One grammar for all four: what just happened, and the ONE thing that naturally
+// follows. Not a menu, not a nag, and never a streak, a nudge or a distance to a
+// target -- those are the app pulling the user back, and this is the user moving
+// forward from the moment.
+let PANEL_OPEN = false;              // the micronutrient panel's own memory
+let RESOLVE_JUST = null;             // { date, idx, name } -- one offer, once
+function panelToggle(open) { PANEL_OPEN = !!open; return { ok: true, open: PANEL_OPEN }; }
+function nextMoveHTML(said, move, call) {
+  return `<div class="nextmove"><span class="nmsaid">${esc(said)}</span>` +
+    `<button type="button" class="btn nmbtn" onclick="${call}">${esc(move)}</button></div>`;
+}
+// The offer is written where the action happened, and it PERSISTS. It is
+// deliberately not the undo toast: that toast clears itself after seven seconds,
+// and an ending on a timer is a race, not a route.
+function setNextMove(id, said, move, call) {
+  const el = document.getElementById(id);
+  if (!el) return { ok: false };
+  el.innerHTML = said ? nextMoveHTML(said, move, call) : '';
+  return { ok: true };
+}
+function clearNextMoves() {
+  ['maNext', 'medNext', 'labelNext'].forEach(function (id) {
+    const el = document.getElementById(id); if (el) el.innerHTML = '';
+  });
+  return { ok: true };
+}
+function flashEl(el) {
+  if (!el) return false;
+  try { el.scrollIntoView({ block: 'center' }); } catch (e) { try { el.scrollIntoView(); } catch (e2) {} }
+  el.classList.add('flash');
+  setTimeout(function () { el.classList.remove('flash'); }, 1400);
+  return true;
+}
+function revealDay() {
+  closeSheet();
+  const el = document.getElementById('dayView');
+  if (el) { try { el.scrollIntoView({ block: 'start' }); } catch (e) {} }
+  return { ok: !!el };
+}
+function revealTimeline(dateKey, idx) {
+  closeSheet();
+  // The date is captured at the moment of the offer, not read when it is taken --
+  // the same reason deleteItem closes over its date (D54). An offer taken after a
+  // day-nav would otherwise reveal whatever record now sits at that index.
+  if (dateKey && APP_STATE.current !== dateKey) dayJump(dateKey);
+  let row = null;
+  Array.prototype.slice.call(document.querySelectorAll('.tlrow')).forEach(function (r) {
+    if (!row && r.getAttribute('data-sidx') === String(idx)) row = r;
+  });
+  const found = !!row;
+  flashEl(row || document.getElementById('timelineOverlay'));
+  return { ok: true, found: found };
+}
+// The whole of journey 3's tail in one tap: Settings, the card that was collapsed,
+// and the document surface aimed at the medication just saved. drugOpen touches no
+// network -- the lookup is its own tap, and a gate watches the network to say so.
+function revealMedInfo(medId) {
+  openSettings();
+  const d = document.getElementById('medsDetails');
+  if (d) d.open = true;
+  const r = drugOpen(medId);
+  flashEl(document.getElementById('drugInfo'));
+  return { ok: !!(r && r.ok), medId: medId };
+}
+function revealPanel() {
+  closeSheet();
+  PANEL_OPEN = true;
+  RESOLVE_JUST = null;
+  refresh();
+  flashEl(document.querySelector('details.mpanel'));
+  return { ok: true, open: PANEL_OPEN };
 }
 // Mini-ring navigation (Fork D). Only an existing day is navigable; a day with no
 // record renders its honest empty ring and is inert.
@@ -4255,6 +4403,12 @@ function addMedicationFromForm() {
   ['medName', 'medDose', 'medPrescriber', 'medReason', 'medNotes'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   const sc = document.getElementById('medScheduled'); if (sc) sc.checked = false;
   offerSignalUndo([r.record], 'Logged ' + (r.record.name || 'medication'));
+  // By reference, not by a remembered count: indexOf finds the record this call
+  // created even if something else wrote to the day in between.
+  const medDay = localDate();
+  const medIdx = ((APP_STATE.timeline || {})[medDay] || []).indexOf(r.record);
+  setNextMove('medNext', 'Logged ' + (r.record.name || 'medication') + '.', 'See it on the timeline',
+              "revealTimeline('" + esc(medDay) + "'," + esc(String(medIdx)) + ")");
 }
 function showSignalWarnings(warns) {
   const el = document.getElementById('sigWarn'); if (!el) return;
@@ -4281,7 +4435,12 @@ function renderTimelineOverlay() {
     const rm = `<button class="rm tlrm" onclick="deleteSignal('${esc(APP_STATE.current)}',${esc(String(r.idx))})" title="remove">\u00d7</button>`;
     if (r.row === 'medication') {
       const dose = (r.dose != null) ? ' ' + esc(rDisp(r.dose)) + ' ' + esc(r.dose_unit || '') : '';
-      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain"${openA}>${esc(r.name)}${dose}${note}${edited}</span>${rm}</div>`;
+      // D123: the row carries its INDEX, which is the identity this app gives a
+      // timeline record -- deleteSignal and openRecordEdit both address one that
+      // way, and signals carry no id at all. The ending that follows a dose needs
+      // it to find THIS dose instead of scrolling to the timeline and leaving the
+      // eye to search a day's worth of rows.
+      return `<div class="tlrow" data-sidx="${esc(String(r.idx))}"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain"${openA}>${esc(r.name)}${dose}${note}${edited}</span>${rm}</div>`;
     }
     const spec = SIGNAL_BY_TYPE[r.type];
     // D113: a sleep row says when the night ENDED, and says so when that end was
@@ -4750,6 +4909,10 @@ function addManualItem() {
   clearManualForm();
   showManualWarnings(r.warnings);
   offerFoodUndo(APP_STATE.current, r.item);
+  // D123: the sheet does not close itself -- three items in a meal would cost
+  // three re-openings -- so the exit is OFFERED instead. The x in the corner is a
+  // dismiss; this is a destination.
+  setNextMove('maNext', 'Added ' + r.item.name + '.', 'See my day', 'revealDay()');
 }
 function saveAsPreset() {
   const raw = readManualForm();
@@ -6619,7 +6782,7 @@ function renderHistory() {
     // partial total says so" is, and this is one.
     const hcov = macroCoverage(day);
     const hnote = hcov.partial ? ` · <span class="hcov">${esc(coverageNote(hcov))}</span>` : '';
-    return `<div class="hrow">
+    return `<div class="hrow" role="button" tabindex="0" onclick="dayJump('${esc(d)}', true)">
         <div class="hd"><span class="hdate">${esc(fmtDateSmart(d, true))}</span>${flag}</div>
         <div class="hmeta">${esc(rDisp(t.kcal))} kcal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
       </div>`;
@@ -6777,6 +6940,7 @@ const VERSION_LOG = [
   { v: '0.42.0', d: '2026-09-23', note: 'A micronutrient panel, closed by default, under each day. It groups nutrients, says which were measured, which were measured as zero, and which are present but too small to show \u2014 three different things a dash cannot tell apart. Where a figure leans on the reference database rather than a label, it says so and is counted separately.' },
   { v: '0.43.0', d: '2026-09-23', note: 'You can now match a logged food to the nutrition database \u2014 as the next tap after saving a photo meal, or from any food row later. The app offers what it found and you choose; it never fills anything in on its own. Where it finds nothing, it says so and lets you search on a different word.' },
   { v: '0.44.0', d: '2026-09-23', note: 'When you match a cooked dish, the app no longer offers dry or raw versions as if they were the same thing \u2014 dry noodles hold about three times the nutrients per gram that cooked ones do. Matching rows come first, mismatched ones say so, and every row shows its calories per 100 g beside your own, so the right one is visible rather than guessed.' },
+  { v: '0.45.0', d: '2026-09-24', note: 'Getting to an earlier day took one tap per day — fifteen taps to go back fifteen days, with no other way there. Tap the date and pick the day; the days in your history are tappable too. And four places that did something without showing you now offer the next step: after adding food, after logging a dose, after saving a medication from its label, and after matching an item to a food — each one takes you to where the result actually is.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9657,6 +9821,7 @@ function openLabelCapture() {
 }
 // Scan is the default mode: the only path that returns micronutrients in one tap.
 function openSheet(mode) {
+  clearNextMoves();                  // D123: a stale offer describes a past moment
   const sheet = document.getElementById('entrySheet'), scrim = document.getElementById('sheetScrim');
   if (sheet) sheet.style.display = 'flex';
   if (scrim) scrim.style.display = 'block';
@@ -10165,6 +10330,10 @@ function labelSaveAsNew() {
   labelClose();
   offerUndo('Saved ' + r.printed.name, function () { if (APP_STATE.meds) delete APP_STATE.meds[r.id]; Store.saveState(APP_STATE); refresh(); });
   toast('Saved to your medications');
+  // Measured: the information about the thing just saved was three taps away,
+  // inside Settings, behind a card that is collapsed by default.
+  setNextMove('labelNext', 'Saved ' + r.printed.name + '.', 'Drug info',
+              "revealMedInfo('" + esc(String(r.id)) + "')");
   return { ok: true, medId: r.id, record: r };
 }
 function createMedFromDraft(d) {
@@ -11708,6 +11877,8 @@ window.HT = {
   LABEL_QUESTION_TEMPLATE_VERSION, LABEL_QUESTION_STEMS, DAILYMED_URL,
   fdaTermsURL, fdaExactSpellings, fdaNameClause, fdaMfrURL, fdaLabelURL, fdaNdcURL, fdaSetIdURL,
   fdaDoc, normalizeLabelDoc, normalizeLabels, labelDocs, getLabelDoc, medDoc, saveLabelDoc, detachLabelDoc,
+  dayJump, dayJumpRange, neighbourDay, isDayKey, panelToggle, nextMoveHTML, setNextMove,
+  clearNextMoves, revealDay, revealTimeline, revealMedInfo, revealPanel,
   drugView, drugOpen, drugClose, drugLookup, drugPickManufacturer, drugSave, drugCheckNewer, drugAcceptNewer,
   drugCopyText, drugPromptText, drugNoMatchPrompt, drugCopyDoc, drugCopyPrompt, drugNameQueries, drugFetch,
   // H4.1 — removing what should never have been saved (D89)

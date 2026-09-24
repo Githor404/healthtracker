@@ -652,6 +652,25 @@
   .pmid{font-size:16px;padding:5px}
   .pmtot{margin-top:10px;font-weight:700;font-variant-numeric:tabular-nums}
   .qchip small{display:block;color:var(--muted);font-weight:600;font-size:16px}
+/* H16 / D123 -- the date jump. The picker is a transparent overlay on the date
+   itself, so the tap target IS the thing it changes; no icon, no second control,
+   and the OS wheel does the picking. */
+.daysel{position:relative}
+.dayjump{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;padding:0;
+  border:0;background:transparent;-webkit-appearance:none;appearance:none;cursor:pointer}
+.hrow{cursor:pointer}
+.hrow:active{background:var(--rowactive,rgba(127,127,127,.12))}
+.emptyday{padding:14px 2px;color:var(--muted);font-size:16px}
+/* Every surface ends by offering the next move. One line, one button. */
+.nextmove{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;
+  padding:10px 12px;border-radius:10px;background:var(--card2,rgba(127,127,127,.10))}
+.nmsaid{flex:1;min-width:0;font-size:16px}
+.nmbtn{margin:0}
+/* The destination says which row it is, once, without a colour that means
+   anything elsewhere in the app. */
+.flash{animation:htflash 1.4s ease-out 1}
+@keyframes htflash{0%{background:var(--flash,rgba(255,196,0,.34))}100%{background:transparent}}
+@media (prefers-reduced-motion:reduce){.flash{animation:none;outline:2px solid var(--flash,rgba(255,196,0,.6))}}
 </style>
 </head>
 <body>
@@ -749,6 +768,7 @@
       <div id="pane-photo" class="pane">
       <h2>Photo capture</h2>
       <div id="captureBox"></div>
+      <div id="labelNext"></div>
       <!-- R24: TWO inputs, and the difference between them is the whole slice. The
            `capture` attribute is what forces the camera; the library input simply
            omits it, and the OS offers the picker. Two elements rather than one
@@ -806,6 +826,7 @@
           <button class="btn primary" onclick="addManualItem()">Add to day</button>
           <button class="btn" onclick="saveAsPreset()">Save as preset</button>
         </div>
+        <div id="maNext"></div>
       </details>
       </div>
       <div id="pane-lab" class="pane">
@@ -872,6 +893,7 @@
         <label class="checkline"><input type="checkbox" id="medScheduled"> Standing / recurring dose (marks intent — no reminders yet)</label>
         <label>Notes</label><input id="medNotes" placeholder="optional">
         <button class="btn primary" style="margin-top:10px" onclick="addMedicationFromForm()">Log this dose</button>
+        <div id="medNext"></div>
         <div class="note">Name is enough for a quick log; dose and the rest are optional. Kept structured (not buried in notes) so it can be correlated later.</div>
       </details>
       </div>
