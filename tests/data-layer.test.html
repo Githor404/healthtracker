@@ -9308,6 +9308,43 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D127: guard the PICK, not the order -------------------------------
+  // Device evidence against D125's resolution: with the reorder gone, the dry
+  // rows returned to the top of the ramen list, the first row was labelled AND
+  // showed 440 beside the item's 148 -- and the first-row tap won anyway.
+  // A LABEL ON THE FIRST ROW DOES NOT STOP THE FIRST-ROW TAP.
+  var VR = { want: 'cooked', wantSrc: 'inferred', mine: 148 };
+  var MM = HT.resolveMismatch(VR, { state: 'dry', kcal: 440 });
+  res(!!MM && MM.state === 'dry' && MM.dir === 'too high',
+      'D127-guard GATE: picking a DRY row for a cooked item is caught at the PICK, where the tap is -- not left to the row to argue');
+  res(!!MM && Math.round(MM.factor * 10) / 10 === 3,
+      'D127-guard GATE: and the factor comes from the two kcal figures already held (440 over 148)');
+  res(HT.resolveMismatch(VR, { state: 'cooked', kcal: 138 }) === null,
+      'D127-guard GATE: a MATCHING state asks nothing -- the question is for a difference, not for every pick');
+  res(HT.resolveMismatch({ want: null, wantSrc: null, mine: 148 }, { state: 'dry', kcal: 440 }) === null,
+      'D127-guard GATE: with no state to compare, nothing is asked rather than guessed at');
+  res(HT.resolveMismatch(VR, { state: null, kcal: 440 }) === null,
+      'D127-guard GATE: and a candidate that states no state is not accused of mismatching one');
+
+  var TXT = HT.resolveMismatchText(MM);
+  res(TXT.indexOf('This is dry') === 0 && TXT.indexOf('probably cooked') > 0,
+      'D127-guard GATE: the question names both states, hedged because this one was INFERRED');
+  res(TXT.indexOf('about 3\u00d7 too high') > 0,
+      'D127-guard GATE: and names the CONSEQUENCE -- a confirmation that only restates the fact adds a tap and decides nothing');
+  var MMs = HT.resolveMismatch({ want: 'dry', wantSrc: 'name', mine: 440 }, { state: 'cooked', kcal: 148 });
+  var TXTs = HT.resolveMismatchText(MMs);
+  res(TXTs.indexOf('probably') < 0 && TXTs.indexOf('too low') > 0,
+      'D127-guard GATE: a STATED state is not hedged, and the direction follows the numbers rather than the wording');
+  var MMn = HT.resolveMismatch({ want: 'cooked', wantSrc: 'name', mine: null }, { state: 'dry', kcal: null });
+  res(HT.resolveMismatchText(MMn).indexOf('too') < 0 && HT.resolveMismatchText(MMn).indexOf('This is dry') === 0,
+      'D127-guard GATE: with no figures to compare, the question still asks but invents no factor');
+
+  var METAq = { ns: 'cnf', slots: [208], hash: 'h', attribution: 'CNF' };
+  var ITq = { name: 'ramen noodles', grams: 270, source: 'ai-paste' };
+  res(HT.resolveItemFreeze(ITq, METAq, [440], 'd1', 'dry ramen', null,
+        'confirmed despite state mismatch').how === 'confirmed despite state mismatch',
+      'D127-how GATE: proceeding past the question is recorded AS THAT -- the record says the mismatch was seen and accepted, not merely picked');
+
   // ---- D126: the propose card says what it PROVES ------------------------
   // It said 'Its label and this row agree', which reads as a claim about what
   // the food IS. Agreement on seven numbers is not identity -- two foods can

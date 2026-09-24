@@ -5303,3 +5303,206 @@ list would be true only until someone edited the axes — which is this very rul
 applied to the copy that describes it.
 
 **Suite: 2,390 assertions, 16 verdicts, all green.**
+
+## D127 — Guard the pick, not the order — v0.47.0 (2026-09-24)
+
+**Device evidence against [[D125]]'s own resolution.** With the reordering removed for
+an inferred state, the dry rows returned to the top of the ramen list — the exact
+conflict flagged when A was ruled. The user removed the bad resolve, tapped *find
+nutrients*, and **"Soup, ramen noodles, any flavour, dry" was the first row**. It
+was labelled *"dry — yours is probably cooked"* and it showed **440 beside the
+item's 148**. Every piece of evidence D125 relied on was present and legible.
+
+**The first-row tap won anyway.**
+
+> **A label on the first row does not stop the first-row tap.**
+
+The evidence was not insufficient; it was **in the wrong place**. Evidence printed
+on a row competes with that row's own affordance, and the affordance wins.
+
+### Why neither of the two previous attempts could have worked
+
+| attempt | why it failed |
+|---|---|
+| **order** the list by state ([[D122]]) | fixing the order for ramen is exactly what **buried wood ear** (D125) |
+| **label** the row and show the kcal pair (D125) | measured on the device: the tap went to row one regardless |
+
+Ordering and labelling are both attempts to win an argument **the tap never has**.
+So the fix belongs at the only point the tap cannot outrun: **the pick itself** —
+which is [[D107]]'s pattern, where a stored choice the guard would have questioned is
+never acted on without asking again.
+
+### What ships
+
+- **An inferred state still never reorders** — wood ear keeps its correct rows at
+  the top, and D125's finding stands.
+- **A pick whose state mismatches the item's — stated OR inferred — asks first**,
+  and the question names the **consequence** in units already held:
+  *"This is dry. Yours is probably cooked — its nutrients would be about 3× too
+  high. Use anyway?"* The factor is `candidate kcal/100 g ÷ the item's own`, stated
+  to one decimal below ten, and **omitted entirely** when either figure is missing
+  rather than invented. A confirmation that only restates the fact adds a tap and
+  decides nothing.
+- **The question REPLACES the list**, so the tap that answers it cannot land on
+  another candidate — and its buttons are **shielded** like any other control that
+  appears under a thumb (D125's geometry, extended to `.rconfirmbtn`).
+- **`ref.how = "confirmed despite state mismatch"`** when the user proceeds, so the
+  record says the difference was **seen and accepted**, not merely picked.
+- **Cancel leaves the item unresolved** and returns the list.
+
+### The escape from a wrong proposal must be PRESENT, not merely rendered
+
+The same device pass found a second gap: for *"ramen noodles"* the list offered
+only dry ramen variants, three NISSIN cup noodles, `Pasta, rice noodles, cooked`
+and `Pasta, egg noodles, enriched, cooked` — **no cooked wheat noodle at all**,
+because the corpus files those as spaghetti, udon or somen, which share no token
+with "ramen".
+
+The report was that the different-word search appears only when there are **no**
+candidates. **Measured, it was on every list already** — and sat at **y=1062, 218px
+below the fold**, inside a panel scrolling **1068px of content through 673px**,
+with **no wording anywhere inviting it**. The *"try a different word"* sentence
+existed only in the empty-list phase.
+
+So the diagnosis was right in effect and wrong in cause, and the distinction is
+the useful part: **present is not available.** A control below the fold that
+nothing announces is available only to someone who already knows it is there. It
+now sits **above the rows** and says what it is for — the matcher's list is a
+**proposal**, and the way out of a wrong proposal has to be where the proposal is.
+
+### Gated on the shipped page, with both ruled fixtures
+
+- **ramen:** the first row **is** dry, tapping it **asks**, the question says the
+  nutrients would be **too high**, and **cancel leaves it unresolved** with the
+  list returned.
+- **wood ear:** the two correct `Jew's ear` rows are still **first**, and picking
+  one (raw against a probable cooked) **also asks** — the guard is about the
+  difference, not about which list it came from.
+- the escape is **above the rows, on screen, and invited**.
+
+### What the defect pass found in the gates, again
+
+**Five plants came back VACUOUS at once**, because the slice had a CDP gate and
+**no harness cases at all** for the new pure functions — nothing could fail. And
+one more: a plant that **hid** the invitation failed nothing, because the
+assertion read `textContent`, **which reports a hidden element's words just as
+happily**. Presence, asserted where visibility was meant — the third instance
+today of [[D123]]'s rule, and the reason it now checks `offsetParent`.
+
+One plant produced **no verdict** (the gate hung past 900s) and passed cleanly on
+re-run, which is [[D94]] behaving as written: a no-verdict run is re-run before the
+plant is blamed.
+
+**Suite: 2,400 assertions, 16 verdicts. Defect pass: 10 plants, 10 failing their own named gates.**
+
+## D128 — The restaurant flow, ruled ahead of build (2026-09-24)
+
+**NOT BUILT. Ruled now, built later** — recorded so the shape is fixed before any
+code argues for a different one, in the manner of [[D77]] (medication capture, ruled
+before build). No version bump, no gate, nothing shipped by this entry.
+
+### The flow
+
+**Location → which restaurant, on the user's tap only. Photo → which dish,
+chosen from THAT restaurant's menu** — a **closed-world match**, not a search of
+the open corpus. Naming a dish among forty is a different problem from naming it
+among eight thousand, and the closed world is what makes it tractable.
+
+> **The AI names things. Numbers come from sources, never from the model.**
+
+That is [[D8]] restated for a new path, and it is the line the whole design hangs on.
+
+### Nutrient precedence, each labelled on the item
+
+| rank | source | label |
+|---|---|---|
+| 1 | the restaurant's own data (MenuStat / chain sheet) | **labelled** |
+| 2 | a generic reference (FNDDS dish type) | **reference** |
+| 3 | the user's own input | **mine** |
+
+The photo's macro estimate sits **below the reference**, is marked **eyeballed**,
+and is **replaced when a sourced value exists**. **Micros never come from it**
+([[D8]], and the honesty rule as refined by [[D120]]).
+
+### The portion rule, and why it is two rules
+
+- **A chain or restaurant meal with source data:** the source's **standard portion
+  is the plate**, and the only open question is **how much was eaten** — which is
+  exactly [[D69]]'s plate-versus-consumption grammar, with **"Ate all of it" as one
+  tap**.
+- **Anything else:** the AI's best guess of grams, then the user's correction.
+
+**The asymmetry is the point:** a chain meal has a **known size**, so the open
+question is the **fraction**; a home meal has an **unknown size**, so the estimate
+is the **starting point**. One rule would have to be wrong for one of them.
+
+### Location: keep BOTH the name and the coordinates
+
+Branches of one chain genuinely differ — portions, regional items, and the whole
+menu across a border — and **a place with no listing still has a location**. A name
+alone cannot tell two branches apart; coordinates alone cannot be read.
+
+**AMENDED the same day, onto scan-list terms ([[D77]]), on the reasoning that held
+there.** D77 kept the Rx number because *"anyone holding the prescription already
+has a photo of it on the device, so the app holding the drug name and Rx number is
+strictly less than what is already there."* The same is true here: **the photos on
+the device already carry GPS in their metadata**, so a restaurant name and its
+coordinates, held locally, are **no more than what the phone already holds**.
+
+| term | ruled |
+|---|---|
+| name **and** coordinates | stored locally, **at full precision** |
+| rounding to ~10-20 m | **dropped** |
+| the export | **excluded, with a copy button** — D77 exactly |
+| deletion | **separately deletable** |
+| when it is recorded | **on the user's tap only** |
+
+**The rounding is dropped because it was tidiness, not protection** — the user's
+own comparison: *like refusing my own name on my own label*. Precision withheld
+from the user about the user's own visit protects nobody and costs the ability to
+tell two branches apart, which is the entire reason the coordinates are kept.
+
+**Tap-only stays, and is the one term here that is NOT tidiness.** It is the
+difference between **recording where I ate** and **tracking where I go** — a
+difference in kind, not in degree, and the only line in this section that a later
+session must not relax.
+
+> **Record this as a LOCATION RECORD, not a privacy control** — the same framing
+> correction [[D77]] made about the scan list, for the same reason. A future session
+> must not read the handling of the name or the coordinates as a privacy rule; the
+> one rule here is *tap-only*, and it is about **what is recorded**, not about how
+> carefully what is recorded is then blurred.
+
+The export exclusion is D77's, entire: the scan list stays local and out of the
+export, and **the copy button covers anything that needs moving.**
+
+### CONFLICT TO RESOLVE AT BUILD TIME — named, not silently resolved
+
+**This ruling contradicts a published promise.** `CLAUDE.md` and `README.md` both
+state that device location *"is used only when the user invokes nearby-price
+comparison, is sent only as an Open Prices query parameter, and is **never
+stored**"*. Storing a name and rounded coordinates — however carefully — **breaks
+that sentence as written**.
+
+It is a promise made to **users**, in the **README**, so it cannot be quietly
+outgrown by a later feature. Building this requires **amending both documents in
+the same commit**, reworded to the amended terms: location is recorded **only when
+the user taps to record it**, never in the background; it is held **locally, with
+its name and coordinates**; it is **not exported** (a copy button covers what needs
+moving); and it can be **deleted on its own**. Until that amendment ships, the
+promise stands as written and this flow does not.
+
+### What it enables later (not ruled here, noted as the reason)
+
+- **Value metrics from the user's own prices** — cost per gram of protein or fibre.
+  **Facts over the user's own records, no verdict.**
+- **At a place already visited, what is usually ordered there** — Repeat Items plus
+  location, **offered at the moment**, never a notification pulling the user back.
+  Consistent with H16's constraint: flow is about the next tap, not about being
+  drawn in.
+
+### Source additions follow the existing rule
+
+**Add a source when a measurement of the user's own log shows a gap it fills** —
+the discipline [[D114]]/[[D116]] set for the corpus. **FNDDS first; MenuStat only if
+chain meals recur** in the log. Neither is acquired on the strength of this entry.

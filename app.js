@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.46.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.47.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1504,7 +1504,7 @@ function noteTap(el) {
 function resolveShieldNow() {
   if (nowMs() - LAST_TAP.t > RESOLVE_ARM_MS) return { ok: true, shielded: 0 };
   let n = 0;
-  Array.prototype.slice.call(document.querySelectorAll('.rcandbtn')).forEach(function (b) {
+  Array.prototype.slice.call(document.querySelectorAll('.rcandbtn, .rconfirmbtn')).forEach(function (b) {
     const r = b.getBoundingClientRect();
     if (r.bottom >= LAST_TAP.top - RESOLVE_SHIELD_PX && r.top <= LAST_TAP.bot + RESOLVE_SHIELD_PX) {
       b.disabled = true; b.classList.add('rshield'); n++;
@@ -1514,7 +1514,7 @@ function resolveShieldNow() {
   return { ok: true, shielded: n };
 }
 function resolveUnshield() {
-  Array.prototype.slice.call(document.querySelectorAll('.rcandbtn.rshield')).forEach(function (b) {
+  Array.prototype.slice.call(document.querySelectorAll('.rshield')).forEach(function (b) {
     b.disabled = false; b.classList.remove('rshield');
   });
   return { ok: true };
@@ -1590,10 +1590,74 @@ function resolveSearch(text) {
   return resolveOpen(v.date, v.idx, text);
 }
 
+// D127 -- GUARD THE PICK, NOT THE ORDER.
+//
+// [[D125]] kept the label and dropped the reordering for an inferred state, on the
+// reasoning that the evidence on the row would carry the decision. MEASURED on
+// the device, it does not: with the reorder gone the dry rows returned to the top
+// of the ramen list, the first row was labelled "dry -- yours is probably cooked"
+// AND showed 440 beside the item's 148, and the first-row tap won anyway.
+//
+// A LABEL ON THE FIRST ROW DOES NOT STOP THE FIRST-ROW TAP. Ordering could not fix
+// it either -- fixing the order for ramen is what buried wood ear. So neither the
+// order nor the row is the place: the PICK is, which is [[D107]]'s pattern (a
+// stored choice the guard would have questioned is never acted on without asking
+// again).
+//
+// The question names the CONSEQUENCE, in the units the user already has, because
+// a confirmation that only restates the fact adds a tap and decides nothing.
+function resolveMismatch(v, cand) {
+  if (!v || !cand) return null;
+  const want = v.want, st = cand.state;
+  if (!want || !st || st === want) return null;
+  const mine = (v.mine != null && v.mine === v.mine) ? Number(v.mine) : null;
+  const theirs = (cand.kcal != null && cand.kcal === cand.kcal) ? Number(cand.kcal) : null;
+  let factor = null, dir = '';
+  if (mine > 0 && theirs > 0) {
+    const f = theirs / mine;
+    // Stated to one decimal below 10, whole above: "about 3x" is the claim the
+    // two figures support, and "2.97x" would dress a rounding in precision.
+    if (f >= 1.05) { factor = f; dir = 'too high'; }
+    else if (f <= 0.95) { factor = 1 / f; dir = 'too low'; }
+  }
+  return { state: st, want: want, hedge: (v.wantSrc === 'inferred') ? 'probably ' : '',
+           factor: factor, dir: dir };
+}
+function resolveMismatchText(m) {
+  if (!m) return '';
+  const n = (m.factor == null) ? null
+    : (m.factor < 10 ? String(Math.round(m.factor * 10) / 10) : String(Math.round(m.factor)));
+  return 'This is ' + esc(m.state) + '. Yours is ' + m.hedge + esc(m.want)
+    + (n ? ' \u2014 its nutrients would be about ' + esc(n) + '\u00d7 ' + m.dir : '')
+    + '.';
+}
+function resolveConfirmCancel() {
+  if (RESOLVE_VIEW) { delete RESOLVE_VIEW.confirm; renderResolve(); }
+  return { ok: true, resolved: false };
+}
+function resolveConfirmUse() {
+  const v = RESOLVE_VIEW, c = v && v.confirm;
+  if (!c) return Promise.resolve({ ok: false });
+  return resolvePick(c.id, c.name, c.distance, 'confirmed');
+}
 function resolvePick(id, name, distance, how) {
   const v = RESOLVE_VIEW;
   if (!v) return Promise.resolve({ ok: false });
-  return resolveItem(v.date, v.idx, id, name, distance, how).then(function (r) {
+  if (how !== 'confirmed') {
+    const cand = (v.candidates || []).filter(function (c) { return String(c.id) === String(id); })[0]
+      || (v.best && String(v.best.id) === String(id) ? v.best : null);
+    const m = resolveMismatch(v, cand);
+    if (m) {
+      // The list is REPLACED by the question, so the tap that answers it cannot
+      // land on another row -- and the answer buttons are shielded like any other
+      // control that appears under a thumb (D125).
+      v.confirm = { id: id, name: name, distance: distance, m: m };
+      renderResolve();
+      return Promise.resolve({ ok: false, why: 'confirm-state' });
+    }
+  }
+  return resolveItem(v.date, v.idx, id, name, distance,
+                     how === 'confirmed' ? 'confirmed despite state mismatch' : how).then(function (r) {
     if (r.ok) {
       RESOLVE_JUST = { date: v.date, idx: v.idx, name: String(name || '') };
       RESOLVE_VIEW = null; resolveWalkNext(); renderResolve();
@@ -1682,6 +1746,16 @@ function resolveHTML() {
   const v = RESOLVE_VIEW;
   if (!v) return '';
   const head = '<div class="rvhead">' + esc(v.name || '') + '</div>';
+  if (v.confirm) {
+    return '<div class="rvwrap"><div class="rvbox" role="dialog" aria-modal="true" aria-label="Check this match">'
+      + head
+      + '<div class="rvsub rvwarn">' + resolveMismatchText(v.confirm.m) + '</div>'
+      + '<div class="rvsub"><b>' + esc(v.confirm.name) + '</b></div>'
+      + '<div class="rconfirm">'
+      + '<button type="button" class="btn rconfirmbtn" onclick="resolveConfirmCancel()">Cancel</button>'
+      + '<button type="button" class="btn rconfirmbtn" onclick="resolveConfirmUse()">Use anyway</button>'
+      + '</div></div></div>';
+  }
   const src = CORPUS_MEM ? ('<div class="rvsub">' + esc(corpusState().attribution || '') + '</div>') : '';
   let body = '';
   if (v.phase === 'loading') body = '<div class="rvsub">Looking\u2026</div>';
@@ -1706,11 +1780,18 @@ function resolveHTML() {
       + (v.mine != null && v.mine === v.mine
           ? ' Yours is <b>' + esc(String(Math.round(v.mine))) + ' kcal/100g</b>.' : '')
       + '</div>' + resolveRowsHTML(v);
-  const search = '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value="'
+  // D127: the matcher's list is a PROPOSAL, and the escape from a wrong proposal
+  // has to be where the proposal is. It was rendered on every list already and
+  // measured 218px below the fold, unannounced -- so it moves ABOVE the rows and
+  // says what it is for. The list is still the first thing read; the way out is
+  // no longer something you have to already know about.
+  const search = '<div class="rvsub rvesc">Not one of these? Search another word for what it is '
+    + '\u2014 a database often files a dish under a different name.</div>'
+    + '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value="'
     + esc(v.query || '') + '" aria-label="search the database">'
     + '<button type="button" class="btn" onclick="resolveSearch((document.getElementById(\'rvQuery\')||{}).value)">Search</button></div>';
   return '<div class="rvwrap"><div class="rvbox" role="dialog" aria-modal="true" aria-label="Find nutrients">'
-    + head + src + body + search
+    + head + src + search + body
     + '<button type="button" class="linklike" onclick="resolveClose()">close</button></div></div>';
 }
 function renderResolve() {
@@ -1757,7 +1838,7 @@ function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how) {
     // HOW it was made, on D111's query_src pattern: 'picked' from the list, or
     // 'proposed' -- the app's own suggestion, confirmed. A record that cannot say
     // whether the user chose it cannot answer "did I choose this?".
-    how: (how === 'proposed' ? 'proposed' : 'picked'),
+    how: (how === 'proposed' || how === 'confirmed despite state mismatch') ? how : 'picked',
     // FORENSIC ONLY, never an input to re-resolution (D59's pin). It explains
     // what happened; it must never be used to redo it.
     d: (typeof distance === 'number' && distance === distance) ? distance : null,
@@ -7052,6 +7133,7 @@ const VERSION_LOG = [
   { v: '0.45.0', d: '2026-09-24', note: 'Getting to an earlier day took one tap per day — fifteen taps to go back fifteen days, with no other way there. Tap the date and pick the day; the days in your history are tappable too. And four places that did something without showing you now offer the next step: after adding food, after logging a dose, after saving a medication from its label, and after matching an item to a food — each one takes you to where the result actually is.' },
   { v: '0.46.0', d: '2026-09-24', note: 'Fixes a resolve that was never chosen. A candidate list appeared exactly where you had just tapped, so a second tap landed on a row you never saw — rows under that spot now ignore the tap for a moment. Matching also stopped burying the right answer: when the app only GUESSES that a dish is cooked, it no longer reorders the list around that guess, and a row whose state differs now says “probably”. Each match also records whether you picked it or confirmed a suggestion, and when.' },
   { v: '0.46.1', d: '2026-09-24', note: 'When the app suggests a match for a scanned item, it now says what it actually checked — “its label and this row agree on protein, fat, carbohydrate, calories, calcium, iron and sodium” — rather than simply that they agree. Agreeing on those numbers is not the same as being the same food.' },
+  { v: '0.47.0', d: '2026-09-24', note: 'Picking a food whose state differs from yours now asks first, and says what it would cost: “This is dry. Yours is probably cooked — its nutrients would be about 3× too high. Use anyway?” A label on the row was not enough; the top row still got tapped. And the search for a different word now sits above the list instead of below it, because a database often files a dish under a name you would not think of — ramen under spaghetti or udon.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11924,7 +12006,8 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
-  matchAxisWords, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
+  matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
+  itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,

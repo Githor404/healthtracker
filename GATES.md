@@ -4592,3 +4592,19 @@ before the ramen half ran, which is the half the ruling pairs it with.
 Before reusing a measured quantity for a new decision, name the question it was
 measured for. Four instances in one day, each true about what it measured and
 wrong about what it was asked.
+### D127 — guard the pick, not the order — v0.47.0
+
+Device evidence: with D125's reorder removed, the dry row was **first**, was
+**labelled**, showed **440 beside 148** — and the first-row tap won anyway.
+**A label on the first row does not stop the first-row tap.**
+
+| case | asserts |
+|---|---|
+| D127-guard **GATE** (harness) | a mismatching pick is caught **at the pick**; the factor comes from the two kcal figures already held; a **matching** state asks nothing; no state to compare asks nothing; a candidate stating no state is not accused |
+| D127-guard **GATE** (harness) | the question names **both states**, hedges an **inferred** one, names the **consequence**, follows the numbers for direction, and **invents no factor** when a figure is missing |
+| D127-how **GATE** (harness) | proceeding past the question records **`confirmed despite state mismatch`** |
+| **resolve-gate** (CDP) | **ramen**: the first row is dry, tapping it **asks**, the question says **too high**, **cancel leaves it unresolved** and returns the list. **wood ear**: the correct rows are still first and picking one **also asks**. The escape is **above the rows, on screen and invited** |
+
+**The invitation is asserted VISIBLE, not present:** `textContent` reports a hidden
+element's words too, so a plant that hid it failed nothing until the assertion
+moved to `offsetParent`.

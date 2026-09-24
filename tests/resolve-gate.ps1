@@ -218,13 +218,24 @@ try {
   const r2 = rows();
   out.liftedAfterWindow = r2.length > 0 && r2.every(b => !b.disabled);
 
-  // a deliberate tap now resolves, and the record says how and when.
-  // Guarded, because a run where the shield is ABSENT has already resolved the
-  // item and closed the sheet by now -- and a gate that throws here stops before
-  // the ramen fixture, which is the half the ruling says must be judged with it.
+  // a deliberate tap now asks, because raw-vs-(probably)-cooked is a state
+  // mismatch: D127 guards the PICK, since a label on the row did not stop the
+  // first-row tap on the device. Guarded, because a run where the shield is
+  // ABSENT has already resolved the item and closed the sheet by now -- and a
+  // gate that throws here stops before the ramen fixture, the half the ruling
+  // says must be judged with it.
   const want = r2.filter(b => /jew.s ear/i.test(b.textContent || ''))[0] || r2[0];
-  if (want) { want.click(); await sleep(900); }
+  if (want) { want.click(); await sleep(400); }
   else { out.noRowsToPick = true; }
+  out.confirmShown = !!document.querySelector('.rconfirmbtn');
+  out.confirmText = (document.querySelector('.rvwarn') || {}).textContent || '';
+  out.confirmHidesList = !document.querySelector('.rcandbtn');
+  // the answer buttons appear under the thumb too, so they are shielded like any
+  // other control that lands there
+  await sleep(HT.RESOLVE_ARM_MS + 300);
+  const useBtn = Array.prototype.slice.call(document.querySelectorAll('.rconfirmbtn'))
+    .filter(b => /use anyway/i.test(b.textContent || ''))[0];
+  if (useBtn) { useBtn.click(); await sleep(900); }
   const ref = HT.state().days[DK].items[0].ref;
   out.resolvedAfterLift = !!ref;
   out.refName = ref ? String(ref.name || '') : '';
@@ -244,6 +255,32 @@ try {
   await sleep(HT.RESOLVE_ARM_MS + 300);
   const r3 = rows();
   out.ramenRows = r3.slice(0, 4).map(b => (b.textContent || '').trim().slice(0, 46));
+  // THE DEVICE'S EXACT SEQUENCE: the first row is dry, and it got tapped.
+  out.ramenFirstIsDry = /dry/i.test((r3[0] || {}).textContent || '');
+  const beforeRamen = !!(HT.state().days[DK].items[1].ref);
+  if (r3[0]) { r3[0].click(); await sleep(400); }
+  out.ramenAsked = !!document.querySelector('.rconfirmbtn');
+  out.ramenConfirmText = (document.querySelector('.rvwarn') || {}).textContent || '';
+  await sleep(HT.RESOLVE_ARM_MS + 300);
+  const cancelBtn = Array.prototype.slice.call(document.querySelectorAll('.rconfirmbtn'))
+    .filter(b => /cancel/i.test(b.textContent || ''))[0];
+  if (cancelBtn) { cancelBtn.click(); await sleep(400); }
+  out.ramenStillUnresolved = !(HT.state().days[DK].items[1].ref) && !beforeRamen;
+  out.ramenListBack = !!document.querySelector('.rcandbtn');
+  // and the escape is ABOVE the rows, on screen, with words that invite it
+  const q = document.getElementById('rvQuery');
+  const firstRow = document.querySelector('.rcandbtn');
+  if (q && firstRow) {
+    const qr = q.getBoundingClientRect(), fr = firstRow.getBoundingClientRect();
+    out.searchAboveRows = qr.top < fr.top;
+    out.searchOnScreen = qr.top >= 0 && qr.bottom <= window.innerHeight;
+  }
+  // VISIBLE, not merely present: textContent reports a hidden element's words
+  // just as happily, so a plant that hid the invitation satisfied this and failed
+  // nothing. offsetParent is null for anything display:none or [hidden].
+  const invite = document.querySelector('.rvesc');
+  out.searchInvited = !!(invite && invite.offsetParent !== null
+                         && /Not one of these/i.test(invite.textContent || ''));
   out.ramenHasDry = r3.some(b => /\bdry\b/i.test(b.textContent || ''));
   out.ramenHedged = r3.some(b => /probably cooked/i.test(b.textContent || ''));
   out.ramenKcalShown = r3.every(b => /kcal\/100g/i.test(b.textContent || ''));
@@ -275,7 +312,12 @@ try {
   if (-not $R.woodKcalShown) { $fails += "wood ear: a row is missing its kcal per 100 g" }
 
   # --- the record can testify ------------------------------------------------
-  if ($R.refHow -ne 'picked') { $fails += "the record does not say it was PICKED (how='$($R.refHow)')" }
+  if (-not $R.confirmShown) { $fails += "wood ear: a raw row was picked for a (probably) cooked item and NOTHING ASKED -- a label on the row does not stop the tap" }
+  if ($R.confirmHidesList -ne $true) { $fails += "the question left the list on screen, so the tap that answers it can land on another row" }
+  if ($R.confirmText -notmatch 'probably') { $fails += "the question does not hedge an INFERRED state: '$($R.confirmText)'" }
+  if ($R.confirmText -notmatch 'too (high|low)') { $fails += "the question does not name the CONSEQUENCE in the units already held: '$($R.confirmText)'" }
+  if ($R.refHow -ne 'confirmed despite state mismatch') {
+    $fails += "the record does not say the mismatch was CONFIRMED (how='$($R.refHow)')" }
   if (-not $R.refAtMs) { $fails += "the record carries no time, only the date '$($R.refAt)' -- it cannot be ordered against another resolve" }
 
   # --- fixture 2: ramen must not regress ------------------------------------
@@ -284,6 +326,14 @@ try {
   if (-not $R.ramenHedged) { $fails += "ramen: the dry rows are NOT labelled -- this is the case D122 exists for" }
   if (-not $R.ramenKcalShown) { $fails += "ramen: the kcal pair is missing, which is what made the dry rows obvious" }
   if (-not $R.ramenNoScore) { $fails += "ramen: a score appeared on a row (C1 holds)" }
+  if (-not $R.ramenFirstIsDry) { $fails += "ramen: the first row is not a dry one, so this fixture cannot reproduce the device's tap" }
+  if (-not $R.ramenAsked) { $fails += "ramen: the FIRST-ROW DRY PICK resolved without asking -- the exact tap that produced the wrong match on the device" }
+  if ($R.ramenConfirmText -notmatch 'too high') { $fails += "ramen: the question does not say the nutrients would be too high: '$($R.ramenConfirmText)'" }
+  if (-not $R.ramenStillUnresolved) { $fails += "ramen: CANCEL did not leave the item unresolved" }
+  if (-not $R.ramenListBack) { $fails += "ramen: cancelling did not return the list" }
+  if (-not $R.searchAboveRows) { $fails += "the different-word search is not above the rows -- measured 218px BELOW the fold before this" }
+  if (-not $R.searchOnScreen) { $fails += "the different-word search is off screen, so the escape from a wrong proposal is not present" }
+  if (-not $R.searchInvited) { $fails += "nothing invites the different-word search, so it is available only to someone who already knows" }
 } catch {
   Write-Host "ERROR: $($_.Exception.Message)"
   Cleanup
