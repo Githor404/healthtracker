@@ -5673,3 +5673,101 @@ lesson as [[D127]]'s hidden invitation, one layer along: *existence is not
 availability.*
 
 **Suite: 2,427 assertions, 16 verdicts. Defect pass: 14 plants, 14 failing their own named gates.**
+
+## D131 — The allowlist trap, gated — a census derived from the code (2026-09-25)
+
+Every record normaliser in app.js is an **allowlist rebuild**. A property written
+onto a stored record but never declared there is **deleted at the first restore,
+import or migration** — silently, far from the change that caused it. It has hit
+repeatedly; most recently `it.ref` ([[D121]] wrote it, [[D129]] declared it eight
+versions later), **and the warning against it was already written inside the very
+function that was missed**. A rule in a comment is a rule nobody runs.
+
+### Derived, on both sides
+
+- the **allowlist**: the properties a normaliser actually emits, read out of its
+  own body — `out.x =`, the keys of the literal it builds, and the constant arrays
+  it spreads through `out[k]`.
+- the **writes**: every property assigned directly onto a stored record.
+- **what is not a stored record is derived too:** a function whose body references
+  `PHOTO_DRAFT` is writing a transient draft that never meets a normaliser, so its
+  assignments are not censused. Read from the function's own body, not from a list
+  of blessed names.
+
+**No field name appears anywhere in the check.** The only thing kept by hand is
+which normaliser owns which record kind — four records, four normalisers.
+
+### Proved by dropping the field it was built for
+
+| plant | verdict |
+|---|---|
+| drop `out.ref` | `item.ref written at app.js:1918 in resolveItem() but NOT declared in normalizeItem()` |
+| write a new undeclared field | `item.lastSeenBy written at app.js:1919 ...` |
+| write via a med local | `med.queryPickX written ... but NOT declared in normalizeMed()` |
+
+**The variable holding a record is DERIVED, not assumed to be called `it`.** The
+defect pass found that blind spot: a plant writing through a local called `row`
+failed nothing, because the census only scanned the conventional names. A census
+that sees only conventional writes will be defeated by the next unconventional
+one. Names bound **from the store** (`const x = day.items[i]`) are now found and
+scanned — 17 writes became **27**.
+
+**What it deliberately does not own:** a property set on a **copy that is then
+passed through a normaliser** is the safe pattern, and the census says nothing
+about it — there the normaliser still decides. A plant aimed there was **re-aimed**
+rather than the census widened; the gate that owns it is D130-repeat.
+
+**It refuses to pass when it reads nothing.** A normaliser it cannot parse fails,
+and an absent Python interpreter fails, rather than an empty read scoring clean
+([[D96]]). It also **says `GATE: FAIL`** in the runner's own words: the first version
+printed a true, informative verdict the runner could not read, and scored as
+**no verdict** — a check that runs and says nothing is indistinguishable from one
+that passed.
+
+**Seventeenth verdict.** Suite 16 → 17.
+
+## D132 — An estimate is not a unit — v0.48.1 (2026-09-25)
+
+**Reported from the log:** `breath_ketones` carries two units — **3.6 ppm** (18 July)
+and **3.0 mmol/L** (2 September).
+
+### How one signal got two units
+
+`SIGNAL_SPEC` declares `units: ['ppm', 'mmol/L']`, the unit field is a picker
+offering both, and `addSignal` **remembers the last one used** as the next
+default. Nothing distinguished them.
+
+**And they were already sharing a series.** `UNIT_CONVERT` has no
+`breath_ketones` table, so `convertUnit` returns null — and [[D34]]'s contract then
+**keeps the point inside the ppm series**, unconverted and labelled. Two numbers
+one axis apart, 3.6 and 3.0, physically unrelated.
+
+### The ruling, and why it is right
+
+**ppm is what a breath meter MEASURES** (breath acetone). **mmol/L is the device's
+ESTIMATE of blood BHB** — a different analyte, in a different compartment, related
+only by a fitted correlation that varies by person and by meter. **That is why
+UNIT_CONVERT never had a table for them, and never should:** there is no
+principled factor to write in it.
+
+So the series **splits**: measured in one, estimated in another labelled
+*(estimated)*. **Nothing is converted and nothing is dropped.** The measured series
+follows **the spec's unit, never the remembered one** — a convenience must not
+decide what a series *means*.
+
+### D34 is amended, and its rule re-fixtured onto a real instance
+
+D34's contract was built entirely on this pair, and **the pair was a category
+error**. Its actual rule — *a reading is never dropped* — is untouched: this drops
+nothing, it moves an estimate out of a series it never belonged in.
+
+Six cases (M1, SG3, LB-E) used breath ketones as their fixture and were
+**re-fixtured onto weight in stone**, which genuinely is one quantity in two units
+the app cannot convert. The rule keeps a gate; it just now has an instance that is
+actually an instance.
+
+**This is [[D126]] again**: a contract sound for one question ("the same quantity in
+a unit we cannot convert") applied to a neighbouring one it was never measured on
+("a different quantity the device estimates").
+
+**Suite: 2,432 assertions, 17 verdicts. Defect pass: 11 plants, 11 failing their own named gates.**

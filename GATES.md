@@ -4634,3 +4634,24 @@ commit that writes it. `ref` was not, and the loss surfaced only at a restore.
 removed, so its controls still answer when hidden — and a gate that clicks one is
 counting a tap no thumb could make. Measured: routing the row to the wrong mode
 failed nothing until this was added.
+### D131 — the allowlist census — static check, seventeenth verdict
+
+| case | asserts |
+|---|---|
+| allowlist **GATE** | every property written directly onto a stored **item / med / plate / day** appears in that record's normaliser allowlist |
+| allowlist **GATE** | both sides **derived from the source** — the allowlist from each normaliser's own body, the writes from the assignments, the variable names from what they are **bound to**. No field name in the check |
+| allowlist **GATE** | a normaliser it cannot parse, or a missing interpreter, **fails** rather than reading as a clean sheet (D96) |
+
+**Proved by dropping `it.ref`:** names the property, the line, the writing
+function and the missing normaliser. A property set on a **copy passed through a
+normaliser** is deliberately out of scope — the normaliser still decides there.
+
+### D132 — an estimate is not a unit — v0.48.1
+
+| case | asserts |
+|---|---|
+| D132-split **GATE** | the **measured** series carries only the measured unit, at the value entered; the **estimate** is its own series, at the value entered; **nothing is dropped**; the estimated series **says so**; and a **remembered unit never decides what a series means** |
+| M1 (re-fixtured) | an unconvertible reading of the **same** quantity is kept as entered — D34, on **weight in stone**, an instance that actually is one quantity |
+
+**D34 amended, not broken:** its rule is that a reading is never dropped. The
+breath-ketones pair it was built on was never one quantity in two units.

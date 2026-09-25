@@ -1296,16 +1296,44 @@ window.setLS({});
   stM.timeline['2026-06-02']=[{time:'08:00',kind:'biometric',type:'glucose',value:5,unit:'mmol/L',source:'manual'}];    // = ~90.09 mg/dL
   var gs=HT.signalSeries('glucose','all');
   res(gs.unit==='mg/dL' && gs.points.length===2 && Math.abs(gs.points[1].v-90.09)<0.5, 'M1: glucose mmol/L -> mg/dL');
+  // D132 re-point (D92, history carried). These cases asserted that a
+  // breath-ketones mmol/L reading is KEPT INSIDE the ppm series, unconverted and
+  // labelled -- D34's contract for "the same quantity in a unit we cannot
+  // convert". Measured in the user's own log (3.6 ppm in July, 3.0 mmol/L in
+  // September), that premise is false: ppm is breath acetone, MEASURED; mmol/L is
+  // the meter's ESTIMATE OF BLOOD BHB -- a different analyte in a different
+  // compartment. They were never two units of one quantity, which is why
+  // UNIT_CONVERT never had a table for them.
+  //
+  // So the series SPLITS. Nothing is dropped and nothing is converted -- D34's
+  // actual rule -- but the estimate no longer sits in someone else's axis.
   stM.timeline={}; stM.timeline['2026-06-01']=[{time:'06:00',kind:'biometric',type:'breath_ketones',value:20,unit:'ppm',source:'manual'},{time:'06:05',kind:'biometric',type:'breath_ketones',value:2,unit:'mmol/L',source:'manual'}];
   var bs=HT.signalSeries('breath_ketones','all');
-  // D34 CONTRACT CHANGE (ruled): an unconvertible reading is no longer excluded.
-  // It is kept, flagged converted:false, and labelled with its own unit -- never
-  // force-converted, and never dropped. Statistics still use converted points only.
-  res(bs.unit==='ppm' && bs.points.length===2 && bs.excluded===0 && bs.unconverted===1 && bs.total===2,
-      'M1: breath-ketones mmol/L KEPT in a ppm series as entered (never force-converted, never dropped)');
-  var bsUn=bs.points.filter(function(p){return p.converted===false;});
-  res(bsUn.length===1 && bsUn[0].unit==='mmol/L' && bsUn[0].v===2, 'M1: the unconvertible reading keeps its own value + unit for labelled display');
-  res(HT.seriesSummary(bs).n===1 && HT.seriesSummary(bs).unconverted===1, 'M1: statistics use converted points only, and report the unconverted count');
+  var bsE=HT.signalSeries('breath_ketones','all',{estimated:true});
+  res(bs.unit==='ppm' && bs.points.length===1 && Math.abs(bs.points[0].v-20)<0.001,
+      'D132-split GATE: the MEASURED series carries the ppm reading alone, at the value entered');
+  res(bsE.points.length===1 && Math.abs(bsE.points[0].v-2)<0.001 && bsE.unit==='mmol/L',
+      'D132-split GATE: and the mmol/L reading is its own series, at the value entered -- an estimate of blood BHB is not breath acetone in other units');
+  res(bs.total+bsE.total===2 && bs.excluded===0 && bsE.excluded===0,
+      'D132-split GATE: NOTHING IS DROPPED -- D34\u2019s rule survives the amendment; what changed is which series a reading belongs to, not whether it is kept');
+  res(bsE.label.indexOf('estimated')>=0 && bs.label.indexOf('estimated')<0,
+      'D132-split GATE: the estimated series SAYS SO, and the measured one does not');
+  stM.settings.signalUnits={breath_ketones:'mmol/L'};
+  res(HT.signalSeries('breath_ketones','all').unit==='ppm',
+      'D132-split GATE: a remembered unit is a convenience and never decides what a series MEANS -- the measured series stays ppm however the last entry was typed');
+  stM.settings.signalUnits={};
+
+  // D34's own rule keeps a case, on an instance that is REALLY one quantity in two
+  // units: stone is a unit of weight, and the app has no table for it. Kept,
+  // labelled, never dropped, and outside the statistics.
+  stM.timeline={}; stM.timeline['2026-06-01']=[{time:'08:00',kind:'biometric',type:'weight',value:80,unit:'kg',source:'manual'}];
+  stM.timeline['2026-06-02']=[{time:'08:00',kind:'biometric',type:'weight',value:12.6,unit:'st',source:'manual'}];
+  var wsu=HT.signalSeries('weight','all');
+  res(wsu.unit==='kg' && wsu.points.length===2 && wsu.excluded===0 && wsu.unconverted===1 && wsu.total===2,
+      'M1: an unconvertible reading of the SAME quantity is KEPT as entered (never force-converted, never dropped) -- D34, re-fixtured onto an instance that is actually one quantity');
+  var bsUn=wsu.points.filter(function(p){return p.converted===false;});
+  res(bsUn.length===1 && bsUn[0].unit==='st' && bsUn[0].v===12.6, 'M1: the unconvertible reading keeps its own value + unit for labelled display');
+  res(HT.seriesSummary(wsu).n===1 && HT.seriesSummary(wsu).unconverted===1, 'M1: statistics use converted points only, and report the unconverted count');
 
   // M2: trend assembly + factual summary
   setLS({}); HT.boot();
@@ -1422,9 +1450,14 @@ window.setLS({});
   var t3=trendsHtml();
   res(t3.indexOf('<line class="tref"')>=0 && t3.indexOf('target')>=0 && t3.indexOf('80 kg')>=0, 'SG3: goal reference line + factual "target ... 80 kg" (goal lb -> series kg)');
   setLS({}); HT.boot();
-  var sg3b=HT.state(); sg3b.timeline={}; sg3b.settings.signalUnits={breath_ketones:'mmol/L'};
-  [dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg3b.timeline[d]=[{time:'06:00',kind:'biometric',type:'breath_ketones',value:1+i*0.2,unit:'mmol/L',source:'manual'}]; });
-  HT.setGoal('breath_ketones', 20, 'min', 'ppm');                        // ppm goal vs mmol/L series -> not comparable
+  // D132 re-point (D92): this used a ppm goal against an mmol/L breath-ketones
+  // series, which is no longer a unit mismatch -- it is two different quantities,
+  // and they no longer share a series at all. The RULE is unchanged and general:
+  // a goal the app cannot compare to the series says so and draws no line. Stone
+  // against kilograms is that case, and is genuinely one quantity.
+  var sg3b=HT.state(); sg3b.timeline={};
+  [dk(-2),dk(-1),dk(0)].forEach(function(d,i){ sg3b.timeline[d]=[{time:'08:00',kind:'biometric',type:'weight',value:80+i,unit:'kg',source:'manual'}]; });
+  HT.setGoal('weight', 12, 'min', 'st');                                 // stone goal vs kg series -> not comparable
   HT.renderTrends();
   var t3b=trendsHtml();
   res(t3b.indexOf('not comparable')>=0 && t3b.indexOf('<line class="tref"')<0, 'SG3: non-convertible goal unit surfaces the mismatch, no line (never force-converts)');
@@ -4513,15 +4546,18 @@ window.setLS({});
   // SIGNAL_SPEC — lab analytes are deliberately not in it (Fork B), so this is
   // exercised on a mixed-unit biometric (the M1 scenario). TREND_MIN_POINTS = 3.
   setLS({}); HT.boot();
-  HT.state().timeline['2026-06-01'] = [{ time:'06:00', kind:'biometric', type:'breath_ketones', value:20, unit:'ppm', source:'manual' }];
-  HT.state().timeline['2026-06-02'] = [{ time:'06:00', kind:'biometric', type:'breath_ketones', value:24, unit:'ppm', source:'manual' }];
-  HT.state().timeline['2026-06-03'] = [{ time:'06:00', kind:'biometric', type:'breath_ketones', value:2,  unit:'mmol/L', source:'manual' }];
+  // D132 re-point (D92): the rule is the coverage annotation on a series holding a
+  // reading it could not convert. Re-fixtured onto weight in stone, which is one
+  // quantity in two units -- the breath-ketones pair never was.
+  HT.state().timeline['2026-06-01'] = [{ time:'08:00', kind:'biometric', type:'weight', value:80, unit:'kg', source:'manual' }];
+  HT.state().timeline['2026-06-02'] = [{ time:'08:00', kind:'biometric', type:'weight', value:84, unit:'kg', source:'manual' }];
+  HT.state().timeline['2026-06-03'] = [{ time:'08:00', kind:'biometric', type:'weight', value:12.6, unit:'st', source:'manual' }];
   if (!document.getElementById('trends')) { var trEl=document.createElement('div'); trEl.id='trends'; document.body.appendChild(trEl); }
   HT.setTrendWindow('all'); HT.renderTrends();
   var trHTML = document.getElementById('trends').innerHTML;
   res(trHTML.indexOf('avg over 2 of 3 readings (1 unconverted, shown as entered)') >= 0,
       'LB-E: the statistics line carries the micros-style coverage annotation');
-  res(trHTML.indexOf('shown as entered in mmol/L') >= 0,
+  res(trHTML.indexOf('shown as entered in st') >= 0,
       'LB-E: the unconverted reading is named with its own unit on the trend head');
 
   // LB-D: measurement-class-aware persistence.

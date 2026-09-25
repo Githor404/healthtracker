@@ -125,7 +125,8 @@ fi
 # runs them as preconditions -- and this block only confirms it still calls them.
 STATIC_CHECKS="check-guidance.sh
 check-slots.sh
-check-precache.sh"
+check-precache.sh
+check-allowlist.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh
 check-writesites.sh

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.48.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.48.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4259,7 +4259,12 @@ const SIGNAL_SPEC = [
   { type: 'resting_hr',     kind: 'biometric', label: 'Resting HR',    unit: 'bpm',   units: ['bpm'],             warn: 300 },
   { type: 'hrv',            kind: 'biometric', label: 'HRV',           unit: 'ms',    units: ['ms'],              warn: 500 },
   { type: 'glucose',        kind: 'biometric', label: 'Glucose',       unit: 'mg/dL', units: ['mg/dL', 'mmol/L'], warn: 1000 },
-  { type: 'breath_ketones', kind: 'biometric', label: 'Breath ketones', unit: 'ppm', units: ['ppm', 'mmol/L'],   warn: 100 },
+  // D132: `ppm` is what a breath meter MEASURES (breath acetone). `mmol/L` is a
+  // different quantity entirely -- the device's ESTIMATE of blood BHB, in another
+  // compartment, related only by a fitted correlation that varies by person and
+  // by meter. That is why UNIT_CONVERT has never had a breath_ketones table and
+  // never should: there is no principled factor to write in it.
+  { type: 'breath_ketones', kind: 'biometric', label: 'Breath ketones', unit: 'ppm', units: ['ppm', 'mmol/L'],   warn: 100, est: ['mmol/L'] },
   { type: 'bp_systolic',    kind: 'biometric', label: 'BP systolic',   unit: 'mmHg',  units: ['mmHg'],            warn: 300 },
   { type: 'bp_diastolic',   kind: 'biometric', label: 'BP diastolic',  unit: 'mmHg',  units: ['mmHg'],            warn: 250 },
   { type: 'sleep_hours',    kind: 'biometric', label: 'Sleep (hours)', unit: 'h',     units: ['h'],               warn: 24 },
@@ -5530,9 +5535,40 @@ function windowCutoff(days) {
 // D35: `sleep_hours` is the analysis series, and a `sleep` INTERVAL contributes a
 // derived point to it (duration = hours). Trends/Mirror keep reading one key.
 const SERIES_ALIAS = { sleep_hours: ['sleep'] };
-function signalSeries(type, days) {
+// D132 -- AN ESTIMATE IS NOT A UNIT.
+//
+// A type may be recorded in a unit that is not another way of writing the same
+// quantity, but a DIFFERENT quantity the device estimates. Those readings are
+// real and are kept; what they may not do is share a series with the measured
+// ones, because a series is a comparison and they are not comparable.
+//
+// Found in the log: breath ketones at 3.6 ppm (July) and 3.0 mmol/L (September).
+// Numerically adjacent, physically unrelated -- and already on one axis, because
+// convertUnit returns null for the pair and [[D34]]'s contract then keeps the point
+// in place, unconverted and labelled. D34 is AMENDED here, not broken: its rule
+// is that a reading is never dropped, and this drops nothing. It moves the
+// estimate to its own series instead of leaving it in someone else's.
+function estUnits(type) {
   const spec = SIGNAL_BY_TYPE[type];
-  const targetUnit = signalUnitDefault(type);
+  return (spec && Array.isArray(spec.est)) ? spec.est : [];
+}
+function isEstimatedUnit(type, unit) {
+  return estUnits(type).indexOf(String(unit)) >= 0;
+}
+// The measured unit is the spec's own, never the last one the user happened to
+// pick: a remembered unit is a convenience, and it must not decide what a series
+// MEANS.
+function measuredUnit(type) {
+  const spec = SIGNAL_BY_TYPE[type];
+  return spec ? spec.unit : signalUnitDefault(type);
+}
+function signalSeries(type, days, opts) {
+  const spec = SIGNAL_BY_TYPE[type];
+  const wantEst = !!(opts && opts.estimated);
+  const ests = estUnits(type);
+  const targetUnit = ests.length
+    ? (wantEst ? ests[0] : measuredUnit(type))   // a split type never follows the remembered unit
+    : signalUnitDefault(type);
   const cut = windowCutoff(days);
   const alsoTypes = SERIES_ALIAS[type] || [];
   let pts = []; let unconverted = 0, total = 0;
@@ -5540,6 +5576,10 @@ function signalSeries(type, days) {
     if (d < cut) return;
     (APP_STATE.timeline[d] || []).forEach((r) => {
       if ((r.type !== type && alsoTypes.indexOf(r.type) < 0) || r.value == null) return;
+      // D132: the split. An estimated reading belongs to the estimated series and
+      // to no other; a measured one likewise. Neither is dropped -- each is
+      // counted in the series it belongs to.
+      if (ests.length && isEstimatedUnit(type, r.unit) !== wantEst) return;
       total++;
       const from = r.unit || targetUnit;
       const v = convertUnit(type, r.value, from, targetUnit);
@@ -5566,7 +5606,8 @@ function signalSeries(type, days) {
     pts = Object.keys(byDay).sort().map((d) => byDay[d]);
   }
   pts.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
-  return { type: type, label: spec ? spec.label : type, unit: targetUnit, points: pts,
+  return { type: type, label: (spec ? spec.label : type) + (wantEst ? ' (estimated)' : ''),
+           unit: targetUnit, points: pts, estimated: wantEst,
            excluded: 0, unconverted: unconverted, total: total };
 }
 // Factual summary only (no interpretation): latest, min, max, avg, delta, n.
@@ -7339,6 +7380,7 @@ const VERSION_LOG = [
   { v: '0.47.0', d: '2026-09-24', note: 'Picking a food whose state differs from yours now asks first, and says what it would cost: “This is dry. Yours is probably cooked — its nutrients would be about 3× too high. Use anyway?” A label on the row was not enough; the top row still got tapped. And the search for a different word now sits above the list instead of below it, because a database often files a dish under a name you would not think of — ramen under spaghetti or udon.' },
   { v: '0.47.1', d: '2026-09-24', note: 'Fixes silent data loss: a food you had matched to the nutrition database lost that match — and its vitamins and minerals — the first time you exported and restored your data. Nothing said so; the day’s totals simply changed. Existing matches on your device were never at risk in normal use, only across a restore.' },
   { v: '0.48.0', d: '2026-09-24', note: 'The day now starts with a row that goes straight to what you want — Food, Dose, Biometric, Fast or Note — instead of opening the scanner first. Quick also lists what you have eaten recently, so logging it again is one tap, at the same portion, recorded as a new entry rather than an edit of the old one. And a past day you reach with the date jump can now be logged to at all, which it could not before. The link that clears a food’s database match now says “clear match”, so only the red × says remove.' },
+  { v: '0.48.1', d: '2026-09-25', note: 'Breath ketones recorded in mmol/L no longer sit in the same trend as ones in ppm. A breath meter measures acetone in ppm; the mmol/L figure some meters show is their ESTIMATE of blood ketones — a different thing in a different part of the body, not the same number written another way. Both readings are kept exactly as entered, nothing is converted, and the estimated ones are labelled and charted on their own.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -12193,7 +12235,7 @@ window.HT = {
   normalizeFastLog, normalizeFasting, offerUndo, doUndo, undoRemove,
   renderFastCandidates, renderFastingForm, setFastingFromForm, resolveFastAt, addManualItem, addMedicationFromForm, doIngest,
   // Phase 4 Slice — Mirror / Layer 2 self-trends (D23)
-  signalSeries, seriesSummary, macroSeries, fastingStats, convertUnit, windowCutoff, sparklineSVG, renderTrends, setTrendWindow, UNIT_CONVERT,
+  signalSeries, estUnits, isEstimatedUnit, measuredUnit, seriesSummary, macroSeries, fastingStats, convertUnit, windowCutoff, sparklineSVG, renderTrends, setTrendWindow, UNIT_CONVERT,
   // Phase 4 Slice — Nudge / Layer 3 (D25)
   NUDGE_CURRICULUM, loggedDays, nudgeReady, currentNudge, focusAdherence, acceptNudge, declineNudge, snoozeNudge, retireNudge, setNudgesEnabled, normalizeNudges, renderNudge, toggleNudgeBrowse,
   // Phase 4 Slice T — timeline substrate (D20)
