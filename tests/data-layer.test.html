@@ -9308,6 +9308,96 @@ window.setLS({});
       'H8-census CONTROL: and an explicit edit DOES write, so the counter is measuring something -- one new write site, which is what the D29 manifest records');
   HT.setMedQuery(h8id, 'generic_name', '');
 
+  // ---- D130: the day a jump could reach but nothing could be written to --
+  // D123 made `current` able to name a day with no record and said the record
+  // is created by the first thing WRITTEN to it -- then did not build that, so
+  // every add path still asked curDay() and got nothing. Found by walking this
+  // slice's own path: quick-add Food on a day the date jump had just reached.
+  var _wDays = HT.state().days, _wCur = HT.state().current;
+  HT.state().days = { '2026-09-20': { status: 'in_progress', water_l: 0, items: [] } };
+  HT.state().current = '2026-09-13';
+  res(HT.state().days['2026-09-13'] === undefined,
+      'D130-write fixture: the day really has no record, or there is nothing here to fix (D96)');
+  var W1 = HT.addManualEntry({ name: 'Soup', kcal: 90, protein_g: 2, fat_g: 1, carb_g: 12,
+                               fiber_g: 1, soluble_fiber_g: 0, meal: 'lunch', time: '12:00' });
+  res(W1.ok === true,
+      'D130-write GATE: a day reached by the date jump can be LOGGED TO -- it answered \u201cNo current day\u201d before');
+  res(!!HT.state().days['2026-09-13'] && HT.state().days['2026-09-13'].items.length === 1,
+      'D130-write GATE: and the record is created by the WRITE, which is where the supplement injection belongs (D8/4)');
+  // The supplement is the REASON D123 refused to create a day on arrival: creation
+  // injects it, and a day only looked at would gain real intake. So a day created
+  // by a WRITE must inject it exactly as every other creation site does -- or the
+  // two kinds of day quietly differ, and that is the inconsistency D123 was
+  // avoiding, moved rather than removed.
+  HT.state().days = {};
+  HT.state().current = '2026-09-14';
+  HT.state().settings.supplement = { enabled: true, name: 'Multivitamin',
+                                     nutrients: { kcal: 5, protein_g: 0, fat_g: 0, carb_g: 1,
+                                                  fiber_g: 0, soluble_fiber_g: 0 } };
+  HT.addManualEntry({ name: 'Toast', kcal: 100, protein_g: 3, fat_g: 1, carb_g: 18,
+                      fiber_g: 2, soluble_fiber_g: 0, meal: 'breakfast', time: '08:00' });
+  res((HT.state().days['2026-09-14'].items || []).some(function (i) { return i._auto === true; }),
+      'D130-write GATE: a day created by the WRITE injects the supplement, exactly as every other creation site does');
+  HT.state().settings.supplement = { enabled: false, name: '', nutrients: {} };
+  HT.state().days = _wDays; HT.state().current = _wCur;
+
+  // ---- the quick-add row: one tap to the right form ----------------------
+  res(HT.QUICK_ADD.map(function (q) { return q.k; }).join(',') === 'food,dose,biometric,fast,note',
+      'D130-row GATE: the row names the five things the brief named, in that order');
+  var QH = HT.quickAddHTML();
+  res(QH.indexOf('Food') > 0 && QH.indexOf('Dose') > 0 && QH.indexOf('Biometric') > 0,
+      'D130-row GATE: and renders them as targets rather than as a menu of one thing');
+  res(QH.toLowerCase().indexOf('streak') < 0 && QH.toLowerCase().indexOf('remaining') < 0,
+      'D130-row GATE: no streak and no distance to a target -- the row offers the next tap, it does not pull you back');
+
+  // ---- repeats: recency, deduped, and a NEW record -----------------------
+  var _rDays = HT.state().days, _rCur = HT.state().current;
+  var mkR = function (n, g, kc) { return { name: n, meal: 'lunch', time: '12:00', grams: g,
+    kcal: kc, protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+    confidence: 'eyeballed', source: 'scan', notes: '' }; };
+  HT.state().days = {
+    '2026-09-10': { status: 'complete', water_l: 0, items: [mkR('Oats', 80, 300), mkR('Tea', 200, 2)] },
+    '2026-09-12': { status: 'in_progress', water_l: 0, items: [mkR('Oats', 80, 300),
+                    { name: 'Vitamin D', meal: 'supplement', time: '08:00', kcal: 0, protein_g: 0,
+                      fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'measured',
+                      source: 'supplement', notes: '', _auto: true }] } };
+  HT.state().current = '2026-09-12';
+  var RC = HT.recentItems(8);
+  res(RC.length === 2 && RC[0].name === 'Oats',
+      'D130-repeat GATE: recency first, and a name appears ONCE however often it was eaten');
+  res(RC[0].date === '2026-09-12',
+      'D130-repeat GATE: and the MOST RECENT instance is the one offered -- that is what \u201crepeat\u201d means');
+  res(RC.every(function (r) { return r.name !== 'Vitamin D'; }),
+      'D130-repeat GATE: the auto supplement is not offered -- it is not a thing anyone repeats by hand');
+
+  var SRC130 = { name: 'Oats', meal: 'lunch', time: '12:00', grams: 80, kcal: 300,
+    protein_g: 10, fat_g: 5, carb_g: 50, fiber_g: 8, soluble_fiber_g: 4, confidence: 'weighed',
+    source: 'scan', notes: 'n', barcode: '123', mealId: 'm1', plateId: 'p1', plateIdx: 2,
+    edited_at: '2026-09-11T10:00:00.000Z',
+    ref: { ns: 'cnf', id: '77', name: 'Oats, rolled', at: '2026-09-11', at_ms: 1,
+           hash: 'h', attribution: 'CNF', how: 'picked', v: { '301': 40 } } };
+  var RP = HT.buildRepeatItem(SRC130, '09:15', { date: '2026-09-10', name: 'Oats' });
+  res(RP.source === 'scan',
+      'D130-repeat GATE: a repeated SCAN is still a scan -- adding a \u201crepeat\u201d source would have erased the provenance, which is D111\u2019s failure');
+  res(!!RP.repeated_from && RP.repeated_from.date === '2026-09-10',
+      'D130-repeat GATE: and provenance says it was repeated, beside what it was, not instead of it');
+  res(RP.time === '09:15' && !RP.edited_at,
+      'D130-repeat GATE: a NEW RECORD AT A NEW TIME, carrying none of the original\u2019s edit history -- never a revision of it');
+  res(RP.plateId === undefined && RP.plateIdx === undefined && RP.mealId === undefined,
+      'D130-repeat GATE: and it is not that plate nor that photo-meal -- those identities belong to the record it copied');
+  res(!!RP.ref && RP.ref.id === '77' && RP.grams === 80,
+      'D130-repeat GATE: at the SAME portion the resolution is carried, which is the whole value of repeating a resolved item');
+  var RP2 = HT.buildRepeatItem(SRC130, '09:15', { date: '2026-09-10', name: 'Oats' }, 160);
+  res(RP2.grams === 160 && RP2.ref === undefined,
+      'D130-repeat GATE: at a DIFFERENT portion the resolution is DROPPED -- ref.v is frozen at the original grams, so carrying it would show numbers scaled to the wrong weight');
+
+  var NRF = HT.normalizeItem(Object.assign({}, SRC130, { repeated_from: { date: '2026-09-10', name: 'Oats' } }), true);
+  res(!!NRF.repeated_from && NRF.repeated_from.date === '2026-09-10',
+      'D130-repeat GATE: repeated_from is declared in the normaliser in the SAME COMMIT that writes it (D129\u2019s rule, applied the first time it could be)');
+  res(HT.normalizeRepeatedFrom({ date: 'nonsense' }) === null,
+      'D130-repeat GATE: and a malformed provenance is dropped rather than stored as a fact about a day that does not exist');
+  HT.state().days = _rDays; HT.state().current = _rCur;
+
   // ---- D129: a resolved reference survives a round trip ------------------
   // normalizeItem is an ALLOWLIST REBUILD and D121 added `ref` without declaring
   // it here, so every resolved item lost its corpus row, its frozen values and
@@ -9655,8 +9745,15 @@ window.setLS({});
   var dv121b = document.getElementById('dayView').innerHTML;
   res(dv121b.indexOf('Cheese, cheddar') >= 0 && dv121b.indexOf('reference values') >= 0,
       'D121-row GATE: a RESOLVED row says which row it matched and that its micros are reference values, not label values (E1)');
-  res(dv121b.indexOf('remove') >= 0 && dv121b.indexOf('change') >= 0,
+  // D130 re-point (D92, history carried): this matched the WORD 'remove', which
+  // the row no longer says. It says 'clear match', because the word collided with
+  // the red x that deletes the food itself -- one clears a match, one destroys a
+  // record, and the user deleted an item meaning to do the first. The rule is
+  // unchanged and is what the case is named for: a resolve can be WITHDRAWN.
+  res(dv121b.indexOf('clear match') >= 0 && dv121b.indexOf('change') >= 0,
       'D121-row GATE: and a resolve is a decision that can be withdrawn (F1)');
+  res(dv121b.indexOf('>remove<') < 0,
+      'D130-word GATE: and the row does not say "remove" for a match -- only the destructive control gets that word');
   res(dv121b.indexOf('find nutrients') < 0,
       'D121-row GATE: a resolved row no longer offers the route it has already taken');
 

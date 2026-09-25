@@ -146,6 +146,13 @@ try {
   let taps = 0;
   function tap(el, why) {
     if (!el) throw new Error('nothing to tap: ' + why);
+    // A pane is display-toggled, not removed, so its controls still EXIST when it
+    // is hidden -- and a gate that clicks one is counting a tap no thumb could
+    // make. Measured: routing the row to the wrong mode failed nothing, because
+    // the manual form answered from behind a hidden pane. Rect, not offsetParent:
+    // the FAB is position:fixed and has no offsetParent even when it is visible.
+    const r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0)) throw new Error('not visible, so not tappable: ' + why);
     taps++; el.click();
   }
   function byText(sel, re, root) {
@@ -207,15 +214,19 @@ try {
   // ---- JOURNEY 1: I eat something -> logged -> I see my day ---------------
   taps = 0;
   const n1 = (HT.state().days[today].items || []).length;
-  tap(document.getElementById('fab'), 'FAB');
-  await sleep(180);
-  tap(document.getElementById('mode-manual'), 'Manual');
-  await sleep(180);
+  // D130: the quick-add row goes straight to the form. The FAB is unchanged and
+  // still works; what changed is that reaching the right mode is no longer a tap.
+  const qFood = byText('.qadd .qab', /^Food$/i);
+  out.rowPresent = !!qFood;
+  tap(qFood, 'Food (quick-add row)');
+  await sleep(220);
   document.getElementById('maName').value = 'Greek yogurt';
   document.getElementById('maKcal').value = '120';
   tap(byText('#pane-manual button', /^Add to day$/i), 'Add to day');
   await sleep(300);
   const nm1 = document.querySelector('#maNext .nmbtn');
+  out.j1Mode = !!(document.getElementById('pane-manual') || { classList: { contains: function () { return false; } } })
+                 .classList.contains('on');
   out.j1 = { offered: !!nm1, said: (document.querySelector('#maNext .nmsaid') || {}).textContent || '',
              logged: (HT.state().days[today].items || []).length > n1 };
   if (nm1) { tap(nm1, 'See my day'); await sleep(250); }
@@ -225,13 +236,14 @@ try {
 
   // ---- JOURNEY 2: a dose -> logged -> on the timeline ---------------------
   taps = 0;
-  tap(document.getElementById('fab'), 'FAB');
-  await sleep(180);
-  tap(byText('.sheetfoot .linklike', /Log a dose I took/i), 'Log a dose I took');
-  await sleep(200);
+  const qDose = byText('.qadd .qab', /^Dose$/i);
+  tap(qDose, 'Dose (quick-add row)');
+  await sleep(250);
   document.getElementById('medName').value = 'Metformin';
   tap(byText('#pane-med button', /^Log this dose$/i), 'Log this dose');
   await sleep(300);
+  out.j2Mode = !!(document.getElementById('pane-med') || { classList: { contains: function () { return false; } } })
+                 .classList.contains('on');
   const nm2 = document.querySelector('#medNext .nmbtn');
   out.j2 = { offered: !!nm2 };
   if (nm2) { tap(nm2, 'See it on the timeline'); await sleep(400); }
@@ -340,12 +352,15 @@ try {
   if (-not $J.j0void.backEnabled) { $fails += "J0: both arrows were disabled on an unlogged day -- the thumb is stranded where the jump left it" }
   if (-not $J.historyTappable) { $fails += "J0: the history rows are inert -- the date picker cannot say which days have data, which is why they are the second route" }
 
-  if ($J.j1.taps -ne 4 -or -not $J.j1.logged) {
-    $fails += "J1: eat -> logged -> see my day took $($J.j1.taps) taps (pinned 4)" }
+  if (-not $J.rowPresent) { $fails += "J1: there is no quick-add row, so the day does not name what can go in it" }
+  if (-not $J.j1Mode) { $fails += "J1: the row's Food target did not open the MANUAL form -- a hidden pane still answers, so the taps alone cannot see this" }
+  if (-not $J.j2Mode) { $fails += "J2: the row's Dose target did not open the DOSE form" }
+  if ($J.j1.taps -ne 3 -or -not $J.j1.logged) {
+    $fails += "J1: eat -> logged -> see my day took $($J.j1.taps) taps (pinned 3; it was 4 before the quick-add row)" }
   if (-not $J.j1.offered) { $fails += "J1: nothing was offered after the add -- the sheet stays open and the x is a dismiss, not a destination" }
   if (-not $J.j1.sheetClosed) { $fails += "J1: the offer did not land on the day" }
 
-  if ($J.j2.taps -ne 4) { $fails += "J2: a dose -> on the timeline took $($J.j2.taps) taps (pinned 4)" }
+  if ($J.j2.taps -ne 3) { $fails += "J2: a dose -> on the timeline took $($J.j2.taps) taps (pinned 3; it was 4)" }
   if (-not $J.j2.offered) { $fails += "J2: nothing was offered after the dose -- measured, the timeline is 1.8 screens below the fold" }
   if (-not $J.j2.rowIdentified) { $fails += "J2: the timeline row carries no record id, so the ending cannot find THIS dose" }
   if (-not $J.j2.rowInView) { $fails += "J2: the offer did not bring the dose into view -- the outcome is still unseen" }
@@ -377,5 +392,5 @@ if ($fails.Count) {
   $fails | ForEach-Object { Write-Host "  - $_" }
   exit 1
 }
-Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 4, J2 4, J3 6 (was 8), J4 3, and every ending shows its outcome"
+Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 3 (was 4), J2 3 (was 4), J3 6 (was 8), J4 3, and every ending shows its outcome"
 exit 0

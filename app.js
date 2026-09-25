@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.47.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.48.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -405,6 +405,13 @@ function normalizeRef(r) {
   });
   return out;
 }
+// D130: a repeat keeps its ORIGINAL source and says it was repeated beside it.
+function normalizeRepeatedFrom(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const d = String(r.date == null ? '' : r.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  return { date: d, name: String(r.name == null ? '' : r.name) };
+}
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
   it = it || {};
@@ -500,6 +507,10 @@ function normalizeItem(it, clampMacros) {
   // D129: declared HERE, where every restore and import passes through.
   const refI = normalizeRef(it.ref);
   if (refI) out.ref = refI;
+  // D130, declared in the same commit that writes it -- which is D129's rule,
+  // applied the first time it could be.
+  const rfI = normalizeRepeatedFrom(it.repeated_from);
+  if (rfI) out.repeated_from = rfI;
   const origI = normalizeOrig(it.orig);
   if (origI) out.orig = origI;
   const edI = normalizeEditedAt(it.edited_at);
@@ -2603,6 +2614,27 @@ const NUTRIENT_LABELS = { kcal: 'kcal', protein_g: 'protein', fat_g: 'fat', carb
 const CONF_DOT = { weighed: 'good', measured: 'accent', eyeballed: 'warn' };
 
 function curDay() { return APP_STATE && APP_STATE.days[APP_STATE.current]; }
+// D130 -- THE DAY A JUMP COULD REACH BUT NOTHING COULD BE WRITTEN TO.
+//
+// [[D123]] made `current` able to name a day with no record, deliberately: creating
+// one on arrival would inject the supplement (D8/4) and put real intake on a day
+// only looked at. It said the record is created by the first thing WRITTEN to it
+// -- and then did not build that, so every ADD path still asked curDay() and got
+// nothing. Jump to a past day, log a meal, and the app answered "No current day".
+//
+// Found by walking this slice's own path: quick-add Food on a day the date jump
+// had just reached. This is the creation site, and it is where the supplement has
+// always belonged.
+function dayForWrite() {
+  if (!APP_STATE) return null;
+  const k = APP_STATE.current;
+  if (!isDayKey(k)) return null;
+  if (!APP_STATE.days[k]) {
+    APP_STATE.days[k] = blankDay();
+    maybeInjectSupplement(APP_STATE, k);      // device-side day creation (D8/4)
+  }
+  return APP_STATE.days[k];
+}
 
 // Direction-aware goal progress: floor ('min') is short when under; ceiling
 // ('max') is over when above. (v4 Goals display.)
@@ -2864,6 +2896,7 @@ function renderDay() {
 
   html += plateRecallHTML();
   html += renderGoalsHTML(t, day);
+  html += quickAddHTML();
 
   const groups = {};
   day.items.forEach((it, idx) => { const m = MEALS.indexOf(it.meal) >= 0 ? it.meal : 'other'; (groups[m] = groups[m] || []).push({ it: it, idx: idx }); });
@@ -2908,7 +2941,7 @@ function renderDay() {
         const refline = it.ref
           ? `<div class="mref">matched <b>${esc(it.ref.name || it.ref.id)}</b> \u00b7 reference values` +
             ` <button class="linklike" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">change</button>` +
-            ` <button class="linklike" onclick="event.stopPropagation();clearItemRef('${esc(dk)}',${idx})">remove</button></div>`
+            ` <button class="linklike" onclick="event.stopPropagation();clearItemRef('${esc(dk)}',${idx})">clear match</button></div>`
           : (it._auto ? '' : `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`);
       html += `<div class="mitem"><div class="mmain"${open}>
           <div class="mname">${esc(it.name)}</div>
@@ -3014,6 +3047,130 @@ function stepDay(dir) {
   APP_STATE.current = k;
   Store.saveState(APP_STATE); refresh();
 }
+// ---- H16 / D130: the quick-add row ------------------------------------------
+//
+// Measured in [[D123]]: the FAB opens on Scan, so reaching the manual form or the
+// dose form costs a second tap every time. The row names the five things directly
+// and opens the sheet already in that mode -- 2 taps become 1, which is what takes
+// journeys 1 and 2 from their pinned 4 to 3.
+//
+// The FAB is unchanged. The row is for AIM and the FAB is for REACH: the row sits
+// at the top of the day where the day begins, and the FAB stays at y=802 where the
+// thumb is. Neither replaces the other.
+const QUICK_ADD = [
+  { k: 'food', label: 'Food' }, { k: 'dose', label: 'Dose' },
+  { k: 'biometric', label: 'Biometric' }, { k: 'fast', label: 'Fast' },
+  { k: 'note', label: 'Note' },
+];
+function quickAddHTML() {
+  return '<div class="qadd">' + QUICK_ADD.map(function (q) {
+    return '<button type="button" class="qab" onclick="quickAdd(\'' + esc(q.k) + '\')">'
+      + esc(q.label) + '</button>';
+  }).join('') + '</div>';
+}
+// C1, ruled: Fast and Note get NO new state. Neither exists as a signal type, and
+// inventing one would put an assertion where the app currently infers.
+function quickAdd(kind) {
+  if (kind === 'food') { openSheet('manual'); return { ok: true, mode: 'manual' }; }
+  if (kind === 'dose') { openSheet('med'); return { ok: true, mode: 'med' }; }
+  if (kind === 'biometric') { openSheet('signal'); return { ok: true, mode: 'signal' }; }
+  if (kind === 'note') {
+    // An event carrying the text, which is the shape the app already has for
+    // "something happened and here is what it was".
+    openSheet('signal');
+    const t = document.getElementById('sigType');
+    if (t) { t.value = 'other'; try { onSignalTypeChange(); } catch (e) {} }
+    return { ok: true, mode: 'signal', type: 'other' };
+  }
+  if (kind === 'fast') return quickAddFast();
+  return { ok: false };
+}
+// Fast routes to the confirmation that ALREADY EXISTS. A fast is read from the
+// gaps between meals; "start a fast" stays DECLINED, not deferred, because a
+// toggle would make two writers for one span.
+function quickAddFast() {
+  const el = document.getElementById('fastCandidates');
+  const has = !!(el && el.querySelector('button'));
+  if (!has) {
+    toast('Nothing to confirm yet \u2014 a fast is read from the gaps between what you log.');
+    return { ok: true, pending: 0 };
+  }
+  flashEl(el);
+  return { ok: true, pending: 1 };
+}
+
+// ---- H16 / D130: repeat items ------------------------------------------------
+//
+// E1, ruled: RECENCY, deduped by name. Not a recency-frequency blend -- the user's
+// log is not in this repo (it is gitignored, and rightly), so a blend could not be
+// measured against real data, and [[D119]] is the standing lesson that an unmeasured
+// ranking is worth nothing. Recency is the one signal that needs no tuning.
+const REPEAT_MAX = 8;
+function recentItems(limit) {
+  const cap = limit > 0 ? limit : REPEAT_MAX;
+  const days = Object.keys((APP_STATE && APP_STATE.days) || {}).filter(isDayKey).sort().reverse();
+  const seen = {}, out = [];
+  for (let i = 0; i < days.length && out.length < cap; i++) {
+    const items = (APP_STATE.days[days[i]].items) || [];
+    for (let j = items.length - 1; j >= 0 && out.length < cap; j--) {
+      const it = items[j];
+      if (!it || it._auto) continue;                 // the supplement is not a thing you repeat
+      const key = String(it.name == null ? '' : it.name).trim().toLowerCase();
+      if (!key || seen[key]) continue;
+      seen[key] = 1;
+      out.push({ date: days[i], idx: j, name: it.name, item: it });
+    }
+  }
+  return out;
+}
+// F1, ruled: the ORIGINAL source is kept and `repeated_from` is added. Adding a
+// 'repeat' source would have ERASED the provenance -- a repeated scan would stop
+// being a scan -- which is [[D111]]'s failure exactly.
+//
+// D1, ruled: the resolution is carried ONLY when the portion is unchanged, because
+// `ref.v` is frozen at the original item's grams (resolveItemFreeze scales by
+// g/100). Carrying it to a different portion would show numbers scaled to the
+// wrong weight -- worse than showing none, because they would look right.
+function buildRepeatItem(src, time, from, grams) {
+  if (!src) return null;
+  const c = JSON.parse(JSON.stringify(src));
+  delete c.plateId; delete c.plateIdx; delete c.mealId; delete c.ate;   // this is not that plate
+  delete c.orig; delete c.edited_at; delete c._auto;                    // nor that record's history
+  c.time = time;
+  c.tzo = nowTZO();
+  if (grams != null && String(grams) !== '') c.grams = clampNonNeg(grams);
+  const sameGrams = (c.grams == null && src.grams == null)
+    || (c.grams != null && src.grams != null && Number(c.grams) === Number(src.grams));
+  if (!sameGrams) delete c.ref;
+  if (from && from.date) c.repeated_from = { date: String(from.date), name: String(from.name || '') };
+  return normalizeItem(c, true);
+}
+// A NEW RECORD AT A NEW TIME, never a revision (ruled). stampTime keeps D112's
+// rule: a past day gets no fabricated clock time.
+function logRepeat(dateKey, idx) {
+  const d0 = APP_STATE.days[dateKey];
+  const src = d0 && d0.items && d0.items[idx];
+  if (!src) return { ok: false, why: 'no-item' };
+  const item = buildRepeatItem(src, stampTime(APP_STATE.current),
+                               { date: dateKey, name: src.name });
+  const day = dayForWrite(); if (!day) return { ok: false };
+  if (day.status === 'complete') day.status = 'in_progress';
+  day.items.push(item);
+  Store.saveState(APP_STATE); refresh();
+  offerFoodUndo(APP_STATE.current, item);
+  return { ok: true, item: item };
+}
+function repeatChipsHTML() {
+  const recent = recentItems(REPEAT_MAX);
+  if (!recent.length) return '';
+  return '<div class="rpthead">Recent \u2014 one tap to log again</div><div class="rptstrip">'
+    + recent.map(function (r) {
+        const kc = (r.item && r.item.kcal != null) ? (' <small>' + esc(rDisp(r.item.kcal)) + ' kcal</small>') : '';
+        return '<button type="button" class="qchip rptchip" onclick="logRepeat(\''
+          + esc(r.date) + '\',' + esc(String(r.idx)) + ')">' + esc(r.name) + kc + '</button>';
+      }).join('') + '</div>';
+}
+
 // ---- H16 / D123: every surface ends by offering the next move ---------------
 //
 // MEASURED, and this is the finding the slice turns on: three of the five
@@ -3293,7 +3450,7 @@ function clearDay() {
 // mutation in the app where the inverse gesture does not return the value, and it
 // had no undo at all. It joins the grammar rather than growing a special case.
 function addWater(delta) {
-  const day = curDay(); if (!day) return { ok: false };
+  const day = dayForWrite(); if (!day) return { ok: false };
   const dk = APP_STATE.current;
   const before = day.water_l || 0;
   const after = Math.max(0, Math.round((before + delta) * 100) / 100);
@@ -3386,7 +3543,7 @@ function addManualEntry(raw) {
   const typed = (raw.time != null && String(raw.time).trim() !== '') ? String(raw.time).trim() : null;
   const item = normalizeItem(Object.assign({}, raw, { time: typed == null ? stampTime(APP_STATE.current) : typed,
                                                      source: 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
-  const day = curDay(); if (!day) return { ok: false, error: 'No current day' };
+  const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day' };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
   day.items.push(item);
   Store.saveState(APP_STATE); refresh();
@@ -3440,7 +3597,7 @@ function logPreset(id) {
   const p = presets.find((x) => x.id === id);
   if (!p) return { ok: false };
   const item = buildPresetItem(p, stampTime(APP_STATE.current));
-  const day = curDay(); if (!day) return { ok: false };
+  const day = dayForWrite(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';
   day.items.push(item);
   Store.saveState(APP_STATE); refresh();
@@ -3601,7 +3758,7 @@ function buildScanItem(rec, mode, customGrams, meal, dayKey) {
 }
 function logScanItem(rec, mode, customGrams, meal) {
   const item = buildScanItem(rec, mode, customGrams, meal, APP_STATE.current);
-  const day = curDay(); if (!day) return { ok: false };
+  const day = dayForWrite(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (same rule as manual/ingest)
   day.items.push(item);
   Store.saveState(APP_STATE); refresh();
@@ -7181,6 +7338,7 @@ const VERSION_LOG = [
   { v: '0.46.1', d: '2026-09-24', note: 'When the app suggests a match for a scanned item, it now says what it actually checked — “its label and this row agree on protein, fat, carbohydrate, calories, calcium, iron and sodium” — rather than simply that they agree. Agreeing on those numbers is not the same as being the same food.' },
   { v: '0.47.0', d: '2026-09-24', note: 'Picking a food whose state differs from yours now asks first, and says what it would cost: “This is dry. Yours is probably cooked — its nutrients would be about 3× too high. Use anyway?” A label on the row was not enough; the top row still got tapped. And the search for a different word now sits above the list instead of below it, because a database often files a dish under a name you would not think of — ramen under spaghetti or udon.' },
   { v: '0.47.1', d: '2026-09-24', note: 'Fixes silent data loss: a food you had matched to the nutrition database lost that match — and its vitamins and minerals — the first time you exported and restored your data. Nothing said so; the day’s totals simply changed. Existing matches on your device were never at risk in normal use, only across a restore.' },
+  { v: '0.48.0', d: '2026-09-24', note: 'The day now starts with a row that goes straight to what you want — Food, Dose, Biometric, Fast or Note — instead of opening the scanner first. Quick also lists what you have eaten recently, so logging it again is one tap, at the same portion, recorded as a new entry rather than an edit of the old one. And a past day you reach with the date jump can now be logged to at all, which it could not before. The link that clears a food’s database match now says “clear match”, so only the red × says remove.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9319,7 +9477,7 @@ function deletePlate(plateId) {
 // consumeFromPlate.
 function photoSave(statements) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items.length) return { ok: false, error: 'Nothing to save.' };
-  const day = curDay(); if (!day) return { ok: false };
+  const day = dayForWrite(); if (!day) return { ok: false };
   const mealId = PHOTO_DRAFT.mealId || newMealId();
   const prior = day.items.filter((x) => x.mealId === mealId);
   const priorCopy = JSON.parse(JSON.stringify(day.items));
@@ -10094,11 +10252,16 @@ function renderQuickChips() {
   const el = document.getElementById('quickChips');
   if (!el) return;
   const presets = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  // D130: the Quick pane was PRESETS ONLY, and presets ship empty -- so the
+  // one surface named for logging in a single tap was blank for every new
+  // user and for this one. What a person repeats is what they have eaten.
+  const rpt = repeatChipsHTML();
   if (!presets.length) {
+    if (rpt) { el.innerHTML = rpt; return; }
     el.innerHTML = '<div class="note" style="margin-top:0">No quick items yet. Add one with <b>Manual</b> → “Save as preset”, or manage them under Settings › Presets.</div>';
     return;
   }
-  el.innerHTML = presets.map((p) => {
+  el.innerHTML = rpt + "<div class=\"rpthead\">Saved presets</div>" + presets.map((p) => {
     const sub = [rDisp(num(p.kcal)) + ' kcal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
     return `<button type="button" class="qchip" onclick="quickLog('${esc(String(p.id))}')">${esc(p.name)}<small>${esc(sub)}</small></button>`;
   }).join('');
@@ -12053,7 +12216,8 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
-  normalizeRef, REF_HOWS, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
+  normalizeRef, REF_HOWS, normalizeRepeatedFrom, dayForWrite, QUICK_ADD, quickAddHTML,
+  quickAdd, quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
   itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,

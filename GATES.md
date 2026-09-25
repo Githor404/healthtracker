@@ -4618,3 +4618,19 @@ moved to `offsetParent`.
 
 **The rule:** every additive item field is declared in the normaliser in the same
 commit that writes it. `ref` was not, and the loss surfaced only at a restore.
+### D130 — flow, part two — v0.48.0
+
+**The pins J1 and J2 move from 4 to 3, in the commit that earns them.**
+
+| case | asserts |
+|---|---|
+| D130-write **GATE** | a day reached by the date jump **can be logged to** (it answered "No current day"); the record is created by the **write**; and that creation **injects the supplement**, as every other creation site does |
+| D130-row **GATE** | the row names the five ruled targets in order, renders them as targets, and carries **no streak and no distance to a target** |
+| D130-repeat **GATE** | recency first, **one entry per name**, the **most recent** instance offered, the auto supplement excluded; a repeated **scan is still a scan** with `repeated_from` beside it; a **new record at a new time** carrying none of the original's history or plate identity; the resolution carried **at the same portion** and **dropped at a different one**; `repeated_from` declared in the normaliser |
+| D130-word **GATE** | the row does not say **"remove"** for a match — only the destructive control gets that word |
+| **flow-gate** (CDP) | **J1 = 3**, **J2 = 3**, and which **pane** each target opened |
+
+**The gate refuses to tap anything with no box.** A pane is display-toggled, not
+removed, so its controls still answer when hidden — and a gate that clicks one is
+counting a tap no thumb could make. Measured: routing the row to the wrong mode
+failed nothing until this was added.

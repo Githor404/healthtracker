@@ -5554,3 +5554,122 @@ restore and an import both take — plus the dropped-not-zeroed rule, the id-les
 reference, and the `how` fallback.
 
 **Suite: 2,408 assertions. Defect pass: 6 plants, 6 failing their own named gates.**
+
+## D130 — Flow, part two: the quick-add row, repeat items, and the day nothing could be written to — v0.48.0 (2026-09-24)
+
+The second half of H16, and the commit that **earns the pins [[D123]] deliberately
+left at 4**.
+
+| journey | D123 | now |
+|---|---|---|
+| 1 — eat → logged → I see my day | 4 | **3** |
+| 2 — a dose → logged → on the timeline | 4 | **3** |
+
+Both spent their first two taps *reaching the right form*, because the FAB opens on
+**Scan**. The row removes that tap by naming the five things directly.
+
+### The quick-add row (ruled B3/C1)
+
+**Food · Dose · Biometric · Fast · Note**, at the top of the day, opening the sheet
+already in that mode. **The FAB is unchanged**: the row is for **aim** and the FAB is
+for **reach** — the row sits where the day begins, the FAB stays at y=802 where the
+thumb is, and neither replaces the other.
+
+**Fast and Note add no state, as ruled.** Neither exists as a signal type, and
+inventing one would put an **assertion** where the app currently **infers**. Fast
+routes to the fast-candidate confirmation that already exists, and says so plainly
+when there is nothing to confirm; Note opens an `event` carrying its text.
+**"Start a fast" stays declined, not deferred** — a toggle would make two writers
+for one span.
+
+### Repeat items (ruled D1/E1/F1)
+
+The Quick pane was **presets only**, and presets ship empty — so the one surface
+named for logging in a single tap was **blank for every new user**. What a person
+repeats is what they have already eaten, so recent items now lead it.
+
+- **Recency, deduped by name** ([[E1]]). Not a recency-frequency blend: the log is
+  gitignored and rightly so, a blend could not be measured against real data, and
+  [[D119]] is the standing lesson that **an unmeasured ranking is worth nothing**.
+- **The original `source` is kept and `repeated_from` is added** ([[F1]]). A `repeat`
+  source would have **erased** the provenance — a repeated scan would stop being a
+  scan — which is [[D111]]'s failure exactly.
+- **A new record at a new time, never a revision.** It carries none of the
+  original's edit history, and none of its plate or photo-meal identity: those
+  belong to the record it copied.
+- **The resolution is carried only at the same portion** ([[D1]]). `ref.v` is frozen
+  at the original grams, so carrying it to a different portion would show numbers
+  **scaled to the wrong weight** — worse than showing none, because they would look
+  right.
+- `repeated_from` is **declared in the normaliser in the same commit that writes
+  it**, which is [[D129]]'s rule applied the first time it could be.
+
+### The day a jump could reach but nothing could be written to
+
+**A hole [[D123]] left, found by walking this slice's own path.** D123 made `current`
+able to name a day with no record — deliberately, because creating one on arrival
+injects the supplement (D8/4) and would put **real intake on a day only looked at**.
+It said the record is created by **the first thing written to it**, and then did not
+build that: every add path still asked `curDay()` and got nothing.
+
+**So a past day reached by the date jump could be looked at and not logged to.** It
+answered *"No current day"*. `dayForWrite()` is that creation site, and the
+supplement injection lives there, exactly as at every other creation site — gated,
+because otherwise the two kinds of day quietly differ and D123's inconsistency
+would have been **moved rather than removed**.
+
+Modify paths keep their guard: there is nothing to edit on a day never written to.
+
+### Where the row sits, and the conflict that decided it
+
+The brief said *"one row at the top of the day"*, and at the top it **failed
+`ring-size-gate`**. Measured at 390×745: the row **wraps to two lines (94px)** and
+pushes the ring's legend **44px below the fold**. Forced onto one line, each of the
+five buttons gets **62px** — and **"Biometric" needs 78px**, so it is **clipped**.
+
+That is a three-way conflict between things already ruled: the **label set**, [[D100]]'s
+**16px floor** (device-confirmed), and the ring gate's **above-the-fold** rule for
+the goal cells and legend. Rather than pick one, the arrangement that breaks none
+of them: **the row sits below the ring and goals, above the meal list.** The label
+stays, the floor stays, the ring gate passes.
+
+So the day still opens by naming what can go in it — after its summary rather than
+before. **Flagged rather than buried:** moving it back above costs either a shorter
+word than the brief chose, or a relaxed ergonomic gate, and of those two the word
+is the cheaper.
+
+### One word, two very different actions
+
+Reported from the device after an item was **deleted by mistake**: the item's red
+**×** and the resolve row's **remove** sit close together and **both read as
+"remove"** — one destroys a food record, one clears a database match. The match link
+now says **"clear match"**, so only the destructive control gets the destructive
+word.
+
+**[[D44]] already ruled that a destructive action must not share a thumb path with a
+routine one**, which is why the × has its own target. What this found is the other
+half: **not sharing a path is not enough when they share a word.**
+
+**And the undo is real but short.** `deleteItem` has kept a deep copy and offered
+undo since [[D54]] — but as a **seven-second toast**, which is why it did not help
+here: the mistake was noticed later. A destructive action whose only reversal
+expires while the user is still looking at the result is, in practice, not
+reversible. **Noted, not fixed** — it is its own ruling.
+
+### What the defect pass found in the gates
+
+Three VACUOUS plants, all the same shape and all mine:
+
+1. Removing the supplement injection failed nothing — the write-site census names
+   **which functions write**, not whether a **call** survives. Replaced with the
+   behavioural assertion D123's reasoning actually rests on.
+2. and 3. Routing the row to the **wrong mode** failed nothing, because a pane is
+   **display-toggled, not removed**: the manual form answered from behind a hidden
+   pane, and the tap count alone could not see it.
+
+So the flow gate now **refuses to tap anything with no box** — a control no thumb
+could reach is not a tap — and asserts **which pane opened**. That is the same
+lesson as [[D127]]'s hidden invitation, one layer along: *existence is not
+availability.*
+
+**Suite: 2,427 assertions, 16 verdicts. Defect pass: 14 plants, 14 failing their own named gates.**

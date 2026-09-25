@@ -112,6 +112,10 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # APP_STATE and never exported, and D77 ruled its fields; a time zone on it would be
 # a field nobody asked for, on a record nothing computes over.
 #
+# H16/D130: `logRepeat` is STAMPED. buildRepeatItem sets tzo: nowTZO() on the new
+# record, because a repeat is A NEW RECORD AT A NEW TIME, not a revision of the
+# one it copied -- so it carries the offset of the moment it was made, never the
+# offset of the meal it repeats.
 # H4.1/D89: `removeMed` is EXEMPT, and it is the first site here that writes without
 # creating. Its UNDO closure puts a snapshot back (`meds[id] = snapshot`), so the
 # record and its stamp are the ones that already existed. Stamping it on the way back
@@ -132,6 +136,7 @@ focusAdherence
 ingestItems
 logPreset
 logRegimenEntry
+logRepeat
 logScanItem
 maybeInjectSupplement
 consumeFromPlate
