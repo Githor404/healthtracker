@@ -5942,3 +5942,112 @@ property the gate owns ([[D69]]). **A defect that breaks everything is caught by
 anything.**
 
 **Suite: 2,465 assertions, 17 verdicts. Defect pass: 7 plants, 7 failing their own named gates.**
+
+## D136 — A token is worth what it narrows — v0.50.0 (2026-09-26)
+
+Three device findings from one re-photographed meal. The items were identified
+correctly; **find nutrients on the noodles failed twice**, and the escape from the
+failure repeated it.
+
+### 1. Ranking: the weight is read from the corpus, not chosen
+
+Every token counted **1**, so a word in a hundred rows outvoted a word in seven.
+Reported: *"cooked wheat ramen noodles"* returned `Cracker, wheat`,
+`Bread, wheat germ`, `Cracker, whole-wheat`, `English muffin, wheat` — **"wheat"
+dominating because it is everywhere.**
+
+**Measured in CNF (5,690 rows):**
+
+| token | rows | share |
+|---|---|---|
+| ramen | **7** | 0.12% |
+| noodles | 24 | 0.42% |
+| spaghetti | 26 | 0.46% |
+| **wheat** | **103** | 1.81% |
+| soup | 207 | 3.64% |
+
+So *"noodle should outweigh wheat"* is **not a preference — it is what the corpus
+already says, by a factor of 15.** The weight is therefore **inverse document
+frequency over the same index the candidates come from**: no dial, no hand-boost,
+nothing to tune by feel. A tuned number is a measurement of nobody's question
+([[D126]]).
+
+**Measured effect on that exact query:** all four wheat rows **leave the top eight**,
+replaced by ramen and noodle rows.
+
+> **And it cannot surface a correct row that shares no token with the name.**
+> `Pasta, spaghetti, enriched, cooked` is in CNF — among 25 cooked wheat pasta rows
+> — and shares nothing with *"cooked wheat ramen noodles"*. **Gated as a limitation**,
+> so nobody later reads more into the change than it does. That row is the
+> different-word search's job, and FNDDS's.
+
+**The cost I predicted did not materialise, and the reason matters:** D122/D132/D133
+build their candidate arrays **by hand** and never exercised the scorer, so no
+fixture needed re-pointing — and the scorer **had no gate at all** until this slice.
+
+### 2. A memory key that survives rewording
+
+[[D133]] keyed on the exact name. Reported: the same noodles came back as
+*"cooked wheat ramen noodles"* having been *"ramen noodles"* the week before, so the
+memory missed entirely. **A model's wording varies between captures of one food.**
+
+**Measured on the user's own 28 days (35 items, 33 distinct names)**, against the
+pair that failed **and** pairs that must not match:
+
+| key | ramen rewording | green onions / crab with onions | red / brown lentils |
+|---|---|---|---|
+| token set | miss | ✓ miss | ✓ miss |
+| head noun | **hit** | ✗ **HIT** | ✓ miss |
+| rarest token | **hit** | ✗ **HIT** | ✗ **HIT** |
+| **two rarest tokens** | **hit** | ✓ miss | ✓ miss |
+
+Only the last catches the rewording while missing both cross-food pairs; the plural
+fold adds *"ramen noodle soup"* at no measured cost.
+
+**This is not fuzzy matching.** It is an **exact match on a derived key**: two names
+either produce the same key or they do not, so nothing drifts and no threshold
+decides anything.
+
+**The limit, as the limit it is:** n = 35 items with 2 repeats **cannot establish a
+hit rate.** The measurement **rules out** head-noun and single-rarest on real
+cross-food collisions and **supports** two-rarest. Re-measure when a fresh export
+exists. And an exact-name memory could fire for **6% of items at best** on this log
+— the feature matters less in volume than it does in the case it was built for.
+
+**A collision is never silent:** it surfaces as a first row the user confirms
+([[D133]]), with the state guard still firing ([[D135]]).
+
+### 3. The escape that repeated the failure
+
+The different-word box was **pre-filled with the name that produced the wrong
+list**, so running it reproduced the failure exactly. It now starts **empty**, with a
+placeholder naming a word that **works** — measured: *"spaghetti cooked"* returns
+`Pasta, spaghetti, enriched, cooked`. A pre-fill only saves typing; this one cost a
+repetition of the question.
+
+### The corpus gap, recorded as one
+
+**`udon` appears in 0 of 5,690 CNF rows.** The right answer for a cooked wheat noodle
+was not merely mis-ranked in one case — for udon it **is not there to rank**. That is
+a **corpus gap, not a matcher one**, and it is evidence for FNDDS ([[D128]]'s source
+rule: add one when a measurement of the log shows a gap it fills).
+
+### A rule that could only be exercised through a cache
+
+`matchKey` fell back to a token set when no corpus was loaded — and the harness
+cannot host a corpus, so **the two-rarest rule never ran in the gates**. Split into a
+pure `matchKeyIn(index, name)` with a `setMatchIndex` seam, on `setClock`'s pattern.
+**A rule reachable only through a cache is a rule that is not exercised** ([[D115]]).
+
+### Four VACUOUS plants, every one a fixture
+
+And the last is the sharpest of the batch: the weighted-union plant passed because,
+counting the combined side, the two rows **tie** — and the tie fell back to **list
+order**, which happened to favour the right answer. **The fixture's correct result
+was an accident of insertion order.** Inverting the order made the assertion about
+weighting instead of about the fixture.
+
+> **A fixture whose right answer survives a tie-break is not testing the thing that
+> broke the tie.**
+
+**Suite: 2,478 assertions, 17 verdicts. Defect pass: 10 plants, 10 failing their own named gates.**

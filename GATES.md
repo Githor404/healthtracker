@@ -4684,3 +4684,21 @@ millisecond shared a timestamp and the cap threw away the newest.
 
 **The loop it closes:** a memory built from the log repeats the log's mistakes
 wearing the user's own authority.
+### D136 — a token is worth what it narrows — v0.50.0
+
+Measured in CNF (5,690 rows): ramen **7** rows, noodles 24, wheat **103**, soup 207.
+The weight is read from the corpus, not chosen.
+
+| case | asserts |
+|---|---|
+| D136-weight **GATE** | a token in one row outweighs one in seven, **by the corpus's own margin**; the reported query no longer leads with crackers and bread; it wins **by a margin, not a tie-break**; a common word still **finds** its rows (weighting reorders, it does not filter); the **combined side is weighted too** |
+| D136-weight **GATE** | and it **cannot** surface a correct row sharing **no token** with the name — recorded as a limitation so nobody reads more into it |
+| D136-key **GATE** | a **rewording** of the same food finds the memory; the **original wording still does**; two foods sharing a **head noun** do not; nor two sharing **one rare word**; the key is an **exact match on a derived value** |
+
+**The fixture must reproduce the corpus's frequencies, not just its names** — the
+single-rarest collision only appears when the qualifier words are common and the
+food word is rare, as they are in CNF.
+
+**And a fixture whose right answer survives a tie-break is not testing what broke
+the tie:** the weighted-union plant passed until the rows were listed in the order
+that made the tie visible.

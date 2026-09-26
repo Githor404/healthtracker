@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.49.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.50.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1548,8 +1548,74 @@ let RESOLVE_WALK = null;          // the "next tap" queue after a save
 //   2. the guard itself still fires on whatever memory does offer -- "you chose
 //      this before" is a reason to show a row, never a reason to skip a question.
 //      (Built in D133 and gated there; gated again here through the proposal.)
+// D136 -- THE MEMORY KEY: THE TWO RAREST TOKENS, PLURAL-FOLDED.
+//
+// [[D133]] keyed on the exact name, and REPORTED FROM THE DEVICE: the same noodles
+// came back as "cooked wheat ramen noodles" having been "ramen noodles" the week
+// before, so the memory missed entirely. A model's wording varies between captures
+// of one food, so an exact-name key will miss more often than it hits.
+//
+// MEASURED on the user's own 28 days (35 items, 33 distinct names) against the pair
+// that failed AND against pairs that must NOT match:
+//
+//   key                 ramen rewording   green onions/crab   red/brown lentils
+//   token set                 miss             miss                miss
+//   head noun                 HIT              HIT  <- wrong       miss
+//   rarest token              HIT              HIT  <- wrong       HIT  <- wrong
+//   TWO RAREST TOKENS         HIT              miss                miss
+//
+// Only the last catches the rewording while missing both cross-food pairs. The
+// plural fold adds "ramen noodle soup" at no measured cost.
+//
+// THIS IS NOT FUZZY MATCHING. It is an EXACT match on a DERIVED key: two names
+// either produce the same key or they do not, so nothing drifts and no threshold
+// decides anything.
+//
+// THE LIMIT, stated: n = 35 items with 2 repeats cannot establish a hit rate. The
+// measurement RULES OUT head-noun and single-rarest on real cross-food collisions
+// and SUPPORTS two-rarest; it does not prove how often it will fire. Re-measure
+// when a fresh export exists.
+//
+// AND A COLLISION IS NEVER SILENT: it surfaces as a first row the user confirms
+// ([[D133]]), with the state guard still firing on it ([[D135]]).
+function matchFold(t) {
+  // The one morphological rule the measurement paid for: a trailing plural s.
+  return (t.length > 3 && t.charAt(t.length - 1) === 's' && t.slice(-2) !== 'ss')
+    ? t.slice(0, -1) : t;
+}
+let MATCH_KEY_DF = null;
+function matchKeyDf(index) {
+  if (MATCH_KEY_DF && MATCH_KEY_DF.for === index) return MATCH_KEY_DF.df;
+  const df = {};
+  Object.keys((index && index.idx) || {}).forEach(function (t) {
+    const f = matchFold(t);
+    df[f] = (df[f] || 0) + index.idx[t].length;      // folded tokens share a count
+  });
+  MATCH_KEY_DF = { for: index, df: df };
+  return df;
+}
+// Without a corpus there is no rarity to read, so the key falls back to the whole
+// token set -- order-free, and no more generous than the exact name it replaces.
+// Pure over any index, so the real two-rarest path can be gated without a
+// database -- the cached wrapper below is the only part the harness cannot host,
+// and a rule that can only be exercised through a cache is a rule that is not
+// exercised (D115).
+function matchKeyIn(index, name) {
+  const tk = matchTokens(name).map(matchFold);
+  if (!tk.length) return '';
+  if (!index || !index.idx) return tk.slice().sort().join(' ');
+  const df = matchKeyDf(index);
+  return tk.slice().sort(function (x, y) {
+    const a0 = df[x] == null ? 0 : df[x], b0 = df[y] == null ? 0 : df[y];
+    return a0 - b0 || (x < y ? -1 : x > y ? 1 : 0);
+  }).slice(0, 2).sort().join(' ');
+}
+function matchKey(name) { return matchKeyIn(MATCH_INDEX, name); }
+// Test seam, in the manner of setClock: the index is normally built from the
+// corpus, which the harness cannot host.
+function setMatchIndex(ix) { MATCH_INDEX = ix || null; MATCH_KEY_DF = null; return { ok: true }; }
 function rememberedRow(name) {
-  const key = String(name == null ? '' : name).trim().toLowerCase();
+  const key = matchKey(name);
   if (!key || !APP_STATE || !APP_STATE.days) return null;
   const days = Object.keys(APP_STATE.days).filter(isDayKey).sort().reverse();
   for (let i = 0; i < days.length; i++) {
@@ -1558,7 +1624,7 @@ function rememberedRow(name) {
       const it = items[j];
       if (!it || !it.ref || !it.ref.id) continue;
       if (it.ref.how === 'confirmed despite state mismatch') continue;   // D135/1
-      if (String(it.name == null ? '' : it.name).trim().toLowerCase() !== key) continue;
+      if (matchKey(it.name) !== key) continue;
       return { id: String(it.ref.id), name: String(it.ref.name || ''), from: days[i] };
     }
   }
@@ -1945,10 +2011,16 @@ function resolveHTML() {
   // measured 218px below the fold, unannounced -- so it moves ABOVE the rows and
   // says what it is for. The list is still the first thing read; the way out is
   // no longer something you have to already know about.
+  // D136: the box was PRE-FILLED WITH THE NAME THAT PRODUCED THIS LIST, so running
+  // it reproduced the failure exactly. It starts empty, and the placeholder names a
+  // word that WORKS -- measured: "spaghetti cooked" returns Pasta, spaghetti,
+  // enriched, cooked, which is the row this case needed and which shares no token
+  // with the name. A pre-fill only saves typing; this one cost a repetition of the
+  // question.
   const search = '<div class="rvsub rvesc">Not one of these? Search another word for what it is '
     + '\u2014 a database often files a dish under a different name.</div>'
-    + '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value="'
-    + esc(v.query || '') + '" aria-label="search the database">'
+    + '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value=""'
+    + ' placeholder="try another word \u2014 e.g. spaghetti cooked" aria-label="search the database">'
     + '<button type="button" class="btn" onclick="resolveSearch((document.getElementById(\'rvQuery\')||{}).value)">Search</button></div>';
   return '<div class="rvwrap"><div class="rvbox" role="dialog" aria-modal="true" aria-label="Find nutrients">'
     + head + src + search + body
@@ -2252,22 +2324,57 @@ function matchIndexBuild() {
 function matchIndexReady() { return !!MATCH_INDEX; }
 
 // Pure. Returns CANDIDATES ONLY -- rank, never verdict.
+// D136 -- A TOKEN IS WORTH WHAT IT NARROWS, AND THE CORPUS SAYS WHAT THAT IS.
+//
+// Every token counted 1, so a word in a hundred rows outvoted a word in seven.
+// REPORTED FROM THE DEVICE: "cooked wheat ramen noodles" returned Cracker, wheat /
+// Bread, wheat germ / Cracker, whole-wheat / English muffin, wheat -- "wheat"
+// dominating because it appears everywhere.
+//
+// MEASURED in CNF (5,690 rows): ramen 7 rows (0.12%), noodles 24 (0.42%), wheat 103
+// (1.81%), soup 207 (3.64%). So the intuition that "ramen" should outweigh "wheat"
+// is not a preference -- it is what the corpus already says, by a factor of 15.
+//
+// The weight is therefore READ, NOT CHOSEN: inverse document frequency over the
+// same index the candidates come from. There is no dial to set and no hand-boost to
+// maintain, which is the point -- a tuned number is a measurement of nobody's
+// question ([[D126]]).
+//
+// WHAT IT DOES AND DOES NOT DO, measured on that exact query: all four wheat rows
+// leave the top eight, replaced by ramen and noodle rows. It CANNOT surface a
+// correct row that shares NO TOKEN with the name -- "Pasta, spaghetti, enriched,
+// cooked" is in CNF and shares nothing with "cooked wheat ramen noodles". That is
+// the different-word search's job, and FNDDS's.
+function matchIdf(index, t) {
+  const n = ((index.idx && index.idx[t]) || []).length;
+  return Math.log((index.n || 1) / (1 + n));
+}
 function matchCandidatesIn(index, list, name, limit) {
   if (!index || !list) return [];
   const q = matchTokens(name);
   if (!q.length) return [];
-  const score = {};
+  const qw = {};
+  let qsum = 0;
+  for (let i = 0; i < q.length; i++) { qw[q[i]] = matchIdf(index, q[i]); qsum += qw[q[i]]; }
+  const hit = {}, cnt = {};
   for (let i = 0; i < q.length; i++) {
     const rows = index.idx[q[i]] || [];
-    for (let j = 0; j < rows.length; j++) score[rows[j]] = (score[rows[j]] || 0) + 1;
+    for (let j = 0; j < rows.length; j++) {
+      hit[rows[j]] = (hit[rows[j]] || 0) + qw[q[i]];
+      cnt[rows[j]] = (cnt[rows[j]] || 0) + 1;
+    }
   }
   const out = [];
-  Object.keys(score).forEach(function (r) {
+  Object.keys(hit).forEach(function (r) {
     const row = r | 0;
     const t = matchTokens(list[row][1]);
-    const union = t.length + q.length - score[r];
+    let tsum = 0;
+    for (let i = 0; i < t.length; i++) tsum += matchIdf(index, t[i]);
+    const union = tsum + qsum - hit[r];
+    // Still a Jaccard -- shared over combined -- with each token counted at what
+    // it narrows instead of at one.
     out.push({ row: row, id: list[row][0], name: list[row][1],
-               overlap: score[r], jaccard: union > 0 ? score[r] / union : 0 });
+               overlap: cnt[r], jaccard: union > 0 ? hit[r] / union : 0 });
   });
   out.sort(function (a, b) { return b.jaccard - a.jaccard || b.overlap - a.overlap; });
   return out.slice(0, Math.max(1, limit || MATCH_CANDIDATES));
@@ -7518,6 +7625,7 @@ const VERSION_LOG = [
   { v: '0.49.0', d: '2026-09-25', note: 'A food you have matched before now comes back with that match offered first, saying “you chose this for this food before” — one tap to confirm instead of reading a list again. It is still only ever an offer: nothing is applied without you taking it, and a row whose state differs from your food still asks first.' },
   { v: '0.49.1', d: '2026-09-25', note: 'Deleting a food is no longer reversible for seven seconds only. The day now carries a “Recently deleted” list you can restore from, exactly as the item was — its time, its notes, its photo-meal link and any nutrition match all come back, because the record was kept whole rather than rebuilt. Clearing a whole day goes there too. The list says how long it keeps things and what falls off first, and it stays on this device: it is never part of your export.' },
   { v: '0.49.2', d: '2026-09-25', note: 'The match a food remembers can no longer be one you made by overriding a warning. Going ahead once, for one item, was a decision about that item — it does not become the answer offered for every future one. And a remembered match still asks first when its state differs from your food: “you chose this before” is a reason to show a row, never a reason to skip the question.' },
+  { v: '0.50.0', d: '2026-09-26', note: 'Finding nutrients for a dish got better at three things. A common word no longer drowns a rare one — asking about ramen noodles stopped offering crackers and bread because they share the word “wheat”. A food you have matched before is recognised even when the photo describes it differently (“cooked wheat ramen noodles” against “ramen noodles”). And the search box for a different word now starts empty, instead of pre-filled with the name that just produced the wrong list.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -12513,7 +12621,7 @@ window.HT = {
   quickAdd, quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
   TRASH_KEY, TRASH_PER_DAY, TRASH_MAX_AGE_DAYS, trashRead, trashWrite, trashPut, trashForDay,
   trashDrop, trashClear, trashRestore, trashPrune, trashCapNote, trashText, copyTrash, trashHTML,
-  rememberedRow, refsToReview, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
+  matchIdf, matchFold, matchKey, matchKeyIn, matchKeyDf, setMatchIndex, rememberedRow, refsToReview, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,

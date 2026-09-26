@@ -9502,6 +9502,102 @@ window.setLS({});
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
 
+  // ---- D136: a token is worth what it narrows ----------------------------
+  // REPORTED FROM THE DEVICE: "cooked wheat ramen noodles" returned Cracker,
+  // wheat / Bread, wheat germ / Cracker, whole-wheat -- because every token
+  // counted 1, so a word in a hundred rows outvoted a word in seven.
+  // MEASURED in CNF: ramen 7 rows, noodles 24, wheat 103, soup 207.
+  //
+  // The fixture reproduces that shape: one rare token, one common one. Without
+  // weighting the wheat rows tie or win on overlap; with it they cannot.
+  var LIST136 = [
+    ['ram', 'Soup, ramen noodles, any flavour, dry'],
+    ['cr1', 'Cracker, wheat'], ['cr2', 'Cracker, whole-wheat'],
+    ['br1', 'Bread, wheat germ'], ['br2', 'Bread, wheat, sprouted'],
+    ['mu1', 'English muffin, wheat'], ['ro1', 'Roll, dinner, wheat'],
+    ['pa1', 'Pasta, wheat, dry'],
+    // 'lentil' rare, its qualifiers common -- the shape that made a SINGLE rarest
+    // token collide on the real log (split red lentils / brown lentils with carrot)
+    ['le1', 'Lentils, dry'],
+    ['q1', 'Beans, red, dry'], ['q2', 'Peppers, red, raw'], ['q3', 'Cabbage, red, raw'],
+    ['q4', 'Rice, brown, dry'], ['q5', 'Bread, brown, sliced'], ['q6', 'Sugar, brown'],
+    ['q7', 'Carrot, raw'], ['q8', 'Carrot, boiled'], ['q9', 'Juice, carrot, canned'],
+    ['q10', 'Peas, split, dry'], ['q11', 'Chicken, split, roasted']];
+  var IDX136 = HT.matchIndexFrom(LIST136);
+  res(HT.matchIdf(IDX136, 'ramen') > HT.matchIdf(IDX136, 'wheat'),
+      'D136-weight GATE: a token in one row outweighs a token in seven, and the CORPUS says by how much -- there is no dial and no hand-boost to keep');
+  var C136 = HT.matchCandidatesIn(IDX136, LIST136, 'cooked wheat ramen noodles', 8);
+  res(C136.length > 0 && C136[0].id === 'ram',
+      'D136-weight GATE: the rare word decides -- the reported query no longer leads with crackers and bread');
+  res(C136.length > 1 && C136[0].jaccard > C136[1].jaccard,
+      'D136-weight GATE: and it wins by a margin rather than by a tie-break, which is what a count could never give');
+  res(HT.matchCandidatesIn(IDX136, LIST136, 'wheat', 8).length > 1,
+      'D136-weight GATE: a common word still finds its rows -- weighting reorders the list, it does not filter it');
+  // Its own fixture, so the property is not entangled with the one above: two rows
+  // sharing the query and padded by the SAME NUMBER of extra words, one pair common
+  // and one pair rare. Counting the combined side ties them; weighing it cannot.
+  var LIST136c = [
+    // p2 FIRST on purpose: counting the combined side makes these two TIE, and a
+    // tie falls back to list order -- so if the order alone could satisfy the
+    // assertion, the assertion would be about the fixture and not about weighting.
+    ['p2', 'Soup, noodle, kumquat, tamarind'],
+    ['p1', 'Soup, noodle, wheat, bread'],
+    ['w1', 'Cracker, wheat'], ['w2', 'Muffin, wheat'], ['w3', 'Roll, wheat'],
+    ['b1', 'Bread, rye'], ['b2', 'Bread, corn'], ['b3', 'Bread, oat']];
+  var IDX136c = HT.matchIndexFrom(LIST136c);
+  var PAD = HT.matchCandidatesIn(IDX136c, LIST136c, 'noodle soup', 8);
+  var iP1 = -1, iP2 = -1;
+  PAD.forEach(function (c, i) { if (c.id === 'p1') iP1 = i; if (c.id === 'p2') iP2 = i; });
+  res(iP1 >= 0 && iP2 >= 0 && iP1 < iP2,
+      'D136-weight GATE: the COMBINED side is weighted too -- two rows padded by the same NUMBER of extra words rank by how much those words narrow, which a count could only tie');
+
+  // What it CANNOT do, recorded as a gate so nobody reads more into it:
+  var LIST136b = LIST136.concat([['spa', 'Pasta, spaghetti, enriched, cooked']]);
+  var IDX136b = HT.matchIndexFrom(LIST136b);
+  res(HT.matchCandidatesIn(IDX136b, LIST136b, 'cooked wheat ramen noodles', 8)
+        .filter(function (c) { return c.id === 'spa'; }).length === 0,
+      'D136-weight GATE: weighting CANNOT surface a correct row that shares no token with the name -- that is the different-word search\u2019s job, and FNDDS\u2019s');
+
+  // ---- the memory key: the two rarest tokens, plural-folded ---------------
+  res(HT.matchFold('noodles') === 'noodle' && HT.matchFold('oats') === 'oat'
+      && HT.matchFold('glass') === 'glass' && HT.matchFold('ear') === 'ear',
+      'D136-key GATE: the one morphological rule the measurement paid for -- a trailing plural s, and not a double s or a short word');
+  var _kDays = HT.state().days, _kCur = HT.state().current;
+  var kRef = { ns: 'cnf', id: 'CNF-SPAG', name: 'Pasta, spaghetti, enriched, cooked',
+               at: '2026-09-20', at_ms: 1, hash: 'h', attribution: 'CNF', how: 'picked', v: { '301': 1 } };
+  HT.state().days = { '2026-09-20': { status: 'in_progress', water_l: 0, items: [
+    { name: 'ramen noodles', meal: 'lunch', time: '12:00', grams: 270, kcal: 400,
+      protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+      confidence: 'eyeballed', source: 'ai-paste', notes: '', ref: kRef },
+    { name: 'split red lentils', meal: 'dinner', time: '18:00', grams: 150, kcal: 170,
+      protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+      confidence: 'eyeballed', source: 'manual', notes: '',
+      ref: { ns: 'cnf', id: 'CNF-LENTIL', name: 'Lentils, dry', at: '2026-09-20', at_ms: 1,
+             hash: 'h', attribution: 'CNF', how: 'picked', v: { '301': 1 } } }] } };
+  HT.state().current = '2026-09-20';
+  // THE REPORTED REWORDING: the model named the same noodles differently.
+  // The two-rarest rule needs the corpus index to read rarity from; the harness
+  // cannot host a corpus, so the index is installed directly. Without this the
+  // fallback key runs and the rule below is never exercised (D115).
+  HT.setMatchIndex(HT.matchIndexFrom(LIST136b));
+  var KR = HT.rememberedRow('cooked wheat ramen noodles');
+  res(!!KR && KR.id === 'CNF-SPAG',
+      'D136-key GATE: a rewording of the same food still finds the memory -- exact-name keying missed this on the device');
+  res(!!HT.rememberedRow('ramen noodles'),
+      'D136-key fixture: and the original wording still does, or the case above proves nothing (D96)');
+  // AND THE PAIRS THAT MUST NOT MATCH, measured on the real log as cross-food:
+  res(HT.rememberedRow('green onions') === null && HT.rememberedRow('cooked crab with onions') === null,
+      'D136-key GATE: two different foods sharing a head noun do NOT share a memory -- the key is the two RAREST tokens, not the last one');
+  res(!!HT.rememberedRow('split red lentils'),
+      'D136-key fixture: the lentils ARE remembered under their own name, so the collision test below has something to collide with (D96)');
+  res(HT.rememberedRow('cooked brown lentils with carrot') === null,
+      'D136-key GATE: nor do two foods sharing one rare word -- a single rarest token collided on the real log (split red lentils against brown lentils with carrot) and was ruled out by it');
+  res(HT.matchKeyIn(HT.matchIndexFrom(LIST136b), 'ramen noodles')
+      === HT.matchKeyIn(HT.matchIndexFrom(LIST136b), 'cooked wheat ramen noodles'),
+      'D136-key GATE: the key is an EXACT match on a DERIVED value -- two names either produce the same key or they do not, so nothing drifts and no threshold decides');
+  HT.setMatchIndex(null);
+  HT.state().days = _kDays; HT.state().current = _kCur;
+
   // ---- D135: memory must not remember mistakes ---------------------------
   // A memory drawn from the log will draw a WRONG match out of it and hand it
   // back framed as the user's own earlier choice -- which reads as confirmation
