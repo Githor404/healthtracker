@@ -5056,7 +5056,7 @@ A **cooked item whose top candidate is dry** — the device's exact shape. The f
 resolve they judged `Pasta, egg noodles, enriched, cooked` the closest match
 because its **138 kcal/100 g** sat nearest the item's **148**. That was wrong:
 **ramen is an alkaline wheat noodle, not an egg noodle**, and for micronutrients
-the difference is real {em} egg adds **cholesterol, B12, choline and selenium**,
+the difference is real — egg adds **cholesterol, B12, choline and selenium**,
 which are exactly the kind of values the panel exists to show.
 
 **The limit, stated:**
@@ -5070,19 +5070,19 @@ That is the job it was introduced for and the job it did: **440 beside 148** mad
 dry-versus-cooked obvious at a glance, which no ranking had managed. The failure
 was in reading a second, unearned meaning into the same number.
 
-**The surface must not imply otherwise, and today it does not** {em} verified,
+**The surface must not imply otherwise, and today it does not** — verified,
 not assumed: nothing sorts, marks or highlights candidates by kcal proximity, the
 rows carry the matcher's order alone, and the words *closest*, *nearest* and
 *best match* appear nowhere in the resolve surface. Each row shows its own kcal
 as a **fact beside the item's own**, which is what [[D122]] ruled and what [[C1]]
-refused a score in order to protect. **No change was made here** {em} the point of
+refused a score in order to protect. **No change was made here** — the point of
 the amendment is that the next change must not quietly acquire that meaning.
 
 **The same limit binds the `propose` path more tightly, not less.** *"Its label
 and this row agree"* rests on a seven-axis composition distance, which is far
 stronger evidence than one number and **still does not establish identity**.
 It is confined to scanned items, where a real label is being compared, and it
-never applies itself without confirmation ([[D119]]) {em} but the wording is the
+never applies itself without confirmation ([[D119]]) — but the wording is the
 one remaining place where numbers speak about what a food **is**. Flagged here
 rather than changed, because changing it is a ruling, not a repair.
 
