@@ -5771,3 +5771,113 @@ a unit we cannot convert") applied to a neighbouring one it was never measured o
 ("a different quantity the device estimates").
 
 **Suite: 2,432 assertions, 17 verdicts. Defect pass: 11 plants, 11 failing their own named gates.**
+
+## D133 — A resolved name is proposed, not asked — v0.49.0 (2026-09-25)
+
+**Measured as the worst remaining journey:** resolving costs **one decision per
+item**, from a list in the corpus's vocabulary. One photo save carried **six**
+items, so that meal was six choices among rows like *"Jew's ear (cloud or wood
+ear, pepeao), raw"* — a question the user never had, asked six times. Every other
+journey now costs 0 or 1 decision and ends with its result on screen.
+
+### The memory is the log itself
+
+The pre-registration proposed a new store on scan-list terms. **It was not needed.**
+The most recent item of the same name that already carries a `ref` **is** the
+memory — so there is no second store to keep, no record to declare in [[D131]]'s
+census, and no question about the export. It follows from that shape that
+**deleting the item forgets it**, which is the honest behaviour and cost nothing to
+implement.
+
+### A proposal is a first row, and only ever an offer
+
+**The first row is where a stray tap lands** — measured twice on the device, on dry
+ramen and on a tomato sauce. So the right answer belongs there, and the tap that
+takes it is still a tap the user makes. The row **says why it is first**: *"you
+chose this for this food before."*
+
+- it **never applies without a confirm**;
+- the **state-mismatch guard ([[D127]]) fires on a proposal exactly as on a pick** —
+  being remembered is not being right;
+- the **order beneath it is the matcher's own**, unmoved: a proposal lifts one row,
+  it does not re-rank the list, and an inferred state still reorders nothing
+  ([[D125]]);
+- **`ref.how`** records **`proposed`** against **`picked`**, with
+  `confirmed despite state mismatch` outranking both — a record says the most
+  consequential true thing about how it was made, not the most flattering.
+
+Gated through **both device fixtures**: ramen proposes the remembered row with the
+dry rows beneath in matcher order; **wood ear has no memory and is still asked**,
+with the correct row still first.
+
+**One ambiguity in the ruling, resolved and flagged.** *"The proposal is the
+matcher's own top pick, never reordered by an inferred state"* reads either as a
+**constraint** or as a **definition**. Built as the constraint — a proposal must
+never be a row that reached the top only through inferred-state reordering —
+because the definition would replace name-memory with something else.
+
+## D134 — Recently deleted — a reversal that outlives the glance — v0.49.1 (2026-09-25)
+
+**The only reversal of deleting an item was a seven-second toast.** It expired
+while the user was still looking at the result, and a real item — wood ear
+mushrooms, 28 g, with its photo-meal link and its notes — was gone. [[D54]] gave the
+food row an undo; what it gave it was a **deadline**.
+
+> [[D44]] ruled a destructive action must not share a **thumb path** with a routine
+> one. [[D130]] found it must not share a **word**. This is the third and largest
+> part: **it must not share a deadline.**
+
+**On scan-list terms ([[D77]]):** local, outside `APP_STATE`, **never exported**,
+separately deletable, with a copy button. A trash holding real intake has no
+business travelling in an export.
+
+**The honesty pin:** nothing in it reaches `dayTotals`, averages, coverage or the
+micro roll-up. A trash that counts is a second ledger — and it is a separate store
+precisely so no total can reach it by accident.
+
+- **A restore is EXACT.** The record is kept **whole**, not taken apart: `mealId`,
+  provenance, the resolved `ref`, the time and the notes all come back because they
+  were never disassembled. Gated by **deep equality** against what was deleted.
+- **Position is best-effort and says so.** It returns to its own index when the day
+  still reaches that far, and the result reports whether it did. *Exact* describes
+  the record; it must not over-claim the place.
+- **`clearDay` feeds it.** D44 called the day-wipe the one destructive action
+  outside the undo grammar; a trash the largest deletion bypassed would only have
+  moved the gap.
+- **The toast consumes its trash entry** — two routes back, never two copies back.
+- **The cap says what it does, on the surface**, in the same words as the record:
+  the last 20 per day for 30 days, oldest dropped first, and dropping it is
+  permanent. A rule about what is permanently lost that lives only in the record is
+  one the person losing it never reads.
+
+### Its own gate caught a defect in it
+
+**Twenty-three deletions inside one millisecond** all carried the same `nowMs()`,
+the sort could not separate them, and the cap evicted **the newest** — the exact
+opposite of what the surface promises. Eviction now uses **insertion order**:
+
+> **A timestamp is not an ordering when the thing being ordered is faster than the
+> clock.**
+
+### And a copy button that named a box it did not have
+
+`copyTextOut` hardcoded the medications card's textarea, so its fallback told a
+reader on the day view that *"the text is in the box"* — a box that surface does
+not have. The box is now a parameter. **A fallback that describes somewhere else is
+not a fallback.**
+
+### The census finding, recorded as asked
+
+[[D131]]'s census **saw only writes through variables named `it`/`item`**, so a write
+through a local called `row` walked straight past it. Found by a plant, fixed by
+deriving the variable from what it is **bound to** (17 writes checked became 27).
+
+> **A census defined by naming convention is defeated by the first write that
+> breaks the convention.**
+
+**Three plants came back VACUOUS**, all fixture failures ([[D96]]): an assertion that
+**threw on a null instead of reporting**; a fixture with only one resolution, so
+*"the most recent"* had nothing to be more recent than; and a deleted item that was
+**last**, so appending and restoring-to-index landed in the same place.
+
+**Suite: 2,456 assertions, 17 verdicts. Defect pass: 16 plants, 16 failing their own named gates.**

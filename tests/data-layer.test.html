@@ -9434,6 +9434,141 @@ window.setLS({});
       'D130-repeat GATE: and a malformed provenance is dropped rather than stored as a fact about a day that does not exist');
   HT.state().days = _rDays; HT.state().current = _rCur;
 
+  // ---- D133: a resolved name is PROPOSED, not asked ----------------------
+  // Measured as the worst journey: one decision PER ITEM, from a list in the
+  // corpus's vocabulary. One photo save carried six items.
+  var _pDays = HT.state().days, _pCur = HT.state().current;
+  var refFor = function (id, nm) { return { ns: 'cnf', id: id, name: nm, at: '2026-09-20',
+    at_ms: 1, hash: 'h', attribution: 'CNF', how: 'picked', v: { '301': 1 } }; };
+  var mkRamen = function (refId, refName) { return { name: 'ramen noodles', meal: 'lunch',
+    time: '12:00', grams: 270, kcal: 400, protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1,
+    soluble_fiber_g: 0, confidence: 'eyeballed', source: 'ai-paste', notes: '',
+    ref: refFor(refId, refName) }; };
+  HT.state().days = {
+    // D96: TWO days carrying the same name resolved DIFFERENTLY, or "the most
+    // recent one" has nothing to be more recent than.
+    '2026-09-12': { status: 'complete', water_l: 0, items: [mkRamen('CNF-OLD', 'Noodles, instant, dry')] },
+    '2026-09-20': { status: 'in_progress', water_l: 0, items: [
+      { name: 'ramen noodles', meal: 'lunch', time: '12:00', grams: 270, kcal: 400,
+        protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+        confidence: 'eyeballed', source: 'ai-paste', notes: '',
+        ref: refFor('CNF-WHEAT', 'Spaghetti, cooked') }] } };
+  HT.state().current = '2026-09-20';
+  var REM = HT.rememberedRow('ramen noodles');
+  res(!!REM && REM.id === 'CNF-WHEAT',
+      'D133-remember GATE: a name resolved before is remembered FROM THE LOG -- no second store to keep, declare or export');
+  res(!!REM && REM.from === '2026-09-20',
+      'D133-remember GATE: and the MOST RECENT resolution of that name wins, not the first one ever made');
+  var REMU = HT.rememberedRow('RAMEN NOODLES');
+  res(!!REMU && REMU.id === 'CNF-WHEAT',
+      'D133-remember GATE: and the name is matched the way a person types it, not the way they capitalised it');
+  res(HT.rememberedRow('wood ear mushrooms') === null,
+      'D133-remember GATE: a name never resolved proposes NOTHING -- the app does not invent a memory it does not have');
+
+  // THE RAMEN FIXTURE, through the proposal path
+  var RAMC = [
+    { id: 'd1', name: 'Soup, ramen noodles, any flavour, dry', kcal: 440, state: 'dry' },
+    { id: 'd2', name: 'Pasta, egg noodles, enriched, dry', kcal: 385, state: 'dry' },
+    { id: 'CNF-WHEAT', name: 'Spaghetti, cooked', kcal: 158, state: 'cooked' }];
+  var WM = HT.resolveWithMemory(RAMC, REM);
+  res(WM.candidates[0].id === 'CNF-WHEAT' && WM.proposed.id === 'CNF-WHEAT',
+      'D133-propose GATE: the proposal is the FIRST ROW -- the place a stray tap lands, measured twice on the device');
+  res(WM.candidates.map(function (c) { return c.id; }).join(',') === 'CNF-WHEAT,d1,d2',
+      'D133-propose GATE: and the order beneath it is the matcher\u2019s own, unchanged -- a proposal moves one row, it does not re-rank the list');
+  var WM0 = HT.resolveWithMemory(RAMC, null);
+  res(WM0.proposed === null && WM0.candidates[0].id === 'd1',
+      'D133-propose GATE: with nothing remembered the list is exactly what the matcher returned');
+  var RHp = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'inferred',
+                                 candidates: WM.candidates, proposed: WM.proposed });
+  res(RHp.indexOf('you chose this for this food before') > 0,
+      'D133-propose GATE: the proposal SAYS WHY it is first, rather than being first for a reason the reader cannot see');
+  res(RHp.indexOf("'proposed'") > 0 && RHp.indexOf("'picked'") > 0,
+      'D133-how GATE: taking the proposal records a CONFIRMED PROPOSAL; taking any other row records a pick from the list');
+
+  // A proposal is still only an offer, and the state guard still fires on it.
+  var MMp = HT.resolveMismatch({ want: 'cooked', wantSrc: 'inferred', mine: 148 },
+                               { state: 'dry', kcal: 440 });
+  res(!!MMp,
+      'D133-propose GATE: the state-mismatch guard fires on a proposal exactly as on a pick -- being remembered is not being right');
+  res(HT.REF_HOWS.indexOf('proposed') >= 0 && HT.REF_HOWS.indexOf('picked') >= 0,
+      'D133-how GATE: both answers are in the one list the writer and the normaliser share');
+
+  // THE WOOD EAR FIXTURE: a name with no memory is still asked, in matcher order
+  var WOODC = [
+    { id: 'w1', name: "Jew's ear (cloud or wood ear, pepeao), raw", kcal: 25, state: 'raw' },
+    { id: 'w3', name: 'Tomato products, canned, sauce with mushrooms', kcal: 35, state: null }];
+  var WMw = HT.resolveWithMemory(WOODC, HT.rememberedRow('wood ear mushrooms'));
+  res(WMw.proposed === null && WMw.candidates[0].id === 'w1',
+      'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
+  HT.state().days = _pDays; HT.state().current = _pCur;
+
+  // ---- D134: recently deleted -------------------------------------------
+  // The only reversal was a SEVEN-SECOND TOAST. It expired while the user was
+  // still looking at the result, and a real item was lost.
+  HT.trashClear();
+  var _tDays = HT.state().days, _tCur = HT.state().current;
+  var DEL = { name: 'wood ear mushrooms', meal: 'lunch', time: '19:29', grams: 28, kcal: 7,
+    protein_g: 0.3, fat_g: 0.1, carb_g: 1.7, fiber_g: 1.4, soluble_fiber_g: 0.1,
+    confidence: 'eyeballed', source: 'ai-paste', notes: 'Rehydrated kikurage pile.',
+    mealId: 'pmmttavodn_ektw', ref: refFor('CNF-EAR', "Jew's ear, dried") };
+  // D96: the deleted item is NOT last. If it were, appending and restoring to its
+  // own index would land in the same place and the gate could not tell them apart.
+  HT.state().days = { '2026-09-08': { status: 'in_progress', water_l: 0, items: [
+    DEL,
+    { name: 'ramen noodles', meal: 'lunch', time: '19:29', kcal: 400, protein_g: 1, fat_g: 1,
+      carb_g: 1, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'ai-paste', notes: '' }
+    ] } };
+  HT.state().current = '2026-09-08';
+  var beforeTotal = HT.dayTotals(HT.state().days['2026-09-08']).kcal;
+  HT.deleteItem(0);
+  var TD = HT.trashForDay('2026-09-08');
+  res(TD.length === 1 && TD[0].item.name === 'wood ear mushrooms',
+      'D134-trash GATE: a deleted item goes to the trash, not only to a toast that expires while you are looking at the result');
+  res(TD[0].item.mealId === 'pmmttavodn_ektw' && !!TD[0].item.ref && TD[0].item.ref.id === 'CNF-EAR'
+      && TD[0].item.time === '19:29' && TD[0].item.notes.indexOf('kikurage') >= 0,
+      'D134-trash GATE: the record is kept WHOLE -- plate link, provenance, resolved reference and time, so a restore is not a re-creation');
+  res(HT.dayTotals(HT.state().days['2026-09-08']).kcal === beforeTotal - 7,
+      'D134-trash GATE: and the day stops counting it the moment it is deleted');
+
+  var R134 = HT.trashRestore(TD[0].id);
+  var backItems = HT.state().days['2026-09-08'].items;
+  res(R134.ok === true && R134.index === 0 && R134.exact === true,
+      'D134-trash GATE: a restore returns it to its own index when the day still reaches that far, and SAYS whether it did');
+  res(JSON.stringify(backItems[0]) === JSON.stringify(DEL),
+      'D134-trash GATE: and the restored record is byte-for-byte what was deleted -- EXACT, not rebuilt');
+  res(HT.trashForDay('2026-09-08').length === 0,
+      'D134-trash GATE: a restored item leaves the trash, so one deletion can never come back twice');
+  res(HT.dayTotals(HT.state().days['2026-09-08']).kcal === beforeTotal,
+      'D134-trash GATE: and the day counts it again, at the value it always had');
+
+  // the cap, and what it does to the oldest
+  HT.trashClear();
+  for (var ti = 0; ti < HT.TRASH_PER_DAY + 3; ti++) {
+    HT.trashPut('2026-09-08', { name: 'x' + ti, kcal: 1 }, 0);
+  }
+  res(HT.trashForDay('2026-09-08').length === HT.TRASH_PER_DAY,
+      'D134-cap GATE: the trash is capped per day rather than growing into a second copy of the log');
+  res(HT.trashForDay('2026-09-08').filter(function (e) { return e.item.name === 'x0'; }).length === 0
+      && HT.trashForDay('2026-09-08').filter(function (e) { return e.item.name === 'x22'; }).length === 1,
+      'D134-cap GATE: the OLDEST is what falls off, and the newest is what is kept');
+  res(HT.trashCapNote().indexOf(String(HT.TRASH_PER_DAY)) >= 0
+      && HT.trashCapNote().indexOf('permanent') >= 0,
+      'D134-cap GATE: and the surface SAYS what happens to the oldest -- a rule about what is permanently lost that lives only in the record is one the person losing it never reads');
+  var TH = HT.trashHTML('2026-09-08');
+  res(TH.indexOf(HT.trashCapNote()) > 0,
+      'D134-cap GATE: said in the same words, on the surface where the trash is shown');
+
+  // clearDay feeds it -- the largest deletion may not bypass the trash
+  HT.trashClear();
+  HT.state().days['2026-09-08'].items = [DEL];
+  var _cfm = window.confirm; window.confirm = function () { return true; };
+  HT.clearDay();
+  window.confirm = _cfm;
+  res(HT.trashForDay('2026-09-08').length === 1,
+      'D134-trash GATE: clearing a day feeds the trash too -- D44 called the day-wipe the one destructive action outside the undo grammar, and a trash it bypassed would only move the gap');
+  HT.trashClear();
+  HT.state().days = _tDays; HT.state().current = _tCur;
+
   // ---- D129: a resolved reference survives a round trip ------------------
   // normalizeItem is an ALLOWLIST REBUILD and D121 added `ref` without declaring
   // it here, so every resolved item lost its corpus row, its frozen values and

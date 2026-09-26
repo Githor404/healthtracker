@@ -4655,3 +4655,23 @@ normaliser** is deliberately out of scope — the normaliser still decides there
 
 **D34 amended, not broken:** its rule is that a reading is never dropped. The
 breath-ketones pair it was built on was never one quantity in two units.
+### D133 — a resolved name is proposed, not asked — v0.49.0
+
+| case | asserts |
+|---|---|
+| D133-remember **GATE** | a name resolved before is remembered **from the log** (no second store); the **most recent** resolution wins; matched however it was capitalised; a name never resolved proposes **nothing** |
+| D133-propose **GATE** | the proposal is the **first row**; the order beneath is the **matcher's own, unmoved**; it **says why** it is first; nothing remembered leaves the list exactly as the matcher returned it; and the **state-mismatch guard still fires on it** |
+| D133-how **GATE** | taking a proposal records **`proposed`**, any other row **`picked`**, both from the one list the writer and the normaliser share |
+
+Gated through **both device fixtures**: ramen (a proposal) and wood ear (no memory,
+still asked, correct row still first).
+
+### D134 — recently deleted — v0.49.1
+
+| case | asserts |
+|---|---|
+| D134-trash **GATE** | a delete reaches the trash; the record is kept **whole** (mealId, ref, time, notes); the day **stops counting it**; a restore is **deep-equal** to what was deleted, lands on **its own index** and says whether it did; a restored item **leaves** the trash; and **`clearDay` feeds it** |
+| D134-cap **GATE** | capped per day; the **oldest** falls off and the newest is kept; and the cap **says what happens to the oldest on the surface**, in the same words as the record |
+
+**Eviction is by insertion order, not the clock** — twenty-three deletions in one
+millisecond shared a timestamp and the cap threw away the newest.

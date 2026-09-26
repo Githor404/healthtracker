@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.48.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.49.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1516,6 +1516,49 @@ let RESOLVE_WALK = null;          // the "next tap" queue after a save
 
 // PURE, and this is where D119's ruling actually lives. Nothing here decides;
 // it chooses which QUESTION to ask.
+// ---- D133: a resolved name is PROPOSED, not asked ---------------------------
+//
+// MEASURED as the worst remaining journey: resolving costs one decision PER ITEM,
+// from a list written in the corpus's vocabulary. One photo save carried SIX items,
+// so that meal was six choices among rows like "Jew's ear (cloud or wood ear,
+// pepeao), raw" -- a question the user never had, asked six times.
+//
+// THE MEMORY IS THE LOG ITSELF. No new store, no new record, nothing to export or
+// declare: the most recent item of the same name that already carries a `ref` IS
+// the memory. It follows from that shape that deleting the item forgets it, which
+// is the honest behaviour and costs nothing to implement.
+//
+// A PROPOSAL IS A FIRST ROW and it NEVER applies without a confirm. The first row
+// is where a stray tap lands -- measured twice on the device, on dry ramen and on
+// a tomato sauce -- so the right answer belongs there, and the tap that takes it
+// is still a tap the user makes.
+function rememberedRow(name) {
+  const key = String(name == null ? '' : name).trim().toLowerCase();
+  if (!key || !APP_STATE || !APP_STATE.days) return null;
+  const days = Object.keys(APP_STATE.days).filter(isDayKey).sort().reverse();
+  for (let i = 0; i < days.length; i++) {
+    const items = APP_STATE.days[days[i]].items || [];
+    for (let j = items.length - 1; j >= 0; j--) {
+      const it = items[j];
+      if (!it || !it.ref || !it.ref.id) continue;
+      if (String(it.name == null ? '' : it.name).trim().toLowerCase() !== key) continue;
+      return { id: String(it.ref.id), name: String(it.ref.name || ''), from: days[i] };
+    }
+  }
+  return null;
+}
+// The remembered row is lifted to the front of the matcher's own list. It is not
+// scored, not re-ranked and not merged: the order underneath stays exactly what
+// the matcher produced, which is the order an inferred state may never touch
+// (D125). If the remembered row is not among the candidates it is added, because
+// "you chose this last time" is a better reason to show a row than a name score.
+function resolveWithMemory(cands, remembered) {
+  if (!remembered) return { candidates: cands || [], proposed: null };
+  const rest = (cands || []).filter(function (c) { return String(c.id) !== String(remembered.id); });
+  const hit = (cands || []).filter(function (c) { return String(c.id) === String(remembered.id); })[0];
+  const first = hit || { id: remembered.id, name: remembered.name, kcal: null, state: foodState(remembered.name) };
+  return { candidates: [first].concat(rest), proposed: first };
+}
 function resolvePlan(cands, scored) {
   if (!cands || !cands.length) return { phase: 'none', why: 'no-candidates' };
   // A photo item has no composition to verify against (D8: the model identifies,
@@ -1625,6 +1668,11 @@ function resolveOpen(dateKey, idx, queryOverride) {
         ? matchScore(vec, rows.filter(function (r) { return r.row; }), m.slots)
         : null;
       const plan = resolvePlan(rich, scored);
+      // D133: the memory is consulted LAST, so it moves a row to the front and
+      // changes nothing else about the order beneath it.
+      const remembered = (plan.phase === 'pick') ? rememberedRow(it.name) : null;
+      const withMem = resolveWithMemory(plan.candidates, remembered);
+      if (remembered) { plan.candidates = withMem.candidates; plan.proposed = withMem.proposed; }
       RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q,
                                      want: want, wantSrc: wantSrc,
                                      mine: vec ? vec[208] : null }, plan);
@@ -1705,11 +1753,14 @@ function resolvePick(id, name, distance, how) {
       // The list is REPLACED by the question, so the tap that answers it cannot
       // land on another row -- and the answer buttons are shielded like any other
       // control that appears under a thumb (D125).
-      v.confirm = { id: id, name: name, distance: distance, m: m };
+      v.confirm = { id: id, name: name, distance: distance, m: m, was: how };
       renderResolve();
       return Promise.resolve({ ok: false, why: 'confirm-state' });
     }
   }
+  // D133: confirming past a state mismatch is the STRONGER fact and outranks
+  // "this was a proposal" -- a record says the most consequential true thing about
+  // how it was made, not the most flattering.
   return resolveItem(v.date, v.idx, id, name, distance,
                      how === 'confirmed' ? 'confirmed despite state mismatch' : how).then(function (r) {
     if (r.ok) {
@@ -1766,14 +1817,19 @@ function resolveRowsHTML(v) {
   // and the right pick becomes obvious without the app ranking it for you.
   const want = v.want;
   const hedge = (v.wantSrc === 'inferred') ? 'probably ' : '';
+  const prop = v.proposed ? String(v.proposed.id) : null;
   return (v.candidates || []).map(function (c) {
     const kc = (c.kcal == null || c.kcal !== c.kcal) ? '' :
       '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' kcal/100g</span>';
     const mism = (want && c.state && c.state !== want)
       ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + hedge + esc(want) + '</span>' : '';
-    return '<div class="rcand"><button type="button" class="btn rcandbtn" onclick="resolvePick(\'' +
-      esc(String(c.id)) + '\',\'' + esc(String(c.name).replace(/'/g, ' ')) + '\',null,\'picked\')">' +
-      esc(c.name) + kc + mism + '</button></div>';
+    // A proposal says WHY it is first, and records itself as a proposal when taken.
+    const isProp = (prop !== null && String(c.id) === prop);
+    const why = isProp ? '<span class="rwhy">you chose this for this food before</span>' : '';
+    return '<div class="rcand"><button type="button" class="btn rcandbtn' + (isProp ? ' rprop' : '') +
+      '" onclick="resolvePick(\'' + esc(String(c.id)) + '\',\'' +
+      esc(String(c.name).replace(/'/g, ' ')) + '\',null,\'' + (isProp ? 'proposed' : 'picked') + '\')">' +
+      esc(c.name) + kc + mism + why + '</button></div>';
   }).join('');
 }
 // D126: what the propose card PROVES, in its own words.
@@ -2979,6 +3035,7 @@ function renderDay() {
   // resolve step whose whole purpose is to fill it.
   html += `<details class="mpanel"${PANEL_OPEN ? ' open' : ''} ontoggle="panelToggle(this.open)"><summary>Micronutrients</summary><div id="microPanel"></div></details>`;
   if (unlogged) html += `<div class="emptyday">Nothing logged on this day.</div>`;
+  html += trashHTML(dk);
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
       <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
   // Nothing to complete and nothing to clear on a day that has no record. The
@@ -2990,6 +3047,25 @@ function renderDay() {
   }
 
   host.innerHTML = html;
+}
+
+// D134: shown where the mistake happens, and it states the cap ON THE SURFACE --
+// a rule about what is permanently lost that lives only in the record is a rule
+// the person losing it never reads.
+function trashHTML(dk) {
+  const rows = trashForDay(dk);
+  if (!rows.length) return '';
+  return `<details class="trash"><summary>Recently deleted \u00b7 ${esc(String(rows.length))}</summary>` +
+    rows.map(function (e) {
+      return `<div class="trow"><span class="tmain">${esc(e.item.name || '')}` +
+        `<small>${e.item.time ? esc(e.item.time) + ' \u00b7 ' : ''}${esc(rDisp(e.item.kcal))} kcal</small></span>` +
+        `<button type="button" class="btn" onclick="trashRestore('${esc(e.id)}')">Restore</button></div>`;
+    }).join('') +
+    `<div class="note">${esc(trashCapNote())}</div>` +
+    `<textarea id="trashCopyBox" class="copybox" readonly style="display:none"></textarea>` +
+    `<button type="button" class="linklike" onclick="copyTrash()">Copy this list</button>` +
+    `<button type="button" class="linklike" onclick="trashClear();refresh();">Delete these permanently</button>` +
+    `</details>`;
 }
 
 // ---- day / goal interactions ----------------------------------------------
@@ -3282,6 +3358,7 @@ function deleteItem(idx) {
   // at a DIFFERENT item than the one the user opened. Close it rather than let it
   // save into the wrong row.
   ITEM_EDIT = null;
+  trashPut(dk, copy, idx);              // D134: the reversal that outlives the toast
   day.items.splice(idx, 1);
   // FORK F (ruled F1), the shipped inconsistency closed: every CREATION path already
   // reopened a completed day, and this one did not -- so removing a row from a closed
@@ -3291,10 +3368,13 @@ function deleteItem(idx) {
   const priorStatus = day.status;
   if (day.status === 'complete') day.status = 'in_progress';
   Store.saveState(APP_STATE); refresh();
+  const trashId = (trashForDay(dk)[0] || {}).id;
   offerUndo('Removed ' + (it.name || 'item'), function () {
     const d = APP_STATE.days[dk]; if (!d) return;
     d.items.splice(Math.min(idx, d.items.length), 0, copy);
     d.status = priorStatus;            // the reopen was part of the delete
+    // The fast path CONSUMES the slow one: two routes back, never two copies back.
+    if (trashId) trashDrop(trashId);
     Store.saveState(APP_STATE); refresh();
   });
   return { ok: true, removed: copy, date: dk, idx: idx };
@@ -3432,6 +3512,10 @@ function clearDay() {
   if (!window.confirm('Clear all items and water for ' + dk + '?')) return;
   const items = JSON.parse(JSON.stringify(day.items || []));
   const water = day.water_l || 0;
+  // D134: the day-wipe feeds the trash too. D44 called it the one destructive
+  // action outside the undo grammar; if the largest deletion bypassed the trash,
+  // the gap would only have moved.
+  items.forEach(function (it, i) { if (!it._auto) trashPut(dk, it, i); });
   day.items = []; day.water_l = 0;
   Store.saveState(APP_STATE); refresh();
   offerUndo('Cleared ' + dk, function () {
@@ -7381,6 +7465,8 @@ const VERSION_LOG = [
   { v: '0.47.1', d: '2026-09-24', note: 'Fixes silent data loss: a food you had matched to the nutrition database lost that match — and its vitamins and minerals — the first time you exported and restored your data. Nothing said so; the day’s totals simply changed. Existing matches on your device were never at risk in normal use, only across a restore.' },
   { v: '0.48.0', d: '2026-09-24', note: 'The day now starts with a row that goes straight to what you want — Food, Dose, Biometric, Fast or Note — instead of opening the scanner first. Quick also lists what you have eaten recently, so logging it again is one tap, at the same portion, recorded as a new entry rather than an edit of the old one. And a past day you reach with the date jump can now be logged to at all, which it could not before. The link that clears a food’s database match now says “clear match”, so only the red × says remove.' },
   { v: '0.48.1', d: '2026-09-25', note: 'Breath ketones recorded in mmol/L no longer sit in the same trend as ones in ppm. A breath meter measures acetone in ppm; the mmol/L figure some meters show is their ESTIMATE of blood ketones — a different thing in a different part of the body, not the same number written another way. Both readings are kept exactly as entered, nothing is converted, and the estimated ones are labelled and charted on their own.' },
+  { v: '0.49.0', d: '2026-09-25', note: 'A food you have matched before now comes back with that match offered first, saying “you chose this for this food before” — one tap to confirm instead of reading a list again. It is still only ever an offer: nothing is applied without you taking it, and a row whose state differs from your food still asks first.' },
+  { v: '0.49.1', d: '2026-09-25', note: 'Deleting a food is no longer reversible for seven seconds only. The day now carries a “Recently deleted” list you can restore from, exactly as the item was — its time, its notes, its photo-meal link and any nutrition match all come back, because the record was kept whole rather than rebuilt. Clearing a whole day goes there too. The list says how long it keeps things and what falls off first, and it stays on this device: it is never part of your export.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -10609,6 +10695,116 @@ function normalizeScan(raw) {
   if (r.saved === 'new' || r.saved === 'fill') out.saved = r.saved;
   return out;
 }
+// ---- D134: RECENTLY DELETED ------------------------------------------------
+//
+// The only reversal of deleting an item was a SEVEN-SECOND TOAST. It expired while
+// the user was still looking at the result, and a real item -- wood ear mushrooms,
+// 28 g, with its photo-meal link and its notes -- was gone. [[D54]] gave the food row
+// an undo; what it gave it was a deadline.
+//
+// [[D44]] ruled that a destructive action must not share a THUMB PATH with a routine
+// one. [[D130]] found it must not share a WORD. This is the third and largest part:
+// IT MUST NOT SHARE A DEADLINE.
+//
+// On scan-list terms ([[D77]]): local, outside APP_STATE, never exported, separately
+// deletable. A trash holding real intake has no business travelling in an export,
+// and the copy button covers anything that needs moving.
+//
+// THE HONESTY PIN: nothing in here reaches dayTotals, averages, coverage or the
+// micro roll-up. A trash that counts is a second ledger. It is a separate store
+// precisely so no total can reach it by accident.
+const TRASH_KEY = 'healthtracker-trash';
+const TRASH_PER_DAY = 20;                 // per day, oldest evicted first
+const TRASH_MAX_AGE_DAYS = 30;
+let _trashMem = null;                     // D1: memory fallback when storage refuses
+function trashRead() {
+  if (_trashMem) return _trashMem.slice();
+  try {
+    const raw = localStorage.getItem(TRASH_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.filter(function (e) {
+      return e && isDayKey(e.date) && e.item && typeof e.item === 'object';
+    }) : [];
+  } catch (e) { return []; }
+}
+function trashWrite(list) {
+  try { localStorage.setItem(TRASH_KEY, JSON.stringify(list)); _trashMem = null; return true; }
+  catch (e) { _trashMem = list.slice(); return false; }
+}
+// What the cap DOES, in one place, so the surface can say it in the same words.
+function trashCapNote() {
+  return 'Keeps the last ' + TRASH_PER_DAY + ' per day for ' + TRASH_MAX_AGE_DAYS
+    + ' days \u2014 the oldest is dropped first, and dropping it is permanent.';
+}
+// The cap evicts by INSERTION ORDER, not by the clock. Found by its own gate:
+// twenty-three deletions inside one millisecond all carried the same `at`, the
+// sort could not separate them, and the cap threw away the NEWEST -- the exact
+// opposite of what it promises on the surface. A timestamp is not an ordering
+// when the thing being ordered is faster than the clock.
+function trashPrune(list) {
+  const cut = shiftDate(todayKey(), -TRASH_MAX_AGE_DAYS);
+  const perDay = {}, keep = [];
+  for (let i = list.length - 1; i >= 0; i--) {        // newest first: the array IS the order
+    const e = list[i];
+    if (!e || e.date < cut) continue;
+    perDay[e.date] = (perDay[e.date] || 0) + 1;
+    if (perDay[e.date] > TRASH_PER_DAY) continue;     // beyond the cap = older = dropped
+    keep.push(e);
+  }
+  return keep.reverse();                              // stored oldest-first, as appended
+}
+// The record is stored WHOLE. A restore is not a re-creation: the plate link, the
+// provenance, the resolved reference and the time all come back because they were
+// never taken apart.
+function trashPut(dateKey, item, idx) {
+  if (!isDayKey(dateKey) || !item) return { ok: false };
+  const list = trashRead();
+  const entry = { id: 'tr_' + nowMs().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
+                  date: String(dateKey), idx: (idx >= 0 ? idx : -1), at: nowMs(),
+                  item: JSON.parse(JSON.stringify(item)) };
+  list.push(entry);
+  const pruned = trashPrune(list);
+  trashWrite(pruned);
+  return { ok: true, id: entry.id, kept: pruned.length, evicted: list.length - pruned.length };
+}
+function trashForDay(dateKey) {
+  // newest first, by the order they were put there
+  return trashRead().filter(function (e) { return e.date === String(dateKey); }).reverse();
+}
+function trashDrop(id) {
+  const list = trashRead();
+  const next = list.filter(function (e) { return e.id !== String(id); });
+  trashWrite(next);
+  return { ok: next.length !== list.length };
+}
+function trashClear() { trashWrite([]); return { ok: true }; }
+// EXACT: the stored record goes back as it was, at its own index when the day
+// still reaches that far. Position is best-effort and says so; the RECORD is not.
+function trashRestore(id) {
+  const e = trashRead().filter(function (x) { return x.id === String(id); })[0];
+  if (!e) return { ok: false, why: 'not-found' };
+  const day = APP_STATE.days[e.date] || (function () {
+    const k = APP_STATE.current; APP_STATE.current = e.date;
+    const d = dayForWrite(); APP_STATE.current = k; return d;
+  })();
+  if (!day) return { ok: false, why: 'no-day' };
+  const at = (e.idx >= 0 && e.idx <= day.items.length) ? e.idx : day.items.length;
+  day.items.splice(at, 0, JSON.parse(JSON.stringify(e.item)));
+  if (day.status === 'complete') day.status = 'in_progress';
+  trashDrop(e.id);
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, date: e.date, index: at, exact: at === e.idx };
+}
+function trashText() {
+  const all = trashRead().slice().reverse();
+  if (!all.length) return 'Nothing deleted recently.';
+  return all.map(function (e) {
+    return e.date + '  ' + (e.item.time || '') + '  ' + (e.item.name || '') +
+      '  ' + rDisp(e.item.kcal) + ' kcal';
+  }).join('\n');
+}
+function copyTrash() { return copyTextOut(trashText(), 'Deleted list', 'trashCopyBox'); }
 function scanListRead() {
   if (_scansMem) return _scansMem.slice();
   try {
@@ -10862,9 +11058,13 @@ function scanListText(f) {
     e.date + ' · ' + (e.whose === 'other' ? 'someone else’s' : 'mine') + ' · ' + medLine(e, e.rx_number));
   return copyHeader('Scanned labels' + who + day) + '\n\n' + (lines.length ? lines.join('\n') : '(no scans)');
 }
-function copyTextOut(text, what) {
+// D134: the box is a PARAMETER. It was hardcoded to the medications card, so a
+// copy button anywhere else fell through to "the text is in the box" -- naming a
+// box that surface does not have. A fallback that describes somewhere else is not
+// a fallback.
+function copyTextOut(text, what, boxId) {
   let done = false;
-  const box = document.getElementById('medsCopyBox');
+  const box = document.getElementById(boxId || 'medsCopyBox');
   if (box) { box.value = text; box.style.display = 'block'; }
   if (box && box.offsetParent !== null) {
     try { box.focus(); box.select(); try { box.setSelectionRange(0, text.length); } catch (e) {} done = document.execCommand('copy'); } catch (e) { done = false; }
@@ -12260,7 +12460,9 @@ window.HT = {
   // D121 -- the resolve surface
   normalizeRef, REF_HOWS, normalizeRepeatedFrom, dayForWrite, QUICK_ADD, quickAddHTML,
   quickAdd, quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
-  itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
+  TRASH_KEY, TRASH_PER_DAY, TRASH_MAX_AGE_DAYS, trashRead, trashWrite, trashPut, trashForDay,
+  trashDrop, trashClear, trashRestore, trashPrune, trashCapNote, trashText, copyTrash, trashHTML,
+  rememberedRow, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
