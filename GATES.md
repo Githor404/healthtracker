@@ -4702,3 +4702,26 @@ food word is rare, as they are in CNF.
 **And a fixture whose right answer survives a tie-break is not testing what broke
 the tie:** the weighted-union plant passed until the rows were listed in the order
 that made the tie visible.
+### D137 — a memory proposal names the item it came from — v0.51.0
+
+Re-measured on a fresh 62-item export: the shipped key merges **five** keys, one of
+them across a real difference (“cooked brown lentils with carrot” /
+“...with carrots and beef”, 25 g of protein apart). Every proposal therefore names
+its source.
+
+| case | asserts |
+|---|---|
+| D137-name **GATE** | the memory carries the **name** of the item it came from, and the **day**; the **proposal** carries it, not only the lookup |
+| D137-name **GATE** | the rendered proposal **names the source item**, with the date — and the source name is **not a substring** of the item being resolved, so the assertion cannot pass by echoing the item's own name back |
+| D137-name **GATE** | the remembered name is **escaped** — a model-written string on a new route is a new escaping boundary |
+| D137-name **GATE** | a proposal with **no** source name still says why it is first, rather than rendering a sentence with a hole in it |
+| D137-name **GATE** (CDP) | and it is **visible** and **on screen** at 390×844, **inside the proposed row** — `offsetParent`, because `textContent` reports a hidden element's words just as happily ([[D125]]) |
+
+**The fixture must reproduce the corpus's frequencies** ([[D136]]): the two rarest
+tokens are `carrot` and `lentil` only if lentil is rarer than carrot, rarer than
+brown, rarer than beef — as in CNF (lentil 12 rows, carrot 22, brown 41).
+
+**And two fixtures sharing a day is not enough separation when one changes what the
+app REMEMBERS:** built at setup time, D137's prior day turned D122's first-row dry
+pick into a cooked proposal and failed six assertions in the fixture beside it. It
+is built at its point of use.

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.50.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.51.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1625,7 +1625,12 @@ function rememberedRow(name) {
       if (!it || !it.ref || !it.ref.id) continue;
       if (it.ref.how === 'confirmed despite state mismatch') continue;   // D135/1
       if (matchKey(it.name) !== key) continue;
-      return { id: String(it.ref.id), name: String(it.ref.name || ''), from: days[i] };
+      // D137: the item's own NAME travels with the memory, not only the row it
+      // points at. The key is DERIVED (D136), so it can merge two names that are
+      // not one food -- and the merge is invisible unless the proposal says whose
+      // answer it is repeating.
+      return { id: String(it.ref.id), name: String(it.ref.name || ''), from: days[i],
+               fromName: String(it.name || '') };
     }
   }
   return null;
@@ -1672,7 +1677,15 @@ function resolveWithMemory(cands, remembered) {
   if (!remembered) return { candidates: cands || [], proposed: null };
   const rest = (cands || []).filter(function (c) { return String(c.id) !== String(remembered.id); });
   const hit = (cands || []).filter(function (c) { return String(c.id) === String(remembered.id); })[0];
-  const first = hit || { id: remembered.id, name: remembered.name, kcal: null, state: foodState(remembered.name) };
+  const base = hit || { id: remembered.id, name: remembered.name, kcal: null, state: foodState(remembered.name) };
+  // MEASURED on the user's own 62-item log: the shipped key merges five pairs,
+  // and one of them is a real difference -- "cooked brown lentils with carrot"
+  // and "...with carrots and beef" share the key 'carrot lentil' and differ by
+  // 25 g of protein. Naming the source handles EVERY merge the key can make,
+  // including the ones nobody has noticed yet, which a per-case exception could
+  // never do.
+  const first = Object.assign({}, base,
+    { from: remembered.from, fromName: remembered.fromName });
   return { candidates: [first].concat(rest), proposed: first };
 }
 function resolvePlan(cands, scored) {
@@ -1923,6 +1936,24 @@ function resolveWalkOpen() {
 function resolveWalkDismiss() { RESOLVE_WALK = null; refresh(); return { ok: true }; }
 
 // ---- the surface -------------------------------------------------------------
+// D137: A MEMORY PROPOSAL NAMES THE ITEM IT CAME FROM.
+//
+// D136 keyed the memory on the two rarest tokens so a rewording would still
+// find it. That key is derived, and a derived key generalises in both
+// directions: the same rule that unites "ramen noodles" with "cooked wheat
+// ramen noodles" also unites "cooked brown lentils with carrot" with
+// "...with carrots and beef". The first is the feature; the second is a merge
+// across a real difference, and the confirm is the only moment it could be
+// caught. So the proposal says WHOSE answer it is repeating, and when.
+//
+// The remembered name is a model-written string reaching the page through a new
+// route -- inside a different item's row -- so it is escaped like any other.
+function proposedWhy(p) {
+  const nm = (p && p.fromName) ? String(p.fromName) : '';
+  if (!nm) return 'you chose this for this food before';
+  const on = (p && p.from) ? ' on ' + esc(fmtDateSmart(p.from)) : '';
+  return 'you chose this for \u201c' + esc(nm) + '\u201d' + on;
+}
 function resolveRowsHTML(v) {
   // C1: NO SCORE IS SHOWN. A number the user cannot act on invites being read as
   // confidence, and D119 measured name similarity as unusable for exactly that --
@@ -1941,7 +1972,7 @@ function resolveRowsHTML(v) {
       ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + hedge + esc(want) + '</span>' : '';
     // A proposal says WHY it is first, and records itself as a proposal when taken.
     const isProp = (prop !== null && String(c.id) === prop);
-    const why = isProp ? '<span class="rwhy">you chose this for this food before</span>' : '';
+    const why = isProp ? '<span class="rwhy">' + proposedWhy(v.proposed) + '</span>' : '';
     return '<div class="rcand"><button type="button" class="btn rcandbtn' + (isProp ? ' rprop' : '') +
       '" onclick="resolvePick(\'' + esc(String(c.id)) + '\',\'' +
       esc(String(c.name).replace(/'/g, ' ')) + '\',null,\'' + (isProp ? 'proposed' : 'picked') + '\')">' +
@@ -7626,6 +7657,7 @@ const VERSION_LOG = [
   { v: '0.49.1', d: '2026-09-25', note: 'Deleting a food is no longer reversible for seven seconds only. The day now carries a “Recently deleted” list you can restore from, exactly as the item was — its time, its notes, its photo-meal link and any nutrition match all come back, because the record was kept whole rather than rebuilt. Clearing a whole day goes there too. The list says how long it keeps things and what falls off first, and it stays on this device: it is never part of your export.' },
   { v: '0.49.2', d: '2026-09-25', note: 'The match a food remembers can no longer be one you made by overriding a warning. Going ahead once, for one item, was a decision about that item — it does not become the answer offered for every future one. And a remembered match still asks first when its state differs from your food: “you chose this before” is a reason to show a row, never a reason to skip the question.' },
   { v: '0.50.0', d: '2026-09-26', note: 'Finding nutrients for a dish got better at three things. A common word no longer drowns a rare one — asking about ramen noodles stopped offering crackers and bread because they share the word “wheat”. A food you have matched before is recognised even when the photo describes it differently (“cooked wheat ramen noodles” against “ramen noodles”). And the search box for a different word now starts empty, instead of pre-filled with the name that just produced the wrong list.' },
+  { v: '0.51.0', d: '2026-09-26', note: 'A remembered match now says which meal it came from — “you chose this for “ramen noodle soup” on Sep 1” — instead of only “you chose this for this food before”. The app recognises a food across rewordings, and two dishes that are not quite the same can be recognised as one; naming the meal the answer came from lets you see that before you accept it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -12622,7 +12654,7 @@ window.HT = {
   TRASH_KEY, TRASH_PER_DAY, TRASH_MAX_AGE_DAYS, trashRead, trashWrite, trashPut, trashForDay,
   trashDrop, trashClear, trashRestore, trashPrune, trashCapNote, trashText, copyTrash, trashHTML,
   matchIdf, matchFold, matchKey, matchKeyIn, matchKeyDf, setMatchIndex, rememberedRow, refsToReview, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
-  resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
+  resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML, proposedWhy,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
   resolveHTML, renderResolve,

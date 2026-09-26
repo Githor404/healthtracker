@@ -285,6 +285,58 @@ try {
   out.ramenHedged = r3.some(b => /probably cooked/i.test(b.textContent || ''));
   out.ramenKcalShown = r3.every(b => /kcal\/100g/i.test(b.textContent || ''));
   out.ramenNoScore = !r3.some(b => /%/.test(b.textContent || ''));
+
+  // ---- FIXTURE 3: the proposal says WHOSE answer it is repeating ----------
+  // D136's key is derived, so it merges rewordings -- which is the feature -- and
+  // it can merge two dishes that are not quite the same, which is the risk. The
+  // confirm is the only moment that is catchable.
+  HT.closeSheet();
+  await sleep(200);
+  // BUILT HERE, NOT AT SETUP. The memory is global to the log, so a prior resolved
+  // item participates in every later resolve: standing this fixture up before
+  // fixture 2 turned its first-row DRY PICK into a cooked PROPOSAL and dismantled
+  // the D122 case that fixture exists for. Two fixtures sharing a day is not
+  // enough separation when one of them changes what the app REMEMBERS.
+  //
+  // "ramen noodle soup" and "cooked wheat ramen noodles" both key to 'noodle ramen'
+  // in the real CNF index, and the source name is NOT a substring of the new item's
+  // name -- so an assertion that it appears cannot be satisfied by echoing the
+  // item's own name back.
+  const PRIOR = '2026-09-01';
+  HT.state().days[PRIOR] = { status: 'complete', water_l: 0, items: [
+    Object.assign(mk('ramen noodle soup', 270, 370), { ref: {
+      ns: 'cnf', id: '4464', name: 'Pasta, spaghetti, enriched, cooked',
+      at: PRIOR, at_ms: 1, hash: 'h', how: 'picked',
+      attribution: 'Canadian Nutrient File, Health Canada, 2015', v: { '301': 1 } } })] };
+  HT.state().days[DK].items.push(mk('cooked wheat ramen noodles', 170, 235));
+  HT.refresh();
+  await sleep(300);
+  out.memKeyMerges = HT.matchKey('ramen noodle soup') === HT.matchKey('cooked wheat ramen noodles');
+  out.memKey = HT.matchKey('cooked wheat ramen noodles');
+  const chip3 = chipFor(/cooked wheat ramen noodles/i);
+  if (!chip3) { out.err3 = 'no reworded-noodle chip'; return JSON.stringify(out); }
+  chip3.scrollIntoView({ block: 'center' });
+  await sleep(250);
+  chip3.click();
+  for (let i = 0; i < 60 && !rows().length; i++) await sleep(25);
+  await sleep(HT.RESOLVE_ARM_MS + 300);
+  const r4 = rows();
+  out.propRows = r4.slice(0, 3).map(b => (b.textContent || '').trim().slice(0, 60));
+  out.propIsFirst = /spaghetti/i.test((r4[0] || {}).textContent || '');
+  // VISIBLE, not merely present: textContent reports a hidden element's words just
+  // as happily (D125's lesson, one surface over).
+  const why = document.querySelector('.rwhy');
+  out.whyVisible = !!(why && why.offsetParent !== null);
+  out.whyText = why ? (why.textContent || '').trim() : '';
+  out.whyNamesSource = /ramen noodle soup/.test(out.whyText);
+  out.whyIsNotJustGeneric = out.whyText !== 'you chose this for this food before';
+  out.whyOnScreen = false;
+  if (why) {
+    const wr = why.getBoundingClientRect();
+    out.whyOnScreen = wr.top >= 0 && wr.bottom <= window.innerHeight && wr.height > 0;
+  }
+  // and the sentence sits on the proposal itself, not loose above the list
+  out.whyInsideProposal = !!(why && why.closest('.rcandbtn') === r4[0]);
   return JSON.stringify(out);
 })()
 '@
@@ -293,6 +345,30 @@ try {
   $R = if ($r -like 'EXCEPTION*') { [pscustomobject]@{} } else { $r | ConvertFrom-Json }
 
   if ($R.err) { $fails += "setup: $($R.err)" }
+  if ($R.err3) { $fails += "setup: $($R.err3)" }
+
+  # --- D137: the proposal names the item it came from --------------------------
+  if (-not $R.memKeyMerges) {
+    $fails += "D137-name fixture: 'ramen noodle soup' and 'cooked wheat ramen noodles' do NOT share a key in the real corpus (key=$($R.memKey)), so there is no merge for the naming to make visible (D96)"
+  }
+  if (-not $R.propIsFirst) {
+    $fails += "D137-name fixture: the remembered row is not the first row, so the provenance line has nothing to sit on (D133)"
+  }
+  if (-not $R.whyVisible) {
+    $fails += "D137-name GATE: the provenance line is not VISIBLE on the page -- offsetParent is null, so textContent would have reported it anyway"
+  }
+  if (-not $R.whyOnScreen) {
+    $fails += "D137-name GATE: the provenance line is off-screen at 390x844 -- a sentence that must be read before a tap has to be where the tap is"
+  }
+  if (-not $R.whyNamesSource) {
+    $fails += "D137-name GATE: the provenance line does not NAME the item the match came from (text: '$($R.whyText)') -- a merge across a real difference stays invisible"
+  }
+  if (-not $R.whyIsNotJustGeneric) {
+    $fails += "D137-name GATE: the provenance line is still the generic sentence -- it says a memory exists without saying whose answer it repeats"
+  }
+  if (-not $R.whyInsideProposal) {
+    $fails += "D137-name GATE: the provenance line is not inside the proposed row -- a reason floating beside a list does not attach to the row it explains"
+  }
   if ($R.ns -ne 'cnf') { $fails += "the Canadian namespace was NOT driven (ns=$($R.ns)) -- both reported cases came from it" }
 
   # --- the hazard must still be possible, or the gate proves nothing (D96) ---

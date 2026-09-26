@@ -6014,6 +6014,15 @@ cross-food collisions and **supports** two-rarest. Re-measure when a fresh expor
 exists. And an exact-name memory could fire for **6% of items at best** on this log
 — the feature matters less in volume than it does in the case it was built for.
 
+> **AMENDED by [[D137]] (2026-09-26), on a fresh 62-item export.** The ruling holds
+> and the numbers moved. Two-rarest reaches **30.6%** of items (19 of 62) against
+> exact-name's **22.6%** (14 of 62) — so the “6% at best” above was an artefact
+> of a 35-item log, understating exact-name's own reach by **4×**. The cross-food
+> ruling is *strengthened*: on the larger log head-noun collides four more ways
+> (`egg`, `roll`, `onion`, `beet`) and single-rarest one more (`spicy`), while
+> two-rarest produces **no cross-food collision at all**. A rate measured on 35
+> items was not a small sample of the right answer; it was a different number.
+
 **A collision is never silent:** it surfaces as a first row the user confirms
 ([[D133]]), with the state guard still firing ([[D135]]).
 
@@ -6051,3 +6060,151 @@ weighting instead of about the fixture.
 > broke the tie.**
 
 **Suite: 2,478 assertions, 17 verdicts. Defect pass: 10 plants, 10 failing their own named gates.**
+
+## D137 — A memory proposal names the item it came from — v0.51.0 (2026-09-26)
+
+A fresh export arrived — 40 days, 62 items, 48 distinct names — and was put
+through the real restore boundary rather than read. Four questions came back, and
+**only one of them was answered by writing code.**
+
+### THE HEADLINE: the binding constraint on memory is the number of resolves
+
+Walked forward in time over the real log, `rememberedRow` fires for **3 of 62
+items**. The ceiling, if every prior item carried a ref, is **19 of 62 (30.6%)**.
+
+**The gap is not the key. It is that only 4 items in 62 carry a match at all.**
+Every improvement to the key competes for a share of 4; the thing that moves the
+number is resolving more items. **That is the case for resolve-at-capture** —
+the question asked while the meal is on the screen, not left for a later pass that
+has happened four times in a month.
+
+> **Measure the constraint before tuning the mechanism.** The key was the
+> interesting problem; the number of resolves was the binding one.
+
+### 1. The one match to correct, and an override list that is empty for the wrong reason
+
+`refsToReview()` on the real log returns **exactly one row**, the one predicted:
+
+| | |
+|---|---|
+| item | `2026-09-08` “ramen noodles”, 270 g |
+| matched to | `Soup, ramen noodles, any flavour, dry` |
+| mine | `cooked` — **inferred** from `source: ai-paste` |
+| theirs | `dry` — **stated** by the row |
+| `ref.how` | `picked` |
+
+Frozen at 270 g of a **dry** row: **1,188 kcal against the item's own 400** (3.0×),
+sodium 5,008 mg — while the item's own note reads *“estimated cooked weight from a
+typical restaurant bowl (~120–140 g dry)”*. Two errors compound: the dry-vs-cooked
+mismatch, and the cooked grams used as the dry basis. **The record contradicts
+itself in its own text.**
+
+**Overrides: zero — and that zero is not the good news it looks like.** The guard
+shipped in 0.47.0 on 2026-09-24; that resolve was made on 2026-09-24. Today the
+same pick hits the confirm gate (`resolveMismatch` fires on an *inferred* want too
+— inferred only softens the wording to “probably”, it never skips the question) and
+confirming writes `confirmed despite state mismatch`, which memory then refuses to
+offer ([[D135]]/1). Recorded as `picked`, it is invisible to that protection.
+
+> **[[D135]]/1 cannot classify a record written before the field it keys on existed.**
+> The same shape as a census defeated by the first write that broke its convention
+> ([[D131]]): a rule that reads a field is silent about every record older than the
+> field. The fix is to correct the record, not to add logic.
+
+**And a third class nobody asked for, holding 2 of the 4 refs: the SILENT class.**
+Both coleslaw refs match `Coleslaw (cabbage salad), with dressing, homemade`, which
+states **no state word** — so `theirs` is `null`, and the guard cannot fire either
+way. **Not clean. Unverifiable.** A guard that needs both sides to speak is silent
+whenever one of them does not, and silence renders identically to agreement.
+
+### 2. What was built: the proposal says whose answer it is repeating
+
+Re-measured on 62 items, the shipped two-rarest key merges **five** keys. Three are
+plainly right (`puff turnover`, `noodle ramen`, `beet coleslaw` — which also keeps
+the beet slaws *apart* from the plain ones, where head-noun and single-rarest
+collapse all eight coleslaw items into one bucket). One is defensible. **One is a
+merge across a real difference:**
+
+```
+'carrot lentil'  <=  cooked brown lentils with carrot
+                 <=  cooked brown lentils with carrots and beef     (25 g protein)
+```
+
+**The ruling is not an exception for lentils.** A derived key generalises in both
+directions: the rule that unites “ramen noodles” with “cooked wheat ramen noodles” is
+the rule that unites those two. So **every** proposal names the item it came from
+and when — *“you chose this for “cooked brown lentils with carrots and beef” on Sep
+22”* — which covers the merges nobody has noticed yet, as a per-case exception
+never could. The confirm is the only moment a merge is catchable, so that is where
+the sentence goes.
+
+The remembered name is a **model-written string reaching the page through a new
+route** — inside a *different* item's row — so it is escaped like any other, and
+gated as such. **A new route for an untrusted string is a new escaping boundary,
+not an exception to the old one.**
+
+### 3. Folding the index: ruled OUT, and I would have guessed wrong
+
+The plural fold [[D136]] paid for on the memory key does **not** transfer to the
+matcher. Measured on the wood-ear query:
+
+| index | rank of the correct row |
+|---|---|
+| shipped | **#0** |
+| + `matchFold` on the index | **#3** ✗ — and `Pork, ears, frozen, raw` promoted to #1 |
+
+Folding merges `ears` → `ear`, so pig ears join wood ears. **The fold that serves
+the memory key harms the matcher.** Two rules over the same tokens are not one rule;
+a transformation is only sound with respect to the question being asked.
+
+### 4. Pre-registered, NOT built: the parenthetical
+
+`matchTokens` does `.replace(/\(.*?\)/g, ' ')` — and in CNF the parenthetical is
+where the aliases live:
+
+```
+"Jew's ear (cloud or wood ear, pepeao), raw"  →  indexed as [jew, s, ear]
+                                                  wood, cloud, pepeao: discarded
+```
+
+**Measured: 962 of 5,690 CNF rows (16.9%) carry a parenthetical; 191 tokens exist
+only inside one** and are absent from the shipped index. Keeping them holds wood ear
+at #0 and widens its margin over the tomato sauce from **0.013 to 0.102 (8×)**.
+
+**Stated precisely, because the temptation is to overclaim:** [[D136]]'s idf already
+fixed that ranking. This is about winning **by a margin instead of by a hair**, not
+about changing the answer. Four queries is not a measurement of a 16.9% change to
+the index, so this gets **its own slice with a broad before/after over many names**.
+
+**Parked, on one case:** “green onions” finds the right row in *no* variant (#32 at
+best). It fails on **length, not vocabulary** — `Onion, raw` beats
+`Onion, spring (green) or scallion (includes tops and bulb), raw` on Jaccard for
+being short. Length normalisation is a real question and one case is not a reason
+to answer it.
+
+### The fixture that dismantled the fixture beside it
+
+Standing D137's prior day up at setup time turned [[D122]]'s first-row **dry pick**
+into a cooked **proposal**, and six assertions in the ramen fixture failed at once.
+The cause is the mechanism itself: **the memory is global to the log**, so any prior
+resolved item participates in every later resolve.
+
+> **Two fixtures sharing a day is not enough separation when one of them changes
+> what the app REMEMBERS.** Not sharing a thumb path was not enough when they shared
+> a word; not sharing a deadline was not enough either. A fixture is isolated only
+> from the state it does not reach — and memory reaches everything.
+
+Built at its point of use instead, and both fixtures pass together.
+
+### And the CDP verdict earned its place, measured
+
+Two of the nine plants left the sentence **present in the HTML but unreadable**:
+one added `display:none`, one moved it outside the row it explains. Both pass the
+harness at **2,488 of 2,488** and fail only the browser gate.
+
+> **A string assertion cannot tell a sentence from a sentence nobody can read.**
+> This is [[D125]]'s lesson one surface over, and it is why the assertion is
+> `offsetParent`, on-screen bounds, and `closest('.rcandbtn')` rather than
+> `indexOf`.
+
+**Suite: 2,488 assertions, 17 verdicts. Defect pass: 9 plants, 9 failing their own named gates.**

@@ -240,6 +240,13 @@ restore. Check it after any pass that does not report, and do not infer from an
 empty process listing that a pass has finished — that inference was made twice in
 one session and was wrong both times.
 
+**3. Bump `APP_VERSION` and its `VERSION_LOG` entry together.** VN5 asserts the
+log's last entry equals `APP_VERSION`, so a plant that moves one and not the other
+aborts the harness **before `SUMMARY`** — zero failures and no verdict, which reads
+exactly like a gate that saw nothing. That happened here: the pass was right and the
+*plant script* was wrong. D94 is what saves you — a run with no verdict is re-run,
+never read as a result.
+
 ## Environment dependency — antivirus exclusion for `tests/`
 
 The ten `*-gate.ps1` scripts drive headless Chrome over CDP: PowerShell +

@@ -9480,8 +9480,10 @@ window.setLS({});
       'D133-propose GATE: with nothing remembered the list is exactly what the matcher returned');
   var RHp = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'inferred',
                                  candidates: WM.candidates, proposed: WM.proposed });
-  res(RHp.indexOf('you chose this for this food before') > 0,
-      'D133-propose GATE: the proposal SAYS WHY it is first, rather than being first for a reason the reader cannot see');
+  // Re-pointed by D137, carrying its history: the sentence still has to say why
+  // the row is first -- it now also has to say WHICH item's answer it repeats.
+  res(RHp.indexOf('you chose this for \u201cramen noodles\u201d') > 0,
+      'D133-propose GATE: the proposal SAYS WHY it is first, rather than being first for a reason the reader cannot see -- re-pointed by D137 to the wording that also names the source item');
   res(RHp.indexOf("'proposed'") > 0 && RHp.indexOf("'picked'") > 0,
       'D133-how GATE: taking the proposal records a CONFIRMED PROPOSAL; taking any other row records a pick from the list');
 
@@ -9501,6 +9503,76 @@ window.setLS({});
   res(WMw.proposed === null && WMw.candidates[0].id === 'w1',
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
+
+  // ---- D137: a memory proposal names the item it came from ---------------
+  // MEASURED on the user's own 62-item export: the shipped two-rarest key merges
+  // five keys, and one is a merge across a REAL difference --
+  //   'carrot lentil'  <=  cooked brown lentils with carrot
+  //                    <=  cooked brown lentils with carrots and beef
+  // which differ by 25 g of protein. The ruling is not an exception for lentils:
+  // every proposal names its source, so the merges nobody has noticed yet are
+  // visible too.
+  //
+  // THE FIXTURE MUST REPRODUCE THE CORPUS'S FREQUENCIES, not just its names
+  // (D136): the two rarest tokens are only 'carrot' and 'lentil' if lentil is
+  // rarer than carrot, which is rarer than brown, which is rarer than beef --
+  // as in CNF (lentil 12 rows, carrot 22, brown 41).
+  var _qDays = HT.state().days, _qCur = HT.state().current;
+  var LIST137 = [
+    ['l1', 'Lentil soup'],
+    ['c1', 'Carrot cake'], ['c2', 'Carrot juice'],
+    ['b1', 'Brown rice'], ['b2', 'Brown bread'], ['b3', 'Brown sugar'],
+    ['e1', 'Beef stew'], ['e2', 'Beef patty'], ['e3', 'Beef broth'], ['e4', 'Beef jerky']];
+  HT.setMatchIndex(HT.matchIndexFrom(LIST137));
+  var ref137 = { ns: 'cnf', id: 'CNF-LENTIL', name: 'Lentils, cooked', at: '2026-09-22',
+                 at_ms: 1, hash: 'h', attribution: 'CNF', how: 'picked', v: { '301': 1 } };
+  HT.state().days = { '2026-09-22': { status: 'complete', water_l: 0, items: [
+    { name: 'cooked brown lentils with carrots and beef', meal: 'dinner', time: '21:28',
+      grams: 350, kcal: 332, protein_g: 25, fat_g: 10, carb_g: 47, fiber_g: 14,
+      soluble_fiber_g: 4, confidence: 'eyeballed', source: 'ai-paste', notes: '',
+      ref: ref137 }] } };
+  HT.state().current = '2026-09-22';
+  res(HT.matchKey('cooked brown lentils with carrot')
+      === HT.matchKey('cooked brown lentils with carrots and beef'),
+      'D137-name fixture: the derived key really does merge these two names, or there is no merge for the naming to make visible (D96)');
+  var REM137 = HT.rememberedRow('cooked brown lentils with carrot');
+  res(!!REM137 && REM137.id === 'CNF-LENTIL',
+      'D137-name fixture: and the memory really fires across that merge, or the assertions below are about nothing');
+  res(!!REM137 && REM137.fromName === 'cooked brown lentils with carrots and beef',
+      'D137-name GATE: the memory carries the NAME of the item it came from -- a row id cannot tell the user whose answer is being repeated');
+  res(!!REM137 && REM137.from === '2026-09-22',
+      'D137-name GATE: and the day it was chosen, so the record behind the proposal can be found');
+
+  var CAND137 = [{ id: 'CNF-LENTIL', name: 'Lentils, cooked', kcal: 116, state: 'cooked' }];
+  var WM137 = HT.resolveWithMemory(CAND137, REM137);
+  res(WM137.proposed && WM137.proposed.fromName === 'cooked brown lentils with carrots and beef'
+      && WM137.proposed.from === '2026-09-22',
+      'D137-name GATE: the PROPOSAL carries the provenance, not only the lookup that produced it -- the surface reads the proposal');
+  res(WM137.candidates[0].id === 'CNF-LENTIL' && WM137.candidates.length === 1,
+      'D137-name fixture: and carrying it did not add, drop or reorder a candidate (D133 stands)');
+  var RH137 = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'name',
+                                  candidates: WM137.candidates, proposed: WM137.proposed });
+  // The source name is NOT a substring of the item being resolved, so this
+  // assertion cannot be satisfied by echoing the item's own name back.
+  res(RH137.indexOf('cooked brown lentils with carrots and beef') > 0,
+      'D137-name GATE: the proposal NAMES the item it came from, so a merge across a real difference is visible BEFORE the confirm rather than after it');
+  res(RH137.indexOf(HT.fmtDateSmart('2026-09-22')) > 0,
+      'D137-name GATE: with the date, written the way the app writes dates everywhere else');
+
+  // A model-written name now reaches the page inside a DIFFERENT item's row.
+  var WMesc = HT.resolveWithMemory([{ id: 'X', name: 'Row', kcal: 1, state: null }],
+    { id: 'X', name: 'Row', from: '2026-09-22', fromName: 'lentils <b>& "beef"' });
+  var RHesc = HT.resolveRowsHTML({ want: null, wantSrc: null,
+                                  candidates: WMesc.candidates, proposed: WMesc.proposed });
+  res(RHesc.indexOf('<b>') < 0 && RHesc.indexOf('&lt;b&gt;') > 0 && RHesc.indexOf('&amp;') > 0,
+      'D137-name GATE: and it is ESCAPED -- a new route for an untrusted string is a new escaping boundary, not an exception to the old one');
+
+  res(HT.resolveRowsHTML({ want: null, wantSrc: null,
+        candidates: [{ id: 'X', name: 'Row', kcal: null, state: null }], proposed: { id: 'X' } })
+      .indexOf('you chose this for this food before') > 0,
+      'D137-name GATE: a proposal with no source name still says why it is first, instead of rendering a sentence with a hole where the name should be');
+  HT.setMatchIndex(null);
+  HT.state().days = _qDays; HT.state().current = _qCur;
 
   // ---- D136: a token is worth what it narrows ----------------------------
   // REPORTED FROM THE DEVICE: "cooked wheat ramen noodles" returned Cracker,
