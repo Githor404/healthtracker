@@ -4675,3 +4675,12 @@ still asked, correct row still first).
 
 **Eviction is by insertion order, not the clock** — twenty-three deletions in one
 millisecond shared a timestamp and the cap threw away the newest.
+### D135 — memory must not remember mistakes — v0.49.2
+
+| case | asserts |
+|---|---|
+| D135-loop **GATE** | a match made by **overriding** the state guard is never offered from memory; **the same row chosen normally still is** (or the first proves nothing); and the guard **fires on a remembered proposal** exactly as on a list pick |
+| D135-review **GATE** | the review names every match the guard would have questioned and **nothing else**; keeps **mismatch** and **override** apart as different facts; and **changes nothing** — a match is the user's to correct, not the app's to rewrite |
+
+**The loop it closes:** a memory built from the log repeats the log's mistakes
+wearing the user's own authority.

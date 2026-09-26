@@ -5881,3 +5881,64 @@ deriving the variable from what it is **bound to** (17 writes checked became 27)
 **last**, so appending and restoring-to-index landed in the same place.
 
 **Suite: 2,456 assertions, 17 verdicts. Defect pass: 16 plants, 16 failing their own named gates.**
+
+## D135 — Memory must not remember mistakes — v0.49.2 (2026-09-25)
+
+**Raised against [[D133]] the moment it shipped, and it is the failure mode of every
+memory.** A memory drawn from the log will draw a **wrong** match out of it and hand
+it back **framed as the user's own earlier choice** — which reads as confirmation
+of an accident rather than a repetition of one. The log almost certainly holds
+*"ramen noodles"* matched to a **dry instant ramen**, chosen before the state guard
+existed ([[D127]]), and that match would have led every future ramen.
+
+> **A self-reinforcing loop is the failure mode of every memory:** the thing it
+> repeats most confidently is the thing it saw most recently, including the
+> mistake.
+
+### Two closures
+
+1. **A match made by OVERRIDING the state guard is never offered from memory.**
+   `ref.how === 'confirmed despite state mismatch'` is skipped by `rememberedRow`.
+   **Overriding a guard once is a decision about one item; becoming the default is
+   a decision about every future one, and that was never made.**
+2. **The guard still fires on whatever memory does offer.** Built in D133, gated
+   again here **through the proposal path**: the remembered row becomes the
+   proposal, and the mismatch question fires on it with the same consequence it
+   states for any other row. *"You chose this before"* is a reason to **show** a
+   row, never a reason to **skip a question**.
+
+Gated both ways, because one direction proves nothing alone ([[D96]]): the override
+is not offered, **and the same row chosen normally still is**.
+
+### Which existing matches the guard would have questioned
+
+`refsToReview()` answers it, and separates **two classes that are different facts**:
+
+| class | meaning |
+|---|---|
+| **mismatch** | the row's state differs from the food's, and **nothing ever asked** |
+| **override** | the user **was** asked and went ahead (`ref.how` says so) |
+
+The second **is not an error**. It is listed because memory now declines to repeat
+it, and a list that hid it would not explain why.
+
+**The review changes nothing, and that is gated.** A match is **the user's to
+correct, never the app's to quietly rewrite** — which is the same rule that has
+governed every resolve since [[D119]]: nothing resolves, and nothing un-resolves,
+without the person.
+
+**It could not be run against the real log in this slice.** The only export
+available predates the resolve feature ([[D121]], v0.43.0): **28 days, zero refs.**
+Stated rather than estimated — the answer needs a current export, and a guess
+about which matches are wrong would be exactly the kind of confident fiction this
+entry exists to prevent.
+
+### And a plant that was too broad
+
+The first *"the review must not rewrite"* plant deleted the ref **before**
+`refsToReview` read it, breaking the function outright: the harness reported an
+**aborted suite** and the named gate never spoke. Re-aimed to touch only the
+property the gate owns ([[D69]]). **A defect that breaks everything is caught by
+anything.**
+
+**Suite: 2,465 assertions, 17 verdicts. Defect pass: 7 plants, 7 failing their own named gates.**

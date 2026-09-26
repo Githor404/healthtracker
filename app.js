@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.49.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.49.2';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1532,6 +1532,22 @@ let RESOLVE_WALK = null;          // the "next tap" queue after a save
 // is where a stray tap lands -- measured twice on the device, on dry ramen and on
 // a tomato sauce -- so the right answer belongs there, and the tap that takes it
 // is still a tap the user makes.
+// D135 -- MEMORY MUST NOT REMEMBER MISTAKES.
+//
+// A memory drawn from the log will happily draw a WRONG match out of it, and hand
+// it back framed as the user's own earlier choice -- which reads as confirmation of
+// an accident rather than a repetition of one. The log almost certainly holds
+// "ramen noodles" matched to a DRY instant ramen, chosen before the state guard
+// existed ([[D127]]), and that match would now lead every future ramen.
+//
+// A SELF-REINFORCING LOOP IS THE FAILURE MODE OF EVERY MEMORY. Two closures:
+//
+//   1. a match the user made by OVERRIDING the state guard is never offered from
+//      memory. Overriding a guard once is a decision about one item; becoming the
+//      default is a decision about every future one, and it was never made.
+//   2. the guard itself still fires on whatever memory does offer -- "you chose
+//      this before" is a reason to show a row, never a reason to skip a question.
+//      (Built in D133 and gated there; gated again here through the proposal.)
 function rememberedRow(name) {
   const key = String(name == null ? '' : name).trim().toLowerCase();
   if (!key || !APP_STATE || !APP_STATE.days) return null;
@@ -1541,11 +1557,45 @@ function rememberedRow(name) {
     for (let j = items.length - 1; j >= 0; j--) {
       const it = items[j];
       if (!it || !it.ref || !it.ref.id) continue;
+      if (it.ref.how === 'confirmed despite state mismatch') continue;   // D135/1
       if (String(it.name == null ? '' : it.name).trim().toLowerCase() !== key) continue;
       return { id: String(it.ref.id), name: String(it.ref.name || ''), from: days[i] };
     }
   }
   return null;
+}
+// D135/3: WHICH EXISTING MATCHES THE GUARD WOULD HAVE QUESTIONED.
+//
+// The guard shipped after the matches did, so the log holds decisions no guard ever
+// saw. This answers "which of them would it have stopped?" -- it changes nothing and
+// corrects nothing on its own, because a match is the user's to change, not the
+// app's to quietly rewrite. Two classes, kept apart because they are different
+// facts:
+//
+//   mismatch  -- the row's state differs from the item's, and nothing ever asked
+//   override  -- the user was asked and went ahead (ref.how says so)
+//
+// The second is not an error. It is listed because memory declines to repeat it,
+// and a list that hid it would not explain why.
+function refsToReview() {
+  const out = [];
+  if (!APP_STATE || !APP_STATE.days) return out;
+  Object.keys(APP_STATE.days).filter(isDayKey).sort().forEach(function (d) {
+    (APP_STATE.days[d].items || []).forEach(function (it, i) {
+      if (!it || !it.ref || !it.ref.id) return;
+      const mine = itemState(it);
+      const theirs = foodState(it.ref.name);
+      const override = (it.ref.how === 'confirmed despite state mismatch');
+      const mism = !!(mine && theirs && mine !== theirs);
+      if (!mism && !override) return;
+      out.push({ date: d, idx: i, name: String(it.name || ''),
+                 ref: String(it.ref.name || ''), mine: mine, theirs: theirs,
+                 how: String(it.ref.how || ''),
+                 why: override ? 'override' : 'mismatch',
+                 src: itemStateSrc(it) });
+    });
+  });
+  return out;
 }
 // The remembered row is lifted to the front of the matcher's own list. It is not
 // scored, not re-ranked and not merged: the order underneath stays exactly what
@@ -7467,6 +7517,7 @@ const VERSION_LOG = [
   { v: '0.48.1', d: '2026-09-25', note: 'Breath ketones recorded in mmol/L no longer sit in the same trend as ones in ppm. A breath meter measures acetone in ppm; the mmol/L figure some meters show is their ESTIMATE of blood ketones — a different thing in a different part of the body, not the same number written another way. Both readings are kept exactly as entered, nothing is converted, and the estimated ones are labelled and charted on their own.' },
   { v: '0.49.0', d: '2026-09-25', note: 'A food you have matched before now comes back with that match offered first, saying “you chose this for this food before” — one tap to confirm instead of reading a list again. It is still only ever an offer: nothing is applied without you taking it, and a row whose state differs from your food still asks first.' },
   { v: '0.49.1', d: '2026-09-25', note: 'Deleting a food is no longer reversible for seven seconds only. The day now carries a “Recently deleted” list you can restore from, exactly as the item was — its time, its notes, its photo-meal link and any nutrition match all come back, because the record was kept whole rather than rebuilt. Clearing a whole day goes there too. The list says how long it keeps things and what falls off first, and it stays on this device: it is never part of your export.' },
+  { v: '0.49.2', d: '2026-09-25', note: 'The match a food remembers can no longer be one you made by overriding a warning. Going ahead once, for one item, was a decision about that item — it does not become the answer offered for every future one. And a remembered match still asks first when its state differs from your food: “you chose this before” is a reason to show a row, never a reason to skip the question.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -12462,7 +12513,7 @@ window.HT = {
   quickAdd, quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
   TRASH_KEY, TRASH_PER_DAY, TRASH_MAX_AGE_DAYS, trashRead, trashWrite, trashPut, trashForDay,
   trashDrop, trashClear, trashRestore, trashPrune, trashCapNote, trashText, copyTrash, trashHTML,
-  rememberedRow, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
+  rememberedRow, refsToReview, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,

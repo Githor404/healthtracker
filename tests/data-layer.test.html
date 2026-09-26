@@ -9502,6 +9502,67 @@ window.setLS({});
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
 
+  // ---- D135: memory must not remember mistakes ---------------------------
+  // A memory drawn from the log will draw a WRONG match out of it and hand it
+  // back framed as the user's own earlier choice -- which reads as confirmation
+  // of an accident rather than a repetition of one. The log holds matches made
+  // before the state guard existed.
+  var _mDays = HT.state().days, _mCur = HT.state().current;
+  var refHow = function (id, nm, how) { return { ns: 'cnf', id: id, name: nm, at: '2026-09-20',
+    at_ms: 1, hash: 'h', attribution: 'CNF', how: how, v: { '301': 1 } }; };
+  var mkR135 = function (ref) { return { name: 'ramen noodles', meal: 'lunch', time: '12:00',
+    grams: 270, kcal: 400, protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+    confidence: 'eyeballed', source: 'ai-paste', notes: '', ref: ref }; };
+
+  // the device's actual shape: a dry instant ramen, accepted past the guard
+  HT.state().days = { '2026-09-20': { status: 'in_progress', water_l: 0, items: [
+    mkR135(refHow('CNF-DRY', 'Soup, ramen noodles, any flavour, dry',
+                  'confirmed despite state mismatch')) ] } };
+  HT.state().current = '2026-09-20';
+  res(HT.rememberedRow('ramen noodles') === null,
+      'D135-loop GATE: a match made by OVERRIDING the state guard is never offered from memory -- going ahead once was a decision about one item, and it does not become the answer for every future one');
+
+  // the same row, chosen normally, IS remembered -- the rule is about the override
+  HT.state().days['2026-09-20'].items = [mkR135(refHow('CNF-DRY', 'Soup, ramen noodles, any flavour, dry', 'picked'))];
+  var REM135 = HT.rememberedRow('ramen noodles');
+  res(!!REM135 && REM135.id === 'CNF-DRY',
+      'D135-loop fixture: the same row chosen normally IS remembered -- or the case above proves nothing about the override (D96)');
+
+  // and what memory offers is still guarded: a dry row against a cooked dish
+  var WM135 = HT.resolveWithMemory([{ id: 'CNF-DRY', name: 'Soup, ramen noodles, any flavour, dry',
+                                      kcal: 440, state: 'dry' }], REM135);
+  res(WM135.proposed.id === 'CNF-DRY',
+      'D135-loop fixture: the remembered row really is the proposal, so the guard below has something to fire on');
+  var MM135 = HT.resolveMismatch({ want: 'cooked', wantSrc: 'inferred', mine: 148 }, WM135.proposed);
+  res(!!MM135 && MM135.state === 'dry' && MM135.dir === 'too high',
+      'D135-loop GATE: the state guard fires on a REMEMBERED proposal exactly as on a list pick -- \u201cyou chose this before\u201d is a reason to show a row, never a reason to skip the question');
+
+  // ---- which existing matches the guard would have questioned -------------
+  HT.state().days = {
+    '2026-09-08': { status: 'in_progress', water_l: 0, items: [
+      mkR135(refHow('CNF-DRY', 'Soup, ramen noodles, any flavour, dry', 'picked')),
+      { name: 'rice, cooked', meal: 'lunch', time: '12:00', grams: 100, kcal: 130,
+        protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+        confidence: 'eyeballed', source: 'manual', notes: '',
+        ref: refHow('CNF-RICE', 'Rice, white, cooked', 'picked') },
+      { name: 'oats', meal: 'breakfast', time: '08:00', grams: 80, kcal: 300,
+        protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,
+        confidence: 'eyeballed', source: 'manual', notes: '',
+        ref: refHow('CNF-OAT', 'Oats, rolled, dry', 'confirmed despite state mismatch') }] } };
+  HT.state().current = '2026-09-08';
+  var REV = HT.refsToReview();
+  res(REV.length === 2,
+      'D135-review GATE: the review names every match the guard would have questioned, and nothing else -- a correctly matched row is not listed as a problem');
+  res(REV[0].name === 'ramen noodles' && REV[0].why === 'mismatch' && REV[0].theirs === 'dry',
+      'D135-review GATE: a match whose state differs from the food, that nothing ever asked about, is listed as a MISMATCH');
+  res(REV[1].name === 'oats' && REV[1].why === 'override',
+      'D135-review GATE: and one the user was asked about and went ahead with is listed as an OVERRIDE -- kept apart, because it is not an error, and memory declines to repeat it');
+  res(REV.filter(function (r) { return r.name === 'rice, cooked'; }).length === 0,
+      'D135-review GATE: a cooked dish matched to a cooked row is not listed -- the review is a question about state, not a sweep of every match');
+  res(HT.state().days['2026-09-08'].items.every(function (i) { return !!i.ref; }),
+      'D135-review GATE: and the review CHANGES NOTHING -- a match is the user\u2019s to correct, never the app\u2019s to quietly rewrite');
+  HT.state().days = _mDays; HT.state().current = _mCur;
+
   // ---- D134: recently deleted -------------------------------------------
   // The only reversal was a SEVEN-SECOND TOAST. It expired while the user was
   // still looking at the result, and a real item was lost.
