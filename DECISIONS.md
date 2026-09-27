@@ -6208,3 +6208,122 @@ harness at **2,488 of 2,488** and fail only the browser gate.
 > `indexOf`.
 
 **Suite: 2,488 assertions, 17 verdicts. Defect pass: 9 plants, 9 failing their own named gates.**
+
+## D138 — Resolve at capture — pre-registered, and Fork A ruled by the measurement (2026-09-26)
+
+**NOTHING IS BUILT BY THIS ENTRY.** It records a measurement that had been made,
+reported and then left in a conversation — where the record could not see it. The
+only durable trace was one sentence in [[D137]] (*“that is the case for
+resolve-at-capture”*), which is the argument for the work, not the work.
+
+> **A pre-registration that lives only in the conversation is not pre-registered.**
+> From the record alone, a brief that was measured in full is indistinguishable from
+> one that was never sent — and that inference was actually drawn. Same family as
+> [[D137]]'s finding: a rule that reads a field is silent about records older than
+> the field, and a record never written is silent about everything.
+
+### Why this slice comes before any further key or index work
+
+[[D137]] measured `rememberedRow` firing for **3 of 62 items**, against a ceiling of
+**19 of 62 (30.6%)** if every prior item carried a match. The gap is not the key:
+**only 4 items in 62 carry a match at all.** Every improvement to the key, the index
+or the corpus competes for a share of 4. Resolve-at-capture is the only change that
+raises the denominator.
+
+### The measurement
+
+Every photo (`ai-paste`) item in the real 62-item export, walked **forward in time**
+— each item seeing only what the device knew when it was written, siblings of the
+same photo save included — driven through the **real `resolveOpen`**, so the
+candidates, the [[D125]] ranking, the memory and the kcal pairs are the app's own.
+
+| | |
+|---|---|
+| photo items | **45** |
+| would receive a proposal at capture | **43 (96%)** |
+| — from **memory** | 5 |
+| — from the **matcher's top pick** | 38 |
+| no candidate at all — stays unresolved | **2** (`siu mai`, `scallions (green onion)`) |
+| proposals the **state guard** would question | **10 of 43 (23%)** |
+
+**And then the number that decided the ruling.** Identity judged item by item:
+
+| source of the proposal | identity right | partial | wrong |
+|---|---|---|---|
+| **memory** (5) | **5 / 5 — 100%** | 0 | 0 |
+| **matcher top pick** (38) | **16 / 38 — 42%** | 6 | **16** |
+
+### What would catch a wrong one, measured
+
+| | |
+|---|---|
+| wrong or partial identity | **22 of 43** |
+| the **state guard** questions | **4** |
+| of the 18 it misses, the **kcal pair** ([[D122]]) disagrees ≥1.5× or ≤0.67× | **12** |
+| invisible to both | **3** — `rice vermicelli stir-fry with egg` → `Stir fry with chicken` (1.03×), `cooked brown lentils with carrots and beef` → `Lentils, boiled` (1.22×), `smoked pork` → `Sausage, smoked, pork, pre-cooked` (1.15×) |
+| **no kcal pair at all** (the item is unresolved, so it has no macros to compare) | **3** — `steamed pork buns`, `bean curd skin rolls`, `mushroom onion stir-fry` |
+
+> **The state guard is not the identity guard.** It catches 4 of 22 wrong identities
+> — and **6 of the 10 things it does question are the right food in the wrong
+> state** (`chashu pork belly` → `belly, raw`; `wood ear` → `Jew's ear, raw`;
+> `menma` → `Bamboo shoots, raw`). The working identity check is [[D122]]'s kcal
+> pair, which is already on every row.
+
+**Tap cost:** 21 photo saves, mean **2.1** items, max **6**; 4 saves carry ≥4 items.
+
+### FORK A — RULED, and the brief was overturned by its own measurement
+
+The brief said: *memory first, “else the matcher's top pick”.*
+
+**RULED: at capture, ONLY memory proposes.** The matcher's top pick is **not**
+pre-selected. An item with no memory proposal stays unresolved and offers
+`find nutrients` as the next step.
+
+The reason, in the ruling's own terms: 16 of 38 top picks are right, so pre-selecting
+would **put a wrong food as the first row 22 times in 38, at the lowest-attention
+moment** — which is precisely what [[D125]] and [[D133]] exist to prevent, and
+[[D119]] already ruled that name similarity cannot be thresholded to separate the
+good half (same-food pairs 0.60, different-food 0.67, interleaved). Memory proposes
+because memory earned it: 5 of 5, with its source named ([[D137]]).
+
+> **A brief is a hypothesis; the measurement is the ruling.** The half of this brief
+> that survived is the half the data supported.
+
+### Forks B–F — OPEN, recorded here for ruling
+
+**B — a proposal needs something to be checkable against.** Three items carry no
+kcal pair at all, so neither guard can speak about them. *Recommended:* a proposal
+requires a comparable kcal pair; without one the item shows the list. An
+**availability rule, not a threshold** — no number to tune ([[D126]]).
+*Note: under Fork A's ruling this now applies only to memory proposals, so it binds
+on far fewer items than when it was written.*
+
+**C — “one confirm” versus the state guard.** 10 of 43 proposals would be questioned,
+and a question is a second interaction. *C1 (recommended):* a questioned proposal is
+**not pre-selected** — it appears as a labelled row in [[D122]]'s wording and costs
+a tap only if wanted. *C2:* pre-select and ask on accept — two taps on the 23%.
+
+**D — geometry, measured before building.** The photo draft already carries name,
+grams, identity alternates, notes and exclude ([[D61]]). A proposal row per item at
+390px is where the ring-size lesson bit (a 94px row putting a legend below the fold)
+and where [[D124]]'s 16px floor lives. *Pre-registered:* computed row heights and
+fold position for the 6-item save, **before** any layout lands, gated.
+
+**E — no bulk accept.** *Recommended:* “accept all” would be one tap for six items
+and would accept wrong identities in bulk — the opposite of [[D133]]. Per-item only;
+unconfirmed items simply stay unresolved.
+
+**F — what a confirm at capture records.** `REF_HOWS` is
+`['picked', 'proposed', 'confirmed despite state mismatch']`. Does a confirm at
+capture need **its own value**, so a later measurement can tell a capture-time answer
+from one made afterwards — or is it just `proposed`? A data-contract change, and
+[[D137]] just showed what happens to records written before the field that would
+classify them.
+
+### Limits of the measurement, as limits
+
+45 items, one log, one corpus (`cnf`), one user. **The identity column is a
+judgement, not a computation** — it was reported item by item so it can be
+overruled. “At capture” assumes log order is capture order. And the parenthetical
+slice would change one of the two no-candidate items
+(`scallions (green onion)`); `siu mai` is absent from CNF entirely.
