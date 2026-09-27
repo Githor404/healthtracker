@@ -6327,3 +6327,144 @@ judgement, not a computation** — it was reported item by item so it can be
 overruled. “At capture” assumes log order is capture order. And the parenthetical
 slice would change one of the two no-candidate items
 (`scallions (green onion)`); `siu mai` is absent from CNF entirely.
+
+## D139 — The surface speaks the user's language — v0.52.0 (2026-09-26)
+
+First slice of the presentation arc. **Nothing was removed** — every number,
+provenance word, source and citation is still reachable — and none of it is the
+first thing seen.
+
+### What the measurement found, before anything was proposed
+
+The shipped page was harvested at 390×844: **visible text only** (rects plus
+computed style, never declarations), 18 surfaces, **737 distinct visible strings**.
+
+**The good news reframed the whole arc.** Zero leaks of `D`-numbers, `ref`,
+`corpus`, `provenance`, `normalize`, `schema`, `tzo`, `plateId`, `mealId`,
+`jaccard`. The internal vocabulary had largely stayed internal; what leaked was a
+**countable set of about twenty terms, most of them on one row type**. (My first
+scan “found” four D-numbers. They were `Vitamin D3`.)
+
+| what rendered | where | now |
+|---|---|---|
+| `eyeballed` | **13 rows** | estimated |
+| `ai-paste` | every photo item | from photo |
+| `scan` | every scanned item | from barcode |
+| `reference values` | every matched row | **food database** (a marker, see below) |
+| `composition not recorded` | unresolved rows | no nutrition yet |
+| `Total (est.)` | the day total | Day total — estimated |
+| `tap to resolve N pending` | ring caption | N items need nutrients |
+| `N unresolved — resolve to update` | micronutrient panel | N items without nutrition |
+| `not closed · excluded from averages` | day header | day not finished · not counted in averages |
+| `Ingest` / `Ingested` / `BYOK` | sheet, toasts, settings | Add to my log / Added / Your own AI key |
+| bare `kcal` | **27 user-visible sites** of 147 total | `cal` on rows, `Calories` in headings |
+
+The `kcal` count is worth keeping: **147 occurrences of the literal, of which 27
+are user-visible.** The other 120 are property keys, CSS class names (`.mkcal`,
+`.rkcal`) and comments, and they did not move. **The contract keeps its own words.**
+
+### Two words that were NOT changed, and why
+
+- **`clear match` stays.** Renaming it to “Remove” — which my own inventory
+  proposed — would have undone [[D130]]'s ruling, made after an item was
+  **deleted by mistake**, that only the destructive control gets the destructive
+  word. **A vocabulary slice can undo a vocabulary ruling.** Check the record
+  before renaming a string that reads like a mistake; it may be a fix.
+- **`find nutrients` stays.** It is plain English already, and it is the name the
+  device reports and [[D121]]/[[D125]] measured it under. Renaming it would desync
+  the record's language from the surface for no gain.
+
+### The display map, and the drift it creates
+
+`CONFIDENCES` and `SOURCES` keep their values; `CONF_WORD` and `SOURCE_WORD` give
+them words. That makes the **stored value and the displayed word two different
+things**, which is a new drift class: a value added to either enum with no word
+would render as its raw token again, exactly as before this slice.
+
+So `wordCensus()` is **derived from the enums in both directions** — a value with
+no word, and a word with no value — because a list maintained by hand is defeated
+by the first value added without it ([[D131]]).
+
+### The cited row name: readable, not rewritten
+
+**MEASURED across all 5,690 CNF rows.** The elegant idea failed. Promoting the most
+specific segment to the front, by the corpus's own idf ([[D136]]'s weight, so no
+dial), produces nonsense:
+
+```
+"Soup, ramen noodles, any flavour, dry"  →  "Any flavour, Soup, ramen noodles (dry)"
+"Egg, chicken, Spanish omelet, with ..."  →  "Tomatoes and mushrooms, Egg, chicken, ..."
+```
+
+The rarest token sits in a **qualifier** as often as in the identity. **A rule that
+read well on four names read badly on twenty.**
+
+So nothing is reordered and nothing is dropped. A **trailing run of preparation
+words** is re-grouped into a parenthetical: `Lentils, boiled` → `Lentils (boiled)`,
+`Beets, boiled, drained` → `Beets (boiled, drained)`. It changes **2,438 of 5,690
+rows (43%)**, median display length 41 characters, and it **cannot invent a name**.
+A name already ending in a parenthetical takes a dash instead, so nothing reads
+“... (pepeao) (raw)”. Shortening is left to CSS, where it costs no information.
+
+**TWO LISTS, TWO QUESTIONS** — [[D138]]'s fold lesson again. `foodState` needs words
+that change the **numbers** (dry vs cooked); a display name wants any trailing
+preparation qualifier, `drained` and `homemade` included. Sharing one list would
+make one of them wrong.
+
+**And the source marker does not collapse.** The readable name leads, a visible
+**food database** marker says where the numbers came from, and the **verbatim cited
+row name with its attribution** sits one tap behind in a `<details>`. Provenance may
+collapse; a statement about what the number *is* may not ([[D53]], [[D120]]).
+Measured cost: **+31px per matched row**, which is an argument for the collapsed-row
+slice, not against the marker.
+
+### The instrument was wrong, and that is the gate's best feature
+
+A closed `<details>` is hidden by Chrome with **`content-visibility`, which keeps a
+non-zero bounding rect**. My harvest counted the collapsed citation as visible text
+and reported the food row as having grown to 278px and 14 facts. It had not.
+
+> **The inverse of the `<small>` lesson.** There, a declaration lied about size and
+> only the computed value told the truth. Here, the **geometry** lies about
+> visibility and only `checkVisibility` tells the truth.
+
+So `tests/jargon-gate.ps1` **tests its own instrument before it trusts its sweep**:
+it asserts that a closed disclosure still has a rect, that the instrument reports it
+hidden anyway, and that opening it flips that. A census whose instrument cannot tell
+collapsed from visible would pass a page that says everything and shows nothing.
+
+### The gate, and why it harvests rather than greps
+
+**A grep of the source cannot see a string built by concatenation across three
+lines, and most of these were.** So the gate drives the page — first run, a
+synthetic day rendering every vocabulary site, a past unfinished day, all seven
+sheet modes, the resolve surface through the real corpus, the micronutrient panel,
+settings — and sweeps the **visible** text: **435 strings across 13 screens**.
+
+**Coverage is asserted before the floor** ([[D124]]): eleven replacement words must
+be present, or a sweep of a blank page would pass everything. And the gate found a
+real leak I had missed by reading — a settings note still said *“paste the JSON reply
+into Ingest”*.
+
+### Sixteen gates failed, and that was the good news
+
+Sixteen existing assertions broke on the new words, plus `M3` and two in
+`resolve-gate.ps1`. **Every one was re-pointed carrying its history** ([[D92]]);
+none was deleted. They failed because they were guarding the **vocabulary** rather
+than the markup — which is what a gate asserting a rendered string is supposed to
+do when the string is the ruling.
+
+The sharpest was `D93-vocab`, which asserts the provenance words are still on the
+row. It now reads `estimated` / `typed in` instead of `eyeballed` / `manual`, and
+**what it protects is unchanged**: the row still says how the number was arrived at.
+
+### Deferred, with reasons
+
+`Regimen`, `Lab panel`, `Panel date`, `lab ref`, `Biometric`: **the user's own
+domain vocabulary, not app internals** — a lab report says “panel”, a protocol is a
+regimen. `Biometric` additionally labels a quick-add button the flow gate pins by
+text, so moving it moves that gate; it belongs with the density slice. `P 1.4 F 16.1
+C 11.3` is not jargon but **density**, and goes behind the tap in the next slice.
+
+**Suite: 2,503 assertions, 18 verdicts (the census now pins 13 gate scripts).**
+**Defect pass: 10 plants, 10 failing their own named gates.**

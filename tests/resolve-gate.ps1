@@ -18,7 +18,7 @@
 # ranked as merely unknown. The right answers were demoted for being specific.
 #
 # BOTH FIXTURES ARE GATED TOGETHER, and that is the point: wood ear (the correct
-# rows stay at the top) and ramen (the dry rows are still labelled, with the kcal
+# rows stay at the top) and ramen (the dry rows are still labelled, with the energy
 # pair visible). A fix that passes one and fails the other is the regression.
 #
 # Exit 0 PASS, 1 FAIL, 2 environment error.
@@ -188,7 +188,9 @@ try {
   out.woodRows = r1.slice(0, 4).map(b => (b.textContent || '').trim().slice(0, 46));
   out.woodTopTwoAreCorrect = /jew.s ear/i.test(out.woodRows[0] || '') && /jew.s ear/i.test(out.woodRows[1] || '');
   out.woodHedged = r1.some(b => /probably cooked/i.test(b.textContent || ''));
-  out.woodKcalShown = r1.every(b => /kcal\/100g/i.test(b.textContent || ''));
+  // unit word moved by D139; the claim -- every row shows its own energy per
+  // 100 g -- is unchanged, and it is still what made the dry rows obvious.
+  out.woodKcalShown = r1.every(b => /\bcal\/100g/i.test(b.textContent || ''));
 
   // ---- THE SHIELD, as a distance ------------------------------------------
   // Measured before the fix: the distance from the tap to the nearest resolve
@@ -283,7 +285,7 @@ try {
                          && /Not one of these/i.test(invite.textContent || ''));
   out.ramenHasDry = r3.some(b => /\bdry\b/i.test(b.textContent || ''));
   out.ramenHedged = r3.some(b => /probably cooked/i.test(b.textContent || ''));
-  out.ramenKcalShown = r3.every(b => /kcal\/100g/i.test(b.textContent || ''));
+  out.ramenKcalShown = r3.every(b => /\bcal\/100g/i.test(b.textContent || ''));   // unit word moved by D139
   out.ramenNoScore = !r3.some(b => /%/.test(b.textContent || ''));
 
   // ---- FIXTURE 3: the proposal says WHOSE answer it is repeating ----------
@@ -385,7 +387,7 @@ try {
   if (-not $R.woodTopTwoAreCorrect) {
     $fails += "wood ear: the two correct rows are not at the top (got: $($R.woodRows -join ' | '))" }
   if (-not $R.woodHedged) { $fails += "wood ear: a mismatch against a GUESSED state is not labelled 'probably'" }
-  if (-not $R.woodKcalShown) { $fails += "wood ear: a row is missing its kcal per 100 g" }
+  if (-not $R.woodKcalShown) { $fails += "wood ear: a row is missing its energy per 100 g" }
 
   # --- the record can testify ------------------------------------------------
   if (-not $R.confirmShown) { $fails += "wood ear: a raw row was picked for a (probably) cooked item and NOTHING ASKED -- a label on the row does not stop the tap" }
@@ -400,7 +402,7 @@ try {
   if ($R.err2) { $fails += "ramen setup: $($R.err2)" }
   if (-not $R.ramenHasDry) { $fails += "ramen: no dry row offered, so this fixture cannot show the regression it guards" }
   if (-not $R.ramenHedged) { $fails += "ramen: the dry rows are NOT labelled -- this is the case D122 exists for" }
-  if (-not $R.ramenKcalShown) { $fails += "ramen: the kcal pair is missing, which is what made the dry rows obvious" }
+  if (-not $R.ramenKcalShown) { $fails += "ramen: the energy pair is missing, which is what made the dry rows obvious" }
   if (-not $R.ramenNoScore) { $fails += "ramen: a score appeared on a row (C1 holds)" }
   if (-not $R.ramenFirstIsDry) { $fails += "ramen: the first row is not a dry one, so this fixture cannot reproduce the device's tap" }
   if (-not $R.ramenAsked) { $fails += "ramen: the FIRST-ROW DRY PICK resolved without asking -- the exact tap that produced the wrong match on the device" }

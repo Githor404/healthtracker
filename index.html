@@ -692,6 +692,12 @@
 /* D133: a proposal is a first row, and says why it is one. */
 .rcandbtn.rprop{border-color:var(--accent)}
 .rwhy{display:block;margin-top:4px;font-size:16px;color:var(--muted)}
+/* D139: the source marker stays VISIBLE -- it says what the number is, which
+   D53 forbids collapsing. The citation itself may collapse, and does. */
+.msrc{display:inline-block;font-size:16px;padding:0 6px;border:1px solid var(--line,#ccc);border-radius:10px;color:var(--muted)}
+.mcite{display:block;margin-top:4px}
+.mcite>summary{font-size:16px;color:var(--muted);cursor:pointer}
+.mcitebody{font-size:16px;color:var(--muted);margin-top:2px}
 /* D134: recently deleted, where the deleting happened. */
 .trash{margin-top:12px}
 .trash>summary{font-size:16px;color:var(--muted);cursor:pointer}
@@ -810,12 +816,12 @@
       <button class="btn" onclick="copyPrompt(this)">⇪ Copy prompt</button>
       <textarea id="promptTemplate" data-prompt-box data-prompt-kind="capture" readonly></textarea>
       <div class="note" id="promptNote">Two ways to read a photo. With an API key saved, <b>Take photo</b> or <b>Choose photo</b> sends it for you. Without one, copy this prompt to your own AI assistant with the photo, then paste its JSON reply below. Either way: macros only — never micronutrients from a photo.</div>
-      <h2>Ingest · paste JSON</h2>
+      <h2>Paste from your AI assistant</h2>
       <textarea id="ingestBox" placeholder="Paste JSON from your AI assistant (items) — or a full export to merge days. Non-destructive."></textarea>
       <button class="btn primary" id="paneReadBtn" onclick="doCapturePaste()">Read photo meal</button>
-        <button class="btn" onclick="doIngest()">Ingest</button>
+        <button class="btn" onclick="doIngest()">Add to my log</button>
       <div id="ingestReport"></div>
-      <div class="note">Never overwrites a day that has items. AI-paste items are macros-only (micros stripped) at eyeballed confidence.</div>
+      <div class="note">Never overwrites a day that has items. Items read from a photo carry calories, protein, fat, carbs and fibre only — vitamins and minerals are dropped, because a photo cannot show them — and they are marked estimated.</div>
       </div>
       <div id="pane-manual" class="pane">
       <details open>
@@ -828,7 +834,7 @@
           <div><label>Confidence</label><select id="maConf"><option value="eyeballed" selected>eyeballed</option><option value="weighed">weighed</option><option value="measured">measured</option></select></div>
         </div>
         <div class="row">
-          <div><label>kcal</label><input id="maKcal" type="number" inputmode="decimal"></div>
+          <div><label>Calories</label><input id="maKcal" type="number" inputmode="decimal"></div>
           <div><label>P (g)</label><input id="maP" type="number" inputmode="decimal"></div>
           <div><label>F (g)</label><input id="maF" type="number" inputmode="decimal"></div>
           <div><label>C (g)</label><input id="maC" type="number" inputmode="decimal"></div>
@@ -977,7 +983,7 @@
         <summary>Goals</summary>
         <div class="row" style="margin-top:10px">
           <div style="flex:1.4"><label>Nutrient / biometric</label><select id="goalNutrient" onchange="onGoalTypeChange()">
-            <optgroup label="Nutrients"><option value="kcal">kcal</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></optgroup>
+            <optgroup label="Nutrients"><option value="kcal">Calories</option><option value="protein_g">protein</option><option value="fat_g">fat</option><option value="carb_g">carbs</option><option value="fiber_g">fiber</option></optgroup>
             <optgroup label="Biometrics"><option value="weight">Weight</option><option value="resting_hr">Resting HR</option><option value="hrv">HRV</option><option value="glucose">Glucose</option><option value="breath_ketones">Breath ketones</option><option value="bp_systolic">BP systolic</option><option value="bp_diastolic">BP diastolic</option><option value="sleep_hours">Sleep</option><option value="steps">Steps</option><option value="mood">Mood</option><option value="energy">Energy</option></optgroup>
           </select></div>
           <div><label>Target <span id="goalUnitHint" class="thint"></span></label><input id="goalValue" type="number" inputmode="decimal"></div>
@@ -996,7 +1002,7 @@
         <label class="checkline"><input type="checkbox" id="supEnabled"> Enable — auto-add to each new day</label>
         <label>Name</label><input id="supName" placeholder="e.g. Psyllium + D3 + B12">
         <div class="row">
-          <div><label>kcal</label><input id="supKcal" type="number" inputmode="decimal"></div>
+          <div><label>Calories</label><input id="supKcal" type="number" inputmode="decimal"></div>
           <div><label>P (g)</label><input id="supP" type="number" inputmode="decimal"></div>
           <div><label>F (g)</label><input id="supF" type="number" inputmode="decimal"></div>
           <div><label>C (g)</label><input id="supC" type="number" inputmode="decimal"></div>
@@ -1016,7 +1022,7 @@
     </div>
     <div class="card" data-setting="byok">
       <details>
-        <summary>Photo capture key (BYOK)</summary>
+        <summary>Your own AI key</summary>
         <div id="byokBox"></div>
       </details>
     </div>
@@ -1032,7 +1038,7 @@
           <div style="flex:0 0 130px"><label>Min hours</label><input id="fastMinHours" type="number" inputmode="decimal"></div>
         </div>
         <button class="btn" onclick="setFastingFromForm()">Save</button>
-        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-kcal drinks and the daily supplement don't break a fast.</div>
+        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-calorie drinks and the daily supplement don't break a fast.</div>
       </details>
     </div>
     <div class="card" data-setting="habits">
@@ -1046,7 +1052,7 @@
       <h2>AI photo prompt <small id="promptVersionSettings" class="pver" data-prompt-version></small></h2>
       <button class="btn" onclick="copyPrompt(this)">⇪ Copy prompt</button>
       <textarea id="promptTemplateSettings" data-prompt-box readonly></textarea>
-      <div class="note">Used two ways. Capture on the Photo screen sends it for you when an API key is saved; without one, copy it to your own AI assistant with a meal photo and paste the JSON reply into Ingest. Macros only — never micronutrients from a photo.</div>
+      <div class="note">Used two ways. Capture on the Photo screen sends it for you when an API key is saved; without one, copy it to your own AI assistant with a meal photo and paste its reply into "Add to my log". Calories, protein, fat, carbs and fibre only — never vitamins or minerals from a photo.</div>
     </div>
     <div class="card" data-setting="export">
       <h2>Export · copy data out</h2>

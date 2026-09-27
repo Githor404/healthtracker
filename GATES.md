@@ -4725,3 +4725,24 @@ brown, rarer than beef — as in CNF (lentil 12 rows, carrot 22, brown 41).
 app REMEMBERS:** built at setup time, D137's prior day turned D122's first-row dry
 pick into a cooked proposal and failed six assertions in the fixture beside it. It
 is built at its point of use.
+### D139 — the surface speaks the user's language — v0.52.0
+
+Measured on the shipped page at 390×844, visible text only: 737 distinct strings,
+of which about twenty carried internal vocabulary — `eyeballed` on 13 rows,
+`ai-paste` on every photo item, a bare `kcal` in 27 user-visible sites of 147.
+
+| case | asserts |
+|---|---|
+| D139-word **GATE** | a stored confidence and source render as **words a person would use**; an unmapped value passes through rather than printing “undefined” |
+| D139-word **GATE** | `wordCensus()` is **derived from the enums in both directions**, and **notices** a missing word and a word with no value — a census that cannot fail is not a census |
+| D139-cite **GATE** | a trailing **run** of preparation words is re-grouped; the segments before it **keep their order**; a name already ending in a parenthetical takes a dash; 57% of the corpus is returned **unchanged**; the head is **never dropped** |
+| D139-cite **GATE** | the display list carries words `foodState` ignores — two lists, two questions ([[D138]]) |
+| **jargon-gate.ps1** | **435 visible strings across 13 screens** carry none of eleven banned terms, and **do** carry eleven replacements — coverage before the floor ([[D124]]) |
+| **jargon-gate.ps1** | and the gate **tests its own instrument first**: a closed `<details>` keeps a bounding rect, the instrument must report it hidden anyway, and opening it must flip that |
+
+**The census harvests the page, it does not grep the source.** A grep cannot see a
+string built by concatenation across three lines, and most of these were ([[D131]]).
+
+**Sixteen existing assertions failed on the new words and were re-pointed carrying
+their history** ([[D92]]) — they were guarding the vocabulary, which is what an
+assertion on a rendered string is for when the string is the ruling.

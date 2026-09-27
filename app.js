@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.51.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.52.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1397,7 +1397,7 @@ function panelSlotLabel(slot) {
 function panelSlotUnit(slot) {
   const k = PANEL_SLOT_KEY[slot];
   if (k && MICRO_LABEL[k]) return MICRO_LABEL[k].unit;
-  if (slot === 208) return 'kcal';
+  if (slot === 208) return 'cal';
   if (slot === 268) return 'kJ';
   if (slot === 318) return 'IU';
   if (slot === 409) return 'NE';
@@ -1967,7 +1967,7 @@ function resolveRowsHTML(v) {
   const prop = v.proposed ? String(v.proposed.id) : null;
   return (v.candidates || []).map(function (c) {
     const kc = (c.kcal == null || c.kcal !== c.kcal) ? '' :
-      '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' kcal/100g</span>';
+      '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' cal/100g</span>';
     const mism = (want && c.state && c.state !== want)
       ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + hedge + esc(want) + '</span>' : '';
     // A proposal says WHY it is first, and records itself as a proposal when taken.
@@ -2035,7 +2035,7 @@ function resolveHTML() {
       // choice made without the thing that decides it.
       + '<div class="rvsub">Its vitamins and minerals will be used for your item, scaled to its weight.'
       + (v.mine != null && v.mine === v.mine
-          ? ' Yours is <b>' + esc(String(Math.round(v.mine))) + ' kcal/100g</b>.' : '')
+          ? ' Yours is <b>' + esc(String(Math.round(v.mine))) + ' cal/100g</b>.' : '')
       + '</div>' + resolveRowsHTML(v);
   // D127: the matcher's list is a PROPOSAL, and the escape from a wrong proposal
   // has to be where the proposal is. It was rendered on every list already and
@@ -2234,9 +2234,9 @@ function panelHTML(day) {
   items.forEach(function (it) { if (it && it.ref && it.ref.attribution) attr[it.ref.attribution] = 1; });
   const cites = Object.keys(attr);
   if (cites.length)
-    html += '<div class="pcite">Reference values: ' + esc(cites.join(' \u00b7 ')) + '</div>';
+    html += '<div class="pcite">Food database: ' + esc(cites.join(' \u00b7 ')) + '</div>';
   else if (anyRef)
-    html += '<div class="pcite">Reference values from the composition database.</div>';
+    html += '<div class="pcite">These numbers come from the food database, not from a package label.</div>';
   html += '<div class="pcite">\u2013 not measured \u00b7 0.00 measured zero \u00b7 &lt;step present but below the shown step. '
     + 'No percentages are shown: the app has no cited intake targets, and a target without a citation is a claim.</div>';
   return html;
@@ -2749,7 +2749,7 @@ function toAiPasteItem(raw) {
 // Four-shape non-destructive ingest. Returns a structured report (D8/5).
 function ingest(raw) {
   const text = cleanJSON(raw);
-  if (!text) return { ok: false, error: 'Nothing to ingest.' };
+  if (!text) return { ok: false, error: 'Nothing to add.' };
   let o;
   try { o = JSON.parse(text); }
   catch (e) { return { ok: false, error: 'Bad JSON: ' + e.message }; }
@@ -2793,7 +2793,7 @@ function ingestItems(o, report) {
   if (Array.isArray(o)) arr = o;
   else if (o && Array.isArray(o.items)) arr = o.items;
   else if (o && typeof o === 'object' && o.name != null) arr = [o];
-  else return { ok: false, error: 'Not a recognized ingest shape.' };
+  else return { ok: false, error: "This does not look like something the app can read." };
 
   const topDate = (o && !Array.isArray(o) && typeof o.date === 'string') ? o.date : null;
   const today = localDate();
@@ -2830,7 +2830,7 @@ function renderIngestReport(report) {
   if (report.created.length) L.push('Created ' + report.created.length + ' new day(s): ' + report.created.map(esc).join(', '));
   if (report.supplemented.length) L.push('Supplement injected: ' + report.supplemented.map(esc).join(', '));
   if (report.reopened.length) L.push('Reopened (was complete): ' + report.reopened.map(esc).join(', '));
-  if (report.stripped) L.push('Stripped micros from ' + report.stripped + ' AI-paste item(s) — honesty rule');
+  if (report.stripped) L.push('Dropped vitamins and minerals from ' + report.stripped + ' photo item(s) — honesty rule');
   if (report.skipped.length) L.push('Skipped ' + report.skipped.length + ' populated day(s): ' + report.skipped.map(esc).join(', '));
   if (report.rejectedItems) L.push('Rejected ' + report.rejectedItems + ' item(s) (no name / bad date)');
   if (!L.length) L.push('Nothing to add.');
@@ -2839,22 +2839,85 @@ function renderIngestReport(report) {
 function doIngest() {
   const box = document.getElementById('ingestBox');
   const raw = box ? box.value : '';
-  if (!raw.trim()) { toast('Paste JSON to ingest first'); return; }
+  if (!raw.trim()) { toast('Paste something first'); return; }
   const report = ingest(raw);
   renderIngestReport(report);
   if (report.ok) {
     if (box) box.value = '';
     const refs = report.itemRefs || [];   // AI-paste channel only; full-days merge has no per-item refs (see report)
-    if (refs.length) offerUndo('Ingested ' + refs.length + ' item' + (refs.length > 1 ? 's' : ''),
+    if (refs.length) offerUndo('Added ' + refs.length + ' item' + (refs.length > 1 ? 's' : ''),
       function () { refs.forEach(function (x) { const a = APP_STATE.days[x.d] && APP_STATE.days[x.d].items; if (a) { const i = a.indexOf(x.it); if (i >= 0) a.splice(i, 1); } }); Store.saveState(APP_STATE); refresh(); });
-    else toast('Ingested');
+    else toast('Added');
   }
-  else toast(report.error || 'Ingest failed');
+  else toast(report.error || 'Could not add that');
 }
 
 // ---- day view + goals (Phase 1) -------------------------------------------
 const RING_NUTRIENTS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g'];
-const NUTRIENT_LABELS = { kcal: 'kcal', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber' };
+const NUTRIENT_LABELS = { kcal: 'cal', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber' };
+// ---- D139: the surface speaks the user's language ---------------------------
+// The data contract keeps its own words (CONFIDENCES, SOURCES at the top of this
+// file) and the surface stops printing them. MEASURED on the shipped page at
+// 390x844: `eyeballed` appeared on 13 rows and `ai-paste` on every photo item,
+// because the stored token WAS the label.
+//
+// That makes the stored value and the displayed word two different things, which
+// is a new drift class: a value added to either enum with no word to show for it
+// would render as the raw token again. So the census is DERIVED FROM THE ENUMS
+// rather than hand-kept -- a list maintained by hand is defeated by the first
+// value that is added without it (D131).
+const CONF_WORD = { eyeballed: 'estimated', weighed: 'weighed', measured: 'measured' };
+const SOURCE_WORD = { scan: 'from barcode', 'ai-paste': 'from photo', manual: 'typed in',
+                      preset: 'saved item', supplement: 'daily supplement' };
+function confWord(v) { const k = String(v == null ? '' : v); return CONF_WORD[k] || k; }
+function sourceWord(v) { const k = String(v == null ? '' : v); return SOURCE_WORD[k] || k; }
+function wordCensus() {
+  const miss = [];
+  CONFIDENCES.forEach(function (v) { if (!CONF_WORD[v]) miss.push('confidence value with no word: ' + v); });
+  SOURCES.forEach(function (v) { if (!SOURCE_WORD[v]) miss.push('source value with no word: ' + v); });
+  Object.keys(CONF_WORD).forEach(function (k) { if (CONFIDENCES.indexOf(k) < 0) miss.push('confidence word with no value: ' + k); });
+  Object.keys(SOURCE_WORD).forEach(function (k) { if (SOURCES.indexOf(k) < 0) miss.push('source word with no value: ' + k); });
+  return { ok: !miss.length, missing: miss };
+}
+
+// ---- D139/E: a cited row name made readable WITHOUT being rewritten ---------
+// MEASURED across all 5,690 CNF rows: promoting the most specific segment to the
+// front -- by the corpus's own idf, D136's weight -- produces NONSENSE on real
+// names. "Soup, ramen noodles, any flavour, dry" becomes "Any flavour, Soup,
+// ramen noodles (dry)", because the rarest token sits in a qualifier as often as
+// in the identity. A rule that reads well on four names read badly on twenty.
+//
+// So nothing is reordered and nothing is dropped: a trailing run of preparation
+// words is re-grouped into a parenthetical. That changes 2,438 of 5,690 rows
+// (43%), median display length 41 characters, and it CANNOT invent a name. The
+// verbatim cited string stays one tap behind with its attribution, because the
+// name is part of the citation and re-punctuating it is the most this may do.
+//
+// TWO LISTS, TWO QUESTIONS -- D138's fold lesson. `foodState` needs words that
+// change the NUMBERS (dry vs cooked); a display name wants any trailing
+// preparation qualifier. Sharing one list would make one of them wrong.
+const NAME_TAIL_EXTRA = ['drained', 'unprepared', 'homemade'];
+function nameTailWords() {
+  return FOOD_STATE_WORDS.dry.concat(FOOD_STATE_WORDS.raw, FOOD_STATE_WORDS.cooked, NAME_TAIL_EXTRA);
+}
+function foodDisplayName(name) {
+  const raw = String(name == null ? '' : name);
+  const segs = raw.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+  if (segs.length < 2) return raw.trim();
+  const tail = [], words = nameTailWords();
+  while (segs.length > 1) {
+    const ws = segs[segs.length - 1].replace(/[^a-zA-Z ]+/g, ' ').split(/\s+/)
+      .filter(Boolean).map(function (w) { return w.toLowerCase(); });
+    if (!ws.length || !ws.every(function (w) { return words.indexOf(w) >= 0; })) break;
+    tail.unshift(segs.pop());
+  }
+  const head = segs.join(', ');
+  if (!tail.length) return head;
+  // A name that already ends in a parenthetical gets a dash instead, so the
+  // display never reads "... (pepeao) (raw)".
+  return /\)$/.test(head) ? head + ' \u2014 ' + tail.join(', ')
+                         : head + ' (' + tail.join(', ') + ')';
+}
 const CONF_DOT = { weighed: 'good', measured: 'accent', eyeballed: 'warn' };
 
 function curDay() { return APP_STATE && APP_STATE.days[APP_STATE.current]; }
@@ -3070,7 +3133,7 @@ function renderGoalsHTML(t, day) {
 function dayStatusBadge(dateKey, day) {
   if (!day || day.status === 'complete') return '';            // complete: no mark
   if (dateKey >= todayKey()) return '';                        // today (or ahead): the now-hand says it
-  return ' <span class="dstat">not closed · excluded from averages</span>';
+  return ' <span class="dstat">day not finished \u00b7 not counted in averages</span>';
 }
 // ---- R33 Fork F: the recall badge -----------------------------------------
 // A plate with remainder ASKS. The object itself never expires and is never
@@ -3152,7 +3215,7 @@ function renderDay() {
     // incomplete, so the group says so where the number is, not somewhere else.
     const gcov = macroCoverage({ items: gitems });
     const gnote = gcov.partial ? ` <small class="mcov">${esc(coverageNote(gcov))}</small>` : '';
-    html += `<div class="mealgrp"><div class="mealhead"><span>${esc(m)}</span><span>${esc(rDisp(gt.kcal))} kcal${gnote}</span></div>`;
+    html += `<div class="mealgrp"><div class="mealhead"><span>${esc(m)}</span><span>${esc(rDisp(gt.kcal))} cal${gnote}</span></div>`;
     groups[m].forEach((row) => {
       const it = row.it, idx = row.idx;
       const dot = CONF_DOT[it.confidence] || 'muted';
@@ -3174,22 +3237,35 @@ function renderDay() {
       // understatement this slice exists to remove, shown at item level.
       const macroMeta = itemHasMacros(it)
         ? `P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib`
-        : `<span class="munres">composition not recorded</span>`;
+        : `<span class="munres">no nutrition yet</span>`;
       const kcalCell = itemHasMacros(it)
-        ? `${esc(rDisp(it.kcal))}<small> kcal</small>`
+        ? `${esc(rDisp(it.kcal))}<small> cal</small>`
         : `<span class="munres">—</span>`;
         // D121 / E1: a resolved row says WHICH row it matched and that its micros
         // are reference values rather than label values. B1: an unresolved row
         // gets no badge and no nag -- 27 rows shouting would be worse than the
         // silence it replaces -- only a route, which the chip is.
+        // D139/E: the readable name leads; the SOURCE MARKER stays visible because
+        // a number that came from a database must say so wherever it is shown
+        // (D120's honesty rule, and D53 -- provenance may collapse, a statement
+        // about what the number IS may not). The verbatim cited row name and its
+        // attribution sit one tap behind, in a <details> that costs no layout
+        // until it is opened.
+        //
+        // "clear match" is NOT renamed. It was chosen after an item was deleted by
+        // mistake, so that only the red x carries the destructive word -- a
+        // vocabulary change here would undo a vocabulary ruling.
         const refline = it.ref
-          ? `<div class="mref">matched <b>${esc(it.ref.name || it.ref.id)}</b> \u00b7 reference values` +
+          ? `<div class="mref">from <b>${esc(foodDisplayName(it.ref.name || it.ref.id))}</b>` +
+            ` <span class="msrc">food database</span>` +
             ` <button class="linklike" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">change</button>` +
-            ` <button class="linklike" onclick="event.stopPropagation();clearItemRef('${esc(dk)}',${idx})">clear match</button></div>`
+            ` <button class="linklike" onclick="event.stopPropagation();clearItemRef('${esc(dk)}',${idx})">clear match</button>` +
+            `<details class="mcite" onclick="event.stopPropagation()"><summary>source</summary>` +
+            `<div class="mcitebody">${esc(it.ref.name || it.ref.id)}${it.ref.attribution ? ' \u00b7 ' + esc(it.ref.attribution) : ''}</div></details></div>`
           : (it._auto ? '' : `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`);
       html += `<div class="mitem"><div class="mmain"${open}>
           <div class="mname">${esc(it.name)}</div>
-          <div class="mmeta">${it.time ? esc(it.time) + ' · ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g · ' : ''}<span class="dot ${dot}"></span>${esc(it.confidence)} · ${macroMeta} · <span class="src">${esc(it.source || '')}</span>${edited}</div>
+          <div class="mmeta">${it.time ? esc(it.time) + ' \u00b7 ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
           ${chip}${refline}
         </div><div class="mkcal"${open}>${kcalCell}</div>${rm}</div>`;
     });
@@ -3201,7 +3277,7 @@ function renderDay() {
   // tap, a statement that the number is incomplete may not.
   const dcov = macroCoverage(day);
   const dnote = dcov.partial ? `<div class="daycov">${esc(coverageNote(dcov))}</div>` : '';
-  html += `<div class="daytot"><span>Total (est.)</span><span>${esc(rDisp(t.kcal))} kcal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}`;
+  html += `<div class="daytot"><span>Day total \u00b7 estimated</span><span>${esc(rDisp(t.kcal))} cal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}`;
   const w = day.water_l || 0;
   // D121 / A1: the NEXT TAP after a save. Offered once, for the meal just
   // logged, and it walks forward through that meal rather than asking the user
@@ -3246,7 +3322,7 @@ function trashHTML(dk) {
   return `<details class="trash"><summary>Recently deleted \u00b7 ${esc(String(rows.length))}</summary>` +
     rows.map(function (e) {
       return `<div class="trow"><span class="tmain">${esc(e.item.name || '')}` +
-        `<small>${e.item.time ? esc(e.item.time) + ' \u00b7 ' : ''}${esc(rDisp(e.item.kcal))} kcal</small></span>` +
+        `<small>${e.item.time ? esc(e.item.time) + ' \u00b7 ' : ''}${esc(rDisp(e.item.kcal))} cal</small></span>` +
         `<button type="button" class="btn" onclick="trashRestore('${esc(e.id)}')">Restore</button></div>`;
     }).join('') +
     `<div class="note">${esc(trashCapNote())}</div>` +
@@ -3429,7 +3505,7 @@ function repeatChipsHTML() {
   if (!recent.length) return '';
   return '<div class="rpthead">Recent \u2014 one tap to log again</div><div class="rptstrip">'
     + recent.map(function (r) {
-        const kc = (r.item && r.item.kcal != null) ? (' <small>' + esc(rDisp(r.item.kcal)) + ' kcal</small>') : '';
+        const kc = (r.item && r.item.kcal != null) ? (' <small>' + esc(rDisp(r.item.kcal)) + ' cal</small>') : '';
         return '<button type="button" class="qchip rptchip" onclick="logRepeat(\''
           + esc(r.date) + '\',' + esc(String(r.idx)) + ')">' + esc(r.name) + kc + '</button>';
       }).join('') + '</div>';
@@ -3603,7 +3679,7 @@ function openItemEdit(idx, focus) {
   return { ok: true };
 }
 function closeItemEdit() { ITEM_EDIT = null; refresh(); return { ok: true }; }
-const ITEM_MACROS = [['kcal', 'kcal'], ['protein_g', 'Protein g'], ['fat_g', 'Fat g'],
+const ITEM_MACROS = [['kcal', 'Calories'], ['protein_g', 'Protein g'], ['fat_g', 'Fat g'],
                      ['carb_g', 'Carb g'], ['fiber_g', 'Fibre g'], ['soluble_fiber_g', 'Soluble g']];
 function itemEditHTML(it, idx, focus) {
   const mealSel = `<select id="ieMeal"${focus === 'meal' ? ' autofocus' : ''}>` + MEALS.map((m) =>
@@ -3789,7 +3865,7 @@ const MICRO_SPEC = [
 ];
 const MICRO_LABEL = MICRO_SPEC.reduce((m, s) => { m[s.key] = s; return m; }, {});
 const MACRO_WARN = { kcal: 10000, protein_g: 1000, fat_g: 1000, carb_g: 1000, fiber_g: 1000, soluble_fiber_g: 1000 };
-const MACRO_LABEL = { kcal: 'kcal', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber', soluble_fiber_g: 'soluble fiber' };
+const MACRO_LABEL = { kcal: 'Calories', protein_g: 'protein', fat_g: 'fat', carb_g: 'carbs', fiber_g: 'fiber', soluble_fiber_g: 'soluble fiber' };
 
 // Non-blocking sane-range warnings — catch unit/typo errors, never reject.
 function manualWarnings(raw) {
@@ -4158,7 +4234,7 @@ function applyLookup(res) {
   renderScan();
 }
 function scanSummaryHTML(s) {
-  let h = `<div class="sumrow"><span>at ${esc(rDisp(s.grams))} g</span><span><b>${esc(rDisp(s.kcal))}</b> kcal</span></div>` +
+  let h = `<div class="sumrow"><span>at ${esc(rDisp(s.grams))} g</span><span><b>${esc(rDisp(s.kcal))}</b> cal</span></div>` +
     `<div class="sumrow"><span>P / F / C</span><span>${esc(rDisp(s.protein_g))} / ${esc(rDisp(s.fat_g))} / ${esc(rDisp(s.carb_g))} g</span></div>` +
     `<div class="sumrow"><span>fiber</span><span>${esc(rDisp(s.fiber_g))} g (${esc(rDisp(s.soluble_fiber_g))} sol)</span></div>`;
   if (s.micros) {
@@ -5093,7 +5169,7 @@ function renderTimelineOverlay() {
     const t = r.time ? esc(r.time) : '—';
     const note = r.notes ? ` <small>${esc(r.notes)}</small>` : '';
     if (r.row === 'food')
-      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(rDisp(r.kcal))} kcal</small></span></div>`;
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(rDisp(r.kcal))} cal</small></span></div>`;
     // FORK H (ruled): the ROW BODY opens the editor; the x keeps its own thumb
     // path. D44's instinct -- a destructive action must not share a target with a
     // routine one -- and it costs the dense row no new chrome.
@@ -5598,7 +5674,7 @@ function renderPresets() {
   if (!presets.length) { el.innerHTML = '<div class="note">No presets yet. Fill the form above and tap "Save as preset."</div>'; return; }
   el.innerHTML = presets.map((p) =>
     `<div class="presetrow"><div class="pmain"><div class="pname">${esc(p.name)}</div>` +
-    `<div class="pmeta">${esc(rDisp(p.kcal))} kcal · P ${esc(rDisp(p.protein_g))} F ${esc(rDisp(p.fat_g))} C ${esc(rDisp(p.carb_g))}` +
+    `<div class="pmeta">${esc(rDisp(p.kcal))} cal · P ${esc(rDisp(p.protein_g))} F ${esc(rDisp(p.fat_g))} C ${esc(rDisp(p.carb_g))}` +
     `${p.portion ? ' · ' + esc(p.portion) : ''}${p.micros ? ' · micros' : ''}</div></div>` +
     `<button class="btn" onclick="logPreset('${esc(p.id)}')">Log</button>` +
     `<button class="prm" onclick="deletePreset('${esc(p.id)}')" title="delete preset">×</button></div>`).join('');
@@ -5758,7 +5834,7 @@ function avgBlockHTML(label, a) {
   if (nM === 0) {
     html += `<div class="avgmacros">No day in this window has complete macro data.</div>`;
   } else {
-    html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> kcal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
+    html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> cal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
   }
   const mk = Object.keys(a.micros);
   if (mk.length) {
@@ -6075,7 +6151,7 @@ function typicalSVG(model, sourced) {
   return `<svg class="tbsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${band}${src}${bars}${med}</svg>`;
 }
 
-function typicalUnit(nutrient) { return nutrient === 'kcal' ? 'kcal' : 'g'; }
+function typicalUnit(nutrient) { return nutrient === 'kcal' ? 'cal' : 'g'; }
 
 // Fork J1. Each leg reports a SPAN, not a typical, so the floor does not gate it
 // -- a floor of 8 applied per leg would blank the 3-day leg permanently, since 3
@@ -6135,7 +6211,7 @@ function typicalRowHTML(sourced) {
 
   // The exclusions, in D90's words, each with its own count.
   const why = [];
-  if (model.omitted > 0) why.push(`${esc(model.omitted)} day${model.omitted === 1 ? '' : 's'} \u2014 composition not recorded`);
+  if (model.omitted > 0) why.push(`${esc(model.omitted)} day${model.omitted === 1 ? '' : 's'} \u2014 nutrition incomplete`);
   if (model.empty > 0) why.push(`${esc(model.empty)} day${model.empty === 1 ? '' : 's'} \u2014 nothing logged`);
   if (why.length) html += `<div class="tsum"><small class="tcov">left out: ${why.join(' \u00b7 ')}</small></div>`;
 
@@ -6225,7 +6301,7 @@ function renderTrends() {
   html += bio;
   const fs = fastingStats(win);
   if (fs.count > 0 || fs.pending > 0) {
-    const pend = fs.pending > 0 ? ` <small class="tcov">${esc(fs.pending)} unresolved — resolve to update</small>` : '';
+    const pend = fs.pending > 0 ? ` <small class="tcov">${esc(fs.pending)} item${fs.pending === 1 ? '' : 's'} without nutrition</small>` : '';
     html += `<div class="trow"><div class="thead">Fasting</div><div class="tsum">streak ${esc(fs.streak)} day${fs.streak === 1 ? '' : 's'}${pend} · ${esc(fs.count)} confirmed · avg ${esc(rDisp(fs.avg))}h · longest ${esc(rDisp(fs.longest))}h</div></div>`;
   }
   const ms = macroSeries('kcal', win);
@@ -6244,10 +6320,10 @@ function renderTrends() {
     // R31's gate asserts it verbatim, and that property did not change.
     const omitWord = (k) => `${esc(k)} day${k === 1 ? '' : 's'} omitted`;
     const why = [];
-    if (ms.omitted > 0) why.push(`${omitWord(ms.omitted)} — composition not recorded`);
+    if (ms.omitted > 0) why.push(`${omitWord(ms.omitted)} \u2014 nutrition incomplete`);
     if (ms.empty > 0) why.push(`${omitWord(ms.empty)} — nothing logged`);
     const omit = why.length ? ` <small class="tcov">${why.join(' · ')}</small>` : '';
-    html += `<div class="trow"><div class="thead">Energy <small>kcal · complete days only</small></div>${sparklineSVG(ms.points)}`
+    html += `<div class="trow"><div class="thead">Energy <small>Calories · complete days only</small></div>${sparklineSVG(ms.points)}`
       + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}${omit}</div></div>`;
   }
   // H7 (Fork A1): a row of its own on Trends. It is deliberately NOT gated on the
@@ -6711,7 +6787,7 @@ function renderOnboarding() {
   el.innerHTML = `<h2>Welcome</h2>
     <p class="obtext">Two ways to log food:</p>
     <ul class="oblist">
-      <li><b>AI photo:</b> copy the prompt (below), send it to your AI assistant with a meal photo, then paste the JSON it returns into <b>Ingest</b>.</li>
+      <li><b>AI photo:</b> copy the prompt (below), send it to your AI assistant with a meal photo, then paste what it gives you back into <b>Add to my log</b>.</li>
       <li><b>Manual:</b> type it in under <b>Add manually</b> — also where package-label micronutrients go.</li>
     </ul>
     <p class="obtext"><a href="#" onclick="scrollToGoals();return false">Set a daily goal</a> to light up the ring (optional). All data stays on this device — export anytime.</p>`;
@@ -6796,7 +6872,7 @@ function renderPhotoDraftInner() {
         <span class="pmunit">g</span>
       </div>
       <button type="button" class="btn primary pmok" onclick="photoConfirmLead()">Confirm ${amt}</button>
-      ${photoItemUnresolved(lt) ? `<div class="pmnote"><span class="pmunres">composition not recorded</span></div>` : ''}
+      ${photoItemUnresolved(lt) ? `<div class="pmnote"><span class="pmunres">no nutrition yet</span></div>` : ''}
       ${identityOptionsHTML(li, lt)}
     </div>`;
   }
@@ -6824,8 +6900,8 @@ function renderPhotoDraftInner() {
     // said it is not. The portion control stays -- the grams are still known.
     const unres = photoItemUnresolved(it);
     const meta = unres
-      ? `<span class="pmunres">composition not recorded</span>${est}`
-      : `${esc(rDisp(m.kcal))} kcal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}${est}`;
+      ? `<span class="pmunres">no nutrition yet</span>${est}`
+      : `${esc(rDisp(m.kcal))} cal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}${est}`;
     // Fork C1: on a PLATE the off-ramp sits on every row, beside the estimate rather
     // than instead of it. Suppressing a low-confidence dominant item here would
     // strand the shared-scale correction -- there would be nothing to anchor from
@@ -6875,7 +6951,7 @@ function renderPhotoDraftInner() {
   }
   const consumeHTML = d.consumeOpen ? consumeQuestionHTML(d) : '';
   el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}${photoAddFormHTML()}${consumeHTML}
-    <div class="pmtot">${esc(rDisp(tot.kcal))} kcal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
+    <div class="pmtot">${esc(rDisp(tot.kcal))} cal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
     </div>`;
 }
 // R21: the ONE door into a draft. The paste path and the direct-call path both
@@ -7490,7 +7566,7 @@ function renderHistory() {
     const hnote = hcov.partial ? ` · <span class="hcov">${esc(coverageNote(hcov))}</span>` : '';
     return `<div class="hrow" role="button" tabindex="0" onclick="dayJump('${esc(d)}', true)">
         <div class="hd"><span class="hdate">${esc(fmtDateSmart(d, true))}</span>${flag}</div>
-        <div class="hmeta">${esc(rDisp(t.kcal))} kcal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
+        <div class="hmeta">${esc(rDisp(t.kcal))} cal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
       </div>`;
   }).join('');
 }
@@ -7658,6 +7734,7 @@ const VERSION_LOG = [
   { v: '0.49.2', d: '2026-09-25', note: 'The match a food remembers can no longer be one you made by overriding a warning. Going ahead once, for one item, was a decision about that item — it does not become the answer offered for every future one. And a remembered match still asks first when its state differs from your food: “you chose this before” is a reason to show a row, never a reason to skip the question.' },
   { v: '0.50.0', d: '2026-09-26', note: 'Finding nutrients for a dish got better at three things. A common word no longer drowns a rare one — asking about ramen noodles stopped offering crackers and bread because they share the word “wheat”. A food you have matched before is recognised even when the photo describes it differently (“cooked wheat ramen noodles” against “ramen noodles”). And the search box for a different word now starts empty, instead of pre-filled with the name that just produced the wrong list.' },
   { v: '0.51.0', d: '2026-09-26', note: 'A remembered match now says which meal it came from — “you chose this for “ramen noodle soup” on Sep 1” — instead of only “you chose this for this food before”. The app recognises a food across rewordings, and two dishes that are not quite the same can be recognised as one; naming the meal the answer came from lets you see that before you accept it.' },
+  { v: '0.52.0', d: '2026-09-26', note: 'The app now says things in plain words. Calories are “cal” on a row and “Calories” on a heading; a food logged from a photo says “from photo” instead of “ai-paste”, and an estimate says “estimated” instead of “eyeballed”. A food matched to the nutrition database now leads with a readable name — “Lentils (boiled)” rather than “Lentils, boiled” — keeps a visible “food database” marker so you always know where the numbers came from, and carries the exact database name and its source under “source”. Nothing was removed: every number, source and citation is still there.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9485,7 +9562,7 @@ function photoToggleAddForm(on) {
 // Macros are asked for AS EATEN, not per 100 g. "The chicken was about 120 g and
 // about 200 kcal" is the sentence people can actually say; per-100 g density is a
 // unit nobody holds a plate in. The conversion happens once, inside photoAddItem.
-const PHOTO_ADD_FIELDS = [['kcal', 'kcal'], ['protein_g', 'Protein g'], ['fat_g', 'Fat g'],
+const PHOTO_ADD_FIELDS = [['kcal', 'Calories'], ['protein_g', 'Protein g'], ['fat_g', 'Fat g'],
                           ['carb_g', 'Carb g'], ['fiber_g', 'Fibre g'], ['soluble_fiber_g', 'Soluble g']];
 function photoAddFormHTML() {
   if (!PHOTO_ADD_OPEN) {
@@ -10382,7 +10459,7 @@ function rhythmCenterHTML(model) {
     : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>`;
   const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
   return `<div class="ringval rcenter"${tap}>` + body + openLine +
-    (pend.length ? `<span class="rcsub rctap">tap to resolve ${esc(pend.length)} pending</span>` : '') + `</div>`;
+    (pend.length ? `<span class="rcsub rctap">${esc(pend.length)} item${pend.length === 1 ? '' : 's'} need nutrients</span>` : '') + `</div>`;
 }
 // The resolve row -- BELOW the ring, never inside it.
 function resolveRowHTML() {
@@ -10581,7 +10658,7 @@ function renderQuickChips() {
     return;
   }
   el.innerHTML = rpt + "<div class=\"rpthead\">Saved presets</div>" + presets.map((p) => {
-    const sub = [rDisp(num(p.kcal)) + ' kcal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
+    const sub = [rDisp(num(p.kcal)) + ' cal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
     return `<button type="button" class="qchip" onclick="quickLog('${esc(String(p.id))}')">${esc(p.name)}<small>${esc(sub)}</small></button>`;
   }).join('');
 }
@@ -10992,7 +11069,7 @@ function trashText() {
   if (!all.length) return 'Nothing deleted recently.';
   return all.map(function (e) {
     return e.date + '  ' + (e.item.time || '') + '  ' + (e.item.name || '') +
-      '  ' + rDisp(e.item.kcal) + ' kcal';
+      '  ' + rDisp(e.item.kcal) + ' cal';
   }).join('\n');
 }
 function copyTrash() { return copyTextOut(trashText(), 'Deleted list', 'trashCopyBox'); }
@@ -12656,6 +12733,9 @@ window.HT = {
   matchIdf, matchFold, matchKey, matchKeyIn, matchKeyDf, setMatchIndex, rememberedRow, refsToReview, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,
   resolvePlan, resolveView, resolveOpen, resolveClose, resolveSearch, resolvePick, resolveRowsHTML, proposedWhy,
   foodState, itemState, resolveRank, FOOD_STATE_WORDS,
+  // D139 -- the surface's own vocabulary, and the census that keeps it honest
+  CONF_WORD, SOURCE_WORD, confWord, sourceWord, wordCensus,
+  foodDisplayName, nameTailWords, NAME_TAIL_EXTRA,
   resolveWalkStart, resolveWalkState, resolveWalkNext, resolveWalkOpen, resolveWalkDismiss,
   resolveHTML, renderResolve,
   panelFamily, panelIsEquivalent, panelRollup, panelCoverageLine,

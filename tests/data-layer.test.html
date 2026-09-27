@@ -399,7 +399,11 @@ window.setLS({});
   var rM3 = HT.addManualEntry({ name:'Salty', meal:'snack', kcal:100, micros:{ sodium_mg:15000 } });
   res(rM3.ok && rM3.warnings.some(function(w){ return /sodium/i.test(w); }), 'M3: sodium 15000 warns');
   res(!!HT.state().days[td].items.find(function(i){ return i.name==='Salty'; }), 'M3: item added despite warning (non-blocking)');
-  res(HT.manualWarnings({ name:'x', kcal:20000 }).some(function(w){ return /kcal/.test(w); }), 'M3: macro warn (kcal > 10000)');
+  // Re-pointed by D139, carrying its history: the warning still has to fire on
+  // an out-of-range energy value -- it now says "Calories" rather than the unit
+  // token, because a sentence shown to a person is a heading, not a row.
+  res(HT.manualWarnings({ name:'x', kcal:20000 }).some(function(w){ return /Calories/.test(w); }),
+      'M3: macro warn (energy > 10000) -- re-pointed by D139 to the word the sentence now uses');
 
   // M4. manual add onto a complete day reopens it
   setLS({}); HT.boot();
@@ -3072,7 +3076,7 @@ window.setLS({});
             'R21.5-success: a parsed reply opens the modal, and the modal is the outcome');
         res(o.body.indexOf('pmlead') >= 0 && o.body.indexOf('type="range"') >= 0,
             'R21.5-success: the confirm-first lead question and its slider are IN the modal');
-        res(o.body.indexOf('pmtot') >= 0 && o.body.indexOf('kcal') >= 0,
+        res(o.body.indexOf('pmtot') >= 0 && o.body.indexOf(' cal ') >= 0,   // word moved by D139
             'R21.5-success: with the live macro total');
         res(o.foot.indexOf('photoSave()') >= 0 && o.foot.indexOf('photoDiscard()') >= 0,
             'R21.5-success: and exactly two actions, Save meal and Discard');
@@ -4944,7 +4948,7 @@ window.setLS({});
   var pend8 = HT.pendingFastCandidates();
   res(pend8.length>0 && pend8.every(function(c){return c.state==='pending';}),
       'R8-centre: pending candidates come from detectFastCandidates, unchanged');
-  res(/tap to resolve/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),
+  res(/need nutrients/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),   // word moved by D139
       'R8-centre: with a pending candidate present the centre offers the resolve');
   HT.focusPendingResolve();
   // R13: the resolve is EVICTED from the centre -- it opens BELOW the ring.
@@ -6365,8 +6369,8 @@ window.setLS({});
   res(HT.dayStatusBadge(td, HT.state().days[td])==='', 'DS-badge: today carries NO status badge (the now-hand already says it)');
   res(HT.dayStatusBadge(older, HT.state().days[older])==='', 'DS-badge: a complete past day carries no mark');
   var pb = HT.dayStatusBadge(past, HT.state().days[past]);
-  res(pb!=='' && /not closed/.test(pb), 'DS-badge: a PAST UNCLOSED day is the one state that keeps a visible label');
-  res(/excluded from averages/.test(pb), 'DS-badge: the label surfaces the silent consequence — it sits out of averages (D10)');
+  res(pb!=='' && /day not finished/.test(pb), 'DS-badge: a PAST UNCLOSED day is the one state that keeps a visible label -- wording moved by D139');
+  res(/not counted in averages/.test(pb), 'DS-badge: the label surfaces the silent consequence — it sits out of averages (D10)');
   HT.state().days[past].status = 'complete';
   res(HT.dayStatusBadge(past, HT.state().days[past])==='', 'DS-badge: closing the day removes the label');
   HT.state().days[past].status = 'in_progress';
@@ -7600,7 +7604,7 @@ window.setLS({});
       'R31-total GATE: the DAY-TOTAL row says so, in the same words the micronutrient rows already use');
   res(mealCov.indexOf('from 2 of 3 items') >= 0,
       'R31-total GATE: and the MEAL GROUP head says so separately -- its kcal figure understates by exactly as much, and it is a second number on a second line');
-  res(dv31.indexOf('composition not recorded') >= 0,
+  res(dv31.indexOf('no nutrition yet') >= 0,   // word moved by D139
       'R31-total: the unresolved row states the absence rather than printing a number nobody supplied');
 
   // ---- R31-not-zero GATE: falsifiable, per D60 Clause 4 --------------------
@@ -7625,7 +7629,7 @@ window.setLS({});
   res(!/\d/.test(soloKcalTxt) && !/P \d/.test(soloMetaTxt),
       'R31-not-zero GATE: the ONLY item on the day is unresolved, and NO digit reaches its kcal cell and no macro figure reaches its meta line -- rDisp(undefined) is the string "0", so an unguarded render prints exactly that');
   var plantedKcal = stripTags(soloKcal.replace('<span class="munres">—</span>', '0<small> kcal</small>'));
-  var plantedMeta = stripTags(soloMeta.replace('<span class="munres">composition not recorded</span>', 'P 0 F 0 C 0'));
+  var plantedMeta = stripTags(soloMeta.replace('<span class="munres">no nutrition yet</span>', 'P 0 F 0 C 0'));   // word moved by D139
   res(/\d/.test(plantedKcal) && /P \d/.test(plantedMeta),
       'R31-not-zero CONTROL: the same two assertions FIND the zeros once the cells print them, so the gate can fail');
   res(HT.dayTotals(soloDay).kcal === 0 && HT.macroCoverage(soloDay).n === 0,
@@ -7693,7 +7697,7 @@ window.setLS({});
   res(trHTML.indexOf('1 day omitted') >= 0,
       'R31-trend GATE: and the omission is STATED -- a silently shorter series looks like days that were never logged');
   var trOmit = r31slice(trHTML, '<small class="tcov">1 day omitted');
-  res(trOmit.indexOf('unresolved') < 0 && trOmit.indexOf('composition not recorded') >= 0,
+  res(trOmit.indexOf('unresolved') < 0 && trOmit.indexOf('nutrition incomplete') >= 0,   // word moved by D139
       'R31-trend: the word "unresolved" is not borrowed for this note -- the fasting row uses it for something else entirely, and two meanings on adjacent rows is one meaning too many');
 
   // ---- R31-flag: the allowlist trap, seventh occurrence --------------------
@@ -7901,7 +7905,7 @@ window.setLS({});
   res(itNone.aiIdentity === 'Zucchini fritter',
       'R30-none-of-these: the model’s guess survives as provenance rather than as the food’s name');
   var hNone = r30draftHTML();
-  res(hNone.indexOf('composition not recorded') >= 0 && hNone.indexOf('from 0 of 1 items') >= 0,
+  res(hNone.indexOf('no nutrition yet') >= 0 && hNone.indexOf('from 0 of 1 items') >= 0,   // word moved by D139
       'R30-none-of-these GATE: the row states the absence and the draft total says how much of the meal it knows -- R31’s sentence, reached from the path it was built for');
   HT.photoSetGrams(0, 250);
   var savedNone = HT.photoSave();
@@ -9504,6 +9508,78 @@ window.setLS({});
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
 
+  // ---- D139: the surface speaks the user's language ---------------------
+  // MEASURED on the shipped page at 390x844 before this slice: `eyeballed`
+  // rendered on 13 rows and `ai-paste` on every photo item, because the STORED
+  // TOKEN WAS THE LABEL. The contract keeps its words; the surface gets its own.
+  res(HT.confWord('eyeballed') === 'estimated' && HT.confWord('measured') === 'measured',
+      'D139-word GATE: a stored confidence renders as a word a person would use, not as the enum value');
+  res(HT.sourceWord('ai-paste') === 'from photo' && HT.sourceWord('scan') === 'from barcode',
+      'D139-word GATE: and so does a stored source -- \u201cai-paste\u201d was a hyphenated internal token on every photo item');
+  res(HT.confWord('') === '' && HT.sourceWord(undefined) === '' && HT.sourceWord('novel') === 'novel',
+      'D139-word fixture: an unmapped value passes through unchanged rather than rendering as \u201cundefined\u201d');
+
+  // The census is DERIVED from the enums, so a value added without a word fails
+  // by name rather than quietly rendering as its raw token again (D131).
+  res(HT.wordCensus().ok === true,
+      'D139-word GATE: every value in the data contract has a word to show for it');
+  var _cw = HT.CONF_WORD.eyeballed;
+  delete HT.CONF_WORD.eyeballed;
+  var _gap = HT.wordCensus();
+  HT.CONF_WORD.eyeballed = _cw;
+  res(_gap.ok === false && _gap.missing.join(' ').indexOf('eyeballed') >= 0,
+      'D139-word GATE: and the census NOTICES a missing word, naming the value -- a census that cannot fail is not a census (D96)');
+  var _sw = HT.SOURCE_WORD.scan;
+  HT.SOURCE_WORD.mystery = 'from nowhere';
+  var _extra = HT.wordCensus();
+  delete HT.SOURCE_WORD.mystery;
+  res(_extra.ok === false && _extra.missing.join(' ').indexOf('mystery') >= 0,
+      'D139-word GATE: and a word with no value behind it fails too -- a label for something the contract cannot store is a label that will never show');
+  // The census has FOUR directions and this gate first exercised only two, so two
+  // plants that deleted a whole direction passed. Both remaining directions are
+  // now driven: a SOURCE value with no word, and a CONFIDENCE word with no value.
+  var _sp = HT.SOURCE_WORD.preset;
+  delete HT.SOURCE_WORD.preset;
+  var _gap2 = HT.wordCensus();
+  HT.SOURCE_WORD.preset = _sp;
+  res(_gap2.ok === false && _gap2.missing.join(' ').indexOf('preset') >= 0,
+      'D139-word GATE: a SOURCE value with no word is named too -- the census covers both enums, not just the first one written');
+  HT.CONF_WORD.invented = 'made up';
+  var _extra2 = HT.wordCensus();
+  delete HT.CONF_WORD.invented;
+  res(_extra2.ok === false && _extra2.missing.join(' ').indexOf('invented') >= 0,
+      'D139-word GATE: and a CONFIDENCE word with no value is named -- all four directions of the census are driven, or a plant can delete one and pass');
+  res(HT.SOURCE_WORD.scan === _sw && HT.wordCensus().ok === true,
+      'D139-word fixture: the maps are restored, so the cases above did not leave the census broken for everything after them');
+
+  // ---- the cited row name, made readable without being rewritten --------
+  // MEASURED across all 5,690 CNF rows: promoting the most specific segment to
+  // the front by corpus idf produces NONSENSE -- \u201cSoup, ramen noodles, any
+  // flavour, dry\u201d becomes \u201cAny flavour, Soup, ramen noodles (dry)\u201d. So nothing is
+  // reordered and nothing is dropped; only a trailing run of preparation words
+  // is re-grouped. 2,438 of 5,690 rows (43%) change.
+  res(HT.foodDisplayName('Lentils, boiled') === 'Lentils (boiled)',
+      'D139-cite GATE: a trailing preparation word is re-grouped into a parenthetical, which is the whole of the transform');
+  res(HT.foodDisplayName('Beets, boiled, drained') === 'Beets (boiled, drained)',
+      'D139-cite GATE: a RUN of them moves together, rather than one word at a time');
+  res(HT.foodDisplayName('Pasta, spaghetti, enriched, cooked') === 'Pasta, spaghetti, enriched (cooked)',
+      'D139-cite GATE: and the segments BEFORE it keep their order -- the citation is not re-written, only re-punctuated');
+  res(HT.foodDisplayName("Jew's ear (cloud or wood ear, pepeao), raw")
+      === "Jew's ear (cloud or wood ear, pepeao) \u2014 raw",
+      'D139-cite GATE: a name that already ends in a parenthetical takes a dash, so the display never reads \u201c... (pepeao) (raw)\u201d');
+  res(HT.foodDisplayName('Soup, broth, fish') === 'Soup, broth, fish'
+      && HT.foodDisplayName('Cracker, whole-wheat') === 'Cracker, whole-wheat',
+      'D139-cite GATE: a name with no trailing preparation word is returned UNCHANGED -- 57% of the corpus is, and inventing a form for it would be a rewrite');
+  res(HT.foodDisplayName('Bamboo shoots') === 'Bamboo shoots' && HT.foodDisplayName('') === ''
+      && HT.foodDisplayName(null) === '',
+      'D139-cite fixture: one segment, empty and null survive the transform');
+  res(HT.foodDisplayName('Vegetables, mixed, frozen, unprepared').indexOf('Vegetables, mixed') === 0,
+      'D139-cite GATE: the head of the name is never dropped -- shortening happens in CSS, where it costs no information');
+  // TWO LISTS, TWO QUESTIONS (D138's fold lesson): foodState needs words that
+  // change the NUMBERS; a display name wants any trailing preparation word.
+  res(HT.NAME_TAIL_EXTRA.indexOf('drained') >= 0 && HT.foodState('Beets, boiled, drained') === 'cooked',
+      'D139-cite GATE: the display list carries words foodState deliberately ignores, and sharing one list would make one of them wrong');
+
   // ---- D137: a memory proposal names the item it came from ---------------
   // MEASURED on the user's own 62-item export: the shipped two-rarest key merges
   // five keys, and one is a merge across a REAL difference --
@@ -9927,13 +10003,13 @@ window.setLS({});
   var RHi = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'inferred', candidates: RAM125 });
   res(RHi.indexOf('dry \u2014 yours is probably cooked') > 0,
       'D125-label GATE: a mismatch against an INFERRED state is still labelled, worded to what the app actually knows');
-  res(RHi.indexOf('440 kcal/100g') > 0 && RHi.indexOf('138 kcal/100g') > 0,
+  res(RHi.indexOf('440 cal/100g') > 0 && RHi.indexOf('138 cal/100g') > 0,   // unit word moved by D139
       'D125-label GATE: and the kcal pair stays on every row -- 440 beside 138 is what made the dry rows obvious, and it works whether or not anything was reordered');
   var RHn = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'name', candidates: RAM125 });
   res(RHn.indexOf('dry \u2014 yours is cooked') > 0 && RHn.indexOf('probably') < 0,
       'D125-label GATE: a mismatch against a STATED state keeps D122 wording, unhedged');
   var RHw = HT.resolveRowsHTML({ want: 'cooked', wantSrc: 'inferred', candidates: WOOD });
-  res(RHw.indexOf('raw \u2014 yours is probably cooked') > 0 && RHw.indexOf('25 kcal/100g') > 0,
+  res(RHw.indexOf('raw \u2014 yours is probably cooked') > 0 && RHw.indexOf('25 cal/100g') > 0,   // unit word moved by D139
       'D125-label GATE: the wood ear rows stay at the top AND say how they differ -- the evidence does the work the reordering used to');
 
   // ---- the record can testify -------------------------------------------
@@ -10065,7 +10141,7 @@ window.setLS({});
 
   // ---- the row says the mismatch, and shows two facts --------------------
   var RH122 = HT.resolveRowsHTML({ want: 'cooked', candidates: RANKED });
-  res(RH122.indexOf('385 kcal/100g') > 0 && RH122.indexOf('138 kcal/100g') > 0,
+  res(RH122.indexOf('385 cal/100g') > 0 && RH122.indexOf('138 cal/100g') > 0,   // unit word moved by D139
       'D122-row GATE: every candidate shows its own kcal per 100 g -- two facts side by side, which is what makes the right pick visible');
   res(RH122.indexOf('dry \u2014 yours is cooked') > 0,
       'D122-row GATE: and a mismatched row SAYS SO on the row, where the choice is made');
@@ -10143,7 +10219,7 @@ window.setLS({});
     attribution: 'Canadian Nutrient File, Health Canada, 2015', v: { 301: 350 } };
   HT.refresh();
   var dv121b = document.getElementById('dayView').innerHTML;
-  res(dv121b.indexOf('Cheese, cheddar') >= 0 && dv121b.indexOf('reference values') >= 0,
+  res(dv121b.indexOf('Cheese, cheddar') >= 0 && dv121b.indexOf('food database') >= 0,   // word moved by D139, and the marker must stay VISIBLE
       'D121-row GATE: a RESOLVED row says which row it matched and that its micros are reference values, not label values (E1)');
   // D130 re-point (D92, history carried): this matched the WORD 'remove', which
   // the row no longer says. It says 'clear match', because the word collided with
@@ -11109,7 +11185,7 @@ window.setLS({});
       'D90-two-reasons GATE: a macro-short day and an empty day are counted separately, never summed into one "2 days omitted"');
   HT.renderTrends();
   var tr90b = document.getElementById('trends').innerHTML;
-  res(tr90b.indexOf('1 day omitted \u2014 composition not recorded') >= 0 &&
+  res(tr90b.indexOf('1 day omitted \u2014 nutrition incomplete') >= 0 &&   // word moved by D139
       tr90b.indexOf('1 day omitted \u2014 nothing logged') >= 0,
       'D90-two-reasons GATE: and the surface says both, each with its own count and its own reason');
 
@@ -11278,7 +11354,7 @@ window.setLS({});
       'D93-vocab GATE: M7\u2019s banned list over the item row\u2019s VISIBLE TEXT -- the dot is a coloured circle with no words, so the token never reaches the reader as vocabulary');
   res(banned93.filter(function(w){ return (d93text + ' you should try to do better').indexOf(w) >= 0; }).length > 0,
       'D93-vocab CONTROL: the same grep fires on planted evaluative text -- it is not vacuous');
-  res(d93text.indexOf('weighed') >= 0 && d93text.indexOf('eyeballed') >= 0 && d93text.indexOf('manual') >= 0,
+  res(d93text.indexOf('weighed') >= 0 && d93text.indexOf('estimated') >= 0 && d93text.indexOf('typed in') >= 0,   // words moved by D139; the row still says how the number was arrived at
       'D93-vocab: and the provenance WORDS are still there -- the row says how the number was arrived at, which is the thing being protected');
 
   // The unresolved row states absence and still carries no verdict (R31 x D93).
@@ -11287,7 +11363,7 @@ window.setLS({});
   HT.resave(); HT.renderDay();
   var d93unres = Array.prototype.slice.call(document.querySelectorAll('#dayView .mitem'))
     .map(function(r){ return r.textContent; }).join(' ').toLowerCase();
-  res(d93unres.indexOf('composition not recorded') >= 0 &&
+  res(d93unres.indexOf('no nutrition yet') >= 0 &&   // word moved by D139
       banned93.filter(function(w){ return d93unres.indexOf(w) >= 0; }).length === 0,
       'D93-vocab GATE: a row that states an ABSENCE still says nothing evaluative -- the sentence R31 added is a fact about the record, not a mark against the user');
 
@@ -11363,7 +11439,7 @@ window.setLS({});
   HT.renderTrends();
   var h7t2 = Array.prototype.slice.call(document.querySelectorAll('#trends .trow'))
     .filter(function(r){ var h = r.querySelector('.thead'); return h && /^Typical/.test(h.textContent); })[0].textContent;
-  res(h7t2.indexOf('1 day — composition not recorded') >= 0 && h7t2.indexOf('1 day — nothing logged') >= 0,
+  res(h7t2.indexOf('1 day — nutrition incomplete') >= 0 && h7t2.indexOf('1 day — nothing logged') >= 0,   // word moved by D139
       'H7-macro-short GATE: and the surface names both reasons in D90\u2019s words, never merged into one count');
   res(/median of 10 of 12 days/.test(h7t2),
       'H7-macro-short GATE: the denominator moves with them -- 10 of 12, so the excluded days are visible as a number and not only as a sentence');
