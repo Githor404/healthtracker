@@ -579,13 +579,24 @@
   .pgrp{margin:10px 0}
   .phead{font-size:16px;font-weight:700;padding:4px 0;border-bottom:1px solid var(--line)}
   .pfam{font-size:16px;color:var(--muted);padding:3px 0}
-  .prow{display:flex;align-items:baseline;gap:8px;padding:3px 0;font-size:16px}
+  /* D140: the row is a BLOCK. The label and the value are the only two items
+     on their flex line, so nothing else can take the width -- the per-row
+     coverage sentence asked for flex-basis 100% and starved the label until
+     its text painted over the value on 26 of 46 rows. */
+  .prow{padding:3px 0;font-size:16px}
+  .pline{display:flex;align-items:baseline;gap:8px}
   .pd1{padding-left:14px}
   .pd2{padding-left:28px}
   .pabs{color:var(--muted)}
-  .pname{flex:1 1 auto;min-width:0}
-  .pval{font-variant-numeric:tabular-nums;white-space:nowrap}
-  .pcov{flex:1 1 100%;font-size:16px;color:var(--muted)}
+  /* and the label WRAPS rather than overflowing: min-width:0 let the box
+     shrink under its text, and the glyphs spilled out of it. */
+  .pname{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+  .pval{flex:0 0 auto;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .pcov{display:block;font-size:16px;color:var(--muted)}
+  .pcovall{font-size:16px;color:var(--muted);padding:4px 0 6px}
+  .palt{display:block}
+  .palt>summary{font-size:16px;color:var(--muted);cursor:pointer}
+  .paltbody{font-size:16px;color:var(--muted)}
   .peq{font-size:16px;color:var(--muted)}
   .pcite{font-size:16px;color:var(--muted);margin-top:8px}
   .sheet{position:fixed;left:0;right:0;bottom:0;z-index:18;background:var(--panel);border-top:1px solid var(--line);border-radius:18px 18px 0 0;max-height:90vh;display:flex;flex-direction:column}

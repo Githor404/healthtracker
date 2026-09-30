@@ -4746,3 +4746,25 @@ string built by concatenation across three lines, and most of these were ([[D131
 **Sixteen existing assertions failed on the new words and were re-pointed carrying
 their history** ([[D92]]) — they were guarding the vocabulary, which is what an
 assertion on a rendered string is for when the string is the ruling.
+### D140 — the nutrient panel — v0.53.0
+
+Measured on the shipped page: **26 of 46 rows at 390×844 and 28 of 46 at 360×800**
+had label ink crossing the value — while every one of those rows kept a tidy 8px
+gap between the label BOX and the value BOX.
+
+| case | asserts |
+|---|---|
+| **panel-gate.ps1** | at **390 and 360**: no label's INK reaches its value, and no label overflows its own box. `scrollWidth`, not `getBoundingClientRect()` — the rect test passes the defect |
+| **panel-gate.ps1** | the fixture must make it POSSIBLE: ≥30 rows and a label of ≥14 characters, or the sweep proves nothing ([[D96]]) |
+| **panel-gate.ps1** | coverage stated **once** at the top, repeated on **at least one** differing row and **not on every** row |
+| **panel-gate.ps1** | Ash is not a row; kJ and Vitamin A IU are not sibling rows; the kJ figure **is** reachable, **is** collapsed, and **does** open ([[D118]]) |
+| **panel-gate.ps1** | and the 16px floor on all six panel classes, coverage before the floor ([[D124]]) |
+| D140-list / D140-cov **GATE** | the same rulings as pure logic, plus: an alternate must hang off a row that IS shown, and a row repeats the coverage line only when it DIFFERS |
+| D140-mean **GATE** | the fasting-candidate count is worded as a **meal gap**, never as nutrition — [[D139]] renamed it from the rendered word alone and turned it into a nutrition count |
+
+**A gate with a fixed fixture and a live clock expires:** `jargon-gate.ps1` failed
+four days after it passed, on an untouched tree, because its fasting candidate aged
+out. Its clock is pinned now.
+
+**And a gate that throws is not a gate that fails:** a plant that moved an alternate
+off its primary made an assertion throw, aborting the suite and scoring as MISSED.

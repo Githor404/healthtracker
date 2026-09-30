@@ -198,6 +198,10 @@ try {
     OUT.screens.push(screen + ' (' + n + ')');
   }
 
+  // The clock is PINNED. This gate's fixture dates are fixed, so leaving the
+  // clock live made its coverage assertions depend on the day it was run --
+  // and one of them duly started failing four days later on an untouched tree.
+  HT.setClock(function () { return Date.parse('2026-09-26T14:00:00-04:00'); });
   HT.boot();
   await sleep(400);
   sweep('first run');
@@ -338,7 +342,7 @@ try {
     @{ re = '^Food database: ';  why = 'the citation line in the micronutrient panel' },
     @{ re = 'no nutrition yet'; why = 'the words that replaced "composition not recorded"' },
     @{ re = 'Day total';        why = 'the words that replaced "Total (est.)"' },
-    @{ re = 'need nutrients';   why = 'the words that replaced "tap to resolve N pending"' },
+    @{ re = 'gaps? to confirm'; why = 'the fasting-gap count, which D139 wrongly renamed to a nutrition count' },
     @{ re = 'not counted in averages'; why = 'the words that replaced "excluded from averages"' },
     @{ re = 'Lentils \(boiled\)'; why = 'the readable form of a cited row name' },
     @{ re = '\d+ cal';          why = 'the row unit ruled in place of kcal' }

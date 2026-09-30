@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.52.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.53.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1367,12 +1367,30 @@ function panelRollup(day) {
 // parts: fatty acids under their totals, sugars and fibre under carbohydrate.
 // Protein is a ROW, not a one-row section -- a heading over a single line is a
 // heading pretending to be a section.
+// D140 -- WHAT D118 RULED OFF THE SURFACE, FINALLY OFF IT.
+//
+// D118 (doc-only) classed two kinds of row as not belonging here, and the
+// surface kept showing them for six slices. A ruling recorded but never
+// implemented is the other half of D121's finding: an implemented ruling that
+// is ungated survives until someone edits the line, and an UNIMPLEMENTED one
+// never started.
+//
+//   Ash [207]      -- "not a nutrient at all, an analytical residue nobody
+//                     eats toward". Still in the corpus; off the surface.
+//   Energy kJ [268] and Vitamin A IU [318] -- "the same quantity in another
+//                     unit... alternate expressions, not second nutrients".
+//
+// An alternate is shown BESIDE its primary, on tap -- not as a sibling row,
+// which reads as a second measurement, and not nested under it, which implies
+// a part-whole relation that is not there (D118's own words).
+const PANEL_ALT = { 208: [268], 320: [318] };
+const PANEL_OFF_SURFACE = [207];
 const PANEL_GROUPS = [
-  { name: 'General', slots: [208, 255, 207, 221, 262, 263, 268] },
+  { name: 'General', slots: [208, 255, 221, 262, 263] },
   { name: 'Carbohydrates', slots: [205], kids: { 205: [269, 291] } },
   { name: 'Lipids', slots: [204, 601],
     kids: { 204: [606, 645, 646], 645: [617], 646: [618, 621, 631, 832, 854, 861] } },
-  { name: 'Vitamins', slots: [320, 318, 319, 328, 401, 404, 405, 406, 409, 415, 417, 431, 806, 815, 418] },
+  { name: 'Vitamins', slots: [320, 319, 328, 401, 404, 405, 406, 409, 415, 417, 431, 806, 815, 418] },
   { name: 'Minerals', slots: [301, 303, 304, 305, 306, 307, 309, 312] },
 ];
 // Protein is deliberately not a group: it is one row in General.
@@ -2166,7 +2184,29 @@ function panelTypical(slot, today) {
 }
 
 // ---- the panel ---------------------------------------------------------------
-function panelRowHTML(slot, e, depth) {
+// D140 -- THE LABEL WAS PAINTED OVER THE VALUE ON 26 OF 46 ROWS.
+//
+// MEASURED at 390x844 and 360x800 on the shipped page: 26 and 28 rows whose
+// label INK crossed the value. "Monounsaturated" ran 47px past it,
+// "Carbohydrate" 31px, "Theobromine" 27px.
+//
+// AND THE RECT SAID EVERYTHING WAS FINE. Every row kept its tidy 8px gap
+// between the label BOX and the value BOX -- the box had been squeezed to 36px
+// while its text needed 52px, and the glyphs simply spilled out of it. A gate
+// asserting rect-vs-rect disjointness would have passed all 46 rows.
+//
+//   OVERFLOW CANNOT SEE OVERLAP, AND THE BOX CANNOT SEE THE INK.
+//
+// THE CAUSE WAS DEFECT 2. `.prow` was one nowrap flex line with THREE children,
+// and the third -- the per-row coverage line -- asked for `flex: 1 1 100%`. It
+// took the width, `.pname` had `min-width: 0` and could shrink to nothing, and
+// `.pval` held its own because `nowrap` gives it a min-content floor. So the
+// repeated sentence starved the labels. Two reported defects, one mechanism.
+//
+// Fixed structurally rather than by tuning: the row is a BLOCK, the label and
+// value are the only two items on their flex line, and the label may wrap. There
+// is no width left to starve.
+function panelRowHTML(slot, e, depth, prevailing) {
   const unit = panelSlotUnit(slot);
   const lab = e ? e.labelled : null;
   const ref = e ? e.reference : null;
@@ -2178,18 +2218,39 @@ function panelRowHTML(slot, e, depth) {
   const total = (hasL || hasR) ? ((hasL ? lab : 0) + (hasR ? ref : 0)) : null;
   const txt = panelText(total, unit);
   const st = panelState(total, unit);
-  const cov = panelCoverageLine(e);
+  // D140/2: the panel states its coverage ONCE, at the top. A row repeats it
+  // only when that row's coverage DIFFERS from the rest -- which is the only
+  // case where repeating it says anything (H18's density rule).
+  const covAll = panelCoverageLine(e);
+  const cov = (covAll && covAll !== prevailing) ? covAll : '';
+  const alts = (PANEL_ALT[slot] || []).map(function (a) {
+    const ae = PANEL_ROLL_FOR_ALT ? PANEL_ROLL_FOR_ALT[a] : null;
+    if (!ae) return '';
+    const at = (ae.labelledN || ae.referenceN)
+      ? ((ae.labelledN ? ae.labelled : 0) + (ae.referenceN ? ae.reference : 0)) : null;
+    if (at == null) return '';
+    return esc(panelText(at, panelSlotUnit(a))) + ' ' + esc(panelSlotUnit(a));
+  }).filter(Boolean);
   const eq = panelIsEquivalent(slot)
     ? ' <span class="peq" title="a computed equivalent, derived from the rows beside it">equiv</span>' : '';
   return '<div class="prow pd' + depth + (st === 'absent' ? ' pabs' : '') + '">'
+    + '<div class="pline">'
     + '<span class="pname">' + esc(panelSlotLabel(slot)) + eq + '</span>'
     + '<span class="pval">' + esc(txt) + (st === 'absent' ? '' : ' <small>' + esc(unit) + '</small>') + '</span>'
-    + (cov ? '<span class="pcov">' + esc(cov) + '</span>' : '')
+    + '</div>'
+    + (cov ? '<div class="pcov">' + esc(cov) + '</div>' : '')
+    + (alts.length ? '<details class="palt"><summary>other units</summary>'
+        + '<div class="paltbody">' + alts.join(' \u00b7 ') + '</div></details>' : '')
     + '</div>';
 }
 
+// The alternate expressions read the same rollup the rows do. Module-scoped
+// rather than threaded through every call site, in the manner of MATCH_INDEX,
+// and set on every render so it can never be stale.
+let PANEL_ROLL_FOR_ALT = null;
 function panelHTML(day) {
   const roll = panelRollup(day);
+  PANEL_ROLL_FOR_ALT = roll;
   const items = (day && day.items) || [];
   const anyRef = items.some(function (it) { return it && it.ref; });
   const anyVal = Object.keys(roll).length > 0;
@@ -2199,18 +2260,39 @@ function panelHTML(day) {
       + 'to the reference database from its row.</div>';
 
   let html = '';
+  // D140/2: WHAT THE COVERAGE LINE SAYS, ONCE. Measured on the device: it was
+  // repeated on all 46 rows, saying the same nine words every time.
+  const covCount = {};
+  PANEL_GROUPS.forEach(function (g) {
+    const ss = (g.name === 'General') ? [PANEL_PROTEIN_SLOT].concat(g.slots) : g.slots;
+    ss.forEach(function (slot) {
+      const kids = (g.kids && g.kids[slot]) || [];
+      const every = [slot].concat(kids);
+      kids.forEach(function (k) { Array.prototype.push.apply(every, (g.kids && g.kids[k]) || []); });
+      every.forEach(function (s) {
+        const c = panelCoverageLine(roll[s]);
+        if (c) covCount[c] = (covCount[c] || 0) + 1;
+      });
+    });
+  });
+  let prevailing = '', best = 0;
+  Object.keys(covCount).forEach(function (c) { if (covCount[c] > best) { best = covCount[c]; prevailing = c; } });
+  // One row sharing a line with nothing else is not a "rest" to differ from.
+  if (best < 2) prevailing = '';
+  if (prevailing)
+    html += '<div class="pcovall">Everything below is ' + esc(prevailing) + '.</div>';
   // Protein is a ROW, in General -- not a section of one line.
   const general = PANEL_GROUPS[0];
   PANEL_GROUPS.forEach(function (g) {
     const slots = (g.name === 'General') ? [PANEL_PROTEIN_SLOT].concat(g.slots) : g.slots;
     let body = '';
     slots.forEach(function (slot) {
-      body += panelRowHTML(slot, roll[slot], 0);
+      body += panelRowHTML(slot, roll[slot], 0, prevailing);
       const kids = (g.kids && g.kids[slot]) || [];
       kids.forEach(function (k) {
-        body += panelRowHTML(k, roll[k], 1);
+        body += panelRowHTML(k, roll[k], 1, prevailing);
         const gk = (g.kids && g.kids[k]) || [];
-        gk.forEach(function (k2) { body += panelRowHTML(k2, roll[k2], 2); });
+        gk.forEach(function (k2) { body += panelRowHTML(k2, roll[k2], 2, prevailing); });
       });
     });
     // A FAMILY MAY ONLY BE DRAWN AS A GROUP WITH ITS COMPLETENESS STATED. Our
@@ -6301,7 +6383,7 @@ function renderTrends() {
   html += bio;
   const fs = fastingStats(win);
   if (fs.count > 0 || fs.pending > 0) {
-    const pend = fs.pending > 0 ? ` <small class="tcov">${esc(fs.pending)} item${fs.pending === 1 ? '' : 's'} without nutrition</small>` : '';
+    const pend = fs.pending > 0 ? ` <small class="tcov">${esc(fs.pending)} gap${fs.pending === 1 ? '' : 's'} to confirm</small>` : '';
     html += `<div class="trow"><div class="thead">Fasting</div><div class="tsum">streak ${esc(fs.streak)} day${fs.streak === 1 ? '' : 's'}${pend} · ${esc(fs.count)} confirmed · avg ${esc(rDisp(fs.avg))}h · longest ${esc(rDisp(fs.longest))}h</div></div>`;
   }
   const ms = macroSeries('kcal', win);
@@ -7735,6 +7817,7 @@ const VERSION_LOG = [
   { v: '0.50.0', d: '2026-09-26', note: 'Finding nutrients for a dish got better at three things. A common word no longer drowns a rare one — asking about ramen noodles stopped offering crackers and bread because they share the word “wheat”. A food you have matched before is recognised even when the photo describes it differently (“cooked wheat ramen noodles” against “ramen noodles”). And the search box for a different word now starts empty, instead of pre-filled with the name that just produced the wrong list.' },
   { v: '0.51.0', d: '2026-09-26', note: 'A remembered match now says which meal it came from — “you chose this for “ramen noodle soup” on Sep 1” — instead of only “you chose this for this food before”. The app recognises a food across rewordings, and two dishes that are not quite the same can be recognised as one; naming the meal the answer came from lets you see that before you accept it.' },
   { v: '0.52.0', d: '2026-09-26', note: 'The app now says things in plain words. Calories are “cal” on a row and “Calories” on a heading; a food logged from a photo says “from photo” instead of “ai-paste”, and an estimate says “estimated” instead of “eyeballed”. A food matched to the nutrition database now leads with a readable name — “Lentils (boiled)” rather than “Lentils, boiled” — keeps a visible “food database” marker so you always know where the numbers came from, and carries the exact database name and its source under “source”. Nothing was removed: every number, source and citation is still there.' },
+  { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -10452,6 +10535,10 @@ function rhythmCenterHTML(model) {
     return `<span class="rcsub rcstate">${esc(LANE_ACTIONS[k].state)} \u00b7 ${esc(hoursLabel(st.minutes))}${st.pending ? ' \u00b7 pending' : ''}</span>`;
   }).join('');
   if (!model || !model.openGap) return openLine ? `<div class="ringval rcenter">${openLine}</div>` : '';
+  // D140: these are FASTING candidates, answered "Fasted" or "Ate, didn't log"
+  // -- not unresolved foods. D139 renamed this count to "need nutrients" because
+  // it read the RENDERED WORDS without asking what produced them, and "resolve"
+  // means one thing for a food match and another for a meal gap.
   const pend = pendingFastCandidates();
   const mins = num(model.openGap.sinceMin);
   const body = (mins >= GAP_DATE_AFTER_MIN && model.openGap.sinceDate)
@@ -10459,7 +10546,7 @@ function rhythmCenterHTML(model) {
     : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>`;
   const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
   return `<div class="ringval rcenter"${tap}>` + body + openLine +
-    (pend.length ? `<span class="rcsub rctap">${esc(pend.length)} item${pend.length === 1 ? '' : 's'} need nutrients</span>` : '') + `</div>`;
+    (pend.length ? `<span class="rcsub rctap">${esc(pend.length)} gap${pend.length === 1 ? '' : 's'} to confirm</span>` : '') + `</div>`;
 }
 // The resolve row -- BELOW the ring, never inside it.
 function resolveRowHTML() {
@@ -12723,6 +12810,7 @@ window.HT = {
   // D120 -- the panel
   PANEL_STEP, PANEL_FAMILY, PANEL_EQUIVALENT, panelStep, panelState, panelText,
   PANEL_SLOT_KEY, PANEL_KEY_SLOT, PANEL_GROUPS, PANEL_PROTEIN_SLOT,
+  PANEL_ALT, PANEL_OFF_SURFACE,
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface

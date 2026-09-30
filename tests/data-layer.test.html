@@ -4948,8 +4948,15 @@ window.setLS({});
   var pend8 = HT.pendingFastCandidates();
   res(pend8.length>0 && pend8.every(function(c){return c.state==='pending';}),
       'R8-centre: pending candidates come from detectFastCandidates, unchanged');
-  res(/need nutrients/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),   // word moved by D139
+  // Re-pointed twice: D139 moved the word, D140 moved it BACK to the right
+  // meaning. This count is pendingFastCandidates() -- meal gaps answered
+  // "Fasted" or "Ate, didn't log" -- and D139 renamed it to "need nutrients"
+  // by reading the rendered string without asking what produced it.
+  var _r8c = HT.rhythmCenterHTML(HT.rhythmModel(td));
+  res(/gaps? to confirm/.test(_r8c),
       'R8-centre: with a pending candidate present the centre offers the resolve');
+  res(!/nutrient|nutrition/i.test(_r8c),
+      'D140-mean GATE: and it is worded as a MEAL GAP, never as nutrition -- "resolve" means a food match in one place and a fasting gap in another, and renaming from the rendered word alone merged them');
   HT.focusPendingResolve();
   // R13: the resolve is EVICTED from the centre -- it opens BELOW the ring.
   var focusedCentre = HT.rhythmCenterHTML(HT.rhythmModel(td));
@@ -9507,6 +9514,52 @@ window.setLS({});
   res(WMw.proposed === null && WMw.candidates[0].id === 'w1',
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
+
+  // ---- D140: the nutrient panel -- what it lists, and what it repeats ---
+  // D118 classed two kinds of row as not belonging on this surface and the
+  // surface kept showing them for six slices. A ruling recorded but never
+  // implemented is D121's finding's other half.
+  res(HT.PANEL_GROUPS.every(function (g) { return (g.slots || []).indexOf(207) < 0; }),
+      'D140-list GATE: Ash is not a panel row -- D118: not a nutrient at all, an analytical residue nobody eats toward');
+  res(HT.PANEL_SLOT_KEY[207] !== undefined || HT.PANEL_OFF_SURFACE.indexOf(207) >= 0,
+      'D140-list GATE: and it is still KNOWN to the app -- off the surface is not out of the corpus');
+  res(HT.PANEL_GROUPS.every(function (g) { return (g.slots || []).indexOf(268) < 0 && (g.slots || []).indexOf(318) < 0; }),
+      'D140-list GATE: neither Energy (kJ) nor Vitamin A (IU) is a SIBLING row -- a second row reads as a second measurement');
+  // Null-safe on purpose: a plant that moved the alternate off 208 made this
+  // assertion THROW, which aborts the synchronous suite and scores as a MISS
+  // rather than as the failure it is. A gate that throws is not a gate that fails.
+  res(((HT.PANEL_ALT[208] || []).indexOf(268) >= 0) && ((HT.PANEL_ALT[320] || []).indexOf(318) >= 0),
+      'D140-list GATE: each is attached to the quantity it re-expresses, so it is reachable without being listed (D118)');
+  res(Object.keys(HT.PANEL_ALT).every(function (p) {
+        return HT.PANEL_GROUPS.some(function (g) {
+          return (g.slots || []).indexOf(Number(p)) >= 0 || Number(p) === HT.PANEL_PROTEIN_SLOT; }); }),
+      'D140-list GATE: every alternate hangs off a row that IS shown -- an alternate attached to a hidden primary is unreachable (existence is not availability)');
+
+  // ---- the coverage line: once, and again only when it differs ----------
+  // MEASURED on the device: the same nine words on all 46 rows.
+  var covE = { labelled: 0, labelledN: 0, reference: 5, referenceN: 1, m: 1 };
+  var sameAll = HT.panelCoverageLine(covE);
+  res(sameAll.indexOf('1 from the reference database') >= 0,
+      'D140-cov fixture: the row really does have a coverage line to suppress, or the assertions below prove nothing (D96)');
+  var rowSame = HT.panelRowHTML(203, covE, 0, sameAll);
+  res(rowSame.indexOf('pcov') < 0,
+      'D140-cov GATE: a row whose coverage matches the rest does NOT repeat it -- the panel says it once, at the top');
+  var rowDiff = HT.panelRowHTML(203, covE, 0, 'from 2 of 3 items');
+  res(rowDiff.indexOf('pcov') > 0 && rowDiff.indexOf('1 from the reference database') > 0,
+      'D140-cov GATE: and a row whose coverage DIFFERS still states its own -- repeating it there is the only case where it says anything');
+  var rowNone = HT.panelRowHTML(203, covE, 0, '');
+  res(rowNone.indexOf('pcov') > 0,
+      'D140-cov GATE: with no prevailing line, every row states its own -- suppression needs something to have been said');
+
+  // ---- the row's structure, which is what stopped the overlap ----------
+  // The label and the value must be the ONLY two items on their flex line.
+  // The third one -- the coverage sentence at flex-basis 100% -- is what
+  // starved the label until its text painted over the value.
+  res(rowDiff.indexOf('<div class="pline">') > 0,
+      'D140-row GATE: the label and value sit on their own line, so nothing else can take the width');
+  var lineOnly = rowDiff.slice(rowDiff.indexOf('<div class="pline">'), rowDiff.indexOf('</div>', rowDiff.indexOf('pval')));
+  res(lineOnly.indexOf('pcov') < 0 && lineOnly.indexOf('palt') < 0,
+      'D140-row GATE: and the coverage line and the alternates are OUTSIDE it -- they were the third flex item that caused the defect');
 
   // ---- D139: the surface speaks the user's language ---------------------
   // MEASURED on the shipped page at 390x844 before this slice: `eyeballed`

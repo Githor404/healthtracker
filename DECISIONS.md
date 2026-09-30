@@ -6468,3 +6468,133 @@ C 11.3` is not jargon but **density**, and goes behind the tap in the next slice
 
 **Suite: 2,503 assertions, 18 verdicts (the census now pins 13 gate scripts).**
 **Defect pass: 10 plants, 10 failing their own named gates.**
+
+## D140 — The nutrient panel: four device defects, and the one my own gate would have passed — v0.53.0 (2026-09-30)
+
+### 1. The label was painted over the value, and the rect said it was fine
+
+**REPORTED:** “Protein” drawn over “22.85 g”; “Theobromine” over “0.00”; the same for
+Carbohydrate, Sugars and Monounsaturated.
+
+**MEASURED** on the shipped page: **26 of 46 rows at 390×844 and 28 of 46 at
+360×800** had label ink crossing the value. “Monounsaturated” ran **47px** past
+it, “Carbohydrate” 31px, “Theobromine” 27px.
+
+**The ruling asked for the label rect and value rect to be disjoint. They already
+were — on every broken row.** Each kept a tidy **8px gap between the boxes**: the
+label box had been squeezed to **36px** while its text needed **52px**, and the
+glyphs simply spilled out of it. A gate asserting rect-vs-rect disjointness would
+have passed all 46 rows and been the fourth miss of this family.
+
+> **OVERFLOW CANNOT SEE OVERLAP, AND THE BOX CANNOT SEE THE INK.**
+> The property that was violated is `scrollWidth`, so that is what is gated.
+
+### 2. Two reported defects, one mechanism
+
+The coverage sentence was repeated on **all 46 rows**, and it is also **what caused
+the overlap**. `.prow` was one `nowrap` flex line with **three** children, and the
+third — the per-row coverage line — asked for `flex: 1 1 100%`. It took the width;
+`.pname` had `min-width: 0` and could shrink to nothing; `.pval` held its ground
+because `nowrap` gives it a min-content floor. **The repeated sentence starved the
+labels.**
+
+Fixed structurally rather than by tuning, in two parts:
+- the row is a **block**, and the label and value are the **only two items** on
+  their flex line, so there is no width left to take;
+- the label **may wrap** (`overflow-wrap: anywhere`), so it can never outgrow its
+  box even if something else takes width later.
+
+**Belt and braces, and the defect pass proved both are load-bearing:** reverting
+*either* half alone does **not** reproduce the overlap. Reverting **both** does —
+3 of 43 rows, Sodium and Calcium among them. A plant that reverts one half of a
+two-part fix is measuring the other half.
+
+### 3. What D118 ruled off this surface, six slices ago
+
+[[D118]] classed two kinds of row as not belonging here and **the surface kept
+showing them**:
+
+- **Ash [207]** — *“not a nutrient at all, an analytical residue nobody eats
+  toward”*. Off the surface, still in the corpus.
+- **Energy kJ [268]** and **Vitamin A IU [318]** — *“the same quantity in another
+  unit... alternate expressions, not second nutrients”*. Now shown **beside** their
+  primary, on tap: not as a sibling row, which reads as a second measurement, and
+  not nested under it, which implies a part-whole relation that is not there.
+  ([[D118]] named the IU pair too; the device report named only kJ.)
+
+> **A ruling recorded but never implemented is the other half of [[D121]]'s
+> finding.** An implemented ruling that is ungated survives until someone edits the
+> line; an unimplemented one never started.
+
+Result: 46 rows → 43, panel height **2,767px → 2,025px**, coverage lines
+**46 → 3** (only the rows whose coverage genuinely differs).
+
+### 4. Did the vocabulary slice cause it? No — measured, not argued
+
+The same measurement was run against the pre-[[D139]] tree in a worktree:
+
+| | before D139 | after D139 |
+|---|---|---|
+| overlapping rows @390 | **26 of 46** | **26 of 46** |
+| overlapping rows @360 | **28 of 46** | **28 of 46** |
+| Monounsaturated / Carbohydrate / Theobromine | 47 / 31 / 27 px | 47 / 31 / 27 px |
+
+The only row that moved is **Energy, 9 → 10px worse**, because `kcal` → `cal`
+shortened the *value* and pushed its left edge 1px right. **The defect predates the
+slice.**
+
+**But the point behind the question stands, and sharper:** `jargon-gate.ps1`
+renders this exact panel and sweeps its text. It read 46 rows of vocabulary on a
+surface where 26 of them were unreadable, and had nothing to say about it.
+
+> **The census checked the words and nothing checked what the words did to the
+> layout.**
+
+### 5. The rename that changed a MEANING — a real defect shipped in v0.52.0
+
+[[D139]] renamed two counts:
+
+```
+"tap to resolve N pending"         ->  "N items need nutrients"
+"N unresolved - resolve to update" ->  "N items without nutrition"
+```
+
+**Both counted `pendingFastCandidates()`.** They are **meal gaps**, answered
+“Fasted” or “Ate, didn't log” — nothing to do with nutrients. The jargon
+inventory was built from **rendered strings, with no reference to what produced
+them**, so one word doing two jobs was renamed once.
+
+> **A WORD USED FOR TWO DIFFERENT THINGS CANNOT BE RENAMED ONCE.**
+
+And the repo had already written the collision down. An existing assertion reads:
+*“the word 'unresolved' is not borrowed for this note — the fasting row uses it for
+something else entirely, and two meanings on adjacent rows is one meaning too
+many”*. **The warning was in the file and I renamed straight across it.**
+
+Now **“N gaps to confirm”**, and gated: the fasting count must be worded as a meal
+gap and **never** as nutrition.
+
+### 6. The gate had an expiry date
+
+`jargon-gate.ps1` failed on a tree nobody had touched, four days after it last
+passed. Its fixture dates are **fixed**; its clock was **live**; the fasting
+candidate the coverage assertion depended on aged out of the window.
+
+> **A GATE WITH A FIXED FIXTURE AND A LIVE CLOCK IS A GATE THAT EXPIRES.**
+
+Clock pinned with `setClock`, which the harness has always done and the CDP gates
+did not.
+
+### 7. Four of my first ten plants were my fault, not the gates'
+
+One real hole: an assertion that **threw on a null instead of failing**, which
+aborts the synchronous suite and scores as MISSED rather than as the failure it is.
+
+> **A gate that throws is not a gate that fails.**
+
+The other three were bad plants: two reverted one half of a two-part fix, and one
+wrote `'...'.repeat(2)` where the `.repeat` bound to the **last string fragment**
+rather than the whole line, so it doubled a full stop instead of a row.
+
+**Suite: 2,517 assertions, 19 verdicts (the census now pins 14 gate scripts).**
+**Defect pass: 9 plants, 9 failing their own named gates.**
