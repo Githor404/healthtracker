@@ -9515,6 +9515,72 @@ window.setLS({});
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
 
+  // ---- D141: resolve at capture ----------------------------------------
+  // MEASURED before this was built: memory proposes for 5 of 45 photo items and
+  // is the right food 5 of 5; the matcher's top pick is right 16 of 38. So only
+  // memory proposes (Fork A).
+  res(HT.REF_WHEN.indexOf('capture') >= 0 && HT.REF_WHEN.indexOf('later') >= 0,
+      'D141-when GATE: `when` is its OWN field -- `how` says where the answer came from, `when` says whether the meal was still on the screen; one enum answering both is D140\u2019s rename defect');
+  var rw = HT.normalizeRef({ id: 'X', ns: 'cnf', name: 'Row', at: '2026-10-01', how: 'proposed', when: 'capture', g: 170, v: {} });
+  res(rw.when === 'capture' && rw.how === 'proposed',
+      'D141-when GATE: a capture-time answer survives the normaliser with BOTH fields intact');
+  res(HT.normalizeRef({ id: 'X', v: {} }).when === 'later',
+      'D141-when GATE: and a record that says nothing defaults to `later` -- everything written before this field existed was answered in a later pass');
+  res(HT.normalizeRef({ id: 'X', when: 'whenever', v: {} }).when === 'later',
+      'D141-when fixture: an unknown value is not passed through, on REF_HOWS\u2019 own pattern');
+
+  // ---- ruling H2: ref.g, the grams ref.v was frozen at ------------------
+  // MEASURED on the real log: 24 of 45 photo items reach the day through a
+  // PLATE and 7 were eaten as a FRACTION. Without a recorded basis a part-eaten
+  // record would carry reference nutrients at 2x or 3x.
+  res(rw.g === 170,
+      'D141-g GATE: the ref records the grams its values are for, so an event can re-express them exactly');
+  res(HT.normalizeRef({ id: 'X', v: {} }).g === undefined
+      && HT.normalizeRef({ id: 'X', g: 0, v: {} }).g === undefined
+      && HT.normalizeRef({ id: 'X', g: -5, v: {} }).g === undefined,
+      'D141-g GATE: and ABSENT is the honest answer when nothing recorded it -- a basis that cannot be known must not be invented (D137: a record cannot be classified by a field it predates)');
+  // The plate is the boundary this ruling crosses, so the plate declares it.
+  var pit = HT.normalizePlateItem({ name: 'lentil stew', grams: 300,
+    per100: { kcal: 95, protein_g: 7, fat_g: 3, carb_g: 14, fiber_g: 4, soluble_fiber_g: 1 },
+    ref: { id: 'CNF-L', ns: 'cnf', name: 'Lentils, boiled', at: '2026-10-01',
+           how: 'proposed', when: 'capture', g: 300, v: { '301': 60 } } });
+  res(!!pit.ref && pit.ref.id === 'CNF-L' && pit.ref.g === 300 && pit.ref.when === 'capture',
+      'D141-g GATE: a PLATE item carries the match, with its basis and its timing -- a property declared in one normaliser and not the other is the allowlist trap (D131)');
+
+  // The FREEZE is where the basis is recorded, and a plant that removed it from
+  // there passed every assertion above: normalizeRef preserves whatever it is
+  // handed, so testing the normaliser never tested the thing that writes.
+  var frMeta = { ns: 'cnf', slots: [203, 301], hash: 'h', attribution: 'CNF' };
+  var frIt = { grams: 200 };
+  var fr = HT.resolveItemFreeze(frIt, frMeta, [10, 60], 'CNF-L', 'Lentils, boiled', null, 'proposed', 'capture');
+  res(!!fr && fr.g === 200,
+      'D141-g GATE: the FREEZE records the grams it scaled to -- the normaliser only preserves a basis, it never invents one, so this is the only place it can come from');
+  res(!!fr && fr.v['203'] === 20 && fr.v['301'] === 120,
+      'D141-g fixture: and the values really are scaled to those grams, or `g` describes nothing');
+  res(!!fr && fr.when === 'capture' && fr.how === 'proposed',
+      'D141-when GATE: the freeze carries both answers through, kept apart');
+  res(HT.resolveItemFreeze({ grams: 0 }, frMeta, [10, 60], 'X', 'Y', null, 'picked', 'later') === null,
+      'D141-g fixture: no grams, no basis, no ref (D112) -- a ref whose values describe nothing is worse than none');
+
+  // ---- what the proposal says -------------------------------------------
+  var pTxt = HT.rememberedProposalText({ rem: { id: 'CNF-L', name: 'Lentils, boiled',
+    from: '2026-09-22', fromName: 'cooked brown lentils with carrots and beef' },
+    mismatch: false, theirs: 'cooked', mine: 'cooked' });
+  res(pTxt.indexOf('cooked brown lentils with carrots and beef') > 0,
+      'D141-say GATE: the proposal NAMES the item the match came from (D137) -- a derived key can merge two names that are not one food');
+  res(pTxt.indexOf('with its nutrients') > 0,
+      'D141-say GATE: and says it BRINGS NUTRIENTS -- one control answers two questions now, so the user must know which they are choosing');
+  res(pTxt.indexOf(HT.fmtDateSmart('2026-09-22')) > 0,
+      'D141-say GATE: with the date, written the way the app writes dates everywhere else');
+  res(pTxt.indexOf('Lentils (boiled)') > 0,
+      'D141-say GATE: and the row in its readable form (D139), not the raw database string');
+  var qTxt = HT.rememberedProposalText({ rem: { id: 'R', name: 'Soup, ramen noodles, any flavour, dry',
+    from: '2026-09-08', fromName: 'ramen noodles' }, mismatch: true, theirs: 'dry', mine: 'cooked' });
+  res(qTxt.indexOf('dry') > 0 && qTxt.indexOf('probably cooked') > 0,
+      'D141-say GATE: a QUESTIONED proposal carries D122\u2019s wording on the option itself -- being remembered is not being right (D135)');
+  res(HT.rememberedProposalText(null) === '',
+      'D141-say fixture: nothing remembered says nothing at all');
+
   // ---- D140: the nutrient panel -- what it lists, and what it repeats ---
   // D118 classed two kinds of row as not belonging on this surface and the
   // surface kept showing them for six slices. A ruling recorded but never

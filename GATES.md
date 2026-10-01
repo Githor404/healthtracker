@@ -4768,3 +4768,24 @@ out. Its clock is pinned now.
 
 **And a gate that throws is not a gate that fails:** a plant that moved an alternate
 off its primary made an assertion throw, aborting the suite and scoring as MISSED.
+### D141 — resolve at capture — v0.54.0
+
+**Written before the build and seen to fail by name on all ten ruled behaviours**
+while passing on geometry, footer, floor and ink.
+
+| case | asserts |
+|---|---|
+| **capture-gate.ps1** phase 0 | the ruled visibility floor on the fixture it was measured on: rows ≥2 at 390, ≥1 at 360, no row over 187px |
+| **capture-gate.ps1** phases 1–2 | with alternates and partial coverage: **no label ink reaches a neighbour**, all eight classes present and ≥16px, `#outcomeFoot` carries Save **outside the scroller** and on screen |
+| **capture-gate.ps1** | a row **without** a proposal may not grow; a row **with** one may grow by **one wrapped sentence** (+87px measured); **exactly one** row carries a proposal |
+| **capture-gate.ps1** | the proposal is **first**, names its source item and date, says **“with its nutrients”**, and nothing is pre-selected or applied before a tap |
+| **capture-gate.ps1** | taking it sets **name AND ref** with `when='capture'`; taking **any other** option sets the **name only** |
+| **capture-gate.ps1** | **a plate eaten at 1/3 and 1/2 carries reference values at exactly 1/3 and 1/2**, each event's `g` reset to its own grams — and the gate **fails if the ratio is 1**, which is how it was passing vacuously |
+| D141-when / D141-g / D141-say **GATE** | the same rulings as pure logic, including `resolveItemFreeze` recording the basis it scaled to |
+
+**A threshold must be taken from the fixture it gates:** the first version applied
+a floor measured without alternates to a fixture that must render them, and was
+failing its own setup.
+
+**A test that exercises the normaliser has not exercised the writer:** a plant that
+deleted `g` from the freeze passed every assertion about `normalizeRef`.

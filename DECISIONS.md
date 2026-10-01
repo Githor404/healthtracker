@@ -6598,3 +6598,114 @@ rather than the whole line, so it doubled a full stop instead of a row.
 
 **Suite: 2,517 assertions, 19 verdicts (the census now pins 14 gate scripts).**
 **Defect pass: 9 plants, 9 failing their own named gates.**
+
+## D141 — Resolve at capture — v0.54.0 (2026-10-01)
+
+**The gate was written first, run, and seen to fail by name on all ten ruled
+behaviours while passing on geometry, footer, floor and ink.** Then the build.
+That order is what produced everything below: the gate stopped the build twice,
+both times at a premise rather than at a bug.
+
+### What shipped
+
+A food matched before is offered its match **as the leading identity option** on
+the photo draft — *“you chose Lentils (boiled) for “lentil stew” on Sep 22 — with
+its nutrients”* — and one tap settles both the name and the reference values.
+
+| ruling | as built |
+|---|---|
+| **A** | only **memory** proposes; the matcher's pick is never pre-selected |
+| **B1** | the remembered row's values are **fetched by id**; absence never withholds the proposal |
+| **C1** | a questioned proposal is **labelled** in [[D122]]'s wording and never pre-selected |
+| **E1** | per-item only, no accept-all |
+| **F1** | **`ref.when`** is its own field: `'capture'` / `'later'` |
+| **G1** | the **leading identity option**, not a new row |
+| **H2** | **`ref.g`** — the grams `ref.v` was frozen at |
+
+Picking the memory option sets **name and ref**. Picking **any other** identity
+option sets the **name only** and leaves the ref unresolved — gated specifically,
+at the ruling's own request.
+
+### Premise overturned (1): G1 does not cost ~0px
+
+**MEASURED: +87px.** On the six-item fixture a row carrying the proposal goes
+**287px → 374px**, because the sentence is all ruled content — the source item,
+its date ([[D137]]) and that it brings nutrients — and wraps to three lines at
+390px. It lands only on rows that have a memory: **5 of 45 items** in the real log.
+
+G1 was chosen over G2 *because* it was ~0px against G2's +156px. It still wins:
+**+87px on ~11% of rows against +156px on every row.** Ruled budget, now gated: a
+row **without** a proposal may not grow at all; a row **with** one may grow by one
+wrapped sentence.
+
+### Premise overturned (2): the ref could not reach the log without a ruling
+
+The write path is **draft → plate → consumption event** (R33: *“`written` above is
+no longer what reaches the day”*), and `ref.v` is frozen at grams. A plate can be
+eaten in fractions, and in this log it routinely is:
+
+```
+items with a plate consumption record : 24 of 45 photo items
+   eaten as a FRACTION of the plate   : 7   (1/3, 1/2, 3/4)
+```
+
+> **Without `ref.g`, 7 of 24 plate-eaten records would have carried reference
+> nutrients at 2× or 3× — the dry-ramen error through a different door.**
+
+**RULED H2, and built:** `ref.g` records the grams `ref.v` was frozen at; each
+consumption event re-expresses the values by `g_event / ref.g`, linear and exact,
+and sets its own `g` so the next reader cannot scale twice. Declared in
+`normalizeRef` **and** `normalizePlateItem` in the same commit — a property
+declared in one normaliser and not the other is the allowlist trap ([[D131]]), and
+the census reads both bodies.
+
+**H1 was rejected for a named reason:** carrying per-100 g values on the plate
+would have given `ref.v` two meanings — per 100 g on a plate, per record on an
+item — which is [[D140]]'s defect exactly.
+
+### The methodology error, and the rule that came out of it
+
+My first thresholds were measured on a draft **without** alternates (187px rows, 2
+and 1 rows visible) and then applied to a gate fixture that **must** render them
+(287px rows, **zero** visible). The gate was failing its own fixture rather than
+the build.
+
+> **A THRESHOLD MUST BE TAKEN FROM THE FIXTURE IT GATES.** A measurement is an
+> answer to one question ([[D126]]); a threshold borrowed from a different setup is
+> an answer to a different one.
+
+The gate now measures in two phases, each with its own baseline, and the header
+says which fixture every number came from.
+
+### Two VACUOUS plants, and one of them a real hole
+
+**`the-ref-forgets-what-its-values-are-for`** deleted `g` from the **freeze** and
+passed every assertion — because the harness tested `normalizeRef`, which only
+*preserves* a basis it is handed.
+
+> **A test that exercises the normaliser has not exercised the writer.**
+
+Closed with a pure test on `resolveItemFreeze` itself: it scales the row, so it is
+the only place a basis can come from.
+
+**And one vacuous assertion of my own, caught by the same discipline:**
+`photoSave()` with no arguments passes `all: true` and **ignores
+`PHOTO_DRAFT.ate` entirely**, so the 1/3 I set never applied and the scaling
+assertion was comparing a ratio of **1** — it would have passed whether the values
+were re-expressed or not. The gate now **fails if the ratio is 1**, and uses
+`photoSaveSome()`, the path the consumption question actually uses.
+
+### For the presentation arc, recorded not built
+
+**The photo draft is already a 2× scroll, and with its alternates showing it fits
+no whole row at either width.** Measured: `.pmrow` 187px bare and **287px with
+alternates**, in a body **649px** visible at 390 and **609px** at 360, against
+**1,298px** of content. It is the surface the user logs from most.
+
+**And one capability `ref.g` just unlocked, for a later ruling:** Repeat Items
+([[D130]]) currently **drops** a match when a food is logged again at a different
+portion. With a recorded basis it could **scale** it instead — the same arithmetic
+this slice built for plates. Recorded, not built.
+
+**Suite: 2,534 assertions, 20 verdicts (the census now pins 15 gate scripts).**
+**Defect pass: 12 plants, 12 failing their own named gates.**

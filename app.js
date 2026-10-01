@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.53.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.54.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -269,6 +269,12 @@ function normalizePlateItem(raw) {
   if (r.unresolved === true) out.unresolved = true;
   if (r.added === true) out.added = true;
   if (r.pinned === true) out.pinned = true;
+  // D141: a plate item carries the match answered at capture, so every event
+  // derived from it inherits it. Declared HERE as well as on the item, because
+  // a property written through one normaliser and not the other is the
+  // allowlist trap (D131) -- which is why the census reads these bodies.
+  const pref = normalizeRef(r.ref);
+  if (pref) out.ref = pref;
   if (r.scale_linked === false || r.scaleLinked === false) out.scale_linked = false;
   if (r.ai_grams != null && String(r.ai_grams) !== '') out.ai_grams = clampNonNeg(r.ai_grams);
   if (r.ai_identity != null && String(r.ai_identity) !== '') out.ai_identity = String(r.ai_identity);
@@ -392,10 +398,18 @@ function normalizeRef(r) {
     hash: String(r.hash == null ? '' : r.hash),
     attribution: String(r.attribution == null ? '' : r.attribution),
     how:  REF_HOWS.indexOf(r.how) >= 0 ? r.how : 'picked',
+    when: REF_WHEN.indexOf(r.when) >= 0 ? r.when : 'later',
     v: {},
   };
   const ms = Number(r.at_ms);
   if (Number.isFinite(ms) && ms > 0) out.at_ms = ms;
+  // H2: absent on every record written before this field existed, and absent is
+  // the honest answer -- those values cannot be re-expressed because nothing
+  // recorded what they were for (D137: a record cannot be classified by a field
+  // it predates). A consumer that cannot scale must carry the ref unscaled and
+  // say so, never guess the basis.
+  const rg = Number(r.g);
+  if (Number.isFinite(rg) && rg > 0) out.g = rg;
   const d = Number(r.d);
   out.d = Number.isFinite(d) ? d : null;
   const v = (r.v && typeof r.v === 'object' && !Array.isArray(r.v)) ? r.v : {};
@@ -2103,7 +2117,18 @@ function corpusEnsure() {
 // The three answers `how` can carry, in ONE place: the writer and the normalizer
 // disagreeing about them is how a valid record becomes an invalid one on restore.
 const REF_HOWS = ['picked', 'proposed', 'confirmed despite state mismatch'];
-function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how) {
+// D141/F1 -- HOW and WHEN are two questions, and one enum answering both is
+// D140's rename defect waiting to happen: `how` says where the answer came
+// from, `when` says whether it was given while the meal was on the screen or
+// in a later pass. The whole justification for resolve-at-capture is that it
+// raises the resolve rate, and that cannot be measured if the two are merged.
+//
+// Declared NOW, with the first write, because D137 measured what happens
+// otherwise: `confirmed despite state mismatch` could not classify the one
+// record that predated it, and the override list read as empty when it was
+// really unknowable.
+const REF_WHEN = ['capture', 'later'];
+function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how, when) {
   if (!it || !meta || !row) return null;
   const g = Number(it.grams);
   if (!(g > 0)) return null;                  // no grams, no basis (D112)
@@ -2123,6 +2148,18 @@ function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how) {
     // 'proposed' -- the app's own suggestion, confirmed. A record that cannot say
     // whether the user chose it cannot answer "did I choose this?".
     how: REF_HOWS.indexOf(how) >= 0 ? how : 'picked',
+    // Everything that reaches here from the resolve surface was answered in a
+    // LATER pass by construction -- the capture path passes 'capture'.
+    when: REF_WHEN.indexOf(when) >= 0 ? when : 'later',
+    // RULING H2 -- THE GRAMS `v` WAS FROZEN AT. `v` is always "the values for
+    // THIS record's grams"; `g` says which grams those were. That is what lets a
+    // consumption event re-express them exactly, which the CNF licence permits
+    // (per serving) and which a part-eaten plate requires.
+    //
+    // MEASURED: 24 of 45 photo items reach the day through a plate and 7 were
+    // eaten as a fraction, so without this a half-eaten record would carry
+    // reference nutrients at 2x.
+    g: g,
     // FORENSIC ONLY, never an input to re-resolution (D59's pin). It explains
     // what happened; it must never be used to redo it.
     d: (typeof distance === 'number' && distance === distance) ? distance : null,
@@ -7817,7 +7854,8 @@ const VERSION_LOG = [
   { v: '0.50.0', d: '2026-09-26', note: 'Finding nutrients for a dish got better at three things. A common word no longer drowns a rare one — asking about ramen noodles stopped offering crackers and bread because they share the word “wheat”. A food you have matched before is recognised even when the photo describes it differently (“cooked wheat ramen noodles” against “ramen noodles”). And the search box for a different word now starts empty, instead of pre-filled with the name that just produced the wrong list.' },
   { v: '0.51.0', d: '2026-09-26', note: 'A remembered match now says which meal it came from — “you chose this for “ramen noodle soup” on Sep 1” — instead of only “you chose this for this food before”. The app recognises a food across rewordings, and two dishes that are not quite the same can be recognised as one; naming the meal the answer came from lets you see that before you accept it.' },
   { v: '0.52.0', d: '2026-09-26', note: 'The app now says things in plain words. Calories are “cal” on a row and “Calories” on a heading; a food logged from a photo says “from photo” instead of “ai-paste”, and an estimate says “estimated” instead of “eyeballed”. A food matched to the nutrition database now leads with a readable name — “Lentils (boiled)” rather than “Lentils, boiled” — keeps a visible “food database” marker so you always know where the numbers came from, and carries the exact database name and its source under “source”. Nothing was removed: every number, source and citation is still there.' },
-  { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
+  { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
+  { v: '0.54.0', d: '2026-10-01', note: 'A food you have matched before is now offered its match while you are still saving the photo, as the first choice of what the food is: “you chose Lentils (boiled) for “lentil stew” on Sep 22 — with its nutrients”. One tap settles both the name and the nutrition, and if you eat only part of the plate the database numbers are scaled to the part you ate. Only a food you have actually matched before is offered this way — the app never pre-picks a guess of its own — and if the remembered match is in a different state, dry where yours is cooked, it says so and still waits for you. Anything else you pick sets the name only.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9475,12 +9513,59 @@ function photoItemUnresolved(it) { return !!(it && it.unres === true); }
 // existing identity rail on a plate. NO CONFIDENCE FIGURES ARE RENDERED, ever:
 // showing them makes people defer to the model and corrupts the pick as calibration
 // data, which is the one thing this slice is collecting.
+// ---- D141: RESOLVE AT CAPTURE ----------------------------------------------
+// MEASURED on the user's own log before any of this was built: memory proposes
+// for 5 of 45 photo items and is the RIGHT FOOD 5 times out of 5, while the
+// matcher's top pick is right 16 times out of 38. So only memory proposes
+// (Fork A) -- pre-selecting the matcher's pick would have put a wrong food under
+// the thumb 22 times in 38, at the lowest-attention moment, which is the shape
+// D125 and D133 exist to prevent.
+//
+// AND IT IS THE LEADING IDENTITY OPTION, NOT A NEW ROW (Fork G1). The draft row
+// already asks "is this the right food?" -- `identityOptionsHTML` IS that
+// question -- and a memory proposal is an answer to it. A separate proposal row
+// would ask the same thing twice and cost 156px across a six-item save, on a
+// surface MEASURED at 187px per row with 1,298px of content in a 649px viewport:
+// already a 2x scroll before anything is added.
+//
+// One control now answers two questions -- what the food is, and which corpus
+// row it is -- so the option says out loud that it brings nutrients with it, and
+// a pick of any OTHER option sets the name alone and leaves the ref unresolved.
+function rememberedProposal(it) {
+  const nm = it && it.name;
+  if (!nm) return null;
+  const rem = rememberedRow(nm);
+  if (!rem) return null;
+  // The state guard speaks here exactly as it does on the resolve surface
+  // (D135): being remembered is not being right. A mismatch is LABELLED in
+  // D122's wording and the option is still never pre-selected (Fork C1).
+  const theirs = foodState(rem.name);
+  const mine = foodState(nm) || 'cooked';          // a photographed meal is as eaten
+  const mism = !!(theirs && mine && theirs !== mine);
+  return { rem: rem, mismatch: mism, theirs: theirs, mine: mine };
+}
+function rememberedProposalText(p) {
+  if (!p) return '';
+  const when = p.rem.from ? ' on ' + fmtDateSmart(p.rem.from) : '';
+  // D137: the proposal NAMES the item it came from. A derived key can merge two
+  // names that are not one food, and the confirm is the only catchable moment.
+  return 'you chose ' + foodDisplayName(p.rem.name) + ' for \u201c' + p.rem.fromName
+    + '\u201d' + when + ' \u2014 with its nutrients'
+    + (p.mismatch ? ' (' + p.theirs + ' \u2014 yours is probably ' + p.mine + ')' : '');
+}
 function identityOptionsHTML(idx, it) {
   const alts = (it && it.alts) || [];
+  const prop = rememberedProposal(it);
+  // FIRST, and never pre-selected: it is a button like the others, and nothing
+  // is applied until it is tapped (Fork C1 / E1 -- no accept-all either).
+  const mem = prop
+    ? '<button type="button" class="pmalt pmaltmem" onclick="photoPickMemory(' + idx + ')">'
+      + esc(rememberedProposalText(prop)) + '</button>'
+    : '';
   const rows = alts.map((a, r) =>
     `<button type="button" class="pmalt" onclick="photoPickCandidate(${idx}, ${r})">${esc(a.name)}</button>`
   ).join('');
-  return `<div class="pmalts">${rows}` +
+  return `<div class="pmalts">${mem}${rows}` +
     `<button type="button" class="pmaltnone" onclick="photoPickNone(${idx})">None of these</button>` +
     `${photoIdentityOptions(idx)}</div>`;
 }
@@ -9537,6 +9622,36 @@ function photoPickCandidate(idx, rank) {
   it.name = nm;
   it.unres = true;
   return photoSettle(idx, { kind: 'alt', rank: r });
+}
+// D141/G1: ONE TAP, BOTH ANSWERS. The name becomes the one the user has already
+// used for this food -- so a repeated food converges on a single name, which is
+// what raises the memory key's own hit rate next time -- and the ref is taken
+// from the remembered row.
+//
+// B1: THE VALUES ARE FETCHED BY ID. The remembered row is often not among the
+// matcher's candidates at all (D136 measured that `Pasta, spaghetti, enriched,
+// cooked` shares no token with `cooked wheat ramen noodles`), so a proposal built
+// from the candidate list would carry no numbers. Absence never withholds the
+// proposal; it is shown as absent, like every other absence here.
+function photoPickMemory(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
+  const it = PHOTO_DRAFT.items[idx];
+  const p = rememberedProposal(it);
+  if (!p) return Promise.resolve({ ok: false, error: 'Nothing remembered for this food.' });
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (!m) return { ok: false, why: 'no-corpus' };
+    return corpusLookup(p.rem.id).then(function (row) {
+      it.name = String(p.rem.fromName || it.name);
+      delete it.unres;
+      const ref = row
+        ? resolveItemFreeze(it, m, row, p.rem.id, p.rem.name, null, 'proposed', 'capture')
+        : null;
+      if (ref) it.ref = ref;
+      photoSettle(idx, { kind: 'memory', rank: 0 });
+      return { ok: true, ref: ref || null, name: it.name };
+    });
+  });
 }
 // The floor under the whole off-ramp: never a forced bad pick. The model's guesses
 // are kept in the RECORD (ai_identity, ai_alts) rather than on the item, because a
@@ -9846,6 +9961,8 @@ function plateFromDraft(draft, dateKey) {
     mealId: draft.mealId,
     items: kept.map((it) => {
       const pi = { name: it.name, grams: photoGrams(draft, it), notes: it.notes || '' };
+      // D141: the match travels with the food, not with the eating of it.
+      if (it.ref) pi.ref = it.ref;
       if (!photoItemUnresolved(it) && it.per100) {
         pi.per100 = {};
         MACRO_KEYS.forEach((k) => { pi.per100[k] = num(it.per100[k]); });
@@ -9917,6 +10034,21 @@ function consumeFromPlate(plateId, statements, opts) {
                   confidence: pi.confidence || 'eyeballed',
                   source: pi.source || 'ai-paste', notes: pi.notes || '',
                   grams: g, mealId: mealId, plateId: plate.id, plateIdx: idx, ate: ate };
+    // RULING H2: the event's reference values are the plate's, re-expressed for
+    // the grams actually eaten -- g_event / ref.g. Linear, so exact. A ref with
+    // no basis recorded (written before H2) is carried UNSCALED rather than
+    // guessed at, and `g` stays whatever it was so the next reader can tell.
+    if (pi.ref) {
+      const basis = Number(pi.ref.g);
+      if (Number.isFinite(basis) && basis > 0 && g !== basis) {
+        const k = g / basis;
+        const sv = {};
+        Object.keys(pi.ref.v || {}).forEach(function (slot) { sv[slot] = pi.ref.v[slot] * k; });
+        rec.ref = Object.assign({}, pi.ref, { v: sv, g: g });
+      } else {
+        rec.ref = pi.ref;
+      }
+    }
     if (pi.unresolved === true || !pi.per100) { rec.unresolved = true; }
     else {
       const sc = g / 100;
@@ -9982,6 +10114,9 @@ function photoSave(statements) {
       // evidence, gradual movement and an inspectable statement of where it landed.
       // D57's correction-loop shape, one field along: what was offered, kept beside
       // what was taken, exactly as `ai_grams` sits beside `grams`.
+      // D141: a match answered AT CAPTURE crosses the write boundary with the
+      // item. Without this the tap settled the draft and the log forgot it.
+      ref: it.ref ? it.ref : undefined,
       ai_alts: (it.alts && it.alts.length) ? it.alts : undefined,
       identity_pick: it.idPick || undefined,
       unresolved: unres || undefined,
@@ -12814,7 +12949,7 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
-  normalizeRef, REF_HOWS, normalizeRepeatedFrom, dayForWrite, QUICK_ADD, quickAddHTML,
+  normalizeRef, REF_HOWS, REF_WHEN, normalizeRepeatedFrom, dayForWrite, QUICK_ADD, quickAddHTML,
   quickAdd, quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
   TRASH_KEY, TRASH_PER_DAY, TRASH_MAX_AGE_DAYS, trashRead, trashWrite, trashPut, trashForDay,
   trashDrop, trashClear, trashRestore, trashPrune, trashCapNote, trashText, copyTrash, trashHTML,
@@ -12845,6 +12980,8 @@ window.HT = {
   // R30 identity-first (D68)
   parseAltList, identityState, identityOptionsHTML, photoIdentityOpen, photoItemUnresolved,
   photoConfirmIdentity, photoPickCandidate, photoPickNone,
+  // D141 -- resolve at capture
+  rememberedProposal, rememberedProposalText, photoPickMemory,
   normalizeAltList, normalizeIdentityPick, migrateV7toV8,
   IDENTITY_CONFIDENCE_MIN, IDENTITY_CANDIDATES_MAX,
   // R31 macro coverage (D67)

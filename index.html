@@ -273,6 +273,9 @@
   .pmalt,.pmaltnone{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
     background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
   .pmaltnone{border-style:dashed;color:var(--muted)}
+  /* D141: the memory proposal leads the identity control. Full width so it
+     reads as a sentence rather than a chip, and at the 16px floor (D124). */
+  .pmaltmem{flex:1 1 100%;text-align:left;font-size:16px;border-color:var(--accent)}
   .pmunres{color:var(--muted);font-style:italic}
   .pmrowunres .pmhead b{color:var(--muted)}
   .pmcov{font-weight:400;color:var(--warn);font-variant-numeric:tabular-nums}
