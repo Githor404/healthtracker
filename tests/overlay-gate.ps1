@@ -115,6 +115,10 @@ try {
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
+  # Without focus emulation the page is never 'focused', target.focus() does not
+  # move document.activeElement, and the focus assertion below would be a null
+  # from a dead instrument -- exactly like synthesizeScrollGesture.
+  Invoke-CDP 'Emulation.setFocusEmulationEnabled' @{ enabled = $true } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 3000
 
@@ -253,6 +257,65 @@ try {
     if ($U.pos -eq 'fixed') { $fails += "$($f.n): the body is still fixed after closing" }
     if ($U.inert -gt 0) { $fails += "$($f.n): $($U.inert) page element(s) are still inert after closing" }
   }
+
+  # ---- FOCUS must not disturb the lock -----------------------------------
+  # The keyboard case is the known hard one on iOS and CANNOT be reproduced here.
+  # What can: focusing an input inside a fixed-body sheet is what triggers the
+  # browser's own scroll-into-view, and if that moves the page or rewrites
+  # body.top the saved offset is lost -- with or without a keyboard.
+  Park 320
+  $fparked = ScrollY
+  Eval "HT.openSheet(); HT.setSheetMode('manual'); 1" | Out-Null
+  Start-Sleep -Milliseconds 650
+  $fp = EvalA @'
+(async function () {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const sheet = document.getElementById('entrySheet');
+  const vis = Array.prototype.slice.call(sheet.querySelectorAll('input, textarea, select'))
+    .filter(function (e) {
+      // A closed <details> child KEEPS a bounding rect (content-visibility), so a
+      // height test alone picks elements that are not rendered and cannot be
+      // focused. checkVisibility is the test that tells them apart (D139).
+      if (typeof e.checkVisibility === 'function'
+          && !e.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })) return false;
+      const r = e.getBoundingClientRect();
+      return r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight;
+    });
+  if (!vis.length) return { err: 'no focusable on-screen input in the Manual sheet' };
+  const t = vis[0];
+  t.focus();
+  await sleep(250);
+  const o = { name: String(t.id || t.tagName), focused: (document.activeElement === t),
+              top: getComputedStyle(document.body).top, pos: getComputedStyle(document.body).position,
+              y: Math.round(window.scrollY), sheetTop: Math.round(sheet.getBoundingClientRect().top) };
+  t.scrollIntoView({ block: 'center' });
+  await sleep(250);
+  o.topAfterReveal = getComputedStyle(document.body).top;
+  o.yAfterReveal = Math.round(window.scrollY);
+  o.sheetTopAfterReveal = Math.round(sheet.getBoundingClientRect().top);
+  t.blur();
+  return o;
+})()
+'@
+  if ($fp -like 'EXCEPTION*') { $fails += "the focus probe threw: $fp" }
+  else {
+    $F = $fp | ConvertFrom-Json
+    if ($F.err) { $fails += "focus: $($F.err)" }
+    elseif (-not $F.focused) {
+      $fails += "focus: the input did not take focus, so this assertion would be a null from a dead instrument (the first probe reported exactly that)"
+    } else {
+      if ($F.pos -ne 'fixed') { $fails += "focus: focusing an input unfixed the body ('$($F.pos)')" }
+      if ($F.top -ne ("-" + $fparked + "px")) { $fails += "focus: focusing an input moved the saved offset to '$($F.top)' from -$($fparked)px -- the restore would land in the wrong place" }
+      if ($F.y -ne 0) { $fails += "focus: focusing an input scrolled the page to $($F.y)" }
+      if ($F.topAfterReveal -ne ("-" + $fparked + "px") -or $F.yAfterReveal -ne 0) {
+        $fails += "focus: scrollIntoView on a focused input moved the page (top '$($F.topAfterReveal)', y $($F.yAfterReveal)) -- this is what a keyboard reveal ultimately calls"
+      }
+      if ($F.sheetTopAfterReveal -ne $F.sheetTop) { $fails += "focus: revealing the input moved the SHEET ($($F.sheetTop) -> $($F.sheetTopAfterReveal))" }
+    }
+  }
+  Eval 'HT.closeSheet(); 1' | Out-Null
+  Start-Sleep -Milliseconds 450
+  if ((ScrollY) -ne $fparked) { $fails += "focus: after a focus and a close the page restored to $(ScrollY), not $fparked" }
 
   if ($fails.Count) {
     Write-Host "OVERLAY GATE: FAIL"

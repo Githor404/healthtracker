@@ -6859,4 +6859,34 @@ construction rather than by luck, and is gated.
 > here is **necessary and not sufficient**, and it is written at the top of the
 > gate so nobody reads it as more. **The device check is the final word on iOS.**
 
+### ATTESTED ON DEVICE (iPhone, 2026-10-02)
+
+**Confirmed by the user on the device:** sheets no longer move the day behind
+them, and closing returns to the same place. That is the ruling's first and third
+requirements verified where the gate cannot reach — the same standing as [[D6]]'s
+observed-on-device note, and the reason that note exists.
+
+**THE KEYBOARD CASE IS STILL OPEN.** It was asked for and the line came back
+blank, so it is recorded as unanswered rather than assumed. Measured of it what
+could be:
+
+- Focusing an on-screen input inside a locked sheet leaves the body `fixed` at
+  its saved offset, the page at 0 and the sheet unmoved — and `scrollIntoView`
+  on that input, which is what a keyboard reveal ultimately calls, changes none
+  of them. Gated.
+- **And the first focus probe was another dead instrument.** Without
+  `Emulation.setFocusEmulationEnabled` the page is never focused,
+  `target.focus()` does not move `document.activeElement`, and *"focus did not
+  disturb the lock"* would have been a null reported as a result — the same
+  failure as `synthesizeScrollGesture`, twice in one slice. The gate asserts the
+  focus actually took before asserting anything about it.
+- The **reveal-an-off-screen-input** case could not be exercised at all: of 26
+  inputs in the Manual sheet, **15 are already fully on screen** and the other 11
+  sit inside collapsed disclosures, which are not focusable. A closed `<details>`
+  child keeps a bounding rect, which is how a height filter picked one of them in
+  the first place ([[D139]], [[D140]]).
+- The iOS half — Safari shrinking the **visual viewport** when the keyboard opens,
+  which can put a focused field behind the keyboard without scrolling anything —
+  **cannot be reproduced headlessly and is not claimed.**
+
 **Suite: 2,555 assertions, 21 verdicts. Defect pass: 11 plants, 11 failing their own named gates.**
