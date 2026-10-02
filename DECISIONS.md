@@ -7321,3 +7321,193 @@ every gate, not to this one.
 same Windows, same system `core.autocrlf`, and no `.gitattributes` pinning its
 largest file. The standing rule is that a harness finding in one of the two means
 the other has it too.
+
+## H19 — Glucose ingest and a zoomable timeline chart — PRE-REGISTRATION (2026-10-02)
+
+**NOTHING IS BUILT YET.** Measured first, forks surfaced, rulings pending — and in
+the record before any code, because a pre-registration that lives only in the
+conversation is not pre-registered.
+
+### WHERE THE DATA IS, AND WHY NONE OF IT IS HERE
+
+A full Apple Health export was read **outside this repository**, in a sibling
+folder git refuses to address, and only `HKQuantityTypeIdentifierBloodGlucose`
+was extracted from it. Nothing else in the file was read or reported.
+
+**No reading, no value distribution, no date range and no per-day count appears
+in this record.** The repo is public and fixture-synthetic forever (CLAUDE.md),
+and *"nothing from it goes into the repo"* was the instruction; the first draft of
+this entry broke it and was rewritten. What survives below is about the
+**platform and the device** — cadence, write delay, unit vocabulary — which anyone
+with the same sensor can reproduce and which is not about a person. The
+data-derived figures live beside the export and are quoted nowhere.
+
+The export is a **one-off, for design only**. The durable route is [[D28]]'s native
+shell reading HealthKit directly. It exists so this chart is designed against a
+real cadence and real gaps instead of an assumption about them.
+
+### WHAT THE PLATFORM DOES
+
+| | measured |
+|---|---|
+| cadence | **300 s exactly** — median, p25 and p75 all 300 s, and **99.6%** of intervals fall in 4—6 min |
+| sample shape | **instantaneous** — `endDate == startDate` on every record, so a reading is a point, never a span |
+| unit | one unit, in Apple's molar form `mmol<180.1558800000541>/L`. A US export would arrive as `mg/dL` (1 mmol/L = 18.0156 mg/dL) |
+| duplicates | none — no zero-length interval, so no de-duplication is needed at this cadence |
+| write delay | **floor of exactly 10,800 s = 3.00 h**, with a long tail above it |
+
+### THE WRITE DELAY, WHICH [[D28]] ALREADY RECORDED
+
+[[D28]] lists as a verified fact: *"Dexcom lands in HealthKit (3-hour delay, the
+same as their own API)"*. **That is now measured on the device rather than taken
+from a report, and it is sharper than the record said:**
+
+- the minimum is **exactly 10,800 s** across every record — a floor sitting on a
+  round three hours is a deliberate delay in the write, not latency;
+- **it is a floor, not an average.** The tail runs to several times it, and **not
+  one** reading arrived inside an hour. D28's single figure reads as a typical
+  case; the thing to design against is the worst case;
+- the export itself was taken hours after the last reading it contains.
+
+> **HealthTracker cannot show current glucose from HealthKit. Ever.** This
+> survives the move to the native shell, because the shell reads the same
+> HealthKit. A chart whose right edge reads as *now* overstates by at least three
+> hours — the same class of defect as [[D120]]'s fiction wearing decimals and
+> [[R31]]'s zero standing in for an absence. Whatever is built states the lag
+> rather than implying freshness. D28 already ruled the posture for this
+> (*"per-type staleness badges — surface it, never trust it"*); this is that ruling
+> reaching a surface.
+
+### WHAT THE MEASUREMENT DISQUALIFIES BEFORE ANY RULING
+
+**1. The existing sparkline cannot be the basis.** `sparklineSVG` (app.js:6271)
+spaces points by **index**, not by time — `x = pad + (i / (n-1)) * W`. Every gap
+renders as one even step identical to a 5-minute one, so *gaps shown as gaps* is
+precisely what it cannot do. It is also a 240×40 `aria-hidden` decoration. The new
+control is a new primitive, not an extension of that one.
+
+**2. Glucose cannot live in the timeline one entry per reading.** At the measured
+cadence that is **288 records a day**. JSON cost per reading, measured on the real
+shapes:
+
+| shape | per reading | per day | 1 year | days to 5 MB |
+|---|---|---|---|---|
+| a full timeline entry, as biometrics use today | 113 B | 32.6 kB | **11.3 MB** | **161** |
+| a lean per-reading object | 22 B | 6.3 kB | 2.2 MB | 826 |
+| columns (`{u, t[], v[]}`) | **8.4 B** | 2.4 kB | 0.84 MB | **2,171** |
+
+and that quota is **shared with the food log**. This is safety-critical rather
+than a performance note: the store falls back to **memory** on
+`QuotaExceededError` ([[D1]]), so crossing the quota raises nothing in front of
+the user — it quietly stops persisting. A series growing 288 records a day must not
+be able to push the food log off disk.
+
+### FORKS — RULINGS NEEDED
+
+**FORK A — where glucose lives.**
+A1 timeline entries, one per reading — *disqualified above, 161 days to quota*.
+A2 a new top-level `glucose` map keyed by day, column shape.
+A3 **a separate localStorage key**, outside the main blob, column shape.
+A4 no persistence — the shell reads HealthKit on demand, keep only a cache window.
+*Recommend **A3 + A4**: a separate key means glucose can never evict the log, and
+since the durable route is HealthKit-direct what is stored is a **cache, not the
+record**. Export carries it; restore tolerates its absence.*
+
+**FORK B — how the delay is stated.**
+B1 the window line always carries it.
+B2 a latest-reading chip with its age.
+B3 **the right edge is the last reading, never *now***, and the strip from there to
+now is drawn as a gap like any other.
+*Recommend **B3 + B1**: B3 puts the delay where the eye already goes, using the gap
+rule the brief already requires, and B1 says it in words. **No visible string may
+call a HealthKit glucose value "current" or "now"**, and the lag shown must be the
+actual age of the last reading, never the 3-hour nominal — the tail runs well past
+it, and quoting the nominal would be the understatement D28 warned about.*
+
+**FORK C — the point count. At 300 s a 10-day window is 2,880 readings in ~390 px,
+7.4 per pixel column.**
+C1 draw every point.
+C2 **min/max per pixel column** — two points per column, excursions preserved.
+C3 mean per column — *rejected*: a mean hides the spike, and the spike is what
+glucose is read for.
+*Recommend **C2**, and the reduction must never bridge a gap: a column with no
+reading draws nothing, it does not borrow its neighbour.*
+
+**FORK D — what "the y-axis stays fixed" fixes it to.**
+D1 **one declared domain**, constant across scroll, zoom and session, so every
+window means the same thing.
+D2 fixed per window, recomputed on zoom — uses the height, but two windows stop
+being comparable.
+*Recommend **D1**: comparability is the only reason to fix an axis. The cost is
+real and measured — a domain wide enough for clinical extremes spends most of its
+height on values a given person never reaches, and the spread for this export is
+in the private folder, not here. **The bounds and the unit are yours to declare**;
+they then become a contract rather than something computed from data. A value
+outside the domain must be **visible and labelled**, never silently clipped.*
+
+**FORK E — the unit.** Same rule as breath ketones: the unit is part of the
+reading's identity.
+E1 **keep the platform string verbatim AND a canonical `unit`; never convert.**
+E2 convert everything to one unit at ingest — *rejected; it is the rule being
+protected, and a US export arrives in mg/dL.*
+*Recommend **E1**, plus: a series carrying two units **refuses to draw one line
+through both** and says why. The y-axis label carries the unit.*
+
+**FORK F — the reusable control's contract.** Trends is the named second consumer.
+F1 **a generic time-series control** — `{series[], domain, window, marks[]}` — the
+narrowest surface glucose needs, shaped by two callers rather than one.
+F2 glucose-specific now, generalise when Trends asks.
+*Recommend **F1**. F2 is how `sparklineSVG` became unusable here: it was shaped by
+its first caller, and index-based x was fine for every one of them until it was
+not.*
+
+**FORK G — pinch and swipe on a page that already scrolls.** [[D143]] just locked
+page scrolling under sheets; a chart that captures touches is the same territory.
+G1 **axis-locked by the first movement** — horizontal moves time, vertical scrolls
+the page, pinch zooms.
+G2 the chart captures everything inside its box.
+*Recommend **G1**: G2 traps the thumb in a chart taller than it looks. Gate it with
+real `Input.dispatchTouchEvent` sequences — [[D143]] measured
+`synthesizeScrollGesture` as a dead instrument on this page, and a pinch is two
+touch points, so the gate must drive two.*
+
+### WHERE THE OUTCOME BITS WOULD ATTACH (noted, not built)
+
+Event-signature glucose outcomes hang off the **timeline entry**, not off the
+series: `S.timeline[dk][i]` already carries `{time, kind, type, value, unit}`, and
+an outcome is a property of the event, computed by reading the window after it out
+of the glucose series. Two things the measurement already settles:
+
+- **no outcome can exist until ≥ 3 h after its event**, because the readings that
+  would compute it have not arrived. A surface showing an outcome slot immediately
+  would be showing an absence as a pending verdict;
+- an event whose following window **contains a gap** has **no** outcome, not a
+  partial one — the same rule as the macro coverage line ([[R31]]).
+
+### THE GATE, PRE-REGISTERED
+
+`tests/chart-gate.ps1`, every threshold taken from the fixture it gates:
+
+| asserts |
+|---|
+| a gap renders as a **break in the line** at every preset, and the pixels either side are not joined |
+| the cadence renders **evenly in time**, so an index-based x fails by name |
+| the four presets (6 h · 24 h · 3 days · 10 days) set the window, and the line above states it |
+| the y-axis **does not move** while a swipe scrolls time, and its labels carry the unit |
+| a real two-finger pinch changes the window; a horizontal drag moves time; a **vertical drag still scrolls the page** |
+| meals and timeline events land at their own timestamps on the same axis |
+| the delay is **stated as the last reading's real age**, and no visible string calls a HealthKit value "current" or "now" |
+| 2,880 points reduce **without bridging a gap** — a column with no reading draws nothing |
+| a two-unit series refuses to draw one line, and says why |
+| the 16 px floor and **zero** ink collisions at 390 and 360, as every surface since [[D124]] |
+| no verdict colour and no in-range language anywhere on the surface ([[D24]], [[D93]]) |
+
+**FIXTURE CONSEQUENCE, stated now rather than discovered later:** the one-off
+export is far shorter than the 10-day preset, so **3-day and 10-day cannot be
+exercised against real data at all**, and the longest real gap in it is short. Those
+cases need synthetic fixtures, and **the gate must say which of its assertions ran
+against measured cadence and which against invented cadence** — otherwise a green
+chart gate implies a confidence the data never supported.
+
+**COST:** one arc. It defers presentation slice 3 (the empty start), the
+parenthetical indexing slice, and the restaurant/FNDDS flow ([[D128]]).
