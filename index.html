@@ -245,7 +245,10 @@
   .sumrow{display:flex;justify-content:space-between;font-size:16px;padding:3px 0;font-variant-numeric:tabular-nums}
   .mealgrp{margin-top:12px}
   .mealhead{display:flex;justify-content:space-between;font-size:16px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:2px}
-  .mitem{display:flex;align-items:flex-start;gap:8px;padding:9px 0;border-top:1px solid var(--line)}
+  /* D144: the item is a BLOCK -- .mline is the collapsed row, .mbody is the
+     detail it defers. Padding came down from 9px to 4px because the line
+     carries its own 44px floor and 9+44+9 would not fit the 60px budget. */
+  .mitem{display:block;padding:4px 0;border-top:1px solid var(--line)}
   .mmain{flex:1;min-width:0}
   .mname{font-size:16px;font-weight:600}
   .mmeta{font-size:16px;color:var(--muted);margin-top:2px;font-variant-numeric:tabular-nums}
@@ -717,6 +720,25 @@
 /* D139: the source marker stays VISIBLE -- it says what the number is, which
    D53 forbids collapsing. The citation itself may collapse, and does. */
 /* D142: a match that could not be carried over says so, at the floor (D124) */
+/* D144: the collapsed row. One line -- name, time, one number -- and it is also
+   the tap target that expands it, so 44px is a floor and not a style. */
+.mline{display:flex;align-items:center;gap:8px;min-height:44px}
+.mhead{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;
+  min-height:44px;cursor:pointer}
+/* the route, when it IS the headline, sits flush rather than nudged down */
+.mhead .rchip{flex:0 0 auto;margin-top:0}
+/* CLIPPED, not wrapped: the whole name is one tap away, and in `title`. */
+.mhead .mname{flex:1 1 auto;min-width:0;font-size:16px;font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mhead .mtime{flex:0 0 auto;font-size:16px;color:var(--muted);
+  font-variant-numeric:tabular-nums}
+.mhead .mnum{flex:0 0 auto;font-size:16px;font-weight:600;white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+/* expanded, the name has the room to be whole */
+.mopen .mhead .mname{white-space:normal;overflow:visible;overflow-wrap:anywhere}
+/* and the body is what the collapse DEFERS -- nothing is removed (D53) */
+.mbody{display:block;padding:2px 0 4px}
+.medit{display:inline-block;min-height:44px}
 .mlost{display:block;font-size:16px;color:var(--muted);margin:2px 0}
 .msrc{display:inline-block;font-size:16px;padding:0 6px;border:1px solid var(--line,#ccc);border-radius:10px;color:var(--muted)}
 .mcite{display:block;margin-top:4px}

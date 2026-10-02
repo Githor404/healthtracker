@@ -309,6 +309,13 @@ try {
   HT.dayJump(OLD); await sleep(200);
   window.scrollTo(0, 0); await sleep(60);
   taps = 0;
+  // D144 re-pin: the row now EXPANDS on the first tap and "find nutrients" is
+  // inside the body, because the surface was 117-278px per row with 5-13 facts on
+  // it and none of six rows fit a screen. This journey's item HAS numbers, so its
+  // route is the one that moved (a row with no number headlines the chip and is
+  // unchanged). Pinned at 4 below, deliberately, rather than left reading 3.
+  const row4 = document.querySelector('#dayView .mitem .mhead');
+  if (row4) { tap(row4, 'expand the row'); await sleep(250); }
   tap(byText('.rchip, button', /find nutrients/i), 'find nutrients');
   for (let w = 0; w < 40 && !document.querySelector('.rcandbtn'); w++) await sleep(500);
   const cands = document.querySelectorAll('.rcandbtn');
@@ -318,6 +325,7 @@ try {
   out.j4.offered = !!nm4;
   if (nm4) { tap(nm4, 'See it in the panel'); await sleep(350); }
   out.j4.taps = taps;
+  out.j4.expandedFirst = !!document.querySelector('#dayView .mitem.mopen');
   const mp = document.querySelector('details.mpanel');
   out.j4.panelOpen = !!(mp && mp.open);
   // and it STAYS open across a refresh -- it used to close itself on every one,
@@ -325,6 +333,18 @@ try {
   HT.refresh(); await sleep(150);
   const mp2 = document.querySelector('details.mpanel');
   out.j4.panelSurvivesRefresh = !!(mp2 && mp2.open);
+
+  // ---- B1: the editor, counted -- D144 ruled it ONE TAP DEEPER, which is a
+  // number and therefore belongs here rather than in a sentence.
+  HT.closeItemEdit(); HT.itemCollapseAll(); HT.refresh(); await sleep(200);
+  window.scrollTo(0, 0); await sleep(60);
+  taps = 0;
+  const eh = document.querySelector('#dayView .mitem .mhead');
+  if (eh) { tap(eh, 'expand'); await sleep(250); }
+  const eb = document.querySelector('#dayView .mitem.mopen .medit');
+  if (eb) { tap(eb, 'edit'); await sleep(250); }
+  out.editTaps = HT.itemEditTarget() ? taps : -1;
+  HT.closeItemEdit(); HT.itemCollapseAll(); HT.refresh(); await sleep(150);
 
   // the constraints, on every ending the page can show at once
   const nmAll = Array.prototype.slice.call(document.querySelectorAll('.nextmove'))
@@ -374,7 +394,16 @@ try {
     $fails += "J3: the offer did not reach the drug surface for the medication just saved" }
 
   if ($J.j4.candidates -lt 1) { $fails += "J4: the resolve step offered nothing, so the journey could not be measured" }
-  if ($J.j4.taps -ne 3) { $fails += "J4: an old item -> panel took $($J.j4.taps) taps (pinned 3 -- the third is OFFERED now, not hunted)" }
+  # RE-PINNED 3 -> 4 by D144, deliberately and in that commit. D130's rule is
+  # that flow is a number that drifts, not a claim made once -- so the tap the
+  # collapse costs is written down as a number, where the next change to this
+  # surface has to argue with it. What was bought: the row went from 117-278px
+  # carrying 5-13 facts to one 53px tappable line, and the day total from 2.4
+  # screens down to inside one. What it cost is this tap, on a row that already
+  # has numbers; a row with NO numbers headlines the route and still takes one.
+  if ($J.j4.taps -ne 4) { $fails += "J4: an old item -> panel took $($J.j4.taps) taps (RE-PINNED 4 by D144: the row expands first; it was 3, and 8 before D121)" }
+  if (-not $J.j4.expandedFirst) { $fails += "J4: the first tap did not expand the row -- if the route is reachable without expanding, the re-pin to 4 is wrong and this gate is pinning a tap that is not needed" }
+  if ($J.editTaps -ne 2) { $fails += "J4/B1: the editor took $($J.editTaps) taps from a collapsed row (pinned 2 -- D144 ruled edit is ONE tap deeper, so 1 means the collapse did not happen and 3 means it buried the editor)" }
   if (-not $J.j4.offered) { $fails += "J4: nothing was offered after the pick -- the panel is closed by default and 0.9 screens down" }
   if (-not $J.j4.panelOpen) { $fails += "J4: the offer did not open the panel" }
   if (-not $J.j4.panelSurvivesRefresh) { $fails += "J4: the panel closed itself on a refresh -- it cannot be a destination if anything that writes shuts it" }
@@ -392,5 +421,5 @@ if ($fails.Count) {
   $fails | ForEach-Object { Write-Host "  - $_" }
   exit 1
 }
-Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 3 (was 4), J2 3 (was 4), J3 6 (was 8), J4 3, and every ending shows its outcome"
+Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 3 (was 4), J2 3 (was 4), J3 6 (was 8), J4 4 (was 3 -- D144 re-pin), edit 2, and every ending shows its outcome"
 exit 0

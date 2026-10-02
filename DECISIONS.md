@@ -6890,3 +6890,302 @@ could be:
   **cannot be reproduced headlessly and is not claimed.**
 
 **Suite: 2,555 assertions, 21 verdicts. Defect pass: 11 plants, 11 failing their own named gates.**
+
+## D144 — Presentation slice 2: the collapsed row — v0.57.0 (2026-10-02)
+
+Ruled: **A2** the collapsed row's headline is the user's `primaryNutrient`
+(default kcal), so the row agrees with the ring. **B1** a tap expands in place;
+edit is one tap deeper, with the flow gate re-pinned deliberately and the reason
+recorded ([[D130]]). **P1** the photo draft's identity control collapses once
+`idDone`, while an unsettled row keeps its open.
+
+Instruction: *measure the collapsed geometry first, gate on ink not boxes, then
+build to it.* The measurement came first, `tests/collapse-gate.ps1` was written
+to it and **failed by name on every ruled behaviour and on nothing else**, and
+the build went to that gate.
+
+### WHAT THE SURFACE WAS
+
+Six row shapes at 390×844 — matched, unresolved, no-macros, scanned,
+lost-match, auto supplement:
+
+| | measured |
+|---|---|
+| row height | **117 / 146 median / 278** px |
+| visible facts per row | **5–13** |
+| parts | `.mname` 24–48 (wrapped), `.mmeta` 48–72 (2–3 lines), `.mref` **108**, `.mlost` 72 |
+| six rows | **1,057px** |
+| rows fully visible at the top | **0 of 6**, at 390 *and* 360 |
+| day total | **2.4 screens** down; page 4,404px = 5.2 screens |
+| **ink collisions** | **ZERO** |
+
+That zero matters: it makes zero a **no-regression line rather than a tolerance**,
+and it is the reason this gate asserts ink and not boxes — a box kept its tidy 8px
+gap on 26 unreadable panel rows ([[D140]]).
+
+And the photo draft, the surface most logging goes through: rows **237–287px**, of
+which `.pmid-wrap` is **122–172px**. A six-item save is **1,385px** of rows.
+`idDone` was already being recorded and **changed nothing on the surface**.
+
+### WHAT IT IS NOW
+
+| | before | after |
+|---|---|---|
+| collapsed row | 117–278px | **53px**, every shape |
+| facts on it | 5–13 | **name, time, one number** (+ the `×`) |
+| six rows | 1,057px | **318px** |
+| six-item draft, identities settled | 1,385px | **710px (−49%)** |
+| settled draft row | 237–287px | **142px** |
+| ink collisions, collapsed *and* expanded | 0 | **0** |
+
+**Nothing was removed.** Every fact the old row printed is in a `.mbody` one tap
+away ([[D53]]), including on the auto supplement row — which expands like any
+other, because *uneditable is not a reason to make its numbers unreachable*. It
+still offers neither edit nor delete, and the API still refuses both.
+
+### FIVE DECISIONS THE BUILD FORCED
+
+**1. The name is CLIPPED, not wrapped.** `'spicy creamy ramen broth
+(tantan/miso-style)'` is ~300px of 16px text and the collapsed line has ~215px for
+it at 390. One of *one line*, *16px*, *the whole name* had to go, and it is the one
+**the tap restores**: expanding wraps it in full, and `title` carries it meanwhile.
+The 16px floor and the one-line ruling are both constraints; the name is the only
+one of the three that has somewhere else to be.
+
+**2. THE ROUTE IS NOT DETAIL.** `find nutrients` is the only way an item gets
+numbers at all, so where it sits decides whether a row is a **dead end**. A row
+with no number would have headlined a dash with its only route hidden behind a
+tap. So:
+
+- a row with **no** number headlines the chip **in place of** the dash — the slot
+  answers *"what is this worth?"* either with the figure or with the offer to go
+  and get one, and that journey does **not** grow a tap;
+- a row that **has** a number keeps the chip in the body, one tap deeper, because
+  enriching a figure that exists is not a dead end.
+
+The second half is a real flow cost, and **flow-gate J4 is RE-PINNED 3 → 4** in
+this commit with the reason written into the gate — [[D130]]'s rule is that flow
+is *a number that drifts*, not a claim made once. A second pin was added beside
+it: **the editor is exactly 2 taps** from a collapsed row, so *"edit is one tap
+deeper"* is a number too — 1 would mean the collapse never happened, 3 that it
+buried the editor. And J4 now asserts that its first tap **did** expand the row:
+if the route were reachable without expanding, the re-pin to 4 would be pinning a
+tap nobody needs.
+
+**3. The kcal cell appears in the body only when it is not already the headline.**
+Printing the same number twice is the density this slice exists to remove.
+
+**4. The open state is keyed by DAY AND INDEX.** Keyed by index alone, stepping
+back a day would arrive with an unrelated item already expanded. Gated.
+
+**5. Reopening a settled identity is UI STATE, not a change to the record.**
+Clearing `idDone` would rewrite what the user did, and `idPick` is the calibration
+evidence the three picks exist to collect ([[D96]]). `PHOTO_ID_REOPEN` is separate
+and is cleared when a draft opens — its keys are indices, so carrying them across
+drafts would reopen an unrelated row.
+
+### SEVEN FINDINGS ABOUT THE INSTRUMENTS, NOT THE BUILD
+
+**THE INK PROBE COULD NOT TELL A CLIPPED ELEMENT FROM AN OVERFLOWING ONE.** With
+`overflow:hidden` the browser paints nothing past the box edge, so
+`scrollWidth > clientWidth` reports a **truncation**, not a collision. Unmodified,
+the probe would have reported *"the ellipsis overlaps the time by 90px"* on a row
+where nothing is painted there at all. Narrowed to what [[D140]] built it to catch
+— a box keeping its gap while the ink escaped. **This narrows the probe; it does
+not widen what passes.** Fourth instrument in three slices to answer a question it
+was not measuring — and the first to do so by over-reporting rather than under-.
+
+**THE DRAFT'S ROWS ARE NOT ITS ITEMS.** A six-item draft renders **five**
+`.pmrow` elements: the lead item is drawn in its own block, so row *k* is item
+*k+1*. My own gate settled *"every item but 0"* and then asserted that row 0 was
+unsettled — row 0 **is** item 1, and had just been settled. The gate reported a
+failure that was its own. The row now **declares** its item index (`data-pmi`) and
+the gate settles by that, and fails by name if the attribute is ever absent: every
+handler on the row already carried the index, and saying it once as data means
+nothing downstream has to infer the mapping.
+
+**A SWEEP THAT PASSES BECAUSE THE TEXT IS COLLAPSED HAS NOT SWEPT IT.**
+`jargon-gate.ps1` sweeps the day view for internal vocabulary. The words it checks
+— confidence, source, the citation — all moved into the `.mbody`, so the sweep
+would have gone **green over a surface that no longer prints them**, as would its
+own `.mcite` self-test. It expands every row first, and **fails by name if the
+expand produced no open rows**, because a precondition a gate depends on and does
+not check is a gate waiting to lie. Same family as *"a coverage assertion
+satisfied by a different component is not coverage"*.
+
+**AND THE PATCHER LIED ABOUT ITS OWN WORK.** The line-ending-tolerant `sub()` grew
+an *already-applied* check so a part-applied run could resume — and the check ran
+**after** the anchor test. Most of these edits are inserts whose replacement
+*contains* its anchor, so the anchor survives and every resumed run applied them
+again: one block landed **three times**, `let ITEM_OPEN` became a duplicate
+declaration, and the parse error surfaced as `HT is not defined` — a syntax error
+wearing the costume of a missing export. There is no `node` on this machine, so
+the page load is the only parser; it reports the symptom, never the line. The
+check now runs first, and `sub()` carries the story.
+
+**A STALE REFERENCE BITES WHEN YOU READ FROM IT, NOT WHEN YOU CLICK IT.**
+`itemToggle` repaints the whole day, so an element captured before the tap is
+detached the instant it is clicked. Two places then **read** from that detached
+node and got an answer about a page that no longer exists: `resolve-gate`
+searched the old subtree for the chip and reported **"setup: no wood ear chip"**
+plus 34 cascading failures against a build whose chip was there, and the harness
+asked a detached row whether it had `.mopen` and would have been told no forever.
+Both look the row up **by index, twice** now — once to find it, once after the tap.
+
+**I OVER-CLAIMED THIS, AND THE MEASUREMENT CAUGHT ME.** I wrote that `jargon-gate`
+had the same bug and was expanding only one row. It was not. The sweep harvested
+**432 distinct strings before and after** the rewrite, over a fixture whose six
+rows carry six different source words — had five rows stayed shut, five of those
+words would have been missing and the count would have moved. A detached node’s
+inline `onclick` **still fires**, and `itemToggle` is keyed by `(dk, idx)` rather
+than by the element, so clicking a stale reference still toggles the right row.
+The by-index loop stays because it is correct either way, and the gate now fails
+unless **every** row expanded — the shapes differ, so a partial expand would
+sweep some vocabulary and not the rest. But the finding is the narrower one, and
+it is the more useful one: *a reference survives a click and dies on a read.*
+
+**AND A GATE THAT DOES NOT PARSE EXITS 1, WHICH IS WHAT FAILING LOOKS LIKE.**
+The route rule above was written as `-match "^\s*—\s*$"` — and in a
+double-quoted PowerShell string the regex end-anchor reads as `$"`, so the whole
+script stopped **parsing**. It exited **1 with no verdict line**, which is
+indistinguishable from a failure until somebody reads the output. The batch
+runner caught it only because it prints `NO VERDICT (rc=1) — re-run, never read
+as a result` rather than inferring from the exit code — which is [[D94]] doing
+exactly the job it was written for, one slice after it was written.
+
+**It also means the route assertions had never run** when the gate first came
+back PASS: that PASS predated them. Re-run with the quoting fixed, it passes
+with them. Single-quoted now, and the dash as `\u2014` so no encoding sits
+between the rule and the file.
+
+### THE RE-POINTED ASSERTIONS, CARRYING THEIR HISTORY
+
+`.mmain` no longer exists. R23-ui's *three targets, none doing another's job*
+(Fork E / [[D44]]) is re-pointed to `.mhead` and split into three, because the
+property it protects got **stronger**: the row body only *expands*, carrying
+neither the delete nor — now — the editor; while the row is collapsed there is
+**no edit control on the page at all**, which states *"one tap deeper"* as a fact
+about the DOM rather than a promise about a handler; and expanding produces
+exactly one. `resolve-gate.ps1`'s `chipFor` expands a row before looking for the
+chip, and looks **twice** rather than clicking unconditionally — an
+unconditional click would collapse a row that was already open.
+
+And **eleven harness assertions read markup the collapse moved into `.mbody`**
+— R31's absence sentence and its falsifiable not-zero control, D142's
+lost-match note, D121's row affordance, D93's confidence dot and provenance
+words. Not one of them was wrong; each simply read a surface that now renders
+only when the row is open. They share one `expandRows()` helper that opens every
+row **by index, re-querying each time**, and **the helper itself is asserted**:
+a helper that silently did nothing would have handed all eleven a green light
+over a surface they never read. Beside it, a new assertion states what the
+collapse did **not** cost — an unresolved row carries its route on the
+**collapsed** line, scoped to the `.mline` because *find nutrients* also appears
+in the resolve-walk banner, which is the narrowing [[D142]] already had to make.
+
+### GATED, SO THE ROUTE RULE CANNOT DRIFT
+
+The route decision was built before it was gated, so it was gated before the
+defect pass: on every collapsed row the headline slot holds **exactly one** of a
+number or the route — never both (that is a fourth fact beside the `×`, and at
+390px it leaves ~76px for the name), never neither, and **never a dash while the
+route is behind a tap**. And the fixture must *contain* a row of each kind, or
+both rules are checked against nothing.
+
+### THE DEFECT PASS, AND THE TWO GATE DEFECTS IT FOUND
+
+**15 plants. 13 failed their own named gate on the first run. The other two did
+not, and in both cases the defect was in the GATE, not in the plant.** Both were
+fixed, both plants re-run, and both then failed by name — 15 of 15. That is the
+pass doing the only job it has.
+
+**A HEIGHT BUDGET IS NOT A LINE COUNT.** The plant that let the collapsed name
+wrap **passed** `collapse-gate`. The 60px budget was derived from *"name, time,
+one number on one line"* — but two 16px lines plus the row’s own padding come
+to **57px** and sit comfortably inside it. The gate only ever said *short*, and
+short is a different claim from *one line*: the ruling was never actually gated.
+It now measures what was ruled — `.mname`’s rendered height against one
+line-box, and all three headline parts sharing one row — and the plant then
+fails by name at **both** 390 and 360. The plant’s own *expectation* had to move
+with it: it had been written to expect the budget to catch this, and the
+assertion that names the defect is the one the plant caused to exist.
+
+**`Number(null)` IS 0, NOT NaN.** The plant that stripped `data-pmi` from the
+draft rows did fail the gate — **on the wrong assertion**. A missing attribute
+read through `Number()` came back as item **0**, so the gate settled *"every item
+but 0"* (the lead item, which renders no row), every rendered row arrived settled,
+and the UNSETTLED-row assertion fired instead of the one written for this. A gate
+that fails for the wrong reason misleads whoever reads it next. The probe reports
+a missing attribute as `null` now, names it, flags **any** row missing one, and
+**refuses to settle anything at all without a mapping** — a fabricated mapping
+would produce a confident verdict about an arrangement the page never had.
+
+**And a third defect, in the pass itself.** Its log kept only lines containing
+`FAIL`, `GATE:` or `ERROR` — but a gate’s *reason* lines begin with `  - `. So it
+reported plant 10 as MISSED while **hiding the assertion that had in fact named
+it**: a filter reporting an outcome it could not see. Same family as the three
+dead instruments, one layer further out — *the thing reading the gate was as
+able to lie as the gate.*
+
+Three plants also had to be rewritten before they would bite, and each rewrite
+is a finding about what a plant has to do:
+
+- a plant that **throws** aborts the synchronous harness before `SUMMARY` and
+  scores MISSED, so the `idDone` plant is null-guarded;
+- clearing `bodyChip` *removes* the route rather than doubling the line up, so the
+  both-on-one-line plant had to put both in the **headline** to produce the defect
+  the rule names;
+- and wrapping the edit control in a **closed `<details>`** would not have bitten
+  at all, because a closed `details` child keeps a non-zero bounding rect
+  ([[D139]], [[D140]]) and `tap()` would have reached it. That plant removes the
+  control instead, which is the defect the 2-tap pin actually guards.
+
+**Suite: 2,575 assertions, 22 verdicts** (was 2,555 and 21).
+`collapse-gate.ps1` joins the manifest as the **17th** gate script, and
+`tests/README.md`’s own worked example of the verdict count — stale at
+`1 + 3 + 10 = 14` — is corrected to `1 + 4 + 17 = 22` in the same commit, since
+the paragraph it sits under is the one that says a bare count cannot be told
+apart from a count that lost a gate.
+
+### AND THE COMMIT ITSELF NEARLY BURIED THE SLICE
+
+`app.js` is stored in this repo as **CRLF**, alone among its text files, with no
+`.gitattributes` entry saying so, while `core.autocrlf=true` arrives from the
+**system** gitconfig rather than anything in the repo. A `sed -i` used for the
+version bump flattened the working copy to LF, and `git diff` reported **26,260
+changed lines** against a true content delta of **136** — which would have buried
+the slice and rewritten `git blame` for 13,000 lines nobody touched.
+
+**My first explanation of it was wrong, and the check caught that too.** I
+assumed git skipped its normalising filter for a file whose index copy already
+held CRLF, so converting the working copy back would settle it. It did not: the
+diff **stayed** at 13,182/13,078, and the diff itself showed why — the blob side
+carried `^M` and the working side carried none. The filter strips CR from the
+working copy and leaves the blob alone, so **either** ending in the worktree
+differs from the blob on every line. The conversion script asserted that the
+diff had actually shrunk and refused when it had not, which is the only reason
+this was measured rather than committed: *a normalisation that is not verified is
+a second guess.*
+
+What the two files actually want is **opposite**, and that is the whole finding:
+
+| file | blob | staged with | real diff | with the other choice |
+|---|---|---|---|---|
+| `app.js` | CRLF | `-c core.autocrlf=false` | **269 / 165** | 13,182 / 13,078 |
+| `index.html` | LF | the default filter | **23 / 1** | 1,189 / 1,167 |
+
+So `app.js` is staged with the filter **off**, which preserves CRLF and
+reproduces exactly what every prior commit did — [[D141]]’s commit shows the
+churn happening once (13,041/12,904) and the two after it back to 52/6 and 136/3.
+
+And the reason it read as **clean** at the start of this session despite that
+mismatch: git’s **stat cache**. The index entry’s size and mtime matched, so git
+never compared the content at all. The disagreement was latent before I touched
+the file; `sed` only made git look.
+
+**OPEN, and not fixed here.** Pinning `app.js` in `.gitattributes` is the real
+repair, but it would itself rewrite the stored file once — a 13,000-line commit
+that is a decision, not a tidy-up, and not one to take inside a presentation
+slice. Until then **every commit that touches `app.js` must stage it with
+`git -c core.autocrlf=false add app.js`**, and check `git diff --cached --numstat`
+before committing: a four-figure line count on a file nobody rewrote is the tell.
+

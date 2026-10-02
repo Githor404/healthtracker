@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.56.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.57.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3314,6 +3314,44 @@ function openPlateConsume(plateId) {
   return { ok: true, plateId: pl.id };
 }
 
+// ---- D144: THE COLLAPSED ROW ----------------------------------------------
+// MEASURED on the shipped page before this: a food row was 117-278px carrying
+// 5-13 visible facts, six of them totalled 1,057px, and NONE of the six was
+// fully visible at the top of the page. The row said everything it knew at once.
+//
+// A2: the headline is the user's own `primaryNutrient` (default kcal), so the row
+// and the ring answer the same question. A row that headlined kcal while the ring
+// tracked protein would be two answers to one question.
+//
+// B1: ONE TAP EXPANDS IN PLACE. Editing moves a tap deeper, which is the trade
+// the measurement paid for -- and the row used to be an edit button from edge to
+// edge, so a glance at the detail cost a trip through a form.
+//
+// NOTHING IS REMOVED (D53, and this arc's own principle): every fact the old row
+// printed is in the body one tap away, and `_auto` rows expand too -- they cannot
+// be edited or deleted, which is no reason to make their numbers unreachable.
+// The destructive x keeps its own target rather than joining the tap that
+// expands (D44, D130).
+let ITEM_OPEN = {};
+function itemOpenKey(dk, idx) { return String(dk) + '|' + String(idx); }
+function itemOpen(dk, idx) { return ITEM_OPEN[itemOpenKey(dk, idx)] === true; }
+function itemToggle(dk, idx) {
+  const k = itemOpenKey(dk, idx);
+  if (ITEM_OPEN[k]) delete ITEM_OPEN[k]; else ITEM_OPEN[k] = true;
+  renderDay();
+  return { ok: true, open: itemOpen(dk, idx) };
+}
+function itemCollapseAll() { ITEM_OPEN = {}; return { ok: true }; }
+// The headline, as ONE text run: a number and its unit read as one fact, and the
+// collapsed row is allowed three of them plus its own delete control. An
+// unresolved item has no number to headline and says so with the same dash the
+// rest of the surface uses (R31) rather than a zero.
+function itemHeadline(it) {
+  const k = primaryNutrientKey();
+  const v = it ? it[k] : null;
+  if (!itemHasMacros(it) || v == null || v !== v) return '\u2014';
+  return rDisp(v) + ' ' + (NUTRIENT_LABELS[k] || k);
+}
 function renderDay() {
   const host = document.getElementById('dayView');
   if (!host || !APP_STATE) return;
@@ -3361,9 +3399,10 @@ function renderDay() {
       // E1: the chip opens the editor ON MEAL instead of cycling. stopPropagation
       // keeps the body's handler from firing over it and stealing that focus.
       const chip = it._auto ? '' : `<button class="mealchip" onclick="event.stopPropagation();openItemEdit(${idx},'meal')" title="change meal">${esc(it.meal)}</button>`;
-      // `x` is NOT inside the editor's target -- D44's rule that a destructive action
-      // must not share a thumb path with a routine one, kept intact.
-      const open = it._auto ? '' : ` onclick="openItemEdit(${idx})"`;
+      // `x` is NOT inside the tap that expands the row -- D44's rule that a
+      // destructive action must not share a thumb path with a routine one, kept
+      // intact through D144's restructure. It is now beside a tap that only
+      // expands rather than one that opened a form, which widens the gap.
       const edited = it.edited_at ? `<span class="src" title="edited">· edited</span>` : '';
       // R31: an unresolved row states the absence instead of printing zeros. Every
       // macro slot would otherwise read 0 through rDisp(undefined), which is the
@@ -3399,14 +3438,49 @@ function renderDay() {
           // D141's basis existed cannot be re-expressed for a new portion, and a
           // match that silently vanished from a repeated row is the understatement
           // D130 was built to remove.
-          ((it.repeated_from && it.repeated_from.lostMatch
-            ? `<div class="mlost">the earlier match did not carry over — it did not record the portion its numbers were for</div>` : '')
-           + `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`));
-      html += `<div class="mitem"><div class="mmain"${open}>
-          <div class="mname">${esc(it.name)}</div>
-          <div class="mmeta">${it.time ? esc(it.time) + ' \u00b7 ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
-          ${chip}${refline}
-        </div><div class="mkcal"${open}>${kcalCell}</div>${rm}</div>`;
+          (it.repeated_from && it.repeated_from.lostMatch
+            ? `<div class="mlost">the earlier match did not carry over — it did not record the portion its numbers were for</div>` : ''));
+      // D144: THE ROUTE IS NOT DETAIL. "find nutrients" is the only way an item
+      // gets numbers at all, so where it sits decides whether a row is a dead end.
+      //   * a row with NO number headlines the chip IN PLACE OF the dash -- the
+      //     slot answers "what is this worth?" either with the figure or with the
+      //     offer to go and get one, and that journey does not grow a tap;
+      //   * a row that already HAS a number keeps the chip in the body, one tap
+      //     deeper, because enriching a figure that exists is not a dead end.
+      // The second half is a real flow cost and flow-gate J4 is re-pinned for it
+      // rather than quietly left reading 3 (D130: flow is a number that drifts).
+      const routeChip = (!it.ref && !it._auto)
+        ? `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`
+        : '';
+      const headSlot = (routeChip && !itemHasMacros(it))
+        ? routeChip
+        : `<span class="mnum">${esc(itemHeadline(it))}</span>`;
+      const bodyChip = (headSlot === routeChip) ? '' : routeChip;
+      // D144: the collapsed line is NAME, TIME and ONE NUMBER. Everything the old
+      // row printed moved into the body, which is one tap away.
+      //
+      // The name is CLIPPED, not wrapped: 'spicy creamy ramen broth
+      // (tantan/miso-style)' is ~300px of 16px text and the collapsed line has
+      // ~215px for it at 390px, so one of the three -- one line, 16px, whole name
+      // -- had to go, and it is the one the tap restores. `title` carries it for a
+      // pointer, and expanding wraps it in full.
+      const isOpen = itemOpen(dk, idx);
+      // The kcal cell is in the body only when it is NOT already the headline;
+      // printing the same number twice is the density this slice is removing.
+      const bodyKcal = primaryNutrientKey() !== 'kcal'
+        ? `<div class="mkcal">${kcalCell}</div>` : '';
+      html += `<div class="mitem${isOpen ? ' mopen' : ''}">
+        <div class="mline">
+          <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
+            <span class="mname" title="${esc(it.name)}">${esc(it.name)}</span>
+            <span class="mtime">${esc(it.time || '')}</span>
+            ${headSlot}
+          </div>${rm}
+        </div>${isOpen ? `<div class="mbody">
+          <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
+          ${bodyKcal}${chip}${refline}${bodyChip}
+          ${it._auto ? '' : `<button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>`}
+        </div>` : ''}</div>`;
     });
     html += `</div>`;
   });
@@ -7077,7 +7151,19 @@ function renderPhotoDraftInner() {
     // and nothing to propagate -- so the estimate stands and the alternatives are
     // simply reachable. On a single-item draft the lead block already carries them.
     const offramp = (!d.single && !it.added) ? identityOptionsHTML(i, it) : photoIdentityOptions(i);
-    return `<div class="pmrow${ex ? ' pmex' : ''}${unres ? ' pmrowunres' : ''}">
+    // D144/P1: a SETTLED identity has nothing left to ask, and the control is
+    // MEASURED at 122-172px of a 237-287px row -- 1,385px of rows for a six-item
+    // save against 575px once every identity is settled, which is the difference
+    // between one screen and two. An UNSETTLED row keeps it open, because there
+    // the question is the point.
+    const idSettled = (it.idDone === true) && !PHOTO_ID_REOPEN[i];
+    // D144: the row STATES its item index. MEASURED: a six-item draft renders
+    // FIVE .pmrow elements -- the lead item has its own block -- so row k is item
+    // k+1, and collapse-gate's first version settled "every item but 0" and then
+    // asserted about row 0, which is item 1 and had just been settled. Every
+    // handler on this row already carries the index; saying it once as data means
+    // nothing downstream has to infer the mapping.
+    return `<div class="pmrow${ex ? ' pmex' : ''}${unres ? ' pmrowunres' : ''}" data-pmi="${i}">
       <div class="pmhead"><b>${esc(it.name)}</b>${fixed}${ex ? `<small class="pmfix">not saved</small>` : ''}</div>
       <div class="pmctl">
         <input type="range" min="10" max="${esc(smax)}" step="5" value="${esc(g)}"
@@ -7086,7 +7172,9 @@ function renderPhotoDraftInner() {
         <span class="pmunit">g</span>${pin}
       </div>
       <div class="pmmeta">${meta}</div>
-      <div class="pmid-wrap">${offramp}${exBtn}</div>
+      <div class="pmid-wrap${idSettled ? ' pmidset' : ''}">${idSettled
+        ? `<button type="button" class="linklike" onclick="photoIdReopen(${i})">name confirmed \u2014 change</button>`
+        : offramp}${exBtn}</div>
     </div>`;
   }).join('');
   // R30/R31: the draft total is a total, so it obeys the same rule as every other
@@ -7127,6 +7215,7 @@ function renderPhotoDraftInner() {
 // come through here, so "identical item JSON produces an identical draft" is a
 // property of the CONSTRUCTION rather than of two code paths agreeing (R21-parity).
 function openPhotoDraft(text) {
+  photoIdReopenReset();
   const rep2 = document.getElementById('ingestReport');
   const r = parsePhotoMeal(text);
   if (!r.ok) { if (rep2) rep2.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
@@ -7910,10 +7999,11 @@ const VERSION_LOG = [
   { v: '0.50.0', d: '2026-09-26', note: 'Finding nutrients for a dish got better at three things. A common word no longer drowns a rare one — asking about ramen noodles stopped offering crackers and bread because they share the word “wheat”. A food you have matched before is recognised even when the photo describes it differently (“cooked wheat ramen noodles” against “ramen noodles”). And the search box for a different word now starts empty, instead of pre-filled with the name that just produced the wrong list.' },
   { v: '0.51.0', d: '2026-09-26', note: 'A remembered match now says which meal it came from — “you chose this for “ramen noodle soup” on Sep 1” — instead of only “you chose this for this food before”. The app recognises a food across rewordings, and two dishes that are not quite the same can be recognised as one; naming the meal the answer came from lets you see that before you accept it.' },
   { v: '0.52.0', d: '2026-09-26', note: 'The app now says things in plain words. Calories are “cal” on a row and “Calories” on a heading; a food logged from a photo says “from photo” instead of “ai-paste”, and an estimate says “estimated” instead of “eyeballed”. A food matched to the nutrition database now leads with a readable name — “Lentils (boiled)” rather than “Lentils, boiled” — keeps a visible “food database” marker so you always know where the numbers came from, and carries the exact database name and its source under “source”. Nothing was removed: every number, source and citation is still there.' },
-  { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
+  { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
   { v: '0.54.0', d: '2026-10-01', note: 'A food you have matched before is now offered its match while you are still saving the photo, as the first choice of what the food is: “you chose Lentils (boiled) for “lentil stew” on Sep 22 — with its nutrients”. One tap settles both the name and the nutrition, and if you eat only part of the plate the database numbers are scaled to the part you ate. Only a food you have actually matched before is offered this way — the app never pre-picks a guess of its own — and if the remembered match is in a different state, dry where yours is cooked, it says so and still waits for you. Anything else you pick sets the name only.' },
   { v: '0.55.0', d: '2026-10-01', note: 'Logging a food again at a different portion now keeps its nutrition database match and scales the numbers to the new portion, instead of dropping the match. Half the portion, half the vitamins. A match made before the app started recording which portion its numbers were for still cannot be scaled — those rows now say the match did not carry over, and offer to look it up again.' },
   { v: '0.56.0', d: '2026-10-01', note: 'Fixes the page scrolling behind an open sheet. With the Log sheet, Settings, a photo draft or the nutrient lookup open, the day behind no longer moves, no longer takes taps, and comes back exactly where you left it when the sheet closes. Swiping to the end of a sheet no longer carries on into the page underneath.' },
+  { v: '0.57.0', d: '2026-10-02', note: 'Food rows are now one line — the name, the time and one number, the same nutrient the ring is tracking. Tap a row to see everything else it knows: the portion, how sure the number is, where it came from, the macros and the database match it was given. Nothing was taken away, it is just one tap behind instead of all at once. A row with no nutrition yet shows the “find nutrients” button straight away rather than a dash. And when you have confirmed what a food is in a photo draft, that row folds its list of alternatives away, which roughly halves the scrolling on a six-item meal.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -9632,6 +9722,17 @@ function identityOptionsHTML(idx, it) {
 // Every one of them settles the identity and records WHAT WAS OFFERED AND WHAT WAS
 // TAKEN. No consumer reads it in this slice (H1) -- the threshold will eventually
 // self-tune from it, and that needs a floor of evidence first.
+// D144/P1: reopening a settled identity is UI STATE, not a change to the record.
+// Clearing `idDone` would rewrite what the user did -- and `idPick` is the
+// calibration evidence the picks exist to collect -- so this remembers only that
+// they asked to see the question again.
+let PHOTO_ID_REOPEN = {};
+function photoIdReopen(idx) {
+  PHOTO_ID_REOPEN[idx] = true;
+  renderPhotoDraft();
+  return { ok: true, open: true };
+}
+function photoIdReopenReset() { PHOTO_ID_REOPEN = {}; return { ok: true }; }
 function photoSettle(idx, pick) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
   const it = PHOTO_DRAFT.items[idx];
@@ -13079,6 +13180,9 @@ window.HT = {
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,
   stepDay, toggleDayStatus, renderDay, defaultSettings, normalizeSettings,
+  // D144 -- the collapsed row, and the settled draft identity
+  itemToggle, itemOpen, itemCollapseAll, itemHeadline,
+  photoIdReopen, photoIdReopenReset,
   setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, deleteItem, miniRingSVG, MINI_PX,
   // R22 / D55 -- the edit contract
   editRecord, editableFields, demoteForEdit, normalizeOrig, normalizeEditedAt, EDITABLE_FIELDS, MEASUREMENT_FIELDS,

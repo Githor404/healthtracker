@@ -4823,3 +4823,65 @@ Census before the fix, real touch sequences at 390×844: **5 of 10 surfaces bled
 
 **Assert the mechanism, not only the symptom:** the capture-outcome modal passed a
 symptom-only census on `overscroll-behavior` alone while never locking the page.
+
+### D144 — the collapsed row — v0.57.0
+
+**Written before the build and failing by name on every ruled behaviour** — and
+on nothing else: not on ink, not on the 16px floor. Every threshold is taken from
+the fixture it gates (the rule [[D141]] coined).
+
+Baseline: rows **117 / 146 / 278** px carrying **5–13** facts, **1,057px** for six,
+**0 of 6** fully visible, day total **2.4 screens** down, **ink collisions ZERO**.
+Draft rows **237–287px** with **122–172px** of identity control, **1,385px** for a
+six-item save.
+
+| case | asserts |
+|---|---|
+| **collapse-gate.ps1** | every collapsed row is **44–60px** — two-sided, so "compact" cannot be met by making the row untappable |
+| **collapse-gate.ps1** | at most **4** visible facts on a collapsed row, and it prints the offenders |
+| **collapse-gate.ps1** | six rows together → **≤420px**, and the day total within **2 screens** |
+| **collapse-gate.ps1** | **INK**, not boxes, at 390 **and** 360, collapsed **and** expanded — and a *clipped* element is not an overflowing one |
+| **collapse-gate.ps1** | the headline slot holds **exactly one** of a number or the route — never both, never neither, and **never a dash while the route is behind a tap** |
+| **collapse-gate.ps1** | and the fixture **contains** a row of each kind, or both of those are vacuous ([[D96]]) |
+| **collapse-gate.ps1** | the **16px floor** across 9 row classes, with a coverage check first ([[D124]]) |
+| **collapse-gate.ps1** A2 | the headline reads `cal` by default and **changes** when `primaryNutrient` becomes `protein_g` |
+| **collapse-gate.ps1** B1 | **one real touch** adds `.mopen`, grows the row, and does **not** open the editor |
+| **collapse-gate.ps1** B1 | the expanded row shows the confidence, the source and the macros the collapsed one hid — deferred, not deleted ([[D53]]) |
+| **collapse-gate.ps1** P1 | a **settled** row sheds its alternates and is ≤170px; the row left **unsettled** keeps its control open |
+| **collapse-gate.ps1** P1 | the draft rows **declare** which item they are, and the gate fails by name if they stop |
+| **flow-gate.ps1** J4 | **RE-PINNED 3 → 4**, with the reason in the gate — and the first tap must actually have expanded the row |
+| **flow-gate.ps1** B1 | the editor is **exactly 2 taps** from a collapsed row |
+| **jargon-gate.ps1** | the day-view sweep **expanded EVERY row**, not just one — the six shapes carry six different source words, so a partial expand sweeps some vocabulary and not the rest, and a sweep that passes because the text is collapsed has not swept it |
+| D144-A2 **GATE** | the headline is `primaryNutrientKey()`, falls back exactly as the ring does, and an **unresolved** item headlines a dash rather than `0 cal` |
+| D144-B1 **GATE** | the open state is keyed by **day and index**, toggles both ways, and `collapseAll` clears every day |
+| D144-P1 **GATE** | reopening a settled identity leaves `idDone` **and** `idPick` untouched |
+| R23-ui/D144 | the row body only expands; **no edit control exists while the row is collapsed**; the supplement row expands and still offers neither edit nor delete |
+| D121-row/D144 **GATE** | an unresolved row carries its route **on the collapsed line**, scoped to `.mline` |
+| D144-fixture **GATE** | the harness's `expandRows()` really opens rows — ten assertions read markup that exists only while a row is open |
+
+**The route is not detail.** A row with no number headlines `find nutrients` in
+place of the dash, so the only journey out of a dead end did not grow a tap; a row
+that has a number pays one, and that tap is **pinned** rather than left implicit.
+
+**A gate that does not PARSE exits 1, which is what failing looks like.** The
+route rule above was first written `-match "^\s*—\s*$"`, and `$"` ends a
+double-quoted PowerShell string — the script stopped parsing and exited **1 with
+no verdict line**. [[D94]]’s rule (*a run with no verdict is re-run, never read as
+a result*) is the only reason that was not filed as a failure — and the only
+reason the discovery that **the route assertions had never run** was made at all:
+the first PASS predated them. Single-quoted now, with the dash as `\u2014`, and
+the script is parse-checked before it is trusted.
+
+**Defect pass: 15 plants, 13 caught first time.** The two that were not caught
+were **defects in this gate**, both now fixed and both plants re-run and caught:
+
+| the miss | the defect it exposed |
+|---|---|
+| the collapsed name wraps — gate said **PASS** | a **height budget is not a line count**: two 16px lines + padding = 57px, inside the 60px budget. The gate said *short*, never *one line*. Now measures `.mname` against one line-box and all three parts on one row |
+| `data-pmi` stripped — gate failed on the **wrong assertion** | `Number(null)` is **0**, not NaN, so the row read as item 0 and the cascade fired instead of the named check. Reports `null` now, names it, and **settles nothing without a mapping** |
+
+And the pass’s own log kept only `FAIL`/`GATE:`/`ERROR` lines while a gate’s
+reasons begin with `  - ` — so it called a plant MISSED while hiding the
+assertion that had named it. *The thing reading the gate was as able to lie as
+the gate.*
+

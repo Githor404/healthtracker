@@ -149,11 +149,37 @@ try {
 (async function () {
   const out = {};
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // D144: a row that already HAS a number keeps "find nutrients" in its body, so
+  // the chip is reached by expanding the row first. A row with no number headlines
+  // the chip and needs no expand -- hence the second look rather than an
+  // unconditional click, which would collapse a row that was already open.
+  // D144: a row that already HAS a number keeps "find nutrients" in its body, so
+  // the chip is reached by expanding the row first. A row with no number headlines
+  // the chip and needs no expand -- hence the second look rather than an
+  // unconditional click, which would collapse a row that was already open.
+  //
+  // AND THE ROW IS LOOKED UP BY INDEX, TWICE. `itemToggle` re-renders the whole
+  // day, so the element handed back by the first query is detached the instant it
+  // is clicked, and `row.querySelector` after that searches a page that no longer
+  // exists -- which is exactly how this gate reported "no wood ear chip" against
+  // a build whose chip was there.
+  function rowIdxFor(re) {
+    const rows = Array.prototype.slice.call(document.querySelectorAll('.mitem'));
+    for (let i = 0; i < rows.length; i++) if (re.test(rows[i].textContent || '')) return i;
+    return -1;
+  }
   function chipFor(re) {
-    let c = null;
-    Array.prototype.slice.call(document.querySelectorAll('.mitem')).forEach(function (row) {
-      if (!c && re.test(row.textContent || '')) c = row.querySelector('.rchip');
-    });
+    const i = rowIdxFor(re);
+    if (i < 0) return null;
+    const at = function () { return document.querySelectorAll('.mitem')[i]; };
+    let row = at();
+    let c = row && row.querySelector('.rchip');
+    if (!c && row) {
+      const h = row.querySelector('.mhead');
+      if (h) h.click();
+      row = at();                       // the tap rebuilt the list
+      c = row && row.querySelector('.rchip');
+    }
     return c;
   }
   function rows() { return Array.prototype.slice.call(document.querySelectorAll('.rcandbtn')); }

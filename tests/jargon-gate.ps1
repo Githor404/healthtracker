@@ -238,9 +238,28 @@ try {
   S.current = DK;
   HT.refresh();
   await sleep(500);
+  // D144: THE WORDS MOVED BEHIND A TAP. The collapse put confidence, source and
+  // the citation in a body that renders only when the row is expanded, so this
+  // sweep would pass over a surface that no longer prints them -- a sweep that
+  // passes because the text is collapsed has not swept it. Every row is expanded
+  // first, which is also the state the user reads those words in.
+  // BY INDEX, re-querying each time: `itemToggle` re-renders the whole day, so a
+  // list of .mhead elements captured up front is detached after the first click
+  // and the remaining clicks land on a page that no longer exists -- one row
+  // would have expanded and the sweep would have called that coverage.
+  const rowN = document.querySelectorAll('.mitem').length;
+  for (let r = 0; r < rowN; r++) {
+    const h = document.querySelectorAll('.mitem')[r];
+    const hh = h && h.querySelector('.mhead');
+    if (hh) { hh.click(); await sleep(40); }
+  }
+  await sleep(250);
+  OUT.rowsSeen = rowN;
+  OUT.expandedRows = document.querySelectorAll('.mitem.mopen').length;
   sweep('day view');
 
   // ---- the instrument's SELF-TEST, before its sweep is trusted ------------
+  // ...and the self-test's own subject is in that body too
   const cite = document.querySelector('.mcite');
   const body = cite && cite.querySelector('.mcitebody');
   OUT.citeFound = !!body;
@@ -303,6 +322,17 @@ try {
   $R = $r | ConvertFrom-Json
 
   # ---- the instrument, before its findings ----------------------------------
+  # D144: the day-view sweep now depends on rows being EXPANDED, because the
+  # words it checks moved into a body that renders only when they are. If the
+  # expand silently stopped working this gate would go green over a surface it
+  # never read -- the same shape as the three dead instruments this suite has
+  # already caught, so the fixture states its own precondition.
+  if (-not $R.expandedRows -or $R.expandedRows -lt 1) {
+    $fails += "the day-view sweep expanded NO rows, so it swept a surface with the row's vocabulary collapsed out of it -- a sweep that passes because the text is hidden has not swept it (D144)"
+  }
+  elseif ($R.expandedRows -lt $R.rowsSeen) {
+    $fails += "the day-view sweep expanded $($R.expandedRows) of $($R.rowsSeen) rows -- the shapes differ (matched, unresolved, lost-match), so a partial expand sweeps some vocabulary and not the rest"
+  }
   if (-not $R.citeFound) {
     $fails += "the citation disclosure did not render, so the instrument's self-test could not run (D96)"
   } else {

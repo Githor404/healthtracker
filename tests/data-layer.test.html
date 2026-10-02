@@ -37,6 +37,29 @@ window.setLS({});
   function today(){ var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
   var kcalOf = function(day){ return day.items.reduce(function(a,i){ return a + i.kcal; }, 0); };
+  // D144: THE ROW DEFERS ITS DETAIL. The confidence dot, the source word, the
+  // macros, the reference line, its citation and the lost-match note all moved
+  // into a `.mbody` that renders only when the row is open. Eleven assertions
+  // below read that markup, so every render they depend on is followed by this.
+  //
+  // BY INDEX, RE-QUERYING EACH TIME: itemToggle repaints the whole day, so a list
+  // of elements captured up front is detached the instant the first one is
+  // clicked -- the mistake that made resolve-gate report "no wood ear chip"
+  // against a build whose chip was there.
+  //
+  // It returns the number of rows it opened, and that number is ASSERTED, because
+  // a helper that quietly did nothing would hand all eleven assertions a pass over
+  // a surface they never read. Expanding is also the state the user reads these
+  // words in, so it is the right state to assert.
+  var expandRows = function(){
+    var total = document.querySelectorAll('#dayView .mitem').length;
+    for (var i = 0; i < total; i++) {
+      var row = document.querySelectorAll('#dayView .mitem')[i];
+      var head = row && row.querySelector('.mhead');
+      if (head && !row.classList.contains('mopen')) head.click();
+    }
+    return document.querySelectorAll('#dayView .mitem.mopen').length;
+  };
   var isoRe = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
   function deepEqual(a, b){
     if (a === b) return true;
@@ -7233,15 +7256,29 @@ window.setLS({});
   setLS({}); HT.boot(); fixClock();
   var dkU = HT.state().current;
   HT.addManualEntry({ name: 'Toast', meal: 'breakfast', time: '08:00', kcal: 200 });
-  HT.state().current = dkU; HT.renderDay();
-  var bodyU = document.querySelector('#dayView .mmain');
+  HT.state().current = dkU; HT.itemCollapseAll(); HT.renderDay();
+  // D144 RE-POINTED, carrying its history: `.mmain` is gone and the row body is
+  // `.mhead`, which EXPANDS rather than edits. The property Fork E / D44 was
+  // protecting is unchanged and is now tested in three parts -- the line that
+  // opens, the control that edits, and the x that deletes, none doing another's
+  // job. The editor's control only exists once the row is open, which is the
+  // ruling (edit is one tap deeper) stated as a DOM fact.
+  var bodyU = document.querySelector('#dayView .mhead');
+  var bodyOn = String(bodyU && bodyU.getAttribute('onclick') || '');
+  res(bodyOn.indexOf('itemToggle') >= 0 && bodyOn.indexOf('openItemEdit') < 0 &&
+      bodyOn.indexOf('deleteItem') < 0,
+      'R23-ui/D144: the row BODY only EXPANDS -- it carries no delete, and no longer the editor either (re-pointed from .mmain, which opened the editor on first touch)');
+  res(document.querySelectorAll('#dayView .medit').length === 0,
+      'R23-ui/D144: and while the row is COLLAPSED there is no edit control on the page at all -- "one tap deeper" is a fact about the DOM, not a promise about a handler');
+  if (bodyU) bodyU.click();
+  // (queried from the document, not from bodyU -- the tap rebuilt the list)
+  var editU = document.querySelector('#dayView .mitem.mopen .medit');
+  res(!!editU && String(editU.getAttribute('onclick') || '').indexOf('openItemEdit') >= 0,
+      'R23-ui/D144: ...and expanding the row produces exactly one edit control, which is the thing that opens the editor');
   var chipU = document.querySelector('#dayView .mealchip');
   var rmU = document.querySelector('#dayView .rm');
-  var bodyOn = String(bodyU && bodyU.getAttribute('onclick') || '');
   var chipOn = String(chipU && chipU.getAttribute('onclick') || '');
   var rmOn = String(rmU && rmU.getAttribute('onclick') || '');
-  res(bodyOn.indexOf('openItemEdit') >= 0 && bodyOn.indexOf('deleteItem') < 0,
-      'R23-ui: the row BODY opens the editor and carries no delete');
   res(rmOn.indexOf('deleteItem') === 0 && rmOn.indexOf('openItemEdit') < 0,
       'R23-ui: the x carries the delete and opens no editor -- a destructive action does not share a thumb path (D44)');
   res(chipOn.indexOf('openItemEdit') >= 0 && chipOn.indexOf("'meal'") >= 0 &&
@@ -7267,9 +7304,19 @@ window.setLS({});
   HT.renderDay();
   var autoRow = document.querySelectorAll('#dayView .mitem')[1];
   res(!!autoRow && autoRow.querySelectorAll('.rm').length === 0 &&
-      autoRow.querySelectorAll('.mealchip').length === 0 &&
-      String(autoRow.querySelector('.mmain').getAttribute('onclick') || '') === '',
+      autoRow.querySelectorAll('.medit').length === 0,
       'R23-ui: the supplement row offers no edit and no delete -- it is a setting persisting itself, not something logged');
+  // D144: it DOES expand, though, and that is deliberate. The old row printed its
+  // macros inline; the collapsed one must not make a row the user cannot edit a
+  // row whose numbers they cannot see either (D53 -- deferred, not deleted).
+  // RE-QUERIED after the tap: itemToggle re-renders the day, so `autoRow` is a
+  // detached node the moment it is clicked and would report mopen=false forever.
+  if (autoRow) autoRow.querySelector('.mhead').click();
+  var autoRow2 = document.querySelectorAll('#dayView .mitem')[1];
+  res(!!autoRow2 && autoRow2.classList.contains('mopen') &&
+      autoRow2.querySelectorAll('.medit').length === 0 &&
+      autoRow2.querySelectorAll('.rm').length === 0,
+      'R23-ui/D144: the supplement row EXPANDS like any other -- uneditable is not a reason to make its numbers unreachable -- and expanding it still offers neither edit nor delete');
   res(HT.openItemEdit(1).ok === false,
       'R23-ui: and the API refuses it too, so the guard is not merely cosmetic');
   // The accepted portion is VISIBLE, and an edited row says it was edited.
@@ -7599,6 +7646,7 @@ window.setLS({});
   res(HT.dayTotals(st31.days[r31day]).kcal === 350,
       'R31-total: the total is the sum of what is actually known -- the unresolved item contributes nothing rather than contributing a fabricated 0');
   HT.renderDay();
+  expandRows();                        // D144: the absence is stated in the body
   var dv31 = document.getElementById('dayView').innerHTML;
   // SCOPED TO THE CELL IT NAMES. Asserted against the whole day view, this case
   // passed with the day-total note deleted -- the MEAL GROUP head carries the same
@@ -7623,22 +7671,30 @@ window.setLS({});
   var soloDay = r31mk([ r31unres('Only item') ]);
   st31.days[r31day2] = soloDay; st31.current = r31day2; HT.resave();
   HT.renderDay();
+  expandRows();                        // D144: .mmeta and .mkcal are in the body
   var solo = document.getElementById('dayView').innerHTML;
-  var soloMeta = r31slice(solo, '<div class="mmeta">');
-  var soloKcal = r31slice(solo, '<div class="mkcal"');
-  // The cells are compared as RENDERED TEXT, not as markup: onclick="openItemEdit(0)"
-  // puts a 0 in the kcal cell's ATTRIBUTES, and an assertion that counted it would
-  // fail for a reason having nothing to do with what the user sees.
+  // D144 RE-POINTED, and STRICTER for it. There is no `.mkcal` cell on this row
+  // any more: when kcal IS the headline the body does not repeat it, so the place
+  // an unguarded `rDisp(undefined)` would now print "0" is the HEADLINE SLOT --
+  // the one thing on a collapsed row the eye lands on. Read from the DOM rather
+  // than sliced out of markup, because the slot is `.mnum` on a row with a number
+  // and `.rchip` on a row without one, and because the old string slice existed
+  // to dodge `onclick="openItemEdit(0)"`, an attribute the line no longer has.
+  // The TIME is deliberately outside the scope: '12:30' is digits that belong.
   var stripTags = function(h){ return h.replace(/<[^>]*>/g, ''); };
-  var soloKcalTxt = stripTags(soloKcal), soloMetaTxt = stripTags(soloMeta);
-  res(soloMetaTxt.length > 0 && soloKcal.indexOf('openItemEdit') >= 0,
-      'R31-not-zero: the two item cells were located, and the kcal cell really does carry a 0 in its markup -- which is why the assertion below reads the text and not the tags');
-  res(!/\d/.test(soloKcalTxt) && !/P \d/.test(soloMetaTxt),
-      'R31-not-zero GATE: the ONLY item on the day is unresolved, and NO digit reaches its kcal cell and no macro figure reaches its meta line -- rDisp(undefined) is the string "0", so an unguarded render prints exactly that');
-  var plantedKcal = stripTags(soloKcal.replace('<span class="munres">—</span>', '0<small> kcal</small>'));
-  var plantedMeta = stripTags(soloMeta.replace('<span class="munres">no nutrition yet</span>', 'P 0 F 0 C 0'));   // word moved by D139
-  res(/\d/.test(plantedKcal) && /P \d/.test(plantedMeta),
-      'R31-not-zero CONTROL: the same two assertions FIND the zeros once the cells print them, so the gate can fail');
+  var soloRow = document.querySelector('#dayView .mitem');
+  var soloSlot = soloRow && soloRow.querySelector('.mline .mnum, .mline .rchip');
+  var soloMetaEl = soloRow && soloRow.querySelector('.mbody .mmeta');
+  var soloSlotTxt = soloSlot ? soloSlot.textContent : '';
+  var soloMetaTxt = soloMetaEl ? soloMetaEl.textContent : '';
+  res(!!soloSlot && soloMetaTxt.length > 0,
+      'R31-not-zero: the headline slot and the meta line were both LOCATED -- the kcal cell this used to read does not exist when kcal is the headline, so an assertion still pointed at it would have passed over nothing');
+  res(!/\d/.test(soloSlotTxt) && !/P \d/.test(soloMetaTxt),
+      'R31-not-zero GATE: the ONLY item on the day is unresolved, and NO digit reaches its HEADLINE SLOT and no macro figure reaches its meta line -- rDisp(undefined) is the string "0", so an unguarded render prints exactly that, now in the one place the eye lands first');
+  var plantedSlot = stripTags((soloSlot ? soloSlot.outerHTML : '').replace(/>[^<]*</, '>0 cal<'));
+  var plantedMeta = soloMetaTxt.replace('no nutrition yet', 'P 0 F 0 C 0');   // word moved by D139
+  res(/\d/.test(plantedSlot) && /P \d/.test(plantedMeta),
+      'R31-not-zero CONTROL: the same two assertions FIND the zeros once those cells print them, so the gate can fail');
   res(HT.dayTotals(soloDay).kcal === 0 && HT.macroCoverage(soloDay).n === 0,
       'R31-not-zero: a day of nothing but unresolved items totals 0 with coverage 0 of 1 -- that number is honest only because of the sentence beside it');
   res(solo.indexOf('from 0 of 1 items') >= 0,
@@ -9515,6 +9571,76 @@ window.setLS({});
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
 
+  // ---- D144: the collapsed row's headline, and the settled identity -----
+  // The GEOMETRY of this slice is collapse-gate.ps1's -- a height is not a value
+  // and this harness has no layout. What is a value: WHICH number the headline
+  // shows, and what reopening a settled identity does to the record.
+  var _c144 = HT.state().current, _d144 = HT.state().days;
+  var _s144 = HT.state().settings;
+  HT.state().settings = HT.state().settings || {};
+  var it144 = { name: 'spaghetti', meal: 'lunch', time: '12:30', grams: 200,
+    kcal: 520, protein_g: 22.85, fat_g: 3.2, carb_g: 88.4, fiber_g: 5.1,
+    soluble_fiber_g: 1, confidence: 'eyeballed', source: 'ai-paste', notes: '' };
+  HT.state().settings.primaryNutrient = '';
+  res(HT.itemHeadline(it144) === '520 cal',
+      'D144-A2 GATE: with no primary declared the headline is KCAL, in the word the surface uses -- "520 kcal" would reintroduce the vocabulary D139 removed on this exact string');
+  HT.state().settings.primaryNutrient = 'protein_g';
+  res(HT.itemHeadline(it144) === '22.9 protein',
+      'D144-A2 GATE: declaring protein_g CHANGES the headline -- the row and the ring answer the same question, which is the whole reason A2 was chosen over plain kcal');
+  HT.state().settings.primaryNutrient = 'ash_g';
+  res(HT.itemHeadline(it144) === '520 cal',
+      'D144-A2 GATE: a primary the ring cannot show falls back exactly as the ring does -- the headline reads primaryNutrientKey(), not the raw setting, so the two can never disagree (D140 kept ash off the surface)');
+  HT.state().settings.primaryNutrient = '';
+  res(HT.itemHeadline({ name: 'mystery side', unresolved: true }) === '\u2014',
+      'D144-A2 GATE: an UNRESOLVED item headlines a DASH -- rDisp(undefined) is 0, and "0 cal" on a row whose nutrition is simply unknown is the understatement R31 exists to remove, now in the one place the eye lands first');
+  res(HT.itemHeadline(null) === '\u2014',
+      'D144-A2 GATE: ...and a missing item does not throw on the way to saying so');
+
+  // B1's state is keyed by DAY AND INDEX. Index alone would carry an open row
+  // across a day change onto whatever item happens to sit at that position.
+  HT.itemCollapseAll();
+  res(HT.itemOpen('2026-09-26', 0) === false,
+      'D144-B1 GATE: rows start COLLAPSED -- the slice is the list, so the default cannot be the old all-at-once row under a new name');
+  HT.itemToggle('2026-09-26', 0);
+  res(HT.itemOpen('2026-09-26', 0) === true && HT.itemOpen('2026-09-26', 1) === false,
+      'D144-B1 GATE: one toggle opens ONE row');
+  res(HT.itemOpen('2026-09-25', 0) === false,
+      'D144-B1 GATE: the open state is keyed by DAY and index -- keyed by index alone, stepping back a day would arrive with an unrelated item already expanded');
+  HT.itemToggle('2026-09-26', 0);
+  res(HT.itemOpen('2026-09-26', 0) === false,
+      'D144-B1 GATE: the same tap closes it -- it is a toggle, not a one-way reveal');
+  HT.itemToggle('2026-09-26', 2); HT.itemToggle('2026-09-25', 4);
+  HT.itemCollapseAll();
+  res(HT.itemOpen('2026-09-26', 2) === false && HT.itemOpen('2026-09-25', 4) === false,
+      'D144-B1 GATE: collapseAll clears every day, not just the current one');
+  HT.state().current = _c144; HT.state().days = _d144;
+  HT.state().settings = _s144;
+
+  // P1: reopening is UI STATE. Clearing idDone would rewrite what the user did,
+  // and idPick is the calibration evidence the three picks exist to collect.
+  HT.photoIdReopenReset();
+  HT.openPhotoDraft(JSON.stringify({ meal: 'lunch', items: [
+    { name: 'a', grams: 100, notes: 'x', per100: { kcal: 100, protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } },
+    { name: 'b', grams: 100, notes: 'x', per100: { kcal: 100, protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } }] }));
+  var d144 = HT.photoDraft();
+  res(!!d144 && d144.items.length === 2,
+      'D144-P1 fixture: a two-item draft stood up, so the settle below has something to settle');
+  if (d144 && d144.items.length === 2) {
+    HT.photoConfirmIdentity(0);
+    res(d144.items[0].idDone === true && !!d144.items[0].idPick,
+        'D144-P1 fixture: confirming settles the identity AND records the pick');
+    var pick144 = JSON.stringify(d144.items[0].idPick);
+    HT.photoIdReopen(0);
+    res(d144.items[0].idDone === true && JSON.stringify(d144.items[0].idPick) === pick144,
+        'D144-P1 GATE: REOPENING the control does NOT clear idDone or idPick -- asking to see the question again is not un-answering it, and idPick is the calibration record the picks exist to collect (D96/H1)');
+    HT.photoIdReopenReset();
+    res(d144.items[0].idDone === true,
+        'D144-P1 GATE: ...and resetting the reopen state leaves the record alone too -- the two are separate, which is the point of keeping them separate');
+  }
+  HT.photoDiscard();
+  res(HT.photoDraft() === null,
+      'D144-P1 fixture: the draft is discarded, so the cases above leave no draft open for the next block');
+
   // ---- D143: what counts as an overlay, and what does not ---------------
   // The page lock is DERIVED from the data-overlay attribute rather than from a
   // list of call sites, so the classification IS the contract. Driven by real
@@ -9620,6 +9746,7 @@ window.setLS({});
   HT.state().days = { '2026-10-01': { status: 'in_progress', water_l: 0, items: [rLeg] } };
   HT.state().current = '2026-10-01';
   HT.renderDay();
+  expandRows();                        // D144: .mlost and the row's chip are in the body
   var dv142 = (document.getElementById('dayView') || {}).innerHTML || '';
   // NARROWED TWICE. 'find nutrients' also appears in the resolve-walk banner, so
   // asserting it anywhere in the day view passed while the ROW's own chip was
@@ -10453,6 +10580,27 @@ window.setLS({});
 
   // ---- the row affordance -------------------------------------------------
   HT.refresh();
+  // D144: FIRST, WITHOUT EXPANDING ANYTHING, and on its OWN fixture. A row with
+  // no number headlines the route in place of the dash, so the only way out of a
+  // dead end did not grow a tap when the rest of the row's detail did. The
+  // fixture below has to be an item with NO macros: every row in this block's own
+  // fixture HAS numbers, and for those the chip is a tap deeper by design -- so
+  // asserted there, this would have failed for being pointed at the wrong case.
+  // Scoped to the `.mline` because 'find nutrients' also appears in the
+  // resolve-walk banner, the narrowing D142 had to make.
+  var _dk121 = HT.state().current;
+  HT.state().days[_dk121] = { status: 'in_progress', water_l: 0, items: [
+    { name: 'mystery side', meal: 'lunch', time: '12:31', grams: 80, unresolved: true,
+      confidence: 'eyeballed', source: 'ai-paste', notes: '' }] };
+  HT.itemCollapseAll(); HT.renderDay();
+  var line121 = Array.prototype.slice.call(document.querySelectorAll('#dayView .mitem .mline'))
+    .map(function (e) { return e.textContent || ''; }).join(' ');
+  res(line121.indexOf('find nutrients') >= 0 && line121.indexOf('\u2014') < 0,
+      'D121-row/D144 GATE: a row with NO number headlines its route rather than a dash -- the collapse deferred the detail and kept the way out, because a row reading "\u2014" whose only route is behind a tap is a dead end');
+  var opened121 = expandRows();
+  res(opened121 >= 1 && document.querySelectorAll('#dayView .mitem.mopen').length === opened121,
+      'D144-fixture GATE: the expand helper really opens rows -- ten assertions in this file read markup that only exists while a row is open, and a helper that silently did nothing would hand every one of them a pass over a surface it never read');
+  HT.refresh(); expandRows();          // back to this block's own fixture
   var dv121 = document.getElementById('dayView').innerHTML;
   res(dv121.indexOf('find nutrients') >= 0,
       'D121-row GATE: an unresolved row carries a ROUTE to resolving');
@@ -11541,6 +11689,7 @@ window.setLS({});
   d93.days[d93day] = { status: 'in_progress', water_l: 0, items: [
     d93item('Rice', 'weighed'), d93item('Beans', 'measured'), d93item('Stew', 'eyeballed') ] };
   HT.resave(); HT.renderDay();
+  expandRows();                        // D144: the dot and the provenance words are in the body
 
   var d93rows = Array.prototype.slice.call(document.querySelectorAll('#dayView .mitem'));
   res(d93rows.length === 3, 'D93-fixture: three item rows rendered -- a gate over an empty surface asserts nothing (D60 Clause 4)');
@@ -11604,6 +11753,7 @@ window.setLS({});
   d93.days[d93day].items.push({ name: 'Sauce', meal: 'lunch', time: '12:30', grams: 60,
     unresolved: true, confidence: 'eyeballed', notes: '', source: 'manual' });
   HT.resave(); HT.renderDay();
+  expandRows();                        // D144: the absence sentence is in the body
   var d93unres = Array.prototype.slice.call(document.querySelectorAll('#dayView .mitem'))
     .map(function(r){ return r.textContent; }).join(' ').toLowerCase();
   res(d93unres.indexOf('no nutrition yet') >= 0 &&   // word moved by D139

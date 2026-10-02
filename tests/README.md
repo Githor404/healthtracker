@@ -199,13 +199,13 @@ matters because the harness itself would still pass. A new check joins one list
 in the commit that adds it.
 
 **The count is the number of verdict lines the runner prints:** 1 harness + the
-`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 3 + 10 = **14**. The
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 4 + 17 = **22**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
 Every run prints the sum, and the suite fails if the passes don't add up to it:
 
 ```
-counted: 1 harness + 3 static + 10 CDP = 14 verdicts (4 more checks run inside the harness and are part of its verdict)
-SUITE: PASS (14 of 14 produced a verdict, and every verdict was PASS)
+counted: 1 harness + 4 static + 17 CDP = 22 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (22 of 22 produced a verdict, and every verdict was PASS)
 ```
 
 **Quote the number together with that line.** A bare count can't be told apart
