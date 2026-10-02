@@ -4885,3 +4885,30 @@ reasons begin with `  - ` — so it called a plant MISSED while hiding the
 assertion that had named it. *The thing reading the gate was as able to lie as
 the gate.*
 
+### D145 — the line-ending census — 5th static check
+
+`tests/check-eol.sh` + `check-eol.awk`. Holds every tracked file to what
+`.gitattributes` declares, so the declaration cannot quietly stop being true.
+Suite **22 → 23 verdicts**.
+
+| case | asserts |
+|---|---|
+| **blob** | every file git treats as text is stored **LF** — the half that rewrites 26,260 lines on the next commit that touches it |
+| **worktree** | **only** where `eol` is declared — asserting it elsewhere reports the operating system, not the tree |
+| **undeclared** | a file no rule covers is a **FAIL**, so deleting the `* text=auto` default cannot make the census vacuous |
+| **declared text but binary** | git's own `i/-text` verdict against the declaration — the eol filter would rewrite it, which is corruption |
+| **lone CR** | CR away from end of line, which no filter converts and which makes a CR-stripped diff untrustworthy |
+| **missing parts** | no `.gitattributes`, or no `check-eol.awk`, fails by name rather than silently passing ([[D94]]) |
+| **coverage** | 40+ files enumerated, 30+ text examined, at least one `eol` and one binary declared, or it reports VACUOUS |
+
+**Written three times.** perl-per-file ~60s → sed-per-file 35s → one
+`git ls-files --eol` plus one `awk` at **0.43s**. The middle version **lost an
+assertion**: `git grep -I` skips binary files, so it could not see a NUL-bearing
+shard wrongly declared `text` — the dead-instrument pattern in its purest form,
+the counting tool blind to exactly the files the assertion was about. Its own
+defect pass caught it. **Speed is correctness here:** a check that takes a minute
+gets skipped, and a skipped check is this whole class.
+
+**Defect pass: 7 of 7**, one per class it claims, including both missing-part
+cases. Two expectations went stale on a reworded message and reported MISSED
+against a working check — third time in the session; recorded in [[D145]].

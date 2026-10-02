@@ -7189,3 +7189,135 @@ slice. Until then **every commit that touches `app.js` must stage it with
 `git -c core.autocrlf=false add app.js`**, and check `git diff --cached --numstat`
 before committing: a four-figure line count on a file nobody rewrote is the tell.
 
+> **CLOSED by [[D145]]**, in its own commit, proved by hash. The staging rule
+> above is obsolete: `.gitattributes` now overrides `core.autocrlf`, so a plain
+> `git add` normalises correctly and `tests/check-eol.sh` fails if it ever does
+> not.
+
+
+## D145 — Line endings, declared and gated — (2026-10-02)
+
+Two commits, deliberately separate: the **pin**, carrying nothing but the
+declaration and its consequence, and the **check** that holds the tree to it.
+
+**THE CLASS.** Endings have cost time three times across this repo and its
+sibling, wearing a different costume each time: a **26,260-line diff on a
+136-line change**; `sed -i` flattening a file nobody meant to rewrite; and a
+file reading **clean** while disagreeing with its own blob, because git's stat
+cache compares size and mtime and never looks at the content. One cause under
+all three: **nothing in the repository said what the endings should be.**
+`core.autocrlf` arrives from the machine's *system* gitconfig, so the answer to
+*"how is this stored?"* depended on who cloned it.
+
+### THE PIN, PROVED BY HASH
+
+`app.js` was the only blob in the tree stored CRLF. `git add --renormalize .`
+swept all 64 tracked files and moved exactly two — `.gitattributes` and that
+one — which is itself part of the evidence that nothing else was in the commit.
+
+| | bytes | lines | CR | sha256 |
+|---|---|---|---|---|
+| before | 798,668 | 13,331 | 13,331 | `ef340cc4ffe964c9` |
+| after | 785,337 | 13,331 | **0** | `00568e733d4d3a93` |
+
+Eight witnesses, and the headline one is the **strong** form rather than the
+form asked for: `sha256(before | CRLF→LF) == sha256(after)`, so the new blob
+**is** the old blob with its terminators changed, byte for byte. The asked-for
+form — CR-stripped content identical — is kept as a second, independent
+witness, because on its own it cannot establish that only terminators moved: it
+would also hide a lone CR appearing or vanishing. There were **no lone CRs** to
+begin with (every CR was half of a CRLF), so no content CR was touched. Line
+count unchanged; the byte delta equals exactly the CRs removed.
+
+`app.js` is pinned on **both** sides — LF in the repository and LF in the working
+tree — because the drift came from in-place rewriters acting on a worktree whose
+endings already differed from the blob, and a worktree that matches its blob has
+nothing to drift from. `*.bin` is declared too: it was relying on git's NUL-byte
+sniff, and a corpus shard whose first 8KB happened to be NUL-free would have been
+normalised as text, which is corruption rather than a tidy-up.
+
+**A plant could not reproduce the original defect, and that is the best news in
+the slice.** `.gitattributes` **overrides** `core.autocrlf`, so with the pin in
+place even `git -c core.autocrlf=false add app.js` normalises the file. The
+failure mode is now **unreachable through `git add`**. The blob assertion still
+has to be exercised, because a CRLF blob can arrive from history predating the
+pin — `HEAD~1` was exactly that — so the plant writes one into the index directly.
+
+### THE CHECK, AND THREE VERSIONS OF IT
+
+`tests/check-eol.sh` + `tests/check-eol.awk`, the **5th static check** (suite 22
+— 23 verdicts). Two sides, scoped differently **on purpose**:
+
+- **the blob is the repository's business** and is asserted everywhere: a file
+  git treats as text must be stored LF. This is the half that produces the
+  catastrophic diffs;
+- **the working tree is the machine's business**, and is asserted only where
+  `eol` is explicitly declared. Asserting it elsewhere would fail on Linux and
+  pass on Windows *for the same commit* — a check that reports the operating
+  system rather than the tree.
+
+And **an undeclared file fails**, which is the same rule the gate runner applies
+to an unwired check: if the `* text=auto` default is ever removed, every file
+goes `unspecified` and a census with nothing to compare against would go green
+over precisely the condition it exists to catch.
+
+**IT WAS WRITTEN THREE TIMES, AND THE SECOND VERSION QUIETLY LOST AN ASSERTION.**
+
+| version | instrument | time | what went wrong |
+|---|---|---|---|
+| 1 | four `perl` spawns per file | ~60s | 256 processes for 64 files |
+| 2 | four `sed` spawns per file | **35s** | still 256 processes — **and it dropped a check** |
+| 3 | `git ls-files --eol` + one `awk` | **0.43s** | — |
+
+Version 2's `git grep -I` **silently skips binary files**, so a NUL-bearing shard
+wrongly declared `text` was invisible to the one assertion that cared about it.
+Version 1 had caught that case; the optimisation removed the ability to see it
+while reporting the same PASS. **The defect pass on the check itself found it.**
+The dead-instrument pattern in its purest form yet: *the tool chosen to do the
+counting was blind to exactly the files the assertion was about.*
+
+Version 3 uses the instrument **git already ships for this**: `git ls-files
+--eol` reports the index ending, the worktree ending, the declared attributes and
+git's own binary verdict, in one call. Two versions were spent hand-building what
+was already there. The lone-CR probe still needs `git grep`, because git's eol
+vocabulary knows only LF and CRLF and a bare CR is neither — and a lone CR is the
+one thing that makes a CR-stripped before/after comparison lie.
+
+**Speed is correctness here, not polish.** The comment in the file says it: a
+check that takes most of a minute gets skipped, and a skipped check is the exact
+failure mode this class is about.
+
+### THE THIRD QUOTING MISHAP OF THE DAY
+
+The awk program lived inside a single-quoted shell string, and **one apostrophe
+in one of its comments closed the string** — the script stopped parsing. Then the
+repair (stripping apostrophes) also removed the quotes *delimiting* the program.
+After `$"` ending a PowerShell regex and a heredoc eating `\n`, that is three in
+one session, so the program moved to **its own file**: a program in a file cannot
+be broken by the quoting of its caller. `check-eol.sh` fails by name if the
+matcher is missing, the shape AV quarantine takes ([[D94]]).
+
+### DEFECT PASS: 7 OF 7
+
+| plant | caught by |
+|---|---|
+| an in-place rewriter puts CRLF in an `eol=lf` worktree | `WORKTREE IS CRLF` |
+| a CRLF blob written into the index past the filter | `BLOB IS CRLF` |
+| the `* text=auto` default removed | `UNDECLARED` |
+| a NUL-bearing `.bin` declared `text` | `DECLARED TEXT BUT BINARY` |
+| a lone CR in a pinned file | `LONE CR` |
+| `.gitattributes` deleted | *nothing declares how this tree is stored* |
+| the awk matcher deleted | *has no matcher and cannot report* |
+
+**And a finding about defect passes themselves.** Three expectations went stale
+in one session because the assertion they name was *reworded* — [[D144]]'s plant
+10, and plants 1 and 2 here, where `HAS CRLF` became `IS CRLF`. Each time the
+check was working and the pass reported MISSED. **A plant's expected fragment is
+a second place the defect's name lives, and prose drifts.** Recorded rather than
+fixed: stable codes alongside the prose would settle it, and that is a change to
+every gate, not to this one.
+
+**PORT IT.** The sibling repo has the same exposure by construction — same author,
+same Windows, same system `core.autocrlf`, and no `.gitattributes` pinning its
+largest file. The standing rule is that a harness finding in one of the two means
+the other has it too.

@@ -126,7 +126,8 @@ fi
 STATIC_CHECKS="check-guidance.sh
 check-slots.sh
 check-precache.sh
-check-allowlist.sh"
+check-allowlist.sh
+check-eol.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh
 check-writesites.sh
