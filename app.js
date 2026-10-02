@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.55.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.56.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2098,9 +2098,14 @@ function resolveHTML() {
     + head + src + search + body
     + '<button type="button" class="linklike" onclick="resolveClose()">close</button></div></div>';
 }
+// D143: the resolve surface is RENDERED rather than toggled, so the lock is
+// synced from the render instead of from a call site that might not run.
 function renderResolve() {
   const r = renderResolveBody();
   try { resolveShieldNow(); } catch (e) {}
+  // synced AFTER the render, because what is locked is decided by what is
+  // actually on the page -- not by whoever remembered to call it
+  try { overlaySync(); } catch (e) {}
   return r;
 }
 function renderResolveBody() {
@@ -7208,10 +7213,16 @@ function renderCaptureOutcome() {
     if (scrim) scrim.style.display = 'none';
     msg.innerHTML = '';
     foot.innerHTML = '';
+    // D143: this modal was the gap the SYMPTOM test hid. It never locked the
+    // page; it passed the census on `overscroll-behavior` alone, because its
+    // own body happened to be long enough to swallow the swipe. The gate
+    // asserts the MECHANISM now, not just the absence of the symptom.
+    try { overlaySync(); } catch (e) {}
     return;
   }
   wrap.style.display = 'flex';
   if (scrim) scrim.style.display = 'block';
+  try { overlaySync(); } catch (e) {}
   if (x) x.style.display = (st === 'error') ? '' : 'none';
   const busyMsg = BYOK_BUSY ? String(BYOK_BUSY.message || '') : '';
   // R28: WHERE THE TIME WENT, on the surface the finger is on. Shown on every
@@ -7902,6 +7913,7 @@ const VERSION_LOG = [
   { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
   { v: '0.54.0', d: '2026-10-01', note: 'A food you have matched before is now offered its match while you are still saving the photo, as the first choice of what the food is: “you chose Lentils (boiled) for “lentil stew” on Sep 22 — with its nutrients”. One tap settles both the name and the nutrition, and if you eat only part of the plate the database numbers are scaled to the part you ate. Only a food you have actually matched before is offered this way — the app never pre-picks a guess of its own — and if the remembered match is in a different state, dry where yours is cooked, it says so and still waits for you. Anything else you pick sets the name only.' },
   { v: '0.55.0', d: '2026-10-01', note: 'Logging a food again at a different portion now keeps its nutrition database match and scales the numbers to the new portion, instead of dropping the match. Half the portion, half the vitamins. A match made before the app started recording which portion its numbers were for still cannot be scaled — those rows now say the match did not carry over, and offer to look it up again.' },
+  { v: '0.56.0', d: '2026-10-01', note: 'Fixes the page scrolling behind an open sheet. With the Log sheet, Settings, a photo draft or the nutrient lookup open, the day behind no longer moves, no longer takes taps, and comes back exactly where you left it when the sheet closes. Swiping to the end of a sheet no longer carries on into the page underneath.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -10560,9 +10572,11 @@ function sleepAskHTML() {
     `<button type="button" class="linklike" onclick="askDiscard('${esc(lane)}')">discard this segment</button>` +
     `</div></div>`;
 }
+// D143: the ask is rendered the same way, so it syncs the same way.
 function renderSleepAsk() {
   const el = document.getElementById('sleepAsk');
   if (el) el.innerHTML = sleepAskHTML();
+  try { overlaySync(); } catch (e) {}
 }
 function discardLaneOpen(lane) {
   if (!laneOpenState(lane).open) return { ok: false };
@@ -10882,11 +10896,125 @@ function openLabelCapture() {
   return { ok: true };
 }
 // Scan is the default mode: the only path that returns micronutrients in one tap.
+// ---- D143: SCROLL BLEED-THROUGH, AS A CLASS --------------------------------
+// REPORTED: with the Log sheet open, swiping on the sheet scrolls the day behind
+// it.
+//
+// MEASURED with real touch sequences at 390x844 -- and the first instrument was
+// DEAD, which only the control caught: Input.synthesizeScrollGesture with a touch
+// source does not move this page even with nothing open, so a first census
+// reported "no bleed" on every surface and meant nothing.
+//
+//   Scan 282 of 282, Manual 453 of 453, Signal 421 of 421, Med 533 of 533
+//     -- NO inner scroller at all, so a swipe goes straight to the document
+//   Quick 732 of 547 -- an inner scroller, and it chains at its end
+//
+// Five of ten surfaces reproduce it. The other five are not protected; they
+// simply never reached the end of their own content. `overscroll-behavior` was
+// `auto` everywhere and nothing locked the page.
+//
+// THREE PARTS, because no one of them is sufficient:
+//
+//  1. THE BODY GOES `position: fixed` AT A NEGATIVE OFFSET, not merely
+//     `overflow: hidden`. On iOS Safari an overflow lock alone is widely
+//     unreliable -- the rubber band and the visual viewport still move the page
+//     -- and the fixed-offset technique is both the reliable one and the one
+//     that restores the exact position on close, which is the third requirement.
+//
+//  2. `overscroll-behavior: contain` on every overlay scroller, so a swipe that
+//     reaches the end of a sheet does not chain to the page. CSS, because this
+//     is a property of the scroller and not of any event handler.
+//
+//  3. THE PAGE LAYER IS MADE INERT, so it takes no touches and no focus. `inert`
+//     also removes it from the tab order, which `pointer-events: none` does not.
+//
+// AND IT IS DRIVEN FROM THE DOM. `overlaySync` counts the overlays that are
+// actually visible rather than trusting call sites to balance -- a count kept by
+// hand is wrong the first time an early return skips the decrement.
+const OVERLAY_SEL = '[data-overlay]';
+let OVERLAY_LOCK = null;          // { y } while locked, null while not
+function overlayVisible() {
+  const all = document.querySelectorAll(OVERLAY_SEL);
+  let n = 0;
+  for (let i = 0; i < all.length; i++) {
+    const e = all[i];
+    // A scrim counts as an overlay for locking purposes but an empty container
+    // that renders nothing does not -- `#resolveBox` and `#sleepAsk` are always
+    // in the markup and are only sometimes occupied.
+    const kind = e.getAttribute('data-overlay');
+    // A TOAST IS NOT A MODAL. It is marked so the page layer does not swallow
+    // it when the page is inerted, but it blocks nothing -- and because the
+    // toast is always in the markup, counting it locked the page at boot and
+    // made it unscrollable. The control caught that on its first run, which is
+    // the whole reason the control runs first.
+    if (kind === 'toast') continue;
+    // A HOST is always in the markup and only sometimes occupied.
+    if (kind === 'host' && !e.firstElementChild) continue;
+    const cs = getComputedStyle(e);
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    n++;
+  }
+  return n;
+}
+function overlayPageLayer() {
+  const out = [];
+  const kids = document.body.children;
+  for (let i = 0; i < kids.length; i++) {
+    const e = kids[i];
+    if (e.hasAttribute && e.hasAttribute('data-overlay')) continue;
+    const t = e.tagName;
+    if (t === 'SCRIPT' || t === 'NOSCRIPT' || t === 'TEMPLATE' || t === 'STYLE') continue;
+    out.push(e);
+  }
+  return out;
+}
+function overlaySync() {
+  const open = overlayVisible() > 0;
+  if (open && !OVERLAY_LOCK) {
+    const y = window.scrollY || document.documentElement.scrollTop || 0;
+    OVERLAY_LOCK = { y: y };
+    const b = document.body;
+    b.style.position = 'fixed';
+    b.style.top = (-y) + 'px';
+    b.style.left = '0';
+    b.style.right = '0';
+    b.style.width = '100%';
+    b.style.overflow = 'hidden';
+    b.classList.add('overlaylocked');
+    overlayPageLayer().forEach(function (e) {
+      e.setAttribute('inert', '');
+      e.setAttribute('aria-hidden', 'true');
+      e.setAttribute('data-overlay-inert', '');
+    });
+  } else if (!open && OVERLAY_LOCK) {
+    const y = OVERLAY_LOCK.y;
+    OVERLAY_LOCK = null;
+    const b = document.body;
+    b.style.position = '';
+    b.style.top = '';
+    b.style.left = '';
+    b.style.right = '';
+    b.style.width = '';
+    b.style.overflow = '';
+    b.classList.remove('overlaylocked');
+    document.querySelectorAll('[data-overlay-inert]').forEach(function (e) {
+      e.removeAttribute('inert');
+      e.removeAttribute('aria-hidden');
+      e.removeAttribute('data-overlay-inert');
+    });
+    // EXACTLY where it was. This is why the body is offset rather than hidden:
+    // an overflow lock loses the position, and a restore that lands somewhere
+    // else is its own defect.
+    window.scrollTo(0, y);
+  }
+  return { locked: !!OVERLAY_LOCK, open: open, y: OVERLAY_LOCK ? OVERLAY_LOCK.y : null };
+}
 function openSheet(mode) {
   clearNextMoves();                  // D123: a stale offer describes a past moment
   const sheet = document.getElementById('entrySheet'), scrim = document.getElementById('sheetScrim');
   if (sheet) sheet.style.display = 'flex';
   if (scrim) scrim.style.display = 'block';
+  overlaySync();
   setSheetMode(SHEET_MODES.indexOf(mode) >= 0 ? mode : 'scan');
   return { ok: true, mode: SHEET_MODE };
 }
@@ -10895,18 +11023,21 @@ function closeSheet() {
   const sheet = document.getElementById('entrySheet'), scrim = document.getElementById('sheetScrim');
   if (sheet) sheet.style.display = 'none';
   if (scrim) scrim.style.display = 'none';
+  overlaySync();
   return { ok: true };
 }
 function openSettings() {
   const p = document.getElementById('settingsPanel'), s = document.getElementById('settingsScrim');
   if (p) p.style.display = 'flex';
   if (s) s.style.display = 'block';
+  overlaySync();
   return { ok: true };
 }
 function closeSettings() {
   const p = document.getElementById('settingsPanel'), s = document.getElementById('settingsScrim');
   if (p) p.style.display = 'none';
   if (s) s.style.display = 'none';
+  overlaySync();
   return { ok: true };
 }
 // Quick mode: one chip per saved preset, logged through the SAME logPreset path
@@ -12961,7 +13092,9 @@ window.HT = {
   ORDINAL_SCALES, isOrdinal, ordinalStops, ordinalDescriptor, ordinalSnap, ordinalClamp, citeBlock, labBandCite,
   ordinalSummary, BM_SOURCES, BM_BETWEEN, bmReferenceHTML, onBmSlide, renderBmControl,
   // D30 — single entry point (presentation only)
-  openSheet, closeSheet, setSheetMode, openSettings, closeSettings, renderQuickChips, quickLog, SHEET_MODES,
+  openSheet, closeSheet, setSheetMode, openSettings, closeSettings,
+  // D143 -- the overlay lock, driven from the DOM
+  overlaySync, overlayVisible, overlayPageLayer, OVERLAY_SEL, renderQuickChips, quickLog, SHEET_MODES,
   // Phase 4 Slice — Regimen / timeline templates (D27)
   parseRegimen, addRegimenFromJSON, normalizeRegimens, setActiveRegimen, deleteRegimen, activeRegimen, regimenToday,
   logRegimenEntry, substituteRegimenEntry, unfulfillRegimenEntry, isGrosslyLate, buildPresetItem, REGIMEN_TEMPLATE, REGIMEN_SAMPLE,

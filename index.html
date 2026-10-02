@@ -614,6 +614,14 @@
   .modebtn{flex:0 0 auto;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--muted);font:inherit;font-size:16px;font-weight:700;cursor:pointer}
   .modebtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .sheetx{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:2px 8px}
+  /* D143/2: a swipe that reaches the end of an overlay's scroller must not
+     chain to the page behind it. This is a property of the scroller, so it
+     is declared here rather than fought in an event handler. */
+  .sheetbody, .obody, .panel .wrap, .rvbox, .askbox, .drugtext, .druglist,
+  .copybox, .mcitebody { overscroll-behavior: contain; }
+  /* and the page itself never rubber-bands into a scroll chain */
+  html, body { overscroll-behavior-y: none; }
+  body.overlaylocked { touch-action: none; }
   .sheetbody{overflow-y:auto;padding:14px;flex:1 1 auto;-webkit-overflow-scrolling:touch;width:100%;max-width:480px;margin:0 auto}
   .panel .wrap{overflow-y:auto;flex:1 1 auto;width:100%;padding-bottom:calc(24px + env(safe-area-inset-bottom))}
   .pane{display:none}
@@ -777,10 +785,10 @@
 
   <button id="fab" class="fab" onclick="openSheet()" aria-label="Log something"><span aria-hidden="true">+</span> Log</button>
 
-  <div id="sheetScrim" class="scrim" style="display:none" onclick="closeSheet()"></div>
-  <div id="sleepAsk"></div>
-  <div id="resolveBox"></div>
-  <div id="entrySheet" class="sheet" style="display:none" role="dialog" aria-modal="true" aria-label="Log something">
+  <div data-overlay="scrim" id="sheetScrim" class="scrim" style="display:none" onclick="closeSheet()"></div>
+  <div data-overlay="host" id="sleepAsk"></div>
+  <div data-overlay="host" id="resolveBox"></div>
+  <div data-overlay="sheet" id="entrySheet" class="sheet" style="display:none" role="dialog" aria-modal="true" aria-label="Log something">
     <div class="sheethead">
       <div class="modes">
         <button type="button" id="mode-scan"   class="modebtn on" onclick="setSheetMode('scan')">Scan</button>
@@ -955,8 +963,8 @@
     </div>
   </div>
 
-  <div id="settingsScrim" class="scrim" style="display:none" onclick="closeSettings()"></div>
-  <div id="settingsPanel" class="panel" style="display:none" role="dialog" aria-modal="true" aria-label="Settings">
+  <div data-overlay="scrim" id="settingsScrim" class="scrim" style="display:none" onclick="closeSettings()"></div>
+  <div data-overlay="panel" id="settingsPanel" class="panel" style="display:none" role="dialog" aria-modal="true" aria-label="Settings">
     <div class="sheethead">
       <div class="modes"><b style="font-size:16px">Settings</b></div>
       <button type="button" class="sheetx" onclick="closeSettings()" aria-label="Close">&times;</button>
@@ -1100,8 +1108,8 @@
        failure (stated, with a way out) and pending (counted) are mutually
        exclusive states of this one modal -- so "exactly one outcome, in view"
        is a property of the STRUCTURE and not of three surfaces agreeing. -->
-  <div id="outcomeScrim" class="scrim oscrim" style="display:none" onclick="captureOutcomeDismiss()"></div>
-  <div id="captureOutcome" class="omodal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="outcomeTitle">
+  <div data-overlay="scrim" id="outcomeScrim" class="scrim oscrim" style="display:none" onclick="captureOutcomeDismiss()"></div>
+  <div data-overlay="modal" id="captureOutcome" class="omodal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="outcomeTitle">
     <div class="sheethead">
       <b id="outcomeTitle"></b>
       <button type="button" id="outcomeX" class="sheetx" onclick="captureOutcomeDismiss()" aria-label="Close">&times;</button>
@@ -1113,7 +1121,7 @@
     </div>
     <div class="ofoot" id="outcomeFoot"></div>
   </div>
-  <div class="toast" id="toast"></div>
+  <div data-overlay="toast" class="toast" id="toast"></div>
   <script src="app.js"></script>
   <script>
   // SW registration + FORCE-AND-NOTIFY update delivery (DECISIONS.md D6 amendment).

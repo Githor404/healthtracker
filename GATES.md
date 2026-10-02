@@ -4802,3 +4802,24 @@ deleted `g` from the freeze passed every assertion about `normalizeRef`.
 **An assertion about a row must be scoped to the row:** *“find nutrients”* also
 appears in the resolve-walk banner, so asserting it anywhere in the day view passed
 while the row's own chip was suppressed. It reads the `.mitem` block now.
+### D143 — scroll bleed-through — v0.56.0
+
+**HEADLESS CHROME IS NOT AN IPHONE.** This gate is necessary and not sufficient;
+the device check is the final word on iOS. Said at the top of the gate itself.
+
+Census before the fix, real touch sequences at 390×844: **5 of 10 surfaces bled**
+— four with no inner scroller at all (Scan 282/282, Manual 453/453, Signal
+421/421, Med 533/533) and one that chained at its end (Quick 732/547).
+
+| case | asserts |
+|---|---|
+| **overlay-gate.ps1** CONTROL | a swipe with **nothing open** moves the page, and the gate **aborts** if not — `synthesizeScrollGesture` fails this way and made a whole census vacuous |
+| **overlay-gate.ps1** | at rest the body is **not** fixed and nothing is inert — a toast counted as a modal once and locked the page at boot |
+| **overlay-gate.ps1** | per surface, the **MECHANISM**: body `fixed`, offset `-<parked>px`, every page-layer child `inert`, the scroller `overscroll-behavior: contain` |
+| **overlay-gate.ps1** | and the **symptom**: a real swipe inside, and again with the scroller at its end, does not move the page; a tap behind does not reach it |
+| **overlay-gate.ps1** | closing restores the page **exactly**, unfixes the body and clears every `inert` |
+| **overlay-gate.ps1** | every element wearing an overlay's CSS shape **declares** `data-overlay` — a plant that stripped it from `#entrySheet` was masked by its scrim |
+| D143-class **GATE** | what counts: a toast never locks, an **empty** host never locks, an occupied one does, a hidden sheet does not, a shown one does, and nothing declared is part of the page layer |
+
+**Assert the mechanism, not only the symptom:** the capture-outcome modal passed a
+symptom-only census on `overscroll-behavior` alone while never locking the page.

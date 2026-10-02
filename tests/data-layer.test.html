@@ -9515,6 +9515,50 @@ window.setLS({});
       'D133-propose GATE: wood ear is still ASKED, and the correct row is still first -- a proposal never displaces the matcher\u2019s answer with nothing');
   HT.state().days = _pDays; HT.state().current = _pCur;
 
+  // ---- D143: what counts as an overlay, and what does not ---------------
+  // The page lock is DERIVED from the data-overlay attribute rather than from a
+  // list of call sites, so the classification IS the contract. Driven by real
+  // elements appended here -- calling overlaySync would lock this page.
+  res(HT.OVERLAY_SEL === '[data-overlay]',
+      'D143-class GATE: the lock reads an ATTRIBUTE, so an overlay added later is covered the moment it declares itself -- a hand-kept list of call sites is defeated by the first one forgotten (D131)');
+  var base143 = HT.overlayVisible();
+  var mk143 = function (kind, disp, withChild) {
+    var e = document.createElement('div');
+    e.setAttribute('data-overlay', kind);
+    e.setAttribute('data-test143', '1');
+    if (disp) e.style.display = disp;
+    if (withChild) e.appendChild(document.createElement('span'));
+    document.body.appendChild(e);
+    return e;
+  };
+  var t143 = mk143('toast', '', true);
+  res(HT.overlayVisible() === base143,
+      'D143-class GATE: a TOAST is declared but does NOT lock -- it is marked so the page layer does not swallow it, and counting it locked the page at boot and made it unscrollable, which the control caught on its first run');
+  var h143 = mk143('host', '', false);
+  res(HT.overlayVisible() === base143,
+      'D143-class GATE: an EMPTY host does not lock -- #resolveBox and #sleepAsk are always in the markup and only sometimes occupied, so presence is not openness');
+  h143.appendChild(document.createElement('span'));
+  res(HT.overlayVisible() === base143 + 1,
+      'D143-class GATE: ...and an OCCUPIED host does, which is how a surface rendered by innerHTML is noticed at all');
+  var hid143 = mk143('sheet', 'none', true);
+  res(HT.overlayVisible() === base143 + 1,
+      'D143-class GATE: a sheet with display:none does not lock -- every one of these lives in the markup permanently and is only sometimes shown');
+  hid143.style.display = 'flex';
+  res(HT.overlayVisible() === base143 + 2,
+      'D143-class GATE: ...and shown, it does');
+  var layer143 = HT.overlayPageLayer();
+  res(layer143.indexOf(t143) < 0 && layer143.indexOf(h143) < 0 && layer143.indexOf(hid143) < 0,
+      'D143-class GATE: nothing declaring data-overlay is part of the PAGE LAYER -- the toast included, or a confirmation would be inerted along with the page it sits over');
+  res(layer143.every(function (e) { return e.tagName !== 'SCRIPT' && e.tagName !== 'STYLE'; }),
+      'D143-class fixture: and the page layer carries no script or style elements, which cannot take a touch anyway');
+  Array.prototype.slice.call(document.querySelectorAll('[data-test143]')).forEach(function (e) { e.remove(); });
+  // NOT a length comparison: this harness appends a result row to <body> for
+  // every assertion, so the page-layer COUNT grows as the test runs -- it was
+  // never a property of the code. What matters is that the fixtures are gone.
+  var left143 = HT.overlayPageLayer().filter(function (e) { return e.hasAttribute('data-test143'); });
+  res(HT.overlayVisible() === base143 && left143.length === 0,
+      'D143-class fixture: the fixtures are removed and none is left in the page layer, so the cases above did not leave this page counted as having an overlay open');
+
   // ---- D142: a repeat SCALES its match (amends D130/D1) -----------------
   // D130 DROPPED the match on a new portion, correctly at the time: ref.v was
   // frozen at the original grams and nothing recorded WHICH grams. D141/H2 added

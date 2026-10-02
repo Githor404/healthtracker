@@ -6768,3 +6768,95 @@ out of it is half an answer** ([[D121]]).
    > block between `.mitem` boundaries now.
 
 **Suite: 2,546 assertions, 20 verdicts. Defect pass: 10 plants, 10 failing their own named gates.**
+
+## D143 — Scroll bleed-through, fixed as a class — v0.56.0 (2026-10-01)
+
+**REPORTED:** with the Log sheet open, swiping on the sheet scrolls the day
+underneath it. Ruled to be fixed for **every** sheet and modal, not just that one.
+
+### The census, and the two ways it was wrong before it was right
+
+**MEASURED at 390×844 with real `touchStart`/`touchMove`/`touchEnd` sequences:**
+
+| surface | own scroller | bleeds |
+|---|---|---|
+| Log — Scan | **none** (282 of 282) | **immediately** |
+| Log — Manual | **none** (453 of 453) | **immediately** |
+| Log — Signal | **none** (421 of 421) | **immediately** |
+| Log — Med | **none** (533 of 533) | **immediately** |
+| Log — Quick | 732 of 547 | **at its end** |
+| Log — Photo, Log — Lab, Settings, photo draft, find nutrients | yes | not in this run |
+
+**Five of ten.** And the rule is mechanical, not incidental: a swipe the overlay's
+own scroller does not consume goes to the document, because nothing said
+otherwise. The other five were **not protected** — `overscroll-behavior` was
+`auto` everywhere; they simply never reached the end of their own content.
+
+> **THE FIRST INSTRUMENT WAS DEAD, AND ONLY THE CONTROL CAUGHT IT.**
+> `Input.synthesizeScrollGesture` with a touch source does not move this page
+> **even with nothing open**. A first census using it reported “no bleed” on all
+> six surfaces and meant nothing at all. The control — swipe with no overlay
+> open, the page MUST move — is the only reason that was discovered rather than
+> reported as a platform divergence.
+
+> **AND THE MEASUREMENT DEPENDED ON THE DEFECT.** The census parked the page at a
+> known offset *after* opening the sheet, which is only possible while the page is
+> still scrollable. Once the fix landed, the park silently did nothing and
+> “restored” failed on eight surfaces — not a regression, a measurement that had
+> been riding on the bug it was measuring. It parks before opening now.
+
+### The fix: three parts, because no one of them is sufficient
+
+1. **The body goes `position: fixed` at a negative offset**, not merely
+   `overflow: hidden`. On iOS Safari an overflow lock alone is widely unreliable,
+   and the offset *is* the saved position — which is what makes “exactly where it
+   was” true on close.
+2. **`overscroll-behavior: contain`** on every overlay scroller, so a swipe that
+   reaches the end of a sheet does not chain. CSS, because this is a property of
+   the scroller rather than of any handler.
+3. **The page layer is made `inert`**, so it takes no touches *and no focus*.
+   `pointer-events: none` would not remove it from the tab order.
+
+**And it is driven from the DOM, not from call sites.** One `overlaySync()` counts
+the overlays actually visible, called from every open, close and render. A count
+kept by hand is wrong the first time an early return skips the decrement, and a
+list of call sites is defeated by the first one somebody forgets ([[D131]]).
+
+### Three things the gates caught in my own work
+
+**The toast counted as a modal.** `.toast` is always in the markup, so marking it
+as an overlay locked the page **at boot** and made the whole app unscrollable. The
+control caught it on its first run. A toast is *not part of the page layer* but it
+*blocks nothing* — two different roles, and the attribute now carries which.
+
+**The capture-outcome modal was a gap the symptom test hid.** It passed the
+after-census on `overscroll-behavior` alone while **never locking the page**,
+because its own body happened to be long enough to swallow the swipe.
+> **A surface can be accidentally clean today and defenceless tomorrow.** The gate
+> asserts the MECHANISM — locked, offset by the saved amount, page layer inert —
+> and not only the absence of the symptom.
+
+**And the declaration contract needed its own assertion.** A plant that stripped
+`data-overlay` from `#entrySheet` failed nothing: its scrim still declared itself,
+so the lock still engaged and the sheet was merely inerted along with the page.
+The gate now asserts that **every element wearing an overlay's CSS shape declares
+itself** — derived from the shapes, not from a count.
+
+*(Also: a harness assertion compared `overlayPageLayer().length` across two
+points, and this harness appends a result row to `<body>` for every assertion —
+so the baseline grew as the test ran. It was never a property of the code.)*
+
+### What was already true
+
+**A tap behind an overlay never reached the page**, before the fix or after — the
+scrim and the full-screen geometry already blocked it. It now holds by
+construction rather than by luck, and is gated.
+
+### The limit of this gate, stated plainly
+
+> **HEADLESS CHROME IS NOT AN IPHONE.** Chrome honours `overscroll-behavior` and
+> has neither Safari's rubber-band nor its visual-viewport displacement. A pass
+> here is **necessary and not sufficient**, and it is written at the top of the
+> gate so nobody reads it as more. **The device check is the final word on iOS.**
+
+**Suite: 2,555 assertions, 21 verdicts. Defect pass: 11 plants, 11 failing their own named gates.**
