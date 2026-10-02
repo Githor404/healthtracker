@@ -1,4 +1,24 @@
+# Line endings are DECLARED here, never inferred. `core.autocrlf` arrives from
+# the machine's system gitconfig, so without this file the repository's answer to
+# "how is this stored?" depended on who cloned it. app.js drifted to CRLF in the
+# blob while every other text file stayed LF, and the mismatch has now cost time
+# three times across this repo and its sibling. tests/check-eol.sh holds the tree
+# to what this file says.
+
+# Default: every text file is stored LF in the repository.
+* text=auto
+
+# Binary data, never converted. *.bin is DECLARED rather than left to git's
+# NUL-byte sniff: a corpus shard whose first 8KB happened to be NUL-free would be
+# normalised as text, and that is corruption, not a tidy-up.
+*.bin binary
+*.png binary
+
 # Shell scripts must stay LF so the committed gate runner executes on any OS.
 *.sh text eol=lf
-# Binary assets — never apply text/EOL conversion.
-*.png binary
+
+# app.js is pinned on BOTH sides — LF in the repository AND LF in the working
+# tree. The drift came from in-place rewriters (`sed -i`, editors) acting on a
+# worktree whose endings already differed from the blob; a worktree that matches
+# its blob has nothing to drift from.
+app.js text eol=lf
