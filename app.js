@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.54.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.55.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -420,11 +420,20 @@ function normalizeRef(r) {
   return out;
 }
 // D130: a repeat keeps its ORIGINAL source and says it was repeated beside it.
+// D142: `lostMatch` rides here rather than on the item, because it is a fact
+// about the REPEAT -- "the record I came from had a match I could not carry" --
+// and that is what this field is for. Declared here so the census can see it
+// (D131): a property written through one normaliser and not the other is the
+// allowlist trap this gate exists for.
 function normalizeRepeatedFrom(r) {
   if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
   const d = String(r.date == null ? '' : r.date);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
-  return { date: d, name: String(r.name == null ? '' : r.name) };
+  const out = { date: d, name: String(r.name == null ? '' : r.name) };
+  // D142: the repeat could not carry a match because the source ref recorded no
+  // basis to re-express from. Kept so the row can SAY so.
+  if (r.lostMatch === true) out.lostMatch = true;
+  return out;
 }
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
@@ -3381,7 +3390,13 @@ function renderDay() {
             ` <button class="linklike" onclick="event.stopPropagation();clearItemRef('${esc(dk)}',${idx})">clear match</button>` +
             `<details class="mcite" onclick="event.stopPropagation()"><summary>source</summary>` +
             `<div class="mcitebody">${esc(it.ref.name || it.ref.id)}${it.ref.attribution ? ' \u00b7 ' + esc(it.ref.attribution) : ''}</div></details></div>`
-          : (it._auto ? '' : `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`);
+          : (it._auto ? '' : // D142: a match that could not be carried over SAYS so. A ref written before
+          // D141's basis existed cannot be re-expressed for a new portion, and a
+          // match that silently vanished from a repeated row is the understatement
+          // D130 was built to remove.
+          ((it.repeated_from && it.repeated_from.lostMatch
+            ? `<div class="mlost">the earlier match did not carry over — it did not record the portion its numbers were for</div>` : '')
+           + `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`));
       html += `<div class="mitem"><div class="mmain"${open}>
           <div class="mname">${esc(it.name)}</div>
           <div class="mmeta">${it.time ? esc(it.time) + ' \u00b7 ' : ''}${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
@@ -3600,8 +3615,38 @@ function buildRepeatItem(src, time, from, grams) {
   if (grams != null && String(grams) !== '') c.grams = clampNonNeg(grams);
   const sameGrams = (c.grams == null && src.grams == null)
     || (c.grams != null && src.grams != null && Number(c.grams) === Number(src.grams));
-  if (!sameGrams) delete c.ref;
-  if (from && from.date) c.repeated_from = { date: String(from.date), name: String(from.name || '') };
+  // D142 -- A REPEAT AT A NEW PORTION SCALES ITS MATCH. D130/D1 dropped it, for
+  // the right reason at the time: `ref.v` was frozen at the original grams and
+  // nothing recorded WHICH grams, so there was no basis to re-express from.
+  // D141/H2 added that basis for the plate path, and this is the same arithmetic
+  // -- linear, exact, and licence-permitted as a per-serving re-expression.
+  //
+  // A SAME-PORTION repeat is untouched: the ref it carries is the ref it had.
+  if (!sameGrams && c.ref) {
+    const basis = Number(c.ref.g);
+    const gNew = Number(c.grams);
+    if (Number.isFinite(basis) && basis > 0 && Number.isFinite(gNew) && gNew > 0) {
+      const k = gNew / basis;
+      const sv = {};
+      Object.keys(c.ref.v || {}).forEach(function (slot) { sv[slot] = c.ref.v[slot] * k; });
+      // `g` becomes the NEW grams, which is what makes scaling twice impossible
+      // -- the next reader re-expresses from what the values are actually for.
+      c.ref = Object.assign({}, c.ref, { v: sv, g: gNew });
+    } else {
+      // A ref written before the basis existed cannot be re-expressed, and
+      // guessing one would be inventing the thing D141 refused to invent. It
+      // drops, as it always did -- but it SAYS SO: a match that just vanished
+      // from a row is exactly the silent understatement D130 exists to remove.
+      delete c.ref;
+      c.repeated_from = Object.assign({}, c.repeated_from || {}, { lostMatch: true });
+    }
+  }
+  // D142: this assignment OVERWROTE the lost-match note set above -- a later
+  // write to the same field, which is why the flag is merged rather than
+  // assigned. Caught by its own gate before it shipped.
+  if (from && from.date) c.repeated_from = Object.assign(
+    { date: String(from.date), name: String(from.name || '') },
+    (c.repeated_from && c.repeated_from.lostMatch) ? { lostMatch: true } : {});
   return normalizeItem(c, true);
 }
 // A NEW RECORD AT A NEW TIME, never a revision (ruled). stampTime keeps D112's
@@ -7856,6 +7901,7 @@ const VERSION_LOG = [
   { v: '0.52.0', d: '2026-09-26', note: 'The app now says things in plain words. Calories are “cal” on a row and “Calories” on a heading; a food logged from a photo says “from photo” instead of “ai-paste”, and an estimate says “estimated” instead of “eyeballed”. A food matched to the nutrition database now leads with a readable name — “Lentils (boiled)” rather than “Lentils, boiled” — keeps a visible “food database” marker so you always know where the numbers came from, and carries the exact database name and its source under “source”. Nothing was removed: every number, source and citation is still there.' },
   { v: '0.53.0', d: '2026-09-30', note: 'Fixes the micronutrient panel. On a phone the nutrient name was being drawn on top of its own number — “Monounsaturated” ran 47 pixels over the value — because a sentence repeated on every row was taking the width. That sentence is now said once at the top, and only repeated on a row whose coverage differs. Energy no longer appears twice: kilojoules sit under “other units” beside the calories, as does vitamin A in IU. And Ash, which is an analytical residue rather than something you eat, is no longer listed — it is still in the database.' },
   { v: '0.54.0', d: '2026-10-01', note: 'A food you have matched before is now offered its match while you are still saving the photo, as the first choice of what the food is: “you chose Lentils (boiled) for “lentil stew” on Sep 22 — with its nutrients”. One tap settles both the name and the nutrition, and if you eat only part of the plate the database numbers are scaled to the part you ate. Only a food you have actually matched before is offered this way — the app never pre-picks a guess of its own — and if the remembered match is in a different state, dry where yours is cooked, it says so and still waits for you. Anything else you pick sets the name only.' },
+  { v: '0.55.0', d: '2026-10-01', note: 'Logging a food again at a different portion now keeps its nutrition database match and scales the numbers to the new portion, instead of dropping the match. Half the portion, half the vitamins. A match made before the app started recording which portion its numbers were for still cannot be scaled — those rows now say the match did not carry over, and offer to look it up again.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

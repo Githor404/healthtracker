@@ -4789,3 +4789,16 @@ failing its own setup.
 
 **A test that exercises the normaliser has not exercised the writer:** a plant that
 deleted `g` from the freeze passed every assertion about `normalizeRef`.
+### D142 — a repeat scales its match — v0.55.0
+
+| case | asserts |
+|---|---|
+| D142-scale **GATE** | same portion → ref unchanged; **half → exactly half**; **double → exactly double**; `g` becomes the new grams |
+| D142-scale **GATE** | a repeat **of a repeat** scales from the basis it has — 200 → 100 → 200 returns to the original, rather than compounding |
+| D142-scale **GATE** | an item with **no grams** keeps its ref — the guard's real job, since a factor of 1 is a numeric no-op and hid a plant that removed it |
+| D142-legacy **GATE** | a ref with **no basis** still drops, the record says **why**, and the **row** says it and still offers the route |
+| D142-legacy **GATE** | and the note is **not rendered hidden** — a string assertion cannot tell a note from a note nobody can read |
+
+**An assertion about a row must be scoped to the row:** *“find nutrients”* also
+appears in the resolve-walk banner, so asserting it anywhere in the day view passed
+while the row's own chip was suppressed. It reads the `.mitem` block now.

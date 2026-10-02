@@ -6709,3 +6709,62 @@ this slice built for plates. Recorded, not built.
 
 **Suite: 2,534 assertions, 20 verdicts (the census now pins 15 gate scripts).**
 **Defect pass: 12 plants, 12 failing their own named gates.**
+
+## D142 — A repeat scales its match — v0.55.0 (2026-10-01) — amends [[D130]]/D1
+
+[[D130]] **dropped** a food's database match when the food was logged again at a
+different portion. That was right at the time and for the right reason: `ref.v`
+was frozen at the original grams and **nothing recorded which grams**, so there
+was no basis to re-express from.
+
+[[D141]]/H2 added that basis for the plate path. This is the same arithmetic, one
+surface over — linear, exact, and permitted by the CNF licence as a per-serving
+re-expression.
+
+| case | behaviour |
+|---|---|
+| same portion | the ref is carried **unchanged** |
+| different portion, basis recorded | `v` × `g_new / ref.g`, and `g` becomes `g_new` |
+| different portion, **no** basis (pre-[[D141]]) | still **drops** — and the row **says so** |
+
+**`g` becoming the new grams is what makes scaling twice impossible**, and a
+repeat of a repeat is gated for exactly that: 200 g → 100 g → 200 g returns to
+the original values rather than compounding.
+
+**A dropped match now says why.** *“the earlier match did not carry over — it did
+not record the portion its numbers were for”*, with the route to resolving it
+still on the row. A match that silently vanished from a repeated row is the
+understatement [[D130]] exists to remove, and **stating an absence without a way
+out of it is half an answer** ([[D121]]).
+
+### What the defect pass found in my own work
+
+**An ordering bug, caught before it shipped.** The lost-match note was written to
+`repeated_from` and then **clobbered two lines later** by the assignment that sets
+`{date, name}`. Merged now, not assigned. A later write to the same field.
+
+**And three plants that were not what I thought they were:**
+
+1. **Re-expressing by a factor of 1 is a numeric no-op**, so a plant that removed
+   the `!sameGrams` guard was invisible to the assertion that the same-portion ref
+   is unchanged. What the guard actually protects is the item with **no grams**,
+   where the factor is `NaN` and the ref would drop — which now has its own case.
+
+2. **A plant that rendered the note `hidden` failed nothing.** The harness sees
+   markup, not visibility.
+   > **A string assertion cannot tell a note from a note nobody can read.**
+   This is [[D139]]'s instrument lesson one layer down, and the harness has no
+   layout to ask. What it *can* assert is that the markup does not carry the
+   attribute that would hide it, and it now does.
+
+3. **A plant that removed the route failed [[D121]]-row instead**, because it
+   removed the chip from **every** unresolved row — [[D69]]'s rule exactly: a
+   defect that breaks everything is caught by anything, so re-aim it. Narrowed to
+   the lost-match branch, the plant then passed twice more before the assertion was
+   right: *“find nutrients”* also appears in the resolve-walk banner, so asserting
+   it **anywhere in the day view** passed while the row's own chip was gone, and a
+   character window around the note included the banner too.
+   > **An assertion about a row must be scoped to the row.** It reads the markup
+   > block between `.mitem` boundaries now.
+
+**Suite: 2,546 assertions, 20 verdicts. Defect pass: 10 plants, 10 failing their own named gates.**
