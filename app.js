@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.59.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.60.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3497,7 +3497,10 @@ function renderDayInner() {
   // statement about the same day. It renders only when there are readings for
   // that day -- an empty row would be a surface asserting an absence it was
   // never asked about.
-  const grow = glucoseRowHTML(dk);
+  // H20: and when there is no glucose AT ALL, the empty state -- the first
+  // import's only possible home, since the row renders nothing for a day with
+  // no readings.
+  const grow = glucoseRowHTML(dk) || glucoseEmptyHTML();
   html += `<div class="daytot"><span>Day total \u00b7 estimated</span><span>${esc(rDisp(t.kcal))} cal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}${grow}`;
   const w = day.water_l || 0;
   // D121 / A1: the NEXT TAP after a save. Offered once, for the meal just
@@ -6467,6 +6470,351 @@ function glucoseIngest(rows, opts) {
            persisted: ok, mixedUnits: mixedUnits ? Object.keys(units) : null,
            unitClash: unitClash };
 }
+
+// ---------------------------------------------------------------------------
+// H20: HOW GLUCOSE REACHES THE PHONE.
+//
+// D146 shipped an ingest with no road to it. The export sits in the Files app on
+// the phone; the cache lives in this origin's localStorage; nothing connected
+// them -- and the gate could not see that, because it called glucoseIngest from
+// JavaScript. A test that calls the function has not tested the route.
+//
+// ONE control, TWO formats, SNIFFED -- and anything else refused BY NAME. A
+// route that guesses is a route that silently stores the wrong numbers, and
+// glucose is the series where a wrong number looks exactly like a right one.
+//
+// A STOPGAP, AND IT SAYS SO ON EVERY SURFACE IT APPEARS ON. The durable route is
+// the native shell reading HealthKit directly ([[D28]]): no export, no file, no
+// 491MB.
+//
+// WHY SLICE AND NOT STREAM. A TextDecoderStream prototype read the real 491MB
+// export at ~14MB of heap, but TextDecoderStream is iOS Safari 16.4+ and the
+// phone is the platform: that measurement earned streaming its admissibility,
+// not its platform, and a stopgap that needs the newest Safari is not a stopgap.
+//
+// MEASURED ON THIS ROUTE, against the real 490.8MB export: 451 readings in
+// 4.6s at a 48MB peak -- the same 451 an independent parser counted, and the
+// raw unit string came back as mmol<180.1558800000541>/L, which is why the
+// canonical form is derived from it rather than assumed. Materialising that
+// file as UTF-16 would be ~1GB.
+// THE CHUNK IS THE MEMORY BOUND. Peak heap tracks this number, not the file
+// size; 2MB keeps a 491MB import under a phone's budget at the cost of 246
+// slices, which is nothing next to the 3-hour lag the data already carries.
+const GLUCOSE_CHUNK = 2 * 1024 * 1024;   // bytes per slice -- and the peak's bound
+const GLUCOSE_CARRY = 65536;             // carry cap when a slice holds no newline
+let _gSeq = 0;
+let _gImport = { seq: 0, active: false, name: '', format: '', bytes: 0, total: 0,
+                 readings: 0, added: 0, done: false, error: '' };
+// `seq` is not decoration: `done` alone cannot distinguish THIS import's
+// completion from the previous one's, so a probe polling `done` can read a stale
+// result and call it a pass. It increments once per attempt.
+function glucoseImportProgress() {
+  const p = _gImport;
+  return { seq: p.seq, active: p.active, name: p.name, format: p.format,
+           bytes: p.bytes, total: p.total, readings: p.readings, added: p.added,
+           done: p.done, error: p.error };
+}
+function glucoseCount() {
+  const s = glucoseRead();
+  let n = 0;
+  Object.keys(s).forEach(function (k) { n += (s[k] && s[k].t ? s[k].t.length : 0); });
+  return n;
+}
+// E: the unit is part of a reading's identity. Apple writes its conversion
+// factor INTO the unit string (mmol<180.1558800000541>/L), so the raw text is
+// kept verbatim and the canonical form is DERIVED. Never assumed: a glucose
+// number whose unit was guessed is wrong by a factor of 18 and looks plausible.
+function glucoseCanonUnit(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (s.indexOf('mmol') >= 0) return 'mmol/L';
+  if (s.indexOf('mg') >= 0) return 'mg/dL';
+  return null;
+}
+// A: SNIFF, never trust the extension. iOS renames and re-wraps files, and the
+// ruling is that one control takes both formats and refuses the rest by name.
+function glucoseSniff(head) {
+  const t = String(head || '').replace(/^\uFEFF/, '').replace(/^\s+/, '');
+  if (!t) return null;
+  // 'HealthData' lands in the DOCTYPE, which XML requires before the root
+  // element, so it sits in the first few dozen bytes even though Apple's
+  // internal DTD that follows is long.
+  if (t.charAt(0) === '<') {
+    if (t.indexOf('HealthData') >= 0 || t.indexOf('HKQuantityTypeIdentifier') >= 0) return 'apple';
+    return null;
+  }
+  if (t.charAt(0) === '[' || t.charAt(0) === '{') return 'shortcut';
+  return null;
+}
+function xmlUnesc(s) {
+  return String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, String.fromCharCode(39))
+    .replace(/&amp;/g, '&');
+}
+// Apple writes `2026-09-26 07:30:00 -0400`. Chrome parses that; Safari does not
+// reliably, and Safari is the only browser this route has to work in. Reshaped
+// to ISO before it goes near Date.parse -- a date that parses on the machine I
+// test on and not on the phone is the worst kind of defect, because every gate
+// here stays green.
+function appleDateISO(s) {
+  const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})\s*([+-])(\d{2}):?(\d{2})$/.exec(String(s == null ? '' : s).trim());
+  if (!m) return null;
+  return m[1] + 'T' + m[2] + m[3] + m[4] + ':' + m[5];
+}
+const RE_G_START = / startDate="([^"]*)"/;
+const RE_G_VALUE = / value="([^"]*)"/;
+const RE_G_UNIT  = / unit="([^"]*)"/;
+const RE_G_SRC   = / sourceName="([^"]*)"/;
+// One line at a time, and only lines that mention the type. 451 glucose records
+// in 491MB measured -- 0.01% of the file -- so the cheap substring test decides
+// almost every line and the four regexes almost never run.
+const GLUCOSE_TYPE = 'HKQuantityTypeIdentifierBloodGlucose';
+// JUMP TO THE MATCHES; never split the chunk.
+//
+// `split('\n')` allocated ~60,000 strings per 4MB chunk to discard 99.99% of
+// them -- 451 glucose records in 491MB. indexOf walks the chunk once and
+// materialises only the matching lines.
+//
+// AND IT DID NOT MOVE THE PEAK, which is worth writing down because I changed
+// this expecting it would: 20.0MB before, 22.8MB after, inside a noise band of
+// 7.7MB measured by importing the same file twice. The change is justified by
+// allocation count, not by a number I can show. What the measurement DID settle
+// is the shape: a file 5x larger moved the peak 1.24x (17.8MB -> 22.1MB), so the
+// peak tracks GLUCOSE_CHUNK and not the file. That is the property that lets a
+// 491MB export through a phone.
+function glucoseScanAppleText(text, rows, meta) {
+  let at = text.indexOf(GLUCOSE_TYPE);
+  while (at >= 0) {
+    const s0 = text.lastIndexOf('\n', at) + 1;     // 0 when this is the first line
+    let e0 = text.indexOf('\n', at);
+    if (e0 < 0) e0 = text.length;
+    const ln = text.slice(s0, e0);
+    const t = RE_G_START.exec(ln), v = RE_G_VALUE.exec(ln), u = RE_G_UNIT.exec(ln);
+    if (t && v && u) {
+      const iso = appleDateISO(t[1]);
+      const rawUnit = xmlUnesc(u[1]);
+      const unit = glucoseCanonUnit(rawUnit);
+      // A line cut by a slice boundary fails one of these and is dropped here;
+      // it arrives whole on the next round, carried.
+      if (iso && unit) {
+        if (!meta.rawUnit) meta.rawUnit = rawUnit;
+        if (!meta.source) { const sn = RE_G_SRC.exec(ln); if (sn) meta.source = xmlUnesc(sn[1]); }
+        rows.push({ t: iso, v: v[1], unit: unit });
+      }
+    }
+    at = text.indexOf(GLUCOSE_TYPE, e0);
+  }
+}
+async function glucoseImportApple(file) {
+  const rows = [], meta = {};
+  const total = file.size || 0;
+  let carry = '', off = 0, lastPaint = 0;
+  while (off < total) {
+    const end = Math.min(off + GLUCOSE_CHUNK, total);
+    const text = carry + (await file.slice(off, end).text());
+    const cut = text.lastIndexOf('\n');
+    if (cut < 0) {
+      // A FILE WRITTEN AS ONE LONG LINE still has to be bounded. Scan all but
+      // the tail and carry only the tail, so the carry cannot grow with the
+      // file. A record cut at that boundary arrives whole next round; its
+      // truncated half fails the attribute test above and is dropped.
+      const keep = Math.max(0, text.length - GLUCOSE_CARRY);
+      glucoseScanAppleText(text.slice(0, keep), rows, meta);
+      carry = text.slice(keep);
+    } else {
+      glucoseScanAppleText(text.slice(0, cut), rows, meta);
+      carry = text.slice(cut + 1);
+    }
+    off = end;
+    _gImport.bytes = off; _gImport.readings = rows.length;
+    const now = Date.now();
+    if (now - lastPaint > 200) {
+      lastPaint = now;
+      glucoseImportPaint();
+      // Yield, or the progress line never paints and a 491MB import looks like a
+      // frozen tab -- the moment a user force-quits and loses the whole run.
+      await new Promise(function (r) { setTimeout(r, 0); });
+    }
+  }
+  if (carry) glucoseScanAppleText(carry, rows, meta);
+  _gImport.bytes = total; _gImport.readings = rows.length;
+  return { rows: rows, meta: meta };
+}
+function glucoseJSONArray(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || typeof data !== 'object') return null;
+  const keys = ['readings', 'records', 'samples', 'glucose', 'data', 'values'];
+  for (let i = 0; i < keys.length; i++) if (Array.isArray(data[keys[i]])) return data[keys[i]];
+  return null;
+}
+async function glucoseImportShortcut(file) {
+  const text = await file.text();
+  _gImport.bytes = file.size || text.length;
+  let data = null;
+  try { data = JSON.parse(text); }
+  catch (e) { return { rows: null, why: 'looked like JSON and is not valid JSON' }; }
+  const arr = glucoseJSONArray(data);
+  if (!arr) return { rows: null, why: 'is JSON, but carries no list of readings' };
+  const rows = [], meta = {};
+  let noUnit = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const r = arr[i] || {};
+    const tv = r.t || r.date || r.startDate || r.timestamp || r.time;
+    const vv = (r.v != null) ? r.v : ((r.value != null) ? r.value : r.glucose);
+    const uu = r.unit || r.units || r.u;
+    // NO DEFAULT UNIT. Same rule as breath ketones: a value without its unit is
+    // not a reading, and assuming mmol/L here is an 18x error that draws a
+    // perfectly believable chart.
+    if (!uu) { noUnit++; continue; }
+    const unit = glucoseCanonUnit(uu);
+    if (!unit || tv == null || vv == null) continue;
+    const iso = (typeof tv === 'string') ? (appleDateISO(tv) || tv) : tv;
+    if (!meta.rawUnit) meta.rawUnit = String(uu);
+    if (!meta.source && r.source) meta.source = String(r.source);
+    rows.push({ t: iso, v: vv, unit: unit });
+  }
+  _gImport.readings = rows.length;
+  if (!rows.length && noUnit) {
+    return { rows: null, why: 'lists ' + noUnit + ' reading' + (noUnit === 1 ? '' : 's')
+      + ' with no unit \u2014 and a glucose value without its unit is not a reading' };
+  }
+  return { rows: rows, meta: meta };
+}
+function glucoseImportFail(name, why) {
+  _gImport.active = false; _gImport.done = true;
+  _gImport.error = name + ' ' + why;
+  glucoseImportPaint();
+  return { ok: false, error: _gImport.error };
+}
+async function glucoseImportFile(file) {
+  if (!file) return { ok: false, error: 'No file.' };
+  const name = String(file.name || 'that file');
+  _gImport = { seq: ++_gSeq, active: true, name: name, format: '', bytes: 0,
+               total: file.size || 0, readings: 0, added: 0, done: false, error: '' };
+  glucoseImportPaint();
+  try {
+    const head = await file.slice(0, 65536).text();
+    const fmt = glucoseSniff(head);
+    if (!fmt) {
+      return glucoseImportFail(name, 'is not an Apple Health export or a glucose file, '
+        + 'so nothing was changed. In Health: Profile \u2192 Export All Health Data, then pick '
+        + 'export.xml \u2014 or pick a Shortcut-produced glucose file.');
+    }
+    _gImport.format = fmt;
+    const res = (fmt === 'apple') ? await glucoseImportApple(file)
+                                  : await glucoseImportShortcut(file);
+    if (!res.rows || !res.rows.length) {
+      return glucoseImportFail(name, (res.why || 'carries no blood-glucose records')
+        + ', so nothing was changed.');
+    }
+    // THE MERGE IS D146's, ALREADY GATED, AND NOT RE-IMPLEMENTED HERE. Timestamps
+    // collide into one slot, so a re-export every few days adds the new readings
+    // and nothing else.
+    const before = glucoseCount();
+    const out = glucoseIngest(res.rows, { rawUnit: res.meta.rawUnit, source: res.meta.source });
+    _gImport.added = glucoseCount() - before;
+    _gImport.active = false; _gImport.done = true;
+    if (out.unitClash) {
+      _gImport.error = name + ' is in a different unit from readings already held. Two units '
+        + 'never merge into one line, so that day was left alone.';
+    }
+    glucoseImportAfter();
+    return { ok: true, read: res.rows.length, added: _gImport.added, ingest: out };
+  } catch (e) {
+    return glucoseImportFail(name, 'could not be read (' + String((e && e.message) || e)
+      + '), so nothing was changed.');
+  }
+}
+function glucoseImportAfter() {
+  // What you just imported should not need a second tap to see. Depth on demand
+  // is about the FIRST look at a day, not about hiding the result of an action
+  // the user just took.
+  const dk = APP_STATE && APP_STATE.current;
+  if (dk && glucoseDaySummary(dk)) {
+    GLUCOSE_OPEN[String(dk)] = true;
+    if (!CHART_WIN) chartPreset(CHART_LABEL);
+  }
+  renderDay();
+  glucoseImportPaint();
+}
+function mbWords(b) {
+  const n = num(b);
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return Math.round(n / 1024) + ' kB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+function glucoseImportNoteInner() {
+  const p = _gImport;
+  if (!p.name) return '';
+  if (p.error) return '<span class="gerr">' + esc(p.error) + '</span>';
+  if (p.active) {
+    // BYTES AND READINGS BOTH. 99.99% of an export is not glucose -- 451 records
+    // in 491MB, measured -- so a readings-only counter sits at zero through most
+    // of the run and reads as broken.
+    return '<span class="gprog">Reading ' + esc(p.name) + ' \u2014 ' + esc(mbWords(p.bytes))
+      + (p.total ? ' of ' + esc(mbWords(p.total)) : '') + ' \u00b7 ' + p.readings
+      + ' reading' + (p.readings === 1 ? '' : 's') + ' found</span>';
+  }
+  if (p.done) {
+    const held = Math.max(0, p.readings - p.added);
+    return '<span class="gok">' + esc(p.name) + ' \u2014 ' + p.added + ' new reading'
+      + (p.added === 1 ? '' : 's') + (held ? ', ' + held + ' already held' : '')
+      + ' \u00b7 ' + esc(mbWords(p.bytes)) + ' read</span>';
+  }
+  return '';
+}
+// Paint the status WITHOUT re-rendering the day: a progress tick fires five times
+// a second, and re-rendering would destroy the file input mid-import.
+function glucoseImportPaint() {
+  const nodes = document.querySelectorAll('.gimportnote');
+  const html = glucoseImportNoteInner();
+  for (let i = 0; i < nodes.length; i++) nodes[i].innerHTML = html;
+}
+function glucoseImportPick(id) {
+  const el = document.getElementById(id);
+  if (el) el.click();
+}
+function onGlucoseFile(el) {
+  const f = el && el.files && el.files[0];
+  // Clear FIRST, after taking the File: picking the same export twice in a row
+  // must fire change twice, and re-importing the same file is the normal case
+  // here, not an edge one.
+  if (el) { try { el.value = ''; } catch (e) { } }
+  if (!f) return;
+  glucoseImportFile(f);
+}
+// C: the control lives ON THE GLUCOSE ROW -- in its body, beside the note saying
+// this is a cache, because that note's own unanswered question is "so how do I
+// refresh it?". In the body and not the header: one control per OPEN row, not one
+// button per day in a month of readings.
+// No `accept` filter, deliberately: on iOS the Files picker greys out files whose
+// extension does not match, and the whole ruling is that this control sniffs and
+// then refuses BY NAME. A filter that hides the file is a refusal nobody can read.
+function glucoseImportFootHTML(where) {
+  const id = 'gImport_' + where;
+  return '<div class="gfoot">'
+    + '<input id="' + esc(id) + '" class="gimportfile" type="file" style="display:none"'
+    + ' onchange="onGlucoseFile(this)">'
+    + '<button class="btn gimp" onclick="glucoseImportPick(\'' + esc(id) + '\')">'
+    + 'Import readings\u2026</button>'
+    + '<div class="gimportnote">' + glucoseImportNoteInner() + '</div>'
+    + '</div>';
+}
+// C's CONDITION: before any glucose exists there is NO ROW, so the first import
+// has nowhere to live. This is that home -- and it shows only while the cache is
+// entirely empty, because a day with a gap inside a month of readings is not a
+// first run and must not be handed starting instructions.
+function glucoseEmptyHTML() {
+  if (Object.keys(glucoseRead()).length) return '';
+  return '<div class="gempty">'
+    + '<div class="geline"><b>No glucose yet.</b> Readings come from <b>Apple Health</b> \u2014 '
+    + 'in Health: Profile \u2192 Export All Health Data, then pick the file here. It is read on '
+    + 'this device and nothing is uploaded.</div>'
+    + glucoseImportFootHTML('first')
+    + '<div class="gestop">A file hand-off, and deliberately a stopgap: the durable route is '
+    + 'the native shell reading HealthKit directly, with no export and no file. Until that '
+    + 'ships, this is the way in.</div>'
+    + '</div>';
+}
 let GLUCOSE_MIXED = null;
 function glucoseMixed() { return GLUCOSE_MIXED ? GLUCOSE_MIXED.slice() : null; }
 
@@ -6850,7 +7198,7 @@ function glucoseRowHTML(dk) {
     + '<div class="gsub"><span class="gcov">from ' + sum.n + ' reading' + (sum.n === 1 ? '' : 's')
     + esc(miss) + esc(short) + '</span> '
     + '<span class="gage">' + esc(ageWords(sum.lastAgeMs)) + '</span></div>'
-    + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + '</div>' : '')
+    + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + glucoseImportFootHTML('row') + '</div>' : '')
     + '</div>';
 }
 // Redraw only the chart, not the day: a pan fires many times per gesture and
@@ -8626,6 +8974,7 @@ const VERSION_LOG = [
   { v: '0.57.0', d: '2026-10-02', note: 'Food rows are now one line — the name, the time and one number, the same nutrient the ring is tracking. Tap a row to see everything else it knows: the portion, how sure the number is, where it came from, the macros and the database match it was given. Nothing was taken away, it is just one tap behind instead of all at once. A row with no nutrition yet shows the “find nutrients” button straight away rather than a dash. And when you have confirmed what a food is in a photo draft, that row folds its list of alternatives away, which roughly halves the scrolling on a six-item meal.' },
   { v: '0.58.0', d: '2026-10-02', note: 'Glucose from Apple Health. A day with readings gets one line under its total — average, low and high, how many readings they came from, how much of the day had none, and how old the newest one is. Tap it for a chart you can pinch and swipe: 6 hours to 10 days, with meals and events on the same timeline. Gaps are drawn as gaps. Apple Health gets these about three hours late, so the newest point is always hours old.' },
   { v: '0.59.0', d: '2026-10-02', note: 'Fixes the Trends rows, which had picked up the wrong layout and pushed the page a few pixels sideways on a narrow phone.' },
+  { v: '0.60.0', d: '2026-10-03', note: 'Import glucose from an Apple Health export or a Shortcut file \u2014 readings merge by timestamp, so re-importing adds no duplicates.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -13951,6 +14300,9 @@ window.HT = {
   drugPickNeedsReview,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,
+  glucoseImportFile, glucoseSniff, glucoseImportProgress, glucoseCanonUnit, glucoseCount,
+  glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
+  glucoseJSONArray, mbWords,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

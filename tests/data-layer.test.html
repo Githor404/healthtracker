@@ -9762,6 +9762,100 @@ window.setLS({});
   res(HT.glucoseDaySummary('2026-09-26') === null,
       'H19-cache GATE: clearing the cache empties it -- a cache that cannot be cleared is not a cache (A)');
 
+  // ---- H20: the import route's edges ------------------------------------
+  // The CDP gate drives the route through a real file input, which is the only
+  // way to prove the route EXISTS. What it cannot cheaply do is push twenty
+  // malformed heads through the sniff, so that lives here. The cache is empty at
+  // this point -- the H19 block above cleared it -- which is exactly the state
+  // the empty-state condition is about.
+  res(HT.glucoseSniff('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE HealthData [') === 'apple',
+      'H20-sniff: an Apple export is recognised from its DOCTYPE -- XML requires it before the root, so it lands inside the first bytes even though the DTD after it is long');
+  res(HT.glucoseSniff('<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.6"/>') === 'apple',
+      'H20-sniff: and from a bare record, so a trimmed or re-wrapped export still reads');
+  res(HT.glucoseSniff('[{"t":"2026-09-26T07:30:00-04:00","v":5.6,"unit":"mmol/L"}]') === 'shortcut',
+      'H20-sniff: a Shortcut-produced JSON array is the second format the ONE control takes (A)');
+  res(HT.glucoseSniff('{"readings":[]}') === 'shortcut',
+      'H20-sniff: a JSON object counts too -- a Shortcut can be built either way and the user should not have to know which');
+  res(HT.glucoseSniff('\uFEFF[{"v":5.6}]') === 'shortcut',
+      'H20-sniff: a BOM does not defeat the sniff -- it is what a Shortcut writes, and treating its own output as unrecognised would refuse the format we asked for');
+  res(HT.glucoseSniff('milk\neggs\nbread') === null,
+      'H20-sniff: a shopping list is REFUSED, not guessed at (A) -- the refusal is what keeps wrong numbers out of a cache the chart will believe');
+  res(HT.glucoseSniff('') === null,
+      'H20-sniff: an empty file is refused');
+  res(HT.glucoseSniff('   \n\t ') === null,
+      'H20-sniff: so is one holding only whitespace, which is what a failed export writes');
+  res(HT.glucoseSniff('<?xml version="1.0"?><rss><channel><title>a feed</title></channel></rss>') === null,
+      'H20-sniff: XML that is not a Health export is refused -- starting with < is not evidence, and this is the case where guessing would look most reasonable');
+  res(HT.glucoseSniff(null) === null && HT.glucoseSniff(undefined) === null,
+      'H20-sniff: and nothing at all is refused rather than throwing');
+
+  res(HT.glucoseCanonUnit('mmol<180.1558800000541>/L') === 'mmol/L',
+      'H20-unit: Apple writes its conversion factor INTO the unit string, and the canonical form is derived from it');
+  res(HT.glucoseCanonUnit('mmol/L') === 'mmol/L',
+      'H20-unit: the plain spelling maps to itself');
+  res(HT.glucoseCanonUnit('mg/dL') === 'mg/dL' && HT.glucoseCanonUnit('MG/DL') === 'mg/dL',
+      'H20-unit: the other unit is recognised in either case');
+  res(HT.glucoseCanonUnit('count') === null && HT.glucoseCanonUnit('') === null && HT.glucoseCanonUnit(null) === null,
+      'H20-unit: a unit that is not a glucose unit yields NOTHING rather than a default -- the same rule as breath ketones, and here a default would be an 18x error that draws a believable chart');
+
+  // THE ONE THAT ONLY FAILS ON THE PHONE. Apple writes `2026-09-26 07:30:00
+  // -0400`; Chrome parses that and Safari does not reliably, so the route
+  // reshapes it before Date.parse ever sees it. Asserted on the INSTANT, not on
+  // the string, because a reshaping that parses to the wrong moment is worse
+  // than one that fails.
+  res(HT.appleDateISO('2026-09-26 07:30:00 -0400') === '2026-09-26T07:30:00-04:00',
+      'H20-date: Apple\u2019s space-separated form is reshaped to ISO before it reaches Date.parse -- unreshaped it parses in Chrome and not in Safari, which is the only browser this route has to work in');
+  res(Date.parse(HT.appleDateISO('2026-09-26 07:30:00 -0400')) === Date.parse('2026-09-26T11:30:00Z'),
+      'H20-date: and it parses to the RIGHT instant -- 07:30 at -0400 is 11:30Z, so the offset survived the reshaping');
+  res(HT.appleDateISO('2026-09-26T07:30:00-04:00') === '2026-09-26T07:30:00-04:00',
+      'H20-date: an already-ISO timestamp from a Shortcut passes through unchanged');
+  res(HT.appleDateISO('26/09/2026 7:30') === null && HT.appleDateISO('') === null && HT.appleDateISO('tomorrow') === null,
+      'H20-date: anything else yields null, so the reading is dropped rather than dated by guess');
+
+  res(HT.glucoseJSONArray([1, 2]).length === 2,
+      'H20-json: a bare array is the list');
+  var J20 = HT.glucoseJSONArray({ readings: [{ v: 1 }, { v: 2 }, { v: 3 }] });
+  res(J20 && J20.length === 3,
+      'H20-json: and a wrapped one is found by key');
+  res(HT.glucoseJSONArray({ foo: 1 }) === null && HT.glucoseJSONArray(null) === null && HT.glucoseJSONArray(7) === null,
+      'H20-json: JSON with no list of readings is refused -- it is valid JSON, which is precisely why it would otherwise be accepted and store nothing');
+
+  res(HT.mbWords(512) === '512 B' && HT.mbWords(2048) === '2 kB' && HT.mbWords(1572864) === '1.5 MB',
+      'H20-prog: bytes read are stated in units a person reads, at all three scales');
+
+  // THE CONDITION THE RULING TURNS ON. Before any glucose exists there is no
+  // row, so the empty state is the first import's only home -- and once readings
+  // exist it must GO, because a day with a gap inside a month of readings is not
+  // a first run and must not be handed starting instructions.
+  res(HT.glucoseCount() === 0,
+      'H20-empty fixture: the cache really is empty here, so the two assertions below are about the state they claim to be about (D96)');
+  var E20 = HT.glucoseEmptyHTML();
+  res(E20.length > 0 && E20.indexOf('type="file"') >= 0,
+      'H20-empty: with no glucose at all, the empty state renders AND carries the file input -- D146 made the row render nothing for a day with no readings, so without this the first import has no way in');
+  res(E20.indexOf('onGlucoseFile') >= 0,
+      'H20-empty: and the input is wired to the handler, so the control is a route and not a decoration');
+  res(HT.glucoseRowHTML('2026-09-26') === '' && HT.glucoseEmptyHTML() !== '',
+      'H20-empty: the ROW is empty and the EMPTY STATE is not, for the same day and the same storage -- that pair is the ruling, and either one alone is consistent with the defect');
+  var ING20 = HT.glucoseIngest([
+    { t: '2026-09-26T07:00:00-04:00', v: 5.1, unit: 'mmol/L' },
+    { t: '2026-09-26T07:05:00-04:00', v: 5.4, unit: 'mmol/L' },
+    { t: '2026-09-27T07:00:00-04:00', v: 6.2, unit: 'mmol/L' }
+  ], { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
+  res(ING20.ok && HT.glucoseCount() === 3,
+      'H20-count: the count spans days rather than reporting one -- it is what tells "added" from "already held" after an import');
+  res(HT.glucoseEmptyHTML() === '',
+      'H20-empty: and once ANY glucose exists the empty state is gone -- otherwise every gap day in a tracked month would read as a fresh start');
+  res(HT.glucoseRowHTML('2026-09-26').indexOf('grow') >= 0,
+      'H20-empty: while the day that has readings now draws its row, which is where the control lives from then on (C)');
+  var F20 = HT.glucoseImportFootHTML('harness');
+  res(F20.indexOf('id="gImport_harness"') >= 0 && F20.indexOf('type="file"') >= 0,
+      'H20-foot: the control is built per host, so the row and the empty state cannot collide on one element id');
+  res(F20.indexOf('accept=') < 0,
+      'H20-foot: and it declares NO accept filter -- on iOS that greys out files whose extension does not match, and a file the picker hides cannot be refused by name');
+  HT.glucoseClear();
+  res(HT.glucoseCount() === 0 && HT.glucoseEmptyHTML() !== '',
+      'H20 fixture: the cache is restored to empty, so this block leaves nothing behind for the blocks after it (the D139-word lesson)');
+
   // ---- D143: what counts as an overlay, and what does not ---------------
   // The page lock is DERIVED from the data-overlay attribute rather than from a
   // list of call sites, so the classification IS the contract. Driven by real

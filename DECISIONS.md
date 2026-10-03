@@ -8033,3 +8033,150 @@ failures, because an ancestor clipped them ([[D144]]). After scoping the rule th
 went to **zero as well**: those were the same broken flex layout, invisible
 because something happened to clip it. *A clipped defect is still a defect; it is
 only not an overflow.*
+
+## D148 — How glucose reaches the phone — v0.60.0 (2026-10-03)
+
+[[H20]] built, as ruled: **A** one control sniffing both formats, unrecognised
+input refused **by name**, merge by timestamp; **C** the control on the glucose
+row, with the day's empty glucose state as the first import's home and Settings
+as the fallback.
+
+### WHAT D146 SHIPPED
+
+`glucoseIngest` with **no road to it**. The export sits in the Files app on the
+phone, the cache lives in this origin's localStorage, and nothing connected them.
+Every assertion in `chart-gate` reached the ingest from JavaScript, so the gate
+could not notice there was no button.
+
+> **A test that calls the function has not tested the route.**
+
+So `tests/import-gate.ps1` (**20th** gate script, suite 25 → **26** verdicts) hands
+files to a real `<input type=file>` through `DOM.setFileInputFiles`, the way a
+picker hands them over, and **calls no ingest function at all**. That last claim
+is *checked, not asserted*: the gate scans its own source for `glucoseIngest`,
+`glucoseWrite` and `normalizeGlucose` and fails if it finds them, so a later edit
+reaching for the shortcut cannot leave a PASS line that has quietly become false.
+
+**And the first import is tested from the state it actually happens in** — empty
+storage, no readings, no row. D146 deliberately renders nothing for a day with no
+glucose, so the row cannot host the *first* import. Seeding glucose to make the
+row appear and then testing the row's control would have exercised the easy half
+and reproduced the exact hole H20 exists to close. That is the **fifth** time in
+three slices the fixture has been the thing to get right, and the first time it
+was named before the gate ran rather than after it passed.
+
+### FIVE DEFECTS IN MY OWN GATE, BEFORE IT RAN ONCE
+
+| | what it was | why it mattered |
+|---|---|---|
+| 1 | `Chk ($null -ne $R1.n) "(placeholder)"` | **a dead assertion**, unconditionally green, sitting in the slot where the no-network claim was supposed to be checked. Same shape as `res(x === false || true, ...)` last slice. Alongside it, `$reqs` and `$before` were read and never asserted on |
+| 2 | the JSON fixture shared the XML's 300s grid, both ending 07:30 | the count after the second-format import would have been **identical whether the JSON was parsed or silently dropped**. *A fixture whose two halves overlap cannot tell you the second half was read.* Moved to 07:35→10:30, and the assertion is now exact: 36 readings added |
+| 3 | the self-scan matched its own banned list | `foreach ($banned in @('glucoseIngest', ...))` contains the string it searches for, so the gate failed itself every time — **a check that cannot pass**, the mirror of a check that cannot fail and just as useless. The names are now assembled from pieces |
+| 4 | fixed sleeps after each pick | the re-import assertion expects an **absence** (the count must not move), which passes for free if the import never ran. Every pick now waits on a monotonic `seq` from `glucoseImportProgress()`, because `done` alone cannot tell this attempt's completion from the last one's |
+| 5 | `ConvertFrom-Json` piped into `@(...)` | PowerShell 5.1 emits a JSON array as **one object**, so `@()` wrapped it in a second array. `-join` printed `System.Object[]`, `-notcontains` never matched, and `$CALLS | Where-Object { $_.ours }` tested a property of an *array* — so **the attribution assertion counted zero and passed vacuously**. A dead assertion manufactured by a deserialization quirk rather than written by hand |
+
+Defect 5 is the one worth keeping: the symptom was cosmetic (`System.Object[]` in
+a failure message) and the cause was a silently empty assertion. *A probe that
+cannot name its offender is half a measurement* — and sometimes the half it is
+missing is the half that fails.
+
+### THE NO-NETWORK CHECK WAS MEASURING THIS MACHINE
+
+"Nothing leaves the phone" is checkable, so it is checked — and the first version
+failed on **a web-antivirus installed on this PC**, which injects a script from
+its own domain into every page. Measured: the DOM carries only `app.js` as a
+script tag, while the resource list carries the injected script plus nine XHRs to
+the injector. **That script calls `XMLHttpRequest` through the very wrapper the
+gate installs**, so "someone called XHR cross-origin" is not evidence about the
+app. Attribution was the missing half. Two instruments replaced the one:
+
+- **the call's stack.** A cross-origin call whose stack names this origin is the
+  app's and fails with no exceptions. One whose stack names a foreign script is
+  reported, attributed, and excluded.
+- **the set of cross-origin origins**, snapshotted before the first import and
+  compared at the end. The injector is in both, so it cancels; a real leak adds
+  an origin that was not there before, and this half needs no stack, so it also
+  catches a parser-initiated `<img src>`.
+
+The PASS line was corrected from *"no request left the origin"* to **"nothing this
+app's own code requested left the origin"**, which is what the gate proves. A gate
+that fails on the tester's antivirus teaches everyone to ignore it; a gate that
+quietly drops the claim teaches nothing at all.
+
+### A THRESHOLD THAT COULD NOT TELL THE TWO HYPOTHESES APART
+
+The bounded-memory check ran a 12.8MB fixture against a 60MB ceiling. **That
+ceiling cannot discriminate**: read whole into one string, a 12.8MB file costs
+~26MB of UTF-16 — comfortably under 60MB. The check would have passed the single
+implementation it exists to reject.
+
+> **A threshold discriminates because of its fixture, not because of its number.**
+
+The fixture is now 64MB, where bounded (~25MB measured) and materialised (~128MB)
+fall either side of the same line. The line moved to 80MB and the measurement got
+quieter rather than the band wider: `--expose-gc` plus a collection before the
+baseline, because the big import is the *fifth* in that page and four imports'
+garbage was being counted as this one's growth (41.5MB → 25.3MB for identical
+work).
+
+**And the scaling, which is the only claim worth making:** a file **5× larger moved
+the peak 1.24×** (17.8 → 22.1MB), against a **7.7MB noise band** from importing one
+file twice — so at that scale the difference is not even distinguishable from
+noise. (The real-file measurement below adds a third point and qualifies this:
+sub-linear, not flat.)
+
+**I also changed the scanner on a theory and the number went the wrong way.**
+`split('\n')` allocated ~60,000 strings per chunk to discard 99.99% of them, so I
+replaced it with an `indexOf` walk that materialises only matching lines. Peak
+heap: 20.0MB before, 22.8MB after — inside the 7.7MB noise band. The change is
+justified by allocation count and **not by any number I can show**, and the
+comment in `app.js` now says so rather than implying a win.
+
+### DECISIONS INSIDE THE BUILD
+
+| | |
+|---|---|
+| **slice, not stream** | the 491MB measurement earned streaming its *admissibility*, not its *platform*: `TextDecoderStream` is iOS Safari **16.4+**, while `Blob.slice().text()` in a loop is bounded the same way on every Safari that can run this app. The phone is the platform, and a stopgap that needs the newest Safari is not a stopgap |
+| **no `accept` filter** | on iOS the Files picker greys out files whose extension does not match, and the whole ruling is that this control *sniffs* and then *refuses by name*. **A file the picker hides cannot be refused by name** |
+| **Settings fallback in its own card** | NOT inside *Import · restore*, whose button **replaces all data** while this one merges a cache by timestamp. Two different acts under one heading is [[D147]]'s defect in UI form, and in the dangerous direction: the destructive control would lend its meaning to the safe one |
+| **ISO before `Date.parse`** | Apple writes `2026-09-26 07:30:00 -0400`; Chrome parses it, Safari does not reliably. A date that parses on the machine I test on and not on the phone is the worst kind of defect, because every gate stays green. Asserted on the **instant**, not the string |
+| **no default unit** | a Shortcut file whose readings carry no unit is **refused by name**, not assumed to be mmol/L. Same rule as breath ketones, and here the assumption is an 18× error that draws a completely believable chart |
+| **the empty state is conditional** | it renders only while the cache is **entirely** empty. A day with a gap inside a tracked month is not a first run and must not be handed starting instructions |
+| **`overflow-wrap:anywhere`** | a file name is unbounded user data and it is printed verbatim in every message here, refusals included. One long name would push the document sideways — which is exactly what D147's new gate watches |
+| **16px** | my first draft of this CSS used 12 and 13px. Every other class in the glucose block is 16px, and the ink floor the layout gates enforce is not a style preference |
+| **auto-expand after an import** | depth on demand is about the **first** look at a day, not about hiding the result of an action the user just took |
+
+### THE CHECK NO GATE HERE CAN MAKE
+
+`import-gate`'s fixtures are **synthetic XML written in what I believed was the
+real shape**. If that belief were wrong — a different escaping of the unit
+attribute, a different date layout — the route would fail on the only file that
+matters and all 26 verdicts would stay green. So the real 490.8MB export was run
+through the real route once, outside the suite:
+
+| | |
+|---|---|
+| readings parsed | **451** — the *same count* an independent streaming parser
+  found when this export was first measured, which is what makes the regexes
+  credible rather than merely untested |
+| raw unit | `mmol<180.1558800000541>/L` — exactly the form the fixture guessed, and
+  the reason the canonical unit is **derived** from it instead of assumed |
+| source | `Dexcom G7` |
+| peak heap | **48MB** on a 490.8MB file, in 4.6s. Materialised as UTF-16 that file
+  is ~1GB |
+
+Peak against file size across all three measurements: 64MB → 25MB, 490.8MB → 48MB.
+**7.7× the file moves the peak 1.9×**, so it is not flat — 246 chunk strings churn
+before the collector catches up — but it is nowhere near proportional, and 48MB is
+inside a phone's budget. Nothing from that file entered the repo; the shape was
+read, the values were not.
+
+### WHAT IS STILL NOT PROVEN
+
+**iOS.** The 491MB file now works on this PC; nothing here says Safari will slice
+a 490MB Blob 246 times, or that iOS will even hand a file that size to a web
+page from the Files app. **The export has never been through the phone**, and
+that is the whole reason this route is a stopgap rather than the plan. The device
+check is the final word, and D146's 3-day and 10-day presets are *still*
+unexercised against real data — the real export carries 451 readings over 3 days,
+so a 10-day window has nothing to show yet.

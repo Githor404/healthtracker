@@ -199,18 +199,43 @@ matters because the harness itself would still pass. A new check joins one list
 in the commit that adds it.
 
 **The count is the number of verdict lines the runner prints:** 1 harness + the
-`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 5 + 19 = **25**. The
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 5 + 20 = **26**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
 Every run prints the sum, and the suite fails if the passes don't add up to it:
 
 ```
-counted: 1 harness + 5 static + 19 CDP = 25 verdicts (4 more checks run inside the harness and are part of its verdict)
-SUITE: PASS (25 of 25 produced a verdict, and every verdict was PASS)
+counted: 1 harness + 5 static + 20 CDP = 26 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (26 of 26 produced a verdict, and every verdict was PASS)
 ```
 
 **Quote the number together with that line.** A bare count can't be told apart
 from a count that lost a gate. Until D75 the runner never ran
 `check-precache.sh` or `check-guidance.sh`, while GATES.md counted both.
+
+### Believe the gate first (D146)
+
+**Clean tree passes, my tree fails. The gate is right and the change is mine.**
+
+`ring-size-gate` started failing and I proposed and withdrew **three** causes
+and made **two reverted edits to the gate itself** before finding it. The cause
+was a **802-character changelog note** I had written: rendered in
+`versionNotice` above the day, it pushed the control 662px → 801px, off a 690px
+screen. *A changelog note is layout.*
+
+What made it take an afternoon instead of one run:
+
+- **I edited the instrument before I had read its evidence.** A deterministic
+  3-of-3 / 3-of-3 split was available immediately; dumping the failing clause's
+  values took **one run** once I finally did it.
+- **My control loaded the page once, so the version notice never rendered** — I
+  read identical geometry in a state that could not contain the defect, and
+  called it innocence. *The fixture must contain the state the defect lives in.*
+
+So: when a gate that passed yesterday fails today, the first move is to **dump
+the values the failing clause compared**, not to reason about whether the gate
+is fair. The gate has no stake in the answer. Use
+`git worktree add --detach HEAD` for the clean-tree comparison, so the real tree
+is never left in a wrong state while the experiment runs.
 
 ## Running a defect pass (D60) — two rules learned the hard way
 

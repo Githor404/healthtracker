@@ -754,6 +754,23 @@ svg.tchart .tmark{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3}
 svg.tchart .tclip{fill:var(--muted)}
 .tnote{font-size:16px;color:var(--muted);margin:4px 0 0}
 .tunitrefuse{font-size:16px;color:var(--muted);margin:4px 0}
+/* H20: the import route's surfaces. `.gempty` is the FIRST import's home --
+   the glucose row cannot be, because a day with no readings draws no row
+   (D146). It appears only while the whole cache is empty. */
+.gempty{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;background:var(--card)}
+.geline{font-size:16px;line-height:1.45}
+.gestop{font-size:16px;color:var(--muted);margin:8px 0 0;line-height:1.4}
+.gfoot{display:block;margin-top:10px}
+.gfoot .gimp{min-height:44px}
+/* 16px, like every other class in this block: the ink floor the layout gates
+   enforce is not a style preference, and a 12px note would have been the
+   first thing in the glucose surfaces to break it. */
+/* A FILE NAME IS UNBOUNDED USER DATA, printed verbatim in every message here
+   including the refusals. `anywhere` is what stops one long name pushing the
+   document sideways -- which is exactly what D147's gate now watches. */
+.gimportnote{font-size:16px;line-height:1.4;margin-top:6px;overflow-wrap:anywhere}
+.gprog,.gok{color:var(--muted)}
+.gerr{color:var(--bad)}
 .mline{display:flex;align-items:center;gap:8px;min-height:44px}
 .mhead{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;
   min-height:44px;cursor:pointer}
@@ -1149,6 +1166,23 @@ svg.tchart .tclip{fill:var(--muted)}
       <button class="btn" onclick="copyOut()">⇪ Copy data</button>
       <textarea id="exportBox" readonly placeholder="Tap Copy — your full log JSON appears here. Select and copy it to back up, or paste to Claude."></textarea>
       <div class="note">Read-only. Nothing leaves your device — this is a local copy.</div>
+    </div>
+    <!-- H20/C: the FALLBACK home for the glucose import. Deliberately its OWN
+         card and NOT inside "Import / restore" below: that card's button replaces
+         all data, this one merges a cache by timestamp. Two different acts under
+         one heading is the same defect as a class name used for two things
+         (D147), and in the dangerous direction -- the destructive control would
+         lend its meaning to the safe one. -->
+    <div class="card" data-setting="glucose-import">
+      <h2>Glucose readings <span style="color:var(--muted);font-weight:400">— merges, never replaces</span></h2>
+      <input id="gImport_settings" class="gimportfile" type="file" style="display:none" onchange="onGlucoseFile(this)">
+      <button class="btn" onclick="glucoseImportPick('gImport_settings')">Import readings…</button>
+      <div class="gimportnote"></div>
+      <div class="note">From an Apple Health export (export.xml) or a Shortcut-produced
+        glucose file — the control reads which, and refuses anything else by name.
+        Readings merge by timestamp, so re-importing the same export adds nothing. Held
+        as a cache Apple Health can re-supply, so glucose is <b>not in your export</b>.
+        A stopgap: the durable route is the native shell reading HealthKit directly.</div>
     </div>
     <div class="card" data-setting="import">
       <h2>Import · restore <span style="color:var(--bad)">(replaces everything)</span></h2>

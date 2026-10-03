@@ -4982,3 +4982,28 @@ zero page overflow, and scoping `.trow` took those to zero too. They were the sa
 broken layout, hidden by an ancestor's clip. *A clipped defect is still a defect.*
 
 **320px is explicitly NOT covered** and the gate says so in its header.
+
+### D148 — the glucose import route — 20th gate script
+
+`tests/import-gate.ps1`. Drives the route through a **real `<input type=file>`**
+and calls no ingest function — enforced by scanning its own source, because D146's
+gate reached `glucoseIngest` from JavaScript and so could not see there was no
+button. Suite **25 → 26 verdicts**.
+
+| case | asserts |
+|---|---|
+| **import-gate.ps1** | the **first** import, from empty storage with no row and no readings — the only state where the empty-state control is the only way in |
+| **import-gate.ps1** | the empty state names Apple Health, offers the action, and says plainly it is a **stopgap** |
+| **import-gate.ps1** | one control takes an Apple export **and** a Shortcut JSON, each sniffed to the right format, on **non-overlapping** timestamp grids so the second import's count must move by exactly 36 |
+| **import-gate.ps1** | a **re-import adds nothing** — `added == 0` at the source and the day's count unchanged, waited on `seq` because an absence passes for free if the import never ran |
+| **import-gate.ps1** | a shopping list, a 0-byte file and an export with no glucose are each **refused with the file's name in the message** and the cache untouched |
+| **import-gate.ps1** | progress reports **bytes and readings** — 451 records in 491MB means a readings-only counter sits at zero looking broken |
+| **import-gate.ps1** | peak heap on a **64MB** fixture, after `window.gc()`, against a line that separates bounded (~25MB) from materialised (~128MB) |
+| **import-gate.ps1** | **no cross-origin call attributable to this app's own code** (by stack), and **no new cross-origin destination** across the imports (by origin set) |
+| **import-gate.ps1** | Settings carries the fallback control |
+
+**The gate refuses to reach past its subject.** It scans itself for
+`glucoseIngest`/`glucoseWrite`/`normalizeGlucose` (names assembled at runtime, so
+the scanner is not its own hit) and fails if a later edit takes the shortcut.
+
+**320px and iOS are explicitly NOT covered**, and the PASS line says so.
