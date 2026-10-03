@@ -8439,27 +8439,61 @@ finger — axis-locking ([[H19]]-G) was ruled so that a vertical swipe still scr
 the page while a horizontal one pans the chart, and *that* trade-off cannot be felt
 by a gate. "Both work very well" is the only instrument that could have reported it.
 
-### TWO FIGURES ARE MISSING, AND I HAVE NOT FILLED THEM IN
+### THE FIGURES (user, 2026-10-03)
 
-The attestation arrived with blanks: **import duration** and **the reading count the
-row showed**. They are **not recorded here**, because they are device measurements
-and I cannot make them. Writing plausible numbers — 4.6s and 451 are what the PC
-produced — would put *invented* figures into the one record whose entire value is
-that it is attested.
+| | |
+|---|---|
+| readings held after import | **719** |
+| the day row (Oct 2→3) | **"from 288 readings"** — a per-day count, not the total |
+| import duration | **not timed. Left PENDING rather than estimated**, at the user's instruction |
 
-> **An attestation with a fabricated number in it is worse than one with a gap,
-> because the gap is visible.**
+**719 is not the 451 this PC measured, and that is not a discrepancy.** The PC's
+`export.xml` is dated 2026-10-02 10:36; the phone's export was taken later. The
+arithmetic closes it: 719 — 451 = **268 readings**, and 268 × 5 min = **22.3 hours**,
+so the phone's export was produced roughly a day after the one sitting here. Two
+files, not two answers. **I did not verify the phone's file and cannot** — it never
+reached this machine, which is the same limit [[H21]]-E records.
 
-The PC figures, for contrast and clearly labelled as PC: **451 readings, 4.6s, 48MB
-peak** on the 490.8MB file. The device figures are expected to differ — a phone is
-slower, and the row shows a *per-day* count rather than the 451 total, so the two
-numbers are not even the same quantity. **PENDING USER REPORT.**
+**288 is an exact number, and not for the reason it looks like.** `expected` is
+**span-derived**, not day-derived: `Math.round(spanMin / stepMin) + 1`. So 288 does
+not mean "a day" by definition. It means it *here* because the store keys readings
+by minute-of-day and the measured cadence is 300s, so 288 distinct slots can only
+span 287 × 5 = 1435 min = **23h55m**. At 719 readings ≈ **2.5 days**, the device holds
+two and a half days of essentially complete coverage.
 
+*Inference, flagged as one:* the quoted row text carries no `· N expected but absent`
+and no `· N min with no readings`, so `n === expected` for that span — a day at full
+coverage. If the quote was abbreviated, that inference goes with it. Worth noting
+either way: **the "a day with a gap must not read like a full day" rule had nothing
+to demonstrate on that day**, which is the good outcome and not evidence the rule
+works.
+
+### WHAT THE RE-IMPORT ATTESTED, UNPROMPTED
+
+> **"0 new readings, 719 already held" on re-import, after the iOS 27.1 update — the
+> cache and the merge both survived the update.**
+
+Two things no gate in this repo can reach:
+
+1. **The merge, on device.** `added == 0` with 719 recognised as already held is
+   exactly the behaviour [[D148]]'s gate asserts — and the defect behind it was the
+   `store[dk] = norm` **data loss** found sideways in [[D146]], where a partial batch
+   erased a day it should have extended. Attested now on the device that matters,
+   through the surface rather than the API. (The "719 already held" figure is
+   `readings parsed — added`, so it also says the file itself carried 719.)
+2. **localStorage survived an OS minor-version upgrade.** iOS 27 → 27.1 with the
+   cache intact. Nothing here tests that, and nothing here could.
+
+### STILL OPEN, AND NARROWED
+
+**Even the 3-day window has never been filled with real data.** 719 readings is
+≈ 2.5 days, so the 3-day preset has never had a complete window and the 10-day
+preset has had nothing at all. Open since D146; the attestation moved this from
+*"unexercised"* to *"unexercised, and here is exactly how far short the data falls"*.
 ### STILL NOT CLOSED BY THIS
 
-- **The 3-day and 10-day chart windows remain unexercised against real data.** The
-  real export carries 451 readings across 3 days, so a 10-day window still has
-  nothing to show. Open since D146, and the attestation does not touch it.
+- **The chart windows** — see *Still open, and narrowed* above: the device's 2.5 days
+  of data leave even the 3-day preset short of one full window.
 - **The ZIP.** The export was *unzipped in Files* before importing, which is the
   step that failed for storage the first time. The route is proven; the
   precondition is not.
