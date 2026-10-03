@@ -407,7 +407,7 @@ try {
     $hits = $strings | Where-Object { $_.t -match $b.re }
     if ($hits) {
       $where = ($hits | Select-Object -First 3 | ForEach-Object { "'" + ($_.t.Substring(0, [Math]::Min(58, $_.t.Length))) + "' (" + $_.s + ")" }) -join '; '
-      $fails += "JARGON: /$($b.re)/ is on the surface in $($hits.Count) place(s) -- $($b.say). Found: $where"
+      $fails += "JARGON: /$($b.re)/ is on the surface in $(@($hits).Count) place(s) -- $($b.say). Found: $where"
     }
   }
 
