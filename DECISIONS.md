@@ -8180,3 +8180,156 @@ that is the whole reason this route is a stopgap rather than the plan. The devic
 check is the final word, and D146's 3-day and 10-day presets are *still*
 unexercised against real data — the real export carries 451 readings over 3 days,
 so a 10-day window has nothing to show yet.
+
+## H21 — The ZIP the phone actually receives, and which path is recommended — PRE-REGISTERED (2026-10-03)
+
+### THE DEVICE FINDING (user, on the phone)
+
+> The Apple Health export arrives on iPhone as **export.zip**, and unzipping it
+> needs room for the zip *plus* the ~490MB XML. **It failed on my phone for lack
+> of storage.**
+
+This falsifies an assumption [[D148]] was built on. D148 measured the 490MB
+**XML** and declared the route admissible on that basis — but the XML is an
+artefact of unzipping on a PC. On the phone the file that exists is the archive,
+and the step that produces the XML is the step that fails. *A route measured
+against a file the device cannot produce is not a route.*
+
+### RULED ALREADY (user, same message)
+
+- **The import route accepts the ZIP directly**, streaming the XML out of it and
+  **never writing it**.
+- **The Shortcut route becomes the recommended path on the phone**, with the full
+  export as the fallback.
+
+### THE SHORTCUT SHAPE IS ALREADY VERIFIED
+
+Not pre-registered — **measured**, before the recipe was written down. Seventeen
+candidate Shortcut outputs were handed to the real file input of the real route
+and the route's own verdict recorded for each. All seventeen behaved as
+predicted, and the exercise **found a defect in [[D148]]** (fixed in v0.60.1, see
+below): a file carrying Shortcuts' *default* date rendering, or a value with a
+locale decimal comma, sniffed as a glucose file, parsed as valid JSON, reached
+the ingest, lost every row to `Date.parse`, and reported **"0 new readings" with
+no error**. Ruling A says unrecognised input is refused **by name**; unreadable
+in *substance* was slipping past a guard that only covered unreadable in
+*format*. The guard is now `stored === 0`, which is what separates it from a
+re-import (`stored > 0, added == 0`, a success).
+
+Accepted, measured: `[{"t":"...","v":"5.6","unit":"mmol/L"}]` and the
+`{"readings":[...]}` wrapper; value quoted or bare; `T` or a space before the
+time; offset `-04:00`, `-0400` or a bare `Z`; `mmol/L`, `mg/dL`, or Apple's
+`mmol<180.1558800000541>/L`. **So the recipe needs no quoted `'T'` literal** — the
+single most error-prone keystroke in an ICU pattern, removed on evidence rather
+than on taste.
+
+Refused by name, measured: a shopping list, a 0-byte file, CSV, NDJSON, objects
+joined by newlines, a trailing comma, an empty array, a missing unit, an
+unformatted date, a decimal comma.
+
+### FORKS THAT NEED RULINGS
+
+**A — inflating the ZIP, and a version floor I argued against yesterday.**
+Apple stores `export.xml` deflated, so reading it without writing it needs a
+streaming inflate. Three ways, and the first contradicts D148's own reasoning:
+
+| | |
+|---|---|
+| **A1 `DecompressionStream('deflate-raw')`** (recommended) | native, zero added code — and **iOS Safari 16.4+**, the exact floor I rejected `TextDecoderStream` for in D148. The position is defensible *because of the second ruling*: once the Shortcut is the recommended path, the ZIP is a fallback, and a fallback may carry a floor the main path does not. But it is a reversal of a reason given one day earlier, so it is yours to rule, not mine to quietly adopt. **It also needs a fact I do not have: the iOS version on your phone.** |
+| **A2 a bundled raw-inflate** (~200 lines) | works on every Safari, adds real code to a repo whose constraint is a handful of files and one lazily-loaded dependency. Worse: a subtle bug in an inflate produces **corrupted numbers rather than an error**, which for glucose is the one failure mode that cannot be seen on the chart |
+| **A3 refuse the ZIP** | rejected by your ruling, and it is what just failed |
+
+**B — which entry inside the archive.** Apple's zip holds
+`apple_health_export/export.xml`, `export_cda.xml`, and directories of ECGs and
+workout routes. Recommended: pick the entry whose name is `export.xml` or ends
+`/export.xml`; if absent, **refuse by name** and say what the archive did
+contain. Explicitly NOT: scanning every `.xml` entry, because `export_cda.xml`
+is a different schema and a sniff that wanders into it is a sniff that guesses.
+
+**C — where the sizes are read from.** If Apple writes entries streamed (general
+purpose bit 3), the local header's sizes are **zero** and the true sizes live
+only in the central directory. Recommended: parse the End of Central Directory
+and the central directory, never trust a local header; detect ZIP64 and **refuse
+by name** rather than mis-parse an archive ≥ 4GB.
+
+**D — what the memory bound becomes.** The XML path's bound is the 2MB slice.
+Through an inflate the bound is the *decompressed* chunk, which the app does not
+choose. To be measured, not assumed, and the carry logic moves to the
+decompressed side. A 490MB XML of repeated records likely compresses to tens of
+MB, so the compressed read is cheap and the decompressed side is where the
+budget goes.
+
+**E — what the measurement can and cannot prove.** There is **no export.zip on
+this PC** — only the unzipped `export.xml` — so the gate's archive must be one I
+construct, and Apple's exact zip-writer flags are then an assumption of the same
+kind D148's synthetic XML was. That assumption was *caught* last time only by
+running the real file. Recommended: build the fixture, state plainly in the gate
+that the archive is synthetic, and treat **the first real export.zip on the phone
+as the proof**. If you can get the zip onto the PC, that closes the gap properly.
+
+**F — does the app ship the recipe?** The brief already ships a **copyable AI
+prompt template** in-app for the photo path, so shipping the Shortcut recipe
+in-app is the same move and the precedent is ours. Recommended: the empty state
+and the Settings card lead with the Shortcut, with the recipe behind a disclosure
+and the full export named as the fallback. A URL hand-off from the Shortcut
+straight into the app is **deferred, not rejected** — it would skip the Files step
+entirely, but it caps on URL length and is a different slice.
+
+### WHAT GETS GATED
+
+A 21st gate script, or an extension of `import-gate`: a constructed Apple-shaped
+archive imported through the **same single control** (the sniff gains a third
+answer, and the control count stays one); the entry chosen by name; a
+`export_cda.xml`-only archive **refused by name**; a ZIP64 archive refused by
+name; peak heap on a realistic archive against a line that separates bounded from
+materialised, the way D148's 64MB fixture does; and the surfaces asserted to lead
+with the Shortcut rather than the export.
+
+### RULINGS (user, 2026-10-03)
+
+**Device: iOS 27.**
+
+- **A → A1, native `DecompressionStream('deflate-raw')`.** Far above the 16.4 floor,
+  and *a hand-written inflate whose failure mode is quietly wrong glucose numbers is
+  the worse risk*. **Recorded as ruled: the floor is acceptable BECAUSE the ZIP route
+  is the FALLBACK; the Shortcut is the recommended path.** That is the whole reason
+  the reversal of D148's reasoning is coherent rather than convenient — D148 refused
+  a 16.4 floor for the *main* path, and this is not the main path.
+- **B, C, D, F → as recommended.**
+- **E → no real `export.zip` reaches the PC**, because the phone cannot produce one
+  for lack of storage. **The first real zip imported on the phone is the proof, and
+  the gate states that plainly.** So the ZIP gate ships knowing its fixture is
+  synthetic and saying so — the same exposure D148 carried, this time declared up
+  front instead of discovered.
+
+### SEQUENCING (ruled)
+
+> The Shortcut is the main route and I'm building it now. If it works, H21 is lower
+> priority — build it after, not before.
+
+So **A/B/C/D/E stay unbuilt** until the Shortcut is proven on the device. **F is split
+out and built now as [[D149]]**, because it is not the ZIP work and because the
+surface was actively wrong: the empty state and the refusal message both led with
+*Profile → Export All Health Data*, which is the one thing that had just failed on
+the phone. Telling a user to do the thing that broke is worse than telling them
+nothing.
+
+### A FINDING AGAINST ME, FROM THE USER
+
+The first draft of the recipe read:
+
+> *5 · Text → `[⟨Combine Text⟩]` where Combine Text takes `rows` with Custom
+> separator `,`*
+
+which **collapses two actions into one** and is unbuildable as written: **Combine
+Text** is its own action, and the **Text** that wraps its output in brackets is a
+second one. The user caught it while building, not me while verifying — and the
+reason I did not is instructive: I verified the *file shape* exhaustively (seventeen
+candidates through the real route) and never checked that the *instructions* could
+be followed. **A shape that parses says nothing about a recipe that can be tapped.**
+
+The structural fix, not just a reworded step: the recipe now lives in `app.js` as
+`GLUCOSE_SC_STEPS` / `GLUCOSE_SC_LINE` / `GLUCOSE_SC_DATEFMT`, and the gate fills
+those constants with a real reading and imports the result. The copy and the parser
+are now **one artefact**, so they cannot disagree — and the chat recipe and the
+in-app recipe are the same six steps because they are the same constant.
