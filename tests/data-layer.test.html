@@ -9856,6 +9856,37 @@ window.setLS({});
   res(HT.glucoseCount() === 0 && HT.glucoseEmptyHTML() !== '',
       'H20 fixture: the cache is restored to empty, so this block leaves nothing behind for the blocks after it (the D139-word lesson)');
 
+  // ---- D149: the recipe the app prints ----------------------------------
+  // The CDP gate builds a file from these constants and imports it, which is
+  // the end-to-end proof. These are the edges: that the template still has the
+  // placeholders the gate substitutes, and that the result is valid JSON --
+  // because the recipe's whole failure mode is producing something that ALMOST
+  // parses (a trailing comma, a missing separator).
+  res(HT.GLUCOSE_SC_STEPS.length === 6,
+      'D149-recipe: six steps, and the count is load-bearing -- the first draft collapsed Combine Text and the Text that brackets its output into one step, which is unbuildable as written');
+  res(HT.GLUCOSE_SC_LINE.indexOf('[Start Date]') >= 0 && HT.GLUCOSE_SC_LINE.indexOf('[Value]') >= 0
+      && HT.GLUCOSE_SC_LINE.indexOf('[Unit]') >= 0,
+      'D149-recipe: the line template carries all three placeholders the gate substitutes -- rename one and the gate would import literal placeholder text and blame the parser');
+  var SC149 = HT.GLUCOSE_SC_LINE.replace('[Start Date]', '2026-09-26 07:30:00-04:00')
+                                .replace('[Value]', '5.6').replace('[Unit]', 'mmol/L');
+  var OK149 = null;
+  try { OK149 = JSON.parse('[' + SC149 + ',' + SC149 + ']'); } catch (e) { OK149 = null; }
+  res(OK149 && OK149.length === 2 && OK149[0].unit === 'mmol/L',
+      'D149-recipe: two rows joined by a comma and wrapped in brackets -- exactly what steps 4 and 5 produce -- parse as JSON');
+  res(HT.glucoseSniff('[' + SC149 + ']') === 'shortcut',
+      'D149-recipe: and the result sniffs as the Shortcut format, so the ONE control routes it without being told');
+  res(HT.GLUCOSE_SC_LINE.charAt(HT.GLUCOSE_SC_LINE.length - 1) === '}',
+      'D149-recipe: the template ends with } and not a comma -- step 4 adds the separators, and a comma typed at the end of step 3 is the single most likely way to make the file invalid');
+  var SCH149 = HT.glucoseShortcutHTML();
+  res((SCH149.match(/<li>/g) || []).length === 6,
+      'D149-recipe: the rendered disclosure shows one list item per step');
+  res(SCH149.indexOf(HT.GLUCOSE_SC_DATEFMT) >= 0,
+      'D149-recipe: the rendered recipe shows the date pattern the gate verifies -- not a different one, which is what the refusal message was doing');
+  res(SCH149.indexOf(HT.GLUCOSE_SC_FILE) >= 0,
+      'D149-recipe: and names the file it writes, so the Save File step and the picker agree');
+  res(HT.glucoseEmptyHTML().indexOf('screcipe') >= 0,
+      'D149-recipe: the empty state carries the recipe, which is where a first-time user is standing');
+
   // ---- D143: what counts as an overlay, and what does not ---------------
   // The page lock is DERIVED from the data-overlay attribute rather than from a
   // list of call sites, so the classification IS the contract. Driven by real

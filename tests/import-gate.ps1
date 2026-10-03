@@ -339,6 +339,9 @@ try {
     hasImportFn: typeof HT.glucoseImportFile === 'function',
     hasSniff:   typeof HT.glucoseSniff === 'function',
     emptyText:  (document.querySelector('#dayView .gempty') || {}).textContent || '',
+    scSteps:    document.querySelectorAll('#dayView .screcipe .scsteps li').length,
+    scText:     (document.querySelector('#dayView .screcipe') || {}).textContent || '',
+    fallbackText: (document.querySelector('#dayView .gefall') || {}).textContent || '',
     settings:   !!document.querySelector('#settingsPanel input[type=file].gimportfile, #glucoseImportSettings')
   };
 })()
@@ -356,6 +359,19 @@ try {
   Chk ($B.emptyText -match '(?i)import|choose|add|file') "the empty state offers no action: '$($B.emptyText)'"
   Chk ($B.emptyText -match '(?i)shell|app store|native|later|for now|until') "the empty state does not say this is a STOPGAP -- H20 ruled it says plainly that the durable route reads HealthKit directly: '$($B.emptyText)'"
   Chk ([bool]$B.settings) "there is no import control in Settings -- C ruled Settings is the FALLBACK"
+
+  # H21/F: THE SHORTCUT LEADS. Asserted as an ORDER, not as a presence -- both
+  # routes are named on this surface, so "mentions the Shortcut" would have
+  # passed the version that led with the full export, which is the version that
+  # told the user to do the one thing that had just failed on their phone.
+  $iSc = $B.emptyText.IndexOf('Shortcut')
+  $iEx = $B.emptyText.IndexOf('Export All Health Data')
+  Chk ($iSc -ge 0) "the empty state never mentions the Shortcut, which H21 ruled the recommended path"
+  Chk ($iEx -ge 0) "the empty state never mentions the full export, which stays the named FALLBACK rather than disappearing"
+  Chk ($iSc -ge 0 -and $iEx -ge 0 -and $iSc -lt $iEx) "the empty state reaches 'Export All Health Data' (at $iEx) before 'Shortcut' (at $iSc) -- H21 ruled the Shortcut LEADS, because the export is what failed on the device for storage"
+  Chk ($B.scSteps -eq 6) "the in-app recipe renders $($B.scSteps) steps, expected 6 -- and the step count is load-bearing: the first draft of this recipe collapsed Combine Text and the Text that brackets it into one step, which is unbuildable as written"
+  Chk ($B.fallbackText -match '(?i)zip') "the fallback never mentions that the export arrives as a .zip on a phone -- the device finding behind H21"
+  Chk ($B.fallbackText -match '(?i)storage|room|space') "the fallback does not say the unzip needs room -- which is the reason the Shortcut leads, and a fallback that hides its own cost is a trap"
 
   if (-not $B.hasFile -or -not $B.hasImportFn) {
     Write-Host "IMPORT GATE: FAIL"
@@ -447,6 +463,8 @@ JSON.stringify((function () {
   Chk ($R3.n -eq $R2.n) "re-importing the same export changed the count ($($R2.n) -> $($R3.n)) -- the merge is by timestamp and a re-import must add nothing. This is the defect D146 found as `store[dk] = norm`, now reachable through the route"
 
   # ========== UNRECOGNISED INPUT IS REFUSED BY NAME ========================
+  # Read once, before the refusal loop, so the loop can compare against it.
+  $scFmtEarly = Eval "HT.GLUCOSE_SC_DATEFMT"
   $nStable = $R3.n
   foreach ($bad in @(@($F_JUNK, 'a shopping list'), @($F_EMPTY, 'a 0-byte file'), @($F_NOGLU, 'an export with no glucose'),
                      @($F_BADDATE, "a Shortcut file with Shortcuts' DEFAULT date rendering"),
@@ -470,6 +488,11 @@ JSON.stringify((function () {
     $RB = $rb | ConvertFrom-Json
     Chk ($RB.n -eq $nBefore) "$what changed the stored readings ($nBefore -> $($RB.n)) -- an unrecognised or empty file must leave the cache untouched"
     Chk ($null -ne $RB.msg -and ([string]$RB.msg).Length -gt 0) "$what produced no message at all -- A ruled unrecognised input is REFUSED BY NAME, never guessed and never silent"
+    if ($what -like '*DEFAULT date*') {
+      # The refusal that names a date pattern must name THE pattern -- the one
+      # the recipe prints. Two patterns in one app is two instructions.
+      Chk ($RB.msg.Contains($scFmtEarly)) "the refusal for a bad date names a pattern other than the one the app prints ('$scFmtEarly'): $($RB.msg)"
+    }
     Chk ($RB.msg -match [regex]::Escape((Split-Path -Leaf $path))) "$what was refused without naming the file -- '$(Split-Path -Leaf $path)' does not appear in '$($RB.msg)'. A ruled refused BY NAME: the user picked a file from a list of files, so the app has to say WHICH one it could not read"
   }
 
@@ -555,13 +578,59 @@ JSON.stringify((function () {
     if ($foreignOrigins -notcontains $o) { $foreignOrigins += $o }
   }
 
+  # ========== THE PRINTED RECIPE MUST PARSE ================================
+  #
+  # The app prints a recipe. This builds a file from THAT recipe's own constants
+  # and hands it to the route. The timestamp is formatted FROM
+  # GLUCOSE_SC_DATEFMT, so changing the pattern changes the test input: if the
+  # printed pattern ever stops producing something this parser accepts, the gate
+  # fails here. A recipe printed next to an importer that would reject it is
+  # worse than no recipe.
+  $scLine = Eval "HT.GLUCOSE_SC_LINE"
+  $scFmt = Eval "HT.GLUCOSE_SC_DATEFMT"
+  $scFile = Eval "HT.GLUCOSE_SC_FILE"
+  Chk (-not [string]::IsNullOrEmpty($scLine)) "HT.GLUCOSE_SC_LINE is empty, so the printed recipe cannot be checked against the parser"
+  Chk (-not [string]::IsNullOrEmpty($scFmt)) "HT.GLUCOSE_SC_DATEFMT is empty"
+  Chk ($B.scText.Contains($scFmt)) "the date pattern the gate verifies ('$scFmt') is not the pattern the app prints -- the user would be typing something no test covers"
+  if ($scLine -and $scFmt) {
+    # ICU -> .NET for the two constructs the recipe is allowed to use.
+    $netFmt = $scFmt.Replace('ZZZZZ', 'zzz').Replace("'T'", '\T')
+    $t1 = [DateTimeOffset]::Parse('2026-09-26T07:30:00-04:00').ToString($netFmt)
+    $t2 = [DateTimeOffset]::Parse('2026-09-26T07:35:00-04:00').ToString($netFmt)
+    $mk = {
+      param($stamp, $val)
+      $scLine.Replace('[Start Date]', $stamp).Replace('[Value]', $val).Replace('[Unit]', 'mmol/L')
+    }
+    $l1 = & $mk $t1 '5.6'
+    $l2 = & $mk $t2 '5.9'
+    Chk ($l1 -ne $scLine) "substituting the recipe's placeholders changed nothing -- the placeholder names in GLUCOSE_SC_LINE moved, and this check would otherwise import a file full of literal placeholders and blame the parser"
+    # Built exactly as the recipe says: the rows joined by a comma (step 4) and
+    # wrapped in brackets (step 5). Those are two steps for a reason, and this
+    # is the shape they produce.
+    $scPath = Join-Path $fixdir $(if ($scFile) { $scFile } else { 'glucose.json' })
+    [IO.File]::WriteAllText($scPath, ('[' + $l1 + ',' + $l2 + ']'), (New-Object Text.UTF8Encoding $false))
+    Eval "HT.glucoseClear();HT.refresh();1" | Out-Null
+    Start-Sleep -Milliseconds 300
+    $s0 = Import-Seq
+    Pick-File '#dayView input[type=file]' $scPath
+    $pr = Wait-Import $s0
+    Chk ($null -ne $pr) "the file built from the app's own printed recipe never finished importing"
+    if ($null -ne $pr) {
+      Chk ([string]::IsNullOrEmpty($pr.error)) "THE APP PRINTS A RECIPE THIS ROUTE REFUSES: $($pr.error)"
+      Chk ($pr.format -eq 'shortcut') "the recipe's output sniffed as '$($pr.format)', expected 'shortcut'"
+      Chk ($pr.added -eq 2) "the recipe's output added $($pr.added) readings, expected 2 -- the two rows it was built from"
+    }
+    $scStored = [int](Eval "HT.glucoseCount()")
+    Chk ($scStored -eq 2) "after importing the recipe's own output the cache holds $scStored readings, expected 2"
+  }
+
   if ($fails.Count) {
     Write-Host "IMPORT GATE: FAIL"
     foreach ($f in $fails) { Write-Host "  - $f" }
     Cleanup
     exit 1
   }
-  Write-Host "IMPORT GATE: PASS -- the first import happens from the day's EMPTY glucose state through a real file input, with no call to any ingest function in this test; one control takes both an Apple export and a Shortcut JSON; a re-import adds nothing; five kinds of bad input are each refused by name with the cache untouched (a shopping list, a 0-byte file, an export with no glucose, and the two Shortcut shapes that sniff and parse fine but carry unreadable dates or a decimal comma); the heap grew ${growthMB}MB on a 64MB file, where materialising it would cost ~128MB; and nothing this app's own code requested left the origin."
+  Write-Host "IMPORT GATE: PASS -- the first import happens from the day's EMPTY glucose state through a real file input, with no call to any ingest function in this test; one control takes both an Apple export and a Shortcut JSON; a re-import adds nothing; five kinds of bad input are each refused by name with the cache untouched (a shopping list, a 0-byte file, an export with no glucose, and the two Shortcut shapes that sniff and parse fine but carry unreadable dates or a decimal comma); the heap grew ${growthMB}MB on a 64MB file, where materialising it would cost ~128MB; nothing this app's own code requested left the origin; the day's empty state LEADS with the Shortcut and names the export as the fallback with its storage cost; and a file built from the app's OWN PRINTED RECIPE -- timestamp formatted from the pattern the app displays -- is accepted by this route."
   if ($foreign.Count) {
     Write-Host "  ATTRIBUTED AND EXCLUDED: $($foreign.Count) cross-origin call(s) from code this app did not load -- $(@($foreignOrigins) -join ', ') -- a web-antivirus on this machine injects a script into every page and that script uses XMLHttpRequest. Their stacks name no file of this origin, and they were present before the first import, so neither instrument above attributes them to the app."
   }

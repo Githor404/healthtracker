@@ -8333,3 +8333,80 @@ The structural fix, not just a reworded step: the recipe now lives in `app.js` a
 those constants with a real reading and imports the result. The copy and the parser
 are now **one artefact**, so they cannot disagree — and the chat recipe and the
 in-app recipe are the same six steps because they are the same constant.
+
+## D149 — The recommended path, and a recipe that cannot drift — v0.61.0 (2026-10-03)
+
+[[H21]]'s **F** only, split out and built now under the sequencing ruling that holds
+the ZIP route until the Shortcut is proven on the device. F could not wait, because
+**the surface was actively wrong**: the empty state and the refusal message both led
+with *Profile → Export All Health Data*, which is the one thing that had just failed
+on the user's phone for storage. *Telling someone to do the thing that broke is
+worse than telling them nothing.*
+
+### THE SHORTCUT LEADS, AND THAT IS ASSERTED AS AN ORDER
+
+The empty state now opens with the Shortcut, carries the six-step recipe behind a
+disclosure, and names the full export as the **fallback** — with its cost stated:
+on a phone it arrives as `export.zip`, unzipping needs room for the archive *and*
+~490MB of XML, and **reading the `.zip` directly is not built yet**. A fallback that
+hides its own cost is a trap.
+
+The gate asserts the **order**, not the presence:
+
+```
+$iSc = emptyText.IndexOf('Shortcut')
+$iEx = emptyText.IndexOf('Export All Health Data')
+Chk ($iSc -lt $iEx)
+```
+
+Both routes are named on that surface, so *"mentions the Shortcut"* would have passed
+the version that led with the export — the exact version being replaced. **A
+presence check cannot see a priority.**
+
+### THE RECIPE CANNOT DRIFT FROM THE PARSER
+
+The recipe is not prose. It is `GLUCOSE_SC_STEPS`, `GLUCOSE_SC_LINE`,
+`GLUCOSE_SC_DATEFMT`, `GLUCOSE_SC_FILE` — and the gate **builds a file from those
+constants and imports it through the real file input**, formatting the timestamp
+*from the pattern the app displays* (ICU → .NET for the two constructs the recipe is
+allowed to use). If the printed pattern ever stops producing something this parser
+accepts, the gate fails with `THE APP PRINTS A RECIPE THIS ROUTE REFUSES`.
+
+> **A recipe printed next to an importer that would reject it is worse than no
+> recipe.**
+
+Both new assertions were proven able to fail, by planting the two defects they exist
+to catch — the export leading the empty state, and a printed pattern the parser
+rejects — and the tree was restored to an identical hash afterwards.
+
+### THE PATTERN WAS CHOSEN ON EVIDENCE
+
+Seventeen candidate Shortcut outputs went through the real route before the recipe
+was written down. A **space** before the time is accepted, as are offsets `-04:00`,
+`-0400` and a bare `Z`, and values quoted or bare. So the recommended pattern is
+`yyyy-MM-dd HH:mm:ssZZZZZ` and **needs no quoted `'T'` literal** — the most
+error-prone keystroke in an ICU pattern, removed because a measurement said it could
+be, not because it looked nicer.
+
+### FOUR FINDINGS, ONE PER INSTRUMENT
+
+| found by | what |
+|---|---|
+| **the user, while building** | my first draft read *"Text → `[⟨Combine Text⟩]`"*, which **collapses two actions into one** and is unbuildable: Combine Text is its own action and the Text that brackets its output is a second. I verified the file shape exhaustively and never checked that the instructions could be followed. **A shape that parses says nothing about a recipe that can be tapped.** |
+| **a planted defect** | the refusal message hardcoded `yyyy-MM-dd'T'HH:mm:ssZZZZZ` while the recipe printed `yyyy-MM-dd HH:mm:ssZZZZZ` — **two patterns in one app**, on the single string the user types by hand. [[D147]]'s defect again. Both now read the one constant, and the gate asserts the refusal names it |
+| **re-reading my own work** | one of the nine new harness assertions was a convoluted ternary that did not test what its message claimed and was **partly unconditional**. Third dead assertion I have written this session, and the third found by reading rather than by running |
+| **the existing suite** | `.sccode{font-size:14px}` broke [[H9]]'s 16px floor and its four-size scale. **Second time in this slice** I reached for a smaller size on text I thought of as secondary; a monospace code block is not an exemption |
+
+Harness 2,632 → **2,641** (nine assertions on the recipe's edges: the placeholders
+the gate substitutes, that two rows joined by a comma and bracketed parse as JSON,
+that the template does not end in a comma, and that the rendered disclosure shows
+the same pattern and filename the parser was checked against).
+
+### WHAT IS STILL UNVERIFIED
+
+**The taps.** The action names, the properties offered on a Repeat Item, and the
+`Repeat Results` behaviour come from knowledge of the Shortcuts app, **not from
+measurement** — only the file shape is measured. The recipe says so where it can
+(an `Add to Variable` fallback if `Repeat Results` is not offered; `Get Details of
+Health Sample` if `Value`/`Unit` are not). The device is the instrument here, and
+the user is holding it.

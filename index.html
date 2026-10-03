@@ -769,6 +769,23 @@ svg.tchart .tclip{fill:var(--muted)}
    including the refusals. `anywhere` is what stops one long name pushing the
    document sideways -- which is exactly what D147's gate now watches. */
 .gimportnote{font-size:16px;line-height:1.4;margin-top:6px;overflow-wrap:anywhere}
+/* H21/F: the in-app Shortcut recipe. 16px like the rest of the glucose block. */
+.gefall{font-size:16px;color:var(--muted);margin:8px 0 0;line-height:1.4}
+.screcipe{margin:8px 0 0}
+.screcipe summary{font-size:16px;min-height:44px;display:flex;align-items:center;cursor:pointer}
+.scsteps{margin:4px 0 0;padding-left:22px;font-size:16px;line-height:1.45}
+.scsteps li{margin:8px 0}
+.scwhat{color:var(--muted);margin-top:2px}
+.scin{color:var(--muted);font-weight:400}
+/* The literal text to type. It must not be re-flowed into something that no
+   longer parses, and it must not push the page sideways -- so it wraps
+   anywhere and scrolls only inside its own box. */
+.sccode{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:16px;background:var(--bg);
+  border:1px solid var(--line);border-radius:6px;padding:6px 8px;margin:4px 0;
+  overflow-x:auto;white-space:pre;color:var(--fg)}
+.scwhat code{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--bg);
+  border:1px solid var(--line);border-radius:4px;padding:0 4px;overflow-wrap:anywhere}
+.scnote{font-size:16px;color:var(--muted);margin-top:8px;line-height:1.4}
 .gprog,.gok{color:var(--muted)}
 .gerr{color:var(--bad)}
 .mline{display:flex;align-items:center;gap:8px;min-height:44px}
@@ -1178,8 +1195,10 @@ svg.tchart .tclip{fill:var(--muted)}
       <input id="gImport_settings" class="gimportfile" type="file" style="display:none" onchange="onGlucoseFile(this)">
       <button class="btn" onclick="glucoseImportPick('gImport_settings')">Import readings…</button>
       <div class="gimportnote"></div>
-      <div class="note">From an Apple Health export (export.xml) or a Shortcut-produced
-        glucose file — the control reads which, and refuses anything else by name.
+      <div class="note">From a <b>Shortcut-produced glucose file</b> — the recommended
+        route, and the recipe is shown in the day where glucose starts — or from a full
+        Apple Health <code>export.xml</code>. The control reads which, and refuses anything
+        else by name.
         Readings merge by timestamp, so re-importing the same export adds nothing. Held
         as a cache Apple Health can re-supply, so glucose is <b>not in your export</b>.
         A stopgap: the durable route is the native shell reading HealthKit directly.</div>

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.60.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.61.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -6696,8 +6696,9 @@ async function glucoseImportFile(file) {
     const fmt = glucoseSniff(head);
     if (!fmt) {
       return glucoseImportFail(name, 'is not an Apple Health export or a glucose file, '
-        + 'so nothing was changed. In Health: Profile \u2192 Export All Health Data, then pick '
-        + 'export.xml \u2014 or pick a Shortcut-produced glucose file.');
+        + 'so nothing was changed. Easiest fix: the Shortcut described where glucose starts '
+        + '\u2014 it writes a small ' + GLUCOSE_SC_FILE + '. Otherwise pick the export.xml from a '
+        + 'full Apple Health export.');
     }
     _gImport.format = fmt;
     const res = (fmt === 'apple') ? await glucoseImportApple(file)
@@ -6731,7 +6732,11 @@ async function glucoseImportFile(file) {
       return glucoseImportFail(name, 'carries ' + res.rows.length + ' reading'
         + (res.rows.length === 1 ? '' : 's') + ' the app could not read'
         + (fmt === 'shortcut'
-            ? ", so nothing was changed. Almost always the date: in the Shortcut, format it as yyyy-MM-dd'T'HH:mm:ssZZZZZ, and keep the value a plain number with a period for the decimal."
+            // THE PATTERN COMES FROM THE CONSTANT. Hardcoding it here printed a
+            // DIFFERENT pattern from the one the recipe shows, on the single
+            // string the user has to type by hand.
+            ? ', so nothing was changed. Almost always the date: in the Shortcut, format it as '
+              + GLUCOSE_SC_DATEFMT + ', and keep the value a plain number with a period for the decimal.'
             : ', so nothing was changed.'));
     }
     if (out.unitClash) {
@@ -6824,20 +6829,92 @@ function glucoseImportFootHTML(where) {
     + '<div class="gimportnote">' + glucoseImportNoteInner() + '</div>'
     + '</div>';
 }
+// H21/F: THE RECIPE SHIPS IN THE APP, AND IT CANNOT DRIFT FROM THE PARSER.
+//
+// These are not display strings. The gate reads GLUCOSE_SC_LINE, substitutes a
+// real reading, derives the timestamp FROM GLUCOSE_SC_DATEFMT (so changing the
+// format changes the test input), hands the result to the real file input, and
+// fails if the route refuses it. A recipe printed next to an importer that would
+// reject it is worse than no recipe.
+//
+// Measured, seventeen candidate Shortcut outputs through this route: a SPACE
+// before the time is accepted, so the pattern needs no quoted 'T' literal --
+// the single most error-prone keystroke in an ICU pattern, removed on evidence.
+// Offsets -04:00, -0400 and a bare Z all parse; the value may be quoted or bare.
+const GLUCOSE_SC_LINE = '{"t":"[Start Date]","v":"[Value]","unit":"[Unit]"}';
+const GLUCOSE_SC_DATEFMT = 'yyyy-MM-dd HH:mm:ssZZZZZ';
+const GLUCOSE_SC_FILE = 'glucose.json';
+const GLUCOSE_SC_DAYS = 3;
+// SIX ACTIONS. The Repeat's own output ("Repeat Results") is what Combine Text
+// takes, which removes the Add to Variable step -- the fewest actions that still
+// produce valid JSON. Step 4 and step 5 are SEPARATE actions: Combine Text joins
+// the rows, then a Text action wraps the result in brackets. Writing them as one
+// is what made the first draft of this recipe ambiguous.
+const GLUCOSE_SC_STEPS = [
+  ['Find Health Samples',
+   'Sample Type <b>Blood Glucose</b> \u00b7 Sort by <b>Start Date</b> \u00b7 Order <b>Oldest First</b> '
+   + '\u00b7 Limit <b>off</b>. Add a filter: <b>Start Date</b> \u2014 <b>is in the last</b> \u2014 <b>'
+   + GLUCOSE_SC_DAYS + '</b> \u2014 <b>days</b>.'],
+  ['Repeat with Each',
+   'Input: the <b>Health Samples</b> from step 1.'],
+  ['Text <span class="scin">(inside the repeat)</span>',
+   'Type <code>' + '{"t":"' + '</code> then tap <b>Repeat Item \u2192 Start Date</b>, and so on for '
+   + '<b>Value</b> and <b>Unit</b>, so the line reads exactly:<div class="sccode">'
+   + '{"t":"<i>Start Date</i>","v":"<i>Value</i>","unit":"<i>Unit</i>"}</div>'
+   + 'Tap the <b>Start Date</b> variable \u2192 <b>Date Format</b> \u2192 <b>Custom</b> \u2192 '
+   + '<code>' + GLUCOSE_SC_DATEFMT + '</code>. <b>No comma at the end of the line</b> \u2014 '
+   + 'step 4 adds the commas, and a comma here makes the file invalid.'],
+  ['Combine Text <span class="scin">(after the repeat ends)</span>',
+   'Input: <b>Repeat Results</b> \u00b7 with <b>Custom</b> separator <code>,</code>. '
+   + 'This is its own action, not part of step 5.'],
+  ['Text',
+   'Type <code>[</code>, insert the <b>Combined Text</b> variable from step 4, then type '
+   + '<code>]</code>. The whole file is one line: <code>[</code> \u2026 <code>]</code>.'],
+  ['Save File',
+   'Input: the <b>Text</b> from step 5. <b>Ask Where To Save: off</b>, destination '
+   + '<b>On My iPhone \u2192 Shortcuts</b>, file name <code>' + GLUCOSE_SC_FILE + '</code>, '
+   + '<b>Overwrite If File Exists: on</b> \u2014 so re-running always writes the same file.']
+];
+function glucoseShortcutHTML() {
+  let li = '';
+  for (let i = 0; i < GLUCOSE_SC_STEPS.length; i++) {
+    li += '<li><b>' + GLUCOSE_SC_STEPS[i][0] + '</b><div class="scwhat">'
+        + GLUCOSE_SC_STEPS[i][1] + '</div></li>';
+  }
+  return '<details class="screcipe"><summary>The Shortcut, step by step \u2014 six actions</summary>'
+    + '<ol class="scsteps">' + li + '</ol>'
+    + '<div class="scnote">Run it once to check, then <b>Automation \u2192 Time of Day</b>, daily, '
+    + 'Run Immediately. The ' + GLUCOSE_SC_DAYS + '-day filter keeps the file small and overlaps '
+    + 'the last runs; re-imports merge by timestamp and add nothing.</div>'
+    + '<div class="scnote">If <b>Repeat Results</b> is not offered in step 4, add '
+    + '<b>Add to Variable</b> (name it <code>rows</code>) as the last action inside the repeat, '
+    + 'and combine <code>rows</code> instead.</div>'
+    + '</details>';
+}
 // C's CONDITION: before any glucose exists there is NO ROW, so the first import
 // has nowhere to live. This is that home -- and it shows only while the cache is
 // entirely empty, because a day with a gap inside a month of readings is not a
 // first run and must not be handed starting instructions.
 function glucoseEmptyHTML() {
   if (Object.keys(glucoseRead()).length) return '';
+  // RULED (H21): the Shortcut LEADS and the full export is the fallback. It was
+  // the other way round, which told the user to do the one thing that had just
+  // failed on their phone: export.zip arrives as an archive, and unzipping it
+  // needs room for the zip plus ~490MB of XML.
   return '<div class="gempty">'
-    + '<div class="geline"><b>No glucose yet.</b> Readings come from <b>Apple Health</b> \u2014 '
-    + 'in Health: Profile \u2192 Export All Health Data, then pick the file here. It is read on '
-    + 'this device and nothing is uploaded.</div>'
+    + '<div class="geline"><b>No glucose yet.</b> The quickest way in is a <b>Shortcut</b> that '
+    + 'writes your recent <b>Apple Health</b> readings to a small file \u2014 about a minute to '
+    + 'set up, one tap to re-run, and it can run itself daily. Everything is read on this '
+    + 'device and nothing is uploaded.</div>'
+    + glucoseShortcutHTML()
     + glucoseImportFootHTML('first')
-    + '<div class="gestop">A file hand-off, and deliberately a stopgap: the durable route is '
-    + 'the native shell reading HealthKit directly, with no export and no file. Until that '
-    + 'ships, this is the way in.</div>'
+    + '<div class="gefall">Or import a <b>full Apple Health export</b>: Profile \u2192 Export All '
+    + 'Health Data. On a phone that arrives as <b>export.zip</b> and has to be unzipped first, '
+    + 'which needs room for the archive <i>and</i> ~490MB of XML \u2014 if that fails for storage, '
+    + 'use the Shortcut. Reading the <b>.zip</b> directly is not built yet.</div>'
+    + '<div class="gestop">Both of these are file hand-offs, and deliberately a stopgap: the '
+    + 'durable route is the native shell reading HealthKit directly, with no export and no '
+    + 'file. Until that ships, this is the way in.</div>'
     + '</div>';
 }
 let GLUCOSE_MIXED = null;
@@ -9001,6 +9078,7 @@ const VERSION_LOG = [
   { v: '0.59.0', d: '2026-10-02', note: 'Fixes the Trends rows, which had picked up the wrong layout and pushed the page a few pixels sideways on a narrow phone.' },
   { v: '0.60.0', d: '2026-10-03', note: 'Import glucose from an Apple Health export or a Shortcut file \u2014 readings merge by timestamp, so re-importing adds no duplicates.' },
   { v: '0.60.1', d: '2026-10-03', note: 'Fix: an import whose readings could not be read now says so by name, instead of reporting nothing added.' },
+  { v: '0.61.0', d: '2026-10-03', note: 'Glucose: a six-action Shortcut recipe in the app writes a small file to import daily, instead of exporting all of Apple Health.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14328,7 +14406,8 @@ window.HT = {
   QUERY_DROP, QUERY_FIELDS,
   glucoseImportFile, glucoseSniff, glucoseImportProgress, glucoseCanonUnit, glucoseCount,
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
-  glucoseJSONArray, mbWords,
+  glucoseJSONArray, mbWords, glucoseShortcutHTML,
+  GLUCOSE_SC_LINE, GLUCOSE_SC_DATEFMT, GLUCOSE_SC_FILE, GLUCOSE_SC_DAYS, GLUCOSE_SC_STEPS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),

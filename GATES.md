@@ -5007,3 +5007,23 @@ button. Suite **25 → 26 verdicts**.
 the scanner is not its own hit) and fails if a later edit takes the shortcut.
 
 **320px and iOS are explicitly NOT covered**, and the PASS line says so.
+
+### D149 — the recommended path, and a recipe held to the parser
+
+Added to `tests/import-gate.ps1` (still the 20th script; suite stays **26
+verdicts**).
+
+| case | asserts |
+|---|---|
+| **import-gate.ps1** | the empty state reaches **'Shortcut' before 'Export All Health Data'** — an ORDER, because both are named there and a presence check would have passed the version that led with the export |
+| **import-gate.ps1** | the fallback names the **`.zip`** and says the unzip needs **room** — the device finding behind [[H21]]; a fallback that hides its own cost is a trap |
+| **import-gate.ps1** | the in-app recipe renders exactly **six** steps — the count is load-bearing: the first draft collapsed two actions into one |
+| **import-gate.ps1** | **a file built from the app's own printed constants is accepted by the route**, with the timestamp formatted from the pattern the app displays. Fails as `THE APP PRINTS A RECIPE THIS ROUTE REFUSES` |
+| **import-gate.ps1** | the refusal for a bad date **names the pattern the app prints**, not a second one |
+| **import-gate.ps1** | substituting the placeholders changed something — so a renamed placeholder fails here instead of importing literal placeholder text and blaming the parser |
+
+**Both new assertions were planted against** (export leading; a printed pattern the
+parser rejects) and both failed as intended, tree restored to an identical hash.
+
+**What it cannot see:** the taps. Action names and `Repeat Results` behaviour are not
+measured — only the file shape is.
