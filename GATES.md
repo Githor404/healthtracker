@@ -4961,3 +4961,24 @@ the day on the first load after an update and pushed the regimen checklist from
 662px to 801px, off a 690px screen. Shortened to 417, `chkBottom` is 569 and the
 gate passes on its unmodified self. **A changelog note is layout.** Two edits I
 made to that gate on withdrawn theories were reverted; it needed none.
+
+### D147 — the page's own horizontal overflow — 19th gate script
+
+`tests/page-overflow-gate.ps1`. Asserts the document does not scroll sideways at
+390 or 360, in **two states** — seeded and first-run — with every disclosure open.
+Suite **24 → 25 verdicts**.
+
+| case | asserts |
+|---|---|
+| **page-overflow-gate.ps1** | `scrollWidth == clientWidth` at 390 and 360: **zero**, not the 3px that was there |
+| **page-overflow-gate.ps1** | in the **first-run** state as well as the seeded one — the 3px lived only in first-run, and the first version of this gate passed by seeding nine days |
+| **page-overflow-gate.ps1** | with every `.wrap details` open and the glucose row expanded — a section that never renders never overflows |
+| **page-overflow-gate.ps1** | the fixture really seeded (>=5 days, >=3 disclosures) before any of the above is believed ([[D96]]) |
+| **page-overflow-gate.ps1** | on failure, every offender **named** with its box AND its parent chain — a quantity with no owner makes the reader guess |
+
+**Clipped is still not overflow** ([[D144]]), and the gate honours that — but note
+what the fix revealed: the seeded state had 3 and 4 elements past the edge with
+zero page overflow, and scoping `.trow` took those to zero too. They were the same
+broken layout, hidden by an ancestor's clip. *A clipped defect is still a defect.*
+
+**320px is explicitly NOT covered** and the gate says so in its header.

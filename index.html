@@ -779,7 +779,19 @@ svg.tchart .tclip{fill:var(--muted)}
 /* D134: recently deleted, where the deleting happened. */
 .trash{margin-top:12px}
 .trash>summary{font-size:16px;color:var(--muted);cursor:pointer}
-.trow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+/* SCOPED. `.trow` was declared twice for two unrelated components: the Trends
+   row (a block, with .ttrail sitting BELOW its heading) and D134's trash row.
+   The trash rule came later and won, so every Trends row became a flex
+   container -- .thead and .ttrail laid side by side, .ttrail squeezed to a
+   32px slot it cannot shrink into, and 3px of the page hanging off the right
+   edge at 360 in the first-run state. Nothing watched page overflow, so it
+   survived 24 verdicts.
+
+   A CLASS NAME USED FOR TWO DIFFERENT THINGS is the same defect as a WORD used
+   for two different things (D139/D140), and it fails the same way: the second
+   use silently redefines the first. Scoping is the minimal fix -- the trash
+   row is the only .trow inside .trash, so no markup changes. */
+.trash .trow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .tmain{flex:1;min-width:0;font-size:16px}
 .tmain small{display:block;color:var(--muted)}
 </style>

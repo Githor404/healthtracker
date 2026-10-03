@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.58.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.59.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -8625,6 +8625,7 @@ const VERSION_LOG = [
   { v: '0.56.0', d: '2026-10-01', note: 'Fixes the page scrolling behind an open sheet. With the Log sheet, Settings, a photo draft or the nutrient lookup open, the day behind no longer moves, no longer takes taps, and comes back exactly where you left it when the sheet closes. Swiping to the end of a sheet no longer carries on into the page underneath.' },
   { v: '0.57.0', d: '2026-10-02', note: 'Food rows are now one line — the name, the time and one number, the same nutrient the ring is tracking. Tap a row to see everything else it knows: the portion, how sure the number is, where it came from, the macros and the database match it was given. Nothing was taken away, it is just one tap behind instead of all at once. A row with no nutrition yet shows the “find nutrients” button straight away rather than a dash. And when you have confirmed what a food is in a photo draft, that row folds its list of alternatives away, which roughly halves the scrolling on a six-item meal.' },
   { v: '0.58.0', d: '2026-10-02', note: 'Glucose from Apple Health. A day with readings gets one line under its total — average, low and high, how many readings they came from, how much of the day had none, and how old the newest one is. Tap it for a chart you can pinch and swipe: 6 hours to 10 days, with meals and events on the same timeline. Gaps are drawn as gaps. Apple Health gets these about three hours late, so the newest point is always hours old.' },
+  { v: '0.59.0', d: '2026-10-02', note: 'Fixes the Trends rows, which had picked up the wrong layout and pushed the page a few pixels sideways on a narrow phone.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

@@ -7901,3 +7901,135 @@ against an invented one, and no 491 MB fixture enters the repo.
 
 **COST:** small. It does not defer the arc; it finishes [[H19]], which was
 incomplete and said it was complete.
+
+### RULED (2026-10-02)
+
+**A — ONE import control that sniffs both formats.** The full Apple Health export,
+streamed (the measurement makes it admissible: 491 MB costs ~14 MB of heap because
+each chunk is scanned and dropped), and a Shortcut-produced glucose file.
+**Unrecognised input is refused BY NAME, never guessed** — a file the app cannot
+identify is not a file it should interpret. Merge stays by timestamp and re-imports
+never duplicate, which [[D146]] already built and gated.
+
+**C — the control lives on the glucose row, WITH A CONDITION THAT CHANGES THE
+DESIGN.** Before any glucose exists there is no row — [[D146]] made
+`glucoseRowHTML` return the empty string for a day with no readings, deliberately,
+so the surface would not assert an absence nobody asked about. That now leaves the
+FIRST import with no home. So the day gets an **empty glucose state** carrying the
+control, and **Settings is the fallback**. The row keeps it once readings exist.
+
+> This is worth noting as a cost of a rule rather than a flaw in it: *render
+> nothing when there is nothing* is right for a summary and wrong for a route. The
+> empty state is not a weakening of it — it says only that no readings have arrived
+> and offers the one action that changes that, which is [[D121]]'s rule that a
+> route belongs where the absence is visible.
+
+**A GATE FOR THE PAGE'S OWN HORIZONTAL OVERFLOW.** Measured and confirmed
+pre-existing, identical on a tree with no glucose at all: **3px at 360**, from
+`.ttrail`/`.tleg` in Trends, across 7 elements. Nothing watches it —
+`lab-form-gate` checks its own form, `chip-layout-gate` the signal strip,
+`panel-gate` and `collapse-gate` the ink inside their own rows. The new gate
+asserts **zero**, which means Trends' 3px gets fixed rather than enshrined: a gate
+written around what it found would be a gate that ratifies it.
+
+**The ring-size settle-wait stays OUT** until it waits on a real render signal
+rather than a fixed sleep. Recorded as the bar for re-adding it: polling until two
+reads agree is still a guess with extra steps, and the honest version waits on
+something the renderer actually emits.
+
+### THE REGRESSION LESSON: CLEAN TREE PASSES, MY TREE FAILS — BELIEVE THE GATE FIRST
+
+`ring-size-gate` failed on [[D146]]'s tree and passed on a worktree at HEAD. Three
+runs each way, deterministic. **That is not flakiness and it is not an instrument
+defect: it is a difference in the code, and the gate has already localised it for
+you.** I spent a long stretch instead proposing three causes — a band threshold at
+the wrong width, a stale-viewport race, a FAB relayout race — withdrawing all
+three, and editing the gate twice on the strength of them. Both edits were
+reverted. The gate needed none. The defect was mine: an 802-character changelog
+note pushing the day's checklist off a 690px screen.
+
+**The rule, in order:**
+
+1. **Reproduce both sides.** Clean tree and changed tree, more than once each. A
+   split that repeats is a real difference; only a split that wavers is flaky.
+2. **If it repeats, the gate is right. Find your defect.** Do not reach for a
+   theory about the instrument while the correlation is still perfect.
+3. **Dump every clause the composite hides.** `ring-size-gate` prints ring and band
+   on its 360 line and judges on six values. The two that differed were the two it
+   does not print, and one run of a diagnostic copy named it immediately. **A
+   composite assertion that prints a subset of its inputs will send you hunting in
+   the printed ones.**
+4. **Never let your control be narrower than the gate.** My isolated probe loaded
+   the page ONCE; `versionNotice` renders only on the load AFTER a version is
+   stored. So the probe reported identical geometry on both trees, and I read that
+   as innocence. It was a measurement of a state the gate never tests. **Third time
+   in one slice** that I trusted agreement in whichever columns an instrument
+   happened to print — after a sweep that passed over collapsed text and an envelope
+   guard that exercised the direct-draw path.
+5. **Fix the cause, then prove it on the UNMODIFIED gate.** Two passes of the gate
+   exactly as committed is what closes it. Anything else leaves open whether the
+   fix was in the code or in the bar.
+
+## D147 — The page's own horizontal overflow, and a class name used twice — v0.59.0 (2026-10-02)
+
+Ruled in [[H20]]: *add a gate for the page's own horizontal overflow*, asserting
+**zero** rather than the 3px that was there. Separated from H20's import route
+because it is a different concern and the discipline is small single-purpose
+commits.
+
+### A CLASS NAME USED FOR TWO DIFFERENT THINGS
+
+`.trow` was declared **twice**, for two unrelated components:
+
+| | rule | component |
+|---|---|---|
+| index.html:463 | `.trow{padding:10px 0;border-top:...}` — a **block** | Trends rows |
+| index.html:782 | `.trow{display:flex;align-items:center;...}` | [[D134]]'s trash rows |
+
+The later declaration wins, so **every Trends row became a flex container** —
+`.thead` and `.ttrail` laid side by side, when `.ttrail{margin-top:4px}` was
+written to sit BELOW its heading. `.ttrail` then got a 32px slot it cannot shrink
+into (its min-content is 66px), overran its own parent by 34px, and hung 3px off
+the right edge of a 360px screen.
+
+> **This is the same defect as a WORD used for two different things** ([[D139]],
+> [[D140]]), and it fails worse: the second declaration **silently redefines the
+> first**, with no error, no overlap in the source, and 300 lines between them. A
+> feature added later changed the layout of a feature nobody was editing.
+
+Fixed by scoping the later rule to `.trash .trow` — verified as the only `.trow`
+of seven inside `<details class="trash">`, so no markup changed.
+
+### IT SURVIVED 24 VERDICTS
+
+Every layout gate here checks its own component: `lab-form-gate` its form,
+`chip-layout-gate` the signal strip, `panel-gate` and `collapse-gate` the ink
+inside their own rows. **None asked whether the document scrolls sideways.** The
+3px was found incidentally, while I was wrongly trying to blame Trends for a ring
+failure that turned out to be my own changelog note ([[D146]]).
+
+`tests/page-overflow-gate.ps1` is the **19th** gate script (suite 24 → 25
+verdicts). It asserts **zero**, because a threshold written around what the first
+run found would ratify the defect it was created to catch.
+
+**AND ITS FIRST VERSION PASSED WHILE THE DEFECT STOOD.** It seeded nine days so
+Trends would draw its trail — and the 3px lives in the **FIRST-RUN state**, the
+one a new user sees, which a richly seeded fixture does not contain. **Fourth time
+in two slices that a check passed because its fixture lacked the condition**, after
+a sweep that passed over collapsed text, an envelope guard that exercised the
+direct-draw path, and a control that loaded the page once so the version notice
+never rendered. The gate now probes **both** states and labels every line
+`[seeded]` or `[first run]`, so a pass says which states it covered.
+
+**The parent chain is what made it diagnosable.** The failure prints
+`ttrail (w66 r363) inside trow tbrow (w298 r329)` — a child ending 34px past its
+own parent, which is the entire diagnosis in one line. A bare *"3px"* would have
+sent me guessing, which is what the previous slice cost most of an afternoon to
+learn.
+
+**One more thing the fix proved.** Before it, the seeded state showed 3 and 4
+elements hanging past the edge with **zero** page overflow — correctly not
+failures, because an ancestor clipped them ([[D144]]). After scoping the rule they
+went to **zero as well**: those were the same broken flex layout, invisible
+because something happened to clip it. *A clipped defect is still a defect; it is
+only not an overflow.*

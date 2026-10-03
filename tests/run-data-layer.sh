@@ -38,12 +38,13 @@ jargon-gate.ps1
 lab-form-gate.ps1
 offline-gate.ps1
 overlay-gate.ps1
+page-overflow-gate.ps1
 panel-gate.ps1
 photo-lead-gate.ps1
 resolve-gate.ps1
 ring-size-gate.ps1
 update-gate.ps1"
-EXPECTED_GATE_SCRIPTS=18
+EXPECTED_GATE_SCRIPTS=19
 
 GS_MISSING=""
 for g in $GATE_SCRIPTS; do [ -f "$DIR/$g" ] || GS_MISSING="$GS_MISSING $g"; done
