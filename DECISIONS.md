@@ -8307,6 +8307,11 @@ with the Shortcut rather than the export.
 > The Shortcut is the main route and I'm building it now. If it works, H21 is lower
 > priority — build it after, not before.
 
+**AMENDED 2026-10-03 by [[D150]]:** the device attestation changed the priority, not
+the plan. The route the ZIP feeds is now proven on iOS 27, so H21 is **still worth
+doing** (unzipping needs free space and is an extra step) but **no longer blocks
+anything**. It stays unbuilt.
+
 So **A/B/C/D/E stay unbuilt** until the Shortcut is proven on the device. **F is split
 out and built now as [[D149]]**, because it is not the ZIP work and because the
 surface was actively wrong: the empty state and the refusal message both led with
@@ -8410,3 +8415,116 @@ measurement** — only the file shape is measured. The recipe says so where it c
 (an `Add to Variable` fallback if `Repeat Results` is not offered; `Get Details of
 Health Sample` if `Value`/`Unit` are not). The device is the instrument here, and
 the user is holding it.
+
+## D150 — ATTESTED ON DEVICE: the 490MB export imports on iOS 27 (2026-10-03)
+
+> **The full Apple Health `export.xml` (unzipped in Files) imported directly from
+> Files on my iPhone: HealthTracker ingested it and displayed the glucose row and
+> chart. Pinch-to-zoom and swipe both work very well.** — user, on device, iOS 27
+
+### WHAT THIS CLOSES
+
+[[D148]] shipped with its remaining exposure named in three places, and the
+attestation answers all three:
+
+| the doubt, as I wrote it | now |
+|---|---|
+| *"nothing says Safari will slice a 490MB Blob 246 times"* | it does |
+| *"or that iOS will even hand a file that size to a web page from the Files app"* | it does |
+| *"headless Chrome is not an iPhone"* | still true, and no longer the only evidence |
+
+**And it is the first device evidence for [[D146]]'s gestures.** `chart-gate` drives
+pinch and pan with `Input.dispatchTouchEvent`, which is a synthesised event, not a
+finger — axis-locking ([[H19]]-G) was ruled so that a vertical swipe still scrolls
+the page while a horizontal one pans the chart, and *that* trade-off cannot be felt
+by a gate. "Both work very well" is the only instrument that could have reported it.
+
+### TWO FIGURES ARE MISSING, AND I HAVE NOT FILLED THEM IN
+
+The attestation arrived with blanks: **import duration** and **the reading count the
+row showed**. They are **not recorded here**, because they are device measurements
+and I cannot make them. Writing plausible numbers — 4.6s and 451 are what the PC
+produced — would put *invented* figures into the one record whose entire value is
+that it is attested.
+
+> **An attestation with a fabricated number in it is worse than one with a gap,
+> because the gap is visible.**
+
+The PC figures, for contrast and clearly labelled as PC: **451 readings, 4.6s, 48MB
+peak** on the 490.8MB file. The device figures are expected to differ — a phone is
+slower, and the row shows a *per-day* count rather than the 451 total, so the two
+numbers are not even the same quantity. **PENDING USER REPORT.**
+
+### STILL NOT CLOSED BY THIS
+
+- **The 3-day and 10-day chart windows remain unexercised against real data.** The
+  real export carries 451 readings across 3 days, so a 10-day window still has
+  nothing to show. Open since D146, and the attestation does not touch it.
+- **The ZIP.** The export was *unzipped in Files* before importing, which is the
+  step that failed for storage the first time. The route is proven; the
+  precondition is not.
+
+### CONSEQUENCES (ruled)
+
+- **[[H21]] (ZIP support): still worth doing, lower priority.** Unzipping needs free
+  space and is an extra step, so the archive path still earns its place — but it is
+  no longer blocking anything, because the route behind it works.
+- **[[H22]] (the daily one-tap route): pre-registered, not built**, and contingent on
+  the native shell, which may supersede it.
+
+## H22 — The daily one-tap route: a no-loop Shortcut, pasted — PRE-REGISTERED (2026-10-03)
+
+**Label note.** The user refers to this as *R112.1*. **That identifier does not
+exist in this repo** — the only trace of the idea was one deferring sentence inside
+[[H21]]'s fork F about a URL hand-off. It was asked to be *kept* pre-registered; it
+had never *been* pre-registered, and *a pre-registration that lives only in the
+conversation is not pre-registered*. It is H22 from here, and R112.1 is the user's
+own label for it.
+
+### WHY
+
+**The full export is too heavy to repeat daily** (ruled). [[D149]]'s six-action
+Shortcut writes a file; this variant drops the **Repeat with Each** loop and **pastes**
+instead of saving, which removes both the per-sample loop and the Files round-trip.
+
+### THE MEASUREMENT THAT MUST COME FIRST, AND I CANNOT MAKE IT
+
+Without a Repeat, the only way to get many samples into text is to render the
+**list variable directly** into a Text action — and *what Shortcuts actually writes
+for a list of health samples is an implementation detail I cannot observe from
+here*. If that rendering omits the timestamp, **this route is dead on arrival** and no
+amount of design fixes it. [[D149]] already taught the cost of guessing at the taps
+rather than the bytes.
+
+**So the first step is a two-action probe on the device, by the user:**
+
+1. **Find Health Samples** — Blood Glucose, limit **3**, sorted by Start Date
+2. **Quick Look** (or **Text** with the samples variable inserted, then Quick Look)
+
+and report **the first three lines verbatim**. Everything below is shaped by that
+output and is deliberately not decided yet.
+
+### FORKS
+
+**A — what the no-loop output looks like.** Decided by the probe. If the rendering
+carries value + unit but no timestamp, the fallbacks are: three separate
+**Combine Text** actions over three **Get Details** lists (values, dates, units),
+joined positionally — which is fragile, because it assumes three lists stay in the
+same order, and *a positional join that silently misaligns pairs the wrong value
+with the wrong minute*, which is the worst failure available here. A misaligned
+glucose series looks completely normal.
+
+**B — where the paste lands.** (i) reuse the existing Ingest paste box and route by
+sniff, consistent with [[H20]]'s *one control that sniffs*; (ii) a dedicated paste box
+on the glucose row. Recommendation deferred until A is known, because the sniff's
+ambiguity against food JSON depends entirely on what the text looks like.
+
+**C — can an automation do it unattended?** A Shortcut can end with **Copy to
+Clipboard**, but whether a *time-of-day automation* may write the clipboard without
+interaction is unknown to me and is a device question. If it cannot, the daily flow
+is run-then-paste, which is two taps rather than one, and the name of this slice
+becomes wrong.
+
+**D — whether it survives at all.** Ruled: **build after the native shell question
+is answered**, since the shell reading HealthKit directly supersedes every file and
+paste route here. This stays unbuilt until then.
