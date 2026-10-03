@@ -8636,3 +8636,103 @@ checked that the instructions could be followed.
 A `check-*.sh` on neither `STATIC_CHECKS` nor `IN_HARNESS` fails the suite as
 **unwired**. So adding this file without registering it would have failed rather
 than silently never running — which is [[D75]]'s lesson, working.
+
+## D152 — THE APP'S DIRECTION — STANDING RULING (2026-10-03)
+
+Ruled by the user. **Docs only; nothing was built from this.** It governs every
+slice after it.
+
+### THE GOAL
+
+> **Track inputs, evaluate them against current research, and predict MY
+> outcomes.**
+
+**Every future slice must say which of these three it serves** — *track*,
+*evaluate*, or *predict*. A slice that serves none of them needs a reason before
+it needs a gate.
+
+### THE ROADMAP, IN DEPENDENCY ORDER
+
+| | | |
+|---|---|---|
+| **1** | **STREAMS** | glucose now ([[D148]], merge-imported from the Apple Health export). HRV, resting HR and sleep when the Oura arrives. The native shell reading HealthKit is the durable route; manual export is the stopgap ([[H21]], [[D150]]) |
+| **2** | **EVENT SIGNATURES + OUTCOME BITS** (already ruled) | each meal tagged with what it did to glucose; each night with its HRV |
+| **3** | **AN EVIDENCE LAYER** | [[D32]]'s discipline extended from lab ranges to *responses*: any claim the app makes about a pathway or response carries its **source**, the **population studied**, and the **strength of the evidence** |
+| **4** | **PREDICTION** | n=1, from the user's own paired data, **uncertainty shown**, **opt-in** (depth on demand). Predict **proxy responses**; never claim to measure a pathway directly |
+
+### PRIMARY OUTCOME: VAGAL TONE
+
+Read through **HRV and resting heart rate**.
+
+- **An HRV reading's MEASURE and DEVICE are part of its identity.** Oura's RMSSD
+  and Apple Watch's SDNN are **never mixed in one series**. This is the glucose
+  unit rule and the breath-ketone rule, third application — and the machinery
+  already exists: [[D146]] keys a glucose day by its unit and refuses to draw one
+  line through two. An HRV series is keyed by **(measure, device)** the same way,
+  reusing that shape rather than inventing a parallel one.
+- **Compare against the user's OWN baseline, never population norms**, because
+  between-person spread dwarfs within-person change.
+
+> **Ranges for labs, baseline for responses.** [[D32]] shows jurisdictional
+> reference ranges because that is the clinical convention for a lab panel. A
+> vagal-tone comparison against a population range would be the same number doing
+> a different job — written down here so the two never get confused, which is the
+> defect [[D139]] and [[D147]] both are.
+
+### FIRST COMPOSITE TO INVESTIGATE: TONICITY
+
+**Inputs** the app holds or will: water, sodium, potassium, alcohol, caffeine,
+glucose. **Outcomes:** day-to-day weight swings, resting HR, HRV.
+
+Anchored in the textbook relation
+
+> calculated osmolality ≈ 2·Na + glucose + urea  (mmol/L)
+
+with **Na and urea from lab panels** — and **it says plainly that between panels
+the estimate leans on intake and proxies**.
+
+**Consequence, recorded now because it is cheap to state and expensive to
+retrofit:** a calculated osmolality **carries which of its inputs were measured
+and which were estimated**. The same figure computed on a panel day and three
+weeks later is not the same quantity, and a surface that shows both without
+distinction is [[D120]]'s defect — a reference value summed into a labelled one.
+
+### PRACTICES AS EXPERIMENTS
+
+Sauna, cold plunge, red light, slow breathing and similar are **logged events**.
+Their effect on that night's HRV against the user's own baseline is an **n=1
+test, not a claim**. Contested "vagal toning" claims get **tested, not asserted**.
+
+### A CONSEQUENCE FOR LEG 4, RECORDED BEFORE IT IS BUILT
+
+A prediction is by construction **not a measurement**. [[D120]] already ruled that a
+cited corpus value never enters the same figure as a labelled one, and that the
+two live in **separate maps rather than behind a flag**. A predicted response
+inherits that: **predictions live in their own store, never summed into or
+displayed as a reading.** The honesty rule's purpose — keeping *fiction wearing
+decimals* out of the totals — is exactly what prediction would threaten if it
+shared a field with measurement.
+
+### HELD
+
+**The deletion pass is held** — it does not serve this goal. The user labels it
+*R119*; **that identifier appears nowhere in this repo**, and no deletion pass was
+ever recorded. Third user label in this session naming something unwritten, after
+*R112.1* ([[H22]]) and the *R114 / R118* drift ([[H23]]). Held means held, not
+forgotten: there is nothing to hold yet.
+
+### ONE FORK THIS RULING OPENS, NOT RESOLVED HERE
+
+**It reframes the brief, and the brief has not been amended.** `CLAUDE.md` v4
+still defines the product as *"a mobile-first, fully client-side nutrition and
+**price** tracker"* with four capabilities, the fourth being **price
+intelligence** — which appears nowhere in this direction. The brief has precedent
+for versioned reframing (*"Where v3 and v4 disagree, v4 wins"*), and [[D128]] set
+the precedent that a flow change amends `README.md` and `CLAUDE.md` **in the same
+commit**.
+
+So: **is this a v5 of the brief, or a standing ruling sitting beside a v4 that
+keeps price intelligence as a capability?** Recorded as the latter because that is
+what was asked for (*"record the app's direction as a standing ruling"*), and
+flagged because the two documents now describe different products. Not resolved
+without a ruling.
