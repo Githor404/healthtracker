@@ -393,7 +393,12 @@ try {
     @{ re = 'Total \(est\.\)';         say = 'an abbreviation nobody says out loud' },
     @{ re = 'excluded from averages';  say = 'the old day-status wording' },
     @{ re = 'tap to resolve';          say = '"resolve" is the app''s word, not the user''s' },
-    @{ re = 'unresolved\s*—\s*resolve'; say = 'the same word twice, neither of them the user''s' },
+    # THE SEPARATOR IS THE REGEX ESCAPE, never a literal. Measured: a literal em
+    # dash in this BOM-less file reaches the regex engine as codepoints
+    # 226,8364,8221 instead of 8212, so this pattern could not match and this
+    # banned phrase was never actually checked. update-gate documented the same
+    # hazard for the middot; this list never got the lesson.
+    @{ re = 'unresolved\s*\u2014\s*resolve'; say = 'the same word twice, neither of them the user''s' },
     @{ re = 'BYOK';                    say = 'an acronym only a developer knows' },
     @{ re = '(^|\s)Ingest(ed|ing)?($|\s|\.)'; say = 'the app''s word for "add to my log"' },
     @{ re = '(^|[\s\d\(])kcal\b';      say = 'the unit token, ruled to "cal" on rows and "Calories" in headings' }

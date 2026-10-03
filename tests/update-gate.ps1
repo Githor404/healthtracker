@@ -139,7 +139,7 @@ try {
   Invoke-CDP 'Runtime.enable' $null | Out-Null
 
   # 1. v1 registers + activates (prod path forced so it isn't the localhost dev branch;
-  #    swnow=1 zeroes the resume-check throttle — a test seam like prod=1).
+  #    swnow=1 zeroes the resume-check throttle -- a test seam like prod=1).
   Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1&swnow=1" } | Out-Null
   Start-Sleep -Seconds 2
   $v1state = Eval "navigator.serviceWorker.ready.then(function(){return navigator.serviceWorker.getRegistration()}).then(function(r){return JSON.stringify({active:!!r.active,waiting:!!r.waiting})}).catch(function(e){return '{}'})" $true
@@ -178,9 +178,11 @@ try {
   #    correct string is not presence on the right surface. So this asserts
   #    CONTAINMENT (panel.contains(el)) and real visibility with Settings open,
   #    against the shipped index.html.
-  #    NOTE: the separator is written ·, not a literal '·'. This file has no BOM, so
-  #    Windows PowerShell 5.1 reads it in the system codepage and a literal UTF-8
-  #    middot arrives as two mojibake chars that never match. ASCII escape instead.
+  #    NOTE: the separator is written as the regex escape \u00b7, never as a literal
+  #    UTF-8 middot. This file has no BOM, so Windows PowerShell 5.1 reads it in the
+  #    system codepage and a literal arrives as mojibake that never matches. This
+  #    note used to carry two literal middots itself, which is advice failing to
+  #    take its own advice.
   Eval "if (typeof openSettings === 'function') openSettings()" | Out-Null
   Start-Sleep -Milliseconds 200
   $vlJson = Eval "(function(){var p=document.getElementById('settingsPanel'),e=document.getElementById('settingsVersion');if(!p||!e)return JSON.stringify({found:false});var r=e.getBoundingClientRect();return JSON.stringify({found:true,inPanel:p.contains(e),text:e.textContent,w:Math.round(r.width),h:Math.round(r.height)});})()"

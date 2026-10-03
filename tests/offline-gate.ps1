@@ -5,7 +5,7 @@
 # a PowerShell HttpListener serves the repo on 127.0.0.1; the SW is forced onto
 # the prod path via ?prod=1 (not the localhost network-first dev branch). We
 # register + precache, verify the shell is cached, then use CDP's real offline
-# emulation (Network.emulateNetworkConditions) and reload — asserting the shell +
+# emulation (Network.emulateNetworkConditions) and reload -- asserting the shell +
 # seeded history still render with the network cut.
 #
 # Exit 0 PASS, 1 FAIL, 2 environment error.
@@ -128,7 +128,7 @@ try {
   Invoke-CDP 'Network.enable' $null | Out-Null
 
   # 1. seed legacy data (seed page runs no app.js, so it can't create the new key
-  #    first — D2 precedence would otherwise ignore the seed).
+  #    first -- D2 precedence would otherwise ignore the seed).
   Invoke-CDP 'Page.navigate' @{ url = "$origin/tests/seed-offline.html" } | Out-Null
   Start-Sleep -Milliseconds 1500
 
@@ -152,7 +152,7 @@ try {
   $zxCached = Eval "caches.open('healthtracker-runtime').then(function(c){return c.keys()}).then(function(k){return k.length>0}).catch(function(){return false})" $true
   Start-Sleep -Milliseconds 300
 
-  # 5. cut the network for real (CDP), then reload — the SW must serve from cache
+  # 5. cut the network for real (CDP), then reload -- the SW must serve from cache
   Invoke-CDP 'Network.emulateNetworkConditions' @{ offline = $true; latency = 0; downloadThroughput = -1; uploadThroughput = -1 } | Out-Null
   Invoke-CDP 'Page.reload' $null | Out-Null
   Start-Sleep -Seconds 2
