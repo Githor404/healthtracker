@@ -8562,3 +8562,77 @@ becomes wrong.
 **D — whether it survives at all.** Ruled: **build after the native shell question
 is answered**, since the shell reading HealthKit directly supersedes every file and
 paste route here. This stays unbuilt until then.
+
+## D151 — A gate script that cannot say what it was typed to say — 6th static check (2026-10-03)
+
+### THE DEAD CHECK
+
+`jargon-gate`'s banned-phrase list carried a **literal em dash inside a regex**:
+
+```powershell
+@{ re = 'unresolved\s*<em dash>\s*resolve'; say = 'the same word twice...' }
+```
+
+**Measured**, with the pattern's own codepoints printed rather than reasoned about:
+in a BOM-less UTF-8 `.ps1`, Windows PowerShell 5.1 reads the file in the system
+codepage, so those three bytes (`E2 80 94`) reach the regex engine as **226, 8364,
+8221** where a single **8212** belongs — the cp1252 reading. The pattern could not
+match a real em dash, and the page text has one.
+
+> **That banned phrase had never once been checked, and the gate was green the
+> whole time.** A check that cannot fail is the failure mode this project keeps
+> finding; this is its quieter cousin — a check that cannot *fire*.
+
+Fixed with the regex escape, which is **the precedent already in this repo**:
+`update-gate` uses `\u00b7` for exactly this reason and its comment explains why.
+`jargon-gate` never got the lesson. (That comment contained two literal middots
+itself — advice failing to take its own advice. Rewritten.)
+
+**Proven live, not merely green.** Planting the phrase into a visible label makes
+the revived pattern fail and name itself; before the fix the same plant passed.
+`app.js` restored to an identical hash.
+
+### THE CHECK
+
+`tests/check-ps-encoding.sh`, the **6th static check** (suite 26 → **27 verdicts**).
+Every `.ps1` must be pure ASCII **or carry a BOM** — a BOM removes the cause, since
+PowerShell then reads UTF-8.
+
+It reports **LIVE** or **COMMENT** for every hit, because that distinction is the
+whole point: in a comment the mistake garbles the output a gate exists to produce;
+in a string, regex or comparison it silently kills an assertion. Today one was LIVE
+and five were COMMENT, and only by separating them was the real one visible.
+
+**Four behaviours proven by plant**, not asserted: a live line fails and is named
+LIVE; a comment line fails and is named COMMENT; **the same content with a BOM
+passes**, so the exemption actually exempts; and an empty directory fails the
+coverage floor, because *a check that inspects nothing passes for free* ([[D96]]).
+
+Line terminators are deliberately **not** its business — CR is stripped before the
+scan, because [[D145]]'s `check-eol.sh` owns endings, and two checks fighting over
+one property produce a failure nobody can act on.
+
+### IT SHIPPED MUTE, AND FOUR PLANTS WERE GREEN AGAINST IT
+
+The first version of this check **produced no verdict**. `judge()` greps for
+exactly `GATE: PASS` or `GATE: FAIL`; this printed `ps-encoding: OK (...)`,
+exited 0, was registered, satisfied the census, ran — and never reported. The
+suite failed it as `PRODUCED NO VERDICT`, which is the **"present but
+speechless"** shape the runner was written to catch.
+
+**And the four plants above were green against it.** Every one asserted an exit
+code and some message text; none asserted the verdict line.
+
+> **An exit code is not a verdict** — this project's own rule, and the probe I
+> built to prove the check works did not apply it.
+
+A fifth plant now asserts `GATE: PASS` on a clean tree, and the four failure
+plants assert `GATE: FAIL`. Second time in this slice that the gap between *"my
+test passes"* and *"the thing my test was for works"* was the defect: the first
+was [[D149]], where the Shortcut's file shape was verified exhaustively and nobody
+checked that the instructions could be followed.
+### AND THE RUNNER ALREADY GUARDED THE REGISTRATION
+
+A `check-*.sh` on neither `STATIC_CHECKS` nor `IN_HARNESS` fails the suite as
+**unwired**. So adding this file without registering it would have failed rather
+than silently never running — which is [[D75]]'s lesson, working.

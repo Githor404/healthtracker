@@ -5027,3 +5027,21 @@ parser rejects) and both failed as intended, tree restored to an identical hash.
 
 **What it cannot see:** the taps. Action names and `Repeat Results` behaviour are not
 measured — only the file shape is.
+
+### D151 — .ps1 encoding — 6th static check
+
+`tests/check-ps-encoding.sh`. Suite **26 → 27 verdicts**.
+
+| case | asserts |
+|---|---|
+| **check-ps-encoding.sh** | every `tests/*.ps1` is pure ASCII, **or** carries a BOM |
+| **check-ps-encoding.sh** | each hit is reported **LIVE or COMMENT** — a comment garbles output, a live line kills an assertion, and today's one LIVE hit was only visible because they are separated |
+| **check-ps-encoding.sh** | a coverage floor of 15 files, so an empty directory or a broken glob fails instead of passing for free ([[D96]]) |
+| **check-ps-encoding.sh** | CR is stripped first — endings belong to `check-eol.sh` ([[D145]]) |
+
+**Proven by plant, four ways:** live fails as LIVE, comment fails as COMMENT, the
+same content **with a BOM passes**, and an empty directory fails the floor.
+
+**Why it exists:** `jargon-gate` had a literal em dash in a regex, which PowerShell
+5.1 delivered as codepoints 226,8364,8221 instead of 8212, so that banned phrase
+was never checked while the gate stayed green.
