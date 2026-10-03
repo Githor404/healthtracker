@@ -28,6 +28,7 @@ HTML="$DIR/data-layer.test.html"
 GATE_SCRIPTS="bm-slider-gate.ps1
 capture-gate.ps1
 capture-outcome-gate.ps1
+chart-gate.ps1
 chip-layout-gate.ps1
 collapse-gate.ps1
 corpus-gate.ps1
@@ -42,7 +43,7 @@ photo-lead-gate.ps1
 resolve-gate.ps1
 ring-size-gate.ps1
 update-gate.ps1"
-EXPECTED_GATE_SCRIPTS=17
+EXPECTED_GATE_SCRIPTS=18
 
 GS_MISSING=""
 for g in $GATE_SCRIPTS; do [ -f "$DIR/$g" ] || GS_MISSING="$GS_MISSING $g"; done
@@ -164,7 +165,7 @@ echo "-----------------------------------------"
 # AUTHORED is a static lower-bound cross-check only: it counts source LINES
 # containing a res( call, so multi-line calls and helper reuse make it an
 # approximation, not an equality. The PIN is the enforcing mechanism.
-EXPECTED_ASSERTIONS=2575
+EXPECTED_ASSERTIONS=2600
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

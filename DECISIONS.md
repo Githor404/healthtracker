@@ -7511,3 +7511,393 @@ chart gate implies a confidence the data never supported.
 
 **COST:** one arc. It defers presentation slice 3 (the empty start), the
 parenthetical indexing slice, and the restaurant/FNDDS flow ([[D128]]).
+
+### RULED (2026-10-02) — all seven as recommended, with four additions
+
+**A — a separate `localStorage` key, column shape, as a CACHE.** Re-acquirable from
+Apple Health, so **excluded from the export** exactly as the corpus is — and the
+mechanism is construction rather than a filter: `exportJSON()` serialises
+`APP_STATE`, so a store outside it cannot travel, and nobody has to remember to
+strip it. These are [[D77]]'s scan-list terms, the same ones [[D134]]'s trash took:
+*local, outside APP_STATE, never exported, separately deletable.*
+
+> **ADDITION FROM THE RULING: the surface says so where glucose appears.** A cache
+> the user cannot see is a cache they will assume is a backup. The honesty pin is
+> the same shape as [[D134]]'s — nothing in this store reaches `dayTotals`,
+> averages, coverage or any roll-up, and it is a separate store precisely so no
+> total can reach it by accident.
+
+**B — the right edge is the last reading, never *now*.** The strip from the last
+reading to now is drawn as a gap like any other, and the window line states **the
+last reading's real age**, never the 3-hour nominal.
+
+> **RECORDED AT ITS WEIGHT, as ruled:** *Apple Health receives Dexcom readings
+> ≥ 3 h late by design, and the native shell reads the same store — so this is a
+> **look-back instrument, never live.*** Measured: the minimum is exactly
+> 10,800 s across every record, with a long tail above it and nothing inside an
+> hour. [[D28]] recorded the 3-hour figure from a report; this measures it on the
+> device and finds it is a **floor, not an average**. The consequence is permanent
+> and survives the shell, because the shell reads the same HealthKit. Nothing may
+> describe a HealthKit glucose value as "current" or "now".
+
+**C — min/max envelope per pixel column.** Mean **rejected**: it hides the spike,
+and the spike is what glucose is read for. The envelope never bridges a gap — a
+column with no reading draws nothing and borrows nothing from its neighbour.
+
+**D — the declared domain is 2—14 mmol/L.** Values outside are **clipped and
+MARKED**, never rescaled: rescaling would make two windows mean different things,
+which is the whole reason the axis is fixed. **The bounds are a setting, not data**
+ — which is why they can live in the repo while the readings cannot.
+
+**E — unit verbatim plus canonical, never converted.** Two units **refuse one
+line** and say why. Same rule as breath ketones: the unit is part of the
+reading's identity.
+
+**F — a generic control, shaped by glucose and Trends.** Not glucose-specific: that
+is how `sparklineSVG` became unusable here, shaped by its first caller until
+index-based x stopped being adequate.
+
+**G — axis-locked by the first movement.** A vertical swipe still scrolls the page,
+a horizontal one pans the chart, and neither fights [[D143]]'s page lock.
+
+**FIXTURE — the gate declares its own footing**, as ruled: which assertions ran
+against **measured** cadence and which against **invented** cadence, because 3-day
+and 10-day exceed the real export and a green gate must not imply a confidence
+the data never supported.
+
+## D146 — Glucose: a collapsed day row that opens into a zoomable chart — v0.58.0 (2026-10-02)
+
+[[H19]] built, to the seven rulings and the presentation ruling that followed
+them. The gate was written first and failed by name on every ruled behaviour
+before a line of it existed.
+
+**NO READING FROM THE EXPORT IS IN THIS REPO.** What the design rests on is
+recorded in [[H19]] as platform facts — a 300 s cadence, instantaneous samples,
+Apple's molar unit string, and a write delay whose floor is exactly 10,800 s.
+
+### WHAT IS ON THE SURFACE
+
+A day with readings gets one line under its own total:
+
+```
+Glucose  avg 4.9 · 3.4–6.9 mmol/L
+from 82 readings · 50 min with no readings          3 h 5 min ago
+```
+
+One tap opens the chart in place, on [[D144]]'s pattern. It is deliberately **not
+a `.mitem`**: that row's budget is name, time and one number inside 60px, and
+this one is ruled to carry six facts. A different row, so a different class — and
+the chart gate asserts the separation, so neither budget can drift onto the
+other.
+
+### THE ONE AVERAGE THAT IS RULED IN, AND THE ONE THAT IS NOT
+
+The distinction came from the ruling and it is sharp enough to keep:
+
+> **An average stated with its count is a claim about the day, and the count is
+> what makes it checkable. An average used to DRAW the line is a rendering
+> shortcut that hides the spike.**
+
+The first lives in `glucoseDaySummary`, which is where a statement about a day
+belongs. The second is forbidden, and the gate **greps `timeChart`'s own source**
+for averaging words so a later optimisation cannot quietly reintroduce it. The
+comment explaining why had to live OUTSIDE that function, or the gate would have
+caught its own documentation.
+
+Where a pixel column holds more than one reading the chart draws that column's
+**min and max** — the envelope — so an excursion survives being drawn at a tenth
+of the horizontal resolution. Measured: a 10-day window is 2,880 readings across
+a 328px box, **8.8 per column**.
+
+### THE DEFECT THAT MATTERED MOST, AND HOW IT WAS FOUND
+
+`glucoseIngest` did `store[dk] = norm`. It **REPLACED the day**. Ingesting one
+new reading into a day already holding 82 left the day holding **one**.
+
+It passed every test written for it, because every one of them ingested once.
+**It is harmless on the path that was being tested and fatal on the path that
+matters:** the one-off export is read once, but [[D28]]'s native shell reads
+HealthKit *incrementally* and would re-ingest the newest handful over and over.
+Every refresh would have wiped that day back to the latest batch. *A cache that
+empties itself a little more each time it is refreshed is worse than no cache.*
+
+It was caught **sideways** — by an assertion about allowlist integrity that
+happened to count the day's readings afterwards. The lesson in this project's own
+vocabulary: *a test that exercised the importer has not exercised the
+re-importer* — the same shape as *a test that exercises the normaliser has not
+exercised the writer*.
+
+The merge semantics are STATED rather than chosen silently, per CLAUDE.md's rule
+that data-loss implications are ruled before ingest is touched:
+
+- the **union**, de-duplicated by minute;
+- on a collision, the **newly ingested value wins** — this store is a cache and
+  the thing it caches is the authority; the opposite rule would pin a stale
+  reading in place and let the cache diverge from Apple Health permanently;
+- a day arriving in a **different unit is refused, not merged** — 5.9 mmol/L and
+  106 mg/dL in one array is the silent conversion E forbids, and after the merge
+  it would be undetectable. Reported as `unitClash`.
+
+### AND A DEAD ASSERTION I WROTE MYSELF
+
+```js
+res(!!back19 && !('smuggled' in (rawBack[dk] || {})) === false || true, ...)
+```
+
+`|| true` makes that unconditionally green. **It tested nothing and scored a
+pass**, in an assertion whose subject was allowlist integrity. No gate caught it;
+it was found by reading it back. It was also testing the wrong property:
+`glucoseDaySummary` only READS, and the allowlist rebuild happens on the
+read-modify-**write**, so a planted field survives until something writes. Now
+three assertions — plant it, prove it is genuinely there so the real assertion
+cannot be vacuous ([[D60]] Clause 4), force a write, and check both that it is
+gone and that the declared data survived.
+
+### SIX FINDINGS ABOUT THE INSTRUMENTS
+
+**A COORDINATE CAPTURED BEFORE A SCROLL IS A COORDINATE INTO A PAGE THAT HAS
+MOVED.** The gate reported *"a two-finger pinch did not change the window span"*.
+Measured directly, the pinch works: **86,400 s → 432,000 s**, with every touch
+arriving and cancelable. The gate had captured the chart's centre once, then run
+a vertical-drag test *that scrolls the page*, then aimed the pinch at the stale
+coordinates. [[D144]]'s stale element reference dies on a **read**; this one dies
+on a **dispatch**, which is worse, because it reports a confident "the feature
+does not work" instead of throwing. Both gesture tests re-read the box now.
+
+**A CLIPPED ELEMENT IS NOT AN OVERFLOWING ONE — for the second time.** [[D144]]
+taught the ink probe this; the overflow probe needed it too, and reported 7px of
+row overflow that nothing paints. Written twice now, so it is a standing property
+of these probes rather than a one-off: **any probe comparing `scrollWidth` to a
+box must skip what an ancestor clips.**
+
+**A PROBE THAT CANNOT NAME ITS OFFENDER IS HALF A MEASUREMENT.** The same probe
+printed `[object SVGAnimatedString]` three times, because `e.className` on an SVG
+element is not a string. It reported a quantity with no owner and left the reader
+to guess. `getAttribute('class')` works for both, and the probe prints
+left/right/width beside it.
+
+**THE GATE MISSTATED ITS OWN FIXTURE.** It described "one 45-minute gap" and
+asserted on *45 min*. Dropping nine consecutive samples at 300 s leaves **ten**
+steps between the survivors: the hole is **50 minutes**. The row said so
+correctly and the gate called it a failure. Corrected in the assertions, in the
+header, and in the PASS line — which is the only part most readers ever read.
+
+**A FIXTURE THAT PLACES ITS GAP IN ONE SPOT TESTS ONE CASE.** Three failures came
+from putting the hole at 50% of the series: it landed on the *previous day* for
+the summary and *outside* the 3-day window for the envelope, so two rulings were
+being asserted against data that could not exercise them. Moved to 25 samples
+before the last reading, it sits inside the summarised day and all four preset
+windows at once.
+
+**AND THE PAGE ALREADY OVERFLOWS AT 360, WHICH IS NOT THE CHART'S DOING.**
+Measured in three states — chart open, row collapsed, and no glucose in the store
+at all — the page's horizontal overflow is **3px in every one of them**, and the
+widest elements are `.ttrail` and `.tleg`, which belong to **Trends**. Two ways to
+make the chart gate green were available and both were dishonest: blame the chart
+(a gate failing the wrong component) or widen the threshold to 3px (a gate
+learning to tolerate whatever it found). So the row is asserted at **zero** and
+the page at **no-worse-than-3px**, with the baseline and its cause written into
+the gate.
+
+> **OPEN, and worth more than the 3px: no gate watches the page's own horizontal
+> overflow at 360.** `lab-form-gate` checks its form, `chip-layout-gate` checks
+> the signal strip, `panel-gate` and `collapse-gate` check ink inside their own
+> rows. Nothing asks whether the document scrolls sideways. Given [[D140]]'s
+> *overflow cannot see overlap* and the starved column before it, that is the
+> same family of blind spot one level up.
+
+### WHERE THE OUTCOME BITS ATTACH (still not built)
+
+Unchanged from [[H19]]: on the **timeline entry**, computed by reading the window
+after an event out of the series. And the delay settles two things about them —
+**no outcome can exist until ≥ 3 h after its event**, and an event whose window
+**contains a gap has no outcome, not a partial one**.
+
+### A CHANGELOG NOTE IS LAYOUT
+
+`ring-size-gate` failed, and it was right. **My `VERSION_LOG` note for 0.58.0 was
+802 characters** — the longest in the log’s history, against 314–624 for every
+other entry — and `versionNotice` renders it **above the day** on the first load
+after an update. Measured: the regimen checklist’s bottom moved from **662px to
+801px**, `chkAbove` went false, and on a 690px phone the checklist was pushed off
+the screen. Shortened to 417 characters, `chkBottom` is 569 — better than before
+the slice — and the gate passes twice on its UNMODIFIED self.
+
+**Release-note prose has a layout budget, and nothing in this project treated it
+as having one.** It is user-facing copy that renders in a fixed place above the
+day, so its LENGTH is geometry. The only reason it surfaced is that
+`ring-size-gate` happens to load the page twice: `versionNotice` renders only when
+a previous version is already stored, so the first load never shows it.
+
+**AND I ARGUED WITH THE GATE FOR A LONG TIME BEFORE BELIEVING IT.** Three causes
+proposed and all three withdrawn — an absolute band threshold applied at the wrong
+width, a stale-viewport race, a FAB relayout race — and two edits made to
+`ring-size-gate` itself on the strength of them. Both were reverted; the gate
+needed no change. What should have ended it in one step was available almost
+immediately: the clean tree passed **3 of 3** and the H19 tree failed **3 of 3**,
+which is a real difference, not flakiness. Dumping the clause values took one run
+and named it instantly.
+
+> **THE TRAP, FOR THE THIRD TIME TODAY: my control could not see the thing that
+> differed.** An isolated probe loaded the page ONCE, so the notice never
+> rendered, and it reported an identical `chkBottom` of 101 on both trees. I read
+> that as proof of innocence. It was a measurement of a state the gate never
+> tests. Same family as a sweep that passes because the text is collapsed, and a
+> guard satisfied by a code path the reduction never runs on — and the third time
+> in one slice that I trusted agreement in the columns an instrument happens to
+> print.
+
+**Suite: 2,600 assertions, 24 verdicts** (was 2,575 and 23). `chart-gate.ps1`
+joins the manifest as the **18th** gate script.
+
+**SUITE: PASS (24 of 24 produced a verdict, and every verdict was PASS)** — quoted
+from a run that was observed, after four earlier attempts were killed for memory
+and one was invalidated by my editing a gate while the runner read it. A killed
+run, a run with no verdict ([[D94]]), and a run whose subject changed under it are
+three different ways to hold a confident-looking result that means nothing.
+
+## H20 — How glucose reaches the phone — PRE-REGISTRATION (2026-10-02)
+
+**[[D146]] shipped `glucoseIngest()` and no route to it.** The function exists,
+the merge works, the chart draws — and nothing on the phone can reach any of it.
+The import was named in [[H19]] and built as an API only.
+
+**How it stayed invisible is worth more than the gap.** Every assertion in
+`chart-gate.ps1` reaches the ingest by calling `HT.glucoseIngest(...)` from
+JavaScript. A gate that drives the API cannot notice that the API is
+unreachable. In this project's own vocabulary: *a test that calls the function
+has not tested the route* — the same shape as *a coverage assertion satisfied by
+a different component is not coverage*, one layer out.
+
+> **THIS IS A STOPGAP, AND SAYS SO.** The durable route is [[D28]]'s native shell
+> reading HealthKit directly: no file, no export, no picker, and the only way to
+> get readings without the user doing anything at all. Everything below exists
+> because that shell is not built yet, and it should be deleted when it is.
+
+### MEASURED: CAN A PHONE BROWSER STREAM A 491 MB EXPORT?
+
+The question that decides this is **not** how fast this PC does it — a desktop
+timing says nothing about an iPhone. It is whether the memory cost is **bounded**
+or **scales with the file**, because a scaling cost is what gets an iOS tab
+killed, and that answer is device-independent. Measured on the real export
+through a real `<input type=file>`, chunk-streamed, three sizes of the same data
+so length is the only variable:
+
+| file | chunks | heap growth | elapsed | throughput |
+|---|---|---|---|---|
+| 8 MB | 11 | **0 MB** | <0.1 s | 215 MB/s |
+| 64 MB | 38 | **0 MB** | 0.3 s | 215 MB/s |
+| **491 MB** | 1,009 | **13.9 MB** | **2.0 s** | 247 MB/s |
+
+**Bounded.** Half a gigabyte costs about 14 MB of heap, because each chunk is
+scanned for the one record type and dropped; only the partial last line survives
+between chunks. A phone at a third to an eighth of this throughput finishes in
+**6—16 s**, which needs progress on screen but is not a wall.
+
+Platform support is present: `Blob.stream()`, `TextDecoderStream`,
+`Blob.slice()` and `DecompressionStream` all exist. `DecompressionStream` handles
+gzip and deflate, **not the ZIP container** Apple's export arrives in, so the
+file has to be uncompressed in Files first — which Files does natively.
+
+**WHAT CANNOT BE MEASURED HERE, and is not claimed:** whether iOS Safari will
+hand a 491 MB file to `file.stream()` at all, and whether the Files provider
+materialises it first. Bounded heap removes the likeliest cause of failure; it
+does not prove the route. **The device check is the final word**, exactly as
+[[D143]] had to say about scroll locking.
+
+### AN OBSERVATION I AM DELIBERATELY NOT DESIGNING ON
+
+**All 451 glucose records are inside the first 8 MB** — 1.6% of the file. The
+8 MB slice, the 64 MB slice and the whole 491 MB each yielded exactly 451.
+Apple appears to write `<Record>` elements grouped alphabetically by type, and
+`HKQuantityTypeIdentifierBloodGlucose` sorts early.
+
+**That ordering is undocumented, so nothing may rely on it.** A route that read
+only the first N MB would be fast, and would silently miss readings in any export
+that ordered them differently — a wrong answer with no symptom, which is the
+worst shape a defect can take in this project. Recorded because it explains the
+yield, and fenced off because it is an accident of one file.
+
+The yield itself is the real argument: **451 records in 491 MB is about 0.01%**.
+Half a gigabyte through a phone to recover roughly 60 kB.
+
+### FORKS — RULINGS NEEDED
+
+**FORK A — what the import accepts.**
+A1 the full `export.xml`, streamed — works on day one, no setup, no extra tool.
+A2 a small glucose-only file only — but **something has to make it**, and a PC
+   step breaks *on the phone, from the Files app*.
+A3 **both, through ONE control, sniffing the first chunk** to tell an Apple export
+   from a glucose file.
+*Recommend **A3**. A1 alone makes the every-few-days re-import expensive: Apple's
+full export takes minutes and produces a fresh 491 MB every time. A2 alone cannot
+start. One control that accepts either costs one format sniff and no second
+surface — it works immediately, and it gets lighter if a smaller file ever
+exists. The laziness rule is about the number of things the user must do, not the
+number of branches behind the button.*
+
+**FORK B — where the small file comes from, for the every-few-days case.**
+B1 an **iOS Shortcut** reading HealthKit (`Find Health Samples`) and writing JSON
+   to Files — on the phone, nothing leaves it, re-runnable, and the closest thing
+   to the durable route, since a Shortcut *is* HealthKit access without a shell.
+B2 the full export every time (A1's cost, repeated).
+B3 nothing — accept only the full export until the shell lands.
+*Recommend **B1 as documented but NOT required**: the app accepts the file either
+way, and the Shortcut is written down as the lighter path for whoever wants it.
+I cannot test a Shortcut from here, so it is **documentation, not a dependency**,
+and the route must work with neither it nor a PC. Sizing it: 14 days at the
+measured cadence is ~4,000 readings — about **90 kB**, against 491 MB.*
+
+**FORK C — where the control lives.**
+C1 in Settings, beside Import/restore.
+C2 **on the glucose row's own body**, where glucose already appears — and on the
+   empty state of that row when a day has no readings.
+C3 both.
+*Recommend **C2**: the row is the only place glucose exists on the surface, and a
+user looking at an empty glucose day is exactly the user who wants to import. In
+Settings it is a thing to go and find. [[D121]]'s rule — the route belongs where
+the absence is visible.*
+
+**FORK D — what the user sees during 6—16 seconds.**
+D1 a spinner.
+D2 **bytes read and readings found, counting up** — and a plain statement that
+   most of the file is not glucose, so a long pause at 0 readings is normal.
+*Recommend **D2**: measured, 99.99% of the file is not glucose, so a progress bar
+that only counts readings would sit at zero and look broken. Showing both numbers
+is the honest version, and it is the same reason the coverage line exists.*
+
+**FORK E — what happens to the file.**
+E1 **read and discarded** — never stored, never uploaded, never kept in memory
+   past the chunk. Only the extracted readings reach the cache.
+*Not a fork, a restatement: the File API reads a local file. There is no network
+call on this path at all, and the gate asserts that **zero requests** leave the
+page during an import. "Nothing leaves the phone" is checkable, so it is checked.*
+
+### THE GATE, PRE-REGISTERED
+
+`tests/import-gate.ps1`, driven through a **real `<input type=file>`** filled the
+way a picker fills it — because the whole point of this entry is that calling the
+function is not using the route:
+
+| asserts |
+|---|
+| the control is **reachable from the glucose row** without opening Settings, and present when the day has no readings |
+| a real file-input selection of an Apple-export fixture imports readings **end to end**, with no JavaScript call to `glucoseIngest` anywhere in the test |
+| a glucose-only JSON file through the **same control** imports the same way (A3's sniff) |
+| **ZERO network requests** during an import — asserted on the request log, not on intent |
+| heap growth stays **bounded** across a large fixture: the import must not materialise the file |
+| progress shows **bytes and readings**, and the readings figure may sit at 0 for most of the file without the surface implying failure |
+| a **second import of overlapping data adds no duplicate row** and the day's count is unchanged — the merge [[D146]] built, now exercised through the route |
+| a re-import carrying **newer values for the same minutes** updates them and still adds no rows |
+| a file that is not an export and not glucose fails **by name**, keeps the cache untouched, and says what it expected |
+| a 0-byte file and a file with no glucose records both report **"no readings found"** rather than success |
+| the surface says plainly that this is a stopgap and that the durable route reads HealthKit directly |
+
+**FIXTURE DISCIPLINE:** the Apple-export fixture is **synthetic XML in the real
+shape** — the attribute set and the one-line `<Record>` layout measured from the
+real file — never the export itself. The gate must state, as
+`chart-gate.ps1` does, which assertions ran against a measured shape and which
+against an invented one, and no 491 MB fixture enters the repo.
+
+**COST:** small. It does not defer the arc; it finishes [[H19]], which was
+incomplete and said it was complete.

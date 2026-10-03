@@ -9641,6 +9641,127 @@ window.setLS({});
   res(HT.photoDraft() === null,
       'D144-P1 fixture: the draft is discarded, so the cases above leave no draft open for the next block');
 
+  // ---- H19: the glucose cache, the unit, and the day that knows it is gapped
+  // MEASURED on a real export before any of this existed: the cadence is 300 s
+  // exactly, every sample is instantaneous, and every reading reaches HealthKit
+  // at least 10,800 s -- three hours -- after it was taken. The readings
+  // themselves never enter this repo; what is reproduced here is the structure.
+  HT.glucoseClear();
+  var g19 = [];
+  var G19END = Date.parse('2026-09-26T07:30:00-04:00');
+  for (var i = 0; i < 120; i++) {
+    g19.push({ t: new Date(G19END - (119 - i) * 300000).toISOString(),
+               v: Math.round((5.6 + 1.9 * Math.sin(i / 11)) * 10) / 10, unit: 'mmol/L' });
+  }
+  g19.splice(60, 9);                      // nine consecutive samples: a 50-min hole
+  var ING = HT.glucoseIngest(g19, { source: 'Dexcom G7', rawUnit: 'mmol<180.1558800000541>/L' });
+  res(ING.ok === true && ING.stored === 111,
+      'H19-ingest: 111 readings stored from 120 minus the nine dropped for the hole');
+  res(ING.mixedUnits === null,
+      'H19-ingest: a single-unit ingest reports no unit conflict');
+
+  // A: THE CACHE IS OUTSIDE APP_STATE, which is the whole mechanism -- exportJSON
+  // serialises APP_STATE, so this cannot travel and nobody has to remember to
+  // strip it. A filter someone must remember is a filter someone will forget.
+  res(!('glucose' in HT.state()),
+      'H19-cache GATE: glucose is NOT in APP_STATE -- being outside it is what keeps it out of the export BY CONSTRUCTION rather than by a filter (D77 scan-list terms, as D134 took them)');
+  var EXP19 = HT.exportJSON();
+  res(EXP19.indexOf('mmol') < 0 && !/healthtracker-glucose/.test(EXP19),
+      'H19-cache GATE: the export carries no reading and no glucose key -- it is re-acquirable from Apple Health, so it is a cache and travels nowhere');
+
+  // E: THE UNIT IS PART OF THE READING'S IDENTITY -- verbatim AND canonical.
+  var S19 = HT.glucoseDaySummary('2026-09-26');
+  res(!!S19 && S19.unit === 'mmol/L',
+      'H19-unit GATE: the canonical unit is kept');
+  res(!!S19 && S19.rawUnit === 'mmol<180.1558800000541>/L',
+      'H19-unit GATE: and the platform string is kept VERBATIM beside it -- Apple writes a molar form, and a reading whose unit was normalised away cannot be checked against its source');
+  res(HT.glucoseIngest([{ t: new Date(G19END).toISOString(), v: 5.5, unit: 'mmol/l' }], {}).stored === 0,
+      'H19-unit GATE: an unrecognised unit spelling is REFUSED rather than guessed -- mmol/l is not mmol/L, and a reading with no identity is not a reading');
+
+  // THE DAY THAT KNOWS IT IS GAPPED. `expected` comes from the MEASURED cadence,
+  // so the shortfall is part of the summary rather than a footnote elsewhere.
+  res(!!S19 && S19.n === 82 && S19.expected === 91 && S19.expected > S19.n,
+      'H19-gap GATE: the summary records a shortfall against the measured cadence (' + (S19 ? S19.n + ' of ' + S19.expected : 'n/a') + ') -- that is what stops a day with a hole reading like a full day. 82 of 91, not 111 of anything: the fixture spans ~9.9 h ending 07:30, so most of it lands on the PREVIOUS day and a per-day summary is not the ingest total');
+  res(!!S19 && S19.gapMs === 3000000,
+      'H19-gap GATE: the hole measures 50 min exactly -- nine dropped samples leave TEN steps between the survivors, which is the arithmetic the chart gate first got wrong');
+  res(!!S19 && S19.lo <= S19.avg && S19.avg <= S19.hi,
+      'H19-stat: the day summary is coherent, lo <= avg <= hi');
+  // THE ONE AVERAGE THAT IS RULED IN: a statement about the day, carrying its
+  // count. The count is what makes it checkable. An average used to DRAW the
+  // line is a different thing and stays rejected -- the chart gate greps for it.
+  res(!!S19 && typeof S19.n === 'number' && S19.n > 0 && typeof S19.avg === 'number',
+      'H19-avg GATE: the average never travels without its count -- an average with no count is not a claim anyone can check');
+
+  // B: THE AGE IS THE REAL AGE, never the three-hour nominal, because measured
+  // the nominal is a FLOOR with a long tail.
+  res(HT.ageWords(0) === 'just now' && HT.ageWords(5 * 60000) === '5 min ago'
+      && HT.ageWords(3 * 3600000 + 5 * 60000) === '3 h 5 min ago'
+      && HT.ageWords(26 * 3600000) === '1 day ago',
+      'H19-age GATE: the age reads as the real elapsed time at every scale');
+  res(!!S19 && S19.lastAgeMs >= 0,
+      'H19-age: the summary carries the newest reading\u2019s age, so a stale day is visible without opening it');
+
+  // D131: THE ALLOWLIST. A property written to a stored glucose day and never
+  // declared in its normaliser is deleted the first time the store is read back.
+  var raw19 = JSON.parse(localStorage.getItem('healthtracker-glucose') || '{}');
+  raw19['2026-09-26'].smuggled = 'should not survive';
+  raw19['2026-09-26'].u = 'mmol/L';
+  localStorage.setItem('healthtracker-glucose', JSON.stringify(raw19));
+  res('smuggled' in (JSON.parse(localStorage.getItem('healthtracker-glucose'))['2026-09-26'] || {}),
+      'H19-allowlist fixture: the undeclared field really is on the stored day, so the assertion below is not vacuous (D60 Clause 4)');
+  // the rebuild happens on the read-modify-WRITE, so make one happen
+  HT.glucoseIngest([{ t: new Date(G19END + 300000).toISOString(), v: 5.5, unit: 'mmol/L' }], {});
+  var rawBack = JSON.parse(localStorage.getItem('healthtracker-glucose') || '{}');
+  res(!('smuggled' in (rawBack['2026-09-26'] || {})),
+      'H19-allowlist GATE: the undeclared field is GONE after the store is written back -- D131: a normaliser is an allowlist rebuild, and a property nobody declared is deleted the first time the record is rewritten');
+  var back19 = HT.glucoseDaySummary('2026-09-26');
+  res(!!back19 && back19.n === 83,
+      'H19-allowlist GATE: ...and the declared data survives it intact (82 plus the one just ingested)');
+
+  // A REAL DATA-LOSS DEFECT, caught by the assertion above while it was looking at
+  // something else: ingest ASSIGNED the day rather than merging it, so one new
+  // reading for a day already holding 82 left the day holding one. Harmless for a
+  // one-off import; fatal for the durable path, where the native shell (D28) reads
+  // HealthKit incrementally and re-ingests the newest handful again and again. A
+  // cache that empties itself when refreshed is worse than no cache.
+  res(!!back19 && back19.n === 83,
+      'H19-merge GATE: an incremental ingest MERGES into the day instead of replacing it -- 82 held plus 1 arriving is 83, and assignment made it 1');
+  var COLL = HT.glucoseIngest([{ t: new Date(G19END).toISOString(), v: 9.9, unit: 'mmol/L' }], {});
+  var afterColl = HT.glucoseDaySummary('2026-09-26');
+  res(!!afterColl && afterColl.n === 83 && afterColl.hi === 9.9,
+      'H19-merge GATE: a collision on the same minute takes the NEW value and adds no row -- this store is a cache and the thing it caches is the authority, so keeping the old one would pin a stale reading in place forever');
+  var CLASH = HT.glucoseIngest([{ t: new Date(G19END - 600000).toISOString(), v: 106, unit: 'mg/dL' }], {});
+  var afterClash = HT.glucoseDaySummary('2026-09-26');
+  res(CLASH.unitClash === true && !!afterClash && afterClash.unit === 'mmol/L' && afterClash.n === 83,
+      'H19-merge GATE: a day arriving in a DIFFERENT unit is refused rather than merged -- 5.9 mmol/L and 106 mg/dL in one array is the silent conversion E forbids, and after the merge it would be undetectable');
+
+  // A DAY WITH NO READINGS HAS NO ROW. A surface asserting an absence it was
+  // never asked about is the understatement R31 exists to remove, inverted.
+  res(HT.glucoseDaySummary('2026-09-20') === null,
+      'H19-empty GATE: a day with no readings summarises to nothing, so no row is drawn for it');
+  res(HT.glucoseRowHTML('2026-09-20') === '',
+      'H19-empty GATE: ...and the row renders as the empty string rather than an empty frame');
+
+  // F: THE CONTROL IS GENERIC. Given a bare series it draws without knowing
+  // anything about glucose -- Trends is its second caller.
+  var CH19 = HT.timeChart({ series: [{ t: 1000, v: 3 }, { t: 2000, v: 9 }],
+    from: 0, to: 3000, domainMin: 0, domainMax: 10, unit: 'things', width: 200, height: 80 });
+  res(CH19.indexOf('<svg') === 0 && CH19.indexOf('polyline') > 0 && CH19.indexOf('things') > 0,
+      'H19-generic GATE: timeChart draws a series that has nothing to do with glucose, carrying the caller\u2019s own unit -- F ruled a generic control because sparklineSVG became unusable by being shaped by one caller');
+  res(HT.timeChart({ series: [], from: 0, to: 0, domainMin: 0, domainMax: 1 }) === '',
+      'H19-generic: a zero-width window draws nothing rather than dividing by zero');
+
+  // C: GAPS ARE BREAKS, and the reduction never bridges one. Two runs either
+  // side of a hole must stay two runs.
+  var GAPPY = [{ t: 0, v: 5 }, { t: 300000, v: 6 }, { t: 5000000, v: 7 }, { t: 5300000, v: 8 }];
+  var CH19b = HT.timeChart({ series: GAPPY, from: 0, to: 5300000, domainMin: 2, domainMax: 14,
+    unit: 'mmol/L', width: 300, height: 100, gapMs: 900000 });
+  res((CH19b.match(/polyline/g) || []).length === 2,
+      'H19-gap GATE: a series with one hole draws TWO polylines -- a gap is a BREAK, and the index-based sparklineSVG draws it as one even step because it spaces x by position rather than by time');
+  HT.glucoseClear();
+  res(HT.glucoseDaySummary('2026-09-26') === null,
+      'H19-cache GATE: clearing the cache empties it -- a cache that cannot be cleared is not a cache (A)');
+
   // ---- D143: what counts as an overlay, and what does not ---------------
   // The page lock is DERIVED from the data-overlay attribute rather than from a
   // list of call sites, so the classification IS the contract. Driven by real

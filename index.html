@@ -722,6 +722,38 @@
 /* D142: a match that could not be carried over says so, at the floor (D124) */
 /* D144: the collapsed row. One line -- name, time, one number -- and it is also
    the tap target that expands it, so 44px is a floor and not a style. */
+/* ---- H19: the glucose row and the time chart ---------------------------
+   Deliberately NOT .mitem: D144's food-row budget is name + time + one number
+   inside 60px, and this row is ruled to carry an average, a low, a high, a
+   unit, a count and an age. A different row, so a different class -- which is
+   also why collapse-gate's budget neither applies to it nor is violated. */
+.grow{display:block;padding:8px 0 4px;border-top:1px solid var(--line)}
+.ghead{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;flex-wrap:wrap}
+.ghead .gname{flex:0 0 auto;font-size:16px;font-weight:600}
+.ghead .gstat{flex:1 1 auto;min-width:0;font-size:16px;font-variant-numeric:tabular-nums}
+.gsub{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:0 0 2px}
+.gsub .gcov{flex:1 1 auto;min-width:0;font-size:16px;color:var(--muted)}
+.gsub .gage{flex:0 0 auto;font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gbody{display:block;padding:4px 0 2px}
+/* the window line states what is on screen AND how old the newest point is */
+.twindow{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums;padding:2px 0 4px}
+.tpresets{display:flex;gap:6px;flex-wrap:wrap;padding:0 0 6px}
+.tpreset{min-height:44px;padding:4px 10px;border-radius:10px;font-size:16px;font-weight:600;
+  width:auto;color:var(--txt);background:var(--panel);border:1px solid var(--line);cursor:pointer}
+.tpreset.on{border-color:var(--accent);color:var(--accent)}
+.tchartbox{display:block;overflow:hidden}
+/* pan-y keeps VERTICAL scrolling with the browser, so the page is never
+   trapped (G, and the half D143 makes easy to break); horizontal is ours. */
+svg.tchart{display:block;width:100%;height:auto;touch-action:pan-y}
+svg.tchart .taxis line{stroke:var(--line);stroke-width:1}
+svg.tchart .taxis text{font-size:16px;fill:var(--muted)}
+svg.tchart .tseries{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round}
+svg.tchart .tmark{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3}
+/* D: outside the declared domain is CLIPPED AND MARKED -- never rescaled,
+   which would make two windows mean different things, and never dropped. */
+svg.tchart .tclip{fill:var(--muted)}
+.tnote{font-size:16px;color:var(--muted);margin:4px 0 0}
+.tunitrefuse{font-size:16px;color:var(--muted);margin:4px 0}
 .mline{display:flex;align-items:center;gap:8px;min-height:44px}
 .mhead{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;
   min-height:44px;cursor:pointer}

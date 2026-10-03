@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.57.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.58.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3353,6 +3353,9 @@ function itemHeadline(it) {
   return rDisp(v) + ' ' + (NUTRIENT_LABELS[k] || k);
 }
 function renderDay() {
+  try { renderDayInner(); } finally { try { glucoseWire(); } catch (e) {} }
+}
+function renderDayInner() {
   const host = document.getElementById('dayView');
   if (!host || !APP_STATE) return;
   const dk = APP_STATE.current;
@@ -3490,7 +3493,12 @@ function renderDay() {
   // tap, a statement that the number is incomplete may not.
   const dcov = macroCoverage(day);
   const dnote = dcov.partial ? `<div class="daycov">${esc(coverageNote(dcov))}</div>` : '';
-  html += `<div class="daytot"><span>Day total \u00b7 estimated</span><span>${esc(rDisp(t.kcal))} cal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}`;
+  // H19: the glucose row sits under the day's own total, because it is a
+  // statement about the same day. It renders only when there are readings for
+  // that day -- an empty row would be a surface asserting an absence it was
+  // never asked about.
+  const grow = glucoseRowHTML(dk);
+  html += `<div class="daytot"><span>Day total \u00b7 estimated</span><span>${esc(rDisp(t.kcal))} cal · ${esc(rDisp(t.protein_g))}P ${esc(rDisp(t.fat_g))}F ${esc(rDisp(t.carb_g))}C · ${esc(rDisp(t.fiber_g))} fib</span></div>${dnote}${grow}`;
   const w = day.water_l || 0;
   // D121 / A1: the NEXT TAP after a save. Offered once, for the meal just
   // logged, and it walks forward through that meal rather than asking the user
@@ -6295,6 +6303,618 @@ function sparklineSVG(points, refVal, opts) {
   }
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${ref}<polyline points="${pts}"/>${dot}</svg>`;
 }
+
+// ---- H19: GLUCOSE, AND A GENERIC TIME CHART --------------------------------
+//
+// MEASURED on a real Apple Health export before any of this was designed (the
+// export itself never enters this repo; it is a one-off, read outside it):
+//
+//   * the cadence is 300 s EXACTLY -- median, p25 and p75 all 300 s, and 99.6%
+//     of intervals fall in 4-6 min. So 288 readings a day.
+//   * every sample is INSTANTANEOUS: endDate == startDate on every record. A
+//     reading is a point in time, never a span.
+//   * the unit arrives in Apple's molar form, `mmol<180.1558800000541>/L`. A US
+//     export arrives as `mg/dL`. 1 mmol/L = 18.0156 mg/dL.
+//   * EVERY READING IS AT LEAST THREE HOURS LATE. The minimum delay between when
+//     a reading was measured and when HealthKit received it is exactly 10,800 s,
+//     with a long tail above it and nothing at all inside an hour. [[D28]]
+//     recorded the 3-hour figure from a report; measuring it found a FLOOR, not
+//     an average.
+//
+// THE CONSEQUENCE IS PERMANENT: this is a LOOK-BACK INSTRUMENT, NEVER LIVE. The
+// native shell reads the same HealthKit, so no amount of app work makes it
+// current. Nothing here may say "now", "current" or "live" about a reading.
+//
+// STORED AS A CACHE, NOT A RECORD. On [[D77]]'s scan-list terms, the same ones
+// [[D134]]'s trash took: a separate key, OUTSIDE APP_STATE, never exported,
+// separately clearable. Outside APP_STATE is the whole mechanism -- `exportJSON`
+// serialises APP_STATE, so this cannot travel and nobody has to remember to strip
+// it. It is re-acquirable from Apple Health, which is what makes a cache the
+// honest shape for it.
+//
+// THE HONESTY PIN, as [[D134]] wrote it: nothing in this store reaches dayTotals,
+// averages, coverage or any roll-up. It is a separate store precisely so that no
+// total can reach it by accident.
+//
+// AND THE COLUMN SHAPE IS NOT A MICRO-OPTIMISATION. Measured at 288 readings a
+// day: a full timeline entry each costs 113 B and reaches a 5 MB quota in 161
+// days; columns cost 8.4 B and last 2,171. The quota is shared with the food log
+// and the store falls back to MEMORY on QuotaExceededError ([[D1]]) -- so
+// crossing it raises nothing in front of the user and quietly stops persisting.
+// A series growing 288 records a day must not be able to push the log off disk.
+const GLUCOSE_KEY = 'healthtracker-glucose';
+const GLUCOSE_STEP_S = 300;                 // MEASURED, not assumed
+const GLUCOSE_DOMAIN = { min: 2, max: 14 }; // RULED, and a setting rather than data
+const GLUCOSE_UNITS = ['mmol/L', 'mg/dL'];
+let _glucoseMem = null;                     // D1: memory fallback when storage refuses
+
+function glucoseRead() {
+  if (_glucoseMem) return _glucoseMem;
+  try {
+    const raw = localStorage.getItem(GLUCOSE_KEY);
+    if (!raw) return {};
+    const o = JSON.parse(raw);
+    return (o && typeof o === 'object') ? normalizeGlucoseStore(o) : {};
+  } catch (e) { return {}; }
+}
+function glucoseWrite(store) {
+  try { localStorage.setItem(GLUCOSE_KEY, JSON.stringify(store)); _glucoseMem = null; return true; }
+  catch (e) { _glucoseMem = store; return false; }
+}
+function glucoseClear() {
+  _glucoseMem = null;
+  try { localStorage.removeItem(GLUCOSE_KEY); } catch (e) {}
+  return { ok: true };
+}
+// ALLOWLIST REBUILD ([[D131]]): every field a glucose day may carry is declared
+// here. A property written anywhere else and not declared here is deleted the
+// first time the store is read back.
+function normalizeGlucoseDay(raw) {
+  const r = raw || {};
+  const t = Array.isArray(r.t) ? r.t : null;
+  const v = Array.isArray(r.v) ? r.v : null;
+  if (!t || !v || t.length !== v.length || !t.length) return null;
+  const unit = GLUCOSE_UNITS.indexOf(r.u) >= 0 ? r.u : null;
+  if (!unit) return null;                   // E: a reading with no unit has no identity
+  const out = { u: unit, t: [], v: [] };
+  if (typeof r.raw === 'string' && r.raw) out.raw = r.raw.slice(0, 80);
+  if (typeof r.src === 'string' && r.src) out.src = r.src.slice(0, 60);
+  for (let i = 0; i < t.length; i++) {
+    const mi = Math.round(num(t[i])), vv = num(v[i]);
+    if (!(mi >= 0 && mi < 1440) || !(vv > 0)) continue;
+    out.t.push(mi); out.v.push(Math.round(vv * 100) / 100);
+  }
+  return out.t.length ? out : null;
+}
+function normalizeGlucoseStore(o) {
+  const out = {};
+  Object.keys(o || {}).forEach(function (k) {
+    if (!isDayKey(k)) return;
+    const d = normalizeGlucoseDay(o[k]);
+    if (d) out[k] = d;
+  });
+  return out;
+}
+// INGEST. Rows are {t: ISO string, v: number, unit: string}. The day key is
+// validated at the boundary, as every paste boundary in this app is (CLAUDE.md),
+// and the unit is kept VERBATIM beside the canonical one -- never converted,
+// because the unit is part of the reading's identity (the breath-ketones rule).
+function glucoseIngest(rows, opts) {
+  if (!Array.isArray(rows) || !rows.length) return { ok: false, error: 'No readings.', stored: 0 };
+  const o = opts || {};
+  const store = glucoseRead();
+  const units = {};
+  let stored = 0, skipped = 0;
+  const byDay = {};
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || {};
+    const ms = Date.parse(r.t);
+    if (!(ms > 0)) { skipped++; continue; }
+    const vv = num(r.v);
+    if (!(vv > 0)) { skipped++; continue; }
+    const unit = GLUCOSE_UNITS.indexOf(r.unit) >= 0 ? r.unit : null;
+    if (!unit) { skipped++; continue; }
+    units[unit] = (units[unit] || 0) + 1;
+    const d = new Date(ms);
+    const dk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+             + '-' + String(d.getDate()).padStart(2, '0');
+    if (!isDayKey(dk)) { skipped++; continue; }
+    const mi = d.getHours() * 60 + d.getMinutes();
+    if (!byDay[dk]) byDay[dk] = { u: unit, t: [], v: [], mixed: false };
+    if (byDay[dk].u !== unit) byDay[dk].mixed = true;
+    byDay[dk].t.push(mi); byDay[dk].v.push(vv);
+    stored++;
+  }
+  const mixedUnits = Object.keys(units).length > 1;
+  let unitClash = false;              // a day arriving in a unit the store does not hold
+  Object.keys(byDay).forEach(function (dk) {
+    const b = byDay[dk];
+    const rec = { u: b.u, t: b.t, v: b.v };
+    if (typeof o.rawUnit === 'string' && o.rawUnit) rec.raw = o.rawUnit;
+    if (typeof o.source === 'string' && o.source) rec.src = o.source;
+    const norm = normalizeGlucoseDay(rec);
+    if (!norm) return;
+    // MERGE, NEVER REPLACE. Assigning here cost a day's readings every time a
+    // partial batch arrived for a day already held -- harmless for a one-off
+    // import, fatal for the durable path, where the native shell ([[D28]]) reads
+    // HealthKit incrementally and ingests the newest handful again and again.
+    // A cache that empties itself when refreshed is worse than no cache.
+    const prev = store[dk];
+    if (!prev) { store[dk] = norm; return; }
+    if (prev.u !== norm.u) {
+      // E: two units never merge into one array. That is the silent conversion
+      // the unit rule forbids, and after the merge it would be undetectable.
+      unitClash = true;
+      return;
+    }
+    const byMin = {};
+    for (let i = 0; i < prev.t.length; i++) byMin[prev.t[i]] = prev.v[i];
+    // the NEW value wins a collision: this is a cache, and the store it caches
+    // is the authority. Keeping the old one would pin a stale reading forever.
+    for (let i = 0; i < norm.t.length; i++) byMin[norm.t[i]] = norm.v[i];
+    const mins = Object.keys(byMin).map(Number).sort(function (a, b) { return a - b; });
+    const merged = { u: norm.u, t: mins, v: mins.map(function (m) { return byMin[m]; }) };
+    if (norm.raw || prev.raw) merged.raw = norm.raw || prev.raw;
+    if (norm.src || prev.src) merged.src = norm.src || prev.src;
+    const out = normalizeGlucoseDay(merged);
+    if (out) store[dk] = out;
+  });
+  // E: a MIXED-UNIT ingest is recorded as mixed rather than silently unified. The
+  // surface refuses to draw one line through two units and says why.
+  GLUCOSE_MIXED = mixedUnits ? Object.keys(units) : null;
+  const ok = glucoseWrite(store);
+  return { ok: stored > 0, stored: stored, skipped: skipped, days: Object.keys(byDay).length,
+           persisted: ok, mixedUnits: mixedUnits ? Object.keys(units) : null,
+           unitClash: unitClash };
+}
+let GLUCOSE_MIXED = null;
+function glucoseMixed() { return GLUCOSE_MIXED ? GLUCOSE_MIXED.slice() : null; }
+
+// THE DAY'S SUMMARY -- and THE ONE AVERAGE THAT IS RULED IN.
+//
+// An average STATED WITH ITS COUNT is a claim about this day's readings, and the
+// count is what makes it checkable. That is different in kind from an average
+// used to DRAW a line, which is a rendering shortcut that hides the spike; the
+// chart below does not do that and its own gate greps it to be sure.
+//
+// `expected` comes from the MEASURED cadence, so a day with a gap cannot read
+// like a full day: the shortfall and the missing time are part of the summary,
+// not a footnote somewhere else ([[R31]]'s coverage rule, one surface over).
+function glucoseDaySummary(dk) {
+  const store = glucoseRead();
+  const d = store[dk];
+  if (!d || !d.t.length) return null;
+  const idx = d.t.map(function (t, i) { return i; }).sort(function (a, b) { return d.t[a] - d.t[b]; });
+  const ts = idx.map(function (i) { return d.t[i]; });
+  const vs = idx.map(function (i) { return d.v[i]; });
+  let sum = 0, lo = vs[0], hi = vs[0];
+  for (let i = 0; i < vs.length; i++) { sum += vs[i]; if (vs[i] < lo) lo = vs[i]; if (vs[i] > hi) hi = vs[i]; }
+  // missing time: any step longer than three times the measured cadence, summed
+  const stepMin = GLUCOSE_STEP_S / 60, gapMin = stepMin * 3;
+  let gaps = 0, gapMinutes = 0;
+  for (let i = 1; i < ts.length; i++) {
+    const dt = ts[i] - ts[i - 1];
+    if (dt > gapMin) { gaps++; gapMinutes += dt; }
+  }
+  const spanMin = ts[ts.length - 1] - ts[0];
+  const expected = Math.max(vs.length, Math.round(spanMin / stepMin) + 1);
+  const lastMs = dayKeyMs(dk) + ts[ts.length - 1] * 60000;
+  return {
+    n: vs.length, expected: expected,
+    avg: Math.round((sum / vs.length) * 10) / 10,
+    lo: Math.round(lo * 10) / 10, hi: Math.round(hi * 10) / 10,
+    unit: d.u, rawUnit: d.raw || '', source: d.src || '',
+    gaps: gaps, gapMs: Math.round(gapMinutes * 60000),
+    firstMs: dayKeyMs(dk) + ts[0] * 60000, lastMs: lastMs,
+    lastAgeMs: Math.max(0, nowMs() - lastMs),
+  };
+}
+function dayKeyMs(dk) {
+  const p = String(dk).split('-');
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 0, 0, 0, 0).getTime();
+}
+// The series across day boundaries, as absolute milliseconds, for the chart.
+function glucoseSeries(fromMs, toMs) {
+  const store = glucoseRead();
+  const out = [];
+  Object.keys(store).sort().forEach(function (dk) {
+    const base = dayKeyMs(dk), d = store[dk];
+    for (let i = 0; i < d.t.length; i++) {
+      const ms = base + d.t[i] * 60000;
+      if (ms >= fromMs && ms <= toMs) out.push({ t: ms, v: d.v[i], u: d.u });
+    }
+  });
+  out.sort(function (a, b) { return a.t - b.t; });
+  return out;
+}
+function glucoseLastMs() {
+  const store = glucoseRead();
+  const ks = Object.keys(store).sort();
+  if (!ks.length) return null;
+  const dk = ks[ks.length - 1], d = store[dk];
+  let mx = -1;
+  for (let i = 0; i < d.t.length; i++) if (d.t[i] > mx) mx = d.t[i];
+  return mx < 0 ? null : dayKeyMs(dk) + mx * 60000;
+}
+// How old the newest reading is, IN WORDS, and always the REAL age. Never the
+// three-hour nominal: measured, 3 h is a floor with a long tail, and quoting the
+// nominal would understate exactly when it matters most.
+function ageWords(ms) {
+  if (ms == null) return '';
+  const m = Math.round(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + ' min ago';
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h < 24) return h + ' h' + (r ? ' ' + r + ' min' : '') + ' ago';
+  const d = Math.floor(h / 24);
+  return d + (d === 1 ? ' day ago' : ' days ago');
+}
+
+// ---- H19/F: A GENERIC TIME CHART ------------------------------------------
+//
+// GENERIC ON PURPOSE, and shaped by two callers rather than one: glucose now,
+// Trends next. `sparklineSVG` above is what happens otherwise -- it was shaped by
+// its first caller, spaces x by INDEX, and that was adequate for every consumer
+// it had until a series with real gaps arrived. An index-based x cannot draw a
+// gap at all: a 45-minute hole becomes one even step identical to a 5-minute one.
+//
+// WHAT IT DOES NOT DO: it does not reduce by averaging. Where a pixel column
+// holds more than one reading it draws the column's MIN AND MAX -- the envelope --
+// so an excursion survives being drawn at one tenth the horizontal resolution.
+// An average there would flatten the one thing the series is read for. (The day's
+// average, with its count, is a different claim and lives in the summary above.)
+//
+// GAPS ARE BREAKS. The series is cut into continuous runs wherever the step
+// exceeds `gapMs`, and each run is its own polyline. The envelope never bridges
+// one: a column with no reading draws nothing and borrows nothing from a
+// neighbour.
+//
+// THE Y DOMAIN IS DECLARED BY THE CALLER AND NEVER COMPUTED. A domain derived
+// from the visible window would make two windows mean different things, which is
+// the whole reason to fix an axis. A value outside it is CLIPPED AND MARKED,
+// never rescaled and never dropped.
+function timeChart(opts) {
+  const o = opts || {};
+  const W = Math.max(120, Math.round(num(o.width) || 328));
+  const H = Math.max(80, Math.round(num(o.height) || 150));
+  const padL = 38, padR = 6, padT = 8, padB = 20;
+  const from = num(o.from), to = num(o.to);
+  const dmin = num(o.domainMin), dmax = num(o.domainMax);
+  const span = to - from;
+  if (!(span > 0) || !(dmax > dmin)) return '';
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const xOf = function (t) { return padL + ((t - from) / span) * plotW; };
+  const yOf = function (v) {
+    const c = Math.min(dmax, Math.max(dmin, v));
+    return padT + (1 - (c - dmin) / (dmax - dmin)) * plotH;
+  };
+  const r1 = function (x) { return Math.round(x * 10) / 10; };
+  const pts = (o.series || []).filter(function (p) { return p && p.t >= from && p.t <= to; });
+  const gapMs = num(o.gapMs) || (GLUCOSE_STEP_S * 3 * 1000);
+
+  // cut into continuous runs on the gap threshold
+  const runs = [];
+  let cur = [];
+  for (let i = 0; i < pts.length; i++) {
+    if (i && (pts[i].t - pts[i - 1].t) > gapMs) { if (cur.length) runs.push(cur); cur = []; }
+    cur.push(pts[i]);
+  }
+  if (cur.length) runs.push(cur);
+
+  // per-column envelope, run by run, so a reduction can never cross a gap
+  const colOf = function (t) { return Math.floor(xOf(t)); };
+  const polys = runs.map(function (run) {
+    if (run.length <= plotW) {
+      return run.map(function (p) { return r1(xOf(p.t)) + ',' + r1(yOf(p.v)); }).join(' ');
+    }
+    const cols = {};
+    const order = [];
+    run.forEach(function (p) {
+      const c = colOf(p.t);
+      if (!cols[c]) { cols[c] = { lo: p, hi: p, first: p }; order.push(c); }
+      else {
+        if (p.v < cols[c].lo.v) cols[c].lo = p;
+        if (p.v > cols[c].hi.v) cols[c].hi = p;
+      }
+    });
+    const seq = [];
+    order.forEach(function (c) {
+      const g = cols[c];
+      const a = g.hi, b = g.lo;
+      // both ends of the column, nearest-first so the path does not zigzag twice
+      seq.push(r1(xOf(a.t)) + ',' + r1(yOf(a.v)));
+      if (b !== a) seq.push(r1(xOf(b.t)) + ',' + r1(yOf(b.v)));
+    });
+    return seq.join(' ');
+  }).filter(function (s) { return s; });
+
+  // D: out-of-domain values are clipped AND MARKED
+  const clips = pts.filter(function (p) { return p.v > dmax || p.v < dmin; }).map(function (p) {
+    const up = p.v > dmax;
+    return '<circle class="tclip" r="3.2" cx="' + r1(xOf(p.t)) + '" cy="' + r1(up ? padT + 1 : padT + plotH - 1)
+      + '" data-dir="' + (up ? 'above' : 'below') + '"></circle>';
+  }).join('');
+
+  // the fixed axis: the declared bounds and the middle, with the unit on top
+  const ticks = [dmin, Math.round((dmin + dmax) / 2), dmax];
+  const axis = '<g class="taxis">' + ticks.map(function (v, i) {
+    return '<line x1="' + padL + '" y1="' + r1(yOf(v)) + '" x2="' + (W - padR) + '" y2="' + r1(yOf(v)) + '"/>'
+      + '<text x="2" y="' + r1(yOf(v) + 5) + '">' + esc(String(v) + (i === ticks.length - 1 && o.unit ? ' ' + o.unit : '')) + '</text>';
+  }).join('') + '</g>';
+
+  const marks = (o.marks || []).filter(function (m) { return m && m.t >= from && m.t <= to; })
+    .map(function (m) {
+      return '<line class="tmark" data-kind="' + esc(String(m.kind || 'mark')) + '" x1="' + r1(xOf(m.t))
+        + '" y1="' + padT + '" x2="' + r1(xOf(m.t)) + '" y2="' + (padT + plotH) + '"><title>'
+        + esc(String(m.label || m.kind || '')) + '</title></line>';
+    }).join('');
+
+  const series = polys.map(function (p) { return '<polyline class="tseries" points="' + p + '"/>'; }).join('');
+  return '<svg class="tchart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H
+    + '" preserveAspectRatio="none" role="img">' + axis + marks + series + clips + '</svg>';
+}
+
+// ---- H19: THE WINDOW, THE GESTURES, AND THE DAY ROW -----------------------
+//
+// THE RIGHT EDGE IS THE LAST READING, NEVER NOW. Measured: every reading reaches
+// HealthKit at least three hours after it was taken, so a right edge resting on
+// `now` would claim three hours of knowledge the app does not have. The window
+// may be PANNED forward into that strip -- and when it is, the strip draws as a
+// gap like any other, because that is exactly what it is.
+const CHART_PRESETS = [
+  { label: '6 h', s: 21600 }, { label: '24 h', s: 86400 },
+  { label: '3 days', s: 259200 }, { label: '10 days', s: 864000 },
+];
+let CHART_WIN = null;          // {from, to} in ms
+let CHART_LABEL = '24 h';
+function chartWindow() {
+  if (!CHART_WIN) chartPreset(CHART_LABEL);
+  return CHART_WIN ? { from: CHART_WIN.from, to: CHART_WIN.to } : { from: 0, to: 0 };
+}
+function chartPresetSeconds(label) {
+  for (let i = 0; i < CHART_PRESETS.length; i++) if (CHART_PRESETS[i].label === label) return CHART_PRESETS[i].s;
+  return null;
+}
+function chartPreset(label) {
+  const s = chartPresetSeconds(label);
+  if (s == null) return { ok: false, error: 'No such window.' };
+  const last = glucoseLastMs();
+  const to = last == null ? nowMs() : last;
+  CHART_LABEL = label;
+  CHART_WIN = { from: to - s * 1000, to: to };
+  glucoseRedraw();
+  return { ok: true, label: label, from: CHART_WIN.from, to: CHART_WIN.to };
+}
+// Panning is clamped to NOW on the right -- never past it, because there is
+// nothing there to look at -- and to a little before the first reading on the
+// left, so the series cannot be scrolled off the screen entirely.
+function chartPanMs(dt) {
+  const w = chartWindow();
+  const span = w.to - w.from;
+  const hardTo = nowMs();
+  const store = glucoseRead();
+  const ks = Object.keys(store).sort();
+  const hardFrom = ks.length ? dayKeyMs(ks[0]) - span : hardTo - span;
+  let from = w.from + dt, to = w.to + dt;
+  if (to > hardTo) { to = hardTo; from = to - span; }
+  if (from < hardFrom) { from = hardFrom; to = from + span; }
+  CHART_WIN = { from: from, to: to };
+  return CHART_WIN;
+}
+function chartZoomBy(factor) {
+  const w = chartWindow();
+  const span = w.to - w.from;
+  const mid = (w.from + w.to) / 2;
+  const minS = 1800 * 1000, maxS = 1209600 * 1000;      // 30 min .. 14 days
+  const next = Math.max(minS, Math.min(maxS, span / factor));
+  CHART_WIN = { from: mid - next / 2, to: mid + next / 2 };
+  CHART_LABEL = '';
+  return CHART_WIN;
+}
+// WHICH DAY ROWS ARE OPEN. Keyed by day, like D144's ITEM_OPEN, so stepping back
+// a day does not arrive with an unrelated row already expanded.
+let GLUCOSE_OPEN = {};
+function glucoseIsOpen(dk) { return GLUCOSE_OPEN[String(dk)] === true; }
+function glucoseToggle(dk) {
+  const k = String(dk);
+  if (GLUCOSE_OPEN[k]) delete GLUCOSE_OPEN[k];
+  else { GLUCOSE_OPEN[k] = true; if (!CHART_WIN) chartPreset(CHART_LABEL); }
+  renderDay();
+  return { ok: true, open: glucoseIsOpen(dk) };
+}
+function glucoseCollapseAll() { GLUCOSE_OPEN = {}; return { ok: true }; }
+
+// The marks on the shared axis: the day's meals and its timeline entries, at
+// their own timestamps. Same axis, because "what did I eat before that rise" is
+// the question the chart exists to let the user ask for themselves.
+function glucoseMarks(fromMs, toMs) {
+  const out = [];
+  const days = (APP_STATE && APP_STATE.days) || {};
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  Object.keys(days).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    const base = dayKeyMs(dk);
+    ((days[dk] || {}).items || []).forEach(function (it) {
+      if (!it || !it.time || it._auto) return;
+      const p = String(it.time).split(':');
+      const ms = base + (Number(p[0]) * 60 + Number(p[1])) * 60000;
+      if (ms >= fromMs && ms <= toMs) out.push({ t: ms, kind: 'meal', label: it.name || 'meal' });
+    });
+  });
+  Object.keys(tl).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    const base = dayKeyMs(dk);
+    (tl[dk] || []).forEach(function (e) {
+      if (!e || !e.time) return;
+      const p = String(e.time).split(':');
+      const ms = base + (Number(p[0]) * 60 + Number(p[1])) * 60000;
+      if (ms >= fromMs && ms <= toMs) out.push({ t: ms, kind: String(e.kind || 'event'), label: String(e.type || '') });
+    });
+  });
+  return out;
+}
+function fmtWinStamp(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function fmtWinDate(ms) {
+  const d = new Date(ms);
+  return (d.getMonth() + 1) + '/' + d.getDate();
+}
+// The line above the chart. It states the window, and it states the age of the
+// NEWEST reading -- the real age, never the three-hour nominal, because measured
+// the nominal is a floor with a long tail and quoting it would understate exactly
+// when understating matters.
+function chartWindowLine() {
+  const w = chartWindow();
+  const span = Math.round((w.to - w.from) / 1000);
+  const lab = CHART_LABEL || (span >= 86400
+    ? (Math.round(span / 8640) / 10) + ' days' : (Math.round(span / 360) / 10) + ' h');
+  const last = glucoseLastMs();
+  const age = last == null ? '' : ' \u00b7 last reading ' + ageWords(nowMs() - last);
+  return lab + ' \u00b7 ' + fmtWinDate(w.from) + ' ' + fmtWinStamp(w.from)
+    + ' \u2192 ' + fmtWinDate(w.to) + ' ' + fmtWinStamp(w.to) + age;
+}
+function glucoseChartHTML(dk) {
+  const w = chartWindow();
+  const mixed = glucoseMixed();
+  const presets = CHART_PRESETS.map(function (p) {
+    return '<button type="button" class="tpreset' + (p.label === CHART_LABEL ? ' on' : '')
+      + '" onclick="event.stopPropagation();chartPreset(\'' + esc(p.label) + '\')">' + esc(p.label) + '</button>';
+  }).join('');
+  // E: two units REFUSE one line, and say why. A single line through mmol/L and
+  // mg/dL would be a shape nobody measured -- 5.9 and 106 are the same reading.
+  if (mixed && mixed.length > 1) {
+    return '<div class="twindow">' + esc(chartWindowLine()) + '</div>'
+      + '<div class="tpresets">' + presets + '</div>'
+      + '<div class="tunitrefuse">These readings arrived in more than one unit ('
+      + esc(mixed.join(' and ')) + '), so they are not drawn as one line \u2014 the unit is '
+      + 'part of what a reading means, and converting one to the other silently would '
+      + 'invent a series nobody measured.</div>' + glucoseNoteHTML(dk);
+  }
+  const series = glucoseSeries(w.from, w.to);
+  const sum = glucoseDaySummary(dk);
+  const chart = timeChart({
+    series: series, from: w.from, to: w.to,
+    domainMin: GLUCOSE_DOMAIN.min, domainMax: GLUCOSE_DOMAIN.max,
+    unit: (sum && sum.unit) || 'mmol/L',
+    marks: glucoseMarks(w.from, w.to),
+    width: GLUCOSE_CHART_W, height: 150,
+    gapMs: GLUCOSE_STEP_S * 3 * 1000,
+  });
+  return '<div class="twindow">' + esc(chartWindowLine()) + '</div>'
+    + '<div class="tpresets">' + presets + '</div>'
+    + '<div class="tchartbox">' + chart + '</div>'
+    + glucoseNoteHTML(dk);
+}
+let GLUCOSE_CHART_W = 328;            // MEASURED inside the day card at 390; re-read on wire
+function glucoseNoteHTML(dk) {
+  const sum = glucoseDaySummary(dk);
+  const src = sum && sum.source ? sum.source : 'a sensor';
+  // A: the cache says it is a cache, WHERE GLUCOSE APPEARS. A cache the user
+  // cannot see is one they will assume is a backup.
+  return '<div class="tnote">From Apple Health (' + esc(src) + '). Held here as a cache that can '
+    + 'be re-acquired from Apple Health at any time, so it is <b>not in your export</b> \u2014 '
+    + 'the export carries what only this app knows.</div>'
+    + '<div class="tnote">Apple Health receives these at least 3 hours after they are measured, '
+    + 'so this is a look-back view: the newest point is already hours old.</div>';
+}
+// THE COLLAPSED ROW. Average, low, high with the unit, the count they came from,
+// and how old the newest reading is -- so a stale day is visible WITHOUT opening
+// it. The count is what makes the average checkable, and the shortfall against
+// the measured cadence is what stops a day with a gap reading like a full one.
+// An AVERAGE keeps its decimal. `rDisp` drops a trailing zero, which is right for
+// a reading -- 5 mmol/L was the reading -- and wrong for an average, where the
+// zero is a claim about precision that the average is entitled to make.
+function gFix(v) { const x = num(v); return (Math.round(x * 10) / 10).toFixed(1); }
+function glucoseRowHTML(dk) {
+  const sum = glucoseDaySummary(dk);
+  if (!sum) return '';
+  const open = glucoseIsOpen(dk);
+  const miss = sum.gapMs > 0
+    ? ' \u00b7 ' + Math.round(sum.gapMs / 60000) + ' min with no readings'
+    : '';
+  const short = (sum.expected > sum.n && sum.gapMs === 0)
+    ? ' \u00b7 ' + (sum.expected - sum.n) + ' expected but absent' : '';
+  return '<div class="grow' + (open ? ' gopen' : '') + '">'
+    + '<div class="ghead" role="button" tabindex="0" aria-expanded="' + (open ? 'true' : 'false')
+    + '" onclick="glucoseToggle(\'' + esc(dk) + '\')"'
+    + ' onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();glucoseToggle(\'' + esc(dk) + '\');}">'
+    // THE SPACE IS LOAD-BEARING: textContent concatenates adjacent spans with no
+    // separator, so 'Glucose' and 'avg' read as 'Glucoseavg' to anything matching
+    // on word boundaries -- including a screen reader.
+    + '<span class="gname">Glucose</span> '
+    + '<span class="gstat">avg ' + esc(gFix(sum.avg)) + ' \u00b7 ' + esc(gFix(sum.lo))
+    + '\u2013' + esc(gFix(sum.hi)) + ' ' + esc(sum.unit) + '</span>'
+    + '</div> '
+    + '<div class="gsub"><span class="gcov">from ' + sum.n + ' reading' + (sum.n === 1 ? '' : 's')
+    + esc(miss) + esc(short) + '</span> '
+    + '<span class="gage">' + esc(ageWords(sum.lastAgeMs)) + '</span></div>'
+    + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + '</div>' : '')
+    + '</div>';
+}
+// Redraw only the chart, not the day: a pan fires many times per gesture and
+// repainting the whole day each time would be the one thing that makes the
+// gesture feel broken.
+function glucoseRedraw() {
+  const box = document.querySelector('#dayView .grow.gopen .gbody');
+  if (!box) return false;
+  const dk = APP_STATE && APP_STATE.current;
+  box.innerHTML = glucoseChartHTML(dk);
+  glucoseWire();
+  return true;
+}
+// G: AXIS-LOCKED BY THE FIRST MOVEMENT. A vertical swipe still scrolls the page,
+// a horizontal one pans the chart, and two fingers zoom. `touch-action: pan-y`
+// lets the browser keep vertical scrolling natively, so the page is never
+// trapped -- which is the half [[D143]] makes it easy to break.
+let _gTouch = null;
+function glucoseWire() {
+  const svg = document.querySelector('#dayView .grow.gopen svg.tchart');
+  if (!svg || svg._wired) return false;
+  svg._wired = true;
+  const w = svg.getBoundingClientRect().width;
+  if (w > 40) GLUCOSE_CHART_W = Math.round(w);
+  const dist = function (t) {
+    const dx = t[0].clientX - t[1].clientX, dy = t[0].clientY - t[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+  svg.addEventListener('touchstart', function (e) {
+    const w0 = chartWindow();
+    _gTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY, axis: null,
+                from: w0.from, to: w0.to, pinch: e.touches.length > 1 ? dist(e.touches) : null };
+  }, { passive: true });
+  svg.addEventListener('touchmove', function (e) {
+    if (!_gTouch) return;
+    if (e.touches.length > 1) {
+      const d = dist(e.touches);
+      if (_gTouch.pinch == null) { _gTouch.pinch = d; return; }
+      if (d > 4 && Math.abs(d - _gTouch.pinch) > 8) {
+        e.preventDefault();
+        _gTouch.axis = 'pinch';
+        chartZoomBy(d / _gTouch.pinch);
+        _gTouch.pinch = d;
+        glucoseRedraw();
+      }
+      return;
+    }
+    const dx = e.touches[0].clientX - _gTouch.x;
+    const dy = e.touches[0].clientY - _gTouch.y;
+    if (_gTouch.axis === null) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+      _gTouch.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    }
+    if (_gTouch.axis !== 'x') return;              // vertical: the page keeps it
+    e.preventDefault();
+    const span = _gTouch.to - _gTouch.from;
+    const px = Math.max(40, GLUCOSE_CHART_W);
+    CHART_WIN = { from: _gTouch.from, to: _gTouch.to };
+    chartPanMs(-(dx / px) * span);
+    glucoseRedraw();
+  }, { passive: false });
+  svg.addEventListener('touchend', function () { _gTouch = null; }, { passive: true });
+  return true;
+}
 // ---- H7: the typical band (D95) -------------------------------------------
 // "Typical" is the user's OWN recent normal. It is DESCRIPTIVE: it is never a
 // target, it is never compared to a declared goal (Fork E1), and nothing on the
@@ -8004,6 +8624,7 @@ const VERSION_LOG = [
   { v: '0.55.0', d: '2026-10-01', note: 'Logging a food again at a different portion now keeps its nutrition database match and scales the numbers to the new portion, instead of dropping the match. Half the portion, half the vitamins. A match made before the app started recording which portion its numbers were for still cannot be scaled — those rows now say the match did not carry over, and offer to look it up again.' },
   { v: '0.56.0', d: '2026-10-01', note: 'Fixes the page scrolling behind an open sheet. With the Log sheet, Settings, a photo draft or the nutrient lookup open, the day behind no longer moves, no longer takes taps, and comes back exactly where you left it when the sheet closes. Swiping to the end of a sheet no longer carries on into the page underneath.' },
   { v: '0.57.0', d: '2026-10-02', note: 'Food rows are now one line — the name, the time and one number, the same nutrient the ring is tracking. Tap a row to see everything else it knows: the portion, how sure the number is, where it came from, the macros and the database match it was given. Nothing was taken away, it is just one tap behind instead of all at once. A row with no nutrition yet shows the “find nutrients” button straight away rather than a dash. And when you have confirmed what a food is in a photo draft, that row folds its list of alternatives away, which roughly halves the scrolling on a six-item meal.' },
+  { v: '0.58.0', d: '2026-10-02', note: 'Glucose from Apple Health. A day with readings gets one line under its total — average, low and high, how many readings they came from, how much of the day had none, and how old the newest one is. Tap it for a chart you can pinch and swipe: 6 hours to 10 days, with meals and events on the same timeline. Gaps are drawn as gaps. Apple Health gets these about three hours late, so the newest point is always hours old.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -13182,6 +13803,13 @@ window.HT = {
   stepDay, toggleDayStatus, renderDay, defaultSettings, normalizeSettings,
   // D144 -- the collapsed row, and the settled draft identity
   itemToggle, itemOpen, itemCollapseAll, itemHeadline,
+  // H19 -- the glucose cache (outside APP_STATE, never exported) and the
+  // generic time chart. `timeChart` is deliberately not glucose-shaped: Trends
+  // is its second caller.
+  glucoseIngest, glucoseClear, glucoseDaySummary, glucoseSeries, glucoseLastMs,
+  glucoseToggle, glucoseIsOpen, glucoseCollapseAll, glucoseMixed, glucoseMarks,
+  glucoseRowHTML, glucoseRedraw, glucoseWire, ageWords, GLUCOSE_DOMAIN, GLUCOSE_STEP_S,
+  timeChart, chartWindow, chartPreset, chartPanMs, chartZoomBy, CHART_PRESETS,
   photoIdReopen, photoIdReopenReset,
   setRhythmRange, rhythmGridDates, renderRhythmGrid, goToDay, deleteSignal, deleteItem, miniRingSVG, MINI_PX,
   // R22 / D55 -- the edit contract

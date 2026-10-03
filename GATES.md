@@ -4912,3 +4912,52 @@ gets skipped, and a skipped check is this whole class.
 **Defect pass: 7 of 7**, one per class it claims, including both missing-part
 cases. Two expectations went stale on a reworded message and reported MISSED
 against a working check — third time in the session; recorded in [[D145]].
+
+### D146 — glucose and the zoomable chart — v0.58.0
+
+**Written before the build, failing by name on all seven rulings.** And it
+**declares its own footing**: every assertion is tagged [M] measured cadence or
+[I] invented, because the one-off export is far shorter than the 10-day preset.
+The PASS line states that 3-day and 10-day **have never been exercised against
+real data** rather than leaving the reader to assume otherwise.
+
+Fixture: the real export's TIME STRUCTURE with synthetic values — 300 s step,
+instantaneous samples, one 50-minute hole (nine dropped samples leave ten steps,
+which the gate itself first got wrong), placed 25 samples before the last
+reading so it falls inside the summarised day **and** all four windows.
+
+| case | asserts |
+|---|---|
+| **chart-gate.ps1** [M] | a hole **BREAKS** the line, and spans ~10× a normal step — an index-based x makes it 1× and cannot show a gap at all |
+| **chart-gate.ps1** [M] | the row is **not** a `.mitem`, starts collapsed, and holds **no chart** until tapped |
+| **chart-gate.ps1** [M] | the collapsed row states avg/low/high + unit + the count + the hole + the age, with no verdict class or in-range word |
+| **chart-gate.ps1** [M] | one real tap opens the chart in place and the row grows |
+| **chart-gate.ps1** [M] | the y-axis **does not move** while a drag pans time, and carries the declared 2–14 domain and the unit |
+| **chart-gate.ps1** [M] | a horizontal drag pans, a **vertical drag still scrolls the page**, a two-finger pinch zooms |
+| **chart-gate.ps1** [M] | out-of-domain values are **clipped and marked**; two units **refuse one line** and say why |
+| **chart-gate.ps1** [M] | the cache is outside `APP_STATE`, absent from the export, and **says so on the surface** |
+| **chart-gate.ps1** [M] | `timeChart`'s own source contains no averaging — so smoothing cannot return quietly |
+| **chart-gate.ps1** [I] | the 3-day and 10-day presets set their windows; the envelope caps at 2 nodes per column and **still breaks at the hole** |
+| **chart-gate.ps1** | the row at **zero** overflow and the page at **no-worse-than-3px** — the measured pre-existing baseline, from Trends, named in the gate |
+| H19-merge **GATE** | an incremental ingest **MERGES**; a collision takes the new value; a different unit is **refused** |
+| H19-cache **GATE** | glucose is not in `APP_STATE`, not in the export, and clearing it empties it |
+| H19-unit **GATE** | verbatim **and** canonical; `mmol/l` is **refused** rather than guessed into `mmol/L` |
+| H19-gap **GATE** | 82 of 91 against the measured cadence, and the hole measures **exactly 3,000,000 ms** |
+| H19-allowlist **GATE** | a planted field is proved present, then **gone** after the read-modify-write, with the declared data intact |
+| H19-generic **GATE** | `timeChart` draws a non-glucose series carrying the caller's own unit |
+
+**The defect that mattered: ingest REPLACED the day.** One new reading into a day
+holding 82 left one. Harmless for the one-off import, fatal for the incremental
+path the native shell will use. Caught **sideways**, by an allowlist assertion
+that counted readings afterwards: *a test that exercised the importer has not
+exercised the re-importer.*
+
+**And a dead assertion of my own** — `|| true` at the end of a condition scored a
+pass on a test of nothing. Found by reading it back, not by a gate.
+
+**`ring-size-gate` caught a defect this slice did not expect, and I argued with it.**
+An 802-character `VERSION_LOG` note — the longest ever written here — renders above
+the day on the first load after an update and pushed the regimen checklist from
+662px to 801px, off a 690px screen. Shortened to 417, `chkBottom` is 569 and the
+gate passes on its unmodified self. **A changelog note is layout.** Two edits I
+made to that gate on withdrawn theories were reverted; it needed none.
