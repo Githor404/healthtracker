@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.60.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.60.1';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -6504,7 +6504,7 @@ const GLUCOSE_CHUNK = 2 * 1024 * 1024;   // bytes per slice -- and the peak's bo
 const GLUCOSE_CARRY = 65536;             // carry cap when a slice holds no newline
 let _gSeq = 0;
 let _gImport = { seq: 0, active: false, name: '', format: '', bytes: 0, total: 0,
-                 readings: 0, added: 0, done: false, error: '' };
+                 readings: 0, added: 0, skipped: 0, done: false, error: '' };
 // `seq` is not decoration: `done` alone cannot distinguish THIS import's
 // completion from the previous one's, so a probe polling `done` can read a stale
 // result and call it a pass. It increments once per attempt.
@@ -6512,7 +6512,7 @@ function glucoseImportProgress() {
   const p = _gImport;
   return { seq: p.seq, active: p.active, name: p.name, format: p.format,
            bytes: p.bytes, total: p.total, readings: p.readings, added: p.added,
-           done: p.done, error: p.error };
+           skipped: p.skipped, done: p.done, error: p.error };
 }
 function glucoseCount() {
   const s = glucoseRead();
@@ -6689,7 +6689,7 @@ async function glucoseImportFile(file) {
   if (!file) return { ok: false, error: 'No file.' };
   const name = String(file.name || 'that file');
   _gImport = { seq: ++_gSeq, active: true, name: name, format: '', bytes: 0,
-               total: file.size || 0, readings: 0, added: 0, done: false, error: '' };
+               total: file.size || 0, readings: 0, added: 0, skipped: 0, done: false, error: '' };
   glucoseImportPaint();
   try {
     const head = await file.slice(0, 65536).text();
@@ -6712,7 +6712,28 @@ async function glucoseImportFile(file) {
     const before = glucoseCount();
     const out = glucoseIngest(res.rows, { rawUnit: res.meta.rawUnit, source: res.meta.source });
     _gImport.added = glucoseCount() - before;
+    _gImport.skipped = out.skipped || 0;
     _gImport.active = false; _gImport.done = true;
+    // EVERY ROW REJECTED IS A REFUSAL, NOT A QUIET ZERO.
+    //
+    // Measured against fourteen candidate Shortcut outputs: a file carrying
+    // Shortcuts' DEFAULT date rendering ("October 2, 2026 at 7:30 AM"), or a
+    // value with a locale decimal comma, sniffs fine, parses as valid JSON,
+    // reaches here -- and then every row dies on Date.parse or num. This
+    // printed "0 new readings" and no error, which is the one thing ruling A
+    // forbids: unrecognised input refused BY NAME. Unreadable in substance is
+    // still unreadable.
+    //
+    // `stored` is what separates this from the ordinary case: a re-import has
+    // stored > 0 with added == 0 and is a success; stored == 0 means nothing in
+    // the file was usable at all.
+    if (out.stored === 0) {
+      return glucoseImportFail(name, 'carries ' + res.rows.length + ' reading'
+        + (res.rows.length === 1 ? '' : 's') + ' the app could not read'
+        + (fmt === 'shortcut'
+            ? ", so nothing was changed. Almost always the date: in the Shortcut, format it as yyyy-MM-dd'T'HH:mm:ssZZZZZ, and keep the value a plain number with a period for the decimal."
+            : ', so nothing was changed.'));
+    }
     if (out.unitClash) {
       _gImport.error = name + ' is in a different unit from readings already held. Two units '
         + 'never merge into one line, so that day was left alone.';
@@ -6758,6 +6779,10 @@ function glucoseImportNoteInner() {
     const held = Math.max(0, p.readings - p.added);
     return '<span class="gok">' + esc(p.name) + ' \u2014 ' + p.added + ' new reading'
       + (p.added === 1 ? '' : 's') + (held ? ', ' + held + ' already held' : '')
+      // A PARTIAL LOSS IS STATED. Same discipline as "from N of M items" on the
+      // micro totals: a count that quietly excludes rows is a count that reads
+      // as complete.
+      + (p.skipped ? ', ' + p.skipped + ' unreadable and skipped' : '')
       + ' \u00b7 ' + esc(mbWords(p.bytes)) + ' read</span>';
   }
   return '';
@@ -8975,6 +9000,7 @@ const VERSION_LOG = [
   { v: '0.58.0', d: '2026-10-02', note: 'Glucose from Apple Health. A day with readings gets one line under its total — average, low and high, how many readings they came from, how much of the day had none, and how old the newest one is. Tap it for a chart you can pinch and swipe: 6 hours to 10 days, with meals and events on the same timeline. Gaps are drawn as gaps. Apple Health gets these about three hours late, so the newest point is always hours old.' },
   { v: '0.59.0', d: '2026-10-02', note: 'Fixes the Trends rows, which had picked up the wrong layout and pushed the page a few pixels sideways on a narrow phone.' },
   { v: '0.60.0', d: '2026-10-03', note: 'Import glucose from an Apple Health export or a Shortcut file \u2014 readings merge by timestamp, so re-importing adds no duplicates.' },
+  { v: '0.60.1', d: '2026-10-03', note: 'Fix: an import whose readings could not be read now says so by name, instead of reporting nothing added.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

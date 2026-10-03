@@ -162,6 +162,13 @@ $F_JSON = Join-Path $fixdir 'glucose.json'
 $F_EMPTY = Join-Path $fixdir 'empty.xml'
 $F_JUNK = Join-Path $fixdir 'shopping-list.txt'
 $F_NOGLU = Join-Path $fixdir 'export-noglucose.xml'
+# The two shapes a Shortcut produces when the recipe is followed carelessly.
+# Both sniff as a glucose file and both parse as valid JSON, so they reach the
+# ingest and die there -- which is why the route reported "0 new readings" and no
+# error until the stored==0 guard was added. Verified against fourteen candidate
+# outputs; these are the two that were silently accepted.
+$F_BADDATE = Join-Path $fixdir 'glucose-unformatted-date.json'
+$F_BADNUM = Join-Path $fixdir 'glucose-decimal-comma.json'
 New-AppleExport $F_EXPORT 120 300
 # 64MB, and the size is the whole point. A 12.8MB fixture CANNOT discriminate:
 # materialised as UTF-16 it costs ~26MB, under the 60MB threshold below, so the
@@ -171,6 +178,8 @@ New-AppleExport $F_EXPORT 120 300
 # because of its number.
 New-AppleExport $F_BIG 300 300000
 New-AppleExport $F_NOGLU 0 500
+Set-Content -LiteralPath $F_BADDATE -Encoding utf8 -Value '[{"t":"October 2, 2026 at 7:30 AM","v":"5.6","unit":"mmol/L"}]'
+Set-Content -LiteralPath $F_BADNUM -Encoding utf8 -Value '[{"t":"2026-09-26T07:30:00-04:00","v":"5,6","unit":"mmol/L"}]'
 New-Item -ItemType File -Path $F_EMPTY -Force | Out-Null
 Set-Content -Path $F_JUNK -Value "milk`neggs`nbread" -Encoding utf8
 # the Shortcut-produced shape: a plain array of readings
@@ -439,7 +448,9 @@ JSON.stringify((function () {
 
   # ========== UNRECOGNISED INPUT IS REFUSED BY NAME ========================
   $nStable = $R3.n
-  foreach ($bad in @(@($F_JUNK, 'a shopping list'), @($F_EMPTY, 'a 0-byte file'), @($F_NOGLU, 'an export with no glucose'))) {
+  foreach ($bad in @(@($F_JUNK, 'a shopping list'), @($F_EMPTY, 'a 0-byte file'), @($F_NOGLU, 'an export with no glucose'),
+                     @($F_BADDATE, "a Shortcut file with Shortcuts' DEFAULT date rendering"),
+                     @($F_BADNUM, 'a Shortcut file whose value carries a locale decimal comma'))) {
     $path = $bad[0]; $what = $bad[1]; $nBefore = $nStable
     $s0 = Import-Seq
     Pick-File '#dayView input[type=file]' $path
@@ -550,7 +561,7 @@ JSON.stringify((function () {
     Cleanup
     exit 1
   }
-  Write-Host "IMPORT GATE: PASS -- the first import happens from the day's EMPTY glucose state through a real file input, with no call to any ingest function in this test; one control takes both an Apple export and a Shortcut JSON; a re-import adds nothing; a shopping list, a 0-byte file and an export with no glucose are each refused by name with the cache untouched; the heap grew ${growthMB}MB on a 64MB file, where materialising it would cost ~128MB; and nothing this app's own code requested left the origin."
+  Write-Host "IMPORT GATE: PASS -- the first import happens from the day's EMPTY glucose state through a real file input, with no call to any ingest function in this test; one control takes both an Apple export and a Shortcut JSON; a re-import adds nothing; five kinds of bad input are each refused by name with the cache untouched (a shopping list, a 0-byte file, an export with no glucose, and the two Shortcut shapes that sniff and parse fine but carry unreadable dates or a decimal comma); the heap grew ${growthMB}MB on a 64MB file, where materialising it would cost ~128MB; and nothing this app's own code requested left the origin."
   if ($foreign.Count) {
     Write-Host "  ATTRIBUTED AND EXCLUDED: $($foreign.Count) cross-origin call(s) from code this app did not load -- $(@($foreignOrigins) -join ', ') -- a web-antivirus on this machine injects a script into every page and that script uses XMLHttpRequest. Their stacks name no file of this origin, and they were present before the first import, so neither instrument above attributes them to the app."
   }
