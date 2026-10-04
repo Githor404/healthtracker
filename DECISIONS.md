@@ -8954,3 +8954,46 @@ would have made **every** overlap assertion read false had the export been missi
 (it was). It refuses by name now, and `dayKeyMs` is exported.
 
 `chart-gate` 118 → **131** assertions (112 measured, 19 invented).
+
+## D155 — ATTESTED ON DEVICE: v0.63.0, and a merge that ADDS (2026-10-04)
+
+> **Chart, panning and "back to \<day\>" all work on my iPhone. And an
+> incremental update worked end to end — a fresh Apple Health export imported
+> through the app's glucose import and merged the new readings with the ones
+> already held.** — user, on device
+
+**Recorded as ruled: the first on-device attestation of the merge ADDING new
+data.** [[D150]] attested the other side — a re-import reporting *"0 new readings,
+719 already held"* — and until now nothing on the device had shown `added > 0`
+with the existing readings still there.
+
+What this newly attests, end to end on the phone: the second import of a larger
+file; `added > 0` reaching the surface with its count; and the chart redrawing
+over the enlarged series. Also, implicitly, that the cache persisted between
+sessions.
+
+### WHAT NEITHER ATTESTATION DISCRIMINATES, AND IT MATTERS
+
+**Neither this nor [[D150]] can tell a MERGE from a REPLACE.** Apple's *Export All
+Health Data* always produces a **full** export, so every file imported so far has
+been a **superset** of what was held. Replacing a day with a superset yields
+exactly the same stored result as merging into it.
+
+So the defect [[D146]] found — `store[dk] = norm`, which **replaced** the day — would
+have passed both device attestations. That is worth writing down plainly, because
+the obvious reading of *"the merge worked on device"* is that the merge was tested,
+and it was not: what was tested is that importing a superset does not lose it.
+
+**The discrimination lives in the gate, and only there.** `import-gate.ps1` imports
+an Apple export (91 readings on one day), then a Shortcut-style JSON on a
+**deliberately non-overlapping** grid, and asserts the count moves to exactly
+**91 + 36**. Under a replace the day would hold 36. That assertion is the only
+place in this project where merge and replace give different answers.
+
+**What would discriminate it on the device: a PARTIAL file** — one holding less than
+the store does. That is precisely the Shortcut route ([[H22]]), which is unbuilt and
+parked behind the native-shell question. Until it exists, the device can attest
+that imports accumulate, and the gate is what holds the shape of how.
+
+Supports leg 1 of [[D152]] (STREAMS). No code changed; nothing was built from this
+entry.
