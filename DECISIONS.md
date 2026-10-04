@@ -8736,3 +8736,81 @@ keeps price intelligence as a capability?** Recorded as the latter because that 
 what was asked for (*"record the app's direction as a standing ruling"*), and
 flagged because the two documents now describe different products. Not resolved
 without a ruling.
+
+## H23 — Reading the chart: the day it shows, the moment you touch, and two names for two ages — PRE-REGISTERED (2026-10-03)
+
+**Serves leg 1 of [[D152]], TRACK** — and partly enables leg 2, since tap-anywhere
+surfaces the nearest meal beside a glucose value, which is the first half of an
+event signature.
+
+**Label note.** The user called this *R114*, then *R118*, and numbered the marker
+item *3* when it was *2* in the list given (1 time axis, 2 labelled meal markers,
+3 two ages, 4 the collision). Neither identifier exists in this repo. It is H23.
+
+### MEASURED FIRST
+
+| | measured |
+|---|---|
+| the window ignores the viewed day | viewing **2026-10-01**, the window line read **10/2 23:55 → 10/3 23:55**. The window is anchored to the *globally* newest reading, so a row that says *"from 288 readings"* for one day opens a chart of a different day |
+| the two ages | row `.gage` **"1 day ago"**, window line **"last reading just now"**, simultaneously, both about *the last reading* |
+| `14 mmol/L` box | **76.7 units wide** against a **38-unit** gutter: overruns by **40.7**, which is **14.3%** of the 284-unit plot |
+| and it covers real ink | the **above-domain clip marker** at x=38.7 — the one mark [[D146]]'s ruling D requires, saying a value left the declared range — **and** the series polyline |
+| the same label is trimmed | its box starts at **y = -4**, above the viewBox, so SVG clips the top of the glyphs. `y = yOf(14) + 5 = 13` with a 16px font puts the ascent outside |
+| no time axis | **0** nodes. `padB = 20` units are reserved at the bottom and **nothing is drawn in them** |
+| 44pt against marker density | 44pt = **44 user units** here (1 unit = 1px) = **15.5% of the plot each**. Closest marker pair with only FOUR meals: **9.5 units at 3 days**, **2.8 at 10 days**. Hit zones would overlap 4.6× at 3 days and far worse at 10 |
+
+**Three fixture attempts for one measurement.** Twice the above-domain spike fell
+outside the window — 230 readings is 19h against a 24h window anchored to the last
+reading, leaving the left 60 units of plot empty — and the ink test passed while
+proving nothing. It came right only by computing the target x explicitly. *The
+fixture must contain the state the defect lives in*, for the sixth time this
+session.
+
+### RULINGS
+
+**1 — ANCHOR TO THE VIEWED DAY. Top priority.** A chart opened from a day's row
+shows **that day**: the default window ends at that day's last reading, or at the
+day's end if that is earlier, **never the globally newest reading**. [[H19]]-B said
+*"the last reading, never now"* without saying **whose**; for a row attached to a
+day, it is that day's. *Gated: open the row for a past day → the window line names
+that day.*
+
+**2 — NO MARKER HEADS.** Deleted on the measurement above: 44pt zones overlap
+4.6× at the 3-day preset. **Tap-anywhere only** — a tap (not a swipe) snaps a
+crosshair to the nearest moment and shows value, time and nearest meal/event in
+**ONE readout line with ONE owner**. Markers stay **visual**, meals distinct from
+events, and are **not tap targets**.
+
+> One line with one owner is the ruling that matters most here. Two features
+> writing one line is the shape that produced the two-ages defect in the first
+> place.
+
+**3 — TWO AGES, TWO NAMES.** The row: **"last reading this day — X ago"**. The
+window line: **"newest reading held — X ago"**. Never both called *last reading*.
+
+**4 — NEGATIVE AGES ARE FLAGGED.** A future timestamp says so and is **never
+rendered "just now"** — it is a **data error, not freshness**. (Found because my own
+fixture put readings 15 minutes ahead of the mocked clock and `ageWords` reported
+them as fresh.)
+
+**5 — TIME AXIS** in the reserved bottom band, **ticks adapting to the zoom**.
+**UNIT OFF THE AXIS** — numbers only; the window line names the unit. That alone
+takes the top label from 9 glyphs to 2, which is what removes the ink collision
+rather than papering over it.
+
+### WHAT GETS GATED, ON INK
+
+Added to `chart-gate.ps1`, asserting rendered ink rather than boxes — a label
+overhanging empty chart is ugly, a label covering a clip marker is wrong:
+
+- no axis label's box intersects **any** `.tclip` or `.tseries` ink, on a fixture
+  that **places an above-domain value under the label by computed x**
+- every axis label lies **inside the viewBox** (no `y < 0`)
+- a past day's row opens a window whose line **names that day**
+- the row says *last reading this day*, the window line says *newest reading
+  held*, and **neither contains the other's phrase**
+- a future timestamp renders as a flagged error, **not** as *just now*
+- a time axis exists, its ticks change between presets, and it draws **inside**
+  the reserved bottom band
+- a real touch **tap** shows the readout; a real touch **swipe** still pans and
+  does **not** show it; **one** readout element exists, never two
