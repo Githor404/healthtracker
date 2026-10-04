@@ -9745,9 +9745,21 @@ window.setLS({});
   // F: THE CONTROL IS GENERIC. Given a bare series it draws without knowing
   // anything about glucose -- Trends is its second caller.
   var CH19 = HT.timeChart({ series: [{ t: 1000, v: 3 }, { t: 2000, v: 9 }],
-    from: 0, to: 3000, domainMin: 0, domainMax: 10, unit: 'things', width: 200, height: 80 });
-  res(CH19.indexOf('<svg') === 0 && CH19.indexOf('polyline') > 0 && CH19.indexOf('things') > 0,
-      'H19-generic GATE: timeChart draws a series that has nothing to do with glucose, carrying the caller\u2019s own unit -- F ruled a generic control because sparklineSVG became unusable by being shaped by one caller');
+    from: 0, to: 3000, domainMin: 0, domainMax: 10, width: 200, height: 80 });
+  res(CH19.indexOf('<svg') === 0 && CH19.indexOf('polyline') > 0,
+      'H19-generic GATE: timeChart draws a series that has nothing to do with glucose -- F ruled a generic control because sparklineSVG became unusable by being shaped by its one caller');
+  // SUPERSEDED BY H23/5, and replaced rather than dropped. This assertion used
+  // to require the chart to echo the caller's unit; the unit is off the axis
+  // now, because "14 mmol/L" measured 76.7 units against a 38-unit gutter and
+  // covered the clip marker that says a value left the declared range. Echoing
+  // a unit was never the property F cared about -- knowing nothing about glucose
+  // is -- and a chart that draws numbers while the caller names the unit is MORE
+  // generic, not less. So genericity is now asserted on what it is: the
+  // caller's own domain on the axis, and no glucose vocabulary anywhere.
+  res(CH19.indexOf('>0<') > 0 && CH19.indexOf('>10<') > 0 && CH19.indexOf('>5<') > 0,
+      'H19-generic GATE: the axis carries the CALLER\u2019S domain (0 / 5 / 10), not glucose\u2019s 2-14 -- the control is told its bounds and does not assume them');
+  res(CH19.toLowerCase().indexOf('mmol') < 0 && CH19.toLowerCase().indexOf('glucose') < 0,
+      'H19-generic GATE: and nothing in the rendered chart mentions glucose or its unit, which is the property F actually ruled on');
   res(HT.timeChart({ series: [], from: 0, to: 0, domainMin: 0, domainMax: 1 }) === '',
       'H19-generic: a zero-width window draws nothing rather than dividing by zero');
 

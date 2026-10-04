@@ -5045,3 +5045,24 @@ same content **with a BOM passes**, and an empty directory fails the floor.
 **Why it exists:** `jargon-gate` had a literal em dash in a regex, which PowerShell
 5.1 delivered as codepoints 226,8364,8221 instead of 8212, so that banned phrase
 was never checked while the gate stayed green.
+
+### D153 — reading the chart — chart-gate extended
+
+29 assertions added to `tests/chart-gate.ps1` (89 → **118**). Suite stays **27
+verdicts**.
+
+| case | asserts |
+|---|---|
+| **chart-gate.ps1** | a past day's row opens a window whose line **names that day**, and does NOT name the globally newest one |
+| **chart-gate.ps1** | **on ink, not boxes**: no axis label's box touches any `.tclip` or `.tseries` — behind a **fixture guard** that fails if no clip is in view, because that is how this test passed for free twice |
+| **chart-gate.ps1** | every axis label lies inside the viewBox (no `y < 0`) |
+| **chart-gate.ps1** | the row says *last reading this day*, the window line says *newest reading held*, and **neither carries the other's phrase** |
+| **chart-gate.ps1** | a negative age renders as **ahead of the clock**, never *just now* — at `ageWords` AND on the row, because the row's figure was floored at zero |
+| **chart-gate.ps1** | a `.txaxis` exists, draws **inside** the band (read from `HT.CHART_PAD`, not a literal), and its ticks **differ** between 6 h and 24 h |
+| **chart-gate.ps1** | a real touch **tap** shows exactly **one** `.treadout` and a `.tcross`; a real **swipe** pans and shows none |
+| **chart-gate.ps1** | a multi-reading column states **range, span and count**; **zooming in** turns that same pick into a single reading **with no second tap** |
+| **chart-gate.ps1** | the y-axis carries **no** unit, and the **window line** does (superseded assertion, inverted rather than dropped) |
+
+**Still true and still printed:** the 3-day and 10-day presets have never been
+exercised against real data. [[D150]] narrows it — the device holds ~2.5 days, short
+of even one full 3-day window.

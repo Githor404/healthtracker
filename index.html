@@ -754,6 +754,14 @@ svg.tchart .tmark{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3}
 svg.tchart .tclip{fill:var(--muted)}
 .tnote{font-size:16px;color:var(--muted);margin:4px 0 0}
 .tunitrefuse{font-size:16px;color:var(--muted);margin:4px 0}
+/* H23: the time axis, the crosshair, and the one readout line. */
+svg.tchart .txaxis line{stroke:var(--line);stroke-width:1}
+svg.tchart .txaxis text{font-size:16px;fill:var(--muted);text-anchor:middle}
+svg.tchart .tcross{stroke:var(--fg);stroke-width:1;stroke-dasharray:3 2}
+/* Meals distinct from events, as ruled -- visual only, never tap targets:
+   44pt hit zones overlap 4.6x at the 3-day preset, measured. */
+svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;opacity:0.55}
+.treadout{font-size:16px;line-height:1.4;margin:4px 0 0;overflow-wrap:anywhere;color:var(--fg)}
 /* H20: the import route's surfaces. `.gempty` is the FIRST import's home --
    the glucose row cannot be, because a day with no readings draws no row
    (D146). It appears only while the whole cache is empty. */

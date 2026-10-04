@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.61.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.62.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -6757,7 +6757,8 @@ function glucoseImportAfter() {
   const dk = APP_STATE && APP_STATE.current;
   if (dk && glucoseDaySummary(dk)) {
     GLUCOSE_OPEN[String(dk)] = true;
-    if (!CHART_WIN) chartPreset(CHART_LABEL);
+    CHART_PICK = null;
+    chartPreset(CHART_LABEL);
   }
   renderDay();
   glucoseImportPaint();
@@ -6956,7 +6957,10 @@ function glucoseDaySummary(dk) {
     unit: d.u, rawUnit: d.raw || '', source: d.src || '',
     gaps: gaps, gapMs: Math.round(gapMinutes * 60000),
     firstMs: dayKeyMs(dk) + ts[0] * 60000, lastMs: lastMs,
-    lastAgeMs: Math.max(0, nowMs() - lastMs),
+    // NOT clamped at 0: a reading dated after the clock is a data error and
+    // the row has to be able to say so. Flooring it here swallowed the flag
+    // ageWords was built to raise (H23/4).
+    lastAgeMs: nowMs() - lastMs,
   };
 }
 function dayKeyMs(dk) {
@@ -6991,6 +6995,21 @@ function glucoseLastMs() {
 // nominal would understate exactly when it matters most.
 function ageWords(ms) {
   if (ms == null) return '';
+  // H23/4: A READING DATED AFTER THE CLOCK IS A DATA ERROR, NOT FRESHNESS.
+  // It used to render "just now", because Math.round of a negative age gives 0
+  // and 0 is under a minute. Found when a gate fixture put readings 15 minutes
+  // ahead of its mocked clock and the row called them fresh.
+  //
+  // Under a minute either way is clock skew between a sensor and a phone, not an
+  // error, so the flag starts past that.
+  if (ms < -60000) {
+    const am = Math.round(-ms / 60000);
+    if (am < 60) return am + ' min AHEAD of the clock';
+    const ah = Math.round(am / 60);
+    if (ah < 24) return ah + ' h AHEAD of the clock';
+    const ad = Math.round(ah / 24);
+    return ad + (ad === 1 ? ' day' : ' days') + ' AHEAD of the clock';
+  }
   const m = Math.round(ms / 60000);
   if (m < 1) return 'just now';
   if (m < 60) return m + ' min ago';
@@ -7023,11 +7042,50 @@ function ageWords(ms) {
 // from the visible window would make two windows mean different things, which is
 // the whole reason to fix an axis. A value outside it is CLIPPED AND MARKED,
 // never rescaled and never dropped.
+// ONE SOURCE FOR THE PADDING, because the gate has to assert that the time axis
+// draws inside the reserved band and a literal 20 in a test is a second opinion
+// about a layout constant. B went 20 -> 24: a 16px label has a MEASURED 17-unit
+// ascent, and 20 units could not hold one without its box leaving the band.
+const CHART_PAD = { L: 38, R: 6, T: 8, B: 24 };
+// Tick spacings, coarsest-last. The first one that fits at most 6 ticks in the
+// window wins, so the axis gets denser as you zoom in without being told to.
+const CHART_TICK_MS = [3600000, 2 * 3600000, 3 * 3600000, 6 * 3600000,
+                       12 * 3600000, 86400000, 2 * 86400000, 5 * 86400000];
+function chartTimeTicks(from, to) {
+  const span = to - from;
+  if (!(span > 0)) return [];
+  let step = CHART_TICK_MS[CHART_TICK_MS.length - 1];
+  for (let i = 0; i < CHART_TICK_MS.length; i++) {
+    if (span / CHART_TICK_MS[i] <= 6) { step = CHART_TICK_MS[i]; break; }
+  }
+  // Aligned to LOCAL wall-clock boundaries, not to multiples of the epoch: a
+  // tick at 03:17 tells you nothing you came to the chart for.
+  const d0 = new Date(from);
+  let t;
+  if (step >= 86400000) {
+    t = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime();
+  } else {
+    const hs = Math.max(1, Math.round(step / 3600000));
+    t = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate(),
+                 Math.floor(d0.getHours() / hs) * hs).getTime();
+  }
+  const out = [];
+  let guard = 0;
+  while (t <= to && guard++ < 400) {
+    if (t >= from) out.push({ t: t, step: step });
+    t += step;
+  }
+  return out;
+}
+function hhmm(ms) {
+  const d = new Date(ms);
+  return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
 function timeChart(opts) {
   const o = opts || {};
   const W = Math.max(120, Math.round(num(o.width) || 328));
   const H = Math.max(80, Math.round(num(o.height) || 150));
-  const padL = 38, padR = 6, padT = 8, padB = 20;
+  const padL = CHART_PAD.L, padR = CHART_PAD.R, padT = CHART_PAD.T, padB = CHART_PAD.B;
   const from = num(o.from), to = num(o.to);
   const dmin = num(o.domainMin), dmax = num(o.domainMax);
   const span = to - from;
@@ -7085,12 +7143,42 @@ function timeChart(opts) {
       + '" data-dir="' + (up ? 'above' : 'below') + '"></circle>';
   }).join('');
 
-  // the fixed axis: the declared bounds and the middle, with the unit on top
+  // THE FIXED AXIS: the declared bounds and the middle. NUMBERS ONLY.
+  //
+  // The unit used to ride the top tick, making it "14 mmol/L" -- measured at
+  // 76.7 units against a 38-unit gutter, covering the above-domain CLIP MARKER
+  // that [[D146]] ruling D requires, the one mark that says a value left the
+  // declared range. The unit is on the window line now, where it is read once
+  // instead of competing with the data.
+  //
+  // The baselines keep the glyphs INSIDE the viewBox: a 16px label has a
+  // measured 17-unit ascent, so a baseline at 13 put its box top at -4 and SVG
+  // trimmed it. The top tick sits just below its line; the others just above,
+  // which also keeps the lowest one clear of the time band.
   const ticks = [dmin, Math.round((dmin + dmax) / 2), dmax];
   const axis = '<g class="taxis">' + ticks.map(function (v, i) {
+    const ty = (i === ticks.length - 1) ? Math.max(yOf(v) + 5, 17) : yOf(v) - 6;
     return '<line x1="' + padL + '" y1="' + r1(yOf(v)) + '" x2="' + (W - padR) + '" y2="' + r1(yOf(v)) + '"/>'
-      + '<text x="2" y="' + r1(yOf(v) + 5) + '">' + esc(String(v) + (i === ticks.length - 1 && o.unit ? ' ' + o.unit : '')) + '</text>';
+      + '<text x="2" y="' + r1(ty) + '">' + esc(String(v)) + '</text>';
   }).join('') + '</g>';
+  // H23/5: THE TIME AXIS, in the band reserved for it and never outside it.
+  // Ticks within half a label of either edge are dropped rather than clipped.
+  const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to).map(function (tk) {
+    const x = r1(xOf(tk.t));
+    if (x < padL + 16 || x > W - padR - 16) return '';
+    const d = new Date(tk.t);
+    const lab = tk.step >= 86400000
+      ? (d.getMonth() + 1) + '/' + d.getDate()
+      : hhmm(tk.t);
+    return '<line x1="' + x + '" y1="' + (padT + plotH) + '" x2="' + x + '" y2="' + (padT + plotH + 3) + '"/>'
+      + '<text x="' + x + '" y="' + (padT + plotH + 18) + '">' + esc(lab) + '</text>';
+  }).join('') + '</g>';
+  // H23/2: the crosshair, drawn from the SAME state the readout reads, so the
+  // two cannot disagree. Outside the window it simply is not drawn.
+  const pick = (o.pick != null && o.pick >= from && o.pick <= to)
+    ? '<line class="tcross" x1="' + r1(xOf(o.pick)) + '" y1="' + padT
+      + '" x2="' + r1(xOf(o.pick)) + '" y2="' + (padT + plotH) + '"/>'
+    : '';
 
   const marks = (o.marks || []).filter(function (m) { return m && m.t >= from && m.t <= to; })
     .map(function (m) {
@@ -7101,7 +7189,7 @@ function timeChart(opts) {
 
   const series = polys.map(function (p) { return '<polyline class="tseries" points="' + p + '"/>'; }).join('');
   return '<svg class="tchart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H
-    + '" preserveAspectRatio="none" role="img">' + axis + marks + series + clips + '</svg>';
+    + '" preserveAspectRatio="none" role="img">' + axis + xaxis + marks + series + clips + pick + '</svg>';
 }
 
 // ---- H19: THE WINDOW, THE GESTURES, AND THE DAY ROW -----------------------
@@ -7125,11 +7213,32 @@ function chartPresetSeconds(label) {
   for (let i = 0; i < CHART_PRESETS.length; i++) if (CHART_PRESETS[i].label === label) return CHART_PRESETS[i].s;
   return null;
 }
+// H23/1: THE WINDOW BELONGS TO THE DAY THE ROW WAS OPENED FROM.
+//
+// [[H19]]-B ruled the right edge is the last reading and never now, without
+// saying WHOSE last reading. Anchored to the globally newest one, opening a past
+// day's row drew a different day: measured, viewing 2026-09-24 produced a window
+// of 9/25 03:15 -> 9/26 03:15, so the row said "from 288 readings" and the chart
+// below it showed none of them.
+//
+// The ruling says "that day's last reading, or its end, if earlier". A reading
+// cannot postdate its own day, so the two resolve to the same instant; the min
+// is kept so the code reads as the rule reads.
+function chartAnchorMs() {
+  const dk = APP_STATE && APP_STATE.current;
+  if (dk && isDayKey(dk)) {
+    const sum = glucoseDaySummary(dk);
+    if (sum && sum.lastMs != null) {
+      return Math.min(sum.lastMs, dayKeyMs(dk) + 86400000 - 1);
+    }
+  }
+  const g = glucoseLastMs();
+  return g == null ? nowMs() : g;
+}
 function chartPreset(label) {
   const s = chartPresetSeconds(label);
   if (s == null) return { ok: false, error: 'No such window.' };
-  const last = glucoseLastMs();
-  const to = last == null ? nowMs() : last;
+  const to = chartAnchorMs();
   CHART_LABEL = label;
   CHART_WIN = { from: to - s * 1000, to: to };
   glucoseRedraw();
@@ -7168,7 +7277,14 @@ function glucoseIsOpen(dk) { return GLUCOSE_OPEN[String(dk)] === true; }
 function glucoseToggle(dk) {
   const k = String(dk);
   if (GLUCOSE_OPEN[k]) delete GLUCOSE_OPEN[k];
-  else { GLUCOSE_OPEN[k] = true; if (!CHART_WIN) chartPreset(CHART_LABEL); }
+  else {
+    GLUCOSE_OPEN[k] = true;
+    // ALWAYS re-anchor on open, not only when there is no window yet: opening a
+    // second day otherwise inherits the first day's window, which is the same
+    // defect one step removed.
+    CHART_PICK = null;
+    chartPreset(CHART_LABEL);
+  }
   renderDay();
   return { ok: true, open: glucoseIsOpen(dk) };
 }
@@ -7220,10 +7336,83 @@ function chartWindowLine() {
   const span = Math.round((w.to - w.from) / 1000);
   const lab = CHART_LABEL || (span >= 86400
     ? (Math.round(span / 8640) / 10) + ' days' : (Math.round(span / 360) / 10) + ' h');
+  // H23/3: TWO AGES, TWO NAMES. This line is about the whole cache; the row is
+  // about one day. Both used to say "last reading", and on any day but the
+  // newest they disagreed -- measured at "1 day ago" beside "just now".
   const last = glucoseLastMs();
-  const age = last == null ? '' : ' \u00b7 last reading ' + ageWords(nowMs() - last);
+  const age = last == null ? '' : ' \u00b7 newest reading held ' + ageWords(nowMs() - last);
+  // H23/5: the unit lives HERE now, not on the value axis, where its nine
+  // glyphs covered the clip marker that says a value left the declared range.
+  const u = glucoseUnitShown();
+  const unit = u ? ' \u00b7 ' + u : '';
   return lab + ' \u00b7 ' + fmtWinDate(w.from) + ' ' + fmtWinStamp(w.from)
-    + ' \u2192 ' + fmtWinDate(w.to) + ' ' + fmtWinStamp(w.to) + age;
+    + ' \u2192 ' + fmtWinDate(w.to) + ' ' + fmtWinStamp(w.to) + unit + age;
+}
+// H23/2: THE READOUT HAS ONE OWNER -- this state. The crosshair and the line
+// below the chart are both derived from it at render time, so they cannot drift
+// apart, and nothing else writes either of them. Two features writing one line
+// is the shape that produced the two-ages defect.
+let CHART_PICK = null;                 // a moment in ms, or null
+function glucoseUnitShown() {
+  const dk = APP_STATE && APP_STATE.current;
+  const sum = dk ? glucoseDaySummary(dk) : null;
+  if (sum && sum.unit) return sum.unit;
+  const store = glucoseRead();
+  const ks = Object.keys(store);
+  return ks.length ? (store[ks[0]].u || '') : '';
+}
+function glucoseNearestMark(t) {
+  const w = chartWindow();
+  const ms = glucoseMarks(w.from, w.to);
+  let best = null, bd = Infinity;
+  for (let i = 0; i < ms.length; i++) {
+    const d = Math.abs(ms[i].t - t);
+    if (d < bd) { bd = d; best = ms[i]; }
+  }
+  return best;
+}
+// ONE PIXEL COLUMN IS THE RESOLUTION THE CHART HAS.
+//
+// [[D146]] ruling C draws a min/max envelope per column precisely so a spike is
+// not averaged away. A readout naming one value for a column that holds ten
+// would undo that at the moment of reading -- at the 10-day preset a column is
+// about 50 minutes wide. So a column with more than one reading states its
+// RANGE, its SPAN and its COUNT, and zooming in is what turns that into a single
+// reading.
+function glucoseReadout(t) {
+  if (t == null) return null;
+  const w = chartWindow();
+  if (!(t >= w.from && t <= w.to)) return null;
+  const plotW = Math.max(40, GLUCOSE_CHART_W - CHART_PAD.L - CHART_PAD.R);
+  const col = (w.to - w.from) / plotW;
+  let pts = glucoseSeries(t - col / 2, t + col / 2);
+  if (!pts.length) {
+    // Nothing in this column. Falling back to the nearest single reading is a
+    // DIFFERENT claim, and showing one value is how it says so.
+    const all = glucoseSeries(w.from, w.to);
+    let best = null, bd = Infinity;
+    for (let i = 0; i < all.length; i++) {
+      const d = Math.abs(all[i].t - t);
+      if (d < bd) { bd = d; best = all[i]; }
+    }
+    if (!best) return null;
+    pts = [best];
+  }
+  const u = glucoseUnitShown() || 'mmol/L';
+  const near = glucoseNearestMark(t);
+  const nearTxt = near && near.label ? ' \u00b7 nearest ' + near.label + ' ' + hhmm(near.t) : '';
+  if (pts.length === 1) {
+    return rDisp(pts[0].v) + ' ' + u + ' \u00b7 ' + hhmm(pts[0].t) + nearTxt;
+  }
+  let lov = pts[0].v, hiv = pts[0].v, lot = pts[0].t, hit = pts[0].t;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].v < lov) lov = pts[i].v;
+    if (pts[i].v > hiv) hiv = pts[i].v;
+    if (pts[i].t < lot) lot = pts[i].t;
+    if (pts[i].t > hit) hit = pts[i].t;
+  }
+  return gFix(lov) + '\u2013' + gFix(hiv) + ' ' + u + ' \u00b7 '
+    + hhmm(lot) + '\u2013' + hhmm(hit) + ' \u00b7 ' + pts.length + ' readings' + nearTxt;
 }
 function glucoseChartHTML(dk) {
   const w = chartWindow();
@@ -7247,14 +7436,18 @@ function glucoseChartHTML(dk) {
   const chart = timeChart({
     series: series, from: w.from, to: w.to,
     domainMin: GLUCOSE_DOMAIN.min, domainMax: GLUCOSE_DOMAIN.max,
-    unit: (sum && sum.unit) || 'mmol/L',
+    // No `unit`: the chart draws numbers and the window line names the unit
+    // (H23/5). An option nothing reads is a promise the next caller believes.
     marks: glucoseMarks(w.from, w.to),
+    pick: CHART_PICK,
     width: GLUCOSE_CHART_W, height: 150,
     gapMs: GLUCOSE_STEP_S * 3 * 1000,
   });
+  const ro = glucoseReadout(CHART_PICK);
   return '<div class="twindow">' + esc(chartWindowLine()) + '</div>'
     + '<div class="tpresets">' + presets + '</div>'
     + '<div class="tchartbox">' + chart + '</div>'
+    + (ro ? '<div class="treadout">' + esc(ro) + '</div>' : '')
     + glucoseNoteHTML(dk);
 }
 let GLUCOSE_CHART_W = 328;            // MEASURED inside the day card at 390; re-read on wire
@@ -7299,7 +7492,8 @@ function glucoseRowHTML(dk) {
     + '</div> '
     + '<div class="gsub"><span class="gcov">from ' + sum.n + ' reading' + (sum.n === 1 ? '' : 's')
     + esc(miss) + esc(short) + '</span> '
-    + '<span class="gage">' + esc(ageWords(sum.lastAgeMs)) + '</span></div>'
+    + '<span class="gage">last reading this day \u2014 ' + esc(ageWords(sum.lastAgeMs))
+    + '</span></div>'
     + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + glucoseImportFootHTML('row') + '</div>' : '')
     + '</div>';
 }
@@ -7362,7 +7556,24 @@ function glucoseWire() {
     chartPanMs(-(dx / px) * span);
     glucoseRedraw();
   }, { passive: false });
-  svg.addEventListener('touchend', function () { _gTouch = null; }, { passive: true });
+  svg.addEventListener('touchend', function () {
+    const g = _gTouch;
+    _gTouch = null;
+    if (!g) return;
+    // A TAP IS A TOUCH THAT NEVER CROSSED THE AXIS-LOCK THRESHOLD. `axis` stays
+    // null until movement passes 8px, so reusing it is reusing that same
+    // number -- one threshold with one meaning, rather than a second opinion
+    // about what counts as a deliberate drag.
+    if (g.axis !== null) return;
+    const r = svg.getBoundingClientRect();
+    if (!(r.width > 40)) return;
+    const ux = (g.x - r.left) / r.width * GLUCOSE_CHART_W;
+    const plotW = Math.max(40, GLUCOSE_CHART_W - CHART_PAD.L - CHART_PAD.R);
+    const frac = Math.min(1, Math.max(0, (ux - CHART_PAD.L) / plotW));
+    const w = chartWindow();
+    CHART_PICK = w.from + frac * (w.to - w.from);
+    glucoseRedraw();
+  }, { passive: true });
   return true;
 }
 // ---- H7: the typical band (D95) -------------------------------------------
@@ -9079,6 +9290,7 @@ const VERSION_LOG = [
   { v: '0.60.0', d: '2026-10-03', note: 'Import glucose from an Apple Health export or a Shortcut file \u2014 readings merge by timestamp, so re-importing adds no duplicates.' },
   { v: '0.60.1', d: '2026-10-03', note: 'Fix: an import whose readings could not be read now says so by name, instead of reporting nothing added.' },
   { v: '0.61.0', d: '2026-10-03', note: 'Glucose: a six-action Shortcut recipe in the app writes a small file to import daily, instead of exporting all of Apple Health.' },
+  { v: '0.62.0', d: '2026-10-03', note: 'Glucose chart: a time axis, a tap anywhere for the value and time at that moment, and the chart now opens on the day you came from.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14407,6 +14619,10 @@ window.HT = {
   glucoseImportFile, glucoseSniff, glucoseImportProgress, glucoseCanonUnit, glucoseCount,
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
+  chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
+  hhmm, CHART_PAD,
+  chartPick: () => CHART_PICK,
+  chartPickSet: (t) => { CHART_PICK = (t == null ? null : num(t)); glucoseRedraw(); return CHART_PICK; },
   GLUCOSE_SC_LINE, GLUCOSE_SC_DATEFMT, GLUCOSE_SC_FILE, GLUCOSE_SC_DAYS, GLUCOSE_SC_STEPS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
   state: () => APP_STATE,

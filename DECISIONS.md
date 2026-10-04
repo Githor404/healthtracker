@@ -8814,3 +8814,84 @@ overhanging empty chart is ugly, a label covering a clip marker is wrong:
   the reserved bottom band
 - a real touch **tap** shows the readout; a real touch **swipe** still pans and
   does **not** show it; **one** readout element exists, never two
+
+## D153 — Reading the chart — v0.62.0 (2026-10-03)
+
+[[H23]] built, all five rulings. **Serves leg 1 of [[D152]], TRACK**, and hands leg 2
+its first half: the readout names the nearest meal beside a glucose value, which
+is an event signature waiting for a verb.
+
+### THE TWO RULINGS WERE ENTANGLED, AND ONLY THE MEASUREMENT SHOWED IT
+
+Ruling 5 (unit off the axis) is what fixed the collision: `14 mmol/L` measured
+**76.7 units** against a **38-unit** gutter and covered the above-domain **clip
+marker** — the one mark [[D146]] ruling D requires, the mark that says a value left
+the declared range. As `14` it is about 17 units and fits the gutter, so the
+collision is gone **structurally**, not nudged.
+
+But ruling 1 (anchor to the viewed day) is what made that collision *testable*.
+Anchored to the globally newest reading, the spike on the viewed day was never on
+screen: the gate reported `clips-in-view=0`, and its fixture guard said in so many
+words that the ink assertion *"has nothing to collide with and would pass for
+free"*. Fixing the anchor brought the clip into view and the assertion became
+real. **Neither ruling could be verified without the other**, which was not
+visible from either description.
+
+### WHAT WENT IN
+
+| ruling | built |
+|---|---|
+| **1** | `chartAnchorMs()` — the window ends at the **viewed day's** last reading. [[H19]]-B said *"the last reading, never now"* without saying whose; for a row attached to a day it is that day's. Opening a row **always** re-anchors now, since opening a second day otherwise inherited the first day's window |
+| **2** | no marker heads (44pt zones overlap **4.6×** at the 3-day preset, measured). Tap-anywhere: a `.tcross` crosshair and **one** `.treadout` line, both derived from **one** state, `CHART_PICK`. A tap is a touch that never crossed the **axis-lock's own 8px threshold** — one threshold with one meaning, not a second opinion about what counts as a drag |
+| **3** | the row says **last reading this day**; the window line says **newest reading held**. Measured before: *"1 day ago"* beside *"just now"*, both called the last reading |
+| **4** | `ageWords` flags a future timestamp (`N min AHEAD of the clock`), with a one-minute band for sensor/phone skew |
+| **5** | a `.txaxis` time axis in the reserved band, ticks from a ladder that fits at most 6 per window and align to **local wall-clock** boundaries; value axis is **numbers only** |
+
+**The readout's shape, ruled:** a column holding more than one reading states its
+**range, span and count** (`5.2–11.8 mmol/L · 14:00–14:50 · 10 readings`); one reading
+gives its exact value and time. At the 10-day preset a column is about **50
+minutes** wide, so naming a single value there would undo [[D146]] ruling C at the
+moment of reading — the envelope exists precisely so a spike is not averaged away.
+
+**Zooming is the ruling, for free.** `CHART_PICK` stores a *moment*; the readout is
+derived at render time. So zooming necessarily re-resolves a 50-minute column into
+a single reading, and the gate tests it **with no second tap**.
+
+### THREE DEFECTS THE BUILD FOUND, TWO MINE
+
+| | |
+|---|---|
+| **the flag was swallowed upstream** | `glucoseDaySummary` returned `lastAgeMs: Math.max(0, now - last)`. Floored at zero, a future reading could never be reported as one **no matter what `ageWords` did**. I built ruling 4 and it died one call above where I built it |
+| **my swipe probe blamed the wrong thing** | it removed the `.treadout` element and then swiped — but removing a rendered element does not clear `CHART_PICK`, so the pan's own redraw re-rendered the readout from surviving state and the gate called it a swipe-created readout. *Removing the symptom is not resetting the state.* It calls `HT.chartPickSet(null)` now |
+| **two layout literals in the gate** | `padB: 20` hardcoded in the gate's own JS, and a plot floor derived from it, reported the chart bottom **4 units below** where it drew once `padB` went 20 → 24 (a 16px label has a measured 17-unit ascent; 20 units could not hold one). Both read `HT.CHART_PAD` now. *A literal in a test is a second opinion about a layout constant* |
+
+### TWO ASSERTIONS SUPERSEDED, AND NEITHER QUIETLY DROPPED
+
+Ruling 5 moved the unit, which invalidated everything asserting its old position.
+**The tempting move is to delete those and watch the suite go green.**
+
+- `chart-gate` asserted the y-axis *carries* the unit. **Inverted**, and a second
+  assertion added that the **window line** carries it — so the unit is still pinned
+  to being *somewhere* on screen rather than nowhere.
+- the harness's `H19-generic` used the echoed unit as its evidence that `timeChart`
+  is a **generic** control. But [[H19]]-F ruled it generic because `sparklineSVG` had
+  become unusable by being shaped by its one caller, and *"it echoes my unit"* was
+  never the property that mattered. **Replaced with three** assertions on what it
+  is: the axis carries the **caller's** domain (0/5/10, not glucose's 2-14), and
+  nothing rendered mentions glucose or `mmol`. Stronger than what it replaced — and
+  the chart is now **more** generic, since it embeds no unit convention at all,
+  which is what Trends inherits.
+
+The dead `unit` option came out of `timeChart` with it. *An option nothing reads is
+a promise the next caller believes.*
+
+### COSTS
+
+`padB` 20 → 24 takes 4 units of plot height for the time axis. The value labels
+moved with it: the top tick sits just **below** its line (baseline clamped to 17,
+so its 17-unit ascent stays inside the viewBox — it used to start at **y = -4** and
+SVG trimmed it), the others just above, which also keeps the lowest clear of the
+time band.
+
+Harness 2,641 → **2,643**. `chart-gate` 89 → **118** assertions (99 measured, 19
+invented).

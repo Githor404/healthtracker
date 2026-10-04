@@ -407,7 +407,12 @@ try {
     Chk 'M' ($P1.clips -ge 2) "the fixture carries two values outside the declared 2-14 domain and $($P1.clips) clip marks were drawn -- D ruled clipped and MARKED, never rescaled"
     Chk 'M' (@($P1.marks).Count -ge 2) "only $(@($P1.marks).Count) mark(s) on the chart -- the fixture has a meal and an event and both belong on the same axis"
     $ax = (@($P1.axis) -join ' ')
-    Chk 'M' ($ax -match '(?i)mmol') "the y-axis labels do not carry the unit: '$ax'"
+    # SUPERSEDED BY H23/5, and replaced rather than dropped. The unit used to
+    # ride the top tick; measured, those nine glyphs covered the above-domain
+    # clip marker. The unit must still be on screen -- the window line carries
+    # it now -- so both halves are asserted here.
+    Chk 'M' ($ax -notmatch '(?i)mmol') "the y-axis labels still carry the unit ('$ax'). H23/5 moved it to the window line because '14 mmol/L' is 76.7 units wide against a 38-unit gutter and covered the clip marker that says a value left the declared range"
+    Chk 'M' ((Eval "(document.querySelector('#dayView .grow .twindow')||{}).textContent||''") -match '(?i)mmol') "the unit left the axis and did NOT appear on the window line, so it is nowhere on screen"
     Chk 'M' ($ax -match '(^|\s)2(\s|$)' -and $ax -match '14') "the y-axis does not show the declared 2-14 domain: '$ax'"
     foreach ($f in @($P1.fonts)) { Chk 'M' ($f.px -ge 16) "16px floor -- $($f.sel) computes to $($f.px)px" }
   }
@@ -610,7 +615,10 @@ try {
   const vb = (svg.getAttribute('viewBox') || '0 0 328 150').split(/\s+/).map(Number);
   return JSON.stringify({ minY: ys.length ? Math.min.apply(null, ys) : null,
                           maxY: ys.length ? Math.max.apply(null, ys) : null,
-                          h: vb[3], padT: 8, padB: 20 });
+                          // FROM THE CODE, not a literal. padB moved 20 -> 24 for H23's
+                          // time axis, and a hardcoded 20 here reported the plot floor
+                          // 4 units below where the chart actually drew it.
+                          h: vb[3], padT: HT.CHART_PAD.T, padB: HT.CHART_PAD.B });
 })()
 '@
     $EX = $ext | ConvertFrom-Json
@@ -637,6 +645,246 @@ try {
   $smooth = Eval "JSON.stringify((function(){var s=String(HT.timeChart);return {mentionsSmooth:/smooth|movingAvg|moving_average|ema\\b/i.test(s)};})())"
   $SM = $smooth | ConvertFrom-Json
   Chk 'M' (-not $SM.mentionsSmooth) "the chart control contains smoothing -- the day's average WITH ITS COUNT is a statement about the day and is ruled in; an average used to DRAW the line hides the spike and stays rejected"
+
+  # ======================= H23: READING THE CHART ===========================
+  #
+  # RE-SEEDS DELIBERATELY. These assertions need a PAST day and a NEWEST day in
+  # one store, which the fixture above does not have; everything before this
+  # point has already run. The past day gets a FULL 24h of readings so the
+  # window's left edge coincides with its first reading -- measured the hard way:
+  # 19h of data in a 24h window leaves the left 60 units empty, which parked the
+  # above-domain spike clear of the axis label and let an ink test pass while
+  # proving nothing. The spike's x is computed, not eyeballed.
+  $h23 = EvalA @'
+(async function () {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const OLD = '2026-09-24';          // the day the row is opened FROM
+  const NEW = '2026-09-26';          // the globally newest readings live here
+  HT.setClock(function () { return Date.parse('2026-09-26T10:35:00-04:00'); });
+  localStorage.clear(); HT.boot(); await sleep(200);
+  const S = HT.state();
+  S.days[OLD] = { status: 'in_progress', water_l: 0, items: [
+    { name: 'lentil stew', meal: 'lunch', time: '12:30', grams: 200, kcal: 420,
+      protein_g: 20, fat_g: 8, carb_g: 60, fiber_g: 9, soluble_fiber_g: 2,
+      confidence: 'eyeballed', source: 'ai-paste', notes: '' }] };
+  S.days[NEW] = { status: 'in_progress', water_l: 0, items: [] };
+  S.timeline = S.timeline || {};
+  S.timeline[OLD] = [{ time: '18:00', kind: 'event', type: 'sauna', source: 'manual',
+                       notes: '', unit: 'min', value: 20 }];
+  S.current = OLD;
+  HT.glucoseClear();
+  // A FULL 24h on the past day. The spike sits at i=3 (00:15), which lands at
+  // x = 38 + (20/1440)*284 = 41.9 -- inside the 76.7-unit top label.
+  const mk = function (dk, n, spike) {
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const mi = i * 5;
+      const hh = String(Math.floor(mi / 60)).padStart(2, '0');
+      const mm = String(mi % 60).padStart(2, '0');
+      let v = 5.6 + 1.5 * Math.sin(i / 11);
+      if (spike && i === 3) v = 18.4;      // ABOVE the 14 ceiling, under the label
+      rows.push({ t: dk + 'T' + hh + ':' + mm + ':00-04:00', v: Math.round(v * 10) / 10, unit: 'mmol/L' });
+    }
+    return rows;
+  };
+  HT.glucoseIngest(mk(OLD, 288, true), { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
+  HT.glucoseIngest(mk(NEW, 40, false), { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
+  HT.refresh(); await sleep(300);
+  if (!HT.glucoseIsOpen(OLD)) HT.glucoseToggle(OLD);
+  await sleep(400);
+  const q = function (sel) { return document.querySelector('#dayView .grow ' + sel); };
+  const box = function (el) { const b = el.getBBox();
+    return { x: b.x, y: b.y, r: b.x + b.width, b: b.y + b.height }; };
+  const over = function (a, c) { return !(c.x > a.r || c.r < a.x || c.y > a.b || c.b < a.y); };
+  const tickText = function () {
+    const g = document.querySelector('#dayView .grow svg.tchart .txaxis');
+    return g ? Array.prototype.slice.call(g.querySelectorAll('text'))
+                 .map(function (t) { return (t.textContent || '').trim(); }).join('|') : '';
+  };
+
+  // TICK COMPARISON FIRST, because it has to change the preset and every other
+  // measurement below must describe ONE state. Capturing geometry and then
+  // changing the window reported two charts as though they were one.
+  HT.chartPreset('6 h'); HT.glucoseRedraw(); await sleep(150);
+  const ticks6 = tickText();
+  HT.chartPreset('24 h'); HT.glucoseRedraw(); await sleep(150);
+  const ticks24 = tickText();
+
+  // ONE STATE, set deliberately, and everything after this reads it.
+  HT.chartPreset('24 h'); HT.glucoseRedraw(); await sleep(250);
+  const svg = q('svg.tchart');
+  const labels = svg ? Array.prototype.slice.call(svg.querySelectorAll('.taxis text')) : [];
+  const clips = svg ? Array.prototype.slice.call(svg.querySelectorAll('.tclip')) : [];
+  const runs = svg ? Array.prototype.slice.call(svg.querySelectorAll('.tseries')) : [];
+  let inkHits = 0, offCanvas = 0;
+  labels.forEach(function (t) {
+    const lb = box(t);
+    if (lb.y < 0) offCanvas++;
+    clips.concat(runs).forEach(function (el) { if (over(lb, box(el))) inkHits++; });
+  });
+  const xax = svg ? svg.querySelector('.txaxis') : null;
+  let axOutsideBand = 0;
+  if (xax) {
+    Array.prototype.slice.call(xax.querySelectorAll('*')).forEach(function (el) {
+      if (!el.getBBox) return;
+      try { if (box(el).y < 150 - HT.CHART_PAD.B - 1) axOutsideBand++; } catch (e) { }
+    });
+  }
+  return {
+    viewedDay: OLD, newestDay: NEW,
+    clipsInView: clips.length,
+    labelCount: labels.length,
+    labelTexts: labels.map(function (t) { return (t.textContent || '').trim(); }),
+    inkHits: inkHits,
+    offCanvas: offCanvas,
+    windowLine: (q('.twindow') || {}).textContent || '',
+    rowAge: (q('.gage') || {}).textContent || '',
+    hasXAxis: !!xax,
+    axOutsideBand: axOutsideBand,
+    ticks6: ticks6, ticks24: ticks24,
+    readoutCount: document.querySelectorAll('#dayView .grow .treadout').length,
+    crossCount: document.querySelectorAll('#dayView .grow .tcross').length
+  };
+})()
+'@
+  if ($h23 -like 'EXCEPTION*') {
+    $fails += "H23 fixture threw: $h23"
+  } else {
+    $H = $h23 | ConvertFrom-Json
+    # One diagnostic line, always printed: when the ink assertion passes it
+    # matters whether it passed because nothing collided or because nothing
+    # was drawn, and the reader should not have to ask.
+    Write-Host ("  [H23 fixture] clips-in-view={0} labels={1} ink-hits={2} off-canvas={3} xaxis={4}" -f `
+      $H.clipsInView, ($H.labelTexts -join ' / '), $H.inkHits, $H.offCanvas, $H.hasXAxis)
+
+    # THE FIXTURE MUST CONTAIN THE STATE (D96). If no clip is in view the ink
+    # assertion below would pass by having nothing to collide with -- which is
+    # exactly how this measurement fooled me twice before the x was computed.
+    Chk 'M' ($H.clipsInView -ge 1) "H23-ink FIXTURE: no .tclip is in view, so the ink assertion has nothing to collide with and would pass for free. The above-domain spike is outside the drawn window"
+    Chk 'M' ($H.inkHits -eq 0) "H23-ink: an axis label's box covers $($H.inkHits) piece(s) of chart ink. Measured before the fix: the 9-glyph '14 mmol/L' is 76.7 units against a 38-unit gutter and covers the above-domain CLIP MARKER -- the one mark D146 ruling D requires, saying a value left the declared range. Labels are numbers only; the unit belongs on the window line"
+    Chk 'M' ($H.offCanvas -eq 0) "H23-ink: $($H.offCanvas) axis label(s) start above the viewBox (y < 0), so SVG trims the top of their glyphs"
+
+    # 1. ANCHOR TO THE VIEWED DAY.
+    Chk 'M' ($H.windowLine -match '9/24') "H23-day: the row was opened for $($H.viewedDay) and its window line does not name that day: '$($H.windowLine)'. H19-B ruled the right edge is the last reading without saying WHOSE; for a row attached to a day it is that day's"
+    Chk 'M' ($H.windowLine -notmatch '9/26') "H23-day: the window line names $($H.newestDay), the globally newest day, while the row was opened for $($H.viewedDay): '$($H.windowLine)'"
+
+    # 3. TWO AGES, TWO NAMES.
+    Chk 'M' ($H.rowAge -match 'last reading this day') "H23-ages: the row does not say 'last reading this day': '$($H.rowAge)'"
+    Chk 'M' ($H.windowLine -match 'newest reading held') "H23-ages: the window line does not say 'newest reading held': '$($H.windowLine)'"
+    Chk 'M' ($H.rowAge -notmatch 'newest reading held') "H23-ages: the ROW uses the window line's phrase, so one name covers two quantities again"
+    Chk 'M' ($H.windowLine -notmatch 'last reading this day') "H23-ages: the WINDOW LINE uses the row's phrase"
+
+    # 5. THE TIME AXIS.
+    Chk 'M' ([bool]$H.hasXAxis) "H23-axis: no .txaxis exists. 20 user units are reserved at the bottom and nothing is drawn in them"
+    Chk 'M' ($H.axOutsideBand -eq 0) "H23-axis: $($H.axOutsideBand) time-axis element(s) draw above the reserved bottom band, so the axis is eating the plot"
+    Chk 'M' (($H.ticks6 -ne '') -and ($H.ticks24 -ne '')) "H23-axis: the time axis renders no tick text at 6 h ('$($H.ticks6)') or 24 h ('$($H.ticks24)')"
+    Chk 'M' ($H.ticks6 -ne $H.ticks24) "H23-axis: the ticks are identical at 6 h and 24 h ('$($H.ticks6)'), so they do not adapt to the zoom"
+
+    # 2. ONE READOUT, ONE OWNER -- asserted as a COUNT, because the defect this
+    # ruling prevents is two writers on one line.
+    Chk 'M' ($H.readoutCount -le 1) "H23-readout: $($H.readoutCount) .treadout elements exist. One line, ONE owner -- two features writing one line is the shape that produced the two-ages defect"
+  }
+
+  # ---- 2b. TAP vs SWIPE, AND THE READOUT'S TWO SHAPES ---------------------
+  #
+  # Ruled: a tap (not a swipe) snaps a crosshair to the nearest moment and shows
+  # value, time and nearest meal/event in ONE readout line. A tapped column
+  # holding more than one reading states the RANGE, the span and the count --
+  # never one value wearing false precision, which is the same refusal as the
+  # rejected in-chart averaging ([[D146]] ruling C).
+  #
+  # Real Input.dispatchTouchEvent, because synthesizeScrollGesture is dead in
+  # this build and a synthetic click would not exercise the movement threshold
+  # that separates a tap from a pan.
+  Eval "(function(){var r=document.querySelector('#dayView .grow');if(r)window.scrollTo(0,Math.max(0,r.getBoundingClientRect().top+window.scrollY-200));return 1;})()" | Out-Null
+  Start-Sleep -Milliseconds 300
+  # Coordinates AFTER the scroll. Before it they address a page that has moved.
+  $g23 = (Eval "JSON.stringify((function(){var s=document.querySelector('#dayView .grow svg.tchart');if(!s)return null;var b=s.getBoundingClientRect();return {x:Math.round(b.left+b.width*0.5),y:Math.round(b.top+b.height*0.5),xlate:Math.round(b.left+b.width*0.965),w:Math.round(b.width),left:Math.round(b.left)};})())") | ConvertFrom-Json
+  if ($null -eq $g23) {
+    $fails += "H23-touch: no chart on screen to tap"
+  } else {
+    # --- the WIDE preset first: a column there holds many readings -----------
+    Eval "HT.chartPreset('10 days'); HT.glucoseRedraw(); 1" | Out-Null
+    Start-Sleep -Milliseconds 250
+    Eval "(function(){var e=document.querySelector('#dayView .grow .treadout');if(e)e.remove();return 1;})()" | Out-Null
+    # At 10 days a window anchored to the VIEWED day reaches back ten days,
+    # and only its final day holds readings -- so the centre is empty and a
+    # centre tap would exercise the nearest-reading fallback, never a range.
+    Tap $g23.xlate $g23.y
+    Start-Sleep -Milliseconds 250
+    $r10 = (Eval "JSON.stringify((function(){var e=document.querySelector('#dayView .grow .treadout');return {n:document.querySelectorAll('#dayView .grow .treadout').length,cross:document.querySelectorAll('#dayView .grow .tcross').length,txt:e?(e.textContent||'').replace(/\s+/g,' ').trim():null};})())") | ConvertFrom-Json
+    Chk 'I' ($r10.n -eq 1) "H23-tap: a real tap at the 10-day preset produced $($r10.n) readout element(s), expected exactly 1"
+    Chk 'I' ($r10.cross -ge 1) "H23-tap: no .tcross crosshair was placed by a real tap"
+    if ($r10.txt) {
+      Chk 'I' ($r10.txt -match '\d+(\.\d+)?\u2013\d+(\.\d+)?') "H23-readout: a column holding many readings must state a RANGE (lo-hi), not one value wearing false precision: '$($r10.txt)'"
+      Chk 'I' ($r10.txt -match '(?i)\d+\s*readings') "H23-readout: the range readout does not state its COUNT: '$($r10.txt)'"
+      Chk 'I' ($r10.txt -match '\d{1,2}:\d{2}\s*\u2013\s*\d{1,2}:\d{2}|\d{1,2}:\d{2}-\d{1,2}:\d{2}') "H23-readout: the range readout does not state the TIME SPAN it covers: '$($r10.txt)'"
+      Chk 'I' ($r10.txt -match 'mmol/L') "H23-readout: the readout does not name the unit, which the axis no longer carries: '$($r10.txt)'"
+    } else {
+      $fails += "[I] H23-readout: a real tap at the 10-day preset showed no readout at all"
+    }
+
+    # --- ZOOMING IN turns the range into a single reading --------------------
+    # NO SECOND TAP. The pick is a moment; the readout is derived from it at the
+    # current zoom, so this is the ruling tested literally rather than two
+    # separate taps that happen to differ.
+    Eval "HT.chartPreset('6 h'); HT.glucoseRedraw(); 1" | Out-Null
+    Start-Sleep -Milliseconds 300
+    $r6 = (Eval "JSON.stringify((function(){var e=document.querySelector('#dayView .grow .treadout');return {n:document.querySelectorAll('#dayView .grow .treadout').length,txt:e?(e.textContent||'').replace(/\s+/g,' ').trim():null};})())") | ConvertFrom-Json
+    Chk 'M' ($r6.n -eq 1) "H23-tap: after zooming to 6 h a tap produced $($r6.n) readout element(s), expected exactly 1 -- one line, one owner"
+    if ($r6.txt) {
+      Chk 'M' ($r6.txt -notmatch '\d+(\.\d+)?\u2013\d+(\.\d+)?') "H23-readout: zoomed to 6 h a column holds ONE reading, so the readout must state its exact value, not a range: '$($r6.txt)'"
+      Chk 'M' ($r6.txt -notmatch '(?i)readings') "H23-readout: a single-reading readout should not report a count of readings: '$($r6.txt)'"
+      Chk 'M' ($r6.txt -match '\d{1,2}:\d{2}') "H23-readout: the single-reading readout does not state its time: '$($r6.txt)'"
+    } else {
+      $fails += "[M] H23-readout: a tap at the 6 h preset showed no readout"
+    }
+
+    # --- A SWIPE STILL PANS, AND SHOWS NOTHING ------------------------------
+    # CLEAR THE STATE, not the element. Removing the rendered line left
+    # CHART_PICK set, so the pan's own redraw re-rendered the readout from it and
+    # the assertion below blamed the swipe for something the previous tap owned.
+    Eval "HT.chartPickSet(null); 1" | Out-Null
+    Start-Sleep -Milliseconds 150
+    $w0 = Eval "JSON.stringify(HT.chartWindow())"
+    $sx = $g23.x
+    Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $sx; y = $g23.y }) } | Out-Null
+    foreach ($dx in 14, 30, 48, 66) {
+      Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(@{ x = ($sx - $dx); y = $g23.y }) } | Out-Null
+      Start-Sleep -Milliseconds 30
+    }
+    Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
+    Start-Sleep -Milliseconds 300
+    $w1 = Eval "JSON.stringify(HT.chartWindow())"
+    $sw = (Eval "JSON.stringify({n:document.querySelectorAll('#dayView .grow .treadout').length})") | ConvertFrom-Json
+    Chk 'M' ($w0 -ne $w1) "H23-swipe: a real horizontal swipe did not move the window ($w0 -> $w1), so the pan the tap must be distinguished FROM is not happening"
+    Chk 'M' ($sw.n -eq 0) "H23-swipe: a swipe produced a readout. A tap is distinguished from a pan by a movement threshold, as the axis lock already does -- without that, panning the chart keeps firing a readout nobody asked for"
+  }
+
+  # ---- 4. A FUTURE TIMESTAMP IS A DATA ERROR, NEVER FRESHNESS --------------
+  $fut = EvalA @'
+(async function () {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const DK = '2026-09-26';
+  HT.glucoseClear();
+  // Deliberately 40 minutes AHEAD of the mocked clock (10:35).
+  HT.glucoseIngest([{ t: DK + 'T11:15:00-04:00', v: 5.6, unit: 'mmol/L' }],
+                   { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
+  HT.state().current = DK;
+  HT.refresh(); await sleep(300);
+  const row = document.querySelector('#dayView .grow');
+  return { age: row ? ((row.querySelector('.gage') || {}).textContent || '') : null,
+           words: HT.ageWords(-2400000) };
+})()
+'@
+  if ($fut -like 'EXCEPTION*') {
+    $fails += "H23 future-timestamp fixture threw: $fut"
+  } else {
+    $F = $fut | ConvertFrom-Json
+    Chk 'M' ($F.words -notmatch '(?i)just now') "H23-future: ageWords on a NEGATIVE age returns '$($F.words)' -- a reading dated after the clock is a data error, not freshness"
+    Chk 'M' ($F.words -match '(?i)ahead|future') "H23-future: ageWords on a negative age does not say the reading is ahead of the clock: '$($F.words)'"
+    Chk 'M' ($F.age -notmatch '(?i)just now') "H23-future: the ROW renders a future reading as '$($F.age)'"
+  }
 
   if ($fails.Count) {
     Write-Host "CHART GATE: FAIL"
