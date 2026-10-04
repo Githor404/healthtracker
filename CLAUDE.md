@@ -1,17 +1,50 @@
-# HealthTracker — Agent Brief (v4)
+# HealthTracker — Agent Brief (v5)
 
-**This version reframes the product.** v3 described a personal successor to an older app; v4 describes a **distributable app for other people**: fresh start, no legacy data, no personal calibrations baked in. Where v3 and v4 disagree, v4 wins. The Phase 0 data layer, its gates, and decisions D1/D3/D5/D6 all stand. D2 and D4 are **retired** (superseded — mark them so in DECISIONS.md; never delete log entries).
+**This version reframes the product again.** v4 described a distributable nutrition and price tracker. v5 describes an **instrument**: *track inputs, evaluate them against current research, and predict my outcomes* ([[D152]]). Where v4 and v5 disagree, **v5 wins**. Where v3 and v4 disagreed, v4 still wins over v3.
 
-## Product definition
+**What this does NOT change.** Everything v4 ruled about the data layer and its gates, the honesty rule, the multi-user rules, the schema, the scanner spec, the OpenFoodFacts mapping and the architecture constraints **stands unchanged**. This is a change of *direction*, not of *discipline*. D1/D3/D5/D6 stand; D2 and D4 remain retired.
 
-A mobile-first, fully client-side nutrition and price tracker. No backend, no accounts, no analytics; all data lives on the device; export is always available. Distribution target: ordinary users, not just the author.
+## The goal ([[D152]])
 
-Four capabilities:
+> **Track inputs, evaluate them against current research, and predict MY outcomes.**
+
+**Every slice must say which of those three it serves** — *track*, *evaluate*, or *predict*. A slice that serves none of them needs a reason before it needs a gate.
+
+### The roadmap, in dependency order
+
+1. **STREAMS.** Glucose now (imported from the Apple Health export, merged by timestamp). HRV, resting HR and sleep when the Oura arrives. The native shell reading HealthKit is the durable route; manual export is the stopgap.
+2. **EVENT SIGNATURES + OUTCOME BITS.** Each meal tagged with what it did to glucose; each night with its HRV.
+3. **AN EVIDENCE LAYER.** D32's discipline extended from lab ranges to *responses*: any claim the app makes about a pathway or a response carries its **source**, the **population studied**, and the **strength of the evidence**.
+4. **PREDICTION.** n=1, from the user's own paired data, **uncertainty shown**, **opt-in**. Predict **proxy responses**; never claim to measure a pathway directly. A prediction is not a measurement, so predictions live in their own store and are never summed into or displayed as a reading — D120's separation, inherited.
+
+### Primary outcome: vagal tone
+
+Read through **HRV and resting heart rate**.
+
+- **A reading's MEASURE and DEVICE are part of its identity.** Oura's RMSSD and Apple Watch's SDNN never share a series. This is the glucose-unit rule and the breath-ketone rule again, and the machinery exists: a glucose day is keyed by its unit and refuses to draw one line through two.
+- **Compare against the user's OWN baseline, never population norms** — between-person spread dwarfs within-person change.
+- **Ranges for labs, baseline for responses.** D32 shows jurisdictional reference ranges because that is the convention for a lab panel; a vagal-tone comparison against a population range is the same number doing a different job.
+
+### First composite: tonicity
+
+Inputs the app holds or will: water, sodium, potassium, alcohol, caffeine, glucose. Outcomes: day-to-day weight swings, resting HR, HRV. Anchored in calculated osmolality ≈ 2·Na + glucose + urea (mmol/L), with Na and urea from lab panels — and it **says plainly that between panels the estimate leans on intake and proxies**. The figure carries **which of its inputs were measured and which estimated**: the same number computed on a panel day and three weeks later is not the same quantity.
+
+### Practices as experiments
+
+Sauna, cold plunge, red light, slow breathing and similar are **logged events**. Their effect on that night's HRV against the user's own baseline is an **n=1 test, not a claim**. Contested "vagal toning" claims get **tested, not asserted**.
+
+## What the app is
+
+A mobile-first, fully client-side personal health instrument. No backend, no accounts, no analytics; all data lives on the device; export is always available. It remains **distributable** — no personal calibrations in code, per the multi-user rules below — but its direction is set by one person's outcomes.
+
+Capabilities, as they actually stand:
 
 1. **Scan → nutrients.** Barcode scan → OpenFoodFacts lookup → macros *and* labeled micronutrients → portion picker → one-tap log at `measured` confidence.
 2. **Photo → nutrients via AI paste.** For restaurant/cooked meals: the app provides a copyable prompt template; the user sends it with their meal photo to their AI assistant (Claude or any other), pastes the returned JSON into Ingest. Macros only — see the honesty rule below. No API keys, no in-app AI calls.
 3. **Daily log vs goals.** Daily totals of every tracked nutrient, displayed against user-configured goals (floors for things like protein and fiber, ceilings for things like sodium and kcal if the user wants them).
-4. **Price intelligence.** Optional price + store capture at scan time builds a personal price history per product per store; the app also reads the crowdsourced Open Prices database (read-only) to show nearby prices for a scanned product. No contribution flow in v1.
+4. **Glucose, as a stream.** Imported from an Apple Health export or a Shortcut-produced file, merged by timestamp, held as a re-acquirable **cache** outside the export. A collapsed day row opens into a zoomable, scrollable chart with a time axis, a tap readout, and gaps drawn as gaps. This is leg 1 of the roadmap, and the first stream.
+5. **Medication label information, sourced.** On request, the US prescribing information for a medication, selected from the FDA label and stored with its citation and retrieval date. The app never says what a drug is for in its own voice.
+6. **Price — data layer only.** A per-product, per-store price history is part of the stored contract, migrated and exported with everything else. **There is no capture screen and no Open Prices lookup**, and per the v5 ruling there is no plan to add them. See *Price — kept, not roadmapped* below.
 
 **Honesty rule (ruled; refined by D120):** micronutrients enter the log from *labeled* sources — the OFF scan path or explicit manual entry from a package label — **and from the cited composition corpus, at a distinct `reference` provenance**. The rule's purpose was to keep **fiction wearing decimals** out of daily totals, and a cited corpus value is not fiction. It is, however, **not your food**: generic cheddar is not your cheddar. So a reference value is **never summed into the same figure as a labelled one without the panel saying so**, the two live in separate maps rather than behind a flag, and the coverage line distinguishes them. The rule is refined, not abandoned: what it forbids is an *uncited* number, not a *sourced* one. The AI photo path produces macro estimates at `eyeballed` confidence and never micros; the in-app prompt template must not request micros. A vision model cannot see the iron in a stew, and daily micro totals must never be fiction wearing decimals. Days whose items lack micro data show micro totals as "from N of M items" so partial coverage is visible, not implied-complete.
 
@@ -68,12 +101,14 @@ Preconditions (https/localhost, getUserMedia support), the getUserMedia constrai
 - All OFF strings escaped, all numbers coerced and clamped. Custom User-Agent on every request.
 - Product missing / offline: keep the barcode, offer manual entry; never lose the code.
 
-## Price capture & Open Prices (read-only)
+## Price — kept, not roadmapped (ruled, v5)
 
-- After a successful scan (or manual barcode lookup), an **optional, skippable** price prompt: price + store name (store names autocomplete from the user's own history). Writes to `priceLog`. Skipping must cost zero taps beyond dismissal.
-- Personal comparison view per product: entries grouped by store, latest price per store, simple trend.
-- **Nearby prices:** on user request (never automatically), ask for device location, query Open Prices for the product's recent prices, rank by proximity, display store / price / date / distance, cache results briefly. Degrade gracefully: no permission → personal history only, no error; offline → cached or personal only.
-- Implementation detail deferred to the phase: verify the current Open Prices API surface at https://prices.openfoodfacts.org/api/docs at build time (query-by-barcode + location filtering), and pre-register the exact endpoint/params in DECISIONS.md before coding. Read-only; no OFF account.
+**Price tracking stays as an existing feature and is no longer a roadmap capability.** Stated at its real state, because the brief should not promise what the code does not keep:
+
+- **What exists:** the `priceLog` contract — `{ <barcode>: { name, entries: [{price, currency, store, date}] } }` — which is migrated, exported, escaped and **gated** (63 harness references), plus `storeHistory()`. It is part of the data layer and stays there.
+- **What was never built:** the capture prompt, the per-product comparison view, and **any** Open Prices integration. There is a `.pricecap` CSS rule in `index.html` with nothing rendering into it.
+- **So:** do not delete `priceLog` and do not plan work against it. If price capture is ever wanted it gets pre-registered then, like anything else. Nearby-prices-from-Open-Prices is **withdrawn** as a plan, not deferred: it was a v4 roadmap capability and v5 has no roadmap slot for it.
+- The privacy stance about location stands regardless: device location is used only when the user invokes a nearby-price comparison, is sent only as an Open Prices query parameter, and is never stored. Since no such call exists, the app currently sends location **nowhere**.
 
 ## Architecture constraints (unchanged, restated)
 
@@ -93,7 +128,7 @@ Static, no build step, GitHub-Pages-deployable; vanilla HTML/CSS/JS in a handful
 **Phase 3 — Nearby prices.** Open Prices read integration per the deferred-verification rule; location permission flow; proximity ranking; caching; graceful degradation.
 *Gate:* scanned product with location permission shows nearby community prices with store/date/distance; permission denied → personal-only with no error surface; offline → cached/personal; the API contract used is recorded in DECISIONS.md with a dated verification note.
 
-**Phase 4 — Expansion (propose, don't assume).** Candidates: Open Prices contribute-back (OFF account + proof photos), BYOK in-app AI vision, biometrics/weight, week analytics, shareable shopping lists. Options with effort estimates; user ranks.
+**Phase 4 — superseded by the v5 roadmap above.** The old candidate list (Open Prices contribute-back, BYOK vision, shareable shopping lists) is **withdrawn**: it predates the goal. The work after the logging core is the four legs — streams, event signatures, the evidence layer, prediction — in that dependency order, each slice naming which of *track / evaluate / predict* it serves.
 
 ## Working rules (unchanged)
 

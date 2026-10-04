@@ -1,6 +1,8 @@
 # HealthTracker
 
-A mobile-first, **fully client-side** nutrition and price tracker. No backend, no
+A mobile-first, **fully client-side** personal health instrument: it tracks what
+goes in, evaluates it against published evidence, and aims to predict this user's
+own outcomes. No backend, no
 accounts, no analytics — all data lives on your device, and export is always one
 tap away.
 
@@ -16,8 +18,9 @@ tap away.
   complete days only.
 - **Manual entry & presets.** Type an item in (with label micronutrients if you
   have them), and save calibrated presets for one-tap logging.
-- **Price intelligence** *(Phase 2+)*. Optional price + store capture, plus nearby
-  community prices from Open Prices.
+- **Price data** *(data layer only)*. A per-product price history is part of the
+  stored contract and travels in your export. There is no capture screen and no
+  Open Prices lookup — that was a plan, and it was withdrawn rather than built.
 - **Drug information, sourced.** On request, the US prescribing information for a
   medication — description, indications, mechanism — selected from the FDA label
   and stored with its citation and retrieval date. Copy the label text, or a
