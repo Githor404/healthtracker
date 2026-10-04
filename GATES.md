@@ -5084,3 +5084,22 @@ verdicts**.
 **Proven by plant** (the control suppressed → four failures, tree restored to an
 identical hash) — but **not observed red before the build**, which [[D154]] records
 against me.
+
+### D156 — `verify-deploy.sh` — outside the suite, by design
+
+Compares the **deployed** shell to the working tree. Prints `GATE: PASS` / `FAIL`,
+but is **not** in the suite and **not** counted — the verdict count stays **27**.
+
+| case | asserts |
+|---|---|
+| **verify-deploy.sh** | all 8 shell files **byte-identical** to this tree (CR stripped for text, raw for binary) — which subsumes every pattern a human could mistype |
+| **verify-deploy.sh** | the **served** `sw.js`'s `SHELL_HASH` **recomputes** from the **served** bytes, using `check-sw-hash.sh`'s own algorithm — the one thing byte-equality cannot see, and the stale-shell trap [[D6]] exists to prevent |
+| **verify-deploy.sh** | an unreachable host is **FAIL**, never a pass or a skip |
+| **verify-deploy.sh** | the file list comes from `check-sw-hash.sh`, the URL from the git remote, the version and hash from the files — **nothing is typed** |
+
+**Proven:** unreachable → FAIL (by its own URL bug, which it printed); a one-comment
+local edit → `differs: index.html` **while version and hash matched**, which is the
+case the old hand-grep passed.
+
+**Unexercised:** the served-`sw.js`-disagrees branch, which needs a genuinely
+broken deploy to fire.

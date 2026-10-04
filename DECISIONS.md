@@ -8997,3 +8997,71 @@ that imports accumulate, and the gate is what holds the shape of how.
 
 Supports leg 1 of [[D152]] (STREAMS). No code changed; nothing was built from this
 entry.
+
+## D156 — No hand-typed patterns in verification — `verify-deploy.sh` (2026-10-04)
+
+### THE CLASS
+
+Deploy verification was done by hand: `curl` the served `app.js` and `grep` it for
+feature strings. **Three times in one session the pattern was wrong**, and every
+time the output read exactly like a broken deploy:
+
+| typed | the code actually emits |
+|---|---|
+| `class=\"txaxis\"` (shell-escaped, so grep searched for literal backslashes) | `class="txaxis"` |
+| `class=\"treadout\"` | `class="treadout"` |
+| `class="tback"` | `class="btn tback"` |
+
+Same cause each time: **a pattern reconstructed from memory** rather than taken
+from the source. Twice I was one step from reporting a defect that did not exist.
+
+> **A wrong probe and a broken deploy look identical in the output.**
+
+### THE FIX IS TO STOP HAVING PATTERNS
+
+`tests/verify-deploy.sh` compares **the whole artifact, byte for byte**. That
+subsumes every pattern anyone could type: if the served bytes equal the local
+bytes, every class name, function and string is present **by construction**.
+
+**Nothing in it is hand-typed:**
+
+| | derived from |
+|---|---|
+| the file list | `check-sw-hash.sh`'s own `TEXT=` / `BIN=` — it already owns that list, and a second copy would be a second opinion about what the shell IS |
+| the URL | `git remote get-url origin` |
+| version and shell hash | extracted from the files, never quoted |
+| the shell hash cross-check | recomputed from the **served** bytes using `check-sw-hash.sh`'s own algorithm |
+
+**That last row is the one thing byte-equality cannot cover by itself.** A correct
+`sw.js` and correct assets can still be served from two different deploys; the
+service worker would then cache under a name that does not describe what it cached,
+which is the stale-shell trap [[D6]]'s content-derived cache name exists to prevent.
+
+### POLARITY: "CANNOT CONFIRM" PRINTS FAIL
+
+An unreachable host reports **FAIL**, not a skip and not a pass. For a deploy check
+that is the whole point — *silence from the network is not evidence of a good
+deploy* — and it is the same instinct as the runner treating a gate that produced no
+verdict as a failure rather than as quiet.
+
+### NOT IN THE SUITE, AND NOT NAMED `check-*.sh`
+
+The suite's unwired guard requires every `tests/check-*.sh` to be on
+`STATIC_CHECKS` or `IN_HARNESS`, and **neither can hold a network check**:
+`STATIC_CHECKS` runs offline (`offline-gate` cuts the network for real) and before
+a push. So this runs after a push, by hand, and the verdict count stays **27**.
+
+### PROVEN BOTH WAYS, AND ONE OF THEM BY ITS OWN BUG
+
+- **Unreachable → FAIL:** the first version derived the URL as
+  `.../healthtracker.git`, because an optional `(\.git)?` after a greedy group never
+  matches — the greedy group has already eaten it. The check reported FAIL **and
+  printed the derived URL**, which is how its own bug was found in a single run.
+- **Byte mismatch → FAIL, by name:** appending one comment to the local
+  `index.html` produced `differs: index.html` — **while the version and shell hash
+  both matched**. That is exactly the case the old hand-grep method would have
+  passed, which is the clearest statement of why this replaces it.
+
+**Unexercised:** the served-`sw.js`-disagrees-with-served-shell branch has never
+fired, and cannot be made to without an actually broken deploy. Recorded as
+unexercised rather than claimed.

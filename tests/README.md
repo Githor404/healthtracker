@@ -198,6 +198,22 @@ stops calling an `IN_HARNESS` check, that check fails as **not-called**. This
 matters because the harness itself would still pass. A new check joins one list
 in the commit that adds it.
 
+### One check is deliberately NOT in the suite: `verify-deploy.sh`
+
+`tests/verify-deploy.sh` compares the **deployed** shell against the working tree
+and prints `GATE: PASS` / `GATE: FAIL` like any other check. It is **not** named
+`check-*.sh`, and that is the point: the unwired guard above would then require it
+on a list, and **neither list can hold it**.
+
+- `STATIC_CHECKS` runs during the suite, which must work **offline** (`offline-gate`
+  cuts the network for real) and must pass **before** a push. A network check there
+  would fail for being early, not for being wrong.
+- `IN_HARNESS` runs inside `run-data-layer.sh`, same problem.
+
+So it runs **after** a push, by hand, and the suite neither includes nor counts it.
+The verdict count stays **27**.
+
+
 **The count is the number of verdict lines the runner prints:** 1 harness + the
 `STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 6 + 20 = **27**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
