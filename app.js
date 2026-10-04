@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.62.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.63.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -7353,6 +7353,33 @@ function chartWindowLine() {
 // apart, and nothing else writes either of them. Two features writing one line
 // is the shape that produced the two-ages defect.
 let CHART_PICK = null;                 // a moment in ms, or null
+// H23/6: PANNING BEYOND THE OPENED DAY IS THE FEATURE, so nothing here stops
+// it. What it owes the reader is a way back, and only when one is needed.
+//
+// "Contains the opened day" is read as OVERLAP, not containment: a 6 h window
+// can never CONTAIN a 24 h day, so the strict reading would pin this control to
+// the screen forever. It appears when the opened day is entirely off-screen.
+function chartOpenedDaySpan() {
+  const dk = APP_STATE && APP_STATE.current;
+  if (!dk || !isDayKey(dk)) return null;
+  const from = dayKeyMs(dk);
+  return { dk: dk, from: from, to: from + 86400000 };
+}
+function chartWindowHasOpenedDay() {
+  const d = chartOpenedDaySpan();
+  if (!d) return true;                 // nothing to be away from
+  const w = chartWindow();
+  return w.from < d.to && w.to > d.from;
+}
+// One tap home. chartPreset re-anchors through chartAnchorMs, so this is the
+// same journey a preset tap makes -- which is why there is no forward
+// counterpart: reaching a distant day is the date jump's job, not the chart's.
+function chartBackToDay() {
+  const d = chartOpenedDaySpan();
+  if (!d) return { ok: false };
+  chartPreset(CHART_LABEL);
+  return { ok: true, day: d.dk };
+}
 function glucoseUnitShown() {
   const dk = APP_STATE && APP_STATE.current;
   const sum = dk ? glucoseDaySummary(dk) : null;
@@ -7444,7 +7471,17 @@ function glucoseChartHTML(dk) {
     gapMs: GLUCOSE_STEP_S * 3 * 1000,
   });
   const ro = glucoseReadout(CHART_PICK);
-  return '<div class="twindow">' + esc(chartWindowLine()) + '</div>'
+  // Derived from state, like the readout and the crosshair -- never a DOM
+  // mutation, so a redraw cannot orphan it. Placed directly under the line that
+  // says where you are, because that is the line that tells you you have left.
+  const away = !chartWindowHasOpenedDay();
+  const od = chartOpenedDaySpan();
+  const back = (away && od)
+    ? '<div class="tbackrow"><button type="button" class="btn tback"'
+      + ' onclick="event.stopPropagation();chartBackToDay()">back to '
+      + esc(fmtWinDate(od.from)) + '</button></div>'
+    : '';
+  return '<div class="twindow">' + esc(chartWindowLine()) + '</div>' + back
     + '<div class="tpresets">' + presets + '</div>'
     + '<div class="tchartbox">' + chart + '</div>'
     + (ro ? '<div class="treadout">' + esc(ro) + '</div>' : '')
@@ -9291,6 +9328,7 @@ const VERSION_LOG = [
   { v: '0.60.1', d: '2026-10-03', note: 'Fix: an import whose readings could not be read now says so by name, instead of reporting nothing added.' },
   { v: '0.61.0', d: '2026-10-03', note: 'Glucose: a six-action Shortcut recipe in the app writes a small file to import daily, instead of exporting all of Apple Health.' },
   { v: '0.62.0', d: '2026-10-03', note: 'Glucose chart: a time axis, a tap anywhere for the value and time at that moment, and the chart now opens on the day you came from.' },
+  { v: '0.63.0', d: '2026-10-04', note: 'Glucose chart: swipe through time past the day you opened, and one tap brings you back to it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14620,6 +14658,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs,
   hhmm, CHART_PAD,
   chartPick: () => CHART_PICK,
   chartPickSet: (t) => { CHART_PICK = (t == null ? null : num(t)); glucoseRedraw(); return CHART_PICK; },

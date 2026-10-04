@@ -762,6 +762,9 @@ svg.tchart .tcross{stroke:var(--fg);stroke-width:1;stroke-dasharray:3 2}
    44pt hit zones overlap 4.6x at the 3-day preset, measured. */
 svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;opacity:0.55}
 .treadout{font-size:16px;line-height:1.4;margin:4px 0 0;overflow-wrap:anywhere;color:var(--fg)}
+/* H23/6: the way back, shown only while the opened day is off screen. */
+.tbackrow{display:block;margin:4px 0 0}
+.tbackrow .tback{min-height:44px;font-size:16px}
 /* H20: the import route's surfaces. `.gempty` is the FIRST import's home --
    the glucose row cannot be, because a day with no readings draws no row
    (D146). It appears only while the whole cache is empty. */

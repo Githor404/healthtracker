@@ -861,6 +861,90 @@ try {
     Chk 'M' ($sw.n -eq 0) "H23-swipe: a swipe produced a readout. A tap is distinguished from a pan by a movement threshold, as the axis lock already does -- without that, panning the chart keeps firing a readout nobody asked for"
   }
 
+  # ---- 6. PANNING AWAY FROM THE OPENED DAY, AND THE WAY BACK ---------------
+  #
+  # Ruled: scrolling through time IS the feature, so panning beyond the opened
+  # day is allowed. Two things have to hold while it does -- the window line
+  # always names the VISIBLE window, and when the opened day is no longer on
+  # screen there is a one-tap way back. A preset tap re-anchors by itself
+  # (chartPreset reads chartAnchorMs), so "back to <day>" covers the case of
+  # panning away WITHOUT changing zoom. No forward counterpart: reaching a
+  # distant day is the date jump's job, not the chart's.
+  $pan = EvalA @'
+(async function () {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const OLD = '2026-09-24';
+  HT.state().current = OLD;
+  HT.chartPickSet(null);
+  HT.chartPreset('24 h'); HT.glucoseRedraw(); await sleep(200);
+  const q = function (sel) { return document.querySelector('#dayView .grow ' + sel); };
+  const line0 = (q('.twindow') || {}).textContent || '';
+  const back0 = document.querySelectorAll('#dayView .grow .tback').length;
+
+  // Pan forward by two days: the opened day leaves the window entirely.
+  HT.chartPanMs(2 * 86400000); HT.glucoseRedraw(); await sleep(200);
+  const line1 = (q('.twindow') || {}).textContent || '';
+  const back1 = document.querySelectorAll('#dayView .grow .tback').length;
+  const backEl = q('.tback');
+  const backTxt = backEl ? (backEl.textContent || '').replace(/\s+/g, ' ').trim() : null;
+  const w1 = HT.chartWindow();
+
+  // The one tap back.
+  if (typeof HT.chartBackToDay === 'function') HT.chartBackToDay();
+  await sleep(250);
+  const line2 = (q('.twindow') || {}).textContent || '';
+  const back2 = document.querySelectorAll('#dayView .grow .tback').length;
+  const w2 = HT.chartWindow();
+
+  // And a PRESET tap re-anchors on its own, from a panned-away window.
+  HT.chartPanMs(3 * 86400000); HT.glucoseRedraw(); await sleep(150);
+  const backAway = document.querySelectorAll('#dayView .grow .tback').length;
+  const wAway = HT.chartWindow();
+  HT.chartPreset('6 h'); await sleep(200);
+  const back3 = document.querySelectorAll('#dayView .grow .tback').length;
+  const w3 = HT.chartWindow();
+
+  if (typeof HT.dayKeyMs !== 'function') return { err: 'HT.dayKeyMs is not exported, so the day span cannot be computed and every overlap assertion below would read false for the wrong reason' };
+  const dayFrom = HT.dayKeyMs(OLD);
+  const dayTo = dayFrom == null ? null : dayFrom + 86400000;
+  const overlaps = function (w) {
+    return dayFrom != null && w.from < dayTo && w.to > dayFrom;
+  };
+  return {
+    openedDay: OLD,
+    line0: line0, line1: line1, line2: line2,
+    back0: back0, back1: back1, back2: back2, back3: back3, backAway: backAway,
+    backTxt: backTxt,
+    overlap1: overlaps(w1), overlap2: overlaps(w2), overlap3: overlaps(w3),
+    overlapAway: overlaps(wAway),
+    hasFn: typeof HT.chartBackToDay === 'function'
+  };
+})()
+'@
+  if ($pan -like 'EXCEPTION*') {
+    $fails += "H23-pan fixture threw: $pan"
+  } else {
+    $PN = $pan | ConvertFrom-Json
+    if ($PN.err) { $fails += "[M] H23-pan: $($PN.err)" }
+    Chk 'M' ([bool]$PN.hasFn) "H23-pan: HT.chartBackToDay does not exist"
+    # THE WINDOW LINE FOLLOWS THE WINDOW.
+    Chk 'M' ($PN.line0 -ne $PN.line1) "H23-pan: the window line did not change after panning two days ('$($PN.line1)') -- it must always name the VISIBLE window, not the one the row opened on"
+    Chk 'M' (-not $PN.overlap1) "H23-pan fixture: panning two days did not take the opened day off screen, so the assertions below are about the wrong state"
+    # THE WAY BACK, ONLY WHEN IT IS NEEDED.
+    Chk 'M' ($PN.back0 -eq 0) "H23-pan: a 'back to the day' control is showing while the opened day is still in view -- it is for panning AWAY, not furniture"
+    Chk 'M' ($PN.back1 -eq 1) "H23-pan: $($PN.back1) back-to-day control(s) after the opened day left the window, expected exactly 1"
+    Chk 'M' ($PN.backTxt -match '(?i)back') "H23-pan: the control does not say it goes back: '$($PN.backTxt)'"
+    Chk 'M' ($PN.backTxt -match '9/24|09/24|Sep') "H23-pan: the control does not NAME the day it returns to ('$($PN.backTxt)') -- 'back' alone makes the user guess which day they left"
+    Chk 'M' ([bool]$PN.overlap2) "H23-pan: one tap on the control did not bring the opened day back into the window"
+    Chk 'M' ($PN.back2 -eq 0) "H23-pan: the control is still showing after it returned to the opened day"
+    Chk 'M' ($PN.line1 -ne $PN.line2) "H23-pan: the window line did not change when the control returned to the opened day"
+    # A PRESET TAP RE-ANCHORS BY ITSELF.
+    Chk 'M' (-not $PN.overlapAway) "H23-pan fixture: the second pan did not take the opened day off screen, read from the WINDOW rather than from the control -- using the control's presence as the fixture's evidence made a broken control report a fixture problem"
+    Chk 'M' ($PN.backAway -eq 1) "H23-pan: the control did not appear after the second pan"
+    Chk 'M' ([bool]$PN.overlap3) "H23-pan: tapping a preset from a panned-away window did not re-anchor to the opened day -- chartPreset reads chartAnchorMs, so this is the behaviour that makes a forward counterpart unnecessary"
+    Chk 'M' ($PN.back3 -eq 0) "H23-pan: the control still shows after a preset tap re-anchored the window"
+  }
+
   # ---- 4. A FUTURE TIMESTAMP IS A DATA ERROR, NEVER FRESHNESS --------------
   $fut = EvalA @'
 (async function () {

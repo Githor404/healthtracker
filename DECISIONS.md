@@ -8895,3 +8895,62 @@ time band.
 
 Harness 2,641 → **2,643**. `chart-gate` 89 → **118** assertions (99 measured, 19
 invented).
+
+## D154 — Panning away from the opened day, and the way back — v0.63.0 (2026-10-04)
+
+**Serves leg 1 of [[D152]], TRACK.** The last open item from [[H23]], ruled after
+[[D153]] flagged it: anchoring the window to the viewed day left panning clamped to
+`now`, so a forward swipe carried the window off the day the row was opened from.
+
+### RULED
+
+> Allow panning beyond the opened day; **scrolling through time is the feature**.
+> The window line always names the visible window, and when the window no longer
+> contains the opened day, offer a one-tap *back to \<day\>*. A preset tap
+> re-anchors; **no forward counterpart** — reaching a distant day is the date
+> jump's job, not the chart's.
+
+### BUILT
+
+Nothing was added to *allow* panning: `chartPanMs` already clamped only to `now`,
+and the window line already read `CHART_WIN`, so both halves of the first sentence
+were true and merely ungated. What is new is the way back.
+
+**"Contains the opened day" is read as OVERLAP, not containment.** A 6 h window can
+never *contain* a 24 h day, so the strict reading would pin the control to the
+screen forever. It appears when the opened day is entirely off-screen.
+
+The control is **derived from state** like the readout and the crosshair — never a
+DOM mutation, so a redraw cannot orphan it — and sits directly under the window
+line, which is the line that tells you you have left. `chartBackToDay()` calls
+`chartPreset(CHART_LABEL)`, the same journey a preset tap makes, **which is why no
+forward counterpart is needed**: a preset tap already re-anchors through
+`chartAnchorMs`.
+
+### I BROKE GATE-FIRST ON THIS ONE, AND SAID I WOULD NOT
+
+I wrote the pan gate, checked that it parsed, and then **built without ever running
+it red** — having said *"gate first, as before"* in the same breath. The evidence
+was recovered afterwards by planting (suppressing `chartWindowHasOpenedDay` makes
+four assertions fail; `app.js` restored to an identical hash), which proves the
+assertions are live.
+
+> **Proving it after is weaker than observing red first.** A gate written against
+> code that already exists can be shaped by that code without the author noticing,
+> and a plant afterwards cannot rule that out — it only shows the assertion fires
+> for the one defect you thought to plant.
+
+### AND THE PLANT FOUND A CIRCULAR GUARD
+
+The fixture check used **the control's own presence** as its evidence that the pan
+had taken the day off screen. So suppressing the control reported *"the fixture did
+not pan far enough"* instead of *"the control is broken"* — the guard depended on
+the thing under test. It reads the window arithmetic now, with the control as a
+separate assertion. **A guard that shares a dependency with its subject cannot
+tell you which one failed.**
+
+Also removed: a `HT.dayKeyMs ? HT.dayKeyMs(OLD) : null` fallback in the gate, which
+would have made **every** overlap assertion read false had the export been missing
+(it was). It refuses by name now, and `dayKeyMs` is exported.
+
+`chart-gate` 118 → **131** assertions (112 measured, 19 invented).

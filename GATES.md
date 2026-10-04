@@ -5066,3 +5066,21 @@ verdicts**.
 **Still true and still printed:** the 3-day and 10-day presets have never been
 exercised against real data. [[D150]] narrows it — the device holds ~2.5 days, short
 of even one full 3-day window.
+
+### D154 — panning away from the opened day — chart-gate extended
+
+13 assertions added to `tests/chart-gate.ps1` (118 → **131**). Suite stays **27
+verdicts**.
+
+| case | asserts |
+|---|---|
+| **chart-gate.ps1** | the window line **changes** when the window pans — it names the VISIBLE window, not the one the row opened on |
+| **chart-gate.ps1** | no way-back control while the opened day is still in view — it is for panning away, not furniture |
+| **chart-gate.ps1** | exactly **one** control once the opened day is off screen, and it **names the day** — *back* alone makes the user guess which day they left |
+| **chart-gate.ps1** | **one tap** brings the opened day back into the window, and the control goes away |
+| **chart-gate.ps1** | a **preset tap** re-anchors from a panned-away window, which is the behaviour that makes a forward counterpart unnecessary |
+| **chart-gate.ps1** | the fixture guard reads the **window arithmetic**, not the control's presence — a guard sharing a dependency with its subject cannot say which failed |
+
+**Proven by plant** (the control suppressed → four failures, tree restored to an
+identical hash) — but **not observed red before the build**, which [[D154]] records
+against me.
