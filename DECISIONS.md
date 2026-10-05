@@ -9065,3 +9065,55 @@ a push. So this runs after a push, by hand, and the verdict count stays **27**.
 **Unexercised:** the served-`sw.js`-disagrees-with-served-shell branch has never
 fired, and cannot be made to without an actually broken deploy. Recorded as
 unexercised rather than claimed.
+
+## D157 — THE APP'S PURPOSE — STANDING RULING (2026-10-04)
+
+Ruled by the user. **Every slice answers to this sentence.**
+
+> # HEALTHTRACKER IS THE USER'S HEALTH ADVOCATE
+> — it looks out for that one person's interests.
+
+It sits **above** [[D152]]: D152 says what the app *does* (track, evaluate,
+predict); this says *whose side it is on*. A slice can serve a D152 leg and still
+fail here.
+
+### WHAT IT BINDS
+
+- **Loyal to the user only:** no ads, no data sale, no product steering.
+- **Honest when unwelcome**; neither softened nor dramatised.
+- **Speaks up when something matters, never to drive engagement** — **flags, not
+  nudges**.
+- **Knows its limits:** when something needs a clinician, it prepares the user and
+  says so; **it never plays the clinician**.
+- **The data stays the user's:** local, exportable, deletable.
+
+### AND WHY THE HONESTY RULES EXIST
+
+> **The honesty rules — sourced claims, coverage shown, no verdicts — are what make
+> the advocacy trustworthy.** That is their purpose, recorded as ruled.
+
+Which reframes them. They have been read as caution — a refusal to overstate. They
+are the opposite: **an advocate whose claims cannot be checked is not an advocate**,
+and a number without its coverage is a claim that cannot be checked. [[D120]]'s
+separation of cited from labelled values, [[D24]]'s refusal to encode a verdict in
+colour, [[D146]]'s refusal of *in range = good*, the *from N of M items* coverage
+lines — all of it exists so the user can trust what the app tells them **against**
+their own interest, not only when it agrees with them.
+
+### THE BINDINGS, AUDITED AGAINST THE CODE
+
+Four of the five are claims the code either keeps or does not, so they were
+**measured rather than assumed**. Two are kept and gated; three have gaps, and the
+gaps are recorded, **not built** — no ruling was given to build them.
+
+| binding | state |
+|---|---|
+| **honest when unwelcome** | **KEPT AND GATED.** [[D24]] refused verdict-by-colour; [[D146]] refused verdict colours and *in range*; `jargon-gate` enforces the user's vocabulary over the app's; the coverage lines and *a day with a gap must not read like a full day* are gated in `chart-gate` and the harness |
+| **never plays the clinician** | **KEPT.** [[D32]] shows reference ranges against the user's own readings and renders **no** evaluative word; the medication path reports the FDA label with its citation and retrieval date and *never says what a drug is for in its own voice*. The NEW half is *"prepares the user and says so"* — nothing does that yet; that is scope, not a defect |
+| **loyal to the user only** | **TRUE BY CONSTRUCTION, GATED IN ONE PLACE.** No backend, no accounts, and no analytics or telemetry of any kind (the only occurrences of those words are the statements that there are none). But the app does make outbound calls, to six hosts: `world.openfoodfacts.org`, `api.fda.gov`, `dailymed.nlm.nih.gov`, `api.x.ai` (the user's **own** BYOK key), `cdn.jsdelivr.net` (the lazy ZXing fallback) and `github.com` (the source link). So loyalty is about **what leaves and on whose action** — and the only *gated* egress assertion is `import-gate`'s, which proves nothing crosses the origin **during an import**. **There is no global egress gate.** GAP |
+| **flags, not nudges** | **PRACTISED, NOT STATED, NOT GATED.** The behaviour is already there: [[D121]]'s next-tap is offered **once**, is dismissable and is never shown twice; habits are one at a time, optional, one tap to pass. But until now the principle was nowhere, and **no gate asserts the absence of engagement mechanics** — no streak that punishes a miss, no badge, no notification that exists to return the user. GAP |
+| **data stays the user's** | **LOCAL YES, EXPORTABLE YES, DELETABLE PARTLY.** Local under [[D1]] with a truthful badge and a memory fallback; export always available and gated; `clearDay()` clears one day and `glucoseClear()` one stream. **There is no delete-everything.** A user who wants out has to clear day by day, and the glucose cache separately. GAP |
+
+**Three gaps, named so they can be ruled on rather than discovered:** no global
+egress gate, no gate against engagement mechanics, and no delete-all. The purpose
+is what makes them gaps — before it, each was merely a thing that did not exist.
