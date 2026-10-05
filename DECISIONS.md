@@ -9456,3 +9456,31 @@ It passes the census, so it renders no banned framing, but the name is unexamine
 and is flagged rather than renamed on my own say-so.
 
 Suite 27 → **30 verdicts** (1 harness + 7 static + 22 CDP).
+
+### AMENDMENT (2026-10-05) — ITS FIRST EXERCISE ON A REAL MISS
+
+Every failure above was a **plant**. [[D158]]'s push gave it a real one: a GitHub
+incident left Pages on *degraded performance*, the deploy sat in a queue, and the
+live site kept serving the previous version.
+
+It reported `GATE: FAIL` with the right diagnosis and the three figures that
+localise the fault:
+
+```
+local  v0.64.0  shell 58abc3143fb3
+served v0.63.0  shell 2bfde1dfad74
+  ... If the versions differ, the deploy has not arrived yet.
+```
+
+**And the three-way comparison separated the three candidate causes in two
+commands** — local v0.64.0, `raw.githubusercontent.com` v0.64.0, Pages v0.63.0. The
+content was on GitHub, so the push had landed and the build had not run. The old
+`curl | grep APP_VERSION` would have produced the same `v0.63.0` and left the
+pattern, the push and the build all equally suspect.
+
+**The polarity earned itself too.** "Cannot confirm" printing FAIL is what kept a
+stuck deploy from reading as a successful one, which is precisely the case it was
+written for.
+
+Still unexercised: the served-`sw.js`-disagrees-with-served-shell branch. A
+queued build is not a broken one.
