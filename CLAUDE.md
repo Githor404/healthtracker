@@ -41,6 +41,8 @@ Capabilities, as they actually stand:
 
 1. **Scan → nutrients.** Barcode scan → OpenFoodFacts lookup → macros *and* labeled micronutrients → portion picker → one-tap log at `measured` confidence.
 2. **Photo → nutrients via AI paste.** For restaurant/cooked meals: the app provides a copyable prompt template; the user sends it with their meal photo to their AI assistant (Claude or any other), pastes the returned JSON into Ingest. Macros only — see the honesty rule below. No API keys, no in-app AI calls.
+2b. **Photo → named food, with the user's own key (BYOK).** The user supplies a provider key; a photographed meal or label is sent to **their** provider, which **names** the food. The numbers then come from the corpus or from remembered items, never from the model ([[D128]]: *the AI names things; numbers come from sources*). At capture only memory proposes, the matcher's top pick is never pre-selected, and every item is confirmed one at a time. Gated by `capture-gate` and `capture-outcome-gate`.
+
 3. **Daily log vs goals.** Daily totals of every tracked nutrient, displayed against user-configured goals (floors for things like protein and fiber, ceilings for things like sodium and kcal if the user wants them).
 4. **Glucose, as a stream.** Imported from an Apple Health export or a Shortcut-produced file, merged by timestamp, held as a re-acquirable **cache** outside the export. A collapsed day row opens into a zoomable, scrollable chart with a time axis, a tap readout, and gaps drawn as gaps. This is leg 1 of the roadmap, and the first stream.
 5. **Medication label information, sourced.** On request, the US prescribing information for a medication, selected from the FDA label and stored with its citation and retrieval date. The app never says what a drug is for in its own voice.
@@ -128,7 +130,9 @@ Static, no build step, GitHub-Pages-deployable; vanilla HTML/CSS/JS in a handful
 **Phase 3 — Nearby prices.** Open Prices read integration per the deferred-verification rule; location permission flow; proximity ranking; caching; graceful degradation.
 *Gate:* scanned product with location permission shows nearby community prices with store/date/distance; permission denied → personal-only with no error surface; offline → cached/personal; the API contract used is recorded in DECISIONS.md with a dated verification note.
 
-**Phase 4 — superseded by the v5 roadmap above.** The old candidate list (Open Prices contribute-back, BYOK vision, shareable shopping lists) is **withdrawn**: it predates the goal. The work after the logging core is the four legs — streams, event signatures, the evidence layer, prediction — in that dependency order, each slice naming which of *track / evaluate / predict* it serves.
+**Phase 4 — superseded by the v5 roadmap above.** Of its old candidate list: **BYOK in-app AI vision SHIPPED** (`byokCapture`, `BYOK_PROVIDERS`, gated by `capture-gate` and `capture-outcome-gate`) and is a capability, not a candidate — see 2b above. **Open Prices contribute-back and shareable shopping lists are withdrawn**: they predate the goal. The work after the logging core is the four legs — streams, event signatures, the evidence layer, prediction — in that dependency order, each slice naming which of *track / evaluate / predict* it serves.
+
+> **Correction (2026-10-04).** The first draft of this section called the whole candidate list *withdrawn*, which would have told every future reader that a shipped, gated capability had been abandoned. The cause: the price entry below was audited against the code because the ruling demanded it, and the rest of this document was reasoned about instead of checked. *A claim about the code made without consulting the code is the same defect as a search pattern typed from memory.*
 
 ## Working rules (unchanged)
 
