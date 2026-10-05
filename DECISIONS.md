@@ -9484,3 +9484,128 @@ written for.
 
 Still unexercised: the served-`sw.js`-disagrees-with-served-shell branch. A
 queued build is not a broken one.
+
+## H25 — Meal response, and tests of the same food — PRE-REGISTERED (2026-10-05)
+
+**The user's label: R133.** Not in this repo before now — the fourth such label,
+after *R112.1* ([[H22]]), *R114/R118* ([[H23]]), *R119* ([[D152]]) and *R139*. Recorded so
+the mapping exists.
+
+**Test tagging is folded in here**, not dropped: it arrived in the same message as
+meal response and shares its ruling (*"the first half of the event-signature
+outcome bits — derive, don't store; same rules"*).
+
+**Serves [[D152]] leg 2** (event signatures), and leg 1 by needing the stream. Under
+[[D157]] it leans on *honest when unwelcome*: the ruling is explicit that a response
+with gaps or a following meal **says so rather than reporting a clean number**.
+
+### RULED
+
+- **Meal response:** for any logged meal with glucose coverage, compute and show on
+  the meal (tap to expand) the **baseline** (pre-meal level), **peak rise**, **time
+  to peak**, and **time back to baseline**. Coverage stated.
+- **Test tagging:** mark a meal as a **TEST**; show tests of the same food **side by
+  side with n**. Context recorded with each: **time of day**, **what it was eaten
+  with**, **whether I moved**.
+
+### MEASURED FIRST, AND ONE ANSWER IS MISSING
+
+**The overlap cannot be measured here.** The available log snapshot spans
+**2026-07-16 to 2026-09-26**; the extracted glucose spans **2026-09-30 to
+2026-10-02**. **Zero days carry both.** So *"how many meals can be profiled"* has no
+answer from this data, and that is the snapshot's age, not the device — the user has
+logged and imported since. **A fresh export is needed before the first number in
+this slice can be quoted.**
+
+What the log alone *does* decide:
+
+| | measured |
+|---|---|
+| eating events (excluding the auto supplement) | **55** items → **31 distinct events** once items sharing a `mealId` are collapsed |
+| multi-item events | **10 of 31** — so *"what it was eaten with"* is answerable for a third of them |
+| a clean 2 h window after the meal | **22 of 31 (71%)** |
+| a clean 3 h window | **21 (68%)** |
+| a clean 4 h window | **20 (65%)** |
+| a clean 5 h window | **19 (61%)** |
+| events per day | 10 days with 1, two with 2, two with 3, one with 5, one with 6 |
+
+**So about a third of meals will never yield a clean response**, whatever the window,
+because another meal follows inside it. That is not a defect to engineer around; it
+is the number the *"says so"* half of the ruling exists to report.
+
+And the glucose side caps it independently:
+
+| day | readings | share of a day | gaps > 15 min |
+|---|---|---|---|
+| 2026-09-30 | 80 | **28%** | 0 |
+| 2026-10-01 | 280 | **97%** | 1, of 45 min |
+| 2026-10-02 | 91 | **32%** | 0 |
+
+**One of three days has near-full coverage.** Even with overlap, a response window
+will often be partly uncovered — which is why coverage is stated per response and
+not per day.
+
+### AND ONE CONTEXT ITEM HAS NO SOURCE AT ALL
+
+**"Whether I moved" cannot be recorded today.** Measured: 23 timeline entries across
+12 days — weight, breath ketones, BP, cold plunge, sleep, red light, bm — and **zero**
+walk, steps, exercise, activity or workout entries. The timeline supports `event`
+kinds (cold plunge and red light are there), so a movement event *could* be logged;
+nothing does, and nothing ever has.
+
+### FORKS
+
+**A — the window.** Clean availability falls only from 71% to 65% between 2 h and
+4 h, so a longer window costs 6 points of coverage and catches more of *time back to
+baseline*, which often exceeds 2 h. Recommended: **4 h**, with the following meal
+declared when there is one.
+
+**B — what "baseline" is.** A single pre-meal reading is noisy; a mean over the 20
+minutes before is steadier. [[D146]] rejected smoothing **inside the chart**, but a
+baseline is a statement about a window **with its n**, which is the same thing the
+day average is allowed to be. Recommended: **mean of the readings in the 20 min
+before, with n shown, refused below n = 2**.
+
+**C — a truncated response.** When a gap or a following meal cuts the window before
+the return to baseline, is *time to baseline* reported as **bounded** (`≥ 95 min`) or
+**declined**? A bound is honest and still useful; a declension is safer. The ruling
+says *says so rather than reporting a clean number*, which permits both readings.
+**Wanted.**
+
+**D — where it renders.** [[D144]] already gives every food row a disclosure body
+(`.mbody`) that opens on a tap. The response goes **there** — no new surface, and the
+ruling's *"tap to expand"* is already built.
+
+**E — stored versus derived, which the ruling's wording could blur.** *"Derive,
+don't store"* applies to the **response numbers**. A **test tag is a user
+declaration** — an input, like the meal itself — and must be **stored** on the item.
+Recommended, and stated here so the two are never conflated.
+
+**F — what makes two tests "the same food".** Not the raw name: [[D137]] already
+found that a derived key unites *"cooked brown lentils with carrot"* with *"...and
+beef"*, a merge across a real difference. Recommended: group by **corpus ref id**
+when resolved, else by the [[D136]] memory key, and **never by typed name** — and show
+the grouping key, so a wrong grouping is visible rather than silent.
+
+**G — "whether I moved", given it has no source.** Three ways: a **one-tap movement
+event** (the same shape as [[H26]]'s ruled one-tap *woke*); **HealthKit steps** via the
+native shell (leg 1, unbuilt); or **drop it from the context and say so**.
+Recommended: the one-tap event, because it is the only one that works today and it
+shares a mechanism with a ruling already made. **Wanted.**
+
+### WHAT GETS GATED
+
+- a response computed on a **synthetic** fixture with known baseline, peak and
+  return — the arithmetic checked against numbers chosen in advance
+- a response whose window contains a **gap**: the gap is declared and the affected
+  figure is not reported as clean
+- a response whose window contains a **following meal**: same
+- **coverage stated** on every response, as a count, never implied complete
+- a test tag **survives a reload** (it is stored) while the response numbers are
+  **recomputed** (they are derived) — the distinction in fork E, asserted
+- two tests of the same food group together **by ref id**, and two different foods
+  with similar names do **not**
+- **n** shown beside any side-by-side comparison
+
+**Stopping for rulings on A—G**, and for a **fresh export** so the first coverage
+number in this slice can be measured rather than estimated.
