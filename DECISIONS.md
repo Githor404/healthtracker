@@ -9252,3 +9252,78 @@ cheapest part of this slice.
 
 **Stopping for rulings on A—F.** D most of all, since it needs permission to fetch
 and a ruling on what justifies a slot.
+
+### AMENDMENT (2026-10-04) — THE MEASUREMENT WAS AIMED AT THE WRONG TARGET
+
+**Corrected on the user's instruction, and the correction inverts the headline.**
+
+The cofactor, alcohol and caffeine axes above were measured against `MICRO_SPEC`
+— the **label** micros an item can carry — and declared *"no field anywhere in the
+schema, 0 items"*. That measured the wrong thing. The right target is **labels OR
+the corpus reference values an item carries once resolved** (`it.ref.v`).
+
+**Verified against `corpus/slots.json`:** the corpus holds **thiamin (404),
+riboflavin (405), niacin (406), B6 (415), folate (417), B12 (418), vitamin C (401),
+magnesium (304), iron (303), copper (312), alcohol (221), caffeine (262),
+theobromine (263) and water (255)** — all at **91—99% coverage in CNF**. [[D118]]'s
+alcohol/caffeine/theobromine mapping is there as the user said.
+
+**And a resolved item carries 45 of the 46 slots at once.** One resolve delivers
+the entire cofactor profile.
+
+#### THE CORRECTED MEASUREMENT — each axis as labels ∪ reference, 62 items
+
+| axis | label | ref | union | coverage |
+|---|---|---|---|---|
+| glucose load: carbohydrate | 48 | 4 | 48 | **77%** |
+| fermentable: total fibre | 40 | 4 | 40 | **65%** |
+| fermentable: soluble fibre | 30 | — | 30 | **48%** |
+| protein (leucine proxy) | 51 | 4 | 51 | **82%** |
+| rate modifier: fat | 49 | 4 | 49 | **79%** |
+| tonicity: sodium | 9 | 4 | 13 | **21%** |
+| tonicity: potassium | 6 | 4 | 10 | **16%** |
+| ETC: iron | 6 | 4 | 10 | **16%** |
+| ETC: magnesium | 1 | 4 | 5 | **8%** |
+| thiamin, riboflavin, niacin, B6, folate, B12, vitamin C, copper, alcohol, caffeine, theobromine, **water** | 0 | 4 | 4 | **6.5%** each |
+
+**Items carrying either a label micro or a reference: 14 of 62 (23%).**
+**Items resolved to the corpus: 4 of 62 (6.5%).**
+
+#### THE BINDING CONSTRAINT IS THE RESOLVE RATE, NOT THE SCHEMA
+
+> Every reference-fed axis sits at exactly **6.5%** because that is the resolve
+> rate. **If every item were resolved, each would reach ≈100%** — except the four
+> the corpus genuinely lacks. The lever is **resolving items**, not extending the
+> schema, and the original entry had that exactly backwards.
+
+**Which means the lever already exists.** [[D121]]'s next-tap resolve walk and
+[[D123]]'s follow-on move are the mechanism for raising this number, and H24 does not
+need a new one. A pathway panel's honest first job may be to say *how much of this
+day is resolved*.
+
+#### WHAT THE CORPUS GENUINELY LACKS (no slot, so resolving cannot help)
+
+`biotin`, `lipoic acid`, `CoQ10`, `carnitine` — as the user predicted — **and two the
+user expected to be present and which are not: `manganese` (315) and
+`pantothenate` / B5 (410).** Neither is in the 46. So beta-oxidation's carnitine
+and the B5 leg of CoA have **no source at any resolve rate**, and must be declared
+absent on the surface rather than computed.
+
+### RULINGS (user, 2026-10-04)
+
+- **FRUCTOSE: admitted as a judged slot**, with a **new justification recorded
+  explicitly** — not *"already in MICRO_SPEC / supplied by OFF"*, which it fails,
+  but: **"the advocate needs it: the CGM is blind to fructose and it drives DNL."**
+  That is the first slot admitted because the *analysis* requires it, and the reason
+  belongs in `slots.json` beside the other two. Size cost measured at **+2.1%**, and
+  **permission granted to fetch the sources** to measure its coverage.
+- **`derive_slots.py --check` emits the full per-nutrient table, chosen AND
+  rejected**, so the corpus answers its own next question instead of costing a 19 MB
+  download each time.
+- **Liquid vs solid: derived from water content (SR 255), continuously, no new
+  field.** Agreed as recommended.
+- **Rate: never minutes.** Expressed as **named modifiers** — *liquid*, *eaten with
+  fibre / fat / protein*, *broke a fast* — never as a time. The app measures no
+  gastric emptying.
+
+**Sequencing:** the advocate gaps ([[D157]]) are built first, as one slice; H24 after.
