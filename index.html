@@ -764,6 +764,13 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
 .treadout{font-size:16px;line-height:1.4;margin:4px 0 0;overflow-wrap:anywhere;color:var(--fg)}
 /* H23/6: the way back, shown only while the opened day is off screen. */
 .tbackrow{display:block;margin:4px 0 0}
+/* D157: the delete-everything confirm. */
+.delallconfirm{border:1px solid var(--bad);border-radius:10px;padding:10px;margin-top:8px}
+.delallwhat,.delallback,.delallkept{font-size:16px;line-height:1.45;margin:0 0 8px}
+.delallback{color:var(--bad)}
+.delallkept{color:var(--muted)}
+.delallbtns{display:flex;flex-wrap:wrap;gap:8px}
+.delallbtns .btn{min-height:44px}
 .tbackrow .tback{min-height:44px;font-size:16px}
 /* H20: the import route's surfaces. `.gempty` is the FIRST import's home --
    the glucose row cannot be, because a day with no readings draws no row
@@ -1223,6 +1230,13 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
         <div class="note" style="margin-top:12px"><b>Backup of your previous data</b> — copy this to keep it:</div>
         <textarea id="prerestoreBox" readonly></textarea>
       </div>
+    </div>
+    <!-- D157: the data belongs to the user -- local, exportable, DELETABLE. Its own
+         card, below the destructive restore, because it is the more destructive of
+         the two and must not be mistaken for it. -->
+    <div class="card" data-setting="delete-all">
+      <h2>Delete everything <span style="color:var(--bad)">(permanent)</span></h2>
+      <div id="deleteAllWrap"></div>
     </div>
     <!-- Foot of Settings: reference info, not a control (R20.2), so it takes no
          card and no heading. Filled by renderVersionLine(); empty if script never

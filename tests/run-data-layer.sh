@@ -5,6 +5,12 @@
 # No Node, no build step — just a browser.
 set -uo pipefail
 
+# EVERY EXIT PATH SPEAKS. run-all-gates reads only `GATE: (PASS|FAIL)` and
+# scores anything else as PRODUCED NO VERDICT -- so a precondition that
+# exited 1 with its own wording turned a real failure into apparent silence.
+# "It failed" and "it never reported" send a reader to different places.
+speak_fail() { echo "GATE: FAIL"; exit 1; }
+
 DIR=$(cd "$(dirname "$0")" && pwd)
 HTML="$DIR/data-layer.test.html"
 
@@ -28,10 +34,12 @@ HTML="$DIR/data-layer.test.html"
 GATE_SCRIPTS="bm-slider-gate.ps1
 capture-gate.ps1
 capture-outcome-gate.ps1
+anti-engagement-gate.ps1
 chart-gate.ps1
 import-gate.ps1
 chip-layout-gate.ps1
 collapse-gate.ps1
+delete-all-gate.ps1
 corpus-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
@@ -45,7 +53,14 @@ photo-lead-gate.ps1
 resolve-gate.ps1
 ring-size-gate.ps1
 update-gate.ps1"
-EXPECTED_GATE_SCRIPTS=20
+# DERIVED, not hand-maintained. This was a literal, read by nothing but two
+# echo strings -- the real bar is the manifest above versus the files on disk
+# (GS_MISSING / GS_EXTRA). Setting it to 21 with 22 gates present changed
+# nothing and printed "22 of 21 present, manifest matches", a
+# self-contradicting sentence that still passed. A number that looks like a
+# bar and enforces nothing is worse than no number: it invites the next
+# reader to trust it. Derived from the manifest, and now checked.
+EXPECTED_GATE_SCRIPTS=$(printf '%s\n' "$GATE_SCRIPTS" | grep -c .)
 
 GS_MISSING=""
 for g in $GATE_SCRIPTS; do [ -f "$DIR/$g" ] || GS_MISSING="$GS_MISSING $g"; done
@@ -61,13 +76,19 @@ if [ -n "$GS_MISSING" ]; then
   echo "  Recover (every gate script is committed):"
   for g in $GS_MISSING; do echo "    git checkout -- tests/$g"; done
   echo "  Then confirm the scoped AV exclusion for tests/ is in place on this machine."
-  exit 1
+  speak_fail
 fi
 if [ -n "$GS_EXTRA" ]; then
   echo "GATE-SCRIPT CENSUS: FAIL - unpinned gate script(s): $GS_EXTRA"
   echo "  A new gate must join the manifest deliberately, in the same commit that adds it,"
   echo "  so the bar can never move without someone choosing to move it."
-  exit 1
+  speak_fail
+fi
+if [ "$GS_FOUND" -ne "$EXPECTED_GATE_SCRIPTS" ]; then
+  echo "GATE-SCRIPT CENSUS: FAIL - $GS_FOUND file(s) on disk against $EXPECTED_GATE_SCRIPTS in the manifest"
+  echo "  GS_MISSING and GS_EXTRA should have caught this; if they did not, the"
+  echo "  census itself is broken and no count below can be trusted."
+  speak_fail
 fi
 echo "gate-script census: $GS_FOUND of $EXPECTED_GATE_SCRIPTS present, manifest matches"
 
@@ -78,7 +99,7 @@ STRIP_RE="migrateLegacy|LEGACY_KEY|['\"]uha-log-v1['\"]"
 if grep -nE "$STRIP_RE" "$DIR/../app.js" >/dev/null 2>&1; then
   echo "STRIP CHECK: FAIL — legacy code remains in app.js:"
   grep -nE "$STRIP_RE" "$DIR/../app.js"
-  exit 1
+  speak_fail
 fi
 echo "strip check: app.js is legacy-free"
 
@@ -86,13 +107,13 @@ echo "strip check: app.js is legacy-free"
 # cross-origin POST is not cacheable BY DEFAULT, and "by default" is not "never",
 # so the bypass is asserted rather than assumed.
 if ! grep -q "req.method !== 'GET') return" "$DIR/../sw.js"; then
-  echo "SW BYPASS: FAIL - the non-GET early return is gone; the vision POST could be intercepted"; exit 1
+  echo "SW BYPASS: FAIL - the non-GET early return is gone; the vision POST could be intercepted"; speak_fail
 fi
 if ! grep -q "url.origin !== self.location.origin) return" "$DIR/../sw.js"; then
-  echo "SW BYPASS: FAIL - the cross-origin passthrough is gone"; exit 1
+  echo "SW BYPASS: FAIL - the cross-origin passthrough is gone"; speak_fail
 fi
 if ! grep -q "Fork G" "$DIR/../sw.js"; then
-  echo "SW BYPASS: FAIL - the bypass is no longer named as deliberate (D45 Fork G)"; exit 1
+  echo "SW BYPASS: FAIL - the bypass is no longer named as deliberate (D45 Fork G)"; speak_fail
 fi
 echo "sw bypass: the BYOK call passes through uncached (non-GET + cross-origin)"
 
@@ -101,7 +122,7 @@ echo "sw bypass: the BYOK call passes through uncached (non-GET + cross-origin)"
 if ! bash "$DIR/check-sw-hash.sh" >/dev/null 2>&1; then
   bash "$DIR/check-sw-hash.sh"
   echo "SW-HASH CHECK: FAIL"
-  exit 1
+  speak_fail
 fi
 echo "sw-hash check: sw.js cache name tracks the shell"
 
@@ -110,14 +131,14 @@ echo "sw-hash check: sw.js cache name tracks the shell"
 # stale hash is a silent "scanner won't load" -- same class as the SW-hash trap.
 if ! bash "$DIR/check-zxing.sh"; then
   echo "ZXING CHECK: FAIL"
-  exit 1
+  speak_fail
 fi
 
 # APP_VERSION drift (D6 force-and-notify): APP_VERSION must carry a changelog line
 # and bump whenever the shell changes, so an update can't ship without a notice.
 if ! bash "$DIR/check-version.sh"; then
   echo "VERSION CHECK: FAIL"
-  exit 1
+  speak_fail
 fi
 
 # Write-site census (D29): every record-write must be a REGISTERED site, classified

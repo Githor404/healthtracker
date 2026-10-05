@@ -5103,3 +5103,27 @@ case the old hand-grep passed.
 
 **Unexercised:** the served-`sw.js`-disagrees branch, which needs a genuinely
 broken deploy to fire.
+
+### D158 — the three advocate gaps — 7th static check, 21st and 22nd gates
+
+Suite **27 → 30 verdicts**.
+
+| case | asserts |
+|---|---|
+| **check-egress.sh** | every host in the shipped files is **declared with a class and a reason**; a new one fails by name, a vanished one as a **stale allowance** |
+| **check-egress.sh** | the **fetch call-site count**, pinned — a literal-URL census cannot see `fetch(aVariable)` |
+| **check-egress.sh** | `XMLHttpRequest` / `WebSocket` / `sendBeacon` / `EventSource` / `Notification` / `PushManager` / `setAppBadge` all **absent** |
+| **anti-engagement-gate.ps1** | no praise, penalty framing, return prompt, social comparison or gamification on any swept surface — **framing, not vocabulary**, because *streak*, *don't break* and *consecutive* all have honest uses here |
+| **anti-engagement-gate.ps1** | **a streak carries its denominator** — the one assertion a ban cannot express |
+| **anti-engagement-gate.ps1** | a **dismissed offer stays dismissed** across a re-render and a reboot |
+| **delete-all-gate.ps1** | one action clears **all nine** owned keys, the glucose cache and the in-memory state, leaving **no stray** `healthtracker` key |
+| **delete-all-gate.ps1** | a **wrong token is refused**; **cancel** leaves all nine intact |
+| **delete-all-gate.ps1** | the confirm names the glucose cache, says it is irreversible, says an **export is the only way back**, and states the **corpus is kept** |
+
+**Proven red first:** the egress census with an empty allowlist (all seven hosts
+named), and delete-all before the action existed. **Proven by plant:** four for
+egress, two for anti-engagement.
+
+**Also fixed here:** ten harness precondition paths that exited without a `GATE:`
+line, so a real failure read as `no-verdict`; and `EXPECTED_GATE_SCRIPTS`, which
+enforced nothing and is now derived from the manifest.

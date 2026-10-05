@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.63.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.64.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -7353,6 +7353,124 @@ function chartWindowLine() {
 // apart, and nothing else writes either of them. Two features writing one line
 // is the shape that produced the two-ages defect.
 let CHART_PICK = null;                 // a moment in ms, or null
+// ---------------------------------------------------------------------------
+// D157 / DELETE EVERYTHING.
+//
+// The purpose binds "the data stays the user's: local, exportable, DELETABLE",
+// and it was deletable per PART only -- clearDay() one day, glucoseClear() one
+// stream. A user who wanted out had to clear day by day and the cache
+// separately, which is a door, not an exit.
+//
+// MEASURED, so "everything" is a list and not a hope. All user data lives in
+// these NINE localStorage keys. IndexedDB holds only the corpus (two stores)
+// and Cache Storage only the shell; neither holds anything about the user.
+// A FUNCTION, not a top-level const. Six of these keys are declared LATER in the
+// file (PRODUCTS_KEY, GLUCOSE_KEY, VERSION_KEY, BYOK_LS, SCANS_KEY, TRASH_KEY),
+// so an array built at load time hit the temporal dead zone and threw a
+// ReferenceError before anything ran -- which presents as "HT is not defined",
+// exactly like a parse error, and sent me looking for a syntax slip.
+function deleteAllKeys() {
+  return [STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY,
+          GLUCOSE_KEY, VERSION_KEY, SCANS_KEY, TRASH_KEY, BYOK_LS];
+}
+// THE CORPUS IS KEPT, and the confirm says so rather than leaving it to be
+// guessed. It is a shipped asset, it contains nothing about the user, and
+// re-downloading 2.4MB would cost bandwidth for no privacy gain.
+const DELETE_ALL_KEPT = ['the food/nutrient corpus (a shipped database, nothing about you)',
+                         'the offline app shell'];
+let DELETE_ALL_TOKEN = null;
+// A TOKEN, not a boolean. The whole log is one tap from gone, and a flag that
+// any code path can set is not a confirm -- the token is issued by the preview
+// the user actually read.
+function deleteAllPreview() {
+  const st = APP_STATE || {};
+  let items = 0;
+  Object.keys(st.days || {}).forEach(function (dk) {
+    items += (((st.days[dk] || {}).items) || []).length;
+  });
+  let gdays = 0;
+  try { gdays = Object.keys(glucoseRead()).length; } catch (e) { gdays = 0; }
+  const present = deleteAllKeys().filter(function (k) {
+    try { return localStorage.getItem(k) !== null; } catch (e) { return false; }
+  });
+  DELETE_ALL_TOKEN = 'del-' + Math.random().toString(36).slice(2, 10) + '-' + nowMs();
+  return {
+    token: DELETE_ALL_TOKEN,
+    keys: present.slice(),
+    days: Object.keys(st.days || {}).length,
+    items: items,
+    glucoseDays: gdays,
+    timelineDays: Object.keys(st.timeline || {}).length,
+    meds: ((st.meds || {}).list || []).length || Object.keys(st.meds || {}).length,
+    kept: DELETE_ALL_KEPT.slice()
+  };
+}
+function deleteAllExecute(token) {
+  if (!token || token !== DELETE_ALL_TOKEN) {
+    return { ok: false, error: 'That needs the confirm it was issued with.' };
+  }
+  DELETE_ALL_TOKEN = null;
+  const removed = [];
+  deleteAllKeys().forEach(function (k) {
+    try { if (localStorage.getItem(k) !== null) removed.push(k); localStorage.removeItem(k); }
+    catch (e) { }
+  });
+  // CLEARING STORAGE WITHOUT CLEARING MEMORY would let the next save write it
+  // all back, so the in-memory copies go too.
+  APP_STATE = emptyState();
+  _glucoseMem = null;
+  GLUCOSE_MIXED = null;
+  GLUCOSE_OPEN = {};
+  CHART_WIN = null;
+  CHART_PICK = null;
+  RESOLVE_WALK = null;
+  DELETE_ALL_OPEN = false;
+  try { _gImport = { seq: 0, active: false, name: '', format: '', bytes: 0, total: 0,
+                     readings: 0, added: 0, skipped: 0, done: false, error: '' }; } catch (e) { }
+  refresh();
+  return { ok: true, removed: removed };
+}
+let DELETE_ALL_OPEN = false;
+function deleteAllAsk() { DELETE_ALL_OPEN = true; renderDeleteAll(); return { ok: true }; }
+function deleteAllCancel() { DELETE_ALL_OPEN = false; DELETE_ALL_TOKEN = null; renderDeleteAll(); return { ok: true }; }
+function deleteAllGo() {
+  const t = DELETE_ALL_TOKEN;
+  if (!t) return { ok: false, error: 'No confirm is open.' };
+  return deleteAllExecute(t);
+}
+// Its own renderer and its own slot, so no existing card's render path has to
+// grow a second responsibility.
+function renderDeleteAll() {
+  const el = document.getElementById('deleteAllWrap');
+  if (el) el.innerHTML = deleteAllHTML();
+}
+function deleteAllHTML() {
+  if (!DELETE_ALL_OPEN) {
+    return '<button type="button" class="btn danger delall" onclick="deleteAllAsk()">'
+      + 'Delete everything\u2026</button>'
+      + '<div class="note">Removes every day, item, timeline entry, medication, '
+      + 'setting and the glucose cache from this device.</div>';
+  }
+  const p = deleteAllPreview();
+  return '<div class="delallconfirm">'
+    + '<div class="delallwhat"><b>This deletes, permanently:</b> '
+    + p.days + ' day' + (p.days === 1 ? '' : 's') + ' holding ' + p.items + ' item'
+    + (p.items === 1 ? '' : 's') + ', ' + p.timelineDays + ' day'
+    + (p.timelineDays === 1 ? '' : 's') + ' of timeline entries, your medications, '
+    + 'your settings and presets, the scan and trash history, any saved provider key, '
+    + 'and the <b>glucose</b> cache (' + p.glucoseDays + ' day'
+    + (p.glucoseDays === 1 ? '' : 's') + ').</div>'
+    // THE ONE WAY BACK, said BEFORE the data is gone rather than after.
+    + '<div class="delallback"><b>It cannot be undone.</b> An <b>export</b> is the '
+    + 'only way back, and it has to be taken first \u2014 there is no backup after this.</div>'
+    + '<div class="delallkept"><b>Kept:</b> ' + esc(p.kept.join('; ')) + '. The '
+    + 'corpus is a shipped database that holds nothing about you.</div>'
+    + '<div class="delallbtns">'
+    + '<button type="button" class="btn delall-cancel" onclick="deleteAllCancel()">Cancel</button> '
+    + '<button type="button" class="btn danger delall-go" onclick="deleteAllGo()">'
+    + 'Delete everything now</button></div>'
+    + '</div>';
+}
 // H23/6: PANNING BEYOND THE OPENED DAY IS THE FEATURE, so nothing here stops
 // it. What it owes the reader is a way back, and only when one is needed.
 //
@@ -9191,7 +9309,7 @@ function refresh() {
     try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
     AUTOCLOSE_BUSY = false;
   }
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderNudge(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -9329,6 +9447,7 @@ const VERSION_LOG = [
   { v: '0.61.0', d: '2026-10-03', note: 'Glucose: a six-action Shortcut recipe in the app writes a small file to import daily, instead of exporting all of Apple Health.' },
   { v: '0.62.0', d: '2026-10-03', note: 'Glucose chart: a time axis, a tap anywhere for the value and time at that moment, and the chart now opens on the day you came from.' },
   { v: '0.63.0', d: '2026-10-04', note: 'Glucose chart: swipe through time past the day you opened, and one tap brings you back to it.' },
+  { v: '0.64.0', d: '2026-10-05', note: 'Delete everything: one action in Settings clears every day, item, setting and the glucose cache, behind a confirm that says what goes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14659,6 +14778,8 @@ window.HT = {
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
   chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs,
+  deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
+  deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
   chartPick: () => CHART_PICK,
   chartPickSet: (t) => { CHART_PICK = (t == null ? null : num(t)); glucoseRedraw(); return CHART_PICK; },

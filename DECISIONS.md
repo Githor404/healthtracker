@@ -9327,3 +9327,132 @@ absent on the surface rather than computed.
   gastric emptying.
 
 **Sequencing:** the advocate gaps ([[D157]]) are built first, as one slice; H24 after.
+
+## D158 — The three advocate gaps, closed — v0.64.0 (2026-10-05)
+
+[[D157]] named three gaps between the advocate purpose and the code. Built as one
+slice, gate-first. **Serves no D152 leg** — it serves the purpose above them, which
+is the one kind of slice allowed to answer *"none"* to that question.
+
+### 1. THE EGRESS CENSUS — `tests/check-egress.sh`, 7th static check
+
+Loyalty was *true by construction* and gated in exactly one place: `import-gate`
+proves nothing crosses the origin **during an import**. Nothing watched the rest of
+the time.
+
+**Three teeth, because a host census alone has an obvious hole:**
+
+| | |
+|---|---|
+| the **host set** | every host in the shipped files is declared with its class and reason; a new one fails **by name**, a vanished one fails as a **stale allowance** |
+| the **fetch call sites**, pinned at 6 | a literal-URL census cannot see `fetch(aVariable)`. This is what closes that |
+| the **absent APIs** | `XMLHttpRequest`, `WebSocket`, `sendBeacon`, `EventSource`, `Notification`, `PushManager`, `setAppBadge` — all zero, and all are ways egress or a nudge arrives with no URL |
+
+**The classification is the part that needed measuring.** A naive census would have
+flagged `github.com` (an `<a href>` plus the OFF User-Agent string), `dailymed` (a
+link the user taps) and `console.x.ai` (prose in a comment) as egress. All false,
+and *a check that cries wolf is a check people stop reading*. So the **set** is
+enforced and the **classification** is documented:
+
+| host | class | why |
+|---|---|---|
+| `world.openfoodfacts.org` | request | product lookup on scan, cache-first, with the [[D14]] User-Agent |
+| `api.x.ai` | request | the BYOK provider base, on the user's **own** key |
+| `api.fda.gov` | request | the FDA drug label, **on a tap only** |
+| `cdn.jsdelivr.net` | request | the lazy ZXing fallback, the one external dependency the brief allows |
+| `dailymed.nlm.nih.gov` | link | the user navigates; the app does not request |
+| `github.com` | link | the Source link, and the repo URL inside the User-Agent |
+| `console.x.ai` | string | a comment saying where a key comes from |
+
+Proven red with an **empty allowlist** (all seven named at their source lines), then
+by four plants: undeclared host, stale allowance, a 7th fetch site, an
+`XMLHttpRequest`. Four distinct messages.
+
+### 2. THE ANTI-ENGAGEMENT CENSUS — `anti-engagement-gate.ps1`, 21st gate
+
+The behaviour was already right, and the principle lived in **one comment** — *"Not
+a menu, not a nag, and never a streak, a nudge or a distance to a goal"* — enforced
+nowhere.
+
+**The measurement changed the design.** Three words collide with honest copy:
+
+- **streak** — Trends renders `streak 2 days · 2 confirmed · avg 17.3h`, a fact about
+  the user's own fasting, carrying its denominator
+- **don't break** — *"0-calorie drinks and the daily supplement don't break a fast"*
+- **consecutive** — the streak's own definition
+
+Third time in this project that the same word serves two purposes ([[D139]], [[D147]]).
+So the banned set targets **framing, not vocabulary**: praise, penalty framing,
+return prompts, social comparison, gamification — phrases with no honest use here.
+
+> **And one constructive assertion the measurement earned: if `streak` is on the
+> surface, its DENOMINATOR must be too.** *"streak 3 days"* alone is a prize;
+> *"streak 3 days · 5 confirmed"* is a count. That difference is the whole ruling, and
+> a ban cannot express it.
+
+Plus the half a text census cannot do: **a dismissed offer stays dismissed** across a
+re-render AND a reboot. `RESOLVE_WALK` is in-memory and created only by an explicit
+save, so that is structurally true — and now asserted.
+
+Proven by plant: praise on the day line, and a streak stripped of its denominator.
+
+**Scope stated in the PASS line:** first run, the day view with rows expanded and a
+pending offer, and trends — **not** all thirteen screens `jargon-gate` visits.
+Duplicating that navigation would be a second copy that drifts, and drift in a test
+is worse than a narrower scope that says so.
+
+### 3. DELETE EVERYTHING — `delete-all-gate.ps1`, 22nd gate
+
+Deletable **per part** only: `clearDay()` one day, `glucoseClear()` one stream. A
+user who wanted out cleared day by day and the cache separately. That is a door,
+not an exit.
+
+**Measured, so "everything" is a list and not a hope.** All user data is in **nine**
+localStorage keys. IndexedDB holds **only** the corpus (two stores) and Cache
+Storage only the shell — neither holds anything about the user, **so the corpus is
+KEPT** and the confirm says so plainly, which is what [[D157]]'s ruling asked for.
+
+**Token-gated, not flag-gated:** the whole log is one tap from gone, and a boolean
+any path can set is not a confirm. The token is issued by the preview the user
+actually read, and a wrong token is refused. The confirm names the glucose cache,
+says it cannot be undone, and says an **export is the only way back** *before* the
+data goes rather than after.
+
+Red first, genuinely — the action did not exist.
+
+### AND TWO INSTRUMENTS THAT WERE NOT WATCHING
+
+**TEN HARNESS EXIT PATHS FAILED SILENTLY.** `check-version` correctly caught an
+unbumped `APP_VERSION`; the harness printed `VERSION CHECK: FAIL` and exited **with
+no `GATE:` line**, so `run-all-gates` scored it as **`data-layer(no-verdict)`**.
+`judge()` reads only `GATE: (PASS|FAIL)` and treats the rest as *present but
+speechless*.
+
+> ***"It failed" and "it never reported" send a reader to different places.*** One
+> points at the failure, the other at the harness. Ten precondition paths could
+> turn the first into the second. All ten now route through one `speak_fail()`
+> helper, so an eleventh cannot be added quietly. Same class as [[D151]], which fixed
+> it for one check and not for these.
+
+**AND A DEAD PIN.** `EXPECTED_GATE_SCRIPTS` was read by nothing but two echo
+strings. Set to **21** with **22** gates present, the suite passed and printed *"22
+of 21 present, manifest matches"* — a self-contradicting sentence. I had been
+changing that number for three slices believing it was a bar. It is now **derived
+from the manifest** and checked.
+
+> **A number that looks like a bar and enforces nothing is worse than no number: it
+> invites the next reader to trust it.**
+
+**My own error, recorded.** I ran `git checkout -- tests/run-data-layer.sh` to undo
+a plant, discarding every uncommitted edit to that file — the manifest entries, the
+derived count, its enforcement. I had been snapshotting to a scratchpad all session
+and reached for the destructive command anyway. Nothing was lost only because the
+edits were reproducible from scripts.
+
+### WHAT IS STILL OPEN
+
+`refresh()` calls **`renderNudge()`** — a function named for the thing [[D157]] forbids.
+It passes the census, so it renders no banned framing, but the name is unexamined
+and is flagged rather than renamed on my own say-so.
+
+Suite 27 → **30 verdicts** (1 harness + 7 static + 22 CDP).

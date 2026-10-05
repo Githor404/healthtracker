@@ -190,7 +190,7 @@ Every `tests/check-*.sh` is on one of two lists in the runner:
 
 | list | checks | run by |
 |---|---|---|
-| `STATIC_CHECKS` | `check-guidance.sh`, `check-slots.sh`, `check-precache.sh`, `check-allowlist.sh`, `check-eol.sh`, `check-ps-encoding.sh` | the runner, judged like any gate |
+| `STATIC_CHECKS` | `check-guidance.sh`, `check-slots.sh`, `check-precache.sh`, `check-allowlist.sh`, `check-eol.sh`, `check-ps-encoding.sh`, `check-egress.sh` | the runner, judged like any gate |
 | `IN_HARNESS` | `check-sw-hash.sh`, `check-version.sh`, `check-writesites.sh`, `check-zxing.sh` | `run-data-layer.sh`, as preconditions |
 
 A `check-*.sh` on neither list fails the suite as **unwired**. If the harness
@@ -215,13 +215,13 @@ The verdict count stays **27**.
 
 
 **The count is the number of verdict lines the runner prints:** 1 harness + the
-`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 6 + 20 = **27**. The
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 7 + 22 = **30**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
 Every run prints the sum, and the suite fails if the passes don't add up to it:
 
 ```
-counted: 1 harness + 6 static + 20 CDP = 27 verdicts (4 more checks run inside the harness and are part of its verdict)
-SUITE: PASS (27 of 27 produced a verdict, and every verdict was PASS)
+counted: 1 harness + 7 static + 22 CDP = 30 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (30 of 30 produced a verdict, and every verdict was PASS)
 ```
 
 **Quote the number together with that line.** A bare count can't be told apart
