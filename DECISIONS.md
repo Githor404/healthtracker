@@ -9117,3 +9117,138 @@ gaps are recorded, **not built** — no ruling was given to build them.
 **Three gaps, named so they can be ruled on rather than discovered:** no global
 egress gate, no gate against engagement mechanics, and no delete-all. The purpose
 is what makes them gaps — before it, each was merely a thing that did not exist.
+
+## H24 — Metabolic potential — PRE-REGISTERED, MEASURED FIRST (2026-10-04)
+
+Every food and liquid input broken down by **what it delivers to each metabolic
+pathway, and how fast**, derived **deterministically from composition and capture**
+and never from the model.
+
+**Serves leg 1 of [[D152]] (TRACK)** and is the substrate for leg 2's outcome bits.
+Under [[D157]] it leans on two bindings: *honest when unwelcome* (every value carries
+its coverage) and *never plays the clinician* (the app states what an input
+**delivered**, never that it **activated** a pathway).
+
+### MEASURED ON THE REAL LOG — 40 days, 62 items
+
+Counted twice on purpose. The contract makes `soluble_fiber_g` **always present, 0
+when unknown**, so *"the field is there"* measures nothing; micros are the
+opposite — absent when unknown, never zero-filled — so for those, presence IS
+coverage.
+
+| axis | non-zero / 62 | coverage |
+|---|---|---|
+| glucose load — `carb_g` | 48 | **77%** |
+| — minus `fiber_g` | 40 | **65%** |
+| rate modifier — `fat_g` | 49 | **79%** |
+| protein load — `protein_g` | 51 | **82%** |
+| fermentable — `soluble_fiber_g` | 30 | **48%** |
+| portion — `grams` | 44 | **71%** |
+
+| micro (presence = coverage) | / 62 | |
+|---|---|---|
+| `saturated_fat_g` | 10 | 16% |
+| `sodium_mg`, `sugars_g` | 9 | 15% |
+| `potassium_mg`, `calcium_mg`, `iron_mg` | 6 | 10% |
+| `cholesterol_mg` | 5 | 8% |
+| `vitamin_d_ug` | 3 | 5% |
+| `magnesium_mg`, `zinc_mg`, `vitamin_a_ug` | 1 | 2% |
+| `vitamin_c_mg`, `vitamin_b12_ug`, `folate_ug` | **0** | **0%** |
+
+**Micros exist on 10 of 62 items.** Source mix: 45 `ai-paste`, 10 `scan`, 7
+`supplement`; 45 `eyeballed` against 17 `measured`; **4 items carry a corpus ref**.
+
+**Axes with no field anywhere in the schema, 0 items each:** `fructose`, `alcohol`,
+`caffeine`, `resistant_starch`, `leucine`, `thiamin`, `riboflavin`, `niacin`, `b6`,
+`pantothenate`, `biotin`, `copper`, `manganese`, `selenium`, `choline`.
+
+**Delivery-rate context:** meals are `lunch` 33, `snack` 12, `dinner` 9,
+`supplement` 7, **`drink` 1**. 45 items carry a `mealId`; **10 eating events hold
+more than one item, covering 34 items** — so the *fibre/fat/protein in the same
+event* modifier can only ever apply to those 34.
+
+**Tonicity:** `water_l > 0` on **1 of 40 days**. Sodium 15%, potassium 10%. No
+caffeine field, no alcohol field.
+
+### THE HEADLINE: ONE AXIS GROUP IS BUILDABLE, ONE IS EMPTY
+
+- **Buildable now** from what the log holds: glucose load, the fat/protein/fibre
+  rate modifiers, protein load. 48—82% coverage, and the coverage is *displayable*.
+- **Needs a field and a source:** fructose, alcohol, caffeine, resistant starch,
+  leucine. All at zero.
+- **Effectively impossible today:** *cofactor coverage by pathway*. TCA, glycolysis,
+  one-carbon, beta-oxidation and the ETC want thiamin, riboflavin, niacin, B5, B6,
+  biotin, lipoic acid, CoQ10, carnitine, Mg, Mn, Cu, Fe. Of those the schema holds
+  **three** (Mg, Fe, Zn) at **2%, 10% and 2%**, and the three one-carbon micros it
+  does define — B12, folate, C — are at **0%**. A pathway panel built today would be
+  a grid of absences.
+
+### MEASURED ON THE CORPUS
+
+46 slots, USDA SR nutrient numbers. **The bar is ≥ 90% coverage in either source.**
+CNF 5,690 foods; SR Legacy 7,793. Encoding is 4 bytes per value.
+
+**Size cost of one new slot, measured:** CNF +22.2 KB, SR Legacy +30.4 KB =
+**+52.6 KB** on 2.42 MB of `.bin`, **+2.1%**.
+
+**Fructose (SR 212) is not a slot, and its coverage CANNOT be measured from this
+repo.** The sources are deliberately absent (*"~19 MB of third-party archives, and
+the repo is fixture-synthetic and public-facing"*), and `slots.json` records only
+the slots that were **chosen**, with their percentages — never the ones considered
+and rejected. So *"what about fructose?"* currently costs a 19 MB re-download.
+
+**The addition precedent, read exactly.** Both judged additions clear the same two
+tests, and fructose clears **neither**:
+
+| | vitamin D (328) | sugars (269) | fructose (212) |
+|---|---|---|---|
+| in `MICRO_SPEC` already | yes | yes | **no** |
+| supplied by OFF labels today | yes | yes | **unmeasured** |
+| coverage | 66.5% SR / 87.9% CNF | 77.1% SR / 81.6% CNF | **unmeasured** |
+
+So admitting fructose would be the **first slot admitted because an analysis wants
+it**, rather than because the app already stores it. That is a new kind of
+justification, not an application of the old one.
+
+### FORKS
+
+**A — build only the buildable group first?** Recommended: ship glucose load, the
+rate modifiers and protein load, each with its coverage; leave the empty axes
+**declared and empty** rather than rendered as zeros. An axis with no inputs in the
+window renders **nothing**, following [[D146]] (a day with no readings draws no row).
+
+**B — "liquid vs solid" is not in the data, and need not be a new field.** `meal` is
+a *category*, not a physical state: a smoothie logged as `snack` is liquid in fact
+and solid by that proxy, and only **1 of 62** items is `drink`. But **water (SR 255)
+is already a slot** — so liquidity can be *derived from composition*, continuously,
+exactly as the ruling asks. Recommended: derive from water content; add no capture
+field.
+
+**C — what IS the rate?** The app measures no gastric emptying, so any "rate" is a
+**modifier computed from composition**, not a measurement. Three shapes: a
+dimensionless modifier with its inputs named; an ordinal band (fast / moderate /
+slow); or a time-to-peak in minutes. **Minutes are rejected on sight** — that is
+fiction wearing decimals, and the honesty rules exist to keep it out. Recommended:
+the modifier, with its inputs always shown.
+
+**D — the fructose slot.** Size cost is +2.1% and the slot list is append-only, so
+the mechanics are settled. What is not: its coverage is unmeasured, and measuring
+it needs the two source archives (~19 MB) fetched to a gitignored directory. **Two
+rulings wanted:** may I download them to measure, and is *"an analysis needs it"* a
+valid reason for a judged addition when the precedent is *"the app already stores
+it"*?
+
+**E — the corpus cannot answer its own next question.** `slots.json` keeps the
+chosen slots and their percentages but no record of what was rejected, so every
+future slot question repeats the 19 MB download. Recommended: `derive_slots.py
+--check` also emits the **full per-nutrient coverage table** (~150 nutrients, both
+sources) into `slots.json`, so the next question is answerable from the repo. Cheap,
+and it is the same discipline as recording a measurement rather than its conclusion.
+
+**F — "delivered", never "activated", enforced.** The ruling is a vocabulary rule, so
+it is gateable: `jargon-gate` gains a banned set — *activated, boosted, triggered,
+upregulated, fuels, drives* — on any rendered surface. Recommended, and it is the
+cheapest part of this slice.
+
+**Stopping for rulings on A—F.** D most of all, since it needs permission to fetch
+and a ruling on what justifies a slot.
