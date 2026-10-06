@@ -9905,3 +9905,39 @@ makes a network call at all.
 **Queue note:** placed **next**, ahead of R136 and R138, because it is a dead end on
 the main capture path and because [[H24]] measured the resolve rate as the constraint
 on everything downstream. Say otherwise and it waits.
+
+### RULINGS (user, 2026-10-05)
+
+- **A** — the **alcohol flag from `alcohol > 0`** in the matched row; **do NOT set
+  `meal:'drink'` from water content.** The night comparison reads **alcohol grams**,
+  which is what it needs, and **no boundary is invented**.
+- **D** — **local search first**; the model's normalisation is offered **only when the
+  local search returns nothing**. So the common path costs no provider call.
+- **Order** — H27 ahead of R136 and R138.
+- **AND "None of these" STOPS BEING A TERMINUS:** it **opens the type-and-search**,
+  and never resolves to nothing.
+
+### THE LAST RULING FORCES A COLLAPSE, AND A DEFINITION
+
+**One control, not two.** The slice was pre-registered as *a fourth option,
+"Something else"*; the final ruling makes *"None of these"* open the same search.
+Two buttons opening one thing is **one thing with two names** — the inverse of the
+defect [[D139]] and [[D147]] both chased, and the same confusion either way round. So
+they become **a single control**.
+
+Its label is the only thing left open, and it matters a little: *"None of these"*
+says what the food **is not**, *"Something else"* says what the user is about to
+**do**. Built as **"Something else"** on that reading, and a one-word change if
+wrong.
+
+> **And "unresolved" stops being something you pick.** `photoPickNone` resolved an
+> item to nothing *on purpose*. After this, nothing does: **unresolved becomes the
+> OUTCOME of typing a name the corpus does not hold**, which is a different fact
+> about the item — *"I told it what this was and it has no row for it"* rather than
+> *"I declined to say"*. The first is honest ignorance; the second was a shrug the
+> app recorded as data.
+
+**One case the rulings do not cover, decided and flagged:** opening the search and
+**dismissing it without typing** must leave the item exactly as it was — the AI's
+name, still unsettled, still asking. A cancel that resolved anything would
+reintroduce the terminus by the back door.
