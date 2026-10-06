@@ -9783,3 +9783,125 @@ newest point is hours old; this is the same honesty applied to a low.
 **Stopping for rulings on A—F.** A and D most of all: both are numbers this data
 cannot supply, and inventing either would be the thing [[D157]] forbids — proving
 something it cannot.
+
+## H27 — "Something else": a way to say what it actually was — PRE-REGISTERED (2026-10-05)
+
+**Serves [[D152]] leg 1 (TRACK)**, and leg 2 by raising the resolve rate — which [[H24]]
+measured as **the binding constraint on every cofactor axis** (4 of 62 items
+resolved, 6.5%). A dead end at capture is where that number is lost.
+
+### THE DEVICE FINDING
+
+> Photographing a drink, the photo draft offers three identity choices; when none
+> is right, there is no discoverable way to give the correct one.
+
+### MEASURED, AND IT IS WORSE THAN THREE CHOICES
+
+`identityOptionsHTML()` renders, in order:
+
+1. the **memory proposal**, if one exists ([[D137]]: *"you chose this for X before"*,
+   source named) — never pre-selected
+2. up to **`IDENTITY_CANDIDATES_MAX = 3`** candidate names
+3. **"None of these"** → `photoPickNone(idx)`
+4. `photoIdentityOptions(idx)` — a **presets** dropdown
+
+**And item 4 returns the empty string when there are no presets** (`if
+(!presets.length) return ''`). **Measured on the real log: 0 presets.** So for this
+user the list is literally *memory + three names + "None of these"*, and the only
+re-pick affordance the code has is **invisible**, because presets ship empty by the
+multi-user rule.
+
+> **"None of these" is the dead end, not the absence of an option.** It accepts that
+> nothing fits and then resolves nothing — the one path out of the question discards
+> the answer.
+
+### WHAT ALREADY EXISTS AND IS REUSED, NOT REBUILT
+
+| | |
+|---|---|
+| `matchCandidates(name, limit)` | the idf-weighted corpus matcher, already there |
+| `rememberedProposal(it)` / `rememberedProposalText(prop)` | [[D137]]'s memory, with the source named |
+| `photoPickCandidate(idx, r)` | applies a candidate and writes the ref |
+| `REF_WHEN = ['capture', 'later']`, normalized on `ref.when` | so `ref.when='capture'` is available today ([[D141]]/F1) |
+| `'confirmed despite state mismatch'` | the [[D135]]/1 state guard, which the ruling says must still fire |
+
+**What does not exist:** any type-and-search field, and **any derivation of `meal`
+from a corpus match** — nothing anywhere sets `it.meal` from a matched row.
+
+### RULED
+
+- **A fourth option on EVERY identity choice list: "Something else"**, opening a
+  **type-and-search** field.
+- As the user types, propose: **memory first** (their earlier choice for a matching
+  name, source named, per [[D137]]), **then the corpus matcher's candidates**
+  (idf-weighted), **each with its kcal pair beside the item's own**.
+- Picking one sets the **name AND the match in one tap**, `ref.when='capture'`, with
+  the **state-mismatch guard still firing**.
+- **If nothing fits, what was typed stands as the name, unresolved** — never a dead
+  end.
+- The model **may help normalise** what was typed into a searchable name, but **never
+  supplies numbers** ([[D8]]).
+- **Drinks:** the chosen candidate **lands as a drink, alcohol or not**, so the [[H26]]
+  night comparison can tell coconut water from white wine without a second step.
+
+### FORKS
+
+**A — the drink/alcohol derivation needs RULED thresholds, and I will not invent
+them.** The corpus carries **water (slot 255, 100% coverage)** and **alcohol (221,
+94.3% CNF)**, so both are derivable — but the cut is a judgement:
+
+- *is it a drink?* water per 100 g above some share. 85%? 90%? Milk is ~88%, soup
+  ~85 — 90%, so the line decides whether soup is a drink, and [[H24]]'s delivery-rate
+  ruling already uses water **continuously** rather than as a class.
+- *is it alcoholic?* `alcohol > 0` is the obvious cut, and it would also catch
+  trace-fermented foods.
+
+Recommended: **derive `alcohol > 0` for the alcohol flag** (a real quantity, not a
+category) and **do not set `meal: 'drink'` from water at all** — instead let the
+night comparison read the **alcohol grams** it actually needs. That answers the
+stated purpose (*tell coconut water from white wine*) without inventing a
+soup-versus-drink boundary. **Wanted.**
+
+**B — where "Something else" sits.** The ruling says a **fourth** option. Measured,
+the list already has up to five rows (memory + 3 + None). Recommended: **last, after
+"None of these"**, because it is the longer path and the three names are the fast
+one — and because [[D138]]/A ruled that nothing in this list is ever pre-selected.
+
+**C — does the search show more than three?** `IDENTITY_CANDIDATES_MAX = 3` caps the
+AI's alternatives. A *search* is a different act from a *guess*, so the cap need not
+apply. Recommended: **show up to 8 search results**, and state the cap on the
+surface, because a silently truncated search list reads as *"that food is not in the
+database"*.
+
+**D — is the model's normalisation on by default?** It costs a provider call on the
+user's own key, and the typed text is usually already searchable. Recommended:
+**search the typed text first, locally**, and offer normalisation only when the
+local search returns nothing — so the common case costs no call and no key.
+**Wanted.**
+
+**E — the invisible re-pick, found while measuring.** `photoIdentityOptions` renders
+nothing without presets, which is every new user. Recommended: once "Something else"
+exists it **supersedes** that dropdown rather than sitting beside it — one way to
+re-pick, always present, instead of two that are each sometimes absent.
+
+### WHAT GETS GATED
+
+- **"Something else" is present on every identity list**, including with **zero
+  presets and zero memory** — the state this user is actually in
+- typing proposes **memory first**, then corpus candidates, **each with a kcal pair**
+- picking one sets **name and ref in one tap**, with `ref.when === 'capture'`
+- the **state-mismatch guard still fires** on a search pick (D135/1)
+- typing something with **no match** leaves the typed text as the name, **unresolved
+  and saveable** — asserted as the absence of a dead end
+- **no number ever arrives from the model** on this path (D8), asserted on the
+  request as well as the result
+- an alcoholic pick carries its **alcohol grams**, so [[H26]]'s comparison has a field
+  to read
+
+**Stopping for rulings on A—E.** A and D most of all — A because a water threshold
+would be a boundary I invented, and D because it decides whether the common path
+makes a network call at all.
+
+**Queue note:** placed **next**, ahead of R136 and R138, because it is a dead end on
+the main capture path and because [[H24]] measured the resolve rate as the constraint
+on everything downstream. Say otherwise and it waits.
