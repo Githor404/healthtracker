@@ -9655,3 +9655,131 @@ will say so.
 
 *A rule that keeps data out of the export keeps it out of the measurement too.*
 That is the cache ruling working as intended, and the cost lands here.
+
+## H26 — Night patterns: a real low, an artefact, and what drives it — PRE-REGISTERED (2026-10-05)
+
+**The user's label: R134.** **Serves [[D152]] leg 1** (the stream) and leg 2 (signatures).
+Under [[D157]]: *flag what matters, prove nothing it cannot.*
+
+### THE REPORT
+
+> A recurring overnight curve: a rise, a drop toward 3 mmol/L, recovery to ≈5,
+> around 03:00, and waking ≈03:30 most days.
+
+### MEASURED ON THE REAL READINGS — 451, spanning 09-30 17:16 to 10-02 07:31
+
+**Two nights have coverage. The pattern is on ONE of them.**
+
+| night | readings | range | lowest |
+|---|---|---|---|
+| 2026-09-30 → 10-01 | 135 | **2.7 — 11.5** | 2.7 at **04:31** |
+| 2026-10-01 → 10-02 | 127 | **5.0 — 6.8** | 5.0 at 01:56 |
+
+The second night is flat: no low, no excursion, a 1.8 mmol/L span across twelve
+hours. So *"most days"* is not something two nights can settle, and the first number
+this slice should show is **how many nights it has**.
+
+#### THE FIRST NIGHT, STEP BY STEP
+
+```
+02:01  6.3   declining
+02:46  4.7
+03:01  4.1
+03:06  4.0   <- the trough, at the time the user names
+03:11  4.7   then a rise
+03:31  8.3
+03:51 11.5   <- peak, +7.5 mmol/L in 45 min
+03:56 10.8
+04:26  3.3   then a fall
+04:31  2.7   <- the lowest reading in the whole sample, -8.8 in 40 min
+05:16  3.7
+```
+
+**A correction to the recollection, offered as evidence rather than argument.** At
+03:00 the value was **4.1**, not near 3. The **sub-3 excursion came at 04:31**, an
+hour later — and between the two sits an **11.5 peak** that the recollection
+describes only as *"a rise"*. The shape is real; the clock on it is an hour out, and
+the peak is larger than remembered.
+
+#### LOW FLAGS
+
+Against **3.9 mmol/L**, the international-consensus **level-1 hypoglycaemia alert
+value** (level 2 is **3.0**) — cited, not chosen here:
+
+- **3 of 451 readings below 3.9** (0.67%): 04:26 **3.3**, 04:31 **2.7**, 05:16 **3.7**
+- **1 below 3.0**: the 2.7
+- all three on the **same night**, inside **50 minutes**
+
+#### AND THE COMPRESSION THRESHOLD CANNOT BE MEASURED FROM THIS DATA
+
+Step-to-step rates, n = 447, mmol/L per hour:
+
+| p1 | p5 | p25 | p50 | p75 | p95 | p99 | min | max |
+|---|---|---|---|---|---|---|---|---|
+| -13.2 | -7.2 | -1.2 | 0.0 | +1.2 | +7.2 | +13.2 | **-26.4** | **+21.6** |
+
+The excursion's own rates sit at and beyond the 1st and 99th percentiles — **but the
+distribution is computed from the three days that contain the excursion**, so it is
+partly measuring itself. With **two nights**, one of them flat, this is a weak basis
+for a threshold, and the ruling asks for one measured from the data **and** the
+literature. **The data half is not there yet.**
+
+### WHAT HAS NO SOURCE AT ALL
+
+- **Wake events:** nothing in the log records waking. 23 timeline entries across 12
+  days, none of them a waking. The ruled **one-tap "woke"** is the source, and it does
+  not exist yet.
+- **Alcohol nights:** `alcohol` has **no item field and 0 items** ([[H24]]). The corpus
+  carries it (slot 221, 94.3% in CNF) but only **4 of 62 items are resolved**, so a
+  comparison of nights-after-alcohol against nights-without has **no n on either
+  side**. It is pre-registered and unbuildable until the resolve rate rises.
+- **Which arm the sensor is on:** ruled as *recorded once per sensor*. No field.
+
+### FORKS
+
+**A — the compression threshold, given the data cannot set it.** Three ways: take it
+**from the literature alone** and label it provisional until enough nights exist;
+**wait** for N nights before the feature ships; or ship the **shape description**
+(fall rate, trough, recovery rate, duration) **with no label at all**, letting the
+user judge. Recommended: **the third, then the first** — describing a shape claims
+nothing, and *"possible compression low"* is a claim. **Wanted.**
+
+**B — what counts as one night.** The measurement used **21:00 → 09:00**, keyed by the
+evening. It has to be declared somewhere, because *"the lowest value of the night"*
+changes with the boundary. Recommended as above, stated on the surface.
+
+**C — asking which side you slept on.** Ruled: **only when a suspect appears**, never
+daily. That makes the question a **flag's follow-up**, not an input — so it must not
+appear on a night with no suspect, and the gate should assert that absence.
+
+**D — the clinician summary's threshold for existing.** Ruled *"when real lows
+recur"*. Recur means a count over a window: **2 nights in 14? 3 in 30?** On this
+sample it is **1 night in 2**, which would trigger almost any rule — and that is
+exactly why the rule needs a number rather than *recur*. **Wanted.**
+
+**E — where the fingerstick sentence lives.** Ruled: the app says plainly that a CGM
+low should be confirmed with a fingerstick before acting. Recommended: on the **low
+flag itself and in the clinician summary**, not once in Settings — a safety sentence
+the user has to go and find is a safety sentence that was not said.
+
+**F — the no-alarms statement.** Ruled: no alerts, no alarms; this is a **3-hour
+look-back** and the **Dexcom app is the live safety tool**, and the app must say so.
+Recommended: wherever a low is shown, next to it. The [[D146]] note already says the
+newest point is hours old; this is the same honesty applied to a low.
+
+### WHAT GETS GATED
+
+- a night with a seeded low: the flag appears, with **lowest value, duration below,
+  and time**, and **no verdict word and no colour**
+- a night with **no** low: no flag, and **no "which side did you sleep on"** question
+- the **fingerstick** sentence present wherever a low is shown
+- the **no-alarms / Dexcom-is-the-live-tool** sentence present likewise
+- a **one-tap "woke"** event lands on the same timeline as the curve
+- the night comparison states **n on both sides**, and renders nothing when either
+  side is empty — which, measured, is the state today
+- the clinician summary lists **dates, lowest values, durations and what preceded
+  them**, and carries the fingerstick sentence
+
+**Stopping for rulings on A—F.** A and D most of all: both are numbers this data
+cannot supply, and inventing either would be the thing [[D157]] forbids — proving
+something it cannot.
