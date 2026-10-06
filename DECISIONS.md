@@ -9609,3 +9609,49 @@ shares a mechanism with a ruling already made. **Wanted.**
 
 **Stopping for rulings on A—G**, and for a **fresh export** so the first coverage
 number in this slice can be measured rather than estimated.
+
+### RULINGS (user, 2026-10-05)
+
+**C — a window cut short.** Two cases, not one:
+
+- **the peak falls BEFORE the gap** → report it **bounded**: *"rise ≥ 2.1, back to
+  baseline: not observed — data stops at 95 min"*
+- **the gap comes before any peak is seen** → **decline** it
+
+> **Never present a bounded window as clean.** Which settles the ambiguity I
+> flagged: a bound is honest *when there is something to bound*, and a gap before
+> the peak leaves nothing.
+
+**BASELINE — the mean of the 20 minutes before, with n shown.** Ruled agreed: *a
+baseline is a statement about a window with its count, like the day average — not
+smoothing inside the chart*. **And if another eating event falls inside those 20
+minutes, say so rather than report a clean baseline** — the same rule as the response
+window, applied to the thing the response is measured against.
+
+**G / MOVEMENT — a one-tap "moved" event**, sharing the mechanism with [[H26]]'s ruled
+one-tap *woke*. **Recorded as ruled: later, steps from Apple Health via the native
+shell replace the tap.** So the tap is a stopgap with a named successor, like the
+file import before it ([[H21]]).
+
+**MEAL = EATING EVENT.** Merging items by `mealId` is right: a multi-item lunch is
+one meal. The measurement already used this; it is now the rule.
+
+**AND THE ONE-THIRD IS SHOWN, NOT HIDDEN.** *"The ~1/3 of meals without a clean
+window is the number the 'says so' half exists to report."* So it is a figure on the
+surface, not a silently smaller set of responses.
+
+### A CONSEQUENCE OF [[D146]] FOR THIS SLICE'S MEASUREMENT
+
+**A fresh `export.json` alone cannot answer the overlap question.** [[D146]] ruled
+glucose a re-acquirable **cache, excluded from the export** — and that holds:
+the export's top-level keys are `days, timeline, meds, labels, plates, regimens,
+fastLog, priceLog, settings, current, version`, with **no glucose**.
+
+So the overlap needs **two** artefacts: a fresh export for the meals, and the
+glucose separately. The PC's extraction stops at **2026-10-02** (451 readings),
+while the device held 719 as of [[D150]] and more since. **Any overlap figure measured
+here is therefore bounded by the PC's glucose window, not by the device's** — and
+will say so.
+
+*A rule that keeps data out of the export keeps it out of the measurement too.*
+That is the cache ruling working as intended, and the cost lands here.
