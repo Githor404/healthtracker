@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.66.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.67.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3494,6 +3494,8 @@ function renderDayInner() {
         </div>${isOpen ? `<div class="mbody">
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
+          ${it._auto || !it.mealId ? '' : mealResponseHTML(dk, it.mealId)}
+          ${it._auto || !it.mealId ? '' : mealTestHTML(dk, it.mealId)}
           ${it._auto ? '' : `<button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>`}
         </div>` : ''}</div>`;
     });
@@ -4904,6 +4906,11 @@ const SIGNAL_SPEC = [
   { type: 'red_light',    kind: 'event', label: 'Red light (RLT)', unit: 'min', units: ['min'],   warn: 120 },
   { type: 'hbot',         kind: 'event', label: 'HBOT',        unit: 'min',    units: ['min'],    warn: 300 },
   { type: 'alcohol',      kind: 'event', label: 'Alcohol',     unit: 'drinks', units: ['drinks'], warn: 30 },
+  // H26/H25: waking is an EVENT, not the end of a sleep interval. The reported
+  // pattern is a wake at ~03:30 in the MIDDLE of a night, which a bed-to-wake
+  // interval cannot express. A new TYPE, not a new kind -- the D35/D52
+  // precedent: an app that does not know this type round-trips it intact.
+  { type: 'woke',         kind: 'event', label: 'Woke',        unit: '',       units: [''],       warn: 0 },
   { type: 'other',        kind: 'event', label: 'Other',       unit: 'min',    units: ['min'],    warn: 1440 },
 ];
 const SIGNAL_BY_TYPE = SIGNAL_SPEC.reduce((m, s) => { m[s.type] = s; return m; }, {});
@@ -4911,7 +4918,11 @@ const SIGNAL_KINDS = ['biometric', 'event', 'medication'];   // D20 addendum: me
 // In-app adapters that may DECLARE their source through addSignal (D19's "one
 // contract, many adapters"). A later device adapter (D28) joins this list; it is
 // an allowlist so a source can never be self-asserted by data we did not create.
-const SIGNAL_ADAPTERS = ['manual', 'lab'];
+// H25/G: 'quick' is the one-tap path. It is a DECLARED adapter rather than
+// 'manual' because the ruling names a successor -- steps from Apple Health via
+// the native shell replace the tap -- and a record that cannot say it came from
+// a tap cannot be told apart from one the user typed when that day comes.
+const SIGNAL_ADAPTERS = ['manual', 'lab', 'quick'];
 // Medication closed enums (name is open-ended free text; these drive form controls,
 // no cross-wiring — MICRO_SPEC/M1 discipline).
 const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'drop', 'puff', 'unit'];
@@ -5110,6 +5121,16 @@ function normalizeSignal(raw) {
   // GROUPING KEY: losing it degrades grouping but loses no value, so it is
   // precision rather than content and needs no schema bump (D29's asymmetry test).
   if (raw.panelId != null && String(raw.panelId) !== '') rec.panelId = String(raw.panelId);
+  // H25/H26: the one-tap drink's TYPE (wine, beer, spirit). An allowlist
+  // addition on the panelId precedent and by its own stated test: losing it
+  // degrades the detail but loses no value -- the alcohol event and its count
+  // survive -- so it is precision rather than content and needs no schema bump.
+  //
+  // IT IS A FIELD AND NOT PROSE because `notes` is user-editable free text, and
+  // this codebase already ruled that parsing notes is an INFERENCE about what a
+  // value meant rather than a transport of it (the v5->v6 migration refused to
+  // mine 'scanned 150 g' for exactly this reason). H26 has to READ this.
+  if (raw.variant != null && String(raw.variant) !== '') rec.variant = String(raw.variant);
   if (raw.ref_low  != null && String(raw.ref_low)  !== '') rec.ref_low  = clampNonNeg(raw.ref_low);
   if (raw.ref_high != null && String(raw.ref_high) !== '') rec.ref_high = clampNonNeg(raw.ref_high);
   if (raw.ref_src === 'lab-report') rec.ref_src = 'lab-report';
@@ -5358,6 +5379,48 @@ function wireChipStripWheel() {
     if ((dy < 0 && atStart) || (dy > 0 && atEnd)) return;         // at an edge — hand the scroll back to the page
     el.scrollLeft += dy; e.preventDefault();
   }, { passive: false });
+}
+// ---- H25/G + H26: THE ONE-TAP EVENT MECHANISM ---------------------------
+//
+// RULED: one mechanism, three kinds, one gate. H26 uses this rather than
+// building its own, because two paths writing the same shape is the duplicate
+// path both rulings warn about.
+//
+// NOT A NEW STORE. Every one of these lands through `addSignal` on the existing
+// timeline, which already carried `walk` and `alcohol` as event types -- the
+// H25 measurement found ZERO entries of either, but the types were there. What
+// was missing was the one tap, not the shape.
+//
+// AND A TAP RECORDS THAT IT HAPPENED, NEVER HOW MUCH. `moved` carries no value:
+// an event's value is optional by construction (addSignal demands one only for a
+// biometric), and inventing a duration nobody supplied is the fabrication D8
+// forbids. For the context item this serves -- 'whether I moved' -- presence IS
+// the datum.
+const QUICK_EVENTS = [
+  { id: 'moved', type: 'walk',    label: 'Moved',
+    says: 'that you moved, not how much',
+    successor: 'steps from Apple Health via the native shell (ruled)' },
+  { id: 'woke',  type: 'woke',    label: 'Woke',
+    says: 'the time you woke',
+    successor: '' },
+  { id: 'drink', type: 'alcohol', label: 'Drink', value: 1,
+    variants: ['wine', 'beer', 'spirit', 'other'],
+    says: 'one drink, and which kind',
+    successor: 'a resolved item carrying corpus slot 221 (ruled: resolved items replace this as coverage rises)' },
+];
+const QUICK_BY_ID = QUICK_EVENTS.reduce(function (m, q) { m[q.id] = q; return m; }, {});
+function quickEvent(id, variant) {
+  const q = QUICK_BY_ID[id];
+  if (!q) return { ok: false, error: 'Unknown quick event.' };
+  const raw = { type: q.type, source: 'quick', time: nowTime(), date: localDate() };
+  if (q.value != null) raw.value = q.value;
+  if (q.variants && q.variants.length) {
+    // An unlisted variant is DROPPED rather than written: the closed-enum
+    // discipline MED_DOSE_UNITS and friends already follow, so a typo cannot
+    // become a category that later analysis treats as real.
+    raw.variant = (q.variants.indexOf(variant) >= 0) ? variant : q.variants[q.variants.length - 1];
+  }
+  return addSignal(raw);
 }
 function addSignalFromForm() {
   const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
@@ -6993,6 +7056,313 @@ function glucoseSeries(fromMs, toMs) {
   out.sort(function (a, b) { return a.t - b.t; });
   return out;
 }
+// ---- H25: MEAL RESPONSE -- DERIVED, NEVER STORED -------------------------
+//
+// What a response is: for one eating event with glucose coverage, the baseline
+// before it, the peak rise after it, how long the peak took, and how long the
+// return took. Every one of those is ARITHMETIC OVER THE STREAM, recomputed on
+// demand -- `derive, don't store` (ruled). The one thing stored is the TEST TAG,
+// because a tag is a user declaration, which is an input like the meal itself.
+//
+// MEASURED BEFORE ANY OF THIS WAS BUILT, on the real log: 55 eating items become
+// 31 events once items sharing a mealId are merged, and only about two thirds of
+// them have a clean window at any length (71% at 2 h, 65% at 4 h). So a third of
+// meals will never yield a clean response, whatever the window -- which is not a
+// defect to engineer around but the number `responseCoverage` exists to report.
+const RESP_WINDOW_MIN = 240;          // fork A: 4 h. 71% -> 65% clean between 2 h
+                                      // and 4 h, so six points of coverage buys
+                                      // the return, which often exceeds 2 h.
+const RESP_BASELINE_MIN = 20;         // ruled: the mean of the 20 minutes before
+const RESP_BASELINE_MIN_N = 2;        // ruled: refused below two readings
+// A GAP IS THE DEFINITION THE DAY SUMMARY ALREADY USES -- three missed steps --
+// DERIVED from the step rather than written again. Two places owning one
+// threshold is how they drift apart (D140's rename defect, in numbers).
+function respGapMin() { return (GLUCOSE_STEP_S / 60) * 3; }
+
+// A MEAL IS ITS ITEMS MERGED BY mealId (ruled). An item with no mealId is its
+// own event -- it was logged alone, so it is one.
+function mealEvents(dateKey) {
+  const day = APP_STATE.days && APP_STATE.days[dateKey];
+  if (!day) return [];
+  const out = {}, order = [];
+  (day.items || []).forEach(function (it, i) {
+    if (!it || it._auto) return;        // the supplement is not an eating event
+    const id = (it.mealId != null && String(it.mealId) !== '') ? String(it.mealId) : ('_solo' + i);
+    if (!out[id]) { out[id] = { mealId: id, time: String(it.time || ''), items: [] }; order.push(id); }
+    out[id].items.push(it);
+    // The event starts at its EARLIEST item: a lunch logged out of order is
+    // still one lunch, and the response is measured from the first mouthful.
+    if (String(it.time || '') < out[id].time) out[id].time = String(it.time || '');
+  });
+  return order.map(function (id) { return out[id]; })
+    .sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
+}
+function mealEventNames(ev) {
+  return (ev && ev.items || []).map(function (it) { return String(it.name || ''); });
+}
+function hhmmToMin(t) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(t || ''));
+  return m ? (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) : null;
+}
+
+// THE RESPONSE. Phases, and the ruling that separates the last two:
+//   'ok'       a peak was seen and the series came back to the baseline
+//   'bounded'  THE PEAK FELL BEFORE THE GAP -- the rise is real and reported, and
+//              the return is stated as NOT OBSERVED with where the data stops
+//   'declined' THE GAP CAME BEFORE ANY PEAK, or the baseline is too thin. There
+//              is nothing to bound, so nothing is claimed.
+//   'none'     no glucose covers this meal at all
+//
+// A PEAK IS SEEN WHEN THE MAXIMUM IS FOLLOWED BY A LOWER READING. That is the
+// whole test, and it is deliberately not a threshold: a rise of 0.2 that is still
+// climbing when the data stops is not a peak anybody observed, and inventing a
+// minimum rise would be a number nobody ruled.
+function mealResponse(dateKey, mealId) {
+  const evs = mealEvents(dateKey);
+  const ev = evs.filter(function (e) { return e.mealId === String(mealId); })[0];
+  if (!ev) return { phase: 'none', why: 'no such meal' };
+  const t0 = hhmmToMin(ev.time);
+  if (t0 == null) return { phase: 'none', why: 'the meal has no time' };
+  const base0 = dayKeyMs(dateKey);
+  const mealMs = base0 + t0 * 60000;
+
+  // ---- the baseline: the mean of the 20 minutes BEFORE, with its n ------
+  // Half-open [meal - 20, meal): the reading AT the meal minute is already the
+  // meal's own, and counting it would let the first mouthful raise the thing the
+  // rise is measured against.
+  const pre = glucoseSeries(mealMs - RESP_BASELINE_MIN * 60000, mealMs - 1);
+  const baseN = pre.length;
+  // RULED: if another eating event falls inside those 20 minutes, SAY SO -- the
+  // window rule applied to the thing the response is measured against.
+  const contaminated = evs.some(function (e) {
+    if (e.mealId === ev.mealId) return false;
+    const te = hhmmToMin(e.time);
+    return te != null && te < t0 && te >= t0 - RESP_BASELINE_MIN;
+  });
+  if (baseN < RESP_BASELINE_MIN_N) {
+    return { phase: 'declined', why: 'the baseline has ' + baseN + ' of the '
+      + RESP_BASELINE_MIN_N + ' readings it needs in the ' + RESP_BASELINE_MIN
+      + ' min before', baseline: { n: baseN, mean: null, contaminated: contaminated } };
+  }
+  let sum = 0;
+  for (let i = 0; i < pre.length; i++) sum += pre[i].v;
+  const mean = Math.round((sum / baseN) * 10) / 10;
+  const baseline = { mean: mean, n: baseN, contaminated: contaminated };
+
+  // ---- the window, cut by the next eating event ------------------------
+  const next = evs.filter(function (e) {
+    const te = hhmmToMin(e.time);
+    return te != null && te > t0 && te <= t0 + RESP_WINDOW_MIN;
+  })[0];
+  const followingMin = next ? (hhmmToMin(next.time) - t0) : null;
+  const endMin = next ? followingMin : RESP_WINDOW_MIN;
+  const win = glucoseSeries(mealMs, mealMs + endMin * 60000);
+  if (!win.length) return { phase: 'none', why: 'no glucose covers this meal', baseline: baseline };
+
+  // ---- coverage, as a COUNT and a gap count, never implied complete ----
+  const gapMin = respGapMin();
+  let gaps = 0;
+  for (let i = 1; i < win.length; i++) {
+    if ((win[i].t - win[i - 1].t) / 60000 > gapMin) gaps++;
+  }
+  const lastMin = Math.round((win[win.length - 1].t - mealMs) / 60000);
+  const stopsShort = lastMin < endMin - gapMin;
+  const coverage = { n: win.length, gaps: gaps, lastMin: lastMin,
+                     windowMin: endMin, unit: win[0].u };
+
+  // ---- the peak -------------------------------------------------------
+  let pi = 0;
+  for (let i = 1; i < win.length; i++) if (win[i].v > win[pi].v) pi = i;
+  const peakSeen = pi < win.length - 1;      // something lower came after it
+  const out = { baseline: baseline, coverage: coverage,
+                following: next ? mealEventNames(next).join(' + ') : '',
+                followingMin: followingMin,
+                stopsAt: (stopsShort || gaps > 0) ? lastMin : null };
+  if (!peakSeen) {
+    // THE GAP CAME BEFORE A PEAK WAS SEEN -> decline. There is nothing to bound:
+    // the highest reading is the last one, so the series was still climbing when
+    // it stopped and no peak was ever observed.
+    out.phase = 'declined';
+    out.why = 'the readings stop while still rising at ' + lastMin
+      + ' min, so no peak was seen';
+    out.rise = null;
+    out.tToPeak = null;
+    out.tToBaseline = null;
+    return out;
+  }
+  out.rise = Math.round((win[pi].v - mean) * 10) / 10;
+  out.tToPeak = Math.round((win[pi].t - mealMs) / 60000);
+  out.peak = win[pi].v;
+
+  // ---- back to baseline: the first reading AT OR BELOW the mean, after the
+  // peak. No tolerance, because a tolerance is a threshold nobody ruled.
+  let back = null;
+  for (let i = pi + 1; i < win.length; i++) {
+    if (win[i].v <= mean) { back = Math.round((win[i].t - mealMs) / 60000); break; }
+  }
+  out.tToBaseline = back;
+  // NEVER PRESENT A BOUNDED WINDOW AS CLEAN (ruled). A return that was not
+  // observed, a gap inside the window, or another meal cutting it short all mean
+  // the same thing: the figure is bounded, and the surface says where it stops.
+  out.phase = (back != null && gaps === 0 && !next && !stopsShort) ? 'ok' : 'bounded';
+  if (out.phase === 'bounded' && out.stopsAt == null) out.stopsAt = lastMin;
+  return out;
+}
+
+// THE ONE-THIRD, AS A FIGURE (ruled: shown, not hidden). How many eating events
+// with any coverage yielded a CLEAN response, out of how many were looked at --
+// so a smaller set of responses is never quietly presented as the whole picture.
+function responseCoverage() {
+  let clean = 0, total = 0, bounded = 0, declined = 0;
+  Object.keys(APP_STATE.days || {}).filter(isDayKey).forEach(function (dk) {
+    mealEvents(dk).forEach(function (ev) {
+      const r = mealResponse(dk, ev.mealId);
+      if (r.phase === 'none') return;      // no stream here: not a miss, just absent
+      total++;
+      if (r.phase === 'ok') clean++;
+      else if (r.phase === 'bounded') bounded++;
+      else declined++;
+    });
+  });
+  return { clean: clean, bounded: bounded, declined: declined, total: total };
+}
+
+// ---- H25: TEST TAGGING -- STORED, because a tag is a DECLARATION ---------
+// Fork E, stated so the two are never conflated: `derive, don't store` governs
+// the response NUMBERS. A test tag is an input, like the meal itself, and must
+// survive a reload.
+function toggleMealTest(dateKey, mealId) {
+  const evs = mealEvents(dateKey);
+  const ev = evs.filter(function (e) { return e.mealId === String(mealId); })[0];
+  if (!ev) return { ok: false, error: 'No such meal.' };
+  const on = !ev.items.every(function (it) { return it.test === true; });
+  ev.items.forEach(function (it) { if (on) it.test = true; else delete it.test; });
+  Store.saveState(APP_STATE);
+  refresh();
+  return { ok: true, test: on, items: ev.items.length };
+}
+
+// WHAT MAKES TWO TESTS THE SAME FOOD (fork F). Never the typed name: [[D137]]
+// measured a derived key uniting 'cooked brown lentils with carrot' with
+// '...and beef', a merge across a real difference. So the corpus ref id when the
+// item is resolved, else D136's memory key -- AND THE KEY IS SHOWN, because a
+// wrong grouping has to be visible rather than silent.
+function testGroupKey(ev) {
+  const withRef = (ev.items || []).filter(function (it) { return it.ref && it.ref.id; })[0];
+  if (withRef) return { key: String(withRef.ref.id), keyKind: 'ref',
+                        label: String(withRef.ref.name || withRef.ref.id) };
+  const nm = (ev.items && ev.items[0] && ev.items[0].name) || '';
+  const mk = matchKey(nm);
+  if (mk) return { key: mk, keyKind: 'memory', label: mk };
+  return { key: '', keyKind: 'none', label: '' };
+}
+function testGroups() {
+  const byKey = {}, order = [];
+  Object.keys(APP_STATE.days || {}).filter(isDayKey).sort().forEach(function (dk) {
+    mealEvents(dk).forEach(function (ev) {
+      if (!(ev.items || []).some(function (it) { return it.test === true; })) return;
+      const k = testGroupKey(ev);
+      if (!k.key) return;
+      if (!byKey[k.key]) {
+        byKey[k.key] = { key: k.key, keyKind: k.keyKind, label: k.label, members: [] };
+        order.push(k.key);
+      }
+      byKey[k.key].members.push({ date: dk, mealId: ev.mealId,
+        name: mealEventNames(ev).join(' + '), time: ev.time,
+        response: mealResponse(dk, ev.mealId) });
+    });
+  });
+  return order.map(function (k) {
+    const g = byKey[k];
+    g.n = g.members.length;             // n travels WITH the group, always
+    return g;
+  });
+}
+// ---- H25's SURFACE ------------------------------------------------------
+// Fork D: the response goes in the row's EXISTING disclosure body. D144 already
+// gives every food row one that opens on a tap, and the ruling's 'tap to expand'
+// is therefore already built -- a new surface would be a second place to look.
+//
+// EVERY FIGURE CARRIES WHAT QUALIFIES IT. A rise with no coverage behind it, or a
+// return that was never observed printed as a number, is the thing the 'says so'
+// half of the ruling exists to prevent.
+function respUnitWord(r) { return (r && r.coverage && r.coverage.unit) ? String(r.coverage.unit) : ''; }
+function mealResponseHTML(dateKey, mealId) {
+  const r = mealResponse(dateKey, mealId);
+  if (!r || r.phase === 'none') return '';     // no stream here: say nothing, claim nothing
+  const u = respUnitWord(r);
+  const b = r.baseline || {};
+  let html = '<div class="resp"><div class="resphead">After this meal</div>';
+  // THE BASELINE, ALWAYS WITH ITS n (ruled).
+  if (b.mean != null) {
+    html += '<div class="respline">baseline <b>' + esc(rDisp(b.mean)) + ' ' + esc(u) + '</b>'
+      + ' <small>mean of ' + esc(b.n) + ' readings in the ' + RESP_BASELINE_MIN + ' min before</small></div>';
+  }
+  if (b.contaminated) {
+    html += '<div class="respwarn">another eating event falls inside those '
+      + RESP_BASELINE_MIN + ' minutes, so this baseline is not clean</div>';
+  }
+  if (r.phase === 'declined') {
+    html += '<div class="respwarn">No response reported \u2014 ' + esc(r.why) + '.</div>';
+    return html + '</div>';
+  }
+  html += '<div class="respline">rise <b>' + (r.phase === 'bounded' ? '\u2265 ' : '')
+    + esc(rDisp(r.rise)) + ' ' + esc(u) + '</b> <small>peak at ' + esc(r.tToPeak) + ' min</small></div>';
+  // NEVER A CLEAN NUMBER FOR A RETURN THAT WAS NOT OBSERVED (ruled).
+  html += (r.tToBaseline != null)
+    ? '<div class="respline">back to baseline <b>' + esc(r.tToBaseline) + ' min</b></div>'
+    : '<div class="respwarn">back to baseline: <b>not observed</b> \u2014 data stops at '
+      + esc(r.stopsAt) + ' min</div>';
+  if (r.following) {
+    html += '<div class="respwarn">another meal (' + esc(r.following) + ') at '
+      + esc(r.followingMin) + ' min, so the window ends there</div>';
+  }
+  const c = r.coverage || {};
+  html += '<div class="respcov">from ' + esc(c.n) + ' readings over ' + esc(c.windowMin)
+    + ' min' + (c.gaps ? ' \u00b7 ' + esc(c.gaps) + ' gap' + (c.gaps === 1 ? '' : 's') : '') + '</div>';
+  return html + '</div>';
+}
+// The test tag is a DECLARATION, so it is a control, not a readout.
+function mealTestHTML(dateKey, mealId) {
+  const ev = mealEvents(dateKey).filter(function (e) { return e.mealId === String(mealId); })[0];
+  if (!ev) return '';
+  const on = ev.items.every(function (it) { return it.test === true; });
+  return '<button type="button" class="linklike mtest' + (on ? ' mteston' : '') + '"'
+    + ' onclick="toggleMealTest(\'' + esc(dateKey) + '\', \'' + esc(mealId) + '\')">'
+    + (on ? 'marked as a test \u2014 unmark' : 'mark as a test') + '</button>';
+}
+// THE ONE-THIRD, AS A FIGURE (ruled: shown, not hidden). It states what it
+// COULD NOT profile beside what it could, so a smaller set of responses is never
+// presented as the whole picture.
+function responseCoverageHTML() {
+  const c = responseCoverage();
+  if (!c.total) return '';
+  return '<div class="trow"><div class="thead">Meal response</div>'
+    + '<div class="tsum"><b>' + esc(c.clean) + ' of ' + esc(c.total) + '</b> meals with glucose'
+    + ' have a clean window <small>' + esc(c.bounded) + ' cut short by a gap or a following meal'
+    + ' \u00b7 ' + esc(c.declined) + ' with too little to report</small></div></div>';
+}
+// ---- the one-tap row ----------------------------------------------------
+// One control per declared kind, built FROM the declaration, so a fourth kind
+// cannot be added to the table and then forgotten on the surface.
+function quickEventsHTML() {
+  return '<div class="qrow">' + QUICK_EVENTS.map(function (q) {
+    if (q.variants && q.variants.length) {
+      return '<span class="qgroup"><span class="qlab">' + esc(q.label) + '</span>'
+        + q.variants.map(function (v) {
+            return '<button type="button" class="qbtn" onclick="quickEvent(\'' + esc(q.id)
+              + '\', \'' + esc(v) + '\')">' + esc(v) + '</button>';
+          }).join('') + '</span>';
+    }
+    return '<button type="button" class="qbtn" onclick="quickEvent(\'' + esc(q.id) + '\')">'
+      + esc(q.label) + '</button>';
+  }).join('') + '</div>'
+    + '<div class="note qnote">One tap records that it happened, with the time \u2014 never a duration nobody entered.</div>';
+}
+function renderQuickEvents() {
+  const el = document.getElementById('quickEvents');
+  if (el) el.innerHTML = quickEventsHTML();
+}
 function glucoseLastMs() {
   const store = glucoseRead();
   const ks = Object.keys(store).sort();
@@ -8020,6 +8390,7 @@ function renderTrends() {
   // H7 (Fork A1): a row of its own on Trends. It is deliberately NOT gated on the
   // 30/90/all buttons -- those choose how much to draw, and the typical is content.
   html += typicalRowHTML();
+  html += responseCoverageHTML();            // H25: the one-third, shown
   if (!bio && fs.count === 0 && fs.pending === 0 && !macroShown)
     html += `<div class="note" style="margin:8px 0 0">Keep logging — trends appear here once you have a few days of data (${esc(winLabel)}).</div>`;
   else
@@ -9207,7 +9578,7 @@ function refresh() {
     try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
     AUTOCLOSE_BUSY = false;
   }
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -9348,6 +9719,7 @@ const VERSION_LOG = [
   { v: '0.64.0', d: '2026-10-05', note: 'Delete everything: one action in Settings clears every day, item, setting and the glucose cache, behind a confirm that says what goes.' },
   { v: '0.65.0', d: '2026-10-05', note: 'Say what it actually was. Every identity question now carries one way out — “Something else” — which opens a search of the nutrition database: your own earlier choice first, then the closest rows, each with its calories beside your item’s. One tap sets the name and the match together. A name the database does not hold stands as you typed it, with no nutrition — the honest answer rather than a dead end.' },
   { v: '0.66.0', d: '2026-10-06', note: 'The Habits suggestions are gone. They offered generic advice because you had been logging for a week — not because anything in your own data called for it, which is the opposite of what this app is for. If suggestions come back they will come from your own readings, with a source. Nothing else changes and nothing logged is altered.' },
+  { v: '0.67.0', d: '2026-10-07', note: 'What a meal did to your glucose. Open a meal to see the baseline before it, the rise after it, how long the peak took and how long the return took — with its coverage, and plainly marked when a sensor gap or a following meal cut the window short. Mark a meal as a test to compare the same food across days. And three one-tap events: moved, woke, and a drink.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14929,6 +15301,12 @@ window.HT = {
   // generic time chart. `timeChart` is deliberately not glucose-shaped: Trends
   // is its second caller.
   glucoseIngest, glucoseClear, glucoseDaySummary, glucoseSeries, glucoseLastMs,
+  // H25 -- meal response (derived), test tagging (stored), one-tap events
+  RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
+  mealEvents, mealEventNames, mealResponse, responseCoverage,
+  toggleMealTest, testGroupKey, testGroups,
+  QUICK_EVENTS, quickEvent, quickEventsHTML, renderQuickEvents,
+  mealResponseHTML, mealTestHTML, responseCoverageHTML,
   glucoseToggle, glucoseIsOpen, glucoseCollapseAll, glucoseMixed, glucoseMarks,
   glucoseRowHTML, glucoseRedraw, glucoseWire, ageWords, GLUCOSE_DOMAIN, GLUCOSE_STEP_S,
   timeChart, chartWindow, chartPreset, chartPanMs, chartZoomBy, CHART_PRESETS,

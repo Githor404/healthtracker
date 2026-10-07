@@ -10391,3 +10391,139 @@ that existed only in memory. Fixed with `HT.Store.saveState(S)` before the reboo
 > withheld”* sent me to read `typicalWindow`; *“model n=0 of m=0, 12 seeded, floor 8”*
 > named the cause in one line. A failure message that states only the verdict
 > spends the reader's time re-deriving what the gate already knew.
+
+## H25 — BUILT: meal response, test tagging, and the one-tap mechanism (2026-10-07, v0.67.0)
+
+**Gate-first, run RED (45 findings).** `tests/response-gate.ps1`, the **24th gate**,
+**62 assertions**. Suite **32 → 33 verdicts**. Harness unchanged at **2,631**.
+
+**AND THE ONE-TAP MECHANISM IS BUILT ONCE, HERE** (ruled 2026-10-07): *“one
+mechanism, three event kinds, one gate”* — `moved`, `woke` and the `drink`
+stopgap. [[H26]] uses it rather than building its own, because two paths writing one
+shape is the duplicate path both rulings warn against.
+
+### TWO DEFINITIONS CHOSEN SO AS NOT TO INVENT A THRESHOLD
+
+The ruling split a cut-short window into **bounded** and **declined**, which needs
+a test for *“was a peak seen”*. Rather than a minimum rise — a number nobody ruled:
+
+> **A PEAK IS SEEN WHEN THE MAXIMUM IS FOLLOWED BY A LOWER READING.**
+
+That is the whole test, and it produces the ruled split exactly: a peak then a gap
+is **bounded** (something happened, and the bound is honest); still climbing when
+the data stops is **declined** (nothing to bound). A rise of 0.2 that was still
+rising is not a peak anybody observed.
+
+Likewise **back to baseline is the first reading AT OR BELOW the baseline mean**,
+with **no tolerance**, because a tolerance is a threshold nobody ruled.
+
+### WHAT SHIPPED
+
+| | |
+|---|---|
+| `mealEvents(day)` | a meal is its items **merged by `mealId`** (ruled); the event starts at its **earliest** item, because a lunch logged out of order is still one lunch |
+| `mealResponse(day, id)` | baseline (**mean of the 20 min before, with n**, refused below n=2), rise, time to peak, time back to baseline, coverage as a **count** |
+| phases | `ok`, `bounded`, `declined`, `none` — and `none` says nothing rather than reporting an absence as a miss |
+| `responseCoverage()` | the one-third, **as a figure**: clean / bounded / declined / total |
+| `toggleMealTest` | the tag is **STORED** (fork E) — a declaration is an input, like the meal |
+| `testGroups()` | grouped by **corpus ref id**, else [[D136]]'s memory key, **never the typed name**, and **the key is shown** |
+| `QUICK_EVENTS` + `quickEvent` | one declared table, one function, three kinds |
+| the surface | the response in the row's **existing** disclosure body (fork D), the test control beside it, the figure on Trends, the one-tap row on the **main** surface |
+
+### THE WINDOW RULE, APPLIED TO WHAT THE RESPONSE IS MEASURED AGAINST
+
+Ruled: *“if another eating event falls inside those 20 minutes, say so”*. Built, and
+gated with a fixture where a nibble at 14:50 precedes the meal at 15:00 — the
+baseline is reported **with `contaminated` set**, and the surface says it in words.
+
+**And the surface may not whisper a caveat.** Gated: the NOT-CLEAN statement
+(`.respwarn`) must render at **no smaller a font** than the figure it qualifies
+(`.respline`). *A caveat quieter than the number it qualifies is a caveat that will
+not be read.*
+
+### THE ONE-TAP MECHANISM NEEDED NO NEW STORE
+
+**Measured: the timeline already carried `walk` and `alcohol` as event types.** The
+pre-registration found ZERO entries of either and concluded the source did not
+exist; what did not exist was the **tap**, not the shape. And `addSignal` demands a
+value only for a `biometric`, so a one-tap **event** with no value was already
+legal.
+
+- **`moved`** → type `walk`, **no value**. One tap records **THAT it happened**;
+  inventing a duration nobody entered is the fabrication [[D8]] forbids, and for the
+  context item this serves (*whether I moved*) presence **is** the datum.
+- **`woke`** → a **new TYPE, not a new kind** ([[D35]]/[[D52]] precedent). A mid-night wake
+  at ~03:30 cannot be expressed by a bed-to-wake interval.
+- **`drink`** → type `alcohol`, value 1, **variant in a declared FIELD**.
+- **`source: 'quick'`** — a declared adapter, because the ruling names a successor
+  (*steps from Apple Health via the native shell*) and a record that cannot say it
+  came from a tap cannot be told apart from a typed one when that day comes.
+
+### THE DRINK'S TYPE IS A FIELD AND NOT PROSE, AND THE REASON WAS ALREADY RULED
+
+The obvious cheap home was `notes`. This codebase had already closed that door: the
+v5→v6 migration refused to mine `notes` for *“scanned 150 g”* because **`notes` is
+user-editable free text, so a parse of it is an INFERENCE about what a value meant,
+not a transport of it**. H26 has to READ the drink type, so prose is disqualified.
+
+`variant` is therefore an **allowlist addition to `normalizeSignal`**, on the
+`panelId` precedent and **by its own stated test**: *losing it degrades the detail
+but loses no value* — the alcohol event and its count survive — *so it is precision
+rather than content and needs no schema bump*. **Gated through export → restore**,
+because an additive field that is not listed in the normalizer is silently dropped.
+
+### THE GATE CAUGHT A DESIGN ERROR I WOULD HAVE SHIPPED
+
+I mounted the one-tap row beside the signal chips. **Those live inside
+`#entrySheet`, which is `display:none`** until a button opens it — so the controls
+measured **0px** and were invisible. That is **two taps, not one**, which defeats
+the entire point.
+
+> The rule was already written down: *“today's state + one-tap responses stay on the
+> MAIN surface; their configuration does not”* (SE-attest). The row now sits beside
+> the regimen checklist and the fast-candidate resolution, where the other one-tap
+> responses already are.
+
+Found by a **44px touch-floor and visibility assertion**, not by review — and worth
+noting that the first two attempts to explain it were wrong (a collapsed
+`<details>`, then a disclosure the fixture had not opened) before the mount itself
+turned out to be the fault.
+
+### WHAT A TEN-MINUTE SILENT HANG TAUGHT THE INSTRUMENT
+
+The gate produced **no output for ten minutes**. Three fixes, in the order they
+were needed:
+
+| | |
+|---|---|
+| **`HT.restore()` calls `window.confirm`** (D3's confirm-gate). Unanswered in headless Chrome it **blocks the renderer thread**, so `Runtime.evaluate` stopped being serviced and the CDP client waited on a reply that would never come | the harness has its own stub; **a CDP gate drives the REAL page and must bring one** |
+| `awaitPromise` meant a hang produced **nothing at all** | the probe is now **kicked off and polled**, and records `window.__stage` as it goes — so a hang **names where it hung** |
+| `Eval` discarded `exceptionDetails`, so a probe with a syntax error reported only *“the probe would not start”* | it reports the exception. The error was **`const qb` declared twice** in one scope, which I had introduced |
+
+**What moved the search off my own new code** was timing every engine call in
+isolation: 0—7 ms, no errors. Until that measurement existed, the new engine was the
+obvious suspect and the wrong one — the same shape as the suite's memory kills,
+where the obvious suspect was memory and the cause was port contention.
+
+### TWO FIXTURE DEFECTS, BOTH MINE
+
+- **the seeding assertion was my own estimate.** I wrote *“> 300 readings”*; the ramps
+  build **214**. Replaced with `stored == offered`, which is exact and derived.
+- **a tap logs to TODAY**, and the probe read the day under test. `quickEvent` uses
+  `localDate()` because that is what a tap means; the fixture looked in the wrong
+  day and reported the mechanism broken when it was working.
+
+### WHAT IS NOT BUILT, AND WHY
+
+**The side-by-side test comparison has no surface yet.** `testGroups()` returns the
+groups with their n and each member's response, and the gate asserts the grouping
+and the n — but nothing renders it. Two tests of the same food need **two tests of
+the same food in the log**, and the real log has none: the tag did not exist until
+today. Rendering a comparison surface now would be a surface for data nobody has.
+**Pre-registered as the next step for this slice** rather than built blind.
+
+**And the overlap figure still cannot be quoted.** [[D146]] keeps glucose out of the
+export, so the only overlap measurable here is bounded by the PC's glucose window
+(2026-09-30 → 10-02) against a log snapshot ending 2026-09-26: **zero shared days**.
+The figure the surface shows is therefore whatever the **device** holds, and the
+user attests it there.

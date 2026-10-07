@@ -290,6 +290,26 @@
      (Ruled 2026-10-05, with D144's row budget amended 287 -> 337px: that clause
      forbids a row growing for NO function, and this row gained the way out.) */
   .pmsomething{flex:1 1 100%;text-align:left;border-style:dashed}
+  /* H25. The response rides inside the row EXISTING disclosure body, so it needs
+     no surface of its own -- only enough separation to read as an answer to the
+     row rather than more of its metadata. */
+  .resp{margin:8px 0 0;padding:8px 10px;border-left:3px solid var(--line);background:var(--bg);border-radius:0 8px 8px 0}
+  .resphead{font-size:14px;color:var(--muted);margin-bottom:4px}
+  .respline{font-size:16px;margin:2px 0}
+  .respline small,.respcov{color:var(--muted);font-size:14px}
+  .respcov{margin-top:4px;font-variant-numeric:tabular-nums}
+  /* A statement that the figure is NOT clean may not be quieter than the figure. */
+  .respwarn{font-size:16px;color:var(--warn);margin:2px 0}
+  .mtest{margin-top:6px;min-height:44px}
+  .mteston{color:var(--accent);font-weight:600}
+  /* The one-tap row: every control clears the 44px floor, because a tap that needs
+     aiming is not one tap. */
+  .qrow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 0}
+  .qgroup{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .qlab{font-size:16px;color:var(--muted)}
+  .qbtn{min-height:44px;padding:8px 14px;border:1px solid var(--line);border-radius:10px;
+    background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
+  .qnote{margin-top:6px}
   .pmsearch{margin:6px 0 0;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
   .pmsq{font-size:16px;font-weight:600;margin:0 0 6px}
   .pmsrowin{display:flex;gap:8px;align-items:center}
@@ -894,6 +914,14 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
     <div class="card">
       <details open>
         <summary>Timeline (food · events · biometrics)</summary>
+        <!-- H25/H26: one-tap events. ON THE MAIN SURFACE (a tap to open a sheet
+             and then a tap on the control is TWO taps, and the ruling said one),
+             beside the other one-tap response rather than ABOVE the day view.
+             MEASURED: mounted above it, this row pushed the goal cells and the
+             legend below the fold at 390x745 and ring-size-gate reported the ring
+             at 51% of viewport width against its 70% floor. The ruling says main
+             surface, not above the ring -- and the ring has a gated fold budget. -->
+        <div id="quickEvents"></div>
         <div id="fastCandidates"></div>
         <div id="timelineOverlay" style="margin-top:10px"></div>
       </details>

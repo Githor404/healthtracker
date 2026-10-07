@@ -87,6 +87,13 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # STAMPED  : writes a record that carries the device offset.
 # EXEMPT   : writes something that is not a stamped record -- reason in D29.
 #
+# H25: `mealEvents` is EXEMPT, and for exactly the reason recorded below for
+# photoAddItem. It builds a DERIVED VIEW -- the day's items grouped into eating
+# events by mealId -- and its `.items.push(it)` pushes an item REFERENCE into a
+# local array that is returned and thrown away. It creates no record, persists
+# nothing, and there is nothing to stamp. The detector matches the shape, not the
+# store, which is the safe direction: it asked, and this is the answer.
+#
 # R25/D61: `photoAddItem` is EXEMPT. It pushes into PHOTO_DRAFT.items -- a DRAFT
 # held in memory and never persisted -- so it creates no record and there is
 # nothing to stamp. `photoSave` is the creation site for that path and it is
@@ -132,6 +139,7 @@ removeMed
 addPriceEntry
 addSignal
 applySupplementToToday
+mealEvents
 ingestItems
 logPreset
 logRegimenEntry

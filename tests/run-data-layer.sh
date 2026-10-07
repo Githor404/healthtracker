@@ -52,6 +52,7 @@ page-overflow-gate.ps1
 panel-gate.ps1
 photo-lead-gate.ps1
 resolve-gate.ps1
+response-gate.ps1
 ring-size-gate.ps1
 update-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two

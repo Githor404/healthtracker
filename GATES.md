@@ -5263,3 +5263,41 @@ assertion was made to carry the model's counts instead of only its verdict.
 **Also updated:** `check-writesites.sh` lost `focusAdherence` from the D29 manifest
 (20 sites), and the harness's settings-relocation census lost `habits` — *a
 relocation census must enumerate what exists, not what once did.*
+
+### H25 — meal response, test tagging, one-tap events — 24th gate
+
+Suite **32 → 33 verdicts**. `tests/response-gate.ps1`, **62 assertions**, run **red
+first (45 findings)**. Six windows, **one case per day** so no case depends on
+another's noise, and **every number in the clean case chosen in advance**.
+
+| case | asserts |
+|---|---|
+| **response-gate.ps1** | the fixture lands **whole** (`stored == offered`) — derived, after a first version asserted my own estimate of 300 against the 214 the ramps build |
+| **response-gate.ps1** | a meal is its items **merged by mealId**: two items one event, two mealIds two events |
+| **response-gate.ps1** | the clean case to the digit: baseline **5.0 with n=4**, rise **3.0**, peak at **45 min**, back at **120 min**, no gaps, no follower |
+| **response-gate.ps1** | **peak before the gap → BOUNDED**, with the rise kept (2.5), the return **absent not zero**, and *data stops at 95 min* |
+| **response-gate.ps1** | **gap before any peak → DECLINED**, with a reason, and **no rise reported** |
+| **response-gate.ps1** | a following meal at **60 min** is declared and the phase is **not `ok`** |
+| **response-gate.ps1** | an eating event 10 min before marks the baseline **contaminated** |
+| **response-gate.ps1** | a baseline of **n=1 is refused**, and the refusal names the baseline |
+| **response-gate.ps1** | the one-third is a **figure**, and the fixture proves it can be less than the whole |
+| **response-gate.ps1** | **one mechanism, three kinds**: three taps → three records, types `alcohol/walk/woke`, `source='quick'`, the drink's **variant survives export → restore**, and **`moved` carries no value** |
+| **response-gate.ps1** | the test tag **survives a reload** while the response numbers **recompute identically**, and **no number is written onto the item** |
+| **response-gate.ps1** | two meals of one corpus row group **n=2 by ref**; a third with the SAME typed name and a different ref does **not** join them |
+| **response-gate.ps1** | the response **renders and is visible** in the row body, the baseline carries its **n**, the coverage its **count** |
+| **response-gate.ps1** | a bounded window says **not observed** and **where the data stops**, and the NOT-CLEAN statement is **no smaller** than the figure it qualifies |
+| **response-gate.ps1** | the one-tap row renders **one control per declared kind**, all ≥ **44px** and visible |
+
+**Found by the gate, not by review:** the one-tap row was mounted inside
+`#entrySheet` (`display:none`) — two taps, not one. The 44px/visibility assertion
+measured 0px and the row moved to the main surface, where SE-attest already rules
+that one-tap responses belong.
+
+**Instrument changes this gate forced:** a CDP gate must **stub `window.confirm`**
+(an unanswered dialog blocks the renderer thread and the gate hangs with no
+output); the probe is **kicked off and polled** with a **stage marker** so a hang
+says where; and `Eval` now **reports `exceptionDetails`** instead of returning an
+empty string on a syntax error.
+
+**Unexercised:** the side-by-side comparison surface, which is not built — two
+tests of one food need two in the log, and the tag did not exist until today.
