@@ -139,6 +139,7 @@ try {
 
   $sweep = @'
 (async function () {
+  let out_floor = 0;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const OUT = { screens: [], seen: [], behaviour: {} };
   const SEEN = Object.create(null);
@@ -203,7 +204,38 @@ try {
     mk({ name: 'early dinner', time: '19:00' }) ] };
   S.days['2026-09-25'] = { status: 'complete', water_l: 0, items: [
     mk({ name: 'late lunch', time: '12:00' }), mk({ name: 'dinner', time: '19:00' }) ] };
+
+  // ---- FORK C: SEED PAST EVERY DAY-COUNT FLOOR IN THE FILE -------------
+  // The first version of this fixture seeded THREE logged days. The nudge layer's
+  // floor was SEVEN, so its card was empty in all four sweeps and this gate's PASS
+  // line described a page its own subject was absent from. That layer is gone
+  // (H28/A1); the floor that remains is D95's typical, which is a SUFFICIENCY
+  // floor -- it suppresses output until it has enough days, which is the opposite
+  // of a nudge -- and it is now the thing this seeding keeps populated.
+  //
+  // THE FLOOR IS READ FROM THE APP, not typed here. A fixture that hard-codes 3
+  // against a constant of 8 cannot report the mismatch, and one that hard-codes 8
+  // goes stale the moment the constant moves.
+  const FLOOR = Number(HT.TYPICAL_MIN_DAYS) || 0;
+  out_floor = FLOOR;
+  const need = FLOOR + 1;
+  // Complete days with full macros, because the typical counts COMPLETE days only
+  // and skips any day whose composition cannot be totalled.
+  for (let k = 0; k < need; k++) {
+    const d = new Date(Date.parse('2026-09-23T00:00:00') - k * 86400000);
+    const key = d.toISOString().slice(0, 10);
+    if (S.days[key]) continue;
+    S.days[key] = { status: 'complete', water_l: 2, items: [
+      mk({ name: 'breakfast', time: '08:00', kcal: 400, protein_g: 20, fat_g: 10, carb_g: 50, fiber_g: 6 }),
+      mk({ name: 'dinner', time: '19:00', kcal: 700, protein_g: 35, fat_g: 25, carb_g: 70, fiber_g: 9 }) ] };
+  }
   S.current = DK;
+  // PERSISTED, not just assigned. Further down this probe calls HT.boot() to prove
+  // a dismissed offer survives a reboot -- and a reboot reloads from localStorage,
+  // which discarded every day seeded only in memory. The typical then reported
+  // n=0 of m=0 with twelve days "seeded", and the assertion's own evidence line is
+  // what made that visible instead of sending me back to read typicalWindow.
+  HT.Store.saveState(S);
   HT.refresh(); await sleep(300);
   // THE KEYS COME FROM THE APP, not from my idea of its format. fastLog is keyed
   // by the candidate's START timestamp and matched by matchResolution; keying it
@@ -211,6 +243,8 @@ try {
   // this gate's own fixture guard caught.
   S.fastLog = S.fastLog || {};
   const evs = (typeof HT.fastEvents === 'function') ? HT.fastEvents() : [];
+  OUT.behaviour.floor = out_floor;
+  OUT.behaviour.loggedDaysSeeded = Object.keys(S.days).length;
   OUT.behaviour.fastEvents = evs.length;
   for (let i = 1; i < evs.length; i++) {
     const a = evs[i - 1], b = evs[i];
@@ -259,6 +293,21 @@ try {
   OUT.trendsOpened = opened;
   Array.prototype.slice.call(document.querySelectorAll('.wrap details')).forEach(function (d) { d.open = true; });
   await sleep(250);
+  // THE FLOORED SURFACE MUST BE POPULATED, or this sweep is reading an empty page
+  // again -- one floor along from the one that hid the nudge.
+  const tb = document.querySelector('.tbrow');
+  OUT.behaviour.typicalPresent = !!tb;
+  OUT.behaviour.typicalWithheld = !!(tb && /No typical yet/i.test(tb.textContent || ''));
+  // The assertion carries its own evidence: "withheld" without the counts sends
+  // the reader back to the source to find out which filter rejected the days.
+  try {
+    const tm = HT.typicalWindow(HT.getTypicalNutrient(), HT.TYPICAL_WINDOW);
+    OUT.behaviour.typN = tm.n; OUT.behaviour.typM = tm.m;
+    OUT.behaviour.typOmitted = tm.omitted; OUT.behaviour.typEmpty = tm.empty;
+    OUT.behaviour.typEnough = tm.enough;
+    OUT.behaviour.typNutrient = String(HT.getTypicalNutrient() || '');
+  } catch (e) { OUT.behaviour.typErr = String(e && e.message); }
+  OUT.behaviour.tbrowText = tb ? (tb.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 150) : '';
   sweep('trends');
   OUT.streakStrings = OUT.seen.filter(function (p) { return /streak/i.test(p[0]); }).map(function (p) { return p[0]; });
   return OUT;
@@ -311,6 +360,12 @@ try {
     Chk ($B.offerShown -ge 1) "the next-tap offer never rendered, so dismissing it proves nothing -- the fixture must contain the state the rule is about"
     Chk ($B.afterDismiss -eq 0) "the offer is still on screen after being dismissed ($($B.afterDismiss) present)"
     Chk ($B.afterRerender -eq 0) "the offer CAME BACK on the next render ($($B.afterRerender) present) -- re-prompting a dismissed offer is the nudge D157 forbids"
+
+  # --- FORK C: the sweep must not read a page its subject is absent from ----
+  Chk ($B.floor -gt 0) "the day-count floor came back as '$($B.floor)' -- it is READ from HT.TYPICAL_MIN_DAYS, so a zero means the export is gone and the seeding proves nothing (D96)"
+  Chk ($B.loggedDaysSeeded -gt $B.floor) "the fixture seeded $($B.loggedDaysSeeded) day(s) against a floor of $($B.floor) -- the first version of this gate seeded THREE against SEVEN and swept an empty card for four surfaces"
+  Chk ($B.typicalPresent -eq $true) "the floored surface (D95's typical) did not render at all, so this sweep cannot say whether a populated one is clean"
+  Chk ($B.typicalWithheld -eq $false) "the typical is still WITHHELD: model n=$($B.typN) of m=$($B.typM) (omitted $($B.typOmitted), empty $($B.typEmpty), enough=$($B.typEnough), nutrient=$($B.typNutrient)), $($B.loggedDaysSeeded) day(s) seeded against floor $($B.floor). Row reads: '$($B.tbrowText)'"
     Chk ($B.afterBoot -eq 0) "the offer came back after a reboot ($($B.afterBoot) present)"
   }
 

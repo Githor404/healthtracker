@@ -5239,3 +5239,27 @@ SUITE: PASS (31 of 31 produced a verdict, and every verdict was PASS)
 
 **Same tree, same code as the run that reported six failures.** The only change is
 that each gate now waits for its own ports.
+
+### H28 — the nudge layer deleted — 8th static check
+
+Suite **31 → 32 verdicts**; harness **2,649 → 2,631** (the Nudge section's ~23 cases
+removed, 5 added for the absence and the restore).
+
+| case | asserts |
+|---|---|
+| **check-engagement.sh** | the retired layer is **absent from `app.js` and `index.html`**, with the banned names **assembled at runtime** so the file cannot match its own ban |
+| **check-engagement.sh** | every `*_DAYS` constant is **declared with a class** (parameter / recall / retention / sufficiency / window), enumerated **from the source**; a new one fails **by name**, and an `engagement` class **cannot be added** |
+| **check-engagement.sh** | the five exemptions are **declared with reasons** and **each must still match something** — a stale one would excuse a future line with the same words |
+| **check-engagement.sh** | a **planted control** fires before the clean scan is trusted; and `fastStats().streak` still exists, so the file's BEHAVIOUR-vs-ENGAGEMENT example is not stale |
+| **harness** | `nudgeReady`, `currentNudge`, `loggedDays` and `normalizeNudges` are all **absent from the API** |
+| **harness** | an export carrying **the user's own snoozed habit** restores `ok === true`, the key is **dropped**, and it **does not reappear in the next export** |
+| **harness** | no mount on the main surface **and** no switch in settings |
+| **anti-engagement-gate.ps1** | the fixture seeds **max(floor) + 1 days, read from `HT.TYPICAL_MIN_DAYS`**, and the floored surface is asserted **present and not withheld** — so the sweep cannot read an empty page again |
+
+**Found while building:** the probe's own mid-run `HT.boot()` was discarding the
+in-memory fixture (`n=0 of m=0` with twelve days seeded) — surfaced because the
+assertion was made to carry the model's counts instead of only its verdict.
+
+**Also updated:** `check-writesites.sh` lost `focusAdherence` from the D29 manifest
+(20 sites), and the harness's settings-relocation census lost `habits` — *a
+relocation census must enumerate what exists, not what once did.*

@@ -132,7 +132,6 @@ removeMed
 addPriceEntry
 addSignal
 applySupplementToToday
-focusAdherence
 ingestItems
 logPreset
 logRegimenEntry

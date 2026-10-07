@@ -160,7 +160,7 @@ window.setLS({});
   // version behind, it would quietly become a migration test and stop asserting
   // round-trip equality at all (settings gained signalUnits + fasting; blob gained
   // timeline + fastLog; v6 added the accepted portion). ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, nudges: { enabled: true, habits: {} }, primaryNutrient: '', laneOpen: {} };
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
   var S1 = { version: 12, days: {}, current: td, settings: goalState, plates: {}, meds: {}, labels: {}, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
@@ -1525,100 +1525,37 @@ window.setLS({});
   var banned7=['should','improv','better','worse',' good',' bad','on track','recommend','you could','try to','aim for','well done','great job','keep it up'];
   res(banned7.filter(function(w){return t7.indexOf(w)>=0;}).length===0, 'SG7: safety invariant holds with a signal goal present (no evaluative vocabulary)');
 
-  // ===== Nudge — Layer 3 (D25) =====
-  if (!document.getElementById('nudge')) { var nel=document.createElement('div'); nel.id='nudge'; document.body.appendChild(nel); }
-  function nudgeHtml(){ HT.renderNudge(); return document.getElementById('nudge').innerHTML; }
-  // engagement: 7 distinct logged days spanning >=7, with food + a biometric (scale varies VALUES only)
-  function engage(scale){ var s=HT.state(); s.days={}; s.timeline={};
-    for (var i=1;i<=7;i++){ s.days[dk(-i)]={status:'complete',items:[{name:'x',meal:'lunch',time:'12:00',kcal:400*scale,protein_g:20*scale,soluble_fiber_g:0}],water_l:0};
-      s.timeline[dk(-i)]=[{time:'07:00',kind:'biometric',type:'weight',value:80*scale,unit:'kg',source:'manual'}]; } }
-
-  // NG1: readiness is ENGAGEMENT-only
-  setLS({}); HT.boot();
-  res(!HT.nudgeReady() && HT.currentNudge().kind==='none', 'NG1: no logs -> not ready, silent');
-  var stN=HT.state(); stN.days={}; stN.timeline={};
-  for (var ni=1;ni<=6;ni++){ stN.days[dk(-ni)]={status:'complete',items:[{name:'x',meal:'lunch',time:'12:00',kcal:400,soluble_fiber_g:0}],water_l:0}; }
-  res(!HT.nudgeReady(), 'NG1: 6 distinct logged days -> not ready (needs 7)');
-  stN.days[dk(-7)]={status:'complete',items:[{name:'x',meal:'lunch',time:'12:00',kcal:400,soluble_fiber_g:0}],water_l:0};
-  res(HT.nudgeReady() && HT.currentNudge().kind==='offer' && HT.currentNudge().id===HT.NUDGE_CURRICULUM[0].id, 'NG1: 7 distinct days + 7 elapsed -> first curriculum habit offered');
-  setLS({}); HT.boot();
-  var stA=HT.state(); stA.days={};
-  for (var nj=1;nj<=8;nj++){ stA.days[dk(-nj)]={status:'complete',items:[{name:'Supp',meal:'supplement',time:'09:00',kcal:5,soluble_fiber_g:0,_auto:true}],water_l:0}; }
-  res(!HT.nudgeReady(), 'NG1: auto-supplement-only days do NOT count as engagement');
-
-  // NG-safety-offer: offered nudge BYTE-IDENTICAL under wholesale value swap
-  setLS({}); HT.boot(); engage(1); var offerA=JSON.stringify(HT.currentNudge());
-  engage(9.37); var offerB=JSON.stringify(HT.currentNudge());
-  res(offerA===offerB && JSON.parse(offerA).kind==='offer', 'NG-safety-offer: offer byte-identical under wholesale value swap (engagement-only, Pin 1)');
-
-  // NG2: pacing — one at a time, quiet interval, curriculum order
-  setLS({}); HT.boot(); engage(1);
-  res(HT.currentNudge().id==='walk_after_dinner', 'NG2: first curriculum habit offered');
-  HT.declineNudge('walk_after_dinner');
-  res(HT.currentNudge().kind==='none', 'NG2: after a resolution, next offer silent within the interval');
-  HT.state().settings.nudges.habits.walk_after_dinner.at=dk(-6)+'T12:00:00';   // interval elapsed
-  res(HT.currentNudge().kind==='offer' && HT.currentNudge().id==='veg_at_lunch', 'NG2: after the interval, the NEXT habit is offered (curriculum order)');
-
-  // NG3: accept = focus + factual adherence; no compliance capture
-  setLS({}); HT.boot(); engage(1);
-  HT.acceptNudge('walk_after_dinner');
-  var cur3=HT.currentNudge();
-  res(cur3.kind==='focus' && cur3.id==='walk_after_dinner', 'NG3: accept -> current focus (no new offer while active)');
-  var st3=HT.state().settings.nudges.habits.walk_after_dinner;
-  res(st3.state==='accepted' && typeof st3.at==='string' && Object.keys(st3).length===2, 'NG3: accept stores only {state, at} — no compliance/streak capture');
-  HT.state().settings.nudges.habits.walk_after_dinner.at=dk(-3)+'T12:00:00';
-  HT.state().timeline[dk(-2)]=[{time:'19:30',kind:'event',type:'walk',value:12,unit:'min',source:'manual'}];
-  HT.state().timeline[dk(-1)]=[{time:'19:30',kind:'event',type:'walk',value:10,unit:'min',source:'manual'}];
-  var ad3=HT.focusAdherence('walk_after_dinner');
-  res(ad3 && ad3.count===2 && ad3.type==='walk', 'NG3: adherence counts linkedType OCCURRENCES since acceptance');
-  res(HT.focusAdherence('veg_at_lunch')===null, 'NG3: an unlinked habit has no adherence line');
-
-  // NG-safety-focus: adherence byte-identical under linked-value swap
-  setLS({}); HT.boot();
-  var stF=HT.state(); stF.timeline={}; stF.settings.nudges={enabled:true,habits:{walk_after_dinner:{state:'accepted',at:dk(-3)+'T00:00:00'}}};
-  stF.timeline[dk(-2)]=[{time:'19:00',kind:'event',type:'walk',value:30,unit:'min',source:'manual'}];
-  stF.timeline[dk(-1)]=[{time:'19:00',kind:'event',type:'walk',value:30,unit:'min',source:'manual'}];
-  var adX=JSON.stringify(HT.focusAdherence('walk_after_dinner'));
-  HT.state().timeline[dk(-2)][0].value=3; HT.state().timeline[dk(-1)][0].value=999;
-  var adY=JSON.stringify(HT.focusAdherence('walk_after_dinner'));
-  res(adX===adY, 'NG-safety-focus: adherence byte-identical under linked-value swap (occurrence timestamps only, never values)');
-
-  // NG4: decline permanent + user's browse path back
-  setLS({}); HT.boot(); engage(1);
-  HT.declineNudge('walk_after_dinner');
-  HT.state().settings.nudges.habits.walk_after_dinner.at=dk(-30)+'T00:00:00';
-  var off4=HT.currentNudge();
-  res(off4.kind==='offer' && off4.id!=='walk_after_dinner', 'NG4: a declined habit is never re-offered by the engine');
-  HT.acceptNudge('walk_after_dinner');
-  res(HT.currentNudge().kind==='focus' && HT.currentNudge().id==='walk_after_dinner', 'NG4: the user can re-activate a declined habit themselves (browse path back)');
-
-  // NG5: off switch
-  setLS({}); HT.boot(); engage(1);
-  HT.setNudgesEnabled(false);
-  res(HT.currentNudge().kind==='off', 'NG5: enabled:false -> off (fully silent)');
-  res(nudgeHtml()==='', 'NG5: disabled -> nudge card renders nothing');
-
-  // NG6: round-trip preserves markers; normalizeNudges hardens
-  setLS({}); HT.boot();
-  HT.state().settings.nudges={enabled:true,habits:{walk_after_dinner:{state:'accepted',at:'2026-07-10T08:00:00.000Z'},veg_at_lunch:{state:'declined',at:'2026-07-11T09:00:00.000Z'}}};
-  var expN=JSON.parse(HT.exportJSON());
-  res(expN.settings.nudges.habits.walk_after_dinner.at==='2026-07-10T08:00:00.000Z' && expN.settings.nudges.habits.veg_at_lunch.state==='declined', 'NG6: nudge state + at timestamps exported exactly');
-  setLS({}); HT.boot(); window.__confirm=true;
-  HT.restore(JSON.stringify(expN));
-  var r6=HT.state().settings.nudges.habits;
-  res(r6.walk_after_dinner.at==='2026-07-10T08:00:00.000Z' && r6.walk_after_dinner.state==='accepted' && r6.veg_at_lunch.state==='declined', 'NG6: at timestamps + decisions survive export->restore EXACT (markers preserved)');
-  var nn=HT.normalizeNudges({enabled:false, habits:{x:{state:'bogus',at:'z'}, walk_after_dinner:{state:'accepted',at:'2026-01-01T00:00:00Z'}}});
-  res(nn.enabled===false && !nn.habits.x && nn.habits.walk_after_dinner.at==='2026-01-01T00:00:00Z', 'NG6: normalizeNudges drops invalid state, preserves valid at');
-
-  // NG7: language safety on the nudge surface; absence never a lapse
-  setLS({}); HT.boot(); engage(1);
-  var nbanned=['you should','you must','failed','failing','lazy','on track','behind','well done','good job','bad job','lapse',' missed'];
-  var nh7=nudgeHtml().toLowerCase();
-  res(nbanned.filter(function(w){return nh7.indexOf(w)>=0;}).length===0, 'NG7: nudge offer surface — no evaluative/scold vocabulary');
-  HT.acceptNudge('walk_after_dinner'); HT.state().settings.nudges.habits.walk_after_dinner.at=dk(-3)+'T00:00:00'; HT.state().timeline={};
-  var fh7=nudgeHtml().toLowerCase();
-  res(fh7.indexOf('no walk logged')>=0 && nbanned.filter(function(w){return fh7.indexOf(w)>=0;}).length===0, 'NG7: 0 occurrences rendered neutrally ("no walk logged"), never a lapse');
-
+  // ===== H28/A1: the Nudge layer (D25) is DELETED =====
+  // Its cases lived here. The layer offered builder-authored generic habits on a
+  // trigger derived from DAYS LOGGED, which is the inverse of D157 (the app
+  // "speaks up when something matters, never to drive engagement -- flags, not
+  // nudges"), and the user snoozed the only habit it ever offered.
+  //
+  // What is asserted now is its ABSENCE, plus the one thing the deletion must not
+  // break: an old export that carries the retired key still imports cleanly.
+  res(typeof HT.nudgeReady !== 'function' && typeof HT.currentNudge !== 'function'
+      && typeof HT.loggedDays !== 'function' && typeof HT.normalizeNudges !== 'function',
+      'H28/A1 GATE: the engagement-keyed suggestion layer is GONE from the API -- nudgeReady, currentNudge, loggedDays and normalizeNudges all absent');
+  // TOLERATED AND DROPPED, NEVER AN ERROR (ruled). normalizeSettings is an
+  // allowlist rebuild, so the retired key is simply not carried forward -- and a
+  // restore that REJECTED a blob for holding it would leave the app unable to read
+  // its own past exports, which is the one thing export-is-yours cannot survive.
+  setLS({}); HT.boot(); window.__confirm = true;
+  var h28blob = JSON.stringify({ version: 12, days: {}, current: td,
+    settings: { goals: {}, supplement: { enabled: false, name: '', nutrients: {} },
+                presets: [], currency: '', signalUnits: {},
+                fasting: { enabled: true, minHours: 16 },
+                nudges: { enabled: true, habits: { walk_after_dinner: { state: 'snoozed', at: '2026-09-20T22:26:36.871Z' } } },
+                primaryNutrient: '', laneOpen: {} },
+    plates: {}, meds: {}, labels: {}, priceLog: {}, timeline: {}, fastLog: {},
+    regimens: { active: '', list: [], log: {} } });
+  var h28r = HT.restore(h28blob);
+  res(h28r.ok === true,
+      'H28/A1 GATE: an export carrying the RETIRED settings key restores cleanly -- tolerated, never an error (this is the user\u2019s own snoozed habit, from their real export)');
+  res(HT.state().settings.nudges === undefined,
+      'H28/A1 GATE: and the key is DROPPED rather than preserved -- normalizeSettings is an allowlist rebuild, so a retired key does not ride along as dead state');
+  res(HT.exportJSON().indexOf('walk_after_dinner') < 0,
+      'H28/A1 GATE: nor does it reappear in the next export, which is how dead state outlives the feature that wrote it');
   // ===== Regimen — timeline templates (D27) =====
   if (!document.getElementById('regimenChecklist')) { var rck=document.createElement('div'); rck.id='regimenChecklist'; document.body.appendChild(rck); }
   function seedRegimen(){
@@ -1858,10 +1795,9 @@ window.setLS({});
   res(!hasTzoAnywhere(exPreset.preset), 'TZ-sweep-exempt: saveManualPreset (a template) carries NO tzo');
   HT.setGoal('kcal', 2000, 'max');
   HT.setSupplement(false, 'S', { kcal:5, soluble_fiber_g:0 });
-  HT.setNudgesEnabled(true);
   HT.addRegimenFromJSON(JSON.stringify({ name:'R', entries:[{ kind:'medication', time:'08:00', name:'M' }] }));
   res(!hasTzoAnywhere(HT.state().settings) && !hasTzoAnywhere(HT.state().regimens.list),
-      'TZ-sweep-exempt: goals / supplement config / nudges / regimen templates carry NO tzo');
+      'TZ-sweep-exempt: goals / supplement config / regimen templates carry NO tzo');
   var waterBefore = JSON.stringify(HT.state().days[td]);
   HT.addWater(0.25);
   res(!hasTzoAnywhere(HT.state().days[td]) && HT.state().days[td].water_l === 0.25 && waterBefore !== JSON.stringify(HT.state().days[td]),
@@ -2007,7 +1943,10 @@ window.setLS({});
 
     // SE-enum (ruling 4): flat single-level settings; every relocated capability
     // is a NAMED top-level entry. Burying one a level deeper fails this.
-    var RELOCATED = ['regimen','goals','supplement','presets','fasting','habits','prompt','export','import'];
+    // H28/A1: 'habits' is gone from this list because the capability is gone. A
+    // relocation census must enumerate what EXISTS, not what once did -- keeping
+    // it here would demand a settings entry for a deleted feature.
+    var RELOCATED = ['regimen','goals','supplement','presets','fasting','prompt','export','import'];
     var entries = seQuery('#settingsPanel [data-setting]');
     var keys = entries.map(function(e){ return e.getAttribute('data-setting'); });
     var missing = RELOCATED.filter(function(k){ return keys.indexOf(k) < 0; });
@@ -2025,10 +1964,12 @@ window.setLS({});
     var mainWrap = SEDOC.querySelector('body > .wrap');
     res(!!(mainWrap && mainWrap.querySelector('#regimenChecklist')), 'SE-attest: regimen CHECKLIST is on the main surface');
     res(!!(mainWrap && mainWrap.querySelector('#fastCandidates')), 'SE-attest: fast-candidate RESOLUTION is on the main surface');
-    res(!!(mainWrap && mainWrap.querySelector('#nudge')), 'SE-attest: nudge OFFER is on the main surface');
-    res(seIn('#settingsPanel', '#regimenPaste') && seIn('#settingsPanel', '#fastMinHours') && seIn('#settingsPanel', '#nudgeEnabled'),
-        'SE-attest: their CONFIGURATION (regimen authoring, fasting, habit switch) moved to settings');
-    res(!(mainWrap && (mainWrap.querySelector('#regimenPaste') || mainWrap.querySelector('#nudgeEnabled') || mainWrap.querySelector('#goalValue') || mainWrap.querySelector('#supEnabled'))),
+    // H28/A1: the suggestion offer and its switch are gone from both surfaces.
+    res(!(mainWrap && mainWrap.querySelector('#nudge')) && !seIn('#settingsPanel', '#nudgeEnabled'),
+        'H28/A1 GATE: the retired layer has no mount on the main surface AND no switch in settings -- a control for a feature that does not exist is worse than no control');
+    res(seIn('#settingsPanel', '#regimenPaste') && seIn('#settingsPanel', '#fastMinHours'),
+        'SE-attest: their CONFIGURATION (regimen authoring, fasting) moved to settings');
+    res(!(mainWrap && (mainWrap.querySelector('#regimenPaste') || mainWrap.querySelector('#goalValue') || mainWrap.querySelector('#supEnabled'))),
         'SE-attest: no authoring/config surface remains on the main surface');
 
     // SE-modes: four food modes, Scan default, two secondary entries at the foot.
@@ -4484,7 +4425,8 @@ window.setLS({});
   var seSup = HT.state().days[td].items.filter(function(i){ return i._auto; })[0];
   res(!!seSup && seSup._auto === true, 'SE-invariants 7: when enabled the item is flagged (non-deletable)');
   setLS({}); HT.boot();
-  res(HT.nudgeReady() === false, 'SE-invariants 8: habits stay engagement-gated and silent before the threshold');
+  res(typeof HT.nudgeReady !== 'function',
+      'SE-invariants 8: nothing is engagement-gated any more, because the engagement-gated thing is gone (H28/A1)');
 
   // SE-history-counts (0.9.1): the collapsed line must never disagree with the
   // list it hides — both are computed from the same key set.

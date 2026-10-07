@@ -519,11 +519,6 @@
   .tdir{margin-top:5px}
   .tarrow{font-weight:700;color:var(--txt)}
   .thint{color:var(--muted);font-weight:600}
-  .nudgeoffer,.nudgefocus{padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
-  .nudgetitle{font-weight:700;font-size:16px}
-  .nudgewhy{color:var(--muted);font-size:16px;margin-top:4px;line-height:1.45}
-  .nudgeadh{color:var(--muted);font-size:16px;margin-top:6px;font-variant-numeric:tabular-nums}
-  .nudgebtns{display:flex;align-items:center;gap:12px;margin-top:10px}
   .nbrowsewrap{margin-top:8px}
   .nbrowse{margin-top:6px;border-top:1px solid var(--line)}
   .nbrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:16px}
@@ -911,13 +906,6 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
       </details>
     </div>
     <div class="card">
-      <details open>
-        <summary>Habits</summary>
-        <div id="nudge" style="margin-top:8px"></div>
-        <div class="note">One established habit is offered at a time — never a notification, always one tap to pass, and permanent when you decline. Turn it off under Settings › Habits.</div>
-      </details>
-    </div>
-    <div class="card">
       <h2>Averages</h2>
       <div id="averages"></div>
       <div class="note">Complete days only. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
@@ -1211,13 +1199,6 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
         </div>
         <button class="btn" onclick="setFastingFromForm()">Save</button>
         <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-calorie drinks and the daily supplement don't break a fast.</div>
-      </details>
-    </div>
-    <div class="card" data-setting="habits">
-      <details>
-        <summary>Habits</summary>
-        <label class="checkline"><input type="checkbox" id="nudgeEnabled" onchange="setNudgesEnabled(this.checked)"> Suggest one established habit at a time</label>
-        <div class="note">After a couple of weeks of tracking, one widely-recommended habit is offered at a time on the main screen — never a notification, always one tap to pass, and permanent when you decline. Accepting keeps it as a quiet focus.</div>
       </details>
     </div>
     <div class="card" data-setting="prompt">

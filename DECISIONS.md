@@ -526,6 +526,14 @@ The two key namespaces are **closed and disjoint** (no nutrient/signal-type coll
 
 ## D25 — Nudge (Layer 3): paced, established good habits; curriculum-as-content (Phase-4, 2026-07-20)
 
+> **SUPERSEDED by [[D157]] and DELETED by [[H28]] (2026-10-06).** Kept in full below, because a log that edits its own past cannot be used as evidence about it.
+
+> **Why:** this layer keyed its offer on **engagement** — days logged — and its content was **builder-authored generic advice**. D157 then recorded that the app *looks out for that one person's interests* and *speaks up when something matters, **never to drive engagement** — flags, not nudges*. The two cannot both hold.
+
+> **The evidence is the user's own export:** the layer was on by default, both floors were long cleared (22 logged days over 72), it fired once, and they **snoozed it** (`walk_after_dinner`, 2026-09-20) — with the snooze and quiet intervals since expired, so it was eligible to reappear. **One chance with its one real user, declined.**
+
+> **Not disabled — deleted.** Ruled: *if data-supported suggestions are ever wanted, they are built fresh in leg 3 with cited evidence, not inherited from this.*
+
 Realizes **D21 Layer 3 (NUDGE)** — the "gradually introduce better habits" layer, unlocked once the tracking period has earned the right. Delivery machinery is code; the **curriculum is the builder's content**. `APP_VERSION → 0.7.0`; **no schema change** (state lives in `settings.nudges`).
 
 **Established-practice-only, engagement-gated (Pin 1, load-bearing).** A nudge suggests a **generally-accepted** habit ("many people find a short walk after dinner an easy add"). It **never** derives from the person's data *content* — the instant it does ("your sodium looks high, cut salt"), it is **Layer 4** and inherits its guardrails, prohibited here. **Readiness gates on ENGAGEMENT milestones** (distinct days logged), **never on what the readings say.** Readiness = food/timeline logged on **≥ 7 distinct calendar days** AND **≥ 7 days elapsed since the first log** (auto-supplement items don't count — that's not the user tracking). Both are counts, never content.
@@ -10262,3 +10270,124 @@ constants rather than typed — `NUDGE_MIN_DAYS` is 7 today and a gate that hard
 **Stopping for rulings on A—C.** A most of all: it is a shipped, ruled, gated
 feature and removing or defaulting-off either one is the user's call, not a defect
 pass. **I have changed nothing.**
+
+## H28 — BUILT: the nudge layer is deleted (2026-10-06, v0.66.0)
+
+**RULINGS: A1 (delete), B (yes), C (yes).** The first slice this project has run
+whose whole purpose was to **remove** something, on the grounds that the app was
+doing what its own recorded purpose forbids.
+
+> *“If the app does something the advocate purpose forbids, that outranks new
+> features.”* — and the queue was reordered to put this ahead of H25, H26, R136
+> and R138.
+
+### [[D25]] IS SUPERSEDED BY [[D157]], WITH THE SNOOZE AS THE EVIDENCE
+
+D25 ruled a paced, established-practice-only suggestion layer. D157 then recorded
+the app's purpose: *it looks out for that one person's interests; it speaks up when
+something matters, **never to drive engagement** — **flags, not nudges**.*
+
+**Measured in the user's own export, which is what settled it:**
+
+```
+settings.nudges = { enabled: true,
+  habits: { walk_after_dinner: { state: 'snoozed', at: '2026-09-20T22:26:36.871Z' } } }
+22 logged days across a 72-day span   (floors: 7 logged, 7 elapsed)
+```
+
+- it was **on by default** and both floors were long cleared
+- it **fired once**, and the user **snoozed it** — the nearest thing to an objection
+  the control offered short of declining permanently
+- `NUDGE_SNOOZE_DAYS = 7` and `NUDGE_INTERVAL_DAYS = 5` had both expired, so
+  **it was eligible to reappear**
+
+**The pre-registration said *“the user has never objected to it”*. That was an
+assumption, and the export falsified it before the ruling was made.** The claim
+was reasoned about rather than looked up — the same defect as the brief-v5 price
+paragraph, two slices apart.
+
+**Ruled for the future, not just the past:** *“If data-supported suggestions are ever
+wanted, they're built fresh in leg 3 with cited evidence — not inherited from this.”*
+So this is a deletion, not a disablement, and the evidence layer starts clean.
+
+### WHAT WENT, AND WHAT STAYED
+
+| | |
+|---|---|
+| deleted from `app.js` | the 125-line layer: `NUDGE_CURRICULUM`, `NUDGE_BY_ID`, the five `NUDGE_*` constants, `NUDGE_WD`, `NUDGE_BROWSE_OPEN`, `nudgeState`, `nudgeLinkLabel`, `dateDaysAgo`, `nudgeReady`, `currentNudge`, `focusAdherence`, the accept/decline/snooze/retire handlers, `setNudgesEnabled`, `toggleNudgeBrowse`, `renderNudgeBrowse`, `renderNudge` |
+| and | `loggedDays()` — **the engagement counter itself**, which had exactly one consumer |
+| and | `normalizeNudges`, the settings default, the `refresh()` call, the export line |
+| deleted from `index.html` | the **Habits card** on the main surface and the **whole Habits card in Settings** — not just its checkbox, because a card headed *Habits* containing only a note about a feature that no longer exists is a surface explaining its own absence |
+| **KEPT** | the [[D157]] principle comment (*“never a streak, a nudge or a distance to a goal”*) — **the retired name is the subject of the rule, and a rule that cannot name what it forbids is not a rule** |
+| **KEPT** | the `0.7.0` changelog entry. History is never rewritten; a new `0.66.0` entry says the feature is gone and why |
+
+### TOLERATED AND DROPPED, NEVER AN ERROR
+
+`normalizeSettings` is an **allowlist rebuild**, so removing one line is the whole
+implementation: an old export's `settings.nudges` is simply not carried forward.
+**Gated on the user's own data** — a blob carrying *their* snoozed
+`walk_after_dinner` restores `ok === true`, the key is `undefined` afterwards, and
+it does not reappear in the next export.
+
+> A restore that **rejected** a blob for holding a retired key would leave the app
+> unable to read its own past exports, which is the one thing *export-is-yours*
+> cannot survive.
+
+### FORK B — THE 8TH STATIC CHECK, AND WHAT IT ADMITS IT CANNOT DO
+
+`tests/check-engagement.sh`. Suite **31 → 32 verdicts**.
+
+**The distinction it turns on**, because it is easy to get wrong:
+
+| | |
+|---|---|
+| **ENGAGEMENT** | how much the user has **used the app** (distinct days with any log). **Forbidden** as a trigger for showing anything. |
+| **BEHAVIOUR** | something the user did with their body. `fastStats().streak` counts **confirmed fasts**, not visits — legitimate, and already gated for carrying its denominator. |
+| **SUFFICIENCY** | a figure needs n days to be honest (`TYPICAL_MIN_DAYS = 8`, [[D95]]). Legitimate, and **the opposite of a nudge: it suppresses output rather than producing it.** |
+
+**The completeness half, which I did not expect to get:** every `*_DAYS` constant
+is enumerated **from the source** and must be declared with a class — *parameter,
+recall, retention, sufficiency, window*. **There is no `engagement` class**, and the
+check asserts one cannot be added. A new day-count constant fails **by name** and
+whoever adds it has to say what it is for.
+
+**A heuristic was tried and rejected.** Scanning for functions that read day
+existence matched **twenty** functions, nearly all of which read day *content*. A
+check built on that would have been noise wearing a verdict, so the file **says
+plainly what it cannot do**: it cannot prove a brand-new, differently-shaped
+engagement counter is absent. Stating the limit beats a heuristic that pretends.
+
+**And the exemptions are DECLARED.** The check caught my own explanatory comment in
+`normalizeSettings`, and it was right to: *a ban that excuses anything in a comment
+can be defeated by writing the trigger into a comment.* Five declared exemptions,
+each with a reason, **each asserted to still match something** — a stale exemption
+would silently excuse a future line containing the same words.
+
+**Proven by plant:** an undeclared `FOO_MIN_DAYS` and a `loggedDays()` call in code
+are both caught; the restore is clean.
+
+### FORK C — THE GATE HAD BEEN PASSING A PAGE ITS SUBJECT WAS ABSENT FROM
+
+`anti-engagement-gate`'s fixture seeded **three** logged days against a floor of
+**seven**, so the Habits card was empty in all four sweeps and the PASS line — *“191
+visible strings carry no praise, no penalty framing...”* — described a page the
+feature it was built to judge never rendered on.
+
+Now the fixture seeds **max(floor) + 1 days, read from `HT.TYPICAL_MIN_DAYS`** rather
+than typed: *a fixture that hard-codes 3 against a constant of 8 cannot report the
+mismatch, and one that hard-codes 8 goes stale the moment the constant moves.*
+**Kept after the deletion and pointed at D95's typical**, the sufficiency floor that
+remains. **Measured effect: the sweep went from 191 to 231 visible strings** — forty
+more strings now pass in front of the banned-framing scan.
+
+### AND THE FIXTURE WAS BEING WIPED MID-PROBE
+
+The seeded days reported `n=0 of m=0` with *twelve days seeded*. Cause: the probe
+calls `HT.boot()` partway through — deliberately, to prove a dismissed offer
+survives a reboot — and a reboot **reloads from localStorage**, discarding every day
+that existed only in memory. Fixed with `HT.Store.saveState(S)` before the reboot.
+
+> **What found it was making the assertion carry its own evidence.** *“The typical is
+> withheld”* sent me to read `typicalWindow`; *“model n=0 of m=0, 12 seeded, floor 8”*
+> named the cause in one line. A failure message that states only the verdict
+> spends the reader's time re-deriving what the gate already knew.
