@@ -87,12 +87,47 @@ leashed() {
 # silently did not apply to exactly those. A fix for one silent failure that
 # introduces another is worse than the bug, so this is matched case-insensitively
 # and a gate with no findable ports is NAMED rather than skipped.
+# ---- REAP ORPHANED GATE BROWSERS ----------------------------------------
+# A killed suite leaves headless browsers alive, and they keep their DEBUG PORT.
+# The next run of that gate then attaches CDP to the corpse and reports nonsense
+# about the app ("HT is not defined").
+#
+# The conditions are deliberately narrow enough to be provably safe: HEADLESS, a
+# `ht-*` profile directory under TEMP (every gate's own prefix -- there are 24 of
+# them and only 8 end in "gate", which is why `ht-*gate-*` sweeps missed most of
+# them all along), and A PARENT PROCESS THAT NO LONGER EXISTS. Nothing a person
+# could be using matches all three.
+reap_orphans() {
+  # A SEPARATE FILE, not PowerShell inlined here. The first version was inlined
+  # and the nested bash/PowerShell quoting mangled it SILENTLY: all three of its
+  # conditions were true against a real orphan, nothing was killed, and the
+  # trailing 2>/dev/null || true swallowed the error. A helper that cannot report
+  # its own failure is worse than no helper.
+  [ -f "$DIR/reap-orphan-browsers.ps1" ] || {
+    echo "  reap: tests/reap-orphan-browsers.ps1 is MISSING -- orphaned browsers will hold their debug ports"
+    return 0
+  }
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$DIR/reap-orphan-browsers.ps1" 2>&1 | grep -vE "^\s*$" || true
+}
+
 gate_ports() {   # gate_ports <gate.ps1> -> the http and CDP ports it declares
   sed -nE 's/^\$([Pp]ort|[Dd]bg)[[:space:]]*=[[:space:]]*([0-9]+).*/\2/p' "$1"
 }
 port_busy() {    # port_busy <port> -> 0 when something still holds it
   netstat -ano 2>/dev/null | grep -qE "[:.]$1[[:space:]]+0\.0\.0\.0:0[[:space:]]+LISTENING"
 }
+gate_dbg() {     # gate_dbg <gate.ps1> -> just the CDP port
+  sed -nE 's/^\$[Dd]bg[[:space:]]*=[[:space:]]*([0-9]+).*/\1/p' "$1" | head -1
+}
+port_holder() {  # port_holder <port> -> "pid NNN (name)" or empty
+  local pid
+  pid=$(netstat -ano 2>/dev/null \
+        | grep -E "[:.]$1[[:space:]]+0\.0\.0\.0:0[[:space:]]+LISTENING" \
+        | awk '{print $NF}' | head -1)
+  [ -n "$pid" ] || return 0
+  printf 'pid %s' "$pid"
+}
+
 settle_for() {   # settle_for <gate.ps1> -- returns when its ports are free
   local ports; ports=$(gate_ports "$1")
   if [ -z "$ports" ]; then
@@ -109,8 +144,26 @@ settle_for() {   # settle_for <gate.ps1> -- returns when its ports are free
     i=$((i + 1))
     sleep 1
   done
-  # Said rather than swallowed: a gate launched onto a held port will fail, and
-  # the report should say the suite knew.
+  # THE TWO PORTS ARE NOT ALIKE.
+  #
+  # A held HTTP port makes the gate's own HttpListener fail to bind, and it says so
+  # ("test server did not start"). Survivable, and honest.
+  #
+  # A held DEBUG port makes the gate's CDP client attach to WHATEVER browser owns
+  # that port -- an orphan from a killed run, with a blank page -- and the probe
+  # then reports "HT is not defined", which reads exactly like a module-init bug in
+  # app.js. That is a FALSE RESULT dressed as a code failure, and it is the one
+  # outcome worth refusing outright.
+  local dbg; dbg=$(gate_dbg "$1")
+  if [ -n "$dbg" ] && port_busy "$dbg"; then
+    printf '  %-26s REFUSED - debug port %s still held by %s after 60s\n' \
+           "$(basename "$1")" "$dbg" "$(port_holder "$dbg")"
+    echo "      Launching would attach CDP to that process and report nonsense"
+    echo "      about the app. Kill it and re-run; bash tests/run-all-gates.sh reaps"
+    echo "      orphaned gate browsers at the start, so this means something ELSE"
+    echo "      owns the port."
+    return 2
+  fi
   printf '  %-26s NOTE - port(s)%s still held after 60s; launching anyway\n' \
          "$(basename "$1")" "$busy"
   return 1
@@ -186,7 +239,8 @@ check-precache.sh
 check-allowlist.sh
 check-eol.sh
 check-ps-encoding.sh
-check-egress.sh"
+check-egress.sh
+check-engagement.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh
 check-writesites.sh
@@ -223,6 +277,7 @@ for c in $STATIC_CHECKS; do
 done
 
 # ---- 3. every CDP gate, each of which must speak ---------------------------
+reap_orphans
 N_CDP=0
 for g in "$DIR"/*-gate.ps1; do
   name=$(basename "$g")
@@ -230,7 +285,13 @@ for g in "$DIR"/*-gate.ps1; do
   if [ ! -f "$g" ]; then
     echo "  ${name}: FAIL - missing"; FAILED="$FAILED ${name}(missing)"; continue
   fi
-  settle_for "$g" || true
+  settle_for "$g"; SETTLE=$?
+  if [ "$SETTLE" -eq 2 ]; then
+    # Not run, and said so BY NAME. A gate that could only have produced a false
+    # result is a failure of the run, never a silent skip.
+    FAILED="$FAILED ${name}(debug-port-held)"
+    continue
+  fi
   OUT=$(leashed powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$g" 2>&1); RC=$?
   judge "$name" "$RC" "$OUT"
 done
