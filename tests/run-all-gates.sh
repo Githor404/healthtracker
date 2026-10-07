@@ -63,6 +63,59 @@ leashed() {
   if [ "$have_timeout" -eq 1 ]; then timeout "$GATE_TIMEOUT" "$@"; else "$@"; fi
 }
 
+# ---- WAIT FOR THE PREVIOUS GATE TO LET GO OF ITS PORTS --------------------
+#
+# MEASURED: run back-to-back by this file, gates that pass individually fail with
+# STARTUP errors -- "test server did not start" (HttpListener could not bind),
+# "HT never appeared", "internal WebSocket error" (CDP never came up). Six of the
+# first ten in one run, with 4.57 GB free, the most headroom of the day. So it is
+# not memory: it is the previous gate's HTTP.sys registration and its debug port
+# still being held after its process exited.
+#
+# A FAILURE HERE IS INDISTINGUISHABLE FROM A REAL ONE in the report, which is
+# worse than a slow suite: the run says FAIL about the machine while looking
+# exactly like a run that says FAIL about the code.
+#
+# NOT A FIXED SLEEP (ruled, on the ring-size settle-wait: a settle "stays out
+# until it waits on a real render signal, not a fixed sleep"). The signal is the
+# ports, and the port numbers are DERIVED FROM EACH GATE'S OWN SOURCE -- a port
+# table copied into this file would rot the moment a gate changed its port, and
+# would then wait for the wrong thing while reporting that it had waited.
+# EITHER CASING. The gates are split between `$port`/`$dbg` and `$Port`/`$Dbg`,
+# and the first version of this was case-sensitive: it found ports for 15 gates and
+# NOTHING for the other 8 -- import, capture, chart and five more -- so the settle
+# silently did not apply to exactly those. A fix for one silent failure that
+# introduces another is worse than the bug, so this is matched case-insensitively
+# and a gate with no findable ports is NAMED rather than skipped.
+gate_ports() {   # gate_ports <gate.ps1> -> the http and CDP ports it declares
+  sed -nE 's/^\$([Pp]ort|[Dd]bg)[[:space:]]*=[[:space:]]*([0-9]+).*/\2/p' "$1"
+}
+port_busy() {    # port_busy <port> -> 0 when something still holds it
+  netstat -ano 2>/dev/null | grep -qE "[:.]$1[[:space:]]+0\.0\.0\.0:0[[:space:]]+LISTENING"
+}
+settle_for() {   # settle_for <gate.ps1> -- returns when its ports are free
+  local ports; ports=$(gate_ports "$1")
+  if [ -z "$ports" ]; then
+    printf '  %-26s NOTE - no $Port/$Dbg found, so nothing was waited for\n' "$(basename "$1")"
+    return 0
+  fi
+  local i=0 busy
+  while [ "$i" -lt 60 ]; do
+    busy=""
+    for p in $ports; do
+      if port_busy "$p"; then busy="$busy $p"; fi
+    done
+    [ -z "$busy" ] && return 0
+    i=$((i + 1))
+    sleep 1
+  done
+  # Said rather than swallowed: a gate launched onto a held port will fail, and
+  # the report should say the suite knew.
+  printf '  %-26s NOTE - port(s)%s still held after 60s; launching anyway\n' \
+         "$(basename "$1")" "$busy"
+  return 1
+}
+
 # One classification for every gate this file judges directly (the table in
 # tests/README.md). Appends to FAILED / PASSED.
 judge() {  # judge <name> <rc> <output>
@@ -86,7 +139,11 @@ judge() {  # judge <name> <rc> <output>
   elif [ "$verdict" != "GATE: PASS" ]; then
     printf '  %-26s FAIL\n' "$name"
     case "$name" in
-      *.ps1) printf '%s\n' "$out" | grep -E '\->\s*False|FAIL' | tail -4 | sed 's/^/      /' ;;
+      # `-> False|FAIL` matched the verdict line and nothing else: these gates
+      # print their findings as `  - <what went wrong>`, so a FAIL arrived with no
+      # reason attached and the evidence had to be dug out of the raw output by
+      # hand. Twice in one session. The findings are the point of a failure.
+      *.ps1) printf '%s\n' "$out" | grep -E '^\s+- |\->\s*False|FAIL' | tail -8 | sed 's/^/      /' ;;
       # A static check's output is short and its evidence is not on the FAIL
       # line (the missing path, the offending sentence), so show the output.
       *)     printf '%s\n' "$out" | grep -vE '^\s*(ok\s.*)?$|^GATE:' | tail -6 | sed 's/^/      /' ;;
@@ -173,6 +230,7 @@ for g in "$DIR"/*-gate.ps1; do
   if [ ! -f "$g" ]; then
     echo "  ${name}: FAIL - missing"; FAILED="$FAILED ${name}(missing)"; continue
   fi
+  settle_for "$g" || true
   OUT=$(leashed powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$g" 2>&1); RC=$?
   judge "$name" "$RC" "$OUT"
 done
