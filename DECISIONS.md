@@ -9941,3 +9941,253 @@ wrong.
 **dismissing it without typing** must leave the item exactly as it was — the AI's
 name, still unsettled, still asking. A cancel that resolved anything would
 reintroduce the terminus by the back door.
+
+## H27 — BUILT: one way out, and nothing resolves to nothing (2026-10-05, v0.65.0)
+
+**Gate-first, and run RED before a line of it existed** — the discipline broken on
+[[D154]] and recorded against myself there. `tests/identity-search-gate.ps1`, the
+**23rd gate**, **98 assertions**. Suite **30 → 31 verdicts**; harness **2,643 → 2,649**.
+
+### WHAT SHIPPED
+
+| | |
+|---|---|
+| `IDENTITY_SEARCH_MAX = 8` | fork C: a **search** is a different act from a **guess**, so the three-candidate cap does not apply — and the cap that does is **stated on the surface** |
+| `photoSearchOpen / Cancel / Type / Run` | the panel **replaces** the identity list for that item ([[D127]]'s reason here: the tap that opened it must not land on a row) |
+| `photoSearchRun` | **local first** (fork D): memory keyed on what was **typed**, then the corpus, each row with **its own energy beside the item's** |
+| `photoSearchPick` → `photoSearchApply` | **one tap sets the name and the ref**, `when='capture'`, `how='picked'` |
+| `photoSearchMismatch` | [[D135]]/1 on this path too, in `resolveMismatchText`'s **existing wording** |
+| `photoSearchKeep` | a name the corpus does not hold **stands as typed, unresolved, saveable** |
+| `photoSearchPickPreset` | the user's **own presets**, by plain lookup (I1's exception) |
+| `identityNormalisePrompt / Parse` | the model may normalise a **name**; every name it returns is used **only as a query** |
+| `refAlcoholG` | ruling A: **alcohol grams** from the matched row, **`null` for absence** |
+
+### AND THE THINGS THAT WENT AWAY
+
+- **`photoPickNone` is deleted.** It resolved an item to nothing *on purpose* — named it *“Unidentified item”* and settled. Unresolved is now the **outcome** of
+  saying what the food was and the database not holding it: *“I told it and it has no
+  row”* rather than *“I declined to say”*.
+- **The presets dropdown is gone from the draft** (fork E). It rendered the **empty
+  string** for anyone with no presets — which is every new user, and *that* is the real
+  shape of the reported dead end: the only re-pick affordance in the code was
+  **invisible**. The search carries the presets instead, so the supersession is not a
+  removal.
+- **`'none'` STAYS in `IDENTITY_PICK_KINDS`** although nothing writes it any more.
+  Existing records carry it, and removing it would make the next restore quietly
+  rewrite what the user did. *A retired value is honoured, never deleted.*
+
+### THE SURFACE THE RULING NAMED AND I DID NOT CHANGE
+
+The ruling said *every identity choice list*, and there is a second one: the label
+draft's `labelPickNone`. **Measured: it was never the dead end.** It **empties the
+field for the user to type** — which is exactly what the photo draft has just been
+given. Same words on the button, opposite behaviour, and it is the behaviour that
+was ruled on. Left alone; the comment citing the now-deleted `photoPickNone` by
+name was rewritten to say so.
+
+### SIX DEFECTS, AND WHAT FOUND EACH
+
+| defect | found by |
+|---|---|
+| **`keep` and `ask` computed and never rendered** — the entire *not-a-dead-end* half of the slice sat in two unused constants | **reading the generated code**, before the gate ran |
+| **`IDENTITY_PICK_KINDS` missing `'search'` and `'typed'`** — `normalizeIdentityPick` returns `null`, so the calibration record is **dropped silently on save and restore** | reading, while checking whether a new `kind` was legal |
+| **one throw cost eighty measurements** — the first red run aborted on the first missing symbol and reported **every** assertion failed with **nothing behind any of them** | the red run itself; fixed before building |
+| **two gate assertions were wrong, not the code** | the first run against working code |
+| **`PHOTO_SEARCH` survived the draft it was opened on** | **the defect pass**, and proven by **plant** |
+| **`Number(null) === 0`** — an absent rank became **rank 0** | a harness assertion I added for something else |
+
+### THE TWO WRONG ASSERTIONS, BOTH THE SAME SHAPE
+
+**1. A `%` in a corpus food name is not a score.** *“Cream, 18% M.F.”* is what the
+database calls that food, and the assertion failed on it — testing **the database's
+spelling** instead of **the app's restraint**. Replaced with the exact claim: the only
+number the app adds to a row is the energy, in **one known format**, and no similarity
+figure appears — with a planted `0.37` control.
+
+**2. I regexed for the word *dry*; the app counts eight more.** `FOOD_STATE_WORDS.dry`
+is *dry, dried, dehydrated, uncooked, instant, powder, powdered, mix, concentrate,
+flakes*. The gate asked a **narrower question than the guard answers**, found no
+`/\bdry\b/` match in eight real rows, and reported *“the D135/1 guard does not reach
+the search path”* about a guard that was working. **The app is now the authority:**
+the probe reads `state` off the rows the app itself classified.
+
+> **Both are the same error: an instrument encoding my memory of a rule instead of
+> reading the rule.** That is [[D156]]'s class arriving inside a gate rather than inside
+> a `curl`, and the fix is the same — **derive it from the shipped source**, which here
+> means asking the app what it thinks rather than telling it what I think it thinks.
+
+### THE DEFECT PASS FOUND ONE THE GATE COULD NOT, AND A PRE-EXISTING TWIN
+
+**`PHOTO_SEARCH` is keyed by ITEM INDEX, and nothing cleared it on a new draft.** A
+search left open on item 2 renders over item 2 of the **next** draft — a panel asking
+about a food that is no longer there, wired to an index into a different list.
+
+**My own gate could not see it:** every `openPhotoDraft` in the probe follows a pick
+or a keep, and both close the search, so the state the defect lives in was never
+reached. The seventh fixture-coverage trap this session, in the gate I wrote this
+hour. **Proven by plant:** restoring the leak fails four assertions, including *“the
+new draft's own identity question is missing”* — the stale panel **replaced** it.
+
+**And the same leak already existed** for `PHOTO_ID_REOPEN`: `photoReopen` and
+`photoReopenLegacy` built a draft without calling `photoIdReopenReset`, so a reopened
+plate inherited the previous draft's reopen flags. Pre-existing, same shape, one line
+from mine. Both now go through **one `photoDraftUIReset()`, called from all four
+doors** — so the next piece of per-index draft state cannot be forgotten in three
+places.
+
+### AND A DATA-HONESTY DEFECT OLDER THAN THIS SLICE
+
+`normalizeIdentityPick` did `const r = Number(raw.rank)`. **`Number(null) === 0`**, so
+every `{ rank: null }` was stored as **rank 0** — a record saying *“I took the first
+candidate”* for a pick where **no list was taken from at all**. Every *none of these*
+and every *asis* ever written went in that way.
+
+`kind` still disambiguated them, so nothing visible broke and no gate had reason to
+look. But the field exists to feed the threshold's eventual self-tuning ([[H1]]), and
+that would have read it as **agreement with the model's top pick**. One reader, no
+consumer yet — free to fix now, and not later. Fixed, with a control asserting a real
+rank 0 still survives.
+
+### A RULED BUDGET AND A RULED LABEL, PUT IN CONFLICT BY MEASUREMENT
+
+`capture-gate` failed: rows **287 → 337px**. Measured on both sides, same fixture,
+360px — a worktree at HEAD for the before:
+
+| | HEAD (0.64.0) | built |
+|---|---|---|
+| the way out | `None of these`, **126px** | `Something else…`, **146px** |
+| chips / lines | 4 / **3** | 4 / **4** |
+| row height | **287px** | **337px** |
+
+**The whole 50px was 20px of label text.** With **136px** of room on that line, three
+labels fitted (135, 134, 95px) and the widest fitted **by one pixel**.
+
+> **A layout that holds by a pixel is not a design, it is a coincidence** — the next
+> wording change, or a longer candidate name **from the model**, silently costs 50px
+> on every row again.
+
+**RULED (user):** the control takes its **own full-width line**, like the memory
+proposal. The 50px is paid **once, deterministically**, and the label stops being a
+layout input. **[[D144]]'s row budget is amended 287 → 337px**: its clause forbids a row
+growing for **no function**, and this row gained the way out of the dead end — so the
+figure moves and the clause stands.
+
+### WHAT THE GATE PROVED, AND WHAT IT DID NOT
+
+**Proven red first, and stated exactly.** The red run was the gate's FIRST form:
+every assertion failed with no implementation present. Three assertions were added
+AFTER that run and before building (fork E's presets, and the absence-not-zero
+control), so **those three were never seen red** — and five more came later still,
+from the defect pass. I nearly recorded that I had *“run it red again with them in”*,
+which is not what happened.
+
+**Proven against working code:** at 91 assertions, **83 passed and 8 failed** on the
+first build, and all eight were two instrument defects rather than two code defects.
+**Proven by plant:** the five draft-leak assertions, four of which fire.
+**Never seen fail:** the three added between the red run and the build. That is a
+weaker standing than the rest, and it is written down rather than averaged away.
+
+**Unexercised:** `photoSearchAskModel`'s live path. Nothing in the suite sends a
+provider call, so what is gated is the **request shape** (no photo part, no word that
+asks for a number) and the **reply boundary** (`identityNormaliseParse` drops a `kcal`
+and a nested `protein_g` from a reply carrying both). The call itself is attested on
+the device or not at all — the standing of every BYOK path.
+
+## H28 — THE FEATURE NAMED AFTER THE THING [[D157]] FORBIDS — PRE-REGISTERED (2026-10-05)
+
+**Serves [[D152]] by subtraction:** it serves none of *track / evaluate / predict*,
+and under the working rules that needs a reason before it needs a gate.
+
+### THE FLAG, AND WHY IT WAS NOT CLOSED IN THE ADVOCACY SLICE
+
+[[D158]] left one open: *`refresh()` calls `renderNudge()`, a function named for what
+[[D157]] forbids; passes the census but unexamined.* Examined now, because
+**[[D25]] ruled it IN and [[D157]] appears to rule it OUT**, and a conflict between two
+ruled contracts is named, never resolved quietly.
+
+### WHAT [[D157]] BINDS
+
+> Speaks up when something matters, **never to drive engagement** — **flags, not
+> nudges**. Loyal to the user only. Looks out for **that one person's** interests.
+
+### WHAT THE FEATURE IS, MEASURED IN ITS OWN SOURCE
+
+| | |
+|---|---|
+| `NUDGE_CURRICULUM` | **seven builder-authored generic habits** — *a vegetable at lunch*, *water before your first coffee*, *stand and stretch hourly* |
+| its own comment | *“Curriculum is CONTENT (builder-authored)”* and *“Readiness + offer key on **ENGAGEMENT** (days logged), **never on what the readings SAY**”* — in capitals, in the shipped file |
+| `loggedDays()` | reads only **THAT** a day has a log, never **what** |
+| `NUDGE_MIN_DAYS = 7`, `NUDGE_MIN_ELAPSED = 7`, `NUDGE_INTERVAL_DAYS = 5` | a **paced** offer on an interval |
+| `app.js:92` | `nudges: { enabled: true, habits: {} }` — **ON by default**, for every new user |
+| mount | the **Habits** card, on the Trends screen |
+
+So the mechanism is: *you have logged for seven days, therefore here is a piece of
+generic advice.* That is **keyed on engagement and not on the user's data** — which
+is the inverse of both halves of D157's sentence, and it is called a nudge.
+
+### AND THE CENSUS DID NOT SEE IT — THE FIXTURE-COVERAGE TRAP AGAIN
+
+`anti-engagement-gate.ps1` sweeps first run, the day view, the day view with a
+pending offer, and trends, and its PASS line reports **no praise, no penalty
+framing, no return prompt, no social comparison, no gamification** across 120+
+visible strings.
+
+**Its fixture seeds THREE logged days** (`2026-09-24`, `09-25`, `09-26`) against a
+floor of **seven**. So `nudgeReady()` was false, `nudgeOffer()` returned
+`{kind:'none'}`, and **the Habits card was EMPTY in all four sweeps.**
+
+> **The census passed a page the feature was absent from.** It was testing the
+> **vocabulary** of manipulation, and this curriculum is deliberately gentle — it
+> would have passed the word list even if it had rendered. What it is, is
+> **engagement-keyed by construction**, and no word list can see that.
+
+**This is the seventh fixture-coverage trap this session** — the fixture lacking the
+state the defect lives in. The difference is that this one was found by reading a
+flag I wrote and did not close, rather than by a plant.
+
+**It is live for this user.** The real log holds 40 days and 62 items across
+2026-07-16 → 09-26, so both floors are long cleared and the offer is reachable
+today, with the setting on by default and never having been turned off.
+
+### FORKS
+
+**A — what happens to the seven habits.** Three ways:
+
+- **Delete the layer.** D157 says the app is loyal to *this* user and speaks only
+  when something matters; a builder-authored curriculum is neither. Against:
+  [[D25]] ruled it, it is gated, and the user has never objected to it.
+- **Default it OFF.** Keeps the code, removes the engagement trigger from every
+  new install, and makes it something the user asks for rather than receives.
+- **Re-key it on the DATA.** A suggestion earns its place when the user's own
+  readings support it — which is the evidence layer (leg 3), and would make the
+  seven generic habits into nothing until that exists.
+
+Recommended: **default it OFF now, and re-key or delete when leg 3 lands.** It is
+the only option that is honest today and forecloses nothing — and *off by default*
+is already the multi-user rule's own answer for the auto-supplement, so it is a
+precedent in this codebase rather than a new idea. **Wanted.**
+
+**B — whether the census should be able to see this class at all.** A word list
+cannot. What can: an assertion that **nothing on any swept surface is rendered on a
+trigger derived from `loggedDays()`** — engagement as an INPUT, not engagement as a
+vocabulary. Recommended: add it, as a source-side census of what reads
+`loggedDays()`, because the next feature of this shape will also pass the word
+list.
+
+**C — the fixture floor.** Whatever the ruling, the anti-engagement fixture must
+seed **enough days to clear every engagement floor in the file**, derived from the
+constants rather than typed — `NUDGE_MIN_DAYS` is 7 today and a gate that hard-codes
+3 cannot say so. Recommended regardless of A.
+
+### WHAT GETS GATED
+
+- the anti-engagement fixture seeds **max(every engagement floor) + 1** days, read
+  from the constants, and the sweep therefore happens with the Habits card
+  **populated** — asserted as non-empty, so the trap cannot return
+- whatever A rules: **off by default** asserted on a clean profile, or the layer's
+  **absence** asserted by name
+- **nothing on a swept surface is triggered by `loggedDays()`** (fork B)
+
+**Stopping for rulings on A—C.** A most of all: it is a shipped, ruled, gated
+feature and removing or defaulting-off either one is the user's call, not a defect
+pass. **I have changed nothing.**

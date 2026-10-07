@@ -190,9 +190,17 @@ try {
   }) });
   const r = HT.openPhotoDraft(paste);
   await sleep(600);
-  // force partial coverage so .pmcov renders on the draft total
-  const none = document.querySelectorAll('.pmaltnone');
-  if (none.length) { none[none.length - 1].click(); await sleep(350); }
+  // Force partial coverage so .pmcov renders on the draft total.
+  //
+  // H27: this used to click "None of these", which resolved an item to nothing on
+  // purpose. That terminus is gone, and the only way to an unresolved item now is
+  // to SAY what it was and have the database not hold it -- which is a different
+  // fact about the item, and the one the record should carry.
+  const lastI = HT.photoDraft().items.length - 1;
+  HT.photoSearchOpen(lastI);
+  HT.photoSearchType('zzqqxv wibblefrotz');
+  HT.photoSearchKeep(lastI);
+  await sleep(350);
   return { ok: !!r.ok, error: r.error || null,
            rows: document.querySelectorAll('.pmrow').length,
            refState: refState };
@@ -381,7 +389,21 @@ try {
   # So what is gated here is the property G1 actually claims: the proposal costs
   # ~0px. MEASURED pre-build on THIS fixture: rows 287/237/287/287/287, max 287.
   # Phase 0 below keeps the ruled visibility floor, on the fixture it came from.
-  $MAX_ROW_H = 287
+  # AMENDED 2026-10-05, 287 -> 337, RULED. H27 put the way out of the identity
+  # dead end on its own full-width line, which costs exactly one 44px line plus
+  # its 6px gap on every unsettled row.
+  #
+  # The clause this budget carries is "a row that gained NO FUNCTION may not
+  # grow". This row gained one: before H27 its only exit was "None of these",
+  # which recorded nothing. So the figure moves and the clause stands.
+  #
+  # MEASURED both sides on this fixture at 360px: at HEAD the four chips packed
+  # into 3 lines (144px) because "None of these" was 126px and shared the last
+  # line; the replacement is 146px against 136px of room. Shortening it to fit
+  # was possible -- 135px, one pixel of margin -- and rejected: a layout that
+  # holds by a pixel is hostage to the next word, and to how long the MODEL's
+  # candidate names happen to be.
+  $MAX_ROW_H = 337
   # +87px measured: the sentence names the source item, its date and that it
   # brings nutrients -- all ruled content -- and wraps to three lines at 390px.
   $SENTENCE_BUDGET = 92

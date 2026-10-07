@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.64.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.65.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -207,12 +207,32 @@ function normalizeAltList(raw) {
   }
   return out.length ? out : null;
 }
-const IDENTITY_PICK_KINDS = ['confirm', 'asis', 'alt', 'preset', 'none'];
+// H27 adds two: 'search' (a corpus row found by typing) and 'typed' (a name the
+// corpus does not hold, kept as the user wrote it). Without them
+// `normalizeIdentityPick` returns null and the calibration record is DROPPED on
+// save and on restore -- silently, because a dropped pick looks exactly like an
+// item nobody ever identified.
+//
+// AND 'none' STAYS, although nothing writes it any longer. `photoPickNone` is gone,
+// so no new record can carry it; existing ones do, and dropping it from the enum
+// would make the next restore quietly rewrite what the user actually did. A retired
+// value is honoured, never deleted -- the same rule the decision log follows.
+const IDENTITY_PICK_KINDS = ['confirm', 'asis', 'alt', 'preset', 'search', 'typed', 'none'];
 function normalizeIdentityPick(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   if (IDENTITY_PICK_KINDS.indexOf(raw.kind) < 0) return null;
   const out = { kind: raw.kind };
-  const r = Number(raw.rank);
+  // `Number(null) === 0`, SO AN ABSENT RANK WAS BECOMING RANK ZERO -- a record
+  // saying "I took the first candidate" for a pick where no list was taken from at
+  // all. Every `{ kind: 'none', rank: null }` and every `{ kind: 'asis', rank: null }`
+  // ever written went in as rank 0. `kind` still disambiguated them, so nothing
+  // visible broke; the rank was simply false, and the calibration self-tuning this
+  // field exists to feed (H1) would have read it as agreement with the top pick.
+  //
+  // Found when an H27 assertion pinned `rank === undefined` for a TYPED name.
+  // Pre-existing, one reader (this line), no consumer yet -- so it is free to fix
+  // now and would not have been later.
+  const r = (raw.rank == null) ? NaN : Number(raw.rank);
   if (Number.isFinite(r) && r >= 0) out.rank = Math.floor(r);
   return out;
 }
@@ -8586,7 +8606,18 @@ function renderPhotoDraftInner() {
     // strand the shared-scale correction -- there would be nothing to anchor from
     // and nothing to propagate -- so the estimate stands and the alternatives are
     // simply reachable. On a single-item draft the lead block already carries them.
-    const offramp = (!d.single && !it.added) ? identityOptionsHTML(i, it) : photoIdentityOptions(i);
+    // H27 fork E: the presets dropdown is SUPERSEDED, not accompanied, so there is
+    // one renderer here instead of two. It was `!d.single && !it.added ? list :
+    // dropdown`, and the dropdown rendered THE EMPTY STRING for anyone with no
+    // presets -- which is every new user, and is the real shape of the reported
+    // dead end: the only re-pick affordance the code had was invisible.
+    //
+    // AND NEVER TWICE FOR ONE ITEM. When the lead block is asking about item `li`
+    // it owns the question; a second control on the same item's row would be the
+    // one-thing-two-names defect D139 and D147 both chased. An `added` row has no
+    // alternatives at all, so its list renders as the search alone -- which is
+    // precisely what the dropdown was for.
+    const offramp = (i === li && (leadOpen || idOpen)) ? '' : identityOptionsHTML(i, it);
     // D144/P1: a SETTLED identity has nothing left to ask, and the control is
     // MEASURED at 122-172px of a 237-287px row -- 1,385px of rows for a six-item
     // save against 575px once every identity is settled, which is the difference
@@ -8651,7 +8682,7 @@ function renderPhotoDraftInner() {
 // come through here, so "identical item JSON produces an identical draft" is a
 // property of the CONSTRUCTION rather than of two code paths agreeing (R21-parity).
 function openPhotoDraft(text) {
-  photoIdReopenReset();
+  photoDraftUIReset();
   const rep2 = document.getElementById('ingestReport');
   const r = parsePhotoMeal(text);
   if (!r.ok) { if (rep2) rep2.innerHTML = `<div class="ireport bad">${esc(r.error)}</div>`; return r; }
@@ -9448,6 +9479,7 @@ const VERSION_LOG = [
   { v: '0.62.0', d: '2026-10-03', note: 'Glucose chart: a time axis, a tap anywhere for the value and time at that moment, and the chart now opens on the day you came from.' },
   { v: '0.63.0', d: '2026-10-04', note: 'Glucose chart: swipe through time past the day you opened, and one tap brings you back to it.' },
   { v: '0.64.0', d: '2026-10-05', note: 'Delete everything: one action in Settings clears every day, item, setting and the glucose cache, behind a confirm that says what goes.' },
+  { v: '0.65.0', d: '2026-10-05', note: 'Say what it actually was. Every identity question now carries one way out — “Something else” — which opens a search of the nutrition database: your own earlier choice first, then the closest rows, each with its calories beside your item’s. One tap sets the name and the match together. A name the database does not hold stands as you typed it, with no nutrition — the honest answer rather than a dead end.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -10778,10 +10810,15 @@ function byokCaps(prov, o) {
   };
 }
 function byokBody(dataUrl, text, model, caps) {
-  const b = { model: model, messages: [{ role: 'user', content: [
-    { type: 'image_url', image_url: { url: dataUrl } },
-    { type: 'text', text: text },
-  ] }] };
+  // H27: a NAME-NORMALISATION call sends NO PHOTO. The image part is omitted
+  // rather than sent empty -- an `image_url` of null is a request the provider may
+  // answer about nothing at all, and an answer about nothing is exactly the
+  // fabrication D8 exists to keep out. Every capture path still passes a dataUrl,
+  // so the photo request is byte-identical to what it always was.
+  const content = [];
+  if (dataUrl) content.push({ type: 'image_url', image_url: { url: dataUrl } });
+  content.push({ type: 'text', text: text });
+  const b = { model: model, messages: [{ role: 'user', content: content }] };
   if (caps && caps.jsonMode) b.response_format = { type: 'json_object' };
   if (caps && caps.reasoningEffort) b.reasoning_effort = caps.reasoningEffort;
   b.max_tokens = BYOK_MAX_TOKENS;
@@ -11146,6 +11183,10 @@ function rememberedProposalText(p) {
     + (p.mismatch ? ' (' + p.theirs + ' \u2014 yours is probably ' + p.mine + ')' : '');
 }
 function identityOptionsHTML(idx, it) {
+  // While the search is open for THIS item it OWNS the question: the list is
+  // replaced, not kept beside it. D127's reason, on this surface -- the tap that
+  // opened the panel must not be able to land on a candidate row.
+  if (PHOTO_SEARCH && PHOTO_SEARCH.idx === idx) return photoSearchHTML(idx, it);
   const alts = (it && it.alts) || [];
   const prop = rememberedProposal(it);
   // FIRST, and never pre-selected: it is a button like the others, and nothing
@@ -11157,9 +11198,20 @@ function identityOptionsHTML(idx, it) {
   const rows = alts.map((a, r) =>
     `<button type="button" class="pmalt" onclick="photoPickCandidate(${idx}, ${r})">${esc(a.name)}</button>`
   ).join('');
+  // H27 -- ONE WAY OUT, LABELLED BY WHAT IT LETS YOU DO.
+  //
+  // What was here: "None of these", which said what the food is NOT and then
+  // recorded nothing, beside a presets dropdown that rendered the empty string for
+  // every user with no presets. So the one path out of the question discarded the
+  // answer, and the one path back into it was invisible.
+  //
+  // The ruling made "None of these" open the search too, and two buttons opening
+  // one thing is one thing with two names -- so they collapse into a single
+  // control. Its label says what the user is about to DO rather than what the food
+  // is not.
   return `<div class="pmalts">${mem}${rows}` +
-    `<button type="button" class="pmaltnone" onclick="photoPickNone(${idx})">None of these</button>` +
-    `${photoIdentityOptions(idx)}</div>`;
+    `<button type="button" class="pmalt pmsomething" onclick="photoSearchOpen(${idx})">Something else${'\u2026'}</button>` +
+    `</div>`;
 }
 
 // ---- the three picks ------------------------------------------------------
@@ -11177,6 +11229,20 @@ function photoIdReopen(idx) {
   return { ok: true, open: true };
 }
 function photoIdReopenReset() { PHOTO_ID_REOPEN = {}; return { ok: true }; }
+// EVERY DOOR INTO A DRAFT COMES THROUGH HERE. Both of these are UI state keyed by
+// ITEM INDEX, and an index into a list that has been replaced is not stale -- it is
+// WRONG: it points at a different food. A search left open on item 2 would render
+// over item 2 of the next draft, asking about something that is no longer there.
+//
+// `openPhotoDraft` already reset one of them and nothing reset the other, and
+// `photoReopen`/`photoReopenLegacy` reset NEITHER -- so a reopened plate inherited
+// the previous draft's reopen flags. One function, called from all four, so the
+// next piece of per-index draft state cannot be forgotten in three places.
+function photoDraftUIReset() {
+  PHOTO_ID_REOPEN = {};
+  PHOTO_SEARCH = null;
+  return { ok: true };
+}
 function photoSettle(idx, pick) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
   const it = PHOTO_DRAFT.items[idx];
@@ -11256,15 +11322,372 @@ function photoPickMemory(idx) {
     });
   });
 }
-// The floor under the whole off-ramp: never a forced bad pick. The model's guesses
-// are kept in the RECORD (ai_identity, ai_alts) rather than on the item, because a
-// name the user explicitly rejected must not be what the log calls the food.
-function photoPickNone(idx) {
+// ---- H27: TYPE AND SEARCH -- the way out of the identity dead end --------
+//
+// REPORTED FROM THE DEVICE: photographing a drink, the draft offers three
+// identity choices, and when none is right there is no discoverable way to give
+// the correct one. MEASURED, it is worse than three choices: the only re-pick
+// affordance in the code was a presets dropdown, and presets ship empty.
+//
+// AND `photoPickNone` IS GONE, WHICH IS THE DEEPER HALF OF THE RULING.
+// It resolved an item to nothing ON PURPOSE -- named it "Unidentified item" and
+// settled. After this, nothing does: UNRESOLVED BECOMES THE OUTCOME of typing a
+// name the corpus does not hold, which is a different fact about the item --
+// “I told it what this was and it has no row for it” rather than “I declined to
+// say”. The first is honest ignorance; the second was a shrug the app recorded
+// as data.
+//
+// Fork C: a SEARCH is a different act from a GUESS, so the three-candidate cap on
+// the model's alternatives does not apply here -- and the cap that does apply is
+// stated on the surface, because a silently truncated list reads as "that food is
+// not in the database".
+const IDENTITY_SEARCH_MAX = 8;
+
+// {idx, text, phase, rows, presets, proposed, confirm} | null. UI state only:
+// nothing here is ever written to a record, and closing it writes nothing.
+let PHOTO_SEARCH = null;
+function photoSearchState() { return PHOTO_SEARCH; }
+function photoSearchOpen(idx) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  PHOTO_SEARCH = { idx: idx, text: '', phase: 'ask', rows: [], presets: [] };
+  renderPhotoDraft();
+  return { ok: true, idx: idx };
+}
+// THE CASE THE RULINGS DID NOT COVER, decided and flagged before it was built:
+// opening the search and dismissing it WITHOUT TYPING leaves the item exactly as
+// it was -- the model's name, still unsettled, still asking. A cancel that
+// resolved anything would reintroduce the terminus by the back door.
+function photoSearchCancel() { PHOTO_SEARCH = null; renderPhotoDraft(); return { ok: true }; }
+// Typing does NOT re-render: the field would be rebuilt under the caret on every
+// keystroke. The text is held, and the search runs on a deliberate act.
+function photoSearchType(text) {
+  if (PHOTO_SEARCH) PHOTO_SEARCH.text = String(text == null ? '' : text);
+  return { ok: true };
+}
+
+// The user's OWN presets, by plain lookup -- no scoring, no ranking, no
+// evaluation set (I1's exception). Fork E takes the dropdown away, and a control
+// that SUPERSEDES another has to do what it replaced or the supersession is a
+// removal in a better coat.
+function photoSearchPresets(q) {
+  const k = String(q || '').trim().toLowerCase();
+  if (!k) return [];
+  const ps = (APP_STATE.settings && APP_STATE.settings.presets) || [];
+  return ps.filter(function (p) {
+    return String(p.name || '').toLowerCase().indexOf(k) >= 0;
+  }).slice(0, IDENTITY_SEARCH_MAX);
+}
+
+// LOCAL FIRST (fork D): the typed text is searched against the corpus on this
+// device, and the provider is not consulted at all unless that returns nothing.
+// So the common path costs no call and needs no key.
+function photoSearchRun(idx, text) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
+  const q = String(text == null ? '' : text);
+  PHOTO_SEARCH = { idx: idx, text: q, phase: 'looking', rows: [], presets: photoSearchPresets(q) };
+  renderPhotoDraft();
+  if (!q.trim()) { PHOTO_SEARCH.phase = 'ask'; renderPhotoDraft(); return Promise.resolve({ ok: true, rows: 0 }); }
+  const stale = function () { return !PHOTO_SEARCH || PHOTO_SEARCH.idx !== idx || PHOTO_SEARCH.text !== q; };
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (stale()) return { ok: false, why: 'stale' };
+    if (!m || !m.index) {
+      // No corpus on the device is not a dead end either: the typed name still
+      // stands, and the keep offer below is rendered for this phase too.
+      PHOTO_SEARCH.phase = 'no-corpus';
+      renderPhotoDraft();
+      return { ok: false, why: 'no-corpus' };
+    }
+    const cands = matchCandidates(q, IDENTITY_SEARCH_MAX);
+    return Promise.all(cands.map(function (c) {
+      return corpusLookup(c.id).then(function (row) {
+        return { id: String(c.id), name: c.name,
+                 kcal: row ? corpusValueAt(row, m.slots, 208) : null,
+                 state: foodState(c.name) };
+      });
+    })).then(function (rows) {
+      // D133: the memory is consulted LAST, so it moves a row to the front and
+      // changes nothing else about the order beneath it. Keyed on what was TYPED,
+      // because that is what the user says the food is.
+      const rem = rememberedRow(q);
+      const wm = resolveWithMemory(rows, rem);
+      const out = rem ? wm.candidates : rows;
+      const prop = rem ? wm.proposed : null;
+      // The remembered row is often not among the matcher's candidates at all
+      // (D136 measured a pair sharing no token), so its own energy is fetched
+      // rather than left absent -- the kcal PAIR is what makes the right pick
+      // visible, and the proposal must not be the one row without it.
+      const need = (prop && prop.kcal == null) ? corpusLookup(prop.id) : Promise.resolve(null);
+      return need.then(function (prow) {
+        if (stale()) return { ok: false, why: 'stale' };
+        if (prow && prop) prop.kcal = corpusValueAt(prow, m.slots, 208);
+        PHOTO_SEARCH.rows = out.slice(0, IDENTITY_SEARCH_MAX);
+        PHOTO_SEARCH.proposed = prop;
+        PHOTO_SEARCH.phase = PHOTO_SEARCH.rows.length ? 'rows' : 'none';
+        renderPhotoDraft();
+        return { ok: true, rows: PHOTO_SEARCH.rows.length };
+      });
+    });
+  });
+}
+
+// D135/1 ON THIS PATH TOO. The guard shipped on the resolve surface; a second way
+// to reach a corpus row that skipped it would be the guard existing and not
+// holding. The WORDING is `resolveMismatchText`, unchanged -- two phrasings of one
+// question is D140's rename defect waiting to happen.
+function photoSearchMismatch(it, cand) {
+  if (!it || !cand) return null;
+  const theirs = cand.state == null ? foodState(cand.name) : cand.state;
+  const said = foodState(it.name);
+  const mine = said || 'cooked';            // a photographed meal is as eaten
+  if (!theirs || !mine || theirs === mine) return null;
+  const ours = (it.per100 && num(it.per100.kcal) > 0) ? num(it.per100.kcal) : null;
+  const t = (cand.kcal != null && cand.kcal === cand.kcal) ? Number(cand.kcal) : null;
+  let factor = null, dir = '';
+  if (ours > 0 && t > 0) {
+    const f = t / ours;
+    if (f >= 1.05) { factor = f; dir = 'too high'; }
+    else if (f <= 0.95) { factor = 1 / f; dir = 'too low'; }
+  }
+  return { state: theirs, want: mine, hedge: said ? '' : 'probably ',
+           factor: factor, dir: dir };
+}
+
+// ONE TAP, BOTH ANSWERS (the ruling): the name becomes the row's name and the ref
+// is frozen from that row, at capture.
+function photoSearchPick(idx, id, name) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
+  const st = PHOTO_SEARCH;
   const it = PHOTO_DRAFT.items[idx];
-  it.name = 'Unidentified item';
+  const cand = ((st && st.rows) || []).filter(function (c) { return String(c.id) === String(id); })[0];
+  const mm = photoSearchMismatch(it, cand);
+  if (mm && st) {
+    // The rows are REPLACED by the question, so the tap that answers it cannot
+    // land on another row (D127).
+    st.confirm = { id: String(id), name: String(name), m: mm };
+    renderPhotoDraft();
+    return Promise.resolve({ ok: false, why: 'confirm-state' });
+  }
+  return photoSearchApply(idx, id, name, 'picked');
+}
+function photoSearchConfirmCancel() {
+  if (PHOTO_SEARCH) { delete PHOTO_SEARCH.confirm; renderPhotoDraft(); }
+  return { ok: true, resolved: false };
+}
+function photoSearchConfirmUse() {
+  const st = PHOTO_SEARCH, c = st && st.confirm;
+  if (!c) return Promise.resolve({ ok: false });
+  // D133: confirming past a state mismatch is the STRONGER fact and outranks
+  // "this was a pick" -- and memory declines to repeat it (D135/1).
+  return photoSearchApply(st.idx, c.id, c.name, 'confirmed despite state mismatch');
+}
+function photoSearchApply(idx, id, name, how) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
+  const it = PHOTO_DRAFT.items[idx];
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (!m) return { ok: false, why: 'no-corpus' };
+    return corpusLookup(id).then(function (row) {
+      if (!row) return { ok: false, why: 'no-row' };
+      // The draft can be discarded or replaced across the two awaits above. `it` is
+      // then a detached object: the write succeeds, lands nowhere, `photoSettle`
+      // no-ops, and the caller is told ok:true. Checked by IDENTITY, not by index,
+      // because a new draft can have an item at the same index.
+      if (!PHOTO_DRAFT || PHOTO_DRAFT.items[idx] !== it) return { ok: false, why: 'stale' };
+      const ref = resolveItemFreeze(it, m, row, id, name, null, how, 'capture');
+      if (!ref) return { ok: false, why: 'no-basis' };
+      it.name = String(name);
+      delete it.unres;
+      it.ref = ref;
+      PHOTO_SEARCH = null;
+      photoSettle(idx, { kind: 'search', rank: null });
+      return { ok: true, ref: ref, name: it.name };
+    });
+  });
+}
+// A preset is the user's OWN numbers, so it lands through the existing rail and
+// comes back with real macros rather than a corpus reference.
+function photoSearchPickPreset(idx, presetId) {
+  const sr = photoSetIdentity(idx, presetId);
+  if (!sr.ok) return sr;
+  PHOTO_SEARCH = null;
+  return photoSettle(idx, { kind: 'preset', rank: null });
+}
+// NOT A DEAD END: what was typed stands as the name, UNRESOLVED. The model's
+// guesses stay in the record (ai_identity, ai_alts) rather than on the item,
+// because a name the user replaced must not be what the log calls the food.
+function photoSearchKeep(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  const st = PHOTO_SEARCH;
+  const nm = String((st && st.text) || '').trim();
+  if (!nm) return { ok: false, error: 'Type what it was first.' };
+  const it = PHOTO_DRAFT.items[idx];
+  it.name = nm;
   it.unres = true;
-  return photoSettle(idx, { kind: 'none', rank: null });
+  delete it.ref;
+  PHOTO_SEARCH = null;
+  return photoSettle(idx, { kind: 'typed', rank: null });
+}
+
+// ---- D8 AT THE REQUEST, NOT ONLY AT THE RESULT --------------------------
+//
+// The model may help turn what was typed into something a composition database
+// files a food under. It may NEVER supply a number, and the way to mean that is
+// to never ASK for one: the request names what it wants and forbids the rest, the
+// reply is reduced to a list of strings before anything downstream sees it, and
+// every name that comes back is used only as A QUERY FOR THE LOCAL SEARCH.
+//
+// So a provider that ignored every instruction and sent a full nutrition panel
+// could still not put a single figure into the log.
+function identityNormalisePrompt() {
+  return 'Reply with JSON only, straight quotes, no prose: {"names":["..."]}. '
+    + 'I will give you a short description of a food or drink. Return up to five '
+    + 'alternative names it is commonly filed under in a food composition '
+    + 'database, most likely first. Names only. Do not include any figures, '
+    + 'quantities or amounts of anything, and nothing about what it contains.';
+}
+function identityNormaliseParse(text) {
+  let o = null;
+  try { o = JSON.parse(String(text == null ? '' : text)); } catch (e) { return []; }
+  const raw = (o && Array.isArray(o.names)) ? o.names : [];
+  const out = [];
+  for (let i = 0; i < raw.length && out.length < 5; i++) {
+    // STRINGS ONLY, and a number arriving where a name was asked for is dropped
+    // rather than coerced: String(550) is a plausible-looking name.
+    if (typeof raw[i] !== 'string') continue;
+    const nm = raw[i].trim();
+    if (nm) out.push(nm);
+  }
+  return out;
+}
+// OFFERED ONLY WHERE IT WAS RULED FOR: the local search returned nothing. Egress
+// happens through `byokCall` and nowhere new.
+function photoSearchAskModel(idx) {
+  const st = PHOTO_SEARCH;
+  if (!st || st.idx !== idx) return Promise.resolve({ ok: false });
+  const typed = String(st.text || '').trim();
+  if (!typed) return Promise.resolve({ ok: false });
+  if (!byokConfigured()) return Promise.resolve({ ok: false, why: 'no-key' });
+  st.asking = true;
+  renderPhotoDraft();
+  return byokCall(null, { text: identityNormalisePrompt() + '\n\n' + typed })
+    .then(byokNoteVerdict).then(function (r) {
+      if (!PHOTO_SEARCH || PHOTO_SEARCH.idx !== idx) return { ok: false, why: 'stale' };
+      delete PHOTO_SEARCH.asking;
+      const names = r.ok ? identityNormaliseParse(r.text) : [];
+      if (!names.length) {
+        PHOTO_SEARCH.askedFailed = true;
+        renderPhotoDraft();
+        return { ok: false, why: r.ok ? 'no-names' : (r.kind || 'call') };
+      }
+      // Every name is a QUERY, never data. The first one that finds rows wins,
+      // and what the user sees is still the local corpus answering.
+      PHOTO_SEARCH.asked = names;
+      return photoSearchRun(idx, names[0]).then(function (rr) {
+        if (PHOTO_SEARCH) PHOTO_SEARCH.asked = names;
+        renderPhotoDraft();
+        return { ok: true, names: names, rows: rr.rows || 0 };
+      });
+    });
+}
+
+// ---- the panel -----------------------------------------------------------
+function photoSearchRowsHTML(st) {
+  const prop = st.proposed ? String(st.proposed.id) : null;
+  return (st.rows || []).map(function (c) {
+    const kc = (c.kcal == null || c.kcal !== c.kcal) ? ''
+      : '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' cal/100g</span>';
+    const isProp = (prop !== null && String(c.id) === prop);
+    const why = isProp ? '<span class="rwhy">' + proposedWhy(st.proposed) + '</span>' : '';
+    return '<button type="button" class="btn pmsrow' + (isProp ? ' pmsmem' : '') +
+      '" onclick="photoSearchPick(' + st.idx + ', \'' + esc(String(c.id)) + '\', \'' +
+      esc(String(c.name).replace(/\'/g, ' ')) + '\')">' + esc(c.name) + kc + why + '</button>';
+  }).join('');
+}
+function photoSearchHTML(idx, it) {
+  const st = PHOTO_SEARCH;
+  if (!st) return '';
+  if (st.confirm) {
+    // The rows are gone while the question stands (D127), and the wording is the
+    // resolve surface's own.
+    return '<div class="pmsearch"><div class="pmswarn">' + resolveMismatchText(st.confirm.m) + '</div>'
+      + '<div class="pmsub"><b>' + esc(st.confirm.name) + '</b></div>'
+      + '<div class="pmsconfirm">'
+      + '<button type="button" class="btn pmsconfirmbtn" onclick="photoSearchConfirmCancel()">Cancel</button>'
+      + '<button type="button" class="btn pmsconfirmbtn" onclick="photoSearchConfirmUse()">Use anyway</button>'
+      + '</div></div>';
+  }
+  const ours = (it && it.per100 && num(it.per100.kcal) > 0)
+    ? '<div class="pmsub pmsours">Yours is <b>' + esc(String(Math.round(num(it.per100.kcal)))) + ' cal/100g</b>.</div>'
+    : '';
+  const field = '<div class="pmsrowin">'
+    + '<input id="pmsQuery" type="text" class="pmsin" value="' + esc(String(st.text || '')) + '"'
+    + ' placeholder="what was it?" aria-label="say what this was"'
+    + ' oninput="photoSearchType(this.value)"'
+    + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();photoSearchRun(' + idx + ', this.value);}">'
+    + '<button type="button" class="btn pmsgo" onclick="photoSearchRun(' + idx + ', (document.getElementById(\'pmsQuery\')||{}).value)">Search</button>'
+    + '</div>';
+  const typed = String(st.text || '').trim();
+  // The keep offer is rendered wherever the search cannot answer -- no rows, and
+  // no corpus on the device either. Both are "the database does not have this",
+  // and neither is a reason to lose what the user said.
+  const empty = (st.phase === 'none' || st.phase === 'no-corpus');
+  const keep = (empty && typed)
+    ? '<button type="button" class="btn pmskeep" onclick="photoSearchKeep(' + idx + ')">Use “' + esc(typed) + '” with no nutrition</button>'
+    : '';
+  // Fork D: the provider is offered ONLY here. A key is required, so the offer is
+  // absent rather than dead for anyone without one.
+  const ask = (empty && typed && byokConfigured())
+    ? '<button type="button" class="btn pmsask" onclick="photoSearchAskModel(' + idx + ')">'
+      + (st.asking ? 'Asking…' : 'Ask my AI what this is called') + '</button>'
+    : '';
+  let body = '';
+  if (st.phase === 'looking') body = '<div class="pmsub">Looking…</div>';
+  else if (st.phase === 'no-corpus') body = '<div class="pmsub pmsnone">The nutrition database is not on this device yet, so nothing can be looked up.</div>';
+  else if (st.phase === 'none') body = '<div class="pmsub pmsnone">Nothing in the database is named like that. '
+    + 'Brand names and transliterated dishes often are not — try a different word for what it is.</div>';
+  else if (st.phase === 'rows') body = '<div class="pmscap">The closest '
+    + esc(String(Math.min(IDENTITY_SEARCH_MAX, (st.rows || []).length))) + ' of up to '
+    + esc(String(IDENTITY_SEARCH_MAX)) + '. Search another word if it is not here.</div>'
+    + '<div class="pmsrows">' + photoSearchRowsHTML(st) + '</div>';
+  const presets = (st.presets || []).length
+    ? '<div class="pmsub">Your own:</div><div class="pmsrows">'
+      + st.presets.map(function (p) {
+          return '<button type="button" class="btn pmsrow pmspreset" onclick="photoSearchPickPreset('
+            + idx + ', \'' + esc(String(p.id)) + '\')">' + esc(String(p.name)) + '</button>';
+        }).join('')
+      + '</div>'
+    : '';
+  const asked = (st.asked && st.asked.length)
+    ? '<div class="pmsub">Your AI suggested “' + esc(st.asked[0]) + '”, searched here. It supplied no numbers.</div>'
+    : '';
+  const failed = st.askedFailed ? '<div class="pmsub">Your AI did not come back with a name.</div>' : '';
+  // ORDER MATTERS, and it is the order of the question: what you typed, what the
+  // database says about it, and THEN the two ways out -- keep the name, or ask for
+  // a better word to search. The ways out come last because they are what is left
+  // when the rows did not answer, and first they have to be seen not to have.
+  return '<div class="pmsearch"><div class="pmsq">What was it?</div>'
+    + field + ours + asked + failed + presets + body + keep + ask
+    + '<button type="button" class="linklike pmscancel" onclick="photoSearchCancel()">leave it as it is</button>'
+    + '</div>';
+}
+
+// H26 reads ALCOHOL GRAMS, which is what ruling A says to derive -- a real
+// quantity from the matched row, not a category. ABSENCE RETURNS null, NEVER 0:
+// a zero is a measurement somebody made, and claiming one for a row that carries
+// no alcohol figure is zero-filling a missing micronutrient, one function along.
+//
+// AND NOTHING HERE DERIVES A DRINK CLASS FROM WATER. The corpus carries water
+// (slot 255) at 100% coverage, so a `meal: 'drink'` could be derived from it --
+// and the cut would be a boundary nobody ruled: milk is ~88% water, soup ~85-90%,
+// so the line would decide whether soup is a drink. The night comparison wanted
+// to tell coconut water from white wine, and alcohol grams answer that without
+// inventing anything.
+function refAlcoholG(ref) {
+  const v = ref && ref.v;
+  if (!v) return null;
+  const x = v['221'];
+  return (typeof x === 'number' && x === x) ? x : null;
 }
 
 // Confirming is DATA, not a skip: it pins at the estimate (r = 1.0) and records
@@ -11794,6 +12217,7 @@ function plateByMealId(mealId) {
 // every subsequent correction would compound from the wrong base. The plate is the
 // record of what was served and is what a revision is about.
 function photoReopen(mealId) {
+  photoDraftUIReset();
   const pl = plateByMealId(mealId);
   if (pl) {
     const rem = plateRemainder(pl);
@@ -11827,6 +12251,7 @@ function photoReopen(mealId) {
 // reopen the old way, from their items, which is exactly as good as the app was
 // before and is not a fix for them (D57's phrasing for the same situation).
 function photoReopenLegacy(mealId) {
+  photoDraftUIReset();
   const day = curDay(); if (!day) return { ok: false };
   const rows = day.items.filter((x) => x.mealId === mealId);
   if (!rows.length) return { ok: false, error: 'That meal is not on this day.' };
@@ -11889,7 +12314,7 @@ function photoReopenLegacy(mealId) {
   renderPhotoDraft();
   return { ok: true, items: PHOTO_DRAFT.items.length };
 }
-function photoDiscard() { PHOTO_DRAFT = null; renderPhotoDraft(); return { ok: true }; }
+function photoDiscard() { PHOTO_DRAFT = null; photoDraftUIReset(); renderPhotoDraft(); return { ok: true }; }
 function photoDraft() { return PHOTO_DRAFT; }
 
 // ---- R16: sleep as toggled segments ---------------------------------------
@@ -13124,8 +13549,14 @@ function labelPickAlt(i) {
   renderLabelDraft();
   return { ok: true };
 }
-// "None of these" keeps NO name (D68's photoPickNone rule): the field empties for
-// the user to type, and an untyped name is saved as "Unreadable label".
+// "None of these" keeps NO name: the field empties for the user to type, and an
+// untyped name is saved as "Unreadable label".
+//
+// H27 MEASURED THIS SURFACE AND LEFT IT ALONE, which is worth saying because the
+// ruling was "every identity choice list". This one was never the dead end: it
+// already empties the field for the user to type, which is what the photo draft
+// has just been given. The photo list recorded a shrug; this one asks. Same words
+// on the button, opposite behaviour -- and it is the behaviour that was ruled on.
 function labelPickNone() {
   const d = LABEL_DRAFT;
   if (!d) return { ok: false };
@@ -14713,7 +15144,14 @@ window.HT = {
   ANTICIPATE_RATIO, ANTICIPATE_GRAMS, PLATE_RECALL_DAYS,
   // R30 identity-first (D68)
   parseAltList, identityState, identityOptionsHTML, photoIdentityOpen, photoItemUnresolved,
-  photoConfirmIdentity, photoPickCandidate, photoPickNone,
+  photoConfirmIdentity, photoPickCandidate, photoIdentityOptions,
+  // H27 -- "Something else": type and search. photoPickNone is GONE: nothing
+  // resolves an item to nothing any more.
+  IDENTITY_SEARCH_MAX, photoSearchState, photoSearchOpen, photoSearchCancel,
+  photoSearchType, photoSearchRun, photoSearchPick, photoSearchPickPreset,
+  photoSearchConfirmUse, photoSearchConfirmCancel, photoSearchKeep, photoSearchHTML,
+  photoSearchPresets, photoSearchMismatch, photoSearchAskModel,
+  identityNormalisePrompt, identityNormaliseParse, refAlcoholG, byokBody,
   // D141 -- resolve at capture
   rememberedProposal, rememberedProposalText, photoPickMemory,
   normalizeAltList, normalizeIdentityPick, migrateV7toV8,

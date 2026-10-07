@@ -211,17 +211,19 @@ on a list, and **neither list can hold it**.
 - `IN_HARNESS` runs inside `run-data-layer.sh`, same problem.
 
 So it runs **after** a push, by hand, and the suite neither includes nor counts it.
-The verdict count stays **27**.
+**The verdict count below is unaffected by it.** (This line said *“the count stays 27”*
+while the count was 30 — a number that had lost its referent and still looked like a
+bar. Stated as a relation now, so it cannot go stale again.)
 
 
 **The count is the number of verdict lines the runner prints:** 1 harness + the
-`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 7 + 22 = **30**. The
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 7 + 23 = **31**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
 Every run prints the sum, and the suite fails if the passes don't add up to it:
 
 ```
-counted: 1 harness + 7 static + 22 CDP = 30 verdicts (4 more checks run inside the harness and are part of its verdict)
-SUITE: PASS (30 of 30 produced a verdict, and every verdict was PASS)
+counted: 1 harness + 7 static + 23 CDP = 31 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (31 of 31 produced a verdict, and every verdict was PASS)
 ```
 
 **Quote the number together with that line.** A bare count can't be told apart

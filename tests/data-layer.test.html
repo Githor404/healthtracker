@@ -7916,8 +7916,8 @@ window.setLS({});
   // ---- R30-above-offramp: resolve, but the way out stays visible ----------
   res(HT.identityState(dSure.items[0]) === 'sure',
       'R30-above-offramp: p=0.9 clears the floor');
-  res(leadSure.indexOf('photoPickCandidate(0, 1)') >= 0 && leadSure.indexOf('None of these') >= 0,
-      'R30-above-offramp GATE: above the threshold the answer is offered AND the alternatives plus "None of these" are one tap away -- confidently wrong is the case the threshold cannot catch, so the way out does not disappear when the model is sure');
+  res(leadSure.indexOf('photoPickCandidate(0, 1)') >= 0 && leadSure.indexOf('Something else') >= 0,
+      'R30-above-offramp GATE: above the threshold the answer is offered AND the alternatives plus the way out are one tap away -- confidently wrong is the case the threshold cannot catch, so the way out does not disappear when the model is sure (H27: the way out is now "Something else", which opens a search instead of discarding the answer)');
   var okR = HT.photoConfirmIdentity(0);
   res(okR.ok === true && okR.pick.kind === 'confirm' && okR.pick.rank === 0,
       'R30-above-offramp: confirming records a PICK of rank 0 -- accepting is data, not the absence of it');
@@ -7958,24 +7958,51 @@ window.setLS({});
   res(hOrd.indexOf('0.4') < 0 && HT.photoDraft().items[0].alts[0].p === 0.4,
       'R30-no-numbers GATE: the number is RECORDED while never being rendered -- which is the whole arrangement: read by the threshold, written to the record, never shown');
 
-  // ---- R30-none-of-these GATE: the floor under the off-ramp ---------------
-  var noneR = HT.photoPickNone(0);
-  res(noneR.ok === true && noneR.pick.kind === 'none',
-      'R30-none-of-these: the pick is recorded as a refusal of every candidate');
+  // ---- H27 GATE: the floor under the off-ramp, and the terminus removed ---
+  // This block used to drive `photoPickNone`, which named the item "Unidentified
+  // item" and settled -- an item resolved to nothing ON PURPOSE. H27 removes it:
+  // unresolved is now the OUTCOME of saying what the food was and the database not
+  // holding it. The floor is the same (never a forced bad pick) and the record is
+  // stronger, because it says WHICH name went unmatched.
+  res(typeof HT.photoPickNone !== 'function',
+      'H27 GATE: photoPickNone is GONE -- nothing resolves an item to nothing any more, so “unresolved” stops being something you can pick');
+  // Opening the question and walking away must change NOTHING. The one case the
+  // rulings did not cover, and the one that would reintroduce the terminus.
+  var beforeCancel = JSON.stringify(HT.photoDraft().items[0]);
+  HT.photoSearchOpen(0);
+  HT.photoSearchType('something');
+  HT.photoSearchCancel();
+  res(JSON.stringify(HT.photoDraft().items[0]) === beforeCancel && HT.photoSearchState() === null,
+      'H27 GATE: opening the search and dismissing it leaves the item EXACTLY as it was -- a cancel that resolved anything would be the terminus by the back door');
+  HT.photoSearchOpen(0);
+  HT.photoSearchType('  zucchini and courgette fritter  ');
+  var noneR = HT.photoSearchKeep(0);
+  res(noneR.ok === true && noneR.pick.kind === 'typed',
+      'H27: the pick is recorded as a name the user TYPED, not as a refusal of every candidate');
   var itNone = HT.photoDraft().items[0];
-  res(HT.photoItemUnresolved(itNone) === true && itNone.name === 'Unidentified item',
-      'R30-none-of-these GATE: the item goes to the UNRESOLVED path, and is not left wearing a name the user just rejected');
+  res(HT.photoItemUnresolved(itNone) === true && itNone.name === 'zucchini and courgette fritter',
+      'H27 GATE: what was typed stands as the name, UNRESOLVED and trimmed -- never a placeholder, and never a name the user did not give');
+  res(HT.photoSearchState() === null,
+      'H27: the search closes behind a keep, so the question is not still being asked after it was answered');
+  res(HT.photoSearchKeep(0).ok === false,
+      'H27: a keep with nothing typed is REFUSED rather than saving an empty name');
   res(itNone.aiIdentity === 'Zucchini fritter',
-      'R30-none-of-these: the model’s guess survives as provenance rather than as the food’s name');
+      'H27: the model’s guess survives as provenance rather than as the food’s name');
   var hNone = r30draftHTML();
   res(hNone.indexOf('no nutrition yet') >= 0 && hNone.indexOf('from 0 of 1 items') >= 0,   // word moved by D139
       'R30-none-of-these GATE: the row states the absence and the draft total says how much of the meal it knows -- R31’s sentence, reached from the path it was built for');
   HT.photoSetGrams(0, 250);
   var savedNone = HT.photoSave();
   res(savedNone.ok === true && savedNone.items[0].unresolved === true && savedNone.items[0].grams === 250,
-      'R30-none-of-these GATE: it saves with the portion the user accepted and the unresolved flag set');
+      'H27 GATE: it saves with the portion the user accepted and the unresolved flag set');
   res(HT.MACRO_KEYS.every(function(k){ return savedNone.items[0][k] === undefined; }),
-      'R30-none-of-these GATE: and with NO macro keys -- not zeros. Keeping the top-1 macros under a rejected name would be the original error wearing a correction');
+      'H27 GATE: and with NO macro keys -- not zeros. Keeping the top-1 macros under a name the user replaced would be the original error wearing a correction');
+  res(savedNone.items[0].name === 'zucchini and courgette fritter',
+      'H27 GATE: the TYPED name reaches the record, so an unresolved item says what it was rather than that nobody said');
+  // The pick is NOT on the item: R33 moved the calibration record to the PLATE,
+  // and the round-trip assertion below already reads it there. I wrote a second
+  // one here against `items[0].identity_pick`, which is undefined by design -- it
+  // failed, which is the harness doing its job on its author.
 
   // ---- R30-record: offered list and pick, in order, through a round trip ---
   // R33 -- RE-ADDRESSED, NOT WEAKENED. The identification happened once, when the
@@ -7994,16 +8021,19 @@ window.setLS({});
       'R30-record GATE: the offered list is stored IN THE ORDER IT WAS OFFERED');
   res(!!recPI.ai_alts && recPI.ai_alts[0].p === 0.4 && recPI.ai_alts[2].p === 0.25,
       'R30-record GATE: with each candidate’s stated confidence beside it');
-  res(!!recPI.identity_pick && recPI.identity_pick.kind === 'none',
-      'R30-record GATE: and which rank was taken -- here, none of them');
+  res(HT.normalizeIdentityPick({ kind: 'alt', rank: null }).rank === undefined
+      && HT.normalizeIdentityPick({ kind: 'alt', rank: 0 }).rank === 0,
+      'H27 GATE: an ABSENT rank stays absent and a real rank 0 survives -- Number(null) is 0, so every rank-less pick ever written went in as "I took the first candidate" (pre-existing; one reader, no consumer yet, so free to fix now)');
+  res(!!recPI.identity_pick && recPI.identity_pick.kind === 'typed' && recPI.identity_pick.rank === undefined,
+      'R30-record GATE: and which rank was taken -- here NONE of them, because the name was TYPED rather than chosen from the list (H27 retired the kind \'none\': an item is no longer resolved to nothing on purpose)');
   var expR = HT.exportJSON();
   HT.restore(expR);
   var backEv = HT.state().days[HT.state().current].items.filter(function(i){ return i.unresolved === true; })[0];
   var backPl = backEv ? HT.plateByMealId(backEv.mealId) : null;
   var backPI = (backPl && backPl.items && backPl.items[0]) || {};
   res(!!backEv && !!backPI.ai_alts && backPI.ai_alts.length === 3 && backPI.ai_alts[0].name === 'Zucchini fritter' &&
-      backPI.ai_alts[0].p === 0.4 && !!backPI.identity_pick && backPI.identity_pick.kind === 'none',
-      'R30-record GATE: all of it survives export -> restore -- the allowlist trap, gated in the commit that moved the fields as well as the one that added them');
+      backPI.ai_alts[0].p === 0.4 && !!backPI.identity_pick && backPI.identity_pick.kind === 'typed',
+      'R30-record GATE: all of it survives export -> restore -- the allowlist trap, gated in the commit that moved the fields as well as the one that added them. AND it is where a new pick kind is proved: a kind missing from IDENTITY_PICK_KINDS is dropped by normalizeIdentityPick SILENTLY, and a dropped pick is indistinguishable from an item nobody identified');
   res(!!backPI.ai_alts && backPI.ai_alts[1].name === 'Apple fritter' && backPI.ai_alts[2].name === 'Meat pie',
       'R30-record: including the ORDER, which is the datum and not a presentation choice');
 
@@ -8072,7 +8102,12 @@ window.setLS({});
       'R30-degrade GATE: absent `alts` is NOT treated as below-threshold -- the model did not answer the question, and suppressing the identity for that would punish the user for the template they saved');
   HT.openPhotoDraft(r30reply([ r30item('Old template item', 0, null) ]));
   var hNo = r30draftHTML();
-  res(hNo.indexOf('Is this') >= 0 && r30lead(hNo).indexOf('None of these') >= 0 && hNo.indexOf('pmalt"') < 0,
+  // "No candidate buttons" is asserted on the HANDLER, not on a class name. It
+  // read `pmalt"` -- a class attribute ending right after `pmalt` -- which
+  // happened to stay true only because H27's new button is `class="pmalt
+  // pmsomething"`. That is luck, not a test: the claim is that nothing offers a
+  // CANDIDATE, and `photoPickCandidate` is what a candidate is wired to.
+  res(hNo.indexOf('Is this') >= 0 && r30lead(hNo).indexOf('Something else') >= 0 && hNo.indexOf('photoPickCandidate') < 0,
       'R30-degrade GATE: the identity is RESOLVED and offered for confirmation, with no candidate buttons to show -- the question shape follows the item count, the list follows the reply');
   var noItem = HT.photoDraft().items[0];
   res(noItem.per100.kcal === 100 && noItem.aiGrams === 200 && noItem.scaleLinked === true,

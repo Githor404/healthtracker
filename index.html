@@ -276,6 +276,36 @@
   .pmalt,.pmaltnone{min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;
     background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
   .pmaltnone{border-style:dashed;color:var(--muted)}
+  /* H27. The one way out of the identity question, and it is not a smaller way
+     out: same 44px floor, same 16px type, dashed only to say it opens something
+     rather than settling it.
+
+     FULL WIDTH, like the memory proposal above it, and for a measured reason. As
+     a chip it competed for the leftover room on the candidates' last wrap line --
+     MEASURED at 360px on a six-item draft: 136px left, "None of these" was 126px
+     and fitted, "Something else" is 135px and fits BY ONE PIXEL. A one-pixel
+     margin is not a design, it is a coincidence: the next wording change, or a
+     longer name from the model, silently costs 50px on every row. On its own line
+     the cost is one line, always, and the label stops being a layout input.
+     (Ruled 2026-10-05, with D144's row budget amended 287 -> 337px: that clause
+     forbids a row growing for NO function, and this row gained the way out.) */
+  .pmsomething{flex:1 1 100%;text-align:left;border-style:dashed}
+  .pmsearch{margin:6px 0 0;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+  .pmsq{font-size:16px;font-weight:600;margin:0 0 6px}
+  .pmsrowin{display:flex;gap:8px;align-items:center}
+  .pmsin{flex:1 1 auto;min-width:0;min-height:44px;font-size:16px;padding:10px;
+    border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg);font-family:inherit}
+  .pmsgo{min-height:44px;margin:0}
+  .pmsub{font-size:14px;color:var(--muted);margin:6px 0 0}
+  .pmscap{font-size:14px;color:var(--muted);margin:8px 0 4px}
+  .pmsrows{display:flex;flex-direction:column;gap:6px;margin:4px 0 0}
+  .pmsrow{min-height:44px;text-align:left;font-size:16px;margin:0;display:block}
+  .pmsmem{border-color:var(--accent)}
+  .pmskeep,.pmsask{min-height:44px;margin:8px 0 0;font-size:16px;display:block;width:100%}
+  .pmsconfirm{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .pmsconfirmbtn{min-height:44px;margin:0}
+  .pmswarn{color:var(--warn);font-size:16px}
+  .pmscancel{margin-top:8px}
   /* D141: the memory proposal leads the identity control. Full width so it
      reads as a sentence rather than a chip, and at the 16px floor (D124). */
   .pmaltmem{flex:1 1 100%;text-align:left;font-size:16px;border-color:var(--accent)}

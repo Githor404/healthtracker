@@ -5127,3 +5127,115 @@ egress, two for anti-engagement.
 **Also fixed here:** ten harness precondition paths that exited without a `GATE:`
 line, so a real failure read as `no-verdict`; and `EXPECTED_GATE_SCRIPTS`, which
 enforced nothing and is now derived from the manifest.
+
+### H27 — "Something else" — 23rd gate
+
+Suite **30 → 31 verdicts**; harness **2,643 → 2,649**.
+`tests/identity-search-gate.ps1`, **98 assertions**, run **red before the
+implementation existed**.
+
+| case | asserts |
+|---|---|
+| **identity-search-gate.ps1** | the control is on **every** identity list with **zero presets and zero memory** — the state the real log is in — and `photoIdentityOptions(0)` is still `''`, so the invisible-re-pick **hazard stays visible to the gate** ([[D96]]) |
+| **identity-search-gate.ps1** | **`photoPickNone` is gone** and no terminus renders: nothing resolves an item to nothing |
+| **identity-search-gate.ps1** | the panel **replaces** the candidate buttons, so the tap that opened it cannot land on one |
+| **identity-search-gate.ps1** | **opening it and dismissing it without typing leaves the item byte-identical** — the one case the rulings did not cover |
+| **identity-search-gate.ps1** | every row carries its energy in **one format** (`^\d+ cal/100g$`), the item's own sits in its **own element**, and **no similarity figure** appears (planted `0.37` control) |
+| **identity-search-gate.ps1** | **one tap** sets the name **and** a ref with `when='capture'`, `how='picked'`, frozen at the item's own grams |
+| **identity-search-gate.ps1** | an **alcoholic** pick carries **alcohol grams** into the saved record; a **water** pick carries none; `refAlcoholG({v:{}})` is **`null`, not `0`** |
+| **identity-search-gate.ps1** | a **high-water** pick changes **neither** the draft's meal **nor** any item's — ruling A forbids deriving a drink class from water |
+| **identity-search-gate.ps1** | the **D135/1 state guard fires on a search pick** (the dry row is the one **the app itself** classifies dry), hides the rows while asking, leaves the item untouched on cancel, and records `confirmed despite state mismatch` on *use anyway* |
+| **identity-search-gate.ps1** | a query with **no match** leaves the typed text as the name, **unresolved**, **saveable**, and in the record |
+| **identity-search-gate.ps1** | the normalisation is **absent when local rows were found** and **present only when none were**; the request contains **no word that asks for a number**; a reply carrying `kcal` and a nested `protein_g` yields **names only**; a text-only body carries **no image part** |
+| **identity-search-gate.ps1** | **memory leads** the results, **names the item it came from**, and carries **the corpus row's own name** — which is **not a substring of the query**, so it cannot pass by echo |
+| **identity-search-gate.ps1** | the search offers the user's **own presets**, scaled to per-100 g — fork E's supersession is not a removal |
+| **identity-search-gate.ps1** | **a search does not outlive its draft** — cleared on a new draft and on a discard, with the new draft's own question intact (found in the defect pass; **proven by plant**) |
+
+**Found by reading, before the gate ran:** `keep` and `ask` computed and never
+rendered; `IDENTITY_PICK_KINDS` missing the two new kinds, which would have **dropped
+the calibration record silently**.
+
+**Found in the gate, not the code:** a `%` in a corpus food name read as a score, and
+a `/\bdry\b/` regex that missed *dried*, *dehydrated*, *instant* and five more.
+
+**Found in the harness:** `Number(null) === 0` turning an absent pick rank into rank
+zero — pre-existing, in every *none of these* and *asis* ever written.
+
+**Budget amended, ruled:** `capture-gate`'s `MAX_ROW_H` **287 → 337px**. Measured
+against a worktree at HEAD: the way out grew 126 → 146px, 136px of room was left on
+the line, and it wrapped. It now takes its own full-width line, so the cost is one
+line always and the label is no longer a layout input.
+
+### THE RUNNER WAS FAILING GATES THAT PASS — launch contention, not code (2026-10-06)
+
+**Found while verifying [[H27]].** Every one of the 23 gates passed when run by
+name. `run-all-gates.sh` then reported **six of its first ten as FAIL**, and the
+failures were all STARTUP errors:
+
+```
+anti-engagement-gate.ps1   FAIL - NO VERDICT   ERROR: HT never appeared
+bm-slider-gate.ps1         FAIL - NO VERDICT   ERROR: test server did not start
+capture-gate.ps1           FAIL - NO VERDICT   ERROR: internal WebSocket error
+chart-gate.ps1             FAIL
+```
+
+### IT WAS NOT MEMORY, AND THAT WAS MEASURED BEFORE IT WAS FIXED
+
+The run was at **4.57 GB free — the most headroom of the day** — and still failing.
+Three suite runs had been killed for memory earlier, so memory was the obvious
+suspect and the wrong one. What it actually was:
+
+- gates launch **back-to-back with no pause**, and a gate's `HttpListener`
+  registration lives in **HTTP.sys (PID 4)**, which **outlives the owning process
+  by two minutes or more** — measured: ports held across twelve 10-second polls
+- so the next gate cannot bind its server, or cannot reach its debug port, and
+  reports a startup error that **looks exactly like a code failure in the report**
+
+The same cause had already cost a diagnosis once: port **8167** sat
+`LISTENING`-but-dead after a killed run, and `resolve-gate` failed against it until
+the orphaned shell was found.
+
+> **A machine failure that is indistinguishable from a code failure is worse than
+> a slow suite.** The run said FAIL about the hardware while wearing the face of a
+> run that says FAIL about the code — and the next real failure would have hidden
+> among the fake ones.
+
+### WHY THE ORPHANS WERE HARD TO FIND
+
+`Start-Job` workers run as `powershell.exe -Version 5.1 -s -NoLogo -NoProfile` —**the same command line as the agent's own tool host**, so every sweep by name
+either missed them or risked killing the session. They had to be identified by
+**parentage** (parent process gone → orphan). One gate was also still running under
+`timeout` after its runner had been stopped.
+
+### THE FIX, AND WHY IT IS NOT A SLEEP
+
+`settle_for <gate>` waits until **that gate's own ports are no longer LISTENING**.
+
+- **Not a fixed sleep.** The standing ruling on the ring-size settle-wait: a settle
+  *“stays out until it waits on a real render signal, not a fixed sleep”*. The real
+  signal here is the ports.
+- **The port numbers are derived from each gate's own source** ([[D156]]). A port table
+  copied into the runner would rot the moment a gate changed its port, and would
+  then wait for the wrong thing **while reporting that it had waited**.
+- **It admits defeat out loud.** After 60s it prints a `NOTE` naming the port and
+  launches anyway. On the first clean run that fired exactly once — overlay-gate's
+  debug port 9415 — **and the gate passed**. A settle that never says it gave up is
+  a settle whose silence means nothing.
+
+### TWO DEFECTS IN THE FIX, BOTH FOUND BY TESTING IT RATHER THAN TRUSTING IT
+
+| defect | consequence |
+|---|---|
+| the gates use **two casings** — `$port`/`$dbg` in 15, `$Port`/`$Dbg` in 8 — and the extraction was case-sensitive | the settle would have **silently skipped those eight**, including import, capture and chart. *A fix for one silent failure that introduces another is worse than the bug.* Now case-insensitive, a gate with no findable ports is **named**, and all 23 verified to yield both |
+| `judge` greps a failing `.ps1` for `-> False|FAIL` | which matches the verdict line and **nothing else**, so these gates' `  - <finding>` lines were **swallowed** and a FAIL arrived with no reason attached. Cost a diagnosis twice in one session. The findings are now shown |
+
+### RESULT
+
+```
+passed: 31   failed: 0
+counted: 1 harness + 7 static + 23 CDP = 31 verdicts
+SUITE: PASS (31 of 31 produced a verdict, and every verdict was PASS)
+```
+
+**Same tree, same code as the run that reported six failures.** The only change is
+that each gate now waits for its own ports.
