@@ -9695,11 +9695,17 @@ this slice should show is **how many nights it has**.
 05:16  3.7
 ```
 
-**A correction to the recollection, offered as evidence rather than argument.** At
-03:00 the value was **4.1**, not near 3. The **sub-3 excursion came at 04:31**, an
-hour later — and between the two sits an **11.5 peak** that the recollection
-describes only as *"a rise"*. The shape is real; the clock on it is an hour out, and
-the peak is larger than remembered.
+**A correction to the recollection, offered as evidence rather than argument** —
+**and accepted into the record by ruling (2026-10-06), in these terms:**
+
+> **the trough was 4.0 at 03:06, the sub-3 reading 2.7 at 04:31, after an 11.5 peak
+> at 03:51.**
+
+So the shape is real and the clock on it is an hour out: the recollection put a drop
+*toward 3* at around 03:00, and at 03:06 the value was **4.0**. The sub-3 excursion
+came **an hour and a half later**, and between the two sits an **11.5 peak** that the
+recollection describes only as *"a rise"*. The peak is larger than remembered and the
+low is later.
 
 #### LOW FLAGS
 
@@ -9784,6 +9790,71 @@ newest point is hours old; this is the same honesty applied to a low.
 cannot supply, and inventing either would be the thing [[D157]] forbids — proving
 something it cannot.
 
+
+### RULINGS (user, 2026-10-06)
+
+**A — SHIP THE SHAPE, WITH NO LABEL.** Fall rate, trough, recovery rate,
+duration. *A description claims nothing; “possible compression low” is a claim the
+data cannot yet support.* **Revisit when there are enough nights for a threshold
+measured OUTSIDE the excursion itself** — which is the exact defect the
+pre-registration found in its own rate distribution: computed from the three days
+that contain the excursion, so it was partly measuring itself.
+
+**D — TWO SEPARATE THINGS, AND THE THRESHOLD IS ONLY ON ONE OF THEM.**
+
+| | |
+|---|---|
+| **the clinician summary** | **available on demand at any time** — no threshold gates whether you can reach it |
+| **the flag** | the app **FLAGS, never alerts**: any night with a reading **below 3.0** (consensus **level 2**, cited), **or** **two or more nights** with readings **below 3.9** |
+
+> This replaces the pre-registration's open question (*“recur means a count over a
+> window: 2 nights in 14? 3 in 30?”*) with a rule that needs no window at all for
+> the severe case, and a count of two for the milder one.
+
+**And the app says plainly that a CGM low should be confirmed with a fingerstick.**
+
+**Measured consequence:** on the 451 readings held, **one night carries a 2.7**, so
+the first condition fires on the real data as well as on a fixture — the flag is not
+a surface nobody will ever see.
+
+**SOURCES — BUILD THEM, ONE TAP EACH, NO DAILY QUESTIONS.** The pre-registration
+listed three things with **no source at all**; all three get one:
+
+- **“woke” event** — already ruled, and the mechanism H25's *moved* event shares
+- **sensor arm** — asked **once per new sensor**, never daily
+- **alcohol** — a one-tap **“drink” event with a type**, *until resolved items carry
+  slot 221*. **Recorded as ruled: resolved items REPLACE it as coverage rises.**
+
+That last one is the same shape as the file import before it ([[H21]]) and the *moved*
+tap ([[H25]]): **a stopgap with a named successor**, written down at the moment it is
+built rather than discovered later as a duplicate path.
+
+**THE FIRST LINE OF THE FEATURE STATES HOW MANY NIGHTS IT HAS.** Agreed as
+pre-registered — and it is the figure that stops *“most days”* being answered by two
+nights, one of which is flat.
+
+### WHAT THE RULINGS LEAVE AS RECOMMENDED
+
+Only **A** and **D** were marked *Wanted*. **B, C, E and F** were recommended and are
+not contradicted, so they proceed as written, and are restated here so the build has
+one place to read:
+
+- **B — one night is 21:00 → 09:00**, keyed by the evening, **stated on the surface**
+  (because *“the lowest value of the night”* changes with the boundary)
+- **C — which side you slept on is asked ONLY when a suspect appears** — a flag's
+  follow-up, never an input, and **its absence on a clean night is gated**
+- **E — the fingerstick sentence lives on the low flag ITSELF and in the clinician
+  summary**, not once in Settings: *a safety sentence the user has to go and find is
+  a safety sentence that was not said*
+- **F — the no-alarms statement sits wherever a low is shown**: this is a **3-hour
+  look-back** and **the Dexcom app is the live safety tool**
+
+### QUEUE (ruled 2026-10-06)
+
+**[[H28]] first** — *“if the app does something the advocate purpose forbids, that
+outranks new features”*. Then **[[H25]] build** (against the gate's own fixtures; the user
+attests on device, **no fresh export needed**), then **this**, then **R136**, then
+**R138**.
 ## H27 — "Something else": a way to say what it actually was — PRE-REGISTERED (2026-10-05)
 
 **Serves [[D152]] leg 1 (TRACK)**, and leg 2 by raising the resolve rate — which [[H24]]
