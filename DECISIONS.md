@@ -10867,3 +10867,81 @@ it onto a capture slice would be two slices wearing one name.
 
 **Stopping for rulings on A—D.** A most of all, because it decides whether the typed
 path can defend itself at all.
+
+### RULINGS (user, 2026-10-07) — all as recommended
+
+- **A — A3 full parity**: normalised name, **eyeballed estimate**, alternatives, with
+  **A2 as the floor**. At `eyeballed` confidence, **labelled**, **never micros**.
+  *“The estimate's real job is giving the kcal pair something to sit beside.”*
+- **B — the fallback renders ALWAYS when the search is empty**, **directly under the
+  input**, with a plain *needs your key* state when unconfigured. **Not automatic** —  local-first stays.
+- **C — the pair on every candidate reached through a normalised name; never
+  auto-pick; and the normalised word is shown as a query the app RAN** (*“searched
+  for potsticker”*), never as an answer.
+- **D — up to five search terms**, each run locally, and the user picks from **real
+  rows**. *The model supplies search terms, never an answer.*
+- **E — FNDDS recorded as evidence**; its own corpus slice later, not folded in here.
+
+### AND MY FORK-C RECOMMENDATION WAS WRONG. MEASURED.
+
+I recommended the kcal pair as the defence against a confidently wrong normalised
+match, and proposed gating *“dumpling exposed as wrong by the kcal pair”*. The real
+corpus values say otherwise:
+
+| | protein | fat | carb | **kcal** |
+|---|---|---|---|---|
+| `Dumpling, plain` (501830) | 3.5 | 10.7 | 21.6 | **197** |
+| `Potsticker or wonton, pork and vegetable` (502501) | 8.3 | 5.5 | 13.3 | **136** |
+| siu mai, eyeballed | ~12 | ~11 | — | **~210** |
+
+> **On energy the WRONG row looks better.** Plain flour dumpling at 197 is far
+> closer to a ~210 estimate than the correct potsticker row at 136. The kcal pair
+> would not have exposed the bad match — **it would have endorsed it.**
+
+What discriminates is **protein**: 3.5 against 8.3 against ~12. That is the meat,
+which is the entire difference between the two foods. **So the proposed gate case
+could not be built, because it was not true**, and saying so beat tuning a fixture
+until it held.
+
+**RULED in response:** show the **full macro row** (P · F · C · kcal) beside each
+candidate reached through a normalised name, against the item's estimate **on the
+same line if it fits at 360px (measure ink)**, else **kcal + protein**. And:
+
+> *“Which macro exposes a wrong match depends on the food — kcal/carbs for dry vs
+> cooked, protein for meat vs flour, fat for fried vs steamed. Gate the dumpling
+> case on PROTEIN, which is the true discriminator, and record that the kcal pair
+> alone would have endorsed the wrong row.”*
+
+### THE INK MEASUREMENT, AND THE TRAP IT TOOK TWO TRIES TO AVOID
+
+At **360px**, with **328px** available inside the panel, measuring the width each
+string actually NEEDS:
+
+| layout | needs | fits |
+|---|---|---|
+| full macro **+ *vs yours* on one line** | **386—394px** | **no** |
+| kcal + protein + *vs yours* on one line | 222px | yes |
+| **full macro, candidate alone** | **270px** | **yes** |
+
+**Two false measurements came first, both the same trap.** `scrollWidth` on a
+wrapping element equals its `clientWidth`, so every layout reported *no overflow*
+and looked like a fit; then a `nowrap` span still reported **306px for four
+different strings**, because a classed span inherits a BOX and
+`getBoundingClientRect()` returned the box, not the text. Only
+`position:absolute; display:inline-block` makes the width content-driven.
+
+> That is [[D140]]'s lesson — *a box kept its tidy gap on 26 unreadable rows while the
+> ink escaped* — hit **twice inside one measurement** of ink.
+
+### THE LAYOUT BUILT, AND WHY IT DEPARTS FROM THE RULING'S LETTER
+
+The ruling's fallback on a bad fit is kcal + protein. But the measurement surfaced
+an option that was not on the table when it was made: **the full macro row fits on
+one line (270px) when the item's own estimate is stated ONCE above the list**
+instead of repeated on every row.
+
+That serves the ruling's stated REASON — *which macro exposes a wrong match depends
+on the food* — which kcal + protein cannot, since it covers meat-vs-flour and
+neither dry-vs-cooked (carbs) nor fried-vs-steamed (fat). **Built that way and
+flagged**, on the same footing as [[H26]]'s fork-C conflict: a departure from the
+letter in service of the reason, named rather than slipped in.
