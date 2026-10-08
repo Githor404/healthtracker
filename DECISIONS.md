@@ -10527,3 +10527,76 @@ export, so the only overlap measurable here is bounded by the PC's glucose windo
 (2026-09-30 → 10-02) against a log snapshot ending 2026-09-26: **zero shared days**.
 The figure the surface shows is therefore whatever the **device** holds, and the
 user attests it there.
+
+## H29 — SYSTEM IDENTIFICATION: H25's framing, inverted — DIRECTION RECORDED (2026-10-07)
+
+**Serves [[D152]] leg 4 (PREDICT)**, and it is the first slice to name what the
+earlier legs were for. **Pre-registration is RULED to wait until after [[H26]]**; this
+entry exists so the framing is kept in the user's own terms rather than
+recalled later as a paraphrase.
+
+### THE FRAMING, AS GIVEN
+
+> Each meal is a **test point**: known **INPUT** ([[H24]]'s metabolic potential:
+> available glucose, fructose, fibre, fat, protein, liquid/solid, eaten with
+> what) → **EXPECTED** glucose response → **OBSERVED** response ([[H25]]) → the
+> **RESIDUAL**, which is the personal part (sleep, movement, time of day, prior
+> alcohol).
+>
+> Over accumulating meals, fit **MY coefficients** — rise per gram of available
+> glucose, damping by fibre/fat/protein, sharpening by liquids — **with
+> uncertainty shown and n stated**. The model is **opt-in** (depth on demand) and
+> **never presents a coefficient without its n and spread**.
+>
+> **Fructose:** the input side carries it; the app **states fructose the CGM
+> cannot see**, rather than reading a small spike as a small load.
+
+**Why the inversion matters.** H25 asks *what did this meal do?* and answers from
+the stream. H29 asks *what did I expect it to do, and what is left over?* — and
+the leftover is the only part that is about **this person**. That is the whole
+argument for n=1 prediction over population curves, and it is also why the
+residual, not the fit, is the interesting output.
+
+### THE DEPENDENCY, MEASURED BEFORE IT COULD BE ASSUMED
+
+**The INPUT side does not exist.** Measured in `app.js` today: no
+`metabolicPotential`, no `availableGlucose`, no fructose load, no delivery-rate
+modifier — **[[H24]] was ruled on 2026-10-04 and never built.** And its first
+consequence is also unbuilt: **fructose is not a slot.** `corpus/slots.json` holds
+**46 slots** and **212 is absent**, although the ruling admitted it as a judged
+slot with the justification *“the advocate needs it: the CGM is blind to fructose
+and it drives DNL”*.
+
+> **So H29's first sentence names a thing that has not been written.** Recorded
+> here rather than discovered at pre-registration time, because the ruled
+> sequence (H26 → R136 → R138) does not contain H24's build, and R136 depends on
+> it too — its B5/Mn proposal needs `derive_slots.py --check`'s per-nutrient
+> table, which the same unbuilt slice was to produce.
+
+**What CAN be measured without H24**, and is the right first number either way:
+**how many clean-window meals carry a resolved corpus ref at all.** [[H24]] already
+measured the resolve rate at **4 of 62 items (6.5%)** and named it the binding
+constraint on every cofactor axis; [[H25]] measured **22 of 31 events (71%)** with a
+clean 2 h window. The product of those two is the honest ceiling on test points,
+and it is almost certainly far below any n a coefficient could be shown at — which
+is itself the answer to *“state the minimum n before any coefficient is shown”*.
+
+[[H27]] exists to raise the first of those two numbers, and is now shipped.
+
+### WHAT THE PRE-REGISTRATION WILL HAVE TO SETTLE (noted, not decided)
+
+- **the minimum n**, and whether it differs per coefficient (a rise-per-gram slope
+  needs fewer points than a three-way damping interaction)
+- **what “expected” means before any personal fit exists** — a published curve would
+  be a population claim, which [[D152]] forbids as a comparison basis; the honest
+  first expectation may be *“no expectation yet”*, with the residual undefined until
+  the fit exists
+- **how uncertainty is shown** — [[D32]]'s discipline says a claim carries its source
+  and strength; a fitted coefficient's equivalent is its **spread and its n**, and
+  the ruling already requires both
+- **where the opt-in lives**, given the model is *depth on demand*
+- **fructose's wording**: the app says what the CGM **cannot see**, which is a
+  statement about the instrument rather than about the food — and it must not
+  become an estimate of the invisible part
+
+**Not pre-registered, by ruling.** Queued after [[H26]].
