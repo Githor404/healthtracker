@@ -5360,3 +5360,40 @@ energy had ever been fetched.
 SAFETY pin **re-aimed rather than relaxed** — micronutrients stay forbidden in the
 requested shape, the prompt must say *eyeballed*, and it must tell the model to
 leave micros out.
+
+### D159 — no top-level definition twice — 9th static check (2026-10-08)
+
+Suite **35 → 36 verdicts**. `tests/check-dupes.sh`.
+
+**Closing the class that cost a diagnosis in [[H30]].** A patch script spliced a new
+`identityNormalisePrompt` and `identityNormaliseParse` into `app.js` by cutting to
+*the next closing brace* — which was the PROMPT's brace. The ORIGINAL
+`identityNormaliseParse` survived **below** the new one.
+
+> In JavaScript a later `function` declaration **silently replaces** an earlier
+> one. Both parsed. Nothing warned. The app ran the old array-returning version
+> while every new caller expected `{names, per100}`, and the failure surfaced three
+> layers away as *“Cannot read properties of undefined (reading 'length')”*.
+>
+> **The one you read was not the one that ran.**
+
+**Invisible to every other gate here**: the file is valid, the suite boots, and only
+a caller using the NEW contract fails. A duplicate that happened to be
+behaviourally identical would never fail at all — it would sit there until one of
+the two was edited.
+
+| | |
+|---|---|
+| **duplicate top-level `function`** | the silent one, and the reason this exists |
+| **duplicate top-level `const` / `let`** | a SyntaxError, so it breaks loudly and cannot hide — checked anyway, because it costs nothing and the day this file is wrapped in a module the scoping changes under it |
+| **top level only** | by column zero. A nested helper or an object method may share a name by design; two definitions in the SAME scope cannot |
+
+**Proven by plant, twice.** A throwaway control with one duplicate of each kind
+runs before the real scan, so a matcher that cannot match is caught before a clean
+file is trusted. And the H30 shape itself was re-planted into `app.js`: the check
+named `identityNormaliseParse` **with both line numbers (12205, 12232)**, which is
+the diagnosis that was missing the first time.
+
+**Floors, not pins:** 400 functions and 150 const/let across `app.js` + `sw.js`,
+far below the 927 and 330 measured, so a rotted extractor fails rather than
+reporting a clean file.

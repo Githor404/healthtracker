@@ -240,7 +240,8 @@ check-allowlist.sh
 check-eol.sh
 check-ps-encoding.sh
 check-egress.sh
-check-engagement.sh"
+check-engagement.sh
+check-dupes.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh
 check-writesites.sh
