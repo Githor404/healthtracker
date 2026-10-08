@@ -11344,3 +11344,166 @@ unrecorded would be the worse half of the mistake.
   non-zero, with the figure attached. There is no cut to argue about and no band to
   calibrate, and a reader can disagree about the weight it deserves without the app
   having taken a position.
+
+## H31 — The correction that is never found — PRE-REGISTERED, MEASURED FIRST (2026-10-09)
+
+**Device finding (user).** The same glass of white wine photographed on **four**
+days. Every time the model offers *apple juice* or *broth*; every time it is
+corrected. **It never learns.**
+
+**Suspected cause (user).** Memory keys on the **final** name, but the next capture
+arrives under the **model's** name, so the correction is never found.
+
+**Serves leg 1 of [[D152]] (TRACK)** — and leg 2 depends on it: an input identified
+wrong is an outcome bit attached to the wrong food.
+
+### MEASURED: THE CAUSE IS EXACTLY AS DIAGNOSED
+
+Against the **real corpus index**, so the key is the real two-rarest-token key and
+not the no-index fallback. Fixture: four days, each an item accepted as *white
+wine* carrying the model's name in `ai_identity`.
+
+| | |
+|---|---|
+| `matchKey('white wine')` | `white wine` |
+| `matchKey('apple juice')` | `apple juice` |
+| `matchKey('broth')` | `broth` |
+| any model key equal to the accepted key | **false** |
+| tokens shared with *white wine* | **none**, for any of them |
+
+**`rememberedRow()` queried by the model's name: MISS, all four.**
+**The same log queried by the accepted name: HIT** (*Wine, table, white*, from
+*white wine*).
+
+> So memory is not broken — it is **keyed on the one name the next capture will not
+> arrive under**. And the miss is **structural, not probabilistic**: a key is built
+> only from its own name's tokens, so two names with **no shared tokens** cannot
+> produce the same key, with or without a corpus.
+
+### THREE THINGS ARE ALREADY THERE, WHICH CHANGES THE SIZE OF THIS
+
+**1. The model's name is already stored, end to end.** `ai_identity` — *what the AI
+called it, kept beside what was accepted* (`app.js`, the item allowlist). Set when
+the reply is parsed, **untouched by `photoSearchApply`** (which writes only `name`,
+`unres` and `ref`), preserved by `normalizeItem`, and written into the record.
+**Measured surviving a round trip.** No new field is needed and no migration.
+
+**2. The capture prompt ALREADY asks for three alternatives with confidence** — and
+its own rule says, verbatim: *“Offer genuinely different foods as the alternatives
+- a drink that could be **wine or apple juice**”*. The template anticipated this
+exact confusion. So the right answer may **already be in `alts`** on every one of
+those four captures, and leading with it would need no prompt change and no extra
+egress at all. **This is a device question only the user can answer** (see fork C).
+
+**3. The proposal shape exists.** `resolveWithMemory` lifts a remembered row to the
+**front** without scoring or re-ranking what is underneath ([[D133]], [[D125]]), and
+[[D137]] already makes a proposal name the item it came from. *“A genuine apple juice
+still one tap away”* is therefore satisfied by reuse, not by new work.
+
+### AND A SECOND MEASUREMENT OVERTURNS PART OF THE PROPOSED FIX
+
+The ruling asks for *“last 3 times you said this was white wine”* — a **count** keyed
+on the model's name. Measured across the four fixture captures:
+
+> **Four captures produced FOUR DISTINCT model-name keys**: `apple juice`, `broth`,
+> `broth chicken`, `apple cider`. The user's own report names **two** (*apple juice*
+> or *broth*).
+
+**So a count keyed on the model's name cannot reach four. It splits.** With two
+distinct names over four corrections it is roughly 2 and 2; with the fixture's
+variance it is 1, 1, 1, 1 — and a lead gated on *three* prior corrections would
+**never appear at all**.
+
+This does not sink the fix. It decides **fork B**, and it is why the gate's
+*“four corrections in, fifth capture leads with white wine”* needs one more
+condition stated: the fifth capture must arrive under a model name **already
+seen**. If the model says something new on the fifth day, only fork D can help —
+which is the honest division of labour between the two halves of this slice.
+
+### FORKS
+
+**A — where does the correction live?** [[D136]]'s memory is the **log itself**: *no new
+store, no new record, nothing to export or declare*, and deleting the item forgets
+it. Every fact needed here is already on the item (`ai_identity`, `name`, `ref`).
+**Recommended: derive it, add no store.** A separate counter can disagree with the
+log, needs export, migration and a [[D29]] write-site registration, and buys nothing
+a scan cannot compute. The alternative — `settings.corrections` with counts — is
+only worth it if the scan proves too slow, which at 62 items it is not.
+
+**B — how many prior corrections before the app leads with one?** Measured above:
+the model's wording varies, so a high threshold never fires.
+
+| | |
+|---|---|
+| **B1 (recommended)** | lead on the **first** prior correction under the same model key, and state the count truthfully — *“the last time the model said apple juice, you chose white wine”* |
+| B2 | require ≥ 2 under the same key — delays the help past the point of use |
+| B3 | **rejected on the measurement**: aggregate across all model names (*“you have corrected a guess to white wine 4 times”*). Then **any** guess leads with white wine, so a real broth would be led with wine. *broth → wine* and *apple juice → wine* are different confusions and merging them is how a memory starts lying |
+
+**C — is the answer already in `alts`?** The template asks for three identifications
+with a confidence each, and names wine-versus-apple-juice as its example. If *white
+wine* is already the second or third alternative on these captures, then the whole
+of fix 2 may be unnecessary: re-ranking an alternative the model **already sent** is
+free, local, and sends nothing extra.
+
+> **This needs a device reading, not a ruling.** On the next capture of that glass,
+> what are the three alternatives and their `p` values? I cannot measure it — it is
+> in the provider's reply, on the user's key, from the user's camera.
+
+**D — the hint to the model.** Measured: the template is **1,929 chars (~482 tokens)**
+and five hint lines add **+20%** to it. **But the request already carries the photo,
+which is megabytes, so size is not the cost to weigh.** The two real costs:
+
+1. **It is a nudge toward an answer.** [[D128]] permits the model to NAME things; a
+   hint that says *“this was white wine 4 times”* makes the next naming partly the
+   app's. It must therefore never be the only reason a name is accepted — which
+   the confirm already guarantees, and which the gate must pin.
+2. **It is new outbound personal content**: a slice of correction history, on every
+   capture. The photo is already far more revealing and goes to the same provider
+   on the user's own key, so this is a small increment — but it is an increment,
+   and the privacy stance says *all data local* in the README. **Recommended: ship
+   it, and say so in the privacy line** rather than let the README become untrue.
+
+Sub-fork: **how many corrections travel?** Recommended **the three most frequent**,
+by model key, most recent first — enough to fix a recurring confusion, bounded so
+the prompt cannot grow with the log.
+
+**E — [[D135]]'s two closures must bind here too.** A correction made by **overriding
+the state guard** must never become a lead (*overriding once is a decision about one
+item; becoming the default is a decision about every future one*), and the guard
+must still fire on whatever correction memory offers. **Deriving from the log
+(fork A) gives both for free**, because `rememberedRow` already skips
+`how === 'confirmed despite state mismatch'` and the same filter applies.
+
+Sub-fork: **the user corrects X → Y, then later X → Z.** Recommended: **most recent
+wins** for the lead, with the count being of corrections to **that** row — and the
+earlier answer stays reachable in the list underneath, unreordered.
+
+**F — what the surface says.** [[D137]] requires a proposal to name the item it came
+from. Here there are two names to attribute, not one: **what the model said** and
+**what was chosen**. Recommended wording, as a first row:
+
+> *the last 2 times the model said “apple juice”, you chose **Wine, table, white***
+
+Rejected: any phrasing that states the food IS wine. The app is repeating the
+user's own earlier answer, which is a reason to put a row first and never a reason
+to skip the question.
+
+### WHAT THE GATE WILL ASSERT (pre-registered)
+
+- four corrections in the log → the **fifth capture under a seen model name leads
+  with white wine**, as a **first row that is not applied**
+- a **genuine apple juice** is still **one tap away**, and the matcher's order
+  underneath is **unchanged** — proven by asserting the list, not just the top row
+- the lead **never auto-applies**: after the fifth capture and no tap, the item
+  carries **no ref** and an **unsettled identity**
+- a correction made by **overriding the state guard** produces **no lead**
+- a fifth capture under an **unseen** model name produces **no lead** (the measured
+  limit, asserted rather than hidden)
+- the hint names corrections and **nothing else**: no macros, no micronutrients, no
+  corpus ids, **bounded at three**
+- the surface says what the **model** said and what the **user** chose, and never
+  that the food **is** anything
+
+**Stopping for rulings on A—F.** **C most of all**, because it is a device reading
+that could make half the slice unnecessary, and **B**, because the measurement says
+the count the ruling asked for cannot be the count the app shows.
