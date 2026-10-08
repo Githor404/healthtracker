@@ -216,9 +216,15 @@ try {
   S.days[DK] = { status: 'in_progress', water_l: 0, items: [
     // a PHOTO item carrying a database match: the readable name, the visible
     // source marker, and the citation behind its disclosure
+    // H24 added water (255) and the frozen basis `g` to this ref so the potential
+    // panel's own vocabulary renders. The values are SYNTHETIC on purpose -- this
+    // gate is about words, and CLAUDE.md pins it fixture-only -- while the same
+    // figures against the REAL corpus are asserted in potential-gate, where 69.7%
+    // is read out of the shipped asset rather than written here.
     mk({ name: 'lentil stew', ref: { ns: 'cnf', id: '1', name: 'Lentils, boiled',
-         at: DK, at_ms: 1, hash: 'h', how: 'picked',
-         attribution: 'Canadian Nutrient File, Health Canada, 2015', v: { '301': 1 } } }),
+         at: DK, at_ms: 1, hash: 'h', how: 'picked', g: 100,
+         attribution: 'Canadian Nutrient File, Health Canada, 2015',
+         v: { '301': 1, '255': 69.7 } } }),
     // a PHOTO item with nothing known about its composition
     { name: 'mystery side', meal: 'lunch', time: '12:31', grams: 80, unresolved: true,
       confidence: 'eyeballed', source: 'ai-paste', notes: '' },
@@ -306,8 +312,16 @@ try {
   await sleep(200);
 
   // the micronutrient panel, expanded -- where the citation line lives
-  const mp = document.querySelector('details.mpanel');
+  const mps = Array.prototype.slice.call(document.querySelectorAll('details.mpanel'));
+  const mp = mps[0];
   if (mp) { mp.open = true; HT.panelToggle(true); await sleep(450); sweep('micronutrient panel'); }
+  // H24's panel, same shape and so the same deliberate open. A banned-word list
+  // that never visits a surface is green over it, and this one carries the whole
+  // 'delivered, never activated' vocabulary.
+  const pp = mps[1];
+  if (pp) { pp.open = true; HT.potentialToggle(true); HT.refresh(); await sleep(450);
+            sweep('potential panel'); }
+  OUT.potentialSwept = !!pp;
 
   HT.openSettings();
   await sleep(450);
@@ -347,6 +361,7 @@ try {
     }
   }
   if ($R.resolveRows -lt 1) { $fails += "the resolve surface rendered no candidate rows, so its vocabulary was never swept" }
+  if (-not $R.potentialSwept) { $fails += "H24's panel was never found, so the banned-verb list above is green over a surface it did not visit" }
 
   # typed objects, not nested arrays: PowerShell unrolls @(@(a,b)) unpredictably
   # and $_[0] then indexes a CHAR out of a string instead of a pair
@@ -375,7 +390,12 @@ try {
     @{ re = 'gaps? to confirm'; why = 'the fasting-gap count, which D139 wrongly renamed to a nutrition count' },
     @{ re = 'not counted in averages'; why = 'the words that replaced "excluded from averages"' },
     @{ re = 'Lentils \(boiled\)'; why = 'the readable form of a cited row name' },
-    @{ re = '\d+ cal';          why = 'the row unit ruled in place of kcal' }
+    @{ re = '\d+ cal';          why = 'the row unit ruled in place of kcal' },
+    @{ re = 'What each meal delivered'; why = 'H24: the heading that states DELIVERED rather than any verb about pathways' },
+    @{ re = 'available carb';   why = 'H24: carbohydrate MINUS fibre, named as what it is' },
+    @{ re = 'matched to the food database'; why = 'H24: the day says how much of itself it can see before it says anything else' },
+    @{ re = 'eaten with';       why = 'H24 ruling C: a NAMED rate modifier' },
+    @{ re = 'water by weight';  why = 'H24 ruling B: liquidity as a continuous percentage, never a class' }
   )
   foreach ($m in $must) {
     $hit = $strings | Where-Object { $_.t -match $m.re } | Select-Object -First 1
@@ -401,7 +421,19 @@ try {
     @{ re = 'unresolved\s*\u2014\s*resolve'; say = 'the same word twice, neither of them the user''s' },
     @{ re = 'BYOK';                    say = 'an acronym only a developer knows' },
     @{ re = '(^|\s)Ingest(ed|ing)?($|\s|\.)'; say = 'the app''s word for "add to my log"' },
-    @{ re = '(^|[\s\d\(])kcal\b';      say = 'the unit token, ruled to "cal" on rows and "Calories" in headings' }
+    @{ re = '(^|[\s\d\(])kcal\b';      say = 'the unit token, ruled to "cal" on rows and "Calories" in headings' },
+    # H24 / D157's second binding: NEVER PLAYS THE CLINICIAN. The app states what
+    # an input DELIVERED. Each of these asserts a mechanism the app has not
+    # measured and could not measure from a food log -- and each is the word a
+    # supplement label would use. Measured before the ban: all 13 occurrences in
+    # the repo are in COMMENTS, none in a rendered string, so this costs nothing
+    # today and exists to stop the first one arriving.
+    @{ re = '\bactivat(e|es|ed|ing|ion)\b'; say = 'a claim that an input switched a pathway on -- the app measures no pathway' },
+    @{ re = '\bboost(s|ed|ing)?\b';         say = 'a supplement-label verb; the app knows a quantity delivered, not an effect' },
+    @{ re = '\btrigger(s|ed|ing)?\b';       say = 'a causal claim from a composition figure' },
+    @{ re = '\bupregulat\w*\b';            say = 'a mechanism the app has not measured and cannot' },
+    @{ re = '\bfuels\b';                    say = 'reads as a mechanism; the honest word is what was delivered' },
+    @{ re = '\bdrives\b';                   say = 'same claim as fuels, with more confidence' }
   )
   foreach ($b in $banned) {
     $hits = $strings | Where-Object { $_.t -match $b.re }

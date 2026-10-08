@@ -52,6 +52,7 @@ overlay-gate.ps1
 page-overflow-gate.ps1
 parity-gate.ps1
 panel-gate.ps1
+potential-gate.ps1
 photo-lead-gate.ps1
 resolve-gate.ps1
 response-gate.ps1

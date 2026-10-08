@@ -665,6 +665,47 @@
   .askrow .btn{flex:1 1 auto}
   .mpanel{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
   .mpanel summary{font-size:16px;font-weight:600;cursor:pointer;padding:6px 0}
+  /* H24 metabolic potential. EVERY SIZE HERE IS 16px, the D100 FLOOR, and the
+     first draft used 14px for the chips, the decomposition and the absent-axes
+     line -- font-floor-gate caught the one of those that sits on a surface it
+     visits (.potceilwhy, on Trends). D100's scale is 16/20/24/32 and it says in
+     its own words that WEIGHT carries the hierarchy size no longer can, so
+     subordination here is colour and weight, never size. It also gave `small` an
+     explicit 16px, which a 14px override fights directly.
+
+     Every element here is also a BLOCK that wraps, per
+     D140: the row carries a name, up to three figures and up to five named
+     modifiers, which cannot fit one 360px line and are not meant to. What may
+     never wrap mid-unit is a single chip, so the chips are inline-blocks with
+     their own padding and the row wraps BETWEEN them. The gate measures exactly
+     that: the panel must not scroll sideways, and no atomic label may be wider
+     than the panel. */
+  /* The test-point ceiling, on Trends beside H25's response coverage. The WHY
+     line is the load-bearing part -- the count alone would read as a score --
+     so it is not faded below legibility (D53). */
+  .potceil{margin-top:12px;padding-top:8px;border-top:1px solid var(--line)}
+  .potceilhead{font-size:16px;font-weight:700}
+  .potceiln{font-size:20px;font-variant-numeric:tabular-nums;padding:2px 0}
+  .potceilwhy{font-size:16px;color:var(--muted);line-height:1.4}
+  .pothead{font-size:16px;font-weight:700;padding:4px 0}
+  .potcov{font-size:16px;color:var(--warn);padding:3px 0 6px;line-height:1.35}
+  .potrow{padding:7px 0;border-top:1px solid var(--line);font-size:16px}
+  .potname{display:block;font-weight:600;font-variant-numeric:tabular-nums}
+  .potfigs,.potmods{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:3px}
+  .potfig{font-variant-numeric:tabular-nums}
+  .potfig small{color:var(--muted);font-size:16px}
+  /* A reference-only figure is marked as one. It is the single axis here that no
+     label can ever supply, so where it came from is part of what it says. */
+  .potfruct{color:var(--accent)}
+  .potmod{display:inline-block;font-size:16px;color:var(--muted);background:var(--bg);
+          border:1px solid var(--line);border-radius:10px;padding:1px 8px;
+          font-variant-numeric:tabular-nums}
+  .potnone .potfig{color:var(--muted);font-style:italic}
+  /* The declared-and-empty axes. Muted, never hidden: an axis that cannot be
+     filled at any match rate is the most useful thing this panel says, and
+     D53 forbids fading a statement of incompleteness below legibility. */
+  .potabs{font-size:16px;color:var(--muted);padding:8px 0 2px;line-height:1.4;
+          border-top:1px solid var(--line);margin-top:6px}
   .pgrp{margin:10px 0}
   .phead{font-size:16px;font-weight:700;padding:4px 0;border-bottom:1px solid var(--line)}
   .pfam{font-size:16px;color:var(--muted);padding:3px 0}

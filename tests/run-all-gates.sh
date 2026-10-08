@@ -223,6 +223,15 @@ if [ -z "$DL_VERDICT" ]; then
   FAILED="$FAILED data-layer(no-verdict)"
 elif [ "$DL_VERDICT" != "GATE: PASS" ] || [ "$DL_RC" -ne 0 ]; then
   echo "  data-layer          : FAIL ($DL_VERDICT, rc=$DL_RC)"
+  # NAME THE ASSERTION, do not just report the count. Its output is already in
+  # DL_OUT; printing only the verdict threw away the one thing the reader needs and
+  # sent them to re-run a Chrome-launching harness by hand -- which cannot be done
+  # while this suite still holds the browser. "1 FAILED" starts a hunt; the failing
+  # line ends it, which is the argument the gate-script census already makes about
+  # itself. A .ps1 gate's findings are printed; this one's were not.
+  printf '%s\n' "$DL_OUT" \
+    | grep -aE '^(FAIL|MISS)|^[[:space:]]*(FAIL|MISS)\b|CHECK: FAIL' \
+    | head -12 | sed 's/^/      /'
   FAILED="$FAILED data-layer"
 else
   echo "  data-layer          : PASS"

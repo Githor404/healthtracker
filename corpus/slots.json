@@ -13,6 +13,13 @@
    "slot": 269,
    "unit": "g",
    "why": "In MICRO_SPEC and supplied by OFF labels today. 77.1% in SR Legacy, below the bar. FDC 269 and CNF 269 agree, so no merge is needed."
+  },
+  {
+   "key": "fructose_g",
+   "label": "Fructose",
+   "slot": 212,
+   "unit": "g",
+   "why": "THE ADVOCATE NEEDS IT: the CGM is blind to fructose and it drives DNL. Admitted on that ground alone -- it is in neither MICRO_SPEC nor the OFF label path, so the \"already stored\" reason the other two carry would be false here. MEASURED coverage, far below the bar in both sources: 22.4% in SR Legacy (1,745 of 7,793) and 46.3% in CNF (2,635 of 5,690). So most foods will carry NO fructose value, and every surface that reports it must say how much of the day it could see. FDC 212 and CNF 212 agree, so no merge is needed."
   }
  ],
  "bar": 0.9,
@@ -23,6 +30,7 @@
   "205": 205,
   "207": 207,
   "208": 208,
+  "212": 212,
   "221": 221,
   "255": 255,
   "262": 262,
@@ -66,9 +74,9 @@
  },
  "counts": {
   "derived": 44,
-  "judged_additions": 2,
+  "judged_additions": 3,
   "judged_merges": 2,
-  "total": 46
+  "total": 47
  },
  "fdc_number_to_slot": {
   "203": 203,
@@ -76,6 +84,7 @@
   "205": 205,
   "207": 207,
   "208": 208,
+  "212": 212,
   "221": 221,
   "255": 255,
   "262": 262,
@@ -174,6 +183,18 @@
    "origin": "derived",
    "slot": 208,
    "unit": "kcal"
+  },
+  {
+   "cnf_name": "FRUCTOSE",
+   "cnf_pct": 46.3,
+   "fdc_name": "Fructose",
+   "fdc_pct": 22.4,
+   "key": null,
+   "label": "Fructose",
+   "origin": "judged",
+   "slot": 212,
+   "unit": "g",
+   "why": "THE ADVOCATE NEEDS IT: the CGM is blind to fructose and it drives DNL. Admitted on that ground alone -- it is in neither MICRO_SPEC nor the OFF label path, so the \"already stored\" reason the other two carry would be false here. MEASURED coverage, far below the bar in both sources: 22.4% in SR Legacy (1,745 of 7,793) and 46.3% in CNF (2,635 of 5,690). So most foods will carry NO fructose value, and every surface that reports it must say how much of the day it could see. FDC 212 and CNF 212 agree, so no merge is needed."
   },
   {
    "cnf_name": "ALCOHOL",

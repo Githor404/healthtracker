@@ -5397,3 +5397,47 @@ the diagnosis that was missing the first time.
 **Floors, not pins:** 400 functions and 150 const/let across `app.js` + `sw.js`,
 far below the 927 and 330 measured, so a rotted extractor fails rather than
 reporting a clean file.
+
+### H24 — metabolic potential — 27th gate
+
+Suite **36 → 37 verdicts**. `tests/potential-gate.ps1`, **68 assertions**, run **red
+first (34 findings)**. The fixture resolves **four real CNF rows by id**, measured out
+of the shipped asset rather than written into the gate.
+
+| case | asserts |
+|---|---|
+| **potential-gate.ps1** | the installed corpus reports **47 columns** and all four fixture rows resolve — without which every assertion below is vacuous |
+| **potential-gate.ps1** | glucose load is **carbohydrate minus fibre** (56 from 60 and 4), and **both inputs survive** |
+| **potential-gate.ps1** | it is **not** 60 — a separate assertion, because the right answer and *no subtraction happened* differ by one number |
+| **potential-gate.ps1** | an **unresolved** item contributes **no figure and no zero** |
+| **potential-gate.ps1** | `refValueAt(honey, 212)` is **40.94**; `refValueAt(butter, 212)` is **null**, never 0 |
+| **potential-gate.ps1** | fructose is **absent entirely** on an item with no matched row — no label can supply it |
+| **potential-gate.ps1** | the panel prints **no `0 g` fructose**, at a slot covering 22-46% of foods |
+| **potential-gate.ps1** | the coverage line uses the app's **existing** *from N of M items* wording, not a third phrasing |
+| **potential-gate.ps1** | **no minutes, no time-to-peak, no time-to-baseline** anywhere in the panel |
+| **potential-gate.ps1** | all three co-presence modifiers **name themselves with their grams**; a solo carbohydrate event names **none of them** |
+| **potential-gate.ps1** | apple juice **88.2%** and cream soup **84.1%**, from the real corpus, **less than 5 points apart** — the gate fails if they ever separate, because that is its whole argument |
+| **potential-gate.ps1** | the panel never says ***liquid***, ***solid*** or ***beverage*** |
+| **potential-gate.ps1** | **no banned verb** (*activated, boosted, triggered, upregulated, fuels, drives*) and the panel **does** say what an input *delivers* |
+| **potential-gate.ps1** | the ceiling is a **function** and a **surface**, and the surface names **both factors**, not only their overlap |
+| **potential-gate.ps1** | the panel is in a **closed `<details>`** — H25 cost the ring its fold budget by mounting above the fold |
+| **potential-gate.ps1** | the panel **does not scroll sideways** at 360px, and no **chip** or **single word** overflows it |
+
+**`check-slots.sh` gained the two legs its own header promised and never had**, each
+with planted controls: **append-only against HEAD** (a removed slot, a changed unit
+and a **retargeted source number** — all three planted and caught) and **the spec
+versus the shipped assets** (slot list, order, `cols`, and `rows x cols x 4`). Plus a
+third leg: **app.js's `CORPUS_ASSET_HASH` must match the shipped assets**, proven red
+by stamping a wrong hash.
+
+**`jargon-gate` gained the clinician's vocabulary and a 14th screen.** Six banned
+verbs, five new coverage entries, and the panel is **swept** — plus an assertion that
+the sweep **found** it, because a banned-word list that never visits a surface is
+green over it. Measured before the ban: all 13 occurrences of those words in the repo
+are in **comments**, none in a rendered string.
+
+**Found by the gate or by its own output:** a **PowerShell case collision** that
+silently destroyed the ink measurement and made three assertions pass vacuously;
+**two wrong classifications of what counts as atomic** in the same file; and the
+**spec-versus-asset** gap that would have shipped a 47-slot spec over a 46-column
+binary.

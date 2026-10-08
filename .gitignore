@@ -33,3 +33,9 @@ corpus/*.zip
 corpus/srlegacy*
 corpus/cnf*
 corpus/slots_raw.json
+
+# Python bytecode from the corpus tools. Not an artifact of anything the repo
+# ships -- it appears the moment one tool imports another -- and committing it
+# would put a machine-specific, version-specific binary in a public tree.
+__pycache__/
+*.pyc

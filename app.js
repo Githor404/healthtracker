@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.69.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.70.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1422,7 +1422,12 @@ const PANEL_ALT = { 208: [268], 320: [318] };
 const PANEL_OFF_SURFACE = [207];
 const PANEL_GROUPS = [
   { name: 'General', slots: [208, 255, 221, 262, 263] },
-  { name: 'Carbohydrates', slots: [205], kids: { 205: [269, 291] } },
+  // Fructose sits BESIDE sugars rather than under it. The panel nests exactly
+  // one level and D118's rule is parts under their whole -- fructose is a part of
+  // a part, so putting it where it belongs would need a second level the renderer
+  // has not got. Beside, with its own label, says less than the truth and nothing
+  // false; nested wrongly would say something false.
+  { name: 'Carbohydrates', slots: [205], kids: { 205: [269, 212, 291] } },
   { name: 'Lipids', slots: [204, 601],
     kids: { 204: [606, 645, 646], 645: [617], 646: [618, 621, 631, 832, 854, 861] } },
   { name: 'Vitamins', slots: [320, 319, 328, 401, 404, 405, 406, 409, 415, 417, 431, 806, 815, 418] },
@@ -1436,7 +1441,7 @@ function panelSlotLabel(slot) {
   if (k && MICRO_LABEL[k]) return MICRO_LABEL[k].label;
   const names = {
     203: 'Protein', 204: 'Fat', 205: 'Carbohydrate', 207: 'Ash', 208: 'Energy',
-    221: 'Alcohol', 255: 'Water', 262: 'Caffeine', 263: 'Theobromine',
+    212: 'Fructose', 221: 'Alcohol', 255: 'Water', 262: 'Caffeine', 263: 'Theobromine',
     268: 'Energy (kJ)', 291: 'Fibre', 305: 'Phosphorus', 312: 'Copper',
     318: 'Vitamin A (IU)', 319: 'Retinol', 404: 'Thiamin', 405: 'Riboflavin',
     406: 'Niacin', 409: 'Niacin equivalent', 415: 'Vitamin B-6', 431: 'Folic acid',
@@ -2644,6 +2649,21 @@ function corpusNamespace(lang) {
 }
 function corpusAssetURL(ns, ext) { return './corpus/dist/' + ns + '.' + ext; }
 
+// THE CORPUS HAD NO UPGRADE PATH, found in H24 when the first new slot since it
+// shipped was added. `corpusAcquire` short-circuited on the NAMESPACE alone, so a
+// device that already held the 46-slot corpus would never fetch the 47-slot one.
+// Nothing would break -- the stored meta and the stored bin agree with each other,
+// so values stayed correct -- it would simply never gain fructose, silently, for
+// as long as the install survived. A permanent artifact needs a way to arrive.
+//
+// Content-derived, exactly as SHELL_HASH is, and checked against the shipped
+// assets by tests/check-slots.sh so it cannot go stale. Stamping it is the price
+// of not spending 300 KB of meta on every boot to ask "is mine current?".
+const CORPUS_ASSET_HASH = {
+  fdc: 'd58a7b97b334',
+  cnf: 'e734f60ccac4',
+};
+
 function corpusOpen() {
   if (CORPUS_DB_HANDLE) return Promise.resolve(CORPUS_DB_HANDLE);
   return new Promise(function (resolve, reject) {
@@ -2681,6 +2701,12 @@ function corpusInstall(meta, buf) {
         index: meta.index,
       }, 'index');
       const vs = tx.objectStore(CORPUS_STORE_VALUES);
+      // CLEARED FIRST, because an install is a REPLACEMENT and the row width can
+      // change. Without this, a food that was in the old release and not the new
+      // one keeps its old row -- 46 floats -- while the meta now says 47 slots,
+      // and corpusValueAt reads that row one column off for every nutrient past
+      // the inserted one. A stale row is worse than a missing one: it answers.
+      vs.clear();
       const all = new Float32Array(buf);
       for (let r = 0; r < rows; r++) {
         vs.put(all.slice(r * cols, (r + 1) * cols), String(meta.index[r][0]));
@@ -2753,7 +2779,11 @@ let CORPUS_FETCHING = false;
 function corpusAcquire(force) {
   if (CORPUS_FETCHING) return Promise.resolve({ ok: false, why: 'in-flight' });
   const ns = corpusNamespace();
-  if (!force && CORPUS_MEM && CORPUS_MEM.ns === ns)
+  // The hash half of this test is what gives the corpus an upgrade path: the
+  // namespace alone said "mine is the right KIND", never "mine is current".
+  const want = CORPUS_ASSET_HASH[ns];
+  const stale = !!(want && CORPUS_MEM && CORPUS_MEM.hash !== want);
+  if (!force && CORPUS_MEM && CORPUS_MEM.ns === ns && !stale)
     return Promise.resolve({ ok: true, why: 'already', ns: ns });
   CORPUS_FETCHING = true;
   return fetch(corpusAssetURL(ns, 'json'))
@@ -3536,6 +3566,11 @@ function renderDayInner() {
   // panel could not be the destination of anything that wrote -- including the
   // resolve step whose whole purpose is to fill it.
   html += `<details class="mpanel"${PANEL_OPEN ? ' open' : ''} ontoggle="panelToggle(this.open)"><summary>Micronutrients</summary><div id="microPanel"></div></details>`;
+  // H24 mounts BESIDE the micronutrient panel and CLOSED, deliberately. H25 put a
+  // one-tap row on the main surface and it cost the ring its fold budget -- 51%
+  // against a 70% floor -- so a new surface of this size goes behind a summary
+  // until it is asked for.
+  html += `<details class="mpanel"${POTENTIAL_OPEN ? ' open' : ''} ontoggle="potentialToggle(this.open)"><summary>What this day delivered</summary><div id="potentialPanel"></div></details>`;
   if (unlogged) html += `<div class="emptyday">Nothing logged on this day.</div>`;
   html += trashHTML(dk);
   html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
@@ -7336,6 +7371,312 @@ function mealResponseHTML(dateKey, mealId) {
     + ' min' + (c.gaps ? ' \u00b7 ' + esc(c.gaps) + ' gap' + (c.gaps === 1 ? '' : 's') : '') + '</div>';
   return html + '</div>';
 }
+
+// ===================== H24: METABOLIC POTENTIAL =====================
+// What an input DELIVERS, and how fast, derived deterministically from
+// composition and capture and NEVER from the model. Serves leg 1 of D152
+// (TRACK) and is the substrate for leg 2's outcome bits.
+//
+// Under D157 it leans on two bindings: HONEST WHEN UNWELCOME (every figure
+// carries its coverage) and NEVER PLAYS THE CLINICIAN (the app states what an
+// input DELIVERED, never that it activated a pathway). The second is a
+// vocabulary rule and is gated as one.
+
+const POT_SLOT_WATER = 255;
+const POT_SLOT_FRUCTOSE = 212;
+
+// RULED A: the axes are DECLARED, and an axis with no input in the window
+// renders NOTHING (D146: a day with no readings draws no row). The empty half
+// of this list is the honest part -- it was MEASURED, not guessed. Of the
+// cofactors TCA, glycolysis, one-carbon and beta-oxidation want, the corpus
+// holds NONE of B5, manganese, biotin, lipoic acid, CoQ10 or carnitine, so no
+// resolve rate can ever supply them. A pathway panel built today would be a
+// grid of absences, and saying so beats rendering one.
+const POTENTIAL_AXES = [
+  { key: 'glucose', label: 'available carbohydrate', unit: 'g', from: 'label or food database' },
+  { key: 'fructose', label: 'fructose', unit: 'g', from: 'food database only' },
+  { key: 'protein', label: 'protein', unit: 'g', from: 'label or food database' },
+  { key: 'fibre', label: 'fibre', unit: 'g', from: 'label or food database' },
+  { key: 'fat', label: 'fat', unit: 'g', from: 'label or food database' },
+  { key: 'b5', label: 'pantothenate (B5)', unit: 'mg',
+    absent: 'not a slot: 81.8% of SR Legacy and 83.6% of CNF, both under the 90% bar' },
+  { key: 'manganese', label: 'manganese', unit: 'mg',
+    absent: 'not a slot: 83.3% of SR Legacy and 89.7% of CNF, both under the bar' },
+  // MEASURED, one at a time, against the per-nutrient table rather than asserted
+  // together. The first draft said "in neither source, at any match rate" for both
+  // -- and that is FALSE for biotin, which CNF carries as nutrient 416 at 1.8%.
+  // Useless in practice and absent in principle are different claims, and only one
+  // of them was true. Carnitine really has no column in either source.
+  { key: 'carnitine', label: 'carnitine', unit: 'mg',
+    absent: 'no column in either database, so no amount of matching can supply it' },
+  { key: 'biotin', label: 'biotin', unit: 'ug',
+    absent: 'measured at 1.8% of the Canadian database and none of the US one, so not a slot' },
+];
+
+// AVAILABLE carbohydrate: carbohydrate MINUS fibre. Both sources report
+// carbohydrate BY DIFFERENCE, which includes the fibre, and fibre is the part
+// that does not arrive as glucose -- so the undifferenced figure overstates the
+// load on exactly the foods where it matters most. Clamped at zero because a
+// label may state more fibre than carbohydrate and a negative load is not a
+// thing. Absent when the item has no composition: never a zero.
+function availCarbG(it) {
+  if (!itemHasMacros(it)) return null;
+  return Math.max(0, num(it.carb_g) - num(it.fiber_g));
+}
+
+// RULED B: liquidity derived from WATER (slot 255), CONTINUOUSLY, with no new
+// capture field. It stays continuous deliberately, and that is a RULING
+// CONFLICT resolved in the open rather than in silence:
+//
+//   - the standing ruling above refAlcoholG refuses a CLASS derived from this
+//     number, because the cut would decide whether soup is a drink
+//   - ruling C names a modifier 'liquid', which needs exactly that cut
+//   - ruling B says CONTINUOUSLY, which is what avoids it
+//
+// MEASURED in the shipped CNF, which settles it: apple juice is 88.2% water and
+// condensed cream soup is 84.1%. FOUR POINTS APART. Any cut either lumps them
+// together or declares canned soup a beverage, and nobody ruled which. So the
+// app reports the percentage and names no class.
+function itemWaterPct(it) {
+  const ref = it && it.ref;
+  const w = refValueAt(ref, POT_SLOT_WATER);
+  const g = Number(ref && ref.g);
+  if (w == null || !(g > 0)) return null;
+  return Math.round((w / g) * 1000) / 10;
+}
+
+// RULED C: NAMED modifiers, each WITH its input, and never a time. The app
+// measures no gastric emptying, so a time-to-peak computed from composition is
+// fiction wearing decimals -- which is the thing the honesty rules exist to
+// keep out.
+//
+// AND NO THRESHOLD ANYWHERE. A modifier is named when its input is PRESENT and
+// non-zero, and the figure travels with the name, so there is no cut to argue
+// about and no band to calibrate. 'eaten with fat 12 g' is the entire claim,
+// and a reader can disagree with the weight it deserves without the app having
+// taken a position on it.
+function eventModifiers(ev, dateKey) {
+  const items = (ev && ev.items) || [];
+  const out = [];
+  const r1 = function (x) { return Math.round(x * 10) / 10; };
+  const sum = function (k) {
+    return items.reduce(function (a, it) {
+      return a + (itemHasMacros(it) ? num(it[k]) : 0);
+    }, 0);
+  };
+  [['fat', 'fat_g', 'eaten with fat'],
+   ['fibre', 'fiber_g', 'eaten with fibre'],
+   ['protein', 'protein_g', 'eaten with protein']].forEach(function (p) {
+    const g = sum(p[1]);
+    if (g > 0) out.push({ key: p[0], name: p[2], input: r1(g), unit: 'g' });
+  });
+  // Water, weighted by grams: an event is a mass of food, and a plain mean of
+  // two percentages weighs a 15 g pat of butter the same as 250 g of porridge.
+  let wg = 0, tg = 0;
+  items.forEach(function (it) {
+    const p = itemWaterPct(it);
+    const g = Number(it && it.ref && it.ref.g);
+    if (p != null && g > 0) { wg += p * g; tg += g; }
+  });
+  if (tg > 0) out.push({ key: 'water', name: 'water by weight', input: r1(wg / tg), unit: '%' });
+  // 'Broke a fast' uses the app's OWN detector, so the threshold is the one the
+  // user already configured rather than a second one invented here. And the
+  // hours are a MEASURED gap between two capture times, not an inferred rate --
+  // which is why a duration is allowed here while minutes are banned above.
+  const hrs = fastEndedByItem(dateKey, ev && ev.time);
+  if (hrs > 0) out.push({ key: 'fast', name: 'broke a fast', input: Math.round(hrs * 10) / 10, unit: 'h' });
+  return out;
+}
+
+// The day, as data. Read as data by the gate before it is read as pixels,
+// because a figure that is only ever asserted through its own HTML is asserted
+// against the renderer rather than the arithmetic.
+function potentialFor(dateKey) {
+  const day = APP_STATE.days && APP_STATE.days[dateKey];
+  if (!day) return null;
+  const items = (day.items || []).filter(function (it) { return it && it._auto !== true; });
+  const r1 = function (x) { return Math.round(x * 10) / 10; };
+  const hasRef = function (it) { return !!(it && it.ref && it.ref.v); };
+  const events = mealEvents(dateKey).map(function (ev) {
+    const its = ev.items || [];
+    const withMacros = its.filter(itemHasMacros);
+    const e = {
+      mealId: ev.mealId, time: ev.time, names: mealEventNames(ev),
+      itemsN: its.length, withMacrosN: withMacros.length,
+      resolvedN: its.filter(hasRef).length,
+      modifiers: eventModifiers(ev, dateKey),
+    };
+    const tot = function (k) {
+      return r1(withMacros.reduce(function (a, it) { return a + num(it[k]); }, 0));
+    };
+    if (withMacros.length) {
+      e.carbG = tot('carb_g');
+      e.fibreG = tot('fiber_g');
+      // SUMMED PER ITEM, through availCarbG, not subtracted at the event level.
+      // The two differ exactly where the clamp bites: a label stating 2 g
+      // carbohydrate and 6 g fibre lends -4 g to an event-level subtraction and 0
+      // to this. The defect pass found availCarbG defined, exported, gated for
+      // EXISTENCE and called by nothing -- which an existence assertion cannot
+      // see, and only an assertion about a value that differs between the two can.
+      e.glucoseLoadG = r1(withMacros.reduce(function (a, it) {
+        return a + (availCarbG(it) || 0);
+      }, 0));
+      // Does the stated decomposition describe what actually happened? It does
+      // not when any item clamped, and then showing it would invite the reader to
+      // check 2 - 6 = 0.
+      e.loadIsPlainSubtraction = (e.glucoseLoadG === r1(e.carbG - e.fibreG));
+      e.proteinG = tot('protein_g');
+      e.fatG = tot('fat_g');
+    } else {
+      // D146 AND the absence rule together: no composition, no figures. The
+      // event is still LISTED, because the meal happened -- what is withheld is
+      // the numbers, not the fact.
+      e.noComposition = true;
+    }
+    // Fructose is REFERENCE-ONLY. No label supplies it, it is in no OFF field
+    // and in no MICRO_SPEC key, so an item that was never matched reports
+    // nothing here -- and at 22.4% SR / 46.3% CNF, so does most matched food.
+    const fr = its.map(function (it) { return refValueAt(it.ref, POT_SLOT_FRUCTOSE); })
+      .filter(function (x) { return x != null; });
+    e.fructoseG = fr.length ? r1(fr.reduce(function (a, x) { return a + x; }, 0)) : null;
+    e.fructoseFromN = fr.length;
+    let wg = 0, tg = 0;
+    its.forEach(function (it) {
+      const p = itemWaterPct(it);
+      const g = Number(it && it.ref && it.ref.g);
+      if (p != null && g > 0) { wg += p * g; tg += g; }
+    });
+    if (tg > 0) e.waterPct = r1(wg / tg);
+    return e;
+  });
+  const fructoseN = items.filter(function (it) {
+    return refValueAt(it.ref, POT_SLOT_FRUCTOSE) != null;
+  }).length;
+  return {
+    date: dateKey,
+    events: events,
+    itemsN: items.length,
+    resolvedN: items.filter(hasRef).length,
+    withMacrosN: items.filter(itemHasMacros).length,
+    fructoseCoverage: { n: fructoseN, m: items.length, partial: true },
+    axes: POTENTIAL_AXES,
+  };
+}
+
+// THE RULED REPORT, as a FUNCTION rather than a number typed once into a record:
+// clean-window meals that ALSO carry a matched row. H24 measured that every
+// reference-fed axis sits at exactly the match rate, so this intersection is the
+// binding constraint on the whole prediction leg -- it is H29's minimum-n answer
+// and it says how much matching the user still has to do.
+function potentialCeiling() {
+  let clean = 0, resolved = 0, both = 0, meals = 0;
+  Object.keys(APP_STATE.days || {}).forEach(function (dk) {
+    mealEvents(dk).forEach(function (ev) {
+      meals += 1;
+      const r = mealResponse(dk, ev.mealId);
+      const isClean = !!(r && r.phase === 'ok');
+      const ref = (ev.items || []).some(function (it) { return !!(it && it.ref && it.ref.v); });
+      if (isClean) clean += 1;
+      if (ref) resolved += 1;
+      if (isClean && ref) both += 1;
+    });
+  });
+  return { n: both, clean: clean, resolved: resolved, meals: meals };
+}
+
+let POTENTIAL_OPEN = false;
+function potentialToggle(open) { POTENTIAL_OPEN = !!open; }
+
+function potentialHTML(dateKey) {
+  const P = potentialFor(dateKey);
+  if (!P || !P.events.length) return '';
+  const F = P.fructoseCoverage;
+  // THE FIRST LINE IS THE CONSTRAINT, not a figure. H24 measured that every
+  // reference-fed axis sits at exactly the match rate, so the day says how much
+  // of itself it can see before it says anything else.
+  let html = '<div class="pothead">What each meal delivered</div>'
+    + '<div class="potcov">' + esc(P.resolvedN) + ' of ' + esc(P.itemsN) + ' item'
+    + (P.itemsN === 1 ? '' : 's') + ' matched to the food database</div>';
+  P.events.forEach(function (e) {
+    const name = '<span class="potname">' + esc(e.time) + ' '
+      + esc(e.names.join(' + ')) + '</span>';
+    if (e.noComposition) {
+      html += '<div class="potrow potnone">' + name
+        + '<span class="potfig">no nutrition yet</span></div>';
+      return;
+    }
+    // The decomposition appears only when there is something to decompose. With no
+    // fibre the load IS the carbohydrate, and "(41 carb less 0 fibre)" asks the
+    // reader to check an arithmetic that did nothing.
+    const figs = ['<span class="potfig">available carb <b>' + esc(e.glucoseLoadG) + ' g</b>'
+      + ((e.fibreG > 0 && e.loadIsPlainSubtraction)
+         ? ' <small>(' + esc(e.carbG) + ' carb less ' + esc(e.fibreG) + ' fibre)</small>'
+         : '') + '</span>'];
+    if (e.proteinG > 0) figs.push('<span class="potfig">protein <b>'
+      + esc(e.proteinG) + ' g</b></span>');
+    // Fructose appears ONLY when a matched row actually carried it. A zero here
+    // would be a claim about the food; absence is a claim about the record.
+    // The marker sits BESIDE THE NUMBER, not only in the coverage line below the
+    // rows. Fructose is the one axis here no label can supply -- no MICRO_SPEC key
+    // and no OFF field -- so its origin is not metadata about the figure, it is
+    // part of what the figure says. The available-carb figure next to it is a
+    // different KIND of claim, and the two are read side by side.
+    if (e.fructoseG != null) figs.push('<span class="potfig potfruct">fructose <b>'
+      + esc(e.fructoseG) + ' g</b> <small>food database</small></span>');
+    const mods = (e.modifiers || []).map(function (m) {
+      return '<span class="potmod">' + esc(m.name) + ' <b>' + esc(m.input)
+        + (m.unit === '%' ? '%' : ' ' + m.unit) + '</b></span>';
+    }).join('');
+    html += '<div class="potrow">' + name + '<span class="potfigs">' + figs.join('')
+      + '</span>' + (mods ? '<span class="potmods">' + mods + '</span>' : '') + '</div>';
+  });
+  // Fructose's own coverage, in the SAME words every other coverage line in the
+  // app uses (coverageNote) rather than a third phrasing for one idea. It clears
+  // the 90% bar in NEITHER source, so a bare total would imply a completeness it
+  // has not got.
+  html += '<div class="potcov">fructose ' + esc(coverageNote(F))
+    + ' \u2014 it is in 22% of the US database and 46% of the Canadian one,'
+    + ' so most foods will never carry a figure</div>';
+  // The declared-and-empty half, named with the reason. Ruled A.
+  const gone = P.axes.filter(function (a) { return !!a.absent; });
+  if (gone.length) {
+    html += '<div class="potabs"><b>Not available from any source:</b> '
+      + gone.map(function (a) { return esc(a.label) + ' (' + esc(a.absent) + ')'; })
+        .join(' \u00b7 ') + '</div>';
+  }
+  return html;
+}
+
+// THE RULED REPORT, on a surface. The INTERSECTION is what binds: a meal can be
+// a test point only with BOTH a clean glucose window and a matched food row, and
+// H24 measured that the second is the scarce one -- every reference-fed axis sat
+// at exactly the match rate. So the line names both factors rather than only their
+// overlap, because which of them to work on is the actual question.
+function potentialCeilingHTML() {
+  const c = potentialCeiling();
+  if (!c.meals) return '';
+  // NOT "test points": anti-engagement-gate caught that phrase as gamification, and
+  // it was right to. "Test point" is the correct statistical term, which is why it
+  // is the wrong word on a screen -- the ban exists because POINTS offer a reason to
+  // log that is not the user's own interest, and nobody scanning a panel reads the
+  // statistical sense. The ruling's "test-point ceiling" named the quantity, not the
+  // heading.
+  return '<div class="potceil"><div class="potceilhead">Meals that can test a prediction</div>'
+    + '<div class="potceiln"><b>' + esc(c.n) + '</b> of ' + esc(c.meals) + ' meal'
+    + (c.meals === 1 ? '' : 's') + '</div>'
+    + '<div class="potceilwhy">A meal counts only if it has BOTH a clean glucose window'
+    + ' and a matched food row. Clean windows: <b>' + esc(c.clean) + '</b>.'
+    + ' Meals with a matched row: <b>' + esc(c.resolved) + '</b>.'
+    + ' The count above can never exceed either of those, and matching rows is the'
+    + ' one of the two you can change.</div></div>';
+}
+
+function renderPotential() {
+  const host = document.getElementById('potentialPanel');
+  if (!host) return;
+  host.innerHTML = POTENTIAL_OPEN ? potentialHTML(APP_STATE.current) : '';
+}
+
 // The test tag is a DECLARATION, so it is a control, not a readout.
 function mealTestHTML(dateKey, mealId) {
   const ev = mealEvents(dateKey).filter(function (e) { return e.mealId === String(mealId); })[0];
@@ -8744,6 +9085,8 @@ function renderTrends() {
   // 30/90/all buttons -- those choose how much to draw, and the typical is content.
   html += typicalRowHTML();
   html += responseCoverageHTML();            // H25: the one-third, shown
+  html += potentialCeilingHTML();            // H24: the ruled ceiling, where it
+                                             // can go stale in public
   if (!bio && fs.count === 0 && fs.pending === 0 && !macroShown)
     html += `<div class="note" style="margin:8px 0 0">Keep logging — trends appear here once you have a few days of data (${esc(winLabel)}).</div>`;
   else
@@ -9931,7 +10274,7 @@ function refresh() {
     try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
     AUTOCLOSE_BUSY = false;
   }
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -10075,6 +10418,7 @@ const VERSION_LOG = [
   { v: '0.67.0', d: '2026-10-07', note: 'What a meal did to your glucose. Open a meal to see the baseline before it, the rise after it, how long the peak took and how long the return took — with its coverage, and plainly marked when a sensor gap or a following meal cut the window short. Mark a meal as a test to compare the same food across days. And three one-tap events: moved, woke, and a drink.' },
   { v: '0.68.0', d: '2026-10-07', note: 'Nights. A night runs 21:00 to 09:00 and is counted under the evening it starts, and the first line tells you how many nights there are. Each one shows its shape — the low and when, how fast it fell into it and recovered out, how long it stayed down — and nothing is labelled, because naming a cause needs more nights than exist. A low reading is FLAGGED, never alarmed: this is a look-back and the Dexcom app is the live safety tool, and a CGM low should be confirmed with a fingerstick. You can prepare the whole thing for a clinician at any time. Plus a one-tap New sensor, with which arm it is on.' },
   { v: '0.69.0', d: '2026-10-07', note: 'Typing what a food was now gets the same help as photographing it. If the database has nothing under the name you typed, your AI is asked for other names to SEARCH — never for an answer — and each one is looked up here on your phone, so you choose from real rows. It also gives the same eyeballed estimate a photo gets, labelled as an estimate and never including vitamins or minerals. Every candidate now shows protein, fat, carbs and calories against your own estimate, because which one gives away a wrong match depends on the food.' },
+  { v: '0.70.0', d: '2026-10-08', note: 'Each day can now show what its meals DELIVERED, not just what they contained. Carbohydrate is counted the way it reaches you — minus the fibre, with both figures shown — and alongside it the things that change how fast it arrives: what it was eaten with, how much of it was water, and whether it broke a fast. Each one is named with the amount behind it, and never as a time, because nothing here measures how fast your stomach empties. Fructose joins the food database (the sensor cannot see it), and says plainly how few foods carry a figure for it. The panel starts closed, and says how much of the day it could actually see before it says anything else.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -12447,12 +12791,19 @@ function photoSearchHTML(idx, it) {
 // so the line would decide whether soup is a drink. The night comparison wanted
 // to tell coconut water from white wine, and alcohol grams answer that without
 // inventing anything.
-function refAlcoholG(ref) {
+// ONE reader for a resolved item's frozen vector, because there were about to be
+// several. `ref.v` is slot-keyed and ALREADY SCALED to the item's grams, so no
+// arithmetic happens here -- and the key is a STRING, which is the real reason this
+// exists: `v[212]` and `v['212']` are the same lookup in JS, so two call sites can
+// look like different code doing different things and silently be the same. The
+// NaN-to-null conversion is the other half: absence is never zero (D8/D90).
+function refValueAt(ref, slot) {
   const v = ref && ref.v;
   if (!v) return null;
-  const x = v['221'];
+  const x = v[String(slot)];
   return (typeof x === 'number' && x === x) ? x : null;
 }
+function refAlcoholG(ref) { return refValueAt(ref, 221); }
 
 // Confirming is DATA, not a skip: it pins at the estimate (r = 1.0) and records
 // the correction-loop pair with accepted == ai_grams. An item never touched
@@ -15828,6 +16179,9 @@ window.HT = {
   // H25 -- meal response (derived), test tagging (stored), one-tap events
   RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
   mealEvents, mealEventNames, mealResponse, responseCoverage,
+  refValueAt, POTENTIAL_AXES, POT_SLOT_WATER, POT_SLOT_FRUCTOSE,
+  availCarbG, itemWaterPct, eventModifiers, potentialFor, potentialCeiling,
+  potentialHTML, renderPotential, potentialToggle, potentialCeilingHTML,
   toggleMealTest, testGroupKey, testGroups,
   QUICK_EVENTS, quickEvent, quickEventsHTML, renderQuickEvents,
   // H26 -- night patterns

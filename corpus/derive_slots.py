@@ -55,6 +55,19 @@ ADDITIONS = [
     {'slot': 269, 'key': 'sugars_g', 'label': 'Sugars', 'unit': 'g',
      'why': 'In MICRO_SPEC and supplied by OFF labels today. 77.1% in SR Legacy, below the bar. '
             'FDC 269 and CNF 269 agree, so no merge is needed.'},
+    # THE FIRST SLOT ADMITTED BECAUSE THE ANALYSIS REQUIRES IT, not because the app
+    # already stored it. Ruled 2026-10-04, and the reason is deliberately NOT the
+    # one the other two carry -- fructose is in neither MICRO_SPEC nor the OFF label
+    # path, so "already stored" would be false.
+    {'slot': 212, 'key': 'fructose_g', 'label': 'Fructose', 'unit': 'g',
+     'why': 'THE ADVOCATE NEEDS IT: the CGM is blind to fructose and it drives DNL. '
+            'Admitted on that ground alone -- it is in neither MICRO_SPEC nor the OFF '
+            'label path, so the "already stored" reason the other two carry would be '
+            'false here. MEASURED coverage, far below the bar in both sources: 22.4% '
+            'in SR Legacy (1,745 of 7,793) and 46.3% in CNF (2,635 of 5,690). So most '
+            'foods will carry NO fructose value, and every surface that reports it '
+            'must say how much of the day it could see. FDC 212 and CNF 212 agree, so '
+            'no merge is needed.'},
 ]
 
 # The app's existing keys, mapped onto their slots so the corpus can hold what
@@ -78,7 +91,15 @@ def _rows(z, name):
     raise SystemExit('undecodable: ' + name)
 
 
+_MEASURED = {}
+
+
 def measure(src):
+    # Memoised because --check now measures twice: once to build, once to print the
+    # table. Parsing a 13 MB and a 5 MB archive twice to print the same numbers is
+    # the kind of cost that stops a tool being run.
+    if src in _MEASURED:
+        return _MEASURED[src]
     zs = zipfile.ZipFile(os.path.join(src, 'srlegacy.zip'))
     raw = json.loads(zs.read(zs.namelist()[0]).decode('utf-8'))
     foods = [f for f in (raw.get('SRLegacyFoods') or []) if f]
@@ -115,7 +136,8 @@ def measure(src):
             continue
         pairs.add((fid, nid))
         cnf_pop[nid] += 1
-    return sr, sr_total, cnf_def, cnf_pop, cnf_total
+    _MEASURED[src] = (sr, sr_total, cnf_def, cnf_pop, cnf_total)
+    return _MEASURED[src]
 
 
 def build(src):
@@ -204,15 +226,68 @@ def build(src):
     return out
 
 
+def print_table(src, out):
+    """Every nutrient either source populates, with its coverage in both and the
+    verdict. CHOSEN rows say which rule admitted them; REJECTED rows say what they
+    would need. Sorted by the best coverage either source offers, so the near
+    misses -- the ones worth arguing about -- sit at the top of the rejected half."""
+    sr, sr_total, cnf_def, cnf_pop, cnf_total = measure(src)
+    chosen = {}
+    for sl in out['slots']:
+        chosen[str(sl['slot'])] = sl.get('origin', 'derived')
+    merged_from = {}
+    for m in MERGES:
+        merged_from[str(m['from_cnf'])] = m['slot']
+
+    nums = set(sr.keys()) | set(cnf_pop.keys())
+    rows = []
+    for num in nums:
+        e = sr.get(num)
+        srp = (e['count'] / sr_total * 100.0) if e else 0.0
+        cnp = (cnf_pop.get(num, 0) / cnf_total * 100.0) if cnf_total else 0.0
+        name = (e['name'] if e else None) or cnf_def.get(num, ('', ''))[0] or '?'
+        rows.append((max(srp, cnp), num, name, srp, cnp))
+    rows.sort(reverse=True)
+
+    print('')
+    print('PER-NUTRIENT TABLE -- %d nutrients populated by either source' % len(rows))
+    print('SR Legacy %d foods, CNF %d foods, bar >= %.0f%% in EITHER' % (sr_total, cnf_total, BAR * 100))
+    print('')
+    print('  %-6s %-44s %8s %8s  %s' % ('num', 'nutrient', 'SR', 'CNF', 'verdict'))
+    print('  ' + '-' * 86)
+    for best, num, name, srp, cnp in rows:
+        if num in chosen:
+            verdict = 'CHOSEN (' + chosen[num] + ')'
+        elif num in merged_from:
+            verdict = 'CHOSEN (merged into ' + str(merged_from[num]) + ')'
+        elif best >= BAR * 100:
+            verdict = 'clears the bar but NOT in slots.json -- investigate'
+        else:
+            verdict = 'rejected: %.1f%% short of the bar' % (BAR * 100 - best)
+        print('  %-6s %-44s %7.1f%% %7.1f%%  %s' % (num, name[:44], srp, cnp, verdict))
+    nchosen = sum(1 for _, n, _, _, _ in rows if n in chosen or n in merged_from)
+    print('')
+    print('  %d chosen, %d rejected' % (nchosen, len(rows) - nchosen))
+    print('')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--src', required=True)
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--table', action='store_true',
+                    help='print the full per-nutrient table, chosen AND rejected')
     a = ap.parse_args()
     out = build(a.src)
     here = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(here, 'slots.json')
     text = json.dumps(out, indent=1, sort_keys=True) + '\n'
+    # RULED: --check emits the FULL per-nutrient table, chosen and rejected, so the
+    # corpus answers its own next question instead of costing a 19 MB download every
+    # time somebody asks "what would it take to add X?". The rejected rows are the
+    # point: they are the only record of what was considered and why it lost.
+    if a.check or a.table:
+        print_table(a.src, out)
     if a.check:
         cur = io.open(path, encoding='utf-8').read() if os.path.exists(path) else ''
         if cur != text:

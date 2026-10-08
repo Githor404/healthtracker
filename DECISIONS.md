@@ -11021,3 +11021,295 @@ Three assertions where there was one.
   databases. Recorded as evidence; its own corpus slice later.
 - **No auto-pick, ever.** Gated: after a normalised search the item carries its
   estimate, **no corpus ref**, and an **unsettled identity** until a row is tapped.
+
+## H24 — BUILT: metabolic potential, and the corpus gains its first analysis-driven slot (2026-10-08, v0.70.0)
+
+**Gate-first, run RED (34 findings** against an app that had none of it**).**
+`tests/potential-gate.ps1`, the **27th gate**, **68 assertions** (counted, not
+estimated: 58 `Chk` sites, one of them inside a loop over 8 names, plus 3 probe
+diagnostics). Suite **36 → 37 verdicts**. Serves **leg 1 of [[D152]] (TRACK)**.
+
+### WHAT SHIPPED
+
+| | |
+|---|---|
+| **fructose, slot 212** | the first slot admitted because *the analysis requires it*, not because the app already stored it. Column **5** of 47; the old 46 shifted under it |
+| `derive_slots.py --table` | the **full per-nutrient table**, chosen AND rejected — 205 nutrients, 49 chosen, 156 rejected, each with how far short it fell |
+| `refValueAt(ref, slot)` | one reader for a frozen vector, replacing a pattern that was about to be copied five times. `refAlcoholG` now calls it |
+| `availCarbG` | carbohydrate **minus fibre**, clamped at zero, absent when the item has no composition |
+| `itemWaterPct` | water (255) over the frozen grams, **continuously** |
+| `eventModifiers` | named modifiers with their inputs and **no threshold anywhere** |
+| `potentialFor` / `potentialHTML` | the day as data, then as pixels — in that order, so the arithmetic is asserted against itself and not against a renderer |
+| `potentialCeiling` + `...HTML` | the ruled report, on Trends |
+
+### THE RULING CONFLICT, NAMED RATHER THAN RESOLVED IN SILENCE
+
+Ruling **C** names a modifier ***liquid***. Ruling **B** says derive liquidity from
+water **continuously**. And `app.js` already carried a **standing ruling** against a
+class derived from water: *the cut would be a boundary nobody ruled — milk is ~88%
+water, soup ~85-90%, so the line would decide whether soup is a drink.*
+
+**MEASURED in the shipped CNF, which settles it:**
+
+| row | water |
+|---|---|
+| Apple juice, canned or bottled (1495) | **88.24** g/100 g |
+| Soup, cream, asparagus, condensed (923) | **84.05** g/100 g |
+
+> **Four points apart.** Any cut either lumps them together or declares canned soup
+> a beverage, and nobody ruled which.
+
+So the app reports **the percentage** and names no class, and the gate asserts the
+**absence** of *liquid*, *solid* and *beverage* on the surface. Two of the three
+rulings point this way and the third needs a cut that cannot be drawn honestly.
+**If the word is wanted back, that is a ruling to make with those two numbers in
+view** — this is not a silent substitution.
+
+### FOUR DEFECTS I FOUND IN MY OWN INSTRUMENTS, AND THE FIRST IS THE WORST
+
+**1. A CASE COLLISION DESTROYED A MEASUREMENT.** `$K = $R.ink`, and forty lines
+below, `foreach ($k in @(...))`. **PowerShell folds variable case, so those are ONE
+variable.** The loop left `$K` holding the string `'eventModifiers'`; every ink
+assertion then read a property off a string and got `$null`.
+
+> Two assertions failed with **empty values in their own messages**, and three more
+> **passed vacuously**, because `$null -le $null` is true. The measurement had been
+> right the whole time — the instrument had been overwritten.
+
+Same family as the duplicate function [[D159]] closed: **one name, two meanings, and
+nothing warns.** Single capitals are now banned in that gate, by comment, with the
+reason.
+
+**MEASURED ACROSS THE WHOLE SUITE, because the question *how many more are there?*
+is cheap to answer and expensive to guess:** **65** case-collisions across **21 of 28**
+`.ps1` files. Narrowed to the **fatal shape** (a loop variable shadowing a
+differently-cased variable assigned outside it): **12**, across 11 gates. Each of the
+12 checked for **ordering**, which is what decides whether a collision is live:
+
+> **All 12 are inert.** In every one the loop runs BEFORE the capital-form
+> assignment, so nothing is destroyed. **Mine was the only live case.** There is no
+> vacuous assertion in the suite today — and no guarantee, since any edit that
+> moves one of those assignments turns it live silently.
+
+**Not fixed here.** Renaming variables in 21 working gates is its own slice and its
+own risk; folding it into H24 would be scope taken rather than asked for. Recorded
+with the counts so the next reader does not have to re-measure.
+
+**2. I MIS-CLASSIFIED WHAT COUNTS AS ATOMIC — TWICE, IN ONE FILE.** Draft one
+measured whole `.potrow` blocks `nowrap`, asserting a whole row fits one line. But a
+row carrying a load, three modifiers and a water fraction is **meant** to wrap, so
+that assertion was **false about a correct panel** — and would have been answered by
+cramming the row rather than by fixing anything. Draft two measured `.potfig` and
+reported *available carb 44.5 g (45 carb less 0.5 fibre)* at **302px against 298px**,
+which is also allowed to break, before its parenthetical.
+
+> What genuinely cannot break is a **bordered chip** and a **single word**. Deciding
+> what is atomic by what is **convenient to measure**, rather than by what **cannot
+> break**, is the error — and `scrollWidth <= clientWidth` was the unconditional test
+> available the whole time. It passed at 298/298.
+
+**3. `check-slots.sh` PROMISED AN APPEND-ONLY CHECK IT NEVER IMPLEMENTED.** Its own
+header listed *the list is append-only against what is committed* as check 2. The
+body's check 2 was the unique-numbers test. **From the day it was written until now
+the file described a guarantee it did not provide** — found while adding the first
+new slot since the corpus shipped, which is the first moment the guarantee was ever
+exercised.
+
+**4. AND THE TRAP H24 WALKED PAST.** Nothing compared `slots.json` to the **shipped
+binary**. A slot is a **column index**: regenerating the spec without re-running
+`encode.py` leaves a 47-slot spec describing a 46-column asset, and then every
+nutrient past column 5 is read **one column off** — silently, into plausible numbers,
+because these quantities all share a range. Proven red by restoring the old asset:
+*first difference at column 5: asset has slot 221, spec has 212.*
+
+### THE DEFECT PASS FOUND TWO MORE, AND THE FIRST IS THE WHOLE POINT OF HAVING ONE
+
+**5. `availCarbG` WAS DEFINED, EXPORTED, GATED FOR EXISTENCE — AND CALLED BY
+NOTHING.** `potentialFor` subtracted fibre at the **event** level instead, so the
+function existed only to satisfy an assertion that it existed. That is [[H27]]'s
+family exactly: `keep` and `ask` were computed and never rendered.
+
+**And the two arithmetics are not equivalent.** Per item the clamp bites: a label
+stating **2 g carbohydrate and 6 g fibre** — legal, and real on some labels — lends
+**-4 g** to an event-level subtraction and **0** to a per-item one. The per-item
+answer is the right one, so the fix was to **call** the function, not delete it.
+
+> **An existence assertion cannot see this.** Only an assertion about a value that
+> DIFFERS between the two implementations can — so the fixture gained an item whose
+> fibre exceeds its carbohydrate, and the gate asserts the load is **0 and not -4**.
+
+And the decomposition line became **conditional**: *(60 carb less 4 fibre)* stops
+being true the moment the clamp applies, and printing it beside a figure of 0 would
+invite the reader to check `2 - 6 = 0`. It now renders only when the subtraction it
+describes is the one that happened, and the gate asserts the clamped row prints no
+decomposition.
+
+**6. The fructose figure did not say where it came from.** The honesty rule's letter
+was met — a reference value is never summed with a labelled one, and the coverage
+line named the database — but the **precedent is per-row**: the micronutrient panel
+says *K from the reference database* beside the number. And fructose is the **one
+axis in this panel no label can ever supply**, so its origin is not metadata about
+the figure, it is part of what the figure says. The available-carb figure next to it
+is a different KIND of claim and the two are read side by side. Marker added, and
+asserted on **every** fructose figure rather than on the panel as a whole.
+
+### A SECOND POWERSHELL VACUITY, FOUND WHILE CHECKING THE FIRST ONE'S FIX
+
+`[double]$null` is **0** in PowerShell. So `[math]::Abs([double]$x - 0) -lt 0.01`
+**cannot tell zero from absent** — and the new clamp assertion expects exactly 0,
+which is the one value that makes it vacuous.
+
+> It survives only because of its **companions**: the same event is asserted to keep
+> its raw carbohydrate (**2**, which `[double]$null` fails) and to report
+> `loadIsPlainSubtraction` as **`$false`** (which `$null` fails). A numeric assertion
+> whose expected value is zero needs a non-zero companion on the same object, or it
+> is not an assertion.
+
+### AND THREE CAUGHT BY GATES THAT WERE NOT LOOKING FOR ME
+
+**7. `anti-engagement-gate` CAUGHT MY OWN HEADING.** The ceiling line read
+***Test points for prediction***, and `points` is banned on any surface as
+gamification: *a reward for logging is a reason to log that is not the user
+interest.* **"Test point" is the correct statistical term, and that is exactly why
+it is the wrong word on a screen** — nobody scanning a panel gets the statistical
+sense. The ruling's phrase *test-point ceiling* named the **quantity**, never the
+heading.
+
+> The ban stands unweakened; the heading now reads **Meals that can test a
+> prediction**. And `potential-gate` now asserts the banned word **absent**, so the
+> fix cannot be undone by someone restoring the ruling's internal phrase verbatim.
+
+**8. `VN5` CAUGHT THE CHANGELOG IN THE WRONG PLACE.** `VERSION_LOG` is **oldest
+first**, and the new entry went in **above** 0.69.0 rather than below it, so the
+newest entry was still the previous release. One harness assertion — *newest
+`VERSION_LOG` entry == `APP_VERSION`* — caught it, and nothing else would have: the
+entry existed, rendered, and carried a correct date.
+
+**9. AND THE RUNNER WOULD NOT SAY WHICH ASSERTION FAILED.** `SUMMARY 2630/2631 --
+1 FAILED`, then `data-layer : FAIL (GATE: FAIL, rc=1)`, and nothing more. The
+harness's output was **captured in `DL_OUT` and thrown away**, so the only route to
+the failing line was to re-run a Chrome-launching harness by hand — impossible
+while the suite still held the browser.
+
+> That is the argument the gate-script census already makes **about itself**:
+> *"expected 8, found 7" starts a hunt, naming the file ends it.* A `.ps1` gate's
+> findings were printed; the harness's were not. Fixed: a harness failure now
+> prints its `FAIL`/`MISS` lines, indented, like any other finding.
+
+**Other gates, re-run against the change rather than assumed unaffected:**
+`panel-gate` **43 → 44 rows** (fructose, beside sugars) with no label ink reaching
+its value at 390 or 360; `corpus-gate` **47 cols installed and declared** in both
+namespaces; `page-overflow` still zero sideways pixels with every disclosure open;
+`jargon-gate` **502 strings across 14 screens**.
+
+### A TENTH FINDING, AND IT POINTS AT SIX THAT ARE NOT MINE
+
+**10. `font-floor-gate` CAUGHT FOUR 14px DECLARATIONS I ADDED.** [[D100]] ruled the
+scale at **16 / 20 / 24 / 32** with a hard **16px floor**, and says in its own words
+that *weight carries the hierarchy size no longer can*. It also gave `small` an
+**explicit 16px**, which my `.potfig small{font-size:14px}` fought directly. All four
+raised to 16; subordination here is colour and weight, never size.
+
+> **The gate caught exactly one of the four** — `.potceilwhy`, which sits on Trends.
+> The other three are inside the **closed `<details>`**, so they were invisible to a
+> gate that measures rendered text. Passing because a surface is collapsed is not
+> passing.
+
+**AND THE MEASUREMENT THAT MATTERS MORE: SIX 14px DECLARATIONS PREDATE H24.**
+`index.html` carried **ten** at 14px; four were mine. The other six are
+`.resphead`, `.respline small` / `.respcov`, `.nightn small` / `.nightdate small`,
+`.pmsub`, `.pmscap` and `.pmsmac` — the response line ([[H25]]), the night panel
+([[H26]]) and the photo-search sheet ([[H27]]/[[H30]]).
+
+> D100 measured **719 elements below 16px → 0** and built a gate to hold it. The
+> floor has since **regressed in four consecutive slices**, and `font-floor-gate` did
+> not catch any of them, because its swept surfaces do not reach a response line, a
+> night panel or an open photo-search sheet. **The ruling held; its gate's coverage
+> did not.** This is [[D121]]'s finding a third time: *a ruling implemented but
+> ungated survives only until someone edits the line* — except here it was gated,
+> and the gate simply never looked.
+
+**Not fixed in H24.** Six declarations across four slices' surfaces, each with
+layout consequences D100 had to measure the first time (page height went
+3233px → 3962px when the floor was first imposed). That is a slice, and widening
+`font-floor-gate`'s sweep is the first half of it — the declarations are the
+symptom, the unreached surfaces are the defect.
+
+### THE CORPUS HAD NO UPGRADE PATH AT ALL
+
+`corpusAcquire` short-circuited on the **namespace** alone: *mine is the right KIND*,
+never *mine is current*. A device holding the 46-slot corpus would **never fetch the
+47-slot one** — and nothing would break, because the stored meta and the stored bin
+agree with each other. It would simply never gain fructose, for as long as the
+install survived.
+
+- `CORPUS_ASSET_HASH` is content-derived, exactly as `SHELL_HASH` is, and checked
+  against the shipped assets by `check-slots.sh` so it cannot go stale.
+- **`corpusInstall` now CLEARS the values store first.** An install is a
+  *replacement* and the row width can change: without the clear, a food dropped
+  between releases keeps a 46-float row while the meta says 47 slots. **A stale row
+  is worse than a missing one, because it answers.**
+
+### PROVENANCE, ESTABLISHED BEFORE ANYTHING WAS REGENERATED
+
+The two source archives were re-fetched to a gitignored directory outside the repo.
+Before trusting them, `encode.py` was run at **HEAD in a `git worktree`** and the
+output compared byte-for-byte with what is committed:
+
+| | committed | rebuilt |
+|---|---|---|
+| `fdc.bin` | `df543ba44be1` | **identical** |
+| `cnf.bin` | `919dfb9384c9` | **identical** |
+
+So the archives are provably the exact sources the shipped corpus was built from, and
+**every difference afterwards is attributable to fructose alone**. Without this the
+new row counts would have been unattributable.
+
+**And the new column was verified against the source on EVERY ROW, not a sample:**
+1,745 of 7,793 SR Legacy foods publish nutrient 212; all 1,745 agree exactly, and the
+other 6,048 are **NaN, not zero**. The two neighbouring columns were checked to
+**differ**, because a column identical to its neighbour would pass an equality test
+vacuously. Honey reads 40.90 g, dates 19.60 g, butter and beef absent.
+
+**Wire cost, measured:** gzip `fdc` 532,155 → 538,270 B and `cnf` 426,899 → 431,978 B
+— **+1.1%**, against the +2.1% estimated when it was ruled. A column that is mostly
+NaN compresses.
+
+### THE RULED TEST-POINT CEILING
+
+**It is a FUNCTION and a SURFACE, not a number in this file.** `potentialCeiling()`
+returns `{ n, clean, resolved, meals }` and renders on Trends beside H25's response
+coverage. A figure computed once into a record is stale the moment the next item is
+matched — and this one exists specifically to guide an ongoing activity.
+
+**I cannot compute it against the real log here:** no HealthTracker export is on this
+machine — the gitignored private directory holds the Apple Health export,
+`glucose.csv` and the two corpus archives, and no app export.
+What H24's own measurement already bounds it to:
+
+> **n ≤ 4.** Only **4 of 62** items in the measured log carry a matched row, so the
+> intersection cannot exceed 4 however many windows are clean. **The binding
+> constraint is the match rate, not the schema** — which is the correction this
+> pre-registration already had to make once, in the other direction.
+
+The exact figure is one tap away on the device, which is the point of building it
+rather than stating it.
+
+### WHAT IS DELIBERATELY NOT HERE
+
+- **No cofactor panel.** Of what TCA, glycolysis, one-carbon and beta-oxidation want,
+  **not one is a slot**: B5 and manganese miss the bar (81.8/83.6% and
+  83.3/89.7%), **biotin is in CNF at 1.8% and in SR Legacy not at all**, and
+  carnitine, lipoic acid and CoQ10 have **no column in either source**. Checked
+  one at a time against the per-nutrient table, because the first draft said *in
+  neither source* for biotin and that was simply false
+  — at **any** match rate, because they are not slots. They are **declared and empty
+  with the reason**, which is the most useful thing this panel says.
+- **No time, anywhere.** Ruled C, and gated: the panel may not state minutes, a
+  time-to-peak or a time-to-baseline. **Hours are allowed for a fast length**, because
+  that is a measured gap between two capture times rather than a modelled rate — the
+  gate's first draft banned both and said so wrongly.
+- **No threshold on any modifier.** A modifier is named when its input is present and
+  non-zero, with the figure attached. There is no cut to argue about and no band to
+  calibrate, and a reader can disagree about the weight it deserves without the app
+  having taken a position.
