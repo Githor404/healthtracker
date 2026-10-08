@@ -5328,3 +5328,35 @@ axis formatter — `hhmmPad` now exists beside it for prose.
 **The response gate's pinned census failed on purpose** (3 kinds → 4) and caught a
 second defect: its expected button count took the FIRST variant-bearing kind's
 variants, which was a pin on a coincidence. Now derived over every kind.
+
+### H30 — parity for the typed path — 26th gate
+
+Suite **34 → 35 verdicts**. `tests/parity-gate.ps1`, **42 assertions**, run **red
+first (22 findings)**. The stubbed provider reply **smuggles contraband** — micros
+inside `per100`, a micro at the top level, and a confidence figure — so the boundary
+is proven to drop them rather than trusted to.
+
+| case | asserts |
+|---|---|
+| **parity-gate.ps1** | with **NO KEY** the offer is **present and visible** and **says it needs one** — the device finding was not a fallback nobody could find, but one that **was not rendered at all** |
+| **parity-gate.ps1** | the offer sits **under the input and above the keep button**, on screen at 360px |
+| **parity-gate.ps1** | **five** terms survive (the stub offers six), and **ONE** provider call runs them **all locally** |
+| **parity-gate.ps1** | the typed item gets an **eyeballed** estimate at `confidence='eyeballed'`, flagged `estimateFrom='model'`, with **exactly the six macro keys** |
+| **parity-gate.ps1** | the reply's **micros and confidence figure are both dropped**, including a micro hidden **inside `per100`** |
+| **parity-gate.ps1** | the **requested JSON shape** names no micronutrient key, and the request **says eyeballed** |
+| **parity-gate.ps1** | every candidate carries its **full macro row**; the item's estimate is stated **exactly once** |
+| **parity-gate.ps1** | the surface says ***searched for*** and **never claims the food IS** the normalised word |
+| **parity-gate.ps1** | **nothing is auto-picked**: no ref, identity unsettled |
+| **parity-gate.ps1** | the **real corpus** returns **both** `Potsticker or wonton` **and** `Dumpling, plain`, with the **protein** that tells them apart and the energy that does not |
+| **parity-gate.ps1** | the macro row's ink, measured **content-sized**, fits the panel on **one line** |
+
+**Found by the gate:** a **duplicate `identityNormaliseParse`** my own splice left
+behind (the later definition wins, both were syntactically fine, and the one you
+read was not the one that ran); **first-term-wins** hiding the contrast case the
+slice exists for; and the **memory row rendering `P ? · F ? · C ?`** because only its
+energy had ever been fetched.
+
+**Re-pinned deliberately in `identity-search-gate`:** two format pins, and one
+SAFETY pin **re-aimed rather than relaxed** — micronutrients stay forbidden in the
+requested shape, the prompt must say *eyeballed*, and it must tell the model to
+leave micros out.

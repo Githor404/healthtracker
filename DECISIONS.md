@@ -10945,3 +10945,79 @@ on the food* — which kcal + protein cannot, since it covers meat-vs-flour and
 neither dry-vs-cooked (carbs) nor fried-vs-steamed (fat). **Built that way and
 flagged**, on the same footing as [[H26]]'s fork-C conflict: a departure from the
 letter in service of the reason, named rather than slipped in.
+
+## H30 — BUILT: the typed path gets what the camera gets (2026-10-07, v0.69.0)
+
+**Gate-first, run RED (22 findings).** `tests/parity-gate.ps1`, the **26th gate**,
+**42 assertions**. Suite **34 → 35 verdicts**.
+
+### WHAT SHIPPED
+
+| | |
+|---|---|
+| `identityNormalisePrompt` | asks for **up to five SEARCH TERMS** and **one** eyeballed per-100 g macro estimate, and **tells the model to leave micronutrients out** |
+| `identityNormaliseParse` | an **allowlist rebuild over `MACRO_KEYS`**, so a micronutrient cannot ride in **inside `per100`** — which is exactly where a model would put it |
+| `photoSearchAskModel` | **one** provider call; the estimate lands first; then every term runs **locally** |
+| `photoSearchTryTerms` + `MergeTried` | **all five terms run**, rows merged and **deduped by corpus id**, capped at `IDENTITY_SEARCH_MAX` |
+| the row | the **full macro row** `P · F · C · cal` on every candidate |
+| the panel | the offer **directly under the input**, then *searched for —*, then the item's estimate **once**, then the rows |
+
+### THE ESTIMATE IS LOAD-BEARING FOR SAFETY, WHICH IS WHY D8 NOW PERMITS ONE NUMBER
+
+**This is not a weakening of [[D8]].** The honesty rule already says, in its own
+words, that *the AI photo path produces macro estimates at eyeballed confidence
+and never micros*. A typed name is the same class of claim, from the same model,
+with the same label. What stays forbidden is unchanged: **micronutrients,
+absolutely**, and any corpus value that did not come from a row the user
+confirmed.
+
+And the reason to ask for it at all is **safety**, not convenience — see the
+measurement in the rulings above: on energy the WRONG row looks better, and
+without an estimate of the user's own there is nothing for any corpus figure to
+be read against.
+
+### THREE DEFECTS, AND THE MIDDLE ONE IS THE WORST SHAPE
+
+**1. My own splice left a DUPLICATE FUNCTION.** The build cut from `function
+identityNormalisePrompt() {` to the next `}` — the **prompt's** closing brace — so
+the original `identityNormaliseParse` survived **below** the new one. In JS the
+**later definition wins**, so the app ran the old array-returning version while
+every new caller expected `{names, per100}`.
+
+> **Both functions were syntactically perfect, nothing warned, and the one you
+> read was not the one that ran.** The whole file was then scanned for other
+> duplicated top-level functions: there are none.
+
+**2. Stopping at the first term that worked HID THE CASE THE SLICE EXISTS FOR.**
+`potsticker` found rows, so `pork dumpling` never ran and `Dumpling, plain` never
+appeared. Ruling D says *run **each** locally*, which reads as all of them — and
+running them all is the only way the two candidate foods appear **side by side**,
+where protein 3.5 against 8.3 is visible as the thing that tells them apart.
+
+**3. The memory row showed `P ? · F ? · C ? · 85 cal`.** Only its energy was ever
+fetched, because before this slice energy was all a row showed. **The proposal is
+the row most likely to be TAKEN**, so it is the last one that should be missing
+the figures the choice is made on. Found by the gate, not by review.
+
+### FOUR OF MY OWN ASSERTIONS WERE WRONG
+
+| | |
+|---|---|
+| **a ban cannot be detected by the words the ban uses** | the micro-detector matched the prompt's own prohibition (*do not include vitamins, minerals*) and reported that the request ASKED for them. Now it reads the **JSON shape** the prompt asks to be returned |
+| **`stillUnresolved` encoded the OLD typed path** | parity means the item now HAS composition, so `unres` — *no composition* — is legitimately false. The real claim is **no corpus ref and the identity not settled** |
+| **two [[H27]] format pins** | `.rkcal` and `^\d+ cal/100g$` described the one-number row H30 replaced. Re-pinned to `.pmsmac` and `P n · F n · C n · n cal` |
+| **a 90-character window** | the macro row now sits between the name and the provenance line, so the assertion's text window **stopped reaching the words it asserts on**. The text was there; the measurement was too short to see it |
+
+**And one H27 SAFETY pin was re-aimed rather than relaxed** — it banned every money
+word from the request, which was right while the model was asked for names only.
+It now forbids **micronutrients in the requested shape**, requires the prompt to
+**say *eyeballed***, and requires it to **tell the model to leave micros out**.
+Three assertions where there was one.
+
+### WHAT IS DELIBERATELY NOT HERE
+
+- **FNDDS** (fork E). The absent class is **mixed and composite dishes**, and
+  neither CNF nor SR Legacy carries them because both are ingredient-level
+  databases. Recorded as evidence; its own corpus slice later.
+- **No auto-pick, ever.** Gated: after a normalised search the item carries its
+  estimate, **no corpus ref**, and an **unsettled identity** until a row is tapped.

@@ -267,7 +267,13 @@ try {
   out.cap = HT.IDENTITY_SEARCH_MAX;
   out.withinCap = w.length > 0 && w.length <= HT.IDENTITY_SEARCH_MAX;
   out.capStated = new RegExp('\\b' + HT.IDENTITY_SEARCH_MAX + '\\b').test(txt(document.querySelector('.pmscap')));
-  out.everyRowKcal = w.length > 0 && w.every(b => /cal\/100g/i.test(txt(b)));
+  // H30 re-pin: a candidate row carries the FULL MACRO ROW, not energy alone.
+  // Ruled after measuring that energy ENDORSES the wrong row for siu mai
+  // (Dumpling, plain 197 vs Potsticker 136 against an estimate of ~210) while
+  // protein separates them. Which macro gives away a wrong match depends on the
+  // food, so all four travel.
+  out.everyRowKcal = w.length > 0 && w.every(b => /\bcal\b/i.test(txt(b)));
+  out.everyRowMacros = w.length > 0 && w.every(b => !!b.querySelector('.pmsmac'));
   // ITS OWN ELEMENT, not a regex over the whole panel: a candidate row that
   // happens to read 85 cal/100g would have satisfied the panel-wide test while
   // the pair itself was missing.
@@ -277,8 +283,13 @@ try {
   // it -- testing the database's spelling instead of the app's restraint. The
   // claim is narrower and exact: the only number the app adds to a row is the
   // energy, in one format, and no similarity figure appears anywhere.
-  out.rowKcalTexts = w.map(b => txt(b.querySelector('.rkcal')).trim());
-  out.kcalFormatOnly = out.rowKcalTexts.length > 0 && out.rowKcalTexts.every(t => /^\d+ cal\/100g$/.test(t));
+  // H30 re-pin: the figures moved from `.rkcal` (still the RESOLVE surface's own
+  // span) to `.pmsmac`, in one known format. The claim is unchanged -- the only
+  // numbers the app adds to a row are composition figures, in one shape -- and the
+  // shape is now P / F / C / cal.
+  out.rowKcalTexts = w.map(b => txt(b.querySelector('.pmsmac')).trim());
+  out.kcalFormatOnly = out.rowKcalTexts.length > 0
+    && out.rowKcalTexts.every(t => /^P [\d.?]+ \u00b7 F [\d.?]+ \u00b7 C [\d.?]+ \u00b7 [\d?]+ cal$/.test(t));
   out.noJaccard = !w.some(b => /\d\.\d\d/.test(txt(b)));
   out.jaccardControl = /\d\.\d\d/.test(txt(w[0] || document.body) + ' 0.37');
   out.noBlankMemRow = !document.querySelector('.pmsmem');
@@ -400,10 +411,29 @@ try {
   const prompt = String(HT.identityNormalisePrompt() || '');
   out.promptLen = prompt.length;
   out.promptAsksName = /\bname/i.test(prompt);
-  out.promptMoneyWords = (prompt.match(/kcal|calorie|protein|carbohydrate|\bfat\b|\bgram|portion|weigh|nutrient|macro|per\s*100/gi) || []).join(',');
-  const parsed = HT.identityNormaliseParse('{"names":["Wine, table, red","Cabernet"],"kcal":550,"per100":{"protein_g":9}}');
-  out.parsedNames = Array.isArray(parsed) ? parsed : null;
-  out.parseDropsNumbers = !anyNumber(parsed);
+  // H30 RE-PIN OF A SAFETY ASSERTION, narrowed to what the honesty rule actually
+  // forbids rather than loosened. H27 banned every money word, which was right
+  // while the model was asked for NAMES ONLY. Ruling A3 now asks it for the same
+  // eyeballed MACRO estimate the photo path has always produced, labelled the same
+  // way -- and the honesty rule says so in its own words.
+  //
+  // What stays absolutely forbidden is MICRONUTRIENTS. And a ban cannot be detected
+  // by the words the ban uses -- the prompt's own prohibition says 'vitamins,
+  // minerals' -- so the check reads the JSON SHAPE the prompt asks to be returned.
+  const shape = (prompt.match(/\{[^}]*\}[^}]*\}/) || [''])[0];
+  out.promptShape = shape.slice(0, 200);
+  out.shapeAsksMicros = /iron|vitamin|sodium|calcium|folate|zinc|magnesium|cholesterol/i.test(shape);
+  out.promptSaysEyeballed = /eyeballed/i.test(prompt);
+  out.promptForbidsMicros = /do not include[^.]*micronutrient|vitamins, minerals/i.test(prompt);
+  // H30: the parse returns { names, per100 } -- names are QUERIES, and per100 is
+  // the one permitted numeric payload. The contraband below must not survive.
+  const parsed = HT.identityNormaliseParse('{"names":["Wine, table, red","Cabernet"],'
+    + '"per100":{"kcal":550,"protein_g":9,"iron_mg":4},"micros":{"vitamin_c_mg":9},"confidence":0.7}');
+  out.parsedNames = (parsed && Array.isArray(parsed.names)) ? parsed.names : null;
+  out.parseKeptMacros = !!(parsed && parsed.per100 && parsed.per100.kcal === 550);
+  out.parseDroppedMicros = !!(parsed && parsed.per100 && parsed.per100.iron_mg === undefined)
+    && (parsed.micros === undefined);
+  out.parseDroppedConfidence = (parsed && parsed.confidence === undefined);
   const body = HT.byokBody(null, 'x', 'm', null);
   const parts = (body && body.messages && body.messages[0] && body.messages[0].content) || [];
   out.bodyPartKinds = (Array.isArray(parts) ? parts : []).map(p => String(p.type || ''));
@@ -445,7 +475,10 @@ try {
   const mr = srows();
   out.nMemRows = mr.length;
   out.memRowFirst = mr.length > 0 && /\bpmsmem\b/.test(String(mr[0].className || ''));
-  out.memRowText = txt(mr[0]).trim().slice(0, 90);
+  // WIDENED from 90: the macro row now sits between the name and the provenance
+  // line, so a 90-character window stopped reaching the words this asserts on.
+  // The text was there; the measurement was too short to see it.
+  out.memRowText = txt(mr[0]).trim().slice(0, 220);
   out.memNamesSource = /cab sauv/i.test(out.memRowText);
   out.memCarriesCorpusName = out.seedName ? (out.memRowText.indexOf(out.seedName) >= 0) : false;
   out.memNotEcho = out.seedName ? (('cab sauv').indexOf(out.seedName) < 0) : false;
@@ -545,9 +578,10 @@ try {
   if ([int]$R.nWineRows -lt 1) { $fails += "a search for 'wine table red' returned NOTHING from the real corpus -- the fixture cannot exercise a pick" }
   if (-not $R.withinCap) { $fails += "the search returned $($R.nWineRows) rows against a cap of $($R.cap)" }
   if (-not $R.capStated) { $fails += "the cap ($($R.cap)) is not stated on the surface -- a silently truncated search reads as 'that food is not in the database'" }
-  if (-not $R.everyRowKcal) { $fails += "a search row is missing its energy per 100 g (rows: $($R.wineRows -join ' | '))" }
+  if (-not $R.everyRowKcal) { $fails += "a search row is missing its energy (rows: $($R.wineRows -join ' | '))" }
+  if (-not $R.everyRowMacros) { $fails += "a search row carries no .pmsmac macro row -- H30 ruled the full P/F/C/cal row on every candidate, because which macro exposes a wrong match depends on the food" }
   if (-not $R.oursShown) { $fails += "the item's OWN energy per 100 g (85) is not shown beside the rows -- a kcal PAIR is what makes the right pick visible (D122)" }
-  if (-not $R.kcalFormatOnly) { $fails += "a row's energy is not the one known format (got: $($R.rowKcalTexts -join ' | '))" }
+  if (-not $R.kcalFormatOnly) { $fails += "a row's figures are not the one known format 'P n . F n . C n . n cal' (got: $($R.rowKcalTexts -join ' | '))" }
   if (-not $R.noJaccard) { $fails += "a similarity figure appeared on a search row (C1 holds: no number the user cannot act on)" }
   if (-not $R.jaccardControl) { $fails += "the no-similarity test does not FIND a planted 0.37, so it proves nothing (D96)" }
   if (-not $R.noBlankMemRow) { $fails += "a memory row rendered with nothing remembered -- absence must be absent, not blank" }
@@ -600,8 +634,13 @@ try {
   if (-not $R.askPresentWhenEmpty) { $fails += "the model's normalisation is not offered when the local search returns nothing -- which is the only case it was ruled for" }
   if ([int]$R.promptLen -lt 20) { $fails += "identityNormalisePrompt() is empty or missing" }
   if (-not $R.promptAsksName) { $fails += "the normalisation request does not ask for a NAME" }
-  if ($R.promptMoneyWords) { $fails += "THE REQUEST ASKS THE MODEL FOR NUMBERS: '$($R.promptMoneyWords)' -- D8 forbids it at the request, not only at the result" }
-  if (-not $R.parseDropsNumbers) { $fails += "identityNormaliseParse kept a number from the reply -- a number from the model must not survive the boundary (D8)" }
+  if ($R.shapeAsksMicros) { $fails += "the JSON SHAPE the request asks for names a MICRONUTRIENT key ('$($R.promptShape)') -- forbidden absolutely, at the request and not only at the result" }
+  if (-not $R.promptSaysEyeballed) { $fails += "the request does not say the estimate is EYEBALLED, so the label is not part of the contract it was asked under" }
+  if (-not $R.promptForbidsMicros) { $fails += "the request does not TELL the model to leave micronutrients out -- the parse drops them either way, but a contract that does not say so invites a reply that fights it" }
+  if (-not $R.parseKeptMacros) { $fails += "identityNormaliseParse dropped the eyeballed MACRO estimate -- ruled A3 permits exactly that one payload, and it is what the macro pair is read against"
+  }
+  if (-not $R.parseDroppedMicros) { $fails += "identityNormaliseParse let a MICRONUTRIENT through -- including one hidden inside per100, which is exactly where a model would put it" }
+  if (-not $R.parseDroppedConfidence) { $fails += "identityNormaliseParse let the model's confidence figure through" }
   if (($R.parsedNames -join '|') -ne 'Wine, table, red|Cabernet') { $fails += "identityNormaliseParse did not return just the names (got '$($R.parsedNames -join '|')')" }
   if (($R.bodyPartKinds -join ',') -ne 'text') { $fails += "a text-only request still carries an image part (parts: $($R.bodyPartKinds -join ',')) -- the normalisation sends no photo" }
 

@@ -346,6 +346,19 @@
   .pmsrows{display:flex;flex-direction:column;gap:6px;margin:4px 0 0}
   .pmsrow{min-height:44px;text-align:left;font-size:16px;margin:0;display:block}
   .pmsmem{border-color:var(--accent)}
+  /* H30. The name wraps; the FIGURES do not. Measured at 360px: the macro row
+     needs 270px of the 328px available, so it fits on one line -- but only
+     because the item own estimate is stated once above the list rather than
+     repeated per row, which needs 386-394px and does not fit. */
+  .pmsnm{display:block}
+  .pmsmac{display:block;margin-top:2px;color:var(--muted);font-size:14px;
+    white-space:nowrap;font-variant-numeric:tabular-nums}
+  .pmsours{font-variant-numeric:tabular-nums}
+  .pmssearched{margin-top:6px}
+  /* The no-key state is a SENTENCE, not a dead button: a control that cannot act
+     is worse than a line of text that explains why. */
+  .pmsasknokey{font-size:16px;color:var(--muted);border:1px dashed var(--line);
+    border-radius:10px;padding:10px;margin-top:8px}
   .pmskeep,.pmsask{min-height:44px;margin:8px 0 0;font-size:16px;display:block;width:100%}
   .pmsconfirm{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .pmsconfirmbtn{min-height:44px;margin:0}

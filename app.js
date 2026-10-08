@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.68.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.69.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -10074,6 +10074,7 @@ const VERSION_LOG = [
   { v: '0.66.0', d: '2026-10-06', note: 'The Habits suggestions are gone. They offered generic advice because you had been logging for a week — not because anything in your own data called for it, which is the opposite of what this app is for. If suggestions come back they will come from your own readings, with a source. Nothing else changes and nothing logged is altered.' },
   { v: '0.67.0', d: '2026-10-07', note: 'What a meal did to your glucose. Open a meal to see the baseline before it, the rise after it, how long the peak took and how long the return took — with its coverage, and plainly marked when a sensor gap or a following meal cut the window short. Mark a meal as a test to compare the same food across days. And three one-tap events: moved, woke, and a drink.' },
   { v: '0.68.0', d: '2026-10-07', note: 'Nights. A night runs 21:00 to 09:00 and is counted under the evening it starts, and the first line tells you how many nights there are. Each one shows its shape — the low and when, how fast it fell into it and recovered out, how long it stayed down — and nothing is labelled, because naming a cause needs more nights than exist. A low reading is FLAGGED, never alarmed: this is a look-back and the Dexcom app is the live safety tool, and a CGM low should be confirmed with a fingerstick. You can prepare the whole thing for a clinician at any time. Plus a one-tap New sensor, with which arm it is on.' },
+  { v: '0.69.0', d: '2026-10-07', note: 'Typing what a food was now gets the same help as photographing it. If the database has nothing under the name you typed, your AI is asked for other names to SEARCH — never for an answer — and each one is looked up here on your phone, so you choose from real rows. It also gives the same eyeballed estimate a photo gets, labelled as an estimate and never including vitamins or minerals. Every candidate now shows protein, fat, carbs and calories against your own estimate, because which one gives away a wrong match depends on the food.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11975,10 +11976,22 @@ function photoSearchPresets(q) {
 // LOCAL FIRST (fork D): the typed text is searched against the corpus on this
 // device, and the provider is not consulted at all unless that returns nothing.
 // So the common path costs no call and needs no key.
-function photoSearchRun(idx, text) {
+function photoSearchRun(idx, text, opts) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
   const q = String(text == null ? '' : text);
+  // A term the model supplied keeps the normalised context: the surface has to go
+  // on saying it SEARCHED for this word rather than silently becoming a plain
+  // local search the user appears to have typed.
+  const prev = PHOTO_SEARCH || {};
+  const keep = !!(opts && opts.keepNormalised);
   PHOTO_SEARCH = { idx: idx, text: q, phase: 'looking', rows: [], presets: photoSearchPresets(q) };
+  if (keep) {
+    PHOTO_SEARCH.normalised = true;
+    PHOTO_SEARCH.asked = prev.asked || [];
+    PHOTO_SEARCH.typedBy = prev.typedBy || prev.text || '';
+  } else {
+    PHOTO_SEARCH.typedBy = q;
+  }
   renderPhotoDraft();
   if (!q.trim()) { PHOTO_SEARCH.phase = 'ask'; renderPhotoDraft(); return Promise.resolve({ ok: true, rows: 0 }); }
   const stale = function () { return !PHOTO_SEARCH || PHOTO_SEARCH.idx !== idx || PHOTO_SEARCH.text !== q; };
@@ -11995,8 +12008,18 @@ function photoSearchRun(idx, text) {
     const cands = matchCandidates(q, IDENTITY_SEARCH_MAX);
     return Promise.all(cands.map(function (c) {
       return corpusLookup(c.id).then(function (row) {
+        // THE FULL MACRO ROW, not energy alone. MEASURED on the two rows this
+        // slice exists for: `Dumpling, plain` is 197 kcal against the correct
+        // `Potsticker or wonton` at 136, with a siu mai estimate of ~210 -- so on
+        // ENERGY the wrong row looks better, and PROTEIN (3.5 vs 8.3 vs ~12) is
+        // what separates them. Which macro exposes a wrong match depends on the
+        // food: carbs for dry vs cooked, protein for meat vs flour, fat for fried
+        // vs steamed. So all four travel, and the surface shows them.
         return { id: String(c.id), name: c.name,
                  kcal: row ? corpusValueAt(row, m.slots, 208) : null,
+                 protein: row ? corpusValueAt(row, m.slots, 203) : null,
+                 fat: row ? corpusValueAt(row, m.slots, 204) : null,
+                 carb: row ? corpusValueAt(row, m.slots, 205) : null,
                  state: foodState(c.name) };
       });
     })).then(function (rows) {
@@ -12014,7 +12037,17 @@ function photoSearchRun(idx, text) {
       const need = (prop && prop.kcal == null) ? corpusLookup(prop.id) : Promise.resolve(null);
       return need.then(function (prow) {
         if (stale()) return { ok: false, why: 'stale' };
-        if (prow && prop) prop.kcal = corpusValueAt(prow, m.slots, 208);
+        // THE MEMORY ROW GETS THE FULL MACRO ROW TOO. Only its energy used to be
+        // fetched, so after H30 it rendered 'P ? . F ? . C ? . 85 cal' -- honest
+        // about the absence, and worse than the rows beside it for no reason. The
+        // proposal is the row most likely to be TAKEN, so it is the last one that
+        // should be missing the figures the choice is made on.
+        if (prow && prop) {
+          prop.kcal = corpusValueAt(prow, m.slots, 208);
+          prop.protein = corpusValueAt(prow, m.slots, 203);
+          prop.fat = corpusValueAt(prow, m.slots, 204);
+          prop.carb = corpusValueAt(prow, m.slots, 205);
+        }
         PHOTO_SEARCH.rows = out.slice(0, IDENTITY_SEARCH_MAX);
         PHOTO_SEARCH.proposed = prop;
         PHOTO_SEARCH.phase = PHOTO_SEARCH.rows.length ? 'rows' : 'none';
@@ -12133,29 +12166,73 @@ function photoSearchKeep(idx) {
 //
 // So a provider that ignored every instruction and sent a full nutrition panel
 // could still not put a single figure into the log.
+// ---- H30: D8 AT THE REQUEST, AND NOW WITH ONE PERMITTED NUMBER ----------
+//
+// RULED: the model supplies **search terms, never an answer** (D), and the typed
+// path gets the **same eyeballed macro estimate the photo path gets** (A3) --
+// labelled, and never micros.
+//
+// SO ONE NUMERIC PAYLOAD IS NOW ASKED FOR, AND EXACTLY ONE. That is not a
+// weakening of [[D8]]: the honesty rule already says in so many words that *the AI
+// photo path produces macro estimates at eyeballed confidence and never micros*,
+// and a typed name is the same class of claim from the same model with the same
+// label. What stays forbidden is unchanged -- **micronutrients, absolutely**, and
+// any corpus value that did not come from a row the user confirmed.
+//
+// AND THE ESTIMATE IS LOAD-BEARING FOR SAFETY, which is why it is asked for at
+// all. MEASURED in the shipped CNF: `Dumpling, plain` is 197 kcal and the correct
+// `Potsticker or wonton` is 136, against a siu mai estimate of ~210 -- so ON
+// ENERGY THE WRONG ROW LOOKS BETTER. Protein separates them (3.5 vs 8.3 vs ~12).
+// Without an estimate of the user's own there is nothing for any of those figures
+// to be compared against.
+const NORMALISE_TERMS_MAX = 5;
 function identityNormalisePrompt() {
-  return 'Reply with JSON only, straight quotes, no prose: {"names":["..."]}. '
-    + 'I will give you a short description of a food or drink. Return up to five '
-    + 'alternative names it is commonly filed under in a food composition '
-    + 'database, most likely first. Names only. Do not include any figures, '
-    + 'quantities or amounts of anything, and nothing about what it contains.';
+  return 'Reply with JSON only, straight quotes, no prose: '
+    + '{"names":["..."],"per100":{"kcal":0,"protein_g":0,"fat_g":0,"carb_g":0,"fiber_g":0,"soluble_fiber_g":0}}. '
+    + 'I will give you a short description of a food or drink. '
+    + '"names": up to ' + NORMALISE_TERMS_MAX + ' SEARCH TERMS for looking this up in a '
+    + 'food composition database, most likely first. They are search terms, not an '
+    + 'answer: I will run each one myself and choose from real rows. '
+    + '"per100": your EYEBALLED estimate per 100 g, which will be shown as an '
+    + 'eyeballed estimate and never as a measurement. '
+    + 'Do not include vitamins, minerals or any other micronutrient. '
+    + 'Do not include a confidence figure.';
 }
+// The boundary. Names become QUERIES; the estimate is the six macros and nothing
+// else. Everything the reply carries beyond that is dropped here, not downstream,
+// because a number that gets past this point is indistinguishable from a sourced
+// one two surfaces later.
 function identityNormaliseParse(text) {
   let o = null;
-  try { o = JSON.parse(String(text == null ? '' : text)); } catch (e) { return []; }
+  try { o = JSON.parse(String(text == null ? '' : text)); } catch (e) { return { names: [], per100: null }; }
   const raw = (o && Array.isArray(o.names)) ? o.names : [];
-  const out = [];
-  for (let i = 0; i < raw.length && out.length < 5; i++) {
-    // STRINGS ONLY, and a number arriving where a name was asked for is dropped
-    // rather than coerced: String(550) is a plausible-looking name.
+  const names = [];
+  for (let i = 0; i < raw.length && names.length < NORMALISE_TERMS_MAX; i++) {
+    // STRINGS ONLY: String(550) is a plausible-looking search term.
     if (typeof raw[i] !== 'string') continue;
     const nm = raw[i].trim();
-    if (nm) out.push(nm);
+    if (nm) names.push(nm);
   }
-  return out;
+  // AN ALLOWLIST REBUILD over MACRO_KEYS, so a micronutrient cannot ride in by
+  // sitting inside `per100` -- which is exactly where a model would put it.
+  let per100 = null;
+  const src = (o && o.per100 && typeof o.per100 === 'object' && !Array.isArray(o.per100)) ? o.per100 : null;
+  if (src) {
+    const out = {};
+    let got = 0;
+    MACRO_KEYS.forEach(function (k) {
+      const n = Number(src[k]);
+      out[k] = (Number.isFinite(n) && n >= 0) ? n : 0;
+      if (Number.isFinite(n)) got++;
+    });
+    if (got) per100 = out;
+  }
+  return { names: names, per100: per100 };
 }
-// OFFERED ONLY WHERE IT WAS RULED FOR: the local search returned nothing. Egress
-// happens through `byokCall` and nowhere new.
+
+// ONE CALL, FIVE LOCAL QUERIES (ruled D). The provider is asked once; every term
+// it returns is run against the corpus ON THIS DEVICE, and the user picks from
+// real rows. The model never names the answer -- it only supplies words to look up.
 function photoSearchAskModel(idx) {
   const st = PHOTO_SEARCH;
   if (!st || st.idx !== idx) return Promise.resolve({ ok: false });
@@ -12168,34 +12245,99 @@ function photoSearchAskModel(idx) {
     .then(byokNoteVerdict).then(function (r) {
       if (!PHOTO_SEARCH || PHOTO_SEARCH.idx !== idx) return { ok: false, why: 'stale' };
       delete PHOTO_SEARCH.asking;
-      const names = r.ok ? identityNormaliseParse(r.text) : [];
-      if (!names.length) {
+      const parsed = r.ok ? identityNormaliseParse(r.text) : { names: [], per100: null };
+      // A3: THE ESTIMATE LANDS FIRST, and it lands whether or not any term finds a
+      // row -- it is what the typed path was missing, and it is what every corpus
+      // figure is compared against.
+      if (parsed.per100 && PHOTO_DRAFT && PHOTO_DRAFT.items[idx]) {
+        const it = PHOTO_DRAFT.items[idx];
+        it.per100 = parsed.per100;
+        it.confidence = 'eyeballed';
+        // LABELLED AT THE RECORD, not only on the surface: an unlabelled number is
+        // indistinguishable from a sourced one the moment it leaves this screen.
+        it.estimateFrom = 'model';
+      }
+      if (!parsed.names.length) {
         PHOTO_SEARCH.askedFailed = true;
         renderPhotoDraft();
-        return { ok: false, why: r.ok ? 'no-names' : (r.kind || 'call') };
+        return { ok: !!parsed.per100, names: [], tried: [],
+                 why: r.ok ? 'no-names' : (r.kind || 'call') };
       }
-      // Every name is a QUERY, never data. The first one that finds rows wins,
-      // and what the user sees is still the local corpus answering.
-      PHOTO_SEARCH.asked = names;
-      return photoSearchRun(idx, names[0]).then(function (rr) {
-        if (PHOTO_SEARCH) PHOTO_SEARCH.asked = names;
+      PHOTO_SEARCH.asked = parsed.names;
+      // EACH TERM, LOCALLY, in order, until one finds rows. The ones that found
+      // nothing are reported too, so the surface can say what it tried.
+      return photoSearchTryTerms(idx, parsed.names, 0, []).then(function (t) {
+        const merged = photoSearchMergeTried(t.tried);
+        if (PHOTO_SEARCH) {
+          PHOTO_SEARCH.asked = parsed.names;
+          PHOTO_SEARCH.normalised = true;
+          PHOTO_SEARCH.tried = t.tried;
+          PHOTO_SEARCH.searchedFor = merged.terms.join(', ');
+          PHOTO_SEARCH.rows = merged.rows;
+          PHOTO_SEARCH.phase = merged.rows.length ? 'rows' : 'none';
+          PHOTO_SEARCH.proposed = null;
+        }
         renderPhotoDraft();
-        return { ok: true, names: names, rows: rr.rows || 0 };
+        return { ok: true, names: parsed.names, tried: t.tried,
+                 searchedFor: merged.terms.join(', '), rows: merged.rows.length };
       });
     });
 }
-
+// EVERY TERM, AND THE ROWS MERGED (ruled D: *run each locally, and let me pick
+// from real rows*). The first version stopped at the first term that found
+// anything, so `potsticker` won and `pork dumpling` never ran -- and the two
+// candidate foods this slice exists to contrast never appeared together.
+//
+// Seeing them SIDE BY SIDE is the point: MEASURED, `Dumpling, plain` is 197 kcal
+// and `Potsticker or wonton` is 136 against an estimate of ~210, so on energy the
+// wrong one looks better -- and only the macro row, with both on screen, makes
+// protein 3.5 against 8.3 visible as the thing that tells them apart.
+function photoSearchTryTerms(idx, terms, k, tried) {
+  if (k >= terms.length) return Promise.resolve({ tried: tried });
+  const term = terms[k];
+  return photoSearchRun(idx, term, { keepNormalised: true }).then(function (res) {
+    const st = PHOTO_SEARCH;
+    tried.push({ term: term, rows: (res && res.rows) || 0,
+                 found: (st && st.rows) ? st.rows.slice() : [] });
+    return photoSearchTryTerms(idx, terms, k + 1, tried);
+  });
+}
+// Merge, DEDUPED BY CORPUS ID and capped at the same ceiling a typed search
+// uses, so five terms cannot flood the list past what fork C stated.
+function photoSearchMergeTried(tried) {
+  const seen = {}, rows = [], terms = [];
+  (tried || []).forEach(function (t) {
+    if (t.rows > 0) terms.push(t.term);
+    (t.found || []).forEach(function (c) {
+      if (seen[c.id]) return;
+      seen[c.id] = 1;
+      if (rows.length < IDENTITY_SEARCH_MAX) rows.push(c);
+    });
+  });
+  return { rows: rows, terms: terms };
+}
 // ---- the panel -----------------------------------------------------------
+// A FULL MACRO ROW PER CANDIDATE (ruled). MEASURED at 360px with 328px available:
+// the macro string needs 270px and FITS ON ONE LINE -- but only because the item's
+// own estimate is stated ONCE above the list rather than repeated on every row,
+// which needs 386-394px and does not fit. The name wraps; the figures do not.
+function photoSearchMacroWords(c) {
+  const n = (v) => (v == null || v !== v) ? '?' : String(Math.round(v * 10) / 10);
+  if (c.kcal == null && c.protein == null) return '';
+  return 'P ' + n(c.protein) + ' \u00b7 F ' + n(c.fat) + ' \u00b7 C ' + n(c.carb)
+    + ' \u00b7 ' + ((c.kcal == null || c.kcal !== c.kcal) ? '?' : String(Math.round(c.kcal))) + ' cal';
+}
 function photoSearchRowsHTML(st) {
   const prop = st.proposed ? String(st.proposed.id) : null;
   return (st.rows || []).map(function (c) {
-    const kc = (c.kcal == null || c.kcal !== c.kcal) ? ''
-      : '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' cal/100g</span>';
+    const mac = photoSearchMacroWords(c);
+    const kc = mac ? '<span class="pmsmac">' + esc(mac) + '</span>' : '';
     const isProp = (prop !== null && String(c.id) === prop);
     const why = isProp ? '<span class="rwhy">' + proposedWhy(st.proposed) + '</span>' : '';
     return '<button type="button" class="btn pmsrow' + (isProp ? ' pmsmem' : '') +
       '" onclick="photoSearchPick(' + st.idx + ', \'' + esc(String(c.id)) + '\', \'' +
-      esc(String(c.name).replace(/\'/g, ' ')) + '\')">' + esc(c.name) + kc + why + '</button>';
+      esc(String(c.name).replace(/\'/g, ' ')) + '\')">'
+      + '<span class="pmsnm">' + esc(c.name) + '</span>' + kc + why + '</button>';
   }).join('');
 }
 function photoSearchHTML(idx, it) {
@@ -12211,8 +12353,16 @@ function photoSearchHTML(idx, it) {
       + '<button type="button" class="btn pmsconfirmbtn" onclick="photoSearchConfirmUse()">Use anyway</button>'
       + '</div></div>';
   }
+  // THE ITEM'S OWN ESTIMATE, STATED ONCE. Every candidate's figures are read
+  // against this line, and keeping it out of the rows is what lets the full macro
+  // row fit on one line at 360px.
   const ours = (it && it.per100 && num(it.per100.kcal) > 0)
-    ? '<div class="pmsub pmsours">Yours is <b>' + esc(String(Math.round(num(it.per100.kcal)))) + ' cal/100g</b>.</div>'
+    ? '<div class="pmsub pmsours">Yours, per 100 g: <b>P '
+      + esc(rDisp(num(it.per100.protein_g))) + ' \u00b7 F ' + esc(rDisp(num(it.per100.fat_g)))
+      + ' \u00b7 C ' + esc(rDisp(num(it.per100.carb_g))) + ' \u00b7 '
+      + esc(String(Math.round(num(it.per100.kcal)))) + ' cal</b>'
+      + (it.estimateFrom === 'model' ? ' <small>your AI\u2019s eyeballed estimate</small>' : '')
+      + '</div>'
     : '';
   const field = '<div class="pmsrowin">'
     + '<input id="pmsQuery" type="text" class="pmsin" value="' + esc(String(st.text || '')) + '"'
@@ -12222,6 +12372,16 @@ function photoSearchHTML(idx, it) {
     + '<button type="button" class="btn pmsgo" onclick="photoSearchRun(' + idx + ', (document.getElementById(\'pmsQuery\')||{}).value)">Search</button>'
     + '</div>';
   const typed = String(st.text || '').trim();
+  // RULED C: the normalised word is a QUERY THE APP RAN, never an answer. The
+  // wording is deliberately about the search and not about the food.
+  const searched = (st.normalised && st.searchedFor)
+    ? '<div class="pmsub pmssearched">Your AI suggested search terms. <b>searched for '
+      + esc(st.searchedFor) + '</b>'
+      + ((st.tried && st.tried.length > 1)
+          ? ' <small>after ' + esc(st.tried.filter(function (t) { return !t.rows; })
+              .map(function (t) { return t.term; }).join(', ')) + ' found nothing</small>' : '')
+      + '</div>'
+    : '';
   // The keep offer is rendered wherever the search cannot answer -- no rows, and
   // no corpus on the device either. Both are "the database does not have this",
   // and neither is a reason to lose what the user said.
@@ -12229,11 +12389,21 @@ function photoSearchHTML(idx, it) {
   const keep = (empty && typed)
     ? '<button type="button" class="btn pmskeep" onclick="photoSearchKeep(' + idx + ')">Use “' + esc(typed) + '” with no nutrition</button>'
     : '';
-  // Fork D: the provider is offered ONLY here. A key is required, so the offer is
-  // absent rather than dead for anyone without one.
-  const ask = (empty && typed && byokConfigured())
-    ? '<button type="button" class="btn pmsask" onclick="photoSearchAskModel(' + idx + ')">'
-      + (st.asking ? 'Asking…' : 'Ask my AI what this is called') + '</button>'
+  // RULED B: THE OFFER IS ALWAYS THERE when the search came back empty, and when
+  // there is no key it SAYS SO rather than vanishing. The device finding was not a
+  // fallback nobody could find -- it was a fallback that was not rendered at all,
+  // because it was gated on a key the user may not have saved.
+  //
+  // Still NOT automatic: rule D made it local-first precisely so the common path
+  // costs no provider call, and auto-normalising would spend one on every empty
+  // search.
+  const ask = (empty && typed)
+    ? (byokConfigured()
+        ? '<button type="button" class="btn pmsask" onclick="photoSearchAskModel(' + idx + ')">'
+          + (st.asking ? 'Asking your AI\u2026' : 'Ask my AI for other names to search')
+          + '</button>'
+        : '<div class="pmsask pmsasknokey">Your AI could suggest other names to search '
+          + '\u2014 that needs an API key, which you can add under Settings.</div>')
     : '';
   let body = '';
   if (st.phase === 'looking') body = '<div class="pmsub">Looking…</div>';
@@ -12252,16 +12422,16 @@ function photoSearchHTML(idx, it) {
         }).join('')
       + '</div>'
     : '';
-  const asked = (st.asked && st.asked.length)
-    ? '<div class="pmsub">Your AI suggested “' + esc(st.asked[0]) + '”, searched here. It supplied no numbers.</div>'
-    : '';
   const failed = st.askedFailed ? '<div class="pmsub">Your AI did not come back with a name.</div>' : '';
   // ORDER MATTERS, and it is the order of the question: what you typed, what the
   // database says about it, and THEN the two ways out -- keep the name, or ask for
   // a better word to search. The ways out come last because they are what is left
   // when the rows did not answer, and first they have to be seen not to have.
+  // ORDER, RULED: the input, then the OFFER directly under it, then what the app
+  // searched, then the item's own estimate, then the rows, then the way out. The
+  // offer used to sit last and the device finding is what that cost.
   return '<div class="pmsearch"><div class="pmsq">What was it?</div>'
-    + field + ours + asked + failed + presets + body + keep + ask
+    + field + ask + searched + ours + failed + presets + body + keep
     + '<button type="button" class="linklike pmscancel" onclick="photoSearchCancel()">leave it as it is</button>'
     + '</div>';
 }
@@ -15757,6 +15927,7 @@ window.HT = {
   photoSearchType, photoSearchRun, photoSearchPick, photoSearchPickPreset,
   photoSearchConfirmUse, photoSearchConfirmCancel, photoSearchKeep, photoSearchHTML,
   photoSearchPresets, photoSearchMismatch, photoSearchAskModel,
+  photoSearchMacroWords, photoSearchTryTerms, photoSearchMergeTried, NORMALISE_TERMS_MAX,
   identityNormalisePrompt, identityNormaliseParse, refAlcoholG, byokBody,
   // D141 -- resolve at capture
   rememberedProposal, rememberedProposalText, photoPickMemory,
