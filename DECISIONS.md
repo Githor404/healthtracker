@@ -11295,6 +11295,37 @@ What H24's own measurement already bounds it to:
 The exact figure is one tap away on the device, which is the point of building it
 rather than stating it.
 
+### DEPLOYED AND VERIFIED — AND verify-deploy DOES NOT COVER THE CORPUS
+
+`tests/verify-deploy.sh`: **v0.70.0, shell `7a910ccf8332`, 8 files byte-identical**,
+and the served `sw.js`'s `SHELL_HASH` recomputes from the served bytes. (Attempt 1
+still served v0.69.0; attempt 2 was clean — the retry is the script's own.)
+
+**But its file list is the PRECACHE list, which is the shell** — `index.html`,
+`app.js`, the manifest, three icons and `sw.js`. **The corpus assets are not in it**,
+and H24 is the first slice ever to change them. So the one artifact this slice
+exists to ship sat outside the only check that proves a deploy landed.
+
+Checked by hand, by hash, against the live origin:
+
+| asset | served | local | |
+|---|---|---|---|
+| `fdc.bin` | `d58a7b97b334` | `d58a7b97b334` | identical |
+| `cnf.bin` | `e734f60ccac4` | `e734f60ccac4` | identical |
+| `fdc.json` | `1597da60755d` | `1597da60755d` | identical |
+| `cnf.json` | `cfc152290038` | `cfc152290038` | identical |
+
+> And `fdc.bin`'s **served** hash is exactly the string stamped in
+> `CORPUS_ASSET_HASH`, so the upgrade path will fire on a device holding the 46-slot
+> corpus and fetch the bytes the constant names. That is the end-to-end proof the new
+> slot reaches the phone, and it is the thing no committed check performs.
+
+**Recommended as its own small slice:** `verify-deploy.sh` should take the corpus
+assets too, derived from the namespaces in `corpus/slots.json` rather than listed by
+hand. Doing it inside H24 would be scope taken rather than asked for — but a
+hand-run comparison is precisely what that script exists to abolish, so leaving it
+unrecorded would be the worse half of the mistake.
+
 ### WHAT IS DELIBERATELY NOT HERE
 
 - **No cofactor panel.** Of what TCA, glycolysis, one-carbon and beta-oxidation want,
