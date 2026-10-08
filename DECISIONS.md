@@ -10600,3 +10600,20 @@ is itself the answer to *“state the minimum n before any coefficient is shown�
   become an estimate of the invisible part
 
 **Not pre-registered, by ruling.** Queued after [[H26]].
+
+### QUEUE, RULED (user, 2026-10-07) — SUPERSEDES the order in [[H25]]'s record
+
+**[[H26]] → [[H24]] build → R136 → R138 → H29.**
+
+> *“H24 is the input side R136 and H29 both depend on.”*
+
+H24's build is now explicit and carries three things: **metabolic potential**, the
+**fructose slot** (ruled 2026-10-04, still absent from `slots.json`), and
+**`derive_slots.py --check`'s per-nutrient table**, which R136's B5/Mn proposal
+needs.
+
+**AND A NUMBER IS DUE WHEN H24 LANDS:** the **test-point ceiling** — clean-window
+meals that **also carry a resolved ref**, **with n**. Ruled: *“that number is H29's
+minimum-n answer, and it tells me how much resolving I need to do.”* So it is not a
+diagnostic aside; it is the figure that decides whether H29 can begin and what the
+user does next.
