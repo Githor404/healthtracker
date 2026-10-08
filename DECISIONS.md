@@ -10704,3 +10704,166 @@ configuration is a pin on a coincidence.** Now derived over every kind.
 - **No alerts, ever.** The flag carries both ruled sentences at full size: a CGM
   low should be confirmed with a fingerstick, and this is a look-back that will
   never sound because the Dexcom app is the live safety tool.
+
+## H30 — PARITY: a typed name gets what a photo gets — PRE-REGISTERED (2026-10-07)
+
+**Serves [[D152]] leg 1 (TRACK)** and leg 2 by raising the resolve rate — which [[H24]]
+measured as the binding constraint and which [[H29]] needs before it can begin.
+**Queued ahead of H24 by ruling**, on [[H27]]'s argument: a dead end on the main
+capture path outranks new capability.
+
+### THE DEVICE FINDING
+
+> Photographed siu mai — not identified. Typed *“sui mai”* into Something else — **no
+> candidates, and no nutrients at all**. Deleted it, re-photographed, and it was
+> identified as siu mai.
+
+**The same food succeeded through the camera and failed through the keyboard.**
+
+### THE PARITY GAP, STATED FROM THE CODE
+
+| | photo path | typed path |
+|---|---|---|
+| the model **names** the food | yes | **no** — it only *normalises*, and only with a key |
+| an **eyeballed macro estimate** | yes (`per100`) | **nothing at all** |
+| the corpus search runs on | the model's name | **the raw typing** |
+| an **alternatives list** to pick from | yes (`alts`) | no |
+
+`photoSearchKeep` sets the name, marks `unres`, and the item carries **no
+`per100`** — which is literally the reported *“no nutrients at all”*. And the search
+ran on `sui mai`, the typo, never on a normalised spelling.
+
+> **The typed path gets strictly less than the photo path for the same food.**
+> That is the finding, and it is a property of the code rather than of the data.
+
+### MEASURED: THE CORPUS GAP IS REAL, AND THE FOOD IS STILL THERE
+
+Searched the shipped names directly, both namespaces:
+
+| | CNF (5,690) | SR Legacy (7,793) |
+|---|---|---|
+| `siu mai` / `shumai` / `shao mai` / `siumai` | **absent** | **absent** |
+| `dim sum` | **absent** | **absent** |
+| `gyoza`, `spring roll`, `steamed bun`, `pot sticker` | **absent** | **absent** |
+| `dumpling` | **1** | 4 (one is a Navajo mutton stew) |
+| `wonton` | 4 | 3 |
+| **`potsticker`** | **1** | **1** |
+
+**That one row is the finding:** *“Potsticker or wonton, pork and vegetable, frozen”*
+exists in **both** corpora and is a defensible nutritional proxy for siu mai.
+
+**So the food is not missing. It is filed under a name nobody would type** — and
+[[D136]] already recorded that exact limit: *“It CANNOT surface a correct row that
+shares NO TOKEN with the name”*, naming *siu mai* as the class. H27's search could
+not have rescued this, because no amount of ranking finds a row with no shared
+token.
+
+*(Caution recorded with the method: a substring search for `pho` matched baking
+powder and a Symphony chocolate bar. The idf matcher exists for this reason, and
+the numbers above are name-containment counts, not matcher output.)*
+
+### AND MEASURED: NORMALISATION CAN PRODUCE A CONFIDENTLY WRONG MATCH
+
+Token frequencies in the shipped index — which is what the idf matcher ranks on:
+
+| token | rows (CNF) | idf | |
+|---|---|---|---|
+| `pork` | 264 | 3.07 | weak |
+| `frozen` | 356 | 2.77 | weak |
+| `dumpling` | **1** | 7.95 | **discriminating** |
+| `potsticker` | **1** | 7.95 | **discriminating** |
+| `wonton` | 4 | 7.04 | discriminating |
+
+So a normalised name **does** reach a row — but **which** row depends entirely on
+the word:
+
+- `potsticker` → *Potsticker or wonton, pork and vegetable, frozen* — **right**
+- `dumpling` → CNF's only dumpling row, *“Dumpling, plain”* — **a plain flour
+  dumpling, nutritionally nothing like siu mai**
+
+> **A model asked *“what is this filed under”* could easily answer *“dumpling”*.** The user
+> would then get plain-flour nutrition under a **confirmed match** — worse than
+> nothing, because it is a wrong number wearing a confirmation.
+
+**The existing defence is the kcal pair** ([[D122]]: the candidate's energy beside the
+item's own), and **a typed item has no estimate to compare against**. So parity is
+**load-bearing for safety**, not merely for convenience — which is the strongest
+argument in this slice and was not visible before the measurement.
+
+### WHY THE FALLBACK WAS NOT FOUND
+
+[[H27]]'s rule-D offer renders only when `byokConfigured()`:
+
+- **with no key saved it never rendered at all** — so the user saw the empty-search
+  message and the keep button, and nothing else. That is not *a fallback nobody
+  finds*; it is a fallback that was not there.
+- **with a key it renders below** the empty-state message, inside a panel that
+  also holds the input, the *yours is N cal/100g* line and the keep button — so
+  below the fold at 390px is likely.
+
+Either way the conclusion is the reported one: **it failed as a fallback.**
+
+### FORKS
+
+**A — what the typed path gets.** Three ways:
+
+1. **normalisation only** (today) — a name, no numbers, nothing to compare
+2. **normalisation + an eyeballed estimate**, exactly as the photo path produces,
+   at `eyeballed` confidence and labelled as such
+3. **full parity**: a normalised name, an estimate, **and an alternatives list**
+
+Recommended: **3, and 2 as the floor.** The honesty rule already permits it in so
+many words — *“the AI photo path produces macro estimates at eyeballed confidence and
+never micros”* — and a typed name is the same class of claim from the same model
+with the same label. **And the estimate is what gives the kcal pair something to
+sit beside**, which is the only thing standing between the user and a
+confidently wrong corpus match. **Wanted.**
+
+**B — the fallback's discoverability.** It needs a key and sits low. Options: render
+it **always** when the search is empty (with a plain *needs your key* state when
+unconfigured); move it **directly under the input** rather than below the rows;
+or run it automatically. Recommended: **the first two, never the third** — rule D
+ruled local-first precisely so the common path costs no provider call, and
+automatic normalisation would spend one on every empty search. **Wanted.**
+
+**C — the confidently-wrong match.** Measured above. Options: require the **kcal
+pair** on every candidate reached through a normalised name (which needs A), never
+**auto-pick** a normalised result, and show the normalised word as **a query the
+app ran** rather than as an answer. Recommended: **all three** — the user should see
+*“searched for *potsticker*”* and judge the rows, never *“this is a potsticker”*. **Wanted.**
+
+**D — what the model is asked for.** `identityNormalisePrompt` currently asks for
+names *“commonly filed under in a food composition database”*. Measured, that
+invites *“dumpling”*. Options: ask for **up to five** and run **each** as a query,
+showing which found rows; or ask for the **closest common equivalent dish**.
+Recommended: **five queries, all run locally, and the user picks from REAL ROWS**.
+The model then supplies search terms and never an answer, which is [[D8]] in its
+strongest form.
+
+**E — FNDDS, recorded as evidence rather than folded in here.** The absent class is
+**mixed and composite dishes** — dim sum, gyoza, spring rolls, steamed buns — and
+neither CNF nor SR Legacy carries them, because both are ingredient-level
+databases. FNDDS is the survey database of **dishes as eaten**, which is exactly
+the gap. Recommended: **record it and pre-register a corpus slice separately** — it
+is a third namespace with its own licence, size and merge questions, and bolting
+it onto a capture slice would be two slices wearing one name.
+
+### WHAT GETS GATED
+
+- a typed name that the corpus does not hold still lands with an **eyeballed
+  estimate** and `confidence: 'eyeballed'`, **labelled as the model's estimate**
+- **no micros, ever**, from the typed path (the honesty rule, unchanged)
+- the normalisation offer is **present when the search is empty**, **above** the
+  rows, and states plainly when it needs a key — asserted as **visible** at 390px,
+  not merely present
+- each normalised name is run as a **query**, and the surface says **which word it
+  searched** — asserted as the absence of any sentence claiming the food IS that
+- every candidate reached this way carries its **kcal pair**, and the item's own
+  estimate is **on screen beside it**
+- **nothing is auto-picked**: the item is unresolved until the user taps a row
+- the `potsticker` → *Potsticker or wonton* path is gated on the **real corpus**, as
+  the case that proves normalisation reaches a true row; and `dumpling` → *Dumpling,
+  plain* is gated as the case that proves **the kcal pair exposes a wrong one**
+
+**Stopping for rulings on A—D.** A most of all, because it decides whether the typed
+path can defend itself at all.
