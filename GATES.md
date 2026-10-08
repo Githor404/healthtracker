@@ -5301,3 +5301,30 @@ empty string on a syntax error.
 
 **Unexercised:** the side-by-side comparison surface, which is not built — two
 tests of one food need two in the log, and the tag did not exist until today.
+
+### H26 — night patterns — 25th gate
+
+Suite **33 → 34 verdicts**. `tests/night-gate.ps1`, **45 assertions**, run **red
+first (45 findings)**.
+
+| case | asserts |
+|---|---|
+| **night-gate.ps1** | a night is **21:00 → 09:00 keyed by its evening**: 08:55 belongs to the previous evening, 21:05 to its own, and **20:55 to NO night** rather than the nearest one |
+| **night-gate.ps1** | the surface **states the boundary**, because *the lowest value of the night* changes with it |
+| **night-gate.ps1** | **ONE night with a single sub-3.9 reading is NOT flagged** — the negative that makes both arms real thresholds rather than *any low* |
+| **night-gate.ps1** | a **second** such night fires `recurrence`; a **sub-3.0** reading fires `level2` **alone**; and the flag says **which arm** |
+| **night-gate.ps1** | the shape carries **trough (2.8 at 03:00), fall rate, recovery rate and duration**, the fall **negative** and the recovery **positive** |
+| **night-gate.ps1** | **no label word** in the shape or the flag, with a control proving the matcher fires on *possible compression low* |
+| **night-gate.ps1** | the **fingerstick** and **look-back / Dexcom** sentences ride with the flag, and the fingerstick sentence is in the summary too |
+| **night-gate.ps1** | the **night count** is stated |
+| **night-gate.ps1** | the clinician summary is reachable **with a flag and without one** (ruled: on demand at any time) and lists dates, lowest values and durations |
+| **night-gate.ps1** | a **flagged** night asks which side you slept on; a **clean** night does **not**; the answer rides the same `variant` field |
+| **night-gate.ps1** | the **sensor arm** joins `QUICK_EVENTS` as a fourth kind: `type='sensor'`, `source='quick'`, arm in `variant` |
+
+**Found by the gate in my own wording:** `3.0` stringified to `"3"`, so a cited
+threshold was misquoted; and `03:06` rendered `3:06` because `hhmm` is the chart
+axis formatter — `hhmmPad` now exists beside it for prose.
+
+**The response gate's pinned census failed on purpose** (3 kinds → 4) and caught a
+second defect: its expected button count took the FIRST variant-bearing kind's
+variants, which was a pin on a coincidence. Now derived over every kind.

@@ -310,6 +310,31 @@
   .qbtn{min-height:44px;padding:8px 14px;border:1px solid var(--line);border-radius:10px;
     background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
   .qnote{margin-top:6px}
+  /* H26. The shape is a description, so it is typeset as facts rather than as a
+     verdict: no colour carries meaning here, and no word labels the pattern. */
+  .nightp{margin:0}
+  .nighthead{font-size:16px;font-weight:600}
+  .nightn{font-size:16px;margin:4px 0 8px}
+  .nightn small,.nightdate small{color:var(--muted);font-size:14px}
+  .nightrow{padding:8px 0;border-top:1px solid var(--line)}
+  .nightdate{font-size:16px;font-weight:600}
+  .nightline,.nightshape,.nightlows{font-size:16px;margin:2px 0}
+  .nightshape,.nightlows{color:var(--muted);font-variant-numeric:tabular-nums}
+  /* The flag. It states a fact and carries its two safety sentences at full
+     size -- a caveat quieter than the thing it qualifies will not be read. */
+  .nightflag{margin:8px 0;padding:10px;border:1px solid var(--warn);border-radius:10px}
+  .nightflagw{font-size:16px;color:var(--warn);font-weight:600}
+  .nightflagn{font-size:16px;margin-top:2px}
+  .nightsafe{font-size:16px;margin-top:6px}
+  .nightsum{margin-top:10px;min-height:44px}
+  .nightside{font-size:16px;margin:6px 0 0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  .nightsidebtn{min-height:44px}
+  .clinsum{margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+  .clinhead{font-size:16px;font-weight:600;margin-bottom:4px}
+  .clinline{font-size:16px;margin:3px 0}
+  .clinlist{margin:6px 0 0;padding-left:18px;font-size:16px}
+  .clinlist li{margin:4px 0}
+  .nightsumlink{margin-top:8px;min-height:44px}
   .pmsearch{margin:6px 0 0;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
   .pmsq{font-size:16px;font-weight:600;margin:0 0 6px}
   .pmsrowin{display:flex;gap:8px;align-items:center}
@@ -924,6 +949,17 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
         <div id="quickEvents"></div>
         <div id="fastCandidates"></div>
         <div id="timelineOverlay" style="margin-top:10px"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Nights</summary>
+        <!-- H26. Folded by default: it is a look-back, not a thing to watch,
+             and D53 allows provenance behind a tap while a statement that a
+             number is incomplete may not hide. The night COUNT is the first
+             line inside, because two nights cannot settle "most days". -->
+        <div id="nights" style="margin-top:10px"></div>
       </details>
     </div>
     <div class="card">

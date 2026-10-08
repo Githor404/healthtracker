@@ -10617,3 +10617,90 @@ meals that **also carry a resolved ref**, **with n**. Ruled: *“that number is 
 minimum-n answer, and it tells me how much resolving I need to do.”* So it is not a
 diagnostic aside; it is the figure that decides whether H29 can begin and what the
 user does next.
+
+## H26 — BUILT: night patterns, with the label withheld (2026-10-07, v0.68.0)
+
+**Gate-first, run RED (45 findings).** `tests/night-gate.ps1`, the **25th gate**,
+**45 assertions**. Suite **33 → 34 verdicts**.
+
+### THE TWO FLAG ARMS ARE DIFFERENT CLAIMS, AND THE GATE PROVES THEM APART
+
+Ruled D gave two conditions, and the fixture was built to **separate** them rather
+than satisfy both at once:
+
+| arm | fires on | shape |
+|---|---|---|
+| `level2` | a night carrying a reading **below 3.0** | **per night**, on its own |
+| `recurrence` | **two or more nights** with readings below 3.9 | a **pattern**, not one night |
+
+**The decisive case is the negative:** ONE night with a single sub-3.9 reading and
+nothing below 3.0 **is not flagged**. Without that assertion both arms would pass
+as *“any low flags”*, and the thresholds would be decoration.
+
+**And the real data fires exactly one arm.** Measured on the 451 readings: three
+readings below 3.9 and one below 3.0, **all on the same night**. So `level2` fires
+and `recurrence` does not — which is precisely why collapsing them would have been
+invisible on this user's own data.
+
+### RULING A, WITH TEETH
+
+The shape ships as **four facts**: fall rate into the trough, the trough with its
+time, recovery rate out, and minutes below the threshold. **No label.**
+
+Gated as the **absence of a word** — `compress|suspect|possible|likely|probabl|
+artefact|artifact` must not appear in the shape or the flag, **with a control
+asserting the matcher fires on** *“possible compression low”*, so a clean scan cannot
+pass vacuously.
+
+The rates are also **signed**: the fall must be negative and the recovery
+positive, because a sign error there would read a drop as a rise and nothing else
+on the surface would contradict it.
+
+### THE CONFLICT BETWEEN TWO OF THE RULINGS, DECIDED AND FLAGGED
+
+> **Fork C gates the sleep-side question on** *“when a suspect appears”*, **and ruling
+> A removed the thing that would have been called a suspect.**
+
+With the compression label withheld — correctly, the threshold cannot be measured
+yet — *a suspect appears* has no referent. The only reading that invents nothing:
+**the low flag is the trigger.** It is the thing that appeared, asking which side
+you slept on is a genuine follow-up to it, and it needs no threshold that does
+not exist.
+
+Gated both ways: a **flagged** night asks, a **clean** night does **not** (ruling
+C's *never daily*), and the shape still renders on an unflagged night, because a
+description claims nothing and so is not gated on a flag.
+
+### THE SENSOR ARM JOINED THE MECHANISM INSTEAD OF GETTING ONE
+
+`QUICK_EVENTS` gains a **fourth kind** — `sensor`, with `left arm` / `right arm` in
+the same `variant` field as the drink. **That is what building the mechanism once
+was for.** `sleep_side` uses the same `addSignal` path but is deliberately **NOT**
+in `QUICK_EVENTS`: a control on the always-visible row would be the daily question
+ruling C forbids.
+
+**The response gate's pinned census failed, on purpose, and was re-pinned 3 → 4** — and it caught a second defect on the way: the gate computed its expected button
+count as *“non-variant kinds + the FIRST variant-bearing kind's variants”*, which was
+right while `drink` was the only one and wrong the moment `sensor` arrived with
+two of its own. **A hand-computed expectation that happens to match one
+configuration is a pin on a coincidence.** Now derived over every kind.
+
+### TWO DEFECTS THE GATE FOUND IN MY OWN WORDING
+
+| | |
+|---|---|
+| **`3.0` rendered as `3`** | JS stringifies `3.0` to `"3"`, so the flag said *“below 3 mmol/L”* for a value the literature calls **3.0**. A cited threshold is quoted **as cited** — `toFixed(1)` |
+| **`03:06` rendered as `3:06`** | `hhmm` is the CHART AXIS formatter, where a leading zero is noise. A clock time in prose, or a column of times in a clinician summary, wants padding — so `hhmmPad` exists **beside** it, named separately rather than switched on a flag, because one function answering two questions is [[D140]]'s rename defect waiting to happen |
+
+### WHAT IS DELIBERATELY NOT HERE
+
+- **No threshold, and no label.** Ruled A, and the reason stands: the only rate
+  distribution available is computed from the three days that **contain** the
+  excursion, so it is partly measuring itself. Revisit when enough nights exist
+  to measure one from **outside** it.
+- **No night-versus-night alcohol comparison.** It needs `n` on both sides, and
+  the one-tap drink has existed for one day. The summary states what preceded a
+  night from what the log actually holds, and infers nothing.
+- **No alerts, ever.** The flag carries both ruled sentences at full size: a CGM
+  low should be confirmed with a fingerstick, and this is a look-back that will
+  never sound because the Dexcom app is the live safety tool.

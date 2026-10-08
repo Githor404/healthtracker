@@ -46,6 +46,7 @@ font-floor-gate.ps1
 identity-search-gate.ps1
 jargon-gate.ps1
 lab-form-gate.ps1
+night-gate.ps1
 offline-gate.ps1
 overlay-gate.ps1
 page-overflow-gate.ps1

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.67.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.68.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4911,6 +4911,13 @@ const SIGNAL_SPEC = [
   // interval cannot express. A new TYPE, not a new kind -- the D35/D52
   // precedent: an app that does not know this type round-trips it intact.
   { type: 'woke',         kind: 'event', label: 'Woke',        unit: '',       units: [''],       warn: 0 },
+  // H26: both are per-occasion facts with no quantity -- a new TYPE each, not a
+  // new kind (the D35/D52 precedent). `sensor` is asked once per sensor; the
+  // arm rides in `variant`. `sleep_side` is a flag's follow-up and is
+  // deliberately NOT in QUICK_EVENTS, because a control on the always-visible
+  // row would be the daily question ruling C forbids.
+  { type: 'sensor',       kind: 'event', label: 'New sensor',  unit: '',       units: [''],       warn: 0 },
+  { type: 'sleep_side',   kind: 'event', label: 'Slept on',    unit: '',       units: [''],       warn: 0 },
   { type: 'other',        kind: 'event', label: 'Other',       unit: 'min',    units: ['min'],    warn: 1440 },
 ];
 const SIGNAL_BY_TYPE = SIGNAL_SPEC.reduce((m, s) => { m[s.type] = s; return m; }, {});
@@ -5402,6 +5409,13 @@ const QUICK_EVENTS = [
     successor: 'steps from Apple Health via the native shell (ruled)' },
   { id: 'woke',  type: 'woke',    label: 'Woke',
     says: 'the time you woke',
+    successor: '' },
+  // H26: the sensor arm, asked ONCE PER SENSOR rather than daily. It joins the
+  // mechanism H25 built as a fourth kind instead of getting one of its own --
+  // which is what building the mechanism once was for.
+  { id: 'sensor', type: 'sensor', label: 'New sensor',
+    variants: ['left arm', 'right arm'],
+    says: 'which arm this sensor is on',
     successor: '' },
   { id: 'drink', type: 'alcohol', label: 'Drink', value: 1,
     variants: ['wine', 'beer', 'spirit', 'other'],
@@ -7363,6 +7377,335 @@ function renderQuickEvents() {
   const el = document.getElementById('quickEvents');
   if (el) el.innerHTML = quickEventsHTML();
 }
+// ---- H26: NIGHT PATTERNS ------------------------------------------------
+//
+// MEASURED BEFORE ANY OF THIS WAS BUILT, on 451 real readings: TWO nights have
+// coverage and the pattern is on ONE of them. The second night spans 1.8 mmol/L
+// across twelve hours. So *most days* is not something two nights can settle,
+// and the first thing every surface here states is HOW MANY NIGHTS IT HAS.
+//
+// A NIGHT IS 21:00 -> 09:00, KEYED BY ITS EVENING (ruled B), and the surface says
+// so, because *the lowest value of the night* changes with the boundary.
+const NIGHT_START_MIN = 21 * 60;      // 21:00, the evening it is keyed by
+const NIGHT_END_MIN = 9 * 60;         // 09:00 the following morning
+// CITED, not chosen here: the international-consensus hypoglycaemia values.
+// Level 1 is the ALERT value; level 2 is where it is clinically significant.
+const LOW_L1 = 3.9;
+const LOW_L2 = 3.0;
+// Ruled D: a sub-level-2 reading flags on its own; otherwise it takes TWO nights
+// carrying sub-level-1 readings. The two are different claims -- one bad night
+// versus a pattern -- so the flag says WHICH arm fired.
+const LOW_RECUR_NIGHTS = 2;
+function nightWindowWords() {
+  const h = (m) => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  return h(NIGHT_START_MIN) + ' to ' + h(NIGHT_END_MIN);
+}
+// WHICH NIGHT A MOMENT BELONGS TO, or '' for one that belongs to none. A reading
+// at 20:55 is in no night at all, and placing it in the nearest one would invent
+// a membership the boundary denies.
+function nightKeyFor(ms) {
+  const d = new Date(ms);
+  const mins = d.getHours() * 60 + d.getMinutes();
+  const pad = (n) => String(n).padStart(2, '0');
+  const key = (dt) => dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate());
+  if (mins >= NIGHT_START_MIN) return key(d);
+  if (mins < NIGHT_END_MIN) { const p = new Date(ms - 86400000); return key(p); }
+  return '';
+}
+function nightSeries(eveningKey) {
+  const from = dayKeyMs(eveningKey) + NIGHT_START_MIN * 60000;
+  const to = dayKeyMs(eveningKey) + (24 * 60 + NIGHT_END_MIN) * 60000;
+  return glucoseSeries(from, to);
+}
+// Every night the stream actually covers, in order. A night needs more than a
+// couple of readings to be a night rather than a fragment.
+const NIGHT_MIN_READINGS = 6;
+function nightKeys() {
+  const seen = {};
+  const store = glucoseRead();
+  Object.keys(store).forEach(function (dk) {
+    const base = dayKeyMs(dk), d = store[dk];
+    for (let i = 0; i < d.t.length; i++) {
+      const k = nightKeyFor(base + d.t[i] * 60000);
+      if (k) seen[k] = (seen[k] || 0) + 1;
+    }
+  });
+  return Object.keys(seen).filter(function (k) { return seen[k] >= NIGHT_MIN_READINGS; }).sort();
+}
+function nightCount() { return nightKeys().length; }
+
+// THE SHAPE, AND NOTHING ELSE (ruled A). Fall rate, trough, recovery rate,
+// duration. NO LABEL: *a description claims nothing, and 'possible compression
+// low' is a claim the data cannot yet support.*
+//
+// AND THE THRESHOLD THAT WOULD LABEL IT CANNOT BE MEASURED YET, which is why it
+// is absent rather than guessed: the rate distribution available (n=447) is
+// computed from the three days that CONTAIN the excursion, so it is partly
+// measuring itself. Revisit when enough nights exist to measure a threshold from
+// outside the excursion.
+function nightShape(eveningKey) {
+  const ser = nightSeries(eveningKey);
+  const out = { night: String(eveningKey), n: ser.length, unit: ser.length ? ser[0].u : '',
+                lowest: null, highest: null, fallRate: null, recoveryRate: null,
+                minutesBelowL1: null, minutesBelowL2: null };
+  if (!ser.length) return out;
+  let lo = 0, hi = 0;
+  for (let i = 1; i < ser.length; i++) {
+    if (ser[i].v < ser[lo].v) lo = i;
+    if (ser[i].v > ser[hi].v) hi = i;
+  }
+  const at = (p) => hhmmPad(p.t);
+  out.lowest = { v: ser[lo].v, at: at(ser[lo]), t: ser[lo].t };
+  out.highest = { v: ser[hi].v, at: at(ser[hi]), t: ser[hi].t };
+  // The fall INTO the trough and the recovery OUT of it, each over the steepest
+  // run rather than end to end -- an average across a flat hour either side
+  // would describe a night that did not happen.
+  out.fallRate = nightRateInto(ser, lo, -1);
+  out.recoveryRate = nightRateInto(ser, lo, 1);
+  out.minutesBelowL1 = nightMinutesBelow(ser, LOW_L1);
+  out.minutesBelowL2 = nightMinutesBelow(ser, LOW_L2);
+  return out;
+}
+// The rate from the trough outwards in one direction, in units per hour, over
+// the monotone run away from it. Negative for the fall, positive for the
+// recovery -- a sign error here would read a drop as a rise.
+function nightRateInto(ser, lo, dir) {
+  let i = lo;
+  while (true) {
+    const j = i + dir;
+    if (j < 0 || j >= ser.length) break;
+    if (ser[j].v < ser[i].v) break;              // no longer moving away from the trough
+    i = j;
+  }
+  if (i === lo) return null;
+  const dv = ser[lo].v - ser[i].v;
+  const dh = Math.abs(ser[lo].t - ser[i].t) / 3600000;
+  if (!(dh > 0)) return null;
+  const r = dv / dh;
+  return Math.round((dir < 0 ? r : -r) * 10) / 10;
+}
+function nightMinutesBelow(ser, level) {
+  let mins = 0;
+  for (let i = 1; i < ser.length; i++) {
+    if (ser[i].v < level && ser[i - 1].v < level) mins += (ser[i].t - ser[i - 1].t) / 60000;
+  }
+  return Math.round(mins);
+}
+function nightLows(eveningKey) {
+  return nightSeries(eveningKey).filter(function (p) { return p.v < LOW_L1; })
+    .map(function (p) { return { v: p.v, at: hhmmPad(p.t), level2: p.v < LOW_L2 }; });
+}
+
+// ---- THE FLAG (ruled D). IT FLAGS; IT NEVER ALERTS. --------------------
+// Two arms, and which one fired is part of the answer:
+//   level2      -- a night carrying a reading below 3.0, on its own
+//   recurrence  -- two or more nights carrying readings below 3.9
+// A single night with one sub-3.9 reading and nothing below 3.0 is NOT flagged.
+function lowFlagState() {
+  const keys = nightKeys();
+  const l2 = [], l1 = [];
+  keys.forEach(function (k) {
+    const lows = nightLows(k);
+    if (!lows.length) return;
+    l1.push(k);
+    if (lows.some(function (x) { return x.level2; })) l2.push(k);
+  });
+  if (l2.length) {
+    return { flagged: true, arm: 'level2', nights: l2, nightsL1: l1,
+      // toFixed(1), because JS renders 3.0 as "3" and the sentence then cites a
+      // number the literature does not use. A cited threshold is quoted as cited.
+      why: 'a reading below ' + LOW_L2.toFixed(1) + ' mmol/L, the consensus level-2 value, on '
+        + l2.length + ' night' + (l2.length === 1 ? '' : 's') };
+  }
+  if (l1.length >= LOW_RECUR_NIGHTS) {
+    return { flagged: true, arm: 'recurrence', nights: l1, nightsL1: l1,
+      why: l1.length + ' nights with readings below ' + LOW_L1.toFixed(1) + ' mmol/L, the consensus level-1 alert value' };
+  }
+  return { flagged: false, arm: '', nights: [], nightsL1: l1,
+    why: l1.length ? ('one night below ' + LOW_L1.toFixed(1) + ' and none below ' + LOW_L2.toFixed(1)
+      + ' -- not enough to call a pattern') : '' };
+}
+function nightIsFlagged(eveningKey) {
+  const f = lowFlagState();
+  return f.flagged && f.nights.indexOf(String(eveningKey)) >= 0;
+}
+
+// ---- THE TWO SENTENCES, EACH IN ONE PLACE -----------------------------
+// Ruled E and F. They ride with EVERY low, because a safety sentence the user
+// has to go and find is a safety sentence that was not said -- and one copy per
+// surface is four chances for them to drift apart (D140, in words).
+const FINGERSTICK_WORDS = 'A CGM low should be confirmed with a fingerstick before you act on it.';
+const NO_ALARMS_WORDS = 'This is a look-back over readings already taken \u2014 it does not watch, '
+  + 'and it will never sound. The Dexcom app is the live safety tool.';
+
+// ---- THE SLEEP SIDE: A FLAG'S FOLLOW-UP, NEVER A DAILY QUESTION -------
+// Ruled C: asked ONLY when a suspect appears, never daily.
+//
+// AND RULING A REMOVED WHAT WOULD HAVE BEEN CALLED A SUSPECT. With the
+// compression label withheld -- correctly, the threshold cannot be measured yet --
+// 'a suspect appears' has no referent, so the trigger is THE LOW FLAG: it is the
+// thing that appeared, asking which side you slept on is a real follow-up to it,
+// and it needs no threshold that does not exist. Decided and flagged rather than
+// resolved silently, because it is a reading of two rulings rather than one.
+const SLEEP_SIDES = ['left', 'right', 'neither'];
+function logSleepSide(eveningKey, side) {
+  if (SLEEP_SIDES.indexOf(side) < 0) return { ok: false, error: 'Unknown side.' };
+  return addSignal({ type: 'sleep_side', date: String(eveningKey), time: '23:59',
+                     source: 'quick', variant: side });
+}
+// ---- H26's SURFACES -----------------------------------------------------
+function nightsWord(n) { return n + ' night' + (n === 1 ? '' : 's'); }
+// THE FIRST LINE STATES HOW MANY NIGHTS IT HAS (ruled). It is the figure that
+// stops *most days* being answered by two nights, one of which is flat.
+function nightPanelHTML() {
+  const keys = nightKeys();
+  if (!keys.length) return '';
+  let html = '<div class="nightp"><div class="nighthead">Nights</div>';
+  html += '<div class="nightn">From <b>' + esc(nightsWord(keys.length)) + '</b>'
+    + ' <small>a night is ' + esc(nightWindowWords()) + ', counted under the evening it starts</small></div>';
+  html += lowFlagHTML();
+  html += keys.slice().reverse().slice(0, 7).map(function (k) { return nightShapeHTML(k); }).join('');
+  return html + '</div>';
+}
+// THE SHAPE, AND NO LABEL (ruled A). Not gated on a flag: a description claims
+// nothing, so there is nothing to withhold.
+function nightShapeHTML(eveningKey) {
+  const sh = nightShape(eveningKey);
+  if (!sh.n) return '';
+  const u = sh.unit || '';
+  let html = '<div class="nightrow"><div class="nightdate">' + esc(fmtDateSmart(eveningKey))
+    + ' <small>' + esc(sh.n) + ' readings</small></div>';
+  html += '<div class="nightline">low <b>' + esc(rDisp(sh.lowest.v)) + ' ' + esc(u)
+    + '</b> at <b>' + esc(sh.lowest.at) + '</b>'
+    + ' \u00b7 high ' + esc(rDisp(sh.highest.v)) + ' ' + esc(u) + ' at ' + esc(sh.highest.at) + '</div>';
+  // The shape, stated as rates and a duration -- four facts, no verdict.
+  const bits = [];
+  if (sh.fallRate != null) bits.push('fell ' + esc(rDisp(sh.fallRate)) + ' ' + esc(u) + '/h into it');
+  if (sh.recoveryRate != null) bits.push('recovered ' + esc(rDisp(sh.recoveryRate)) + ' ' + esc(u) + '/h out');
+  if (sh.minutesBelowL1) bits.push(esc(sh.minutesBelowL1) + ' min below ' + LOW_L1.toFixed(1));
+  if (bits.length) html += '<div class="nightshape">' + bits.join(' \u00b7 ') + '</div>';
+  const lows = nightLows(eveningKey);
+  if (lows.length) {
+    html += '<div class="nightlows">' + esc(lows.length) + ' reading'
+      + (lows.length === 1 ? '' : 's') + ' below ' + LOW_L1.toFixed(1) + ': '
+      + lows.map(function (x) { return esc(rDisp(x.v)) + ' at ' + esc(x.at); }).join(', ') + '</div>';
+  }
+  html += sleepSideAskHTML(eveningKey);
+  return html + '</div>';
+}
+// THE FLAG. It flags; it never alerts -- and both sentences ride WITH it
+// (rulings E and F), because a safety sentence the user has to go and find is a
+// safety sentence that was not said.
+function lowFlagHTML() {
+  const f = lowFlagState();
+  if (!f.flagged) return '';
+  return '<div class="nightflag">'
+    + '<div class="nightflagw">Low readings overnight \u2014 ' + esc(f.why) + '.</div>'
+    + '<div class="nightflagn">' + esc(f.nights.map(fmtDateSmart).join(', ')) + '</div>'
+    + '<div class="nightsafe">' + esc(FINGERSTICK_WORDS) + '</div>'
+    + '<div class="nightsafe">' + esc(NO_ALARMS_WORDS) + '</div>'
+    + '<button type="button" class="btn nightsum" onclick="openClinicianSummary()">Prepare this for a clinician</button>'
+    + '</div>';
+}
+// RULED C: only behind a flag, never daily. With ruling A withholding the
+// compression label, THE FLAG IS THE TRIGGER -- see logSleepSide's note.
+function sleepSideAskHTML(eveningKey) {
+  if (!nightIsFlagged(eveningKey)) return '';
+  const got = sleepSideFor(eveningKey);
+  if (got) return '<div class="nightside">slept on: <b>' + esc(got) + '</b></div>';
+  return '<div class="nightside">Which side did you sleep on? '
+    + SLEEP_SIDES.map(function (sd) {
+        return '<button type="button" class="qbtn nightsidebtn" onclick="logSleepSide(\''
+          + esc(eveningKey) + '\', \'' + esc(sd) + '\')">' + esc(sd) + '</button>';
+      }).join('')
+    + '</div>';
+}
+function sleepSideFor(eveningKey) {
+  const day = (APP_STATE.timeline && APP_STATE.timeline[String(eveningKey)]) || [];
+  const rec = day.filter(function (e) { return e && e.type === 'sleep_side'; })[0];
+  return rec ? String(rec.variant || '') : '';
+}
+function sensorArmFor(eveningKey) {
+  // The arm in force on that night: the most recent sensor event at or before it.
+  const keys = Object.keys(APP_STATE.timeline || {}).filter(isDayKey).sort();
+  let arm = '';
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i] > String(eveningKey)) break;
+    (APP_STATE.timeline[keys[i]] || []).forEach(function (e) {
+      if (e && e.type === 'sensor' && e.variant) arm = String(e.variant);
+    });
+  }
+  return arm;
+}
+// ---- THE CLINICIAN SUMMARY: ON DEMAND, AT ANY TIME (ruled D) ----------
+// No threshold gates reaching it. With no lows it says so, which is itself the
+// useful thing to hand over.
+function clinicianSummaryHTML() {
+  const keys = nightKeys();
+  const f = lowFlagState();
+  let html = '<div class="clinsum"><div class="clinhead">For a clinician</div>';
+  html += '<div class="clinline">Readings cover <b>' + esc(nightsWord(keys.length))
+    + '</b>, each ' + esc(nightWindowWords()) + ' under the evening it starts.</div>';
+  const flagged = f.flagged ? f.nights : [];
+  const withLows = keys.filter(function (k) { return nightLows(k).length; });
+  if (!withLows.length) {
+    html += '<div class="clinline">No reading below ' + LOW_L1.toFixed(1) + ' mmol/L on any covered night.</div>';
+  } else {
+    html += '<div class="clinline">' + esc(withLows.length) + ' of ' + esc(keys.length)
+      + ' nights carry a reading below ' + LOW_L1.toFixed(1) + ' mmol/L'
+      + (f.flagged ? ' \u2014 flagged: ' + esc(f.why) : '') + '.</div>';
+    html += '<ul class="clinlist">' + withLows.slice().reverse().map(function (k) {
+      const sh = nightShape(k), lows = nightLows(k);
+      const arm = sensorArmFor(k), side = sleepSideFor(k);
+      // WHAT PRECEDED THEM, from what the log actually holds -- never inferred.
+      const before = nightPrecededBy(k);
+      return '<li><b>' + esc(k) + '</b> \u2014 lowest <b>' + esc(rDisp(sh.lowest.v))
+        + ' ' + esc(sh.unit) + '</b> at ' + esc(sh.lowest.at)
+        + ' \u00b7 ' + esc(sh.minutesBelowL1) + ' min below ' + LOW_L1
+        + ' \u00b7 ' + esc(lows.length) + ' reading' + (lows.length === 1 ? '' : 's') + ' below ' + LOW_L1
+        + (sh.fallRate != null ? ' \u00b7 fell ' + esc(rDisp(sh.fallRate)) + '/h' : '')
+        + (sh.recoveryRate != null ? ', recovered ' + esc(rDisp(sh.recoveryRate)) + '/h' : '')
+        + (arm ? ' \u00b7 sensor on the ' + esc(arm) : '')
+        + (side ? ' \u00b7 slept on the ' + esc(side) : '')
+        + (before ? ' \u00b7 ' + esc(before) : '')
+        + '</li>';
+    }).join('') + '</ul>';
+  }
+  html += '<div class="nightsafe">' + esc(FINGERSTICK_WORDS) + '</div>';
+  html += '<div class="nightsafe">' + esc(NO_ALARMS_WORDS) + '</div>';
+  return html + '</div>';
+}
+// WHAT PRECEDED A NIGHT, read from the log and never inferred. Alcohol is the
+// one the user named, and until resolved items carry slot 221 it comes from the
+// one-tap drink (ruled: resolved items replace it as coverage rises).
+function nightPrecededBy(eveningKey) {
+  const day = (APP_STATE.timeline && APP_STATE.timeline[String(eveningKey)]) || [];
+  const bits = [];
+  const drinks = day.filter(function (e) { return e && e.type === 'alcohol'; });
+  if (drinks.length) {
+    const kinds = {};
+    drinks.forEach(function (e) { if (e.variant) kinds[e.variant] = (kinds[e.variant] || 0) + 1; });
+    const words = Object.keys(kinds).map(function (k) { return kinds[k] + ' ' + k; });
+    bits.push('that evening: ' + (words.length ? words.join(', ') : drinks.length + ' drink(s)'));
+  }
+  const moved = day.filter(function (e) { return e && e.type === 'walk'; });
+  if (moved.length) bits.push('moved that day');
+  const woke = day.filter(function (e) { return e && e.type === 'woke'; });
+  if (woke.length) bits.push('woke ' + woke.length + ((woke.length === 1) ? ' time' : ' times'));
+  return bits.join(' \u00b7 ');
+}
+let CLIN_OPEN = false;
+function openClinicianSummary() { CLIN_OPEN = true; renderNights(); return { ok: true }; }
+function closeClinicianSummary() { CLIN_OPEN = false; renderNights(); return { ok: true }; }
+function clinicianOpen() { return CLIN_OPEN; }
+function renderNights() {
+  const el = document.getElementById('nights');
+  if (!el) return;
+  el.innerHTML = nightPanelHTML()
+    + (CLIN_OPEN ? clinicianSummaryHTML()
+         + '<button type="button" class="linklike" onclick="closeClinicianSummary()">close</button>'
+       : (nightKeys().length ? '<button type="button" class="linklike nightsumlink" onclick="openClinicianSummary()">Prepare this for a clinician</button>' : ''));
+}
 function glucoseLastMs() {
   const store = glucoseRead();
   const ks = Object.keys(store).sort();
@@ -7462,6 +7805,16 @@ function chartTimeTicks(from, to) {
 function hhmm(ms) {
   const d = new Date(ms);
   return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+// THE SAME MOMENT, PADDED, and the two exist on purpose. The chart axis wants
+// `3:00` because an axis is dense and the leading zero is noise there; a clock
+// time quoted in PROSE or listed in a clinician summary wants `03:00`, so a
+// column of times aligns and 03:06 cannot be misread beside 13:06. Named
+// separately rather than switched on a flag, because one function answering two
+// questions is D140's rename defect waiting to happen.
+function hhmmPad(ms) {
+  const d = new Date(ms);
+  return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 function timeChart(opts) {
   const o = opts || {};
@@ -9578,7 +9931,7 @@ function refresh() {
     try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
     AUTOCLOSE_BUSY = false;
   }
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -9720,6 +10073,7 @@ const VERSION_LOG = [
   { v: '0.65.0', d: '2026-10-05', note: 'Say what it actually was. Every identity question now carries one way out — “Something else” — which opens a search of the nutrition database: your own earlier choice first, then the closest rows, each with its calories beside your item’s. One tap sets the name and the match together. A name the database does not hold stands as you typed it, with no nutrition — the honest answer rather than a dead end.' },
   { v: '0.66.0', d: '2026-10-06', note: 'The Habits suggestions are gone. They offered generic advice because you had been logging for a week — not because anything in your own data called for it, which is the opposite of what this app is for. If suggestions come back they will come from your own readings, with a source. Nothing else changes and nothing logged is altered.' },
   { v: '0.67.0', d: '2026-10-07', note: 'What a meal did to your glucose. Open a meal to see the baseline before it, the rise after it, how long the peak took and how long the return took — with its coverage, and plainly marked when a sensor gap or a following meal cut the window short. Mark a meal as a test to compare the same food across days. And three one-tap events: moved, woke, and a drink.' },
+  { v: '0.68.0', d: '2026-10-07', note: 'Nights. A night runs 21:00 to 09:00 and is counted under the evening it starts, and the first line tells you how many nights there are. Each one shows its shape — the low and when, how fast it fell into it and recovered out, how long it stayed down — and nothing is labelled, because naming a cause needs more nights than exist. A low reading is FLAGGED, never alarmed: this is a look-back and the Dexcom app is the live safety tool, and a CGM low should be confirmed with a fingerstick. You can prepare the whole thing for a clinician at any time. Plus a one-tap New sensor, with which arm it is on.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15306,6 +15660,13 @@ window.HT = {
   mealEvents, mealEventNames, mealResponse, responseCoverage,
   toggleMealTest, testGroupKey, testGroups,
   QUICK_EVENTS, quickEvent, quickEventsHTML, renderQuickEvents,
+  // H26 -- night patterns
+  NIGHT_START_MIN, NIGHT_END_MIN, LOW_L1, LOW_L2, LOW_RECUR_NIGHTS, SLEEP_SIDES,
+  FINGERSTICK_WORDS, NO_ALARMS_WORDS, nightWindowWords, nightKeyFor, nightKeys,
+  nightCount, nightSeries, nightShape, nightLows, lowFlagState, nightIsFlagged,
+  nightShapeHTML, nightPanelHTML, lowFlagHTML, sleepSideAskHTML, logSleepSide, hhmmPad,
+  sleepSideFor, sensorArmFor, nightPrecededBy, clinicianSummaryHTML,
+  openClinicianSummary, closeClinicianSummary, clinicianOpen, renderNights,
   mealResponseHTML, mealTestHTML, responseCoverageHTML,
   glucoseToggle, glucoseIsOpen, glucoseCollapseAll, glucoseMixed, glucoseMarks,
   glucoseRowHTML, glucoseRedraw, glucoseWire, ageWords, GLUCOSE_DOMAIN, GLUCOSE_STEP_S,

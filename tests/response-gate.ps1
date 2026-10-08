@@ -424,9 +424,13 @@ window.__stage = 'start';
   O.surface.quickButtons = qbtns.length;
   O.surface.quickMinH = qbtns.length ? Math.min.apply(null, qbtns.map(b => Math.round(b.getBoundingClientRect().height))) : 0;
   O.surface.quickVisible = qbtns.length > 0 && qbtns.every(b => b.offsetParent !== null);
-  const drink = HT.QUICK_EVENTS.filter(q => q.variants && q.variants.length)[0];
-  O.surface.expectedButtons = HT.QUICK_EVENTS.filter(q => !q.variants).length
-    + (drink ? drink.variants.length : 0);
+  // DERIVED OVER EVERY KIND. The first version took the FIRST variant-bearing kind
+  // and added its variants -- correct while `drink` was the only one, and wrong the
+  // moment H26's `sensor` arrived with two of its own. A hand-computed expectation
+  // that happens to match one configuration is a pin on a coincidence.
+  O.surface.expectedButtons = HT.QUICK_EVENTS.reduce(function (n, q) {
+    return n + ((q.variants && q.variants.length) ? q.variants.length : 1);
+  }, 0);
 
   // the one-third figure, on the surface
   stage('surface-figure');
@@ -526,7 +530,13 @@ window.__stage = 'start';
   Chk ([int]$SF.clean -lt [int]$SF.total) "every meal in a fixture built with gaps, a follower and a thin baseline reported CLEAN ($($SF.clean) of $($SF.total)) -- this fixture cannot show the number it exists to report (D96)"
 
   # --- ONE MECHANISM, THREE KINDS ------------------------------------------
-  Chk (($Q.declared -join ',') -eq 'drink,moved,woke' -or ($Q.declared -join ',') -eq 'moved,woke,drink') "QUICK_EVENTS declares '$($Q.declared -join ',')' -- the ruling is one mechanism with exactly three kinds: moved, woke, drink"
+  # RE-PINNED 3 -> 4 ON PURPOSE (H26). The ruling was "one mechanism, three event
+  # kinds"; H26's sensor arm then joined the SAME mechanism as a fourth rather than
+  # getting one of its own, which is what building the mechanism once was for. The
+  # census is ORDER-FREE and pinned by SET, so a fifth kind fails here and has to be
+  # added deliberately.
+  $declared = ($Q.declared | Sort-Object) -join ','
+  Chk ($declared -eq 'drink,moved,sensor,woke') "QUICK_EVENTS declares '$declared' -- the pinned set is drink, moved, sensor, woke. A new kind fails here on purpose: add it, and say why"
   Chk ($Q.ok -eq $true) "not every one-tap event reported ok"
   Chk ($Q.added -eq 3) "three taps produced $($Q.added) timeline record(s)"
   Chk (($Q.types -join ',') -eq 'alcohol,walk,woke') "the three taps landed as types '$($Q.types -join ',')' -- moved is a walk, woke is its own type, drink is alcohol"
