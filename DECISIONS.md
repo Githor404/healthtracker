@@ -11287,6 +11287,11 @@ machine — the gitignored private directory holds the Apple Health export,
 `glucose.csv` and the two corpus archives, and no app export.
 What H24's own measurement already bounds it to:
 
+> **CORRECTED 2026-10-09 — this bound is about the PC SNAPSHOT, not the device.**
+> The export it was read from ends 2026-09-26 and predates the sensor, so it cannot
+> speak to overlap at all; see [[R159.1]]. As written below it was reported without
+> that qualifier.
+>
 > **n ≤ 4.** Only **4 of 62** items in the measured log carry a matched row, so the
 > intersection cannot exceed 4 however many windows are clean. **The binding
 > constraint is the match rate, not the schema** — which is the correction this
@@ -11859,24 +11864,44 @@ match, and the screen must say that rather than imply numbers it cannot scale.
 > biometrics group. The **Breakfast** header reads “—” on **all forty days**. The
 > **“1 drink” chip** has one day of evidence in the entire log.
 
-### 5. THE GLUCOSE LINE CANNOT RENDER FOR ANY MEAL THAT EXISTS
+### 5. THE PC COPY PREDATES THE SENSOR — CORRECTED ON THE USER'S INSTRUCTION
+
+**What I measured, and what I wrongly concluded from it.** On the files on this
+machine:
 
 | | |
 |---|---|
-| days with food | **16** |
-| days with glucose | **3** (2026-09-30 .. 10-02) |
-| **days with both** | **0** |
+| days with food in `export.json` | **16**, ending **2026-09-26** |
+| days with glucose | **3**, starting **2026-09-30** |
+| days with both, in these files | **0** |
 
-And the **514 MB Apple Health export holds only those same 451 readings across those
-same 3 days** — streamed and counted, so `glucose.csv` is the entire glucose history
-available, not a sample of a larger one.
+I recorded that as *“the glucose line cannot render for any meal that exists”* and
+as a correction putting H29's minimum-n at **0**. **Both were wrong.**
 
-> **THIS CORRECTS WHAT I TOLD THE USER AFTER [[H24]].** I reported the test-point
-> ceiling as *n ≤ 4, bounded by the match rate*. **The real bound is 0, and the
-> binding constraint is not matching — it is that no day has both food and CGM.**
-> `potentialCeiling()` returns 0 on this log, and it was right; my framing of why
-> was wrong. The lever for H29 is **logging food on a day the sensor is running**,
-> which no amount of resolving reaches.
+> **The user has logged meals on the phone since the sensor started on 09-30, and
+> [[H25]]'s “after this meal” surface shows responses there.** The overlap exists.
+> **`export.json` was written 2026-09-26 — four days before the sensor started — so
+> this machine cannot see a single day that would overlap.** The snapshot does not
+> contain the answer, and absence in it is not absence.
+
+**SAME ERROR CLASS AS THE ORPHAN COUNT, in the user's own words: reasoned from the
+data at hand instead of the data that exists.** There, an orphan pattern matched 8
+of 24 prefixes and “0 orphans” was reported repeatedly. Here, a snapshot predates
+the thing being looked for and “0 overlapping days” was reported. **Both
+measurements were accurate about their input and wrong about their subject, and in
+both the instrument's REACH is what went unmeasured.**
+
+**What the files here can and cannot support:**
+
+| claim | status |
+|---|---|
+| the frequency, portion and meal-shape numbers above | **stand** — they are about logged food, and the log is what this file holds |
+| anything about glucose overlap, response availability, or H29's n | **cannot be measured here at all** — device reading only |
+| [[H24]]'s *n ≤ 4* | was also only ever about **this snapshot's** 4 matched items, and was reported without that qualifier |
+
+So the glucose line is built because **the data for it exists** — on the phone. What
+this machine proves is nothing either way, and a fresh export is the only thing
+that would change that.
 
 ### 6. R138 IS A RESUME DEFECT, NOT A BOOT ONE
 
@@ -11925,9 +11950,10 @@ of 40 days and a Breakfast header empty on all 40.
 | **D3 (recommended)** | the meals that have items, and the empties **collapsed into one muted line** (*Breakfast · Snack — nothing logged*) — keeps the four-meal frame legible without four dashes |
 
 **E — the glucose line.** Recommended: **build it, render it only when a response
-exists, and gate the ABSENT case** so the header is whole without it. It will not
-appear on any day in this log. Recorded as evidence, not as a reason to skip it:
-the data arrives the first day food and sensor overlap.
+exists, and gate the ABSENT case** so the header is whole without it. **Corrected:**
+the first draft of this fork said it would never appear — that was read off a
+snapshot that predates the sensor. On the device the responses are already there,
+so the absent case is the one that needs gating for **past** days, not the present.
 
 **F — R138's fix.** Recommended: **on becoming visible, if `localDate()` differs
 from `APP_STATE.current`, re-run `ensureCurrentDay` and re-render.** Rejected: a
@@ -11946,3 +11972,44 @@ sub-fork**, because it decides where an item lands.
 
 **What is NOT in question:** the 16px floor ([[D100]]), 44px targets, the chronological
 log underneath (this is a view), and that `flow-gate` and `layout` gates hold.
+
+### RULINGS (user, 2026-10-09)
+
+**The correction came first and is recorded in section 5 above, not here** — the
+overlap is not zero; this machine's copy predates the sensor.
+
+| fork | ruling |
+|---|---|
+| **D** | **collapse the empty meals into ONE muted line** (*“No breakfast or snack logged”*), **tappable to add to that meal**. Meals with items get headers. *“I eat in a window; four fixed headers would be mostly dashes.”* |
+| **F** | **a draft lands on the day it was STARTED, never retargeted when the date flips** |
+| **A** | **a frequency count names what it counted** |
+| **ref.g** | **scale when present; drop the match (with the existing note) when absent** |
+| **R138** | **fix on resume** — `visibilitychange` re-checks the calendar day |
+| B, C, E | as recommended |
+
+### THE THREE DESIGN POINTS THE RULINGS LEAVE OPEN, DECIDED AND STATED
+
+Taken under *“other forks as recommended”*, because each is a consequence of a
+ruling rather than a new question — and each is stated so it can be overturned
+cheaply:
+
+**1. A meal KIND can hold several EVENTS, and [[H25]]'s response is per EVENT.** The
+mockup puts the response on the *Lunch* header, but `mealResponse` keys on `mealId`
+and a lunch can be two sittings. **Decided: the header carries the line only when
+the kind holds exactly ONE event with a response; with more than one it says how
+many responses there are and the expanded view carries them individually.** A
+single line summarising two different meals' glucose would be an average nobody
+ate.
+
+**2. [[D146]] and ruling D agree, and the muted line is the shape that satisfies both.**
+*A day with no readings draws no row* argued for dropping the empties entirely;
+the ruling keeps one line for all of them. That line is **not a row per meal** — it
+is one row naming the absent kinds, which is what makes it a statement rather than
+four dashes.
+
+**3. The quick-add list counts by `matchKey` and therefore names what it counted.**
+One row can span two spellings (measured: five such merges on this log, one of them
+across *with beef* / *without*). So the row shows the count AND the names behind
+it, and **the portion and numbers come from ONE chosen item** — never an average
+across the merged names, which would be a figure from no meal at all.
+
