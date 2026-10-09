@@ -166,6 +166,10 @@ try {
   function shut() { if (sheetOpen()) HT.closeSheet(); }
 
   HT.boot();
+  // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
+  // does not exist until its group is tapped. This gate sweeps those rows, so it
+  // opens them -- once, with the sticky seam, which keeps later seeding swept too.
+  if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
   HT.byokPatch({ provider: 'grok', key: 'xai-flowgatestub00000000000000',
                  status: { state: 'verified', at: '', message: '' } });
   const today = HT.localDate();
@@ -214,11 +218,16 @@ try {
   // ---- JOURNEY 1: I eat something -> logged -> I see my day ---------------
   taps = 0;
   const n1 = (HT.state().days[today].items || []).length;
-  // D130: the quick-add row goes straight to the form. The FAB is unchanged and
-  // still works; what changed is that reaching the right mode is no longer a tap.
-  const qFood = byText('.qadd .qab', /^Food$/i);
-  out.rowPresent = !!qFood;
-  tap(qFood, 'Food (quick-add row)');
+  // R159.1/A4: the five-badge row is RULED AWAY (it duplicated the meal headers),
+  // so reaching the manual form is a tap again -- the tap D130/H16 had bought.
+  // Recorded as a COST, not re-pinned quietly: the FAB opens on `scan`, so the
+  // mode is one more tap. Both controls still exist; the journey is one longer.
+  out.rowPresent = !!document.querySelector('#dayView .dact .qa10');
+  out.camPresent = !!document.querySelector('#dayView .dact .dcam');
+  out.badgesGone = !document.querySelector('#dayView .qab');
+  tap(document.getElementById('fab'), 'the FAB');
+  await sleep(200);
+  tap(document.getElementById('mode-manual'), 'Manual (sheet tab)');
   await sleep(220);
   document.getElementById('maName').value = 'Greek yogurt';
   document.getElementById('maKcal').value = '120';
@@ -234,10 +243,52 @@ try {
   out.j1.sheetClosed = !sheetOpen();
   shut();
 
+  // ---- JOURNEY 1b: a food I ALREADY LOG -> logged, with no typing ---------
+  // The path the ruling makes primary, and the reason the row could go. Measured
+  // on the real log: what a person logs is mostly what they have logged before.
+  taps = 0;
+  const n1b = (HT.state().days[HT.state().current].items || []).length;
+  const typed1b = 0;
+  window.__clickErr = [];
+  window.addEventListener('error', function (e) {
+    window.__clickErr.push(String(e.message || e) + ' @ ' + (e.lineno || '?'));
+  });
+  tap(document.querySelector('#dayView .dact .qa10'), 'Quick add - top 10');
+  await sleep(300);
+  const qr = document.querySelector('.qfrow');
+  out.j1b = { rowOffered: !!qr };
+  if (qr) { tap(qr, 'the food row'); await sleep(250); }
+  out.j1b.sheetMode = String(HT.sheetMode ? HT.sheetMode() : '?');
+  out.j1b.chips = (document.getElementById('quickChips') || {}).innerHTML || '';
+  out.j1b.chipLen = out.j1b.chips.length;
+  out.j1b.chips = out.j1b.chips.slice(0, 220);
+  out.j1b.hasStep = !!document.querySelector('.qstep');
+  out.j1b.clickErr = (window.__clickErr || []).join(' | ').slice(0, 300);
+  // Call the handler DIRECTLY and keep its answer. A handler that returns
+  // {ok:false} looks identical from outside to one that never ran.
+  out.j1b.fnType = typeof window.quickPickAt;
+  out.j1b.freq = JSON.stringify((HT.foodFrequency() || []).map(function (f) {
+    return { k: f.key, n: f.n }; })).slice(0, 180);
+  out.j1b.rowHTML = String((qr && qr.outerHTML) || '').slice(0, 120);
+  out.j1b.planAfterClick = JSON.stringify(HT.quickPlan ? HT.quickPlan() : 'no-api');
+  out.j1b.paneOn = !!(document.getElementById('pane-quick') || {}).classList
+    && document.getElementById('pane-quick').classList.contains('on');
+  const qlog = document.querySelector('.qlog');  out.j1b.logOffered = !!qlog;
+  out.j1b.logSaysCal = !!(qlog && /\d/.test(qlog.textContent || ''));
+  if (qlog) { tap(qlog, 'Log N cal'); await sleep(300); }
+  out.j1b.taps = taps;
+  out.j1b.typed = typed1b;
+  out.j1b.logged = (HT.state().days[HT.state().current].items || []).length > n1b;
+  out.j1b.sheetClosed = !sheetOpen();
+  shut();
+
   // ---- JOURNEY 2: a dose -> logged -> on the timeline ---------------------
   taps = 0;
-  const qDose = byText('.qadd .qab', /^Dose$/i);
-  tap(qDose, 'Dose (quick-add row)');
+  // The Dose badge is ruled away with the rest of the row. The footer link is in
+  // EVERY sheet mode, so nothing is stranded -- but it is one tap further.
+  tap(document.getElementById('fab'), 'the FAB');
+  await sleep(200);
+  tap(byText('.sheetfoot .linklike', /^Log a dose I took$/i), 'Log a dose I took');
   await sleep(250);
   document.getElementById('medName').value = 'Metformin';
   tap(byText('#pane-med button', /^Log this dose$/i), 'Log this dose');
@@ -372,15 +423,29 @@ try {
   if (-not $J.j0void.backEnabled) { $fails += "J0: both arrows were disabled on an unlogged day -- the thumb is stranded where the jump left it" }
   if (-not $J.historyTappable) { $fails += "J0: the history rows are inert -- the date picker cannot say which days have data, which is why they are the second route" }
 
-  if (-not $J.rowPresent) { $fails += "J1: there is no quick-add row, so the day does not name what can go in it" }
-  if (-not $J.j1Mode) { $fails += "J1: the row's Food target did not open the MANUAL form -- a hidden pane still answers, so the taps alone cannot see this" }
-  if (-not $J.j2Mode) { $fails += "J2: the row's Dose target did not open the DOSE form" }
-  if ($J.j1.taps -ne 3 -or -not $J.j1.logged) {
-    $fails += "J1: eat -> logged -> see my day took $($J.j1.taps) taps (pinned 3; it was 4 before the quick-add row)" }
+  # R159.1/A4: the five-badge row is ruled away and replaced by the top-10 quick
+  # add plus the camera. The row's own assertions become the REPLACEMENT's.
+  if (-not $J.rowPresent) { $fails += "J1: there is no top-10 quick-add button on the day, so the ruled action row is not there" }
+  if (-not $J.camPresent) { $fails += "J1: there is no camera button beside it" }
+  if (-not $J.badgesGone) { $fails += "J1: the Food/Dose/Biometric/Fast/Note badges are STILL on the day -- ruled away, because they duplicated the meal headers" }
+  if (-not $J.j1Mode) { $fails += "J1: the sheet did not land on the MANUAL form -- a hidden pane still answers, so the taps alone cannot see this" }
+  if (-not $J.j2Mode) { $fails += "J2: the footer link did not open the DOSE form" }
+  if ($J.j1.taps -ne 4 -or -not $J.j1.logged) {
+    $fails += "J1: eat -> logged -> see my day took $($J.j1.taps) taps for a NOVEL food (RE-PINNED 4 by R159.1/A4: the badge row that bought this tap is ruled away because it duplicated the meal headers; it was 3 with the row and 4 before it)" }
   if (-not $J.j1.offered) { $fails += "J1: nothing was offered after the add -- the sheet stays open and the x is a dismiss, not a destination" }
   if (-not $J.j1.sheetClosed) { $fails += "J1: the offer did not land on the day" }
 
-  if ($J.j2.taps -ne 3) { $fails += "J2: a dose -> on the timeline took $($J.j2.taps) taps (pinned 3; it was 4)" }
+  if ($J.j2.taps -ne 4) { $fails += "J2: a dose -> on the timeline took $($J.j2.taps) taps (RE-PINNED 4 by R159.1/A4 with the Dose badge; the footer link is in every sheet mode, so the path is one tap longer and never lost)" }
+  # AND THE PATH THE RULING ADDS. Recording only the regression would be half the
+  # measurement: for a food already in the log this is three taps and NO typing,
+  # where the old row was three taps and a name and a number typed by hand.
+  if (-not $J.j1b.rowOffered) { $fails += "J1b: the quick-add sheet offered no food row, so the ruled primary path could not be measured" }
+  if (-not $J.j1b.logOffered) { $fails += "J1b: tapping the row offered no log button -- mode=$($J.j1b.sheetMode) step=$($J.j1b.hasStep) chipLen=$($J.j1b.chipLen) handlerError=[$($J.j1b.clickErr)] fn=$($J.j1b.fnType) paneOn=$($J.j1b.paneOn) planAfterClick=$($J.j1b.planAfterClick) freq=$($J.j1b.freq) row=$($J.j1b.rowHTML) chips=$($J.j1b.chips)" }
+  if (-not $J.j1b.logSaysCal) { $fails += "J1b: the log button does not state the calories it will log" }
+  if ($J.j1b.taps -ne 3) { $fails += "J1b: a REPEATED food took $($J.j1b.taps) taps (pinned 3 -- Quick add, the row, Log N cal)" }
+  if ($J.j1b.typed -ne 0) { $fails += "J1b: the repeat path required typing ($($J.j1b.typed) fields) -- its whole advantage over the manual form is that it asks for nothing" }
+  if (-not $J.j1b.logged) { $fails += "J1b: three taps did not actually log anything" }
+  if (-not $J.j1b.sheetClosed) { $fails += "J1b: the sheet stayed open after logging -- the day is the destination" }
   if (-not $J.j2.offered) { $fails += "J2: nothing was offered after the dose -- measured, the timeline is 1.8 screens below the fold" }
   if (-not $J.j2.rowIdentified) { $fails += "J2: the timeline row carries no record id, so the ending cannot find THIS dose" }
   if (-not $J.j2.rowInView) { $fails += "J2: the offer did not bring the dose into view -- the outcome is still unseen" }

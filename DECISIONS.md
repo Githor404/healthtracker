@@ -12435,3 +12435,197 @@ does not exist:**
 **VERIFIED:** harness **2643/2643** (pin exact, 2638 → 2643 with the delta stated),
 `ring-size` PASS, `font-floor` PASS (1,438 elements), `page-overflow` PASS, `jargon`
 PASS (519 strings, 15 screens), and all nine static legs PASS.
+
+## R159.1/A4 — BUILT: the day as the meals that happened (2026-10-09, v0.76.0)
+
+Screens 2 and 3 of the approved mockup. One collapsed header per meal kind that
+HAS items; the empty kinds collapse into one muted line that names them and is
+tappable per meal; a group opens in place, chronologically, with its macros; a
+drink stays inside the meal it came with and says so; a kind with ONE event may
+carry its glucose response in one plain line and a kind with TWO may not;
+Biometrics is its own group with a one-line summary; the Food/Dose/Biometric/
+Fast/Note badges are gone; and the quick-add sheet lists the ten foods the user
+repeats most, with the portion they last chose and the spellings it counted.
+
+**Gated by `landing-gate.ps1` (the 30th gate), 90 checks, PASS.** Harness
+**2644/2644**.
+
+### THE MEASUREMENTS THIS WAS BUILT ON
+
+| measured on the real log | consequence |
+|---|---|
+| 24 of 40 days hold no items; **no** day has breakfast AND lunch AND dinner; breakfast appears **0** times ever | ruling D: only kinds with items get headers |
+| 10 foods repeat under `matchKey`, **7** under the exact name | the frequency key is the match key |
+| the key merges five pairs of names, one across “with beef” / “without” ([[D137]]) | ruling A: the row NAMES what it counted |
+| **8 of 10** repeats are at a different portion; the top one spans 120-390 g | the portion is the MOST RECENT, labelled — never an average |
+| `ref.g` is on **zero** of 55 items | every portion change drops the match today, so the screen must say so |
+
+### A DEFECT FROM A3, ALREADY DEPLOYED, AND MY OWN GATE WORDED THE REASON
+
+`renderQuickChips` computed `const left = quickLeftoversHTML();` and **never used
+it** — every branch assigned `el.innerHTML` from something else. So A3's ruled
+move (the leftovers list leaves the day for the sheet, the day keeps one quiet
+line) half-shipped: the line was there, the destination was empty.
+
+> The A3 assertion I wrote for exactly this said *“a count that linked to an empty
+> surface would ask without answering”* — and it tested
+> `HT.quickLeftoversHTML()`, the PRODUCER, instead of the rendered sheet. **An
+> unused local is invisible to a test that calls the function the local came
+> from.** The assertion named the right failure and then looked somewhere it could
+> not occur.
+
+### SIX ASSERTIONS THAT COULD NOT FAIL, THREE OF THEM MINE FROM HOURS EARLIER
+
+The gate was drafted and parked before its subject existed. Re-read against the
+code, it asked for things that were already true:
+
+| | |
+|---|---|
+| it required `HT.quickLog` to be a function | **`quickLog(id)` already existed** as the preset logger. The ruling (“name it distinctly from quickLog”) is precisely because a second definition silently wins ([[D159]]) — so the existence check would have passed on day one, measuring the old function. The ruled **distinctness** is now the assertion. |
+| it counted badges as `.dkinds, .daybadge, .dbadge` | **none of those exist anywhere in this repo.** `badges -eq 0` was true before a line was written. The row the user means is `.qab`. Now counted by class AND by the rendered WORDS, with the replacement required present. |
+| `$BIO.fn -ne '' -and $BIO.fn -ne 'null'` | the probe only set the property inside `if (typeof ... === 'function')`, so it was **absent** — and `$null -ne ''` is true. The third time this shape has passed an unbuilt thing here, after `[double]$null` and the PowerShell case-fold. |
+| `onLunchHead` | **measured and never asserted.** Only dinner's refusal was checked, so a build that rendered no response line anywhere would have passed. |
+| dinner's refusal | the fixture seeded **no glucose at all**, so dinner carried no line because there was nothing to say. **A refusal indistinguishable from an absence measures nothing.** The fixture now carries a real stream around lunch's one event and both dinner sittings. |
+| the `ref.g` branch, as `(hasRef) -or (lostNote)` | an **`-or` over the two opposite outcomes passes on either one.** Both ruled branches are now separate, with a fixture for each: a match with no basis must DROP and say so; a match WITH a basis must survive, re-expressed, and report the NEW grams. |
+
+> **A gate written before its subject exists is written against an imagined
+> surface.** Every one of these was an honest guess about names and shapes, and
+> three were already satisfied by a repo that did none of the work. Parking a
+> gate keeps it out of the census; it does not keep it true.
+
+### AND THE ONE I WROTE DURING THIS SLICE
+
+The order assertion added in A3 (`dfigcov` above `goalcell`) **failed on the real
+surface**, because the R31 fixture configures no goals and there were no goal
+cells to be above. The planted reversal proved the test could FAIL and said
+nothing about whether it could PASS.
+
+> **A plant proves an assertion can fail. Only a fixture proves it can pass.**
+
+### THE ABORT: ONE BAD REFERENCE CANCELLED 568 ASSERTIONS
+
+`HT.QUICK_ADD.map(...)` threw once the constant went with the row, and because
+the harness is synchronous the uncaught TypeError **aborted the suite**: executed
+2,075 against a pin of 2,643. The failure list below it was noise — those cases
+had not run.
+
+> Same shape as the apostrophe in a changelog note that once made the harness
+> execute 0 of 2,631 and report only “HT is not defined”. **In a synchronous
+> suite the first job is to find the abort, never to read the failure list.**
+
+### THE ROWS WENT BEHIND A TAP, AND 13 ASSERTIONS WERE READING AIR
+
+An item row now renders only inside an **open** group, so every case that read
+`#dayView .mitem` was reading a surface that no longer exists until tapped — escaping checks (G5, OF5) and the whole `R23-ui` block.
+
+Fixed in **one place**: `expandRows`, the helper those cases already share, now
+opens the groups first. Three sites that read rows without it got an explicit
+`openGroups()`. The distinction matters and is preserved: **opening a GROUP is
+not expanding a ROW**, so `R23-ui`'s assertion that a collapsed row offers no
+edit control still measures what it always did.
+
+### AND THAT FORCED A DESIGN DECISION WORTH NAMING
+
+The groups were built as a **single-open accordion**, which made the day's rows
+unreachable in bulk. The ruling says a group *“opens in place”* and *“Other
+groups stay collapsed”* — which an accordion satisfies, and so does **independent
+toggling**, because the others start collapsed and opening one never opens
+another. Independent is the better reading: an accordion forbids comparing lunch
+against dinner without re-tapping each time, and the sentence it was obeying was
+describing what tapping one group does to the others, not how many may be open.
+The gate's assertion is unchanged and still exact: after tapping lunch, **one**
+body is open and it is lunch's.
+
+### A LATENT TRAP IN `buildRepeatItem`, AND A PRE-EXISTING OVERFLOW
+
+**`buildRepeatItem(src, time, from, grams)` re-expresses the MATCH for a new
+portion and leaves the item's own macros at the source portion.** Correct for its
+only existing caller — `logRepeat` never passes `grams` at all — and a trap for the
+second caller. `quickAddLog` scales them explicitly, or two portions would enter
+the day as one.
+
+**`.gsub .gage` had `flex:0 0 auto`**, which cannot shrink, and the span is not
+the short “8 h ago” the rule assumed — it always reads *“last reading this day —
+<age>”. At 360px that exceeds the row, and it pushed the document **2px**
+sideways on any day whose age string ran long. `page-overflow-gate` never saw it
+because its fixture holds one glucose row with a short age. Found because this
+gate's new instrument **names the offending element**, its ancestry and its text
+rather than reporting a number: `span.gage +2px in [gsub < grow < DIV]`.
+
+### WHAT WAS CHECKED BEFORE BEING REMOVED
+
+**The five badges' paths all survive**, verified rather than assumed: Food → the sheet's Manual tab; Dose → “Log a dose I took”; Biometric → “Log event
+or biometric”; Note → the same with type `other`. **Fast created nothing at
+all** — `quickAddFast` only flashed `#fastCandidates` or toasted that there was
+nothing to confirm, and A3 left the live path on the gap line → `focusPendingResolve()`.
+
+**The Timeline card lost its card, not its tenants.** It also hosted
+`#quickEvents` and `#fastCandidates`, and the comment inside it records H25/H26
+putting the one-tap events on the MAIN SURFACE deliberately. Deleting the card
+wholesale would have retired a ruled surface by accident, so all three divs moved
+into the day's own card and the chronological list became the ruled toggle.
+
+### AND A CSS CLASS COLLISION — [[D159]]'s TRAP, IN THE OTHER LANGUAGE
+
+The quick-add food row was given `class="qrow"`. **`.qrow` was already taken** —
+the one-tap events row uses it, and so does a lab label row — and the new rule
+came later in the cascade, so it restyled both.
+
+> **The one you styled was not the only one you styled.**
+
+**And it corrupted the instrument pointed at it.** `landing-gate`'s assertion that
+*“the sheet lists at least three rows”* counted `.qrow`, which now matched the
+foreign rows too — so a count of FOOD rows was passing on elements from another
+surface. A name collision does not only break what you wrote; **it inflates
+whatever counts it.**
+
+It surfaced only because `flow-gate` tapped `document.querySelector('.qrow')`, got
+a plain `<div>` with no handler, and clicking it did nothing at all. **A silent
+no-op, and it took four rounds of diagnostics to name** — the first three said only
+that the stepper had not appeared.
+
+> And one of those rounds **made the gate pass on work the instrument did**: a
+> diagnostic that called `quickPickAt(0)` directly completed the very step the
+> journey was timing, and flow-gate went green. An instrument that performs the
+> action it measures reports the action, not the app. Removed, and the finding
+> came back.
+
+### THE CHECK TOOK THREE DRAFTS, AND EACH MISSED THE BUG IT WAS WRITTEN FOR
+
+| draft | why it passed on the real collision |
+|---|---|
+| *a newly EMITTED class must not already be styled* | `.qrow` **was not new to the markup** — HEAD already emitted it. What was new was a second RULE. |
+| *no class may have two bare `^.name{` rules* | the stylesheet has **mixed indentation**: the old `.qrow{` is indented two spaces, mine sat at column zero. The extractor saw **89 of 480** rules and called the tree clean. |
+| *brace-depth parse, comments left in* | a **`/* ... */` sits directly above the old `.qrow` rule**. The selector buffer is the text since the last `}`, so the comment landed in front of the selector and the match failed. It hid **68** rules, and the one that mattered. |
+
+> **I wrote a detector for the bug I remembered rather than the bug I had — three
+> times. And twice the detector's own COVERAGE was the defect, which is the
+> failure mode that reads exactly like a clean result.**
+
+The floor caught the second draft on its own terms: it asserted 200 rules when
+the extractor found 89, so the gate failed on a clean tree **because the bar was
+invented rather than measured**. The floor is derived from the count now (512
+measured, floor 350), which is what the function floors in the same file already
+say they are for.
+
+**`tests/class_dupes.py` is the fourth draft, and it is proved against the real
+bug**: with `.qrow` planted back it fails by name. It carries a **manifest** of the
+19 classes that legitimately have two top-level blocks (a base rule and a modifier
+written apart), because “no duplicates” is not true of this stylesheet and a check
+that demanded it would have had to be negotiated down until it passed — which is
+how a bar becomes decoration. Removing a manifest entry fails too, so the list
+cannot rot into things that stopped being true.
+
+### ONE RULING SUPERSEDED, AND IT IS THE USER'S TO CONFIRM
+
+**E1's recency strip is UNMOUNTED, not deleted.** E1 chose recency over frequency
+*explicitly* and said why: *“the user's log is not in this repo, so a blend could
+not be measured against real data, and [[D119]] is the standing lesson that an
+unmeasured ranking is worth nothing.”* **That reason has expired** — the log has
+now been measured (10 repeats under the key, 7 under the name) — and the ruled
+sheet lists “my 10 most FREQUENT foods”. Two overlapping lists of the same foods
+on one sheet is the duplication this redesign removes.
+
+> But **E1 was a ruling**, so reversing it is not mine to do silently.
+> `repeatChipsHTML` and `logRepeat` are kept with a comment saying they are
+> unmounted and why; remounting is one line. **Raised for a ruling.**

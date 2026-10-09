@@ -104,6 +104,20 @@ if [ "$TOTAL_VAR" -lt 150 ]; then
   say_fail "only $TOTAL_VAR top-level const/let were found -- same rot, other extractor"
 fi
 
+# ---- ONE CLASS, ONE RULE BLOCK (the same trap, in CSS) ------------------
+#
+# R159.1/A4 introduced a `.qrow` for the quick-add food row. `.qrow` was ALREADY
+# TAKEN -- the one-tap events row and a lab label row both use it -- and the new
+# rule came later in the cascade, so it silently restyled both. And it inflated
+# the gate pointed at it: "the sheet lists at least three rows" counted `.qrow`,
+# which now matched the foreign rows too.
+#
+# In PYTHON, not bash, because the signal needs a brace-depth parse with CSS
+# comments stripped -- and because two bash drafts of this check passed on the
+# very bug it exists to catch. tests/class_dupes.py carries the full story,
+# including both near misses and the manifest of pairs that are deliberate.
+if command -v python >/dev/null 2>&1; then PY=python; else PY=python3; fi
+if ! "$PY" tests/class_dupes.py index.html; then FAILED=1; fi
 if [ "$FAILED" -ne 0 ]; then
   echo "GATE: FAIL"
   exit 1

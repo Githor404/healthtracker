@@ -67,7 +67,18 @@ window.setLS({});
   // a helper that quietly did nothing would hand all eleven assertions a pass over
   // a surface they never read. Expanding is also the state the user reads these
   // words in, so it is the right state to assert.
+  // R159.1/A4: THE ROWS ARE BEHIND A TAP NOW. The day renders one collapsed
+  // header per meal kind, and an item row exists only inside an OPEN group -- so
+  // every assertion that reads a row had to either tap first or read nothing. It
+  // is done HERE, in the helper the row-reading cases already share, for the same
+  // reason the helper exists at all: expanding is the state the user reads these
+  // words in, so it is the state to assert them in.
+  var openGroups = function(){
+    var r = HT.dayGroupsOpenAll();
+    return (r && r.openKinds) ? r.openKinds.length : 0;
+  };
   var expandRows = function(){
+    openGroups();
     var total = document.querySelectorAll('#dayView .mitem').length;
     for (var i = 0; i < total; i++) {
       var row = document.querySelectorAll('#dayView .mitem')[i];
@@ -408,6 +419,8 @@ window.setLS({});
   setLS({}); HT.boot();
   HT.state().days[td].items.push({ name:'<img src=x onerror=alert(1)>', meal:'snack', time:'', kcal:1, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' });
   HT.refresh();
+  openGroups();   // R159.1/A4: an item row renders only inside an OPEN group.
+                  // Opening the GROUP is not expanding the ROW -- rows stay collapsed.
   var dv = document.getElementById('dayView').innerHTML;
   res(dv.indexOf('<img src=x') === -1 && dv.indexOf('&lt;img') >= 0, 'G5: hostile item name escaped in day view');
 
@@ -756,6 +769,8 @@ window.setLS({});
   var recH = HT.mapOffProduct({status:1,product:{product_name:'<img src=x onerror=alert(1)>',nutriments:{'energy-kcal_100g':-50,'iron_100g':-1,'iron_unit':'g'}}}, '80000001');
   res(recH.per100.kcal===0 && recH.micros.iron_mg===0, 'OF5: negative kcal + micro clamped to 0');
   setLS({}); HT.boot(); HT.logScanItem(recH, 'per_100g', 100, 'snack'); HT.refresh();
+  openGroups();   // R159.1/A4: an item row renders only inside an OPEN group.
+                  // Opening the GROUP is not expanding the ROW -- rows stay collapsed.
   var dvHTML = document.getElementById('dayView').innerHTML;
   res(dvHTML.indexOf('<img src=x')<0 && dvHTML.indexOf('&lt;img')>=0, 'OF5: hostile product name escaped in day view');
 
@@ -7261,6 +7276,8 @@ window.setLS({});
   var dkU = HT.state().current;
   HT.addManualEntry({ name: 'Toast', meal: 'breakfast', time: '08:00', kcal: 200 });
   HT.state().current = dkU; HT.itemCollapseAll(); HT.renderDay();
+  openGroups();   // R159.1/A4: an item row renders only inside an OPEN group.
+                  // Opening the GROUP is not expanding the ROW -- rows stay collapsed.
   // D144 RE-POINTED, carrying its history: `.mmain` is gone and the row body is
   // `.mhead`, which EXPANDS rather than edits. The property Fork E / D44 was
   // protecting is unchanged and is now tested in three parts -- the line that
@@ -9529,14 +9546,33 @@ window.setLS({});
   HT.state().settings.supplement = { enabled: false, name: '', nutrients: {} };
   HT.state().days = _wDays; HT.state().current = _wCur;
 
-  // ---- the quick-add row: one tap to the right form ----------------------
-  res(HT.QUICK_ADD.map(function (q) { return q.k; }).join(',') === 'food,dose,biometric,fast,note',
-      'D130-row GATE: the row names the five things the brief named, in that order');
-  var QH = HT.quickAddHTML();
-  res(QH.indexOf('Food') > 0 && QH.indexOf('Dose') > 0 && QH.indexOf('Biometric') > 0,
-      'D130-row GATE: and renders them as targets rather than as a menu of one thing');
+  // ---- the day's action row: one tap to the right form -------------------
+  // RE-POINTED for R159.1, which replaces the five-badge row with "Quick add -
+  // top 10" and the camera. The claim that the row NAMED five things is gone
+  // with the row. The other two claims were never about those five words -- they
+  // were about what a day's action row must BE (targets, not a menu of one) and
+  // must not SAY (no streak, no distance to a target). Those bind the
+  // replacement exactly as they bound the row.
+  //
+  // `HT.QUICK_ADD.map(...)` is what threw here before the re-point, and because
+  // this file is synchronous the uncaught TypeError aborted the whole suite:
+  // 568 later assertions did not run and the count gate reported the shortfall.
+  // A missing reference early in a synchronous file cancels everything after it.
+  var QH = HT.dayActionsHTML();
+  res(QH.indexOf('qa10') > 0 && QH.indexOf('dcam') > 0
+      && (QH.match(/<button/g) || []).length === 2,
+      'D130-row GATE: the day offers exactly TWO targets -- the top-10 quick add and the camera -- rather than a menu of one thing');
   res(QH.toLowerCase().indexOf('streak') < 0 && QH.toLowerCase().indexOf('remaining') < 0,
       'D130-row GATE: no streak and no distance to a target -- the row offers the next tap, it does not pull you back');
+  // THE RULING ITSELF, asserted on the rendered day rather than inferred from
+  // the absence of a function: the five words are gone from the surface.
+  HT.renderDay();
+  var dvRow = document.getElementById('dayView').innerHTML;
+  res(['>Food<', '>Dose<', '>Biometric<', '>Fast<', '>Note<']
+        .every(function (w) { return dvRow.indexOf(w) < 0; }),
+      'D130-row GATE: and the Food/Dose/Biometric/Fast/Note badges are gone from the day -- ruled: the meal groups replace them, and they duplicated the headers');
+  res(dvRow.indexOf('qa10') >= 0,
+      'D130-row CONTROL: the replacement IS on the day, so the assertion above is about a REPLACEMENT and not about an empty screen');
 
   // ---- repeats: recency, deduped, and a NEW record -----------------------
   var _rDays = HT.state().days, _rCur = HT.state().current;

@@ -186,6 +186,10 @@ try {
   function overlaps(a, b) { return a.bottom >= b.top && a.top <= b.bottom; }
 
   HT.boot();
+  // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
+  // does not exist until its group is tapped. This gate sweeps those rows, so it
+  // opens them -- once, with the sticky seam, which keeps later seeding swept too.
+  if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
   const DK = '2026-09-08', MEAL = 'pmmttavodn_ektw';
   const mk = (name, grams, kcal) => ({ name: name, meal: 'lunch', time: '12:30', grams: grams,
     kcal: kcal, protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 1, soluble_fiber_g: 0,

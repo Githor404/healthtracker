@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.75.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.76.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3403,6 +3403,218 @@ function dayStatusBadge(dateKey, day) {
 // changes one place -- and so the line is not pointing at a name that does not
 // exist, which is what the first draft of it did.
 function openQuickAdd() { return openSheet('quick'); }
+
+// ======================= R159.1: THE GROUPED DAY ==========================
+//
+// The day reads as the meals that happened, not as a list of rows. Ruling D,
+// from the user's own log: 24 of 40 days hold no items at all, NO day carries
+// breakfast and lunch and dinner, and breakfast appears zero times ever. Four
+// fixed headers would be mostly dashes, so only the kinds WITH items get one.
+const MEAL_KINDS = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+// Which meal a CLOCK TIME belongs to. Used for two different jobs: giving a
+// quick-add the meal for the moment it is logged, and housing a drink that
+// shares no event with any food.
+function mealByTimeOfDay(hhmm) {
+  const m = hhmmToMin(hhmm);
+  if (m == null) return 'snack';
+  if (m >= 240 && m < 660) return 'breakfast';      // 04:00 - 10:59
+  if (m >= 660 && m < 960) return 'lunch';          // 11:00 - 15:59
+  if (m >= 960 && m < 1320) return 'dinner';        // 16:00 - 21:59
+  return 'snack';                                   // 22:00 - 03:59
+}
+
+// THE KIND AN ITEM IS SHOWN UNDER. A drink is a KIND, not a time: ruled, drinks
+// stay inside their meal, and the thing that records which meal a drink was had
+// with is the `mealId` it shares with the food -- the same grouping H25 measures
+// a response over. A drink with no event-mate has nothing to sit inside, so it
+// falls back to the clock rather than inventing a companion.
+function mealKindOf(items) {
+  const byEvent = {};
+  items.forEach(function (it) {
+    if (!it || !it.mealId || it.meal === 'drink') return;
+    if (MEAL_KINDS.indexOf(it.meal) >= 0 && !byEvent[it.mealId]) byEvent[it.mealId] = it.meal;
+  });
+  return function (it) {
+    if (!it) return 'snack';
+    if (MEAL_KINDS.indexOf(it.meal) >= 0) return it.meal;
+    if (it.mealId && byEvent[it.mealId]) return byEvent[it.mealId];
+    return mealByTimeOfDay(it.time);
+  };
+}
+
+// One entry per meal kind that HAS items, in meal order. `events` is the set of
+// mealIds the kind holds, because a kind with two sittings is two meals and the
+// header must be able to say so rather than averaging them.
+function mealKindGroups(dateKey) {
+  const day = (APP_STATE.days && APP_STATE.days[String(dateKey)]) || null;
+  if (!day) return [];
+  const items = day.items || [];
+  const kindOf = mealKindOf(items);
+  const bucket = {};
+  items.forEach(function (it, idx) {
+    if (!it) return;
+    const k = kindOf(it);
+    (bucket[k] = bucket[k] || []).push({ it: it, idx: idx });
+  });
+  return MEAL_KINDS.filter(function (k) { return !!bucket[k]; }).map(function (k) {
+    const rows = bucket[k];
+    const its = rows.map(function (r) { return r.it; });
+    const tot = dayTotals({ items: its });
+    const cov = macroCoverage({ items: its });
+    // Chronological WITHIN the group -- the log stays in log order; this is a view.
+    const sorted = rows.slice().sort(function (a, b) {
+      const x = String(a.it.time || ''), y = String(b.it.time || '');
+      return x < y ? -1 : (x > y ? 1 : a.idx - b.idx);
+    });
+    const evs = [];
+    sorted.forEach(function (r) {
+      const id = (r.it.mealId == null || String(r.it.mealId) === '') ? '' : String(r.it.mealId);
+      if (id && evs.indexOf(id) < 0) evs.push(id);
+    });
+    const times = sorted.map(function (r) { return String(r.it.time || ''); }).filter(function (x) { return !!x; });
+    return {
+      kind: k, n: rows.length, kcal: tot.kcal, totals: tot, coverage: cov,
+      firstTime: times.length ? times[0] : '',
+      drinks: its.filter(function (it) { return it.meal === 'drink'; }).length,
+      events: evs, rows: sorted,
+    };
+  });
+}
+
+// The kinds with NOTHING in them. Ruled: they collapse into ONE muted line that
+// names them, not a row each.
+function emptyMealKinds(dateKey) {
+  const have = mealKindGroups(dateKey).map(function (g) { return g.kind; });
+  return MEAL_KINDS.filter(function (k) { return have.indexOf(k) < 0; });
+}
+
+// THE RESPONSE IN ONE PLAIN LINE. H25's panel is the depth; this is the header.
+// Offered ONLY for a kind holding exactly one event -- one line summarising two
+// sittings' glucose is an average nobody ate.
+function mealResponseLine(dateKey, mealId) {
+  const r = mealResponse(dateKey, mealId);
+  if (!r || r.phase === 'none' || r.phase === 'declined') return '';
+  if (r.rise == null) return '';
+  const u = respUnitWord(r);
+  return 'Glucose rose ' + (r.phase === 'bounded' ? 'at least ' : '')
+    + rDisp(r.rise) + ' ' + u
+    + ' \u00b7 ' + ((r.tToBaseline != null)
+        ? ('back in ' + hoursLabel(r.tToBaseline))
+        : 'return not observed');
+}
+
+// BIOMETRICS, its own group. D146: a day with no readings draws no row, so this
+// returns null rather than an empty summary -- the group is absent, not blank.
+function biometricSummary(dateKey) {
+  const dk = String(dateKey);
+  const g = glucoseDaySummary(dk);
+  const recs = (APP_STATE.timeline && APP_STATE.timeline[dk]) || [];
+  if (!g && !recs.length) return null;
+  const bits = [];
+  if (g) bits.push('glucose avg ' + rDisp(g.avg) + ' ' + g.unit);
+  const ws = recs.filter(function (r) { return r && r.type === 'weight' && r.value != null; });
+  const w = ws.length ? ws[ws.length - 1] : null;
+  if (w) bits.push('weight ' + rDisp(w.value) + (w.unit ? ' ' + w.unit : ''));
+  const woke = recs.filter(function (r) { return r && r.type === 'woke'; });
+  const lastWoke = woke.length ? String(woke[woke.length - 1].time || '') : '';
+  if (lastWoke) bits.push('woke ' + lastWoke);
+  return {
+    words: bits.join(' \u00b7 '),
+    glucose: g ? { avg: g.avg, unit: g.unit, n: g.n } : null,
+    weight: w ? num(w.value) : null, woke: lastWoke || null,
+    n: recs.length,
+  };
+}
+
+// A group opens IN PLACE and the others stay collapsed -- which they do because
+// they START collapsed and opening one never opens another. That is what the
+// ruling asked for, and it does NOT require a single-open accordion: an
+// accordion would also forbid comparing lunch against dinner without re-tapping
+// each time, which the ruling never asked for. So the open set is a set.
+//
+// Biometrics shares the mechanism under a reserved key that can never collide
+// with a meal kind.
+const BIO_GROUP_KEY = '_bio';
+let DAY_GROUP_OPEN = {};
+function dayGroupToggle(kind) {
+  const k = String(kind == null ? '' : kind);
+  if (!k) return { ok: false };
+  if (DAY_GROUP_OPEN[k]) delete DAY_GROUP_OPEN[k]; else DAY_GROUP_OPEN[k] = true;
+  renderDay();
+  return { ok: true, open: !!DAY_GROUP_OPEN[k], openKinds: Object.keys(DAY_GROUP_OPEN) };
+}
+function dayGroupIsOpen(kind) { return DAY_GROUPS_ALL || !!DAY_GROUP_OPEN[String(kind)]; }
+// A TEST SEAM, in the manner of setClock and setMatchIndex. The day's item rows
+// live behind a tap now, so every gate that sweeps the day -- fonts, jargon,
+// overflow, taps -- was reading a surface that renders nothing until tapped.
+//
+// IT IS STICKY RATHER THAN AN ENUMERATION OF TODAY'S KINDS. Enumerating would
+// open only the kinds that exist at the moment of the call, so a gate that seeds
+// more items afterwards would silently go back to sweeping an empty day -- the
+// same class of quiet, partial coverage these gates exist to prevent. One call
+// after boot, and every later render stays swept.
+let DAY_GROUPS_ALL = false;
+function dayGroupsOpenAll(on) {
+  DAY_GROUPS_ALL = (on !== false);
+  if (!DAY_GROUPS_ALL) DAY_GROUP_OPEN = {};
+  renderDay();
+  return { ok: true, all: DAY_GROUPS_ALL,
+           openKinds: mealKindGroups(APP_STATE.current).map(function (g) { return g.kind; }) };
+}
+
+// THE CHRONOLOGICAL VIEW, one tap away. Ruled: the Timeline stops being a
+// standing card -- the groups replace it -- and time order becomes a toggle.
+let DAY_TIME_ORDER = false;
+function dayTimeOrderToggle(on) {
+  DAY_TIME_ORDER = (on == null) ? !DAY_TIME_ORDER : !!on;
+  renderDay();
+  return { ok: true, timeOrder: DAY_TIME_ORDER };
+}
+function dayTimeOrder() { return DAY_TIME_ORDER; }
+
+// ---- FREQUENCY: what the user actually repeats ---------------------------
+//
+// MEASURED on the real log before any of this: 10 foods repeat under `matchKey`
+// and only 7 under the exact name, so the key is the only grouping that finds
+// the repeat. D137 already ruled the consequence -- the key merges five pairs of
+// names on this log, one of them across "with beef" and "without" -- so a count
+// that does not name what it merged is a number the user cannot check.
+//
+// AND THE PORTION COMES FROM ONE ITEM, NEVER AN AVERAGE. 8 of the 10 repeats are
+// at a different portion (the top one spans 120-390 g), so a mean would offer a
+// portion that was never eaten. The most recent is the one the user last chose.
+const FREQ_TOP_N = 10;
+function foodFrequency(limit) {
+  const cap = limit > 0 ? limit : FREQ_TOP_N;
+  const days = Object.keys((APP_STATE && APP_STATE.days) || {}).filter(isDayKey).sort();
+  const by = {};
+  days.forEach(function (dk) {
+    ((APP_STATE.days[dk] || {}).items || []).forEach(function (it) {
+      if (!it || it._auto) return;                 // the supplement is not a repeat
+      const nm = String(it.name == null ? '' : it.name).trim();
+      if (!nm) return;
+      // matchKeyIn tolerates a missing index (it falls back to all tokens), and a
+      // name that tokenises to nothing falls back to itself -- a food is never
+      // dropped from its own count because the corpus has not loaded yet.
+      const key = matchKey(nm) || nm.toLowerCase();
+      const e = by[key] || (by[key] = { key: key, n: 0, names: [], name: nm,
+                                        grams: null, kcal: null, lastDay: '', item: null });
+      e.n++;
+      if (e.names.indexOf(nm) < 0) e.names.push(nm);
+      // `days` ascends and items within a day are in log order, so the LAST write
+      // wins and these four fields describe the most recent of the merged items.
+      e.name = nm; e.lastDay = dk; e.item = it;
+      e.grams = (it.grams == null) ? null : num(it.grams);
+      e.kcal = num(it.kcal);
+    });
+  });
+  return Object.keys(by).map(function (k) { return by[k]; })
+    .sort(function (a, b) {
+      return (b.n - a.n) || (a.lastDay < b.lastDay ? 1 : (a.lastDay > b.lastDay ? -1 : 0));
+    })
+    .slice(0, cap);
+}
 function plateRecallCount() { return openPlates(APP_STATE.current).length; }
 function plateRecallLineHTML() {
   const n = plateRecallCount();
@@ -3517,20 +3729,41 @@ function renderDayInner() {
   // Biometrics, and NOTHING above the rings card but the date. The leftovers list
   // used to sit here; it is one quiet line now, below the card with the actions.
   html += renderGoalsHTML(t, day);
-  html += plateRecallLineHTML() + quickAddHTML();
+  html += plateRecallLineHTML() + dayActionsHTML();
 
-  const groups = {};
-  day.items.forEach((it, idx) => { const m = MEALS.indexOf(it.meal) >= 0 ? it.meal : 'other'; (groups[m] = groups[m] || []).push({ it: it, idx: idx }); });
-  MEALS.concat('other').forEach((m) => {
-    if (!groups[m]) return;
-    const gitems = groups[m].map((x) => x.it);
-    const gt = dayTotals({ items: gitems });
-    // R31: a meal group's kcal understates by exactly as much as the group is
-    // incomplete, so the group says so where the number is, not somewhere else.
-    const gcov = macroCoverage({ items: gitems });
-    const gnote = gcov.partial ? ` <small class="mcov">${esc(coverageNote(gcov))}</small>` : '';
-    html += `<div class="mealgrp"><div class="mealhead"><span>${esc(m)}</span><span>${esc(rDisp(gt.kcal))} cal${gnote}</span></div>`;
-    groups[m].forEach((row) => {
+  // ---- R159.1: THE DAY AS THE MEALS THAT HAPPENED ----------------------
+  // Ruled: one collapsed header per meal kind that HAS items; the empty kinds
+  // collapse into one muted line; tapping a header opens it IN PLACE with the
+  // others left closed. The chronological list is a toggle, not a card.
+  const kgroups = mealKindGroups(dk);
+  html += dayOrderToggleHTML(kgroups.length);
+  if (!DAY_TIME_ORDER) {
+  kgroups.forEach((g) => {
+    const gopen = dayGroupIsOpen(g.kind);
+    // R31, unchanged: a group's kcal understates by exactly as much as the group
+    // is incomplete, so the group says so where the number is.
+    const gnote = g.coverage.partial ? ` <small class="mcov">${esc(coverageNote(g.coverage))}</small>` : '';
+    // THE RESPONSE LINE, only for a kind holding ONE event. Two sittings get a
+    // count instead: one line of glucose for two different meals is an average
+    // nobody ate, and the header would be stating it as a fact about "dinner".
+    const gresp = (g.events.length === 1) ? mealResponseLine(dk, g.events[0]) : '';
+    const gt = g.totals;
+    html += `<div class="mgrp" data-kind="${esc(g.kind)}">`
+      + `<button type="button" class="mghead" aria-expanded="${gopen ? 'true' : 'false'}"`
+      + ` onclick="dayGroupToggle('${esc(g.kind)}')">`
+      + `<span class="mgname">${esc(g.kind)}</span>`
+      + `<span class="mgnum">${esc(rDisp(g.kcal))} cal${gnote}</span>`
+      + `<span class="mgmeta">${esc(String(g.n))} item${g.n === 1 ? '' : 's'}`
+      + `${g.firstTime ? ' \u00b7 ' + esc(g.firstTime) : ''}`
+      + `${g.events.length > 1 ? ' \u00b7 ' + esc(String(g.events.length)) + ' sittings' : ''}</span>`
+      + (g.drinks ? `<span class="mgdrink">${esc(String(g.drinks))} drink${g.drinks === 1 ? '' : 's'}</span>` : '')
+      + (gresp ? `<span class="mgresp">${esc(gresp)}</span>` : '')
+      + `</button>`;
+    if (!gopen) { html += `</div>`; return; }
+    html += `<div class="mgbody">`
+      + `<div class="mgmac">P ${esc(rDisp(gt.protein_g))} F ${esc(rDisp(gt.fat_g))}`
+      + ` C ${esc(rDisp(gt.carb_g))} \u00b7 ${esc(rDisp(gt.fiber_g))} fib</div>`;
+    g.rows.forEach((row) => {
       const it = row.it, idx = row.idx;
       const dot = CONF_DOT[it.confidence] || 'muted';
       // The editor replaces the row in place, so the day stays one column.
@@ -3612,11 +3845,17 @@ function renderDayInner() {
       // printing the same number twice is the density this slice is removing.
       const bodyKcal = primaryNutrientKey() !== 'kcal'
         ? `<div class="mkcal">${kcalCell}</div>` : '';
-      html += `<div class="mitem${isOpen ? ' mopen' : ''}">
+      // The ruled body is "time, name, cal", which is what D144 already made this
+      // collapsed line. So the group's hooks go ON this row: a second, flatter copy
+      // of the same item would be a second place for its identity to drift, and
+      // D144's depth would have to be reachable from one of them or lost from both.
+      const isDrink = (it.meal === 'drink');
+      html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
         <div class="mline">
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
-            <span class="mname" title="${esc(it.name)}">${esc(it.name)}</span>
-            <span class="mtime">${esc(it.time || '')}</span>
+            <span class="mname mginame" title="${esc(it.name)}">${esc(it.name)}</span>
+            <span class="mtime mgitime">${esc(it.time || '')}</span>
+            ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
         </div>${isOpen ? `<div class="mbody">
@@ -3627,8 +3866,13 @@ function renderDayInner() {
           ${it._auto ? '' : `<button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>`}
         </div>` : ''}</div>`;
     });
-    html += `</div>`;
+    html += `</div></div>`;
   });
+  // Ruled D: ONE muted line for every kind with nothing in it.
+  html += emptyMealsHTML(emptyMealKinds(dk));
+  // Biometrics, its own group -- and D146: a day with no readings draws no row.
+  html += biometricGroupHTML(dk);
+  }
 
   // R31: the day total is the headline number, so its coverage rides WITH it rather
   // than in a note elsewhere on the screen. D53 -- provenance may collapse behind a
@@ -3686,6 +3930,11 @@ function renderDayInner() {
   }
 
   host.innerHTML = html;
+  // The chronological rows live in a SIBLING of #dayView (renderTimelineOverlay
+  // writes them), so the ruled toggle sets `hidden` rather than re-rendering a
+  // node this function does not own.
+  const tob = document.getElementById('timeOrderBox');
+  if (tob) tob.hidden = !DAY_TIME_ORDER;
 }
 
 // D134: shown where the mistake happens, and it states the cap ON THE SURFACE --
@@ -3772,35 +4021,45 @@ function stepDay(dir) {
 // The FAB is unchanged. The row is for AIM and the FAB is for REACH: the row sits
 // at the top of the day where the day begins, and the FAB stays at y=802 where the
 // thumb is. Neither replaces the other.
-const QUICK_ADD = [
-  { k: 'food', label: 'Food' }, { k: 'dose', label: 'Dose' },
-  { k: 'biometric', label: 'Biometric' }, { k: 'fast', label: 'Fast' },
-  { k: 'note', label: 'Note' },
-];
-function quickAddHTML() {
-  return '<div class="qadd">' + QUICK_ADD.map(function (q) {
-    return '<button type="button" class="qab" onclick="quickAdd(\'' + esc(q.k) + '\')">'
-      + esc(q.label) + '</button>';
-  }).join('') + '</div>';
+// RULED: the day's action row is the top-10 quick add and the camera, and the
+// Food/Dose/Biometric/Fast/Note badges it replaces are GONE -- they duplicated
+// the meal headers the groups now draw.
+//
+// All five paths were checked before the row was removed, not assumed:
+//   Food      -> the sheet's Manual tab
+//   Dose      -> the sheet's "Log a dose I took"
+//   Biometric -> the sheet's "Log event or biometric"
+//   Note      -> the same, with the type set to `other`
+//   Fast      -> created NOTHING. `quickAddFast` flashed #fastCandidates or
+//                toasted that there was nothing to confirm; the live path to a
+//                pending fast is the gap line -> focusPendingResolve().
+// So this removes a shortcut row, not a feature.
+function dayActionsHTML() {
+  return '<div class="dact">'
+    + '<button type="button" class="btn qa10" onclick="openQuickAdd()">'
+    + 'Quick add \u00b7 top 10</button>'
+    + '<button type="button" class="dcam" onclick="openSheet(\'photo\')"'
+    + ' aria-label="Photograph a meal">Camera</button>'
+    + '</div>';
 }
-// C1, ruled: Fast and Note get NO new state. Neither exists as a signal type, and
-// inventing one would put an assertion where the app currently infers.
-function quickAdd(kind) {
-  if (kind === 'food') { openSheet('manual'); return { ok: true, mode: 'manual' }; }
-  if (kind === 'dose') { openSheet('med'); return { ok: true, mode: 'med' }; }
-  if (kind === 'biometric') { openSheet('signal'); return { ok: true, mode: 'signal' }; }
-  if (kind === 'note') {
-    // An event carrying the text, which is the shape the app already has for
-    // "something happened and here is what it was".
-    openSheet('signal');
-    const t = document.getElementById('sigType');
-    if (t) { t.value = 'other'; try { onSignalTypeChange(); } catch (e) {} }
-    return { ok: true, mode: 'signal', type: 'other' };
-  }
-  if (kind === 'fast') return quickAddFast();
-  return { ok: false };
+// The empty kinds, ONE muted line (ruling D), each named kind its own target.
+// "I eat in a window; four fixed headers would be mostly dashes."
+function emptyMealsHTML(kinds) {
+  if (!kinds || !kinds.length) return '';
+  const parts = kinds.map(function (k) {
+    return '<button type="button" class="mgadd" onclick="quickAddToMeal(\'' + esc(k) + '\')">' + esc(k) + '</button>';
+  });
+  const list = (parts.length === 1) ? parts[0]
+    : (parts.slice(0, -1).join(', ') + ' or ' + parts[parts.length - 1]);
+  return '<div class="mgnone">No ' + list + ' logged</div>';
 }
-// Fast routes to the confirmation that ALREADY EXISTS. A fast is read from the
+// Tapping an empty kind adds TO THAT MEAL, which is the whole point of naming
+// them separately -- a single tap target would have meant choosing the meal again.
+function quickAddToMeal(kind) {
+  const k = MEAL_KINDS.indexOf(String(kind)) >= 0 ? String(kind) : '';
+  QUICK_MEAL = k;
+  return openQuickAdd();
+}// Fast routes to the confirmation that ALREADY EXISTS. A fast is read from the
 // gaps between meals; "start a fast" stays DECLINED, not deferred, because a
 // toggle would make two writers for one span.
 function quickAddFast() {
@@ -3905,6 +4164,16 @@ function logRepeat(dateKey, idx) {
   offerFoodUndo(APP_STATE.current, item);
   return { ok: true, item: item };
 }
+// UNMOUNTED by R159.1/A4, not deleted. The quick-add sheet now lists the ten
+// foods the user repeats MOST, and E1 chose recency over frequency only because
+// the log could not be measured at the time ("an unmeasured ranking is worth
+// nothing", D119). It has been measured since: 10 foods repeat under matchKey, 7
+// under the exact name. Two overlapping lists of the same foods on one sheet is
+// the duplication this redesign removes.
+//
+// KEPT, because E1 was a RULING and reversing it is the user's call, not mine --
+// remounting is one line in renderQuickChips. `logRepeat` is its write path and
+// stays with it; `buildRepeatItem`, which both share, is live either way.
 function repeatChipsHTML() {
   const recent = recentItems(REPEAT_MAX);
   if (!recent.length) return '';
@@ -10547,6 +10816,7 @@ const VERSION_LOG = [
   { v: '0.73.0', d: '2026-10-09', note: 'The day now opens with two rings, one inside the other: the outer one is your rhythm (eating window, fasts, sleep) and the new inner one is calories, with the day’s figure and your protein, fat and carbs in the middle. With no goal set it fills against your own TYPICAL day — the median of your last 28 complete days, the same “typical” Trends uses — and the card says so in words. It is never called a target and there is no “remaining”, because a median of your own days describes what you do rather than prescribing it. With fewer than eight complete days it shows the number and does not fill at all, since a median of four days is not a typical day. The separate day-total row is gone: those figures moved into the ring rather than being copied there.' },
   { v: '0.74.0', d: '2026-10-09', note: 'The day card is laid out the way you approved: the two rings on the left, smaller, with just the calorie number in the middle, and protein, fat, carbs, fibre and the typical-day line beside them. On a phone the figures no longer sit inside the ring, where they were crossing its ink. Tap the rings to see what the colours mean — the key and the time range are behind that tap now instead of always on screen. The gap counter keeps its own line underneath.' },
   { v: '0.75.0', d: '2026-10-09', note: 'The day now reads in the order you asked for: date, the rings card, the actions, your meals. Nothing sits above the rings but the date. Food left from earlier is no longer the first thing on the screen — it is one quiet line that opens the quick-add sheet, where the leftovers now live. The ring key, the time range, the my-day/the-plan switch and the eating-window lines are all behind a tap on the rings. The typical-day line is said once, beside the rings. And a fix: the Sleep on/close control was appearing over the title bar at the top of the screen.' },
+  { v: '0.76.0', d: '2026-10-09', note: 'Your day now reads as the meals you actually ate. Each meal is one line — its calories, how many items, when it started — and tapping it opens that meal in place, in time order, with its macros. A meal with a drink says so, and the drink stays inside the meal it came with. When one meal has a glucose response, the line says it in words. The meals you did not eat collapse into one quiet line you can tap to add to. Biometrics is its own group now, with a one-line summary. The Food, Dose, Biometric, Fast and Note buttons are gone: the day offers Quick add and the camera, and everything else is on the Log sheet where it already was. Quick add lists the ten foods you repeat most, each with the portion you last chose and the spellings it counted together, a stepper, and one button that says what it will log. Leftovers live at the top of that sheet — which is where the day said they were, and where they were not.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14662,6 +14932,244 @@ function quickLeftoversHTML() {
   const h = plateRecallHTML();
   return h ? ('<div class="qleft">' + h + '</div>') : '';
 }
+// ---- R159.1: the Biometrics group, and time order behind a toggle -------
+//
+// RULED: biometrics gets its OWN group, visually distinct, with a one-line
+// summary -- replacing the badges that duplicated the meal headers. D146 holds:
+// a day with no readings draws no row, so `biometricSummary` returning null
+// means the group is ABSENT rather than present and empty.
+function biometricGroupHTML(dateKey) {
+  const dk = String(dateKey);
+  const bs = biometricSummary(dk);
+  if (!bs) return '';
+  const open = dayGroupIsOpen(BIO_GROUP_KEY);
+  let h = `<div class="bgrp" data-kind="${esc(BIO_GROUP_KEY)}">`
+    + `<button type="button" class="mghead bghead" aria-expanded="${open ? 'true' : 'false'}"`
+    + ` onclick="dayGroupToggle('${esc(BIO_GROUP_KEY)}')">`
+    + `<span class="mgname">Biometrics</span>`
+    + `<span class="bgsum">${esc(bs.words)}</span>`
+    + `</button>`;
+  if (!open) return h + '</div>';
+  // Chronological, the same way a meal group expands. The glucose line leads
+  // because it is the day's whole stream rather than one moment in it.
+  const recs = ((APP_STATE.timeline && APP_STATE.timeline[dk]) || [])
+    .map(function (r, i) { return { r: r, i: i }; })
+    .sort(function (a, b) {
+      const x = String(a.r.time || ''), y = String(b.r.time || '');
+      return x < y ? -1 : (x > y ? 1 : a.i - b.i);
+    });
+  h += '<div class="mgbody bgbody">';
+  if (bs.glucose) {
+    h += `<div class="bgline"><span class="mgitime">all day</span>`
+      + `<span class="mginame">glucose</span>`
+      + `<span class="bgval">avg ${esc(rDisp(bs.glucose.avg))} ${esc(bs.glucose.unit)}`
+      + ` <small>from ${esc(String(bs.glucose.n))} readings</small></span></div>`;
+  }
+  h += recs.map(function (x) {
+    const r = x.r;
+    const spec = SIGNAL_BY_TYPE[r.type];
+    const val = (r.value != null) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
+    return `<div class="bgline"><span class="mgitime">${esc(r.time || '')}</span>`
+      + `<span class="mginame">${esc(spec ? spec.label : (r.type || ''))}</span>`
+      + `<span class="bgval">${esc(val)}</span></div>`;
+  }).join('');
+  return h + '</div></div>';
+}
+
+// RULED: the Timeline stops being a card -- the groups and the Biometrics group
+// replace it -- and the chronological view stays ONE TAP away. The rows
+// themselves are `#timelineOverlay`, which renderDay shows or hides; this is the
+// control, and it renders only when there is something to reorder.
+function dayOrderToggleHTML(groupCount) {
+  if (!groupCount && !DAY_TIME_ORDER) return '';
+  return '<div class="dordr"><button type="button" class="linklike tordr"'
+    + ' onclick="dayTimeOrderToggle()">'
+    + (DAY_TIME_ORDER ? 'meal order' : 'time order') + '</button></div>';
+}
+
+// ---- R159.1 SCREEN 3: the quick-add sheet --------------------------------
+//
+// The ten foods the user actually repeats, each with the portion they last
+// chose, a stepper, and one button that states what it will log. The numbers
+// come from ONE item -- the most recent of the merged names -- never an average
+// across them: 8 of the 10 real repeats are at a different portion, so a mean is
+// a portion nobody ate. The row NAMES the spellings it merged (ruling A, and
+// D137 before it), because `matchKey` merges five pairs of names on this log.
+let QUICK_PICK = null;        // { key, n, grams } -- the row being logged
+let QUICK_MEAL = '';          // the user's override of the time-of-day meal
+const QUICK_MACROS = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'];
+function quickSheetOpen() {
+  QUICK_PICK = null;
+  const r = openQuickAdd();
+  renderQuickChips();
+  return r;
+}
+function quickRow(key) {
+  return foodFrequency().filter(function (f) { return f.key === String(key); })[0] || null;
+}
+function quickPick(key) {
+  const row = quickRow(key);
+  if (!row) return { ok: false, why: 'no-such-row' };
+  QUICK_PICK = { key: row.key, n: 1, grams: null };
+  renderQuickChips();
+  return { ok: true, key: row.key, n: 1 };
+}
+// The markup addresses a row by INDEX. A matchKey is two words with a space in
+// it, so embedding one in an inline onclick means a nested quote in generated
+// markup -- a bug waiting for the first key carrying an apostrophe. An integer
+// needs no quoting. `quickPick(key)` stays the API; this is the surface.
+function quickPickAt(i) {
+  const rows = foodFrequency();
+  const row = rows[num(i)];
+  return row ? quickPick(row.key) : { ok: false, why: 'no-such-row' };
+}
+function quickCancel() { QUICK_PICK = null; renderQuickChips(); return { ok: true }; }
+// The stepper counts PORTIONS, and a typed gram amount replaces the count
+// rather than multiplying it -- two ways to say the same thing, never stacked.
+function quickStep(delta) {
+  if (!QUICK_PICK) return { ok: false, why: 'nothing-picked' };
+  const next = QUICK_PICK.n + num(delta);
+  QUICK_PICK.n = next < 1 ? 1 : next;
+  QUICK_PICK.grams = null;
+  renderQuickChips();
+  return { ok: true, n: QUICK_PICK.n };
+}
+function quickGrams(v) {
+  if (!QUICK_PICK) return { ok: false, why: 'nothing-picked' };
+  const g = (v == null || String(v).trim() === '') ? null : clampNonNeg(v);
+  QUICK_PICK.grams = (g != null && g > 0) ? g : null;
+  renderQuickChips();
+  return { ok: true, grams: QUICK_PICK.grams };
+}
+function quickMealSet(m) {
+  QUICK_MEAL = MEAL_KINDS.indexOf(String(m)) >= 0 ? String(m) : '';
+  renderQuickChips();
+  return { ok: true, meal: QUICK_MEAL };
+}
+// What the picked row will log: the factor, the grams and the calories, derived
+// in ONE place so the button's figure and the written item cannot disagree.
+function quickPlan() {
+  if (!QUICK_PICK) return null;
+  const row = quickRow(QUICK_PICK.key);
+  if (!row || !row.item) return null;
+  const base = (row.grams == null) ? null : num(row.grams);
+  let grams = null, factor = QUICK_PICK.n;
+  if (QUICK_PICK.grams != null) {
+    grams = num(QUICK_PICK.grams);
+    factor = (base && base > 0) ? (grams / base) : 1;
+  } else if (base != null && base > 0) {
+    grams = base * QUICK_PICK.n;
+  }
+  // On a PAST day `stampTime` returns '' -- D112: no fabricated clock time on a
+  // day that is not today -- and the item is written with that empty time. The
+  // MEAL still needs a default, and a category is not a clock reading, so it comes
+  // from the current time of day and the sheet says which meal and offers `change`.
+  // A stated default the user can see and override is not a fabricated timestamp.
+  const time = stampTime(APP_STATE.current) || nowTime();
+  return {
+    row: row, grams: grams, factor: factor,
+    kcal: (row.kcal == null) ? null : num(row.kcal) * factor,
+    meal: QUICK_MEAL || mealByTimeOfDay(time),
+    time: time,
+  };
+}
+// NAMED DISTINCTLY FROM `quickLog`, as ruled. `quickLog(id)` is the PRESET
+// logger and has been since D130; a second definition of that name would
+// silently win and the one you read would not be the one that runs (D159).
+function quickAddLog() {
+  const plan = quickPlan();
+  if (!plan) return { ok: false, why: 'nothing-picked' };
+  const row = plan.row;
+  // D112 is why the time is stamped rather than assumed: a past day gets no
+  // fabricated clock time, and buildRepeatItem is the path that already honours
+  // it -- along with the ruled ref.g behaviour (scale the match when the basis is
+  // there, DROP it and say so when it is not).
+  const item = buildRepeatItem(row.item, stampTime(APP_STATE.current),
+                               { date: row.lastDay, name: row.name }, plan.grams);
+  if (!item) return { ok: false, why: 'no-source' };
+  // buildRepeatItem re-expresses the MATCH for a new portion and leaves the
+  // item's own macros at the source portion -- correct for `logRepeat`, which
+  // never passes grams. Scaled here, or two portions enter the day as one.
+  if (plan.factor !== 1) {
+    QUICK_MACROS.forEach(function (k) { if (item[k] != null) item[k] = num(item[k]) * plan.factor; });
+    if (item.micros) Object.keys(item.micros).forEach(function (k) {
+      item.micros[k] = num(item.micros[k]) * plan.factor;
+    });
+  }
+  item.meal = plan.meal;
+  const day = dayForWrite();
+  if (!day) return { ok: false, why: 'no-day' };
+  if (day.status === 'complete') day.status = 'in_progress';
+  day.items.push(item);
+  Store.saveState(APP_STATE);
+  QUICK_PICK = null;
+  closeSheet();
+  refresh();
+  offerFoodUndo(APP_STATE.current, item);
+  return { ok: true, item: item, meal: plan.meal, grams: plan.grams };
+}
+// The list, or the stepper for the row being logged. One at a time: a stepper
+// under a list of ten is a form competing with a menu.
+function quickTopHTML() {
+  if (QUICK_PICK) return quickStepHTML();
+  const rows = foodFrequency();
+  if (!rows.length) return '';
+  return '<div class="qsheet"><div class="rpthead">Your top '
+    + esc(String(Math.min(rows.length, FREQ_TOP_N))) + ' \u00b7 one tap to log</div>'
+    + rows.map(function (f, i) {
+        // RULING A: a count NAMES WHAT IT COUNTED. The key merges spellings, so a
+        // bare "3x" would be a number the user cannot check against anything.
+        const names = '<span class="qnames">'
+          + esc(f.names.length > 1 ? f.names.join(' \u00b7 ') : (f.names[0] || f.name))
+          + '</span>';
+        const port = (f.grams == null) ? 'no portion recorded' : (rDisp(f.grams) + ' g');
+        const cal = (f.kcal == null) ? '' : (' \u00b7 ' + rDisp(f.kcal) + ' cal');
+        // `qfrow`, not `qrow`: THAT CLASS WAS ALREADY TAKEN -- by the one-tap
+        // events row and by a lab label row -- and this rule came later in the
+        // cascade, so it silently restyled both. The gate that should have caught
+        // it was inflated by the same collision: it counted those foreign rows as
+        // food rows, so its row count passed on elements from another surface.
+        return '<button type="button" class="qfrow" onclick="quickPickAt(' + esc(String(i)) + ')">'
+          + '<span class="qrname">' + esc(f.name) + '</span>'
+          + '<span class="qrn">' + esc(String(f.n)) + 'x</span>'
+          + '<span class="qrport">' + esc(port) + esc(cal) + '</span>'
+          + names + '</button>';
+      }).join('')
+    + '</div>';
+}
+function quickStepHTML() {
+  const plan = quickPlan();
+  if (!plan) return '';
+  const f = plan.row;
+  // RULED B: the MOST RECENT portion, LABELLED as such. An unlabelled number
+  // beside a stepper reads as a recommendation, and this app recommends nothing.
+  const lastWords = (f.grams == null)
+    ? 'last logged with no portion recorded, so this steps the count'
+    : ('last portion ' + rDisp(f.grams) + ' g, on ' + fmtMonthDay(f.lastDay));
+  const gval = (QUICK_PICK.grams == null) ? '' : String(QUICK_PICK.grams);
+  return '<div class="qstep">'
+    + '<div class="qsname">' + esc(f.name) + '</div>'
+    + '<div class="qlast">' + esc(lastWords) + '</div>'
+    + '<div class="qsrow">'
+    + '<button type="button" class="qsbtn" onclick="quickStep(-1)" aria-label="one fewer">\u2212</button>'
+    + '<span class="qn">' + esc(String(QUICK_PICK.n)) + '</span>'
+    + '<button type="button" class="qsbtn" onclick="quickStep(1)" aria-label="one more">+</button>'
+    + '<label class="qglab">or grams'
+    + '<input type="number" class="qgrams" inputmode="numeric" min="0" value="' + esc(gval) + '"'
+    + ' onchange="quickGrams(this.value)" aria-label="or enter grams"></label>'
+    + '</div>'
+    + '<div class="qmeal">to <b>' + esc(plan.meal) + '</b>'
+    + '<select class="qchange" onchange="quickMealSet(this.value)" aria-label="change the meal">'
+    + MEAL_KINDS.map(function (k) {
+        return '<option value="' + esc(k) + '"' + (k === plan.meal ? ' selected' : '')
+          + '>change to ' + esc(k) + '</option>';
+      }).join('')
+    + '</select></div>'
+    + '<button type="button" class="btn qlog" onclick="quickAddLog()">Log '
+    + esc(plan.kcal == null ? '' : rDisp(plan.kcal)) + ' cal</button>'
+    + '<button type="button" class="linklike qback" onclick="quickCancel()">back to the list</button>'
+    + '</div>';
+}
 function renderQuickChips() {
   const el = document.getElementById('quickChips');
   if (!el) return;
@@ -14669,14 +15177,27 @@ function renderQuickChips() {
   // D130: the Quick pane was PRESETS ONLY, and presets ship empty -- so the
   // one surface named for logging in a single tap was blank for every new
   // user and for this one. What a person repeats is what they have eaten.
+  //
+  // RULED (R159.1): LEFTOVERS first, then the top 10. A3 moved the leftovers
+  // list off the day and into this sheet -- and computed `left` here without
+  // ever using it, so every branch below dropped it and the day's quiet
+  // "1 leftover" line led to a sheet that did not show them. The A3 assertion
+  // missed it by testing `quickLeftoversHTML()` instead of this surface: an
+  // unused local is invisible to a test that calls the function it came from.
+  //
+  // AND THE RECENCY STRIP IS SUPERSEDED. E1 chose recency over frequency
+  // because the log could not be measured then ("an unmeasured ranking is worth
+  // nothing", D119). It has been measured now: 10 foods repeat under matchKey, 7
+  // under the exact name. Two overlapping lists of the same foods on one sheet is
+  // the duplication this redesign removes.
   const left = quickLeftoversHTML();
-  const rpt = repeatChipsHTML();
+  const head = left + quickTopHTML();
   if (!presets.length) {
-    if (rpt) { el.innerHTML = rpt; return; }
+    if (head) { el.innerHTML = head; return; }
     el.innerHTML = '<div class="note" style="margin-top:0">No quick items yet. Add one with <b>Manual</b> → “Save as preset”, or manage them under Settings › Presets.</div>';
     return;
   }
-  el.innerHTML = rpt + "<div class=\"rpthead\">Saved presets</div>" + presets.map((p) => {
+  el.innerHTML = head + "<div class=\"rpthead\">Saved presets</div>" + presets.map((p) => {
     const sub = [rDisp(num(p.kcal)) + ' cal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
     return `<button type="button" class="qchip" onclick="quickLog('${esc(String(p.id))}')">${esc(p.name)}<small>${esc(sub)}</small></button>`;
   }).join('');
@@ -16717,6 +17238,12 @@ window.HT = {
   calorieRingBasis, calorieRingWords, calorieRingSVG, calorieCentreHTML,
   dayFiguresHTML, CAL_RING_R, plateRecallCount, plateRecallLineHTML,
   openQuickAdd, quickLeftoversHTML,
+  MEAL_KINDS, mealByTimeOfDay, mealKindGroups, emptyMealKinds, mealResponseLine,
+  biometricSummary, dayGroupToggle, dayGroupIsOpen, dayGroupsOpenAll,
+  dayTimeOrderToggle, dayTimeOrder,
+  FREQ_TOP_N, foodFrequency, dayOrderToggleHTML,
+  quickSheetOpen, quickPick, quickPickAt, quickCancel, quickStep, quickGrams,
+  quickMealSet, quickPlan, quickAddLog, quickTopHTML, quickStepHTML,
   ringLegendToggle, ringTap,
   mealEvents, mealEventNames, mealResponse, responseCoverage,
   refValueAt, POTENTIAL_AXES, POT_SLOT_WATER, POT_SLOT_FRUCTOSE,
@@ -16786,8 +17313,9 @@ window.HT = {
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
-  normalizeRef, REF_HOWS, REF_WHEN, normalizeRepeatedFrom, dayForWrite, QUICK_ADD, quickAddHTML,
-  quickAdd, quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
+  normalizeRef, REF_HOWS, REF_WHEN, normalizeRepeatedFrom, dayForWrite,
+  dayActionsHTML, emptyMealsHTML, quickAddToMeal, biometricGroupHTML,
+  quickAddFast, REPEAT_MAX, recentItems, buildRepeatItem, logRepeat, repeatChipsHTML, matchAxisWords, resolveMismatch, resolveMismatchText, resolveConfirmCancel, resolveConfirmUse,
   TRASH_KEY, TRASH_PER_DAY, TRASH_MAX_AGE_DAYS, trashRead, trashWrite, trashPut, trashForDay,
   trashDrop, trashClear, trashRestore, trashPrune, trashCapNote, trashText, copyTrash, trashHTML,
   matchIdf, matchFold, matchKey, matchKeyIn, matchKeyDf, setMatchIndex, rememberedRow, refsToReview, resolveWithMemory, itemStateSrc, noteTap, resolveShieldNow, resolveUnshield, RESOLVE_ARM_MS, RESOLVE_SHIELD_PX,

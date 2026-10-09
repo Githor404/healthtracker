@@ -144,6 +144,10 @@ try {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   HT.setClock(function () { return Date.parse('2026-09-26T12:00:00-04:00'); });
   localStorage.clear(); HT.boot(); await sleep(250);
+  // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
+  // does not exist until its group is tapped. This gate sweeps those rows, so it
+  // opens them -- once, with the sticky seam, which keeps later seeding swept too.
+  if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
   await HT.corpusEnsure(); await sleep(150);
   return { ok: true };
 })()

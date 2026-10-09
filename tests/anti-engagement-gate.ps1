@@ -185,6 +185,10 @@ try {
 
   HT.setClock(function () { return Date.parse('2026-09-26T14:00:00-04:00'); });
   localStorage.clear(); HT.boot(); await sleep(400);
+  // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
+  // does not exist until its group is tapped. This gate sweeps those rows, so it
+  // opens them -- once, with the sticky seam, which keeps later seeding swept too.
+  if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
   sweep('first run');
 
   // A day with unresolved items, so the next-tap OFFER exists to be dismissed,

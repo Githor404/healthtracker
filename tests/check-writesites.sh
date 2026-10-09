@@ -123,6 +123,12 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # record, because a repeat is A NEW RECORD AT A NEW TIME, not a revision of the
 # one it copied -- so it carries the offset of the moment it was made, never the
 # offset of the meal it repeats.
+# R159.1/A4: `quickAddLog` is STAMPED, and for the same reason as `logRepeat`
+# directly above -- it writes through the same `buildRepeatItem`, which sets
+# tzo: nowTZO(). A quick-add is A NEW RECORD AT A NEW TIME, never a revision of
+# the item it took its numbers from, so it carries the offset of the moment it
+# was logged. It is a SECOND site rather than a caller of logRepeat because it
+# logs at a chosen PORTION and to a chosen MEAL, neither of which logRepeat has.
 # H4.1/D89: `removeMed` is EXEMPT, and it is the first site here that writes without
 # creating. Its UNDO closure puts a snapshot back (`meds[id] = snapshot`), so the
 # record and its stamp are the ones that already existed. Stamping it on the way back
@@ -144,6 +150,7 @@ ingestItems
 logPreset
 logRegimenEntry
 logRepeat
+quickAddLog
 logScanItem
 maybeInjectSupplement
 consumeFromPlate

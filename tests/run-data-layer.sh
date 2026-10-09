@@ -48,6 +48,7 @@ font-floor-gate.ps1
 identity-search-gate.ps1
 jargon-gate.ps1
 lab-form-gate.ps1
+landing-gate.ps1
 night-gate.ps1
 offline-gate.ps1
 overlay-gate.ps1
@@ -213,7 +214,13 @@ echo "-----------------------------------------"
 # CONFIGURES a goal, because this one boots with none and `above` needs both ends
 # present -- the plant proved the test could fail and nothing proved it could
 # pass, which is the defect this re-point exists to close, one level up: +1.
-EXPECTED_ASSERTIONS=2643
+# R159.1/A4: 2643 -> 2644, delta +1 net. D130-row pinned three claims about the
+# five-badge row the ruling removes. The claim that it NAMED five things goes with
+# the row (-1); the other two were never about those words -- targets-not-a-menu
+# and no-streak-no-distance -- and now bind the replacement. Added: the five words
+# are ABSENT from the rendered day, and the replacement is PRESENT (+2), so "the
+# badges are gone" cannot be satisfied by a blank screen.
+EXPECTED_ASSERTIONS=2644
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

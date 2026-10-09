@@ -157,6 +157,54 @@ while sliding, and a mouse never shows that defect.
 Proven against the defect: restoring the pre-R20.1 control (36px tall, readout
 below the track) fails at both widths.
 
+## the landing page (R159.1)
+
+### `landing-gate.ps1` — the grouped day, and what a PARKED gate cannot know
+
+```sh
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/landing-gate.ps1
+```
+
+**Why a CDP gate.** Collapsed-by-default is a property of the rendered page. A
+string gate can prove a header was produced; only a viewport can prove the item
+rows are *not* there until it is tapped, that exactly one body opens, and that
+every tap target clears 44px once a response line and a drink chip wrap onto the
+header.
+
+**This gate was written and PARKED before its subject existed**, to keep a red
+gate out of the census. That worked, and it taught the more useful lesson:
+**parking a gate keeps it out of the census; it does not keep it true.** Re-read
+against the code before its first run, three of its assertions were already
+satisfied by a repo that had done none of the work — it asked for a function name
+that was already taken by a different function, counted CSS classes that exist
+nowhere in this repo, and compared an ABSENT property with `-ne ''`, which is
+always true.
+
+**So read the first red run for its PASSES.** 21 of 84 checks passed with nothing
+built. Most were “must be absent” assertions that an empty screen legitimately
+satisfies and that become meaningful once their positive partner passes. Three
+were not, and each had the same shape: **a negative with no positive beside it.**
+A header that must not carry a glucose line for two sittings proves nothing if no
+header anywhere carries one for a single sitting — so the fixture seeds a real
+stream for both, and a refusal becomes a decision rather than an absence.
+
+**A plant proves an assertion can FAIL. Only a fixture proves it can PASS.** Both
+directions need a witness; this gate shipped one assertion with the plant and no
+fixture, and it failed on the real surface for that reason alone.
+
+**The overflow leg names the offender.** Not `scrollWidth 362 against clientWidth
+360` — that starts a hunt — but the element, its class, its ancestry, its parent's
+box and its text, widest first, skipping anything an ancestor clips:
+
+```
+span.gage +2px in [gsub < grow < DIV] parent 31..329 text="last reading this day"
+```
+
+which is how a **pre-existing** bug surfaced on this gate's first green run:
+`.gsub .gage` had `flex:0 0 auto`, so it could not shrink, and the span never
+says the short “8 h ago” its rule assumed. `page-overflow-gate` holds one glucose
+row with a short age and never saw it. **The same argument the gate-script
+manifest makes: name what you counted.**
 ## Running everything — `run-all-gates.sh`
 
 ```sh
@@ -303,7 +351,8 @@ is `The argument '...' to the -File parameter does not exist`, or a batch run
 that silently skips a gate.
 
 ```sh
-ls tests/*.ps1 | wc -l          # expect 8
+ls tests/*.ps1 | wc -l          # compare against GATE_SCRIPTS in run-data-layer.sh,
+                                # which is the manifest -- never a number typed here
 git checkout -- tests/<gate>.ps1  # every gate script is committed
 ```
 
@@ -313,9 +362,9 @@ green suite on a machine without that exclusion proves less than it appears to**
 because a quarantined gate does not run and does not say so.
 
 `run-data-layer.sh` now refuses to start on that footing: it opens with a
-**gate-script census** against a pinned manifest of the eight names, so a
+**gate-script census** against a pinned manifest of every gate name, so a
 quarantined script fails the suite loudly and by name, with its `git checkout`
-line printed. Adding a ninth gate fails the census until its name joins the
+line printed. Adding a gate fails the census until its name joins the
 manifest — the same deliberate re-pin `EXPECTED_ASSERTIONS` requires.
 
 ### The second AV mode: present, but denied execution

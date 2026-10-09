@@ -5553,3 +5553,69 @@ so a count that linked nowhere would fail.
 **The lesson for every gate here:** an assertion keyed on a CLASS NAME or a STRING
 goes quiet when the surface is renamed, and a quiet assertion is indistinguishable
 from a passing one. The census argument again: name what you counted.
+
+### R159.1/A4 — `landing-gate.ps1` (30th), and what a parked gate cannot know
+
+90 checks over the grouped day and the quick-add sheet. Pre-registered and parked
+in the scratchpad until its subject existed — which kept it out of the census and
+**did not keep it true**. Re-read against the code before its first run, three of
+its assertions were already satisfied by a repo that had done none of the work:
+
+| asked for | why it could not fail |
+|---|---|
+| `typeof HT.quickLog === 'function'` | `quickLog(id)` already existed as the PRESET logger — the very collision the ruling named. Replaced by `quickAddLog` plus an assertion that the two are **different functions**, so a future merge fails the gate instead of satisfying it. |
+| `.dkinds, .daybadge, .dbadge` count 0 | **those classes exist nowhere in this repo.** Re-pointed at `.qab`, and at the rendered WORDS, with the ruled replacement required present. |
+| `$BIO.fn -ne ''` | the property was ABSENT, and `$null -ne ''` is true. Type asserted separately; content required real. |
+
+**And three the first red run exposed** — 21 of 84 checks passed with nothing
+built, which is the signal to read:
+
+- `onLunchHead` was **measured and never asserted**, so no response line anywhere
+  would have passed.
+- dinner's refusal to average two sittings was tested against a fixture with **no
+  glucose at all**. A refusal that cannot be told apart from having nothing to say
+  is not a measurement. The fixture now seeds a real stream for both.
+- the `ref.g` rule was `(hasRef) -or (lostNote)` — **an `-or` over two opposite
+  outcomes passes on either.** Split, with a fixture per branch.
+
+**The overflow leg now NAMES the element**, its ancestry, its parent's box and its
+text instead of printing two numbers. It immediately found a **pre-existing** bug
+no gate had caught: `.gsub .gage{flex:0 0 auto}` cannot shrink, and the span
+always reads “last reading this day — <age>”, which exceeds the row at 360px.
+`span.gage +2px in [gsub < grow < DIV]` — a number would have started a hunt.
+
+**A plant proves an assertion can FAIL; only a fixture proves it can PASS.** The
+order assertion added in A3 shipped with the plant and no fixture, and failed on
+the real surface because its fixture configures no goals.
+
+### `class_dupes.py` — one class, one rule block (and three drafts that missed it)
+
+```sh
+python tests/class_dupes.py index.html     # called by check-dupes.sh
+```
+
+**The CSS half of [[D159]].** A new `.qrow` joined an existing `.qrow` in the
+cascade and restyled two unrelated surfaces, **and inflated the gate counting it**
+(a count of food rows matched foreign rows). Found only because a tap on
+`querySelector('.qrow')` hit a handler-less `<div>` and did nothing.
+
+**Three drafts passed on the real bug before this one caught it:**
+
+| draft | blind spot |
+|---|---|
+| newly-emitted class vs HEAD's styled set | the class was **not new to the markup**; the RULE was new |
+| `^.name{` at column zero | **mixed indentation** — saw 89 of 480 rules |
+| brace-depth parse | **CSS comments** sit between the last `}` and the selector, hiding 68 rules including the one that mattered |
+
+> Twice the detector's own COVERAGE was the defect — and partial coverage reads
+> exactly like a clean result.
+
+**Proved against the bug, not just against a plant.** With `.qrow` restored it
+fails by name; the planted-duplicate control runs on every invocation as well.
+
+**A MANIFEST, not a zero.** 19 classes legitimately carry two top-level blocks
+(base plus a modifier written apart). `@media` / `@supports` blocks are excluded,
+because a breakpoint override is the one case where a second definition is the
+point. The floor is 350 against 512 measured — an earlier draft asserted 200
+against an extractor finding 89 and **failed a clean tree because the bar was
+invented rather than measured**.

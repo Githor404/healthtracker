@@ -919,11 +919,74 @@
 .rconfirmbtn{margin:0}
 .rconfirmbtn.rshield{opacity:.45;pointer-events:none}
 .rvesc{margin-top:6px}
-/* H16 / D130: the quick-add row. The day begins by naming what can go in it. */
-.qadd{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
-.qab{flex:1 1 auto;min-width:72px;padding:12px 10px;border-radius:10px;font-size:16px;
-  font-weight:600;color:var(--txt);background:var(--panel);border:1px solid var(--line)}
-.qab:active{background:var(--card2,rgba(127,127,127,.12))}
+/* ---- R159.1: the grouped day ------------------------------------ */
+/* A header is a 44px tap target by its padding, not by a fixed height: the
+   response line and the drink chip wrap onto it, and a fixed height would
+   clip them on a narrow screen. */
+.mgrp,.bgrp{margin-top:10px;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.mghead{display:grid;grid-template-columns:1fr auto;grid-auto-rows:min-content;gap:2px 10px;
+  width:100%;min-height:44px;padding:11px 12px;border:0;background:transparent;color:inherit;
+  font:inherit;font-size:16px;text-align:left;cursor:pointer}
+.mghead:active{background:var(--card2,rgba(127,127,127,.12))}
+.mgname{font-weight:700;text-transform:capitalize}
+.mgnum{font-weight:700;text-align:right;white-space:nowrap}
+.mgmeta{grid-column:1/-1;color:var(--muted);font-size:16px}
+/* Two chips, two different parents. `.mgdrink` is a child of the grid header, so
+   it spans the row. `.mgiflag` is a child of `.mhead`, which is FLEX -- where
+   `grid-column` and `justify-self` do nothing at all. It needs flex rules, and
+   `flex:0 0 auto` beside `.mname`'s `min-width:0` means the NAME clips before the
+   flag does: the flag is three letters and the name has an ellipsis and a title. */
+.mgdrink{grid-column:1/-1;justify-self:start;font-size:16px;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.mhead .mgiflag{flex:0 0 auto;font-size:16px;color:var(--muted);
+  border:1px solid var(--line);border-radius:999px;padding:1px 9px}
+.mgresp{grid-column:1/-1;font-size:16px}
+.mgbody{padding:0 12px 10px;border-top:1px solid var(--line)}
+.mgmac{padding:8px 0;color:var(--muted);font-size:16px}
+/* The empty kinds: ONE muted line, each named kind its own 44px target. */
+.mgnone{margin-top:10px;display:flex;align-items:center;flex-wrap:wrap;gap:4px;
+  color:var(--muted);font-size:16px}
+.mgadd{min-height:44px;padding:0 10px;border:1px solid var(--line);border-radius:10px;
+  background:transparent;color:inherit;font:inherit;font-size:16px;text-transform:capitalize;cursor:pointer}
+.mgadd:active{background:var(--card2,rgba(127,127,127,.12))}
+/* Biometrics is VISUALLY DISTINCT, as ruled: its own accent edge. */
+.bgrp{border-left:3px solid var(--accent)}
+.bgsum{grid-column:1/-1;color:var(--muted);font-size:16px}
+.bgline{display:grid;grid-template-columns:auto 1fr auto;gap:10px;padding:6px 0;font-size:16px}
+.bgval{text-align:right;white-space:nowrap}
+.dordr{margin-top:10px;text-align:right}
+/* ---- the ruled action row -------------------------------------- */
+.dact{display:flex;gap:8px;margin:10px 0}
+.dact .qa10{flex:1 1 auto;min-height:44px}
+.dcam{flex:0 0 auto;min-height:44px;padding:0 14px;border:1px solid var(--line);
+  border-radius:10px;background:transparent;color:inherit;font:inherit;font-size:16px;cursor:pointer}
+.dcam:active{background:var(--card2,rgba(127,127,127,.12))}
+/* ---- R159.1 screen 3: the quick-add sheet ----------------------- */
+.qsheet{margin-top:4px}
+.qfrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;min-height:44px;
+  padding:10px 12px;margin-bottom:6px;border:1px solid var(--line);border-radius:10px;
+  background:transparent;color:inherit;font:inherit;font-size:16px;text-align:left;cursor:pointer}
+.qfrow:active{background:var(--card2,rgba(127,127,127,.12))}
+.qrname{font-weight:700}
+.qrn{font-weight:700;text-align:right;white-space:nowrap}
+.qrport{grid-column:1/-1;color:var(--muted);font-size:16px}
+/* The spellings the count merged (ruling A). Muted, but never hidden: a count
+   the user cannot check against its own names is a number on trust. */
+.qnames{grid-column:1/-1;color:var(--muted);font-size:16px}
+.qstep{margin-top:4px}
+.qsname{font-size:20px;font-weight:700}
+.qlast{margin-top:2px;color:var(--muted);font-size:16px}
+.qsrow{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin-top:10px}
+.qsbtn{min-width:44px;min-height:44px;border:1px solid var(--line);border-radius:10px;
+  background:transparent;color:inherit;font:inherit;font-size:20px;cursor:pointer}
+.qsbtn:active{background:var(--card2,rgba(127,127,127,.12))}
+.qn{min-width:2ch;text-align:center;font-size:20px;font-weight:700}
+.qglab{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:16px}
+.qgrams{width:7ch;min-height:44px;font:inherit;font-size:16px}
+.qmeal{margin-top:10px;display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:16px}
+.qchange{min-height:44px;font:inherit;font-size:16px}
+.qlog{width:100%;min-height:44px;margin-top:10px}
+.qback{margin-top:8px}
 .rpthead{font-size:16px;font-weight:600;color:var(--muted);margin:10px 0 6px}
 .rptstrip{display:flex;gap:8px;flex-wrap:wrap}
 /* D133: a proposal is a first row, and says why it is one. */
@@ -945,7 +1008,12 @@
 .ghead .gstat{flex:1 1 auto;min-width:0;font-size:16px;font-variant-numeric:tabular-nums}
 .gsub{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;padding:0 0 2px}
 .gsub .gcov{flex:1 1 auto;min-width:0;font-size:16px;color:var(--muted)}
-.gsub .gage{flex:0 0 auto;font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
+/* PRE-EXISTING, found by R159.1/A4's fixture: `flex:0 0 auto` cannot shrink, and
+   this span is not the short "8 h ago" the rule assumed -- it always reads "last
+   reading this day - <age>". At 360px that is wider than the row, so it pushed the
+   document 2px sideways on any day whose age string ran long. It may shrink and
+   wrap now; `min-width:0` is what lets a flex item go below its max-content. */
+.gsub .gage{flex:0 1 auto;min-width:0;font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
 .gbody{display:block;padding:4px 0 2px}
 /* the window line states what is on screen AND how old the newest point is */
 .twindow{font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums;padding:2px 0 4px}
@@ -1069,6 +1137,20 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
     <div class="card">
       <div id="regimenChecklist"></div>
       <div id="dayView"></div>
+      <!-- H25/H26, MOVED NOT REMOVED. These two were tenants of the Timeline
+           card, which R159.1 rules out of existence as a card. The ruling
+           that put them on the MAIN SURFACE stands: "a tap to open a sheet
+           and then a tap on the control is TWO taps, and the ruling said
+           one". They sit BELOW the day, never above it -- mounted above, the
+           row pushed the goal cells and the legend below the fold at 390x745.
+           Deleting the card without rehoming them would have retired a ruled
+           surface by accident. -->
+      <div id="quickEvents"></div>
+      <div id="fastCandidates"></div>
+      <!-- The chronological view, ruled ONE TAP away rather than a standing
+           card. renderDay owns #dayView and cannot own a sibling, so the
+           toggle sets `hidden` on this box instead of re-rendering it. -->
+      <div id="timeOrderBox" hidden><div id="timelineOverlay"></div></div>
     </div>
     <div class="card">
       <details open>
@@ -1078,21 +1160,6 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
       </details>
     </div>
 
-    <div class="card">
-      <details open>
-        <summary>Timeline (food · events · biometrics)</summary>
-        <!-- H25/H26: one-tap events. ON THE MAIN SURFACE (a tap to open a sheet
-             and then a tap on the control is TWO taps, and the ruling said one),
-             beside the other one-tap response rather than ABOVE the day view.
-             MEASURED: mounted above it, this row pushed the goal cells and the
-             legend below the fold at 390x745 and ring-size-gate reported the ring
-             at 51% of viewport width against its 70% floor. The ruling says main
-             surface, not above the ring -- and the ring has a gated fold budget. -->
-        <div id="quickEvents"></div>
-        <div id="fastCandidates"></div>
-        <div id="timelineOverlay" style="margin-top:10px"></div>
-      </details>
-    </div>
 
     <div class="card">
       <details>

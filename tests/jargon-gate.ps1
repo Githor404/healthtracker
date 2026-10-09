@@ -203,6 +203,10 @@ try {
   // and one of them duly started failing four days later on an untouched tree.
   HT.setClock(function () { return Date.parse('2026-09-26T14:00:00-04:00'); });
   HT.boot();
+  // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
+  // does not exist until its group is tapped. This gate sweeps those rows, so it
+  // opens them -- once, with the sticky seam, which keeps later seeding swept too.
+  if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
   await sleep(400);
   sweep('first run');
 
