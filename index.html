@@ -231,6 +231,23 @@
      radius is stated in the same units as the rim -- no second scale to keep in
      sync. Pointer events pass through: the ringbox's own tap (clearSwap) and the
      centre's tap must both still land. */
+  /* R159.1/A2: the card is a ROW -- rings left, figures right. The rings are
+     sized in PIXELS now, not as a share of the viewport: the 70% floor is retired
+     (superseded by ruling) because the rings share the card, and what that floor
+     protected is now a pixel minimum plus a zero-ink-collision test. */
+  .dcard{display:flex;align-items:center;gap:14px;padding:4px 0 2px}
+  .ringbox.ringsm{width:150px;height:150px;min-width:150px;margin:0;cursor:pointer}
+  .dfigs{flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;gap:2px 12px;
+         align-content:center}
+  .dfig{flex:0 0 auto;font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
+  .dfig b{font-size:16px;font-weight:700;color:var(--fg)}
+  /* The typical-day line takes the full width of the right column: it is a
+     sentence, and wrapping it beside a figure is what put it through the arc. */
+  .dtypical{flex:1 1 100%;font-size:16px;color:var(--muted);line-height:1.3}
+  .dfigcov{flex:1 1 100%;font-size:16px;color:var(--warn);line-height:1.3}
+  /* At 360 the row has ~346px: 150 for the rings, 14 gap, ~182 for four figures
+     and a sentence -- so the figures wrap two-up rather than compressing. */
+  @media (max-width:380px){ .dcard{gap:10px} .ringbox.ringsm{width:134px;height:134px;min-width:134px} }
   .calring{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   .calrtrack{stroke:var(--line);stroke-width:9}
   .calrarc{stroke:var(--accent);stroke-width:9;stroke-linecap:round}
@@ -247,8 +264,19 @@
      AND IT NEEDS TWO CLASSES: `.ringval{inset:0}` is declared BELOW this rule,
      and at equal specificity the later one wins -- the first attempt set 21% and
      measured 302px, the full box, unchanged. `.ringval.calcentre` beats it. */
-  .ringval.calcentre{gap:0;inset:21%}
-  .calcentre .calnum{font-size:32px;font-weight:700;line-height:1.02}
+  /* INSET TO A TRUE INSCRIBED SQUARE, not to the circle's diameter. The old 21%
+     made a box whose DIAGONAL was 1.414x its side and so stuck 34px out past the
+     arc before any text -- which is how the figures came to lie across the ink.
+     A square that fits inside a circle has side r*sqrt(2), i.e. 0.707 of the
+     diameter, so the inset is (1-0.707*0.594)/2. With the calorie arc's inner
+     edge at 0.594 of the radius that is 29%. Only the number and its unit live
+     here now, and the gate measures their ink against the CIRCLE. */
+  .ringval.calcentre{gap:0;inset:29%}
+  /* 24px, not 28: D100's scale is 16/20/24/32 and the harness's H9-scale case
+     caught 28 as a fifth size the moment it shipped. 32 is what this was at the
+     full-width ring, and it does not fit the 150px disc -- the inscribed square
+     is 63px and "1680" at 32px is ~74px. 24 is the ruled size that fits. */
+  .calcentre .calnum{font-size:24px;font-weight:700;line-height:1.02}
   .calcentre .calunit{font-size:16px;color:var(--muted);line-height:1}
   .calcentre .calmac{font-size:16px;font-variant-numeric:tabular-nums;line-height:1.2;white-space:nowrap}
   .calcentre .calwords{font-size:16px;color:var(--muted);line-height:1.2;

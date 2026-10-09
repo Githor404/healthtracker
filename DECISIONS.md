@@ -12215,3 +12215,117 @@ is the short form. The detail moved below the cells.
 **Still open: screens 2 and 3** — the meal groups with the one muted empty line, the
 Biometrics group, the Timeline card's removal with a *time order* toggle, and the
 quick-add sheet.
+
+## R159.1/A2 — BUILT: the figures leave the disc, and the ring floor is retired (2026-10-09, v0.74.0)
+
+**DEVICE FINDING on v0.73.0 (user):** the centre text crosses the inner ring —
+*“11.7C”* and *“no typical day yet”* overlap the ring's ink. **An ink collision no
+gate caught.**
+
+### WHY NO GATE CAUGHT IT: EVERY INK CHECK HERE COMPARES A BOX TO A BOX
+
+The constraint inside a ring is a **circle**. The half-width available at vertical
+offset *y* is **sqrt(r² — y²)**, not *r*. The two checks that ran were:
+
+| check | what it compares |
+|---|---|
+| `centreOverflows` | `scrollHeight > clientHeight` — a box against **its own** box |
+| `anyLineWider` | `child.width > centre.width` — a box against a box |
+
+Both compare widths as if the limit were constant, so **a line that fits at the
+middle can still put its ends through the arc.** Reproduced arithmetically from the
+shipped geometry:
+
+| | 360 viewport | 390 viewport |
+|---|---|---|
+| arc inner radius | 89.8px | 97.5px |
+| centre box, inset 21% | 175.2px square | 190.2px square |
+| its **diagonal** | **247.7px** | **269.0px** |
+| corners outside the circle **before any text** | **34.1px** | **37.0px** |
+| the typical-day line | **COLLIDES by 8.1px** | clear |
+
+> **Two separate errors, and the first guaranteed the second.** The inset was
+> computed as if the constraint were a SQUARE of the circle's diameter — but a
+> square's diagonal is 1.414x its side, so its corners are always outside. And the
+> collision is width-dependent, so it appears at **360 and not at 390**, which is
+> why the gate's 390 leg could never have seen it even had it been looking.
+
+### THE FIX IS STRUCTURAL: THE FIGURES LEFT THE DISC
+
+Ruled layout — rings **left** and smaller (150px, 134px under 380px), **only the
+calorie number and “cal”** in the centre; protein, fat, carbs, fibre and the
+typical-day line **right**, in the same card; the legend and range label **behind a
+tap on the rings**; the gap counter keeps its own line below.
+
+**Shrinking the text was never available** — [[D100]]'s floor is 16px. Moving it out
+removes the constraint instead of negotiating with it, and a disc is the wrong
+container for a sentence: every line has a different budget and the longest is
+always the one nearest the rim.
+
+The centre is now inset to a **true inscribed square** (29% — side = r√2), so the
+box itself is honest and not merely the ink.
+
+### TWO RETIREMENTS, BOTH SUPERSEDED BY THE RULING
+
+**1. The 70%-of-viewport floor, retired as ruled.** The rings now **share** the card,
+so a share-of-viewport floor measures the wrong thing: at 70% there is no room
+beside them, which is **what forced the text into the disc in the first place**.
+Replaced, as ruled, by **rings >= 130px**, **zero ink collisions at 360 and 390**, and
+**all text >= 16px**.
+
+**2. And the absolute arc-band floor (11/13px) with it** — a retirement the ruling
+implies but did not name, **for a reason the gate file already states three lines
+below the constants**:
+
+> *“Strokes scale with the ring, so a smaller phone renders proportionally thinner
+> bands — **correct behaviour, not a defect**. The scale-invariant assertion is the
+> PROPORTION.”*
+
+Those two numbers were derived from a **328px** ring. At the ruled **150px**, 11px of
+stroke is not thin, it is impossible — measured **5.5-6.4px, which is the same
+3.7-4.3% of the ring that passed before**. The proportion carries the whole
+requirement and still holds at both widths. The retired numbers stay in the file as
+comments, so the next reader finds them **and their reason** rather than their
+absence.
+
+### THE NEW INSTRUMENT: CORNERS AGAINST A CIRCLE, WITH A PLANTED CONTROL
+
+`ring-size-gate` now takes every text node inside the ring box, converts its rect to
+coordinates centred on the ring, and asks whether its **furthest corner** is inside
+the arc's inner radius. **Corners, not widths.** And it **plants a known-colliding
+element** and requires the test to catch it: a collision detector that cannot detect
+one reads exactly like a clean layout.
+
+Measured: **ink-crossing-arc = 0** at 390 and 360, **planted-caught = true** at both.
+
+### AND THE GATE WAS MEASURING THE FOLD THROUGH HALF A SCREEN OF CHANGELOG
+
+Diagnosing a `chkAbove` failure at 360 found something that had nothing to do with
+this slice: **`#versionNotice` was 520px tall**, and every fold assertion in this
+gate was being measured with it open.
+
+> It is a **transient overlay that goes on the first tap**, and it is as tall as its
+> text. The 0.73.0 note made it 520px and pushed the regimen checklist **88px below
+> the fold** — `chkBottom` 778 against a 690 viewport. Dismissed first, the same
+> measurement reads **244**.
+
+**So any release with a long changelog note would have failed this gate, and the
+fold budget it asserted was never the steady-state one.** The gate now dismisses the
+notice before measuring, through the real `dismissVersionNotice` — which had to be
+**exported**, since hiding the element would have been a fake dismissal.
+
+Diagnosed by running the **instrumented gate against the previous commit**: same
+instrument, old code, `chkBottom` **546** instead of 778. That separated instrument
+from layout in one measurement.
+
+### AND ONE RULING I BROKE, CAUGHT BY THE HARNESS
+
+**`H9-scale`: every rendered size must be one of 16/20/24/32.** I set the calorie
+number to **28px** — a fifth size, invented because 32 does not fit the smaller disc
+(the inscribed square is 63px; “1680” at 32px is ~74px). **24px is the ruled size
+that fits**, and the harness said so the moment it shipped.
+
+**VERIFIED:** `ring-size` PASS (150px/134px, **zero ink crossing the arc**, planted
+control caught), `font-floor` PASS (1,446 elements, nothing under 16px),
+`page-overflow` PASS, `collapse` PASS, `jargon-gate` PASS (528 strings, 15 screens),
+harness **2638/2638**.

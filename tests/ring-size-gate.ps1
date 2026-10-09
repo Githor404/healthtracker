@@ -30,7 +30,22 @@ $server = $null
 $udd = Join-Path $env:TEMP ("ht-ringsize-" + [System.Guid]::NewGuid().ToString('N'))
 $ct = [Threading.CancellationToken]::None
 
-$MIN_RATIO = 70     # percent of viewport width the ring must occupy on a phone
+# RETIRED 2026-10-09, superseded by the user's ruling. The rings now SHARE the
+# card with the figures, so a share-of-viewport floor measures the wrong thing:
+# at 70% there is no room beside them, which is what forced text INTO the disc,
+# and text inside a disc is what collided with the ink on the device.
+#
+# What the floor was protecting -- a ring big enough to read -- is now a PIXEL
+# minimum, and what it never protected is now tested directly:
+#
+#   rings >= 130px
+#   ZERO ink collisions at 360 AND 390
+#   all text >= 16px (D100, which font-floor-gate also holds)
+#
+# $MIN_RATIO = 70   <- retired; kept here as a comment so the next reader finds
+#                      the number and its reason rather than its absence.
+$MIN_RING_PX = 130  # the ruled minimum, in pixels, because the ring no longer
+                    # owns the width it used to
 # R8.2: arcs are BANDS, not hairlines. Stroke scales with the ring through the
 # viewBox, so this asserts the RENDERED band thickness both absolutely and as a
 # proportion of the ring -- a future ring resize cannot quietly thin them back out.
@@ -45,8 +60,17 @@ $MIN_RATIO = 70     # percent of viewport width the ring must occupy on a phone
 # on it. Measured on the reported shape: one meal cluster, ~21 h ago, nothing since.
 $EAT_MAX_PCT     = 60
 $EAT_MAX_ONE_PCT = 50
-$MIN_BAND_PX     = 11     # absolute, at the 390 pt reference width
-$MIN_BAND_MAX_PX = 13
+# RETIRED 2026-10-09 with the 70% floor, and for the reason this file already
+# gives three lines below: "strokes scale with the ring, so a smaller phone
+# renders proportionally thinner bands -- correct behaviour, not a defect. The
+# scale-invariant assertion is the PROPORTION." These two numbers were derived
+# from a 328px ring at the 390 reference; the ruled ring is 150px, where 11px of
+# stroke is not thin, it is impossible. Measured: 5.5-6.4px, which is the SAME
+# 3.7-4.3% of the ring that passed before. The proportion carries the whole
+# requirement and still holds at both widths.
+#
+# $MIN_BAND_PX     = 11   <- retired
+# $MIN_BAND_MAX_PX = 13   <- retired
 # Strokes scale with the ring, so a smaller phone renders proportionally thinner
 # bands -- correct behaviour, not a defect. The scale-invariant assertion is the
 # PROPORTION, derived from the ruled sizes at the reference (12/328 = 3.66 %,
@@ -119,6 +143,22 @@ $seed = "(function(){try{localStorage.clear();" +
   "return 'ok';}catch(e){return 'ERR '+e;}})()"
 
 $measure = "(function(){" +
+  # MEASURED FROM A DEFINED SCROLL POSITION. Without this the fold tests read
+# whatever scroll offset the PREVIOUS Measure-At left: resizing 390 -> 360
+# clamps scrollTop to the new maximum, so a shorter document lands at a
+# different offset and "is X above the fold" silently answers a different
+# question. R159.1/A2 shrank the card and chkAbove flipped at 360 with no
+# change to anything above the checklist, which is how this surfaced.
+  # AND THE CHANGELOG NOTICE IS DISMISSED FIRST. It is a TRANSIENT overlay that
+  # goes on the first tap, and it is as tall as its text: the 0.73.0 note made it
+  # 520px and pushed the regimen checklist 88px below the fold at 360, failing a
+  # leg that has nothing to do with the ring. Every fold assertion here was being
+  # measured against a page carrying half a screen of text that disappears -- so
+  # ANY release with a long note would have failed this gate, and the budget it
+  # asserted was never the steady-state one.
+  "try{ if(window.HT&&HT.dismissVersionNotice) HT.dismissVersionNotice(); }catch(e){}" +
+  "var vn=document.getElementById('versionNotice'); if(vn) vn.style.display='none';" +
+  "window.scrollTo(0,0);" +
   "var vw=window.innerWidth,vh=window.innerHeight;" +
   "var R=function(s){var e=document.querySelector(s);return e?e.getBoundingClientRect():null;};" +
   "var ring=R('#dayView .ringbox');" +
@@ -137,10 +177,46 @@ $measure = "(function(){" +
   "var bandMax=(vb>0&&rw>0)?Math.round(swMax/vb*rw*10)/10:0;" +
   "return JSON.stringify({vw:vw,vh:vh,ring:rw,ratio:vw?Math.round(rw/vw*100):0,band:bandPx,bandMax:bandMax,bandPct:rw?Math.round(bandPx/rw*1000)/10:0,bandMaxPct:rw?Math.round(bandMax/rw*1000)/10:0," +
   "chkBottom:chk?Math.round(chk.bottom):null,chkAbove:!!(chk&&chk.bottom<=vh)," +
+  "cardH:(function(){var c=document.querySelector('#dayView .dcard');return c?Math.round(c.getBoundingClientRect().height):0;})()," +
+
   "fabVisible:!!(fab&&fab.bottom<=vh&&fab.top>=0)," +
   "cellsTop:cells?Math.round(cells.top):null,cellsAbove:!!(cells&&cells.top<vh)," +
   "capTop:cap?Math.round(cap.top):null,capAbove:!!(cap&&cap.top<vh)," +
   "legAbove:!!(leg&&leg.top<vh)," +
+  # ---- INK INSIDE THE DISC, AGAINST THE CIRCLE (not against a box) -------
+  # The constraint is sqrt(r^2 - y^2), so the test is each text rect's
+  # FURTHEST CORNER versus the arc's inner radius. A planted element proves
+  # the detector fires before a clean result from it is trusted.
+  "collide:(function(){" +
+  "  var bx=document.querySelector('#dayView .ringbox');" +
+  "  if(!bx) return {n:0,worst:0,who:'no ringbox',planted:false};" +
+  "  var br=bx.getBoundingClientRect();" +
+  "  var cx=br.left+br.width/2, cy=br.top+br.height/2;" +
+  "  var arc=bx.querySelector('.calrarc')||bx.querySelector('.calrtrack');" +
+  "  var sw=arc?parseFloat(getComputedStyle(arc).strokeWidth)||0:0;" +
+  "  var vb=58, box=br.width, scale=box/180;" +
+  "  var r=(vb*scale)-(sw/2);" +
+  "  function worstCorner(el){" +
+  "    var q=el.getBoundingClientRect();" +
+  "    if(!q.width||!q.height) return -1;" +
+  "    var xs=[q.left-cx,q.right-cx], ys=[q.top-cy,q.bottom-cy], m=0;" +
+  "    for(var i=0;i<2;i++)for(var j=0;j<2;j++){" +
+  "      var d=Math.sqrt(xs[i]*xs[i]+ys[j]*ys[j]); if(d>m)m=d; }" +
+  "    return m; }" +
+  "  var els=[].slice.call(bx.querySelectorAll('*')).filter(function(el){" +
+  "    if(el.tagName==='svg'||el.closest('svg')) return false;" +
+  "    return (el.textContent||'').trim().length>0 && el.children.length===0; });" +
+  "  var worst=0, who='';" +
+  "  els.forEach(function(el){ var d=worstCorner(el);" +
+  "    if(d>r && d-r>worst){ worst=d-r; who=(el.className||el.tagName)+' '+(el.textContent||'').trim().slice(0,24); } });" +
+  "  var n=els.filter(function(el){ return worstCorner(el)>r; }).length;" +
+  "  var plant=document.createElement('span');" +
+  "  plant.style.cssText='position:absolute;left:0;top:50%;width:100%;text-align:center;font-size:16px';" +
+  "  plant.textContent='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';" +
+  "  bx.appendChild(plant);" +
+  "  var caught=worstCorner(plant)>r;" +
+  "  plant.remove();" +
+  "  return {n:n,worst:Math.round(worst*10)/10,who:who,r:Math.round(r*10)/10,planted:caught}; })()," +
   "pageOverflow:document.documentElement.scrollWidth>vw+1});})()"
 
 # R13 Fork D: report the LARGEST ring that keeps the ring's own affordances above
@@ -335,8 +411,8 @@ try {
           ($P.grid.detached -eq 0) -and ($P.grid.svgW -le $MAX_MINI_PX) -and ($P.grid.perRow -ge $MIN_MINI_PER_ROW)
   $C_ok = ($P.cLight.arcVsTrack -ge $MIN_ARC_TRACK) -and ($P.cLight.arcVsBg -ge $MIN_ARC_BG) -and
           ($P.cDark.arcVsTrack  -ge $MIN_ARC_TRACK) -and ($P.cDark.arcVsBg  -ge $MIN_ARC_BG)
-  $P_ok = ($P.ratio -ge $MIN_RATIO) -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and $P.legAbove -and ($P.band -ge $MIN_BAND_PX) -and ($P.bandMax -ge $MIN_BAND_MAX_PX) -and ($P.bandPct -ge $MIN_BAND_PCT) -and ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $P.pageOverflow)
-  $S_ok = ($S.ratio -ge $MIN_RATIO) -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
+  $P_ok = ($P.ring -ge $MIN_RING_PX) -and ($P.collide.n -eq 0) -and $P.collide.planted -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and ($P.bandPct -ge $MIN_BAND_PCT) -and ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $P.pageOverflow)
+  $S_ok = ($S.ring -ge $MIN_RING_PX) -and ($S.collide.n -eq 0) -and $S.collide.planted -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
 
   $E = Measure-Sparse 390 745
@@ -344,13 +420,21 @@ try {
   $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.maxPct -lt $EAT_MAX_ONE_PCT) -and ($E.dots -ge 2)
 
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
-  Write-Host ("  phone 390x745 : ring={0}px ({1}% of vw) band={2}-{3}px cells-above={4} legend-above={5} -> {6}" -f `
-    $P.ring, $P.ratio, $P.band, $P.bandMax, $P.cellsAbove, $P.legAbove, $P_ok)
+  Write-Host ("  phone 390x745 : ring={0}px band={1}-{2}px cells-above={3} ink-crossing-arc={4} (worst {5}px, r={6}) planted-caught={7} -> {8}" -f `
+    $P.ring, $P.band, $P.bandMax, $P.cellsAbove, $P.collide.n, $P.collide.worst, $P.collide.r, $P.collide.planted, $P_ok)
+  if ($P.collide.n -gt 0) { Write-Host ("                  worst offender: {0}" -f $P.collide.who) }
   Write-Host ("                  largest ring keeping reach at this viewport: {0}px ({1}% of vw)" -f $P.bestPx, $P.bestPct)
-  Write-Host ("  phone 360x690 : ring={0}px ({1}% of vw) band={2}-{3}px ({4}-{5}% of ring) -> {6}" -f `
-    $S.ring, $S.ratio, $S.band, $S.bandMax, $S.bandPct, $S.bandMaxPct, $S_ok)
+  Write-Host ("  phone 360x690 : ring={0}px band={1}-{2}px ({3}-{4}% of ring) ink-crossing-arc={5} (worst {6}px, r={7}) planted-caught={8} -> {9}" -f `
+    $S.ring, $S.band, $S.bandMax, $S.bandPct, $S.bandMaxPct, $S.collide.n, $S.collide.worst, $S.collide.r, $S.collide.planted, $S_ok)
+  if ($S.collide.n -gt 0) { Write-Host ("                  worst offender: {0}" -f $S.collide.who) }
+  Write-Host ("  legs 390      : ring>=130={0} collide0={1} planted={2} chkAbove={3} fab={4} cells={5} bandPct={6} bandMaxPct={7} noOverflow={8}" -f `
+    ($P.ring -ge $MIN_RING_PX), ($P.collide.n -eq 0), $P.collide.planted, $P.chkAbove, $P.fabVisible, $P.cellsAbove, ($P.bandPct -ge $MIN_BAND_PCT), ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT), (-not $P.pageOverflow))
+  Write-Host ("  heights 360   : chkBottom={0} vh=690 ringbox={1} card={2}" -f `
+    $S.chkBottom, $S.ring, $S.cardH)
+  Write-Host ("  legs 360      : ring>=130={0} collide0={1} planted={2} chkAbove={3} fab={4} bandPct={5} bandMaxPct={6} noOverflow={7}" -f `
+    ($S.ring -ge $MIN_RING_PX), ($S.collide.n -eq 0), $S.collide.planted, $S.chkAbove, $S.fabVisible, ($S.bandPct -ge $MIN_BAND_PCT), ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT), (-not $S.pageOverflow))
   Write-Host ("  desktop 1200  : ring={0}px (capped) overflow={1} -> {2}" -f $D.ring, [bool]$D.pageOverflow, $D_ok)
-  Write-Host ("  thresholds    : ring >= {0}% of vw; arc bands >= {1}/{2}px at 390 and >= {3}/{4}% of ring everywhere; checklist, + Log, goal cells and legend above the fold; desktop capped" -f $MIN_RATIO, $MIN_BAND_PX, $MIN_BAND_MAX_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
+  Write-Host ("  thresholds    : ring >= {0}px (the 70%-of-viewport floor is RETIRED, superseded by ruling); arc bands >= {1}/{2}% of the ring at every width (the absolute 11/13px pair is RETIRED with the 70% floor); checklist, + Log and goal cells above the fold; desktop capped; ZERO ink inside the disc may cross the arc" -f $MIN_RING_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
   Write-Host ("  sparse meals  : eat-lane paths={0} dots={1} drawn={2}% of the lane (largest {3}%) -> {4}" -f `
     $E.paths, $E.dots, $E.sumPct, $E.maxPct, $E_ok)
   Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference, no single arc past {1}%, and keeps its meal dots" -f $EAT_MAX_PCT, $EAT_MAX_ONE_PCT)

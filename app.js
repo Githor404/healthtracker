@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.73.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.74.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3331,24 +3331,25 @@ function renderGoalsHTML(t, day) {
     html = goalRingBoxHTML(sw.key, t);
   } else {
     const model = rhythmModel(APP_STATE.current, { view: RING_VIEW });
-    // RULED CONCENTRIC: rhythm OUTSIDE, calories INSIDE, the number in the centre.
     const cb = calorieRingBasis(t);
-    // ORDER IS A FOLD BUDGET, AND THE RING GATE OWNS IT. It requires the goal
-    // cells AND the legend to sit ABOVE the fold at 390x745. The first draft put
-    // the basis detail, the macros and the evicted gap counter all between the
-    // rings and those -- about 87px -- and both went below it. Measured, not
-    // guessed: cells-above=False, legend-above=False.
-    //
-    // So only the RULED content stays adjacent to the rings (P/F/C, which is the
-    // whole point of moving them here). The basis detail and the gap counter are
-    // supplementary and go after the cells, where they cost no budget -- the same
-    // argument H25 lost when a one-tap row drove the ring to 51%.
+    // RULED: the rings LEFT and small, the figures RIGHT, in one card. The 70%-of-
+    // viewport floor is retired with this (superseded by the ruling): the rings now
+    // SHARE the card, and the thing that floor was protecting -- a ring big enough
+    // to read -- is now protected by a minimum in pixels plus a zero-ink-collision
+    // test, which is what the old floor could not express.
     html = ringViewToggleHTML()
-      + `<div class="ringbox" onclick="clearSwap()">${rhythmSVG(model, 180)}${calorieRingSVG(cb, 180)}${calorieCentreHTML(cb, t)}</div>`
-      + (model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}${RING_VIEW === 'plan' ? ' · the plan' : ''}</div>` : '')
-      + ringLegendHTML() + resolveRowHTML();
+      + '<div class="dcard">'
+      + `<div class="ringbox ringsm" onclick="ringTap()" role="button" tabindex="0"`
+      + ` aria-label="${esc(RING_LEGEND_OPEN ? 'Hide the ring key' : 'Show the ring key')}">`
+      + `${rhythmSVG(model, 180)}${calorieRingSVG(cb, 180)}${calorieCentreHTML(cb, t)}</div>`
+      + dayFiguresHTML(t, day, cb)
+      + '</div>'
+      + (RING_LEGEND_OPEN
+          ? ((model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}${RING_VIEW === 'plan' ? ' \u00b7 the plan' : ''}</div>` : '')
+             + ringLegendHTML())
+          : '')
+      + resolveRowHTML();
     html += goalCellsHTML(t)
-      + dayMacroRowHTML(t, day)
       + `<div class="calbasis">${esc(calorieRingDetail(cb))}</div>`
       + rhythmCenterHTML(model, true)
       + rhythmCaptionHTML(model);
@@ -10513,6 +10514,7 @@ const VERSION_LOG = [
   { v: '0.71.0', d: '2026-10-08', note: 'When you correct what the AI called a food, the app now remembers it — and the next time the AI says that same wrong name, the correction is the first thing offered. It was never found before, because the app looked under the name YOU chose while the next photo arrived under the name the AI gave. One correction is enough; nothing is applied until you tap it, because a real apple juice is still a real apple juice. If the right answer is already among the AI’s own alternatives it is moved to the top, and your last three corrections now travel with a meal photo so its guesses improve too.' },
   { v: '0.72.0', d: '2026-10-09', note: 'Two fixes about which day a thing belongs to. If you left the app open overnight it kept showing yesterday — and anything you logged went to yesterday. Coming back to it now checks the date. And a meal you start photographing before midnight stays on the day you started it, with the time you took the photo, instead of being quietly moved to the new day half-finished.' },
   { v: '0.73.0', d: '2026-10-09', note: 'The day now opens with two rings, one inside the other: the outer one is your rhythm (eating window, fasts, sleep) and the new inner one is calories, with the day’s figure and your protein, fat and carbs in the middle. With no goal set it fills against your own TYPICAL day — the median of your last 28 complete days, the same “typical” Trends uses — and the card says so in words. It is never called a target and there is no “remaining”, because a median of your own days describes what you do rather than prescribing it. With fewer than eight complete days it shows the number and does not fill at all, since a median of four days is not a typical day. The separate day-total row is gone: those figures moved into the ring rather than being copied there.' },
+  { v: '0.74.0', d: '2026-10-09', note: 'The day card is laid out the way you approved: the two rings on the left, smaller, with just the calorie number in the middle, and protein, fat, carbs, fibre and the typical-day line beside them. On a phone the figures no longer sit inside the ring, where they were crossing its ink. Tap the rings to see what the colours mean — the key and the time range are behind that tap now instead of always on screen. The gap counter keeps its own line underneath.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14093,6 +14095,22 @@ function setRingView(v) { RING_VIEW = (v === 'plan' ? 'plan' : 'day'); renderDay
 function toggleRingView() { return setRingView(RING_VIEW === 'plan' ? 'day' : 'plan'); }
 function laneFocus() { return LANE_FOCUS; }
 function focusLane(k) { LANE_FOCUS = (LANE_FOCUS === k) ? '' : String(k || ''); renderDay(); return LANE_FOCUS; }
+// RULED: DEPTH ON DEMAND. The legend -- and the range label with it -- sits
+// behind a tap on the rings. It is a key to the outer ring's colours, so the
+// ring is the thing to tap for it, and closed it costs no height at all.
+let RING_LEGEND_OPEN = false;
+function ringLegendToggle(open) {
+  RING_LEGEND_OPEN = (open == null) ? !RING_LEGEND_OPEN : !!open;
+  renderDay();
+  return { ok: true, open: RING_LEGEND_OPEN };
+}
+// The ring's tap does BOTH jobs: it still clears a goal swap (which is what it
+// did before) and it now opens the legend. Dropping clearSwap would have left
+// the 8-second swapped ring with no way back.
+function ringTap() {
+  clearSwap();
+  return ringLegendToggle();
+}
 function ringLegendHTML() {
   // Type identity lives in colour + this legend, since lanes no longer encode it.
   return '<div class="rlegend">' + RING_CATS.map((c) =>
@@ -14239,42 +14257,46 @@ function calorieRingSVG(b, size) {
 // `.rcenter` is inset 31%, about 115px at 360, and it will not take two prominent
 // figures. Measured, not assumed: the gate asserts the centre's ink fits.
 function calorieCentreHTML(b, t) {
-  // P/F/C IN THE DISC, in the abbreviated form the `.daytot` row this replaces
-  // already used. Measured: a row of them beside the rings costs 22px and pushes
-  // the goal cells under the fold at 390x745, which the ring gate refuses; inside
-  // the disc it costs nothing, because the disc is already drawn.
-  const mac = t ? ('<span class="calmac">' + esc(rDisp(t.protein_g)) + 'P \u00b7 '
-    + esc(rDisp(t.fat_g)) + 'F \u00b7 ' + esc(rDisp(t.carb_g)) + 'C</span>') : '';
-  // LABELLED, because the centre is otherwise a bare number inside a ring and
-  // that is exactly what a screen reader cannot make sense of. It also keeps the
-  // words "Day total" in the app: they used to live on the `.daytot` row the
-  // ruling removed, and jargon-gate's census sweeps aria-labels for this reason.
+  // THE NUMBER AND ITS UNIT, AND NOTHING ELSE. v0.73.0 put the macros and the
+  // typical-day line in here too, and on the device they crossed the arc.
+  // Reproduced from the geometry: the words ran 8.1px outside it at 360, and the
+  // centre BOX's corners were already 34px outside before any text -- an inset
+  // square of the circle's own diameter does not fit inside that circle.
+  //
+  // The figures moved OUT rather than down a size: the width a disc offers at
+  // vertical offset y is sqrt(r^2 - y^2), so every line has its own budget and the
+  // longest is always nearest the rim. And D100's floor is 16px, so shrinking was
+  // never available either.
   const lab = 'Day total ' + rDisp(b.kcal) + ' cal'
-    + (t ? (' · ' + rDisp(t.protein_g) + ' g protein, ' + rDisp(t.fat_g)
+    + (t ? (' \u00b7 ' + rDisp(t.protein_g) + ' g protein, ' + rDisp(t.fat_g)
             + ' g fat, ' + rDisp(t.carb_g) + ' g carbs') : '')
-    + ' · ' + calorieRingWords(b);
+    + ' \u00b7 ' + calorieRingWords(b);
   return '<div class="ringval calcentre" role="img" aria-label="' + esc(lab) + '">'
     + '<b class="calnum">' + esc(rDisp(b.kcal)) + '</b>'
     + '<span class="calunit">cal</span>'
-    + mac
-    + '<span class="calwords">' + esc(calorieRingWords(b)) + '</span>'
+    + '</div>';
+}
+// The figures, OUT of the disc and beside it. One row each so a long number
+// never competes with a neighbour for a line, and the typical-day line sits with
+// them because it is a fact about the figures rather than about the ring.
+function dayFiguresHTML(t, day, b) {
+  const cov = macroCoverage(day);
+  const fig = function (label, v) {
+    return '<div class="dfig"><b>' + esc(rDisp(v)) + '</b> <span>' + esc(label)
+      + '</span></div>';
+  };
+  return '<div class="dfigs">'
+    + fig('protein', t.protein_g)
+    + fig('fat', t.fat_g)
+    + fig('carbs', t.carb_g)
+    + fig('fiber', t.fiber_g)
+    + '<div class="dtypical">' + esc(calorieRingWords(b)) + '</div>'
+    + (cov.partial ? '<div class="dfigcov">' + esc(coverageNote(cov)) + '</div>' : '')
     + '</div>';
 }
 // ONE COPY OF THE MACROS, ruled. They were in the `.daytot` row below the whole
 // day; that row is gone and these sit beside the rings. Two places showing P/F/C
 // is the duplication this redesign exists to remove.
-// Fiber and the coverage note, BELOW the goal cells. The mockup names
-// Protein/Fat/Carb and those are in the disc; fiber is the fourth figure that
-// would make the disc wrap, and the coverage note is a sentence. Neither is worth
-// the fold budget, and the note is never faded below legibility (D53).
-function dayMacroRowHTML(t, day) {
-  const cov = macroCoverage(day);
-  const note = cov.partial
-    ? '<span class="dmaccov">' + esc(coverageNote(cov)) + '</span>' : '';
-  return '<div class="dmacs">'
-    + '<span class="dmac"><b>' + esc(rDisp(t.fiber_g)) + '</b> fiber</span>'
-    + note + '</div>';
-}
 
 function rhythmCenterHTML(model, below) {
   // R13: the centre is DISPLAY-ONLY at rest. R16 adds ONE exception with a hard
@@ -16657,7 +16679,8 @@ window.HT = {
   RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
   dayRollCheck, dayForWriteKey,
   calorieRingBasis, calorieRingWords, calorieRingSVG, calorieCentreHTML,
-  dayMacroRowHTML, calorieRingDetail, CAL_RING_R,
+  dayFiguresHTML, calorieRingDetail, CAL_RING_R,
+  ringLegendToggle, ringTap,
   mealEvents, mealEventNames, mealResponse, responseCoverage,
   refValueAt, POTENTIAL_AXES, POT_SLOT_WATER, POT_SLOT_FRUCTOSE,
   availCarbG, itemWaterPct, eventModifiers, potentialFor, potentialCeiling,
@@ -16782,6 +16805,7 @@ window.HT = {
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,
+  dismissVersionNotice,
   versionLine, renderVersionLine,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,

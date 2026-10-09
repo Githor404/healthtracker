@@ -5500,3 +5500,28 @@ assertion-count pin caught a fixture that rotted overnight** — a literal
 `2026-09-08` crossing `TRASH_MAX_AGE_DAYS`, which aborted the suite and stopped 360
 assertions. The previous commit's harness failed identically on the new date, so
 the suite was green yesterday and red this morning with no code change.
+
+### R159.1/A2 — the 70% floor retired; corners against a circle
+
+**RETIRED, superseded by ruling:** `$MIN_RATIO = 70` (share of viewport) and
+`$MIN_BAND_PX`/`$MIN_BAND_MAX_PX` (11/13px absolute). Both were calibrated against a
+**328px** ring that owned the full width; the ruled ring is **150px** and shares the
+card. Kept in the file as commented constants with their reasons.
+
+| replaced by | |
+|---|---|
+| `$MIN_RING_PX = 130` | the ruled minimum, in pixels |
+| **zero ink crossing the arc**, at 390 **and** 360 | corners against a circle, not boxes against boxes |
+| a **planted colliding element** must be caught | a detector that cannot detect one reads like a clean layout |
+| `$MIN_BAND_PCT` / `$MIN_BAND_MAX_PCT` | the scale-invariant form the file already called the real assertion |
+| text >= 16px | held by `font-floor-gate` and by `H9-scale` in the harness |
+
+**And the fold legs are now measured honestly:** `window.scrollTo(0,0)` plus
+`dismissVersionNotice()` first. The changelog overlay was **520px** tall at 0.73.0
+and every fold assertion here had been measured with it open — `chkBottom` 778
+against a 690 viewport, **244** once dismissed. Any release with a long note would
+have failed this gate.
+
+**The per-leg breakdown is kept** (`legs 390` / `legs 360`, each condition named):
+the composite `-> False` started a hunt, and naming the failing condition ends it —
+the same argument the gate-script census makes about manifests.
