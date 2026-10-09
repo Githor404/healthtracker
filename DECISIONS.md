@@ -11743,3 +11743,206 @@ was — no amounts, no nutrients, no database ids — and **a user who has corre
 nothing sends byte-for-byte what they always sent**. It says plainly that this is
 the one piece of *history*, rather than the photo in front of the user, that leaves
 the device.
+
+## R159.1 — The landing page — PRE-REGISTERED, MEASURED FIRST (2026-10-09)
+
+**The label named nothing before this.** Grepped first, per the standing rule that
+an R-number is the user's own relay label: **zero occurrences of `R159`** anywhere.
+And **[[R136]] and [[R138]] name only an order position** — six and eight mentions
+between them, every one a queue line, with no entry saying what either IS. So this
+is the first record of R159.1 **and** the first specification of R138.
+
+**Queue, as ruled:** [[R155]] hygiene → **this** → R136 → H29, with **R138 folded in
+here** because it is the same screen. Pre-registering ahead of R155 is not building
+ahead of it.
+
+### THE LOG THIS SCREEN IS FOR
+
+`export.json` — **40 days, 55 real items** (62 with the auto supplement). It is
+**gitignored and 13 days stale** (written 2026-09-26), so it predates [[H25]]'s events,
+[[H26]]'s nights and every typed identification since. Said rather than assumed
+current.
+
+### 1. THE TOP 10 EXISTS — BUT ONLY UNDER A KEY THAT MERGES A BEEF DISH WITH A
+VEGETARIAN ONE
+
+Measured three ways, because **the grouping decides the answer**:
+
+| grouping | distinct | repeat 2+ |
+|---|---|---|
+| exact name, lowercased | 47 | **7** |
+| token set, plural-folded | 47 | **7** |
+| **the real [[D136]] key** (two rarest tokens, rarity from the shipped CNF) | 42 | **10** |
+
+**So there are exactly ten foods that repeat, and only under `matchKey`.** The
+ruled *top 10* is satisfiable — just:
+
+| rank | n | portions seen | spread |
+|---|---|---|---|
+| 1 | **5x** | five, all different | **120 to 390 g — 3.25x** |
+| 2 | 2x | **none recorded on either item** | no portion to show |
+| 3-9 | 2x each | two, different in every case | 150/155, 66/70, 170/270, 65/80, 15/18, 240/350, 130/153 |
+| 10 | 2x | two, **identical** | 190 g both times |
+| 11 | **1x** | — | the cliff |
+
+**The foods are not named here.** `CLAUDE.md` holds this repo
+**fixture-synthetic forever** and public-facing, and the ten foods one person eats
+most, with their portions, is a profile rather than a measurement. The counts and
+spreads above are what the argument needs; the list itself went to the user, whose
+log it is. (The merge table below keeps its names, because **there** the name IS
+the evidence — the same reason [[D136]] names the ramen rewording it was built for.)
+
+> **The eleventh food has n=1.** One entry at 5x, nine at 2x, then a cliff. A list
+> of ten is the whole of the repeating evidence and not a selection from it.
+
+**THE FIVE MERGES ARE ALREADY MEASURED AND ALREADY RULED — IN [[D137]], ON THIS SAME
+LOG. I re-derived them and wrote them up as new. They are not.** D137 says, of the
+same 62 items: *the shipped two-rarest key merges **five** keys. Three are plainly
+right (`puff turnover`, `noodle ramen`, `beet coleslaw`). One is defensible. **One
+is a merge across a real difference*** — and it names the same lentils-with-beef
+case, with its 25 g of protein. My independent count agreed exactly, which is
+reassuring about the measurement and says nothing good about the search that
+should have preceded it.
+
+**D137 also already ruled the answer:** *every proposal names the item it came from
+and when* — *“you chose this for ‘cooked brown lentils with carrots and beef’ on
+Sep 22”* — precisely so that *“the merges nobody has noticed yet”* are covered by a
+rule rather than a per-case exception.
+
+**So what is new here is narrow, and it is the only part worth a ruling:** D137
+covers a **proposal**, which has exactly one item to name. A **frequency count**
+has several, and `2x` names none of them — the merge is invisible inside the
+number. **A count has to name what it counted**, which is D137's rule extended to
+a surface D137 did not have.
+
+**Re-checked on today's corpus:** `green onions` != `crab` and `red lentils` !=
+`brown lentils`, the two pairs D136 was measured against. The key has not rotted.
+
+### 2. THE USUAL PORTION IS NOT USUAL
+
+- **8 of the 10 repeat at a DIFFERENT portion.** Only `salmon smoked` kept one (190 g).
+- `coleslaw creamy` spans **120 to 390 g — 3.25x**.
+- `craisin` has **no grams on either item**, so it has no portion to show at all.
+- grams present on **44 of 55** items (80%).
+
+> So *“their usual portion”* describes two of ten foods. For the rest the screen
+> would be stating an average of portions that were never eaten.
+
+### 3. `ref.g` IS ON ZERO OF 55 ITEMS, AND THE SPEC DEPENDS ON IT
+
+The ruling says *matches scale via `ref.g`*. **Not one item in the log has it** — it
+was added later (ruling H2), and the four matched items predate it.
+
+And `buildRepeatItem` already carries a standing ruling in the other direction:
+
+> *the resolution is carried ONLY when the portion is unchanged, because `ref.v` is
+> frozen at the original item's grams. Carrying it to a different portion would show
+> numbers scaled to the wrong weight — **worse than showing none, because they would
+> look right.***
+
+These are reconcilable: **scale when `ref.g` is present, drop the match and say so
+when it is not.** But on today's data that means **every** portion change loses the
+match, and the screen must say that rather than imply numbers it cannot scale.
+
+### 4. THE FOUR FIXED MEAL HEADERS WOULD BE MOSTLY DASHES
+
+| | measured |
+|---|---|
+| days with **no items at all** | **24 of 40** |
+| days carrying breakfast **and** lunch **and** dinner | **0 of 40** |
+| **breakfast items, ever** | **0** (lunch 33, snack 12, dinner 9, drink 1) |
+| days with a **drink** item | **1 of 40** |
+| days with any **biometric** | 12 of 40 (20 biometric + 3 event entries) |
+| days with water > 0 | 1 of 40 |
+
+> On the median day the mockup renders **four headers reading “—”** and a
+> biometrics group. The **Breakfast** header reads “—” on **all forty days**. The
+> **“1 drink” chip** has one day of evidence in the entire log.
+
+### 5. THE GLUCOSE LINE CANNOT RENDER FOR ANY MEAL THAT EXISTS
+
+| | |
+|---|---|
+| days with food | **16** |
+| days with glucose | **3** (2026-09-30 .. 10-02) |
+| **days with both** | **0** |
+
+And the **514 MB Apple Health export holds only those same 451 readings across those
+same 3 days** — streamed and counted, so `glucose.csv` is the entire glucose history
+available, not a sample of a larger one.
+
+> **THIS CORRECTS WHAT I TOLD THE USER AFTER [[H24]].** I reported the test-point
+> ceiling as *n ≤ 4, bounded by the match rate*. **The real bound is 0, and the
+> binding constraint is not matching — it is that no day has both food and CGM.**
+> `potentialCeiling()` returns 0 on this log, and it was right; my framing of why
+> was wrong. The lever for H29 is **logging food on a day the sensor is running**,
+> which no amount of resolving reaches.
+
+### 6. R138 IS A RESUME DEFECT, NOT A BOOT ONE
+
+`ensureCurrentDay` **already forces `state.current = today`**, at boot (`boot()`) and
+at restore. The stored `current` in the export is `2026-09-26`, 13 days behind — and
+it would be corrected on the next launch.
+
+**The only `visibilitychange` handler in the app asks the SERVICE WORKER to
+re-check for an update. Nothing re-checks the calendar day.** So a PWA left open or
+resumed from the app switcher after midnight shows **yesterday** — and **logs to
+yesterday**, which makes this a data defect and not only a view one.
+
+> Had this been “fixed” where it was assumed to be, the change would have landed in
+> a function that is already correct.
+
+### FORKS
+
+**A — the frequency key, and what a COUNT must name.** Recommended: **`matchKey`**,
+the only grouping that yields ten — and, **by [[D137]] extended rather than by a new
+idea, the row names the spellings it counted.** A count of 2 spanning a dish with
+beef and one without is the merge D137 already refused to leave unnamed; it simply
+had a proposal to attach the name to, and a count does not. Rejected: exact name (7
+repeats, and *ramen noodles* appears as two foods — the very rewording D136 was
+built to join), and ref id (only 4 of 55 items carry one).
+
+**B — the stepper's starting portion.** Recommended: **the MOST RECENT portion for
+that food, labelled as such** (*“last time 390 g”*). It is a fact about one meal
+rather than an average of portions never eaten, and with n=2 a median invents a
+number. **Sub-fork:** a food with **no grams at all** (`craisin`) has nothing to
+step — recommended: step the **count of that logged item** and show its kcal, with
+no grams claimed.
+
+**C — the match when the portion changes.** Recommended: **scale when `ref.g` is
+present; drop the match and say so when it is not.** Rejected: scaling from stored
+`grams` when `ref.g` is missing — that assumes the frozen basis equals the current
+grams, which is the exact assumption `ref.g` exists to stop.
+
+**D — the four meal headers. THIS NEEDS A RULING WITH THE NUMBERS IN VIEW.** The
+mockup says all four always, “—” when empty. Measured, that is four dashes on 24
+of 40 days and a Breakfast header empty on all 40.
+
+| | |
+|---|---|
+| D1 | all four always, as drawn |
+| D2 | only the meals that have items, plus one **add to a meal** control ([[D146]]: a day with no readings draws no row) |
+| **D3 (recommended)** | the meals that have items, and the empties **collapsed into one muted line** (*Breakfast · Snack — nothing logged*) — keeps the four-meal frame legible without four dashes |
+
+**E — the glucose line.** Recommended: **build it, render it only when a response
+exists, and gate the ABSENT case** so the header is whole without it. It will not
+appear on any day in this log. Recorded as evidence, not as a reason to skip it:
+the data arrives the first day food and sensor overlap.
+
+**F — R138's fix.** Recommended: **on becoming visible, if `localDate()` differs
+from `APP_STATE.current`, re-run `ensureCurrentDay` and re-render.** Rejected: a
+midnight timer — a backgrounded tab's timers are throttled, and the defect is
+observed on resume.
+
+> **Sub-fork, and it touches DATA rather than layout:** if the day flips while a
+> draft or sheet is open, does the entry land on the day it was **started** or on
+> **today**? Recommended: **the day it was started**, with its captured time, and
+> the flip takes effect on the next entry — silently retargeting an entry the user
+> is in the middle of writing is the kind of move that loses a meal.
+
+**Stopping for rulings on A—F.** **D most of all**, because the mockup and the
+measurement disagree and only the user can settle which they want; and **F's
+sub-fork**, because it decides where an item lands.
+
+**What is NOT in question:** the 16px floor ([[D100]]), 44px targets, the chronological
+log underneath (this is a view), and that `flow-gate` and `layout` gates hold.
