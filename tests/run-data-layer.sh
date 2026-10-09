@@ -40,6 +40,7 @@ import-gate.ps1
 chip-layout-gate.ps1
 collapse-gate.ps1
 delete-all-gate.ps1
+correction-gate.ps1
 corpus-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
@@ -193,7 +194,12 @@ echo "-----------------------------------------"
 # AUTHORED is a static lower-bound cross-check only: it counts source LINES
 # containing a res( call, so multi-line calls and helper reuse make it an
 # approximation, not an equality. The PIN is the enforcing mechanism.
-EXPECTED_ASSERTIONS=2631
+# H31: 2631 -> 2638, delta +7 -- the correction hint ON THE WIRE (the body is the
+# template plus the hint; it names both words; it says they are hints; the
+# appended slice IS the hint; and that slice carries no corpus id and no macros),
+# plus the explicit statement that a user with no corrections has an empty hint,
+# which is what makes R21-parity's existing assertion hold unchanged.
+EXPECTED_ASSERTIONS=2638
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

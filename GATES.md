@@ -5441,3 +5441,37 @@ silently destroyed the ink measurement and made three assertions pass vacuously;
 **two wrong classifications of what counts as atomic** in the same file; and the
 **spec-versus-asset** gap that would have shipped a 47-slot spec over a 46-column
 binary.
+
+### H31 — the correction that was never found — 28th gate
+
+Suite **37 → 38 verdicts**; harness **2631 → 2638** (+7).
+`tests/correction-gate.ps1`, **59 assertions**, run **red first (35 findings)**.
+The fixture carries the **measured name spread** — two corrections under *apple
+juice*, one under *broth*, one under *apple cider* — so the count the surface shows
+is **2, not 4**, and the gate asserts that number.
+
+| case | asserts |
+|---|---|
+| **correction-gate.ps1** | a capture under a model name **corrected before** leads with what was chosen, carrying the **real CNF row 2852** |
+| **correction-gate.ps1** | the count is **2** — per model name, not the four corrections to that food |
+| **correction-gate.ps1** | **ONE** prior correction is enough (ruled B), because the model's wording varies |
+| **correction-gate.ps1** | an **unrelated** model name leads with **nothing** — aggregating would lead a real broth with wine |
+| **correction-gate.ps1** | a correction made by **overriding the state guard** leads with nothing ([[D135]]/1) |
+| **correction-gate.ps1** | a **TYPED** correction leads with a **name and no invented ref** |
+| **correction-gate.ps1** | an **unseen** model name gets no lead — the measured limit of fork B, asserted rather than hidden |
+| **correction-gate.ps1** | and its **alternative** matching a past correction is **promoted**, says why it moved, and passes the **model's** rank |
+| **correction-gate.ps1** | the hint is **bounded at three correction lines**, newest first, and carries **no corpus id and no macros** |
+| **correction-gate.ps1** | with **no corrections** the hint is empty, so the request body is **unchanged** |
+| **correction-gate.ps1** | the first row names **what the AI said** and **what the user chose**, and never that the food **is** anything |
+| **correction-gate.ps1** | a **genuine apple juice** stays one tap away |
+| **correction-gate.ps1** | **nothing applies until it is tapped**, and `ai_identity` survives the tap — losing it would break the memory for the very next photo |
+
+**In the harness (+7):** the hint **on the wire** — the body is the template *plus*
+the hint, it names both words, it says they are *hints, not answers*, the appended
+slice **is** the hint, and that slice carries no corpus id and no macros. Plus the
+explicit statement that an empty history gives an empty hint.
+
+**`jargon-gate` gained a 15th screen: the PHOTO DRAFT's identity surface**, which it
+had never swept — the sheet was visited, the draft the sheet opens was not. It
+sweeps clean (**529 strings**), and `the model` is now banned by name because the
+app's user-facing word is *your AI*.

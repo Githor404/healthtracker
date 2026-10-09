@@ -11345,7 +11345,7 @@ unrecorded would be the worse half of the mistake.
   calibrate, and a reader can disagree about the weight it deserves without the app
   having taken a position.
 
-## H31 — The correction that is never found — PRE-REGISTERED, MEASURED FIRST (2026-10-09)
+## H31 — The correction that is never found — PRE-REGISTERED, MEASURED FIRST (2026-10-08)
 
 **Device finding (user).** The same glass of white wine photographed on **four**
 days. Every time the model offers *apple juice* or *broth*; every time it is
@@ -11507,3 +11507,239 @@ to skip the question.
 **Stopping for rulings on A—F.** **C most of all**, because it is a device reading
 that could make half the slice unnecessary, and **B**, because the measurement says
 the count the ruling asked for cannot be the count the app shows.
+
+### RULINGS (user, 2026-10-08)
+
+- **B as recommended:** lead on the **FIRST** prior correction under the same model
+  name; **never aggregate across names**. Gate condition **amended**: the fifth
+  capture must arrive under a model name **already seen**.
+- **The hint: yes**, bounded at **three recent** corrections, sent with the photo on
+  the user's own key. **The README privacy line is updated in the same commit** so
+  it stays true: correction history is now part of what reaches the provider.
+- **C: prefer the free local fix where it applies** — if the past correction is
+  already among the model's three alternatives, **re-rank it first locally**. The
+  user will report the alternatives from the next capture so the coverage can be
+  measured.
+- **A, D, E, F as recommended** unless they conflict with the above.
+
+### THEY DO NOT CONFLICT, BUT THREE THINGS NEEDED CHECKING BEFORE SAYING SO
+
+**1. C and the prompt contract — the trap is already closed, by `unres`.** The
+template says *“The FIRST must be identical to “name”, and “per100” must describe
+that first one”*, so promoting an alternative could have produced **wine wearing
+apple juice's macros**. Measured in `photoPickCandidate`: taking any non-first
+alternative sets `it.unres = true`, so the promoted name arrives with **no
+composition at all** rather than inheriting the first one's numbers. **Re-ranking
+is therefore safe, and it is safe by something that already exists.**
+
+**And the display rank must not become the recorded rank.** `identity_pick.rank` is
+calibration evidence about **which of the model's candidates was taken**; if
+re-ranking renumbered it, every promoted pick would record as rank 0 and the
+evidence would say the model was right. The reorder is **display only** and the
+gate asserts the recorded rank is the **model's**.
+
+**2. C turns out to cover the measured gap, which the pre-registration gave to the
+hint alone.** Correction memory keys on the model's **name**; the alternative
+re-rank keys on the model's **alternatives**. So when the fifth capture arrives
+under a name never seen — the case fork B cannot help — an alternative may still
+match a past correction, and that lead is free and local. **The two mechanisms are
+complementary rather than redundant**, and the pre-registration was wrong to say
+only the hint could reach that case.
+
+**3. E's “require a ref” would have broken the reported case.** `rememberedRow`
+only returns rows with `it.ref && it.ref.id`. A correction made through the typed
+path ([[H30]]) has an estimate and **no corpus ref**, so a ref-required rule would
+have led with nothing for exactly the user who typed *white wine* rather than
+picking a row. **Taken as: a correction counts either way**, and what the lead
+offers is what was chosen — a row brings its nutrients, a typed name brings only
+the name. [[D135]]'s closures still bind: a correction made by **overriding the state
+guard** never leads.
+
+### AND THE HINT IS BYOK-ONLY, WHICH IS A DECISION, NOT AN OVERSIGHT
+
+The ruling says *sent with the photo on my own key*. The **copy-prompt** path is
+left alone: that template is a **versioned, displayed artifact**
+(`AI_TEMPLATE_VERSION`), and injecting per-user history into a textarea would both
+change what *the template* means and **put correction history on screen in a copy
+box**. Said out loud because the two paths otherwise stay deliberately identical.
+
+**`R21-parity` is RE-PINNED, not relaxed.** The harness pins the meal body as
+exactly `AI_DIRECT_PREFIX + aiPromptText()`. The re-pin keeps the stronger half:
+**a user with no corrections sends a byte-identical body**, and the hint is
+additive, bounded at three, and carries corrections and nothing else.
+
+## R155 — THE HYGIENE SLICE: THE LABEL NAMED NOTHING UNTIL NOW (2026-10-08; doc-only)
+
+**Asked to confirm R155 is queued. It was not, and the label named nothing.**
+Grepped before answering, per the standing rule that an R-number is the user's own
+relay label and may name something never recorded: **zero occurrences of `R155`**
+in `DECISIONS.md`, `GATES.md`, `CLAUDE.md` or `tests/README.md`. There are no
+`## R1xx` headings at all — the R-numbers in this repo are inline references, and
+the highest of them (`R181-eatring`, `R182-gapsweep`) are **harness block names**,
+not slices.
+
+> So this is the first thing the label names. **The three findings it refers to are
+> real and are recorded** — each once, inside the [[H24]] build entry — but none of
+> them was in any queue. Confirming a queue position that did not exist would have
+> been the easy answer and the wrong one.
+
+### WHAT R155 NOW NAMES, with the measurements already taken
+
+| | measured | the actual defect |
+|---|---|---|
+| **font-floor coverage** | **six** 14px declarations predate H24 (`.resphead`, `.respline small`/`.respcov`, `.nightn small`/`.nightdate small`, `.pmsub`, `.pmscap`, `.pmsmac`), across H25's response line, H26's night panel and H27/H30's photo-search sheet | not the declarations — **`font-floor-gate` never sweeps those three surfaces**. [[D100]] measured 719 elements below 16px → 0 and built a gate to hold it; the floor regressed in four consecutive slices and the gate caught none of them |
+| **PowerShell case collisions** | **65** across **21 of 28** `.ps1` files; **12** of the fatal shape (a loop variable shadowing a variable assigned outside it); **all 12 inert**, each checked for ordering | nothing is broken today, and **ordering is the only thing keeping it that way** — any edit that moves one of those assignments turns it live silently, and a destroyed capture makes numeric assertions pass **vacuously**, not fail |
+| **corpus in `verify-deploy`** | its file list **is** the PRECACHE list; the corpus assets are **not in it** | H24 shipped a corpus change and its deploy had to be verified **by hand, by hash** — which is precisely what that script exists to abolish |
+
+**Queued after [[H31]]**, as ruled. **The order within it is the order above**, because
+the first two are *a gate that does not look* and *a gate that can stop measuring
+without saying so* — and an instrument defect outranks the symptoms it failed to
+report. The third is the smallest and is a list, not a design.
+
+**One thing it is NOT:** a re-pin of the six declarations to 14px. D100 ruled the
+scale at 16/20/24/32 and said in its own words that **weight carries the hierarchy
+size no longer can**. The declarations go up; the gate's sweep goes wider. D100
+also measured what that costs — page height 3,233px → 3,962px when the floor was
+first imposed — so the slice re-measures rather than assuming it is free.
+
+## H31 — BUILT: the correction is found under the name the next photo arrives with (2026-10-08, v0.71.0)
+
+**Gate-first, run RED (35 findings).** `tests/correction-gate.ps1`, the **28th gate**,
+**59 assertions**. Harness **2631 → 2638** (+7, re-pinned). Suite **37 → 38
+verdicts**. **Serves leg 1 of [[D152]] (TRACK)**.
+
+### WHAT SHIPPED
+
+| | |
+|---|---|
+| `correctionsAll` | every *(what the AI said → what was accepted)* pair in the log, newest first. **No new store** — both halves were already on the item |
+| `correctionLead` | the lead for a model name, on the **FIRST** prior correction, with the count **per model name** |
+| `correctionAltRank` | ruling C: an **alternative** corrected to before, promoted — which reaches the case `correctionLead` cannot |
+| `correctionHistory` / `correctionHintText` | the hint, **bounded at three**, newest first, corrections and nothing else |
+| `photoPickCorrection` | applies **what was chosen**: a corpus row brings its nutrients, a typed name brings only the name |
+| `identity_pick` gains `'correction'` | or `normalizeIdentityPick` drops the record — the trap [[H27]] hit with `'search'` and `'typed'` |
+
+### THE MEASUREMENT DECIDED BOTH HALVES OF FORK B
+
+Four captures of one food produced **four distinct model-name keys**. So a count
+keyed on the model's name **splits**: the fixture's four corrections show as **2**
+under *apple juice*, and a lead gated on three would never fire. Hence *lead on the
+first*. And recovering the bigger number by aggregating across names was **rejected
+on the same measurement** — then any guess leads with wine, and a real broth gets
+led with wine.
+
+> The gate asserts the count is **2 and not 4**, which is the one number that
+> distinguishes the ruled design from the one it replaced.
+
+### AND RULING C COVERS WHAT THE PRE-REGISTRATION GAVE TO THE HINT ALONE
+
+Correction memory keys on the model's **name**; the alternative re-rank keys on its
+**alternatives**. A capture under a name never seen gets no lead — but an
+alternative may still match a past correction, and promoting it **sends nothing**.
+The pre-registration said only the hint could reach that case. It was wrong.
+
+**Two things make the promotion safe, and both already existed:**
+
+- `photoPickCandidate` sets **`unres = true`** on a non-first alternative, so a
+  promoted name arrives with **no composition** rather than inheriting the first
+  one's macros. Without that, the template's rule (*“per100 must describe that
+  first one”*) would have produced **wine wearing apple juice's numbers**.
+- The rank handed to the pick stays the **model's**, because `identity_pick.rank`
+  is calibration evidence about which of the model's candidates was taken. A
+  display renumbering would record every promoted pick as **rank 0** and say the
+  model had been right. **Asserted.**
+
+And the promotion is **suppressed when the lead already offers that same answer**:
+two rows carrying one word while doing different things (one with nutrients, one
+without) is worse than either alone.
+
+### FIVE DEFECTS, AND FOUR WERE MINE
+
+**1. MY PROBE WIPED THE FIXTURE IT RESTORED FROM.** `HT.state()` is `() => APP_STATE`,
+so the parity check's `S2 = HT.state()` and the fixture's `S` were **one object**:
+deleting S2's days emptied S, and `saveState(S)` wrote the emptied state back.
+**Eight assertions then failed for a reason unrelated to the code they tested.**
+
+> Caught by an assertion written for exactly this — *the fixture did not survive
+> the parity check* — which is the only good thing to say about it. The second
+> attempt then failed again, because `saveState(SNAP)` with a **different** object
+> writes storage and leaves `APP_STATE` empty in memory. **The restore has to
+> mutate the live object, exactly as the fixture does.**
+
+**2. AN APOSTROPHE IN THE CHANGELOG BROKE THE WHOLE APP.** `note: 'the AI's own
+alternatives'` is a **SyntaxError**, so `app.js` never evaluated and `HT` was
+undefined. The harness said *“HT is not defined”* and **executed 0 of 2,631
+assertions**. The gate had passed minutes earlier because the note did not exist
+yet. Replaced with the typographic apostrophe the app already uses elsewhere.
+
+**3. I ASSERTED A PROPERTY OF THE HINT AGAINST THE WHOLE BODY.** *“no macros”*
+failed because the **meal template legitimately contains `kcal`** — it asks for
+`per100`. The claim is about what the hint **adds**, so it is now measured on the
+**appended slice**, with a companion assertion that the slice **is** the hint.
+
+**4. THE NEW ROW SAID “the model”. THE APP SAYS “your AI”.** Measured across
+rendered strings: *your AI* is the user-facing word (*“paste to your AI”*, *“your
+AI's eyeballed estimate”*, *“Asking your AI…”*); *the model* appears only in
+changelog prose and one error path. A second name for one thing is the whole reason
+`jargon-gate` exists — **and it would not have caught this one**, for the reason
+below. `the model` is now **banned by name** on any surface.
+
+**5. AND THE ONE THAT IS NOT MINE: `jargon-gate` NEVER SWEPT THE PHOTO DRAFT.**
+
+> It swept `sheet:photo` — the capture **sheet** — and thirteen other screens. It
+> never opened the **draft that sheet produces**, which is where the user answers
+> *what is this food?*: the model's alternatives, the remembered-memory row,
+> *Something else…*, and now the correction row. **Every word on that surface was
+> outside the vocabulary census.**
+
+Found because H31's row would not render for the sweep — and the reason it would
+not render is that the sweep had never been there. **Same class as [[H24]]'s
+font-floor finding** (see [[R155]]): the gate held its rule on the surfaces it
+visited, and nobody had checked which those were. Now the **15th screen**, and it
+sweeps **clean**: 529 strings, no pre-existing violation on it. Closing the gap
+cost nothing, which is the argument for having looked.
+
+### WHAT IS DELIBERATELY NOT HERE
+
+- **The hint is BYOK-only.** The copy-prompt template is a versioned, *displayed*
+  artifact; injecting per-user history into a textarea would change what *the
+  template* means and **put correction history on screen in a copy box**.
+- **`R21-parity` was not re-pinned after all.** The harness pins the meal body as
+  exactly the template, and it **still passes** — its fixture holds no corrections,
+  so the hint is `''` and the body is byte-identical. The existing assertion now
+  proves the parity half **for free**, and that is asserted explicitly rather than
+  left as a property of whatever the fixture happens to contain.
+- **No aggregation across model names, ever** — rejected on the measurement, not on
+  taste.
+
+### THE EVIDENCE, STATED EXACTLY: 38 VERDICTS, NOT ONE SUITE LINE
+
+**Every verdict was produced and every one passed. They were not produced in one
+invocation.** `run-all-gates.sh` was **killed by the OS twice** for low memory, at
+9 of 28 and 2 of 28 CDP gates, with ~2.0-2.3 GB free — the recorded floor for this
+suite is **~3 GB**, and the pressure is other applications on the machine, not
+orphaned browsers (reaped and confirmed zero each time).
+
+What was produced:
+
+| | |
+|---|---|
+| harness | **2638/2638 ALL PASS**, pinned 2638 — twice, standalone and inside the runner |
+| gate-script census | **28 of 28, manifest matches** — twice |
+| the 9 static checks | **all PASS**, standalone |
+| the 28 CDP gates | **all PASS**, run in batches of four, each reaped between |
+
+**What was NOT produced is the runner's own aggregate line** — `SUITE: PASS (38 of
+38 …)` — and with it the runner's arithmetic that the passes add up to the
+counted total. That check is the thing the batches cannot replace, so it is named
+here rather than implied: **the parts were each verified; the sum was not computed
+by the mechanism that exists to compute it.**
+
+### THE README SAYS WHAT LEAVES THE DEVICE, AS RULED
+
+The privacy section gained a line of its own: the last three corrections travel
+with a meal capture, naming **only** what the AI said and what the food actually
+was — no amounts, no nutrients, no database ids — and **a user who has corrected
+nothing sends byte-for-byte what they always sent**. It says plainly that this is
+the one piece of *history*, rather than the photo in front of the user, that leaves
+the device.

@@ -225,6 +225,15 @@ try {
          at: DK, at_ms: 1, hash: 'h', how: 'picked', g: 100,
          attribution: 'Canadian Nutrient File, Health Canada, 2015',
          v: { '301': 1, '255': 69.7 } } }),
+    // H31: a PHOTO item whose AI name was CORRECTED, so the correction row renders
+    // and this sweep actually visits it. Without a correction in the log the row
+    // never appears, and a banned-word list that never visits a surface is green
+    // over it -- the same reason H24's panel had to be opened here.
+    mk({ name: 'white wine', time: '12:33', meal: 'drink', ai_identity: 'apple juice',
+         ref: { ns: 'cnf', id: '2852', name: 'Alcohol, table wine, white (11.5% alcohol by volume)',
+                at: DK, at_ms: 1, hash: 'h', how: 'picked', g: 100,
+                attribution: 'Canadian Nutrient File, Health Canada, 2015',
+                v: { '221': 10.3, '255': 86.5 } } }),
     // a PHOTO item with nothing known about its composition
     { name: 'mystery side', meal: 'lunch', time: '12:31', grams: 80, unresolved: true,
       confidence: 'eyeballed', source: 'ai-paste', notes: '' },
@@ -323,6 +332,32 @@ try {
             sweep('potential panel'); }
   OUT.potentialSwept = !!pp;
 
+  // THE PHOTO DRAFT'S IDENTITY SURFACE -- never swept until now. This is where
+  // the user answers 'what is this food?': the model's alternatives, the
+  // remembered-memory row, 'Something else...', and H31's correction row. The
+  // sheet was swept; the draft the sheet opens was not.
+  //
+  // The reply is the SHIPPED SAMPLE where it can be, so the words swept are the
+  // ones the real parser produces. The item name matches the correction seeded in
+  // the fixture above, so the correction row actually renders.
+  const draftReply = JSON.stringify({ meal: 'drink', items: [ {
+    name: 'apple juice',
+    alts: [ { name: 'apple juice', p: 0.5 }, { name: 'white wine', p: 0.3 },
+            { name: 'broth', p: 0.2 } ],
+    grams: 150,
+    per100: { kcal: 46, protein_g: 0.1, fat_g: 0.1, carb_g: 11, fiber_g: 0.2,
+              soluble_fiber_g: 0 },
+    scale_linked: true, dominance: 1, notes: 'a tall glass'
+  } ] });
+  const dr = HT.openPhotoDraft(draftReply);
+  OUT.draftOpened = !!(dr && dr.ok);
+  HT.refresh();
+  await sleep(500);
+  OUT.draftAlts = document.querySelectorAll('.pmalts .pmalt').length;
+  sweep('photo draft identity');
+  HT.photoDiscard();
+  await sleep(200);
+
   HT.openSettings();
   await sleep(450);
   sweep('settings');
@@ -362,6 +397,8 @@ try {
   }
   if ($R.resolveRows -lt 1) { $fails += "the resolve surface rendered no candidate rows, so its vocabulary was never swept" }
   if (-not $R.potentialSwept) { $fails += "H24's panel was never found, so the banned-verb list above is green over a surface it did not visit" }
+  if (-not $R.draftOpened) { $fails += "the photo DRAFT never opened, so the identity surface -- where the user answers what the food is -- was not swept" }
+  if ($R.draftAlts -lt 3) { $fails += "the draft identity surface rendered $($R.draftAlts) option(s); the sample reply offers three alternatives plus a way out, so the sweep saw less of it than it should" }
 
   # typed objects, not nested arrays: PowerShell unrolls @(@(a,b)) unpredictably
   # and $_[0] then indexes a CHAR out of a string instead of a pair
@@ -395,7 +432,9 @@ try {
     @{ re = 'available carb';   why = 'H24: carbohydrate MINUS fibre, named as what it is' },
     @{ re = 'matched to the food database'; why = 'H24: the day says how much of itself it can see before it says anything else' },
     @{ re = 'eaten with';       why = 'H24 ruling C: a NAMED rate modifier' },
-    @{ re = 'water by weight';  why = 'H24 ruling B: liquidity as a continuous percentage, never a class' }
+    @{ re = 'water by weight';  why = 'H24 ruling B: liquidity as a continuous percentage, never a class' },
+    @{ re = 'your AI said';     why = 'H31: the correction row, in the app''s own word for the provider -- not "the model"' },
+    @{ re = 'you chose';        why = 'H31: it names the USER''s earlier answer, which is whose answer it is repeating' }
   )
   foreach ($m in $must) {
     $hit = $strings | Where-Object { $_.t -match $m.re } | Select-Object -First 1
@@ -433,7 +472,12 @@ try {
     @{ re = '\btrigger(s|ed|ing)?\b';       say = 'a causal claim from a composition figure' },
     @{ re = '\bupregulat\w*\b';            say = 'a mechanism the app has not measured and cannot' },
     @{ re = '\bfuels\b';                    say = 'reads as a mechanism; the honest word is what was delivered' },
-    @{ re = '\bdrives\b';                   say = 'same claim as fuels, with more confidence' }
+    @{ re = '\bdrives\b';                   say = 'same claim as fuels, with more confidence' },
+    # H31: ONE NAME FOR THE PROVIDER. 'your AI' is the app's word everywhere a user
+    # can see it; 'the model' is what the code and the decision log call it. Two
+    # names for one thing is the whole reason this gate exists, and the correction
+    # row was about to introduce the second one.
+    @{ re = '\bthe model\b';                say = 'the developers'' word for the provider; the user-facing word is "your AI"' }
   )
   foreach ($b in $banned) {
     $hits = $strings | Where-Object { $_.t -match $b.re }

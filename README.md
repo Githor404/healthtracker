@@ -50,6 +50,14 @@ tap away.
   provider, and never stored. A label photo carries everything printed on it,
   including the patient's name and address: the fields the app leaves out stay
   out of the record, not out of what is sent.
+- **And your last three corrections go with a meal photo.** When you correct what
+  the AI called a food, the app remembers it locally — and tells your provider
+  about the three most recent corrections on the next meal capture, so its guesses
+  improve. Three lines, naming only what it said and what the food actually was:
+  no amounts, no nutrients, no database ids. If you have corrected nothing, the
+  request is byte-for-byte what it has always been. This is the one piece of your
+  *history*, rather than the photo in front of you, that leaves the device — and
+  it goes only to the provider whose key you saved.
 - **Drug information** is fetched only when you ask for it, medication by
   medication: the name printed on your label is sent to openFDA (the US FDA) as a
   search, and nothing else goes with it. It never runs in the background.

@@ -3868,6 +3868,46 @@ window.setLS({});
         });
       });
     }).then(function () {
+      // ---- H31: THE HINT ON THE WIRE, through the REAL call ---------------------
+      // The gate asserts what correctionHintText() returns; R21-parity asserts the
+      // body with no corrections. Neither asserted the body WITH them, which is how
+      // a value gets computed and never sent.
+      byokReset(SECRET); HT.photoDiscard(); HT.scanListReset();
+      HT.setCaptureKind('meal');
+      var st31 = HT.state();
+      st31.days['2026-09-20'] = { status: 'complete', water_l: 0, items: [ {
+        name: 'white wine', meal: 'drink', time: '19:00', grams: 150, kcal: 123,
+        protein_g: 0, fat_g: 0, carb_g: 4, fiber_g: 0, soluble_fiber_g: 0,
+        confidence: 'eyeballed', source: 'ai-paste', notes: '',
+        ai_identity: 'apple juice' } ] };
+      HT.Store.saveState(st31);
+      res(HT.correctionsAll().length === 1,
+          'H31-wire fixture: one correction is in the log, or the assertions below prove nothing (D96)');
+      FETCH_SCRIPT = [{ status: 200, body: ok }];
+      return HT.byokCapture(FILE).then(function (rh) {
+        var bt = FETCHES.length ? JSON.parse(FETCHES[0].init.body).messages[0].content[1].text : '';
+        res(rh.ok === true && bt === HT.AI_DIRECT_PREFIX + HT.aiPromptText() + HT.correctionHintText(),
+            'H31-wire GATE: the meal body is the template PLUS the correction hint -- appended, never substituted into it');
+        res(bt.indexOf('apple juice') > 0 && bt.indexOf('white wine') > 0,
+            'H31-wire GATE: and it names what the model said and what the food actually was');
+        res(bt.indexOf('hints, not answers') > 0,
+            'H31-wire GATE: and says they are hints rather than answers -- D128 lets the model NAME things');
+        // MEASURED ON THE APPENDED SLICE, not on the whole body: the meal template
+        // legitimately contains 'kcal' (it asks for per100), so asserting the
+        // absence of macros across the whole request failed on the template rather
+        // than on the hint. The claim is about what the HINT adds.
+        var hint31 = bt.slice((HT.AI_DIRECT_PREFIX + HT.aiPromptText()).length);
+        res(hint31.length > 0 && hint31 === HT.correctionHintText(),
+            'H31-wire fixture: the appended slice IS the hint, so the assertion below is about the hint and not the template');
+        res(hint31.indexOf('2852') < 0 && hint31.toLowerCase().indexOf('kcal') < 0
+            && hint31.toLowerCase().indexOf('protein') < 0,
+            'H31-wire GATE: the hint carries no corpus id and no macros -- corrections and nothing else');
+        delete HT.state().days['2026-09-20'];
+        HT.Store.saveState(HT.state());
+        HT.byokClear(); HT.photoDiscard();
+      });
+
+    }).then(function () {
       // ---- H4-kind / H4-hygiene: the label path through the REAL call ------------
       // The meal body is asserted to be exactly the template it always sent
       // (R21-parity); the label body is exactly the label template, and only when a
@@ -3879,6 +3919,12 @@ window.setLS({});
         var mt = FETCHES.length ? JSON.parse(FETCHES[0].init.body).messages[0].content[1].text : '';
         res(rm.ok === true && mt === HT.AI_DIRECT_PREFIX + HT.aiPromptText() && mt.indexOf('Label template') < 0,
             'H4-kind: a MEAL capture sends exactly the meal template it always sent (R21-parity)');
+        // H31: and that assertion above is now ALSO the parity half of the
+        // correction hint -- this fixture holds no corrections, so the hint is '' and
+        // the body is byte-identical. It is asserted explicitly rather than left as
+        // a property of whatever this fixture happens to contain.
+        res(HT.correctionHintText() === '' && HT.correctionsAll().length === 0,
+            'H31-parity: a user who has corrected nothing has an EMPTY hint, which is why the body above is unchanged');
         res(!!HT.photoDraft() && HT.labelDraft() === null, 'H4-kind: and lands in the meal draft');
         HT.photoDiscard();
         byokReset(SECRET);

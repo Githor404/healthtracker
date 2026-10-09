@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.70.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.71.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -217,7 +217,12 @@ function normalizeAltList(raw) {
 // so no new record can carry it; existing ones do, and dropping it from the enum
 // would make the next restore quietly rewrite what the user actually did. A retired
 // value is honoured, never deleted -- the same rule the decision log follows.
-const IDENTITY_PICK_KINDS = ['confirm', 'asis', 'alt', 'preset', 'search', 'typed', 'none'];
+// H31 adds 'correction': the user took a REMEMBERED CORRECTION, which is neither
+// a search nor a confirmation of what the model said. It must be in this list or
+// `normalizeIdentityPick` returns null and the record is dropped on save -- the
+// same trap H27 hit with 'search' and 'typed', and a dropped pick looks exactly
+// like an item nobody ever identified.
+const IDENTITY_PICK_KINDS = ['confirm', 'asis', 'alt', 'preset', 'search', 'typed', 'none', 'correction'];
 function normalizeIdentityPick(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   if (IDENTITY_PICK_KINDS.indexOf(raw.kind) < 0) return null;
@@ -10419,6 +10424,7 @@ const VERSION_LOG = [
   { v: '0.68.0', d: '2026-10-07', note: 'Nights. A night runs 21:00 to 09:00 and is counted under the evening it starts, and the first line tells you how many nights there are. Each one shows its shape — the low and when, how fast it fell into it and recovered out, how long it stayed down — and nothing is labelled, because naming a cause needs more nights than exist. A low reading is FLAGGED, never alarmed: this is a look-back and the Dexcom app is the live safety tool, and a CGM low should be confirmed with a fingerstick. You can prepare the whole thing for a clinician at any time. Plus a one-tap New sensor, with which arm it is on.' },
   { v: '0.69.0', d: '2026-10-07', note: 'Typing what a food was now gets the same help as photographing it. If the database has nothing under the name you typed, your AI is asked for other names to SEARCH — never for an answer — and each one is looked up here on your phone, so you choose from real rows. It also gives the same eyeballed estimate a photo gets, labelled as an estimate and never including vitamins or minerals. Every candidate now shows protein, fat, carbs and calories against your own estimate, because which one gives away a wrong match depends on the food.' },
   { v: '0.70.0', d: '2026-10-08', note: 'Each day can now show what its meals DELIVERED, not just what they contained. Carbohydrate is counted the way it reaches you — minus the fibre, with both figures shown — and alongside it the things that change how fast it arrives: what it was eaten with, how much of it was water, and whether it broke a fast. Each one is named with the amount behind it, and never as a time, because nothing here measures how fast your stomach empties. Fructose joins the food database (the sensor cannot see it), and says plainly how few foods carry a figure for it. The panel starts closed, and says how much of the day it could actually see before it says anything else.' },
+  { v: '0.71.0', d: '2026-10-08', note: 'When you correct what the AI called a food, the app now remembers it — and the next time the AI says that same wrong name, the correction is the first thing offered. It was never found before, because the app looked under the name YOU chose while the next photo arrived under the name the AI gave. One correction is enough; nothing is applied until you tap it, because a real apple juice is still a real apple juice. If the right answer is already among the AI’s own alternatives it is moved to the top, and your last three corrections now travel with a meal photo so its guesses improve too.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11835,7 +11841,13 @@ function byokCall(dataUrl, opts) {
   const o = opts || {};
   const body = o.ping
     ? { model: prov.model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }
-    : byokBody(dataUrl, (o.text != null ? String(o.text) : AI_DIRECT_PREFIX + aiPromptText()), prov.model, byokCaps(prov, o));
+    // H31: the correction hint is APPENDED to the meal prompt, never substituted
+    // into it. R21-parity is re-pinned rather than relaxed -- a user who has
+    // corrected nothing sends a byte-identical body, because correctionHintText()
+    // is '' for an empty history.
+    : byokBody(dataUrl, (o.text != null ? String(o.text)
+                                        : AI_DIRECT_PREFIX + aiPromptText() + correctionHintText()),
+               prov.model, byokCaps(prov, o));
   const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
   // The ping is bounded by the test's own 15 s race, so its abort must not sit
   // BEHIND that race or it would never be the thing that fires.
@@ -12121,6 +12133,212 @@ function rememberedProposalText(p) {
     + '\u201d' + when + ' \u2014 with its nutrients'
     + (p.mismatch ? ' (' + p.theirs + ' \u2014 yours is probably ' + p.mine + ')' : '');
 }
+
+// ============ H31: THE CORRECTION THAT WAS NEVER FOUND ============
+//
+// DEVICE FINDING: the same glass of white wine photographed on four days. The
+// model offers "apple juice" or "broth" every time; the correction is never
+// found.
+//
+// MEASURED CAUSE (tests/measure-correction-memory.ps1): `rememberedRow` keys on
+// `matchKey(it.name)` -- the ACCEPTED name -- while the next capture arrives under
+// the MODEL's name. Queried by the model's name it MISSED all four times; the same
+// log queried by the accepted name HIT.
+//
+// AND THE MISS IS STRUCTURAL, NOT PROBABILISTIC. A key is built only from its own
+// name's tokens ([[D136]]), so two names sharing NO tokens cannot produce the same
+// key -- with or without a corpus. "apple juice" and "white wine" share none.
+//
+// [[D141]]/G1 already noticed the other half of this: taking the memory sets the name
+// to the one the user has used before, 'so a repeated food converges on a single
+// name, which is what raises the memory key's own hit rate next time'. That
+// convergence only ever happened on the ACCEPTED side. The model's side never
+// converges, because it is the model's wording and it varies per capture -- which
+// is exactly why it has to be looked up rather than converged.
+//
+// NO NEW STORE (ruled A, [[D136]]'s precedent: 'the memory is the log itself'). Both
+// halves of a correction are already on the item: `ai_identity` is what the model
+// called it, `name` + `ref` is what was accepted. Deleting the item forgets the
+// correction, which is the honest behaviour and costs nothing to implement.
+const CORRECTION_HINT_MAX = 3;          // ruled: bounded at three, most recent first
+const NLONE = String.fromCharCode(10);
+const NLNL = NLONE + NLONE;
+
+function correctionsAll() {
+  const out = [];
+  if (!APP_STATE || !APP_STATE.days) return out;
+  const days = Object.keys(APP_STATE.days).filter(isDayKey).sort().reverse();
+  for (let i = 0; i < days.length; i++) {
+    const items = APP_STATE.days[days[i]].items || [];
+    for (let j = items.length - 1; j >= 0; j--) {
+      const it = items[j];
+      if (!it || it._auto === true) continue;
+      const said = String(it.ai_identity == null ? '' : it.ai_identity);
+      const chose = String(it.name == null ? '' : it.name);
+      if (!said || !chose) continue;
+      const sk = matchKey(said), ck = matchKey(chose);
+      if (!sk || !ck) continue;
+      // The model being RIGHT is not a correction. Compared by key rather than by
+      // string, so a rewording of the same food is not recorded as a disagreement.
+      if (sk === ck) continue;
+      // D135/1, unchanged in force: a match made by OVERRIDING the state guard is
+      // never offered back. Overriding once is a decision about one item; becoming
+      // the default is a decision about every future one, and it was never made.
+      if (it.ref && it.ref.how === 'confirmed despite state mismatch') continue;
+      out.push({
+        modelName: said, modelKey: sk,
+        chosenName: chose, chosenKey: ck,
+        refId: (it.ref && it.ref.id) ? String(it.ref.id) : '',
+        refName: (it.ref && it.ref.name) ? String(it.ref.name) : '',
+        from: days[i],
+      });
+    }
+  }
+  return out;                            // newest first
+}
+
+// RULED B: lead on the FIRST prior correction under the same model name, and
+// NEVER aggregate across names. The measurement is what settled both halves:
+//
+//   four captures of one food produced FOUR DISTINCT model-name keys
+//   (apple juice, broth, broth chicken, apple cider)
+//
+// so a count keyed on the model's name SPLITS -- a lead gated on three prior
+// corrections would never fire at all. And aggregating across names to recover the
+// bigger number would mean ANY guess leads with wine: 'broth -> wine' and
+// 'apple juice -> wine' are different confusions, and merging them is how a memory
+// starts lying.
+function correctionLead(modelName) {
+  const k = matchKey(String(modelName == null ? '' : modelName));
+  if (!k) return null;
+  const hits = correctionsAll().filter(function (c) { return c.modelKey === k; });
+  if (!hits.length) return null;
+  const top = hits[0];                   // ruled E: most recent wins
+  // The count is of corrections under THIS model name to THIS answer. It is
+  // smaller than the number of corrections to that food, and saying the bigger
+  // number would be false about THIS guess.
+  const count = hits.filter(function (c) { return c.chosenKey === top.chosenKey; }).length;
+  return { modelName: top.modelName, chosenName: top.chosenName, refId: top.refId,
+           refName: top.refName, from: top.from, count: count };
+}
+
+// RULED C: the free local fix. Keyed on the model's ALTERNATIVES rather than its
+// name, which reaches the case `correctionLead` cannot -- a capture under a name
+// never seen whose second or third candidate is something corrected to before.
+//
+// The template already asks for three identifications and its own rule names this
+// confusion out loud ('a drink that could be wine or apple juice'), so the answer
+// is often already in hand: promoting it sends nothing and costs nothing.
+//
+// FROM RANK 1. Rank 0 is the model's own answer, so promoting it is a no-op.
+function correctionAltRank(alts) {
+  const list = alts || [];
+  if (list.length < 2) return null;
+  const all = correctionsAll();
+  if (!all.length) return null;
+  for (let r = 1; r < list.length; r++) {
+    const k = matchKey(String((list[r] && list[r].name) || ''));
+    if (!k) continue;
+    const hit = all.filter(function (c) { return c.chosenKey === k; })[0];
+    if (hit) return { rank: r, name: String(list[r].name), chosenName: hit.chosenName,
+                      refId: hit.refId, from: hit.from };
+  }
+  return null;
+}
+
+// One line per MODEL NAME, newest first, capped. One line per name rather than per
+// correction because the model needs to know which of ITS words were wrong, and
+// the same word twice says nothing the count does not.
+function correctionHistory(max) {
+  const n = (max == null) ? CORRECTION_HINT_MAX : Math.max(0, Math.floor(Number(max) || 0));
+  const all = correctionsAll();
+  const seen = {};
+  const out = [];
+  for (let i = 0; i < all.length && out.length < n; i++) {
+    const c = all[i];
+    if (seen[c.modelKey]) continue;
+    seen[c.modelKey] = true;
+    const count = all.filter(function (x) {
+      return x.modelKey === c.modelKey && x.chosenKey === c.chosenKey;
+    }).length;
+    out.push({ modelName: c.modelName, chosenName: c.chosenName, count: count });
+  }
+  return out;
+}
+
+// THE HINT, ruled: bounded at three, most recent first, sent with the photo on the
+// user's own key. It carries CORRECTIONS AND NOTHING ELSE -- no macros, no
+// micronutrients, no corpus ids. A row id is no use to the provider and is not the
+// user's to send.
+//
+// THE LAST LINE IS THE POINT. [[D128]] lets the model NAME things; a hint saying 'this
+// was wine four times' makes the next naming partly the app's, so the request says
+// in its own words that these are hints and not answers. The confirm is still what
+// guarantees it -- this is the contract saying so out loud, not the mechanism.
+//
+// BYOK ONLY, deliberately: the copy-prompt template is a versioned, DISPLAYED
+// artifact, and injecting per-user history into a textarea would both change what
+// 'the template' means and put correction history on screen in a copy box.
+function correctionHintText() {
+  const h = correctionHistory(CORRECTION_HINT_MAX);
+  if (!h.length) return '';
+  return NLNL + 'Corrections this user has made before, most recent first:' + NLONE
+    + h.map(function (c) {
+        return '- you said "' + c.modelName + '" and it was actually "'
+          + c.chosenName + '"' + (c.count > 1 ? ' (' + c.count + ' times)' : '');
+      }).join(NLONE)
+    + NLONE + 'These are hints, not answers. Identify what you can actually see.';
+}
+
+function correctionLeadText(lead) {
+  if (!lead) return '';
+  // D137: a proposal names the item it came from. Here there are TWO names to
+  // attribute, not one -- what the model said and what the user chose -- and the
+  // count belongs to the first of them.
+  const times = (lead.count === 1) ? 'the last time' : ('the last ' + lead.count + ' times');
+  // 'your AI', not 'the model': measured as the app's established user-facing
+  // word ("paste to your AI", "your AI's eyeballed estimate", "Asking your
+  // AI"). 'the model' appears only in changelog prose and one error path, and a
+  // second name for one thing is what jargon-gate exists to stop.
+  return times + ' your AI said \u201c' + lead.modelName + '\u201d, you chose '
+    + foodDisplayName(lead.chosenName)
+    + (lead.refId ? ' \u2014 with its nutrients' : '');
+}
+
+// Applying it offers WHAT WAS CHOSEN: a corpus row brings its nutrients, a typed
+// name brings only the name. Ruled E -- a correction counts either way, and
+// inventing a ref for a typed answer would put numbers behind a name the corpus
+// never matched.
+function photoPickCorrection(idx) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
+  const it = PHOTO_DRAFT.items[idx];
+  const lead = correctionLead(it.aiIdentity || it.name);
+  if (!lead) return Promise.resolve({ ok: false, why: 'no-correction' });
+  if (!lead.refId) {
+    it.name = String(lead.chosenName);
+    it.unres = true;
+    return Promise.resolve(photoSettle(idx, { kind: 'correction', rank: null }));
+  }
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (!m) return { ok: false, why: 'no-corpus' };
+    return corpusLookup(lead.refId).then(function (row) {
+      if (!row) return { ok: false, why: 'no-row' };
+      // The draft can be discarded or replaced across the awaits above -- checked
+      // by IDENTITY, not by index, exactly as photoSearchApply does.
+      if (!PHOTO_DRAFT || PHOTO_DRAFT.items[idx] !== it) return { ok: false, why: 'stale' };
+      const ref = resolveItemFreeze(it, m, row, lead.refId,
+                                    lead.refName || lead.chosenName, null, 'picked', 'capture');
+      if (!ref) return { ok: false, why: 'no-basis' };
+      it.name = String(lead.chosenName);
+      delete it.unres;
+      it.ref = ref;
+      photoSettle(idx, { kind: 'correction', rank: null });
+      return { ok: true, ref: ref, name: it.name };
+    });
+  });
+}
+
 function identityOptionsHTML(idx, it) {
   // While the search is open for THIS item it OWNS the question: the list is
   // replaced, not kept beside it. D127's reason, on this surface -- the tap that
@@ -12128,15 +12346,37 @@ function identityOptionsHTML(idx, it) {
   if (PHOTO_SEARCH && PHOTO_SEARCH.idx === idx) return photoSearchHTML(idx, it);
   const alts = (it && it.alts) || [];
   const prop = rememberedProposal(it);
+  // H31: keyed on the MODEL's name, which is what the next capture arrives under.
+  // `aiIdentity` first because an in-draft correction changes `name` and the lead
+  // must not move when it does.
+  const corr = correctionLead(it && (it.aiIdentity || it.name));
   // FIRST, and never pre-selected: it is a button like the others, and nothing
   // is applied until it is tapped (Fork C1 / E1 -- no accept-all either).
   const mem = prop
     ? '<button type="button" class="pmalt pmaltmem" onclick="photoPickMemory(' + idx + ')">'
       + esc(rememberedProposalText(prop)) + '</button>'
     : '';
-  const rows = alts.map((a, r) =>
-    `<button type="button" class="pmalt" onclick="photoPickCandidate(${idx}, ${r})">${esc(a.name)}</button>`
-  ).join('');
+  // RULED C: an alternative the user has corrected TO before is promoted. Skipped
+  // when the lead above already offers that same answer -- two rows carrying one
+  // word while doing different things (one with nutrients, one without) is worse
+  // than either alone.
+  let promo = correctionAltRank(alts);
+  if (promo && corr && matchKey(corr.chosenName) === matchKey(promo.name)) promo = null;
+  // DISPLAY ORDER ONLY. The rank handed to photoPickCandidate stays the MODEL's,
+  // because `identity_pick.rank` is calibration evidence about which of the
+  // model's candidates was taken -- renumbering it would record every promoted
+  // pick as rank 0 and say the model had been right.
+  const order = alts.map(function (a, r) { return r; });
+  if (promo) { order.splice(promo.rank, 1); order.unshift(promo.rank); }
+  const rows = order.map(function (r) {
+    const a = alts[r];
+    return '<button type="button" class="pmalt'
+      + ((promo && promo.rank === r) ? ' pmaltpromo' : '')
+      + '" onclick="photoPickCandidate(' + idx + ', ' + r + ')">' + esc(a.name)
+      + ((promo && promo.rank === r)
+          ? '<small> \u00b7 you chose this before</small>' : '')
+      + '</button>';
+  }).join('');
   // H27 -- ONE WAY OUT, LABELLED BY WHAT IT LETS YOU DO.
   //
   // What was here: "None of these", which said what the food is NOT and then
@@ -12148,7 +12388,13 @@ function identityOptionsHTML(idx, it) {
   // one thing is one thing with two names -- so they collapse into a single
   // control. Its label says what the user is about to DO rather than what the food
   // is not.
-  return `<div class="pmalts">${mem}${rows}` +
+  // FIRST, and never pre-selected -- the first row is where a stray tap lands, so
+  // the right answer belongs there and the tap that takes it is still the user's.
+  const corrBtn = corr
+    ? '<button type="button" class="pmalt pmaltcorr" onclick="photoPickCorrection(' + idx + ')">'
+      + esc(correctionLeadText(corr)) + '</button>'
+    : '';
+  return `<div class="pmalts">${corrBtn}${mem}${rows}` +
     `<button type="button" class="pmalt pmsomething" onclick="photoSearchOpen(${idx})">Something else${'\u2026'}</button>` +
     `</div>`;
 }
@@ -16241,6 +16487,8 @@ window.HT = {
   PANEL_STEP, PANEL_FAMILY, PANEL_EQUIVALENT, panelStep, panelState, panelText,
   PANEL_SLOT_KEY, PANEL_KEY_SLOT, PANEL_GROUPS, PANEL_PROTEIN_SLOT,
   PANEL_ALT, PANEL_OFF_SURFACE,
+  correctionsAll, correctionLead, correctionAltRank, correctionHistory,
+  correctionHintText, correctionLeadText, photoPickCorrection, CORRECTION_HINT_MAX,
   panelSlotLabel, panelSlotUnit, corpusEnsure, resolveItem, resolveItemFreeze, clearItemRef,
   panelTypical, panelRowHTML, panelHTML, renderPanel,
   // D121 -- the resolve surface
