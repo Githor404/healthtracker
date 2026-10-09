@@ -12118,3 +12118,100 @@ than a computed `[FIXDAY]`.
   when the staleness is actually observed.
 - **The old day is never touched.** A date roll moves what is **shown**; the gate
   asserts the previous day's records are untouched by it.
+
+## R159.1/A — BUILT: the calorie ring inside the rhythm ring (2026-10-09, v0.73.0)
+
+The first of [[R159.1]]'s three screens, shipped on its own because it is a
+complete ruled item and the fold budget had to be settled before anything else
+went on that card.
+
+### WHAT SHIPPED
+
+| | |
+|---|---|
+| `calorieRingBasis(t)` | goal → **typical** → **no fill**, in that order |
+| `calorieRingWords(b)` | the ruled short form: *“83% of your typical day”* |
+| `calorieRingDetail(b)` | what the typical **is**, below the cells, saying *not a target* |
+| `calorieRingSVG(b, size)` | a second SVG on the **same viewBox** as the rhythm ring, so one coordinate system serves both |
+| `calorieCentreHTML(b, t)` | the day's calories, **P/F/C**, and the words |
+| `dayMacroRowHTML(t, day)` | fiber and the coverage note, below the cells |
+
+**The typical is `typicalWindow('kcal', TYPICAL_WINDOW)`** — the same function and the
+same 28-day window Trends uses, so the two surfaces cannot drift into two meanings
+of the word. It counts only **complete** days with full macro coverage, so today is
+never part of its own typical. Below its own 8-day floor the ring **shows the
+number and does not fill**: a median of four days is a thinner typical wearing the
+same shape, which is what the floor exists to refuse.
+
+**Never a target, and no “remaining”.** [[D32]] requires a citation for a target and
+the app has none for intake; a median of one person's own days is **descriptive**.
+*Remaining* would imply a number they are supposed to reach.
+
+### THE FOLD BUDGET DECIDED WHERE P/F/C WENT, AND IT TOOK THREE MEASUREMENTS
+
+`ring-size-gate` requires the **goal cells** and the **legend** above the fold at
+390x745. Measured, each time:
+
+| what sat between the rings and the cells | result |
+|---|---|
+| basis detail + macros + gap counter (~87px) | `cells-above=False`, `legend-above=False` |
+| the macro row alone (~22px, one line) | `cells-above=False`, `legend-above=True` |
+| **nothing** — P/F/C moved **inside the disc** | **both True**, ring still **84% of width** |
+
+> **One line of 22px was enough to push the goal cells under the fold.** The budget
+> was already that tight — [[H25]]'s record says as much, where a one-tap row drove
+> the ring from 70% to 51%.
+
+So P/F/C live **in the centre**, in the abbreviated form the `.daytot` row they
+replace already used (`20P · 15F · 40C`). That satisfies both halves of the
+ruling — *beside the rings* and *the fold gate holds* — because the disc is already
+drawn and costs nothing. Fiber is the fourth figure that would make the disc wrap,
+so it and the coverage sentence sit after the cells.
+
+### THE CENTRE HELD A CONTROL, AND IT MOVED RATHER THAN WENT
+
+`rhythmCenterHTML` carried the open-gap counter, the lane states, **a tap**
+(`focusPendingResolve`) and the string `jargon-gate` pins as *“gaps to confirm”*.
+`.rcenter` is inset 31% — about 115px at 360 — and will not take two prominent
+figures. It now renders as a **line below** the rings (a `below` form of the same
+function), which is where this card already puts ring-adjacent facts: *“the resolve
+row — BELOW the ring, never inside it.”*
+
+### THREE MEASUREMENT DEFECTS, ALL MINE
+
+**1. I MEASURED A BOX BIGGER THAN THE CONSTRAINT.** `.calcentre` carried
+`class="ringval calcentre"`, and `.ringval` is `inset:0` — so the centre was the
+**full 302px ring box**, its text free to lie across both rings, and my overflow
+test reported `False` because it was measuring the wrong box. **That is [[D140]]'s
+trap**, hit inside a measurement whose whole job was ink.
+
+**2. AND THE FIX DID NOT TAKE, FOR A REASON ONLY A SECOND MEASUREMENT SHOWS.**
+`.calcentre{inset:21%}` measured **302px, unchanged**: `.ringval{inset:0}` is
+declared **below** it and at equal specificity the later rule wins.
+`.ringval.calcentre` beats it. With the inset right, the centre is **175x175** and
+nothing in it is wider than that — 33 + 16 + 19 + 38 = **106px of 175**.
+
+**3. THE WORDS WERE TOO LONG FOR THE DISC, AND THE RULING ALREADY SAID SO.** The
+first draft put *“83% of your typical day · 2025 cal over 8 days”* in the centre:
+**161x58, three lines**, sharing a 175px disc with a 32px number. The ruled example
+is the short form. The detail moved below the cells.
+
+### AND THE REMOVED ROW TOOK A PINNED WORD WITH IT
+
+`jargon-gate` requires *“Day total”* on some surface — the words that replaced
+*“Total (est.)”*. Deleting the `.daytot` row deleted them, and the gate said so.
+
+> Fixed where it was actually needed: the centre is a **bare number inside a ring**,
+> which is precisely what a screen reader cannot make sense of. It now carries
+> `role="img"` and an `aria-label` reading *“Day total 1680 cal · 20 g protein, 15 g
+> fat, 40 g carbs · 83% of your typical day”*. The census sweeps aria-labels by
+> design, so the vocabulary is kept by making the surface more accessible rather
+> than by re-pinning the rule.
+
+**VERIFIED:** `ring-size` PASS (84% of width, cells and legend above the fold),
+`font-floor` PASS (1,452 elements, nothing under 16px), `page-overflow` PASS,
+`jargon-gate` PASS (**536 strings across 15 screens**), harness **2638/2638**.
+
+**Still open: screens 2 and 3** — the meal groups with the one muted empty line, the
+Biometrics group, the Timeline card's removal with a *time order* toggle, and the
+quick-add sheet.

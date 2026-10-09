@@ -226,6 +226,46 @@
      scale -- ~80% of viewport width, capped so desktop stays sane. Both ring
      SVGs carry a viewBox, so arcs, labels and the now-hand scale with it. */
   .ringbox{position:relative;width:var(--ringw);height:var(--ringw);margin:2px auto 0}
+  /* R159.1 CONCENTRIC. The calorie ring is a SECOND svg stacked on the rhythm
+     one at the same viewBox, so both share one coordinate system and the inner
+     radius is stated in the same units as the rim -- no second scale to keep in
+     sync. Pointer events pass through: the ringbox's own tap (clearSwap) and the
+     centre's tap must both still land. */
+  .calring{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .calrtrack{stroke:var(--line);stroke-width:9}
+  .calrarc{stroke:var(--accent);stroke-width:9;stroke-linecap:round}
+  /* The centre. 16px floor (D100) everywhere, so the hierarchy is weight and
+     colour: the number is the only bold thing in it. */
+  /* INSET TO THE CALORIE RING'S INNER EDGE. `.ringval` is inset:0, so without
+     this the centre is the FULL 302px box at 360 and its text can lie across
+     both rings -- and an overflow test on that box measures nothing, which is
+     D140's trap (a container bigger than the constraint). The calorie ring is
+     r=58 with a 9-wide stroke in a 180 viewBox, so its inner edge is
+     (58-4.5)/90 = 0.594 of the radius -> inset (1-0.594)/2 = 20.3%, rounded up
+     to 21% so the stroke is never touched.
+
+     AND IT NEEDS TWO CLASSES: `.ringval{inset:0}` is declared BELOW this rule,
+     and at equal specificity the later one wins -- the first attempt set 21% and
+     measured 302px, the full box, unchanged. `.ringval.calcentre` beats it. */
+  .ringval.calcentre{gap:0;inset:21%}
+  .calcentre .calnum{font-size:32px;font-weight:700;line-height:1.02}
+  .calcentre .calunit{font-size:16px;color:var(--muted);line-height:1}
+  .calcentre .calmac{font-size:16px;font-variant-numeric:tabular-nums;line-height:1.2;white-space:nowrap}
+  .calcentre .calwords{font-size:16px;color:var(--muted);line-height:1.2;
+                       max-width:92%;margin-top:2px}
+  /* The gap counter, evicted from the centre by the calories and rendered as a
+     line under the rings. It carries a tap, so it keeps a 44px target. */
+  .rcline{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:center;
+          justify-content:center;text-align:center;min-height:44px;padding:2px 0}
+  .rcline b{font-size:20px;font-weight:700}
+  /* ONE copy of the macros, beside the rings. Wraps at 360 rather than
+     compressing: four figures and a coverage note do not fit one line there. */
+  .calbasis{font-size:16px;color:var(--muted);text-align:center;line-height:1.3;padding:2px 0}
+  .dmacs{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:center;
+         padding:4px 0 2px;font-size:16px}
+  .dmac{font-variant-numeric:tabular-nums;color:var(--muted)}
+  .dmac b{font-size:16px;font-weight:700;color:var(--fg)}
+  .dmaccov{flex:1 1 100%;text-align:center;color:var(--warn);font-size:16px}
   .ring{width:100%;height:100%;display:block}
   .ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
   .ringval b{font-size:32px;font-weight:700;line-height:1.05}
