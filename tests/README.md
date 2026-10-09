@@ -217,13 +217,13 @@ bar. Stated as a relation now, so it cannot go stale again.)
 
 
 **The count is the number of verdict lines the runner prints:** 1 harness + the
-`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 9 + 28 = **38**. The
+`STATIC_CHECKS` + every `*-gate.ps1`. Today that is 1 + 9 + 29 = **39**. The
 `IN_HARNESS` checks are part of the harness's verdict and are not counted again.
 Every run prints the sum, and the suite fails if the passes don't add up to it:
 
 ```
-counted: 1 harness + 9 static + 28 CDP = 38 verdicts (4 more checks run inside the harness and are part of its verdict)
-SUITE: PASS (38 of 38 produced a verdict, and every verdict was PASS)
+counted: 1 harness + 9 static + 29 CDP = 39 verdicts (4 more checks run inside the harness and are part of its verdict)
+SUITE: PASS (39 of 39 produced a verdict, and every verdict was PASS)
 ```
 
 **Quote the number together with that line.** A bare count can't be told apart

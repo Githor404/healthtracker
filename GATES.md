@@ -5475,3 +5475,28 @@ explicit statement that an empty history gives an empty hint.
 had never swept — the sheet was visited, the draft the sheet opens was not. It
 sweeps clean (**529 strings**), and `the model` is now banned by name because the
 app's user-facing word is *your AI*.
+
+### R138 + R159.1/F — the day roll — 29th gate
+
+Suite **38 → 39 verdicts**. `tests/dayroll-gate.ps1`, **25 assertions**.
+
+| case | asserts |
+|---|---|
+| **dayroll-gate.ps1** | the **shipped page** calls `HT.dayRollCheck` — a function can exist and still never run on a resume, which is the whole defect |
+| **dayroll-gate.ps1** | **boot still lands on today** — it did before the slice, and the slice must not have broken it |
+| **dayroll-gate.ps1** | a resume on a new calendar day **moves the view** |
+| **dayroll-gate.ps1** | and **does not touch the old day's records** — a roll moves what is shown, never what is stored |
+| **dayroll-gate.ps1** | a **second** resume reports **no move** — or every resume dirties the store |
+| **dayroll-gate.ps1** | a draft claims **no day at open** — taking one there cannot tell a date flip from the user navigating |
+| **dayroll-gate.ps1** | the **clock** pins it: across midnight the draft keeps its day **and its 23:50** |
+| **dayroll-gate.ps1** | it lands on the started day and **not** on the new one, and **not** with a blank time |
+| **dayroll-gate.ps1** | the **user** moving the day still wins: saved after navigating to a past day it lands **there**, with **no time** |
+| **dayroll-gate.ps1** | and a **same-day** draft is unchanged — the rare case was not fixed by breaking the ordinary one |
+
+**Found by existing gates, not by review:** [[D112]]'s harness case caught both that
+freezing the day at open breaks a deliberate retarget AND that an unconditional
+start time attaches today's clock to a past day. **And the harness's own
+assertion-count pin caught a fixture that rotted overnight** — a literal
+`2026-09-08` crossing `TRASH_MAX_AGE_DAYS`, which aborted the suite and stopped 360
+assertions. The previous commit's harness failed identically on the new date, so
+the suite was green yesterday and red this morning with no code change.

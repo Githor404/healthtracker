@@ -1440,6 +1440,16 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
         lastCheck = Date.now();
         if (reg && reg.update) { try { reg.update(); } catch (e) {} }    // -> updatefound -> claim -> controllerchange -> reload
       });
+  // R138: THE CALENDAR DAY, CHECKED ON RESUME -- its own listener, not folded into
+  // the throttled service-worker check above. That one is rate-limited to five
+  // minutes on purpose; a date roll must not be missed because the app happened to
+  // be resumed four minutes earlier. Boot was never the problem (ensureCurrentDay
+  // already forces today there) -- a resume was, because nothing ran at all.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible') return;
+    try { if (window.HT && HT.dayRollCheck) HT.dayRollCheck(); } catch (e) {}
+  });
+
     }).catch(function () {
       /* SW optional; offline just won't be available */
     });

@@ -12013,3 +12013,108 @@ across *with beef* / *without*). So the row shows the count AND the names behind
 it, and **the portion and numbers come from ONE chosen item** — never an average
 across the merged names, which would be a figure from no meal at all.
 
+## R138 + R159.1/F — BUILT: the day the app shows, and the day a draft lands on (2026-10-09, v0.72.0)
+
+**R138 existed only as a queue position** — six mentions, every one a queue line.
+This is its first specification. Shipped ahead of the rest of [[R159.1]] because it
+is a **data** defect and needs none of the open rulings.
+
+`tests/dayroll-gate.ps1`, the **29th gate**, **25 assertions**. Harness **2638**
+(unchanged). Suite **38 → 39 verdicts**.
+
+### THE MEASUREMENT MOVED THE FIX BEFORE IT WAS WRITTEN
+
+`ensureCurrentDay` **already** forces `current = today`, at `boot()` and at
+restore. **Boot was never broken.** The only `visibilitychange` handler in the app
+asks the **service worker** to re-check for an update; **nothing re-checked the
+calendar day**.
+
+> So a PWA left open or resumed from the app switcher after midnight showed
+> **yesterday** — and anything logged into it **went to yesterday**. Fixed where it
+> was assumed to be, the change would have landed in a function that was already
+> correct.
+
+The day check is its **own listener**, not folded into the SW check: that one is
+throttled to five minutes on purpose, and a date roll must not be missed because
+the app happened to be resumed four minutes earlier.
+
+### RULING F NEEDED A DISTINCTION THE FIRST IMPLEMENTATION COULD NOT MAKE
+
+The ruling: *a draft lands on the day it was STARTED, never retargeted when the
+date flips.* The first attempt froze the draft's day at open — and **[[D112]]'s own
+harness case failed, correctly**:
+
+```
+HT.openPhotoDraft(...);        // opened while viewing today
+HT.state().current = D112P;    // the USER navigates to a past day
+HT.photoSave();                // and expects it to land THERE
+```
+
+That is a **deliberate** retarget — *“log this onto last Tuesday”* — and a real
+workflow. The ruling's own words are *when the date flips*. **Two different
+things:**
+
+| what moves the day | the draft |
+|---|---|
+| the **clock** | must **not** follow (ruled F) |
+| the **user** | **should** follow (D112, and intent) |
+
+A day frozen at open cannot tell them apart. So the draft records only **where it
+started** and claims no day until **`dayRollCheck`** pins it — that being the one
+function that moves the day for a reason the user did not give. Unpinned,
+`photoSave` behaves exactly as it always did.
+
+### AND THE TIME HAD TO TRAVEL, WITHOUT BECOMING A FABRICATION
+
+`stampTime(dayKey)` returns `''` for any day that is not today (D112: no
+fabricated clock time on a past day), so the entry landed on the right day with
+**no time at all** — out of the timeline's sort, with a blank row.
+
+**23:50 from a draft opened at 23:50 is measured, not invented**, so it rides with
+the pin. And it rides **only** with the pin: stamping it unconditionally meant
+that navigating to a past day attached **today's clock** to it, which is the
+fabrication D112 forbids arriving by a new route. **That too was caught by D112's
+gate, not by review.**
+
+### THREE DEFECTS, AND THE FIRST IS THE ONE WORTH REMEMBERING
+
+**1. I PATCHED A PATH THAT NO LONGER REACHES THE DAY.** `photoSave` builds
+`written` with a `time:` field, and **six lines below it says so**: *“R33: `written`
+above is no longer what reaches the day.”* The items are created by
+`consumeFromPlate`, whose own comment had already anticipated the mistake:
+*“`APP_STATE.current` here would fabricate a time again, **one argument along**.”*
+**Both comments were correct and both were above the line I edited.**
+
+**2. A NON-UNIQUE ANCHOR.** `const dk = APP_STATE.current;` occurs **five times**;
+the bare line matched the wrong one and the patch script refused. Same trap as the
+duplicated `const typed` in [[H30]] — and this time the guard caught it, because the
+script asserts uniqueness rather than just presence.
+
+**3. AND A HARNESS FIXTURE THAT ROTTED ON A DATE BOUNDARY — NOT MINE.**
+
+> `TRASH_MAX_AGE_DAYS` is **30**, and the D134 fixture was pinned to the literal
+> **2026-09-08**. On 2026-10-08 that was **exactly 30 days** old and kept; on
+> 2026-10-09 it was **31** and `trashPrune` dropped it the instant it was written.
+> `TD[0].item` then threw, the uncaught exception aborted the synchronous suite,
+> and **360 later assertions stopped running**.
+
+**Verified as not mine by running the previous commit's harness on the new date:**
+it failed identically. **The suite was green yesterday and red this morning with
+no change to the code.** A fixture pinned to a literal date is a test that passes
+until a date passes.
+
+Fixed by deriving the shared fixture day from the clock (`shiftDate(todayKey(),
+-1)`), which cannot rot — and **nothing in those cases asserts on the date's text**
+(checked before changing it). Two follow-on errors of my own in that change, both
+caught by the suite: the declaration was used ~350 lines **before** it was
+declared, and three object literals became the **literal key `FIXDAY`** rather
+than a computed `[FIXDAY]`.
+
+### WHAT IS DELIBERATELY NOT HERE
+
+- **The rest of R159.1.** Screens 1-3 wait on three conflicts the surface map
+  exposed, which are recorded with the rulings above and need the user.
+- **No midnight timer.** A backgrounded tab's timers are throttled, and resume is
+  when the staleness is actually observed.
+- **The old day is never touched.** A date roll moves what is **shown**; the gate
+  asserts the previous day's records are untouched by it.

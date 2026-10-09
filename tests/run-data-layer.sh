@@ -42,6 +42,7 @@ collapse-gate.ps1
 delete-all-gate.ps1
 correction-gate.ps1
 corpus-gate.ps1
+dayroll-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
 identity-search-gate.ps1

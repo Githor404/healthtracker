@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.71.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.72.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3119,6 +3119,51 @@ function dayForWrite() {
   if (!APP_STATE.days[k]) {
     APP_STATE.days[k] = blankDay();
     maybeInjectSupplement(APP_STATE, k);      // device-side day creation (D8/4)
+  }
+  return APP_STATE.days[k];
+}
+
+// R138 -- THE APP SHOWED YESTERDAY, AND LOGGED TO IT.
+//
+// MEASURED: `ensureCurrentDay` already forces `current = today` at boot and at
+// restore, so BOOT WAS NEVER BROKEN. The only `visibilitychange` handler in the
+// app asks the SERVICE WORKER to re-check for an update; nothing re-checked the
+// calendar day. A PWA left open or resumed from the app switcher after midnight
+// therefore showed yesterday -- and an item logged into it went to yesterday,
+// which makes this a DATA defect and not only a view one.
+//
+// Fixed on RESUME rather than by a midnight timer: a backgrounded tab's timers
+// are throttled, and resume is when the staleness is actually observed.
+//
+// IDEMPOTENT by construction -- `ensureCurrentDay` compares before it writes, so
+// a resume on the same day is a no-op and does not dirty the store.
+function dayRollCheck() {
+  if (!APP_STATE) return { ok: false, why: 'no-state' };
+  const was = APP_STATE.current;
+  const today = localDate();
+  if (was === today) return { ok: true, moved: false, day: today };
+  // RULED F, AND THIS IS THE ONLY PLACE THAT CAN KNOW IT. The day is about to
+  // move for a reason the user did not give, so an open draft is PINNED to the day
+  // it was started on before the view leaves it. Pinned once: a draft open across
+  // two midnights keeps the first one, which is the day it belongs to.
+  if (PHOTO_DRAFT && !PHOTO_DRAFT.dayKey && isDayKey(PHOTO_DRAFT.startedDay)) {
+    PHOTO_DRAFT.dayKey = PHOTO_DRAFT.startedDay;
+    PHOTO_DRAFT.pinnedTime = PHOTO_DRAFT.startedTime || '';
+  }
+  if (ensureCurrentDay(APP_STATE)) Store.saveState(APP_STATE);
+  refresh();
+  return { ok: true, moved: true, from: was, day: APP_STATE.current };
+}
+
+// The same creation site as `dayForWrite`, for a KEY rather than for whatever
+// day is on screen. It must keep `maybeInjectSupplement`: that is the sanctioned
+// device-side day-creation point (D8/4), and bypassing it would make a day that
+// silently lacks the configured supplement.
+function dayForWriteKey(k) {
+  if (!APP_STATE || !isDayKey(k)) return null;
+  if (!APP_STATE.days[k]) {
+    APP_STATE.days[k] = blankDay();
+    maybeInjectSupplement(APP_STATE, k);
   }
   return APP_STATE.days[k];
 }
@@ -9631,8 +9676,29 @@ function openPhotoDraft(text) {
   // D51's confirm-first grammar wants one stable question. The consequence is
   // deliberate: excluding a plate down to one row does not summon the identity
   // question, and adding a row does not dissolve it.
+  // RULED F: the draft carries the day it was STARTED, and photoSave writes to
+  // THAT day rather than to whatever is on screen when Save is pressed. This is
+  // the one door into a draft (R21-parity), so stamping it here covers both
+  // entry paths.
+  //
+  // AND THE TIME, because `stampTime` returns '' for any day that is not today
+  // (D112: no fabricated clock time on a past day). A draft opened at 23:50 and
+  // saved at 00:05 would otherwise land on the right day with no time at all,
+  // dropping out of the timeline's sort and blanking its row. 23:50 is MEASURED,
+  // not invented, so recording it satisfies D112 instead of bypassing it.
   PHOTO_DRAFT = { mealId: newMealId(), meal: r.meal, items: r.items,
                   single: r.items.length === 1,
+                  // WHERE IT STARTED -- not a claim on that day yet. The draft takes a
+                  // day of its own ONLY when `dayRollCheck` pins it, because that is the
+                  // one function that moves the day for a reason the user did not give.
+                  // A user who NAVIGATES to another day while a draft is open is making
+                  // a deliberate choice, and D112's harness case asserts that choice is
+                  // honoured. Freezing the day at open could not tell the two apart.
+                  startedDay: APP_STATE.current,
+                  // and the time only if that day was TODAY: a draft opened at 23:50
+                  // knows when it was captured, one opened against last Tuesday does not,
+                  // and attaching today's clock to a past day is what D112 forbids.
+                  startedTime: (APP_STATE.current === localDate()) ? nowTime() : '',
                   microsStripped: r.microsStripped || 0 };
   if (rep2) rep2.innerHTML = '';
   renderPhotoDraft();
@@ -10425,6 +10491,7 @@ const VERSION_LOG = [
   { v: '0.69.0', d: '2026-10-07', note: 'Typing what a food was now gets the same help as photographing it. If the database has nothing under the name you typed, your AI is asked for other names to SEARCH — never for an answer — and each one is looked up here on your phone, so you choose from real rows. It also gives the same eyeballed estimate a photo gets, labelled as an estimate and never including vitamins or minerals. Every candidate now shows protein, fat, carbs and calories against your own estimate, because which one gives away a wrong match depends on the food.' },
   { v: '0.70.0', d: '2026-10-08', note: 'Each day can now show what its meals DELIVERED, not just what they contained. Carbohydrate is counted the way it reaches you — minus the fibre, with both figures shown — and alongside it the things that change how fast it arrives: what it was eaten with, how much of it was water, and whether it broke a fast. Each one is named with the amount behind it, and never as a time, because nothing here measures how fast your stomach empties. Fructose joins the food database (the sensor cannot see it), and says plainly how few foods carry a figure for it. The panel starts closed, and says how much of the day it could actually see before it says anything else.' },
   { v: '0.71.0', d: '2026-10-08', note: 'When you correct what the AI called a food, the app now remembers it — and the next time the AI says that same wrong name, the correction is the first thing offered. It was never found before, because the app looked under the name YOU chose while the next photo arrived under the name the AI gave. One correction is enough; nothing is applied until you tap it, because a real apple juice is still a real apple juice. If the right answer is already among the AI’s own alternatives it is moved to the top, and your last three corrections now travel with a meal photo so its guesses improve too.' },
+  { v: '0.72.0', d: '2026-10-09', note: 'Two fixes about which day a thing belongs to. If you left the app open overnight it kept showing yesterday — and anything you logged went to yesterday. Coming back to it now checks the date. And a meal you start photographing before midnight stays on the day you started it, with the time you took the photo, instead of being quietly moved to the new day half-finished.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -13417,7 +13484,12 @@ function consumeFromPlate(plateId, statements, opts) {
     // D112: stamped from `dk` -- the day the record LANDS on -- not from the
     // viewed day. consumeFromPlate takes an explicit opts.date, so reading
     // APP_STATE.current here would fabricate a time again, one argument along.
-    const rec = { name: pi.name, meal: plate.meal, time: stampTime(dk), tzo: nowTZO(),
+    // R159.1/F: `o.time` is a MEASURED capture time travelling from the draft
+    // that started before midnight. D112 forbids a FABRICATED time on a past
+    // day -- it does not forbid the real one, and re-deriving it here from
+    // `dk` is what blanked it. Absent `o.time`, this is unchanged.
+    const rec = { name: pi.name, meal: plate.meal,
+                  time: (o.time || stampTime(dk)), tzo: nowTZO(),
                   confidence: pi.confidence || 'eyeballed',
                   source: pi.source || 'ai-paste', notes: pi.notes || '',
                   grams: g, mealId: mealId, plateId: plate.id, plateIdx: idx, ate: ate };
@@ -13475,7 +13547,11 @@ function deletePlate(plateId) {
 // consumeFromPlate.
 function photoSave(statements) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items.length) return { ok: false, error: 'Nothing to save.' };
-  const day = dayForWrite(); if (!day) return { ok: false };
+  // RULED F: the PINNED day when a date roll happened while this draft was open;
+  // otherwise the day on screen, which is what it always was. A user who navigated
+  // here on purpose gets the day they navigated to.
+  const dkey = isDayKey(PHOTO_DRAFT.dayKey) ? PHOTO_DRAFT.dayKey : APP_STATE.current;
+  const day = dayForWriteKey(dkey); if (!day) return { ok: false };
   const mealId = PHOTO_DRAFT.mealId || newMealId();
   const prior = day.items.filter((x) => x.mealId === mealId);
   const priorCopy = JSON.parse(JSON.stringify(day.items));
@@ -13487,7 +13563,12 @@ function photoSave(statements) {
     const m = photoItemMacros(PHOTO_DRAFT, it);
     const unres = photoItemUnresolved(it);
     const rec = {
-      name: it.name, meal: PHOTO_DRAFT.meal, time: stampTime(APP_STATE.current),
+      name: it.name, meal: PHOTO_DRAFT.meal,
+      // The PINNED time, so an entry written across midnight keeps the clock time
+      // it was captured at. Unpinned, this is `stampTime` exactly as before -- and
+      // `written` does not reach the day anyway (R33); the live stamp is in
+      // `consumeFromPlate`.
+      time: PHOTO_DRAFT.pinnedTime || stampTime(dkey),
       // R25 Fork A: an ADDED item carries its OWN claim. Inheriting `ai-paste` would
       // say a model reported a food no model ever saw, which is the honesty rule
       // (D8) pointed at its own draft.
@@ -13530,13 +13611,14 @@ function photoSave(statements) {
   // as a fact, and the consumption events are derived from the statement -- so the
   // path that used to write straight to totals now cannot, which is the structural
   // half of "totals come from consumption events, never from the plate".
-  const dk = APP_STATE.current;
+  const dk = dkey;                 // RULED F: the draft's own day (see above)
   // R33: a draft opened FROM a plate records another event against it -- it must
   // not mint a second plate, which would double the served food and make every
   // remainder wrong in the generous direction.
   if (PHOTO_DRAFT.fromPlate && PHOTO_DRAFT.plateId) {
     const rr = consumeFromPlate(PHOTO_DRAFT.plateId, statements || PHOTO_DRAFT.ate || null,
-                                { date: dk, mealId: mealId, priorCopy: priorCopy,
+                                { date: dk, time: PHOTO_DRAFT.pinnedTime,
+                                  mealId: mealId, priorCopy: priorCopy,
                                   all: !(statements || PHOTO_DRAFT.ate) });
     PHOTO_DRAFT = null; renderPhotoDraft();
     return rr.ok ? { ok: true, plateId: rr.plateId, mealId: rr.mealId, items: rr.items, remainder: rr.remainder }
@@ -13547,7 +13629,8 @@ function photoSave(statements) {
   APP_STATE.plates[plate.id] = normalizePlate(plate);
   Store.saveState(APP_STATE);
   const st = Array.isArray(statements) ? statements : null;
-  const r = consumeFromPlate(plate.id, st, { date: dk, mealId: mealId, priorCopy: priorCopy, all: !st });
+  const r = consumeFromPlate(plate.id, st, { date: dk, time: PHOTO_DRAFT.pinnedTime,
+                                            mealId: mealId, priorCopy: priorCopy, all: !st });
   // D121: the moment. A photo meal that just landed is exactly when the next tap
   // should be offered, rather than leaving it to be found later.
   if (r && r.ok !== false) { try { resolveWalkStart(dk, mealId); } catch (e) {} }
@@ -16424,6 +16507,7 @@ window.HT = {
   glucoseIngest, glucoseClear, glucoseDaySummary, glucoseSeries, glucoseLastMs,
   // H25 -- meal response (derived), test tagging (stored), one-tap events
   RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
+  dayRollCheck, dayForWriteKey,
   mealEvents, mealEventNames, mealResponse, responseCoverage,
   refValueAt, POTENTIAL_AXES, POT_SLOT_WATER, POT_SLOT_FRUCTOSE,
   availCarbG, itemWaterPct, eventModifiers, potentialFor, potentialCeiling,
