@@ -5525,3 +5525,31 @@ have failed this gate.
 **The per-leg breakdown is kept** (`legs 390` / `legs 360`, each condition named):
 the composite `-> False` started a hunt, and naming the failing condition ends it —
 the same argument the gate-script census makes about manifests.
+
+### R159.1/A3 — a renamed class silenced two assertions; the order is now asserted
+
+R31's safety sentence moved from `.goalcov` to `.dfigcov`. **Three** assertions
+named it by class; **one** failed. The other two kept passing:
+
+| | |
+|---|---|
+| `indexOf('goalcov') < 0` as a CONTROL | unfalsifiable once nothing carries the class — it can no longer fail |
+| `r31slice(goalHTML, '.goalcov')` in the vocab sweep | contributed `''`; the sweep silently stopped covering that surface |
+
+**Re-pointed to `.dfigcov`, and strengthened where the words already promised more
+than the conditions tested:**
+
+| added | why |
+|---|---|
+| the sentence renders **above** the goal cells | the words said “above them”; `indexOf` finds it anywhere |
+| a **planted reversal** must be rejected | the order test must be able to fail |
+| a **locator**: both ends render | the plant proves failure is reachable, **not** that success is — this fixture boots with no goals, so the order test could not have passed |
+
+**`R33-badge` re-pinned to the ruling**, which moved *where* an untouched plate asks
+without changing *that* it asks. One claim became three: the day asks **quietly**
+(`.plline`, counted), the day does **not** carry the list, and the **sheet** does —
+so a count that linked nowhere would fail.
+
+**The lesson for every gate here:** an assertion keyed on a CLASS NAME or a STRING
+goes quiet when the surface is renamed, and a quiet assertion is indistinguishable
+from a passing one. The census argument again: name what you counted.

@@ -278,7 +278,6 @@
      is 63px and "1680" at 32px is ~74px. 24 is the ruled size that fits. */
   .calcentre .calnum{font-size:24px;font-weight:700;line-height:1.02}
   .calcentre .calunit{font-size:16px;color:var(--muted);line-height:1}
-  .calcentre .calmac{font-size:16px;font-variant-numeric:tabular-nums;line-height:1.2;white-space:nowrap}
   .calcentre .calwords{font-size:16px;color:var(--muted);line-height:1.2;
                        max-width:92%;margin-top:2px}
   /* The gap counter, evicted from the centre by the calories and rendered as a
@@ -288,12 +287,24 @@
   .rcline b{font-size:20px;font-weight:700}
   /* ONE copy of the macros, beside the rings. Wraps at 360 rather than
      compressing: four figures and a coverage note do not fit one line there. */
-  .calbasis{font-size:16px;color:var(--muted);text-align:center;line-height:1.3;padding:2px 0}
-  .dmacs{display:flex;flex-wrap:wrap;gap:4px 14px;justify-content:center;
-         padding:4px 0 2px;font-size:16px}
-  .dmac{font-variant-numeric:tabular-nums;color:var(--muted)}
-  .dmac b{font-size:16px;font-weight:700;color:var(--fg)}
-  .dmaccov{flex:1 1 100%;text-align:center;color:var(--warn);font-size:16px}
+  /* R159.1/A3. The leftovers LINE -- one quiet row, not a list. The list itself
+     moved into the quick-add sheet, because the ruled page order allows nothing
+     above the rings card but the date. 44px so it is a real target. */
+  .plline{display:inline-block;width:auto;min-height:44px;font-size:16px;
+          color:var(--muted);background:none;border:none;padding:0 2px;
+          text-align:left;text-decoration:underline;cursor:pointer}
+  /* Everything behind the ring tap, in one block so it appears and disappears as
+     one thing: the view toggle, the time range, the key, and the eating-window /
+     sleep-hours lines. Closed it costs no height at all. */
+  .ringkey{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+  /* The summoned lane control, as a LINE. It used to carry `.ringval` -- which is
+     position:absolute;inset:0 -- and once the centre's content moved below the
+     rings it had no positioned ancestor and rendered over the HEADER. That was the
+     reported Sleep on / close overlap. */
+  .rcline.rctrl{gap:8px;flex-wrap:wrap}
+  .rcline.rctrl .btn{width:auto;flex:0 0 auto}
+  /* The leftovers section inside the sheet, above the rest of it. */
+  .qleft{margin-bottom:10px}
   .ring{width:100%;height:100%;display:block}
   .ringval{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
   .ringval b{font-size:32px;font-weight:700;line-height:1.05}

@@ -7709,10 +7709,44 @@ window.setLS({});
   var goalHTML = HT.renderGoalsHTML(HT.dayTotals(st31.days[r31day]), st31.days[r31day]);
   res(goalHTML.indexOf('from 2 of 3 items') >= 0,
       'R31-ring GATE: the ring and every goal cell are computed from a total that is short, and the block says so above them');
-  res(goalHTML.indexOf('goalcov') >= 0 && goalHTML.indexOf('<details') < 0,
+  // RE-POINTED for R159.1/A3, which moved this sentence from `.goalcov` to the
+  // figures column's `.dfigcov`. It did not WEAKEN: the sentence is still above
+  // the goal cells and still uncollapsed. But these assertions named it by CLASS,
+  // so one failed loudly and the control below went on passing while measuring
+  // nothing -- no element has a `goalcov` now, so `indexOf < 0` was unfalsifiable.
+  // Same defect class as a numeric assertion against a null.
+  //
+  // ORDER is asserted here for the first time. The words always claimed the block
+  // says so ABOVE the cells; `indexOf` alone finds the sentence anywhere on the
+  // surface, so the positional half of the claim was never tested.
+  function above(h, a, b) {
+    var i = h.indexOf(a), j = h.indexOf(b);
+    return i >= 0 && j >= 0 && i < j;
+  }
+  res(goalHTML.indexOf('dfigcov') >= 0 && goalHTML.indexOf('<details') < 0,
       'R31-ring: the statement is not behind a disclosure control -- D53 rules that provenance may collapse behind a tap and safety may not, and this is safety');
+  // THE FIXTURE MUST HAVE GOAL CELLS FOR THE SENTENCE TO BE ABOVE THEM. This
+  // fixture boots with no goals configured, so `goalCellsHTML` renders none and
+  // the first draft of this assertion could not pass -- `above` needs both
+  // present. The planted reversal below proved the test can FAIL and said nothing
+  // about whether it can PASS, which is the very defect this re-point exists to
+  // close. Both directions need a witness: a plant for one, a fixture for the
+  // other. Rendered separately so the assertions above keep measuring the
+  // goal-less surface they were written against.
+  st31.settings = st31.settings || {};
+  var r31goalsWas = st31.settings.goals;
+  st31.settings.goals = { kcal: { value: 2000, direction: 'max' } };
+  HT.resave();
+  var goalHTMLg = HT.renderGoalsHTML(HT.dayTotals(st31.days[r31day]), st31.days[r31day]);
+  res(goalHTMLg.indexOf('goalcell') >= 0 && goalHTMLg.indexOf('dfigcov') >= 0,
+      'R31-ring: the ordered surface was LOCATED -- both the sentence and the goal cells render, so the order test below has something to measure');
+  res(above(goalHTMLg, 'dfigcov', 'goalcell'),
+      'R31-ring: and it renders ABOVE the goal cells it qualifies -- the half of this claim the words made and no assertion measured, since indexOf finds a sentence anywhere');
+  st31.settings.goals = r31goalsWas; HT.resave();
+  res(!above('<div class="goalcell"></div><div class="dfigcov">from 2 of 3 items</div>', 'dfigcov', 'goalcell'),
+      'R31-ring CONTROL: the same order test REJECTS the reversed surface, so it can fail');
   var fullDay = r31mk([ r31food('Rice', 200) ]);
-  res(HT.renderGoalsHTML(HT.dayTotals(fullDay), fullDay).indexOf('goalcov') < 0,
+  res(HT.renderGoalsHTML(HT.dayTotals(fullDay), fullDay).indexOf('dfigcov') < 0,
       'R31-ring CONTROL: a fully-resolved day carries NO coverage line -- an unqualified total and "from 1 of 1 items" say the same thing, and the second says it more noisily');
 
   // ---- R31-avg-exclude: D10's micro rule, applied to macros unamended ------
@@ -7858,7 +7892,10 @@ window.setLS({});
       'R31-history CONTROL: the row for the FULLY-RESOLVED day carries no note -- the sentence appears only where a total is actually short');
 
   // ---- R31-vocab: M7 over the new coverage strings ------------------------
-  var r31Cov = [ r31slice(dv31, '<div class="daycov">'), r31slice(goalHTML, '<div class="goalcov">'),
+  // `.goalcov` became `.dfigcov` in A3. Left unchanged this slice contributed '',
+  // so the vocabulary sweep quietly stopped covering the goal block's sentence --
+  // survived only by the length guard on the five other slices.
+  var r31Cov = [ r31slice(dv31, '<div class="daycov">'), r31slice(goalHTML, '<div class="dfigcov">'),
                  r31slice(dv31, '<small class="mcov">'), r31slice(solo, '<span class="munres">'),
                  trOmit, r31slice(avBlock, '<div class="avgmacros">') ]
                  .join(' ').replace(/<[^>]*>/g, ' ').toLowerCase();
@@ -8219,8 +8256,17 @@ window.setLS({});
       'R33-plate-not-counted GATE [renderHistory]: and it is not in the history row');
   HT.renderDay();
   var dv33 = document.getElementById('dayView').innerHTML;
-  res(dv33.indexOf('Food left from earlier') >= 0,
-      'R33-badge GATE: an untouched plate DOES show the recall badge -- it contributes nothing and asks everything');
+  // RE-PINNED to the ruling, which moved WHERE this asks without changing THAT it
+  // asks. The list used to be the first thing on the day; ruled, it lives in the
+  // quick-add sheet and the day shows at most one quiet line. R33's requirement is
+  // that an untouched plate still asks, so all three claims are pinned: the day
+  // asks quietly, the day does NOT carry the full list, and the sheet does.
+  res(dv33.indexOf('plline') >= 0 && dv33.indexOf('1 leftover') >= 0,
+      'R33-badge GATE: an untouched plate DOES still ask -- one quiet line on the day, counted, linking to where the leftovers now live');
+  res(dv33.indexOf('Food left from earlier') < 0,
+      'R33-badge: and the LIST is no longer on the day -- the ruled page order puts nothing above the rings card but the date');
+  res(HT.quickLeftoversHTML().indexOf('Food left from earlier') >= 0,
+      'R33-badge: the list itself is in the quick-add sheet, so the quiet line leads somewhere -- a count that linked to an empty surface would ask without answering');
 
   // ---- R33-partial GATE: the motivating case, end to end -------------------
   var half = HT.consumeFromPlate('pl-test-1', [ { kind: 'fraction', fraction: 0.5 } ], { date: td33b });

@@ -12329,3 +12329,109 @@ that fits**, and the harness said so the moment it shipped.
 control caught), `font-floor` PASS (1,446 elements, nothing under 16px),
 `page-overflow` PASS, `collapse` PASS, `jargon-gate` PASS (528 strings, 15 screens),
 harness **2638/2638**.
+
+## R159.1/A3 — the ruled page order, and the control that rendered over the header (2026-10-09, v0.75.0)
+
+**DEVICE REVIEW of v0.74.0 (user).** Five layout items and one defect. All six
+measured on the rendered surface rather than reasoned about.
+
+| ruled | measured after |
+|---|---|
+| nothing above the rings card but the date | above the card: `daynav` only; order `daynav \| dcard \| rcline \| plline \| qadd \| mealgrp` |
+| leftovers leave the top, one quiet line at most | list on the day: **0**; the line reads “1 leftover” |
+| legend and “last 24 h” behind a tap on the rings | legend/range/toggle/caption by default: **0**; all four present in `.ringkey` after the tap |
+| “no typical day yet” once only | typical-day mentions: **1** |
+| eating-window / sleep-hours lines join the legend | moved with the caption |
+
+### THE DEFECT: A POSITIONED ANCESTOR THAT STOPPED EXISTING
+
+The reported “Sleep on / close” toast sitting over the title bar was **mine, from
+A2**, and it was never a toast. `laneControlHTML` returns `<div class="ringval
+rcenter">`, and `.ringval` is `position:absolute; inset:0`. A2 began rendering the
+ring centre's content **below** the rings — outside `.ringbox`, which had been its
+positioned ancestor. With no positioned ancestor left, a summoned lane control
+resolved against the **initial containing block** and landed at the top of the
+page, over the header.
+
+> **Moving an absolutely-positioned element's MARKUP moves what it is positioned
+> AGAINST.** Nothing about the control changed; its container did, three lines away
+> in a different function.
+
+It could not go back inside the disc: R16 designed it for a **302px** ring and the
+ruled ring is **150px**, whose inscribed square is 63px — two buttons do not fit. So
+`laneControlHTML(lane, below)` takes a wrapper that is not absolutely positioned
+(`rcline rctrl`), and the parameter name says why it is not cosmetic.
+
+**Measured:** `position:static`, rect 274..320, header 0..45, **overlaps header:
+false**, inside `#dayView`.
+
+### THE HARNESS FOUND TWO FAILURES AND THE COUNT UNDERSTATED THE DAMAGE
+
+R31's safety sentence (“Totals below are from 2 of 3 items”) used to render in
+`renderGoalsHTML` as `.goalcov`. A2 put the same sentence in the figures column as
+`.dfigcov`; A3 deleted the `.goalcov` copy, because the day was carrying it **twice**
+and the surviving copy sat **above the rings card**, which the ruled order forbids.
+
+The sentence is therefore still present, still above the goal cells, still
+uncollapsed. But **three assertions identified it by CLASS NAME**, and only one of
+them failed:
+
+| assertion | what it did |
+|---|---|
+| `goalcov` present, no `<details>` | **FAILED loudly** |
+| CONTROL: a resolved day has no `goalcov` | **passed while measuring nothing** — no element carries a `goalcov` now, so `indexOf < 0` had become unfalsifiable |
+| `R31-vocab` slices `.goalcov` into the swept text | **contributed the empty string** — survived only on the length guard over its five other slices |
+
+> **The loud failure was the least of the three.** A control that cannot fail is the
+> same defect class as `[double]$null -le $null` and the PowerShell case-fold: the
+> suite goes on reporting a pass for a test that has stopped running. **A renamed
+> class silences an assertion that keys on the name, and silence reads as health.**
+
+### AND THE CLAIM NO ASSERTION HAD EVER MADE
+
+The words said the block “says so **above** them” and **nothing measured the order**:
+`indexOf` finds a sentence anywhere on the surface. Re-pointing was the moment to
+assert it, so the order is now tested with a planted reversal to prove the test can
+fail.
+
+**And that assertion failed on the real surface, for a reason worth more than the
+assertion.** The R31 fixture boots with **no goals configured**, so `goalCellsHTML`
+renders no `.goalcell` at all and an order test needing both ends present **could
+not pass**. The planted control witnessed one direction and said nothing about the
+other.
+
+> **A plant proves an assertion can FAIL. Only a fixture proves it can PASS.** Both
+> directions need a witness, and I shipped the plant without the fixture — the
+> defect this very re-point exists to close, one level up.
+
+The fixture now configures a goal, rendered separately so the existing assertions
+keep measuring the goal-less surface they were written against, plus a **locator**
+asserting both ends render before the order is compared.
+
+### THE D53 CONFLICT I EXPECTED AND DID NOT FIND
+
+Ruled item 4 moves the eating-window / sleep-hours lines behind the ring tap, and
+[[D53]] holds that **provenance may collapse behind a tap and safety may not**. Those
+two look like they collide, and the first failure's message named D53, so I had
+written the conflict up as a ruling-versus-rule tension to surface. **Checked, it
+does not exist:**
+
+- `rhythmCaptionHTML` carries **lane labels** and a **pending-fast resolver**. No
+  incompleteness statement, so nothing D53 classes as safety went behind the tap.
+- **The resolver is not lost.** `rhythmCenterHTML(model, true)` stays outside the
+  tap, renders “N gaps to confirm”, and taps through to `focusPendingResolve()`
+  → `resolveRowHTML()`. The caption's buttons were a **duplicate** path.
+- The failing half was `goalcov`, not `<details>`. The assertion's *message* named
+  D53; its *condition* was two clauses joined by `&&`, and the one that broke was
+  the class name.
+
+> **A failure message describes the assertion's purpose, not which of its clauses
+> broke.** I had named a conflict between the user's ruling and a ruled contract on
+> the strength of a message I had not decomposed — and reporting that conflict would
+> have asked for a ruling on a choice nobody had to make. The standing rule is to
+> surface conflicts rather than resolve them silently; it is not a licence to
+> **invent** one from an undecomposed `&&`.
+
+**VERIFIED:** harness **2643/2643** (pin exact, 2638 → 2643 with the delta stated),
+`ring-size` PASS, `font-floor` PASS (1,438 elements), `page-overflow` PASS, `jargon`
+PASS (519 strings, 15 screens), and all nine static legs PASS.

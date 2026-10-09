@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.74.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.75.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3322,10 +3322,11 @@ function renderGoalsHTML(t, day) {
   // by whatever the unresolved items would have contributed. The statement is
   // attached ONCE, above the whole block, because it qualifies all of it -- and it
   // is never collapsed behind disclosure (D53: provenance may hide, safety may not).
-  const cov = macroCoverage(day);
-  const covLine = cov.partial
-    ? `<div class="goalcov">Totals below are ${esc(coverageNote(cov))} — the rest have no composition recorded.</div>`
-    : '';
+  // The coverage warning used to render HERE, above the whole card. A2 put the
+  // same sentence in the figures column (`.dfigcov`) and left this one standing, so
+  // the day carried it TWICE -- and this copy was also above the rings card, which
+  // the ruled page order forbids. One copy, beside the figures it is about.
+  const covLine = '';
   let html;
   if (sw && goals[sw.key]) {
     html = goalRingBoxHTML(sw.key, t);
@@ -3337,22 +3338,32 @@ function renderGoalsHTML(t, day) {
     // SHARE the card, and the thing that floor was protecting -- a ring big enough
     // to read -- is now protected by a minimum in pixels plus a zero-ink-collision
     // test, which is what the old floor could not express.
-    html = ringViewToggleHTML()
-      + '<div class="dcard">'
+    // RULED: nothing above the rings card but the date, so the my-day/the-plan
+    // toggle joins the legend behind the ring tap. It is a control for the ring, so
+    // the ring is the thing to tap for it.
+    html = '<div class="dcard">'
       + `<div class="ringbox ringsm" onclick="ringTap()" role="button" tabindex="0"`
       + ` aria-label="${esc(RING_LEGEND_OPEN ? 'Hide the ring key' : 'Show the ring key')}">`
       + `${rhythmSVG(model, 180)}${calorieRingSVG(cb, 180)}${calorieCentreHTML(cb, t)}</div>`
       + dayFiguresHTML(t, day, cb)
       + '</div>'
+      // DEPTH ON DEMAND, ruled: the key, the time range ("last 24 h"), the view
+      // toggle AND the eating-window / sleep-hours lines are all behind one tap on
+      // the rings. Closed, they cost no height at all.
       + (RING_LEGEND_OPEN
-          ? ((model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}${RING_VIEW === 'plan' ? ' \u00b7 the plan' : ''}</div>` : '')
-             + ringLegendHTML())
+          ? ('<div class="ringkey">'
+             + ringViewToggleHTML()
+             + (model.rangeLabel ? `<div class="rrrange">${esc(model.rangeLabel)}${RING_VIEW === 'plan' ? ' \u00b7 the plan' : ''}</div>` : '')
+             + ringLegendHTML()
+             + rhythmCaptionHTML(model)
+             + '</div>')
           : '')
       + resolveRowHTML();
+    // RULED: the typical-day line appears ONCE -- the short one beside the rings.
+    // The long sentence that repeated it below is gone. The gap counter keeps its
+    // own line, and the caption has moved behind the ring tap above.
     html += goalCellsHTML(t)
-      + `<div class="calbasis">${esc(calorieRingDetail(cb))}</div>`
-      + rhythmCenterHTML(model, true)
-      + rhythmCaptionHTML(model);
+      + rhythmCenterHTML(model, true);
   }
   if (sw && goals[sw.key]) html += goalCellsHTML(t);   // swapped view still needs the selector
   const micros = microRollup(day);
@@ -3382,6 +3393,24 @@ function dayStatusBadge(dateKey, day) {
 // auto-consumed (ruled): what expires is the prompting, after PLATE_RECALL_DAYS, so
 // the half-now-half-tomorrow case still finds its plate the next morning while a
 // forgotten one stops nagging.
+// RULED: the leftovers list leaves the top of the day. It lives in the
+// quick-add sheet now (a "Leftovers" section above the top 10), and the day
+// shows AT MOST ONE QUIET LINE linking there. Nothing above the rings card but
+// the date.
+// The door the leftovers line opens. Screen 3 will put the top 10 in this sheet;
+// until then it opens the Quick pane that already exists, with the leftovers
+// section above whatever that pane holds. Named as its own function so screen 3
+// changes one place -- and so the line is not pointing at a name that does not
+// exist, which is what the first draft of it did.
+function openQuickAdd() { return openSheet('quick'); }
+function plateRecallCount() { return openPlates(APP_STATE.current).length; }
+function plateRecallLineHTML() {
+  const n = plateRecallCount();
+  if (!n) return '';
+  return '<button type="button" class="plline" onclick="openQuickAdd()">'
+    + esc(n) + ' leftover' + (n === 1 ? '' : 's') + '</button>';
+}
+// The full list, now rendered INSIDE the sheet rather than on the day.
 function plateRecallHTML() {
   const open = openPlates(APP_STATE.current);
   if (!open.length) return '';
@@ -3484,9 +3513,11 @@ function renderDayInner() {
       <button class="navbtn" onclick="stepDay(1)" ${neighbourDay(dk, 1) ? '' : 'disabled'}>›</button>
     </div>`;
 
-  html += plateRecallHTML();
+  // RULED PAGE ORDER: date -> rings card -> the action row -> meal groups ->
+  // Biometrics, and NOTHING above the rings card but the date. The leftovers list
+  // used to sit here; it is one quiet line now, below the card with the actions.
   html += renderGoalsHTML(t, day);
-  html += quickAddHTML();
+  html += plateRecallLineHTML() + quickAddHTML();
 
   const groups = {};
   day.items.forEach((it, idx) => { const m = MEALS.indexOf(it.meal) >= 0 ? it.meal : 'other'; (groups[m] = groups[m] || []).push({ it: it, idx: idx }); });
@@ -10515,6 +10546,7 @@ const VERSION_LOG = [
   { v: '0.72.0', d: '2026-10-09', note: 'Two fixes about which day a thing belongs to. If you left the app open overnight it kept showing yesterday — and anything you logged went to yesterday. Coming back to it now checks the date. And a meal you start photographing before midnight stays on the day you started it, with the time you took the photo, instead of being quietly moved to the new day half-finished.' },
   { v: '0.73.0', d: '2026-10-09', note: 'The day now opens with two rings, one inside the other: the outer one is your rhythm (eating window, fasts, sleep) and the new inner one is calories, with the day’s figure and your protein, fat and carbs in the middle. With no goal set it fills against your own TYPICAL day — the median of your last 28 complete days, the same “typical” Trends uses — and the card says so in words. It is never called a target and there is no “remaining”, because a median of your own days describes what you do rather than prescribing it. With fewer than eight complete days it shows the number and does not fill at all, since a median of four days is not a typical day. The separate day-total row is gone: those figures moved into the ring rather than being copied there.' },
   { v: '0.74.0', d: '2026-10-09', note: 'The day card is laid out the way you approved: the two rings on the left, smaller, with just the calorie number in the middle, and protein, fat, carbs, fibre and the typical-day line beside them. On a phone the figures no longer sit inside the ring, where they were crossing its ink. Tap the rings to see what the colours mean — the key and the time range are behind that tap now instead of always on screen. The gap counter keeps its own line underneath.' },
+  { v: '0.75.0', d: '2026-10-09', note: 'The day now reads in the order you asked for: date, the rings card, the actions, your meals. Nothing sits above the rings but the date. Food left from earlier is no longer the first thing on the screen — it is one quiet line that opens the quick-add sheet, where the leftovers now live. The ring key, the time range, the my-day/the-plan switch and the eating-window lines are all behind a tap on the rings. The typical-day line is said once, beside the rings. And a fix: the Sleep on/close control was appearing over the title bar at the top of the screen.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14134,7 +14166,17 @@ function pendingFastCandidates() {
 }
 function focusPendingResolve() { RESOLVE_FOCUS = true; renderDay(); return { ok: true, pending: pendingFastCandidates().length }; }
 function clearResolveFocus() { RESOLVE_FOCUS = false; renderDay(); return { ok: true }; }
-function laneControlHTML(lane) {
+// `below` is NOT cosmetic. This returns `ringval rcenter`, and `.ringval` is
+// `position:absolute; inset:0`. R159.1/A2 moved the centre's content below the
+// rings, outside `.ringbox` -- its positioned ancestor -- so a summoned control
+// resolved against the initial containing block and rendered OVER THE HEADER.
+// That was the reported "Sleep on / close" overlap.
+//
+// It cannot go back into the disc: R16 designed it for a 302px ring and the
+// ruled ring is 150px, whose inscribed square is 63px -- two buttons do not fit.
+// So it gets a real line, and the wrapper says so.
+function laneControlHTML(lane, below) {
+  const wrap = below ? 'rcline rctrl' : 'ringval rcenter rctrl';
   const spec = LANE_ACTIONS[lane];
   if (!spec) return '';
   if (spec.resolve) {                                    // meals: the existing resolve
@@ -14142,7 +14184,7 @@ function laneControlHTML(lane) {
     if (!pend.length) return '';
     const c = pend[pend.length - 1];
     const h = esc(String(num(c.hours)));
-    return `<div class="ringval rcenter rctrl" onclick="event.stopPropagation()">` +
+    return `<div class="${wrap}" onclick="event.stopPropagation()">` +
       `<span class="rcsub">${esc(rDisp(c.hours))}h gap \u00b7 pending</span>` +
       `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'fasted');clearSummon()">Fasted</button>` +
       `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'ate_didnt_log');clearSummon()">Ate, didn\u2019t log</button>` +
@@ -14153,13 +14195,13 @@ function laneControlHTML(lane) {
   // dialog. The summoned centre is now exactly one thing -- a two-state toggle for
   // the lane that was summoned -- and the question gets room for a prefill and an
   // explanation that never fitted inside a 31%-inset disc.
-  return `<div class="ringval rcenter rctrl" onclick="event.stopPropagation()">` +
+  return `<div class="${wrap}" onclick="event.stopPropagation()">` +
     (st.open ? `<span class="rcsub">${esc(spec.state)} \u00b7 ${esc(hoursLabel(st.minutes))}</span>` +
                `<button type="button" class="btn" onclick="laneOff('${esc(lane)}')">${esc(spec.label)} off</button>`
              : `<button type="button" class="btn" onclick="laneOn('${esc(lane)}')">${esc(spec.label)} on</button>`) +
     `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
 }
-function sleepControlHTML() { return laneControlHTML('sleep'); }
+function sleepControlHTML(below) { return laneControlHTML('sleep', below); }
 // G1: THREE STATES STORED, TWO SHOWN. Typed and accepted both read plainly --
 // both are the person's answer on the surface -- while an inferred night says
 // so and wears a tilde. Storing more than is shown is the safe direction.
@@ -14220,19 +14262,6 @@ function calorieRingWords(b) {
   if (b.basis === 'goal') return Math.round(b.frac * 100) + '% of your goal';
   if (b.basis === 'typical') return Math.round(b.frac * 100) + '% of your typical day';
   return 'no typical day yet';
-}
-// WHAT THE TYPICAL IS, below the rings rather than inside the disc. The ruled
-// example is the short form above; measured at 360 the long one is three lines of
-// 16px sharing a 175px disc with a 32px number, and the number is what the centre
-// is for. It is never called a target, and it says so.
-function calorieRingDetail(b) {
-  if (!b) return '';
-  if (b.basis === 'goal') return 'your goal \u00b7 ' + rDisp(b.against) + ' cal';
-  if (b.basis === 'typical')
-    return 'your typical day is ' + rDisp(b.against) + ' cal, over ' + b.n
-      + ' complete days \u2014 not a target';
-  return 'no typical day yet \u2014 ' + b.n + ' of ' + b.need
-    + ' complete days, so the ring shows the number and does not fill';
 }
 function calorieRingSVG(b, size) {
   const S = size || 180, C = S / 2, R = CAL_RING_R;
@@ -14303,7 +14332,7 @@ function rhythmCenterHTML(model, below) {
   // bound: a summoned lane control, which reverts on action, idle or tap-away and
   // can never stick. The fast-resolve UI stays evicted below the ring.
   const sum = summonActive();
-  if (sum && laneHasAction(sum.cat)) return laneControlHTML(sum.cat);
+  if (sum && laneHasAction(sum.cat)) return laneControlHTML(sum.cat, below);
   const openLine = openLanes().map((k) => {
     const st = laneOpenState(k);
     return `<span class="rcsub rcstate">${esc(LANE_ACTIONS[k].state)} \u00b7 ${esc(hoursLabel(st.minutes))}${st.pending ? ' \u00b7 pending' : ''}</span>`;
@@ -14627,6 +14656,12 @@ function closeSettings() {
 // Quick mode: one chip per saved preset, logged through the SAME logPreset path
 // (byte-identical record — one contract, one path, as with the signal chips).
 // Presets ship empty, so the honest empty state points at where they come from.
+// RULED: a "Leftovers" section in the quick-add sheet, ABOVE the top 10. It used
+// to be the first thing on the day, which the ruled page order forbids.
+function quickLeftoversHTML() {
+  const h = plateRecallHTML();
+  return h ? ('<div class="qleft">' + h + '</div>') : '';
+}
 function renderQuickChips() {
   const el = document.getElementById('quickChips');
   if (!el) return;
@@ -14634,6 +14669,7 @@ function renderQuickChips() {
   // D130: the Quick pane was PRESETS ONLY, and presets ship empty -- so the
   // one surface named for logging in a single tap was blank for every new
   // user and for this one. What a person repeats is what they have eaten.
+  const left = quickLeftoversHTML();
   const rpt = repeatChipsHTML();
   if (!presets.length) {
     if (rpt) { el.innerHTML = rpt; return; }
@@ -16679,7 +16715,8 @@ window.HT = {
   RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
   dayRollCheck, dayForWriteKey,
   calorieRingBasis, calorieRingWords, calorieRingSVG, calorieCentreHTML,
-  dayFiguresHTML, calorieRingDetail, CAL_RING_R,
+  dayFiguresHTML, CAL_RING_R, plateRecallCount, plateRecallLineHTML,
+  openQuickAdd, quickLeftoversHTML,
   ringLegendToggle, ringTap,
   mealEvents, mealEventNames, mealResponse, responseCoverage,
   refValueAt, POTENTIAL_AXES, POT_SLOT_WATER, POT_SLOT_FRUCTOSE,

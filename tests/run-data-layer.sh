@@ -200,7 +200,20 @@ echo "-----------------------------------------"
 # appended slice IS the hint; and that slice carries no corpus id and no macros),
 # plus the explicit statement that a user with no corrections has an empty hint,
 # which is what makes R21-parity's existing assertion hold unchanged.
-EXPECTED_ASSERTIONS=2638
+# R159.1/A3: 2638 -> 2642, delta +4. Two assertions named a surface BY CLASS
+# (`.goalcov`) that this slice renamed to `.dfigcov`; one failed loudly and one
+# -- its control -- went on PASSING while measuring nothing, because no element
+# carries a `goalcov` any more and `indexOf < 0` had become unfalsifiable. The
+# re-point adds the positional claim the words had always made and no assertion
+# had ever tested (the sentence renders ABOVE the goal cells) plus a planted
+# reversal to prove that test can fail: +2. And R33-badge, re-pinned to the
+# ruling that moved the leftovers list into the quick-add sheet, now pins three
+# claims where it pinned one -- the day asks quietly, the day does not carry the
+# list, the sheet does: +2. Plus one locator: the order test needed a fixture that
+# CONFIGURES a goal, because this one boots with none and `above` needs both ends
+# present -- the plant proved the test could fail and nothing proved it could
+# pass, which is the defect this re-point exists to close, one level up: +1.
+EXPECTED_ASSERTIONS=2643
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
