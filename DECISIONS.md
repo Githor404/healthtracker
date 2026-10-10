@@ -13884,3 +13884,116 @@ public-facing README. Nothing in this slice reads location.
 
 **STOPPING HERE for the Fork 3 ruling (§3), the provenance ruling (§4), and the
 top-10 definition (§5).** Nothing is in the code.
+
+---
+
+## COMBOS — RULED, AND BUILT (2026-10-10, v0.80.0, schema v14)
+
+### 0. A CORRECTION I OWE, AND IT IS THE THIRD OF ITS SHAPE TODAY
+
+I wrote, in the pre-registration: *"**D128 is not about location.** Grepped: D128
+is 'The restaurant flow, ruled ahead of build' — the FNDDS/restaurant **source**
+question."*
+
+**That is false, and the user was right.** D128 contains a section headed
+**"Location: keep BOTH the name and the coordinates"**, which rules it in detail —
+name and coordinates stored **locally at full precision**, rounding **dropped** as
+tidiness rather than protection, **excluded from the export with a copy button**,
+**separately deletable**, and recorded **on the user's tap only**, which it names as
+*"the one line in this section that a later session must not relax."*
+
+It goes further than I credited. D128 **already identified the contradiction I
+presented as a discovery**, under its own heading *"CONFLICT TO RESOLVE AT BUILD
+TIME — named, not silently resolved"*, and already ruled the remedy: *"Building
+this requires **amending both documents in the same commit**"*. It even names the
+capability this slice wants — *"At a place already visited, what is usually ordered
+there — Repeat Items plus location, **offered at the moment**, never a notification
+pulling the user back."*
+
+**How I got it wrong: I grepped the heading and read the title instead of the
+entry.** `grep -n "^## D128"` returned one line, I read it, searched `CLAUDE.md`
+for *location*, found the un-amended promise, and concluded. Every step was real
+and the conclusion was about a different question.
+
+> **Three times in two days, one shape.** An anchored `^coffee` that returned zero
+> FDC rows because FDC prefixes by food group. A field named `ttp` read as a
+> duration when it measured distance-from-anchor. And a decision read by its title.
+> **Each time the instrument answered precisely, about something adjacent.** The
+> repo's standing line — *a claim about the code made without consulting the code
+> is the same defect as a search pattern typed from memory* — now has a third
+> clause: **consulting an index is not consulting the thing.**
+
+**So the location-aware variant is QUEUED, not blocked**, and it is queued behind
+D128's own amendment clause rather than behind a new ruling.
+
+### 1. THE FINDING THIS SLICE EXISTS FOR
+
+**Coffee contributed zero to every total.** Measured over 54 days of log:
+
+| | |
+|---|---|
+| times coffee appears | **two** |
+| the manual one | `'Coffee '` — with a trailing space — `kcal 0`, **no grams, no micros, no ref, no notes** |
+| the other | an `ai-paste` espresso: 7.2 kcal, 80 g, **no micros, no ref** |
+| dairy logged with either | **none, ever**. All 18 cream/milk hits in the whole log are coleslaw or ice cream |
+
+**A name and a timestamp and nothing else**, from an input taken more than once a
+day — and its companion invisible. Not imprecision: absence.
+
+And the corpus has had the answer the whole time. **CNF 2873 and FDC 171890 agree
+to the decimal**: caffeine 40 mg, potassium 49 mg, niacin 0.19 mg per 100 g — so
+250 mL is **100 mg caffeine, 123 mg potassium, 0.48 mg niacin**. CNF 150 is the
+exact 10% half-and-half.
+
+### 2. THE FIVE RULINGS, AS BUILT
+
+| | ruled | built |
+|---|---|---|
+| **1** | a combo is **not** a composite; separable parts each keep their own coverage; [[D62]] Fork 3's frozen-intersection stays reserved for the photographed dish | parts written as **separate items**; the gate asserts **no composite record exists**, so Fork 3's rule has nothing to apply to |
+| **2** | chains are a **third provenance** on H4's shape — org, source, **retrieved** date, disclaimer — with the date shown beside the values | `normalizePublished` is **all three or nothing**; the citation rides on the **item**, not only in settings |
+| **3** | a combo is **one row** ("the ten things I log most"); a food inside a combo may appear separately | keyed by combo, counted by **occasion**; a combo-written item counts only toward its combo |
+| **4** | grams **suppressed**; the stepper multiplies the whole combo | the plan carries **no** `grams`, and the surface reads that absence; `refAtGrams` re-expresses each part's ref at its own new portion |
+| **5** | A2 resolves to a generic milk row and **never prints "A2"** as the matched row | the row carries `refName`, the matched row's own name |
+
+**Why `settings.combos` and not a preset with a parts list.** Fork 3's structural
+insight — *"a composite is a preset with a component list"* — would have cost no
+schema bump, because `settings.presets` passes the normaliser unexamined. Declined
+for one reason: **a preset is consumed by paths that assume one item.** `logPreset`
+writes one record; `photoIdentityOptions` re-picks a photographed item **to** a
+preset. A combo in that bag would offer *"my coffee"* as the identity of a
+photographed food unless every consumer grew a guard — and a missed guard there is
+a silently wrong answer, which is the failure this session has found four times.
+**Separation costs one bump. Sharing costs a guard per consumer, and one wrong
+answer the first time one is forgotten.**
+
+### 3. AND THREE DEFECTS OF MINE, CAUGHT BY RUNNING IT
+
+- **An assertion written `cond ? true : true`** — one that cannot fail, the exact
+  shape this suite keeps catching in other people's work. Rewritten, it then
+  asserted the **wrong mechanism**: that an undeclared micro key is dropped. It is
+  not — the schema contract's own words are *"tolerated on ingest, **preserved**,
+  not displayed until recognized"*. It is two assertions now: the key survives, and
+  nothing renders it because `MICRO_SPEC` has no entry — **which is the reason
+  caffeine has to travel in the corpus ref** for anything that computes over it.
+- **Two taps a pinned minute apart were one occasion**, because the occasion key is
+  day + time. Correct for two taps in the same minute; wrong as a fixture for two
+  separate ones. The fixture moves the clock.
+- **The deleted-combo fallback name was whichever part was processed last.** Set
+  once now, so it is the first part's name, deterministically. *A row that renames
+  itself by iteration order is a row nobody can write an assertion about.*
+
+### 4. ONE THING DELIBERATELY NOT DONE
+
+`refAtGrams` is **extracted and used at the new site only**. `buildRepeatItem` and
+`consumeFromPlate` each carry their own copy of the same arithmetic, written at
+different times and reasoning identically. Swapping it under their green gates is a
+change those gates cannot see. **Three copies of one rule is two too many** — and
+the way to collapse them is one at a time with the equivalence asserted, not in the
+commit that adds the third. **Raised for [[R155]]'s hygiene list.**
+
+### 5. What is left
+
+**COMBOS/2** — the sheet, the stepper's multiplier, the published line rendered
+beside the values, and the three coffee variants as data the user enters (not as
+code: no personal calibrations, and the stack's precedent is that the list ships
+empty). Then **E**, then **R155**.
