@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.80.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.81.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -11595,6 +11595,7 @@ const VERSION_LOG = [
   { v: '0.78.0', d: '2026-10-10', note: 'Groundwork for the daily stack, and this release is the plumbing rather than the screen -- there is nothing new to look at yet. The app can now hold a list of things you take every day, each with the dose as the bottle states it, and one confirm will log only the ones you leave ticked: nothing is ever logged and then deleted, because a dose you did not take should not pass through your totals on its way out. Each entry is either a food, which reaches your day-s calories and macros like any other food, or a dose, which goes on your timeline and never into food totals. An entry can also carry the name of an active constituent, so that anything the app later says about it can be shown with its source. Doses stated in IU are converted where you type them, and only for vitamin D: an IU is a measure of activity, not of weight, and the conversion is different for every substance -- so the app refuses to convert the others rather than using a number that does not exist. Your existing log is untouched.' },
   { v: '0.79.0', d: '2026-10-10', note: 'The daily stack now has its screen. Quick add leads with “Took my daily stack” when you have one set up, and tapping it opens the list with everything ticked: untick whatever you skipped and one button logs only the rest, saying how many before you tap it. Nothing is logged and then removed. The foods count in your day, the doses go on your timeline, and each row says which. And the app now carries its first cited intake figure: if an item delivers more vitamin D than the Institute of Medicine-s stated upper intake level for adults, the row says so, names the source and the population it applies to, and points you at a 25-OH vitamin D reading -- which is the thing that would actually tell you where you are. It does not tell you to change anything. If that figure ever loses its citation the flag disappears rather than showing a number with nothing behind it.' },
   { v: '0.80.0', d: '2026-10-10', note: 'Groundwork for saved multi-item entries -- combos. A combo is something you log in one tap that is really two or three things: coffee and the cream that goes in it. It logs them as SEPARATE items at the same moment, which matters more than it sounds: the cream counts as dairy and the coffee keeps its own caffeine, potassium and niacin from the food database, instead of both being flattened into one row whose numbers would have to drop anything the two did not share. Each part keeps its own portion and its own source, so one part can come from the food database while another comes from a chain-s published nutrition -- and where it does, the figures are shown with the date they were retrieved, because chains change recipes without telling anyone. A combo counts as one entry in your top ten however many parts it has, and the stepper multiplies the whole thing. No screen for it yet; this release is the plumbing.' },
+  { v: '0.81.0', d: '2026-10-10', note: 'Combos now have their screen. A combo shows up in Quick add as ONE entry however many things it logs, marked as a combo and saying how many items it will add. Tapping it opens a multiplier rather than a portion box -- there is no single weight for a coffee plus its cream -- and it lists every part at the portion it will actually log, so two taps of the stepper shows you 500 ml of coffee and 31 g of cream before you commit. Where a part came from the food database and the database calls it something else, the part says which row it matched; where a part came from a chain-s published nutrition, the figures are shown with the organisation, the source and the date they were retrieved. One button logs the lot at one timestamp.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15878,7 +15879,21 @@ function quickMealSet(m) {
 function quickPlan() {
   if (!QUICK_PICK) return null;
   const row = quickRow(QUICK_PICK.key);
-  if (!row || !row.item) return null;
+  if (!row) return null;
+  // COMBOS, ruling 4: a combo row has NO `item` -- it is not one food, which is
+  // the whole point -- and no `grams`, because it has no single denominator. So it
+  // takes the multiplier branch and `comboPlan` owns the arithmetic. Without this
+  // the `!row.item` guard below returned null, quickStepHTML rendered '' and
+  // TAPPING A COMBO DID NOTHING AT ALL: the silent no-op that took four rounds of
+  // diagnostics to name the last time it happened (R159.1/A4's `.qrow`).
+  if (row.combo) {
+    const cp = comboPlan(row.comboId, QUICK_PICK.n);
+    if (!cp) return null;
+    return { row: row, combo: cp, grams: null, factor: QUICK_PICK.n,
+             kcal: cp.rows.reduce(function (a, r) { return a + (r.kcal == null ? 0 : r.kcal); }, 0),
+             meal: mealAtCreation(QUICK_MEAL, cp.time), time: cp.time };
+  }
+  if (!row.item) return null;
   const base = (row.grams == null) ? null : num(row.grams);
   let grams = null, factor = QUICK_PICK.n;
   if (QUICK_PICK.grams != null) {
@@ -15911,6 +15926,13 @@ function quickAddLog() {
   const plan = quickPlan();
   if (!plan) return { ok: false, why: 'nothing-picked' };
   const row = plan.row;
+  // COMBOS: one tap, N separate items, through the one write path that knows how
+  // -- never a second copy of it here.
+  if (plan.combo) {
+    const r = logCombo(row.comboId, QUICK_PICK.n);
+    if (r.ok) { QUICK_PICK = null; QUICK_MEAL = ''; renderQuickChips(); refresh(); }
+    return r;
+  }
   // D112 is why the time is stamped rather than assumed: a past day gets no
   // fabricated clock time, and buildRepeatItem is the path that already honours
   // it -- along with the ruled ref.g behaviour (scale the match when the basis is
@@ -15960,17 +15982,62 @@ function quickTopHTML() {
         // cascade, so it silently restyled both. The gate that should have caught
         // it was inflated by the same collision: it counted those foreign rows as
         // food rows, so its row count passed on elements from another surface.
-        return '<button type="button" class="qfrow" onclick="quickPickAt(' + esc(String(i)) + ')">'
+        // COMBOS, ruling 3: one row for the combo however many parts it has. It
+        // says so, because "one tap" and "one tap that logs three things" are
+        // different promises and the row is where the difference is read.
+        const partword = f.combo
+          ? ('<span class="qrport">' + esc(String(f.parts || 0)) + ' items'
+             + esc(cal) + '</span>')
+          : ('<span class="qrport">' + esc(port) + esc(cal) + '</span>');
+        return '<button type="button" class="qfrow' + (f.combo ? ' qfcombo' : '') + '"'
+          + ' onclick="quickPickAt(' + esc(String(i)) + ')">'
           + '<span class="qrname">' + esc(f.name) + '</span>'
           + '<span class="qrn">' + esc(String(f.n)) + 'x</span>'
-          + '<span class="qrport">' + esc(port) + esc(cal) + '</span>'
-          + names + '</button>';
+          + partword
+          + (f.combo ? '' : names) + '</button>';
       }).join('')
+    + '</div>';
+}
+// COMBOS, rulings 2/4/5: the multiplier stepper. NO grams box -- a combo has no
+// single denominator, so there is nothing for one to apply to -- and every part is
+// listed with the portion it will actually log, the row it MATCHED (never the
+// part's own name when they differ), and its citation where it has one.
+function comboStepHTML() {
+  const plan = quickPlan();
+  if (!plan || !plan.combo) return '';
+  const cp = plan.combo;
+  const rows = cp.rows.map(function (r) {
+    const port = (r.grams == null) ? 'no portion recorded' : (rDisp(r.grams) + ' g');
+    const cal = (r.kcal == null) ? '' : (' · ' + kcalDisp(r.kcal) + ' cal');
+    // RULING 5: the matched row's own name, shown only when it differs from the
+    // part's -- the one place an "A2 milk" part could claim the database knew it.
+    const matched = (r.refName && r.refName !== r.name)
+      ? '<div class="cbmatch">matched to ' + esc(r.refName) + '</div>' : '';
+    // RULING 2: the citation WITH the values, retrieval date and all.
+    const pub = r.published
+      ? '<div class="cbpub">' + esc(publishedLine(r.published)) + '</div>' : '';
+    return '<div class="cbpart"><div class="cbpname">' + esc(r.name) + '</div>'
+      + '<div class="cbpsub">' + esc(port) + esc(cal) + '</div>' + matched + pub + '</div>';
+  }).join('');
+  return '<div class="qstep">'
+    + '<div class="qsname">' + esc(cp.name) + '</div>'
+    + '<div class="qlast">' + esc(cp.rows.length) + ' items, logged together at one time</div>'
+    + '<div class="qsrow">'
+    + '<button type="button" class="qsbtn" onclick="quickStep(-1)" aria-label="one fewer">−</button>'
+    + '<span class="qn">×' + esc(String(QUICK_PICK.n)) + '</span>'
+    + '<button type="button" class="qsbtn" onclick="quickStep(1)" aria-label="one more">+</button>'
+    + '</div>'
+    + rows
+    + '<button type="button" class="btn qlog" onclick="quickAddLog()">Log '
+    + esc(String(cp.rows.length)) + ' item' + (cp.rows.length === 1 ? '' : 's')
+    + (plan.kcal ? (' · ' + esc(kcalDisp(plan.kcal)) + ' cal') : '') + '</button>'
+    + '<button type="button" class="linklike qback" onclick="quickCancel()">back to the list</button>'
     + '</div>';
 }
 function quickStepHTML() {
   const plan = quickPlan();
   if (!plan) return '';
+  if (plan.combo) return comboStepHTML();
   const f = plan.row;
   // RULED B: the MOST RECENT portion, LABELLED as such. An unlabelled number
   // beside a stepper reads as a recommendation, and this app recommends nothing.
@@ -18063,6 +18130,7 @@ window.HT = {
   INTAKE_LIMITS, intakeFlag, intakeFlagText, stackSheetHTML, stackRowSub,
   stackOpen, stackCancel, stackToggle, stackConfirm,
   // COMBOS (schema v14)
+  comboStepHTML,
   normalizeCombo, normalizeCombos, normalizeComboPart, normalizePublished,
   publishedLine, refAtGrams, comboById, comboPlan, logCombo, newComboId,
   migrateV13toV14, setClock, nowMs, nowMinutes, todayKey, localDate,

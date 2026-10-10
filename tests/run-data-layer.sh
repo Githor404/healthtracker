@@ -271,7 +271,16 @@ echo "-----------------------------------------"
 # +1 on the re-run: the undeclared-micro assertion split in two once measurement
 # showed the mechanism was PRESERVATION and not dropping -- the key survives, and
 # a second assertion carries the reason nothing renders it.
-EXPECTED_ASSERTIONS=2747
+# COMBOS/2: 2747 -> 2758, delta +11. The surface, and the silent no-op it closes:
+# a combo row has no `item` (the point of it) and quickPlan's `!row.item` guard
+# returned null there, so quickStepHTML rendered nothing and TAPPING A COMBO DID
+# NOTHING AT ALL -- the shape that took four rounds of diagnostics to name when
+# `.qrow` did it. Now: the row is pickable, the stepper reads as a MULTIPLIER with
+# no grams box, 2x shows every part at its own doubled portion, a published part
+# shows org + source + retrieval date WITH the values, a part whose matched row
+# differs says which row it matched, the write goes through logCombo rather than a
+# second copy, the multiplier reaches the ref, and the pick clears afterwards.
+EXPECTED_ASSERTIONS=2758
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

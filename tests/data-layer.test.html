@@ -9737,6 +9737,41 @@ window.setLS({});
   res(cFreq2.filter(function (r) { return r.combo; })[0].name === 'brewed coffee',
       'COMBOS GATE: and a DELETED combo still counts -- its items are in the log, so the row falls back to its FIRST part-s name, deterministically, rather than vanishing');
 
+  // ---- COMBOS/2: the surface, and the silent no-op it closes ---------------
+  HT.state().settings.combos = [cb];
+  var cRows = HT.foodFrequency(10);
+  var cIdx = -1;
+  cRows.forEach(function (r, i) { if (r.combo) cIdx = i; });
+  res(cIdx >= 0 && HT.quickPickAt(cIdx).ok === true,
+      'COMBOS/2 GATE: a combo row in the top 10 can be PICKED -- it has no `item`, which is the point, and the plan used to return null there so tapping it did nothing at all');
+  var cStep = HT.quickStepHTML();
+  res(cStep.indexOf('My coffee') >= 0 && cStep.indexOf('2 items') >= 0,
+      'COMBOS/2 GATE: ...and it renders the multiplier stepper naming the combo and how many items it will log');
+  res(cStep.indexOf('qgrams') < 0 && cStep.indexOf('or grams') < 0,
+      'COMBOS/2 GATE: with NO grams box (ruling 4) -- a combo has no single denominator, so there is nothing for one to apply to');
+  res(cStep.indexOf('×1') >= 0,
+      'COMBOS/2 GATE: the stepper reads as a MULTIPLIER, not a portion count');
+  HT.quickStep(1);
+  var cStep2 = HT.quickStepHTML();
+  res(cStep2.indexOf('×2') >= 0 && cStep2.indexOf('500 g') >= 0 && cStep2.indexOf('31 g') >= 0,
+      'COMBOS/2 GATE: 2x shows EVERY part at its own doubled portion -- 500 g of coffee and 31 g of cream, which is what the one tap will actually log');
+  res(cStep2.indexOf('Chain · Nutrition guide 2026 · retrieved 2026-10-10') >= 0,
+      'COMBOS/2 GATE: a published part shows its citation WITH the values, retrieval date and all (ruling 2) -- not behind a disclosure, because a chain changes a recipe silently');
+  res(cStep2.indexOf('matched to Coffee, brewed, prepared with tap water') >= 0,
+      'COMBOS/2 GATE: and a part whose matched row differs from its own name SAYS the row it matched (ruling 5)');
+  var _cBefore = HT.state().days[cKey].items.length;
+  var cAdd = HT.quickAddLog();
+  res(cAdd.ok === true && cAdd.items.length === 2
+      && HT.state().days[cKey].items.length === _cBefore + 2,
+      'COMBOS/2 GATE: logging from the sheet goes through logCombo -- two items, not a second copy of the write path');
+  res(Math.abs(cAdd.items[0].ref.v['262'] - 200) < 1e-9,
+      'COMBOS/2 GATE: ...and the multiplier reached the ref, so 2x coffee carries twice the caffeine');
+  res(HT.quickStepHTML() === '',
+      'COMBOS/2 GATE: and the pick is cleared after the write, so the sheet returns to the list rather than offering to log it again');
+  var cListRow = HT.quickTopHTML();
+  res(cListRow.indexOf('qfcombo') >= 0,
+      'COMBOS/2 GATE: the list marks a combo as one -- "one tap" and "one tap that logs three things" are different promises, and the row is where the difference is read');
+
   HT.setClock(null);
   HT.state().days = _cDays; HT.state().current = _cCur; HT.state().settings = _cSet;
 

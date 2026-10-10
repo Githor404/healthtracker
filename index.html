@@ -1003,6 +1003,14 @@
          padding:8px 10px;margin-top:6px}
 .stklog{width:100%;min-height:44px;margin-top:10px;font-size:16px}
 .stkback{display:block;margin:8px auto 0;font-size:16px;min-height:44px}
+/* COMBOS: the multiplier stepper's part list. Prefixed `cb`/`qfcombo` and checked
+   against the stylesheet first (the `.qrow` lesson), every size >= 16px (D100). */
+.qfcombo{border-left:3px solid var(--accent)}
+.cbpart{display:grid;gap:2px;padding:8px 0;border-top:1px solid var(--line)}
+.cbpname{font-size:16px;font-weight:600}
+.cbpsub{font-size:16px;color:var(--muted)}
+.cbmatch{font-size:16px;color:var(--muted)}
+.cbpub{font-size:16px;color:var(--muted)}
 .rptstrip{display:flex;gap:8px;flex-wrap:wrap}
 /* D133: a proposal is a first row, and says why it is one. */
 .rcandbtn.rprop{border-color:var(--accent)}
