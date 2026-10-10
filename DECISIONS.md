@@ -12956,8 +12956,20 @@ Decoded from the shipped `fdc.bin` / `cnf.bin` (47 slots, 7,793 SR Legacy rows,
 **`medication` is already *"a named substance with a dose"*** ([[D20]]) — a
 first-class timeline kind with `name`, `dose`, `dose_unit` (closed list: mg, mcg,
 g, mL, IU, tablet, capsule, drop, puff, unit), `form`, `route`, `time`, `notes`.
-**Berberine, NAC and ashwagandha fit it with no new kind and no new schema**, and
-a dose event is exactly *"a timed, dosed exposure"*.
+**Every bioactive in the stack fits it with no new kind and no new schema** — each
+is a named substance taken at a stated amount in milligrams — and a dose event is
+exactly *"a timed, dosed exposure"*.
+
+> **This paragraph named three of them when it was written, and that was my own
+> §0 ruling broken two sections later.** §0 said the design does not need the names
+> and recommended keeping them out; §2 then named the oils, §5 named the vitamin,
+> and this paragraph named the capsules — between them, the whole regimen. The
+> names are removed here, and the ruling confirmed 2026-10-10 is that they stay
+> out. **They remain in this repo's git history** (commit `0680c9e`, pushed), and
+> taking them out of a public history is a rewrite and a force-push, which is the
+> user's call and not a thing to do quietly. *The corpus measurements in §2 stay
+> as they are: "FDC 171413 holds olive oil" and "no row matches nigella" are facts
+> about a public database that a reader has to be able to check.*
 
 And D20 already ruled the thing this slice walks up to:
 
@@ -13184,3 +13196,246 @@ the user's stated reason for recording it now:
 | no causal word appears in the app's own voice anywhere in this surface | D157 |
 
 **STOPPING HERE for rulings on A–D, and for the glucose file.**
+
+---
+
+## R168 — THE LABEL, THE CORRECTION, AND TWO FORKS THAT CONFLICT WITH IT (2026-10-10)
+
+### 0. The label named nothing, again
+
+Grepped before honouring it, per the standing rule that an R-number is the user's
+own relay label and may name something never recorded: **zero occurrences of
+`R168`** in `DECISIONS.md`, `GATES.md`, `CLAUDE.md`, `README.md`, `app.js`,
+`index.html` or `tests/`. **R168 is the user's label for what this file recorded
+yesterday as *"D — THE DAILY STACK"***, and this entry binds the two so the next
+reader of either finds the other.
+
+### 1. Shipped and verified
+
+`v0.77.0` / `v0.77.1` / `v0.77.2` pushed (`5519bc9..0680c9e`), nothing left
+unpushed. **`tests/verify-deploy.sh`: GATE PASS on the first poll** — served
+v0.77.2, shell `53e120e7826e`, all 8 shell files byte-identical to the tree, and
+the served `sw.js`'s `SHELL_HASH` recomputed from the served bytes.
+
+### 2. The stack, as corrected — and it stays out of this file
+
+**Ruled: the stack's contents are the user's data and do not enter the repo**,
+the same precedent that kept the ten most-eaten foods out ([[R159.1]]). So the
+shape, and only the shape: **five items — one vitamin at a stated dose, two
+bioactive capsules at stated milligram doses, two culinary oils, each one a
+tablespoon.** It was six: **one bioactive is dropped, and the glucose/AMPK
+pathway link that was pre-registered with it is withdrawn** — no claim about it
+is cited, built or carried forward. The count is the part a future reader can
+check the correction against; the name is not theirs to need.
+
+| ruled now | |
+|---|---|
+| **IU → µg at entry** | the field is `vitamin_d_ug` and the bottle is in IU, so the conversion happens where the number is typed and the stored value is µg. 40 IU = 1 µg cholecalciferol, carried as a cited constant ([[D32]]: a claim carries its source). The ruled dose converts to **225 µg** |
+| **the D3 flag sits at 100 µg (4000 IU), cited** | and it is a flag, not a verdict. This remains the app's **first cited intake figure** — every cited number in here until now has been a lab reference range |
+| the implausibility guard is a different instrument | `vitamin_d_ug` carries `warn: 1250` µg. The flag is at 100 µg, **twelve and a half times lower**. One catches a slip of the thumb; the other states what a body of evidence says, and they must never be shown as the same thing |
+
+### 3. FORKS APPLIED AS RECOMMENDED
+
+| fork | ruled |
+|---|---|
+| **D-A** where the stack lives | a **list** in `settings`, because the per-day injection already reads from `settings` and presets are a user-authored food library with a different lifecycle |
+| **D-B** the `_auto` lock | the stack's items are **ordinary items**, individually deletable; the non-deletable `_auto` flag is retired **for them**. Noted for the build: `_auto` is enforced in three places — the row draws no `×`, `cycleMeal` refuses it, and the edit path refuses it by name — so retiring it is three edits, and [[D12]]'s *"config is not a log action"* rule plus the *disable removes today's standing dose* gate both key on that flag |
+| **E-A** is a suspect a record? | **derived, not stored.** A suspect is not an observation, and a store of app-proposed guesses is what [[D120]] keeps out of the data |
+| **E-B** dismissals | stored, in **their own store**, never on the timeline — E4 needs both classes to learn from |
+| **E-C** intensity | **`variants`**, following `Drink`, because an intensity is a word the user chose and not a measurement |
+
+**D-E (the vitamin E slot) and D-F (tbsp → g) carried no recommendation, so
+"as recommended" does not settle them.** D-F's other half *is* settled above. And
+**fork E is now measurable**: the corpus sources are on this machine at
+`HTPrivate/corpus-src`, so `derive_slots.py --check` can state vitamin E's
+coverage in both databases instead of leaving it a guess. Not run yet — offered.
+
+### 4. TWO RECOMMENDATIONS CONFLICT WITH R168, SO THEY ARE PRINTED, NOT APPLIED
+
+#### D-C — one item, two stores. One stack item is in BOTH of R168's lists.
+
+Fork C recommended that each stack item goes to **one** store: nutrient-bearing
+items become **food items** (so they reach totals and H24) and bioactives become
+**medication timeline records** (so they are timed, dosed exposures and never
+food).
+
+**R168 puts one of the five items in BOTH of its lists, and the correction
+sharpens that rather than removing it.** The ruling's nutrient clause assigns both
+oils to *"fat with fatty-acid profile, vitamin E, energy"*; its bioactive clause
+separately names **the active constituent of one of those same oils** as a timed,
+dosed exposure carrying a cited pathway claim. **With the dropped capsule gone,
+that constituent is the only bioactive in the stack that arrives inside a food.**
+The other two are capsules and raise no such question.
+
+So fork C as recommended forces a choice R168 does not make, and either branch
+discards half of what the ruling asks for:
+
+| if that oil is filed as | what is lost |
+|---|---|
+| a **food item** | its constituent has no timed, dosed exposure record — so nothing for a cited pathway claim to attach to, and nothing for an event-signature bit |
+| a **medication record** | ~120 kcal of fat and its fatty-acid profile leave the day's totals and H24, which is the honesty rule's own failure mode: a day that understates and reads as complete |
+
+**This is not a thing to resolve in code.** It asks whether **one logged item may
+write into two stores** — which is a different question from fork C's own "one
+tap, two stores", because that was about the *stack* spreading across stores and
+this is about a *single item* doing it. [[D120]]'s separation is the reason the app
+can be trusted about what a number is, and splitting one item across the line it
+draws is exactly the kind of thing that must be ruled rather than assumed.
+
+> The oil is one object and two facts. Nothing in the data contract says whether
+> a fact may be filed twice from one tap.
+
+#### D-D — the undo cannot untap one item, and logging-then-deleting records a dose that was not taken.
+
+Fork D recommended *"log all and offer the undo, because [[D123]]'s undo is
+already the mechanism."* **Checked rather than trusted, and it is not.**
+
+`offerUndo(label, fn)` sets a **single** `_undoFn`, renders **one** Undo button in
+**one** 7-second toast, and `undoRemove(arr, refs)` removes **the whole set it was
+given**. There is no per-item affordance anywhere in it and only one undo can be
+pending at a time. So it reverts the entire write or nothing — and R168 asks that
+**"any item can be untapped if skipped."**
+
+And the fallback that fork B makes available — log all five, then delete the one
+you skipped with the row's own `×` — is worse than mis-cited. **It writes a dose
+that was not taken**, reaching the day's totals, the fast calculation and H24
+before the user removes it, and leaving the undo toast describing five items when
+four were meant. That is a fabrication with a cleanup step, which is what [[D8]]
+exists to refuse.
+
+**R168's own word is "untapped"**, which describes un-ticking something before it
+is written, not deleting it afterwards — so the ruling may already favour the
+confirm sheet that fork D argued against. But fork D was argued on the one-tap
+claim, and a confirm sheet costs that claim a tap. **Printed for a ruling.**
+
+### 5. STOPPED HERE, as instructed
+
+Forks A/B and E-A/E-B/E-C are recorded above as ruled. **D-C and D-D are open**,
+and D's build cannot be specified without them: C decides the stores and D decides
+what one tap writes. **R155 not started.**
+
+---
+
+## E2 — THE WINDOW AND THE THRESHOLD, MEASURED (2026-10-10)
+
+A fresh Apple Health export arrived (`HTPrivate/export.xml`, 516 MB, written
+2026-10-10 09:23, replacing the 2026-10-02 one). Glucose read out of it only,
+streamed by a substring test per line following
+`tests/measure-glucose-overlap.py` — no XML tree, nothing else extracted.
+
+### 1. The stream, and it is in excellent condition
+
+| | |
+|---|---|
+| readings | **2,739**, up from 451 on the previous export |
+| span | **2026-09-30 → 2026-10-10**, 11 days |
+| device / unit | **one** of each — Dexcom G7, mmol/L. Measured and *refused on* rather than assumed: the extractor exits if the export mixes units, because a sweep across two scales is arithmetic nobody asked for (the glucose-unit rule) |
+| completeness | **nine consecutive days at 288 of 288 readings — 100%** — plus two partial end days. Mean 249/day |
+| cadence | 5 minutes on **2,736 of 2,738** intervals; **one** gap over 30 min, of 0.8 h |
+| duplicate timestamps | **zero** |
+
+So the limiting factor is not data quality. It is what the stream alone can
+answer.
+
+### 2. The overlap is still zero, and now for the opposite reason
+
+`export.json` holds **16 days with food, ending 2026-09-26**. The glucose
+**starts 2026-09-30**. **Days with both: 0.** Last time the gap was that the
+glucose was a 3-day slice; now the glucose is 11 full days and **the food log is
+the stale half** — the PC copy is 14 days old, and the phone's log is not here.
+
+> So the measurement that defines this feature — *how many rises have no eating
+> event before them* — still cannot be taken. What can be measured is the rise
+> side, and what a threshold does to it.
+
+### 3. The sweep
+
+Suspects per day, using the app's own baseline rule (the mean of the
+`RESP_BASELINE_MIN` = 20 minutes before, demanding `RESP_BASELINE_MIN_N` = 2
+readings), merged forward past the peak so one excursion counts once:
+
+| window | ≥0.5 | ≥1.0 | ≥1.5 | ≥2.0 | ≥2.5 | ≥3.0 |
+|---|---|---|---|---|---|---|
+| 30 min | 14.6 | 6.6 | 3.6 | 1.9 | 0.9 | 0.7 |
+| 60 min | 13.1 | 7.2 | 3.6 | 2.2 | 1.4 | 0.9 |
+| 90 min | 11.7 | 6.5 | 4.0 | 2.6 | 1.5 | 0.9 |
+| 120 min | 10.8 | 6.3 | 3.9 | 2.8 | 1.7 | 1.2 |
+
+### 4. TWO HYPOTHESES OF MY OWN, BOTH MEASURED AND BOTH WRONG
+
+**(a) "The threshold will select sensor artefacts."** The first pass printed its
+largest excursions as *"+2.9 in 5 min"* and *"+2.7 in 5 min"*, which cannot be
+physiology — so the next pass measured what one 5-minute step actually does.
+
+> **Median rise 0.10, p90 0.50, p99 1.00, max 1.20 mmol/L. Not one interval in
+> 1,782 carries a step of 2.0.** No excursion in this stream rises 2.9 in five
+> minutes, and the sensor is not jumping.
+
+The *"5 min"* was my instrument's own wording: it reported the minutes from the
+**anchor** to the peak, and the anchor is the last reading before the peak, not
+the start of the rise. A rate bound therefore changes almost nothing (31 → 29 at
+W=120/T=2.0), which is the right result for the wrong-sounding reason.
+
+> **I read a field name as a duration and inferred a cause from it.** Same defect
+> as a search pattern typed from memory, and the second time in two days: the
+> correction below the v5 brief's Phase 4 section says a claim made without
+> consulting the code is that defect, and a claim made without consulting what
+> your own number *measures* is the same thing one layer in.
+
+**(b) "The night is the quiet reference the threshold can be derived from."**
+The pre-registration leaned on the small hours as a proxy for *nothing was
+eaten*. **The night is the noisiest part of this stream.**
+
+| W = 60 min | median | p75 | p90 | p95 | p99 | max |
+|---|---|---|---|---|---|---|
+| 00–06h | 0.33 | 0.82 | 1.70 | **2.53** | **5.67** | **7.23** |
+| 06–24h | 0.38 | 0.85 | 1.78 | 2.32 | 3.50 | 4.63 |
+
+**The night's tail is wider than the day's at every window**, and the single
+largest excursion in eleven days is at **02:36 on 10-01 — 5.1 → 11.5, +6.4
+mmol/L in 75 minutes.** Deriving a threshold from the night therefore does not
+produce a floor; it produces a number so high that the only thing clearing it is
+a night-time event.
+
+### 5. THE ANSWER: no pair in the useful range yields a meal-like population
+
+Day-rate against night-rate, per hour, at every candidate pair:
+
+| pair | events | /day | 00–06h per hour | 06–24h per hour | day : night |
+|---|---|---|---|---|---|
+| W=60 T=1.7 (night p90) | 36 | 3.27 | 0.136 | 0.136 | **1.00** |
+| W=60 T=2.5 (night p95) | 15 | 1.36 | 0.091 | 0.045 | **0.50** |
+| W=90 T=2.1 | 26 | 2.36 | 0.106 | 0.096 | **0.90** |
+| W=120 T=2.2 | 28 | 2.55 | 0.091 | 0.111 | **1.22** |
+| W=120 T=3.1 | 11 | 1.00 | 0.045 | 0.040 | **0.89** |
+| W=60 T=6.0 (night p99) | 1 | 0.09 | 0.015 | 0.000 | 0.00 |
+
+**A rise is as likely per hour at 02:00 as at 19:00, and at T=2.5 it is twice as
+likely.** A detector in the 1.5–3.1 range is not finding meals; it is reporting
+what this stream does all the time.
+
+**And the return test does not separate either.** 88% of events come back to
+within 0.5 mmol/L of baseline (median 40 min) — 8 of 9 night events and 27 of 31
+day events at W=60/T=1.5, 5 of 6 and 16 of 18 at T=2.0. *"It came back"* is not a
+meal signature here.
+
+### 6. What that leaves, stated as a choice rather than a number
+
+- **A threshold cannot be set for the feature as specified from this data.** Every
+  value that yields a usable count (1–3 a day) yields a population a quarter to a
+  third nocturnal, and a suspect list like that becomes furniture — which is the
+  anti-engagement stance pointed at itself.
+- **One setting IS supported: W = 60–90 min, T ≈ 6.0 mmol/L** — the night's own
+  p99. It fires **once in eleven days**, and honestly: when it fires, the stream
+  did something it does not otherwise do. But that feature is *"the stream did
+  something extreme"*, **not** *"a rise with no food logged"*, and it should be
+  named for what it is.
+- **The missing measurement is unchanged and is now the only blocker**: a food log
+  that overlaps the stream. With one, the question becomes answerable in the form
+  that matters — of the daytime rises, how many have no eating event before them —
+  and that residual is the real suspect population. The stale PC copy cannot
+  answer it; a fresh export from the phone can.
+
+**No window and no threshold are written into any code by this entry.** [[D119]]:
+an unmeasured ranking is worth nothing, and a measured number that measures the
+wrong thing is worth less.
