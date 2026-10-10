@@ -14,6 +14,17 @@
 #   J3  a medication from its label -> saved -> drug info: was 8 -> 6
 #   J4  an old item -> resolved -> in the panel: 3, the third OFFERED not hunted
 #
+# THE PASS BANNER IS NOT AN ASSERTION, and for a while it disagreed with the
+# assertions above it: it read "J1 3 (was 4), J2 3 (was 4)" while both were
+# pinned at 4 -- the R159.1/A4 re-pins, reported backwards. A reader trusting it
+# would have concluded the dose journey was three taps, which is the exact
+# question being ruled on when this was found.
+#
+#   A gate can hold the right number in its assertion and publish the wrong one
+#   in its summary -- and the summary is the part people read.
+#
+# Keep the banner and the pins in step: a re-pin edits BOTH.
+#
 # This gate FAILS BY NAME whenever a journey grows a tap. That is intended, and
 # ruled: flow is not a thing asserted once and trusted afterwards -- it is a
 # number that drifts, one plausible control at a time, and nothing else in the
@@ -435,7 +446,7 @@ try {
   if (-not $J.j1.offered) { $fails += "J1: nothing was offered after the add -- the sheet stays open and the x is a dismiss, not a destination" }
   if (-not $J.j1.sheetClosed) { $fails += "J1: the offer did not land on the day" }
 
-  if ($J.j2.taps -ne 4) { $fails += "J2: a dose -> on the timeline took $($J.j2.taps) taps (RE-PINNED 4 by R159.1/A4 with the Dose badge; the footer link is in every sheet mode, so the path is one tap longer and never lost)" }
+  if ($J.j2.taps -ne 4) { $fails += "J2: a dose -> on the timeline took $($J.j2.taps) taps (RE-PINNED 4 by R159.1/A4, which removed the Dose badge; the footer link is in every sheet mode, so the path is one tap longer and never lost. RULED ACCEPTED 2026-10-09: occasional doses take the fourth tap, and a daily regimen is its own slice rather than a tap count)" }
   # AND THE PATH THE RULING ADDS. Recording only the regression would be half the
   # measurement: for a food already in the log this is three taps and NO typing,
   # where the old row was three taps and a name and a number typed by hand.
@@ -486,5 +497,5 @@ if ($fails.Count) {
   $fails | ForEach-Object { Write-Host "  - $_" }
   exit 1
 }
-Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 3 (was 4), J2 3 (was 4), J3 6 (was 8), J4 4 (was 3 -- D144 re-pin), edit 2, and every ending shows its outcome"
+Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 4 (was 3 -- R159.1/A4 re-pin), J2 4 (was 3 -- R159.1/A4 re-pin, ruled accepted 2026-10-09), J3 6 (was 8), J4 4 (was 3 -- D144 re-pin), edit 2, and every ending shows its outcome"
 exit 0

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.77.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.77.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2030,7 +2030,7 @@ function resolveRowsHTML(v) {
   const prop = v.proposed ? String(v.proposed.id) : null;
   return (v.candidates || []).map(function (c) {
     const kc = (c.kcal == null || c.kcal !== c.kcal) ? '' :
-      '<span class="rkcal">' + esc(String(Math.round(c.kcal))) + ' cal/100g</span>';
+      '<span class="rkcal">' + esc(kcalDisp(c.kcal)) + ' cal/100g</span>';
     const mism = (want && c.state && c.state !== want)
       ? '<span class="rmis">' + esc(c.state) + ' \u2014 yours is ' + hedge + esc(want) + '</span>' : '';
     // A proposal says WHY it is first, and records itself as a proposal when taken.
@@ -2098,7 +2098,7 @@ function resolveHTML() {
       // choice made without the thing that decides it.
       + '<div class="rvsub">Its vitamins and minerals will be used for your item, scaled to its weight.'
       + (v.mine != null && v.mine === v.mine
-          ? ' Yours is <b>' + esc(String(Math.round(v.mine))) + ' cal/100g</b>.' : '')
+          ? ' Yours is <b>' + esc(kcalDisp(v.mine)) + ' cal/100g</b>.' : '')
       + '</div>' + resolveRowsHTML(v);
   // D127: the matcher's list is a PROPOSAL, and the escape from a wrong proposal
   // has to be where the proposal is. It was rendered on every list already and
@@ -3245,7 +3245,7 @@ function goalRingBoxHTML(key, t) {
     // `status` -- D24's line is between COMPUTING the gap and ENCODING a judgement
     // about it, and only the second was ever forbidden.
     return `<div class="ringbox" onclick="clearSwap()">${ringSVG(gp.pct / 100, 'neutral')}<div class="ringval">` +
-      `<b>${esc(rDisp(gp.current))}</b><span>of ${esc(rDisp(gp.target))} ${esc(NUTRIENT_LABELS[key] || key)}</span>` +
+      `<b>${esc(nutDisp(key, gp.current))}</b><span>of ${esc(nutDisp(key, gp.target))} ${esc(NUTRIENT_LABELS[key] || key)}</span>` +
       `<span class="gpct">${esc(gp.pct)}%</span></div></div>`;
   }
   // Signal goal: fully neutral -- no met/unmet colour or word (D24). D91: so is the
@@ -3298,7 +3298,7 @@ function goalCellsHTML(t) {
     // D91: no status class. "18 / 30 · floor · 60%" already says everything the
     // green border said, and says it in words the user can argue with.
     return `<div class="goalcell" onclick="swapGoal('${esc(k)}')"><span>${esc(NUTRIENT_LABELS[k] || k)}</span>` +
-      `<b>${esc(rDisp(gp.current))}/${esc(rDisp(gp.target))}</b>` +
+      `<b>${esc(nutDisp(k, gp.current))}/${esc(nutDisp(k, gp.target))}</b>` +
       `<small>${esc(gp.direction === 'max' ? 'ceiling' : 'floor')} · ${esc(gp.pct)}%</small>` +
       `<button class="grm" onclick="event.stopPropagation();removeGoal('${esc(k)}')" title="remove goal">×</button></div>`;
   }).join('');
@@ -3729,7 +3729,11 @@ function itemHeadline(it) {
   const k = primaryNutrientKey();
   const v = it ? it[k] : null;
   if (!itemHasMacros(it) || v == null || v !== v) return '\u2014';
-  return rDisp(v) + ' ' + (NUTRIENT_LABELS[k] || k);
+  // B3: BY KEY, so the headline rounds when the primary nutrient is calories and
+  // keeps its decimal when it is grams. This is the site the three-string version
+  // of the gate caught and the function-level assertions could not: the helper was
+  // correct everywhere it was called and this caller renders a nutrient by key.
+  return nutDisp(k, v) + ' ' + (NUTRIENT_LABELS[k] || k);
 }
 function renderDay() {
   try { renderDayInner(); } finally { try { glucoseWire(); } catch (e) {} }
@@ -3781,7 +3785,7 @@ function renderDayInner() {
       + `<button type="button" class="mghead" aria-expanded="${gopen ? 'true' : 'false'}"`
       + ` onclick="dayGroupToggle('${esc(g.kind)}')">`
       + `<span class="mgname">${esc(g.kind)}</span>`
-      + `<span class="mgnum">${esc(rDisp(g.kcal))} cal${gnote}</span>`
+      + `<span class="mgnum">${esc(kcalDisp(g.kcal))} cal${gnote}</span>`
       + `<span class="mgmeta">${esc(String(g.n))} item${g.n === 1 ? '' : 's'}`
       + `${g.firstTime ? ' \u00b7 ' + esc(g.firstTime) : ''}`
       + `${g.events.length > 1 ? ' \u00b7 ' + esc(String(g.events.length)) + ' sittings' : ''}</span>`
@@ -3816,7 +3820,7 @@ function renderDayInner() {
         ? `P ${esc(rDisp(it.protein_g))} F ${esc(rDisp(it.fat_g))} C ${esc(rDisp(it.carb_g))} · ${esc(rDisp(it.fiber_g))} fib`
         : `<span class="munres">no nutrition yet</span>`;
       const kcalCell = itemHasMacros(it)
-        ? `${esc(rDisp(it.kcal))}<small> cal</small>`
+        ? `${esc(kcalDisp(it.kcal))}<small> cal</small>`
         : `<span class="munres">—</span>`;
         // D121 / E1: a resolved row says WHICH row it matched and that its micros
         // are reference values rather than label values. B1: an unresolved row
@@ -3975,7 +3979,7 @@ function trashHTML(dk) {
   return `<details class="trash"><summary>Recently deleted \u00b7 ${esc(String(rows.length))}</summary>` +
     rows.map(function (e) {
       return `<div class="trow"><span class="tmain">${esc(e.item.name || '')}` +
-        `<small>${e.item.time ? esc(e.item.time) + ' \u00b7 ' : ''}${esc(rDisp(e.item.kcal))} cal</small></span>` +
+        `<small>${e.item.time ? esc(e.item.time) + ' \u00b7 ' : ''}${esc(kcalDisp(e.item.kcal))} cal</small></span>` +
         `<button type="button" class="btn" onclick="trashRestore('${esc(e.id)}')">Restore</button></div>`;
     }).join('') +
     `<div class="note">${esc(trashCapNote())}</div>` +
@@ -4108,6 +4112,13 @@ function quickAddFast() {
 // log is not in this repo (it is gitignored, and rightly), so a blend could not be
 // measured against real data, and [[D119]] is the standing lesson that an unmeasured
 // ranking is worth nothing. Recency is the one signal that needs no tuning.
+//
+// SUPERSEDED BY THE TOP-10 RULING (ruled 2026-10-09), NOT DELETED. The reason E1
+// gave has expired: the log has since been measured -- 10 foods repeat under
+// matchKey, 7 under the exact name -- and the quick-add sheet lists the frequency
+// top 10. `recentItems` is kept, still exported and still gated (three
+// D130-repeat assertions cover this ranking and nothing else does), so remounting
+// the strip is one line in renderQuickChips. It is superseded, not wrong.
 const REPEAT_MAX = 8;
 function recentItems(limit) {
   const cap = limit > 0 ? limit : REPEAT_MAX;
@@ -4200,15 +4211,19 @@ function logRepeat(dateKey, idx) {
 // under the exact name. Two overlapping lists of the same foods on one sheet is
 // the duplication this redesign removes.
 //
-// KEPT, because E1 was a RULING and reversing it is the user's call, not mine --
-// remounting is one line in renderQuickChips. `logRepeat` is its write path and
-// stays with it; `buildRepeatItem`, which both share, is live either way.
+// RULED 2026-10-09: SUPERSEDED, NOT DELETED, and recorded that way on purpose so
+// a remount stays one line in renderQuickChips if the frequency list turns out to
+// miss something. `logRepeat` is its write path and stays with it;
+// `buildRepeatItem`, which both share, is live either way -- `quickAddLog` uses
+// it. The `.rptstrip` rule in index.html stays for the same reason, and like
+// `.pricecap` it is a style rule nothing renders into BY RULING rather than by
+// neglect.
 function repeatChipsHTML() {
   const recent = recentItems(REPEAT_MAX);
   if (!recent.length) return '';
   return '<div class="rpthead">Recent \u2014 one tap to log again</div><div class="rptstrip">'
     + recent.map(function (r) {
-        const kc = (r.item && r.item.kcal != null) ? (' <small>' + esc(rDisp(r.item.kcal)) + ' cal</small>') : '';
+        const kc = (r.item && r.item.kcal != null) ? (' <small>' + esc(kcalDisp(r.item.kcal)) + ' cal</small>') : '';
         return '<button type="button" class="qchip rptchip" onclick="logRepeat(\''
           + esc(r.date) + '\',' + esc(String(r.idx)) + ')">' + esc(r.name) + kc + '</button>';
       }).join('') + '</div>';
@@ -4967,7 +4982,7 @@ function applyLookup(res) {
   renderScan();
 }
 function scanSummaryHTML(s) {
-  let h = `<div class="sumrow"><span>at ${esc(rDisp(s.grams))} g</span><span><b>${esc(rDisp(s.kcal))}</b> cal</span></div>` +
+  let h = `<div class="sumrow"><span>at ${esc(rDisp(s.grams))} g</span><span><b>${esc(kcalDisp(s.kcal))}</b> cal</span></div>` +
     `<div class="sumrow"><span>P / F / C</span><span>${esc(rDisp(s.protein_g))} / ${esc(rDisp(s.fat_g))} / ${esc(rDisp(s.carb_g))} g</span></div>` +
     `<div class="sumrow"><span>fiber</span><span>${esc(rDisp(s.fiber_g))} g (${esc(rDisp(s.soluble_fiber_g))} sol)</span></div>`;
   if (s.micros) {
@@ -5977,7 +5992,7 @@ function renderTimelineOverlay() {
     const t = r.time ? esc(r.time) : '—';
     const note = r.notes ? ` <small>${esc(r.notes)}</small>` : '';
     if (r.row === 'food')
-      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(rDisp(r.kcal))} cal</small></span></div>`;
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag food">food</span><span class="tlmain">${esc(r.name)} <small>${esc(kcalDisp(r.kcal))} cal</small></span></div>`;
     // FORK H (ruled): the ROW BODY opens the editor; the x keeps its own thumb
     // path. D44's instinct -- a destructive action must not share a target with a
     // routine one -- and it costs the dense row no new chrome.
@@ -6482,7 +6497,7 @@ function renderPresets() {
   if (!presets.length) { el.innerHTML = '<div class="note">No presets yet. Fill the form above and tap "Save as preset."</div>'; return; }
   el.innerHTML = presets.map((p) =>
     `<div class="presetrow"><div class="pmain"><div class="pname">${esc(p.name)}</div>` +
-    `<div class="pmeta">${esc(rDisp(p.kcal))} cal · P ${esc(rDisp(p.protein_g))} F ${esc(rDisp(p.fat_g))} C ${esc(rDisp(p.carb_g))}` +
+    `<div class="pmeta">${esc(kcalDisp(p.kcal))} cal · P ${esc(rDisp(p.protein_g))} F ${esc(rDisp(p.fat_g))} C ${esc(rDisp(p.carb_g))}` +
     `${p.portion ? ' · ' + esc(p.portion) : ''}${p.micros ? ' · micros' : ''}</div></div>` +
     `<button class="btn" onclick="logPreset('${esc(p.id)}')">Log</button>` +
     `<button class="prm" onclick="deletePreset('${esc(p.id)}')" title="delete preset">×</button></div>`).join('');
@@ -6642,7 +6657,7 @@ function avgBlockHTML(label, a) {
   if (nM === 0) {
     html += `<div class="avgmacros">No day in this window has complete macro data.</div>`;
   } else {
-    html += `<div class="avgmacros"><b>${esc(rDisp(a.macros.kcal))}</b> cal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
+    html += `<div class="avgmacros"><b>${esc(kcalDisp(a.macros.kcal))}</b> cal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
   }
   const mk = Object.keys(a.micros);
   if (mk.length) {
@@ -9964,7 +9979,7 @@ function renderPhotoDraftInner() {
     const unres = photoItemUnresolved(it);
     const meta = unres
       ? `<span class="pmunres">no nutrition yet</span>${est}`
-      : `${esc(rDisp(m.kcal))} cal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}${est}`;
+      : `${esc(kcalDisp(m.kcal))} cal \u00b7 P ${esc(rDisp(m.protein_g))} \u00b7 F ${esc(rDisp(m.fat_g))} \u00b7 C ${esc(rDisp(m.carb_g))}${est}`;
     // Fork C1: on a PLATE the off-ramp sits on every row, beside the estimate rather
     // than instead of it. Suppressing a low-confidence dominant item here would
     // strand the shared-scale correction -- there would be nothing to anchor from
@@ -10046,7 +10061,7 @@ function renderPhotoDraftInner() {
   }
   const consumeHTML = d.consumeOpen ? consumeQuestionHTML(d) : '';
   el.innerHTML = `<div class="pmdraft">${mstrip}${mealnote}${lead}${head}${rows}${photoAddFormHTML()}${consumeHTML}
-    <div class="pmtot">${esc(rDisp(tot.kcal))} cal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
+    <div class="pmtot">${esc(kcalDisp(tot.kcal))} cal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
     </div>`;
 }
 // R21: the ONE door into a draft. The paste path and the direct-call path both
@@ -10662,6 +10677,26 @@ function dayTotals(day) {
   return t;
 }
 const rDisp = (v) => { v = num(v); return Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1); };
+// B3, RULED: CALORIES DISPLAY AS WHOLE NUMBERS, and the stored value keeps every
+// digit it arrived with.
+//
+// `rDisp` shows one decimal unless the number is within 0.05 of an integer, which
+// is right for grams -- 4.5 g of fibre is a real distinction a label can support
+// -- and wrong for a calorie. A tenth of a kcal is below the precision of every
+// source this app has (a label rounds, a per-100 g density times a slider-chosen
+// portion is arithmetic rather than measurement), so "1847.3" reads as a reading
+// nobody took.
+//
+// DISPLAY ONLY. Rounding at the write boundary would be a different change and a
+// worse one: a day of items each rounded to the nearest kcal sums to a total that
+// is not the sum of what was eaten, and the stored numbers are what export,
+// averages and every future analysis read. The figure shown is not the figure
+// kept, deliberately.
+const kcalDisp = (v) => String(Math.round(num(v)));
+// The per-NUTRIENT form, for the surfaces that render a nutrient by KEY. Without
+// it, every by-key caller needs its own `key === 'kcal'` branch, which is one
+// rule in several places -- the shape this file keeps closing.
+const nutDisp = (key, v) => (key === 'kcal' ? kcalDisp(v) : rDisp(v));
 
 // EVERY rendered value — day keys included — routes through esc() (rule #2).
 // The collapsed "All days" line carries a signal, not just a label — a
@@ -10702,7 +10737,7 @@ function renderHistory() {
     const hnote = hcov.partial ? ` · <span class="hcov">${esc(coverageNote(hcov))}</span>` : '';
     return `<div class="hrow" role="button" tabindex="0" onclick="dayJump('${esc(d)}', true)">
         <div class="hd"><span class="hdate">${esc(fmtDateSmart(d, true))}</span>${flag}</div>
-        <div class="hmeta">${esc(rDisp(t.kcal))} cal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
+        <div class="hmeta">${esc(kcalDisp(t.kcal))} cal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
       </div>`;
   }).join('');
 }
@@ -10898,6 +10933,7 @@ const VERSION_LOG = [
   { v: '0.76.0', d: '2026-10-09', note: 'Your day now reads as the meals you actually ate. Each meal is one line — its calories, how many items, when it started — and tapping it opens that meal in place, in time order, with its macros. A meal with a drink says so, and the drink stays inside the meal it came with. When one meal has a glucose response, the line says it in words. The meals you did not eat collapse into one quiet line you can tap to add to. Biometrics is its own group now, with a one-line summary. The Food, Dose, Biometric, Fast and Note buttons are gone: the day offers Quick add and the camera, and everything else is on the Log sheet where it already was. Quick add lists the ten foods you repeat most, each with the portion you last chose and the spellings it counted together, a stepper, and one button that says what it will log. Leftovers live at the top of that sheet — which is where the day said they were, and where they were not.' },
   { v: '0.77.0', d: '2026-10-09', note: 'Which meal something is filed under now comes from the time you logged it, unless you choose one yourself. Before, it came from whatever your AI guessed off the photo, or from “snack” — which is how a heading could read Dinner above a meal eaten at 10:51. The Meal box when you add something by hand now starts at “by the clock”; a scan opens on the meal it actually is instead of on snack; a saved quick item with no meal of its own is filed by when you log it; and food left from earlier is filed by when you ate it rather than by when it was served. When your AI guesses a different meal from the clock, the photo draft now says what it guessed and what was used instead.' },
   { v: '0.77.1', d: '2026-10-09', note: 'On a narrower phone the clock hand on the day rings crossed the calorie number in the middle of them. The hand now stops outside the calorie ring instead of reaching into the centre, which is where that figure has lived since the calorie ring arrived. It was crossing the number for 88 minutes of every day, and the check that watches the rings could not see it: it looked at the hand only at the one time of day the test pins its clock to, and it only ever looked for text crossing the ring rather than for the rings own ink crossing the text. It now sweeps the hand through all 1440 minutes.' },
+  { v: '0.77.2', d: '2026-10-09', note: 'Calories now read as whole numbers everywhere they are shown -- the meal headings, the item rows, the ring, the averages, the history. A tenth of a calorie is finer than anything the app can actually know: a label rounds, and a portion worked out from a per-100g figure is arithmetic rather than a measurement, so 1847.3 was reading like a reading nobody took. What is STORED keeps every digit, because the totals, the export and anything worked out from them later should add up to what you ate rather than to what the screen had room for. Grams are unchanged -- 4.5 g of fibre is a real difference.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11823,13 +11859,16 @@ function rhythmSVG(model, size, mini) {
   // `nowHandInnerR` for the measurement and for why the clearance is geometric
   // rather than numeric.
   //
-  // THE MINIS KEEP THE OLD INNER END, and that is the same rule rather than an
-  // exception to it: a mini draws no calorie ring and carries no centre text (its
-  // label sits BELOW the svg, which the grid gate asserts), so there is nothing
-  // in its centre to clear -- and on a 42px ring a hand starting at 62.5 user
-  // units would be a stub three pixels long.
+  // NOT conditioned on `mini`, and the first draft of this fix was. It wrote
+  // `mini ? G.inner : nowHandInnerR()` to spare the small rings -- A BRANCH NO
+  // CALLER CAN REACH. Checked instead of assumed: `rhythmSVG` has exactly one
+  // caller and it passes no third argument, and the small rings in the grid are
+  // drawn by `miniRingSVG`, a different function with its own viewBox that draws
+  // no hand and holds no centre text. There was nothing to spare, and a branch
+  // with no caller is the shape this file has been caught by before (`availCarbG`,
+  // defined and gated for EXISTENCE and called by nothing).
   if (model.nowMin != null) {
-    const [xi, yi] = polarPt(C, C, mini ? G.inner : nowHandInnerR(), minToDeg(model.nowMin));
+    const [xi, yi] = polarPt(C, C, nowHandInnerR(), minToDeg(model.nowMin));
     const [xo, yo] = polarPt(C, C, G.rim * 1.04, minToDeg(model.nowMin));
     out += '<line class="rrnow" x1="' + r2(xo) + '" y1="' + r2(yo) + '" x2="' + r2(xi) + '" y2="' + r2(yi) + '"/>';
   }
@@ -13420,7 +13459,7 @@ function photoSearchMacroWords(c) {
   const n = (v) => (v == null || v !== v) ? '?' : String(Math.round(v * 10) / 10);
   if (c.kcal == null && c.protein == null) return '';
   return 'P ' + n(c.protein) + ' \u00b7 F ' + n(c.fat) + ' \u00b7 C ' + n(c.carb)
-    + ' \u00b7 ' + ((c.kcal == null || c.kcal !== c.kcal) ? '?' : String(Math.round(c.kcal))) + ' cal';
+    + ' \u00b7 ' + ((c.kcal == null || c.kcal !== c.kcal) ? '?' : kcalDisp(c.kcal)) + ' cal';
 }
 function photoSearchRowsHTML(st) {
   const prop = st.proposed ? String(st.proposed.id) : null;
@@ -13455,7 +13494,7 @@ function photoSearchHTML(idx, it) {
     ? '<div class="pmsub pmsours">Yours, per 100 g: <b>P '
       + esc(rDisp(num(it.per100.protein_g))) + ' \u00b7 F ' + esc(rDisp(num(it.per100.fat_g)))
       + ' \u00b7 C ' + esc(rDisp(num(it.per100.carb_g))) + ' \u00b7 '
-      + esc(String(Math.round(num(it.per100.kcal)))) + ' cal</b>'
+      + esc(kcalDisp(it.per100.kcal)) + ' cal</b>'
       + (it.estimateFrom === 'model' ? ' <small>your AI\u2019s eyeballed estimate</small>' : '')
       + '</div>'
     : '';
@@ -14693,12 +14732,12 @@ function calorieCentreHTML(b, t) {
   // vertical offset y is sqrt(r^2 - y^2), so every line has its own budget and the
   // longest is always nearest the rim. And D100's floor is 16px, so shrinking was
   // never available either.
-  const lab = 'Day total ' + rDisp(b.kcal) + ' cal'
+  const lab = 'Day total ' + kcalDisp(b.kcal) + ' cal'
     + (t ? (' \u00b7 ' + rDisp(t.protein_g) + ' g protein, ' + rDisp(t.fat_g)
             + ' g fat, ' + rDisp(t.carb_g) + ' g carbs') : '')
     + ' \u00b7 ' + calorieRingWords(b);
   return '<div class="ringval calcentre" role="img" aria-label="' + esc(lab) + '">'
-    + '<b class="calnum">' + esc(rDisp(b.kcal)) + '</b>'
+    + '<b class="calnum">' + esc(kcalDisp(b.kcal)) + '</b>'
     + '<span class="calunit">cal</span>'
     + '</div>';
 }
@@ -15254,7 +15293,7 @@ function quickTopHTML() {
           + esc(f.names.length > 1 ? f.names.join(' \u00b7 ') : (f.names[0] || f.name))
           + '</span>';
         const port = (f.grams == null) ? 'no portion recorded' : (rDisp(f.grams) + ' g');
-        const cal = (f.kcal == null) ? '' : (' \u00b7 ' + rDisp(f.kcal) + ' cal');
+        const cal = (f.kcal == null) ? '' : (' \u00b7 ' + kcalDisp(f.kcal) + ' cal');
         // `qfrow`, not `qrow`: THAT CLASS WAS ALREADY TAKEN -- by the one-tap
         // events row and by a lab label row -- and this rule came later in the
         // cascade, so it silently restyled both. The gate that should have caught
@@ -15297,7 +15336,7 @@ function quickStepHTML() {
       }).join('')
     + '</select></div>'
     + '<button type="button" class="btn qlog" onclick="quickAddLog()">Log '
-    + esc(plan.kcal == null ? '' : rDisp(plan.kcal)) + ' cal</button>'
+    + esc(plan.kcal == null ? '' : kcalDisp(plan.kcal)) + ' cal</button>'
     + '<button type="button" class="linklike qback" onclick="quickCancel()">back to the list</button>'
     + '</div>';
 }
@@ -15329,7 +15368,7 @@ function renderQuickChips() {
     return;
   }
   el.innerHTML = head + "<div class=\"rpthead\">Saved presets</div>" + presets.map((p) => {
-    const sub = [rDisp(num(p.kcal)) + ' cal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
+    const sub = [kcalDisp(p.kcal) + ' cal', p.portion ? String(p.portion) : ''].filter(Boolean).join(' · ');
     return `<button type="button" class="qchip" onclick="quickLog('${esc(String(p.id))}')">${esc(p.name)}<small>${esc(sub)}</small></button>`;
   }).join('');
 }
@@ -15740,7 +15779,7 @@ function trashText() {
   if (!all.length) return 'Nothing deleted recently.';
   return all.map(function (e) {
     return e.date + '  ' + (e.item.time || '') + '  ' + (e.item.name || '') +
-      '  ' + rDisp(e.item.kcal) + ' cal';
+      '  ' + kcalDisp(e.item.kcal) + ' cal';
   }).join('\n');
 }
 function copyTrash() { return copyTextOut(trashText(), 'Deleted list', 'trashCopyBox'); }
@@ -17352,7 +17391,7 @@ window.HT = {
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
   SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, EAT_GAP_MAX_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
-  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, setClock, nowMs, nowMinutes, todayKey, localDate,
+  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, kcalDisp, nutDisp, setClock, nowMs, nowMinutes, todayKey, localDate,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,

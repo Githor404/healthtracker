@@ -235,7 +235,13 @@ echo "-----------------------------------------"
 # stopping at the calorie arc's outer edge, and that this is strictly further out
 # than the `rim * RING_CENTER_R` bound it replaced. The collision itself is the
 # ring gate's, swept over all 1440 minutes.
-EXPECTED_ASSERTIONS=2664
+# B3: 2664 -> 2673, delta +9. Whole-number calories: the helper and its coercion,
+# the by-key form that rounds kcal and leaves grams alone, and then the PROPERTY on
+# the rendered day rather than on the helper -- a fixture whose group total is a
+# real fraction (350.81), the header reading 351, no decimal in any calorie figure
+# anywhere on the day, and the ring centre agreeing. Plus the half a display change
+# could quietly break: the store and the export keep every digit.
+EXPECTED_ASSERTIONS=2673
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -9717,6 +9717,63 @@ window.setLS({});
   HT.state().plates = _b1Plates;
   HT.state().settings.supplement = _b1Sup; HT.state().settings.presets = _b1Presets;
 
+  // ---- B3: CALORIES ARE WHOLE NUMBERS ON SCREEN, AND EXACT IN THE STORE --
+  //
+  // RULED: whole numbers on the headers and in the ring; the stored value keeps
+  // its precision. `rDisp` shows one decimal unless within 0.05 of an integer,
+  // which is right for grams and wrong for a calorie -- a tenth of a kcal is
+  // below the precision of every source this app has.
+  res(HT.kcalDisp(1847.3) === '1847' && HT.kcalDisp(1847.5) === '1848' && HT.kcalDisp(0.4) === '0',
+      'B3 GATE: a calorie figure displays as a whole number, rounded rather than truncated');
+  res(HT.kcalDisp(null) === '0' && HT.kcalDisp(undefined) === '0' && HT.kcalDisp('x') === '0',
+      'B3 GATE: and it coerces like every other display helper here rather than printing NaN on screen');
+  res(HT.nutDisp('kcal', 1847.3) === '1847' && HT.nutDisp('fiber_g', 4.5) === '4.5'
+      && HT.nutDisp('protein_g', 20.25) === '20.3',
+      'B3 GATE: the by-KEY form rounds kcal and leaves GRAMS alone -- 4.5 g of fibre is a distinction a label can support, 0.1 kcal is not');
+
+  // THE PROPERTY, on the rendered surface rather than on the helper: a day whose
+  // items carry real fractions must show no decimal point in any calorie figure.
+  var _b3Days = HT.state().days, _b3Cur = HT.state().current, _b3Sup = HT.state().settings.supplement;
+  HT.state().settings.supplement = { enabled: false, name: '', nutrients: {} };
+  var b3Key = '2026-09-18';
+  HT.state().days = {};
+  HT.state().days[b3Key] = { status: 'in_progress', water_l: 0, items: [
+    { name: 'Scaled', meal: 'lunch', time: '12:30', kcal: 100.37, protein_g: 4.26, fat_g: 3.1,
+      carb_g: 20.4, fiber_g: 1.25, soluble_fiber_g: 0, confidence: 'eyeballed', notes: '', source: 'ai-paste' },
+    { name: 'Also scaled', meal: 'lunch', time: '13:00', kcal: 250.44, protein_g: 1.1, fat_g: 1.1,
+      carb_g: 1.1, fiber_g: 1.1, soluble_fiber_g: 0, confidence: 'eyeballed', notes: '', source: 'ai-paste' } ] };
+  HT.state().current = b3Key;
+  var b3Groups = HT.mealKindGroups(b3Key);
+  res(Math.abs(b3Groups[0].kcal - 350.81) < 1e-9,
+      'B3 fixture: the group TOTAL is a real fraction (350.81), so the assertions below are about rounding a number that has decimals to round');
+  HT.renderDay();
+  var b3HTML = document.getElementById('dayView').innerHTML;
+  res(b3HTML.indexOf('>351 cal') >= 0 || b3HTML.indexOf('351 cal') >= 0,
+      'B3 GATE: the meal header reads 351 cal -- the ruled whole number, on the surface the defect was reported on');
+  // The instrument NAMES the offender rather than reporting a boolean, and it is
+  // derived (every "<n> cal" on the rendered day, tags stripped so a figure split
+  // from its unit by markup still matches) rather than being three magic strings
+  // that only catch the decimals this fixture happens to produce.
+  var b3Cals = (b3HTML.replace(/<[^>]*>/g, ' ').match(/[0-9][0-9.,]*\s*cal\b/g) || []);
+  res(b3Cals.length > 0 && b3Cals.every(function (x) { return x.indexOf('.') < 0; }),
+      'B3 GATE: and NO calorie figure on the day carries a decimal -- not the header, not an item row',
+      'calorie figures found: ' + b3Cals.join(' | '));
+  var b3Ring = HT.calorieCentreHTML(HT.calorieRingBasis(HT.dayTotals(HT.state().days[b3Key])),
+                                    HT.dayTotals(HT.state().days[b3Key]));
+  res(b3Ring.indexOf('>351<') >= 0 && b3Ring.indexOf('350.8') < 0,
+      'B3 GATE: the ring centre shows 351 and the aria-label with it -- one figure, one rounding, both from the same helper');
+
+  // THE OTHER HALF OF THE RULING, and the one a display change could quietly
+  // break: the STORE keeps every digit. A day of items each rounded at the write
+  // boundary would sum to a total that is not the sum of what was eaten.
+  res(HT.state().days[b3Key].items[0].kcal === 100.37
+      && HT.state().days[b3Key].items[1].kcal === 250.44,
+      'B3 GATE: rendering did not round the STORED values -- display is display');
+  res(JSON.parse(HT.exportJSON()).days[b3Key].items[0].kcal === 100.37,
+      'B3 GATE: and the export carries the exact figure, because that is what averages and every future analysis read');
+  HT.state().days = _b3Days; HT.state().current = _b3Cur;
+  HT.state().settings.supplement = _b3Sup;
+
   // ---- repeats: recency, deduped, and a NEW record -----------------------
   var _rDays = HT.state().days, _rCur = HT.state().current;
   var mkR = function (n, g, kc) { return { name: n, meal: 'lunch', time: '12:00', grams: g,
