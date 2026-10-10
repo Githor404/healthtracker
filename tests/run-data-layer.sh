@@ -280,7 +280,11 @@ echo "-----------------------------------------"
 # shows org + source + retrieval date WITH the values, a part whose matched row
 # differs says which row it matched, the write goes through logCombo rather than a
 # second copy, the multiplier reaches the ref, and the pick clears afterwards.
-EXPECTED_ASSERTIONS=2758
+# +1: an H31-wire PRECONDITION naming the cause. The block failed four assertions
+# at once inside the full suite while passing three times standalone, and all four
+# compared a string to the template -- so the log showed four mismatches and not
+# the reason, which was that the capture made no request and the body was ''.
+EXPECTED_ASSERTIONS=2759
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

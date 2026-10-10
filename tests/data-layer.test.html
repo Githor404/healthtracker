@@ -3936,6 +3936,17 @@ window.setLS({});
       FETCH_SCRIPT = [{ status: 200, body: ok }];
       return HT.byokCapture(FILE).then(function (rh) {
         var bt = FETCHES.length ? JSON.parse(FETCHES[0].init.body).messages[0].content[1].text : '';
+        // AN INSTRUMENT THAT NAMES THE OFFENDER, added 2026-10-10 after this block
+        // failed four assertions at once inside the full suite while passing three
+        // times standalone. Every one of those four compared a string against the
+        // template, so the log showed four mismatches and said nothing about the
+        // cause -- which was that THE CAPTURE MADE NO REQUEST AT ALL and `bt` was
+        // the empty string. The async decode path is documented as timing-sensitive
+        // under --virtual-time-budget; this does not make it robust, it makes its
+        // failure legible, so the next occurrence points at the capture instead of
+        // at the body.
+        res(FETCHES.length === 1,
+            'H31-wire precondition: the capture made exactly ONE request -- if this fails, the four body assertions below are comparing the empty string and their mismatch means nothing');
         res(rh.ok === true && bt === HT.AI_DIRECT_PREFIX + HT.aiPromptText() + HT.correctionHintText(),
             'H31-wire GATE: the meal body is the template PLUS the correction hint -- appended, never substituted into it');
         res(bt.indexOf('apple juice') > 0 && bt.indexOf('white wine') > 0,
@@ -9665,7 +9676,13 @@ window.setLS({});
       'COMBOS GATE: and at the SAME portion it is carried untouched');
 
   // one tap, N items, one timestamp
-  var _cDays = HT.state().days, _cCur = HT.state().current, _cSet = HT.state().settings;
+  // SNAPSHOT BY VALUE. `_x = HT.state().settings` captures the object, and this
+  // block mutates that same object -- so assigning it back at the end restores
+  // NOTHING and every field touched here leaks into every later case. The stack
+  // block below had the identical defect. A restore that restores nothing is
+  // worse than no restore: it reads as cleanup.
+  var _cDays = HT.state().days, _cCur = HT.state().current;
+  var _cSet = JSON.parse(JSON.stringify(HT.state().settings));
   HT.setClock(function () { return new Date(2026, 9, 10, 7, 40, 0).getTime(); });
   var cKey = HT.todayKey();
   HT.state().settings.supplement = { enabled: false, name: '', nutrients: {} };
@@ -9773,7 +9790,8 @@ window.setLS({});
       'COMBOS/2 GATE: the list marks a combo as one -- "one tap" and "one tap that logs three things" are different promises, and the row is where the difference is read');
 
   HT.setClock(null);
-  HT.state().days = _cDays; HT.state().current = _cCur; HT.state().settings = _cSet;
+  HT.state().days = _cDays; HT.state().current = _cCur;
+  HT.state().settings = JSON.parse(JSON.stringify(_cSet));
 
   // ---- R168: THE DAILY STACK (schema v13) --------------------------------
   //
@@ -9820,8 +9838,8 @@ window.setLS({});
       'R168 GATE: the conversion carries its citation and the substance it is FOR -- D32: a claim carries its source');
 
   // the plan, and the one write
-  var _kDays = HT.state().days, _kCur = HT.state().current, _kSet = HT.state().settings,
-      _kTl = HT.state().timeline;
+  var _kDays = HT.state().days, _kCur = HT.state().current, _kTl = HT.state().timeline;
+  var _kSet = JSON.parse(JSON.stringify(HT.state().settings));   // by VALUE, see above
   HT.setClock(function () { return new Date(2026, 9, 10, 8, 30, 0).getTime(); });
   var kKey = HT.todayKey();
   HT.state().settings.supplement = { enabled: false, name: '', nutrients: {} };
@@ -9946,7 +9964,8 @@ window.setLS({});
       'R168/2 GATE: an EMPTY stack draws nothing at all -- D146: a thing with nothing in it does not advertise itself on a sheet opened to log food');
 
   HT.setClock(null);
-  HT.state().days = _kDays; HT.state().current = _kCur; HT.state().settings = _kSet;
+  HT.state().days = _kDays; HT.state().current = _kCur;
+  HT.state().settings = JSON.parse(JSON.stringify(_kSet));
   HT.state().timeline = _kTl;
 
   // ---- B1: THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ---------
