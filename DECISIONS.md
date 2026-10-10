@@ -13548,3 +13548,128 @@ suggestion is *stress* would, on this data, be wrong more often than right.
 `RESP_BASELINE_MIN_N` readings; a rise within the lookback of a logged meal is not
 a suspect; and the **first offered tag is unlogged food**. Every one of those is a
 measured number or an existing rule, and none of them is in the code yet.
+
+---
+
+## R168 BUILT (v0.78.0 + v0.79.0), E2's ORDER RULED, VITAMIN E CLOSED (2026-10-10)
+
+### 1. E2 REDONE FROM THE FILE, and it reproduces the projection exactly
+
+The export is at `HTPrivate/export.json` (257 KB, 2026-10-10 10:30, schema v12, 54
+days of food). **The repo's own `export.json` is still the 2026-09-26 copy** —
+94 KB, 14 days stale — and nothing has overwritten it; the measurement reads the
+fresh file by path.
+
+The previous pass used a hand-transcribed projection and said so. The file-driven
+re-run exists to replace it, and **every number comes back identical**:
+
+| | transcribed | from the file |
+|---|---|---|
+| eating events in the window | 64 over 11 days | **64 over 11 days** |
+| days with nothing logged | 2026-10-06, 2026-10-10 | **the same two** |
+| items with no `time` | 2 on 2026-10-02 | **the same two** |
+| daytime orphans, W=60 T=2.5 L=240 | 4 | **4** |
+| rises following a logged meal | 46% | **46%** |
+| `fastLog` resolutions | 11 of 11 `ate_didnt_log` | **11 of 11** |
+
+> The transcription was right, and it is now irrelevant: the measurement reads the
+> app's own export, so it can be re-run against a fresh pair instead of re-typed.
+
+**The four suspects the ruled pair finds**, in eleven days: 10-03 15:31
+(7.3 → 10.5), 10-05 13:17 (6.5 → 9.4), 10-07 10:17 (6.6 → 9.3, **24 minutes
+before that day's first logged item**), 10-09 09:32 (6.8 → 9.7). **0.36 a day.**
+
+### 2. RULED — the suspect's order of offers
+
+**"Food I didn't log" first, wired to the existing pending-fast resolution. Then
+stress. Then anything else.**
+
+And the order is not a guess about the user — **it is the measurement**:
+
+- **11 of 11** resolved fasts in the log are `ate_didnt_log`. Not a majority: all
+  of them.
+- Only **46%** of rises follow a logged meal within four hours.
+- **4 of 13** orphans sit 49–84 minutes *before* the day's first logged item.
+
+> A suspect whose first suggestion were *stress* would, on this data, be wrong more
+> often than right — and it would be teaching the user to dismiss it. Leading with
+> the explanation the log itself testifies to is what makes the second offer worth
+> reading.
+
+It also costs no new mechanism: the resolution exists, the user has used it eleven
+times, and E2 becomes a second door onto it rather than a parallel one.
+
+### 3. RULED — vitamin E is a named absence, and it is now in the code
+
+`POTENTIAL_AXES` carries it with the measurement that makes it an absence rather
+than an oversight: **71.6% of SR Legacy, 72.7% of CNF, seventeen points short of
+the 90% bar in both**, no other tocopherol or tocotrienol form within ten. It comes
+off a label or not at all — a path the honesty rule already has. `slots.json` is
+untouched, which is what *append-only forever* means when the answer is no.
+
+### 4. BUILT — R168/1, the contract (v0.78.0, schema v13)
+
+`kind` names the store and nothing is written twice; the **bioactive tag rides on
+either kind**, so the evidence layer is keyed by TAG and one lookup serves both
+stores. `stackPlan()` opens all-ticked; `logStack(skip)` writes only what stayed
+ticked, at one timestamp; an all-unticked confirm is refused rather than
+succeeding emptily, asserted in **both** stores. No `_auto` (ruling D-B). IU
+converts for vitamin D alone and **refuses** everything else rather than applying a
+factor that does not exist.
+
+**Schema v13, argued from the D29 asymmetry test**, with the two additions falling
+on opposite sides of it: `settings.stack` is user-authored configuration an older
+app's allowlist rebuild would strip (bumps); an item's `bioactive` tag being
+stripped costs a future cited claim and leaves every number right (would not). The
+first arms the forward guard.
+
+**The bump moved 29 pins, and three of them caught real defects in the same
+commit:**
+
+| assertion | what it caught |
+|---|---|
+| `DS-drift` | `normalizeSettings(defaultSettings())` must be **byte-identical**, and `stack` sat after `presets` in one and before it in the other. **Key order is part of the shape.** |
+| `VN5` | pins the **last** `VERSION_LOG` entry, not the version-sorted maximum — and the 0.78.0 line had been inserted after 0.77.1 instead of 0.77.2 |
+| `H5-chain` | *"a new schema version without a step fails here"*, and it did |
+
+**And a latent trap in `check-zxing`, tripped by my own citation table.** Its
+extractor read the **first** `version: '...'` anywhere in `app.js` and trusted it
+to be ZXing's. A `version` key declared 4,600 lines earlier silently redirected a
+gate whose entire job is that a missed drift means *the scanner will not load* —
+and it reported the result as *"no ZXING.version in app.js"*, sending the reader
+after a deletion that never happened.
+
+> **A whole-file grep with `head -1` cannot say which thing it matched.** Now
+> scoped to the `ZXING` block, with a guard that fails loudly if the block is moved
+> or renamed — plant-proved by renaming it. My own `version: ''` /
+> `jurisdiction: ''` placeholders went too: a definitional conversion has neither,
+> and an empty string in their place is a field pretending to carry something.
+
+### 5. BUILT — R168/2, the sheet and the flag (v0.79.0)
+
+The sheet opens all-ticked, dims what is unticked, states its count **before** the
+tap, and draws nothing at all when the stack is empty. Asserted on the **rendered**
+surface, which is the B3 lesson: three correct helper assertions passed there while
+the screen still showed a decimal.
+
+**THE APP'S FIRST CITED INTAKE FIGURE.** `INTAKE_LIMITS` is cited in the
+`LAB_GUIDELINE` shape and carries the thing a reference range never has to state —
+the **population**. The gate holds *flag, not verdict* as **wording**: the sentence
+must carry org, source and population, and must match **no** instruction or
+judgement word. What it offers instead is the reading that would answer the
+question, which is already a cited analyte here.
+
+**And the citation is load-bearing.** Strip the org and the flag **vanishes**
+rather than degrading to a bare number — gated by stripping it, asserting absence,
+restoring it, and asserting the sheet comes back, so the first assertion measured
+the citation rather than a broken fixture.
+
+> It is also **not** the implausibility guard. `vitamin_d_ug` carries `warn: 1250`,
+> twelve and a half times higher, and that one catches a slip of the thumb.
+> Presenting them alike would make a typo-catcher look like evidence.
+
+### 6. What is left
+
+**E** (the one-tap Stressed, back-dating, and the suspect at W=60 / T=2.5 /
+lookback 240 leading with *food I didn't log*), then **R155**. Nothing in E is in
+the code yet, and no window or threshold is written into it.
