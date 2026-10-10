@@ -13439,3 +13439,112 @@ meal signature here.
 **No window and no threshold are written into any code by this entry.** [[D119]]:
 an unmeasured ranking is worth nothing, and a measured number that measures the
 wrong thing is worth less.
+
+---
+
+## RULINGS APPLIED, FORK E MEASURED, AND E2 ANSWERED (2026-10-10)
+
+### 1. The rulings
+
+| ruled | recorded |
+|---|---|
+| **D-C — one record, one store.** The oil in both of R168's lists is a **FOOD item** (fat, energy, fatty-acid profile into totals and H24) **carrying a bioactive TAG** for its constituent, so a cited claim attaches to the tag. **Not two records.** | This settles the conflict without crossing [[D120]]'s line: the record is food, the tag is a label on it, and the claim hangs off the tag rather than off a second record nobody ate. **The tag is therefore the universal attachment point** — a capsule's dose record can carry the same tag, so the evidence layer keys claims by TAG and never by store |
+| **D-D — untick before the write.** "Took my daily stack" opens with every item **ticked**; unticking skips it; **one confirm writes only what was taken.** No write-then-delete. | Which is what the word *untapped* always described. The all-or-nothing undo stays what it is — a safety net for the whole confirm — and is no longer asked to do per-item work it cannot do |
+| **Public history: do NOT rewrite or force-push.** | **Recorded, and this is the record**: commit `0680c9e` and its predecessors carry the stack's contents in `DECISIONS.md`. They stay. Names are out from here on, and the text as it stands no longer carries them |
+| **Fork E: run the coverage check.** | Done — §2 |
+
+### 2. FORK E, MEASURED: vitamin E cannot be a derived slot
+
+`python corpus/derive_slots.py --src HTPrivate/corpus-src --check` — **re-derivation
+clean, `slots.json` unchanged**, which is the artifact attesting to itself. The
+per-nutrient table over **205 nutrients** (44 chosen derived, 3 chosen judged, 157
+rejected) answers fork E:
+
+| nutrient | SR Legacy | CNF | verdict |
+|---|---|---|---|
+| **323 Vitamin E (alpha-tocopherol)** | **71.6%** | **72.7%** | rejected: **17.3% short of the bar in both** |
+| 573 Vitamin E, added | 59.2% | 0.0% | rejected |
+| 341/342/343 beta/gamma/delta tocopherol | ~24% | 0.0% | rejected |
+| 344-347 tocotrienols | ~19% | 0.0% | rejected |
+| 811-813, 875 (CNF's own tocopherols) | 0.0% | ~13% | rejected |
+
+**Not a marginal miss.** No form of vitamin E is within ten points of the 90% bar
+in either source, and the best of them is seventeen short.
+
+> So vitamin E can only enter as a **fourth judged addition**, and the three
+> precedents each state a ground this one cannot borrow. Vitamin D and sugars were
+> admitted because they are *"in MICRO_SPEC and supplied by OFF labels today"* —
+> **vitamin E is in neither**. Fructose was admitted on *"THE ADVOCATE NEEDS IT"*
+> with its coverage measured and a standing requirement that every surface
+> reporting it say how much of the day it could see.
+
+**Recommended, now that there is a number: leave vitamin E to the label.** At 72%
+more than a quarter of resolved foods would carry no value, and the two items in
+the stack that would want it are **bottled products whose labels state it** — so the
+corpus would be admitted to supply a figure the package already carries. That is
+the weakest of the three precedents, not a fourth case of them. **It stays a named
+absence in `POTENTIAL_AXES` with its measured coverage**, which is H24's own
+discipline and is the honest state.
+
+**A near-miss worth recording while the sources were open:** `619 PUFA 18:3` sits
+at **89.1% / 88.5% — nine-tenths of a point short**, the closest rejection in the
+whole table. Any n-3 statement about either oil has no slot: ALA (851) is
+25.2%/0.0% and CNF's own n-3 18:3 (831) is 83.2%.
+
+### 3. E2, ANSWERED — the overlap finally exists
+
+A fresh phone export arrived mid-turn. **The paste was truncated** — it ends after
+`"regimens"` with the root object unclosed — so it was **not** written to
+`export.json`: hand-transcribing 120 KB of real health data into the file that
+becomes the reference copy risks a silent error worse than its absence. What the
+measurement needs is a small projection (day → eating-event times), transcribed,
+**printed back in full so it can be audited**, and used only here.
+
+| | |
+|---|---|
+| glucose | 11 days, 2026-09-30 → 2026-10-10, 2,739 readings |
+| food | **the same 11 days**, 64 eating events, mean **5.8/day**, the auto supplement excluded (a pill the app injects is not a meal) |
+| days with **nothing** logged | **two**: 2026-10-06 and 2026-10-10 |
+| knowably incomplete | **two items on 2026-10-02 carry an empty `time`**, so they cannot anchor a lookback and that day's eating coverage is stated as partial rather than treated as "nothing was eaten then" |
+
+**The answer, daytime only (06:00–24:00), as the ruling asks:**
+
+| W / T | daytime rises | no meal in 120 min | no meal in 240 min |
+|---|---|---|---|
+| 60 / 1.5 | 31 | 19 (1.7/d) | 15 (1.4/d) |
+| 60 / 2.0 | 18 | 10 (0.9/d) | **9 (0.8/d)** |
+| **60 / 2.5** | 9 | 5 (0.5/d) | **4 (0.4/d)** |
+| 120 / 2.0 | 24 | 16 (1.5/d) | 11 (1.0/d) |
+| 120 / 2.5 | 14 | 10 (0.9/d) | 8 (0.7/d) |
+
+> **A usable setting exists: W = 60 min, T = 2.5 mmol/L, lookback 240 min — four
+> suspects in eleven days.** Rare enough to be worth opening and not furniture.
+
+**And the confound I expected is NOT the one that bites.** Only **1 of 13** orphans
+at W=60/T=2.0 falls on a day with nothing logged; on the **nine days that do carry
+a log** there are still **1.33 orphans a day**. So the orphans are not simply days
+the app was forgotten.
+
+**What bites instead is written in the log's own hand.** `fastLog` holds **eleven
+resolved fasts and every single one is resolved `ate_didnt_log`** — 11 of 11. And
+the orphan times say the same thing: **four of the thirteen sit 49 to 84 minutes
+BEFORE the day's first logged item** (09:16 against a 10:11 first meal; 09:17
+against 10:41; 10:02 against 10:51; 08:27 against 09:47).
+
+> **Only 46% of rises follow a logged meal at all** (W=60/T=2.0, 240-minute
+> lookback). The detector is not finding unexplained events in a well-logged day;
+> it is mostly finding the gap between eating and logging — which the app already
+> knows about, has a surface for, and has had the user resolve eleven times.
+
+**So the threshold is ruled measurable and the premise needs its first answer
+changed.** R168's E-clause already allows this — *"tappable to tag as stress or
+anything else"* — so it is a refinement rather than a conflict: **the first thing a
+suspect offers must be "food I didn't log", wired to the resolution the pending-fast
+row already uses**, with stress and the rest after it. A suspect whose first
+suggestion is *stress* would, on this data, be wrong more often than right.
+
+**Pre-registered for the build, from these numbers:** W = 60, T = 2.5, lookback
+240 min; the suspect declines when its baseline holds fewer than
+`RESP_BASELINE_MIN_N` readings; a rise within the lookback of a logged meal is not
+a suspect; and the **first offered tag is unlogged food**. Every one of those is a
+measured number or an existing rule, and none of them is in the code yet.
