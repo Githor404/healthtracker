@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 13;
-const APP_VERSION      = '0.78.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.79.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3054,6 +3054,131 @@ function logStack(skip) {
   Store.saveState(APP_STATE); refresh();
   return { ok: true, time: time, items: items, records: records,
            skipped: Object.keys(skipped).length };
+}
+
+// ---- R168: THE INTAKE FLAG, AND IT IS THE APP'S FIRST ONE ----------------
+//
+// Every cited number in this app until now has been a LAB REFERENCE RANGE. An
+// upper intake level is a new class of claim, and the calorie ring says in its own
+// comment why there have been none: *"[[D32]] requires a citation for a target and
+// the app has no cited intake targets."* So this table is small, cited in the
+// `LAB_GUIDELINE` shape, and carries the one thing a reference range does not need
+// to state because its name implies it -- the POPULATION.
+//
+// FLAG, NOT VERDICT (ruled). It states the figure, the source and who it is for.
+// It does not tell the user to change a dose, and it never will: that is the
+// clinician line [[D157]] draws and `jargon-gate` holds. What it offers instead is
+// the thing that would actually answer the question -- a 25(OH)D reading, which is
+// already a cited analyte in `LAB_SPEC` (`vit_d_25oh`, Osteoporosis Canada, with a
+// disclosure that Health Canada/IOM define sufficiency differently).
+//
+// AND IT IS NOT THE IMPLAUSIBILITY GUARD. `vitamin_d_ug` carries `warn: 1250` in
+// MICRO_SPEC, twelve and a half times higher, and that one catches a slip of the
+// thumb. Showing them as the same kind of thing would make a typo-catcher look
+// like evidence.
+const INTAKE_LIMITS = {
+  vitamin_d_ug: {
+    value: 100, unit: 'ug', direction: 'max',
+    as_iu: 4000,
+    org: 'Institute of Medicine (now the National Academy of Medicine)',
+    cite: 'IOM/NAM Dietary Reference Intakes for Calcium and Vitamin D (2011)',
+    version: '2011',
+    population: 'adults 19 years and older, general population',
+    applicability: 'a tolerable upper intake level for long-term daily intake, not a toxicity threshold for a single dose',
+    lab: 'vit_d_25oh',
+  },
+};
+// Returns the flag, or null. Null when the amount is under the figure, when the
+// nutrient has no cited limit, OR when the citation is incomplete -- an uncited
+// number is exactly what D32 forbids, so a limit missing its source produces NO
+// flag rather than a bare figure.
+function intakeFlag(key, amount) {
+  const lim = INTAKE_LIMITS[key];
+  if (!lim) return null;
+  if (!(lim.value > 0) || !lim.org || !lim.cite || !lim.population) return null;
+  const a = num(amount);
+  if (!(a > lim.value)) return null;
+  return { key: key, amount: a, value: lim.value, unit: lim.unit, as_iu: lim.as_iu,
+           org: lim.org, cite: lim.cite, version: lim.version,
+           population: lim.population, applicability: lim.applicability, lab: lim.lab };
+}
+// The sentence, in one place, because the flag's wording IS the ruling. Every
+// clause is a fact plus its owner, and there is no imperative anywhere in it.
+function intakeFlagText(f) {
+  if (!f) return '';
+  const label = (MICRO_LABEL[f.key] && MICRO_LABEL[f.key].label) || f.key;
+  const iu = f.as_iu ? (' (' + rDisp(f.as_iu) + ' IU)') : '';
+  return 'This is above the ' + f.org + '’s stated upper intake level of '
+    + rDisp(f.value) + ' ' + f.unit + iu + ' of ' + label + ' for ' + f.population
+    + '. Source: ' + f.cite + '. ' + (f.applicability ? f.applicability.charAt(0).toUpperCase() + f.applicability.slice(1) + '. ' : '')
+    + 'A 25-OH vitamin D reading is what would show where you actually are — you can record one under Labs.';
+}
+
+// ---- R168: THE CONFIRM SHEET (ruled D-D) ---------------------------------
+// Opens with every item TICKED; unticking skips it; one confirm writes only what
+// was taken. `STACK_SKIP` is UI state and is deliberately not persisted -- a skip
+// is a fact about one morning, not a setting.
+let STACK_OPEN = false;
+let STACK_SKIP = {};
+function stackOpen() { STACK_OPEN = true; STACK_SKIP = {}; renderQuickChips(); return { ok: true }; }
+function stackCancel() { STACK_OPEN = false; STACK_SKIP = {}; renderQuickChips(); return { ok: true }; }
+function stackToggle(id) {
+  const k = String(id);
+  if (STACK_SKIP[k]) delete STACK_SKIP[k]; else STACK_SKIP[k] = 1;
+  renderQuickChips();
+  return { ok: true, skipped: Object.keys(STACK_SKIP) };
+}
+function stackConfirm() {
+  const r = logStack(Object.keys(STACK_SKIP));
+  if (!r.ok) { toast(r.error || 'Nothing ticked.'); return r; }
+  STACK_OPEN = false; STACK_SKIP = {};
+  const n = r.items.length + r.records.length;
+  toast('Logged ' + n + ' item' + (n === 1 ? '' : 's') + ' at ' + r.time);
+  renderQuickChips();
+  return r;
+}
+// What a row says it will deliver, as a phrase. Doses only -- never a pathway.
+function stackRowSub(s) {
+  const bits = [];
+  if (s.dose != null) bits.push(rDisp(s.dose) + (s.dose_unit ? ' ' + s.dose_unit : ''));
+  bits.push(s.kind === 'food' ? 'counts in your day' : 'goes on your timeline');
+  return bits.join(' · ');
+}
+function stackSheetHTML() {
+  const stack = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const on = stack.filter(function (s) { return s && s.enabled !== false; });
+  // D146: nothing configured draws NO row. An empty stack must not advertise
+  // itself on a sheet the user opens to log food.
+  if (!on.length) return '';
+  if (!STACK_OPEN) {
+    return '<div class="qsheet"><button type="button" class="btn stkopen" onclick="stackOpen()">'
+      + 'Took my daily stack · ' + esc(String(on.length)) + ' items</button></div>';
+  }
+  const rows = on.map(function (s) {
+    const skipped = !!STACK_SKIP[String(s.id)];
+    // The vitamin's own flag, beside the item it is about, and only when the
+    // converted amount actually exceeds the cited figure.
+    let flag = '';
+    const micros = (s.nutrients && s.nutrients.micros) || {};
+    Object.keys(micros).forEach(function (k) {
+      const f = intakeFlag(k, micros[k]);
+      if (f) flag += '<div class="stkflag">' + esc(intakeFlagText(f)) + '</div>';
+    });
+    return '<div class="stkrow' + (skipped ? ' stkoff' : '') + '">'
+      + '<label class="stktick"><input type="checkbox"' + (skipped ? '' : ' checked')
+      + ' onchange="stackToggle(\'' + esc(String(s.id)) + '\')"'
+      + ' aria-label="' + esc(s.name) + '"><span class="stkname">' + esc(s.name) + '</span></label>'
+      + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>' + flag + '</div>';
+  }).join('');
+  const n = on.length - Object.keys(STACK_SKIP).length;
+  return '<div class="qsheet"><div class="rpthead">Your daily stack · untick anything you skipped</div>'
+    + rows
+    + '<button type="button" class="btn stklog" onclick="stackConfirm()"'
+    + (n > 0 ? '' : ' disabled') + '>'
+    + (n > 0 ? ('Log ' + esc(String(n)) + ' of ' + esc(String(on.length))) : 'Nothing ticked')
+    + '</button>'
+    + '<button type="button" class="linklike stkback" onclick="stackCancel()">back to the list</button>'
+    + '</div>';
 }
 
 // Inject the supplement at device-side day creation, if enabled and absent (D8/4).
@@ -8085,6 +8210,14 @@ const POTENTIAL_AXES = [
     absent: 'no column in either database, so no amount of matching can supply it' },
   { key: 'biotin', label: 'biotin', unit: 'ug',
     absent: 'measured at 1.8% of the Canadian database and none of the US one, so not a slot' },
+  // R168, ruled 2026-10-10: a NAMED ABSENCE, and the number is why. The stack's
+  // two oils would want this axis, and the corpus cannot supply it: re-derived
+  // against the real sources, vitamin E clears the bar in neither, by a margin no
+  // judgement call closes. It comes off a label or not at all -- which is a path
+  // the honesty rule already has, and this line is what stops the absence reading
+  // as an oversight.
+  { key: 'vitamin_e', label: 'vitamin E (alpha-tocopherol)', unit: 'mg',
+    absent: 'not a slot: 71.6% of SR Legacy and 72.7% of CNF, seventeen points short of the 90% bar in BOTH, and no other tocopherol or tocotrienol form is within ten of it' },
 ];
 
 // AVAILABLE carbohydrate: carbohydrate MINUS fibre. Both sources report
@@ -11164,6 +11297,7 @@ const VERSION_LOG = [
   { v: '0.77.1', d: '2026-10-09', note: 'On a narrower phone the clock hand on the day rings crossed the calorie number in the middle of them. The hand now stops outside the calorie ring instead of reaching into the centre, which is where that figure has lived since the calorie ring arrived. It was crossing the number for 88 minutes of every day, and the check that watches the rings could not see it: it looked at the hand only at the one time of day the test pins its clock to, and it only ever looked for text crossing the ring rather than for the rings own ink crossing the text. It now sweeps the hand through all 1440 minutes.' },
   { v: '0.77.2', d: '2026-10-09', note: 'Calories now read as whole numbers everywhere they are shown -- the meal headings, the item rows, the ring, the averages, the history. A tenth of a calorie is finer than anything the app can actually know: a label rounds, and a portion worked out from a per-100g figure is arithmetic rather than a measurement, so 1847.3 was reading like a reading nobody took. What is STORED keeps every digit, because the totals, the export and anything worked out from them later should add up to what you ate rather than to what the screen had room for. Grams are unchanged -- 4.5 g of fibre is a real difference.' },
   { v: '0.78.0', d: '2026-10-10', note: 'Groundwork for the daily stack, and this release is the plumbing rather than the screen -- there is nothing new to look at yet. The app can now hold a list of things you take every day, each with the dose as the bottle states it, and one confirm will log only the ones you leave ticked: nothing is ever logged and then deleted, because a dose you did not take should not pass through your totals on its way out. Each entry is either a food, which reaches your day-s calories and macros like any other food, or a dose, which goes on your timeline and never into food totals. An entry can also carry the name of an active constituent, so that anything the app later says about it can be shown with its source. Doses stated in IU are converted where you type them, and only for vitamin D: an IU is a measure of activity, not of weight, and the conversion is different for every substance -- so the app refuses to convert the others rather than using a number that does not exist. Your existing log is untouched.' },
+  { v: '0.79.0', d: '2026-10-10', note: 'The daily stack now has its screen. Quick add leads with “Took my daily stack” when you have one set up, and tapping it opens the list with everything ticked: untick whatever you skipped and one button logs only the rest, saying how many before you tap it. Nothing is logged and then removed. The foods count in your day, the doses go on your timeline, and each row says which. And the app now carries its first cited intake figure: if an item delivers more vitamin D than the Institute of Medicine-s stated upper intake level for adults, the row says so, names the source and the population it applies to, and points you at a 25-OH vitamin D reading -- which is the thing that would actually tell you where you are. It does not tell you to change anything. If that figure ever loses its citation the flag disappears rather than showing a number with nothing behind it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15590,8 +15724,12 @@ function renderQuickChips() {
   // nothing", D119). It has been measured now: 10 foods repeat under matchKey, 7
   // under the exact name. Two overlapping lists of the same foods on one sheet is
   // the duplication this redesign removes.
+  // R168: the stack leads the sheet when one is configured -- it is the one
+  // thing on here that is the same every day, so it is the one thing that does
+  // not need looking for. It draws nothing at all when the stack is empty.
+  const stk = stackSheetHTML();
   const left = quickLeftoversHTML();
-  const head = left + quickTopHTML();
+  const head = stk + left + quickTopHTML();
   if (!presets.length) {
     if (head) { el.innerHTML = head; return; }
     el.innerHTML = '<div class="note" style="margin-top:0">No quick items yet. Add one with <b>Manual</b> → “Save as preset”, or manage them under Settings › Presets.</div>';
@@ -17624,7 +17762,9 @@ window.HT = {
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, kcalDisp, nutDisp,
   // R168: the daily stack (schema v13)
   STACK_KINDS, IU_TO_UG, doseToMicro, normalizeStackItem, normalizeStack,
-  normalizeSupplementNutrients, stackPlan, logStack, migrateV12toV13, setClock, nowMs, nowMinutes, todayKey, localDate,
+  normalizeSupplementNutrients, stackPlan, logStack, migrateV12toV13,
+  INTAKE_LIMITS, intakeFlag, intakeFlagText, stackSheetHTML, stackRowSub,
+  stackOpen, stackCancel, stackToggle, stackConfirm, setClock, nowMs, nowMinutes, todayKey, localDate,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,

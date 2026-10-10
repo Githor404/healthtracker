@@ -250,7 +250,16 @@ echo "-----------------------------------------"
 # the unticked ones absent from BOTH stores, one timestamp across the lot, no
 # `_auto`, D120 asserted in both directions, and an all-unticked confirm refused
 # rather than succeeding emptily.
-EXPECTED_ASSERTIONS=2701
+# R168/2: 2701 -> 2718, delta +17. The confirm sheet asserted on the RENDERED
+# surface (the B3 lesson: three correct helper assertions passed while the screen
+# still showed a decimal) -- all ticked on open, the button stating its own count,
+# unticking visibly dimming the row, and an empty stack drawing nothing. Plus the
+# app's FIRST cited intake figure: flagged above the figure and not at or under
+# it, absent for a nutrient with no cited limit, carrying org + source +
+# POPULATION, containing no instruction or verdict, offering the reading instead,
+# rendering beside its item, and VANISHING when the citation is stripped -- each
+# with a control so none of them can pass on an empty string.
+EXPECTED_ASSERTIONS=2718
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

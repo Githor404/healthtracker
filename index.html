@@ -988,6 +988,21 @@
 .qlog{width:100%;min-height:44px;margin-top:10px}
 .qback{margin-top:8px}
 .rpthead{font-size:16px;font-weight:600;color:var(--muted);margin:10px 0 6px}
+/* R168: the daily stack's confirm sheet. Every size here is >= 16px (D100's floor,
+   which font-floor-gate holds), and every class is prefixed `stk` -- checked
+   against the stylesheet before being written, which is what `.qrow` taught: the
+   one you style is not the only one you style. */
+.stkopen{width:100%;min-height:44px;font-size:16px}
+.stkrow{display:grid;gap:2px;padding:8px 0;border-bottom:1px solid var(--line)}
+.stkoff{opacity:.55}
+.stktick{display:flex;align-items:center;gap:10px;min-height:44px;font-size:16px}
+.stktick input{width:22px;height:22px;flex:0 0 auto}
+.stkname{font-size:16px;font-weight:600}
+.stksub{font-size:16px;color:var(--muted)}
+.stkflag{font-size:16px;color:var(--txt);border-left:3px solid var(--line);
+         padding:8px 10px;margin-top:6px}
+.stklog{width:100%;min-height:44px;margin-top:10px;font-size:16px}
+.stkback{display:block;margin:8px auto 0;font-size:16px;min-height:44px}
 .rptstrip{display:flex;gap:8px;flex-wrap:wrap}
 /* D133: a proposal is a first row, and says why it is one. */
 .rcandbtn.rprop{border-color:var(--accent)}

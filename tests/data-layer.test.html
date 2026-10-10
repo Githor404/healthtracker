@@ -9717,6 +9717,73 @@ window.setLS({});
   var _kBefore = JSON.stringify(HT.state().days[kKey].items.length);
   res(_kBefore === '2',
       'R168 GATE: ...and the refused confirm left the day exactly as it was');
+  // ---- R168/2: THE CONFIRM SHEET, AND THE APP'S FIRST CITED INTAKE FIGURE --
+  //
+  // The sheet is where ruling D-D becomes a surface, so it is asserted on the
+  // RENDERED thing rather than on stackPlan's return value -- the B3 lesson, where
+  // three correct helper assertions passed while the screen still showed a decimal.
+  HT.state().settings.stack = HT.normalizeStack([
+    { id: 'v1', name: 'Vitamin', kind: 'food', dose: 9000, dose_unit: 'IU',
+      nutrients: { micros: { vitamin_d_ug: 225 } } },
+    { id: 'd1', name: 'Capsule A', kind: 'dose', dose: 600, dose_unit: 'mg', bioactive: 'ash' },
+  ]);
+  HT.stackCancel();
+  var sh0 = HT.stackSheetHTML();
+  res(sh0.indexOf('Took my daily stack') >= 0 && sh0.indexOf('2 items') >= 0,
+      'R168/2 GATE: the sheet offers ONE tap that names how many items it will log');
+  HT.stackOpen();
+  var sh1 = HT.stackSheetHTML();
+  res((sh1.match(/type="checkbox"/g) || []).length === 2
+      && (sh1.match(/ checked/g) || []).length === 2,
+      'R168/2 GATE: opening it shows every item TICKED -- ruling D-D, untick before the write');
+  res(sh1.indexOf('Log 2 of 2') >= 0,
+      'R168/2 GATE: and the button states what it will log, so the count is read before the tap and not after');
+  HT.stackToggle('d1');
+  var sh2 = HT.stackSheetHTML();
+  res((sh2.match(/ checked/g) || []).length === 1 && sh2.indexOf('Log 1 of 2') >= 0,
+      'R168/2 GATE: unticking one drops it from the count the button states');
+  res(sh2.indexOf('stkoff') >= 0,
+      'R168/2 GATE: ...and the row it unticked is visibly dimmed rather than silently different');
+  HT.stackToggle('v1');
+  res(HT.stackSheetHTML().indexOf('Nothing ticked') >= 0,
+      'R168/2 GATE: with everything unticked the button says so instead of offering to log nothing');
+  HT.stackToggle('v1'); HT.stackToggle('d1');
+
+  // THE FLAG. Stated, sourced, and NOT an instruction.
+  var fl = HT.intakeFlag('vitamin_d_ug', 225);
+  res(!!fl && fl.value === 100 && fl.as_iu === 4000,
+      'R168/2 GATE: 225 micrograms is flagged against the cited 100 microgram / 4000 IU upper intake level');
+  res(HT.intakeFlag('vitamin_d_ug', 100) === null && HT.intakeFlag('vitamin_d_ug', 25) === null,
+      'R168/2 GATE: at or under the figure there is NO flag -- it marks exceeding, not taking');
+  res(HT.intakeFlag('iron_mg', 99999) === null,
+      'R168/2 GATE: a nutrient with no cited limit gets no flag, rather than a number someone invented for it');
+  var flTxt = HT.intakeFlagText(fl);
+  res(flTxt.indexOf('Institute of Medicine') >= 0 && flTxt.indexOf('2011') >= 0
+      && flTxt.indexOf('adults 19 years and older') >= 0,
+      'R168/2 GATE: the sentence carries the ORG, the SOURCE and the POPULATION -- which is what D32 requires of a claim and what a lab range never has to say');
+  res(!/\b(should|must|reduce|stop|lower|cut|take less|too much|dangerous|unsafe)\b/i.test(flTxt),
+      'R168/2 GATE: and it contains no instruction and no verdict -- flag, not verdict, which is the clinician line D157 draws');
+  res(flTxt.indexOf('25-OH vitamin D') >= 0,
+      'R168/2 GATE: what it offers instead is the reading that would actually answer the question, which is already a cited analyte here');
+  res(HT.intakeFlag('vitamin_d_ug', 225) !== null
+      && HT.intakeFlagText(HT.intakeFlag('vitamin_d_ug', 225)).length > 80,
+      'R168/2 CONTROL: the flag exists and is not an empty string, so the no-instruction assertion above is about real wording');
+  HT.stackOpen();
+  res(HT.stackSheetHTML().indexOf('Institute of Medicine') >= 0,
+      'R168/2 GATE: the flag renders BESIDE the item it is about, on the sheet, not in a panel the user would have to go and find');
+  // the citation is load-bearing: strip it and the flag must VANISH, not degrade
+  var _savedOrg = HT.INTAKE_LIMITS.vitamin_d_ug.org;
+  HT.INTAKE_LIMITS.vitamin_d_ug.org = '';
+  res(HT.intakeFlag('vitamin_d_ug', 225) === null,
+      'R168/2 GATE: a limit missing its SOURCE produces no flag at all -- an uncited number is the one thing D32 forbids, so it is absent rather than bare');
+  HT.INTAKE_LIMITS.vitamin_d_ug.org = _savedOrg;
+  HT.stackCancel();
+  res(HT.stackSheetHTML().indexOf('Took my daily stack') >= 0,
+      'R168/2 CONTROL: ...and restoring the citation brings the sheet back, so the assertion above measured the citation and not a broken fixture');
+  HT.state().settings.stack = [];
+  res(HT.stackSheetHTML() === '',
+      'R168/2 GATE: an EMPTY stack draws nothing at all -- D146: a thing with nothing in it does not advertise itself on a sheet opened to log food');
+
   HT.setClock(null);
   HT.state().days = _kDays; HT.state().current = _kCur; HT.state().settings = _kSet;
   HT.state().timeline = _kTl;
