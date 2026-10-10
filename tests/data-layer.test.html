@@ -9574,6 +9574,109 @@ window.setLS({});
   res(dvRow.indexOf('qa10') >= 0,
       'D130-row CONTROL: the replacement IS on the day, so the assertion above is about a REPLACEMENT and not about an empty screen');
 
+  // ---- B1: THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ---------
+  //
+  // The reported defect was a header reading "Dinner - 10:51 - 4 sittings", so the
+  // clock below is PINNED AT 10:51 and the fixture pastes a photo claiming dinner.
+  //
+  // MEASURED on the real log first, 62 items, 54 of them clock-comparable:
+  //   37 of 54 carried a tag the clock contradicts
+  //   ai-paste 28 of 45 -- the MODEL's guess (the template asks for "meal");
+  //            17 tagged `lunch` at a dinner-clock time, 7 at a breakfast one
+  //   scan      7 of 10 -- ALL `snack`, from a literal in the SCAN initialiser
+  // The clock decided on exactly one path (the quick-add) and nowhere else.
+  res(HT.mealAtCreation('dinner', '10:51') === 'dinner',
+      'B1 GATE: a meal the user CHOSE wins over the clock -- the rule is clock-unless-chosen, not clock-always');
+  res(HT.mealAtCreation('', '10:51') === 'breakfast' && HT.mealAtCreation(null, '19:30') === 'dinner',
+      'B1 GATE: with no choice recorded, the CLOCK decides');
+  res(HT.mealAtCreation('brunch', '19:30') === 'dinner',
+      'B1 GATE: a value that is not a meal is not a choice -- it falls to the clock, NOT to the `snack` that the old literal fell to');
+  res(HT.mealAtCreation('', '') === 'snack',
+      'B1 GATE: and with no clock to read -- D112, a past day gets no fabricated time -- `snack` is the honest answer rather than a guessed meal');
+
+  var _b1Days = HT.state().days, _b1Cur = HT.state().current, _b1Sup = HT.state().settings.supplement;
+  var _b1Plates = HT.state().plates, _b1Presets = HT.state().settings.presets;
+  HT.setClock(function () { return new Date(2026, 9, 9, 10, 51, 0).getTime(); });   // 10:51, the reported time
+  var b1Key = HT.todayKey();
+  HT.state().settings.supplement = { enabled: false, name: '', nutrients: {} };
+  HT.state().settings.presets = [];
+  HT.state().plates = {};
+  HT.state().days = {}; HT.state().days[b1Key] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().current = b1Key;
+
+  HT.openPhotoDraft(JSON.stringify({ meal: 'dinner', items: [
+    { name: 'a', grams: 100, notes: '', per100: { kcal: 100, protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } }] }));
+  var b1Draft = HT.photoDraft();
+  res(!!b1Draft && b1Draft.meal === 'breakfast',
+      'B1 GATE: a photo pasted at 10:51 claiming "dinner" drafts as BREAKFAST -- the model is looking at a plate, not at a clock');
+  res(!!b1Draft && b1Draft.aiMeal === 'dinner',
+      'B1 GATE: and the model-s guess is KEPT beside the derived tag (the ai_grams / ai_identity shape), never instead of it');
+  HT.renderPhotoDraft();
+  var b1DraftHTML = (document.getElementById('photoDraft') || { innerHTML: '' }).innerHTML;
+  res(b1DraftHTML.indexOf('from the clock') >= 0 && b1DraftHTML.indexOf('dinner') >= 0
+      && b1DraftHTML.indexOf('breakfast') >= 0,
+      'B1 GATE: the draft SAYS the clock overruled the model and NAMES BOTH -- a refused value is named, never quietly dropped (the stripped-micros rule)');
+
+  var b1Save = HT.photoSave();
+  res(b1Save.ok === true && HT.state().days[b1Key].items.length === 1
+      && HT.state().days[b1Key].items[0].meal === 'breakfast'
+      && HT.state().days[b1Key].items[0].time === '10:51',
+      'B1 GATE: ...and what reaches the DAY carries the derived tag at the measured time, not the drafted claim');
+  var b1Groups = HT.mealKindGroups(b1Key);
+  res(b1Groups.length === 1 && b1Groups[0].kind === 'breakfast' && b1Groups[0].firstTime === '10:51',
+      'B1 GATE: so the day draws ONE header -- breakfast at 10:51 -- and the reported "Dinner - 10:51" can no longer be rendered');
+
+  // AGREEMENT IS NOT NEWS: the note must not appear when the model got it right,
+  // or it stops carrying information and becomes decoration on every draft.
+  HT.photoDiscard();
+  HT.openPhotoDraft(JSON.stringify({ meal: 'breakfast', items: [
+    { name: 'a', grams: 100, notes: '', per100: { kcal: 100, protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } }] }));
+  HT.renderPhotoDraft();
+  res((document.getElementById('photoDraft') || { innerHTML: '' }).innerHTML.indexOf('from the clock') < 0,
+      'B1 CONTROL: a model that AGREES with the clock draws no note -- which is what makes the note above information rather than furniture');
+  HT.photoDiscard();
+
+  var b1Rec = HT.mapOffProduct({ status: 1, product: { product_name: 'P',
+    nutriments: { 'energy-kcal_100g': 100 } } }, '3017620422003');
+  res(HT.buildScanItem(b1Rec, 'per_100g', 100, '', b1Key).meal === 'breakfast',
+      'B1 GATE: a SCAN with nothing chosen takes the clock -- this is the path where 7 of 10 real items were tagged `snack` by a literal');
+  res(HT.buildScanItem(b1Rec, 'per_100g', 100, 'dinner', b1Key).meal === 'dinner',
+      'B1 CONTROL: and a scan WITH a chosen meal keeps it, so the assertion above is about the default and not about overriding the user');
+
+  var b1Man = HT.addManualEntry({ name: 'Toast', kcal: 100, soluble_fiber_g: 0 });
+  res(b1Man.ok === true && b1Man.item.meal === 'breakfast' && b1Man.item.time === '10:51',
+      'B1 GATE: a MANUAL entry with the form-s new "by the clock" default takes the clock, from the same time it is stamped with');
+
+  var b1P = HT.saveManualPreset({ name: 'Pre', meal: '', kcal: 100, soluble_fiber_g: 0 }, '1 bowl');
+  res(b1P.ok === true && b1P.preset.meal === undefined,
+      'B1 GATE: a preset saved without choosing a meal stores NONE -- `item.meal` is already normalised to `snack` by then, so the raw form value is the only thing that still knows the difference');
+  var b1PL = HT.logPreset(b1P.preset.id);
+  res(b1PL.ok === true && b1PL.item.meal === 'breakfast',
+      'B1 GATE: ...and it logs at the clock, so the defect does not reappear one surface along as a stored `snack`');
+
+  // THE LEFTOVER -- where the plate-s tag was most wrong. A plate captured at
+  // breakfast, eaten at 19:30, is dinner: the tag describes when it was EATEN.
+  HT.state().plates['pl-b1'] = HT.normalizePlate({ id: 'pl-b1', date: b1Key, meal: 'breakfast',
+    time: '10:51', items: [ { name: 'Tray', grams: 400,
+      per100: { kcal: 100, protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } } ] });
+  HT.setClock(function () { return new Date(2026, 9, 9, 19, 30, 0).getTime(); });   // same day, dinner time
+  var b1Left = HT.consumeFromPlate('pl-b1', [ { kind: 'fraction', fraction: 0.5 } ], { date: b1Key });
+  res(b1Left.ok === true && b1Left.items[0].meal === 'dinner' && b1Left.items[0].time === '19:30',
+      'B1 GATE: a LEFTOVER eaten at 19:30 off a breakfast plate is DINNER -- before this, yesterday-s sitting reappeared under its own header on a day it was eaten at another time');
+  var b1Past = '2026-09-01';
+  HT.state().days[b1Past] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().plates['pl-b1p'] = HT.normalizePlate({ id: 'pl-b1p', date: b1Past, meal: 'breakfast',
+    time: '09:00', items: [ { name: 'Tray', grams: 400,
+      per100: { kcal: 100, protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } } ] });
+  var b1PastEv = HT.consumeFromPlate('pl-b1p', [ { kind: 'fraction', fraction: 0.5 } ], { date: b1Past });
+  res(b1PastEv.ok === true && b1PastEv.items[0].meal === 'breakfast',
+      'B1 CONTROL: on a PAST day there is no clock to read, so the plate-s own tag is carried rather than replaced by `snack` -- absence of a time is not evidence of a snack');
+
+  HT.setClock(null);
+  HT.state().days = _b1Days; HT.state().current = _b1Cur;
+  HT.state().plates = _b1Plates;
+  HT.state().settings.supplement = _b1Sup; HT.state().settings.presets = _b1Presets;
+
   // ---- repeats: recency, deduped, and a NEW record -----------------------
   var _rDays = HT.state().days, _rCur = HT.state().current;
   var mkR = function (n, g, kc) { return { name: n, meal: 'lunch', time: '12:00', grams: g,

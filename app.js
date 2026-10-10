@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.76.0';                           // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.77.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3424,6 +3424,35 @@ function mealByTimeOfDay(hhmm) {
   return 'snack';                                   // 22:00 - 03:59
 }
 
+// RULED (B1): THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ONE.
+//
+// MEASURED on the real log before the rule was written -- 62 items, 54 of them
+// clock-comparable (the `supplement` and `drink` kinds are kinds, not times):
+//
+//   37 of 54 carried a tag the clock contradicts
+//   ai-paste  28 of 45 wrong -- 17 tagged `lunch` at a dinner-clock time, 7
+//             tagged `lunch` at a breakfast-clock time
+//   scan       7 of 10 wrong -- ALL tagged `snack`, because SCAN initialised
+//             `meal: 'snack'` and nothing ever re-read the clock
+//
+// So the tag came from the MODEL (the photo template asks for `"meal"`) or from
+// a LITERAL, and from the clock nowhere. That is what put "Dinner - 10:51 - 4
+// sittings" on a header: four pastes in one day, each guessed the same meal, and
+// the group's first time disagreed with the word above it.
+//
+// A meal is a TIME, not a name, so this is [[D128]] in the other direction: the
+// model names the food and the clock says which meal it was. The user's own
+// choice still wins and is stored as the choice it is -- nothing re-derives a tag
+// after creation, so a cycled meal stays cycled.
+//
+// Creation paths only. The normalisers keep PRESERVING (their 'snack' fallback is
+// unchanged), for the reason `tzo` already states one function along: a boundary
+// that invents a fact is a boundary that rewrites history on every restore.
+function mealAtCreation(chosen, time) {
+  if (MEALS.indexOf(chosen) >= 0) return chosen;   // the user chose; the clock is not consulted
+  return mealByTimeOfDay(time);                    // no time ('' on a past day) -> 'snack'
+}
+
 // THE KIND AN ITEM IS SHOWN UNDER. A drink is a KIND, not a time: ruled, drinks
 // stay inside their meal, and the thing that records which meal a drink was had
 // with is the `mealId` it shares with the food -- the same grouping H25 measures
@@ -4563,7 +4592,13 @@ function addManualEntry(raw) {
   // D112: the fallback lives HERE, in the testable core, rather than in the form
   // reader -- so the rule holds for every caller, not only the one with a DOM.
   const typed = (raw.time != null && String(raw.time).trim() !== '') ? String(raw.time).trim() : null;
-  const item = normalizeItem(Object.assign({}, raw, { time: typed == null ? stampTime(APP_STATE.current) : typed,
+  // B1: one time, resolved once, and the meal tag derived from THAT -- not from
+  // the clock a line later. The form's Meal select now offers "by the clock" as
+  // its default (value ""), so "I did not choose" is representable: before, every
+  // submit carried a valid meal and the clock could never be consulted.
+  const time = typed == null ? stampTime(APP_STATE.current) : typed;
+  const item = normalizeItem(Object.assign({}, raw, { time: time,
+                                                     meal: mealAtCreation(raw.meal, time),
                                                      source: 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
   const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day' };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
@@ -4579,8 +4614,15 @@ function newPresetId() { _presetSeq++; return 'p' + Date.now().toString(36) + '_
 function saveManualPreset(raw, portion) {
   if (!raw || !raw.name || String(raw.name).trim() === '') return { ok: false, error: 'Name required' };
   const item = normalizeItem(Object.assign({}, raw, { source: 'preset' }), true);
+  // B1: `item.meal` is the NORMALISED meal, so an unchosen one arrives here as
+  // `snack` and would be stored as though it had been picked. The raw form value
+  // is the only place that still knows the difference. `undefined` keeps the key
+  // in position for the presets that do carry one and drops it from the JSON for
+  // the ones that do not -- absent means "by the clock", which is the same thing
+  // absence means on every other optional field in this file.
+  const chosenMeal = MEALS.indexOf(raw && raw.meal) >= 0 ? raw.meal : undefined;
   const preset = {
-    id: newPresetId(), name: item.name, meal: item.meal, confidence: item.confidence,
+    id: newPresetId(), name: item.name, meal: chosenMeal, confidence: item.confidence,
     kcal: item.kcal, protein_g: item.protein_g, fat_g: item.fat_g, carb_g: item.carb_g,
     fiber_g: item.fiber_g, soluble_fiber_g: item.soluble_fiber_g,
   };
@@ -4606,9 +4648,16 @@ function saveManualPreset(raw, portion) {
 // survives by construction. The scheduled `time` answers "when" (D27 Fork B supplies
 // it); `tzo` answers "where was the device when this was recorded" — different
 // questions, different sources, each field its own truth.
+// B1: a preset with no meal of its own is logged AT THE CLOCK. A preset is a
+// food, and a meal is a time -- so the meal is only part of the preset when the
+// user actually chose one while saving it, and then it is a choice and wins.
+// Without this, the manual form's new "by the clock" default would have been
+// normalised to `snack` on the way into the preset and that `snack` would have
+// come back out at every log, which is the defect this slice removes reappearing
+// one surface along.
 function buildPresetItem(p, time) {
   return normalizeItem({
-    name: p.name, meal: p.meal, time: time, confidence: p.confidence,
+    name: p.name, meal: mealAtCreation(p.meal, time), time: time, confidence: p.confidence,
     kcal: p.kcal, protein_g: p.protein_g, fat_g: p.fat_g, carb_g: p.carb_g,
     fiber_g: p.fiber_g, soluble_fiber_g: p.soluble_fiber_g, source: 'preset', micros: p.micros,
     tzo: nowTZO(),   // D29 (stamped)
@@ -4759,10 +4808,15 @@ function scalePortion(rec, mode, customGrams) {
 // 'measured', barcode retained. Runs through normalizeItem -> contract-clean.
 function buildScanItem(rec, mode, customGrams, meal, dayKey) {
   const s = scalePortion(rec, mode, customGrams);
+  // B1: ONE time, read once, and the tag derived FROM IT. Stamping inside the
+  // object literal and deriving the meal beside it would be two reads of the
+  // clock a millisecond apart, which is the shape that puts a 23:59:59 item in
+  // the wrong meal once a year.
+  const t = stampTime(dayKey === undefined ? localDate() : dayKey);
   return normalizeItem({
     name: rec.name || ('Product ' + rec.barcode),
-    meal: MEALS.indexOf(meal) >= 0 ? meal : 'snack',
-    time: stampTime(dayKey === undefined ? localDate() : dayKey),
+    meal: mealAtCreation(meal, t),
+    time: t,
     kcal: s.kcal, protein_g: s.protein_g, fat_g: s.fat_g, carb_g: s.carb_g,
     fiber_g: s.fiber_g, soluble_fiber_g: s.soluble_fiber_g,
     confidence: 'measured', source: 'scan', barcode: rec.barcode,
@@ -4904,7 +4958,12 @@ function applyLookup(res) {
   // Unified SCAN state (found | not-found) so renderScan owns both and a refresh
   // (e.g. after saving a price) re-renders correctly instead of clearing it.
   if (!res.found) { SCAN = { found: false, barcode: res.barcode || '', error: res.error || 'Lookup failed.' }; renderScan(); return; }
-  SCAN = { found: true, record: res.record, mode: res.record.serving_g > 0 ? 'per_serving' : 'per_100g', grams: 100, meal: 'snack', source: res.source };
+  // B1: the picker OPENS on the clock's answer instead of on `snack`. Measured:
+  // 7 of 10 scanned items in the real log are tagged `snack` because this literal
+  // was the only thing that ever set it -- a default nobody chose, on the one
+  // creation path whose select is right there.
+  SCAN = { found: true, record: res.record, mode: res.record.serving_g > 0 ? 'per_serving' : 'per_100g', grams: 100,
+           meal: mealByTimeOfDay(stampTime(APP_STATE.current)), source: res.source };
   renderScan();
 }
 function scanSummaryHTML(s) {
@@ -9963,6 +10022,13 @@ function renderPhotoDraftInner() {
   // D8, said out loud: micros that arrived were REFUSED, not quietly absent.
   const mstrip = (d.microsStripped > 0)
     ? `<div class="pmnote pmwarn">micronutrients in the reply were stripped \u2014 a photo cannot show them</div>` : '';
+  // B1: the model guessed a meal and the clock overruled it, so the draft SAYS so
+  // -- the same rule as the stripped micros above: a value the app refuses is
+  // named, never quietly dropped. Only when the two actually differ; agreement is
+  // not news. The model's guess is still on the draft (`aiMeal`), which is what
+  // lets this sentence be written at all.
+  const mealnote = (d.aiMeal && d.meal && d.aiMeal !== d.meal)
+    ? `<div class="pmnote">the photo looked like ${esc(d.aiMeal)} \u2014 logged as ${esc(d.meal)}, from the clock</div>` : '';
   // Save and Discard are NOT here any more: they live in the modal's fixed footer
   // (R21.5), so they stay in view whatever the item count. A primary action you
   // have to scroll to is one an anxious user does not find.
@@ -9979,7 +10045,7 @@ function renderPhotoDraftInner() {
     d.ate = d.items.map(() => ({ kind: 'all', fraction: 1 }));
   }
   const consumeHTML = d.consumeOpen ? consumeQuestionHTML(d) : '';
-  el.innerHTML = `<div class="pmdraft">${mstrip}${lead}${head}${rows}${photoAddFormHTML()}${consumeHTML}
+  el.innerHTML = `<div class="pmdraft">${mstrip}${mealnote}${lead}${head}${rows}${photoAddFormHTML()}${consumeHTML}
     <div class="pmtot">${esc(rDisp(tot.kcal))} cal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
     </div>`;
 }
@@ -10007,7 +10073,20 @@ function openPhotoDraft(text) {
   // saved at 00:05 would otherwise land on the right day with no time at all,
   // dropping out of the timeline's sort and blanking its row. 23:50 is MEASURED,
   // not invented, so recording it satisfies D112 instead of bypassing it.
-  PHOTO_DRAFT = { mealId: newMealId(), meal: r.meal, items: r.items,
+  //
+  // B1: AND THE MEAL TAG COMES FROM THAT TIME, NOT FROM THE MODEL. The template
+  // asks the assistant for `"meal"` and this line used to take it: measured, 28
+  // of 45 ai-paste items in the real log carry a tag the clock contradicts, 17 of
+  // them tagged `lunch` at a dinner-clock time. The model is looking at a plate,
+  // not at a clock. Its guess is KEPT (`aiMeal`), beside the derived tag and never
+  // instead of it -- the `ai_grams` / `ai_identity` shape, one field along -- and
+  // the draft says what it said. A past day has no capture time, so there the
+  // model's guess is the best available reading and is used rather than discarded.
+  const startedTime = (APP_STATE.current === localDate()) ? nowTime() : '';
+  PHOTO_DRAFT = { mealId: newMealId(),
+                  meal: startedTime ? mealByTimeOfDay(startedTime) : r.meal,
+                  aiMeal: r.meal,
+                  items: r.items,
                   single: r.items.length === 1,
                   // WHERE IT STARTED -- not a claim on that day yet. The draft takes a
                   // day of its own ONLY when `dayRollCheck` pins it, because that is the
@@ -10019,7 +10098,7 @@ function openPhotoDraft(text) {
                   // and the time only if that day was TODAY: a draft opened at 23:50
                   // knows when it was captured, one opened against last Tuesday does not,
                   // and attaching today's clock to a past day is what D112 forbids.
-                  startedTime: (APP_STATE.current === localDate()) ? nowTime() : '',
+                  startedTime: startedTime,
                   microsStripped: r.microsStripped || 0 };
   if (rep2) rep2.innerHTML = '';
   renderPhotoDraft();
@@ -10817,6 +10896,7 @@ const VERSION_LOG = [
   { v: '0.74.0', d: '2026-10-09', note: 'The day card is laid out the way you approved: the two rings on the left, smaller, with just the calorie number in the middle, and protein, fat, carbs, fibre and the typical-day line beside them. On a phone the figures no longer sit inside the ring, where they were crossing its ink. Tap the rings to see what the colours mean — the key and the time range are behind that tap now instead of always on screen. The gap counter keeps its own line underneath.' },
   { v: '0.75.0', d: '2026-10-09', note: 'The day now reads in the order you asked for: date, the rings card, the actions, your meals. Nothing sits above the rings but the date. Food left from earlier is no longer the first thing on the screen — it is one quiet line that opens the quick-add sheet, where the leftovers now live. The ring key, the time range, the my-day/the-plan switch and the eating-window lines are all behind a tap on the rings. The typical-day line is said once, beside the rings. And a fix: the Sleep on/close control was appearing over the title bar at the top of the screen.' },
   { v: '0.76.0', d: '2026-10-09', note: 'Your day now reads as the meals you actually ate. Each meal is one line — its calories, how many items, when it started — and tapping it opens that meal in place, in time order, with its macros. A meal with a drink says so, and the drink stays inside the meal it came with. When one meal has a glucose response, the line says it in words. The meals you did not eat collapse into one quiet line you can tap to add to. Biometrics is its own group now, with a one-line summary. The Food, Dose, Biometric, Fast and Note buttons are gone: the day offers Quick add and the camera, and everything else is on the Log sheet where it already was. Quick add lists the ten foods you repeat most, each with the portion you last chose and the spellings it counted together, a stepper, and one button that says what it will log. Leftovers live at the top of that sheet — which is where the day said they were, and where they were not.' },
+  { v: '0.77.0', d: '2026-10-09', note: 'Which meal something is filed under now comes from the time you logged it, unless you choose one yourself. Before, it came from whatever your AI guessed off the photo, or from “snack” — which is how a heading could read Dinner above a meal eaten at 10:51. The Meal box when you add something by hand now starts at “by the clock”; a scan opens on the meal it actually is instead of on snack; a saved quick item with no meal of its own is filed by when you log it; and food left from earlier is filed by when you ate it rather than by when it was served. When your AI guesses a different meal from the clock, the photo draft now says what it guessed and what was used instead.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -13813,8 +13893,16 @@ function consumeFromPlate(plateId, statements, opts) {
     // that started before midnight. D112 forbids a FABRICATED time on a past
     // day -- it does not forbid the real one, and re-deriving it here from
     // `dk` is what blanked it. Absent `o.time`, this is unchanged.
-    const rec = { name: pi.name, meal: plate.meal,
-                  time: (o.time || stampTime(dk)), tzo: nowTZO(),
+    // B1: the tag comes from WHEN IT WAS EATEN, not from the plate it came off.
+    // This is where the old rule was most wrong: a LEFTOVER eaten at 13:00 the
+    // next day inherited the tag of the sitting the plate was captured at, so
+    // yesterday's dinner reappeared under Dinner on a day it was eaten at lunch.
+    // With no clock to read (a past day, D112), the plate's own tag is the best
+    // available answer and is carried rather than replaced by `snack`.
+    const evTime = (o.time || stampTime(dk));
+    const rec = { name: pi.name,
+                  meal: evTime ? mealByTimeOfDay(evTime) : plate.meal,
+                  time: evTime, tzo: nowTZO(),
                   confidence: pi.confidence || 'eyeballed',
                   source: pi.source || 'ai-paste', notes: pi.notes || '',
                   grams: g, mealId: mealId, plateId: plate.id, plateIdx: idx, ate: ate };
@@ -15069,7 +15157,11 @@ function quickPlan() {
   return {
     row: row, grams: grams, factor: factor,
     kcal: (row.kcal == null) ? null : num(row.kcal) * factor,
-    meal: QUICK_MEAL || mealByTimeOfDay(time),
+    // B1: re-expressed through the shared rule. It already behaved this way --
+    // this path was the ONE that read the clock -- and `||` plus a bare helper is
+    // the rule restated rather than the rule used, which is how two copies of one
+    // decision start to drift.
+    meal: mealAtCreation(QUICK_MEAL, time),
     time: time,
   };
 }
@@ -17238,7 +17330,7 @@ window.HT = {
   calorieRingBasis, calorieRingWords, calorieRingSVG, calorieCentreHTML,
   dayFiguresHTML, CAL_RING_R, plateRecallCount, plateRecallLineHTML,
   openQuickAdd, quickLeftoversHTML,
-  MEAL_KINDS, mealByTimeOfDay, mealKindGroups, emptyMealKinds, mealResponseLine,
+  MEAL_KINDS, mealByTimeOfDay, mealAtCreation, mealKindGroups, emptyMealKinds, mealResponseLine,
   biometricSummary, dayGroupToggle, dayGroupIsOpen, dayGroupsOpenAll,
   dayTimeOrderToggle, dayTimeOrder,
   FREQ_TOP_N, foodFrequency, dayOrderToggleHTML,

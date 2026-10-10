@@ -220,7 +220,16 @@ echo "-----------------------------------------"
 # and no-streak-no-distance -- and now bind the replacement. Added: the five words
 # are ABSENT from the rendered day, and the replacement is PRESENT (+2), so "the
 # badges are gone" cannot be satisfied by a blank screen.
-EXPECTED_ASSERTIONS=2644
+# B1: 2644 -> 2661, delta +17. The meal tag, measured before the rule was written
+# (37 of 54 clock-comparable items in the real log carried a tag the clock
+# contradicts) and then pinned at every creation path: the pure rule and its three
+# edges (a choice wins, a non-meal is not a choice, no clock means `snack`), the
+# reported defect reproduced on a clock pinned at 10:51 (draft, day record, and the
+# one header the day draws), the model's guess kept beside the derived tag and said
+# on the draft, scan / manual / preset each with a control proving the assertion is
+# about the DEFAULT and not about overriding a choice, and the leftover -- the case
+# the plate's tag got most wrong -- with its past-day control.
+EXPECTED_ASSERTIONS=2661
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

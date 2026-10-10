@@ -1262,7 +1262,12 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
         <div id="maWarn"></div>
         <label>Name</label><input id="maName" placeholder="e.g. Greek yogurt 150g">
         <div class="row">
-          <div><label>Meal</label><select id="maMeal"><option>breakfast</option><option>lunch</option><option>dinner</option><option selected>snack</option><option>drink</option><option>supplement</option></select></div>
+          <!-- B1: "by the clock" is the DEFAULT and carries value="", so "I did not
+               choose a meal" is representable. Every option here used to be a valid
+               meal with `snack` selected, so the submit always looked like a choice
+               and the clock was never consulted -- which is how 7 of 10 scanned
+               items and 28 of 45 photo items got a tag nobody picked. -->
+          <div><label>Meal</label><select id="maMeal"><option value="" selected>by the clock</option><option value="breakfast">breakfast</option><option value="lunch">lunch</option><option value="dinner">dinner</option><option value="snack">snack</option><option value="drink">drink</option><option value="supplement">supplement</option></select></div>
           <div><label>Time</label><input id="maTime" type="time"></div>
           <div><label>Confidence</label><select id="maConf"><option value="eyeballed" selected>eyeballed</option><option value="weighed">weighed</option><option value="measured">measured</option></select></div>
         </div>
