@@ -5599,6 +5599,14 @@ repeats is what they have already eaten, so recent items now lead it.
 - **Recency, deduped by name** ([[E1]]). Not a recency-frequency blend: the log is
   gitignored and rightly so, a blend could not be measured against real data, and
   [[D119]] is the standing lesson that **an unmeasured ranking is worth nothing**.
+  > **SUPERSEDED 2026-10-09 by the top-10 ruling — NOT DELETED.** The reason this
+  > bullet gives has expired: the log has since been measured (10 foods repeat
+  > under `matchKey`, 7 under the exact name), the quick-add sheet lists the
+  > frequency top 10, and two overlapping lists of the same foods on one sheet was
+  > the duplication R159.1 removed. `recentItems`, `repeatChipsHTML`, `logRepeat`,
+  > the `.rptstrip` rule and the three `D130-repeat` assertions covering the
+  > ranking are all **kept**, so a remount is one line in `renderQuickChips`. See
+  > the 2026-10-09 ruling entry. **Everything else in this section stands.**
 - **The original `source` is kept and `repeated_from` is added** ([[F1]]). A `repeat`
   source would have **erased** the provenance — a repeated scan would stop being a
   scan — which is [[D111]]'s failure exactly.
@@ -12629,3 +12637,550 @@ on one sheet is the duplication this redesign removes.
 > But **E1 was a ruling**, so reversing it is not mine to do silently.
 > `repeatChipsHTML` and `logRepeat` are kept with a comment saying they are
 > unmounted and why; remounting is one line. **Raised for a ruling.**
+
+## ATTESTED + RULED — E1 superseded, the DOSE tap cost accepted (2026-10-09; doc-only)
+
+### The attestations
+
+**[[H31]] attested on the device.** The white wine was re-photographed and
+identified correctly — the correction is found under the name the next photo
+arrives with, which is what H31 was built for.
+
+> **H31's ruling C stays UNMEASURED.** The alternates were not captured on this
+> pass, so the share of corrections the `alts` list would have caught on its own
+> is still unknown. Recorded as unmeasured rather than folded into the
+> attestation: ruling C asked for a number, and a pass that could not produce it
+> has not produced it. It is not a defect and it is not done.
+
+**v0.76.0 accepted.** The landing page matches the approved mockup.
+
+### [[E1]] — SUPERSEDED BY THE TOP-10 RULING, NOT DELETED
+
+**Ruled: the recency strip stays unmounted, and the record says *superseded*
+rather than *removed*, so a remount is one line if the frequency list turns out
+to miss something.**
+
+E1 chose recency over frequency and said exactly why: *"the user's log is not in
+this repo, so a blend could not be measured against real data, and [[D119]] is
+the standing lesson that an unmeasured ranking is worth nothing."* **That reason
+has expired.** The log has since been measured — 10 foods repeat under
+`matchKey`, 7 under the exact name — so the ruled *"my 10 most frequent foods"*
+is satisfiable, and two overlapping lists of the same foods on one sheet was the
+duplication R159.1 removed.
+
+**What a one-line remount depends on, and is therefore kept on purpose:**
+
+| kept | why it must not be tidied away |
+|---|---|
+| `repeatChipsHTML`, `logRepeat`, `recentItems` | the producer, the write path and the ranking. `buildRepeatItem` is live either way — `quickAddLog` shares it |
+| `.rptstrip` in `index.html` | the strip's only style rule. A stylesheet sweep looking for rules nothing renders into will find it, exactly as it finds `.pricecap` — and like `.pricecap` it stays |
+| the **eleven** `D130-repeat` harness assertions | **three** of them cover `recentItems` — recency, the dedupe, the supplement exclusion — and those are the ranking **only** the unmounted strip uses. The other eight cover `buildRepeatItem` and `normalizeRepeatedFrom`, which are **live either way**, because `quickAddLog` shares them |
+
+That last row is the point, and it needed counting rather than asserting. **An
+unmounted path that is still proved is a path that can be remounted safely**; one
+that is merely present is a guess about whether it still works. The three
+`recentItems` assertions are not orphans — they test an exported function, not a
+surface — so the suite keeps the ranking honest while nothing renders it.
+
+### DOSE — 3 → 4 ACCEPTED for occasional doses
+
+**Ruled: the dose journey stays at four taps.** `flow-gate`'s J2 pin stays at 4
+and its message already carries the reason — the footer link is in every sheet
+mode, so the path is one tap longer and never lost.
+
+**Measured before answering**, on the local `export.json` (written 2026-09-26, 13
+days stale) across 12 timeline days spanning 2026-07-18 → 2026-09-26:
+
+| | |
+|---|---|
+| `medication`-kind timeline records | **zero** — the four-tap path has never been walked on this copy |
+| what the timeline *does* hold | 12 sleep, 2 weight, 2 breath-ketones, 2 bm, 1 BP pair, 2 red-light, 1 cold-plunge |
+| saved medications in `meds` | **3**, each with a name and a strength from a label |
+| `regimens` | `active: ""`, `list: []`, `log: {}` — no standing regimen exists in the data |
+
+**The stale-copy rule applies and is stated rather than waved at**: this is the
+PC snapshot, the phone is the live log, and absence measured here is not absence.
+What settles the ruling is the user's own answer — occasional doses accept the
+fourth tap — **and the daily regimen is not an occasional dose**, so it goes to
+its own slice (D below) rather than being bought with a tap count.
+
+### AND THE GATE'S OWN PASS BANNER WAS SAYING THE OPPOSITE
+
+Found while confirming the pin. `flow-gate`'s success line read:
+
+> `FLOW GATE: PASS -- J0 <=2 (was 15), J1 3 (was 4), J2 3 (was 4), ...`
+
+**Both of those numbers are wrong, and wrong in the inverted direction.** The
+assertions pin **J1 = 4** and **J2 = 4**, each re-pinned by R159.1/A4 when the
+badge row was ruled away; the banner reports them as 3, *"was 4"*, which is the
+re-pin read backwards. A reader trusting the banner would have concluded the dose
+journey is three taps — **the exact question being ruled on here.**
+
+> A gate can hold the right number in its assertion and publish the wrong one in
+> its summary, and the summary is the part people read. The pins are the gate; the
+> banner is a sentence, and nothing was checking the sentence.
+
+Corrected to the pinned numbers with their re-pin reasons. The J2 failure message
+was also missing a word — *"RE-PINNED 4 by R159.1/A4 with the Dose badge"* reads
+as though the badge is still there; it is *gone*, which is why the path grew a
+tap.
+
+---
+
+## B1-B3 — BUILT: the meal tag, the clock hand, and the whole-number calorie (2026-10-09, v0.77.0 / v0.77.1 / v0.77.2)
+
+Three reported fixes, three releases. Harness **2644 → 2673**.
+
+### B1 — THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ONE (v0.77.0)
+
+Reported as a header reading *"Dinner · 10:51 · 4 sittings"*.
+
+**MEASURED on the real log before anything was changed** — 62 items, 54 of them
+clock-comparable (`supplement` and `drink` are kinds, not times):
+
+| path | where the tag came from | wrong against the clock |
+|---|---|---|
+| `ai-paste` | **the model** — the photo template asks the assistant for `"meal"` | **28 of 45**: 17 tagged `lunch` at a dinner-clock time, 7 tagged `lunch` at a breakfast one |
+| `scan` | **a literal** — `SCAN` initialised `meal: 'snack'` and nothing re-read the clock | **7 of 10**, all `snack` |
+| `manual` | the form's Meal select had `snack` **pre-selected**, so every submit looked like a choice | — |
+| quick-add | the clock. The only path that read it | — |
+| | **total** | **37 of 54** |
+
+So the tag came from a model or from a literal, and from the clock almost
+nowhere. **A meal is a TIME, not a name** — this is [[D128]] pointed the other
+way: the model names the food, the clock says which meal it was.
+
+**One rule, one function, every creation path.** `mealAtCreation(chosen, time)`
+honours a choice and otherwise reads the clock; with no time at all (a past day,
+[[D112]]) it answers `snack`, which is the honest reading of no evidence rather
+than a guessed meal. Applied at `buildScanItem`, the `SCAN` initialiser,
+`addManualEntry`, `buildPresetItem`, the photo draft, `consumeFromPlate` and
+`quickPlan` — the last of which already behaved this way and now **uses** the
+shared rule instead of restating it.
+
+**The normalisers are untouched, deliberately.** Their `snack` fallback stays,
+for the reason the `tzo` field states one function along: *a boundary that invents
+a fact rewrites history on every restore.* The clock decides at CREATION; the
+boundary preserves.
+
+**The model's guess is kept, not discarded.** `aiMeal` sits on the draft beside
+the derived tag — the `ai_grams` / `ai_identity` shape one field along — and the
+draft **says** when the clock overruled it, naming both, exactly as the
+stripped-micros note does. Agreement draws no note, and a control asserts that:
+a note on every draft carries no information.
+
+**The leftover is where the old rule was most wrong.** `consumeFromPlate` took
+the *plate's* tag, so half a breakfast tray eaten at 19:30 was filed under
+breakfast. It now takes the time it was **eaten**; on a past day, with no clock to
+read, the plate's tag is carried rather than replaced by `snack`.
+
+**And the form can now say "no choice".** The Meal select's default is **"by the
+clock"**, `value=""`. The rule is unrepresentable in a control whose every option
+is a valid meal — which is why the old default could never be told apart from a
+decision.
+
+Two second-order defects closed on the way: a preset saved without choosing a
+meal would have stored the *normalised* `snack` and handed it back at every log,
+so `saveManualPreset` reads the **raw** form value — the only thing that still
+knows the difference — and omits the key; and `buildScanItem` read the clock
+twice, once for the stamp and once for the tag.
+
+### B2 — THE NOW-HAND, AND THREE INSTRUMENTS THAT COULD NOT SEE IT (v0.77.1)
+
+**MEASURED on the shipped page: at 360px the hand crossed the calorie figure for
+88 of the day's 1440 minutes, first at 02:42.** At 390px it cleared by **0.7px**,
+which is not a margin.
+
+**The cause.** The hand ran inward to `rim * RING_CENTER_R` — 35.6 user units —
+the rhythm ring's own centre bound, correct while the thing it stopped short of
+was that ring's gap counter. **R159.1/A put a different, larger tenant in that
+space** and the hand was never re-aimed.
+
+It now stops at the calorie arc's **outer** edge, and that clearance is
+**geometric rather than numeric**: the ring gate already holds that no centre ink
+crosses the arc's *inner* edge, so a hand beginning outside its *outer* edge
+cannot reach the text at any width or any hour. Measured after: inner **52.1px**
+at 390 and **46.5px** at 360, against text reaching **29px**.
+
+> This matters because **the text is sized in fixed pixels while every radius in
+> the ring scales with it.** A user-unit radius chosen to clear the text at one
+> width is not safe at a smaller one — shrink the ring and the text stays put.
+> That is why the fix is anchored to another piece of ink rather than to a number.
+
+The minis keep the old inner end, which is the same rule rather than an exception
+to it: a mini draws no calorie ring and carries no centre text — its label sits
+below the svg, which the grid gate asserts — and on a 42px ring the new radius
+would be a three-pixel stub.
+
+**Why three instruments missed it.** This is the finding worth keeping.
+
+1. **`R11-hand`, the harness case written for the v0.12.1 fix of this exact
+   defect**, asserted `Math.abs(inner - GG.inner) < 0.6` while its own sentence
+   promised *"no line through text"*. The arithmetic pinned the
+   **implementation**; the sentence stated the **property**. When the tenant
+   changed, the arithmetic stayed true, the promise became false, and the case
+   went on passing for every release in between.
+
+   > **An assertion that copies the implementation can only confirm that the
+   > implementation is itself.** The sentence beside it was the only thing in the
+   > suite that described the requirement, and a sentence checks nothing.
+
+2. **`ring-size-gate`'s ink sweep could not see the hand twice over**: it keeps
+   only nodes *with text content* and drops anything inside the `<svg>`. The hand
+   is a text-free SVG `<line>`. The check tested TEXT against the ARC and never
+   the ring's own INK against the TEXT — and `measure-ring-collision.py`, written
+   to explain the previous collision, framed the whole question as
+   box-versus-circle.
+
+3. **And once the hand was included, the first draft read the live element — one
+   of 1440 angles.** It printed `crossing-text=0` at 360px while the hand's inner
+   end (26.5px) was already inside the text's reach (29px), because the gate pins
+   its clock at **15:00** for re-runnability and the collision is at **02:42**.
+
+   > **The seed that makes the gate re-runnable is what froze the angle.** [[D50]]
+   > made the clock one clock so gates stop rotting at midnight; here that same
+   > pin turned a 1440-position question into a one-position answer. A gate can be
+   > re-runnable and still only ever ask about one moment.
+
+So the gate now **sweeps the hand's angle over every minute of the day** and
+counts the minutes that collide, which is a property of the geometry rather than
+of the hour the suite ran at. Its plant is the geometry too — a hand swept from
+the exact centre must be caught — so the detector is proved on the code path it
+reports from rather than on a second one that resembles it. And `hand.present` is
+required as a control, because a day that draws no hand would otherwise report
+zero for the reason that there was nothing to measure.
+
+`CAL_RING_STROKE` is a new constant and the number lives in two files — the
+stylesheet paints it — so the harness pins it against the **shipped** stylesheet
+through `getComputedStyle` rather than trusting the copy.
+
+### B3 — CALORIES ARE WHOLE NUMBERS ON SCREEN AND EXACT IN THE STORE (v0.77.2)
+
+`rDisp` shows one decimal unless the value is within 0.05 of an integer, which is
+right for grams — 4.5 g of fibre is a distinction a label can support — and wrong
+for a calorie. A tenth of a kcal is below the precision of every source this app
+has: a label rounds, and a per-100 g density times a slider-chosen portion is
+arithmetic rather than measurement. `1847.3` read as a reading nobody took.
+
+`kcalDisp` is the rule and `nutDisp(key, v)` is its by-key form, because the
+surfaces that render a nutrient **by key** cannot special-case kcal at the call
+site without one rule in several places. Applied at every calorie display: the
+meal headers, the item rows, the ring centre and its aria-label, the scan
+summary, the timeline food row, presets, averages, history, the photo draft and
+its rows, the quick-add rows and button. Four sites that already rounded by hand
+with `Math.round` were routed through it as well — same rule, one place.
+
+**Display only.** Rounding at the write boundary would be a different change and
+a worse one: a day of items each rounded to the nearest kcal sums to a total that
+is not the sum of what was eaten, and the stored numbers are what export,
+averages and every later analysis read. **Both halves are asserted**, including
+that the export still carries `100.37`.
+
+**And the gate found a site the function-level assertions could not.**
+`itemHeadline` renders the row's headline figure by the **primary nutrient key**
+and called `rDisp`, so with the default key it printed `100.4 cal`. The helper was
+correct everywhere it was called; this caller renders a nutrient by key. The
+instrument that caught it was the one that read the **rendered day** rather than
+the function — and it now names the offender: it collects every `"<n> cal"` on the
+day with tags stripped, so a figure separated from its unit by markup still
+matches, and requires at least one so it cannot pass on an empty screen.
+
+---
+
+## D — THE DAILY STACK — PRE-REGISTERED, MEASURED FIRST (2026-10-09)
+
+Serves **track** (what the stack delivers, into H24's potential) and **evaluate**
+(what is claimed about the bioactives, and by whom). It does **not** serve
+predict, and nothing in it computes a pathway.
+
+### 0. ONE THING TO RULE BEFORE ANY OF IT: WHOSE DATA GOES IN THIS FILE
+
+`CLAUDE.md` holds this repo **fixture-synthetic forever** and public-facing, and
+R159.1 kept the user's ten most-eaten foods out of this document on the ground
+that *"the ten foods one person eats most, with their portions, is a profile
+rather than a measurement."* **A daily supplement regimen is the same kind of
+thing and more so.** So this entry records the **shape** of the stack — one
+vitamin at a stated dose, two culinary oils, three bioactives — plus the database
+facts the design turns on, and the stack's actual contents stay out. They are
+**user-configured data**, which the multi-user rules already require: *no
+personal calibrations in code*, and seed data is empty.
+
+> Ruling wanted: leave it as a shape, or name the six in here. Recommended: leave
+> it. The design does not need the names and the repo is public.
+
+### 1. WHAT EXISTS TODAY, MEASURED
+
+| measured | consequence |
+|---|---|
+| `settings.supplement` is **`{enabled: true, name: "Vitamin D3", nutrients: {}}`** on the real log | the mechanism is already ON, already carrying one name — **and delivering nothing.** An empty `nutrients` map means the daily item contributes nothing to any total |
+| **the plumbing for the vitamin half already exists end to end** | `buildSupplementItem` passes `nutrients.micros` straight through, the settings form renders the **full `MICRO_SPEC` micro grid** (`renderMicroFields('supMicros', 'sup_micro_', …)`), and `vitamin_d_ug` is a declared micro key. **So this needs no new code at all — it needs amounts typed in** |
+| `vitamin_d_ug` carries `warn: 1250` mcg | an **implausibility guard** (a typo-catcher at 50,000 IU), **not** an upper intake level. The flag the ruling asks for is at 4000 IU — **100 µg, twelve times lower**. The two must never be presented as the same instrument: one catches a slip of the thumb, the other states what a body of evidence says |
+| the one blocker on the vitamin, therefore, is a **unit**: the field is µg, the bottle says IU | see §3 |
+| 7 `supplement`-source items in the log, one per created day | the per-day injection works and is the hook a stack extends |
+| the setting holds **one** name and **one** nutrient map | a six-item stack does not fit it. This is the slice's first fork |
+| the auto item is **flagged and locked in three places** — the row draws no delete control, `cycleMeal` refuses it, and the edit path refuses it with *"The supplement is set in Settings"* | and the ruling says *"any item can be untapped if skipped."* **A direct conflict with a stated reason on the other side** — *the supplement is a setting, not a log entry* — so it is named here rather than resolved in code. Three enforcement points means the fork has to be ruled, not patched at one of them |
+| `settings.presets` is `[]`, `goals` is `{}` | nothing to migrate, and the stack cannot be mistaken for presets today |
+
+### 2. THE CORPUS, MEASURED AGAINST THE TWO OILS AND THE VITAMIN
+
+Decoded from the shipped `fdc.bin` / `cnf.bin` (47 slots, 7,793 SR Legacy rows,
+5,690 CNF rows), not assumed:
+
+| | |
+|---|---|
+| **olive oil IS in the corpus**: FDC **171413**, *"Oil, olive, salad or cooking"* | per 100 g: fat **100 g**, energy **884 kcal**, saturated **13.8 g**, monounsaturated **73.0 g** (18:1 oleic **71.3 g**), polyunsaturated **10.5 g** (18:2 n-6 **9.76 g**). So *"fat with a fatty-acid profile and energy"* is **available from a cited source today**, at `reference` provenance |
+| **vitamin E is NOT a slot.** The 47 slots hold no 323 | so *"vitamin E"* **cannot** come from the corpus. Either it comes from the bottle's own label (the honesty rule's labelled path, which is fine), or slot 323 is admitted through `derive_slots.py --check` with measured coverage — the route the three judged additions took. **The sources are not in this repo**, so that measurement needs them downloaded |
+| **ALA 18:3 n-3 (851) is not a slot either** | relevant to any n-3 statement about either oil. The lipid panel holds 606/645/646/617/618/621/631/832/854/861 and no ALA |
+| **black seed oil is in NEITHER corpus** — zero rows match *nigella*, *black seed* or *black cumin* across 13,483 rows | label-only, by necessity. That is allowed and already has a path; it just has to be **said**, and its coverage line will differ from the olive oil's |
+| **vitamin D IS a slot** (328), admitted as a judged addition at 66.5% SR / 87.9% CNF | but a supplement's D3 does not come from a food database — it comes off the bottle |
+
+> **A correction worth recording, because it nearly became a finding.** The first
+> pass searched for `olive oil` and printed the first eight of twelve hits, saw a
+> mayonnaise and an anchovy, and concluded the corpus had no olive oil. It has.
+> **The truncation was read as the answer** — the same defect as a search pattern
+> typed from memory, one layer along. Settled by looking up the id.
+
+### 3. THE UNIT PROBLEM, WHICH IS A CLAIM
+
+- The label says **9000 IU**; slot 328 is **µg**. The conversion for
+  cholecalciferol is **40 IU = 1 µg**, so 9000 IU is **225 µg**. That factor is a
+  claim the app would be making, and under [[D32]] a claim carries its source. It
+  is a definitional conversion rather than a guideline, so it needs a citation but
+  not a jurisdiction.
+- **"1 tbsp" is not grams.** The corpus is per 100 g and the item's portion field
+  is grams, so a tablespoon needs a declared density (olive oil ≈ 0.91 g/mL, 1 US
+  tbsp = 14.79 mL → ~13.5 g). Also a cited constant, also not guessable.
+
+### 4. THE BIOACTIVES ALREADY HAVE A RECORD, AND A STANDING RULING OVER THEM
+
+**`medication` is already *"a named substance with a dose"*** ([[D20]]) — a
+first-class timeline kind with `name`, `dose`, `dose_unit` (closed list: mg, mcg,
+g, mL, IU, tablet, capsule, drop, puff, unit), `form`, `route`, `time`, `notes`.
+**Berberine, NAC and ashwagandha fit it with no new kind and no new schema**, and
+a dose event is exactly *"a timed, dosed exposure"*.
+
+And D20 already ruled the thing this slice walks up to:
+
+> *"The reason medication captures maximum structured detail now ... is to be the
+> foundation for a future capability that could surface drug–drug /
+> drug–supplement contraindications or interactions — but its exact form is
+> deliberately undecided ... If it is ever pursued it is a separate strategic
+> decision (D17-level), because it crosses into medical-advice territory."*
+
+**That ruling binds this slice.** The user's own framing already respects it —
+*"any pathway link is a CITED claim from the evidence layer with population and
+grade, never asserted or computed by the app"* — and [[D157]]'s second binding is
+the same line, already gated: **the app states what an input DELIVERED, never
+that it activated a pathway.** So the bioactive leg is a **citation surface**, not
+an inference surface, and the existing vocabulary gate is what keeps it one.
+
+**The doses are missing.** Only the vitamin's dose was given. A dosed exposure
+with no dose recorded is not a dosed exposure — it is a name with a timestamp.
+Needed before the stack can be configured: the amount and unit for each
+bioactive, and whether the oils are logged by volume or by weight.
+
+### 5. THE EVIDENCE LAYER HAS A SHAPE ALREADY, AND THE D3 FLAG WOULD BE A FIRST
+
+The citation machinery to extend is `LAB_GUIDELINE` + `overlay`:
+`{org, cite, version, jurisdiction}` and `{value, direction, unit, applicability}`,
+with `disclosure` for the case where authorities disagree. The user's two asks
+land on it like this:
+
+| ask | where it lands |
+|---|---|
+| *"suggest a 25(OH)D lab value, cited"* | **needs no new analyte.** `vit_d_25oh` is already in `LAB_SPEC` with Osteoporosis Canada's **75 nmol/L** sufficiency threshold, cited (Hanley et al., CMAJ 2010; reaffirmed 2024), **and** a disclosure that Health Canada/IOM define sufficiency at 50 and that the user's lab's printed interval may differ. The slice links the stack's D3 to that analyte; it does not invent a target |
+| *"flag, not verdict: 9000 IU exceeds the commonly cited adult upper intake (4000 IU)"* | **this would be the app's first cited INTAKE figure.** The calorie ring says so in its own words: *"D32 requires a citation for a target and the app has no cited intake targets."* Every cited number in here today is a lab reference range. An intake upper limit is a new class of claim, and the honest source is the IOM/NAM 2011 DRI tolerable upper intake level for adults — the same IOM the vitamin-D analyte's disclosure already names |
+
+> **A flag is not a verdict, and the difference has to be in the words.** The
+> wording has to state the figure, its source and its population, and must not
+> tell the user to change a dose. That is the clinician line, and it is gated.
+
+### 6. THE NUTRIENT LEG FITS `POTENTIAL_AXES`, WHICH DICTATES ITS HONESTY
+
+H24's axes each declare where they come from and **name what is absent, with the
+measured coverage that made it absent** (B5 at 81.8%/83.6%, manganese, carnitine
+with no column at all, biotin at 1.8%). Any axis this slice adds — vitamin D,
+monounsaturated fat, vitamin E — joins that discipline: present with a source, or
+absent with a measurement. **Vitamin E would have to enter as an absence** until
+the slot question is settled, which is the honest state and also the useful one.
+
+### 7. FORKS, FOR RULING
+
+- **A — where the stack lives.** `settings.supplement` becomes a **list**
+  (`settings.stack: [{name, kind: 'nutrient'|'bioactive', dose, dose_unit, nutrients|ref, enabled}]`),
+  or the stack is built out of **presets**, or it gets its own store.
+  *Recommended: a list in `settings`, because the existing per-day injection
+  already reads from `settings` and presets are a user-authored food library with
+  a different lifecycle.*
+- **B — the `_auto` conflict.** The daily item is non-deletable today; the ruling
+  wants any item untappable. *Recommended: the stack's items are ordinary items
+  written by one tap and individually deletable, and the non-deletable `_auto`
+  flag is retired for them. A thing you can skip is not a thing the app asserts.*
+- **C — one tap, two stores.** The nutrient-bearing items are **food items** (so
+  they reach totals and H24) and the bioactives are **medication timeline
+  records** (so they are timed exposures and never food). One tap writing into two
+  stores is new; the alternative is one store and a lie in one direction.
+  *Recommended: two stores, because [[D120]]'s separation is the whole reason the
+  app can be trusted about what a number is.*
+- **D — "untapped if skipped".** Does the tap open a confirm sheet with six
+  pre-ticked rows, or log all six and offer an undo that can drop one?
+  *Recommended: log all six and offer the undo, because the one-tap claim is the
+  point and [[D123]]'s undo is already the mechanism.*
+- **E — vitamin E.** Admit slot 323 (needs the sources downloaded and a measured
+  coverage run) or leave it to the bottle's label.
+- **F — the two conversions** (IU→µg, tbsp→g): declared constants with citations,
+  or portion entry in grams only.
+
+### 8. PRE-REGISTERED GATE (re-runnable; written before the build)
+
+| | |
+|---|---|
+| one tap logs **every** item, each at its own stated dose, at one timestamp | and a seventh item appears nowhere |
+| each item is **individually removable** after the tap, and removing one leaves the rest | the ruling's "untapped if skipped" |
+| the nutrient-bearing items reach **day totals and H24's potential**; the bioactives reach **neither** | [[D120]], asserted in both directions |
+| a bioactive's record carries `name` + `dose` + `dose_unit` and **no** pathway field | the claim never lands in the data |
+| every pathway sentence the app can render carries **source, population and strength**, and a plant with one of the three missing **fails** | the evidence layer's own contract |
+| the app's own voice contains **no** pathway assertion — the vocabulary gate extended to the new strings | [[D157]]: never plays the clinician |
+| the D3 flag states the figure, the source and the population, and **does not** advise a change | flag, not verdict |
+| the D3 flag's number is **absent** rather than guessed if the citation constant is missing | no uncited target, ever |
+| a reference-fed nutrient and a labelled one are **not summed into one figure** without the panel saying so | the honesty rule as refined by D120 |
+| vitamin E renders as a **named absence** with its measurement while it is not a slot | H24's axis discipline |
+
+**STOPPING HERE for rulings on A–F.**
+
+---
+
+## E — STRESS — PRE-REGISTERED, MEASURED FIRST (2026-10-09)
+
+Serves **track** (E1), **evaluate** (E3) and, recorded but not built, **predict**
+(E4). E2 is the interesting one and it is the one that is blocked.
+
+### 1. THE MECHANISM E1 ASKS FOR ALREADY EXISTS, AND SO DOES ITS PRECEDENT
+
+`QUICK_EVENTS` holds **four** entries — Moved, Woke, New sensor, Drink — each
+with a `says` line, a `successor` note, and `Drink` carrying
+`variants: ['wine','beer','spirit','other']`. **"Stressed" with mild / moderate /
+high is that `variants` pattern exactly**, and it is a new **type**, not a new
+kind: `SIGNAL_SPEC` states the rule in place — *"a per-occasion fact with no
+quantity is a new TYPE, not a new kind (the D35/D52 precedent): an app that does
+not know this type round-trips it intact."*
+
+Two things that are **not** free:
+
+- **Back-dating is new work.** `quickEvent` writes `nowTime()` and `localDate()`
+  unconditionally. `addSignal` already takes a date, so the seam exists, but no
+  quick event has ever been back-dated and the control does not exist.
+- **The row's class is `.qrow`, and the collision R159.1/A4 found is still
+  half-present.** Checked rather than assumed: the food row was renamed to
+  `qfrow` and **nothing counts `.qrow` any more** — the only counter was the
+  landing-gate assertion A4 re-pointed — so a fifth event inflates no
+  measurement. But `.qrow` is still worn by **two** unrelated surfaces: the
+  one-tap events row and the as-printed lab label row. The risk is not a count; it
+  is that **any styling a fifth event needs reaches the lab form too.**
+
+### 2. E2 CANNOT BE MEASURED FROM ANYTHING I CAN SEE, AND THAT IS THE FINDING
+
+The ruling says *"window and threshold measured from my data."* **The data is not
+reachable here.**
+
+| measured | |
+|---|---|
+| glucose lives in its **own** localStorage key, `healthtracker-glucose`, as columns (`GLUCOSE_STEP_S = 300`, ~288 readings/day) | by design: [[D1]]'s quota reasoning, so a stream cannot push the food log off disk |
+| `exportJSON()` serialises **`APP_STATE` only** | so **no glucose is in `export.json`**, and there is **no export path for the glucose cache at all** |
+| the local `export.json`'s 12 timeline days hold 12 sleep, 2 weight, 2 breath-ketones, 2 bm, 1 BP pair, 2 red-light, 1 cold-plunge | and **zero glucose records** |
+
+> *"A re-acquirable cache"* means re-acquirable **by the app, on the device**. It
+> does not mean readable by me. So any measurement asked of glucose needs **the
+> source file** — the Apple Health export, or the Shortcut-produced file, the same
+> artefact the import path already consumes.
+
+**What I need to measure the window and the threshold:** that file. With it, the
+numbers to produce before any detector is written are: the distribution of rises
+with no eating event in the preceding window, swept across candidate windows and
+thresholds; how many such rises a day a given pair yields; and the share of them
+that are simply an unlogged meal rather than anything else.
+
+**The last of those is the one that decides whether E2 is worth building.** A
+"rise, no food logged" suspect has two obvious explanations and the app already
+knows one of them: `fastEvents` and the pending-fast resolve row exist precisely
+because food goes unlogged. If most suspects are unlogged meals, the honest
+surface is the one that already exists.
+
+### 3. THE MACHINERY E2 AND E3 REUSE
+
+`mealResponse` is the inverse of what E2 needs and its constants are already
+ruled: `RESP_BASELINE_MIN = 20` (the mean of the 20 minutes before, half-open so
+the meal's own reading cannot raise its baseline), `RESP_BASELINE_MIN_N = 2`
+(refused below two readings), `RESP_WINDOW_MIN = 240` (4 h, cut by the next eating
+event). It already **declines with a reason** when the baseline is too thin and
+**says so** when another eating event contaminates the window.
+
+> **E2 should decline in the same words.** A suspect with a two-reading baseline
+> is not a suspect; it is a gap. The refusals are the part of `mealResponse` worth
+> copying most.
+
+And **`potentialCeiling()` already computes the n that binds all of this** — the
+count of meals with a clean response window *and* a matched row, which H24
+measured as the binding constraint on the whole prediction leg and which H29 needs
+before it can begin. E3's *"compared with n"* inherits that number rather than
+inventing one. **It is a device-only figure**; the app can show it today.
+
+### 4. "NEVER A NOTIFICATION" IS ALREADY A GATED STANCE
+
+The ruling asks for a suspect *"shown when I open it, never a notification."*
+That is the existing anti-engagement discipline, which `anti-engagement-gate`
+holds: no streaks, no nudges, no distance-to-target. **So E2's surface inherits a
+gate rather than needing a new rule** — it only has to not become the exception.
+
+### 5. E4, RECORDED NOW AS ASKED
+
+Automatic stress tagging — glucose rise **and** HR up **and** HRV down **and** no
+eating **and** not moving → a *possible stress* badge, one tap to confirm or
+dismiss, confirmations becoming training data.
+
+**Recorded so the Oura ingest is specified to carry what this needs**, which is
+the user's stated reason for recording it now:
+
+- **HR and HRV at a resolution fine enough to see a rise within a glucose
+  window.** A nightly summary cannot do it. The ingest must preserve
+  intra-day samples with their timestamps, and the **measure and the device are
+  part of the reading's identity** (the brief's own rule: Oura's RMSSD and an
+  Apple Watch's SDNN never share a series).
+- **"Not moving"** has no source today. `moved` is a tap that records *that* it
+  happened and carries no value — deliberately, and its `successor` is already
+  named in the code: *steps from Apple Health via the native shell.* So E4's
+  movement term is blocked on that, not on this slice.
+- **Confirmations are training data, which makes them a store**, and a label the
+  user chose is evidence while a badge the app proposed is not. They must not be
+  summed into anything until there is something to train.
+
+### 6. FORKS, FOR RULING
+
+- **A — is a suspect a RECORD or a derived view?** *Recommended: derived. A
+  suspect is not an observation, and a store of app-proposed guesses is the thing
+  [[D120]] keeps out of the data. Confirming one writes a real event; dismissing
+  one writes nothing, or a dismissal if E4 is to learn from it — which is fork B.*
+- **B — does a dismissal get stored?** E4 wants both classes to learn from.
+  *Recommended: yes, but in its own store and never on the timeline.*
+- **C — intensity: `variants` (mild/moderate/high) or a value with a unit?**
+  *Recommended: `variants`, following Drink, because an intensity is a word the
+  user chose and not a measurement.*
+- **D — the window and the threshold.** Blocked on the glucose file. **No number
+  gets written into the code before it is measured** — D119's lesson, and the one
+  E1 itself was decided on.
+
+### 7. PRE-REGISTERED GATE (written before the build; the detector's own gate waits on the data)
+
+| | |
+|---|---|
+| one tap records a stress event at the current time, with no value invented | the `moved` rule: presence is the datum |
+| the intensity rides in `variant`, and an unrecognised variant **round-trips intact** | D35/D52 |
+| a back-dated stress event lands on the **chosen** day and carries **no fabricated clock time** if that day is past | [[D112]] |
+| a stress event reaches the **timeline** and **never** food totals, coverage or H24 | D120, both directions |
+| the suspect surface renders **only on open**, raises no notification, and carries no streak or nudge language | the anti-engagement gate, extended |
+| a suspect whose baseline is thinner than `RESP_BASELINE_MIN_N` is **declined with its reason**, not shown | `mealResponse`'s refusal, copied |
+| a suspect over a window containing an eating event is **not** offered | the window rule it inherits |
+| every comparison states **n**, and refuses below the floor rather than drawing a line through two points | D119 |
+| no causal word appears in the app's own voice anywhere in this surface | D157 |
+
+**STOPPING HERE for rulings on A–D, and for the glucose file.**

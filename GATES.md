@@ -5619,3 +5619,75 @@ because a breakpoint override is the one case where a second definition is the
 point. The floor is 350 against 512 measured — an earlier draft asserted 200
 against an extractor finding 89 and **failed a clean tree because the bar was
 invented rather than measured**.
+
+### B1 — the meal tag, pinned at every creation path (2026-10-09)
+
+**No new gate; 17 harness assertions** (2644 → 2661). The defect was reported as a
+header reading *"Dinner · 10:51 · 4 sittings"*, so the clock is **pinned at 10:51**
+and the fixture pastes a photo claiming dinner — the reported case, reproduced,
+rather than a synthetic one near it.
+
+| what is pinned | |
+|---|---|
+| the rule and its three edges | a choice wins; a value that is **not** a meal is not a choice and falls to the clock rather than to `snack`; no clock at all answers `snack` |
+| the reported case | a 10:51 paste claiming dinner **drafts** as breakfast, **lands** as breakfast at 10:51, and the day draws **one** header — breakfast at 10:51 |
+| the model's guess | kept as `aiMeal`, and the draft **names both** when the clock overrules it |
+| **the control for that note** | a model that AGREES draws **no** note. Without this, a note on every draft would satisfy the assertion above and carry no information |
+| scan / manual / preset | each with a **control** asserting an explicit choice still wins, so every assertion is about the DEFAULT and not about overriding the user |
+| the leftover | a 19:30 consumption off a breakfast plate is **dinner** |
+| **its past-day control** | with no clock to read, the plate's tag is **carried**, not replaced by `snack` |
+
+> Every path assertion here is paired with a control, because *"the clock decides"*
+> and *"the clock overrides"* are different rules and only one of them was ruled.
+
+### B2 — the now-hand against the centre text, swept over the whole day (2026-10-09)
+
+**`ring-size-gate` extended; 3 harness assertions** (2661 → 2664).
+
+**RED FIRST, by name, on the real defect:** at 360px the hand crossed `calnum`
+for **88 of 1440 minutes**, first at **02:42**. At 390px it cleared by 0.7px.
+
+| what the gate now does | why the previous shape could not |
+|---|---|
+| tests the hand as a **segment** against each centre text **rect**, from `x1/y1/x2/y2` through the element's own screen CTM | the ink sweep kept only nodes **with text content** and dropped anything inside the `<svg>`. The hand is a text-free SVG `<line>` — excluded twice. And a diagonal line's `getBoundingClientRect` spans both endpoints, so a bbox test would claim a collision at every angle |
+| **sweeps the angle over all 1440 minutes** and counts the colliding ones | the live hand is **one** of 1440 positions, and the gate pins its clock at **15:00** for re-runnability. The collision is at 02:42 — unreachable. The seed that makes the gate re-runnable is what froze the angle |
+| plants the **geometry** (a hand swept from the exact centre must be caught) | a planted DOM node proves a second code path that merely resembles the one reporting |
+| requires `hand.present` as a **control** | the hand draws only for today, so a fixture on another day reports zero because there is nothing to measure — a refusal indistinguishable from an absence |
+
+**And the harness case written for this exact defect in v0.12.1 was passing on
+it.** `R11-hand` asserted `Math.abs(inner - GG.inner) < 0.6` while its own
+sentence promised *"no line through text"* — the arithmetic pinned the
+**implementation**, the sentence stated the **property**, and when the tenant of
+the centre changed only the sentence became false.
+
+> **An assertion that copies the implementation can only confirm that the
+> implementation is itself.** Re-pointed to the clearance, and to the thing
+> actually in the centre.
+
+`CAL_RING_STROKE` is pinned against the **shipped stylesheet** through
+`getComputedStyle`, because the number lives in two files and the cascade is what
+decides which one is real.
+
+### B3 — whole-number calories, and the site the helper assertions could not see (2026-10-09)
+
+**9 harness assertions** (2664 → 2673). The helper, its coercion, and the by-key
+form that rounds kcal while leaving grams alone — then **the property on the
+rendered day**, which is where it earned itself:
+
+- the fixture's group total is a **real fraction** (350.81), so there is something
+  to round;
+- the instrument collects **every `"<n> cal"` on the rendered day** with tags
+  stripped (a figure separated from its unit by markup still matches), requires at
+  least one so it cannot pass on an empty screen, and **names the offenders**;
+- it caught `itemHeadline`, which renders the row's headline by the **primary
+  nutrient key** and printed `100.4 cal`. The helper was correct everywhere it was
+  called; this caller renders a nutrient by key.
+
+> **Three function-level assertions passed while the surface still showed a
+> decimal.** A display rule is a property of the display, and only a test that
+> reads the rendered thing can hold it.
+
+And the other half of the ruling is asserted too: after rendering, the store still
+holds `100.37` and the **export** still carries it — because a day of items each
+rounded at the write boundary sums to a total that is not the sum of what was
+eaten.
