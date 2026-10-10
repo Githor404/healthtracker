@@ -1932,6 +1932,25 @@ window.setLS({});
     // the moment that gap matters.
     // ------------------------------------------------------------------
     var SEW0 = SEDOC.defaultView;
+    // ---- B2: the one number that lives in two files -----------------------
+    // `nowHandInnerR()` stops the now-hand outside the calorie arc, and it needs
+    // the arc's WIDTH to do it -- which the stylesheet owns (`.calrarc`,
+    // stroke-width:9). A copy of that number in app.js is a drift waiting to
+    // happen, so it is pinned against the SHIPPED stylesheet here rather than
+    // trusted. Read through getComputedStyle on a real element in the shipped
+    // document, not by parsing CSS text: the cascade is the thing that decides.
+    var seSvg = SEDOC.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    var seArc = SEDOC.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    seArc.setAttribute('class', 'calrarc');
+    seSvg.appendChild(seArc); SEDOC.body.appendChild(seSvg);
+    var seStroke = parseFloat(SEW0.getComputedStyle(seArc).strokeWidth);
+    seSvg.remove();
+    res(seStroke === HT.CAL_RING_STROKE,
+        'B2 GATE: CAL_RING_STROKE equals the stroke-width the SHIPPED stylesheet actually paints the calorie arc with -- the number is in two files and only a test can keep them equal');
+    res(HT.nowHandInnerR() === HT.CAL_RING_R + HT.CAL_RING_STROKE / 2,
+        'B2 GATE: the now-hand stops at the calorie arc OUTER edge -- the clearance is geometric (the gate already holds that no centre ink crosses the arc INNER edge), so it holds at every ring width and every hour');
+    res(HT.nowHandInnerR() > HT.RING_R * (1 - HT.RESERVED_FRAC) * HT.RING_CENTER_R,
+        'B2 GATE: and it is strictly FURTHER OUT than the old `rim * RING_CENTER_R` end -- that bound was the rhythm ring-s own centre and stopped describing the centre when R159.1/A moved the calorie figure into it');
     var shellHTML = SEDOC.body.innerHTML;
     var shellVisible = shellHTML.replace(/<details class="cited">[\s\S]*?<\/details>/g, '');
     // The two folds themselves.
@@ -5089,8 +5108,29 @@ window.setLS({});
   var inner=Math.min(r1,r2i), outer=Math.max(r1,r2i);
   res(inner > 1, 'R11-hand: it no longer starts at the centre point');
   var GG = HT.laneGeometry();
-  res(Math.abs(inner - GG.inner) < 0.6,
-      'R11-hand: it TERMINATES at the counter bounding circle — no line through text');
+  // ---- B2: RE-POINTED, AND THIS ASSERTION PASSED ON THE REGRESSION --------
+  //
+  // It read `Math.abs(inner - GG.inner) < 0.6` while its own sentence promised
+  // "no line through text". Those are not the same claim. The arithmetic pinned
+  // the IMPLEMENTATION -- the hand ends at `rim * RING_CENTER_R` -- and the
+  // sentence stated the PROPERTY. R159.1/A then moved a larger tenant into that
+  // space (the calorie ring, with the day's calories at its centre) and the hand
+  // was not re-aimed: the arithmetic stayed true, the promise became false, and
+  // this case went on passing for every release in between. Measured on the
+  // shipped page at 360px, the hand crossed the calorie figure for 88 of the
+  // day's 1440 minutes.
+  //
+  // > An assertion that copies the implementation can only ever confirm that the
+  // > implementation is itself. The sentence beside it was the only thing in the
+  // > suite that described the requirement, and a sentence checks nothing.
+  //
+  // So it is pinned to the CLEARANCE now, and to the thing actually in the centre.
+  // The pixel-level collision belongs to ring-size-gate, which sweeps the hand
+  // through all 1440 angles because the live angle is the current time and a gate
+  // that reads it measures one position out of 1440 (its own pinned clock, 15:00,
+  // is what hid 02:42).
+  res(inner >= HT.nowHandInnerR() - 0.6 && inner > GG.inner,
+      'R11-hand: it TERMINATES OUTSIDE THE CALORIE RING -- the tenant of the centre since R159.1/A -- and strictly further out than the `rim * RING_CENTER_R` bound this case used to pin, which is the bound that went on being satisfied while the hand crossed the number');
   res(outer > GG.rim && outer < HT.RING_R,
       'R13-hand: it reaches the reserved band\u2019s inner edge, with only its tip in the annulus');
 

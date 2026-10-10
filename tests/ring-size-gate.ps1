@@ -39,7 +39,8 @@ $ct = [Threading.CancellationToken]::None
 # minimum, and what it never protected is now tested directly:
 #
 #   rings >= 130px
-#   ZERO ink collisions at 360 AND 390
+#   ZERO ink collisions at 360 AND 390 -- text against the arc, AND the
+#     now-hand against the text, swept over every minute of the day (B2)
 #   all text >= 16px (D100, which font-floor-gate also holds)
 #
 # $MIN_RATIO = 70   <- retired; kept here as a comment so the next reader finds
@@ -217,6 +218,86 @@ $measure = "(function(){" +
   "  var caught=worstCorner(plant)>r;" +
   "  plant.remove();" +
   "  return {n:n,worst:Math.round(worst*10)/10,who:who,r:Math.round(r*10)/10,planted:caught}; })()," +
+
+  # ---- THE INK THAT IS NOT TEXT: THE NOW-HAND, AGAINST THE TEXT ----------
+  # B2. The sweep above could not see this, twice over: it keeps only nodes with
+  # TEXT CONTENT and it drops anything inside the <svg> (`el.closest('svg')`).
+  # The hand is an SVG <line> with no text, so it was excluded by both filters --
+  # the check tests TEXT against the ARC and never INK against TEXT.
+  #
+  # The constraint here is not a radius. A clock hand is a SEGMENT, so the test is
+  # segment-versus-rect against every centre text node, computed from x1/y1/x2/y2
+  # through the element's own screen CTM rather than from getBoundingClientRect
+  # (a diagonal line's bbox spans both endpoints and would claim a collision at
+  # every angle). `inner` and `worstText` are reported in px because they are the
+  # two numbers the FIX needs: the hand's inner end, and how far the text reaches.
+  "hand:(function(){" +
+  "  var bx=document.querySelector('#dayView .ringbox');" +
+  "  if(!bx) return {present:false,n:0,who:'no ringbox',planted:false,inner:0,worstText:0};" +
+  "  var svg=bx.querySelector('.rring');" +
+  "  var ln=svg?svg.querySelector('line.rrnow'):null;" +
+  "  var br=bx.getBoundingClientRect(), cx=br.left+br.width/2, cy=br.top+br.height/2;" +
+  "  function cross(x1,y1,x2,y2,x3,y3,x4,y4){" +
+  "    var d=(x2-x1)*(y4-y3)-(y2-y1)*(x4-x3); if(Math.abs(d)<1e-9) return false;" +
+  "    var t=((x3-x1)*(y4-y3)-(y3-y1)*(x4-x3))/d, u=((x3-x1)*(y2-y1)-(y3-y1)*(x2-x1))/d;" +
+  "    return t>=0&&t<=1&&u>=0&&u<=1; }" +
+  "  function inRect(x,y,r){ return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom; }" +
+  "  function segHit(s,r){" +
+  "    if(inRect(s.ax,s.ay,r)||inRect(s.bx,s.by,r)) return true;" +
+  "    var e=[[r.left,r.top,r.right,r.top],[r.right,r.top,r.right,r.bottom]," +
+  "           [r.right,r.bottom,r.left,r.bottom],[r.left,r.bottom,r.left,r.top]];" +
+  "    for(var i=0;i<4;i++){ if(cross(s.ax,s.ay,s.bx,s.by,e[i][0],e[i][1],e[i][2],e[i][3])) return true; }" +
+  "    return false; }" +
+  "  function seg(el){" +
+  "    var m=el.getScreenCTM(); if(!m) return null;" +
+  "    var p=el.ownerSVGElement.createSVGPoint();" +
+  "    p.x=parseFloat(el.getAttribute('x1'));p.y=parseFloat(el.getAttribute('y1'));" +
+  "    var a=p.matrixTransform(m);" +
+  "    p.x=parseFloat(el.getAttribute('x2'));p.y=parseFloat(el.getAttribute('y2'));" +
+  "    var b=p.matrixTransform(m);" +
+  "    return {ax:a.x,ay:a.y,bx:b.x,by:b.y}; }" +
+  "  var txt=[].slice.call(bx.querySelectorAll('*')).filter(function(el){" +
+  "    if(el.tagName==='svg'||el.closest('svg')) return false;" +
+  "    return (el.textContent||'').trim().length>0 && el.children.length===0; });" +
+  "  var worstText=0; txt.forEach(function(el){var q=el.getBoundingClientRect();" +
+  "    [[q.left,q.top],[q.right,q.top],[q.left,q.bottom],[q.right,q.bottom]].forEach(function(p){" +
+  "      var d=Math.sqrt((p[0]-cx)*(p[0]-cx)+(p[1]-cy)*(p[1]-cy)); if(d>worstText)worstText=d; }); });" +
+  # AND IT SWEEPS THE WHOLE DAY, which is the half that nearly got missed twice.
+  # The hand's ANGLE is the current time, so a probe that reads the live element
+  # measures one of 1440 positions and reports it as the geometry. The first draft
+  # of this check did exactly that and printed `crossing-text=0` at 360px while the
+  # hand's inner end (26.5px) was already INSIDE the text's reach (29px) -- it
+  # simply was not 06:00 or 18:00 when the gate ran. That is D50's clock-rot in a
+  # new place: a gate whose verdict depends on the hour it is run at.
+  #
+  # So the radii come from the live hand and the ANGLE is swept over every minute
+  # of the day. `n` is a count of MINUTES at which the hand crosses the centre
+  # text, which is a property of the geometry and not of the moment.
+  "  function sweep(ir,or_){ var out={n:0,at:-1,who:''};" +
+  "    for(var mm=0;mm<1440;mm++){" +
+  "      var a=((mm/1440)*360-90)*Math.PI/180;" +
+  "      var sg={ax:cx+ir*Math.cos(a),ay:cy+ir*Math.sin(a),bx:cx+or_*Math.cos(a),by:cy+or_*Math.sin(a)};" +
+  "      var who='';" +
+  "      for(var k=0;k<txt.length;k++){ if(segHit(sg,txt[k].getBoundingClientRect())){" +
+  "        who=(txt[k].className||txt[k].tagName)+' '+(txt[k].textContent||'').trim().slice(0,16); break; } }" +
+  "      if(who){ out.n++; if(out.at<0){ out.at=mm; out.who=who; } } }" +
+  "    return out; }" +
+  "  if(!ln) return {present:false,n:0,who:'no now-hand drawn',planted:false,inner:0,outer:0,at:-1," +
+  "    worstText:Math.round(worstText*10)/10};" +
+  "  var s=seg(ln);" +
+  "  if(!s) return {present:true,n:0,who:'no CTM',planted:false,inner:0,outer:0,at:-1," +
+  "    worstText:Math.round(worstText*10)/10};" +
+  "  var d1=Math.sqrt((s.ax-cx)*(s.ax-cx)+(s.ay-cy)*(s.ay-cy));" +
+  "  var d2=Math.sqrt((s.bx-cx)*(s.bx-cx)+(s.by-cy)*(s.by-cy));" +
+  "  var innerR=Math.min(d1,d2), outerR=Math.max(d1,d2);" +
+  "  var sw=sweep(innerR,outerR);" +
+  # THE PLANT IS THE GEOMETRY, not a DOM node: a hand reaching the exact centre
+  # MUST be caught, and planting it this way proves the sweep itself rather than
+  # a second code path that merely resembles it.
+  "  var plantHit=sweep(0,outerR).n>0;" +
+  "  return {present:true,n:sw.n,at:sw.at,who:sw.who,planted:plantHit," +
+  "    inner:Math.round(innerR*10)/10, outer:Math.round(outerR*10)/10," +
+  "    worstText:Math.round(worstText*10)/10}; })()," +
   "pageOverflow:document.documentElement.scrollWidth>vw+1});})()"
 
 # R13 Fork D: report the LARGEST ring that keeps the ring's own affordances above
@@ -411,8 +492,13 @@ try {
           ($P.grid.detached -eq 0) -and ($P.grid.svgW -le $MAX_MINI_PX) -and ($P.grid.perRow -ge $MIN_MINI_PER_ROW)
   $C_ok = ($P.cLight.arcVsTrack -ge $MIN_ARC_TRACK) -and ($P.cLight.arcVsBg -ge $MIN_ARC_BG) -and
           ($P.cDark.arcVsTrack  -ge $MIN_ARC_TRACK) -and ($P.cDark.arcVsBg  -ge $MIN_ARC_BG)
-  $P_ok = ($P.ring -ge $MIN_RING_PX) -and ($P.collide.n -eq 0) -and $P.collide.planted -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and ($P.bandPct -ge $MIN_BAND_PCT) -and ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $P.pageOverflow)
-  $S_ok = ($S.ring -ge $MIN_RING_PX) -and ($S.collide.n -eq 0) -and $S.collide.planted -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
+  # B2: `hand.present` is a CONTROL, not decoration. The now-hand draws only for
+  # today, so a fixture on any other day would report n=0 for the reason that
+  # there is nothing to collide -- a refusal indistinguishable from an absence,
+  # which is the shape this gate has been caught by before. Requiring the hand to
+  # EXIST is what makes `hand.n -eq 0` a measurement.
+  $P_ok = ($P.ring -ge $MIN_RING_PX) -and ($P.collide.n -eq 0) -and $P.collide.planted -and ($P.hand.n -eq 0) -and $P.hand.planted -and $P.hand.present -and $P.chkAbove -and $P.fabVisible -and $P.cellsAbove -and ($P.bandPct -ge $MIN_BAND_PCT) -and ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $P.pageOverflow)
+  $S_ok = ($S.ring -ge $MIN_RING_PX) -and ($S.collide.n -eq 0) -and $S.collide.planted -and ($S.hand.n -eq 0) -and $S.hand.planted -and $S.hand.present -and $S.chkAbove -and $S.fabVisible -and ($S.bandPct -ge $MIN_BAND_PCT) -and ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT) -and (-not $S.pageOverflow)
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
 
   $E = Measure-Sparse 390 745
@@ -423,10 +509,16 @@ try {
   Write-Host ("  phone 390x745 : ring={0}px band={1}-{2}px cells-above={3} ink-crossing-arc={4} (worst {5}px, r={6}) planted-caught={7} -> {8}" -f `
     $P.ring, $P.band, $P.bandMax, $P.cellsAbove, $P.collide.n, $P.collide.worst, $P.collide.r, $P.collide.planted, $P_ok)
   if ($P.collide.n -gt 0) { Write-Host ("                  worst offender: {0}" -f $P.collide.who) }
+  Write-Host ("                  now-hand: drawn={0} minutes-crossing-text={1}/1440 inner={2}px outer={3}px text-reaches={4}px planted-caught={5}" -f `
+    $P.hand.present, $P.hand.n, $P.hand.inner, $P.hand.outer, $P.hand.worstText, $P.hand.planted)
+  if ($P.hand.n -gt 0) { Write-Host ("                  hand crosses {0} from {1:00}:{2:00} -- first of {3} such minutes" -f $P.hand.who, [int][math]::Floor($P.hand.at/60), ($P.hand.at % 60), $P.hand.n) }
   Write-Host ("                  largest ring keeping reach at this viewport: {0}px ({1}% of vw)" -f $P.bestPx, $P.bestPct)
   Write-Host ("  phone 360x690 : ring={0}px band={1}-{2}px ({3}-{4}% of ring) ink-crossing-arc={5} (worst {6}px, r={7}) planted-caught={8} -> {9}" -f `
     $S.ring, $S.band, $S.bandMax, $S.bandPct, $S.bandMaxPct, $S.collide.n, $S.collide.worst, $S.collide.r, $S.collide.planted, $S_ok)
   if ($S.collide.n -gt 0) { Write-Host ("                  worst offender: {0}" -f $S.collide.who) }
+  Write-Host ("                  now-hand: drawn={0} minutes-crossing-text={1}/1440 inner={2}px outer={3}px text-reaches={4}px planted-caught={5}" -f `
+    $S.hand.present, $S.hand.n, $S.hand.inner, $S.hand.outer, $S.hand.worstText, $S.hand.planted)
+  if ($S.hand.n -gt 0) { Write-Host ("                  hand crosses {0} from {1:00}:{2:00} -- first of {3} such minutes" -f $S.hand.who, [int][math]::Floor($S.hand.at/60), ($S.hand.at % 60), $S.hand.n) }
   Write-Host ("  legs 390      : ring>=130={0} collide0={1} planted={2} chkAbove={3} fab={4} cells={5} bandPct={6} bandMaxPct={7} noOverflow={8}" -f `
     ($P.ring -ge $MIN_RING_PX), ($P.collide.n -eq 0), $P.collide.planted, $P.chkAbove, $P.fabVisible, $P.cellsAbove, ($P.bandPct -ge $MIN_BAND_PCT), ($P.bandMaxPct -ge $MIN_BAND_MAX_PCT), (-not $P.pageOverflow))
   Write-Host ("  heights 360   : chkBottom={0} vh=690 ringbox={1} card={2}" -f `
@@ -434,7 +526,7 @@ try {
   Write-Host ("  legs 360      : ring>=130={0} collide0={1} planted={2} chkAbove={3} fab={4} bandPct={5} bandMaxPct={6} noOverflow={7}" -f `
     ($S.ring -ge $MIN_RING_PX), ($S.collide.n -eq 0), $S.collide.planted, $S.chkAbove, $S.fabVisible, ($S.bandPct -ge $MIN_BAND_PCT), ($S.bandMaxPct -ge $MIN_BAND_MAX_PCT), (-not $S.pageOverflow))
   Write-Host ("  desktop 1200  : ring={0}px (capped) overflow={1} -> {2}" -f $D.ring, [bool]$D.pageOverflow, $D_ok)
-  Write-Host ("  thresholds    : ring >= {0}px (the 70%-of-viewport floor is RETIRED, superseded by ruling); arc bands >= {1}/{2}% of the ring at every width (the absolute 11/13px pair is RETIRED with the 70% floor); checklist, + Log and goal cells above the fold; desktop capped; ZERO ink inside the disc may cross the arc" -f $MIN_RING_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
+  Write-Host ("  thresholds    : ring >= {0}px (the 70%-of-viewport floor is RETIRED, superseded by ruling); arc bands >= {1}/{2}% of the ring at every width (the absolute 11/13px pair is RETIRED with the 70% floor); checklist, + Log and goal cells above the fold; desktop capped; ZERO ink inside the disc may cross the arc; and the now-hand crosses the centre text at ZERO of the day-s 1440 minutes" -f $MIN_RING_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
   Write-Host ("  sparse meals  : eat-lane paths={0} dots={1} drawn={2}% of the lane (largest {3}%) -> {4}" -f `
     $E.paths, $E.dots, $E.sumPct, $E.maxPct, $E_ok)
   Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference, no single arc past {1}%, and keeps its meal dots" -f $EAT_MAX_PCT, $EAT_MAX_ONE_PCT)
@@ -448,7 +540,7 @@ try {
     $MAX_MINI_PX, $MIN_ARC_TRACK, $MIN_ARC_BG)
 
   if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok) {
-    Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes)"
+    Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes + the now-hand clear of the centre text at every minute of the day)"
     Cleanup; exit 0
   }
   Write-Host "RING GATE: FAIL"

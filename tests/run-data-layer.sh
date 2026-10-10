@@ -229,7 +229,13 @@ echo "-----------------------------------------"
 # on the draft, scan / manual / preset each with a control proving the assertion is
 # about the DEFAULT and not about overriding a choice, and the leftover -- the case
 # the plate's tag got most wrong -- with its past-day control.
-EXPECTED_ASSERTIONS=2661
+# B2: 2661 -> 2664, delta +3. The now-hand's inner end, pinned where the fix put
+# it: CAL_RING_STROKE against the stroke-width the SHIPPED stylesheet actually
+# paints (one number, two files, and only a test can keep them equal), the hand
+# stopping at the calorie arc's outer edge, and that this is strictly further out
+# than the `rim * RING_CENTER_R` bound it replaced. The collision itself is the
+# ring gate's, swept over all 1440 minutes.
+EXPECTED_ASSERTIONS=2664
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

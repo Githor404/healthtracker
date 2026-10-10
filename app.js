@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.77.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.77.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -10897,6 +10897,7 @@ const VERSION_LOG = [
   { v: '0.75.0', d: '2026-10-09', note: 'The day now reads in the order you asked for: date, the rings card, the actions, your meals. Nothing sits above the rings but the date. Food left from earlier is no longer the first thing on the screen — it is one quiet line that opens the quick-add sheet, where the leftovers now live. The ring key, the time range, the my-day/the-plan switch and the eating-window lines are all behind a tap on the rings. The typical-day line is said once, beside the rings. And a fix: the Sleep on/close control was appearing over the title bar at the top of the screen.' },
   { v: '0.76.0', d: '2026-10-09', note: 'Your day now reads as the meals you actually ate. Each meal is one line — its calories, how many items, when it started — and tapping it opens that meal in place, in time order, with its macros. A meal with a drink says so, and the drink stays inside the meal it came with. When one meal has a glucose response, the line says it in words. The meals you did not eat collapse into one quiet line you can tap to add to. Biometrics is its own group now, with a one-line summary. The Food, Dose, Biometric, Fast and Note buttons are gone: the day offers Quick add and the camera, and everything else is on the Log sheet where it already was. Quick add lists the ten foods you repeat most, each with the portion you last chose and the spellings it counted together, a stepper, and one button that says what it will log. Leftovers live at the top of that sheet — which is where the day said they were, and where they were not.' },
   { v: '0.77.0', d: '2026-10-09', note: 'Which meal something is filed under now comes from the time you logged it, unless you choose one yourself. Before, it came from whatever your AI guessed off the photo, or from “snack” — which is how a heading could read Dinner above a meal eaten at 10:51. The Meal box when you add something by hand now starts at “by the clock”; a scan opens on the meal it actually is instead of on snack; a saved quick item with no meal of its own is filed by when you log it; and food left from earlier is filed by when you ate it rather than by when it was served. When your AI guesses a different meal from the clock, the photo draft now says what it guessed and what was used instead.' },
+  { v: '0.77.1', d: '2026-10-09', note: 'On a narrower phone the clock hand on the day rings crossed the calorie number in the middle of them. The hand now stops outside the calorie ring instead of reaching into the centre, which is where that figure has lived since the calorie ring arrived. It was crossing the number for 88 minutes of every day, and the check that watches the rings could not see it: it looked at the hand only at the one time of day the test pins its clock to, and it only ever looked for text crossing the ring rather than for the rings own ink crossing the text. It now sweeps the hand through all 1440 minutes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -11617,6 +11618,28 @@ function rhythmModel(dateKey, opts) {
 const RING_R = 88;                    // drawing radius in viewBox units (180 box)
 const RESERVED_FRAC = 0.12;           // outer annulus reserved for R14; nothing draws there
 const RING_CENTER_R = 0.46;           // centre bounding circle, as a fraction of the rim
+// B2 -- WHERE THE NOW-HAND STOPS, and why it is not RING_CENTER_R any more.
+//
+// The hand used to run inward to `rim * RING_CENTER_R` (35.6 user units), which
+// was correct while the thing it stopped short of was the rhythm ring's own gap
+// counter. R159.1/A put a DIFFERENT, LARGER tenant in that space -- the calorie
+// ring, with the day's calories at its centre -- and the hand was not re-aimed.
+//
+// MEASURED at 360px (a 134px ring): the hand's inner end landed 26.5px from the
+// centre while the calorie figure reaches 29px, so the hand crossed the number
+// for 88 OF THE DAY'S 1440 MINUTES. At 390px it cleared by 0.7px, which is not a
+// margin, it is luck. And the text is sized in FIXED pixels while every radius
+// here scales with the ring, so a user-unit radius chosen to clear it at one
+// width cannot be relied on at a smaller one -- shrink the ring and the text
+// stays put.
+//
+// So the hand now stops at the calorie arc's OUTER edge. That is not a measured
+// clearance, it is a geometric one: the ring gate already holds that no centre
+// ink crosses the calorie arc's INNER edge, so a hand that begins outside its
+// OUTER edge cannot reach the text at any width or any hour. A function, not a
+// constant, because CAL_RING_R is declared further down this file and a
+// top-level const would read it before it exists.
+function nowHandInnerR() { return CAL_RING_R + CAL_RING_STROKE / 2; }
 const LANE_ANCHOR_STROKE = 6.59;      // 12 px at the shipped 328 px ring
 const LANE_PRACTICE_STROKE = 7.68;    // 14 px -- the freed radius goes here
 // Capped at 2 so the ruled stroke widths fit with legible gaps (4.8 px). A
@@ -11793,10 +11816,20 @@ function rhythmSVG(model, size, mini) {
            ' cx="' + r2(x) + '" cy="' + r2(y) + '" r="' + rr + '"/>';
   });
 
-  // The hand runs from the counter's bounding circle out to the reserved band's
-  // inner edge, with only its TIP entering the reserved annulus.
+  // The hand runs from OUTSIDE THE CALORIE RING out to the reserved band's inner
+  // edge, with only its TIP entering the reserved annulus. It used to start at
+  // `G.inner` -- the rhythm ring's centre bound, correct when the gap counter was
+  // the tenant there and wrong since R159.1/A moved the calorie figure in. See
+  // `nowHandInnerR` for the measurement and for why the clearance is geometric
+  // rather than numeric.
+  //
+  // THE MINIS KEEP THE OLD INNER END, and that is the same rule rather than an
+  // exception to it: a mini draws no calorie ring and carries no centre text (its
+  // label sits BELOW the svg, which the grid gate asserts), so there is nothing
+  // in its centre to clear -- and on a 42px ring a hand starting at 62.5 user
+  // units would be a stub three pixels long.
   if (model.nowMin != null) {
-    const [xi, yi] = polarPt(C, C, G.inner, minToDeg(model.nowMin));
+    const [xi, yi] = polarPt(C, C, mini ? G.inner : nowHandInnerR(), minToDeg(model.nowMin));
     const [xo, yo] = polarPt(C, C, G.rim * 1.04, minToDeg(model.nowMin));
     out += '<line class="rrnow" x1="' + r2(xo) + '" y1="' + r2(yo) + '" x2="' + r2(xi) + '" y2="' + r2(yi) + '"/>';
   }
@@ -14594,6 +14627,12 @@ function sleepRowLabel(rec) {
 // DESCRIPTIVE. There is no "remaining" figure for the same reason -- remaining
 // implies a number you are supposed to reach.
 const CAL_RING_R = 58;              // inside the rhythm rim, measured against it
+// B2: the arc's width, in viewBox units, as the STYLESHEET draws it
+// (`.calrarc` / `.calrtrack`, stroke-width:9). The paint stays in CSS; this is
+// the geometry, and `nowHandInnerR` needs it to stop the now-hand outside the
+// ring. Two files holding one number is a drift waiting to happen, so the
+// harness pins this against the shipped stylesheet rather than trusting it.
+const CAL_RING_STROKE = 9;
 function calorieRingBasis(t) {
   const kcal = num(t && t.kcal);
   const goals = (APP_STATE.settings && APP_STATE.settings.goals) || {};
@@ -17328,7 +17367,7 @@ window.HT = {
   RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
   dayRollCheck, dayForWriteKey,
   calorieRingBasis, calorieRingWords, calorieRingSVG, calorieCentreHTML,
-  dayFiguresHTML, CAL_RING_R, plateRecallCount, plateRecallLineHTML,
+  dayFiguresHTML, CAL_RING_R, CAL_RING_STROKE, nowHandInnerR, plateRecallCount, plateRecallLineHTML,
   openQuickAdd, quickLeftoversHTML,
   MEAL_KINDS, mealByTimeOfDay, mealAtCreation, mealKindGroups, emptyMealKinds, mealResponseLine,
   biometricSummary, dayGroupToggle, dayGroupIsOpen, dayGroupsOpenAll,
