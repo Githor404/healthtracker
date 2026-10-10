@@ -241,7 +241,16 @@ echo "-----------------------------------------"
 # real fraction (350.81), the header reading 351, no decimal in any calorie figure
 # anywhere on the day, and the ring centre agreeing. Plus the half a display change
 # could quietly break: the store and the export keep every digit.
-EXPECTED_ASSERTIONS=2673
+# R168: 2673 -> 2701, delta +28. The daily stack's contract and its one write:
+# schema v13 with a structural-passthrough migrator, the stack shipping empty and
+# surviving an allowlist-rebuild normaliser, the item contract field by field
+# (including that the bioactive TAG rides on a FOOD item, which is ruling D-C),
+# the IU table that REFUSES what it has no factor for, and then ruling D-D end to
+# end: every enabled row ticked on open, one confirm writing only the ticked ones,
+# the unticked ones absent from BOTH stores, one timestamp across the lot, no
+# `_auto`, D120 asserted in both directions, and an all-unticked confirm refused
+# rather than succeeding emptily.
+EXPECTED_ASSERTIONS=2701
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

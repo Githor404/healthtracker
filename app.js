@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 12;
-const APP_VERSION      = '0.77.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 13;
+const APP_VERSION      = '0.78.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -89,7 +89,9 @@ function localDate(d) {
 
 function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  // R168: `stack` ships EMPTY, like `presets`. The multi-user rules forbid personal
+  // calibrations in code, and a stack is the most personal thing in this app.
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, labels: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -499,6 +501,11 @@ function normalizeItem(it, clampMacros) {
   if (micros) out.micros = micros;
   const tzo = normalizeTzo(it.tzo);      // D29: PRESERVE only -- creation paths supply it,
   if (tzo !== undefined) out.tzo = tzo;  // this boundary never invents one (Pin 3).
+  // R168 / ruled D-C: THE BIOACTIVE TAG. Declared here in the same commit that
+  // writes it (D129), because an allowlist rebuild drops anything it has not been
+  // told about. It is a LABEL on a food item, not a second record: the item's fat
+  // and energy are the item's, and the tag is what a cited claim attaches to.
+  if (it.bioactive != null && String(it.bioactive).trim() !== '') out.bioactive = String(it.bioactive).trim();
   // R6 Fork A: the photo-meal correction loop. Additive optional fields, explicit
   // allowlist entries because this normalizer is a rebuild (the tzo / panelId
   // pattern). No bump: on D29's asymmetry test, losing them degrades a FUTURE
@@ -566,26 +573,144 @@ function normalizeItem(it, clampMacros) {
   return out;
 }
 
-function normalizeSupplement(sup) {
-  sup = (sup && typeof sup === 'object' && !Array.isArray(sup)) ? sup : {};
-  const rawN = (sup.nutrients && typeof sup.nutrients === 'object' && !Array.isArray(sup.nutrients)) ? sup.nutrients : {};
+// EXTRACTED for R168, because the stack's items carry a nutrient map of exactly
+// this shape and two copies of one coercion is how two shapes start to differ.
+// Returns the map; the caller decides whether an empty one is attached.
+function normalizeSupplementNutrients(raw) {
+  const rawN = (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
   const nutrients = {};
   ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'].forEach((k) => {
     if (rawN[k] != null && rawN[k] !== '') nutrients[k] = clampNonNeg(rawN[k]);   // coerce + clamp (D12 hardening)
   });
   const micros = normalizeMicros(rawN.micros);
   if (micros) nutrients.micros = micros;
+  return nutrients;
+}
+function normalizeSupplement(sup) {
+  sup = (sup && typeof sup === 'object' && !Array.isArray(sup)) ? sup : {};
   return {
     enabled: sup.enabled === true,
     name: typeof sup.name === 'string' ? sup.name : '',
-    nutrients: nutrients,
+    nutrients: normalizeSupplementNutrients(sup.nutrients),
   };
 }
+// ===========================================================================
+// R168 -- THE DAILY STACK (schema v13)
+// ---------------------------------------------------------------------------
+// Serves TRACK (what the stack delivers, into the day's totals and H24) and
+// EVALUATE (what is claimed about it, and by whom). Nothing here computes a
+// pathway, and nothing here asserts one: [[D157]]'s binding is that the app states
+// what an input DELIVERED, never that it activated anything.
+//
+// RULED D-C -- ONE RECORD, ONE STORE, AND THE TAG IS THE JOINT. `kind` names the
+// STORE a stack item is written to, and nothing is written twice:
+//
+//   'food' -> a day item. Reaches totals, coverage and H24, like any other food.
+//   'dose' -> a medication timeline record ([[D20]]: a named substance with a dose).
+//             Reaches the timeline and NEVER food totals ([[D120]]).
+//
+// `bioactive` is a TAG and rides on EITHER kind, which is the whole point of the
+// ruling: the item in both of R168's lists is a FOOD -- its fat and energy belong
+// in the day -- and its constituent still needs something for a cited claim to
+// attach to. So the claim attaches to the TAG, and the evidence layer is keyed by
+// tag rather than by store. A capsule's dose record carries a tag the same way,
+// which means ONE lookup serves both and neither needs a second record.
+//
+// RULED D-B -- these are ORDINARY ITEMS. No `_auto`: that flag means "this is a
+// setting, not a log entry" and is enforced in three places (no delete control,
+// `cycleMeal` refuses, the edit path refuses by name). A stack item is a log entry
+// the user confirmed, so it is deletable, editable and cyclable like the rest.
+//
+// The stack ships EMPTY, per the multi-user rules: no personal calibrations in
+// code, and seed data is zero.
+const STACK_KINDS = ['food', 'dose'];
+// A stack item's dose unit is MED_DOSE_UNITS -- the medication record's own closed
+// list (D20), referenced rather than copied. A dose written from the stack and one
+// typed into the form are the same kind of fact, and two lists would be two facts.
+// Declared further down this file; this is a function body, so it reads it at call
+// time, long after the module has finished evaluating.
+
+// ---- IU IS NOT A MASS, AND THERE IS NO GENERAL CONVERSION -----------------
+// An International Unit measures BIOLOGICAL ACTIVITY, and the mass it corresponds
+// to is specific to the substance -- vitamin D's factor and vitamin A's are
+// different numbers for different reasons, and vitamin A's depends on the form.
+// So this is a TABLE WITH ONE ENTRY AND A CITATION, not a factor, and an IU dose
+// for anything not in it is REFUSED rather than converted by a number that does
+// not exist.
+//
+// RULED: convert at ENTRY. The stored value is micrograms, because that is what
+// `vitamin_d_ug` is; the bottle's IU figure is kept beside it so the surface can
+// show the user the number they read off the label.
+const IU_TO_UG = {
+  vitamin_d_ug: {
+    ug_per_iu: 0.025,                       // 40 IU = 1 microgram
+    substance: 'cholecalciferol (vitamin D3)',
+    org: 'definitional',
+    cite: '1 IU vitamin D = 0.025 micrograms cholecalciferol',
+    // NO `version` and NO `jurisdiction`, and their absence is the point: a
+    // definitional conversion has neither, and an empty string in their place
+    // would be a field pretending to carry something. (It also collided with
+    // check-zxing, which read the FIRST `version: '...'` in the whole file --
+    // see the fix there, made in this commit.)
+  },
+};
+// Returns the dose in the micro key's own unit, or null when it cannot be known.
+// Null is the honest answer and the callers show the IU figure alone rather than a
+// converted one -- D8: absent beats invented.
+function doseToMicro(key, dose, unit) {
+  const d = num(dose);
+  if (!(d >= 0)) return null;
+  if (unit === 'IU') {
+    const c = IU_TO_UG[key];
+    return c ? d * c.ug_per_iu : null;
+  }
+  // mcg and ug are the same unit under two spellings; MICRO_SPEC's keys are ug.
+  if (unit === 'mcg' && /_ug$/.test(String(key))) return d;
+  if (unit === 'mg' && /_mg$/.test(String(key))) return d;
+  if (unit === 'g' && /_g$/.test(String(key))) return d;
+  return null;
+}
+
+// ALLOWLIST REBUILD ([[D131]]): every field a stack item may carry is declared
+// here, and a property written anywhere else is dropped the first time the store
+// is read back.
+function normalizeStackItem(raw) {
+  const r = raw || {};
+  const name = String(r.name == null ? '' : r.name).trim();
+  if (!name) return null;                                    // a nameless item is not an item
+  const out = {
+    id: String(r.id == null ? '' : r.id) || newStackId(),
+    name: name,
+    kind: STACK_KINDS.indexOf(r.kind) >= 0 ? r.kind : 'dose',
+    enabled: r.enabled !== false,                            // ruled default: on
+  };
+  // The dose, AS STATED on the bottle. Kept verbatim in its own unit -- the H4
+  // rule one store along: the reading is evidence, and anything derived from it
+  // sits BESIDE it rather than in place of it (D55/D70).
+  if (r.dose != null && String(r.dose) !== '') out.dose = clampNonNeg(r.dose);
+  if (MED_DOSE_UNITS.indexOf(r.dose_unit) >= 0) out.dose_unit = r.dose_unit;
+  if (num(r.grams) > 0) out.grams = num(r.grams);            // a food item's portion
+  const n = normalizeSupplementNutrients(r.nutrients);
+  if (Object.keys(n).length) out.nutrients = n;      // absent, not empty (D8)
+  // THE TAG. A bare string, and free text by necessity: a bioactive constituent is
+  // not a closed list anyone can author in advance, and a closed list would refuse
+  // the next one. Escaped at render like every other user string.
+  if (r.bioactive != null && String(r.bioactive).trim() !== '') out.bioactive = String(r.bioactive).trim();
+  return out;
+}
+function normalizeStack(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeStackItem).filter(function (x) { return !!x; });
+}
+let _stackSeq = 0;
+function newStackId() { _stackSeq++; return 's' + Date.now().toString(36) + '_' + _stackSeq; }
+
 function normalizeSettings(s) {
   s = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
   return {
     goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
     supplement: normalizeSupplement(s.supplement),
+    stack: normalizeStack(s.stack),                   // R168 (v13): ships empty
     presets: Array.isArray(s.presets) ? s.presets : [],
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
     signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
@@ -930,6 +1055,29 @@ function migrateV11toV12(v11, nowISO) {
   out.migratedAt = typeof v11.migratedAt === 'string' ? v11.migratedAt : nowISO;
   return out;
 }
+// R168 -- v12 -> v13. Structural passthrough: `settings.stack` starts EMPTY, so no
+// day changes and every store comes through byte-identical (gated).
+//
+// WHY IT BUMPS, by the D29 asymmetry test this chain already applies twice. Two
+// things are added by this slice and they fall on opposite sides of it:
+//
+//   `settings.stack` -- an older app's normalizer is an ALLOWLIST REBUILD, so it
+//   strips the key. What is lost is USER-AUTHORED CONFIGURATION: five items, each
+//   with a dose the user typed off a bottle. Re-entering it is the cost, and
+//   silently losing it is the defect. That is the side `grams` and `query` are on.
+//
+//   an item's `bioactive` tag -- stripped by an older app too, and what is lost is
+//   the attachment point for a future cited claim. The macros, the energy and the
+//   day's totals are all still right. That is a DEGRADED FUTURE ANALYSIS, which
+//   is the `ai_grams` / `ai_identity` side, and on its own it would not bump.
+//
+// So the FIRST one arms the forward guard, and the guard is what protects an older
+// app from a blob it would quietly strip.
+function migrateV12toV13(v12, nowISO) {
+  const out = Object.assign({}, v12, { version: 13 });
+  out.migratedAt = typeof v12.migratedAt === 'string' ? v12.migratedAt : nowISO;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -946,6 +1094,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 9) < 10) out = migrateV9toV10(out, nowISO);
   if ((out.version || 10) < 11) out = migrateV10toV11(out, nowISO);
   if ((out.version || 11) < 12) out = migrateV11toV12(out, nowISO);
+  if ((out.version || 12) < 13) out = migrateV12toV13(out, nowISO);
   return out;
 }
 
@@ -2830,6 +2979,81 @@ function buildSupplementItem(sup, dayKey) {
     confidence: 'measured', notes: 'auto-applied daily supplement',
     source: 'supplement', _auto: true, micros: n.micros, tzo: nowTZO(),   // D29 (stamped)
   }, true);
+}
+
+// ---- R168: THE STACK, AS A PLAN AND AS ONE WRITE -------------------------
+//
+// RULED D-D -- UNTICK BEFORE THE WRITE. `stackPlan()` is what the sheet opens
+// with: every enabled item, TICKED. The user unticks what they skipped, and ONE
+// confirm writes only what was taken. There is no write-then-delete, and that is
+// not a preference -- logging five doses when four were taken puts a dose that
+// did not happen through the day's totals, the fast calculation and H24, and then
+// asks the user to tidy it up. [[D8]] refuses invented facts; it does not make an
+// exception for facts the app intends to remove.
+//
+// It also could not have worked: `offerUndo` holds a SINGLE `_undoFn`, renders one
+// button in one seven-second toast, and `undoRemove` removes the whole set it was
+// given. The undo is an all-or-nothing safety net for the confirm, which is what a
+// safety net should be, and it was never a per-item control.
+function stackPlan() {
+  const stack = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const time = stampTime(APP_STATE.current) || nowTime();
+  return {
+    time: time,
+    rows: stack.filter(function (s) { return s && s.enabled !== false; })
+      .map(function (s) {
+        const row = { id: s.id, name: s.name, kind: s.kind, ticked: true };
+        if (s.dose != null) row.dose = s.dose;
+        if (s.dose_unit) row.dose_unit = s.dose_unit;
+        if (s.bioactive) row.bioactive = s.bioactive;
+        return row;
+      }),
+  };
+}
+// `skip` is a set of ids the user unticked. Anything not named in it was taken.
+// Written at ONE timestamp: the stack is one act, and five times a second apart
+// would invite five different meal tags and five baselines.
+function logStack(skip) {
+  const skipped = {};
+  (Array.isArray(skip) ? skip : []).forEach(function (id) { skipped[String(id)] = 1; });
+  const stack = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const taken = stack.filter(function (s) {
+    return s && s.enabled !== false && !skipped[String(s.id)];
+  });
+  if (!taken.length) return { ok: false, error: 'Nothing ticked.', items: [], records: [] };
+  const dk = APP_STATE.current;
+  const time = stampTime(dk) || nowTime();
+  const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day.' };
+  const items = [], records = [];
+  taken.forEach(function (s) {
+    if (s.kind === 'food') {
+      // A FOOD ITEM, ordinary in every way (ruled D-B): no `_auto`, so it carries
+      // a delete control, can be edited and can be cycled. `source: 'supplement'`
+      // keeps SOURCES unchanged and says truthfully where it came from.
+      const n = s.nutrients || {};
+      const it = normalizeItem({
+        name: s.name, meal: 'supplement', time: time,
+        kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
+        fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g, micros: n.micros,
+        grams: s.grams,
+        confidence: 'measured', notes: '', source: 'supplement',
+        bioactive: s.bioactive, tzo: nowTZO(),           // D29 (stamped)
+      }, true);
+      day.items.push(it);
+      items.push(it);
+    } else {
+      // A DOSE, through `addSignal` -- the one timeline contract (D19), declaring
+      // `stack` as its adapter rather than passing itself off as manual.
+      const r = addSignal({ kind: 'medication', name: s.name, dose: s.dose,
+                            dose_unit: s.dose_unit, bioactive: s.bioactive,
+                            time: time, date: dk, source: 'stack' });
+      if (r && r.ok && r.record) records.push(r.record);
+    }
+  });
+  if (items.length && day.status === 'complete') day.status = 'in_progress';   // reopen, as every path does
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, time: time, items: items, records: records,
+           skipped: Object.keys(skipped).length };
 }
 
 // Inject the supplement at device-side day creation, if enabled and absent (D8/4).
@@ -5409,7 +5633,7 @@ const SIGNAL_KINDS = ['biometric', 'event', 'medication'];   // D20 addendum: me
 // 'manual' because the ruling names a successor -- steps from Apple Health via
 // the native shell replace the tap -- and a record that cannot say it came from
 // a tap cannot be told apart from one the user typed when that day comes.
-const SIGNAL_ADAPTERS = ['manual', 'lab', 'quick'];
+const SIGNAL_ADAPTERS = ['manual', 'lab', 'quick', 'stack'];   // R168: the stack is an adapter (D19)
 // Medication closed enums (name is open-ended free text; these drive form controls,
 // no cross-wiring — MICRO_SPEC/M1 discipline).
 const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'drop', 'puff', 'unit'];
@@ -5590,6 +5814,11 @@ function normalizeSignal(raw) {
     if (raw.scheduled === true) rec.scheduled = true;                        // intent only (no scheduling built)
     if (raw.prescriber != null && String(raw.prescriber) !== '') rec.prescriber = String(raw.prescriber);
     if (raw.reason != null && String(raw.reason) !== '') rec.reason = String(raw.reason);
+    // R168 / ruled D-C: THE SAME TAG the food item carries, so the evidence layer
+    // is keyed by TAG and one lookup serves both stores. Declared in the commit
+    // that writes it (D129). It is a label, never a claim: nothing about a pathway
+    // is stored here, only the name of the thing a cited claim may be about.
+    if (raw.bioactive != null && String(raw.bioactive).trim() !== '') rec.bioactive = String(raw.bioactive).trim();
   } else {
     rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
     if (raw.value != null && String(raw.value) !== '') {
@@ -10934,6 +11163,7 @@ const VERSION_LOG = [
   { v: '0.77.0', d: '2026-10-09', note: 'Which meal something is filed under now comes from the time you logged it, unless you choose one yourself. Before, it came from whatever your AI guessed off the photo, or from “snack” — which is how a heading could read Dinner above a meal eaten at 10:51. The Meal box when you add something by hand now starts at “by the clock”; a scan opens on the meal it actually is instead of on snack; a saved quick item with no meal of its own is filed by when you log it; and food left from earlier is filed by when you ate it rather than by when it was served. When your AI guesses a different meal from the clock, the photo draft now says what it guessed and what was used instead.' },
   { v: '0.77.1', d: '2026-10-09', note: 'On a narrower phone the clock hand on the day rings crossed the calorie number in the middle of them. The hand now stops outside the calorie ring instead of reaching into the centre, which is where that figure has lived since the calorie ring arrived. It was crossing the number for 88 minutes of every day, and the check that watches the rings could not see it: it looked at the hand only at the one time of day the test pins its clock to, and it only ever looked for text crossing the ring rather than for the rings own ink crossing the text. It now sweeps the hand through all 1440 minutes.' },
   { v: '0.77.2', d: '2026-10-09', note: 'Calories now read as whole numbers everywhere they are shown -- the meal headings, the item rows, the ring, the averages, the history. A tenth of a calorie is finer than anything the app can actually know: a label rounds, and a portion worked out from a per-100g figure is arithmetic rather than a measurement, so 1847.3 was reading like a reading nobody took. What is STORED keeps every digit, because the totals, the export and anything worked out from them later should add up to what you ate rather than to what the screen had room for. Grams are unchanged -- 4.5 g of fibre is a real difference.' },
+  { v: '0.78.0', d: '2026-10-10', note: 'Groundwork for the daily stack, and this release is the plumbing rather than the screen -- there is nothing new to look at yet. The app can now hold a list of things you take every day, each with the dose as the bottle states it, and one confirm will log only the ones you leave ticked: nothing is ever logged and then deleted, because a dose you did not take should not pass through your totals on its way out. Each entry is either a food, which reaches your day-s calories and macros like any other food, or a dose, which goes on your timeline and never into food totals. An entry can also carry the name of an active constituent, so that anything the app later says about it can be shown with its source. Doses stated in IU are converted where you type them, and only for vitamin D: an IU is a measure of activity, not of weight, and the conversion is different for every substance -- so the app refuses to convert the others rather than using a number that does not exist. Your existing log is untouched.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17391,7 +17621,10 @@ window.HT = {
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
   SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, EAT_GAP_MAX_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
-  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, kcalDisp, nutDisp, setClock, nowMs, nowMinutes, todayKey, localDate,
+  swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, kcalDisp, nutDisp,
+  // R168: the daily stack (schema v13)
+  STACK_KINDS, IU_TO_UG, doseToMicro, normalizeStackItem, normalizeStack,
+  normalizeSupplementNutrients, stackPlan, logStack, migrateV12toV13, setClock, nowMs, nowMinutes, todayKey, localDate,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,

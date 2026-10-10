@@ -15,7 +15,23 @@ set -uo pipefail
 DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$DIR"
 
-val() { grep -oE "$1: '[^']*'" app.js | head -1 | sed -E "s/.*'([^']*)'.*/\1/"; }
+# SCOPED TO THE ZXING OBJECT, and it was not before. This read the FIRST
+# `version: '...'` anywhere in app.js and trusted it to be ZXing's. The moment any
+# object declared earlier in the file carried a `version` key, the gate stopped
+# measuring the scanner and started measuring that one -- and it reports the result
+# as "no ZXING.version in app.js", which sends the reader hunting for a deletion
+# that never happened. Found 2026-10-10, when R168's citation table added a
+# `version` field 4,600 lines above ZXING.
+#
+#   A whole-file grep with `head -1` cannot say which thing it matched, in a gate
+#   whose entire job is that a silent miss means the scanner will not load.
+#
+# The object delimits itself, so the scope can be exact -- and the guard below
+# fails loudly if it is ever moved or renamed, rather than falling back to the
+# whole file again.
+zblock() { sed -n "/^const ZXING = {/,/^};/p" app.js; }
+[ -n "$(zblock)" ] || { echo "check-zxing: FAIL - no 'const ZXING = {' block in app.js (moved or renamed?)"; exit 1; }
+val() { zblock | grep -oE "$1: '[^']*'" | head -1 | sed -E "s/.*'([^']*)'.*/\1/"; }
 VERSION=$(val version)
 URL=$(val url)
 SRI=$(val integrity)

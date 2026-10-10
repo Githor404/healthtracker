@@ -135,6 +135,13 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # would REWRITE history: the medication would claim to have been created at the
 # moment someone undid a mistake. The detector matches the shape of the write, not
 # its intent, which is exactly why the manifest carries the reason.
+# R168: `logStack` is STAMPED, twice over and for one reason. Its FOOD branch sets
+# tzo: nowTZO() on the item it builds; its DOSE branch goes through addSignal,
+# which stamps for itself. A stack confirm is A NEW RECORD AT A NEW TIME -- the
+# stack is a standing configuration, but taking it is an act at a moment, and the
+# offset belongs to the moment. It is a site of its own rather than a caller of
+# addManualEntry because it writes into TWO stores from one confirm (ruled D-C:
+# one record, one store, and the tag is the joint).
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
@@ -151,6 +158,7 @@ logPreset
 logRegimenEntry
 logRepeat
 quickAddLog
+logStack
 logScanItem
 maybeInjectSupplement
 consumeFromPlate
