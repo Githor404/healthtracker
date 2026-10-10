@@ -13673,3 +13673,214 @@ the citation rather than a broken fixture.
 **E** (the one-tap Stressed, back-dating, and the suspect at W=60 / T=2.5 /
 lookback 240 leading with *food I didn't log*), then **R155**. Nothing in E is in
 the code yet, and no window or threshold is written into it.
+
+---
+
+## COMBOS — saved multi-item entries — PRE-REGISTERED, MEASURED FIRST (2026-10-10)
+
+Serves **track** (an input that currently delivers nothing starts delivering what
+it has) and, through caffeine, **evaluate**.
+
+### 1. MEASURED: how coffee is logged today, and the suspicion is exactly right
+
+54 days of log, read from the fresh export. **Coffee appears twice.**
+
+| | |
+|---|---|
+| 2026-10-01 | name **`'Coffee '`** — with a trailing space — `source: manual`, `confidence: eyeballed`, **kcal 0, no grams, no micros, no ref, no notes** |
+| 2026-10-03 | name `espresso`, `source: ai-paste`, kcal 7.2, 80 g, **no micros, no ref** |
+
+> **The manual entry is a name and a timestamp and nothing else.** Not a single
+> nutrient reaches it — no caffeine, no potassium, no niacin, not even energy — from
+> an input taken more than once a day.
+
+**And no dairy is logged with either.** Searching the whole log for cream, milk or
+half-and-half returns 18 items and **every one of them is coleslaw or ice cream**.
+The half-and-half that goes in the coffee has never been logged at all.
+
+So today's state is not "coffee is logged imprecisely". It is: **one of the most
+frequent inputs in the day contributes nothing to any total, and its companion
+is invisible.**
+
+### 2. MEASURED: the corpus can deliver exactly what the ruling claims
+
+Decoded from the shipped bins, **and checked in both namespaces because they can
+disagree** — here they do not:
+
+| row | caffeine | potassium | niacin | energy |
+|---|---|---|---|---|
+| **CNF 2873** *Coffee, brewed, prepared with tap water* | **40 mg** | **49 mg** | **0.19 mg** | 0 |
+| **FDC 171890** *Beverages, coffee, brewed, prepared with tap water* | **40 mg** | **49 mg** | **0.19 mg** | 1 |
+
+**Identical to the decimal.** So *"brewed coffee carries caffeine, potassium,
+niacin"* is confirmed from a cited source, in both namespaces, per 100 g. At
+250 mL that is **100 mg caffeine, 123 mg potassium, 0.48 mg niacin, ~0 kcal**.
+
+| the dairy | |
+|---|---|
+| **CNF 150** *Cream, cereal (half and half), 10% M.F.* | the exact 10% product: 118 kcal, 10 g fat, calcium 107 mg, potassium 132 mg per 100 g. **15 mL ≈ 15.5 g → ~18 kcal** |
+| **A2 milk** | **in NEITHER corpus** — zero rows across 13,483. And that is correct rather than a gap: *A2* names a beta-casein variant, **not a composition**, so no database distinguishes it. It resolves to a generic milk row (CNF 61 *Milk, fluid, partly skimmed, 2% M.F.*, or whole), and **the app must not print "A2 milk" as the row it matched** — that is [[D136]]'s naming rule, and the one place this variant could tell a lie |
+| **Tim Hortons** | **in neither corpus**, as expected: these are generic-food databases, not chains. §4 is what that forces |
+
+> **A correction, recorded because it is the second time in two days.** My first
+> corpus search was anchored — `^coffee` — and returned **0 FDC rows**. Unanchored
+> it returns **37**: FDC prefixes rows by food group, so every one of them is
+> *"Beverages, coffee, …"*. I searched unanchored only because the olive-oil error
+> earlier in this session was this identical shape. **An anchored search is a claim
+> about naming convention, not about contents.**
+
+### 3. IT CONFLICTS WITH [[D62]] FORK 3, AND THE CONFLICT IS STRUCTURAL
+
+Asked to say if it does. **It does**, and not at the edges.
+
+**D62 Fork 3 ruled a composite is ONE record:** *"a composite is a preset with a
+component list"*, *"composition computed once and **FROZEN**, with the component
+list retained as provenance"*. **Fork 5 then ruled how that one record's numbers
+behave:** *"confidence is the MINIMUM; coverage is the **INTERSECTION** … a
+composite carries micronutrient K only if EVERY component carries K."*
+
+**A combo logs its parts as SEPARATE ITEMS.** That is a different object with
+different arithmetic:
+
+| | D62 composite | this combo |
+|---|---|---|
+| records written | **one** | **N** |
+| coverage | the **intersection** — a micro survives only if every part has it | each part's **own** |
+| the coffee's niacin, if the cream row lacked niacin | **erased** | **kept** |
+| what the day's roll-up says | one figure | *"from N of M items"*, which already exists |
+
+**And the ruling's own stated reason is the argument against Fork 5's
+intersection**: *"so the dairy counts as dairy and the coffee carries caffeine."*
+
+> Fork 5 adopted the intersection to stop *"an understated figure that looks
+> complete — a wrong answer wearing decimals"*. **Keeping the parts separate does
+> not mitigate that problem; it removes the conditions for it.** There is no merged
+> figure to understate.
+
+**So which is it — and D62's own reasoning answers it.** Fork 3 exists for the
+photographed mixed bowl: *"crab and chicken with onions, cooked together under one
+sauce"*, where *"sauce and cooking fat belong to the dish and to no component"*.
+**Coffee and cream are not that.** The parts are separable, each is measured on its
+own (250 mL, 15 mL), and nothing belongs to the whole and to no part. **There is no
+sauce.**
+
+**RECOMMENDED RULING: a COMBO is not a COMPOSITE, and D62 Fork 3 is neither
+amended nor used.**
+
+- a **composite** exists because the parts *cannot* be separated → one frozen
+  record, minimum confidence, intersection coverage;
+- a **combo** exists because typing two separable parts every day is tedious → N
+  records, each with its own provenance, confidence and coverage.
+
+One is a resolution strategy's stored answer. The other is a logging shortcut.
+They share a word and almost nothing else, and **calling this the first case of
+Fork 3 would hand a future reader the intersection rule for a shape that must not
+have it.** Fork 3 stays unbuilt and unspent, waiting for the bowl it was written
+for.
+
+### 4. TIM HORTONS IS A THIRD PROVENANCE, AND THE HONESTY RULE DOES NOT LIST IT
+
+The rule, as ruled: micronutrients enter *"from **labelled** sources — the OFF scan
+path or explicit manual entry from a package label — **and** from the cited
+composition corpus, at a distinct `reference` provenance."*
+
+**A chain's published nutrition is neither.** Not a package label in the hand, not
+the corpus. It satisfies the rule's **purpose** — *"what it forbids is an **uncited**
+number, not a **sourced** one"* — and not its **enumeration**.
+
+**The shape to admit it on already exists, one store along.** H4's `labels` store
+holds a sourced third-party claim with `org`, `cite`, `retrieved`, `url` and the
+provider's own `disclaimer`, and the app never restates it in its own voice. A
+published nutrition table is the same kind of object.
+
+**Open, and it needs ruling before the Tim Hortons variant is built:**
+
+- a **third provenance value** (`published`?) beside labelled and `reference`, or an
+  extension of `manual` carrying a citation;
+- the **retrieval date is load-bearing** in a way a package label's is not: a chain
+  changes a recipe and a serving size without telling anyone, and the figure then
+  describes a drink that no longer exists. H4 already stamps `retrieved`;
+- and it must **never be summed into the same figure as a labelled or reference
+  value without the panel saying so** — that is the honesty rule's existing clause
+  and it applies unchanged.
+
+### 5. THE TOP-10 LIST'S DEFINITION HAS TO MOVE, AND IT IS A RULED DEFINITION
+
+R159.1/A4 ruled the sheet lists *"the ten **foods** the user repeats most"*, and
+`foodFrequency()` computes it over logged **items** by `matchKey`.
+
+**A combo that writes two items appears as two rows** — *"brewed coffee 10x"* and
+*"half-and-half 10x"* — not as one entry. To appear as **one**, the items must
+carry a `comboId` (a declared allowlist field, [[D129]], in the commit that writes
+it) and `foodFrequency` must collapse rows sharing one.
+
+Buildable as asked. **Two consequences to accept out loud:**
+
+1. the list stops being *"the ten foods"* and becomes **"the ten things you log
+   most"** — foods and combos, two kinds of row in one measurement;
+2. a food eaten **both** alone and in a combo **splits across two rows** and may
+   rank below where its total frequency would put it.
+
+*Alternative, if the definition should hold: combos get their own section above the
+top 10, exactly as the stack just did.* The user's instruction says the top 10, so
+that is what is pre-registered — recorded because the ruled wording changes.
+
+### 6. THE STEPPER SCALES A MULTIPLIER, NOT GRAMS
+
+`QUICK_PICK` scales **one** item: a stepper for the count and an *"or grams"* field
+beside it. A combo has **no single denominator** — 2× my coffee is 500 mL of coffee
+and 30 mL of cream — so the multiplier works and **the grams field must be
+suppressed for a combo** rather than left to apply to something ambiguous.
+
+### 7. CAFFEINE AS AN EVENT-SIGNATURE INPUT IS ALREADY REACHABLE
+
+Caffeine is **slot 262**, in the shipped slot list, and `refValueAt(ref, 262)`
+already reads a slot off a resolved item. So **the day's caffeine becomes
+computable the moment the coffee resolves** — which is what this slice does. No new
+machinery, and nothing to add to the corpus.
+
+`POTENTIAL_AXES` carries **no caffeine axis**, and that is where it belongs: *what
+this day delivered*. Pre-registered as an axis with its source named, in the same
+discipline as the others — present with a source or absent with a measurement.
+
+**For nights (H26) and stress (E) it is an INPUT, never a finding.** Timed, dosed,
+and compared against the user's own baseline with n — and nothing in this slice
+says what caffeine does to anything.
+
+### 8. LOCATION — RECORDED, NOT BUILT, AND THE CITATION IS WRONG
+
+**[[D128]] is not about location.** Grepped: D128 is *"The restaurant flow, ruled
+ahead of build"* — the FNDDS/restaurant **source** question. Location is ruled in
+`CLAUDE.md`'s privacy stance, and that stance currently **forbids what this asks
+for**:
+
+> *"Device location is used **only** when the user invokes nearby-price comparison,
+> is sent **only** as an Open Prices query parameter, and is **never stored**."*
+
+And v5 **withdrew** the nearby-prices plan, so the app's only sanctioned use of
+location no longer has a slice. Offering a variant by place would need location for
+a **second purpose**, and recognising *"the place I'm at"* needs places **stored** —
+both of which that sentence rules out as written.
+
+**So: recorded as wanted, and recorded as blocked on a privacy amendment that is
+the user's to make.** Not a technical obstacle; a stated commitment in a
+public-facing README. Nothing in this slice reads location.
+
+### 9. PRE-REGISTERED GATE (re-runnable; written before the build)
+
+| | |
+|---|---|
+| one tap logs **every part** of a combo as **separate items at one timestamp** | and each part carries its own `ref`, confidence and coverage |
+| the coffee item carries **caffeine, potassium and niacin** from its corpus row | 100 mg / 123 mg / 0.48 mg at 250 mL, asserted against the shipped bin rather than a literal |
+| the dairy item is **dairy** — its own fat, calcium and energy | the ruling's own words, asserted as two records and not one |
+| **no merged figure exists anywhere** | no composite record, no intersection, no minimum — the shape D62 Fork 3 describes must be **absent**, asserted by its absence |
+| a micro on **one** part and not the other reaches the **day** with its coverage line | *"from N of M items"*, which is the machinery that makes separate parts the better shape |
+| the stepper multiplies **every** part, and the grams field is **absent** for a combo | 2x is 500 mL and 30 mL |
+| one combo is **one row** in the top 10, and the row names **what it will log** | the count is read before the tap |
+| the Tim Hortons variant carries **org, citation and retrieval date**, and renders them | and is **not** summed with labelled or reference values without the panel saying so |
+| an **A2 milk** part whose matched row is a generic milk **says the row's own name** | never *"A2 milk"* — the one place this variant could lie |
+| a combo works with **no corpus present** | the parts' resolutions are frozen on the item at write time, like every other resolved item |
+| nothing anywhere states an effect of caffeine | [[D157]], extended to the new strings |
+
+**STOPPING HERE for the Fork 3 ruling (§3), the provenance ruling (§4), and the
+top-10 definition (§5).** Nothing is in the code.
