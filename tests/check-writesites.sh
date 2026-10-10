@@ -142,6 +142,11 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # offset belongs to the moment. It is a site of its own rather than a caller of
 # addManualEntry because it writes into TWO stores from one confirm (ruled D-C:
 # one record, one store, and the tag is the joint).
+# COMBOS: `logCombo` is STAMPED. Every part it writes carries tzo: nowTZO() -- a
+# combo is a standing definition, but logging it is an act at a moment, and the
+# offset belongs to the moment, not to the day the combo was saved. It is its own
+# site rather than a caller of addManualEntry because it writes N items at ONE
+# timestamp and re-expresses each part's frozen ref at its own new portion.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
@@ -159,6 +164,7 @@ logRegimenEntry
 logRepeat
 quickAddLog
 logStack
+logCombo
 logScanItem
 maybeInjectSupplement
 consumeFromPlate

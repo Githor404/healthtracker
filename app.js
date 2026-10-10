@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 13;
-const APP_VERSION      = '0.79.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 14;
+const APP_VERSION      = '0.80.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -91,7 +91,7 @@ function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
   // R168: `stack` ships EMPTY, like `presets`. The multi-user rules forbid personal
   // calibrations in code, and a stack is the most personal thing in this app.
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], combos: [], presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, labels: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -506,6 +506,17 @@ function normalizeItem(it, clampMacros) {
   // told about. It is a LABEL on a food item, not a second record: the item's fat
   // and energy are the item's, and the tag is what a cited claim attaches to.
   if (it.bioactive != null && String(it.bioactive).trim() !== '') out.bioactive = String(it.bioactive).trim();
+  // COMBOS: the link back to the combo that wrote this item, declared in the
+  // commit that writes it (D129). It is what lets the frequency list collapse one
+  // occasion into one row -- and it is a LINK, not a merge: the item's numbers are
+  // its own, which is the whole point of not being a composite.
+  if (it.comboId != null && String(it.comboId) !== '') out.comboId = String(it.comboId);
+  // ...and the third provenance (ruling 2). Carried on the ITEM, not only on the
+  // combo, because the citation has to travel with the values it describes -- an
+  // item whose source lived only in settings would lose it the moment the combo
+  // was edited, and then the number would be uncited without anything changing.
+  const pubIt = normalizePublished(it.published);
+  if (pubIt) out.published = pubIt;
   // R6 Fork A: the photo-meal correction loop. Additive optional fields, explicit
   // allowlist entries because this normalizer is a rebuild (the tzo / panelId
   // pattern). No bump: on D29's asymmetry test, losing them degrades a FUTURE
@@ -705,12 +716,156 @@ function normalizeStack(raw) {
 let _stackSeq = 0;
 function newStackId() { _stackSeq++; return 's' + Date.now().toString(36) + '_' + _stackSeq; }
 
+// ===========================================================================
+// COMBOS -- saved multi-item entries (schema v14)
+// ---------------------------------------------------------------------------
+// RULED: A COMBO IS NOT A COMPOSITE, and the distinction is the whole design.
+//
+// [[D62]] Fork 3 ruled a composite is ONE record -- "composition computed once and
+// FROZEN" -- and Fork 5 ruled that record's coverage is the INTERSECTION: a
+// composite carries micronutrient K only if EVERY component carries K. That rule
+// exists for the photographed mixed dish, where "sauce and cooking fat belong to
+// the dish and to no component" and the proportions are a claim.
+//
+// A combo's parts are SEPARABLE AND SEPARATELY MEASURED -- 250 mL of coffee and
+// 15 mL of cream -- and nothing belongs to the whole and to no part. There is no
+// sauce. So a combo writes its parts as SEPARATE ITEMS, each keeping its own ref,
+// confidence and coverage, and the intersection never applies:
+//
+//   the coffee's caffeine survives whatever the cream lacks, because it is the
+//   coffee's item and not a merged figure.
+//
+// Fork 5 adopted the intersection to stop "an understated figure that looks
+// complete". Separate parts do not mitigate that -- they remove the conditions for
+// it. Fork 3 stays RESERVED, unspent, for the dish it was written for.
+//
+// WHY ITS OWN STORE RATHER THAN A PRESET WITH A PARTS LIST. Fork 3's structural
+// insight -- "a composite is a preset with a component list" -- is tempting here
+// and would cost no schema bump, because `settings.presets` passes through the
+// normaliser unexamined. It is declined: a preset is consumed by paths that assume
+// ONE item. `logPreset` writes one record, and `photoIdentityOptions` re-picks a
+// photographed item TO a preset -- so a combo in that bag would offer "my coffee"
+// as the identity of a photographed food unless every consumer grew a guard, and a
+// missed guard there is a silently wrong answer. Separation costs one bump;
+// sharing costs a guard per consumer and one wrong answer when one is forgotten.
+const COMBO_PART_KEYS = ['name', 'grams', 'meal', 'confidence', 'source'];
+
+// A PART is an item template plus, optionally, the two things that say where its
+// numbers came from: a frozen corpus `ref`, or a `published` citation (ruling 2).
+function normalizeComboPart(raw) {
+  const r = raw || {};
+  const name = String(r.name == null ? '' : r.name).trim();
+  if (!name) return null;
+  const out = {
+    name: name,
+    meal: MEALS.indexOf(r.meal) >= 0 ? r.meal : '',     // '' = take the combo's, which takes the clock (B1)
+    confidence: CONFIDENCES.indexOf(r.confidence) >= 0 ? r.confidence : 'eyeballed',
+    source: SOURCES.indexOf(r.source) >= 0 ? r.source : 'manual',
+  };
+  if (num(r.grams) > 0) out.grams = num(r.grams);
+  MACRO_KEYS.forEach(function (k) {
+    if (r[k] != null && String(r[k]) !== '') out[k] = clampNonNeg(r[k]);
+  });
+  const micros = normalizeMicros(r.micros);
+  if (micros) out.micros = micros;
+  const ref = normalizeRef(r.ref);
+  if (ref) out.ref = ref;
+  const pub = normalizePublished(r.published);
+  if (pub) out.published = pub;
+  return out;
+}
+function normalizeCombo(raw) {
+  const r = raw || {};
+  const name = String(r.name == null ? '' : r.name).trim();
+  const parts = Array.isArray(r.parts)
+    ? r.parts.map(normalizeComboPart).filter(function (x) { return !!x; }) : [];
+  // A combo with no name, or with no parts, is not a combo. One part is allowed:
+  // it is a saved single item, which is what a preset is -- harmless, and refusing
+  // it would be a rule about counting rather than about meaning.
+  if (!name || !parts.length) return null;
+  const out = { id: String(r.id == null ? '' : r.id) || newComboId(), name: name, parts: parts };
+  if (num(r.mult) > 0) out.mult = num(r.mult);          // a remembered default multiplier
+  if (r.place != null && String(r.place).trim() !== '') out.place = String(r.place).trim();
+  return out;
+}
+function normalizeCombos(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeCombo).filter(function (x) { return !!x; });
+}
+let _comboSeq = 0;
+function newComboId() { _comboSeq++; return 'c' + Date.now().toString(36) + '_' + _comboSeq; }
+function comboById(id) {
+  return ((APP_STATE.settings && APP_STATE.settings.combos) || [])
+    .filter(function (c) { return c && c.id === String(id); })[0] || null;
+}
+
+// ---- RE-EXPRESSING A FROZEN REF AT A NEW PORTION -------------------------
+// H2's rule: a ref's values are frozen at `ref.g` grams, so a different portion
+// needs them scaled by g/ref.g -- linear, therefore exact -- and a ref with NO
+// basis recorded cannot be re-expressed at all and must be DROPPED rather than
+// guessed at. Returns the new ref, or null when it has to go.
+//
+// EXTRACTED HERE because the combo stepper is the THIRD place that needs it:
+// `buildRepeatItem` and `consumeFromPlate` each carry their own copy, written at
+// different times and reasoning identically. Those two are deliberately NOT
+// re-pointed in this commit -- their own gates (D130-repeat, R33-partial) prove
+// the behaviour they have, and swapping the arithmetic under a green gate is a
+// change those gates cannot see. Raised for R155's hygiene list: three copies of
+// one rule is two too many, and the way to collapse them is one at a time with
+// the equivalence asserted, not in the commit that adds the third.
+function refAtGrams(ref, grams) {
+  if (!ref) return null;
+  const basis = Number(ref.g);
+  const g = num(grams);
+  if (!(g > 0)) return null;
+  if (!(Number.isFinite(basis) && basis > 0)) return null;   // no basis: drop, never guess
+  if (g === basis) return ref;
+  const k = g / basis;
+  const sv = {};
+  Object.keys(ref.v || {}).forEach(function (slot) { sv[slot] = ref.v[slot] * k; });
+  return Object.assign({}, ref, { v: sv, g: g });
+}
+
+// ---- RULING 2: A THIRD PROVENANCE, ON H4's LABEL SHAPE -------------------
+// A chain's published nutrition is neither a package label in the hand nor the
+// cited corpus, so the honesty rule's enumeration does not list it -- while its
+// PURPOSE covers it exactly: "what it forbids is an uncited number, not a sourced
+// one". It is admitted on the shape H4 already uses for a sourced third-party
+// claim: org, citation, RETRIEVED date, and the provider's own disclaimer, with
+// the app never restating any of it in its own voice.
+//
+// THE DATE IS NOT METADATA HERE. A package label is on the package you are holding;
+// a chain changes a recipe and a serving size without telling anyone, so a figure
+// without its retrieval date describes a drink that may no longer exist. Ruled:
+// shown WITH the values, not behind a disclosure.
+function normalizePublished(raw) {
+  const r = raw || {};
+  const org = String(r.org == null ? '' : r.org).trim();
+  const cite = String(r.cite == null ? '' : r.cite).trim();
+  const retrieved = /^\d{4}-\d{2}-\d{2}$/.test(String(r.retrieved)) ? String(r.retrieved) : '';
+  // ALL THREE OR NOTHING. A citation missing its source or its date is the uncited
+  // number D32 forbids wearing a citation's clothes, so it is dropped entire
+  // rather than stored half-complete.
+  if (!org || !cite || !retrieved) return null;
+  const out = { org: org, cite: cite, retrieved: retrieved };
+  if (r.url != null && String(r.url).trim() !== '') out.url = String(r.url).trim();
+  if (r.disclaimer != null && String(r.disclaimer).trim() !== '') out.disclaimer = String(r.disclaimer).trim();
+  return out;
+}
+// The line shown beside the values. One place, because the date travelling with
+// the number IS the ruling.
+function publishedLine(p) {
+  if (!p) return '';
+  return p.org + ' · ' + p.cite + ' · retrieved ' + p.retrieved;
+}
+
 function normalizeSettings(s) {
   s = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
   return {
     goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
     supplement: normalizeSupplement(s.supplement),
     stack: normalizeStack(s.stack),                   // R168 (v13): ships empty
+    combos: normalizeCombos(s.combos),                // COMBOS (v14): ships empty
     presets: Array.isArray(s.presets) ? s.presets : [],
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
     signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
@@ -1078,6 +1233,24 @@ function migrateV12toV13(v12, nowISO) {
   out.migratedAt = typeof v12.migratedAt === 'string' ? v12.migratedAt : nowISO;
   return out;
 }
+// COMBOS -- v13 -> v14. Structural passthrough: `settings.combos` starts EMPTY, so
+// no day changes and every store comes through byte-identical (gated).
+//
+// It bumps for the reason v13 did, and the test is the same D29 asymmetry: an
+// older app's settings normaliser is an ALLOWLIST REBUILD, so it strips the key,
+// and what is lost is USER-AUTHORED CONFIGURATION -- a named combo with its parts,
+// each part's portion, and the citation on any part that came from a published
+// source. Re-entering it is the cost; silently losing it is the defect.
+//
+// The item fields this slice adds -- `comboId` and `published` -- fall on the
+// OTHER side of that test on their own: stripped, the item keeps every number and
+// loses only the link back and the line naming its source. That is the `ai_grams`
+// side, which would not bump. The store is what arms the guard.
+function migrateV13toV14(v13, nowISO) {
+  const out = Object.assign({}, v13, { version: 14 });
+  out.migratedAt = typeof v13.migratedAt === 'string' ? v13.migratedAt : nowISO;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -1095,6 +1268,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 10) < 11) out = migrateV10toV11(out, nowISO);
   if ((out.version || 11) < 12) out = migrateV11toV12(out, nowISO);
   if ((out.version || 12) < 13) out = migrateV12toV13(out, nowISO);
+  if ((out.version || 13) < 14) out = migrateV13toV14(out, nowISO);
   return out;
 }
 
@@ -3181,6 +3355,81 @@ function stackSheetHTML() {
     + '</div>';
 }
 
+// ---- COMBOS: ONE TAP, N SEPARATE ITEMS, ONE TIMESTAMP --------------------
+//
+// RULING 4: the stepper MULTIPLIES THE WHOLE COMBO and the grams field is absent.
+// A combo has no single denominator -- 2x my coffee is 500 mL of coffee and 30 mL
+// of cream -- so a grams box beside it would have to apply to something, and there
+// is nothing for it to apply to.
+//
+// Every part is written as its OWN item: its own macros, its own micros, its own
+// ref re-expressed at its own new portion, its own citation if it has one. Nothing
+// is summed, nothing is intersected, and no composite record exists anywhere --
+// which the gate asserts by its absence.
+function comboPlan(id, mult) {
+  const c = comboById(id);
+  if (!c) return null;
+  const m = num(mult) > 0 ? num(mult) : (num(c.mult) > 0 ? num(c.mult) : 1);
+  const time = stampTime(APP_STATE.current) || nowTime();
+  return {
+    id: c.id, name: c.name, mult: m, time: time,
+    // NO `grams` on the plan, deliberately (ruling 4). Its absence is what the
+    // surface reads to decide not to draw the box.
+    rows: c.parts.map(function (p) {
+      const g = (p.grams != null) ? num(p.grams) * m : null;
+      return { name: p.name, grams: g, mult: m,
+               kcal: (p.kcal == null) ? null : num(p.kcal) * m,
+               published: p.published || null,
+               // The matched row's OWN name, never the part's (ruling 5). A part
+               // called "A2 milk" that matched a generic milk row must show the
+               // row it matched, because that is the one place this could lie.
+               refName: (p.ref && p.ref.name) ? p.ref.name : '' };
+    }),
+  };
+}
+function logCombo(id, mult) {
+  const c = comboById(id);
+  if (!c) return { ok: false, error: 'No such combo.' };
+  const m = num(mult) > 0 ? num(mult) : (num(c.mult) > 0 ? num(c.mult) : 1);
+  const dk = APP_STATE.current;
+  const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day.' };
+  // ONE time for the whole combo: it is one act, and the response machinery
+  // measures a baseline against a moment.
+  const time = stampTime(dk) || nowTime();
+  const written = [];
+  c.parts.forEach(function (p) {
+    const g = (p.grams != null) ? num(p.grams) * m : null;
+    const raw = { name: p.name, meal: mealAtCreation(p.meal, time), time: time,
+                  confidence: p.confidence, source: p.source,
+                  comboId: c.id, tzo: nowTZO() };               // D29 (stamped)
+    MACRO_KEYS.forEach(function (k) {
+      if (p[k] != null) raw[k] = num(p[k]) * m;
+    });
+    if (p.micros) {
+      const mi = {};
+      Object.keys(p.micros).forEach(function (k) { mi[k] = num(p.micros[k]) * m; });
+      raw.micros = mi;
+    }
+    if (g != null) raw.grams = g;
+    if (p.published) raw.published = p.published;
+    // The ref re-expressed at THIS part's new portion, or dropped if it has no
+    // basis to re-express from. Never guessed.
+    if (p.ref) {
+      const nr = (g != null) ? refAtGrams(p.ref, g) : p.ref;
+      if (nr) raw.ref = nr;
+    }
+    const item = normalizeItem(raw, true);
+    day.items.push(item);
+    written.push(item);
+  });
+  if (!written.length) return { ok: false, error: 'This combo has no parts.' };
+  if (day.status === 'complete') day.status = 'in_progress';
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Logged ' + c.name + ' · ' + written.length + ' item'
+            + (written.length === 1 ? '' : 's'), undoRemove(day.items, written));
+  return { ok: true, id: c.id, name: c.name, mult: m, time: time, items: written };
+}
+
 // Inject the supplement at device-side day creation, if enabled and absent (D8/4).
 // Wholesale-arriving days (full-days merge / restore) do NOT call this.
 function maybeInjectSupplement(state, dayKey) {
@@ -3972,6 +4221,39 @@ function foodFrequency(limit) {
       if (!it || it._auto) return;                 // the supplement is not a repeat
       const nm = String(it.name == null ? '' : it.name).trim();
       if (!nm) return;
+      // ---- RULING 3: A COMBO IS ONE ROW -------------------------------------
+      // Keyed by the combo rather than by the food, and counted by OCCASION
+      // rather than by item -- otherwise a two-part combo would count twice for
+      // every tap and outrank everything by being made of parts.
+      //
+      // The ruled consequence, accepted out loud: an item written by a combo
+      // counts ONLY toward its combo's row, so a food eaten both inside a combo
+      // and on its own appears SEPARATELY, and neither row carries its total
+      // frequency. The list is therefore "the ten things I log most", not "the
+      // ten foods" -- two kinds of row in one measurement, by ruling.
+      const cid = (it.comboId == null || String(it.comboId) === '') ? '' : String(it.comboId);
+      if (cid) {
+        const ck = 'combo:' + cid;
+        const ce = by[ck] || (by[ck] = { key: ck, n: 0, names: [], name: '', grams: null,
+                                         kcal: null, lastDay: '', item: null,
+                                         combo: true, comboId: cid, occ: {} });
+        const okey = dk + '|' + String(it.time || '');
+        const o = ce.occ[okey] || (ce.occ[okey] = { day: dk, time: String(it.time || ''), kcal: 0, parts: 0 });
+        o.kcal += num(it.kcal); o.parts++;
+        // The combo's own name if it still exists; the part's name is the honest
+        // fallback for a combo the user has since deleted -- the items it wrote
+        // are still in the log and must still be countable.
+        // Set ONCE, so a deleted combo's row falls back to its FIRST part's name
+        // deterministically instead of whichever part was processed last. A row
+        // that renames itself depending on iteration order is a row nobody can
+        // write an assertion about.
+        if (!ce.name) {
+          const c = comboById(cid);
+          ce.name = c ? c.name : nm;
+          ce.names = [ce.name];
+        }
+        return;
+      }
       // matchKeyIn tolerates a missing index (it falls back to all tokens), and a
       // name that tokenises to nothing falls back to itself -- a food is never
       // dropped from its own count because the corpus has not loaded yet.
@@ -3986,6 +4268,20 @@ function foodFrequency(limit) {
       e.grams = (it.grams == null) ? null : num(it.grams);
       e.kcal = num(it.kcal);
     });
+  });
+  // A combo row's n is its OCCASION count, and its figures describe the most
+  // recent occasion -- the same "last write wins" the food rows get, one level up.
+  // `grams` stays NULL for a combo (ruling 4): there is no single denominator, and
+  // the surface reads that absence to leave the grams box out.
+  Object.keys(by).forEach(function (k) {
+    const e = by[k];
+    if (!e.combo) return;
+    const keys = Object.keys(e.occ).sort();
+    e.n = keys.length;
+    const last = e.occ[keys[keys.length - 1]];
+    if (last) { e.kcal = last.kcal; e.lastDay = last.day; e.parts = last.parts; }
+    e.grams = null;
+    delete e.occ;
   });
   return Object.keys(by).map(function (k) { return by[k]; })
     .sort(function (a, b) {
@@ -11298,6 +11594,7 @@ const VERSION_LOG = [
   { v: '0.77.2', d: '2026-10-09', note: 'Calories now read as whole numbers everywhere they are shown -- the meal headings, the item rows, the ring, the averages, the history. A tenth of a calorie is finer than anything the app can actually know: a label rounds, and a portion worked out from a per-100g figure is arithmetic rather than a measurement, so 1847.3 was reading like a reading nobody took. What is STORED keeps every digit, because the totals, the export and anything worked out from them later should add up to what you ate rather than to what the screen had room for. Grams are unchanged -- 4.5 g of fibre is a real difference.' },
   { v: '0.78.0', d: '2026-10-10', note: 'Groundwork for the daily stack, and this release is the plumbing rather than the screen -- there is nothing new to look at yet. The app can now hold a list of things you take every day, each with the dose as the bottle states it, and one confirm will log only the ones you leave ticked: nothing is ever logged and then deleted, because a dose you did not take should not pass through your totals on its way out. Each entry is either a food, which reaches your day-s calories and macros like any other food, or a dose, which goes on your timeline and never into food totals. An entry can also carry the name of an active constituent, so that anything the app later says about it can be shown with its source. Doses stated in IU are converted where you type them, and only for vitamin D: an IU is a measure of activity, not of weight, and the conversion is different for every substance -- so the app refuses to convert the others rather than using a number that does not exist. Your existing log is untouched.' },
   { v: '0.79.0', d: '2026-10-10', note: 'The daily stack now has its screen. Quick add leads with “Took my daily stack” when you have one set up, and tapping it opens the list with everything ticked: untick whatever you skipped and one button logs only the rest, saying how many before you tap it. Nothing is logged and then removed. The foods count in your day, the doses go on your timeline, and each row says which. And the app now carries its first cited intake figure: if an item delivers more vitamin D than the Institute of Medicine-s stated upper intake level for adults, the row says so, names the source and the population it applies to, and points you at a 25-OH vitamin D reading -- which is the thing that would actually tell you where you are. It does not tell you to change anything. If that figure ever loses its citation the flag disappears rather than showing a number with nothing behind it.' },
+  { v: '0.80.0', d: '2026-10-10', note: 'Groundwork for saved multi-item entries -- combos. A combo is something you log in one tap that is really two or three things: coffee and the cream that goes in it. It logs them as SEPARATE items at the same moment, which matters more than it sounds: the cream counts as dairy and the coffee keeps its own caffeine, potassium and niacin from the food database, instead of both being flattened into one row whose numbers would have to drop anything the two did not share. Each part keeps its own portion and its own source, so one part can come from the food database while another comes from a chain-s published nutrition -- and where it does, the figures are shown with the date they were retrieved, because chains change recipes without telling anyone. A combo counts as one entry in your top ten however many parts it has, and the stepper multiplies the whole thing. No screen for it yet; this release is the plumbing.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17764,7 +18061,11 @@ window.HT = {
   STACK_KINDS, IU_TO_UG, doseToMicro, normalizeStackItem, normalizeStack,
   normalizeSupplementNutrients, stackPlan, logStack, migrateV12toV13,
   INTAKE_LIMITS, intakeFlag, intakeFlagText, stackSheetHTML, stackRowSub,
-  stackOpen, stackCancel, stackToggle, stackConfirm, setClock, nowMs, nowMinutes, todayKey, localDate,
+  stackOpen, stackCancel, stackToggle, stackConfirm,
+  // COMBOS (schema v14)
+  normalizeCombo, normalizeCombos, normalizeComboPart, normalizePublished,
+  publishedLine, refAtGrams, comboById, comboPlan, logCombo, newComboId,
+  migrateV13toV14, setClock, nowMs, nowMinutes, todayKey, localDate,
   primaryNutrientKey, setPrimaryNutrient, RING_NUTRIENTS, NUTRIENT_LABELS,
   renderPrimaryNutrientForm, setPrimaryNutrientFromForm, signalTimeLabel,
   fmtMonthDay, fmtDateSmart, fmtRangeLabel, dayStatusBadge,

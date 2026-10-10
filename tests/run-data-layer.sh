@@ -259,7 +259,19 @@ echo "-----------------------------------------"
 # POPULATION, containing no instruction or verdict, offering the reading instead,
 # rendering beside its item, and VANISHING when the citation is stripped -- each
 # with a control so none of them can pass on an empty string.
-EXPECTED_ASSERTIONS=2718
+# COMBOS: 2718 -> 2746, delta +28. Schema v14 and its passthrough migrator; the
+# combo and part contracts; the third provenance as ALL-THREE-OR-NOTHING with the
+# retrieval date shown; refAtGrams scaling linearly and DROPPING a ref with no
+# basis; then the ruling itself -- one tap writing N separate items at one
+# timestamp, the coffee carrying its caffeine and the dairy its own fat, neither
+# inheriting the other's provenance, and NO composite record anywhere (asserted by
+# absence, so Fork 3's intersection has nothing to apply to); the stepper
+# multiplying every part with no grams on the plan; and the frequency list
+# collapsing occasions into one row that survives the combo being deleted.
+# +1 on the re-run: the undeclared-micro assertion split in two once measurement
+# showed the mechanism was PRESERVATION and not dropping -- the key survives, and
+# a second assertion carries the reason nothing renders it.
+EXPECTED_ASSERTIONS=2747
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
