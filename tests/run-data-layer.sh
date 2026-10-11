@@ -284,7 +284,18 @@ echo "-----------------------------------------"
 # at once inside the full suite while passing three times standalone, and all four
 # compared a string to the template -- so the log showed four mismatches and not
 # the reason, which was that the capture made no request and the body was ''.
-EXPECTED_ASSERTIONS=2759
+# COMBOS/3: 2759 -> 2779, delta +20. "Save as combo" from items already logged:
+# the parts take their portions AND their provenance from the items (a frozen ref
+# on one, a published citation on the other), the meal is deliberately NOT copied
+# because B1 ruled the clock decides, the standing supplement is refused as a
+# part, and an empty or unnamed selection is refused by name. Then the editor,
+# which is the same object: rename, delete, and adjust-a-portion moving the
+# macros, the micros AND the ref together -- buildRepeatItem's old trap was
+# moving the match and leaving the macros behind -- with a no-basis part refused
+# rather than treated as 100 g, and deletion leaving the logged items alone.
+# Finally the surface: off by default, stating what it will save before the tap,
+# ticks appearing only while selecting and not outliving the save.
+EXPECTED_ASSERTIONS=2779
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

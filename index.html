@@ -1011,6 +1011,17 @@
 .cbpsub{font-size:16px;color:var(--muted)}
 .cbmatch{font-size:16px;color:var(--muted)}
 .cbpub{font-size:16px;color:var(--muted)}
+/* COMBOS/3: the "save as combo" selection mode. Prefixed `cs`/`dsavecombo`,
+   checked against the stylesheet first, every size >= 16px (D100). */
+.dsavecombo{display:block;margin:6px 0 0;font-size:16px;min-height:44px}
+.csbar{display:grid;gap:6px;margin:8px 0 0;padding:10px;border:1px solid var(--line);border-radius:6px}
+.csname{font-size:16px;font-weight:600}
+.csin{font-size:16px;min-height:44px;width:100%}
+.cssub{font-size:16px;color:var(--muted)}
+.cssave{min-height:44px;font-size:16px}
+.cscancel{font-size:16px;min-height:44px}
+.cstick{display:flex;align-items:center;padding:0 8px 0 0;min-height:44px}
+.cstick input{width:22px;height:22px}
 .rptstrip{display:flex;gap:8px;flex-wrap:wrap}
 /* D133: a proposal is a first row, and says why it is one. */
 .rcandbtn.rprop{border-color:var(--accent)}

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.81.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.82.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -797,6 +797,147 @@ function newComboId() { _comboSeq++; return 'c' + Date.now().toString(36) + '_' 
 function comboById(id) {
   return ((APP_STATE.settings && APP_STATE.settings.combos) || [])
     .filter(function (c) { return c && c.id === String(id); })[0] || null;
+}
+
+// ---- RULED: "SAVE AS COMBO" FROM ITEMS ALREADY LOGGED --------------------
+//
+// The entry route, and the editor, are the same surface. You log the coffee and
+// the cream once the ordinary way, select both, name it — and the combo stores the
+// parts AND their portions from those items. Nothing is typed twice, nothing is
+// estimated, and the contents never enter the code: the multi-user rules forbid
+// personal calibrations, and the user's own ruling keeps them out of a public repo.
+//
+// WHY FROM ITEMS RATHER THAN FROM A FORM. The items are already the answer. They
+// carry their own portions, their own `ref` frozen at those portions, their own
+// confidence, their own `published` citation if they have one — so a combo built
+// from them inherits provenance it could not otherwise have, and a form would ask
+// the user to retype what the log already knows and get it slightly wrong.
+//
+// `_auto` items are REFUSED as parts: the standing supplement is a setting rather
+// than a log entry, and a combo made of it would re-log a thing the app injects.
+function comboFromItems(dateKey, idxs, name) {
+  const nm = String(name == null ? '' : name).trim();
+  if (!nm) return { ok: false, error: 'Name the combo.' };
+  const day = (APP_STATE.days || {})[String(dateKey)];
+  if (!day) return { ok: false, error: 'No such day.' };
+  const list = Array.isArray(idxs) ? idxs : [];
+  if (!list.length) return { ok: false, error: 'Select at least one item.' };
+  const parts = [];
+  for (let i = 0; i < list.length; i++) {
+    const it = day.items[num(list[i])];
+    if (!it) return { ok: false, error: 'That item is no longer there.' };
+    if (it._auto) return { ok: false, error: 'The daily supplement is a setting, not an item to save.' };
+    // The part takes the item's OWN numbers at the item's OWN portion. `meal` is
+    // deliberately NOT copied: B1 ruled the clock decides at creation unless the
+    // user chose, and a meal frozen into a combo would re-assert a morning choice
+    // every evening.
+    const p = { name: it.name, confidence: it.confidence, source: it.source };
+    if (num(it.grams) > 0) p.grams = num(it.grams);
+    MACRO_KEYS.forEach(function (k) { if (it[k] != null) p[k] = num(it[k]); });
+    if (it.micros) p.micros = JSON.parse(JSON.stringify(it.micros));
+    if (it.ref) p.ref = JSON.parse(JSON.stringify(it.ref));
+    if (it.published) p.published = JSON.parse(JSON.stringify(it.published));
+    parts.push(p);
+  }
+  const combo = normalizeCombo({ name: nm, parts: parts });
+  if (!combo) return { ok: false, error: 'Nothing savable in that selection.' };
+  if (!Array.isArray(APP_STATE.settings.combos)) APP_STATE.settings.combos = [];
+  APP_STATE.settings.combos.push(combo);
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, combo: combo };
+}
+// The editor, which is the same object: rename, delete, adjust a portion.
+function renameCombo(id, name) {
+  const c = comboById(id);
+  if (!c) return { ok: false, error: 'No such combo.' };
+  const nm = String(name == null ? '' : name).trim();
+  if (!nm) return { ok: false, error: 'A combo needs a name.' };
+  c.name = nm;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, combo: c };
+}
+function deleteCombo(id) {
+  const before = ((APP_STATE.settings && APP_STATE.settings.combos) || []).length;
+  APP_STATE.settings.combos = ((APP_STATE.settings && APP_STATE.settings.combos) || [])
+    .filter(function (c) { return c && c.id !== String(id); });
+  if (APP_STATE.settings.combos.length === before) return { ok: false, error: 'No such combo.' };
+  // Items already logged are UNTOUCHED (D9): deleting the definition is not
+  // deleting the meals. The frequency row falls back to its first part's name.
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true };
+}
+// ADJUSTING A PORTION MOVES EVERYTHING THAT DEPENDS ON IT, and that is the whole
+// difficulty. `buildRepeatItem` had exactly this trap: it re-expressed the MATCH
+// for a new portion and left the item's own macros at the old one, so two portions
+// could enter a day as one. Here the macros, the micros and the ref move together
+// or the call is refused.
+function setComboPartGrams(id, idx, grams) {
+  const c = comboById(id);
+  if (!c) return { ok: false, error: 'No such combo.' };
+  const p = c.parts[num(idx)];
+  if (!p) return { ok: false, error: 'No such part.' };
+  const g = num(grams);
+  if (!(g > 0)) return { ok: false, error: 'A portion has to be a number above zero.' };
+  // No basis, no scaling. A part saved without a portion has nothing to scale
+  // FROM, and inventing one would be the guess D8 refuses -- so it is refused by
+  // name instead of silently treated as 100 g.
+  if (!(num(p.grams) > 0)) return { ok: false, refused: 'no-basis',
+    error: 'This part was saved without a portion, so there is nothing to scale from.' };
+  const k = g / num(p.grams);
+  MACRO_KEYS.forEach(function (key) { if (p[key] != null) p[key] = num(p[key]) * k; });
+  if (p.micros) Object.keys(p.micros).forEach(function (key) { p.micros[key] = num(p.micros[key]) * k; });
+  if (p.ref) { const nr = refAtGrams(p.ref, g); if (nr) p.ref = nr; else delete p.ref; }
+  p.grams = g;
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, part: p, factor: k };
+}
+
+// ---- THE SELECTION MODE, and it is OFF by default ------------------------
+// A mode rather than a permanent checkbox column, because the day's taps are
+// already ruled: a tap on the head EXPANDS the row, the meal chip opens the editor
+// on meal, and the red x deletes with its own thumb path (D44). Giving the row a
+// fourth permanent meaning is the collision this file keeps closing; a mode the
+// user turns on asks once and changes nothing until they do.
+let COMBO_SEL = null;      // null = off; { picks: {idx:1}, name: '' }
+function comboSelStart() { COMBO_SEL = { picks: {}, name: '' }; refresh(); return { ok: true }; }
+function comboSelCancel() { COMBO_SEL = null; refresh(); return { ok: true }; }
+function comboSelToggle(idx) {
+  if (!COMBO_SEL) return { ok: false, why: 'not-selecting' };
+  const k = String(num(idx));
+  if (COMBO_SEL.picks[k]) delete COMBO_SEL.picks[k]; else COMBO_SEL.picks[k] = 1;
+  refresh();
+  return { ok: true, picks: Object.keys(COMBO_SEL.picks) };
+}
+function comboSelName(v) {
+  if (!COMBO_SEL) return { ok: false, why: 'not-selecting' };
+  COMBO_SEL.name = String(v == null ? '' : v);
+  return { ok: true };
+}
+function comboSelSave() {
+  if (!COMBO_SEL) return { ok: false, why: 'not-selecting' };
+  const idxs = Object.keys(COMBO_SEL.picks).map(function (k) { return num(k); })
+    .sort(function (a, b) { return a - b; });
+  const r = comboFromItems(APP_STATE.current, idxs, COMBO_SEL.name);
+  if (!r.ok) { toast(r.error || 'Could not save that.'); return r; }
+  COMBO_SEL = null;
+  toast('Saved ' + r.combo.name + ' - ' + r.combo.parts.length + ' items');
+  refresh();
+  return r;
+}
+// The bar: only while selecting, and it states what it will save BEFORE the tap.
+function comboSelBarHTML() {
+  if (!COMBO_SEL) return '';
+  const n = Object.keys(COMBO_SEL.picks).length;
+  return '<div class="csbar"><div class="csname">Save as combo</div>'
+    + '<input class="csin" type="text" placeholder="name it, e.g. my coffee"'
+    + ' value="' + esc(COMBO_SEL.name) + '" oninput="comboSelName(this.value)"'
+    + ' aria-label="combo name">'
+    + '<div class="cssub">' + esc(n ? ('tick the items it is made of - ' + n + ' selected')
+                                   : 'tick the items it is made of') + '</div>'
+    + '<button type="button" class="btn cssave" onclick="comboSelSave()"' + (n ? '' : ' disabled') + '>'
+    + (n ? ('Save ' + esc(String(n)) + ' item' + (n === 1 ? '' : 's') + ' as a combo') : 'Nothing ticked')
+    + '</button>'
+    + '<button type="button" class="linklike cscancel" onclick="comboSelCancel()">cancel</button></div>';
 }
 
 // ---- RE-EXPRESSING A FROZEN REF AT A NEW PORTION -------------------------
@@ -4528,8 +4669,15 @@ function renderDayInner() {
       // of the same item would be a second place for its identity to drift, and
       // D144's depth would have to be reachable from one of them or lost from both.
       const isDrink = (it.meal === 'drink');
+      // The tick exists only while selecting, and never on the standing supplement
+      // -- that is a setting, not an item anyone saves. stopPropagation keeps the
+      // head's expand handler from firing underneath it, which is the same guard
+      // the meal chip already needs for the same reason.
+      const tick = (COMBO_SEL && !it._auto)
+        ? `<label class="cstick" onclick="event.stopPropagation()"><input type="checkbox"${COMBO_SEL.picks[String(idx)] ? ' checked' : ''} onchange="comboSelToggle(${idx})" aria-label="include ${esc(it.name)}"></label>`
+        : '';
       html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
-        <div class="mline">
+        <div class="mline">${tick}
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
             <span class="mname mginame" title="${esc(it.name)}">${esc(it.name)}</span>
             <span class="mtime mgitime">${esc(it.time || '')}</span>
@@ -4713,12 +4861,20 @@ function stepDay(dir) {
 //                pending fast is the gap line -> focusPendingResolve().
 // So this removes a shortcut row, not a feature.
 function dayActionsHTML() {
+  // "Save as combo" is offered only when there is something to make one FROM. A
+  // day with no items has nothing to select, and an offer leading to an empty
+  // selection asks without answering -- the R33 lesson, one surface along.
+  const cday = curDay();
+  const csavable = ((cday && cday.items) || []).filter(function (i) { return i && !i._auto; }).length;
+  const ccombo = (csavable && !COMBO_SEL)
+    ? '<button type="button" class="linklike dsavecombo" onclick="comboSelStart()">Save as combo</button>'
+    : '';
   return '<div class="dact">'
     + '<button type="button" class="btn qa10" onclick="openQuickAdd()">'
     + 'Quick add \u00b7 top 10</button>'
     + '<button type="button" class="dcam" onclick="openSheet(\'photo\')"'
     + ' aria-label="Photograph a meal">Camera</button>'
-    + '</div>';
+    + '</div>' + ccombo + comboSelBarHTML();
 }
 // The empty kinds, ONE muted line (ruling D), each named kind its own target.
 // "I eat in a window; four fixed headers would be mostly dashes."
@@ -11596,6 +11752,7 @@ const VERSION_LOG = [
   { v: '0.79.0', d: '2026-10-10', note: 'The daily stack now has its screen. Quick add leads with “Took my daily stack” when you have one set up, and tapping it opens the list with everything ticked: untick whatever you skipped and one button logs only the rest, saying how many before you tap it. Nothing is logged and then removed. The foods count in your day, the doses go on your timeline, and each row says which. And the app now carries its first cited intake figure: if an item delivers more vitamin D than the Institute of Medicine-s stated upper intake level for adults, the row says so, names the source and the population it applies to, and points you at a 25-OH vitamin D reading -- which is the thing that would actually tell you where you are. It does not tell you to change anything. If that figure ever loses its citation the flag disappears rather than showing a number with nothing behind it.' },
   { v: '0.80.0', d: '2026-10-10', note: 'Groundwork for saved multi-item entries -- combos. A combo is something you log in one tap that is really two or three things: coffee and the cream that goes in it. It logs them as SEPARATE items at the same moment, which matters more than it sounds: the cream counts as dairy and the coffee keeps its own caffeine, potassium and niacin from the food database, instead of both being flattened into one row whose numbers would have to drop anything the two did not share. Each part keeps its own portion and its own source, so one part can come from the food database while another comes from a chain-s published nutrition -- and where it does, the figures are shown with the date they were retrieved, because chains change recipes without telling anyone. A combo counts as one entry in your top ten however many parts it has, and the stepper multiplies the whole thing. No screen for it yet; this release is the plumbing.' },
   { v: '0.81.0', d: '2026-10-10', note: 'Combos now have their screen. A combo shows up in Quick add as ONE entry however many things it logs, marked as a combo and saying how many items it will add. Tapping it opens a multiplier rather than a portion box -- there is no single weight for a coffee plus its cream -- and it lists every part at the portion it will actually log, so two taps of the stepper shows you 500 ml of coffee and 31 g of cream before you commit. Where a part came from the food database and the database calls it something else, the part says which row it matched; where a part came from a chain-s published nutrition, the figures are shown with the organisation, the source and the date they were retrieved. One button logs the lot at one timestamp.' },
+  { v: '0.82.0', d: '2026-10-10', note: 'You can now make a combo out of things you have already logged. Log the coffee and the cream once the ordinary way, tap Save as combo on the day, tick the two of them, give it a name -- and that is it. The combo keeps each part-s portion exactly as you logged it, along with where its numbers came from, so a part matched to the food database keeps that match and a part from a published source keeps its citation. Nothing is retyped and nothing is estimated. The same list is the editor: rename it, delete it, or change a part-s portion -- and when you change a portion, the calories, the nutrients and the database match all move with it rather than one of them being left behind. Deleting a combo leaves the meals you already logged alone. The ticks only appear while you are choosing, so the day behaves exactly as before the rest of the time.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -18130,7 +18287,8 @@ window.HT = {
   INTAKE_LIMITS, intakeFlag, intakeFlagText, stackSheetHTML, stackRowSub,
   stackOpen, stackCancel, stackToggle, stackConfirm,
   // COMBOS (schema v14)
-  comboStepHTML,
+  comboStepHTML, comboFromItems, renameCombo, deleteCombo, setComboPartGrams,
+  comboSelStart, comboSelCancel, comboSelToggle, comboSelName, comboSelSave, comboSelBarHTML,
   normalizeCombo, normalizeCombos, normalizeComboPart, normalizePublished,
   publishedLine, refAtGrams, comboById, comboPlan, logCombo, newComboId,
   migrateV13toV14, setClock, nowMs, nowMinutes, todayKey, localDate,

@@ -9754,6 +9754,99 @@ window.setLS({});
   res(cFreq2.filter(function (r) { return r.combo; })[0].name === 'brewed coffee',
       'COMBOS GATE: and a DELETED combo still counts -- its items are in the log, so the row falls back to its FIRST part-s name, deterministically, rather than vanishing');
 
+  // ---- COMBOS/3: "Save as combo" from items already logged -----------------
+  //
+  // RULED: the entry route and the editor are the same surface. The parts and
+  // their portions come FROM the items, so nothing is typed twice and the combo
+  // inherits provenance a form could not give it.
+  // SELF-CONTAINED, because the block that follows depends on the day and the
+  // combos list this one replaces. Inserting a block in the middle of a shared
+  // fixture is how a suite acquires an ordering dependency nobody declared -- and
+  // it aborted the run the first time, with the TypeError naming the line, which
+  // is what the abort machinery is for.
+  var _s3Day = JSON.parse(JSON.stringify(HT.state().days[cKey]));
+  var _s3Combos = JSON.parse(JSON.stringify(HT.state().settings.combos || []));
+  HT.state().settings.combos = [];
+  HT.state().days[cKey] = { status: 'in_progress', water_l: 0, items: [
+    { name: 'brewed coffee', meal: 'snack', time: '07:40', grams: 250, kcal: 0,
+      protein_g: 0.3, fat_g: 0.05, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0,
+      confidence: 'measured', notes: '', source: 'manual',
+      micros: { potassium_mg: 123 },
+      ref: { ns: 'cnf', id: '2873', name: 'Coffee, brewed, prepared with tap water',
+             at: '2026-10-10', at_ms: 1, hash: 'h', attribution: 'CNF', how: 'picked',
+             g: 250, v: { '262': 100, '306': 122.5 } } },
+    { name: 'half-and-half', meal: 'snack', time: '07:40', grams: 15.5, kcal: 18,
+      protein_g: 0.46, fat_g: 1.55, carb_g: 0.69, fiber_g: 0, soluble_fiber_g: 0,
+      confidence: 'measured', notes: '', source: 'manual',
+      published: { org: 'Chain', cite: 'Nutrition guide 2026', retrieved: '2026-10-10' } },
+    { name: 'Vitamin D3', meal: 'supplement', time: '06:00', kcal: 0, protein_g: 0,
+      fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'measured',
+      notes: 'auto-applied daily supplement', source: 'supplement', _auto: true } ] };
+  var sv = HT.comboFromItems(cKey, [0, 1], '  My coffee  ');
+  res(sv.ok === true && sv.combo.name === 'My coffee' && sv.combo.parts.length === 2,
+      'COMBOS/3 GATE: selecting two logged items and naming them saves a combo of two parts');
+  res(sv.combo.parts[0].grams === 250 && sv.combo.parts[1].grams === 15.5,
+      'COMBOS/3 GATE: the parts take THEIR PORTIONS FROM THE ITEMS -- nothing retyped, nothing estimated');
+  res(!!sv.combo.parts[0].ref && sv.combo.parts[0].ref.v['262'] === 100
+      && !!sv.combo.parts[1].published,
+      'COMBOS/3 GATE: ...and their PROVENANCE comes with them -- a frozen corpus ref on one, a published citation on the other, which a form could not have given it');
+  res(sv.combo.parts[0].meal === '' && sv.combo.parts[1].meal === '',
+      'COMBOS/3 GATE: the MEAL is deliberately not copied -- B1 ruled the clock decides at creation, and a meal frozen into a combo would re-assert a morning-s choice every evening');
+  res(HT.comboFromItems(cKey, [0, 2], 'With the supplement').ok === false,
+      'COMBOS/3 GATE: the standing supplement is REFUSED as a part -- it is a setting the app injects, not an item anyone saves');
+  res(HT.comboFromItems(cKey, [], 'Empty').ok === false
+      && HT.comboFromItems(cKey, [0], '   ').ok === false,
+      'COMBOS/3 GATE: and a selection with nothing in it, or a combo with no name, is refused by name rather than saved blank');
+
+  // the editor, which is the same object
+  res(HT.renameCombo(sv.combo.id, ' My home coffee ').ok === true
+      && HT.comboById(sv.combo.id).name === 'My home coffee',
+      'COMBOS/3 GATE: rename trims and sticks');
+  res(HT.renameCombo(sv.combo.id, '  ').ok === false,
+      'COMBOS/3 GATE: ...and will not blank it');
+  var adj = HT.setComboPartGrams(sv.combo.id, 0, 500);
+  res(adj.ok === true && adj.factor === 2,
+      'COMBOS/3 GATE: adjusting a portion reports the factor it applied');
+  var p0 = HT.comboById(sv.combo.id).parts[0];
+  res(p0.grams === 500 && Math.abs(p0.protein_g - 0.6) < 1e-9
+      && p0.micros.potassium_mg === 246 && p0.ref.v['262'] === 200 && p0.ref.g === 500,
+      'COMBOS/3 GATE: and the MACROS, the MICROS and the REF all move with it -- buildRepeatItem-s old trap was re-expressing the match and leaving the macros behind, so two portions entered a day as one');
+  res(HT.setComboPartGrams(sv.combo.id, 1, 0).ok === false
+      && HT.setComboPartGrams(sv.combo.id, 9, 100).ok === false,
+      'COMBOS/3 GATE: a portion of zero and a part that is not there are both refused');
+  var noBasis = HT.comboFromItems(cKey, [1], 'No portion');
+  HT.comboById(noBasis.combo.id).parts[0].grams = undefined;
+  var nb = HT.setComboPartGrams(noBasis.combo.id, 0, 30);
+  res(nb.ok === false && nb.refused === 'no-basis',
+      'COMBOS/3 GATE: a part saved with NO portion has nothing to scale from, so it is refused BY NAME rather than silently treated as 100 g (D8)');
+  res(HT.deleteCombo(noBasis.combo.id).ok === true
+      && HT.deleteCombo('nope').ok === false,
+      'COMBOS/3 GATE: delete removes the definition and says so when there is nothing to remove');
+  res(HT.state().days[cKey].items.length === 3,
+      'COMBOS/3 GATE: ...and deleting a combo leaves the ITEMS it wrote alone (D9) -- the definition is not the meals');
+
+  // the selection surface
+  res(HT.comboSelBarHTML() === '' && HT.dayActionsHTML().indexOf('dsavecombo') >= 0,
+      'COMBOS/3 GATE: the mode is OFF by default, and the day offers it only because there is something to make one from');
+  HT.comboSelStart();
+  res(HT.comboSelBarHTML().indexOf('Nothing ticked') >= 0,
+      'COMBOS/3 GATE: starting it offers no save until something is ticked');
+  HT.comboSelToggle(0); HT.comboSelToggle(1); HT.comboSelName('Pair');
+  res(HT.comboSelBarHTML().indexOf('Save 2 items as a combo') >= 0,
+      'COMBOS/3 GATE: the bar states WHAT IT WILL SAVE before the tap, not after');
+  HT.renderDay();
+  res(document.getElementById('dayView').innerHTML.indexOf('cstick') >= 0,
+      'COMBOS/3 GATE: and the rows grow a tick only while selecting');
+  var selSave = HT.comboSelSave();
+  res(selSave.ok === true && selSave.combo.parts.length === 2,
+      'COMBOS/3 GATE: saving from the bar goes through comboFromItems, so the surface and the core cannot disagree');
+  HT.renderDay();
+  res(document.getElementById('dayView').innerHTML.indexOf('cstick') < 0,
+      'COMBOS/3 GATE: ...and the mode closes itself afterwards, so the ticks do not outlive the thing they were for');
+  // ...and hand the next block back exactly what it had.
+  HT.state().days[cKey] = JSON.parse(JSON.stringify(_s3Day));
+  HT.state().settings.combos = JSON.parse(JSON.stringify(_s3Combos));
+
   // ---- COMBOS/2: the surface, and the silent no-op it closes ---------------
   HT.state().settings.combos = [cb];
   var cRows = HT.foodFrequency(10);
