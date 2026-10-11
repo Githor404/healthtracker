@@ -14415,3 +14415,124 @@ am not going to assert a cup size — tell me the volume, or the caffeine estima
 stays absent, which is the honest default.
 
 **STOPPING for the ruling on (a) vs (b), and for the large cup's volume.**
+
+---
+
+## RULED: ONE DOOR, FDC ADMITTED, THE HIDDEN LAYER — AND THE PDF VERIFIED FIRST-HAND (2026-10-10)
+
+### 0. THE LABEL COLLIDES, AND THAT IS WORSE THAN NAMING NOTHING
+
+The Tim Hortons work was referred to as **R181**. Grepped, per the standing rule:
+**`R181` is already taken in this repo**, as a harness block name — `R181-eatring`,
+`R181-thresholds`, `R181-candidate` — all about the rhythm ring and practice
+thresholds. [[R155]]'s own entry had already recorded that *"the highest of them
+(`R181-eatring`, `R182-gapsweep`) are harness block names, not slices."*
+
+> A label that names nothing is a label a future reader cannot follow. **A label
+> that names something else is a label that will take them somewhere confidently
+> wrong** — a grep for R181 lands on ring geometry. Recorded here so the collision
+> is visible; the Tim Hortons work is recorded under COMBOS, where its rulings
+> already live, and **R181 should be retired as a slice label.**
+
+### 1. THE PDF, VERIFIED FIRST-HAND THIS TIME
+
+`pip install pypdf` — as suggested, and it is the difference. **16 pages, 23,307
+characters, 95.9% printable.** The earlier hand-rolled reader recovered glyph codes
+because the fonts are subset-encoded; pypdf applies the embedded CMaps.
+
+**So the earlier record's caveat is now lifted, and these are read rather than
+transcribed:**
+
+| claim | status |
+|---|---|
+| the document carries **no caffeine at all** | **VERIFIED** — `affeine` appears on none of the 16 pages |
+| the document carries **no volume or serving size** | **VERIFIED** — zero matches for `fl oz`, `591`, `20 oz`, `mL`, `serving size` |
+| *"This document reflects information for our products as of July 2026."* | **VERIFIED verbatim** |
+| *"analysis by our nutritional software, entitled ESHA Genesis R&D, and information provided by our suppliers"* | **VERIFIED verbatim** |
+| the disclaimer | **VERIFIED verbatim**, and fuller than the paraphrase: *"Variations may occur due to differences in suppliers, ingredient substitutions, recipe revisions, assembly at restaurant level, and/or time of the year."* |
+| *"Nutrition information is applicable to products served in Canadian restaurants"* | **VERIFIED verbatim** |
+| the row names `Original Blend Coffee - Large`, `Cream for Coffee - Large`, `Double Double Coffee - Large` | **VERIFIED** — pages 2, 8, 2 |
+
+**The figures, and here the verification is strong but not total — the distinction
+is the point.** The text layer emits a page's **names** and its **numbers as two
+separate flows, in different orders**, so row-to-name pairing is not recoverable
+from the extraction.
+
+- **Cream for Coffee – Large: `80 8 5 0.2 25 40 2 0 2 1`.** That row **exists in the
+  document, matching all ten fields exactly.** Three 80-kcal cream rows exist; two
+  carry sodium 40 and one carries 35, so the stated figures match one of the two
+  identical ones. **Exact on every field.**
+- **Original Blend Coffee – Large: 5 kcal, all else 0.** The brewed-coffee block is
+  **twelve rows, every non-calorie field 0 in all twelve**, and the calorie values
+  are `3 4 5 5` repeated three times — the three brewed families at four sizes. So
+  *all other nutrients are zero whatever the pairing*, and the calorie figure is one
+  of {3,4,5}. **Bounded to within 2 kcal, and 5 is the Large if sizes ascend.**
+- **Double Double – Large: 250 kcal.** A four-row family reads `130 200 250 300`.
+  **Consistent**, and the pairing is inferred rather than read.
+
+> **What this changes: the figures are now corroborated against the document, not
+> accepted from a transcription.** What it does not change: the pairing of two of
+> the three rows is an inference from structure, and is recorded as one.
+
+### 2. RULED — the three items
+
+| | ruled |
+|---|---|
+| **ONE DOOR** | **build as pre-registered.** Local **search-as-you-type over the corpus, reusing the matcher**, is **in scope**. The running total **states coverage** — *"from 1 of 2 parts"* — which is the honesty rule arriving in a form field |
+| **COMMERCIAL** | **USDA FDC admitted** — Branded **and** Survey/FNDDS — **BYOK key**, third provenance on H4's shape. **Every FDC result shows its macros beside the user's estimate**, and **"nothing fits" comes BEFORE the list** |
+| **STRESS** | **fed / fasting / asleep are observed covariates, not hidden states. The hidden layer starts as calm vs stressed.** |
+
+**FatSecret and Edamam are ruled OUT, and the reason is recorded so it is not
+re-litigated by a future session that only sees a free tier:**
+
+- **FatSecret** — *"You may not continue to use and must immediately remove or
+  replace (by re-requesting) any Content in your possession or under your control
+  not explicitly identified as being storable indefinitely **within 24 hours**"*.
+  A log the user keeps is the opposite of that. **Premier Free changes the tier,
+  not the terms.**
+- **Edamam** — caching limited to *"the four basic macro nutrient datapoints"*, and
+  *"Saved data can be used only in the end user's account, **behind a password**"*.
+  **This app has no accounts, by ruling**, so the clause cannot be satisfied even
+  in principle.
+
+> **Neither is a pricing decision and neither should be revisited on price.** They
+> fail the user's own test — *a source that forbids retention cannot feed a
+> permanent record* — and that test is about the shape of this app, not its budget.
+
+**"Nothing fits" before the list** is the measured reason, not a preference: FDC
+returned *"Mai Tai"* as the top hit for `siu mai` and generic FNDDS coffee for
+`Tim Hortons coffee`. A list that always has a plausible first row needs its exit
+at the top, where a user who recognises nothing finds it first.
+
+### 3. RULED — the caffeine, and the volume carries its own citation
+
+**A partial ref carrying slot 262 only, attributed to CNF** — agreed and recorded.
+Its merits, restated because they are the reason it is safe: the panel then shows
+**caffeine alone** as a reference value rather than the corpus's energy and fat
+beside Tim Hortons'; `ref.g` keeps the basis so the stepper's re-expression still
+works; and `ref.attribution` reads **CNF**, so *"never as Tim Hortons'"* holds **by
+construction** rather than by a label someone must remember to print.
+
+**The volume: 20 fl oz (~591 mL)**, from press coverage of the 2012 resizing,
+**marked as an estimate carrying that citation**, until confirmed from a cup.
+
+> **And the document is why it needs one.** Verified above: **the guide states no
+> volume anywhere** — no `fl oz`, no `mL`, no serving size, on any of 16 pages. So
+> the volume cannot be sourced to Tim Hortons even in principle, and an estimate
+> with its own citation is not a shortcut, it is the only honest shape available.
+
+At 591 mL against the CNF brewed-coffee row's 40 mg/100 g, the caffeine estimate is
+**~236 mg** — and it is an estimate twice over: the volume is estimated, and the
+concentration is a generic brewed coffee rather than theirs. **Both must be visible
+where the number is.**
+
+### 4. The provenance object, final
+
+| field | value |
+|---|---|
+| `org` | Tim Hortons |
+| `cite` | Tim Hortons Nutrition Information, 2026 Canadian Edition — *"This document reflects information for our products as of July 2026"*; analysis by ESHA Genesis R&D per the document |
+| `retrieved` | 2026-10-10 |
+| `disclaimer` | *"Variations may occur due to differences in suppliers, ingredient substitutions, recipe revisions, assembly at restaurant level, and/or time of the year."* |
+
+The PDF stays **out of the repo** (agreed), at `HTPrivate/`, cited not committed.
