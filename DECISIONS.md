@@ -14307,3 +14307,111 @@ are not two strengths of the same claim.
 | glucose-only inference labelled low-confidence or withheld | consistent with `mealResponse`, which **declines with a reason** rather than reporting a thin baseline |
 
 **NOTHING IS BUILT. No state set, no store, no surface, no number in any code.**
+
+---
+
+## THE TIM HORTONS SOURCE — RECEIVED, RECONCILED, AND ONE CONTRACT QUESTION (2026-10-10)
+
+### 1. The document, and my call on the repo
+
+`HTPrivate/Tim Hortons Nutrition Guide - July 2026 (1).pdf` — 630,269 bytes,
+17 pages, on disk 2026-10-10 21:54.
+
+**Ruled, since the call was mine: it does NOT go in the repo. Cite it; the file
+stays in `HTPrivate/`.** Three reasons, and the first is already settled
+precedent:
+
+- `corpus/README.md` keeps the CNF and SR Legacy archives out for exactly this
+  reason — *"they are ~19 MB of third-party archives, and the repo is
+  fixture-synthetic and public-facing"* — and records **where to fetch them**
+  instead. A chain's nutrition guide is the same kind of object, smaller.
+- **Redistributing it is a licence question nobody has answered.** Committing a
+  public PDF to a public repo is republication, not reference.
+- **The app stores the citation, never the document.** That is what H4's `labels`
+  store does with an FDA label and what `published` does here.
+
+### 2. I COULD NOT READ IT, AND THAT CHANGES WHAT THE FIGURES REST ON
+
+Attempted, and the attempts are worth recording because the conclusion is a limit
+rather than a result:
+
+| attempt | outcome |
+|---|---|
+| the native PDF reader | **`pdftoppm is not installed`** — no poppler on this machine |
+| `pypdf`, `PyPDF2`, `pdfminer`, `fitz` | **all four absent** |
+| inflating the content streams by hand | 24 streams, 4.49 MB inflated, 1.75 M characters recovered — **and not one of the quoted row names in it** |
+
+Diagnosed rather than assumed: the recovered text is **15.3% printable ASCII** and
+its "words" are glyph codes (`PQXED`, `KQZX`). **The fonts are subset-encoded**, so
+each glyph needs the embedded CMap to map back to a character, which a crude
+reader does not do.
+
+> **So the figures rest on your transcription of the chain's own panel — which is
+> the ruled route, exactly ("never fill it from third-party sites") — plus the
+> reconciliation below. Not on my having read the document.** The distinction goes
+> in the record because a future reader would otherwise assume the PDF was checked
+> line by line, and it was not.
+
+### 3. WHAT I COULD CHECK: THE ARITHMETIC RECONCILES, ALL NINE FIGURES
+
+Every stated total is the coffee row plus **twice** the cream row:
+
+| | coffee L | cream L x2 | stated total | reconciles |
+|---|---|---|---|---|
+| kcal | 5 | 160 | **165** | yes |
+| fat g | 0 | 16 | **16** | yes |
+| saturated g | 0 | 10 | **10** | yes |
+| trans g | 0 | 0.4 | **0.4** | yes |
+| cholesterol mg | 0 | 50 | **50** | yes |
+| sodium mg | 0 | 80 | **80** | yes |
+| carbohydrate g | 0 | 4 | **4** | yes |
+| sugars g | 0 | 4 | **4** | yes |
+| protein g | 0 | 2 | **2** | yes |
+
+**The cross-check passes too, and is labelled as what it is.** Double Double Large
+at 250 kcal minus this 165 leaves **85 kcal for two sugars, ~42.5 each** —
+consistent with a sugar portion that scales with cup size rather than a fixed
+packet. That is a consistency check on the two published rows, **not** a claim
+about their recipe.
+
+### 4. THE PROVENANCE OBJECT, ready to store
+
+| field | value |
+|---|---|
+| `org` | Tim Hortons |
+| `cite` | Tim Hortons Nutrition Information, Canadian restaurants — *"reflects information for our products as of July 2026"*; analysis via ESHA Genesis R&D per the document |
+| `retrieved` | 2026-10-10 |
+| `disclaimer` | values may vary by restaurant and time of year |
+
+All four present, which `normalizePublished` requires — it is **all three or
+nothing** on org, cite and retrieved, so this object is admissible as built.
+
+### 5. THE CONTRACT QUESTION — RAISED, NOT RESOLVED
+
+**The coffee part has to carry published macros AND a corpus-derived caffeine
+estimate, and the part contract has one slot for "where the numbers came from".**
+
+A `ref` means *this item's composition came from this cited row*, and the panel
+renders a ref's values as **reference values**. Attaching the brewed-coffee ref to
+get caffeine would therefore put **the corpus's energy and fat beside Tim Hortons'
+energy and fat for the same drink** — which is [[D120]]'s rule arriving as a
+rendering problem rather than a summing one: *a reference value is never shown in
+the same figure as a labelled one without the panel saying so.*
+
+| option | |
+|---|---|
+| **(a) a PARTIAL ref carrying slot 262 only** | the panel then shows caffeine alone as a reference value. Uses existing machinery; `ref.g` keeps the basis so the stepper's re-expression still works; and `ref.attribution` already reads CNF, so *"never as Tim Hortons'"* holds **by construction** rather than by a label |
+| **(b) a new field** for a single estimated value with its own provenance | cleaner semantically, a new shape in the contract, and a second place provenance can live |
+
+**Recommended: (a).** But it needs a ruling, for two reasons that are not
+cosmetic: a **one-slot ref is a new shape** for an object that has always meant a
+whole row, and the item's **single `confidence` field cannot say "macros measured,
+caffeine estimated"** — one record, two epistemic statuses.
+
+**And one input is still missing.** Caffeine from the corpus row is 40 mg per
+100 g, so *"at the large cup's volume"* needs **the volume**, and the published
+guide does not list it (it lists no caffeine at all, which is why we are here). I
+am not going to assert a cup size — tell me the volume, or the caffeine estimate
+stays absent, which is the honest default.
+
+**STOPPING for the ruling on (a) vs (b), and for the large cup's volume.**
