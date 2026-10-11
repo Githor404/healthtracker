@@ -14808,3 +14808,72 @@ One defect of mine, caught by the harness: a fixture assertion claimed three row
 begin with `co` in a six-row list where two do. The code was right and the test
 was wrong, which is the cheaper direction, and it is why the fixture's expected
 ids are written out rather than counted.
+
+---
+
+## R186 — THE SENSOR-CHANGE ENTRY — PRE-REGISTERED, NOT BUILT (2026-10-11)
+
+Serves **track** (and it is the clock the glucose stream's gaps are read against).
+`R186` grepped per the standing rule: **unused in this repo**, so the label is safe.
+
+### 1. The device finding, read against the code
+
+> *"Tapped "New sensor · left arm" after applying a new G7. Biometrics now shows
+> "12:47 New sensor" — it saved, but…"*
+
+| reported | what the code does |
+|---|---|
+| no confirmation on tap | `quickEvent(id, variant)` returns `addSignal(raw)` and **nothing else** — no toast, no undo. The form path beside it calls `offerSignalUndo`; the one-tap path never did |
+| the entry is bare | the record is `{ type: 'sensor', variant: 'left arm', source: 'quick', time }`. The Biometrics group renders `spec.label` and the value, and a sensor has no value — so the arm **is stored and is not shown** |
+| no sensor type | there is **no field for it**. `variant` holds the arm, and `sensorArmFor()` reads `variant` as the arm for the night comparison (H26), so the type cannot go there |
+| no countdown | nothing computes days since the last `sensor` record |
+| no dedupe | two taps write two records |
+
+**One thing the report did not say, found by reading:** the missing confirmation
+is not the sensor's alone. **Moved, Woke and Drink go through the same
+`quickEvent` and are equally silent.** Fixing it in `quickEvent` fixes all four;
+fixing it for the sensor only leaves three controls with the defect this was
+opened for. Pre-registered as **all four**, with the sensor's wording as ruled.
+
+### 2. Why it is not trivial — it touches the stored contract
+
+- **Sensor type is a new field on a timeline record.** [[D129]]'s rule applies:
+  *every additive field is declared in the normaliser in the same commit that
+  writes it*, or it vanishes on the first export and restore. Proposed: `device`
+  on the record (a new field, so an app that does not know it round-trips it —
+  the D35/D52 precedent), and the last one used in `settings`.
+- **"Day 1 of 10" is a claim about a device.** It is a wear life the app would be
+  stating in its own voice, so it carries its source like any other figure the
+  app did not measure. Proposed: a small table — type, wear days, grace hours,
+  citation — and **no bare `10` anywhere**. The figures get read from the
+  manufacturer's own documentation at build time, first-hand, not from memory.
+- **The table is product data, the default is not.** A list of sensor types is
+  not a personal calibration; *defaulting a fresh install to one of them is*.
+
+### 3. FOUR RULINGS NEEDED, each with the default proposed
+
+| | question | proposed |
+|---|---|---|
+| A | the type on the **first-ever** tap, when there is no "last used" | asked once, from the table, then remembered. No type is pre-selected in code |
+| B | wear life and grace | per-type table with citation; shown as *"Dexcom G7 · Day 3 of 10 · left arm"*, then *"grace period · N h left"*, then *"past its wear time"* — a statement of elapsed time, never an instruction to change it |
+| C | a second tap inside ~10 min | **same arm: nothing is written**, and it says *"already logged at 12:47"*. **Other arm: the existing entry's site is corrected**, not a second change added — inside ten minutes that is far likelier a mis-tap than a second sensor |
+| D | entries with **no type** (every one written before this, today's 12:47 included) | left exactly as they are and shown as *"New sensor · left arm"*. **No type is back-filled** — D137: a record cannot be classified by a field it predates. The countdown for such an entry shows days elapsed and no "of N" |
+
+### 4. PRE-REGISTERED GATE
+
+| | |
+|---|---|
+| a real tap writes ONE `sensor` record carrying **device and site** | and the Biometrics row reads *"New sensor · \<type\> · \<arm\>"* |
+| the confirmation is **visible**, names type, site and time, offers **Undo**, and is **>= 16px, measured** | and Undo removes exactly that record |
+| the status line near the badges reads Day 1 of N **after** the tap and a later day **before** it | the countdown is asserted to RESET, not merely to exist |
+| at wear-life + 1 h it reads as grace; past grace it says so | on a pinned clock, per D50 |
+| a second tap, same arm, inside the window writes **nothing** | record count asserted unchanged |
+| a second tap, other arm, inside the window leaves **one** record with the new site | |
+| a tap **outside** the window writes a second record | the control: without it the dedupe could be a tap that never writes |
+| `device` survives export -> restore | D129 |
+| a record with no `device` renders without one and is never given one | D137 |
+| Moved, Woke and Drink also confirm, with Undo | the finding in §1 |
+| `sensorArmFor()` still returns the arm | H26 reads it; the new field must not move it |
+
+**STOPPING for rulings A–D, and for one more: whether §1's "all four" is wanted,
+or the sensor alone.**
