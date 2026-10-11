@@ -296,7 +296,19 @@ echo "-----------------------------------------"
 # rather than treated as 100 g, and deletion leaving the logged items alone.
 # Finally the surface: off by default, stating what it will save before the tap,
 # ticks appearing only while selecting and not outliving the save.
-EXPECTED_ASSERTIONS=2796
+# ONE DOOR / 2: 2796 -> 2830, delta +34 (33 new, and one /1 pin MOVED rather than
+# added: it asserted "+ New combo" was absent while it had nothing to open). The
+# typeahead as a pure function over an index built in the harness -- with the
+# matcher's own zero rows for a half-typed word as the control, a finished word
+# answered by the matcher byte for byte, and a row that misses the half-typed
+# word ranked beneath rather than dropped. Ruling (a) in its one function: the
+# row's macros as the item's OWN numbers at the typed grams, cited, eyeballed,
+# micros left in ref.v, an absent macro left off, a row with no energy refused,
+# and the whole item surviving the normaliser. Then the builder: a matched part
+# owed an amount rather than given one, a typed part bringing no caffeine, the
+# total saying "from 1 of 2 parts" for both figures, a save with NOTHING logged
+# first, and the saved combo logging at 2x with the cited caffeine doubled.
+EXPECTED_ASSERTIONS=2830
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

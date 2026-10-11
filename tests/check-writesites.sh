@@ -147,6 +147,12 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # offset belongs to the moment, not to the day the combo was saved. It is its own
 # site rather than a caller of addManualEntry because it writes N items at ONE
 # timestamp and re-expresses each part's frozen ref at its own new portion.
+# ONE DOOR / 2: `searchLog` is STAMPED. It sets tzo: nowTZO() on the one item it
+# writes -- a food found by search is a new record at the moment it is logged. It
+# is its own site rather than a caller of addManualEntry because its numbers do
+# not come from a form: they come through corpusOwnNumbers (ruling (a)), with the
+# citation on the item, and a form path would have to be handed a ref it never
+# otherwise carries.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
@@ -165,6 +171,7 @@ logRepeat
 quickAddLog
 logStack
 logCombo
+searchLog
 logScanItem
 maybeInjectSupplement
 consumeFromPlate

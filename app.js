@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.83.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.84.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -11758,6 +11758,7 @@ const VERSION_LOG = [
   { v: '0.81.0', d: '2026-10-10', note: 'Combos now have their screen. A combo shows up in Quick add as ONE entry however many things it logs, marked as a combo and saying how many items it will add. Tapping it opens a multiplier rather than a portion box -- there is no single weight for a coffee plus its cream -- and it lists every part at the portion it will actually log, so two taps of the stepper shows you 500 ml of coffee and 31 g of cream before you commit. Where a part came from the food database and the database calls it something else, the part says which row it matched; where a part came from a chain-s published nutrition, the figures are shown with the organisation, the source and the date they were retrieved. One button logs the lot at one timestamp.' },
   { v: '0.82.0', d: '2026-10-10', note: 'You can now make a combo out of things you have already logged. Log the coffee and the cream once the ordinary way, tap Save as combo on the day, tick the two of them, give it a name -- and that is it. The combo keeps each part-s portion exactly as you logged it, along with where its numbers came from, so a part matched to the food database keeps that match and a part from a published source keeps its citation. Nothing is retyped and nothing is estimated. The same list is the editor: rename it, delete it, or change a part-s portion -- and when you change a portion, the calories, the nutrients and the database match all move with it rather than one of them being left behind. Deleting a combo leaves the meals you already logged alone. The ticks only appear while you are choosing, so the day behaves exactly as before the rest of the time.' },
   { v: '0.83.0', d: '2026-10-11', note: 'There is one Log button now, and it opens one sheet. It leads with what is the same every day -- your daily stack, then your combos -- then the three foods you repeat most with the rest one tap away, then Photo, Scan and Manual for something new, and a line at the foot for a dose, an event or a biometric. It reads from most certain to least certain, which is the opposite of what it did before: it used to open on the camera, the one path that needs a barcode and good light. Quick add on the day opens the same sheet rather than a different one, which is the whole of the fix -- the two buttons went to the same place and showed you different things, and making a combo from the wrong door led nowhere. A combo you saved a minute ago can be logged straight away: it had nothing in your history yet, and the list it was offered from is counted from your history, so tapping it used to do nothing at all. Going back from a food now puts it down instead of keeping it half-picked.' },
+  { v: '0.84.0', d: '2026-10-11', note: 'Two things the Log sheet was missing. Search: type a food and the food database answers as you type, from the first couple of letters -- pick a row, say how many grams, and it is logged. A food found this way takes the database-s figures as its own numbers, with the source named on it, because it has no other numbers to take; they are a typical one-s figures, not your label-s, so it is marked as an estimate. And + New combo: build a combo before you have ever logged it. Name it, search for each part and give it an amount, and the running total shows calories and caffeine as you go -- saying how many parts each figure is from, so a part the database does not know cannot make the total look complete.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15737,7 +15738,7 @@ function renderRhythmGrid() {
 // mode-switching are pure view state (gated).
 // ONE DOOR: 'root' leads, and it is where the FAB lands. The order matters only
 // in that `root` is first and `scan` no longer is.
-const SHEET_MODES = ['root', 'scan', 'quick', 'photo', 'manual', 'signal', 'med', 'lab'];
+const SHEET_MODES = ['root', 'scan', 'quick', 'search', 'combo', 'photo', 'manual', 'signal', 'med', 'lab'];
 let SHEET_MODE = 'scan';
 
 function setSheetMode(mode) {
@@ -15752,6 +15753,10 @@ function setSheetMode(mode) {
   });
   if (mode === 'quick') renderQuickChips();
   if (mode === 'root') { QUICK_PICK = null; renderSheetRoot(); }
+  // Entering either pane starts it CLEAN, and leaving abandons what was in it:
+  // the rule the root already keeps for a pick, kept for a search and a draft.
+  if (mode === 'search') renderSearchPane(); else FOOD_SEARCH = null;
+  if (mode === 'combo') renderComboNew(); else COMBO_NEW = null;
   // The mode strip IS the root's own content, so it hides there and a back link
   // appears everywhere else. One door needs a spine: every pane has to be one tap
   // from the list it was chosen off, or the sheet becomes a maze with one entrance.
@@ -16349,12 +16354,14 @@ function sheetCombosHTML() {
         + '<span class="srck">' + esc(kcalDisp(kcal)) + ' cal</span>'
         + '<span class="srcsub">' + esc(String(parts)) + ' item' + (parts === 1 ? '' : 's') + '</span></button>';
   }).join('');
-  // "+ New combo" IS RULED AND IS NOT HERE: it needs the corpus typeahead, which
-  // lands in ONE-DOOR/2. A button wired to a function that does not exist is the
-  // dead control this slice was opened to remove -- the same shape as the combo
-  // row that did nothing (A4) -- and a UI note promising it is not a feature
-  // either. The ruled entry route works today: "Save as combo" on the day.
   return h;
+}
+// "+ New combo", beneath the combos -- and its OWN function, so that with no
+// combos saved the block above still draws nothing at all (D146) while the way to
+// make the first one is not hidden behind already having one. A heading over an
+// apology is what D146 forbids; a control that does something is not that.
+function sheetComboNewHTML() {
+  return '<button type="button" class="linklike srnew" onclick="setSheetMode(\'combo\')">+ New combo</button>';
 }
 // Picking a combo from the root goes through the SAME stepper the top 10 uses, so
 // the multiplier, the part list and the citation line are one implementation.
@@ -16378,6 +16385,7 @@ function renderSheetRoot() {
   el.innerHTML =
       stackSheetHTML()
     + sheetCombosHTML()
+    + sheetComboNewHTML()
     + (shown.length
         ? ('<div class="srhead">Your top ' + esc(String(rows.length))
            + '</div>' + quickRowsHTML(shown) + more)
@@ -16386,12 +16394,503 @@ function renderSheetRoot() {
     + '<div class="srrow">'
     + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'photo\')">Photo</button>'
     + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'scan\')">Scan</button>'
+    + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'search\')">Search</button>'
     + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'manual\')">Manual</button>'
     + '</div>'
     + '<div class="srlinks">'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'med\')">Log a dose I took</button>'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'signal\')">Log event or biometric</button>'
     + '</div>';
+}
+
+// ---- ONE DOOR / 2: search as you type, and a combo built without logging ----
+//
+// MEASURED FIRST (tests/measure-typeahead.ps1): the matcher costs under a
+// millisecond a keystroke and so do the eight row reads behind it, so the numbers
+// can arrive WITH the names. The same run found what the timing was hiding: the
+// index is WHOLE-WORD. "coffe" names no row and "coffee" names eight, so a search
+// run on every keystroke over the matcher as it stood would show nothing until
+// each word was finished -- a typeahead that answers only once the typing ends.
+//
+// So the LAST word, while it is still being typed, matches any token it BEGINS.
+// Everything else is the matcher's own: the same index, the same tokens, the same
+// read-not-chosen weights (D136), the same weighted Jaccard. A row is credited
+// for the half-typed word ONCE, at the weight of ITS OWN token -- as if the user
+// had finished typing that word. A row that answers the finished words and not
+// the half-typed one is kept and ranked beneath, never dropped: the list is a
+// proposal (D119), and a proposal that vanishes mid-word reads as "not in here".
+const TYPEAHEAD_MIN = 2;         // one character is not a search (measured: 0 rows)
+const TYPEAHEAD_MAX = 8;         // IDENTITY_SEARCH_MAX's number, for its reason
+function matchTypeaheadIn(index, list, text, limit) {
+  if (!index || !list) return [];
+  const raw = String(text == null ? '' : text).toLowerCase();
+  if (raw.trim().length < TYPEAHEAD_MIN) return [];
+  const lim = Math.max(1, limit || TYPEAHEAD_MAX);
+  const tm = raw.match(/([a-z0-9]+)$/);
+  const tail = tm ? tm[1] : '';
+  // A FINISHED word -- the text ends on a space -- is the matcher's case exactly,
+  // and so is a stop word. The matcher answers both, so the two cannot disagree.
+  if (!tail || MATCH_STOP.indexOf(tail) >= 0) return matchCandidatesIn(index, list, raw, lim);
+  const head = matchTokens(raw.slice(0, raw.length - tail.length))
+    .filter(function (t) { return t !== tail; });
+  const keys = index.keys || (index.keys = Object.keys(index.idx));
+  const pw = {}, exact = {};
+  let any = false;
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i];
+    if (k.indexOf(tail) !== 0) continue;
+    any = true;
+    const w = matchIdf(index, k);
+    const rows = index.idx[k];
+    for (let j = 0; j < rows.length; j++) {
+      if (!(pw[rows[j]] >= w)) pw[rows[j]] = w;
+      if (k === tail) exact[rows[j]] = 1;
+    }
+  }
+  // The half-typed word begins nothing in the index: a typo, or a word the corpus
+  // does not hold. What was finished before it still stands.
+  if (!any) return head.length ? matchCandidatesIn(index, list, head.join(' '), lim) : [];
+  const qw = {};
+  let qsum = 0;
+  for (let i = 0; i < head.length; i++) { qw[head[i]] = matchIdf(index, head[i]); qsum += qw[head[i]]; }
+  const hit = {}, cnt = {};
+  for (let i = 0; i < head.length; i++) {
+    const rows = index.idx[head[i]] || [];
+    for (let j = 0; j < rows.length; j++) {
+      hit[rows[j]] = (hit[rows[j]] || 0) + qw[head[i]];
+      cnt[rows[j]] = (cnt[rows[j]] || 0) + 1;
+    }
+  }
+  Object.keys(pw).forEach(function (r) { if (hit[r] == null) { hit[r] = 0; cnt[r] = 0; } });
+  // A row's own token weight, summed once and kept: two letters can begin a
+  // thousand rows, and re-tokenising each of them on every keystroke is the one
+  // cost here that grows with the corpus rather than with the query.
+  const tsums = index.tsum || (index.tsum = {});
+  const unmatched = Math.log(index.n || 1);     // an unanswered word, at its rarest
+  const out = [];
+  Object.keys(hit).forEach(function (r) {
+    const row = r | 0;
+    if (tsums[row] == null) {
+      const t = matchTokens(list[row][1]);
+      let s = 0;
+      for (let i = 0; i < t.length; i++) s += matchIdf(index, t[i]);
+      tsums[row] = s;
+    }
+    const got = pw[r] != null;
+    const h = hit[r] + (got ? pw[r] : 0);
+    const union = tsums[row] + qsum + (got ? pw[r] : unmatched) - h;
+    out.push({ row: row, id: list[row][0], name: list[row][1],
+               overlap: cnt[r] + (got ? 1 : 0), exact: exact[r] ? 1 : 0,
+               jaccard: union > 0 ? h / union : 0 });
+  });
+  out.sort(function (a, b) {
+    return b.jaccard - a.jaccard || b.overlap - a.overlap || b.exact - a.exact;
+  });
+  return out.slice(0, lim);
+}
+function matchTypeahead(text, limit) {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) return [];
+  if (!MATCH_INDEX) matchIndexBuild();
+  return matchTypeaheadIn(MATCH_INDEX, m.index, text, limit);
+}
+
+// ---- RULED 2026-10-11 (a): THE FIRST TIME CORPUS NUMBERS REACH THE PRIMARY TOTALS
+//
+// Until this function, a corpus value reached a day in ONE way: frozen into
+// `ref.v`, summed in its own map, shown at its own provenance (D120). An item's
+// OWN macros always came from somewhere else -- a label, a scan, the user's hand,
+// an eyeballed photo -- and the ref sat beside them.
+//
+// A food found PURELY BY SEARCH has no somewhere else. Nothing was scanned, no
+// label was read, nobody estimated anything: the row is the only source of numbers
+// the item has. Ruled: it takes the row's macros as its OWN numbers, CITED --
+// `ref` records ns / id / name / hash / attribution and `v` at these grams.
+//
+// WHY THE HONESTY RULE ALLOWS IT. The rule's purpose is to keep fiction wearing
+// decimals out of the totals, and what it forbids is an UNCITED number, not a
+// sourced one. These are sourced, and the citation travels on the item.
+//
+// WHAT STAYS EXACTLY AS IT WAS. Micros do NOT move: they stay in `ref.v`, in the
+// reference map, never copied into `micros` -- generic cheddar is still not your
+// cheddar, and that half of D120 is untouched. Confidence is `eyeballed`, because
+// the portion was typed rather than weighed and the row is a generic food.
+//
+// CONFINED HERE, so it is reversible in one place: the search log and the combo
+// builder both build their numbers through this function and nothing else copies
+// a corpus macro onto an item. A macro the row does not carry is LEFT OFF rather
+// than zeroed here; energy is the exception that refuses, because an item with no
+// calories of its own has nothing to give the day's primary figure.
+const CORPUS_OWN_MACROS = { kcal: 208, protein_g: 203, fat_g: 204, carb_g: 205, fiber_g: 291 };
+function corpusOwnNumbers(meta, row, id, name, grams) {
+  const g = num(grams);
+  if (!meta || !row || !(g > 0)) return null;
+  if (corpusValueAt(row, meta.slots, CORPUS_OWN_MACROS.kcal) == null) return null;
+  const ref = resolveItemFreeze({ grams: g }, meta, row, id, name, null, 'picked', 'capture');
+  if (!ref) return null;
+  const out = { name: String(name == null ? '' : name), grams: g,
+                confidence: 'eyeballed', source: 'manual', soluble_fiber_g: 0, ref: ref };
+  Object.keys(CORPUS_OWN_MACROS).forEach(function (k) {
+    const v = corpusScale(corpusValueAt(row, meta.slots, CORPUS_OWN_MACROS[k]), g);
+    if (v != null) out[k] = v;
+  });
+  return out;
+}
+
+// One run, for both surfaces that search as you type. The rows come back holding
+// the corpus row they were read from AND the meta it was read under, so the pick
+// that follows is synchronous and cannot be answered by a corpus that was
+// replaced in between.
+function typeaheadRun(text) {
+  const q = String(text == null ? '' : text);
+  if (q.trim().length < TYPEAHEAD_MIN) return Promise.resolve({ phase: 'short', rows: [] });
+  return corpusEnsure().then(function () {
+    const m = CORPUS_MEM;
+    if (!m || !m.index) return { phase: 'no-corpus', rows: [] };
+    const cands = matchTypeahead(q, TYPEAHEAD_MAX);
+    return Promise.all(cands.map(function (c) {
+      return corpusLookup(c.id).then(function (row) {
+        return { id: String(c.id), name: c.name, row: row, meta: m,
+                 kcal: row ? corpusValueAt(row, m.slots, 208) : null,
+                 protein: row ? corpusValueAt(row, m.slots, 203) : null,
+                 fat: row ? corpusValueAt(row, m.slots, 204) : null,
+                 carb: row ? corpusValueAt(row, m.slots, 205) : null };
+      });
+    })).then(function (rows) {
+      return { phase: rows.length ? 'rows' : 'none', rows: rows };
+    });
+  }).catch(function () { return { phase: 'no-corpus', rows: [] }; });
+}
+// The handler is POSITIONAL, for quickRowsHTML's reason: a row name carries
+// commas and apostrophes, and an integer needs no quoting. `pickFn` is a name
+// from this file, never text from anywhere else.
+function typeaheadRowsHTML(st, pickFn) {
+  if (!st || st.phase === 'short' || !st.phase) return '';
+  if (st.phase === 'no-corpus')
+    return '<div class="fqnote">The food database is not on this device yet, so nothing can be looked up.</div>';
+  if (st.phase === 'none')
+    return '<div class="fqnote">Nothing in the food database is named like that. Try a different word for what it is.</div>';
+  return '<div class="fqcap">Food database, per 100 g · the closest '
+    + esc(String(st.rows.length)) + '</div>'
+    + st.rows.map(function (c, i) {
+        const mac = photoSearchMacroWords(c);
+        return '<button type="button" class="btn fqrow" onclick="' + pickFn + '(' + esc(String(i)) + ')">'
+          + '<span class="fqnm">' + esc(c.name) + '</span>'
+          + (mac ? '<span class="fqmac">' + esc(mac) + '</span>' : '') + '</button>';
+      }).join('');
+}
+
+// ---- Search: block (d)'s fourth way in ------------------------------------
+// THE CARET RULE. The identity rail does not search as you type and says why:
+// "the field would be rebuilt under the caret on every keystroke". So the field
+// is rendered ONCE, when the pane opens, and a keystroke re-renders only the
+// list beneath it.
+let FOOD_SEARCH = null;     // { q, phase, rows, seq, pick, grams } -- view state, never written
+function foodSearchFresh() { return { q: '', phase: '', rows: [], seq: 0, pick: null, grams: null }; }
+function renderSearchPane() {
+  const el = document.getElementById('searchBox');
+  FOOD_SEARCH = foodSearchFresh();
+  if (!el) return;
+  el.innerHTML = '<div class="srhead">Search the food database</div>'
+    + '<input id="fqQuery" type="text" class="fqin" placeholder="what was it?"'
+    + ' aria-label="search the food database" autocomplete="off"'
+    + ' oninput="searchType(this.value)">'
+    + '<div id="fqRows"></div>';
+}
+// "NOTHING FITS" COMES BEFORE THE LIST, for the measured reason the FDC ruling
+// recorded: a list that always has a plausible first row needs its exit at the
+// top, where someone who recognises nothing finds it first.
+function searchRowsHTML() {
+  const st = FOOD_SEARCH;
+  if (!st) return '';
+  const exit = (st.phase === 'rows' || st.phase === 'none')
+    ? '<button type="button" class="linklike fqexit" onclick="setSheetMode(\'manual\')">Not here? Enter it by hand</button>'
+    : '';
+  return exit + typeaheadRowsHTML(st, 'searchPickAt');
+}
+function searchType(text) {
+  if (!FOOD_SEARCH) FOOD_SEARCH = foodSearchFresh();
+  const st = FOOD_SEARCH;
+  st.q = String(text == null ? '' : text);
+  const seq = ++st.seq;
+  return typeaheadRun(st.q).then(function (r) {
+    // A slower answer to an older keystroke must not overwrite a newer one.
+    if (FOOD_SEARCH !== st || st.seq !== seq) return { ok: false, why: 'stale' };
+    st.phase = r.phase; st.rows = r.rows;
+    const el = document.getElementById('fqRows');
+    if (el) el.innerHTML = searchRowsHTML();
+    return { ok: true, phase: r.phase, rows: r.rows.length };
+  });
+}
+function searchLogHTML() {
+  const st = FOOD_SEARCH;
+  if (!st || !st.pick) return '';
+  const built = corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, st.grams);
+  const time = stampTime(APP_STATE.current) || nowTime();
+  return '<div class="fqsub">to <b>' + esc(mealAtCreation('', time)) + '</b></div>'
+    + '<button type="button" class="btn fqlog" onclick="searchLog()"' + (built ? '' : ' disabled') + '>'
+    + (built ? ('Log ' + esc(kcalDisp(built.kcal)) + ' cal') : 'Enter an amount') + '</button>';
+}
+function searchStepHTML() {
+  const st = FOOD_SEARCH;
+  if (!st || !st.pick) return '';
+  const c = st.pick;
+  const cite = String((c.meta && c.meta.attribution) || '');
+  return '<div class="fqstep">'
+    + '<div class="qsname">' + esc(c.name) + '</div>'
+    + '<div class="fqsub">Food database, per 100 g: ' + esc(photoSearchMacroWords(c)) + '</div>'
+    // The citation WITH the numbers, and the sentence that says whose they are:
+    // this is the one place the app lets a database figure into the day's own.
+    + (cite ? '<div class="fqsub fqcite">Food database: ' + esc(cite) + '</div>' : '')
+    + '<div class="fqsub">These become this item’s numbers for the amount you enter. '
+    + 'They are the database’s figures for a typical one, not a label’s.</div>'
+    + '<label class="fqlab" for="fqGrams">How much, in grams</label>'
+    + '<input id="fqGrams" type="number" class="fqin" inputmode="decimal" min="0"'
+    + ' oninput="searchGrams(this.value)" aria-label="how much, in grams">'
+    + '<div id="fqLog">' + searchLogHTML() + '</div>'
+    + '<button type="button" class="linklike fqexit" onclick="searchBack()">back to the list</button>'
+    + '</div>';
+}
+function searchPickAt(i) {
+  const st = FOOD_SEARCH;
+  const c = st && st.rows[num(i)];
+  if (!c) return { ok: false, why: 'no-such-row' };
+  if (!c.row || c.kcal == null) return { ok: false, why: 'no-numbers' };
+  st.pick = c; st.grams = null;
+  const el = document.getElementById('searchBox');
+  if (el) el.innerHTML = searchStepHTML();
+  return { ok: true, id: c.id, name: c.name };
+}
+// The amount field is NOT re-rendered by its own keystrokes; the button under it is.
+function searchGrams(v) {
+  const st = FOOD_SEARCH;
+  if (!st || !st.pick) return { ok: false, why: 'nothing-picked' };
+  const g = (v == null || String(v).trim() === '') ? null : clampNonNeg(v);
+  st.grams = (g != null && g > 0) ? g : null;
+  const el = document.getElementById('fqLog');
+  if (el) el.innerHTML = searchLogHTML();
+  return { ok: true, grams: st.grams };
+}
+function searchBack() {
+  const q = FOOD_SEARCH ? FOOD_SEARCH.q : '';
+  renderSearchPane();
+  const f = document.getElementById('fqQuery');
+  if (f) f.value = q;
+  return searchType(q);
+}
+function searchLog() {
+  const st = FOOD_SEARCH;
+  const c = st && st.pick;
+  if (!c) return { ok: false, why: 'nothing-picked' };
+  const built = corpusOwnNumbers(c.meta, c.row, c.id, c.name, st.grams);
+  if (!built) return { ok: false, why: 'no-amount' };
+  const day = dayForWrite();
+  if (!day) return { ok: false, why: 'no-day' };
+  // D112: a past day gets no fabricated clock time; the meal still needs a
+  // default, and it is the one the button's own line already named.
+  const time = stampTime(APP_STATE.current);
+  const item = normalizeItem(Object.assign({}, built, {
+    meal: mealAtCreation('', time || nowTime()), time: time, notes: '', tzo: nowTZO(),
+  }), true);
+  if (day.status === 'complete') day.status = 'in_progress';
+  day.items.push(item);
+  Store.saveState(APP_STATE);
+  FOOD_SEARCH = null;
+  closeSheet();
+  refresh();
+  offerFoodUndo(APP_STATE.current, item);
+  return { ok: true, item: item };
+}
+
+// ---- "+ New combo": built WITHOUT logging anything first -------------------
+// The ruling's own point. `comboFromItems` stays as the second route; this is the
+// first one, for the combo you know you want before you have eaten it.
+//
+// A PART IS MATCHED OR TYPED, and the difference is what it can be totalled for.
+// A matched part carries the row, so it has calories AND caffeine (slot 262 lives
+// only in a `ref`). A typed part has a name, an amount if given, calories if
+// given -- and NO caffeine, so the running total says how many parts each figure
+// is "from" rather than understating and looking complete. That is the honesty
+// rule arriving in a form field.
+let COMBO_NEW = null;       // { name, parts, q, phase, rows, seq } -- view state until Save
+function renderComboNew() {
+  const el = document.getElementById('comboNewBox');
+  COMBO_NEW = { name: '', parts: [], q: '', phase: '', rows: [], seq: 0 };
+  if (!el) return;
+  // Both fields rendered ONCE (the caret rule); the three regions under them are
+  // what a keystroke or a tap redraws.
+  el.innerHTML = '<div class="srhead">New combo</div>'
+    + '<input id="cnName" type="text" class="cnin" placeholder="name it, e.g. my coffee"'
+    + ' aria-label="combo name" autocomplete="off" oninput="comboNewName(this.value)">'
+    + '<div id="cnParts"></div>'
+    + '<label class="cnlab" for="cnQuery">Add a part</label>'
+    + '<input id="cnQuery" type="text" class="cnin" placeholder="search the food database"'
+    + ' aria-label="search for a part" autocomplete="off" oninput="comboNewType(this.value)">'
+    + '<div id="cnRows"></div>'
+    + '<div id="cnTotal">' + comboNewTotalHTML() + '</div>';
+}
+function comboNewPaint(which) {
+  const put = function (id, html) { const e = document.getElementById(id); if (e) e.innerHTML = html; };
+  if (which.parts) put('cnParts', comboNewPartsHTML());
+  if (which.rows) put('cnRows', comboNewRowsHTML());
+  put('cnTotal', comboNewTotalHTML());
+}
+function comboNewName(v) {
+  if (!COMBO_NEW) return { ok: false, why: 'not-building' };
+  COMBO_NEW.name = String(v == null ? '' : v);
+  comboNewPaint({});
+  return { ok: true };
+}
+function comboNewType(text) {
+  const st = COMBO_NEW;
+  if (!st) return Promise.resolve({ ok: false, why: 'not-building' });
+  st.q = String(text == null ? '' : text);
+  const seq = ++st.seq;
+  return typeaheadRun(st.q).then(function (r) {
+    if (COMBO_NEW !== st || st.seq !== seq) return { ok: false, why: 'stale' };
+    st.phase = r.phase; st.rows = r.rows;
+    comboNewPaint({ rows: true });
+    return { ok: true, phase: r.phase, rows: r.rows.length };
+  });
+}
+// The way out of the list comes BEFORE the list, as on the search pane -- and
+// here it is not a way out of the builder: what was typed becomes a part.
+function comboNewRowsHTML() {
+  const st = COMBO_NEW;
+  if (!st) return '';
+  const typed = String(st.q || '').trim();
+  const own = (typed.length >= TYPEAHEAD_MIN)
+    ? '<button type="button" class="linklike fqexit" onclick="comboNewAddTyped()">Not here? Add “'
+      + esc(typed) + '” without database numbers</button>'
+    : '';
+  return own + typeaheadRowsHTML(st, 'comboNewAddAt');
+}
+function comboNewAdded() {
+  const st = COMBO_NEW;
+  st.q = ''; st.phase = ''; st.rows = []; st.seq++;
+  const f = document.getElementById('cnQuery');
+  if (f) f.value = '';
+  comboNewPaint({ parts: true, rows: true });
+}
+function comboNewAddAt(i) {
+  const st = COMBO_NEW;
+  const c = st && st.rows[num(i)];
+  if (!c) return { ok: false, why: 'no-such-row' };
+  if (!c.row || c.kcal == null) return { ok: false, why: 'no-numbers' };
+  st.parts.push({ name: c.name, id: c.id, row: c.row, meta: c.meta, grams: null,
+                  kcal100: c.kcal, protein: c.protein, fat: c.fat, carb: c.carb });
+  comboNewAdded();
+  return { ok: true, parts: st.parts.length, matched: true };
+}
+function comboNewAddTyped() {
+  const st = COMBO_NEW;
+  const nm = st ? String(st.q || '').trim() : '';
+  if (!nm) return { ok: false, why: 'nothing-typed' };
+  st.parts.push({ name: nm, typed: true, grams: null, kcal: null });
+  comboNewAdded();
+  return { ok: true, parts: st.parts.length, matched: false };
+}
+function comboNewRemove(i) {
+  const st = COMBO_NEW;
+  if (!st || !st.parts[num(i)]) return { ok: false, why: 'no-such-part' };
+  st.parts.splice(num(i), 1);
+  comboNewPaint({ parts: true });
+  return { ok: true, parts: st.parts.length };
+}
+// Amounts repaint the TOTAL only: the field being typed in is in the parts list,
+// and the Save button is not, so neither is rebuilt under the finger using it.
+function comboNewAmount(i, key, v) {
+  const st = COMBO_NEW;
+  const p = st && st.parts[num(i)];
+  if (!p) return { ok: false, why: 'no-such-part' };
+  if (key !== 'grams' && !(key === 'kcal' && p.typed)) return { ok: false, why: 'no-such-field' };
+  const n = (v == null || String(v).trim() === '') ? null : clampNonNeg(v);
+  p[key] = (key === 'grams') ? ((n != null && n > 0) ? n : null) : n;
+  comboNewPaint({});
+  return { ok: true, value: p[key] };
+}
+// What a part will be SAVED as, or null while a matched part has no amount yet.
+// The matched branch is corpusOwnNumbers and nothing else (ruling (a), one place).
+function comboNewPartNumbers(p) {
+  if (!p) return null;
+  if (!p.typed) return corpusOwnNumbers(p.meta, p.row, p.id, p.name, p.grams);
+  const out = { name: p.name, confidence: 'eyeballed', source: 'manual' };
+  if (p.grams != null) out.grams = p.grams;
+  if (p.kcal != null) out.kcal = p.kcal;
+  return out;
+}
+function comboNewTotal() {
+  const st = COMBO_NEW;
+  const t = { parts: 0, kcal: 0, kcalFrom: 0, caffeine: 0, caffeineFrom: 0, waiting: 0, blocked: '' };
+  if (!st) { t.blocked = 'Nothing is being built.'; return t; }
+  t.parts = st.parts.length;
+  st.parts.forEach(function (p) {
+    const n = comboNewPartNumbers(p);
+    if (!n) { t.waiting++; return; }
+    if (n.kcal != null) { t.kcal += num(n.kcal); t.kcalFrom++; }
+    // A caffeine figure of 0 is a figure: the row says there is none. A part with
+    // no row, or a row with no caffeine column, says nothing -- and is not counted.
+    const caf = refValueAt(n.ref, 262);
+    if (caf != null) { t.caffeine += caf; t.caffeineFrom++; }
+  });
+  if (!t.parts) t.blocked = 'Add at least one part.';
+  else if (t.waiting) t.blocked = t.waiting + (t.waiting === 1 ? ' part still needs' : ' parts still need') + ' an amount.';
+  else if (!String(st.name || '').trim()) t.blocked = 'Name the combo.';
+  return t;
+}
+function comboNewPartsHTML() {
+  const st = COMBO_NEW;
+  if (!st || !st.parts.length) return '';
+  return st.parts.map(function (p, i) {
+    const sub = p.typed
+      ? 'typed in · no database numbers'
+      : ('food database, per 100 g: ' + photoSearchMacroWords({ kcal: p.kcal100, protein: p.protein, fat: p.fat, carb: p.carb }));
+    const val = function (x) { return x == null ? '' : String(x); };
+    return '<div class="cnpart"><div class="cnpname">' + esc(p.name) + '</div>'
+      + '<div class="cnpsub">' + esc(sub) + '</div>'
+      + '<label class="cnlab">grams<input type="number" class="cnin cnamt" inputmode="decimal" min="0"'
+      + ' value="' + esc(val(p.grams)) + '" oninput="comboNewAmount(' + esc(String(i)) + ', \'grams\', this.value)"'
+      + ' aria-label="grams of ' + esc(p.name) + '"></label>'
+      + (p.typed
+          ? '<label class="cnlab">calories, if you know them<input type="number" class="cnin cncal" inputmode="decimal" min="0"'
+            + ' value="' + esc(val(p.kcal)) + '" oninput="comboNewAmount(' + esc(String(i)) + ', \'kcal\', this.value)"'
+            + ' aria-label="calories in ' + esc(p.name) + '"></label>'
+          : '')
+      + '<button type="button" class="linklike cnrm" onclick="comboNewRemove(' + esc(String(i)) + ')">remove</button></div>';
+  }).join('');
+}
+// COVERAGE GRAMMAR, the day's own: a figure says how many parts it is "from".
+// Without it a two-part combo with one matched part shows one part's caffeine
+// and reads as the whole drink's.
+function comboNewTotalHTML() {
+  const t = comboNewTotal();
+  const of = function (n) { return 'from ' + n + ' of ' + t.parts + (t.parts === 1 ? ' part' : ' parts'); };
+  const lines = t.parts
+    ? ('<div class="cntot"><div class="cnline">Calories: <b>'
+       + (t.kcalFrom ? esc(kcalDisp(t.kcal)) + ' cal' : 'not known') + '</b> · ' + esc(of(t.kcalFrom)) + '</div>'
+       + '<div class="cnline">Caffeine: <b>'
+       + (t.caffeineFrom ? esc(rDisp(t.caffeine)) + ' mg' : 'not known') + '</b> · ' + esc(of(t.caffeineFrom)) + '</div></div>')
+    : '';
+  return lines
+    + '<button type="button" class="btn cnsave" onclick="comboNewSave()"' + (t.blocked ? ' disabled' : '') + '>Save combo</button>'
+    + (t.blocked ? '<div class="cnpsub cnwhy">' + esc(t.blocked) + '</div>' : '');
+}
+function comboNewSave() {
+  const st = COMBO_NEW;
+  if (!st) return { ok: false, why: 'not-building' };
+  const t = comboNewTotal();
+  if (t.blocked) return { ok: false, error: t.blocked };
+  const combo = normalizeCombo({ name: st.name, parts: st.parts.map(comboNewPartNumbers) });
+  if (!combo) return { ok: false, error: 'Nothing savable in that.' };
+  if (!Array.isArray(APP_STATE.settings.combos)) APP_STATE.settings.combos = [];
+  APP_STATE.settings.combos.push(combo);
+  Store.saveState(APP_STATE);
+  COMBO_NEW = null;
+  toast('Saved ' + combo.name + ' - ' + combo.parts.length + ' item' + (combo.parts.length === 1 ? '' : 's'));
+  // Back to the root, where the new combo is now the thing that can be tapped.
+  setSheetMode('root');
+  refresh();
+  return { ok: true, combo: combo };
 }
 
 // Version + release date at the foot of the Settings panel (reference info, not a
@@ -18478,6 +18977,12 @@ window.HT = {
   openSheet, closeSheet, setSheetMode, openSettings, closeSettings,
   // D143 -- the overlay lock, driven from the DOM
   overlaySync, overlayVisible, overlayPageLayer, OVERLAY_SEL, renderQuickChips, quickLog, SHEET_MODES,
+  // ONE DOOR / 2 -- the typeahead, ruling (a), Search, and "+ New combo"
+  TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, typeaheadRun, typeaheadRowsHTML,
+  CORPUS_OWN_MACROS, corpusOwnNumbers, sheetComboNewHTML,
+  foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
+  comboNew: () => COMBO_NEW, renderComboNew, comboNewName, comboNewType, comboNewAddAt, comboNewAddTyped,
+  comboNewRemove, comboNewAmount, comboNewPartNumbers, comboNewTotal, comboNewTotalHTML, comboNewSave,
   // Phase 4 Slice — Regimen / timeline templates (D27)
   parseRegimen, addRegimenFromJSON, normalizeRegimens, setActiveRegimen, deleteRegimen, activeRegimen, regimenToday,
   logRegimenEntry, substituteRegimenEntry, unfulfillRegimenEntry, isGrosslyLate, buildPresetItem, REGIMEN_TEMPLATE, REGIMEN_SAMPLE,

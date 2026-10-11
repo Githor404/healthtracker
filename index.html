@@ -1033,6 +1033,22 @@
 .srcsub{grid-column:1/-1;color:var(--muted);font-size:16px}
 .srmore{display:block;margin:6px auto 0;font-size:16px;min-height:44px}
 .srlinks{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+/* ONE DOOR / 2: the search pane (`fq`) and the combo builder (`cn`). Both
+   prefixes checked against the stylesheet first; every size >= 16px (D100). */
+.srnew{display:block;margin:6px 0 0;font-size:16px;min-height:44px}
+.fqin,.cnin{display:block;width:100%;min-height:44px;font-size:16px;padding:10px;box-sizing:border-box}
+.fqcap,.fqnote,.fqsub,.cnpsub{font-size:16px;color:var(--muted);margin:8px 0 4px}
+.fqrow{display:block;width:100%;min-height:44px;text-align:left;font-size:16px;margin:0 0 6px}
+.fqnm{display:block}
+.fqmac{display:block;margin-top:2px;color:var(--muted);font-size:16px}
+.fqexit{display:block;font-size:16px;min-height:44px;text-align:left}
+.fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
+.fqlog,.cnsave{width:100%;min-height:44px;font-size:16px;margin-top:10px}
+.cnpart{padding:8px 0;border-bottom:1px solid var(--line)}
+.cnpname{font-size:16px;font-weight:600}
+.cnrm{font-size:16px;min-height:44px}
+.cntot{font-size:16px;margin:12px 0 0}
+.cnline{margin:2px 0}
 .rptstrip{display:flex;gap:8px;flex-wrap:wrap}
 /* D133: a proposal is a first row, and says why it is one. */
 .rcandbtn.rprop{border-color:var(--accent)}
@@ -1283,6 +1299,15 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
       </div>
       <div id="pane-quick" class="pane">
         <div id="quickChips"></div>
+      </div>
+      <!-- ONE DOOR / 2: two panes reached only from the root. Each is one host
+           element, because its fields are rendered ONCE when the pane opens and
+           only the regions beneath them are redrawn as the user types. -->
+      <div id="pane-search" class="pane">
+        <div id="searchBox"></div>
+      </div>
+      <div id="pane-combo" class="pane">
+        <div id="comboNewBox"></div>
       </div>
       <div id="pane-photo" class="pane">
       <h2>Photo capture</h2>

@@ -13062,8 +13062,14 @@ window.setLS({});
       'ONE-DOOR GATE: a combo NAME is escaped where it renders -- user-authored text on a new surface is still untrusted text');
   res(odC.indexOf('comboPickById') >= 0,
       'ONE-DOOR GATE: and the row is wired to the stepper by id, not to a new copy of the logging path');
-  res(odC.indexOf('comboNewOpen') < 0 && odC.indexOf('srnew') < 0,
-      'ONE-DOOR GATE: "+ New combo" IS RULED AND IS NOT SHIPPED HERE -- it needs the corpus typeahead, and a button wired to a function that does not exist is the dead control this slice was opened to remove (A4). It lands in ONE-DOOR/2, with its CSS rule');
+  // RE-PINNED, ONE DOOR / 2: this asserted the button's ABSENCE, because in /1 it
+  // would have been wired to nothing. The typeahead it was waiting for has landed,
+  // so the pin moves in the commit that lands it -- and what it asserts now is the
+  // thing the absence was protecting: the control names a mode that EXISTS.
+  res(odC.indexOf('srnew') < 0 && HT.sheetComboNewHTML().indexOf('srnew') >= 0
+      && HT.sheetComboNewHTML().indexOf("setSheetMode('combo')") >= 0
+      && HT.SHEET_MODES.indexOf('combo') >= 0,
+      'ONE-DOOR GATE: "+ New combo" is its OWN block beneath the combos, wired to a mode that is declared -- the /1 pin asserted its absence while it had nothing to open, and moves here with the thing it was waiting for');
 
   // -- one renderer, two surfaces -------------------------------------------
   res(HT.quickRowsHTML([]) === '',
@@ -13097,6 +13103,154 @@ window.setLS({});
       'ONE-DOOR GATE: returning to the root ABANDONS the pick -- a half-finished action must not outlive the gesture that walked away from it');
 
   HT.state().settings.combos = _odCombos;
+  HT.closeSheet();
+
+  // ============ ONE DOOR / 2: the typeahead, ruling (a), and "+ New combo" ============
+  //
+  // What is asserted HERE is what is pure: the prefix matcher over an index built
+  // from a list in this file, the one function that carries ruling (a) over a row
+  // built in this file, and the builder's state. The harness cannot host the
+  // corpus database, so the real typing, the caret and the real rows are asserted
+  // in tests/onedoor-gate.ps1 against the shipped corpus.
+  var _od2Combos = JSON.parse(JSON.stringify(HT.state().settings.combos || []));
+  var od2List = [[1, 'Coffee, brewed'], [2, 'Coffeecake, cinnamon'], [3, 'Cheese, cheddar'],
+                 [4, 'Oil, olive'], [5, 'Olives, ripe, canned'], [6, 'Cream, half and half']];
+  var od2Idx = HT.matchIndexFrom(od2List);
+  var od2Ids = function (rows) { return rows.map(function (r) { return r.id; }).join(','); };
+
+  // -- the measured defect: the matcher is whole-word ------------------------
+  res(HT.matchCandidatesIn(od2Idx, od2List, 'coff', 8).length === 0
+      && HT.matchTypeaheadIn(od2Idx, od2List, 'coff', 8).length === 2,
+      'ONE-DOOR/2 GATE: a HALF-TYPED word finds rows -- the matcher alone finds none for "coff" (the control), so a search run per keystroke over it would have answered only after the typing ended');
+  res(od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'coffee', 8)) === '1,2',
+      'ONE-DOOR/2 GATE: a word that IS a token still begins longer ones, and the row it names exactly leads');
+  res(HT.matchTypeaheadIn(od2Idx, od2List, 'c', 8).length === 0
+      && HT.matchTypeaheadIn(od2Idx, od2List, '  ', 8).length === 0,
+      'ONE-DOOR/2 GATE: one character is not a search, and neither is whitespace');
+  res(JSON.stringify(HT.matchTypeaheadIn(od2Idx, od2List, 'coffee ', 8))
+      === JSON.stringify(HT.matchCandidatesIn(od2Idx, od2List, 'coffee ', 8))
+      && HT.matchTypeaheadIn(od2Idx, od2List, 'coffee ', 8).length === 1,
+      'ONE-DOOR/2 GATE: a FINISHED word is answered by the matcher itself, byte for byte -- the typeahead reuses it rather than restating it, so the two cannot drift');
+  res(JSON.stringify(HT.matchTypeaheadIn(od2Idx, od2List, 'cheddar raw', 8))
+      === JSON.stringify(HT.matchCandidatesIn(od2Idx, od2List, 'cheddar raw', 8)),
+      'ONE-DOOR/2 GATE: a trailing STOP word is the matcher-s case too -- it must not be treated as the start of a rarer word');
+  res(od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'olive oi', 8)).indexOf('4') === 0,
+      'ONE-DOOR/2 GATE: finished words and the half-typed one are scored TOGETHER -- "olive oi" leads with the oil');
+  var od2Kept = od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'coffee cinn', 8));
+  res(od2Kept === '2,1',
+      'ONE-DOOR/2 GATE: a row that answers the finished word and not the half-typed one is ranked BENEATH, never dropped -- a list that empties mid-word reads as "not in here"', od2Kept);
+  res(od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'cheddar zzq', 8)) === '3'
+      && HT.matchTypeaheadIn(od2Idx, od2List, 'zzqq', 8).length === 0,
+      'ONE-DOOR/2 GATE: a half-typed word that begins NOTHING leaves the finished words standing, and alone it returns nothing rather than everything');
+  res(HT.matchTypeaheadIn(od2Idx, od2List, 'co', 8).length === 2
+      && HT.matchTypeaheadIn(od2Idx, od2List, 'co', 1).length === 1
+      && HT.matchTypeaheadIn(null, od2List, 'coffee', 8).length === 0,
+      'ONE-DOOR/2 GATE: the limit is honoured, and no index is no rows rather than a throw');
+
+  // -- ruling (a): the row-s macros become the item-s OWN numbers, cited ------
+  var od2Meta = { ns: 'fdc', hash: 'od2hash', attribution: 'OD2 test source',
+                  slots: [203, 204, 205, 208, 262, 291, 301] };
+  var od2Row = new Float32Array([0.5, 0.25, 0, 2, 40, NaN, 4]);     // per 100 g; fibre ABSENT
+  var od2Own = HT.corpusOwnNumbers(od2Meta, od2Row, '171890', 'Coffee, brewed', 250);
+  res(!!od2Own && od2Own.kcal === 5 && od2Own.protein_g === 1.25 && od2Own.fat_g === 0.625 && od2Own.carb_g === 0,
+      'ONE-DOOR/2 GATE (ruling a): a searched food takes the row-s macros AS ITS OWN, scaled to the typed grams -- it has no other numbers to take');
+  res(od2Own.confidence === 'eyeballed' && od2Own.source === 'manual' && od2Own.grams === 250,
+      'ONE-DOOR/2 GATE (ruling a): confidence is eyeballed, because the portion was typed and the row is a generic food');
+  res(od2Own.ref.ns === 'fdc' && od2Own.ref.id === '171890' && od2Own.ref.name === 'Coffee, brewed'
+      && od2Own.ref.hash === 'od2hash' && od2Own.ref.attribution === 'OD2 test source' && od2Own.ref.g === 250,
+      'ONE-DOOR/2 GATE (ruling a): and they are CITED -- the ref records ns, id, name, hash, attribution and the grams its values are at');
+  res(od2Own.micros === undefined && HT.refValueAt(od2Own.ref, 262) === 100 && HT.refValueAt(od2Own.ref, 301) === 10,
+      'ONE-DOOR/2 GATE (ruling a): MICROS DO NOT MOVE -- they stay in ref.v at these grams and are never copied into the item-s own map. That half of D120 is untouched');
+  res(!('fiber_g' in od2Own) && od2Own.soluble_fiber_g === 0 && HT.refValueAt(od2Own.ref, 291) === null,
+      'ONE-DOOR/2 GATE (ruling a): a macro the row does not carry is LEFT OFF here rather than zeroed, and absent from the ref too (absence is never zero)');
+  res(HT.corpusOwnNumbers(od2Meta, od2Row, '1', 'x', 0) === null
+      && HT.corpusOwnNumbers(od2Meta, od2Row, '1', 'x', '') === null
+      && HT.corpusOwnNumbers(od2Meta, null, '1', 'x', 100) === null
+      && HT.corpusOwnNumbers(od2Meta, new Float32Array([1, 1, 1, NaN, 0, 0, 0]), '1', 'x', 100) === null,
+      'ONE-DOOR/2 GATE (ruling a): no amount, no row, or a row with NO ENERGY is refused -- an item with no calories of its own has nothing to give the primary figure, and 0 would be a measurement nobody made');
+  var od2Item = HT.normalizeItem(Object.assign({}, od2Own, { meal: 'drink', time: '', notes: '' }), true);
+  res(od2Item.kcal === 5 && !!od2Item.ref && od2Item.ref.id === '171890' && HT.refValueAt(od2Item.ref, 262) === 100
+      && od2Item.micros === undefined && od2Item.confidence === 'eyeballed' && od2Item.grams === 250,
+      'ONE-DOOR/2 GATE (ruling a): the item survives the normaliser whole -- its own macros, its citation, and no micros map (D129: a field the allowlist drops is a field that vanishes on restore)');
+
+  // -- the rows, as markup ------------------------------------------------------
+  var od2RowsHTML = HT.typeaheadRowsHTML({ phase: 'rows', rows: [
+    { id: '1', name: 'Milk, <b>whole</b>', kcal: 61, protein: 3.2, fat: 3.3, carb: 4.8 },
+    { id: '2', name: "Baker's yeast", kcal: 105, protein: 8.4, fat: 1.9, carb: 18.1 } ] }, 'searchPickAt');
+  res(od2RowsHTML.indexOf('<b>whole') < 0 && od2RowsHTML.indexOf('&lt;b&gt;') >= 0
+      && od2RowsHTML.indexOf('searchPickAt(0)') >= 0 && od2RowsHTML.indexOf('searchPickAt(1)') >= 0,
+      'ONE-DOOR/2 GATE: a row name is escaped, and the handler is POSITIONAL -- a name with an apostrophe in it never reaches an inline handler');
+  res(od2RowsHTML.indexOf('per 100 g') >= 0 && od2RowsHTML.indexOf('61 cal') >= 0 && od2RowsHTML.indexOf('closest 2') >= 0,
+      'ONE-DOOR/2 GATE: every row shows its macros and the caption says what they are per, and how many rows this is');
+  res(HT.typeaheadRowsHTML({ phase: 'short', rows: [] }, 'searchPickAt') === ''
+      && HT.typeaheadRowsHTML({ phase: 'none', rows: [] }, 'searchPickAt').indexOf('Nothing in the food database') >= 0
+      && HT.typeaheadRowsHTML({ phase: 'no-corpus', rows: [] }, 'searchPickAt').indexOf('not on this device yet') >= 0,
+      'ONE-DOOR/2 GATE: too short draws nothing, no rows SAYS so, and no database on the device says THAT -- three different facts, three different surfaces');
+
+  // -- "+ New combo": built with no items logged first ---------------------------
+  var od2Day = HT.state().days[HT.state().current];
+  var od2Before = od2Day ? od2Day.items.length : 0;
+  HT.state().settings.combos = [];
+  res(HT.sheetCombosHTML() === '' && HT.sheetComboNewHTML().indexOf('+ New combo') >= 0,
+      'ONE-DOOR/2 GATE: with NO combos saved the combos block still draws nothing (D146) while the way to make the first one is there -- a control that does something is not a heading over an apology');
+  res(HT.setSheetMode('combo').ok === true && !!HT.comboNew() && HT.comboNewTotal().blocked === 'Add at least one part.',
+      'ONE-DOOR/2 GATE: the builder opens EMPTY and says what it is waiting for');
+  HT.comboNew().rows = [{ id: '171890', name: 'Coffee, brewed', row: od2Row, meta: od2Meta,
+                          kcal: 2, protein: 0.5, fat: 0.25, carb: 0 }];
+  HT.comboNew().phase = 'rows';
+  var od2Add = HT.comboNewAddAt(0);
+  res(od2Add.ok === true && od2Add.matched === true && HT.comboNewTotal().blocked === '1 part still needs an amount.'
+      && HT.comboNewAddAt(7).ok === false,
+      'ONE-DOOR/2 GATE: a matched part is added WITHOUT an amount and the builder says one is owed -- no portion is invented for it, and a row that is not there is refused');
+  HT.comboNewAmount(0, 'grams', '250');
+  HT.comboNew().q = 'cream <i>';
+  var od2Typed = HT.comboNewAddTyped();
+  var od2T = HT.comboNewTotal();
+  res(od2Typed.ok === true && od2Typed.matched === false && od2T.parts === 2
+      && od2T.kcalFrom === 1 && od2T.kcal === 5 && od2T.caffeineFrom === 1 && od2T.caffeine === 100,
+      'ONE-DOOR/2 GATE: a part the database did not match is added as TYPED, and it brings no calories and NO CAFFEINE to the total');
+  var od2TotHTML = HT.comboNewTotalHTML();
+  res(od2TotHTML.split('from 1 of 2 parts').length === 3 && od2TotHTML.indexOf('100 mg') >= 0,
+      'ONE-DOOR/2 GATE: and the total SAYS SO, for both figures -- "from 1 of 2 parts" is the honesty rule arriving in a form field; without it one part-s caffeine reads as the whole drink-s', od2TotHTML);
+  res(od2T.blocked === 'Name the combo.' && od2TotHTML.indexOf('disabled') >= 0 && HT.comboNewSave().ok === false,
+      'ONE-DOOR/2 GATE: an unnamed combo cannot be saved, and the button says why rather than failing silently');
+  res(HT.comboNewAmount(1, 'kcal', '18').ok === true && HT.comboNewTotal().kcalFrom === 2 && HT.comboNewTotal().kcal === 23
+      && HT.comboNewTotal().caffeineFrom === 1,
+      'ONE-DOOR/2 GATE: calories typed for the unmatched part join the calorie total -- and its caffeine stays uncounted, because nobody stated one');
+  res(HT.comboNewAmount(0, 'kcal', '99').ok === false && HT.comboNewTotal().kcal === 23,
+      'ONE-DOOR/2 GATE: a MATCHED part-s calories cannot be typed over -- its numbers come through ruling (a)-s one function or not at all');
+  HT.comboNewName('  Test coffee  ');
+  var od2Save = HT.comboNewSave();
+  var od2Combo = od2Save.combo || { parts: [{}, {}] };
+  res(od2Save.ok === true && od2Combo.name === 'Test coffee' && od2Combo.parts.length === 2
+      && ((HT.state().days[HT.state().current] || { items: [] }).items.length === od2Before),
+      'ONE-DOOR/2 GATE: the combo SAVES WITH NO ITEMS LOGGED FIRST -- the ruling-s own point, and the day is untouched by it');
+  res(!!od2Combo.parts[0].ref && od2Combo.parts[0].ref.id === '171890' && od2Combo.parts[0].kcal === 5
+      && od2Combo.parts[0].grams === 250 && HT.refValueAt(od2Combo.parts[0].ref, 262) === 100,
+      'ONE-DOOR/2 GATE: the matched part carries its ref, and with it the caffeine');
+  res(od2Combo.parts[1].ref === undefined && od2Combo.parts[1].kcal === 18 && od2Combo.parts[1].grams === undefined
+      && od2Combo.parts[1].name === 'cream <i>',
+      'ONE-DOOR/2 GATE: the unmatched part carries NO ref -- so no caffeine -- and no portion nobody gave it');
+  res(HT.comboNew() === null,
+      'ONE-DOOR/2 GATE: saving ends the draft, so the next "+ New combo" does not open on the last one');
+  var od2Log = HT.logCombo(od2Combo.id, 2);
+  res(od2Log.ok === true && od2Log.items.length === 2 && od2Log.items[0].kcal === 10
+      && HT.refValueAt(od2Log.items[0].ref, 262) === 200 && od2Log.items[0].confidence === 'eyeballed'
+      && od2Log.items[1].ref === undefined && od2Log.items[1].kcal === 36,
+      'ONE-DOOR/2 GATE: and logged at 2x through the existing write path, the matched part-s own calories AND its cited caffeine both double while the typed part still claims no caffeine');
+  // Put the day and the combos back, by value.
+  (function () {
+    var d = HT.state().days[HT.state().current];
+    if (d && od2Log.ok) d.items = d.items.filter(function (it) { return od2Log.items.indexOf(it) < 0; });
+  })();
+  res(HT.setSheetMode('combo').ok === true && !!HT.comboNew() && HT.comboNew().parts.length === 0
+      && HT.setSheetMode('root').ok === true && HT.comboNew() === null,
+      'ONE-DOOR/2 GATE: the builder opens clean each time, and going back to the root ABANDONS the draft -- the rule the root already keeps for a pick');
+  res(HT.setSheetMode('search').ok === true && !!HT.foodSearch() && HT.searchPickAt(0).ok === false
+      && HT.searchLog().ok === false && HT.setSheetMode('root').ok === true && HT.foodSearch() === null,
+      'ONE-DOOR/2 GATE: Search is a declared mode, it refuses a pick and a log when nothing is there to pick, and leaving it puts the search down');
+  HT.state().settings.combos = _od2Combos;
+  HT.resave();
   HT.closeSheet();
 
 

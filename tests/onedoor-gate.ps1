@@ -71,6 +71,21 @@ function EvalJ([string]$js) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "JSON.stringify((function(){ return eval(decodeURIComponent(escape(atob('" + $enc + "')))); })())"; returnByValue = $true }
   if ($r.result.exceptionDetails) { return "EXCEPTION: " + $r.result.exceptionDetails.text }
   return $r.result.result.value }
+# The async form, for anything that touches the corpus: AWAIT the promise and
+# stringify INSIDE the page.
+function EvalA([string]$js) {
+  $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
+  if ($r.result.exceptionDetails) { return "EXCEPTION: " + $r.result.exceptionDetails.text }
+  return $r.result.result.value }
+# REAL TYPING, one character at a time into whatever holds the focus. Setting
+# .value and calling the handler would prove the handler; it would not prove the
+# field survives being typed in, which is the whole of the caret rule.
+function TypeText([string]$t) {
+  foreach ($ch in $t.ToCharArray()) {
+    Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
+    Start-Sleep -Milliseconds 70 } }
+function Settle { [void](EvalA "new Promise(function (r) { setTimeout(function () { r(1); }, 400); })") }
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
@@ -383,6 +398,358 @@ try {
   Check ($plant.Contains('comboPickById')) "PLANT: with one handler taken away the scan NAMES IT -- so the clean result above is a measurement and not a scan that quietly checks nothing"
   Check ($plant.Contains('"restored":true')) "...and the plant is put back inside the same expression, because a plant that outlives its assertion is itself the defect"
 
+  # =========================== ONE DOOR / 2 ====================================
+  # Search in block (d), and "+ New combo" beneath the combos. Both need the
+  # corpus, so it is acquired first and its absence is an ENVIRONMENT error: a
+  # search gate that passed over an empty index would be the fast nothing.
+  $corpus = EvalA @'
+HT.corpusEnsure().then(function () {
+  var st = HT.corpusState();
+  return { ready: !!(st && st.ready), rows: st ? st.rows : 0, probe: HT.matchCandidates('coffee', 8).length };
+})
+'@
+  Write-Host ("  corpus: " + $corpus)
+  if (-not (($corpus -like '*"ready":true*') -and (-not ($corpus -like '*"probe":0*')))) {
+    Write-Host "ERROR: the corpus did not hydrate, so nothing searched here would mean anything"; Cleanup; exit 2 }
+
+  # ---- 9. Search: block (d), typed for real -----------------------------------
+  $sopen = EvalJ @'
+(function () {
+  HT.closeSheet(); HT.openSheet();
+  var el = document.getElementById('sheetRoot');
+  var names = Array.prototype.map.call(el.querySelectorAll('.srbtn'), function (b) { return b.textContent; }).join(',');
+  var btn = null;
+  Array.prototype.forEach.call(el.querySelectorAll('.srbtn'), function (b) { if (b.textContent === 'Search') btn = b; });
+  if (!btn) return { names: names, err: 'no Search button' };
+  btn.click();
+  var f = document.getElementById('fqQuery');
+  if (f) { f.__mark = 'kept'; f.focus(); }
+  return { names: names, paneOn: document.getElementById('pane-search').className.indexOf('on') >= 0,
+           field: !!f, back: !document.getElementById('sheetBack').hidden,
+           control: HT.matchCandidates('coff', 8).length };
+})()
+'@
+  Write-Host ("  search open: " + $sopen)
+  Check ($sopen -like '*"names":"Photo,Scan,Search,Manual"*') "block (d) reads Photo, Scan, Search, Manual -- the ruled four, in the ruled order"
+  Check (($sopen -like '*"paneOn":true*') -and ($sopen -like '*"field":true*')) "a real click on Search opens the search pane with its field"
+  Check ($sopen -like '*"back":true*') "and the back link is there, so the pane is one tap from the root like every other"
+  Check ($sopen -like '*"control":0*') "CONTROL: the matcher alone returns NOTHING for the half-typed 'coff' -- so the rows asserted next are the typeahead's and not the matcher's"
+  TypeText 'coff'
+  Settle
+  $styped = EvalJ @'
+(function () {
+  var f = document.getElementById('fqQuery');
+  var box = document.getElementById('fqRows');
+  var first = box && box.firstElementChild;
+  var st = HT.foodSearch();
+  return { kept: !!f && f.__mark === 'kept', active: document.activeElement === f,
+           value: f ? f.value : null, caret: f ? f.selectionStart : -1,
+           rows: box ? box.querySelectorAll('.fqrow').length : -1,
+           exitFirst: !!first && first.className.indexOf('fqexit') >= 0,
+           cap: box ? (box.querySelector('.fqcap') || {}).textContent || '' : '',
+           macros: box ? box.querySelectorAll('.fqmac').length : -1,
+           allCoff: !!st && st.rows.length > 0 && st.rows.every(function (r) { return /coff/i.test(r.name); }) };
+})()
+'@
+  Write-Host ("  search typed: " + $styped)
+  $sv = $styped | ConvertFrom-Json
+  Check ($sv.rows -gt 0) "typing FOUR LETTERS of a word finds rows -- search as you type, not search once the word is finished"
+  Check ($sv.allCoff -eq $true) "and every row is one the half-typed word begins"
+  Check (($sv.kept -eq $true) -and ($sv.active -eq $true)) "THE CARET RULE: after four real keystrokes the field is the SAME element and still holds the focus -- it was not rebuilt under the typing"
+  Check (($sv.value -eq 'coff') -and ($sv.caret -eq 4)) "...every character landed, and the caret is at the end of them"
+  Check ($sv.exitFirst -eq $true) "the way out comes BEFORE the list -- a list that always has a plausible first row needs its exit where someone who recognises nothing finds it first"
+  Check (($sv.macros -eq $sv.rows) -and ($sv.cap -like '*per 100 g*')) "every row shows its macros, and the caption says what they are per"
+
+  $spick = EvalJ @'
+(function () {
+  var st = HT.foodSearch();
+  var i = -1;
+  st.rows.forEach(function (r, k) { if (i < 0 && r.kcal > 0 && r.protein != null) i = k; });
+  if (i < 0) return { err: 'no row with energy and protein to pick' };
+  var want = st.rows[i];
+  window.__od2 = { id: want.id, name: want.name, kcal100: want.kcal,
+                   before: (HT.state().days[HT.state().current] || { items: [] }).items.length };
+  document.querySelectorAll('#fqRows .fqrow')[i].click();
+  var g = document.getElementById('fqGrams');
+  var b = document.querySelector('#fqLog .fqlog');
+  if (g) { g.__mark = 'kept'; g.focus(); }
+  var box = document.getElementById('searchBox');
+  return { step: !!g, disabled: !!b && b.disabled, text: b ? b.textContent : '',
+           cited: (box.textContent || '').indexOf('Food database: ') >= 0,
+           says: (box.textContent || '').indexOf('not a label') >= 0 };
+})()
+'@
+  Write-Host ("  search pick: " + $spick)
+  Check ($spick -like '*"step":true*') "a real click on a row opens the amount step"
+  Check (($spick -like '*"disabled":true*') -and ($spick -like '*"text":"Enter an amount"*')) "with no amount the button is DISABLED and says what it is waiting for -- no portion is assumed"
+  Check ($spick -like '*"cited":true*') "the source is NAMED beside the figures, before anything is logged (ruling a: cited)"
+  Check ($spick -like '*"says":true*') "and the surface says whose numbers these are -- the database's, not a label's"
+  TypeText '250'
+  Settle
+  $slog = EvalJ @'
+(function () {
+  var g = document.getElementById('fqGrams');
+  var b = document.querySelector('#fqLog .fqlog');
+  var pre = { kept: !!g && g.__mark === 'kept', active: document.activeElement === g,
+              value: g ? g.value : null, enabled: !!b && !b.disabled, text: b ? b.textContent : '' };
+  if (b) b.click();
+  var day = HT.state().days[HT.state().current] || { items: [] };
+  var it = day.items[day.items.length - 1] || {};
+  var ref = it.ref || { v: {} };
+  var w = window.__od2;
+  var sheet = document.getElementById('entrySheet');
+  return { pre: pre, added: day.items.length - w.before, name: it.name === w.name,
+           kcal: Math.abs((it.kcal || 0) - w.kcal100 * 2.5) < 1e-6,
+           ownIsRow: it.kcal === ref.v['208'] && it.protein_g === ref.v['203'] && it.fat_g === ref.v['204'],
+           grams: it.grams, conf: it.confidence, micros: it.micros === undefined,
+           refId: ref.id === w.id, ns: ref.ns, hash: !!ref.hash, attribution: !!ref.attribution, refG: ref.g,
+           refSlots: Object.keys(ref.v).length, closed: getComputedStyle(sheet).display === 'none',
+           search: HT.foodSearch() };
+})()
+'@
+  Write-Host ("  search log: " + $slog)
+  $sl = $slog | ConvertFrom-Json
+  Check (($sl.pre.kept -eq $true) -and ($sl.pre.active -eq $true) -and ($sl.pre.value -eq '250')) "the amount field survives its own keystrokes too -- only the button under it is redrawn"
+  Check (($sl.pre.enabled -eq $true) -and ($sl.pre.text -like 'Log * cal')) "and the button now states what it will log"
+  Check (($sl.added -eq 1) -and ($sl.name -eq $true)) "one real click logs ONE item, named as the row"
+  Check (($sl.kcal -eq $true) -and ($sl.grams -eq 250)) "RULING (a): its own calories are the row's, at the typed grams"
+  Check ($sl.ownIsRow -eq $true) "...and its own macros are EXACTLY the cited values at those grams -- one arithmetic, so the item and its citation cannot disagree"
+  Check (($sl.refId -eq $true) -and ($sl.hash -eq $true) -and ($sl.attribution -eq $true) -and ($sl.refG -eq 250) -and ($sl.ns -ne '')) "CITED: the item carries the row's namespace, id, hash, attribution and the grams its values are at"
+  Check ($sl.conf -eq 'eyeballed') "confidence is eyeballed -- the portion was typed"
+  Check (($sl.micros -eq $true) -and ($sl.refSlots -gt 5)) "MICROS DO NOT MOVE: the item has no micros map of its own, and the row's other values are in the citation where they were always kept"
+  Check (($sl.closed -eq $true) -and ($null -eq $sl.search)) "the sheet closes on the day, and the search is put down"
+
+  # ---- 10. "+ New combo", with nothing logged first ----------------------------
+  $cnone = EvalJ @'
+(function () {
+  var S = HT.state();
+  var keep = JSON.parse(JSON.stringify(S.settings.combos || []));
+  S.settings.combos = [];
+  HT.closeSheet(); HT.openSheet();
+  var h = document.getElementById('sheetRoot').innerHTML;
+  var none = { heading: h.indexOf('My combos') >= 0, button: h.indexOf('srnew') >= 0 };
+  S.settings.combos = keep;
+  HT.closeSheet(); HT.openSheet();
+  h = document.getElementById('sheetRoot').innerHTML;
+  return { none: none, combos: h.indexOf('My combos'), btn: h.indexOf('srnew'), top: h.indexOf('Your top') };
+})()
+'@
+  Write-Host ("  new combo, placement: " + $cnone)
+  $cp = $cnone | ConvertFrom-Json
+  Check (($cp.none.heading -eq $false) -and ($cp.none.button -eq $true)) "with NO combos saved the heading is still absent (D146) and '+ New combo' is still there -- the way to make the first one must not need one"
+  Check (($cp.combos -ge 0) -and ($cp.combos -lt $cp.btn) -and ($cp.btn -lt $cp.top)) "and with combos it sits BENEATH them and above the top block, positionally, as ruled"
+
+  $copen = EvalJ @'
+(function () {
+  window.__od2c = { before: (HT.state().days[HT.state().current] || { items: [] }).items.length,
+                    combos: (HT.state().settings.combos || []).length };
+  document.querySelector('#sheetRoot .srnew').click();
+  var n = document.getElementById('cnName');
+  if (n) n.focus();
+  var b = document.querySelector('#cnTotal .cnsave');
+  return { paneOn: document.getElementById('pane-combo').className.indexOf('on') >= 0, name: !!n,
+           query: !!document.getElementById('cnQuery'), disabled: !!b && b.disabled,
+           why: (document.querySelector('#cnTotal .cnwhy') || {}).textContent || '' };
+})()
+'@
+  Write-Host ("  new combo, open: " + $copen)
+  Check (($copen -like '*"paneOn":true*') -and ($copen -like '*"name":true*') -and ($copen -like '*"query":true*')) "a real click on '+ New combo' opens the builder: a name, and a search for parts"
+  Check (($copen -like '*"disabled":true*') -and ($copen -like '*Add at least one part*')) "an empty builder cannot save, and says why"
+  TypeText 'Gate coffee'
+  [void](Eval "(function(){ var q = document.getElementById('cnQuery'); q.__mark = 'kept'; q.focus(); return 1; })()")
+  TypeText 'coffee'
+  Settle
+  $cadd = EvalJ @'
+(function () {
+  var q = document.getElementById('cnQuery');
+  var box = document.getElementById('cnRows');
+  var first = box && box.firstElementChild;
+  var st = HT.comboNew();
+  var typed = { kept: q.__mark === 'kept', active: document.activeElement === q, value: q.value, caret: q.selectionStart,
+                rows: box.querySelectorAll('.fqrow').length, name: document.getElementById('cnName').value,
+                ownFirst: !!first && first.className.indexOf('fqexit') >= 0 };
+  // A row that CARRIES caffeine, or the coverage line below would be asserting on
+  // an accident of which coffee the corpus lists first.
+  var i = -1;
+  st.rows.forEach(function (r, k) {
+    var c = r.row ? HT.corpusValueAt(r.row, r.meta.slots, 262) : null;
+    if (i < 0 && c != null && c > 0 && r.kcal != null) i = k; });
+  if (i < 0) return { typed: typed, err: 'no coffee row carrying caffeine among the rows' };
+  box.querySelectorAll('.fqrow')[i].click();
+  var b = document.querySelector('#cnTotal .cnsave');
+  var amt = document.querySelector('#cnParts .cnamt');
+  if (amt) { amt.__mark = 'kept'; amt.focus(); }
+  return { typed: typed, parts: HT.comboNew().parts.length, cleared: q.value === '' && q.__mark === 'kept',
+           rowsGone: box.querySelectorAll('.fqrow').length === 0, disabled: !!b && b.disabled,
+           why: (document.querySelector('#cnTotal .cnwhy') || {}).textContent || '', amt: !!amt };
+})()
+'@
+  Write-Host ("  new combo, a matched part: " + $cadd)
+  $ca = $cadd | ConvertFrom-Json
+  Check (($ca.typed.kept -eq $true) -and ($ca.typed.active -eq $true) -and ($ca.typed.value -eq 'coffee') -and ($ca.typed.caret -eq 6)) "the part search survives six real keystrokes -- same element, focus kept, caret at the end"
+  Check (($ca.typed.rows -gt 0) -and ($ca.typed.name -eq 'Gate coffee')) "rows arrive as it is typed, and the name typed before it is still in its field"
+  Check ($ca.typed.ownFirst -eq $true) "'Not here? Add it without database numbers' comes BEFORE the rows"
+  Check (($ca.parts -eq 1) -and ($ca.cleared -eq $true) -and ($ca.rowsGone -eq $true)) "a real click on a row adds the part and clears the search for the next one, without rebuilding the field"
+  Check (($ca.disabled -eq $true) -and ($ca.why -like '*1 part still needs an amount*')) "a matched part is OWED an amount -- none is invented for it, and the builder says so"
+  TypeText '250'
+  Settle
+  $camt = EvalJ @'
+(function () {
+  var amt = document.querySelector('#cnParts .cnamt');
+  var tot = (document.getElementById('cnTotal') || {}).textContent || '';
+  var t = HT.comboNewTotal();
+  var q = document.getElementById('cnQuery'); q.focus();
+  return { kept: amt.__mark === 'kept', value: amt.value, one: tot.split('from 1 of 1 part').length - 1,
+           caffeine: t.caffeine > 0, kcalFrom: t.kcalFrom, cafFrom: t.caffeineFrom,
+           enabled: !document.querySelector('#cnTotal .cnsave').disabled };
+})()
+'@
+  Write-Host ("  new combo, the amount: " + $camt)
+  $cm = $camt | ConvertFrom-Json
+  Check (($cm.kept -eq $true) -and ($cm.value -eq '250')) "the amount field survives its own keystrokes -- the total beneath is what redraws"
+  Check (($cm.one -eq 2) -and ($cm.caffeine -eq $true) -and ($cm.enabled -eq $true)) "with one matched part the total shows calories AND caffeine, each 'from 1 of 1 part', and the combo can be saved"
+  TypeText 'zzqqx cream'
+  Settle
+  $ctyp = EvalJ @'
+(function () {
+  var box = document.getElementById('cnRows');
+  var own = box.querySelector('.fqexit');
+  var pre = { rows: box.querySelectorAll('.fqrow').length, offer: own ? own.textContent : '' };
+  if (own) own.click();
+  var tot = (document.getElementById('cnTotal') || {}).textContent || '';
+  var t = HT.comboNewTotal();
+  return { pre: pre, parts: t.parts, kcalFrom: t.kcalFrom, cafFrom: t.caffeineFrom,
+           says: tot.split('from 1 of 2 parts').length - 1,
+           calBox: document.querySelectorAll('#cnParts .cncal').length,
+           before: (HT.state().days[HT.state().current] || { items: [] }).items.length - window.__od2c.before };
+})()
+'@
+  Write-Host ("  new combo, a typed part: " + $ctyp)
+  $cy = $ctyp | ConvertFrom-Json
+  Check ($cy.pre.offer -like '*zzqqx cream*') "what was typed is offered as a part in its own words when the database has no better answer"
+  Check (($cy.parts -eq 2) -and ($cy.kcalFrom -eq 1) -and ($cy.cafFrom -eq 1)) "the typed part brings NO calories and NO caffeine to the total"
+  Check ($cy.says -eq 2) "and the total SAYS 'from 1 of 2 parts' for BOTH figures -- coverage grammar, not silence: without it one part's caffeine reads as the whole drink's"
+  Check ($cy.calBox -eq 1) "only the typed part offers a calories box -- a matched part's numbers are the row's and cannot be typed over"
+  $csave = EvalJ @'
+(function () {
+  var b = document.querySelector('#cnTotal .cnsave');
+  var enabled = !!b && !b.disabled;
+  if (b) b.click();
+  var S = HT.state();
+  var combos = S.settings.combos || [];
+  var c = combos[combos.length - 1] || { parts: [{}, {}] };
+  var p0 = c.parts[0] || {}, p1 = c.parts[1] || {};
+  var root = document.getElementById('sheetRoot');
+  var row = null;
+  Array.prototype.forEach.call(root.querySelectorAll('.srcombo'), function (r) {
+    if ((r.textContent || '').indexOf('Gate coffee') >= 0) row = r; });
+  var out = { enabled: enabled, added: combos.length - window.__od2c.combos, name: c.name,
+              logged: (S.days[S.current] || { items: [] }).items.length - window.__od2c.before,
+              rootOn: document.getElementById('pane-root').className.indexOf('on') >= 0, onRoot: !!row,
+              p0ref: !!p0.ref, p0caf: p0.ref ? HT.refValueAt(p0.ref, 262) > 0 : false, p0g: p0.grams,
+              p0own: !!p0.ref && p0.kcal === p0.ref.v['208'], p0conf: p0.confidence,
+              p1ref: p1.ref === undefined, p1name: p1.name, draft: HT.comboNew() };
+  if (row) row.click();
+  var plan = HT.quickPlan();
+  out.stepParts = plan && plan.combo ? plan.combo.rows.length : -1;
+  HT.setSheetMode('root');
+  return out;
+})()
+'@
+  Write-Host ("  new combo, saved: " + $csave)
+  $cs = $csave | ConvertFrom-Json
+  Check (($cs.enabled -eq $true) -and ($cs.added -eq 1) -and ($cs.name -eq 'Gate coffee')) "a real click on Save stores ONE combo under the typed name"
+  Check ($cs.logged -eq 0) "WITH NO ITEMS LOGGED FIRST -- the ruling's own point: the day has exactly the items it had before the builder opened"
+  Check (($cs.p0ref -eq $true) -and ($cs.p0caf -eq $true) -and ($cs.p0g -eq 250)) "the part that matched carries its ref, and with it the caffeine, at its amount"
+  Check (($cs.p0own -eq $true) -and ($cs.p0conf -eq 'eyeballed')) "...and its own calories are the cited row's at that amount (ruling a, through the same one function as Search)"
+  Check (($cs.p1ref -eq $true) -and ($cs.p1name -eq 'zzqqx cream')) "the part that did not match carries NO ref, so no caffeine -- it degrades exactly as pre-registered"
+  Check (($cs.rootOn -eq $true) -and ($cs.onRoot -eq $true) -and ($null -eq $cs.draft)) "saving returns to the root with the new combo ON it, and the draft is gone"
+  Check ($cs.stepParts -eq 2) "and a real click on that new row reaches the stepper with both parts -- the combo made a moment ago is loggable"
+
+  # ---- 11. no dead control on either new pane ----------------------------------
+  # Section 7's scan, widened: these panes wire `oninput` as well as `onclick`,
+  # and a field whose handler does not exist is a field that silently eats typing.
+  $dead2 = EvalA @'
+(function () {
+  var scan = function (host) {
+    var bad = [], n = 0;
+    ['onclick', 'oninput'].forEach(function (attr) {
+      Array.prototype.forEach.call(host.querySelectorAll('[' + attr + ']'), function (b) {
+        n++;
+        var a = b.getAttribute(attr) || '';
+        var fn = (a.match(/^([A-Za-z0-9_$.]+)\s*\(/) || [])[1];
+        if (!fn) { bad.push('unparsed: ' + a); return; }
+        var ref = fn.split('.').reduce(function (o, k) { return (o == null) ? o : o[k]; }, window);
+        if (typeof ref !== 'function') bad.push(fn);
+      }); });
+    return { n: n, bad: bad };
+  };
+  HT.closeSheet(); HT.openSheet(); HT.setSheetMode('search');
+  return HT.searchType('coffee').then(function () {
+    var a = scan(document.getElementById('searchBox'));
+    HT.searchPickAt(0);
+    var b = scan(document.getElementById('searchBox'));
+    HT.setSheetMode('combo');
+    return HT.comboNewType('coffee').then(function () {
+      HT.comboNewAddAt(0);
+      HT.comboNew().q = 'something typed'; HT.comboNewAddTyped();
+      var c = scan(document.getElementById('comboNewBox'));
+      return { controls: a.n + b.n + c.n, dead: a.bad.concat(b.bad).concat(c.bad) };
+    });
+  });
+})()
+'@
+  Write-Host ("  controls, new panes: " + $dead2)
+  Check ($dead2.Contains('"dead":[]')) "every control on the search pane, its amount step and the builder resolves to a function that EXISTS"
+  Check (-not ($dead2 -like '*"controls":0*')) "and there are controls to resolve"
+
+  # ---- 12. the type floor on the new panes, at both widths ---------------------
+  foreach ($w2 in @(390, 360)) {
+    Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w2; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+    Start-Sleep -Milliseconds 250
+    $sz2 = EvalA @'
+(function () {
+  var measure = function (host, acc) {
+    Array.prototype.forEach.call(host.querySelectorAll('button, input, label, div, span'), function (b) {
+      if (!b.offsetParent) return;
+      var own = Array.prototype.some.call(b.childNodes, function (c) { return c.nodeType === 3 && /\S/.test(c.nodeValue); });
+      var ctl = b.tagName === 'BUTTON' || b.tagName === 'INPUT';
+      if (!own && !ctl) return;
+      acc.n++;
+      var fs = parseFloat(getComputedStyle(b).fontSize);
+      if (fs < 16) acc.small.push((b.className || b.tagName) + ' ' + fs);
+      var link = (b.className || '').indexOf('linklike') >= 0;
+      if (ctl && !link && b.offsetHeight < 44) acc.short.push((b.className || b.tagName) + ' ' + b.offsetHeight);
+    });
+    var sheet = document.getElementById('entrySheet');
+    acc.overflow = Math.max(acc.overflow, sheet.scrollWidth - sheet.clientWidth, host.scrollWidth - host.clientWidth);
+  };
+  var acc = { n: 0, small: [], short: [], overflow: 0 };
+  HT.closeSheet(); HT.openSheet(); HT.setSheetMode('search');
+  return HT.searchType('cheese cheddar').then(function () {
+    measure(document.getElementById('searchBox'), acc);
+    HT.searchPickAt(0);
+    measure(document.getElementById('searchBox'), acc);
+    HT.setSheetMode('combo');
+    return HT.comboNewType('cheese cheddar').then(function () {
+      measure(document.getElementById('comboNewBox'), acc);
+      HT.comboNewAddAt(0);
+      HT.comboNew().q = 'a typed part with a long name to wrap'; HT.comboNewAddTyped();
+      measure(document.getElementById('comboNewBox'), acc);
+      HT.setSheetMode('root');
+      return acc;
+    });
+  });
+})()
+'@
+    Write-Host ("  sizes, new panes@" + $w2 + ": " + $sz2)
+    Check ($sz2.Contains('"small":[]')) ("every piece of text on the search pane and the builder is >= 16px at " + $w2)
+    Check ($sz2.Contains('"short":[]')) ("every button and field on them is >= 44px tall at " + $w2)
+    Check ($sz2 -like '*"overflow":0*') ("and neither scrolls sideways at " + $w2)
+    Check (-not ($sz2 -like '*"n":0,*')) ("...over a non-empty set of elements at " + $w2)
+  }
+  Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+
   # ---- 8. the type floor and the sideways scroll ------------------------------
   # The foot links are `.linklike`, which the app uses at 16px with no height
   # floor everywhere else; the floor asserted here is the project's font floor,
@@ -428,7 +795,7 @@ if ($fails.Count -gt 0) {
   Write-Host "GATE: FAIL"
   exit 1
 }
-Write-Host "ONE-DOOR GATE: PASS -- one entrance, five blocks in the ruled order, an"
+Write-Host "ONE-DOOR GATE: PASS -- one entrance, five blocks in the ruled order, search as you type with the caret kept, a searched food cited as its own numbers, a combo built with nothing logged first, an"
 Write-Host "  honest count, a never-logged combo reachable by tap, a spine out of every"
 Write-Host "  mode, no dead control, and nothing drawn for a block with nothing in it."
 Write-Host "GATE: PASS"
