@@ -14536,3 +14536,105 @@ where the number is.**
 | `disclaimer` | *"Variations may occur due to differences in suppliers, ingredient substitutions, recipe revisions, assembly at restaurant level, and/or time of the year."* |
 
 The PDF stays **out of the repo** (agreed), at `HTPrivate/`, cited not committed.
+
+---
+
+## ONE DOOR / 1 — BUILT, AND THE PRE-REGISTRATION WAS WRONG ABOUT ITS OWN EVIDENCE (2026-10-11)
+
+Ruled: *"ONE DOOR — build as pre-registered."* Built as v0.83.0. Five blocks, one
+entrance, and **three defects of mine caught by three different checks** — each
+worth more than the feature.
+
+### 1. What shipped
+
+| | |
+|---|---|
+| a | **"Took my daily stack"**, as built in v0.79.0 |
+| b | **My combos** — one row each, saying how many items and how many calories |
+| c | **Your top N** — **three** shown, "Show all N" naming the **real** N |
+| d | **Something new: Photo · Scan · Manual** |
+| e | the two not-food links at the foot |
+
+`openSheet`'s default is `root`; `openQuickAdd()` is `openSheet('root')`. The mode
+strip hides on the root (it *is* the root's content) and a **back link** appears in
+every other mode, because one door needs a spine or the sheet is a maze with one
+entrance.
+
+**Search is NOT in (d), and "+ New combo" is NOT in (b).** Both need the corpus
+typeahead, which is ONE-DOOR/2. Shipping either as a button now would be the dead
+control this slice exists to remove — so the gate asserts their **absence**, and
+the orphan `.srnew` CSS rule came out of `index.html` with the button. The brief
+names that exact smell: *a `.pricecap` rule with nothing rendering into it.*
+
+### 2. THREE DEFECTS, THREE CHECKS, AND ONLY ONE OF THEM WAS MINE TO CATCH
+
+| defect | what it would have looked like | what caught it |
+|---|---|---|
+| `Q` — a quoting helper **I invented and never defined** | `ReferenceError` on first render of the combos block; the sheet half-draws | the **harness**, immediately: *Q is not defined @16339* |
+| a combo saved a minute ago **was not pickable** | tapping it does **nothing at all** | my own review, before any run — but see below |
+| a **food row tapped from the root** set the pick and drew the Log button **into the hidden quick pane** | the row does nothing visible, and a real button sits where nobody can reach it | the **flow gate**, by trying to TAP a button my gate only COUNTED |
+
+> **The third one is the finding.** My gate asserted the top block *shows* three
+> rows; it never asserted that *tapping* one arrives anywhere. The combo rows went
+> through `comboPickById`, which happened to set the mode first; the food rows
+> went through `quickPickAt`, which did not. **Counting a control is not reaching
+> it** — and the fix belongs in `quickPick`, where both routes meet, rather than
+> in each caller.
+
+This is **A4 a third time**: a surface that renders and a handler that fires, with
+nothing on screen to show for it. The pattern is now explicit in the code: *a pick
+moves the sheet to the surface that renders it.*
+
+**The second defect has the same root as the first-draft combos block**: both came
+from reasoning about the new surface instead of asking what the old one measured.
+`foodFrequency` is a **measurement over the log** — a combo logged no times has
+nothing in it to measure. The synthesised row carries `n = 0`, which is the honest
+count, not 1.
+
+### 3. THE PRE-REGISTRATION'S OWN EVIDENCE RULE WAS WRONG
+
+It said:
+
+> *"Any pin that does not move is evidence the sheet did not change what it was
+> meant to change."*
+
+Measured: **J1 stayed 4, J2 stayed 4, J4 stayed 4** — and the sheet was rebuilt
+around them. The pins were right and the rule was wrong.
+
+- **J1** is a *novel* food: the strip's Manual tab cost one tap, the root's Manual
+  button costs one tap. Nothing moved because nothing was supposed to.
+- **J1b**, the repeat path from *Quick add*, was 3 and stayed 3.
+- The path that changed — **the repeat path from `+ Log`** — had **no tap count at
+  all** before this commit, because that door opened the camera. **Unreachable is
+  not a bigger number than 3; it is the absence of a number**, and a tap count
+  cannot express it.
+
+> So the measurement is a **new journey, J1c, pinned at 3**, not a re-pin. Recorded
+> because the reasoning error is reusable: **a metric that only counts the steps of
+> a path it assumes exists is blind to a path that did not.** D130 says flow drifts
+> and the pin moves with it; it does not say every change shows up in a pin.
+
+### 4. Evidence
+
+| | |
+|---|---|
+| harness | **2796** (+17), re-pinned in this commit |
+| `tests/onedoor-gate.ps1` | **NEW**, registered in the manifest; **37 checks**, incl. **a plant** — one handler taken away, and the dead-control scan names it |
+| `tests/flow-gate.ps1` | **J1c added**; J1b's row selector scoped to `#sheetRoot` |
+| two old pins moved | `SE-modes` asserted *"Scan is the DEFAULT mode"* in two places. Moved **in this commit, with the reason**, which is the same discipline as the flow pin |
+
+**The two doors are compared on the RENDERED SHEET, byte for byte** — not on the
+argument — because comparing the argument is how the original defect would have
+passed: *both doors did call `openSheet`.*
+
+Three gate details worth keeping:
+
+- **J1b passed by accident of markup order.** `document.querySelector('.qfrow')`
+  finds the root's row only because `#pane-root` precedes `#pane-quick`; the quick
+  pane holds the same rows, hidden, and `tap()` refuses an invisible node. Scoped.
+- **PowerShell `-like` reads `[ ]` as a character class**, so `'*"dead":[]*'` is not
+  a pattern that fails to match — it is an **invalid pattern that throws**. Three
+  empty-array checks became substring comparisons. (Loud, at least: the gate died
+  rather than passing.)
+- The gate's fixture is **four** repeat rows on purpose. *"A user with four repeats
+  sees four, not three and a lie"* cannot be tested on a fixture with ten.

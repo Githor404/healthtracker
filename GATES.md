@@ -5691,3 +5691,43 @@ And the other half of the ruling is asserted too: after rendering, the store sti
 holds `100.37` and the **export** still carries it — because a day of items each
 rounded at the write boundary sums to a total that is not the sum of what was
 eaten.
+
+### ONE DOOR / 1 — one entrance, and a gate that taps rather than counts (2026-10-11)
+
+**`tests/onedoor-gate.ps1`, NEW — 37 checks, registered in the manifest in this
+commit.** The suite is now **41 verdicts** (1 harness + 9 static + 31 CDP).
+
+Why a gate at all, when 17 harness assertions cover the same slice: the harness
+page has **no `#sheetRoot`**, so `renderSheetRoot` returns early there and every
+DOM-shaped claim asserted in that page would be asserted on nothing.
+
+What it holds that nothing else could:
+
+- **the two doors render a BYTE-IDENTICAL root** — compared on the render, not on
+  the argument, because comparing the argument is how the original defect would
+  have passed: both doors did call `openSheet`;
+- **the five blocks in the ruled order, positionally** (53 / 148 / 564 / 1334 /
+  1648 on the fixture) — an order nobody asserts is an order that drifts;
+- **the honest count**: the fixture has **four** repeats deliberately, because
+  *"a user with four repeats sees four, not three and a lie"* cannot be tested on
+  a fixture with ten. Heading, button and row count are read together, so they
+  cannot disagree;
+- **a combo logged no times, reached by a real click**, with `neverLogged` asserted
+  as a stated precondition so a pass cannot come from a combo that happened to be
+  in the frequency list;
+- **no dead control** — every `[onclick]` target in the root is **resolved**, not
+  read for known names. **Planted**: one handler is removed and the scan names it,
+  then restored inside the same expression.
+
+> **And the check it did not have.** It asserted the top block *shows* three rows
+> and never that *tapping* one arrives anywhere. **The flow gate caught that**, by
+> trying to tap a button this gate had only counted: a food row picked from the
+> root drew its Log button into the hidden quick pane. `4b` was added, and the
+> lesson is the line — **counting a control is not reaching it.**
+
+**`flow-gate.ps1`: J1c added, pinned 3.** J1, J2 and J4 all held at 4 through the
+rebuild, and the pre-registration had claimed an unmoved pin would prove the sheet
+had not changed. The path that changed had **no tap count before this commit** —
+`+ Log` could not reach the repeat path at all. *Unreachable is not a bigger
+number than 3.* J1b's row selector was also scoped to `#sheetRoot`: it had been
+passing only because `#pane-root` happens to precede `#pane-quick` in the markup.
