@@ -13997,3 +13997,313 @@ commit that adds the third. **Raised for [[R155]]'s hygiene list.**
 beside the values, and the three coffee variants as data the user enters (not as
 code: no personal calibrations, and the stack's precedent is that the list ships
 empty). Then **E**, then **R155**.
+
+---
+
+## ONE DOOR — the Log sheet — PRE-REGISTERED, MEASURED FIRST (2026-10-10)
+
+### 1. The device finding, and it is a design defect rather than a bug
+
+> *"I tapped + Log to make a combo and got lost."*
+
+**Two entry points lead to different sheets.** `+ Log` opens on `scan` and offers
+Photo / Scan / Manual; the stack, the combos and the top 10 are behind the day's
+**Quick add** button, which opens the SAME sheet element in its `quick` mode. Same
+sheet, two doors, and the door you take decides what you can reach.
+
+**Confirmed in the code rather than inferred:** `openQuickAdd()` is
+`openSheet('quick')` and the FAB opens `openSheet(...)` defaulting to `'scan'`. So
+the split is one argument, which is both why it happened and why it is cheap to
+close.
+
+### 2. THE FOLD QUESTION, MEASURED — and it has no trade-off in it
+
+`tests/measure-fold.ps1`, committed and re-runnable. It measures the shipped page,
+then removes `.qa10` from the DOM and measures again — the configuration-without-an-edit
+trick `ring-size-gate`'s ink plant uses, for the same reason.
+
+| | 360x690 | 390x745 |
+|---|---|---|
+| day card height, with the button | 140px | 156px |
+| day card height, **without** it | 140px | 156px |
+| **delta** | **0px** | **0px** |
+| document height delta | **0px** | **0px** |
+
+**Removing the button buys nothing, and the reason is mechanical**: the button
+lives in `.dact` beside the camera, and the camera holds that row open at its own
+44px whatever happens to its neighbour. The row is the cost, not the button.
+
+> **So "keeps the fold" does not choose between the options** — neither costs or
+> saves a pixel. The choice is about MEANING: one door or two. Which is the
+> question the device finding already answered.
+
+**What this script is not an authority on, stated in its header and here.** Its
+absolute above/below-fold readings are **seed-dependent**: it boots first-run, and
+on that page `#dayView`'s own top sits at 101px at 360 and **635px at 390** — a
+534px difference in where the day begins, from something preceding it the probe
+does not isolate. Not chased, because it does not bear on the comparison.
+**`ring-size-gate` is the fold authority** — realistic seed, asserts cells-above
+and chkAbove at both widths, passing.
+
+> Three probes were spent before that was said plainly: a scroll reset that changed
+> nothing, and a sibling walk that climbed too far and listed `.wrap` instead of
+> the day's own neighbours. **An unexplained number is not a measurement, and the
+> honest end of that road is a bounded claim rather than a fourth probe.**
+
+### 3. RULED SHAPE, as instructed
+
+`+ Log` opens ONE sheet, top to bottom:
+
+| | |
+|---|---|
+| a | **"Took my daily stack"** — one tap, untick-before-write, **as built** (v0.79.0) |
+| b | **My combos**, with **"+ New combo"** beneath |
+| c | **Top 10** — first three shown, **"Show all 10"** |
+| d | **Something new: Photo · Scan · Search · Manual** |
+| e | a small link for **dose, biometric or event** |
+
+**Ordering note worth recording**: (a) and (b) are the things that are the same
+every day, (c) is what repeats, (d) is what is new, (e) is what is not food. The
+sheet reads most-certain to least-certain, which is the opposite of what it does
+today — today it opens on `scan`, the path that needs a camera and a barcode.
+
+### 4. "+ NEW COMBO" — build it without logging first
+
+Name it, add parts by **search-as-you-type with an amount**, **running total shown
+(calories, caffeine)**, Save. `comboFromItems` stays as the second route, as ruled.
+
+**Three things this needs that do not exist yet, named now:**
+
+- **A search over what?** The corpus is the only source that can answer offline,
+  and `matchKey`/the matcher exist — but **search-as-you-type over the corpus is
+  not built**, and the identity rail is a *propose-and-confirm* surface rather than
+  a typeahead. **This is the one piece of item 1 that is not a rearrangement.**
+- **Caffeine in a running total needs the part resolved**, because caffeine is
+  corpus slot 262 and reaches an item only through a `ref`. A part typed and not
+  matched has **no caffeine to total** — so the running total must say *"caffeine
+  from 1 of 2 parts"* in the coverage grammar the day already uses, or it will
+  understate and look complete. **That is the honesty rule arriving in a form
+  field.**
+- **A part with no match has no `ref`**, so the combo it saves degrades exactly as
+  the pre-registration said combos may: macros from the amount, no caffeine, and
+  the coverage line saying so.
+
+### 5. THE FLOW GATE MOVES, DELIBERATELY
+
+`flow-gate` pins J0 ≤2, J1 4, J2 4, J3 6, J4 4. **One door changes J1 and J2 and
+possibly J4**, and the pin must move **in the commit that moves the journey**, with
+the reason — D130's rule that flow is a number that drifts, and the reason the
+banner correction earlier today mattered.
+
+Pre-registered expectation, to be replaced by the measurement: **J1 (eat → logged →
+see my day) should fall**, because the top 10 moves onto the first sheet the FAB
+opens; **J2 (a dose) should stay at 4 or fall to 3**, depending on whether (e) is
+one tap from the sheet root. **Any pin that does not move is evidence the sheet did
+not change what it was meant to change.**
+
+### 6. PRE-REGISTERED GATE
+
+| | |
+|---|---|
+| the FAB and the page's Quick add (if kept) open the **same sheet in the same mode** | asserted by comparing the rendered sheet, not by reading the argument |
+| the sheet's root offers all five blocks **in the ruled order**, and the order is asserted positionally | the A3 lesson: an order nobody asserted is an order that drifts |
+| the stack block is **absent** when no stack is configured, and the combos block when none exist | D146, as both already do |
+| the top 10 shows **three**, and "Show all 10" reveals ten | and a user with four repeats sees four, not three and a lie |
+| "+ New combo" saves a combo with **no items logged first** | the ruling's own point |
+| a part that matched carries its `ref`; one that did not carries **no caffeine** and the total **says so** | coverage grammar, not silence |
+| `flow-gate` J1/J2/J4 re-pinned **in this commit**, each with its reason | D130 |
+| every new string passes `jargon-gate`, every size >= 16px, no new class collision | standing |
+
+**STOPPING for rulings: whether the page's Quick add button is kept (the fold does
+not decide it), and whether search-as-you-type over the corpus is in this slice or
+its own.** I also do not have the design canvas — screens 4 and 5 are described
+above from your text, and if they carry layout or wording the text does not, point
+me at them before I build.
+
+---
+
+## COMMERCIAL SOURCES — MEASURED, THEN PRE-REGISTERED (2026-10-10)
+
+Two questions were to be answered **before any design**, and they were. Everything
+below was **fetched or called today**; nothing is recalled. Where a measurement
+could not be taken, it says so instead of inferring.
+
+### 1. THE TABLE
+
+| source | (a) callable from a browser? | (b) may values be kept permanently? | verdict |
+|---|---|---|---|
+| **USDA FoodData Central** | **YES, measured.** A live call returned `Access-Control-Allow-Origin: *` and `Access-Control-Allow-Methods: POST, GET, OPTIONS`. Key is a **query parameter** (`?api_key=`), 1,000 req/hour/IP | **YES. Public domain, CC0 1.0** — *"FoodData Central data are in the public domain and they are not copyrighted"*. Attribution **requested**, not required | **ADMISSIBLE** |
+| **FatSecret Platform** | not measured — needs a key | **NO.** The terms: *"You may not continue to use and must immediately remove or replace (by re-requesting) any Content in your possession or under your control not explicitly identified as being storable indefinitely **within 24 hours** after the time at which you obtained the Content"* | **DISQUALIFIED** on (b) |
+| **Edamam** | not measured — needs a key | **NO, twice over.** Caching is limited to *"the four basic macro nutrient datapoints … as well as the foodId, food label and food image"*, and *"Saved data can be used only in the end user's account, **behind a password**"* | **DISQUALIFIED** on (b) |
+| **Open Food Facts** | already in use, by barcode | yes (ODbL, already relied on) | **KEPT, with a measured limit — see §3** |
+
+> **The user's own test settles two of the four without a line of design: "a source
+> that forbids retention cannot feed a permanent record."** FatSecret requires
+> re-requesting anything not explicitly marked storable within 24 hours. Edamam
+> permits four macros and requires a **password-protected account** — and this app
+> has **no accounts, by ruling**. Neither can back a local log that is the user's
+> to keep.
+
+**Premier Free, since it was asked:** advertised for *start-ups, non-profits,
+students and research organisations* — start-ups under US$1 M revenue and under
+US$1 M raised — with unlimited calls on the US dataset and attribution required,
+granted **after verification, at FatSecret's discretion**. **It does not change the
+answer**: the retention clause is in the terms, not in the tier.
+
+### 2. FDC's COVERAGE OF THE REAL GAPS, MEASURED CALL BY CALL
+
+| query | result |
+|---|---|
+| `Tim Hortons` | **50 hits, not one of them the chain** — Tim Burton, Tim Tam, Chef Tim. FDC Branded is packaged retail goods with GTINs, not restaurant menus |
+| `Tim Hortons coffee` | **7,186 hits, and the top rows are generic FNDDS coffee.** The brand token is ignored and the food token matches |
+| `siu mai` | **5,809 hits, top hit "Mai Tai"** — a cocktail |
+| `shumai` | **11 hits, every one a Branded frozen dumpling** |
+
+> **This is worse than a coverage gap, and it is the gap's real shape.** A query the
+> source cannot answer does not return nothing — it returns confident-looking rows
+> for a different food. That is [[D62]] Fork 1's own warning arriving from a new
+> direction: *"A bad dish match is **invisible**: one authoritative-looking row with
+> nothing to inspect."* So a commercial-source slice needs the **off-ramp before the
+> search**, not after it.
+
+**And the spelling decides whether the source works at all**: `siu mai` fails and
+`shumai` succeeds, for one food. Any search surface over FDC has to carry the
+app's own matcher discipline — propose, never resolve silently — or it will hand
+back a Mai Tai with a straight face.
+
+**One genuinely good finding:** FDC's search returns `Survey (FNDDS)` rows
+alongside Branded and SR Legacy. **FNDDS is the mixed-dish source [[D114]]/[[D128]]
+named as "FNDDS first", and the API reaches it without acquiring a dataset** — so
+the mixed-dish gap and the branded gap share one door.
+
+### 3. OPEN FOOD FACTS: IT HAS THE BRAND AND NOT THE MENU
+
+Measured: a search for `Tim Hortons` returns **474 products, all retail packaged
+goods** — instant coffee, hot-chocolate mix, cappuccino powder, bagged beans.
+**A large double-double has no barcode and is not there.** OFF's Tim Hortons
+coverage is the grocery aisle, not the counter, and the gap is at the counter.
+
+> **The dish searches are UNMEASURED and that is not a result.** Two further
+> queries came back *"Page temporarily unavailable"* — I had rate-limited myself
+> after three searches. Which is a finding of its own: the app's *"cache-first
+> lookups are the rate-limit courtesy"* rule is not politeness theatre, it is the
+> thing standing between this app and the same wall, and any search-as-you-type
+> over OFF would hit it on the first word.
+
+### 4. PRE-REGISTERED, IF A SOURCE IS ADMITTED
+
+- **Only FDC is admissible on the two questions.** It is also the only one that is
+  free, keyless-for-the-user-if-wanted (a shared key is possible but **BYOK is the
+  ruled shape**), and public domain.
+- **The key is a QUERY PARAMETER**, so it travels in the URL and reaches logs and
+  proxies. Under BYOK that is the user's own key with a 1,000/hour cap, and the
+  honest statement is that the app cannot hide it. Said, not hidden.
+- **Any value admitted is a third provenance on H4's shape** — provider, item id,
+  retrieved date, attribution as the terms require — which is the `published`
+  object COMBOS/1 already built. **No new mechanism.**
+- **FDC needs no attribution clause in the terms sense**, but the citation is
+  carried anyway: *"U.S. Department of Agriculture, Agricultural Research Service.
+  FoodData Central"* with the retrieval date, because the app's own rule is that a
+  number carries its source.
+- **The off-ramp comes first.** Given §2, a search surface must present FDC rows as
+  candidates to confirm and must show the row's own name and data type, so
+  `Survey (FNDDS)` and `Branded` are distinguishable at the moment of choosing.
+- **Nothing is acquired on the strength of this entry** — D128's own closing rule:
+  *"Add a source when a measurement of the user's own log shows a gap it fills."*
+  §2 and §3 are that measurement for the branded and mixed-dish gaps; **neither
+  source closes the Tim Hortons gap, and the screenshot route already ruled for it
+  remains the only one that does.**
+
+**STOPPING for a ruling on whether FDC is admitted, and on BYOK-vs-shared-key.**
+
+---
+
+## STRESS ENGINE — DESIGN RECORD ONLY, NO BUILD (2026-10-10)
+
+Recorded as the target for slice E's goal 4: **a hidden Markov model with Bayesian
+updating**, hidden states inferred rather than observed, transitions learned from
+the user's own data, output a **probability shown as one**, and every confirm or
+dismiss a labelled example with dismissals counting equally.
+
+**Recorded as asked. Five things are recorded WITH it, because a design record that
+omits what blocks it is a plan wearing a record's clothes.**
+
+### 1. THREE OF THE PROPOSED HIDDEN STATES ARE ALREADY OBSERVED
+
+`fed`, `fasting` and `asleep` are **in the log**. `fastEvents` derives fasting
+spans and the user has resolved eleven of them; sleep is a logged biometric with a
+bedtime; `fed` is the meal times the response machinery already keys on.
+
+> **A hidden state is one you cannot see.** Putting an observed quantity into the
+> hidden layer spends parameters re-inferring what the log already records, and
+> then lets the model disagree with the record — the app would be estimating
+> whether the user was asleep at 03:00 while holding a sleep entry that says so.
+
+**Recommended: `calm` / `stressed` hidden; `fed`, `fasting` and `asleep` as
+observed context — either as inputs, or as clamps that pin the state when the log
+states it.** The state set is the user's ruling and append-only, so this is a
+recommendation about where the line is drawn, not about the list.
+
+### 2. THE n IS NOT THERE, AND THE NUMBER IS WORTH WRITING DOWN
+
+| needed | present today |
+|---|---|
+| labelled stress examples | **zero** — slice E is not built, and no stress event exists in the log |
+| HR / HRV | **zero** — the Oura stream does not exist; the only heart data is 6 BP readings |
+| movement | a tap that records **that** it happened and carries no value, by ruling |
+| glucose | **11 days**, 2,739 readings, nine of them complete |
+
+A five-state model over six observation channels has, at the smallest honest
+parameterisation, on the order of 20 transition parameters plus emission
+parameters per channel. **With zero labels it is not estimable, and with only
+glucose it is one channel inferring five states.**
+
+> So this is recorded as a **target**, and the record says what would make it
+> reachable: HR/HRV at intra-day resolution, a movement signal with a value, and a
+> labelled set built one confirm at a time. **The first useful version is not this
+> model** — it is the thing slice E already pre-registers, which produces the
+> labels this model would need.
+
+### 3. [[D120]] PUTS THE OUTPUT IN ITS OWN STORE, AND THE BRIEF ALREADY RULED IT
+
+The v5 brief's prediction leg: *"A prediction is not a measurement, so predictions
+live in their own store and are never summed into or displayed as a reading."*
+A state probability is a prediction. **It never enters `timeline`, never enters a
+day's totals, and is never rendered where a reading is rendered.**
+
+And the **learned transition matrix is user data**, not code: no personal
+calibrations in code, so it lives in state, is exported, and is re-derivable from
+the labels rather than shipped.
+
+### 4. THE HEDGE IS DOING REAL WORK, SO IT HAS TO BE GATED AS WORDING
+
+*"possible stress, 72%, 15:40"* is a probability and not a verdict — and the word
+**stress** is still a category being asserted about a person. The app's standing
+rule is that it never says what a reading means ([[D157]]), and the intake flag's
+gate shows the shape the hedge needs: **the sentence is asserted, word by word,
+and a plant that removes the hedge fails.**
+
+Pre-registered: the surface states the probability, the time, **the n behind it**,
+and the observable it was computed from — and matches no bare assertion of the
+state. *A number with a hedge is honest; a hedge that can be edited out in one
+commit is not a rule.*
+
+### 5. AND IT IS NOT A CITED CLAIM — WHICH IS THE CONFUSION TO AVOID
+
+The evidence layer cites **literature**: source, population, grade. This model
+reports **n=1 inference over the user's own log**. They are different kinds of
+statement and must not share a surface or a vocabulary: *"the literature says
+ashwagandha does X in population Y"* and *"your own eleven days put this at 72%"*
+are not two strengths of the same claim.
+
+### 6. WHAT IS ALREADY SETTLED AND NEEDS NO NEW RULE
+
+| the rule | where it already lives |
+|---|---|
+| opt-in | the brief's prediction leg |
+| a flag, never a nudge or notification | `anti-engagement-gate`, already green |
+| no badge below a measured minimum n | [[D119]] — an unmeasured ranking is worth nothing |
+| uncertainty shown | the brief's prediction leg |
+| glucose-only inference labelled low-confidence or withheld | consistent with `mealResponse`, which **declines with a reason** rather than reporting a thin baseline |
+
+**NOTHING IS BUILT. No state set, no store, no surface, no number in any code.**
