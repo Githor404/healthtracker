@@ -266,7 +266,7 @@ try {
   });
   tap(document.querySelector('#dayView .dact .qa10'), 'Quick add - top 10');
   await sleep(300);
-  const qr = document.querySelector('.qfrow');
+  const qr = document.querySelector('#sheetRoot .qfrow');
   out.j1b = { rowOffered: !!qr };
   if (qr) { tap(qr, 'the food row'); await sleep(250); }
   out.j1b.sheetMode = String(HT.sheetMode ? HT.sheetMode() : '?');
@@ -291,6 +291,34 @@ try {
   out.j1b.typed = typed1b;
   out.j1b.logged = (HT.state().days[HT.state().current].items || []).length > n1b;
   out.j1b.sheetClosed = !sheetOpen();
+  shut();
+
+  // ---- JOURNEY 1c: THE SAME REPEAT, FROM THE OTHER DOOR -------------------
+  // THIS SLICE-S OWN MEASUREMENT, and it is a new journey rather than a re-pin.
+  // Before ONE DOOR the FAB opened `scan`, so this path had NO TAP COUNT AT ALL:
+  // the top 10, the stack and the combos were not reachable from + Log, which is
+  // what the device finding ("I tapped + Log to make a combo and got lost") was.
+  //
+  // RECORDED, because the pre-registration got this wrong: it said "any pin that
+  // does not move is evidence the sheet did not change what it was meant to
+  // change", and then J1, J2 and J4 all held at 4 while the sheet was rebuilt
+  // around them. UNREACHABLE IS NOT A BIGGER NUMBER THAN 3 -- it is the absence
+  // of a number, and a tap count cannot express it. What changed was what the
+  // door reaches, so the measurement had to be a new journey.
+  taps = 0;
+  const n1c = (HT.state().days[HT.state().current].items || []).length;
+  tap(document.getElementById('fab'), 'the FAB');
+  await sleep(300);
+  const qr1c = document.querySelector('#sheetRoot .qfrow');
+  out.j1c = { rowOffered: !!qr1c };
+  if (qr1c) { tap(qr1c, 'the food row'); await sleep(250); }
+  const qlog1c = document.querySelector('.qlog');
+  out.j1c.logOffered = !!qlog1c;
+  out.j1c.logVisible = !!(qlog1c && qlog1c.getBoundingClientRect().height > 0);
+  if (qlog1c) { tap(qlog1c, 'Log N cal'); await sleep(300); }
+  out.j1c.taps = taps;
+  out.j1c.logged = (HT.state().days[HT.state().current].items || []).length > n1c;
+  out.j1c.sheetClosed = !sheetOpen();
   shut();
 
   // ---- JOURNEY 2: a dose -> logged -> on the timeline ---------------------
@@ -457,6 +485,10 @@ try {
   if ($J.j1b.typed -ne 0) { $fails += "J1b: the repeat path required typing ($($J.j1b.typed) fields) -- its whole advantage over the manual form is that it asks for nothing" }
   if (-not $J.j1b.logged) { $fails += "J1b: three taps did not actually log anything" }
   if (-not $J.j1b.sheetClosed) { $fails += "J1b: the sheet stayed open after logging -- the day is the destination" }
+  if (-not $J.j1c.rowOffered) { $fails += "J1c: + Log offered no food row -- the top 10 is not on the first sheet the FAB opens, which is the whole of ONE DOOR" }
+  if (-not $J.j1c.logVisible) { $fails += "J1c: the Log button was drawn but not ON SCREEN -- a real button in a hidden pane reads exactly like a row that does nothing (A4)" }
+  if ($J.j1c.taps -ne 3) { $fails += "J1c: a REPEATED food from + Log took $($J.j1c.taps) taps (PINNED 3 in the commit that made it reachable: + Log, the row, Log N cal. Before ONE DOOR this door could not reach it at all)" }
+  if (-not $J.j1c.logged) { $fails += "J1c: three taps from + Log logged nothing" }
   if (-not $J.j2.offered) { $fails += "J2: nothing was offered after the dose -- measured, the timeline is 1.8 screens below the fold" }
   if (-not $J.j2.rowIdentified) { $fails += "J2: the timeline row carries no record id, so the ending cannot find THIS dose" }
   if (-not $J.j2.rowInView) { $fails += "J2: the offer did not bring the dose into view -- the outcome is still unseen" }
@@ -497,5 +529,5 @@ if ($fails.Count) {
   $fails | ForEach-Object { Write-Host "  - $_" }
   exit 1
 }
-Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 4 (was 3 -- R159.1/A4 re-pin), J2 4 (was 3 -- R159.1/A4 re-pin, ruled accepted 2026-10-09), J3 6 (was 8), J4 4 (was 3 -- D144 re-pin), edit 2, and every ending shows its outcome"
+Write-Host "FLOW GATE: PASS -- J0 <=2 (was 15), J1 4 (was 3 -- R159.1/A4 re-pin), J1c 3 (NEW, ONE DOOR: the repeat path from + Log, which that door could not reach before), J2 4 (was 3 -- R159.1/A4 re-pin, ruled accepted 2026-10-09), J3 6 (was 8), J4 4 (was 3 -- D144 re-pin), edit 2, and every ending shows its outcome"
 exit 0

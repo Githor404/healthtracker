@@ -51,6 +51,7 @@ lab-form-gate.ps1
 landing-gate.ps1
 night-gate.ps1
 offline-gate.ps1
+onedoor-gate.ps1
 overlay-gate.ps1
 page-overflow-gate.ps1
 parity-gate.ps1
@@ -295,7 +296,7 @@ echo "-----------------------------------------"
 # rather than treated as 100 g, and deletion leaving the logged items alone.
 # Finally the surface: off by default, stating what it will save before the tap,
 # ticks appearing only while selecting and not outliving the save.
-EXPECTED_ASSERTIONS=2779
+EXPECTED_ASSERTIONS=2796
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

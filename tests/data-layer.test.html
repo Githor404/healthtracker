@@ -2052,8 +2052,15 @@ window.setLS({});
           'R19-demote (re-pointed): and it carries different chrome, so the two do not read as one pair of buttons');
       res(sc.color !== sd.color, 'R19-demote: and muted at rest rather than shouting in the destructive colour');
     }
-    res(SEDOC.querySelector('#mode-scan').className.indexOf('on') >= 0 && SEDOC.querySelector('#pane-scan').className.indexOf('on') >= 0,
-        'SE-modes: Scan is the DEFAULT mode');
+    // RE-PINNED, ONE DOOR: the default was Scan, and that WAS the defect -- the
+    // sheet opened on the one path that needs a camera, a barcode and good light,
+    // while the stack, the combos and the top 10 sat behind another button. The
+    // shipped markup now starts at the root, with no mode promoted, because the
+    // mode strip is the root-s own content.
+    res(SEDOC.querySelector('#pane-root').className.indexOf('on') >= 0
+        && SEDOC.querySelector('#pane-scan').className.indexOf('on') < 0
+        && SEDOC.querySelector('#mode-scan').className.indexOf('on') < 0,
+        'SE-modes: the ROOT is the default pane in the shipped markup, and no food mode is promoted ahead of it');
 
     // ---- H9 / D100: the type scale, measured on the shipped page -----------
     // COMPUTED, not declared. 7.9px existed because <small> is font-size:smaller
@@ -4473,8 +4480,11 @@ window.setLS({});
   HT.setSheetMode('signal'); HT.setSheetMode('med'); HT.closeSheet();
   HT.openSettings(); HT.closeSettings();
   res(HT.exportJSON() === seBefore, 'SE-noschema: opening/closing the sheet + settings and switching modes write ZERO records');
-  res(HT.openSheet().mode === 'scan' && HT.setSheetMode('nope').ok === false,
-      'SE-modes: openSheet defaults to Scan; an unknown mode is rejected');
+  // RE-PINNED, ONE DOOR: see above. The default argument of openSheet was the
+  // whole of the split between the two doors, which is why the fix was one line
+  // and the defect was a design one.
+  res(HT.openSheet().mode === 'root' && HT.setSheetMode('nope').ok === false,
+      'SE-modes: openSheet defaults to the ROOT, and an unknown mode is still rejected');
 
   // SE-quick: one chip per preset, same logPreset path, escaped, honest empty.
   setLS({}); HT.boot();
@@ -13007,6 +13017,87 @@ window.setLS({});
   HT.setTypicalNutrient('kcal');
 
 
+
+
+  // ============ ONE DOOR / 1: one sheet, and the root renders it ============
+  //
+  // THE DEVICE FINDING: "I tapped + Log to make a combo and got lost." Two entry
+  // points opened the same sheet element in different modes, so the door you took
+  // decided what you could reach -- the FAB opened scan, the camera-and-barcode
+  // path, while the stack, the combos and the top 10 sat behind the day-s own
+  // button. One argument was the whole split.
+  //
+  // What is asserted HERE is the part that is pure: the blocks the root is built
+  // from, and the state each door leaves behind. The composed ORDER of the five
+  // blocks and the rendered-sheet equality of the two doors are asserted in
+  // tests/onedoor-gate.ps1, where a real DOM exists -- this page has no
+  // #sheetRoot, so renderSheetRoot returns early here and asserting on it would
+  // be asserting on nothing at all.
+  //
+  // SELF-CONTAINED, snapshotted BY VALUE: a by-reference restore restores
+  // nothing, which this suite has now produced twice.
+  var _odCombos = JSON.parse(JSON.stringify(HT.state().settings.combos || []));
+
+  res(HT.openSheet().mode === 'root' && HT.openQuickAdd().mode === 'root',
+      'ONE-DOOR GATE: both doors open the SAME mode, and it is the one that leads with what repeats rather than the one that needs a camera');
+  res(HT.setSheetMode('nonsense').ok === false && HT.setSheetMode('root').ok === true,
+      'ONE-DOOR GATE: root is a declared mode, and an undeclared one is still refused');
+
+  // -- D146: a block with nothing in it draws no row -------------------------
+  HT.state().settings.combos = [];
+  res(HT.sheetCombosHTML() === '',
+      'ONE-DOOR GATE: with no combos saved the block is ABSENT -- not a heading over an apology for being empty (D146; the pre-registered gate said so before the code did, and the first draft got it wrong)');
+  HT.state().settings.combos = HT.normalizeCombos([
+    { id: 'c-od1', name: 'Coffee <strong>and</strong> cream',
+      parts: [ { name: 'brewed coffee', grams: 250, kcal: 2 },
+               { name: 'half-and-half', grams: 15.5, kcal: 18 } ] },
+    { id: 'c-od2', name: 'Just coffee',
+      parts: [ { name: 'brewed coffee', grams: 250, kcal: 2 } ] } ]);
+  var odC = HT.sheetCombosHTML();
+  res(odC.indexOf('My combos') >= 0 && odC.indexOf('2 items') >= 0 && odC.indexOf('1 item<') >= 0,
+      'ONE-DOOR GATE: each combo is ONE row saying how many things it logs, and the count is worded singly when it is one');
+  res(odC.indexOf('20 cal') >= 0,
+      'ONE-DOOR GATE: the row carries its calories as a whole number (B3), summed from the parts it will actually write');
+  res(odC.indexOf('<strong>') < 0 && odC.indexOf('&lt;strong&gt;') >= 0,
+      'ONE-DOOR GATE: a combo NAME is escaped where it renders -- user-authored text on a new surface is still untrusted text');
+  res(odC.indexOf('comboPickById') >= 0,
+      'ONE-DOOR GATE: and the row is wired to the stepper by id, not to a new copy of the logging path');
+  res(odC.indexOf('comboNewOpen') < 0 && odC.indexOf('srnew') < 0,
+      'ONE-DOOR GATE: "+ New combo" IS RULED AND IS NOT SHIPPED HERE -- it needs the corpus typeahead, and a button wired to a function that does not exist is the dead control this slice was opened to remove (A4). It lands in ONE-DOOR/2, with its CSS rule');
+
+  // -- one renderer, two surfaces -------------------------------------------
+  res(HT.quickRowsHTML([]) === '',
+      'ONE-DOOR GATE: no rows renders nothing, so the root can ask for a slice of an empty list without producing an empty heading');
+  var odRows = HT.foodFrequency();
+  res(odRows.length > 0 && HT.quickTopHTML().indexOf(HT.quickRowsHTML(odRows)) >= 0,
+      'ONE-DOOR GATE: the quick pane renders its rows THROUGH the shared renderer -- asserted by containment, so a second copy of the markup fails here rather than drifting quietly out of agreement with the root');
+  var odSlice = HT.quickRowsHTML(odRows.slice(0, 2));
+  res(odSlice.indexOf('quickPickAt(0)') >= 0
+      && (odRows.length < 2 || odSlice.indexOf('quickPickAt(1)') >= 0)
+      && odSlice.indexOf('quickPickAt(2)') < 0,
+      'ONE-DOOR GATE: the handlers are POSITIONAL and the rows passed in are a FRONT SLICE -- quickPickAt(i) re-derives the list and indexes it, so a filtered or reordered slice would open another food');
+
+  // -- a combo nobody has logged yet ----------------------------------------
+  var odNew = HT.quickRow('combo:c-od1');
+  res(!!odNew && odNew.combo === true && odNew.parts === 2 && odNew.item === null && odNew.grams === null,
+      'ONE-DOOR GATE: a combo saved a minute ago is PICKABLE -- the frequency list is a measurement over the log, so a combo logged no times was not in it, and picking it from the root did nothing at all (A4, arriving through the other door)');
+  res(odNew.n === 0,
+      'ONE-DOOR GATE: ...and its count is 0, which is the honest number -- not 1, which would report a logging that never happened');
+  var odRowHTML = HT.quickRowsHTML([odNew]);
+  res(odRowHTML.indexOf('qfcombo') >= 0 && odRowHTML.indexOf('2 items') >= 0
+      && odRowHTML.indexOf('no portion recorded') < 0,
+      'ONE-DOOR GATE: the synthesised row renders as a COMBO row -- items, not grams, because a coffee plus its cream has no single denominator for a portion to apply to');
+  var odPick = HT.quickPick('combo:c-od1');
+  var odPlan = HT.quickPlan();
+  res(odPick.ok === true && !!odPlan && !!odPlan.combo && odPlan.combo.rows.length === 2,
+      'ONE-DOOR GATE: and the pick reaches the SAME stepper the top 10 uses, so the multiplier, the part list and the citation line stay one implementation');
+  res(HT.comboPickById('c-od2').ok === true && HT.comboPickById('no-such-combo').ok === false,
+      'ONE-DOOR GATE: picking by id goes through that stepper too, and an id that names nothing is refused by name rather than opening a blank step');
+  res(HT.setSheetMode('root').ok === true && HT.quickPlan() === null,
+      'ONE-DOOR GATE: returning to the root ABANDONS the pick -- a half-finished action must not outlive the gesture that walked away from it');
+
+  HT.state().settings.combos = _odCombos;
+  HT.closeSheet();
 
 
   freeClock();

@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.82.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.83.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4141,7 +4141,11 @@ function dayStatusBadge(dateKey, day) {
 // section above whatever that pane holds. Named as its own function so screen 3
 // changes one place -- and so the line is not pointing at a name that does not
 // exist, which is what the first draft of it did.
-function openQuickAdd() { return openSheet('quick'); }
+// ONE DOOR: this now opens the ROOT, the same place the FAB lands. Kept rather
+// than removed because the fold measurement showed removing it buys nothing --
+// the camera holds that row open either way -- and the defect was never that a
+// second button existed, it was that the two led somewhere different.
+function openQuickAdd() { return openSheet('root'); }
 
 // ======================= R159.1: THE GROUPED DAY ==========================
 //
@@ -11753,6 +11757,7 @@ const VERSION_LOG = [
   { v: '0.80.0', d: '2026-10-10', note: 'Groundwork for saved multi-item entries -- combos. A combo is something you log in one tap that is really two or three things: coffee and the cream that goes in it. It logs them as SEPARATE items at the same moment, which matters more than it sounds: the cream counts as dairy and the coffee keeps its own caffeine, potassium and niacin from the food database, instead of both being flattened into one row whose numbers would have to drop anything the two did not share. Each part keeps its own portion and its own source, so one part can come from the food database while another comes from a chain-s published nutrition -- and where it does, the figures are shown with the date they were retrieved, because chains change recipes without telling anyone. A combo counts as one entry in your top ten however many parts it has, and the stepper multiplies the whole thing. No screen for it yet; this release is the plumbing.' },
   { v: '0.81.0', d: '2026-10-10', note: 'Combos now have their screen. A combo shows up in Quick add as ONE entry however many things it logs, marked as a combo and saying how many items it will add. Tapping it opens a multiplier rather than a portion box -- there is no single weight for a coffee plus its cream -- and it lists every part at the portion it will actually log, so two taps of the stepper shows you 500 ml of coffee and 31 g of cream before you commit. Where a part came from the food database and the database calls it something else, the part says which row it matched; where a part came from a chain-s published nutrition, the figures are shown with the organisation, the source and the date they were retrieved. One button logs the lot at one timestamp.' },
   { v: '0.82.0', d: '2026-10-10', note: 'You can now make a combo out of things you have already logged. Log the coffee and the cream once the ordinary way, tap Save as combo on the day, tick the two of them, give it a name -- and that is it. The combo keeps each part-s portion exactly as you logged it, along with where its numbers came from, so a part matched to the food database keeps that match and a part from a published source keeps its citation. Nothing is retyped and nothing is estimated. The same list is the editor: rename it, delete it, or change a part-s portion -- and when you change a portion, the calories, the nutrients and the database match all move with it rather than one of them being left behind. Deleting a combo leaves the meals you already logged alone. The ticks only appear while you are choosing, so the day behaves exactly as before the rest of the time.' },
+  { v: '0.83.0', d: '2026-10-11', note: 'There is one Log button now, and it opens one sheet. It leads with what is the same every day -- your daily stack, then your combos -- then the three foods you repeat most with the rest one tap away, then Photo, Scan and Manual for something new, and a line at the foot for a dose, an event or a biometric. It reads from most certain to least certain, which is the opposite of what it did before: it used to open on the camera, the one path that needs a barcode and good light. Quick add on the day opens the same sheet rather than a different one, which is the whole of the fix -- the two buttons went to the same place and showed you different things, and making a combo from the wrong door led nowhere. A combo you saved a minute ago can be logged straight away: it had nothing in your history yet, and the list it was offered from is counted from your history, so tapping it used to do nothing at all. Going back from a food now puts it down instead of keeping it half-picked.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15730,7 +15735,9 @@ function renderRhythmGrid() {
 // half); authoring and configuration live in a flat settings list. One persistent
 // `+` opens the entry sheet. Nothing here writes a record: opening, closing and
 // mode-switching are pure view state (gated).
-const SHEET_MODES = ['scan', 'quick', 'photo', 'manual', 'signal', 'med', 'lab'];
+// ONE DOOR: 'root' leads, and it is where the FAB lands. The order matters only
+// in that `root` is first and `scan` no longer is.
+const SHEET_MODES = ['root', 'scan', 'quick', 'photo', 'manual', 'signal', 'med', 'lab'];
 let SHEET_MODE = 'scan';
 
 function setSheetMode(mode) {
@@ -15744,6 +15751,14 @@ function setSheetMode(mode) {
     if (btn) btn.classList.toggle('on', m === mode);
   });
   if (mode === 'quick') renderQuickChips();
+  if (mode === 'root') { QUICK_PICK = null; renderSheetRoot(); }
+  // The mode strip IS the root's own content, so it hides there and a back link
+  // appears everywhere else. One door needs a spine: every pane has to be one tap
+  // from the list it was chosen off, or the sheet becomes a maze with one entrance.
+  const modes = document.getElementById('sheetModes');
+  if (modes) modes.hidden = (mode === 'root');
+  const back = document.getElementById('sheetBack');
+  if (back) back.hidden = (mode === 'root');
   return { ok: true, mode: mode };
 }
 // H9 Fork E3 + E1: "Medication" in the sheet head now REACHES THE LABEL PATH,
@@ -15883,7 +15898,10 @@ function openSheet(mode) {
   if (sheet) sheet.style.display = 'flex';
   if (scrim) scrim.style.display = 'block';
   overlaySync();
-  setSheetMode(SHEET_MODES.indexOf(mode) >= 0 ? mode : 'scan');
+  // RULED: the default is ROOT, not scan. The device finding was that '+ Log'
+  // opened the camera-and-barcode path while the stack, the combos and the top 10
+  // sat behind another button -- and the default argument was the whole split.
+  setSheetMode(SHEET_MODES.indexOf(mode) >= 0 ? mode : 'root');
   return { ok: true, mode: SHEET_MODE };
 }
 function closeSheet() {
@@ -15990,13 +16008,40 @@ function quickSheetOpen() {
   return r;
 }
 function quickRow(key) {
-  return foodFrequency().filter(function (f) { return f.key === String(key); })[0] || null;
+  const k = String(key);
+  const hit = foodFrequency(FREQ_TOP_N * 10)
+    .filter(function (f) { return f.key === k; })[0];
+  if (hit) return hit;
+  // A COMBO THE USER HAS NEVER LOGGED IS NOT IN THE FREQUENCY LIST, because that
+  // list is a measurement over the log and a combo saved a minute ago has nothing
+  // in it to measure. The root offers combos from the DEFINITION, so picking a
+  // new one found no row and did nothing -- A4 again, the silent no-op, arriving
+  // through the other door. So the row is synthesised from the definition, with
+  // n = 0, which is the honest count: it has been logged no times. `item` stays
+  // null and `grams` stays null, which is what quickPlan reads to take the combo
+  // branch, so the stepper and comboPlan own the arithmetic exactly as before.
+  if (k.indexOf('combo:') === 0) {
+    const c = comboById(k.slice(6));
+    if (c) {
+      return { key: k, n: 0, name: c.name, names: [c.name], grams: null, item: null,
+               kcal: (c.parts || []).reduce(function (a, pp) { return a + num(pp.kcal); }, 0),
+               combo: true, comboId: c.id, parts: (c.parts || []).length, lastDay: '' };
+    }
+  }
+  return null;
 }
 function quickPick(key) {
   const row = quickRow(key);
   if (!row) return { ok: false, why: 'no-such-row' };
   QUICK_PICK = { key: row.key, n: 1, grams: null };
-  renderQuickChips();
+  // THE STEPPER LIVES IN THE QUICK PANE, AND THE ROWS NOW LIVE ON THE ROOT TOO.
+  // Picked from the root, this set the pick and rendered the stepper into a pane
+  // that was not on screen: the row did nothing visible, and the Log button it
+  // drew was real but unreachable -- A4 a third time, and the FLOW GATE is what
+  // caught it, by trying to tap a button my own gate had only counted. So the
+  // pick MOVES THE SHEET to the surface that renders it. From the quick pane this
+  // is already the current mode and costs one redundant render.
+  if (SHEET_MODE === 'root') setSheetMode('quick'); else renderQuickChips();
   return { ok: true, key: row.key, n: 1 };
 }
 // The markup addresses a row by INDEX. A matchKey is two words with a space in
@@ -16120,13 +16165,14 @@ function quickAddLog() {
 }
 // The list, or the stepper for the row being logged. One at a time: a stepper
 // under a list of ten is a form competing with a menu.
-function quickTopHTML() {
-  if (QUICK_PICK) return quickStepHTML();
-  const rows = foodFrequency();
-  if (!rows.length) return '';
-  return '<div class="qsheet"><div class="rpthead">Your top '
-    + esc(String(Math.min(rows.length, FREQ_TOP_N))) + ' \u00b7 one tap to log</div>'
-    + rows.map(function (f, i) {
+// EXTRACTED so the sheet root and the quick pane render the row in ONE place
+// rather than two. PRECONDITION, and it is load-bearing: the handlers are
+// POSITIONAL -- quickPickAt(i) re-derives foodFrequency and indexes it -- so
+// `rows` must be a FRONT SLICE of foodFrequency() and never a filter or a
+// reordering. A second copy of this markup is how the two surfaces would start to
+// disagree; a non-front slice is how the taps would start opening another food.
+function quickRowsHTML(rows) {
+  return rows.map(function (f, i) {
         // RULING A: a count NAMES WHAT IT COUNTED. The key merges spellings, so a
         // bare "3x" would be a number the user cannot check against anything.
         const names = '<span class="qnames">'
@@ -16152,7 +16198,15 @@ function quickTopHTML() {
           + '<span class="qrn">' + esc(String(f.n)) + 'x</span>'
           + partword
           + (f.combo ? '' : names) + '</button>';
-      }).join('')
+      }).join('');
+}
+function quickTopHTML() {
+  if (QUICK_PICK) return quickStepHTML();
+  const rows = foodFrequency();
+  if (!rows.length) return '';
+  return '<div class="qsheet"><div class="rpthead">Your top '
+    + esc(String(Math.min(rows.length, FREQ_TOP_N))) + ' \u00b7 one tap to log</div>'
+    + quickRowsHTML(rows)
     + '</div>';
 }
 // COMBOS, rulings 2/4/5: the multiplier stepper. NO grams box -- a combo has no
@@ -16265,6 +16319,79 @@ function quickLog(id) {
   const r = logPreset(id);
   if (r && r.ok) toast('Logged ' + r.item.name);
   return r;
+}
+
+// ---- ONE DOOR: the sheet's root ----------------------------------------
+//
+// RULED, top to bottom: the stack, the combos with "+ New combo" beneath, the top
+// 10 with three shown, what is NEW, and a small link for what is not food.
+//
+// The order is the point and is asserted positionally. It reads most-certain to
+// least-certain -- the things that are the same every day, then what repeats, then
+// what is new, then what is not food -- which is the opposite of what this sheet
+// did before, when it opened on Scan: the path needing a camera and a barcode.
+let TOP_ALL = false;
+function topAllToggle(on) { TOP_ALL = (on === undefined) ? !TOP_ALL : !!on; renderSheetRoot(); return { ok: true, all: TOP_ALL }; }
+const SR_TOP_FIRST = 3;          // ruled: three shown, then "Show all 10"
+
+// The combos block. D146 again: with none configured it draws NOTHING -- not a
+// heading over an apology for being empty. The route to the first one is "Save as
+// combo" on the day, which is where the ruling put it.
+function sheetCombosHTML() {
+  const combos = (APP_STATE.settings && APP_STATE.settings.combos) || [];
+  if (!combos.length) return '';          // D146, and the pre-registered gate
+  let h = '<div class="srhead">My combos</div>';
+  h += combos.map(function (c) {
+      const parts = (c.parts || []).length;
+      const kcal = (c.parts || []).reduce(function (a, p) { return a + num(p.kcal); }, 0);
+      return '<button type="button" class="btn srcombo" onclick="comboPickById(\'' + esc(String(c.id)) + '\')">'
+        + '<span class="srcname">' + esc(c.name) + '</span>'
+        + '<span class="srck">' + esc(kcalDisp(kcal)) + ' cal</span>'
+        + '<span class="srcsub">' + esc(String(parts)) + ' item' + (parts === 1 ? '' : 's') + '</span></button>';
+  }).join('');
+  // "+ New combo" IS RULED AND IS NOT HERE: it needs the corpus typeahead, which
+  // lands in ONE-DOOR/2. A button wired to a function that does not exist is the
+  // dead control this slice was opened to remove -- the same shape as the combo
+  // row that did nothing (A4) -- and a UI note promising it is not a feature
+  // either. The ruled entry route works today: "Save as combo" on the day.
+  return h;
+}
+// Picking a combo from the root goes through the SAME stepper the top 10 uses, so
+// the multiplier, the part list and the citation line are one implementation.
+function comboPickById(id) {
+  const c = comboById(id);
+  if (!c) return { ok: false, why: 'no-such-combo' };
+  return quickPick('combo:' + c.id);   // the pick moves the sheet; see quickPick
+}
+function renderSheetRoot() {
+  const el = document.getElementById('sheetRoot');
+  if (!el) return;
+  const rows = foodFrequency();
+  const shown = TOP_ALL ? rows : rows.slice(0, SR_TOP_FIRST);
+  // "Show all N" names the REAL number. A user with four repeats must not be told
+  // there are ten: the list is a measurement, and its own count is part of it.
+  const more = (rows.length > SR_TOP_FIRST && !TOP_ALL)
+    ? '<button type="button" class="linklike srmore" onclick="topAllToggle()">Show all '
+      + esc(String(rows.length)) + '</button>'
+    : (TOP_ALL && rows.length > SR_TOP_FIRST
+        ? '<button type="button" class="linklike srmore" onclick="topAllToggle()">Show fewer</button>' : '');
+  el.innerHTML =
+      stackSheetHTML()
+    + sheetCombosHTML()
+    + (shown.length
+        ? ('<div class="srhead">Your top ' + esc(String(rows.length))
+           + '</div>' + quickRowsHTML(shown) + more)
+        : '')
+    + '<div class="srhead">Something new</div>'
+    + '<div class="srrow">'
+    + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'photo\')">Photo</button>'
+    + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'scan\')">Scan</button>'
+    + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'manual\')">Manual</button>'
+    + '</div>'
+    + '<div class="srlinks">'
+    + '<button type="button" class="linklike" onclick="setSheetMode(\'med\')">Log a dose I took</button>'
+    + '<button type="button" class="linklike" onclick="setSheetMode(\'signal\')">Log event or biometric</button>'
+    + '</div>';
 }
 
 // Version + release date at the foot of the Settings panel (reference info, not a
@@ -18313,7 +18440,9 @@ window.HT = {
   dayTimeOrderToggle, dayTimeOrder,
   FREQ_TOP_N, foodFrequency, dayOrderToggleHTML,
   quickSheetOpen, quickPick, quickPickAt, quickCancel, quickStep, quickGrams,
-  quickMealSet, quickPlan, quickAddLog, quickTopHTML, quickStepHTML,
+  quickMealSet, quickPlan, quickAddLog, quickTopHTML, quickStepHTML, quickRowsHTML,
+  quickRow,
+  renderSheetRoot, sheetCombosHTML, comboPickById, topAllToggle,
   ringLegendToggle, ringTap,
   mealEvents, mealEventNames, mealResponse, responseCoverage,
   refValueAt, POTENTIAL_AXES, POT_SLOT_WATER, POT_SLOT_FRUCTOSE,
