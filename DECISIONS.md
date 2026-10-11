@@ -14638,3 +14638,173 @@ Three gate details worth keeping:
   rather than passing.)
 - The gate's fixture is **four** repeat rows on purpose. *"A user with four repeats
   sees four, not three and a lie"* cannot be tested on a fixture with ten.
+
+---
+
+## ONE DOOR / 2 — SEARCH AS YOU TYPE, "+ NEW COMBO", AND THE FIRST CORPUS NUMBER IN A PRIMARY TOTAL (2026-10-11)
+
+Serves **track**. Built as v0.84.0. Block (d) now reads **Photo · Scan · Search ·
+Manual**, and **"+ New combo"** sits beneath the combos — the two controls /1
+withheld because they would have been wired to nothing.
+
+### 1. RULED (a) — a searched food takes the corpus macros as its OWN numbers, cited
+
+> *"A food found purely by search takes the corpus macros as its OWN numbers,
+> cited — ref records ns/id/name/hash/attribution and v at those grams; micros
+> stay in ref.v; confidence "eyeballed" because the portion is typed. Confined to
+> one function, reversible in one place."*
+
+**This is the first time a corpus number reaches the primary totals, and it is
+recorded as that.** Until now a corpus value reached a day in exactly one way:
+frozen into `ref.v`, summed in its own map, shown at the `reference` provenance
+([[D120]]). An item's own macros always came from somewhere else — a label, a
+scan, the user's hand, an eyeballed photo — and the ref sat *beside* them.
+
+**Why it is allowed.** A food found purely by search has no somewhere else.
+Nothing was scanned, no label was read, nobody estimated anything: the row is the
+only source of numbers the item has. And the honesty rule's own words decide it —
+*what it forbids is an uncited number, not a sourced one.* These are sourced, and
+the citation travels on the item.
+
+**What did NOT change, because the ruling did not change it:**
+
+| | |
+|---|---|
+| micros | stay in `ref.v`. The item gets **no `micros` map**. Generic cheddar is still not your cheddar, and that half of D120 is untouched |
+| confidence | `eyeballed` — the portion was typed and the row is a generic food |
+| the label/reference separation in the micronutrient panel | untouched; nothing new is summed into a labelled figure |
+| the photo path | untouched. [[D128]] still holds there: the AI names, and an eyeballed estimate is the item's own number with the ref beside it |
+
+**Where it lives: `corpusOwnNumbers(meta, row, id, name, grams)`, and nowhere
+else.** Search's log and the combo builder's matched parts both build their
+numbers through it; nothing else copies a corpus macro onto an item. Reversing the
+ruling is deleting that function's macro loop. Three details inside it, each a
+choice and stated as one:
+
+- **A macro the row does not carry is left off**, not zeroed there. (The item
+  normaliser then writes the contract's 0, as it does for a manual item that omits
+  one — so on the day it is indistinguishable from a real zero. That is the
+  existing contract's limit, not a new one, and it is named here rather than
+  hidden.)
+- **A row with no energy is refused.** An item with no calories of its own has
+  nothing to give the day's primary figure, and 0 would be a measurement nobody
+  made. The row cannot be picked.
+- **The item's macros and its citation are one arithmetic** — `value x grams/100`
+  in both — so they are exactly equal, asserted as equality rather than as close.
+
+`source` is `manual`. The source enum has no word for "searched", and adding one
+is a schema decision that was not asked for; the `ref` is what says where the
+numbers came from. **Raised, not resolved**: if "how many of my calories are the
+database's" ever needs answering, it is answerable today only as *items whose own
+kcal equals `ref.v[208]`*, which is an inference. A declared marker would be
+better and is a ruling.
+
+**On the surface, before anything is logged**: the row's figures per 100 g, the
+line `Food database: <attribution>`, and the sentence *"These become this item's
+numbers for the amount you enter. They are the database's figures for a typical
+one, not a label's."*
+
+### 2. MEASURED FIRST — and the measurement found a defect in the plan, not a cost
+
+`tests/measure-typeahead.ps1`, committed and re-runnable (a measurement, no
+verdict). Desktop headless; it bounds the SHAPE, not the phone's milliseconds.
+
+| per keystroke, worst case | |
+|---|---|
+| the matcher alone | 0.1 – 1.4 ms |
+| eight row reads from IndexedDB, for the macros | 0.3 – 18 ms, avg 0.2 – 3 ms |
+| the typeahead, first time a prefix is seen (cold) | 4 – 13 ms |
+| the typeahead, warm | 0.6 – 4 ms |
+
+So the cost question answered itself: **names and numbers arrive together**; there
+is no reason to show names first and figures after.
+
+> **What the timing was hiding.** The ruling said *"reusing the matcher"*, and the
+> matcher is **whole-word**. `coff` names no row; `coffee` names eight. Run per
+> keystroke as it stood, it would have shown nothing until each word was finished
+> — a typeahead that answers only once the typing ends. The first run reported
+> rows only at each query's full length, so it measured a fast search and never
+> said the search was empty on the way there. **Mid-word rows, matcher vs
+> typeahead: 2 vs 32, 32 vs 56, 56 vs 96, 14 vs 47** across the four queries.
+
+**So the last word, while it is being typed, matches any token it begins — and
+everything else is the matcher's own**: the same index, the same tokens, the same
+read-not-chosen weights ([[D136]]), the same weighted Jaccard. A row is credited
+for the half-typed word once, at the weight of its own token. A finished word
+(the text ends on a space) and a trailing stop word are handed to
+`matchCandidatesIn` itself and asserted **byte-identical** to it, so the two
+cannot drift. A row that answers the finished words and not the half-typed one is
+ranked beneath, never dropped.
+
+**The caret** was a rendering question, not a measurement: each field is rendered
+**once**, when its pane opens, and a keystroke redraws only the region beneath it.
+The gate types for real and asserts the field is the *same element*, still
+focused, with the caret at the end.
+
+**One limit this makes visible, not chased:** `sardine` finds rows and `sardines`
+finds none, because the corpus says "Fish, sardine" and the matcher has no
+stemming. That was always true of the matcher; search-as-you-type is the first
+surface where a user watches the rows disappear on the last letter. The empty
+state says to try a different word. A plural rule would be a tuned number
+([[D126]]) and is not added here.
+
+### 3. "+ NEW COMBO" — built with nothing logged first
+
+Name it, search for each part, give it an amount, Save. `comboFromItems` stays as
+the second route, as ruled.
+
+- **A matched part is OWED an amount, not given one.** It joins the list with no
+  grams; the builder says *"1 part still needs an amount"* and Save is disabled
+  until it has one. No portion is invented.
+- **"Not here? Add "…" without database numbers" comes BEFORE the rows** — the
+  FDC ruling's measured reason, applied to the local corpus, which has the same
+  always-a-plausible-first-row property. On the Search pane the same position
+  holds *"Not here? Enter it by hand"*.
+- **A typed part** has a name, an amount if given, calories if given, and **no
+  ref — so no caffeine**. It degrades exactly as the pre-registration said.
+- **The running total states coverage for BOTH figures**: *Calories: 23 cal · from
+  2 of 2 parts*, *Caffeine: 100 mg · from 1 of 2 parts*. A caffeine value of **0**
+  on a matched row is a figure and is counted; a part with no row, or a row with
+  no caffeine column, says nothing and is not.
+- **A matched part's calories cannot be typed over.** Its numbers come through §1's
+  one function or not at all.
+
+**D146 and the button, a judgement stated rather than slipped in.** The
+pre-registered gate says the combos block is absent when there are no combos, and
+it still is: `sheetCombosHTML()` returns `''`. "+ New combo" is its **own** block
+so that it renders even then — otherwise the first combo could only ever be made
+by the second route. *A heading over an apology is what D146 forbids; a control
+that does something is not that.* If you read D146 as forbidding this too, it is
+one line to gate on `combos.length`.
+
+**Going back abandons the draft**, as the root already does for a pick. A
+half-built combo does not survive the back link. Deliberate, and the cheapest
+thing here to reverse if it turns out to cost real typing on the device.
+
+### 4. What was NOT done
+
+- **The flow gate has no new journey.** No existing path moved, and that is
+  measured by the suite rather than assumed. Search adds a path (`+ Log`, Search,
+  type, row, amount, Log) that has **no pin**; /1's own lesson was that an
+  unpinned path is invisible to the metric. Not pinned in this commit because the
+  tap count depends on how typing is counted, which [[D130]] has not ruled.
+- **No screenshot was looked at.** The gate measures type size, tap height and
+  sideways scroll at 390 and 360 over 89 elements; it does not see whether the
+  builder *reads* well. That is for the device.
+- **CLAUDE.md is not edited.** Its capability list and its honesty-rule paragraph
+  both predate this ruling — the rule's text still describes corpus values as
+  reaching the log only at `reference` provenance. The brief is yours to amend.
+
+### 5. Evidence
+
+| | |
+|---|---|
+| harness | **2830** (+34: 33 new, one /1 pin moved), re-pinned in this commit |
+| `tests/onedoor-gate.ps1` | **92 checks** (was 37), with real typing and real clicks against the shipped corpus; the matcher's own zero rows for `coff` is the control |
+| `tests/check-writesites.sh` | **caught `searchLog` unregistered** on the first run — the D29 census doing its job. Registered as STAMPED, with the reason |
+| one /1 pin moved | the harness asserted "+ New combo" was **absent**. Moved in this commit, with the reason: what the absence protected is now asserted directly — the control names a mode that exists |
+
+One defect of mine, caught by the harness: a fixture assertion claimed three rows
+begin with `co` in a six-row list where two do. The code was right and the test
+was wrong, which is the cheaper direction, and it is why the fixture's expected
+ids are written out rather than counted.

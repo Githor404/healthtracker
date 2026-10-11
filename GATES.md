@@ -5731,3 +5731,54 @@ had not changed. The path that changed had **no tap count before this commit** �
 `+ Log` could not reach the repeat path at all. *Unreachable is not a bigger
 number than 3.* J1b's row selector was also scoped to `#sheetRoot`: it had been
 passing only because `#pane-root` happens to precede `#pane-quick` in the markup.
+
+### ONE DOOR / 2 — typed for real, and a control for the search it replaced (2026-10-11)
+
+**`tests/onedoor-gate.ps1`: 37 -> 92 checks.** No new gate script; the suite stays
+at **41 verdicts**. Harness **2796 -> 2830**.
+
+The split between the two is the same as /1's and for the same reason. The
+harness cannot host the corpus database, so it holds what is pure — the prefix
+matcher over an index built in the page, ruling (a)'s one function over a row
+built in the page, the builder's state. Everything that needs a real field, a
+real row or a real click is in the gate, against the shipped corpus, and **a
+corpus that does not hydrate is exit 2, not a pass**: a search gate over an empty
+index is the fast nothing.
+
+What it holds:
+
+- **THE CARET RULE, by real keystrokes.** `Input.insertText`, one character at a
+  time, into whatever holds the focus. The field is marked before typing and must
+  be the *same element*, still focused, with every character landed and the caret
+  at the end. Asserted on three fields: the search, the builder's part search,
+  and an amount box. Setting `.value` and calling the handler would have proved
+  the handler and nothing about the field.
+- **A CONTROL for the typeahead**: `matchCandidates('coff')` returns **0** in the
+  same page, immediately before the typed `coff` returns 8. Without it the rows
+  could be the matcher's and the prefix step could be dead code.
+- **Ruling (a) on a logged item**: own calories are the row's at the typed grams;
+  own macros **equal** `ref.v` at slots 208/203/204 (equality, not tolerance —
+  they are one arithmetic); the ref carries ns, id, hash, attribution and `g`;
+  **no `micros` map**; confidence `eyeballed`.
+- **The citation on screen BEFORE the log**, and the sentence saying whose
+  numbers they are.
+- **A combo saved with the day's item count unchanged** — the ruling's own point,
+  asserted as a difference of zero across the whole builder session.
+- **Coverage, in the builder's own words**: `from 1 of 2 parts` must appear
+  **twice** (calories and caffeine) once a typed part joins a matched one. The
+  matched row is chosen as *one that carries caffeine*, so the line is not
+  asserting on an accident of which coffee the corpus lists first — and a corpus
+  with no such row fails by name.
+- **The exit before the list**, positionally, on both panes.
+- **No dead control, widened to `oninput`**: a field whose handler does not exist
+  silently eats typing, which the `onclick`-only scan of /1 could not see.
+- **Type >= 16px, controls >= 44px, no sideways scroll** on both panes and the
+  amount step, at 390 and 360, over a stated non-empty element count.
+
+**`tests/check-writesites.sh`** gained `searchLog`, STAMPED — after failing the
+harness on it by name, which is the D29 census working as built.
+
+**`tests/measure-typeahead.ps1`, NEW, and deliberately not a gate.** It prints no
+`GATE:` line so the runner never counts it. It is where the per-keystroke costs
+in DECISIONS come from, and it now times the typeahead itself, cold and warm,
+with the matcher's mid-word row count beside the typeahead's.
