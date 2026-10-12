@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.92.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.93.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3055,10 +3055,48 @@ function matchIndexFrom(list, tok) {
 // ONE morphological rule this file already has and the frequency key already
 // uses -- a trailing plural s, on words longer than three letters, never on
 // "-ss". Not a second, larger rule set written for the occasion.
+// R200(d) -- ONE FOOD, TWO SPELLINGS. The Canadian file writes "yogourt",
+// "flavour", "fibre"; the US one "yogurt", "flavor", "fiber". Typed the other
+// way, a search found nothing: "yogurt" on the Canadian database returned no
+// rows, with 78 of them there.
+//
+// THE TABLE IS MEASURED, NOT RECALLED: every pair below is a word that occurs in
+// one shipped database and whose other spelling occurs in the other (counts in
+// DECISIONS, R200). Pairs that are merely familiar -- colour, litre, doughnut --
+// are absent because neither database holds both sides. USDA's own misprints
+// ("laborador", "lingenberry") are not spellings and are not here.
+//
+// Each side is written as the SEARCH sees it, after the plural fold, and maps to
+// one of the two -- which one is arbitrary and never shown: it is a key, not a
+// correction. Nothing on screen is respelled.
+const SEARCH_ALIAS = {
+  yogourt: 'yogurt', flavour: 'flavor', flavoured: 'flavored', unflavoured: 'unflavored',
+  fibre: 'fiber', sulphate: 'sulfate', sulphured: 'sulfured', whisky: 'whiskey', aluminium: 'aluminum',
+};
+function searchWord(w) {
+  const f = matchFold(w);
+  return Object.prototype.hasOwnProperty.call(SEARCH_ALIAS, f) ? SEARCH_ALIAS[f] : f;
+}
 function matchTokensFold(s) {
   const t = matchTokens(s), out = [];
-  for (let i = 0; i < t.length; i++) { const f = matchFold(t[i]); if (out.indexOf(f) < 0) out.push(f); }
+  for (let i = 0; i < t.length; i++) { const f = searchWord(t[i]); if (out.indexOf(f) < 0) out.push(f); }
   return out;
+}
+// R200(b) -- A TRADE NAME. Neither database flags a branded row; what both do is
+// PRINT TRADE NAMES IN CAPITALS ("SILK Coffee, soymilk", "KIT KAT", "QUAKER").
+// So a row is read as branded when its name has a word of three or more
+// capitals -- other than the six abbreviations below, each seen in a generic
+// row. Measured on the shipped files: 997 of 7,793 US names have such a word.
+// WHAT THIS MISSES, said: a brand printed in ordinary case ("Pillsbury ...").
+// It is the convention read off the name, not a list of brands.
+const BRAND_NOT = ['ARA', 'DHA', 'BBQ', 'NFS', 'USDA', 'USA'];
+function nameIsBranded(name) {
+  const m = String(name == null ? '' : name).match(/[A-Z][A-Z'&-]{2,}/g) || [];
+  for (let i = 0; i < m.length; i++) {
+    const w = m[i].replace(/^['&-]+|['&-]+$/g, '').replace(/'S$/, '');
+    if (w.length >= 3 && BRAND_NOT.indexOf(w) < 0) return true;
+  }
+  return false;
 }
 function matchIndexBuild() {
   const m = CORPUS_MEM;
@@ -12724,6 +12762,7 @@ const VERSION_LOG = [
   { v: '0.90.0', d: '2026-10-12', note: 'Search now works with no signal. The food database was being downloaded again every time the app opened, and when there was no network it found nothing -- although it was already saved on your phone. It is now read from the phone, and fetched again only when a new version of it ships. Opening the app uses less data, and searching, picking a food and logging it all work offline.' },
   { v: '0.91.0', d: '2026-10-12', note: 'Glucose rises with no food logged before them are now marked. Open a day-s glucose and, under the chart, each one is listed with when it started, how far it went, and what is known about that moment -- hours since food, steps, a new sensor, sleep. You can say what it was: food you did not log, stress, something else, a sensor artifact, or not sure. Your answer is kept; nothing is asked unless you open it, and nothing here works out stress for you, because no heart rate is held on this phone. Importing an Apple Health export now also brings in steps, for the days glucose covers. Also: the Log sheet-s first screen no longer has a block of links pinned to its foot, so Search is in view without scrolling, and an item you weighed and then ate part of reads as weighed 180 g, ate half.' },
   { v: '0.92.0', d: '2026-10-12', note: 'Search finds what you mean more often. Sardines finds sardine; typing a food-s name puts that food ahead of longer names that only start with it -- coffee before coffee cake, milk before milk shake, egg before eggplant -- and anything you have logged before comes first, marked as such. You can now edit your combos: tap Edit beside My combos, tap one, and rename it, change an amount, add or remove a part, or delete it, each with an Undo. Nothing you already logged changes when you do. The Manual and Scan forms have an Ate: row, like the photo screen, to say you had three quarters or half of it at the moment you log it. And the Manual form-s Confidence box now says estimated, and its Meal box is wide enough to read.' },
+  { v: '0.93.0', d: '2026-10-12', note: 'Search understands both spellings: yogurt finds yogourt and the other way round, and the same for flavor and flavour, fiber and fibre, whiskey and whisky. Branded products now come after the plain food of the same name, and a food named for the word you typed comes before one that only mentions it later in its name.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17939,10 +17978,18 @@ function matchTypeaheadIn(index, list, text, limit) {
   const keys = index.keys || (index.keys = Object.keys(index.idx));
   const pw = {}, exact = {};
   let any = false, credit = Infinity;
+  // R200(d): "yogou", half-typed, begins "yogourt" -- which the index holds under
+  // its other spelling. So a half-typed word also reaches the key of any spelling
+  // it begins; without this the Canadian spelling would find nothing until its
+  // last letter.
+  const viaAlias = {};
+  if (tailK && index.tok) {
+    Object.keys(SEARCH_ALIAS).forEach(function (a) { if (a.indexOf(tailK) === 0) viaAlias[SEARCH_ALIAS[a]] = 1; });
+  }
   if (tailK) {
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
-      if (k.indexOf(tailK) !== 0) continue;
+      if (k.indexOf(tailK) !== 0 && !viaAlias[k]) continue;
       any = true;
       const w = matchIdf(index, k);
       if (w < credit) credit = w;                  // the commonest completion's weight
@@ -17981,7 +18028,7 @@ function matchTypeaheadIn(index, list, text, limit) {
   // BEGINS the word is ranked under one that holds it whole (step 2 below), so
   // "egg" still finds Egg before Eggplant -- which the first cut of this ranking
   // got wrong, and a printout of twenty queries is what showed it.
-  const begins = function (t) { return head.indexOf(t) >= 0 || (useTail && t.indexOf(tailK) === 0); };
+  const begins = function (t) { return head.indexOf(t) >= 0 || (useTail && (t.indexOf(tailK) === 0 || viaAlias[t] === 1)); };
   // The LEADING word is the name's own first word, stop words included: "Frozen
   // yogurts" leads with "frozen", and must not be read as leading with yogurt
   // because the tokenizer skips the word in front of it.
@@ -17998,7 +18045,7 @@ function matchTypeaheadIn(index, list, text, limit) {
     // headed "yogurt" because the tokenizer skips the word in front of it.
     if (heads[row] == null) {
       const ws = String(list[row][1]).split(',')[0].toLowerCase().replace(/\(.*?\)/g, ' ').match(/[a-z0-9]+/g) || [];
-      heads[row] = index.tok ? ws.map(matchFold) : ws;
+      heads[row] = index.tok ? ws.map(searchWord) : ws;
     }
     return heads[row];
   };
@@ -18006,10 +18053,19 @@ function matchTypeaheadIn(index, list, text, limit) {
   const firstOf = function (row) {
     if (firsts[row] == null) {
       const w = (String(list[row][1]).toLowerCase().match(/[a-z0-9]+/) || [''])[0];
-      firsts[row] = index.tok ? matchFold(w) : w;
+      firsts[row] = index.tok ? searchWord(w) : w;
     }
     return firsts[row];
   };
+  // R200(c): WHICH PART of the name answers. A name is its comma-separated parts,
+  // most general first; `seg` is the first part holding a word that was typed.
+  const segs = index.seg || (index.seg = {});
+  const segOf = function (row) {
+    const parts = segs[row] || (segs[row] = String(list[row][1]).split(',').map(function (x) { return cut(x); }));
+    for (let i = 0; i < parts.length; i++) if (parts[i].some(begins)) return i;
+    return parts.length;
+  };
+  const brands = index.brand || (index.brand = {});
   const out = [];
   Object.keys(hit).forEach(function (r) {
     const row = r | 0;
@@ -18031,35 +18087,39 @@ function matchTypeaheadIn(index, list, text, limit) {
                // ...and the HEAD NAME is what was typed, word for word (see headOf).
                head: (function () { const hd = headOf(row); return (hd.length === words && hd.every(begins)) ? 1 : 0; })(),
                parts: String(list[row][1]).split(',').length,
+               seg: segOf(row),
+               brand: (brands[row] == null ? (brands[row] = nameIsBranded(list[row][1]) ? 1 : 0) : brands[row]),
                jaccard: union > 0 ? h / union : 0 });
   });
-  // THE ORDER, each step ruled or measured:
+  // THE ORDER. Steps 1-2 are the match itself; 3-7 are R198 and R200's general
+  // rules, each a fact read off the name with no weight in it; 8 is the matcher.
   //   1. more of the words typed   -- "chicken br" must not lead with a chicken
   //                                   row that has no "br" in it
-  //   2. the word typed, WHOLE     -- "egg" before "eggplant": a word that was
-  //                                   finished outranks one that only begins so
-  //   3. the HEAD NAME             -- "Coffee, brewed" before "Coffee cake": the
+  //   2. the word typed, WHOLE     -- "egg" before "eggplant"
+  //   3. GENERIC BEFORE BRANDED    -- R200(b). "Beverages, coffee, brewed" before
+  //                                   "SILK Coffee, soymilk" (see nameIsBranded)
+  //   4. the HEAD NAME             -- "Coffee, brewed" before "Coffee cake": the
   //                                   food that IS the word before a compound
   //                                   that starts with it (R198, R199)
-  //   4. the LEADING word          -- "Milk, ..." before "Crackers, milk": a food
-  //                                   named for the word outranks one flavoured
-  //                                   with it (R198)
-  //   5. AMONG ROWS THAT ARE EQUALLY THE FOOD TYPED, the one with FEWER
-  //      QUALIFIERS -- fewer comma-separated parts to its name. "Coffee, brewed,
-  //      prepared with tap water" is three; "Coffee, instant, regular, powder" is
-  //      four. The weighted Jaccard put the powder first, because "instant",
-  //      "regular" and "powder" are COMMON words and "brewed" is rare: rarity
-  //      doing the opposite of its job. A count of the name's own parts is read
-  //      off the name and has no weight in it.
+  //   5. THE EARLIER PART          -- R200(c). A word answered in the name's first
+  //                                   part before one answered in a later part:
+  //                                   "Milk shake" before "Crackers, milk"
+  //   6. THE PLAINEST NAME         -- R200(a). Fewer comma-separated parts. Until
+  //                                   R200 this applied only between two rows
+  //                                   that were both the head name; it is now
+  //                                   general.
+  //   7. the LEADING word (R198)   -- what step 5 leaves tied
+  //   8. the matcher's weighted Jaccard, unchanged, for everything still tied
   //
-  //      TRIED FIRST AND REJECTED, on the printout: "the database's own order".
-  //      It put Coffee, brewed first too -- and Egg, dried before fresh egg,
-  //      whipped butter before butter, and on the US corpus scrambled frozen egg
-  //      mixture before egg. One example agreeing is not a rule.
-  //   6. the matcher's weighted Jaccard, unchanged, for everything still tied
+  // WHY 5 COMES BEFORE 6: the other way round, "Crackers, milk" (two parts) would
+  // lead "Milk shake, thick, chocolate" (three) and undo R198.
+  //
+  // TRIED AND REJECTED (R198), on the printout: "the database's own order". It
+  // put Coffee, brewed first -- and Egg, dried before fresh egg. One example
+  // agreeing is not a rule.
   out.sort(function (a, b) {
-    return b.overlap - a.overlap || b.exact - a.exact || b.head - a.head
-        || ((a.head && b.head) ? (a.parts - b.parts) : 0)
+    return b.overlap - a.overlap || b.exact - a.exact || a.brand - b.brand
+        || b.head - a.head || a.seg - b.seg || ((a.head && b.head) ? (a.parts - b.parts) : 0)
         || b.lead - a.lead || b.jaccard - a.jaccard;
   });
   return out.slice(0, lim);
@@ -20733,7 +20793,7 @@ window.HT = {
   overlaySync, overlayVisible, overlayPageLayer, OVERLAY_SEL, renderQuickChips, quickLog, SHEET_MODES,
   // ONE DOOR / 2 -- the typeahead, ruling (a), Search, and "+ New combo"
   TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, matchTokensFold,
-  TYPEAHEAD_POOL, refUseCounts, typeaheadMineFirst,
+  TYPEAHEAD_POOL, refUseCounts, typeaheadMineFirst, SEARCH_ALIAS, searchWord, nameIsBranded,
   // R198/3 and R199/2 -- "Ate:" at save on the forms; editing and deleting combos
   FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay,
   combosEditToggle, comboEditOpen, comboDeleteUndo, combosEditing: () => COMBOS_EDITING, typeaheadRun, typeaheadRowsHTML,

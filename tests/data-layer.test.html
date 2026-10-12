@@ -13806,6 +13806,43 @@ window.setLS({});
   res(r8Top('coff') === '3,2,1' && r8Top('coffee ') === '3,2,1',
       'R198 GATE: the order is the SAME half-typed, typed, and with the space after it -- the list does not reshuffle at the moment the word is finished');
 
+  // -- R200: generic before branded, the earlier part, and two spellings -------------
+  var r9List = [[1, 'SILK Coffee, soymilk'], [2, 'Beverages, coffee, brewed'], [3, 'Coffee cake, cheese'],
+                [4, 'Yogourt, plain'], [5, 'Yogurt, Greek, CHOBANI'], [6, 'Babyfood, yogourt, with DHA'],
+                [7, 'Fish oil, sardine'], [8, 'Fish, sardine, Atlantic, canned in oil'], [9, 'Sardine spread, canned'],
+                [10, 'Alcohol, whisky'], [11, 'Strawberry flavour mix'], [12, 'Chicken, rotisserie, BBQ'],
+                [13, 'Pears, raw (Includes foods for USDA Food Distribution Program)'], [14, "Candies, REESE'S Pieces"]];
+  var r9Idx = HT.matchIndexFrom(r9List, HT.matchTokensFold);
+  var r9Top = function (q, n) { return HT.matchTypeaheadIn(r9Idx, r9List, q, n || 8).map(function (r) { return r.id; }).join(','); };
+  res(HT.nameIsBranded('SILK Coffee, soymilk') && HT.nameIsBranded("Candies, REESE'S Pieces") && HT.nameIsBranded('Candies, KIT KAT Wafer Bar')
+      && HT.nameIsBranded("McDONALD'S, BIG MAC") && HT.nameIsBranded("Candies, M&M's peanut chocolate candies"),
+      'R200(b) GATE: a TRADE NAME is read off the name -- a word of three or more capitals, the way both databases print one');
+  res(!HT.nameIsBranded('Coffee, brewed') && !HT.nameIsBranded('Chicken, rotisserie, BBQ') && !HT.nameIsBranded('Babyfood, yogourt, with DHA')
+      && !HT.nameIsBranded('Pears, raw (Includes foods for USDA-s Food Distribution Program)') && !HT.nameIsBranded("Pears, raw (Includes foods for USDA's Food Distribution Program)")
+      && !HT.nameIsBranded('Infant formula, with ARA and DHA') && !HT.nameIsBranded('Candies, chocolate, dark, NFS') && !HT.nameIsBranded('Vitamin D, IU'),
+      'R200(b) GATE: CONTROL -- an abbreviation is not a brand: BBQ, DHA, ARA, NFS and USDA-s leave a row generic, and so do two capitals');
+  res(r9Top('coffee') === '3,2,1',
+      'R200(b) GATE: GENERIC BEFORE BRANDED -- "coffee" puts both generic rows ahead of "SILK Coffee, soymilk", which led on the US database. Between the two generic rows the EARLIER PART decides (c): the cake, which answers in its first part, before the beverage, which answers in its second', r9Top('coffee'));
+  res(r9Top('silk') === '1' && r9Top('reese') === '14',
+      'R200(b) GATE: ...and a brand that is ASKED FOR is still found -- the rule orders rows, it removes none');
+  res(r9Top('sardine') === '9,7,8' && r9Top('sardines') === '9,7,8',
+      'R200(c) GATE: THE EARLIER PART -- a row answering in its FIRST part ("Sardine spread") comes before rows answering in a later one', r9Top('sardine'));
+  res(r9Top('sardine').indexOf('7,8') > 0,
+      'R200(c) GATE: SAID, NOT HIDDEN -- "Fish oil, sardine" and "Fish, sardine, Atlantic" both answer in their second part; the rule ties them and they keep the order they had. No row in either shipped database is headed Sardine');
+  res(r9Top('yogurt') === '4,6,5' && r9Top('yogourt') === '4,6,5' && r9Top('yogurts') === '4,6,5',
+      'R200(d) GATE: ONE FOOD, TWO SPELLINGS -- "yogurt" and "yogourt" give the SAME list, in the same order, whichever way the row spells it', r9Top('yogurt') + ' / ' + r9Top('yogourt'));
+  res(r9Top('yogou') === '4,6,5' && r9Top('yogu') === '4,6,5' && r9Top('yog') === '4,6,5',
+      'R200(d) GATE: and HALF-TYPED in either spelling -- "yogou" does not go blank until its last letter');
+  res(r9Top('whiskey') === '10' && r9Top('whisky') === '10' && r9Top('flavor') === '11' && r9Top('flavour') === '11' && r9Top('flavo') === '11',
+      'R200(d) GATE: the same for whiskey/whisky and flavor/flavour');
+  res(HT.searchWord('yogourts') === 'yogurt' && HT.searchWord('fibre') === 'fiber' && HT.searchWord('colour') === 'colour' && HT.searchWord('sardines') === 'sardine'
+      && Object.keys(HT.SEARCH_ALIAS).length === 9,
+      'R200(d) GATE: the table is NINE pairs, each measured in the shipped databases -- a familiar pair that neither database holds both sides of ("colour") is not in it');
+  res(HT.matchTypeaheadIn(od2Idx, od2List, 'olives', 8).length === 1 && JSON.stringify(HT.matchTokens('Yogourt, plain')) === '["yogourt","plain"]',
+      'R200(d) GATE: CONTROL -- the spelling table lives in the SEARCH tokenizer only; the matcher that proposes identities still reads the word as written');
+  res(r8Top('coffee') === '3,2,1' && r8Top('milk') === '6,5,4,7' && r8Top('egg') === '11,10,9' && r8Top('yogurt') === '13,12',
+      'R200 GATE: NOTHING R198 RULED HAS MOVED -- coffee, milk, egg and yogurt on the R198 fixture are in the order they were');
+
   // -- what you have logged before comes first (R199, D133-s shape) -----------------
   var r8Pool = HT.matchTypeaheadIn(r8Idx, r8List, 'coffee', 40);
   var r8Mine = HT.typeaheadMineFirst(JSON.parse(JSON.stringify(r8Pool)), { '2': 3 }, 8);

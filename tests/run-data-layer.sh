@@ -391,7 +391,14 @@ echo "-----------------------------------------"
 # for byte. The typeahead's rows now carry their own ranking facts, so the bytes
 # differ by design; what the pins protected -- the same rows at the same score --
 # is asserted directly.
-EXPECTED_ASSERTIONS=2995
+# R200, v0.93.0: 2995 -> 3007, delta +12. A trade name read off the name, and
+# its control (BBQ, DHA, ARA, NFS, USDA are not brands); generic before branded,
+# with a brand that is asked for still found; the earlier part of a name, and the
+# tie it leaves between the two sardine rows said as a tie; one list for two
+# spellings, whole and half-typed; the table's size; the control that the
+# identity matcher still reads the word as written; and R198's four orders
+# unmoved.
+EXPECTED_ASSERTIONS=3007
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

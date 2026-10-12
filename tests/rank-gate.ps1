@@ -15,14 +15,21 @@
 #              change and choosing it. The databases are hash-pinned
 #              (check-slots), so a pin moves only when the ranking does.
 #
+# R200 added three general rules, each RULED here as a property:
+#   (b) generic before branded -- no row with a trade name ahead of one without
+#   (c) the earlier part of the name -- asserted in the harness on a fixture
+#   (d) two spellings, one list -- "yogurt" and "yogourt" give the same rows
+#
 # WHAT IS NOT CLAIMED, AND IS MEASURED HERE SO IT STAYS SAID:
 #   - "coffee" on the Canadian database leads with "Coffee, instant with chicory,
-#     powder"; "Coffee, brewed" is SECOND. No rule was found that puts brewed
-#     first and is not fitted to this one word (two were tried and rejected, see
-#     DECISIONS). It is first once it has been logged -- asserted below.
-#   - "coffee" on the US database is NOT fixed: USDA files it under "Beverages,
-#     coffee, ...", so no row is headed by the word. Pinned as it is.
-#   - "yogurt" finds nothing on the Canadian database, which spells it "Yogourt".
+#     powder"; "Coffee, brewed" is SECOND. Both names have three parts, so
+#     "plainest name first" ties them. It is first once it has been logged --
+#     asserted below.
+#   - "sardines" leads with "Fish oil, sardine" on both: neither database has a
+#     row headed Sardine, and both rows answer in their second part.
+#   - R200(a) GENERALISED to every row was measured and NOT shipped: it put
+#     "Candies, milk chocolate coated coffee beans" first for "coffee" on the US
+#     database. It stays where it was, between rows that are both the head name.
 #
 # Exit 0 PASS, 1 FAIL, 2 environment error.
 $ErrorActionPreference = 'Stop'
@@ -160,7 +167,22 @@ try {
              plural2: top('bananas', 8).join('|') === top('banana', 8).join('|') && top('eggs', 8).join('|') === top('egg', 8).join('|'),
              sardine: top('sardines', 3).filter(function (n) { return /sardine/i.test(n); }).length,
              milk: headed('milk', 'milk'), egg: headed('egg', 'egg'), butter: headed('butter', 'butter'),
-             coffee: top('coffee', 8) };
+             coffee: top('coffee', 8),
+             // R200(b): among rows holding the word whole, once a branded row is seen no generic row follows
+             brand: ['coffee', 'yogurt', 'milk'].map(function (q) {
+               var seen = false, bad = 0, nb = 0;
+               top(q, 40).forEach(function (n) {
+                 if (!new RegExp('\\b' + q + 's?\\b', 'i').test(n) && !/yogourt/i.test(n)) return;
+                 if (HT.nameIsBranded(n)) { seen = true; nb++; } else if (seen) bad++;
+               });
+               return { q: q, bad: bad, branded: nb };
+             }),
+             // R200(d): either spelling, the same list
+             spell: [['yogurt', 'yogourt'], ['flavor', 'flavour'], ['fiber', 'fibre'], ['whiskey', 'whisky']].map(function (pr) {
+               var a = top(pr[0], 8), b = top(pr[1], 8);
+               return { pair: pr.join('/'), same: a.join('|') === b.join('|'), n: a.length };
+             }),
+             half: top('yogou', 3).join('|') === top('yogurt', 3).join('|') };
   });
 })
 '@
@@ -173,7 +195,7 @@ try {
    'banana': ['Bananas, raw', 'Bananas, dehydrated, or banana powder', 'Pepper, banana, raw'],
    'butter': ['Butter, without salt', 'Butter, salted', 'Butter, Clarified butter (ghee)'],
    'yogurt': ['Yogurt, plain, low fat', 'Yogurt, vanilla, low fat.', 'Yogurt, plain, whole milk'],
-   'coffee': ['SILK Coffee, soymilk', 'Beverages, coffee, instant, with chicory', 'Beverages, coffee, instant, chicory'] })
+   'coffee': ['Beverages, coffee, instant, with chicory', 'Beverages, coffee, instant, chicory', 'Beverages, coffee, instant, regular, prepared with water'] })
 '@)
   Write-Host ("  US database: " + $us)
   $uv = $us | ConvertFrom-Json
@@ -182,6 +204,11 @@ try {
   Check (($uv.milk.bad -eq 0) -and ($uv.milk.n -gt 5) -and ($uv.milk.first -like 'Milk,*')) "RULED (US): 'milk' -- every row HEADED Milk comes before every row that only contains it"
   Check (($uv.egg.bad -eq 0) -and ($uv.egg.first -like 'Egg,*') -and ($uv.butter.bad -eq 0) -and ($uv.butter.first -like 'Butter,*')) "RULED (US): the same for 'egg' (not Eggplant, not Egg substitute) and 'butter'"
   Check (($uv.pins -eq 7) -and (@($uv.off).Count -eq 0)) ("PINNED (US): the top three for the seven fixed queries are as recorded" + $(if (@($uv.off).Count) { ' -- MOVED: ' + (@($uv.off) -join ' ;; ') } else { '' }))
+
+  $ub = @($uv.brand)
+  Check ((@($ub | Where-Object { $_.bad -ne 0 }).Count -eq 0) -and ($ub.Count -eq 3) -and (@($ub | Where-Object { ($_.q -eq 'coffee') -and ($_.branded -gt 0) }).Count -eq 1)) "R200(b) (US): GENERIC BEFORE BRANDED -- for coffee, yogurt and milk no generic row comes after a branded one, and the coffee list DOES hold branded rows, so the check is not vacuous. 'SILK Coffee, soymilk' led 'coffee' before this"
+  $usp = @($uv.spell)
+  Check ((@($usp | Where-Object { $_.same -ne $true }).Count -eq 0) -and ($usp.Count -eq 4) -and ($usp[0].n -gt 0) -and ($uv.half -eq $true)) "R200(d) (US): EITHER SPELLING, THE SAME LIST -- yogurt/yogourt, flavor/flavour, fiber/fibre, whiskey/whisky -- and half-typed 'yogou' already shows it"
 
   # ---- the Canadian database ------------------------------------------------------
   $ua = Eval 'navigator.userAgent'
@@ -193,15 +220,18 @@ try {
    'milk': ['Milk, dry whole', 'Milk, fluid, skim', 'Milk, condensed, sweetened, canned'],
    'egg': ['Egg, chicken, dried, whole', 'Egg, chicken, white, dried', 'Egg, chicken, yolk, dried'],
    'sardines': ['Fish oil, sardine', 'Fish, sardine, Atlantic, canned in oil, drained solids with bone', 'Fish, sardine, pacific, canned in tomato sauce, drained with bones'],
-   'banana': ['Banana, raw', 'Banana, dehydrated or banana powder', 'Pepper, banana, raw'],
+   'banana': ['Banana, raw', 'Banana, dehydrated or banana powder', 'Orange-strawberry-banana juice'],
    'tea': ['Tea, brewed', 'Tea, hibiscus', 'Tea, brewed with distilled water'],
-   'yogurt': [] })
+   'yogurt': ['Yogourt, plain (2-3.9% M.F.)', 'Yogourt, tofu', 'Yogourt, fruit flavoured (2-3.9% M.F.)'] })
 '@)
   Write-Host ("  Canadian database: " + $ca)
   $cv = $ca | ConvertFrom-Json
   Check ($cv.ns -eq 'cnf') "PRECONDITION: this is the Canadian database"
   Check (($cv.plural -eq $true) -and ($cv.plural2 -eq $true) -and ($cv.sardine -eq 3)) "RULED (CA): PLURAL AND SINGULAR give the same list, and 'sardines' finds sardine"
   Check (($cv.milk.bad -eq 0) -and ($cv.milk.first -like 'Milk,*') -and ($cv.egg.bad -eq 0) -and ($cv.egg.first -like 'Egg,*')) "RULED (CA): 'milk' and 'egg' -- every row headed by the word before every row that only contains it"
+  $csp = @($cv.spell)
+  Check ((@($csp | Where-Object { $_.same -ne $true }).Count -eq 0) -and ($csp.Count -eq 4) -and (@($csp | Where-Object { $_.n -eq 0 }).Count -eq 0) -and ($cv.half -eq $true)) "R200(d) (CA): EITHER SPELLING, THE SAME LIST, and none of the four is empty -- 'yogurt' found NOTHING here before, with 78 rows spelled 'yogourt'"
+  Check (@(@($cv.brand) | Where-Object { $_.bad -ne 0 }).Count -eq 0) "R200(b) (CA): no generic row after a branded one"
   $cof = @($cv.coffee)
   $cake = -1; $lastCoffee = -1
   for ($i = 0; $i -lt $cof.Count; $i++) {
@@ -209,7 +239,7 @@ try {
     if (($cake -lt 0) -and ($cof[$i] -like 'Coffee cake*')) { $cake = $i } }
   Check (($cof.Count -gt 3) -and ($cof[0] -like 'Coffee,*') -and (($cake -lt 0) -or ($cake -gt $lastCoffee))) "R199 (CA): 'coffee' -- every row that IS coffee comes before any 'Coffee cake'. The reported case: it led with the cake"
   Check (($cof[0] -like 'Coffee, brewed*') -or ($cof[1] -like 'Coffee, brewed*')) "R199 (CA): 'Coffee, brewed' is in the first two WITH NO HISTORY. It is not first: said, not hidden"
-  Check (($cv.pins -eq 7) -and (@($cv.off).Count -eq 0)) ("PINNED (CA): the top three for the seven fixed queries are as recorded, 'yogurt' finding nothing among them" + $(if (@($cv.off).Count) { ' -- MOVED: ' + (@($cv.off) -join ' ;; ') } else { '' }))
+  Check (($cv.pins -eq 7) -and (@($cv.off).Count -eq 0)) ("PINNED (CA): the top three for the seven fixed queries are as recorded" + $(if (@($cv.off).Count) { ' -- MOVED: ' + (@($cv.off) -join ' ;; ') } else { '' }))
 
   # ---- typed for real, then logged, then typed again --------------------------------
   $open = "(function(){ HT.closeSheet(); HT.openSheet(); var bs = document.querySelectorAll('#sheetRoot .srbtn'); for (var i = 0; i < bs.length; i++) if (bs[i].textContent === 'Search') bs[i].click(); var f = document.getElementById('fqQuery'); f.value = ''; f.focus(); return 1; })()"
@@ -276,8 +306,9 @@ if ($fails.Count -gt 0) {
   Write-Host "GATE: FAIL"
   exit 1
 }
-Write-Host "RANK GATE: PASS -- plural and singular find each other, a food headed by the word comes"
-Write-Host "  before a compound or a flavouring, the fixed queries' top three are as"
-Write-Host "  recorded on both databases, and a food logged before leads and says so."
+Write-Host "RANK GATE: PASS -- plural and singular and both spellings find each other, a food headed by"
+Write-Host "  the word comes before a compound or a flavouring, generic before branded,"
+Write-Host "  the fixed queries' top three are as recorded on both databases, and a"
+Write-Host "  food logged before leads and says so."
 Write-Host "GATE: PASS"
 exit 0
