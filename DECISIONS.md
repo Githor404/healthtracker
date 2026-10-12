@@ -15746,3 +15746,188 @@ E-lite says nothing about it.
 
 **STOPPING for rulings A–D.** D decides whether anything is imported; A decides
 what counts as a rise at all.
+
+---
+
+## R197 — RULED AND BUILT: THE CORPUS ON THE DEVICE, E-LITE, THE FOOT, AND "WEIGHED" (2026-10-12, v0.90.0 – v0.91.0)
+
+`R197` grepped: unused. (There is no `R196` in this repo either.)
+
+### 1. FIRST, AS ORDERED — the food database was downloaded on every launch (v0.90.0)
+
+Raised in R189 §9 as *"read in the code and NOT measured"*. **Measured, on the
+shipped v0.89.0:**
+
+| | |
+|---|---|
+| first launch | 2 requests — the index and the values |
+| second launch | **the same 2 again** |
+| third launch, those two URLs blocked | `ready: false`, 0 rows, a search for *coffee* finds nothing |
+
+— with all 7,793 rows in the device's own IndexedDB.
+
+**The cause was one missing call.** `corpusHydrate` — *load what is stored* — was
+reached from exactly one place: inside `corpusAcquire`, after a download. Nothing
+read the store at startup. Memory was always empty, so `corpusEnsure` always fell
+through to a download, and offline there is nothing to download. The store's own
+header comment says the index is *"hydrated to RAM at boot"*. It never was.
+
+> **And the "upgrade path" had never decided anything.** H24 added a hash check to
+> `corpusAcquire` so a device holding an old corpus would fetch the new one. It
+> compares against the corpus **in memory** — and at the only moment it ran,
+> there was none. Every launch re-downloaded, which is why upgrades *appeared* to
+> work. `check-slots` held the constant to the asset the whole time; nothing held
+> the constant to a decision.
+
+**Now: memory, then the store, then the network — and the network only on
+change.** The version check needs no request: the hashes this build expects are
+constants in `app.js`, so a new corpus arrives with a new shell and is noticed by
+comparing two strings already on the device. One definition of *current*
+(`corpusIsCurrent`), shared by both functions. A changed corpus that **cannot**
+be fetched leaves the stored one working and says it is stale; a stored corpus of
+the wrong namespace is dropped from memory rather than searched.
+
+**Why no gate saw it, in one line:** `corpus-gate` installs with
+`corpusAcquire(true)` and reads back in the same page; `offline-gate` asserts the
+*shell* offline. **Neither launches a second time.** `corpus-cache-gate` reloads
+the page, and the reload is the whole of it.
+
+**What it does not cover, said:** a **cold start with no network** — the shell
+itself coming from the service worker and then the corpus from the store. The
+gate cuts the network after the page has loaded. The shell offline is
+`offline-gate`'s; the two have not been driven together.
+
+### 2. E-LITE — RULED (R197), with what the rulings added
+
+| | ruled |
+|---|---|
+| A | 1.5 mmol/L inside 60 min; explained by food in the 4 h before. **Recorded limitation: "explained" is BINARY** — magnitude matching (carbohydrate against rise size) is deferred to the full model |
+| B | **"sensor artifact" FIRST** when a rise starts from a sudden drop (possible compression low) or falls within 24 h of a sensor change; then asleep / waking; then unlogged food |
+| C | passive mark and one line; no prompt, no count |
+| D | StepCount only, glucose's days only, the existing file path |
+| | stress never inferred |
+
+**As built (v0.91.0):**
+
+- **The answer is a timeline record**, not a new store: type `glucose_rise`, the
+  rise's start as its time, its size as its value, the answer in `variant`. The
+  timeline tolerates an unknown type by design ([[D19]]), so the label exports,
+  restores, is removable with the timeline's own ×, and **no schema changes**.
+  One rise, one label; changing it replaces it; a label finds its rise again
+  within 15 minutes if a re-import moves the start.
+- **"Not sure" is stored.** A dismissal is a label like the others, so a rise the
+  user waved away is never read later as one they did not see.
+- **The mark and the block exist only inside the glucose row the user opened.**
+  A day with nothing flagged draws nothing — not the heading, not the rule, not
+  the note about heart rate ([[D146]]).
+- **"A sudden drop"** is 1.0 mmol/L or more in the 20 minutes before the rise
+  began — two more chosen numbers, declared with the others. The surface says
+  *"began right after a sudden drop"* and stops there. **"Possible compression
+  low" is the ruling's gloss and is not printed**: it is a claim about the
+  sensor that would need a source, and "sensor artifact" as the user's own
+  answer needs none.
+- **"Asleep"** is `logged` when a logged sleep covers the rise, `assumed` between
+  00:00 and 06:00 only when *no* sleep is logged around that night, and nothing
+  when a logged sleep ended before it — the user was awake by their own record.
+- **Steps**: a second look-back cache beside glucose, five-minute buckets, read in
+  the same pass of the same file. Replaced per day on each import, never merged —
+  it is re-derived whole, so a second import cannot double a day. Where two
+  sources counted a day, the larger is kept and the other dropped, **never
+  summed**. Included in "delete all my data".
+- **The heart-rate and RMSSD inputs** are in `eliteInputs()`, wired, empty, and
+  the block says so.
+
+**THE DETECTOR HAD TWO DEFECTS, AND THE MEASUREMENT IN §2 OF THE PRE-REGISTRATION
+HAD THEM TOO.** Found by this slice's own first assertions, on a series of forty
+flat minutes followed by a 40-minute climb from 5.5 to 9.0:
+
+| reported | should be | why |
+|---|---|---|
+| started at the **first flat reading** | where the climb starts | the scan qualifies a rise from the *earliest* reading the threshold is reachable from |
+| peaked at **7.25**, "in 60 min" | 9.0, in 40 | the hour was counted from that early reading, so it ran out early too |
+
+Both are fixed — the start is the last lowest reading before the peak, and the
+peak is then looked for again from there — and pinned. **Re-measured on the same
+snapshot with the corrected detector:**
+
+| food counted as explaining it | unexplained, **as recorded** | **corrected** |
+|---|---|---|
+| 30 min before the rise to its peak | 27 | **28** |
+| within 2 h before | 20 | 20 |
+| within 4 h before | 14 | **14** |
+
+The count of rises is unchanged at 37 and the ruled rule's 14 is unchanged; the
+times and sizes of individual rises in the pre-registration's list were a few
+minutes early and, for two of them, short. **The list is not rewritten above —
+this paragraph corrects it.** Of the corrected 14, **five begin right after a
+sudden drop** by the rule above, which is the case ruling B's first offer is for.
+
+### 3. THE FOOT, AND SEARCH ON SCREEN (R197/2)
+
+*"Shrink the Log-sheet footer so Search is visible without scrolling at 390×844.
+Gate it."*
+
+- **The root has no foot.** Its own links now carry all four the foot offered.
+- **Every other pane has one line**, *"Other things to log"*, opening to the same
+  four. About 45px where it was about 290.
+- **That was not enough, and the measurement said so**: on a full sheet — a stack,
+  two combos, four repeats — Search still ended **14px below the screen**,
+  because it sat in the second row of a two-by-two. The four are now **one row**,
+  in the ruled order. Search's bottom edge is at 806 of 844.
+- **A repeat row no longer prints its one name twice.** The names line exists to
+  say which spellings a count merged; with one spelling, the row's own, it was
+  24px a row of repetition.
+
+The foot is hidden with **its own rule**, not the bare attribute — `.sheetfoot`
+sets `display`, and an attribute loses to a class. The gate's plant is that
+defect: the attribute still says hidden while the foot is forced on screen.
+
+`flow-gate`'s dose and medication journeys tapped the foot from the root. They
+take the root's own links now — same words, same tap, **pins unchanged**.
+
+### 4. "WEIGHED 180 g · ATE ½" (R197/3)
+
+Ruled: a halved weighed item **keeps its "weighed" dot**. The served figure on the
+row reads *"weighed 200 g"* where it read *"200 g served"*, for a plate item
+whose confidence is `weighed`. The weight was measured; the share is the user's
+statement; the two are named apart rather than the confidence being demoted for
+a number that was never in doubt. Everything else — a measured scan, an
+eyeballed photo — still reads *"g served"*.
+
+### 5. THE COMPARISON VIEW — PRE-REGISTRATION AMENDED (R197/4), STILL NOT BUILT
+
+| | as first proposed | **ruled** |
+|---|---|---|
+| floor | 5 per group | **5 days per group** — confirmed |
+| "no clear difference" | the two groups' ranges overlap | **when the difference's uncertainty range includes zero**, *worded plainly* |
+
+**What "the difference's uncertainty range" will mean, pre-registered so it is
+not chosen after seeing data:** the difference between the two groups' means,
+with an interval around it from the days themselves. With five to ten mornings a
+side, the honest interval is wide and a t-based one assumes more than n=1 mornings
+give; the build will state **which interval it draws and why**, show the two
+numbers, and say *"no clear difference"* in exactly the case the ruling names.
+It will **not** say "no effect": an interval that includes zero is also what too
+few mornings look like, and the floor is what separates the two — below it the
+view says *"not enough days yet"* and draws no interval at all.
+
+### 6. Seen, reported, not changed
+
+- **The Manual form's Confidence box reads "eyeballed"**, the stored word, which
+  `jargon-gate` bans as *"the stored confidence value, shown raw"*. It is inside a
+  `<select>`, and the gate evidently does not read option text. Its Meal box
+  reads *"by the cloc"*, cut off. Both predate this work; both are on the screen
+  in the screenshot taken to check the foot.
+- **A cold start offline** is not driven end to end (§1).
+
+### 7. Evidence
+
+| | |
+|---|---|
+| harness | **2963** (+38); two R189/2 pins moved for the "weighed" wording |
+| `tests/corpus-cache-gate.ps1` | **NEW, 19 checks**: it reloads the page; search, pick and log with the network off; a control that a changed corpus does download |
+| `tests/elite-gate.ps1` | **NEW, 35 checks**: steps through a real Apple Health file import; nothing about a rise anywhere until the row is opened; answers by real clicks |
+| `tests/onedoor-gate.ps1` | 104 → **114**: Search's bottom edge on a full sheet, the foot measured off, with the defect as its plant |
+| `tests/flow-gate.ps1` | two journeys re-pointed, no pin moved |
+| `tests/served-gate.ps1` | one expectation moved for the "weighed" wording |
+| suite | **45 verdicts** (1 harness + 9 static + 35 CDP) |

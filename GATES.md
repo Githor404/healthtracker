@@ -5910,3 +5910,54 @@ day's "Save as combo" panel, removed by ruling. All six had passed on the build
 reported as a dead end. Three replace them: no such link or panel on a day that
 has items, the mode's functions gone rather than hidden, and the one door still
 there.
+
+### v0.89.0 – v0.91.0 — a gate that reloads, and two that hold "passive" and "on screen" (2026-10-12)
+
+**Two new gate scripts, both registered. The suite is now 45 verdicts** (1 harness
++ 9 static + 35 CDP). Harness **2912 -> 2963**.
+
+**`tests/corpus-cache-gate.ps1`, NEW — 19 checks. It reloads the page.** That is
+its whole reason for existing: the food database was re-downloaded on every
+launch and unusable offline, and no gate launched a second time to find out.
+
+- the first launch makes two requests; **the second makes none**, with a stated
+  precondition that nothing was in memory — so the zero is "read from the
+  device" and not "already loaded";
+- with the corpus URLs blocked, a search **typed into the real pane** finds rows;
+- with **the network off entirely** (`navigator.onLine` asserted false), a new
+  search finds rows with their figures, a row is picked, an amount typed, and
+  the food logged;
+- **the control**: when the build is told to expect a different corpus it *does*
+  download, two requests — so the zero above is a decision by the version check
+  and not a fetch that never fires. The expected hash is changed and put back in
+  the page; that is the plant.
+
+**`tests/elite-gate.ps1`, NEW — 35 checks.** The harness holds the rule; this
+holds what "passive" means on a screen.
+
+- steps arrive through **the app's own Apple Health import**, from a file built
+  in the page — and a January day and a heart-rate record in the same file are
+  not kept;
+- **with the glucose row closed**: no block, no mark, no word about a rise in the
+  page's text, no count, no toast — with a stated precondition that two rises
+  *are* flagged, so the silence is about something;
+- opened: the answers **in the ruled order** read off the buttons, for a night
+  rise after a sudden drop, a day rise, and a rise in a sensor's first day;
+- a real click stores one label; `change` re-offers; another answer replaces;
+  Undo restores; `not sure` is stored;
+- the storage name `glucose_rise` appears **nowhere in the page's text**;
+- no `probab`, `likel`, `%`, `score`, `caus`, `trigger` in the block;
+- and D146 by real logging: food logged before each rise, and the block and its
+  marks are gone.
+
+**`onedoor-gate`: 104 -> 114, and it asserts the thing ruled rather than the
+mechanism.** *"Search visible without scrolling at 390×844"* is checked as the
+Search button's bottom edge against the viewport, on the gate's own full
+fixture. Removing the foot did not achieve it — Search was still 14px under — and
+a check that the foot was gone would have passed while the ruling failed.
+
+**The harness found two defects in the E-lite detector before any gate ran**: a
+rise reported as starting at the first *flat* reading before a climb, and
+peaking where that early reading's hour ran out. The measurement recorded in the
+pre-registration was made with the same two defects, and is corrected in
+DECISIONS rather than quietly replaced.
