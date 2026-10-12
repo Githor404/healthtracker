@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.86.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.86.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -12101,6 +12101,7 @@ const VERSION_LOG = [
   { v: '0.84.0', d: '2026-10-11', note: 'Two things the Log sheet was missing. Search: type a food and the food database answers as you type, from the first couple of letters -- pick a row, say how many grams, and it is logged. A food found this way takes the database-s figures as its own numbers, with the source named on it, because it has no other numbers to take; they are a typical one-s figures, not your label-s, so it is marked as an estimate. And + New combo: build a combo before you have ever logged it. Name it, search for each part and give it an amount, and the running total shows calories and caffeine as you go -- saying how many parts each figure is from, so a part the database does not know cannot make the total look complete.' },
   { v: '0.85.0', d: '2026-10-11', note: 'Tapping New sensor now tells you it worked. The entry names the sensor and the arm -- New sensor, Dexcom G7, left arm -- and a line beside the buttons counts the days: Day 3 of 10, then the grace period, then that it is past its wear time. The first time, it asks which sensor you use and remembers the answer. The wear times are the maker-s own published figures, with the source one tap away, and they are counted from when you logged the sensor. A second tap within ten minutes no longer adds a second change: the same arm does nothing, and the other arm corrects the entry. You can open an older sensor entry and set its type yourself. Moved, Woke and Drink now confirm with an Undo as well. A food you logged by searching now says it is from the food database, where before it said typed in. In the Log sheet: going back from a half-built combo keeps it as a draft instead of throwing it away; searching puts the food you typed ahead of longer words that merely start with it, so milk no longer leads with milkfish; and the row of mode buttons no longer sits on top of the first screen.' },
   { v: '0.86.0', d: '2026-10-11', note: 'The day now counts what you ate, not what was on the plate. Two things can make those differ, and they are kept apart. The part you cannot eat: when a food is matched to the Canadian food database and that database says how much of it is bone, the weight is reduced for you on cuts served on the bone -- wings, drumsticks, ribs, necks, and anything it calls bone-in -- and the line says so, with the figure and where it comes from: 120 g served, about 74 g edible. Peel, shell, pits and fat are never taken off by themselves; there is one tap if your weight included them. Say a food was boneless once and it is remembered for that food. What you left: open any item that came from a photo or a search and tap Ate: all, three quarters, half, a quarter, or type the grams. Whenever the two figures differ the row shows both, so the served weight is never hidden. A food you log by searching can now be corrected the same way afterwards. On the US food database nothing is taken off, because it publishes no such figures.' },
+  { v: '0.86.1', d: '2026-10-11', note: 'A fix under the hood for the release before this one: undoing a change to a bone or peel correction now restores it in a way the app-s own record checks can read. Nothing you logged is affected.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15399,7 +15400,14 @@ function plateRefuseSet(plateId, plateIdx, on) {
   evs.forEach(function (e) { itemScaleTo(e, num(e.grams) * k); });
   Store.saveState(APP_STATE); refresh();
   offerUndo((on ? 'Took ' + pi.refuse.pct + '% off' : 'Counted the whole weight'), function () {
-    pi.refuse = priorRefuse;
+    // Put back IN PLACE, field by field. Reassigning the whole object reads to
+    // the allowlist census (D131) as a write of `refuse` onto a DAY ITEM, because
+    // it classifies by the variable's name and `pi` is a plate item here. The
+    // first full run of v0.86.0 failed on exactly that line. Nothing was at risk
+    // -- `refuse` is declared in normalizePlateItem, where it is stored -- but a
+    // census that has to be argued with is a census that gets ignored, so the
+    // code says the same thing in the form the census reads correctly.
+    Object.keys(priorRefuse).forEach(function (key) { pi.refuse[key] = priorRefuse[key]; });
     Object.keys(APP_STATE.days || {}).forEach(function (dk) {
       const items = APP_STATE.days[dk].items || [];
       evs.forEach(function (e, n) { const at = items.indexOf(e); if (at >= 0) items[at] = priorEvs[n]; });
