@@ -16105,3 +16105,137 @@ ship as **v0.92.0 in one commit**, with this record in a second.
 | `tests/cold-start-gate.ps1` | **NEW, 15 checks**: browser closed, server stopped, relaunched offline |
 | `tests/jargon-gate.ps1` | reads `<select>` options; failed on the old wording, passes on the new |
 | suite | **48 verdicts** (1 harness + 9 static + 38 CDP) |
+
+---
+
+## R200 — RULED AND BUILT, THREE OF FOUR: GENERIC BEFORE BRANDED, THE EARLIER PART, TWO SPELLINGS; "PLAINEST NAME" MEASURED AND HELD (2026-10-12, v0.93.0)
+
+**Label.** `R200` is the user's relay label; grepped, not previously recorded.
+It also accepted v0.92.0 and asked whether R199/2 (combo edit and delete) was in
+it: **yes** — shipped in v0.92.0, gated by `forms-gate` and the harness.
+
+**Serves** *track*.
+
+**The ruling:** four general rules, not fitted to a word, applied after the
+exact / whole-word tiers; re-run `rank-gate` on coffee, sardines, yogurt, milk on
+both databases; report top-3 before and after; *"if any rule breaks an existing
+pinned query, report it rather than special-casing."*
+
+### 1. What was measured before anything was built
+
+| question | answer, from the shipped files |
+|---|---|
+| is a branded row flagged? | **No.** The index is `[id, name]`. Both files print trade names in capitals; 997 of 7,793 US names and 34 of 5,690 Canadian ones have a word of three or more capitals |
+| which capitals are not brands? | six abbreviations found in generic rows: `ARA DHA BBQ NFS USDA USA` |
+| is any row headed "Sardine"? | **No, in either file.** Three rows contain the word in each; all in the second part of the name |
+| "Coffee, brewed, prepared with tap water" vs "Coffee, instant with chicory, powder" | **three parts each** |
+
+### 2. (d) THE SPELLING TABLE — nine pairs, each present on both sides
+
+A word occurring in one database whose other spelling occurs in the other.
+Counts are occurrences in names, Canadian / US:
+
+| Canadian | US | CA / US |
+|---|---|---|
+| yogourt | yogurt | 79 / 81 |
+| flavour | flavor | 84 / 81 |
+| flavoured | flavored | 51 / 35 |
+| flavours | flavors | 35 / 30 (reached through the plural fold) |
+| unflavoured | unflavored | 1 / 1 |
+| fibre | fiber | 17 / 8 |
+| sulphate | sulfate | 5 / 8 |
+| sulphured | sulfured | 18 / 18 |
+| whisky | whiskey | 11 / 14 |
+| aluminium | aluminum | 1 / 1 |
+
+**Sources:** the two shipped index files themselves — *Canadian Nutrient File,
+Health Canada, 2015* and *USDA FoodData Central, SR Legacy (2018)* — as hashed
+by `check-slots`. The table is a measurement of those files, not a dictionary.
+
+**Left out, and why.** Familiar pairs neither file holds both sides of (colour,
+litre, doughnut): a table entry that can match nothing is decoration.
+USDA's own misprints found by the same scan — *laborador* / labrador,
+*lingenberry* / lingonberry, *fudgsicle* — are not spellings. *stellar* /
+*steller* are different words (a sea lion).
+
+**How.** In the search tokenizer only (`searchWord`, after the plural fold); the
+matcher that proposes identities reads the word as written, held by a control. A
+half-typed word reaches a row through either spelling, so "yogou" does not go
+blank until its last letter. Nothing on screen is respelled.
+
+### 3. (b) GENERIC BEFORE BRANDED
+
+`nameIsBranded`: a word of three or more capitals, other than the six
+abbreviations. Placed directly after the whole-word tier, so a brand never leads
+a generic row that matches as well. A brand that is asked for is still found —
+the rule orders rows and removes none.
+
+**Limit, stated:** a brand printed in ordinary case ("Pillsbury …") is not
+recognised. This reads a convention off the name; it is not a list of brands.
+
+### 4. (c) THE EARLIER PART
+
+The first comma-separated part holding a typed word; earlier wins. It sits
+**under** the existing head-name rule (the first part *is* the words typed),
+which is the strong form of the same idea and is what keeps "Coffee, brewed"
+ahead of "Coffee cake".
+
+**It does not move sardines**, as measured in §1: both rows answer in their
+second part. Asserted in the harness as a tie that is said, on a fixture that
+also has a "Sardine spread" row to show the rule working where it can.
+
+### 5. (a) THE PLAINEST NAME — measured generalised, and NOT shipped
+
+(a) already existed between two rows that are both the head name. R200 asks for
+it generally. Built that way and printed:
+
+| query | (a) between head-name rows only — **shipped** | (a) for every row — **not shipped** |
+|---|---|---|
+| US "coffee" | Beverages, coffee, instant, with chicory · …instant, chicory · …instant, regular, prepared with water | **Candies, milk chocolate coated coffee beans** · Candies, dark chocolate coated coffee beans · Beverages, coffee, instant, with chicory |
+| CA "cheddar" | Cheese, cheddar · Cheese, cheddar, imitation · Cheese, cheddar, reduced fat | Cheese, cheddar · **Wiener (cheesefurter), cheddar smokie** · Cheese, cheddar, imitation |
+| US "olive oil" | Oil, corn, peanut, and olive · Oil, olive, salad or cooking | Oil, olive, salad or cooking · Oil, corn, peanut, and olive *(better)* |
+| US / CA "banana", #3 | Pepper, banana, raw / Orange-strawberry-banana juice | Melon, banana (Navajo) / Orange-strawberry-banana juice |
+
+One list better, two worse, one of them a pinned query led by a candy. The
+ruling says to report a broken pin rather than special-case it, and the
+alternative to special-casing here is not shipping the generalisation. **(a)
+stays where it was. This is the assistant's call on a ruled item and is open to
+being overruled** — it is one line in the sort.
+
+**And it does not deliver the example given.** "Coffee, brewed" before "Coffee,
+instant with chicory, powder" is a tie under (a) in either form: three parts
+each. Brewed is second on the Canadian database with no history and first once
+logged, as in v0.92.0.
+
+### 6. Top three, before and after (v0.92.0 → v0.93.0)
+
+| | before | after |
+|---|---|---|
+| **US coffee** | SILK Coffee, soymilk · Beverages, coffee, instant, with chicory · Beverages, coffee, instant, chicory | Beverages, coffee, instant, with chicory · Beverages, coffee, instant, chicory · Beverages, coffee, instant, regular, prepared with water — **pin moved, by (b)** |
+| **US sardines** | Fish oil, sardine · Fish, sardine, Atlantic… · Fish, sardine, Pacific… | unchanged |
+| **US yogurt** | Yogurt, plain, low fat · Yogurt, vanilla, low fat. · Yogurt, plain, whole milk | unchanged; "yogourt" now gives the same list (was empty) |
+| **US milk** | Milk, buttermilk, dried · Milk, sheep, fluid · Milk, low sodium, fluid | unchanged |
+| **CA coffee** | Coffee, instant with chicory, powder · Coffee, brewed, prepared with tap water · Coffee, instant, regular, powder | unchanged |
+| **CA sardines** | Fish oil, sardine · Fish, sardine, Atlantic… · Fish, sardine, pacific… | unchanged |
+| **CA yogurt** | *(nothing)* | Yogourt, plain (2-3.9% M.F.) · Yogourt, tofu · Yogourt, fruit flavoured (2-3.9% M.F.) — **pin moved, by (d)** |
+| **CA milk** | Milk, dry whole · Milk, fluid, skim · Milk, condensed, sweetened, canned | unchanged |
+
+**One further pin moved, not among the four:** CA "banana", third place —
+"Pepper, banana, raw" → "Orange-strawberry-banana juice", by (c): the juice
+answers in its first part, the pepper in its second. Reported, not
+special-cased. US banana, egg, butter and CA egg, tea are unchanged.
+
+### 7. The order as it now stands
+
+more of the words typed → the word whole → **generic before branded (b)** → the
+head name → **the earlier part (c)** → fewer parts, between head-name rows (a) →
+the leading word → the matcher's weighted Jaccard. Then, outside the ranking,
+what this user logged before.
+
+### 8. Evidence
+
+| | |
+|---|---|
+| harness | **3007** (+12): the three rules, each with a control; R198's four orders asserted unmoved |
+| `tests/rank-gate.ps1` | 18 → **22** checks: (b) and (d) as ruled properties on both databases; three pins moved, named above |
+| suite | 48 verdicts |

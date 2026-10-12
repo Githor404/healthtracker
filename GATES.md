@@ -6000,3 +6000,22 @@ that the origin refuses a connection before it goes on. It found nothing wrong.
 **Gate source stays ASCII.** The fractions and the non-breaking space reach the
 page as JavaScript escapes written by the generator, never as characters in the
 `.ps1` (`check-ps-encoding`).
+
+### v0.93.0 — a property check that could have been vacuous, and two expectations that were mine and wrong (2026-10-12)
+
+**"No generic row after a branded one" passes trivially on a list with no
+branded rows.** As first written, `rank-gate` asked it of coffee, yogurt and
+milk and required branded rows in two of the three lists. Only coffee's top 40
+holds any (two); yogurt's fifty head-name rows push every CHOBANI out of reach.
+The condition is now what the data supports — the coffee list must hold a
+branded row — rather than a count chosen before looking.
+
+**Two harness expectations failed on first run, and the code was right both
+times.** *"M&M's is not a brand"* — it is, and the reader says so. *"Beverages,
+coffee, brewed before Coffee cake"* — rule (c) puts the cake first, because it
+answers in its first part; what (b) guarantees is only that both precede SILK.
+The assertions were corrected to what the rules say, and the second one now
+states which rule decides between the two generic rows.
+
+**A rule measured and not shipped leaves a record, not a gate.** R200(a)
+generalised has its printout in DECISIONS; nothing in the suite asserts it.
