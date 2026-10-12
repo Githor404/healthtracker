@@ -15931,3 +15931,177 @@ view says *"not enough days yet"* and draws no interval at all.
 | `tests/flow-gate.ps1` | two journeys re-pointed, no pin moved |
 | `tests/served-gate.ps1` | one expectation moved for the "weighed" wording |
 | suite | **45 verdicts** (1 harness + 9 static + 35 CDP) |
+
+---
+
+## R198 / R199 — RULED AND BUILT: SEARCH ORDER, THE MANUAL FORM, "ATE:" AT SAVE, EDITING COMBOS, THE COLD START (2026-10-12, v0.92.0)
+
+**Labels.** `R198` and `R199` are the user's relay labels. Grepped before use:
+neither appeared in this file, `GATES.md` or `CLAUDE.md`. This entry is the
+record they now name. R199 arrived as an addendum to R198 before the suite ran
+and is folded into the same release, as it asked.
+
+**Serves** *track* throughout: every item here is about what goes into the log
+and whether it can be found, corrected and trusted. Nothing here evaluates or
+predicts.
+
+### 1. THE ORDER OF SEARCH RESULTS (R198/1, R199/1)
+
+**Reported.** "sardines" did not find sardine. "milk" put "Crackers, milk" among
+the milks. "coffee" led with "Coffee cake, cheese"; expected "Coffee, brewed".
+
+**Built.** The typeahead now scores every word itself — finished or half-typed —
+with the matcher's own formula, and then orders by keys that are each a fact
+read off the name, with no weight in any of them:
+
+| # | key | what it settles |
+|---|---|---|
+| 1 | more of the words typed | "chicken br" does not lead with a chicken row that has no "br" |
+| 2 | the word typed, whole | "milk" before "milkfish" |
+| 3 | **headed** by the words typed — the name's literal words before its first comma | "Coffee, …" before "Coffee cake, …"; "Milk, …" before "Milk shake"; "Egg, …" before "Egg substitute" |
+| 4 | among headed rows, fewer comma-separated qualifiers | "Tea, brewed" before "Tea, brewed, prepared with distilled water" |
+| 5 | the name's first word begins a typed word | "Milk shake" before "Crackers, milk" |
+| 6 | the matcher's weighted Jaccard, unchanged | everything still tied |
+
+**Plurals** are `matchFold` — the one morphological rule this file already had
+and the frequency key already used: a trailing *s* on a word longer than three
+letters, never "-ss". Not a second, larger rule set written for the occasion. It
+is applied in a **search index of its own** (`SEARCH_INDEX`). The matcher's
+index, which proposes an identity for a photographed or scanned food and was
+measured on plain tokens, is untouched; the harness holds that as a control.
+
+**What was tried and rejected, on a printout of both databases:**
+
+- *A prefix counted as the whole word.* "egg" led with Eggplant. Rejected.
+- *The database's own row order as the tie-break.* It put dried egg before egg
+  and looked principled only because nobody had chosen it. Rejected.
+- *A further tie-break that would put brewed coffee first.* Every candidate —
+  shorter name, "prepared", fewer rare words — was fitted to this one query and
+  moved other lists for the worse. A fitted rule presented as a principle is
+  what D126 forbids. Not built.
+
+**WHAT IS THEREFORE NOT DELIVERED, said plainly.** On the Canadian database
+"coffee" leads with **"Coffee, instant with chicory, powder"**; **"Coffee,
+brewed, prepared with tap water" is second.** The cake is gone from the top —
+every coffee row now precedes every "Coffee cake" — but the row the ruling
+expected first is not first.
+
+**What makes it first is the user, not a rule** (`typeaheadMineFirst`). A row
+this user has logged before — counted from the corpus matches on logged items
+and combo parts, read each time, stored nowhere — moves to the front and says
+*"you logged this before"* on the row. It does not jump ahead of a row that
+answers more of what is being typed. So brewed coffee leads from its first log
+onward; gated by typing, picking, logging and typing again. This is D133's
+shape on a new surface: memory proposes last, and says why.
+
+**Also measured, not fixed:**
+
+- **The US database is not fixed for "coffee".** USDA files it as "Beverages,
+  coffee, …", so no row is headed by the word and "SILK Coffee, soymilk" leads.
+  Pinned as it stands, in the gate, so it cannot change unseen.
+- **"sardines" leads with "Fish oil, sardine"** on both — two qualifiers against
+  the fish's five. The plural is fixed; that order is a consequence of key 4.
+- **"yogurt" finds nothing on the Canadian database**, which spells it
+  "Yogourt". Spelling variants are not plurals and were not ruled; pinned as an
+  empty list so it is seen.
+
+### 2. THE MANUAL FORM (R198/2)
+
+Confidence reads **"estimated"**; the stored value is still `eyeballed` — the
+wording moved, the contract did not. The Meal column takes the share its longest
+choice needs.
+
+**The gate found a second one.** `forms-gate` measures every list on the form —
+a `<select>`'s natural width against the width it was given, with the control
+that a box squeezed to 60 px is reported as cut off. At 390 px Meal passed and
+**Confidence failed: 94 px given, 112 needed.** The new word would have shipped
+cut off beside the fix for the old one. Both columns now take their share
+(133 ≥ 125, 119 ≥ 112).
+
+`jargon-gate` now judges an `<option>` by its `<select>`'s visibility. Run
+before the wording change it failed naming `'eyeballed' (sheet:manual)`; that
+failing run is its control.
+
+### 3. "ATE:" AT SAVE, ON MANUAL AND SCAN (R198/3)
+
+The photo draft's own five choices. **One mechanism** (R189, ruled A): the item
+is written exactly as the form always wrote it, and the share is applied through
+`eventSetAte`, which attaches the plate holding what was served. Consequences,
+each gated:
+
+- one **Undo** takes back the item *and* the plate made for it;
+- "all" writes nothing extra;
+- **a share needs a weight.** With no grams there is no served figure for the
+  row to show, so the Manual form refuses in words before anything is written
+  and keeps what was typed. A scanned portion always has one;
+- the form's choice returns to *all* after each save;
+- an entry plate with nothing eaten from it is never offered as leftovers.
+
+### 4. EDITING AND DELETING A COMBO (R199/2)
+
+**It was not possible.** `renameCombo`, `deleteCombo` and `setComboPartGrams`
+have existed since COMBOS/3 and were called by nothing on any screen.
+
+"Edit" beside *My combos* turns a tap on a row into *open it* rather than *log
+it*, and the row says so. It opens in the **same builder** "+ New combo" uses.
+Saved parts come in as kept: an amount change scales the part's calories, label
+micros and cited values together from the amount it was saved at — the food
+database is not re-read behind the user's back. A part saved with no amount
+cannot be resized, and says so (D8: no invented basis). Save replaces the combo
+**in place under its own id**; delete has Undo; so does an edit.
+
+**Past logs are untouched by construction, not by a guard:** logging a combo
+writes ordinary items, each a copy of its part at that moment, holding no
+reference that could reach back. Asserted byte for byte, in the harness and by
+real taps.
+
+Nothing is behind a long press: every step in the gate is a plain tap on a
+visible control.
+
+### 5. THE COLD START (R198/5)
+
+`cold-start-gate` closes the browser (asked to, not killed), **stops the test
+server**, verifies the origin refuses a connection, and launches a new browser
+process offline before its first navigation. The app starts at the same version
+under the service worker, shows the item logged before the close, reads the
+food database from the device with nothing fetched, and a typed search can be
+picked and logged. Control: a file outside the shell, served before the close,
+cannot be fetched.
+
+**It passed on the first run. No defect was found.** That is reported as what
+it is — the question had not been asked, and the answer is yes.
+
+### 6. THE BRIEF (R198/4)
+
+`CLAUDE.md`'s capability list gains 2c (search, cited, offline), 2d (combos),
+3b (served vs eaten), 4b (sensor countdown) and 4c (E-lite), each with its
+gates and its stated limits. Each claim was checked against the code or a gate
+run in this session, per the brief's own 2026-10-04 correction.
+
+### 7. One feature commit, and why
+
+The order asked for versioned commits. R198/1–3 and R199 all change `app.js`,
+and a shell change requires a version bump and a stamped `SHELL_HASH`
+(`check-version`, `check-sw-hash`); five interleaved changes to one file under
+one suite run would have meant five versions with four never deployed. They
+ship as **v0.92.0 in one commit**, with this record in a second.
+
+### 8. Seen, reported, not changed
+
+- On the Manual form the "Portion (label)" label wraps to two lines and its
+  placeholder is cut ("e.g. 125 m"). A placeholder, not a value; not ruled.
+- The food confirmation ("Logged Greek yogurt · ate ½ · Undo") wraps to two
+  lines at 390 px. R187's one-line ruling named four confirmations; this is not
+  one of them.
+- The comparison view stays parked until five days per group exist.
+
+### 9. Evidence
+
+| | |
+|---|---|
+| harness | **2995** (+32); two ONE-DOOR/2 byte-identity pins moved, with reason |
+| `tests/rank-gate.ps1` | **NEW, 18 checks**: ruled properties and pinned top-threes on both databases; coffee typed, logged, typed again |
+| `tests/forms-gate.ps1` | **NEW, 36 checks**: every list on the Manual form measured, with a control; "Ate:" on Manual and Scan; a combo edited and deleted by real taps |
+| `tests/cold-start-gate.ps1` | **NEW, 15 checks**: browser closed, server stopped, relaunched offline |
+| `tests/jargon-gate.ps1` | reads `<select>` options; failed on the old wording, passes on the new |
+| suite | **48 verdicts** (1 harness + 9 static + 38 CDP) |

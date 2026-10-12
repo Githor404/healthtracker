@@ -5961,3 +5961,42 @@ rise reported as starting at the first *flat* reading before a climb, and
 peaking where that early reading's hour ran out. The measurement recorded in the
 pre-registration was made with the same two defects, and is corrected in
 DECISIONS rather than quietly replaced.
+
+### v0.92.0 — a gate that found the fix's own twin, one that asked a new question and got "yes", and what a pin is (2026-10-12)
+
+**`forms-gate` — measure every list, not the one that was reported.** The report
+was "Meal reads *by the cloc*". The measure written for it — a `<select>`'s
+natural width against the width it was given — was pointed at both lists on the
+form. Meal passed after the fix; **Confidence failed (94 px of 112)**: the new
+word "estimated" was cut off in the release that introduced it. A check aimed
+only at the reported box would have passed. Its control squeezes the Meal box
+to 60 px and requires the same measure to call it cut off.
+
+**The day's rows live inside meal groups that open on a tap.** The first run
+read "the served line is not on screen" when the group was simply closed.
+`served-gate` already knew this and opens the groups; `forms-gate` now does the
+same, and still does not open the *row* — the line must show without that.
+
+**`rank-gate` — RULED and PINNED are different claims.** A ruled check is a
+property that holds whatever the database contains (rows headed by the word
+come first; plural and singular give one list). A pinned check is the top three
+by name as they stand today. A pin does **not** say the order is right — three
+of the pinned lists are recorded in DECISIONS as not what was wanted. It says
+the order cannot change without someone seeing it change. The gate's header
+keeps the two apart so a future reader does not take a pin for an endorsement.
+
+*A predicate that was stricter than the rule.* The first "headed" check counted
+only names beginning `egg,` and so reported 22 violations on the US database,
+all of them "Eggs, …". The search folds that plural; the check now does too.
+
+**`cold-start-gate` — what "offline" had not meant.** `offline-gate` and
+`corpus-cache-gate` cut the network and reload inside a running browser: the
+process, its memory cache and its live service worker all survive. This gate
+ends the browser and **stops the server**, then launches again. It closes the
+browser by asking (`Browser.close`) rather than killing it, so that a pass
+cannot be an artefact of writes that never reached the disk, and it measures
+that the origin refuses a connection before it goes on. It found nothing wrong.
+
+**Gate source stays ASCII.** The fractions and the non-breaking space reach the
+page as JavaScript escapes written by the generator, never as characters in the
+`.ps1` (`check-ps-encoding`).
