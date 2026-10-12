@@ -41,6 +41,7 @@ chip-layout-gate.ps1
 collapse-gate.ps1
 delete-all-gate.ps1
 correction-gate.ps1
+corpus-cache-gate.ps1
 corpus-gate.ps1
 dayroll-gate.ps1
 flow-gate.ps1

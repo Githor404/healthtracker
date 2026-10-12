@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.89.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.90.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2628,10 +2628,60 @@ function renderResolveBody() {
 // silently holding no data. RESOLVE is the first reader -- not the panel, which
 // reads frozen values off items and must never touch the corpus (D59: no log
 // operation ever awaits the corpus).
+//
+// R197 -- THE CORPUS WAS DOWNLOADED ON EVERY LAUNCH, AND WAS USELESS OFFLINE.
+// MEASURED: first launch, 2 requests (the index and the values). Second launch,
+// the same 2 again. Third launch with those two URLs blocked: `ready: false`,
+// 0 rows, a search for "coffee" finds nothing -- with all 7,793 rows sitting in
+// this device's own IndexedDB.
+//
+// The cause was one missing call. `corpusHydrate` -- "load what is stored" -- was
+// reached from exactly one place: inside corpusAcquire, AFTER a download. Nothing
+// read the store at startup, so memory was always empty, so this function always
+// fell through to a download; and offline there is nothing to download. The
+// header comment above the store says "the INDEX hydrated to RAM at boot". It
+// never was.
+//
+// It also means the hash check in corpusAcquire -- the "upgrade path" H24 added
+// -- had never once decided anything: it compares against the corpus in MEMORY,
+// and at the only moment it ran there was none.
+//
+// NOW: memory, then THE STORE, then the network -- and the network ONLY ON
+// CHANGE. The version check needs no request: the hashes this build expects are
+// constants in this file, so a new corpus arrives with a new app shell and is
+// noticed by comparing two strings already on the device.
+function corpusIsCurrent(m) {
+  if (!m || !m.index) return false;
+  const ns = corpusNamespace();
+  if (m.ns !== ns) return false;
+  const want = CORPUS_ASSET_HASH[ns], wantRefuse = CORPUS_REFUSE_HASH[ns];
+  if (want && m.hash !== want) return false;
+  // R189: the refuse table has its OWN hash; a corpus current in its values and
+  // missing its refuse table is stale all the same.
+  if (wantRefuse && ((m.refuse && m.refuse.hash) || '') !== wantRefuse) return false;
+  return true;
+}
 function corpusEnsure() {
-  const st = corpusState();
-  if (st.ready && st.ns === corpusNamespace()) return Promise.resolve({ ok: true, why: 'ready' });
-  return corpusAcquire(false);
+  if (corpusIsCurrent(CORPUS_MEM)) return Promise.resolve({ ok: true, why: 'ready' });
+  const fromStore = CORPUS_MEM ? Promise.resolve(CORPUS_MEM) : corpusHydrate();
+  return fromStore.then(function () {
+    if (corpusIsCurrent(CORPUS_MEM)) return { ok: true, why: 'stored' };
+    const ns = corpusNamespace();
+    return corpusAcquire(false).then(function (r) {
+      if (r && r.ok) return r;
+      // THE DOWNLOAD FAILED. An OLDER corpus of the right kind is still a corpus:
+      // its values are correct for the release it is (its own meta and its own
+      // values were committed together), and a search that works on last month's
+      // table beats one that finds nothing. It is kept, and SAID to be stale.
+      if (CORPUS_MEM && CORPUS_MEM.index && CORPUS_MEM.ns === ns)
+        return { ok: true, why: 'stored-stale', stale: true };
+      // A corpus of the WRONG namespace is not kept in memory at all: fortification
+      // differs by country, and matchCandidates would otherwise go on searching a
+      // table this locale was never meant to read.
+      CORPUS_MEM = null; MATCH_INDEX = null;
+      return r;
+    });
+  });
 }
 
 // PAST MEALS NEVER REVISE (D59). The values are frozen here, at resolve time,
@@ -3225,6 +3275,9 @@ function corpusHydrate() {
       const rq = tx.objectStore(CORPUS_STORE_META).get('index');
       rq.onsuccess = function () {
         CORPUS_MEM = rq.result || null;
+        // The search index is built FROM the corpus in memory, lazily. A corpus
+        // that has just been replaced must not be searched through the old one's.
+        MATCH_INDEX = null;
         resolve(CORPUS_MEM);
       };
       rq.onerror = function () { resolve(null); };
@@ -3284,15 +3337,9 @@ function corpusAcquire(force) {
   const ns = corpusNamespace();
   // The hash half of this test is what gives the corpus an upgrade path: the
   // namespace alone said "mine is the right KIND", never "mine is current".
-  const want = CORPUS_ASSET_HASH[ns];
-  // R189: the refuse table has its OWN hash, because the values did not change
-  // when it arrived and `hash` is stamped on every frozen ref as the provenance
-  // of those values. A corpus current in its values and missing its refuse table
-  // is stale all the same.
-  const wantRefuse = CORPUS_REFUSE_HASH[ns];
-  const haveRefuse = (CORPUS_MEM && CORPUS_MEM.refuse && CORPUS_MEM.refuse.hash) || '';
-  const stale = !!(CORPUS_MEM && ((want && CORPUS_MEM.hash !== want) || (wantRefuse && haveRefuse !== wantRefuse)));
-  if (!force && CORPUS_MEM && CORPUS_MEM.ns === ns && !stale)
+  // ONE definition of "current", shared with corpusEnsure (R197). It covers the
+  // values' hash and, since R189, the refuse table's own.
+  if (!force && corpusIsCurrent(CORPUS_MEM))
     return Promise.resolve({ ok: true, why: 'already', ns: ns });
   CORPUS_FETCHING = true;
   return fetch(corpusAssetURL(ns, 'json'))
@@ -12158,6 +12205,7 @@ const VERSION_LOG = [
   { v: '0.87.0', d: '2026-10-11', note: 'Two things from the Day screen. Save as combo is gone from under the day: it opened a panel that asked you to tick items and showed none, because the items were inside closed meal groups. Combos are now made in one place -- + Log, then + New combo. Combos you already saved are untouched. And the micronutrient list under the day now reads in plain words with its unit -- Cholesterol, mg; Vitamin A, mcg; Saturated fat, g -- where it was showing the app-s own internal names for them.' },
   { v: '0.88.0', d: '2026-10-11', note: 'Red light is one tap now. Open + Log, Log event or biometric, and the first chip reads Red light, 15 min -- tap it and it is logged at this moment, with an Undo. The minutes follow you: log a 20-minute session once, by the chip or by the form, and the chip says 20. The entry is timed from the tap as the start; if you tap after the session, open the entry to move its time.' },
   { v: '0.89.0', d: '2026-10-12', note: 'Ate: now works on anything you logged with a weight -- typed in, scanned, repeated from your top list, a saved item, a combo part -- not only photos and searches. Open the item and tap three quarters, half, a quarter, or type the grams; the row then shows what was served beside what you ate. And a fix: a food logged by searching and then removed was being offered back to you as leftovers for two days. It no longer is.' },
+  { v: '0.90.0', d: '2026-10-12', note: 'Search now works with no signal. The food database was being downloaded again every time the app opened, and when there was no network it found nothing -- although it was already saved on your phone. It is now read from the phone, and fetched again only when a new version of it ships. Opening the app uses less data, and searching, picking a food and logging it all work offline.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -19923,6 +19971,8 @@ window.HT = {
   SIGNAL_PRESETS, signalPresetMinutes, signalPresetChips, logSignalPreset, renderSignalChips, renderSignalPresets,
   // R186 -- the sensor-change entry
   SENSOR_DEVICES, SENSOR_BY_ID, SENSOR_DEDUPE_MIN, QUICK_UNDO_MS, SENSOR_EDITABLE,
+  // R197 -- the corpus is read from the device, and fetched only on change
+  CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
