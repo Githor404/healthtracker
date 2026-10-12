@@ -337,6 +337,66 @@ try {
   Check ($spine -like '*"xAtRight":true*') "on the root the close button is at the RIGHT edge of the sheet -- hiding the strip for real left it stranded on the left, which a second screenshot found"
   Check ($spine -like '*"plant":{"attr":true,"measuredOff":false}*') "PLANT: with the strip forced on screen while its attribute still says hidden, the measurement says ON SCREEN -- the attribute check this replaced passed on exactly that, for two releases"
 
+  # ---- 5b. R197/2: SEARCH IS ON SCREEN WITHOUT SCROLLING, AND THE FOOT IS GONE -----
+  # Ruled: "shrink the Log-sheet footer so Search is visible without scrolling at
+  # 390x844. Gate it." Measured on THIS fixture -- a stack, two combos, four
+  # repeats, which is a full sheet -- because a sheet with nothing on it would
+  # show Search however tall its foot was.
+  #
+  # MEASURED BEFORE: the foot was four stacked links, about 290px of 844, on every
+  # pane; on the root, two of the four repeated the two directly above it. With
+  # the foot gone Search was STILL 14px below the screen, in the second row of a
+  # two-by-two. So this asserts the thing ruled, not the mechanism: where the
+  # Search button's bottom edge is.
+  $fold = EvalJ @'
+(function () {
+  HT.closeSheet(); HT.openSheet();
+  var el = document.getElementById('sheetRoot'), body = document.querySelector('#entrySheet .sheetbody');
+  var foot = document.getElementById('sheetFoot');
+  var b = null, row = [];
+  Array.prototype.forEach.call(el.querySelectorAll('.srbtn'), function (x) { row.push(Math.round(x.getBoundingClientRect().top)); if (x.textContent === 'Search') b = x; });
+  var r = b.getBoundingClientRect(), fr = foot.getBoundingClientRect();
+  var off = function (n) { var q = n.getBoundingClientRect(); return getComputedStyle(n).display === 'none' || q.height === 0; };
+  var out = { vw: window.innerWidth, vh: window.innerHeight, scrolled: body.scrollTop, searchTop: Math.round(r.top), searchBottom: Math.round(r.bottom),
+              bodyTop: Math.round(body.getBoundingClientRect().top), oneRow: row.every(function (t) { return t === row[0]; }), n: row.length,
+              footOff: off(foot), footH: Math.round(fr.height),
+              links: Array.prototype.map.call(el.querySelectorAll('.srlinks .linklike'), function (x) { return x.textContent; }).join('|') };
+  // THE PLANT is the defect this would otherwise repeat: the attribute says
+  // hidden while the foot is forced on screen (the mode-strip lesson).
+  foot.style.display = 'flex';
+  out.plant = { attr: foot.hidden, measuredOff: off(foot) };
+  foot.style.display = '';
+  HT.setSheetMode('manual');
+  var more = foot.querySelector('.sheetmore');
+  out.pane = { off: off(foot), h: Math.round(foot.getBoundingClientRect().height), open: more.open,
+               summary: (more.querySelector('summary') || {}).textContent };
+  more.querySelector('summary').click();
+  var small = [], short = [];
+  Array.prototype.forEach.call(more.querySelectorAll('.linklike'), function (x) {
+    var fs = parseFloat(getComputedStyle(x).fontSize); if (fs < 16) small.push(fs);
+    if (x.offsetHeight < 44) short.push(x.offsetHeight); });
+  out.opened = { open: more.open, links: Array.prototype.map.call(more.querySelectorAll('.linklike'), function (x) { return x.textContent; }).join('|'),
+                 visible: Array.prototype.every.call(more.querySelectorAll('.linklike'), function (x) { return x.getBoundingClientRect().height > 0; }),
+                 small: small, short: short };
+  HT.setSheetMode('root'); HT.setSheetMode('manual');
+  out.reclosed = !foot.querySelector('.sheetmore').open;
+  HT.setSheetMode('root');
+  return out;
+})()
+'@
+  Write-Host ("  the fold: " + $fold)
+  $fd = $fold | ConvertFrom-Json
+  Check (($fd.vw -eq 390) -and ($fd.vh -eq 844) -and ($fd.scrolled -eq 0)) "PRECONDITION: 390x844, and the sheet has not been scrolled"
+  Check (($fd.searchBottom -le $fd.vh) -and ($fd.searchTop -ge $fd.bodyTop)) "R197/2: SEARCH IS ON SCREEN WITHOUT SCROLLING on a full Log sheet -- its whole button, above the bottom edge. Before: 14px below it even with the foot removed"
+  Check (($fd.oneRow -eq $true) -and ($fd.n -eq 4)) "because the four are one row now, in the ruled order, and not two rows of two"
+  Check (($fd.footOff -eq $true) -and ($fd.footH -eq 0)) "the root has NO foot -- measured as not on screen, not read off its attribute"
+  Check ($fold.Contains('"plant":{"attr":true,"measuredOff":false}')) "PLANT: with the foot forced on screen while its attribute still says hidden, the measurement says ON SCREEN -- the check that the mode strip's gate did not have"
+  Check ($fd.links -eq 'Log a dose I took|Log event or biometric|Add a medication from its label|Log a lab panel') "nothing was lost with it: the root's own links now carry all four the foot offered"
+  Check (($fd.pane.off -eq $false) -and ($fd.pane.h -le 60) -and ($fd.pane.open -eq $false) -and ($fd.pane.summary -like 'Other things to log*')) "on every other pane the foot is ONE line -- 60px or less, where it was about 290"
+  Check (($fd.opened.open -eq $true) -and ($fd.opened.visible -eq $true) -and ($fd.opened.links -eq 'Log event or biometric|Add a medication from its label|Log a dose I took|Log a lab panel')) "a real click opens it to the same four links"
+  Check ($fold.Contains('"small":[],"short":[]')) "each of them >= 16px and >= 44px tall"
+  Check ($fd.reclosed -eq $true) "and it is closed again on the next pane, whatever it was left as"
+
   # ---- 6. D146: nothing configured draws no block -----------------------------
   $empty = EvalJ @'
 (function () {

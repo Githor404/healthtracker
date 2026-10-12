@@ -465,7 +465,7 @@ HT.corpusEnsure().then(function () {
   Check (($ty.offered -eq $true) -and ($ty.platesOffered -eq 0)) "opening it offers 'Ate:' (ruled A: every path with a served weight), and OFFERING it writes no plate"
   Check (($ty.grams -eq 100) -and ($ty.kcal -eq 150)) "a real click on 1/2 halves it: 100 g, 150 cal"
   Check (($ty.kind -eq 'entry') -and ($ty.servedG -eq 200) -and ($ty.refuse -eq $false)) "the plate is made at that moment, holding the 200 g served -- and NO bone or peel correction: a typed weight is already what the user says they had"
-  Check ($ty.line -eq ('200 g served ' + [char]0xB7 + ' ate ' + [char]0xBD + ' ' + [char]0xB7 + ' 100 g')) "and the row shows both figures: '200 g served . ate 1/2 . 100 g'"
+  Check ($ty.line -eq ('weighed 200 g ' + [char]0xB7 + ' ate ' + [char]0xBD + ' ' + [char]0xB7 + ' 100 g')) "and the row shows both figures, the first AS WEIGHED: 'weighed 200 g . ate 1/2 . 100 g' (R197/3 -- the weight was measured, the share is the user's statement, and the item keeps its weighed dot)"
 
   $gone = EvalJ @'
 (function () {

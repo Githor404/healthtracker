@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.90.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.91.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -6984,6 +6984,11 @@ function sensorWords(rec) {
 // was hiding what it had stored: the arm was on the record and not on the screen.
 function signalRowLabel(r) {
   if (r && r.type === 'sensor') return sensorWords(r);
+  // E-lite: the stored answer about a rise. Its type has no entry in the signal
+  // table on purpose -- it is not something to pick from the event form -- so it
+  // is named here, in a person's words, and never by its storage name.
+  if (r && r.type === ELITE_TYPE)
+    return 'Glucose rise · ' + (ELITE_LABEL_WORD[r.variant] || 'unlabelled');
   const spec = r ? SIGNAL_BY_TYPE[r.type] : null;
   return spec ? spec.label : String((r && r.type) || '');
 }
@@ -7221,7 +7226,7 @@ function renderTimelineOverlay() {
     if (r.type === 'sleep')
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
     const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
-    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(spec ? signalRowLabel(r) : r.type)}${val}${note}${edited}</span>${rm}</div>`;
+    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
 }
 
@@ -8423,7 +8428,7 @@ function glucoseScanAppleText(text, rows, meta) {
   }
 }
 async function glucoseImportApple(file) {
-  const rows = [], meta = {};
+  const rows = [], meta = {}, stepAcc = {};
   const total = file.size || 0;
   let carry = '', off = 0, lastPaint = 0;
   while (off < total) {
@@ -8437,9 +8442,11 @@ async function glucoseImportApple(file) {
       // truncated half fails the attribute test above and is dropped.
       const keep = Math.max(0, text.length - GLUCOSE_CARRY);
       glucoseScanAppleText(text.slice(0, keep), rows, meta);
+      stepsScanAppleText(text.slice(0, keep), stepAcc);
       carry = text.slice(keep);
     } else {
       glucoseScanAppleText(text.slice(0, cut), rows, meta);
+      stepsScanAppleText(text.slice(0, cut), stepAcc);
       carry = text.slice(cut + 1);
     }
     off = end;
@@ -8453,9 +8460,9 @@ async function glucoseImportApple(file) {
       await new Promise(function (r) { setTimeout(r, 0); });
     }
   }
-  if (carry) glucoseScanAppleText(carry, rows, meta);
+  if (carry) { glucoseScanAppleText(carry, rows, meta); stepsScanAppleText(carry, stepAcc); }
   _gImport.bytes = total; _gImport.readings = rows.length;
-  return { rows: rows, meta: meta };
+  return { rows: rows, meta: meta, steps: stepAcc };
 }
 function glucoseJSONArray(data) {
   if (Array.isArray(data)) return data;
@@ -8561,6 +8568,9 @@ async function glucoseImportFile(file) {
       _gImport.error = name + ' is in a different unit from readings already held. Two units '
         + 'never merge into one line, so that day was left alone.';
     }
+    // E-lite, ruled D: steps, for the days glucose now covers and no others. AFTER
+    // the glucose ingest, because "the days glucose covers" is read from its store.
+    if (res.steps) _gImport.steps = stepsIngest(res.steps);
     glucoseImportAfter();
     return { ok: true, read: res.rows.length, added: _gImport.added, ingest: out };
   } catch (e) {
@@ -10093,8 +10103,18 @@ function glucoseMarks(fromMs, toMs) {
       if (!e || !e.time) return;
       const p = String(e.time).split(':');
       const ms = base + (Number(p[0]) * 60 + Number(p[1])) * 60000;
+      // A stored answer about a rise is not a second event at that moment: the
+      // rise itself is marked below, once, whether or not it has been answered.
+      if (e.type === ELITE_TYPE) return;
       if (ms >= fromMs && ms <= toMs) out.push({ t: ms, kind: String(e.kind || 'event'), label: String(e.type || '') });
     });
+  });
+  // E-lite (ruled C): the passive mark. Every rise with no food logged before it.
+  const eSeries = glucoseSeries(fromMs - ELITE_DROP_MIN * 60000, toMs + ELITE_RISE_MIN * 60000);
+  eliteRises(eSeries).forEach(function (r) {
+    if (r.start < fromMs || r.start > toMs) return;
+    if (eliteFoodTimes(r.start - ELITE_EXPLAIN_MIN * 60000, r.peak).length) return;
+    out.push({ t: r.start, kind: 'rise', label: 'rise with no food logged before it' });
   });
   return out;
 }
@@ -10150,7 +10170,7 @@ let CHART_PICK = null;                 // a moment in ms, or null
 // exactly like a parse error, and sent me looking for a syntax slip.
 function deleteAllKeys() {
   return [STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY,
-          GLUCOSE_KEY, VERSION_KEY, SCANS_KEY, TRASH_KEY, BYOK_LS];
+          GLUCOSE_KEY, STEPS_KEY, VERSION_KEY, SCANS_KEY, TRASH_KEY, BYOK_LS];
 }
 // THE CORPUS IS KEPT, and the confirm says so rather than leaving it to be
 // guessed. It is a shipped asset, it contains nothing about the user, and
@@ -10428,9 +10448,409 @@ function glucoseRowHTML(dk) {
     + esc(miss) + esc(short) + '</span> '
     + '<span class="gage">last reading this day \u2014 ' + esc(ageWords(sum.lastAgeMs))
     + '</span></div>'
-    + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + glucoseImportFootHTML('row') + '</div>' : '')
+    + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + eliteHTML(dk) + glucoseImportFootHTML('row') + '</div>' : '')
     + '</div>';
 }
+// ===========================================================================
+// E-LITE -- GLUCOSE RISES WITH NO FOOD LOGGED BEFORE THEM (R194, R197)
+// ---------------------------------------------------------------------------
+// Serves EVALUATE, and it collects the labels PREDICT will need.
+//
+// WHAT IT IS: one rule, stated on the surface, that marks a rise in glucose not
+// preceded by logged food, and asks -- passively, in the opened glucose row,
+// never as a prompt -- what it was. The answer is stored.
+//
+// WHAT IT IS NOT, and the cost of that is declared (DECISIONS, E-lite section 3):
+//   - IT DOES NOT INFER STRESS. There is no heart rate and no HRV on this
+//     device: the Watch stream ends in 2024. "Stress" is only ever the user's
+//     own answer. No probability, no badge.
+//   - "EXPLAINED" IS BINARY (ruled A, limitation recorded). Food in the window
+//     explains the rise or it does not; whether 10 g of carbohydrate could have
+//     produced a 5 mmol/L rise is not asked. Magnitude matching is the full
+//     model's.
+//   - THE NUMBERS BELOW ARE CHOSEN, not read (D126). They are declared here in
+//     one place, the counts at neighbouring values are in DECISIONS, and the
+//     surface says which rule flagged a rise.
+//
+// MEASURED on eleven days: 37 rises of 1.5 mmol/L inside an hour; 14 with no
+// food logged in the four hours before. Five of the fourteen start between
+// midnight and six, two of them on the first night of a new sensor -- which is
+// why "food I didn't log" is not always the first thing offered (ruled B).
+// ===========================================================================
+const ELITE_RISE = { 'mmol/L': 1.5, 'mg/dL': 27 };       // ruled A: this much...
+const ELITE_RISE_MIN = 60;                                // ...inside this long
+const ELITE_EXPLAIN_MIN = RESP_WINDOW_MIN;                // ruled A: the response code's own 4 h, so the two cannot disagree
+const ELITE_GAP_MS = GLUCOSE_STEP_S * 3.2 * 1000;         // a hole this long inside the hour: no rise is claimed
+const ELITE_DROP = { 'mmol/L': 1.0, 'mg/dL': 18 };       // ruled B: "a sudden drop"...
+const ELITE_DROP_MIN = 20;                                // ...in this long before the rise began
+const ELITE_SENSOR_MS = 24 * 3600000;                     // ruled B: within a day of a sensor change
+const ELITE_ASLEEP_HOURS = [0, 6];                        // ASSUMED asleep when no sleep is logged; said as assumed
+const ELITE_WAKE_MIN = 60;
+const ELITE_MOVING_STEPS = 250;                           // this many steps from 30 min before to the peak
+const ELITE_MOVING_BEFORE_MIN = 30;
+const ELITE_LABEL_MATCH_MIN = 15;                         // a label finds its rise again within this, after a re-import moves the start
+const ELITE_TYPE = 'glucose_rise';
+// 'unsure' is the DISMISSAL, and it is a label like the others: "I do not know
+// what that was" is an answer, and a rise the user dismissed must not be read
+// later as one they never saw.
+const ELITE_LABELS = ['sensor', 'asleep', 'waking', 'food', 'stress', 'other', 'unsure'];
+const ELITE_LABEL_WORD = { sensor: 'sensor artifact', asleep: 'while asleep', waking: 'around waking',
+                           food: 'food I didn’t log', stress: 'stress', other: 'something else',
+                           unsure: 'not sure' };
+
+// PURE. Every rise in a series of {t, v, u}, oldest first. From each reading:
+// does the value climb by the threshold inside the hour, before dipping back
+// under where it started? A hole in the stream, or a change of unit, inside
+// that hour means NOTHING IS CLAIMED -- never interpolated across.
+function eliteRises(series) {
+  const g = series || [], out = [], n = g.length;
+  let i = 0;
+  while (i < n) {
+    const t0 = g[i].t, v0 = g[i].v, u = g[i].u, T = ELITE_RISE[u];
+    if (!T) { i++; continue; }
+    let j = i, peak = v0, pj = i, broken = false;
+    while (j + 1 < n && (g[j + 1].t - t0) <= ELITE_RISE_MIN * 60000) {
+      if (g[j + 1].u !== u || (g[j + 1].t - g[j].t) > ELITE_GAP_MS) { broken = true; break; }
+      j++;
+      if (g[j].v > peak) { peak = g[j].v; pj = j; }
+      if (g[j].v < v0) break;
+    }
+    if (!broken && peak - v0 >= T && pj > i) {
+      // THE START IS WHERE THE CLIMB STARTS, not the earliest reading from which
+      // the threshold happens to be reachable inside the hour. Found by this
+      // slice's own first assertions: a flat line from 14:20 followed by a climb
+      // at 15:00 was reported as a rise "starting 14:20, in 60 min" -- forty flat
+      // minutes counted as part of it. The window the food is looked for in hangs
+      // off this time, so it has to be the real one: the LAST lowest reading
+      // before the peak.
+      let k = i;
+      for (let m = i; m < pj; m++) if (g[m].v <= g[k].v + T / 30) k = m;
+      // AND THE PEAK IS LOOKED FOR AGAIN FROM THERE. The hour that qualified the
+      // rise was counted from the early reading, so it ended early too: the same
+      // climb, 5.5 to 9.0, was reported as "5.5 to 7.25" because the hour ran out
+      // at 15:20. The same assertions found it, by the stored size being 1.75.
+      // From the true start, the peak is the highest reading inside ITS hour.
+      const s0 = g[k].v, st = g[k].t;
+      peak = s0; pj = k;
+      for (let m = k + 1; m < n && (g[m].t - st) <= ELITE_RISE_MIN * 60000; m++) {
+        if (g[m].u !== u || (g[m].t - g[m - 1].t) > ELITE_GAP_MS || g[m].v < s0) break;
+        if (g[m].v > peak) { peak = g[m].v; pj = m; }
+      }
+      out.push({ start: st, peak: g[pj].t, v0: s0, vPeak: peak, unit: u, at: k });
+      // One rise per climb: skip to past the peak, and on while it is still up.
+      i = pj + 1;
+      while (i < n && g[i].v >= g[i - 1].v - T / 30 && (g[i].t - g[pj].t) < 3600000) i++;
+    } else i++;
+  }
+  return out;
+}
+// Every moment food was EATEN in a span (ruled: the eaten basis). These are day
+// items, which are consumption events: a plate with nothing eaten from it has no
+// item and so explains nothing. The standing supplement is not an eating event.
+function eliteFoodTimes(fromMs, toMs) {
+  const out = [];
+  const days = (APP_STATE && APP_STATE.days) || {};
+  Object.keys(days).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    const base = dayKeyMs(dk);
+    if (base > toMs || base + 86400000 < fromMs) return;
+    ((days[dk] || {}).items || []).forEach(function (it) {
+      if (!it || it._auto) return;
+      const m = hhmmToMin(it.time);
+      if (m == null) return;
+      const ms = base + m * 60000;
+      if (ms >= fromMs && ms <= toMs) out.push(ms);
+    });
+  });
+  return out.sort(function (a, b) { return a - b; });
+}
+function eliteSleepSpans() {
+  const out = [];
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  Object.keys(tl).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    (tl[dk] || []).forEach(function (r) {
+      if (!r || r.type !== 'sleep' || !(num(r.value) > 0)) return;
+      const m = hhmmToMin(r.time);
+      if (m == null) return;
+      const from = dayKeyMs(dk) + m * 60000;
+      out.push([from, from + num(r.value) * 3600000]);
+    });
+  });
+  return out;
+}
+function eliteWokeTimes() {
+  const out = [];
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  Object.keys(tl).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    (tl[dk] || []).forEach(function (r) {
+      const m = (r && r.type === 'woke') ? hhmmToMin(r.time) : null;
+      if (m != null) out.push(dayKeyMs(dk) + m * 60000);
+    });
+  });
+  return out;
+}
+// What is KNOWN about a rise. None of it is a verdict; it decides what is
+// offered first and what the line says, and nothing else.
+function eliteContext(rise, series) {
+  const foods = eliteFoodTimes(rise.start - ELITE_EXPLAIN_MIN * 60000, rise.peak);
+  const earlier = eliteFoodTimes(rise.start - 7 * 86400000, rise.start);
+  const lastFood = earlier.length ? earlier[earlier.length - 1] : null;
+  const sl = sensorLast(rise.start);
+  let before = -Infinity;
+  (series || []).forEach(function (p) {
+    if (p.u === rise.unit && p.t < rise.start && p.t >= rise.start - ELITE_DROP_MIN * 60000 && p.v > before) before = p.v;
+  });
+  const spans = eliteSleepSpans();
+  const loggedAsleep = spans.some(function (s) { return rise.start >= s[0] && rise.start <= s[1]; });
+  // "Assumed" only when NO sleep at all is logged around that night: a night
+  // with a logged sleep that does not cover the rise is a night the user was
+  // awake for it, by their own record.
+  const nearSleep = spans.some(function (s) { return Math.abs(s[0] - rise.start) < 18 * 3600000; });
+  const hr = new Date(rise.start).getHours();
+  const assumedAsleep = !loggedAsleep && !nearSleep && hr >= ELITE_ASLEEP_HOURS[0] && hr < ELITE_ASLEEP_HOURS[1];
+  const waking = eliteWokeTimes().some(function (w) { return Math.abs(w - rise.start) <= ELITE_WAKE_MIN * 60000; });
+  const st = stepsIn(rise.start - ELITE_MOVING_BEFORE_MIN * 60000, rise.peak);
+  return {
+    explained: foods.length > 0,
+    sinceFoodH: lastFood == null ? null : (rise.start - lastFood) / 3600000,
+    sensorDay: !!(sl && sl.timed && (rise.start - sl.ms) >= 0 && (rise.start - sl.ms) < ELITE_SENSOR_MS),
+    drop: (before - rise.v0) >= ELITE_DROP[rise.unit],
+    asleep: loggedAsleep ? 'logged' : (assumedAsleep ? 'assumed' : ''),
+    waking: waking,
+    steps: st.known ? st.steps : null,
+    moving: st.known && st.steps >= ELITE_MOVING_STEPS,
+  };
+}
+// RULED B, the order of what is offered: a sensor artifact FIRST when the rise
+// began from a sudden drop or falls in a sensor's first day; then asleep or
+// waking; then food not logged; then stress; then something else.
+function eliteOffers(ctx) {
+  const o = [];
+  if (ctx.sensorDay || ctx.drop) o.push('sensor');
+  if (ctx.asleep) o.push('asleep');
+  if (ctx.waking) o.push('waking');
+  o.push('food', 'stress', 'other');
+  return o;
+}
+function eliteLabelFor(dateKey, startMs) {
+  const recs = (APP_STATE.timeline && APP_STATE.timeline[dateKey]) || [];
+  const want = Math.round((startMs - dayKeyMs(dateKey)) / 60000);
+  let best = null, bestGap = Infinity;
+  recs.forEach(function (r, i) {
+    if (!r || r.type !== ELITE_TYPE) return;
+    const m = hhmmToMin(r.time);
+    if (m == null) return;
+    const gap = Math.abs(m - want);
+    if (gap <= ELITE_LABEL_MATCH_MIN && gap < bestGap) { bestGap = gap; best = { rec: r, idx: i }; }
+  });
+  return best;
+}
+// The day's flagged rises: those that START on it and have no food before them.
+function eliteDay(dateKey) {
+  const from = dayKeyMs(dateKey), to = from + 86400000 - 1;
+  const series = glucoseSeries(from - ELITE_DROP_MIN * 60000, to + ELITE_RISE_MIN * 60000);
+  return eliteRises(series).filter(function (r) { return r.start >= from && r.start <= to; })
+    .map(function (r) {
+      const ctx = eliteContext(r, series);
+      const lab = eliteLabelFor(dateKey, r.start);
+      return { rise: r, ctx: ctx, offers: eliteOffers(ctx),
+               label: (lab && ELITE_LABELS.indexOf(lab.rec.variant) >= 0) ? lab.rec.variant : '' };
+    })
+    .filter(function (x) { return !x.ctx.explained; });
+}
+// THE LABEL IS A TIMELINE RECORD, not a new store. An unknown `type` VALUE is
+// tolerated by the timeline by design (D19), so the label exports, restores,
+// can be removed with the timeline's own x and undone like anything else -- and
+// no schema changes. It carries the rise it answers: its start as the time, its
+// size as the value, and the answer in `variant`.
+let ELITE_EDIT = null;        // the start (ms) of a rise whose answer is being changed
+function eliteLabel(dateKey, startMs, label) {
+  if (ELITE_LABELS.indexOf(label) < 0) return { ok: false, error: 'Not one of the answers.' };
+  const hit = eliteDay(dateKey).filter(function (x) { return Math.abs(x.rise.start - num(startMs)) < 60000; })[0];
+  if (!hit) return { ok: false, error: 'There is no flagged rise at that time.' };
+  const arr = (APP_STATE.timeline && APP_STATE.timeline[dateKey]) || [];
+  const prior = JSON.parse(JSON.stringify(arr));
+  const old = eliteLabelFor(dateKey, hit.rise.start);
+  if (old) arr.splice(old.idx, 1);
+  const r = addSignal({ kind: 'event', type: ELITE_TYPE, source: 'quick', date: dateKey,
+                        time: hhmmPad(hit.rise.start), value: hit.rise.vPeak - hit.rise.v0,
+                        unit: hit.rise.unit, variant: label });
+  if (!r.ok) return r;
+  ELITE_EDIT = null;
+  offerUndo('Glucose rise · ' + ELITE_LABEL_WORD[label], function () {
+    APP_STATE.timeline[dateKey] = prior;
+    Store.saveState(APP_STATE); refresh();
+  }, QUICK_UNDO_MS, 'tline');
+  refresh();
+  return { ok: true, record: r.record, replaced: !!old };
+}
+function eliteChange(startMs) { ELITE_EDIT = num(startMs); renderDay(); return { ok: true }; }
+// The channels the full model will read. Two are WIRED AND EMPTY and say so --
+// ruled: no stress badge or probability until they hold something.
+function eliteInputs() {
+  return { glucose: { wired: true, days: Object.keys(glucoseRead()).length },
+           food: { wired: true },
+           steps: { wired: true, days: Object.keys(stepsRead()).length },
+           heartRate: { wired: true, days: 0 },
+           rmssd: { wired: true, days: 0 } };
+}
+function eliteRuleWords(unit) {
+  return 'Marked by one rule: up ' + rDisp(ELITE_RISE[unit] || ELITE_RISE['mmol/L']) + ' ' + (unit || 'mmol/L')
+    + ' or more inside an hour, with no food logged in the ' + rDisp(ELITE_EXPLAIN_MIN / 60) + ' hours before.'
+    + ' It does not weigh how much was eaten against how big the rise was.';
+}
+// PASSIVE (ruled C). Rendered only inside the glucose row the user opened; no
+// count, no badge, nothing on the main surface. D146: a day with nothing flagged
+// draws nothing at all -- not the rule, not the note about heart rate.
+function eliteHTML(dateKey) {
+  const list = eliteDay(dateKey);
+  if (!list.length) return '';
+  const rows = list.map(function (x) {
+    const r = x.rise, c = x.ctx;
+    const mins = Math.round((r.peak - r.start) / 60000);
+    const line = hhmmPad(r.start) + ' · ' + rDisp(r.v0) + ' → ' + rDisp(r.vPeak) + ' ' + r.unit
+      + ' in ' + mins + ' min';
+    const bits = [];
+    bits.push(c.sinceFoodH == null ? 'no food logged in the week before'
+      : (rDisp(c.sinceFoodH) + ' h after the last food logged'));
+    if (c.sensorDay) bits.push('in the first day of a new sensor');
+    if (c.drop) bits.push('began right after a sudden drop');
+    if (c.asleep === 'logged') bits.push('during logged sleep');
+    if (c.asleep === 'assumed') bits.push('in the small hours, with no sleep logged');
+    if (c.waking) bits.push('around the time you logged waking');
+    if (c.steps == null) bits.push('no steps held for this day');
+    else bits.push(c.moving ? ('moving · ' + rDisp(c.steps) + ' steps') : ('still · ' + rDisp(c.steps) + ' steps'));
+    const asking = !x.label || ELITE_EDIT === r.start;
+    const ctl = asking
+      ? ('<div class="elq">What was it?</div><div class="elbtns">'
+         + x.offers.map(function (o) {
+             return '<button type="button" class="elbtn" onclick="event.stopPropagation();eliteLabel(\'' + esc(dateKey)
+               + '\', ' + esc(String(r.start)) + ', \'' + esc(o) + '\')">' + esc(ELITE_LABEL_WORD[o]) + '</button>';
+           }).join('')
+         + '</div><button type="button" class="linklike elunsure" onclick="event.stopPropagation();eliteLabel(\''
+         + esc(dateKey) + '\', ' + esc(String(r.start)) + ', \'unsure\')">not sure</button>')
+      : ('<div class="elsaid">You said: <b>' + esc(ELITE_LABEL_WORD[x.label]) + '</b></div>'
+         + '<button type="button" class="linklike elchange" onclick="event.stopPropagation();eliteChange('
+         + esc(String(r.start)) + ')">change</button>');
+    return '<div class="elrise"><div class="elline">' + esc(line) + '</div>'
+      + '<div class="elctx">' + esc(bits.join(' · ')) + '</div>' + ctl + '</div>';
+  }).join('');
+  return '<div class="elblock" onclick="event.stopPropagation()"><div class="elhead">Rises with no food logged before them</div>'
+    + rows
+    + '<div class="elnote">' + esc(eliteRuleWords(list[0].rise.unit)) + '</div>'
+    + '<div class="elnote">No heart rate or heart-rate variability is held on this device, so nothing here '
+    + 'works out stress. “Stress” is only ever your own answer.</div></div>';
+}
+
+// ---- STEPS: one more look-back stream, for one purpose --------------------
+// Ruled D: StepCount ONLY, for the days glucose covers ONLY, through the Apple
+// Health file the glucose import already reads. Nothing else from that file --
+// the wider import is parked (R193) until a live heart-rate stream exists.
+//
+// A CACHE, like glucose and for glucose's reason: Apple Health holds the
+// original and the file can be read again, so it is not in the export.
+// Five-minute buckets, the grain glucose arrives at. Where two sources counted
+// the same day (a watch and a phone), the ONE with more steps is kept and the
+// other dropped -- never summed, which would count every step twice.
+const STEPS_KEY = 'healthtracker-steps';
+const STEPS_TYPE = 'HKQuantityTypeIdentifierStepCount';
+const STEPS_BUCKET_MIN = 5;
+let _stepsMem = null;
+function normalizeStepsStore(o) {
+  const out = {};
+  Object.keys((o && typeof o === 'object' && !Array.isArray(o)) ? o : {}).forEach(function (dk) {
+    const d = o[dk];
+    if (!isDayKey(dk) || !d || !Array.isArray(d.t) || !Array.isArray(d.n) || d.t.length !== d.n.length) return;
+    const t = [], n = [];
+    for (let i = 0; i < d.t.length; i++) {
+      const m = Number(d.t[i]), c = Number(d.n[i]);
+      if (Number.isFinite(m) && m >= 0 && m < 1440 && Number.isFinite(c) && c > 0) { t.push(Math.floor(m)); n.push(c); }
+    }
+    if (t.length) out[dk] = { t: t, n: n, src: String(d.src == null ? '' : d.src) };
+  });
+  return out;
+}
+function stepsRead() {
+  if (_stepsMem) return _stepsMem;
+  try {
+    const raw = localStorage.getItem(STEPS_KEY);
+    return raw ? normalizeStepsStore(JSON.parse(raw)) : {};
+  } catch (e) { return {}; }
+}
+function stepsWrite(store) {
+  try { localStorage.setItem(STEPS_KEY, JSON.stringify(store)); _stepsMem = null; return true; }
+  catch (e) { _stepsMem = store; return false; }
+}
+// One line at a time, and only lines that name the type -- glucoseScanAppleText's
+// own shape, for its own measured reason.
+function stepsScanAppleText(text, acc) {
+  let at = text.indexOf(STEPS_TYPE);
+  while (at >= 0) {
+    const s0 = text.lastIndexOf('\n', at) + 1;
+    let e0 = text.indexOf('\n', at);
+    if (e0 < 0) e0 = text.length;
+    const ln = text.slice(s0, e0);
+    const t = RE_G_START.exec(ln), v = RE_G_VALUE.exec(ln), sn = RE_G_SRC.exec(ln);
+    const iso = t ? appleDateISO(t[1]) : null;
+    const ms = iso ? Date.parse(iso) : NaN;
+    const c = v ? Number(v[1]) : NaN;
+    if (ms > 0 && c > 0) {
+      const d = new Date(ms);
+      const dk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      const b = Math.floor((d.getHours() * 60 + d.getMinutes()) / STEPS_BUCKET_MIN) * STEPS_BUCKET_MIN;
+      const src = sn ? xmlUnesc(sn[1]) : '';
+      const day = acc[dk] || (acc[dk] = {});
+      const one = day[src] || (day[src] = {});
+      one[b] = (one[b] || 0) + c;
+    }
+    at = text.indexOf(STEPS_TYPE, e0);
+  }
+}
+// Keeps ONLY the days glucose is held for (ruled D), replacing each such day
+// whole: unlike glucose this is re-derived from the whole file every time, so
+// there is nothing to merge and a second import cannot double a day.
+function stepsIngest(acc) {
+  const glucoseDays = Object.keys(glucoseRead());
+  const store = stepsRead();
+  let days = 0, total = 0, seen = 0;
+  Object.keys(acc || {}).forEach(function () { seen++; });
+  glucoseDays.forEach(function (dk) {
+    const day = acc && acc[dk];
+    if (!day) return;
+    let bestSrc = null, bestSum = -1;
+    Object.keys(day).forEach(function (src) {
+      const sum = Object.keys(day[src]).reduce(function (a, b) { return a + day[src][b]; }, 0);
+      if (sum > bestSum) { bestSum = sum; bestSrc = src; }
+    });
+    if (bestSrc == null) return;
+    const mins = Object.keys(day[bestSrc]).map(Number).sort(function (a, b) { return a - b; });
+    store[dk] = { t: mins, n: mins.map(function (m) { return day[bestSrc][m]; }), src: bestSrc };
+    days++; total += bestSum;
+  });
+  const clean = normalizeStepsStore(store);
+  stepsWrite(clean);
+  return { days: days, steps: total, daysInFile: seen };
+}
+// Steps in a span, and WHETHER THEY ARE KNOWN: a day with no steps held is not
+// a day of standing still, and the two must never read the same.
+function stepsIn(fromMs, toMs) {
+  const store = stepsRead();
+  let steps = 0, known = false;
+  Object.keys(store).forEach(function (dk) {
+    const base = dayKeyMs(dk);
+    if (base > toMs || base + 86400000 <= fromMs) return;
+    known = true;
+    const d = store[dk];
+    for (let i = 0; i < d.t.length; i++) {
+      const ms = base + d.t[i] * 60000;
+      if (ms + STEPS_BUCKET_MIN * 60000 > fromMs && ms <= toMs) steps += d.n[i];
+    }
+  });
+  return { steps: steps, known: known };
+}
+
 // Redraw only the chart, not the day: a pan fires many times per gesture and
 // repainting the whole day each time would be the one thing that makes the
 // gesture feel broken.
@@ -12206,6 +12626,7 @@ const VERSION_LOG = [
   { v: '0.88.0', d: '2026-10-11', note: 'Red light is one tap now. Open + Log, Log event or biometric, and the first chip reads Red light, 15 min -- tap it and it is logged at this moment, with an Undo. The minutes follow you: log a 20-minute session once, by the chip or by the form, and the chip says 20. The entry is timed from the tap as the start; if you tap after the session, open the entry to move its time.' },
   { v: '0.89.0', d: '2026-10-12', note: 'Ate: now works on anything you logged with a weight -- typed in, scanned, repeated from your top list, a saved item, a combo part -- not only photos and searches. Open the item and tap three quarters, half, a quarter, or type the grams; the row then shows what was served beside what you ate. And a fix: a food logged by searching and then removed was being offered back to you as leftovers for two days. It no longer is.' },
   { v: '0.90.0', d: '2026-10-12', note: 'Search now works with no signal. The food database was being downloaded again every time the app opened, and when there was no network it found nothing -- although it was already saved on your phone. It is now read from the phone, and fetched again only when a new version of it ships. Opening the app uses less data, and searching, picking a food and logging it all work offline.' },
+  { v: '0.91.0', d: '2026-10-12', note: 'Glucose rises with no food logged before them are now marked. Open a day-s glucose and, under the chart, each one is listed with when it started, how far it went, and what is known about that moment -- hours since food, steps, a new sensor, sleep. You can say what it was: food you did not log, stress, something else, a sensor artifact, or not sure. Your answer is kept; nothing is asked unless you open it, and nothing here works out stress for you, because no heart rate is held on this phone. Importing an Apple Health export now also brings in steps, for the days glucose covers. Also: the Log sheet-s first screen no longer has a block of links pinned to its foot, so Search is in view without scrolling, and an item you weighed and then ate part of reads as weighed 180 g, ate half.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15365,7 +15786,11 @@ function ateWords(ate) {
 function itemServedLine(it) {
   const s = itemServed(it);
   if (!s || !s.differs) return '';
-  const bits = [rDisp(s.served) + ' g served'];
+  // RULED (R197/3): a halved WEIGHED item keeps its "weighed" dot, and the line
+  // says what was weighed: "weighed 180 g . ate 1/2". The weight was measured;
+  // the share is the user's statement; the two are named apart instead of the
+  // confidence being demoted for a number that was never in doubt.
+  const bits = [(s.pi.confidence === 'weighed') ? ('weighed ' + rDisp(s.served) + ' g') : (rDisp(s.served) + ' g served')];
   if (s.refuse && s.refuse.applied) bits.push('~' + rDisp(s.edible) + ' g edible');
   const share = s.edible > 0 ? s.eaten / s.edible : 1;
   if (share < 0.995) bits.push('ate ' + (ateWords(s.ate) || (Math.round(share * 100) + '%')));
@@ -16643,6 +17068,14 @@ function setSheetMode(mode) {
   if (modes) modes.hidden = (mode === 'root');
   const back = document.getElementById('sheetBack');
   if (back) back.hidden = (mode === 'root');
+  // R197/2: no foot on the root -- its own links carry all four -- and on every
+  // other pane it starts CLOSED, one line tall, whatever it was left as.
+  const foot = document.getElementById('sheetFoot');
+  if (foot) {
+    foot.hidden = (mode === 'root');
+    const more = foot.querySelector('.sheetmore');
+    if (more) more.open = false;
+  }
   return { ok: true, mode: mode };
 }
 // H9 Fork E3 + E1: "Medication" in the sheet head now REACHES THE LABEL PATH,
@@ -16857,7 +17290,7 @@ function biometricGroupHTML(dateKey) {
     const spec = SIGNAL_BY_TYPE[r.type];
     const val = (r.value != null) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
     return `<div class="bgline"><span class="mgitime">${esc(r.time || '')}</span>`
-      + `<span class="mginame">${esc(spec ? signalRowLabel(r) : (r.type || ''))}</span>`
+      + `<span class="mginame">${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : (r.type || ''))}</span>`
       + `<span class="bgval">${esc(val)}</span></div>`;
   }).join('');
   return h + '</div></div>';
@@ -17059,9 +17492,13 @@ function quickRowsHTML(rows) {
   return rows.map(function (f, i) {
         // RULING A: a count NAMES WHAT IT COUNTED. The key merges spellings, so a
         // bare "3x" would be a number the user cannot check against anything.
-        const names = '<span class="qnames">'
+        // R197/2: the names line exists to say WHICH SPELLINGS a count merged. With
+        // one spelling, and that one the row's own name, it printed the name twice
+        // -- 24px a row, three rows, on the screen that has to fit Search.
+        const one = (f.names.length <= 1) && ((f.names[0] || f.name) === f.name);
+        const names = one ? '' : ('<span class="qnames">'
           + esc(f.names.length > 1 ? f.names.join(' \u00b7 ') : (f.names[0] || f.name))
-          + '</span>';
+          + '</span>');
         const port = (f.grams == null) ? 'no portion recorded' : (rDisp(f.grams) + ' g');
         const cal = (f.kcal == null) ? '' : (' \u00b7 ' + kcalDisp(f.kcal) + ' cal');
         // `qfrow`, not `qrow`: THAT CLASS WAS ALREADY TAKEN -- by the one-tap
@@ -17285,6 +17722,10 @@ function renderSheetRoot() {
     + '<div class="srlinks">'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'med\')">Log a dose I took</button>'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'signal\')">Log event or biometric</button>'
+    // R197/2: the two the sheet's foot used to add beneath these. The root no
+    // longer has a foot, so everything it offered is offered here.
+    + '<button type="button" class="linklike" onclick="openLabelCapture()">Add a medication from its label</button>'
+    + '<button type="button" class="linklike" onclick="setSheetMode(\'lab\')">Log a lab panel</button>'
     + '</div>';
 }
 
@@ -19971,6 +20412,11 @@ window.HT = {
   SIGNAL_PRESETS, signalPresetMinutes, signalPresetChips, logSignalPreset, renderSignalChips, renderSignalPresets,
   // R186 -- the sensor-change entry
   SENSOR_DEVICES, SENSOR_BY_ID, SENSOR_DEDUPE_MIN, QUICK_UNDO_MS, SENSOR_EDITABLE,
+  // E-lite -- rises with no food logged before them, their labels, and steps
+  ELITE_RISE, ELITE_RISE_MIN, ELITE_EXPLAIN_MIN, ELITE_LABELS, ELITE_LABEL_WORD, ELITE_TYPE,
+  eliteRises, eliteFoodTimes, eliteContext, eliteOffers, eliteDay, eliteLabel, eliteLabelFor, eliteChange,
+  eliteInputs, eliteRuleWords, eliteHTML, glucoseWrite,
+  STEPS_KEY, stepsRead, stepsWrite, stepsScanAppleText, stepsIngest, stepsIn, normalizeStepsStore,
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten

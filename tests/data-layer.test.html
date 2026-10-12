@@ -13695,6 +13695,7 @@ window.setLS({});
       && HT.refuseMemory('800') === null,
       'R189 GATE: the peel is OFFERED and one tap takes it off -- and that tap is NOT remembered for next time: only "boneless / with bone" was ruled to be');
 
+
   // ============ R189 / 2: every item with a weight, and the entry plate ============
   //
   // Ruled A: extend the plate to every path with a served weight. Done by
@@ -13722,14 +13723,16 @@ window.setLS({});
   res(r2Pl.kind === 'entry' && r2Pl.items[0].grams === 200 && r2Pl.time === '08:00' && r2Pl.tzo === -240
       && r2Pl.items[0].refuse === undefined && r2It.plateIdx === 0 && r2It.ate.fraction === 0.5,
       'R189/2 GATE: the plate made for it is an ENTRY plate holding the 200 g that was served, at the ITEM-S OWN time and offset -- not the moment of the tap, which is when it was noticed and not when it was served');
-  res(HT.itemServedLine(r2It) === '200 g served · ate ½ · 100 g',
-      'R189/2 GATE: and the row now shows what was served beside what was eaten', HT.itemServedLine(r2It));
+  // RE-PINNED, R197/3: this read "200 g served". Ruled: a halved WEIGHED item
+  // keeps its weighed dot and the line says what was weighed.
+  res(HT.itemServedLine(r2It) === 'weighed 200 g · ate ½ · 100 g' && r2It.confidence === 'weighed',
+      'R189/2 GATE: and the row now shows what was served beside what was eaten -- as WEIGHED, because it was, and the item keeps that confidence: the weight was measured, the share is the user-s statement (R197/3)', HT.itemServedLine(r2It));
   HT.doUndo();
   r2It = HT.state().days[rfCur].items.filter(function (x) { return x.name === 'Typed oats'; })[0];
   res(r2It.grams === 200 && r2It.kcal === 300 && r2It.plateId === undefined && r2It.micros.sodium_mg === 40 && r2Count() === r2Plates0,
       'R189/2 GATE: UNDO puts back an item with no plate at all, and the plate made for the tap goes with it -- nothing is left behind to be offered as leftovers');
   var r2Typed = HT.eventSetGrams(rfCur, r2i(), 150);
-  res(r2Typed.ok === true && r2It.grams === 150 && r2It.kcal === 225 && HT.itemServedLine(r2It) === '200 g served · ate ¾ · 150 g',
+  res(r2Typed.ok === true && r2It.grams === 150 && r2It.kcal === 225 && HT.itemServedLine(r2It) === 'weighed 200 g · ate ¾ · 150 g',
       'R189/2 GATE: typed grams attach the plate the same way -- 150 of the 200 served', HT.itemServedLine(r2It));
   res(HT.eventSetAte(rfCur, r2i(), 1).ok === true && r2It.grams === 200 && HT.itemServedLine(r2It) === '' && !!HT.getPlate(r2It.plateId),
       'R189/2 GATE: and back to ALL -- one figure on the row again, with the plate kept, since it now records a real statement');
@@ -13762,6 +13765,212 @@ window.setLS({});
   HT.state().plates = _rfPlates;
   HT.resave();
   HT.closeSheet();
+
+  // ============ E-LITE: rises with no food logged before them ============
+  //
+  // One rule, chosen numbers, declared (DECISIONS, E-lite). What is asserted here
+  // is the rule on series built in this file, the order of what is offered, the
+  // label as a timeline record, and the steps cache. The surface -- passive,
+  // 16px, 44px, the mark on the chart -- is tests/elite-gate.ps1's.
+  var _elG = JSON.parse(JSON.stringify(HT.glucoseRead()));
+  var _elS = JSON.parse(JSON.stringify(HT.stepsRead()));
+  var _elDays = JSON.parse(JSON.stringify(HT.state().days));
+  var _elTl = JSON.parse(JSON.stringify(HT.state().timeline || {}));
+  var _elPl = JSON.parse(JSON.stringify(HT.state().plates || {}));
+  var elD = '2026-06-25', elP = '2026-06-24', elBase = HT.dayKeyMs(elD);
+  var elSer = function (pts, u) { return pts.map(function (p) { return { t: elBase + p[0] * 60000, v: p[1], u: u || 'mmol/L' }; }); };
+  var elRamp = function (m0, v0, v1, mins) { var o = []; for (var k = 0; k <= mins; k += 5) o.push([m0 + k, v0 + (v1 - v0) * k / mins]); return o; };
+
+  // -- the rule, pure --------------------------------------------------------------
+  var elOne = HT.eliteRises(elSer(elRamp(600, 5.5, 7.5, 40)));
+  res(elOne.length === 1 && elOne[0].start === elBase + 600 * 60000 && elOne[0].peak === elBase + 640 * 60000
+      && elOne[0].v0 === 5.5 && elOne[0].vPeak === 7.5 && elOne[0].unit === 'mmol/L',
+      'E-LITE GATE: a climb of 2.0 mmol/L in 40 minutes is ONE rise, with its start, its peak and both values');
+  // THE DEFECT THIS SLICE-S OWN FIRST RUN FOUND, pinned: forty flat minutes, then
+  // the same climb. The first detector reported it as starting at the first flat
+  // reading and peaking where THAT reading-s hour ran out -- "5.5 to 7.25 in 60
+  // min" for a rise that is 5.5 to 9.0 in 40.
+  var elFlat = []; for (var ef = 560; ef < 600; ef += 5) elFlat.push([ef, 5.5]);
+  var elLate = HT.eliteRises(elSer(elFlat.concat(elRamp(600, 5.5, 9.0, 40))));
+  res(elLate.length === 1 && elLate[0].start === elBase + 600 * 60000 && elLate[0].peak === elBase + 640 * 60000
+      && elLate[0].v0 === 5.5 && elLate[0].vPeak === 9.0,
+      'E-LITE GATE: a rise STARTS WHERE THE CLIMB STARTS and peaks at its real peak -- flat readings before it are not part of it, and the hour is counted from the true start', JSON.stringify(elLate));
+  res(HT.eliteRises(elSer(elRamp(600, 5.5, 6.9, 40))).length === 0
+      && HT.eliteRises(elSer(elRamp(600, 5.5, 7.0, 40))).length === 1,
+      'E-LITE GATE: the threshold is 1.5 mmol/L -- 1.4 is not a rise and 1.5 is. A chosen number, declared, with the counts either side of it in the record');
+  res(HT.eliteRises(elSer(elRamp(600, 100, 130, 40), 'mg/dL')).length === 1
+      && HT.eliteRises(elSer(elRamp(600, 100, 120, 40), 'mg/dL')).length === 0,
+      'E-LITE GATE: in mg/dL the same rule is 27 -- the unit is part of what a reading means, and the threshold travels with it');
+  res(HT.eliteRises(elSer([[600, 5.5], [605, 5.8], [610, 6.0], [640, 7.6], [645, 7.8]])).length === 0,
+      'E-LITE GATE: a HOLE in the stream inside the hour means no rise is claimed -- 30 minutes with no readings is never drawn across');
+  res(HT.eliteRises(elSer(elRamp(600, 5.5, 7.5, 40)).map(function (p, i) { return i > 3 ? { t: p.t, v: p.v * 18, u: 'mg/dL' } : p; })).length === 0,
+      'E-LITE GATE: nor is one claimed across a change of UNIT');
+  res(HT.eliteRises(elSer(elRamp(600, 5.5, 7.5, 40).concat([[645, 7.5], [650, 7.4], [655, 7.5], [660, 7.3]]))).length === 1,
+      'E-LITE GATE: a plateau after the peak is the SAME rise, not a second one');
+  res(HT.eliteRises(elSer(elRamp(600, 5.5, 7.5, 90))).length === 0,
+      'E-LITE GATE: the same 2.0 spread over ninety minutes is not a rise -- the rule is "inside an hour"');
+  res(HT.eliteRises([]).length === 0 && HT.eliteRises(elSer([[600, 5.5]])).length === 0,
+      'E-LITE GATE: no readings, or one, is no rise and no throw');
+
+  // -- a day: three climbs, one explained by food ------------------------------------
+  var elPts = [];
+  for (var em = 0; em < 1440; em += 5) elPts.push([em, 5.5]);
+  var elPut = function (pts) { pts.forEach(function (p) { for (var k = 0; k < elPts.length; k++) if (elPts[k][0] === p[0]) elPts[k][1] = p[1]; }); };
+  // 02:45-02:55 a little high (+0.9: under the threshold, so the set-up is not
+  // itself a rise), then 03:00 at 5.0 -- a drop of 1.4 in ten minutes -- and up to 8.0.
+  elPut([[165, 6.4], [170, 6.4], [175, 6.4]]);
+  elPut(elRamp(180, 5.0, 8.0, 30));
+  elPut(elRamp(540, 5.5, 7.5, 40));                            // 09:00, half an hour after breakfast
+  elPut(elRamp(900, 5.5, 9.0, 40));                            // 15:00, six and a half hours after it
+  elPut(elRamp(720, 5.5, 6.5, 30));                            // 12:00, +1.0 -- under the threshold
+  var elStore = {}; elStore[elD] = { u: 'mmol/L', t: elPts.map(function (p) { return p[0]; }), v: elPts.map(function (p) { return p[1]; }) };
+  HT.glucoseWrite(elStore);
+  HT.stepsWrite({});
+  HT.state().timeline = {};
+  HT.state().plates = {};
+  HT.state().days = {};
+  HT.state().days[elD] = { status: 'in_progress', water_l: 0, items: [
+    HT.normalizeItem({ name: 'Breakfast', meal: 'breakfast', time: '08:30', kcal: 400, grams: 300, confidence: 'eyeballed', source: 'manual' }, true) ] };
+  var elDay = HT.eliteDay(elD);
+  var elT = function (x) { return Math.round((x.rise.start - elBase) / 60000); };
+  res(elDay.length === 2 && elT(elDay[0]) === 180 && elT(elDay[1]) === 900,
+      'E-LITE GATE: of three rises that day, TWO are flagged -- 03:00 and 15:00 -- and the 09:00 one, half an hour after a logged breakfast, is not', JSON.stringify(elDay.map(elT)));
+  HT.state().days[elD].items[0].time = '05:05';
+  res(HT.eliteDay(elD).map(elT).join(',') === '180,900',
+      'E-LITE GATE: food 3 h 55 min before a rise still explains it -- breakfast at 05:05, rise at 09:00', JSON.stringify(HT.eliteDay(elD).map(elT)));
+  HT.state().days[elD].items[0].time = '04:55';
+  res(HT.eliteDay(elD).map(elT).join(',') === '180,540,900',
+      'E-LITE GATE: ...and food 4 h 5 min before does NOT -- at 04:55 the 09:00 rise IS flagged. The window is the response code-s own four hours (ruled A), so the two cannot disagree about which meal a rise belongs to', JSON.stringify(HT.eliteDay(elD).map(elT)));
+  HT.state().days[elD].items[0].time = '08:30';
+  HT.state().days[elD].items = [];
+  res(HT.eliteDay(elD).length === 3,
+      'E-LITE GATE: CONTROL -- with the breakfast removed all three are flagged, so "explained" above was the food and not a rise the rule cannot see');
+  HT.state().days[elD].items = [HT.normalizeItem({ name: 'Breakfast', meal: 'breakfast', time: '08:30', kcal: 400, grams: 300, confidence: 'eyeballed', source: 'manual' }, true)];
+  HT.state().plates = { elp: HT.normalizePlate({ id: 'elp', date: elD, meal: 'lunch', time: '14:30',
+    items: [{ name: 'Served, not eaten', grams: 300, per100: { kcal: 200, protein_g: 5, fat_g: 5, carb_g: 30, fiber_g: 1, soluble_fiber_g: 0 } }] }) };
+  res(HT.eliteDay(elD).map(elT).join(',') === '180,900',
+      'E-LITE GATE (the eaten basis): a PLATE served at 14:30 with nothing eaten from it explains nothing -- the 15:00 rise is still flagged. Served food is not eaten food');
+  HT.state().plates = {};
+
+  // -- what is known about each, and what is offered first (ruled B) -------------------
+  var elNight = elDay[0], elNoon = elDay[1];
+  res(elNight.ctx.drop === true && elNight.ctx.asleep === 'assumed' && elNight.ctx.sensorDay === false && elNight.ctx.waking === false
+      && elNight.offers.join(',') === 'sensor,asleep,food,stress,other',
+      'E-LITE GATE (ruled B): the 03:00 rise began right after a sudden drop, in the small hours with no sleep logged -- so SENSOR ARTIFACT is offered first, then WHILE ASLEEP, and only then food', elNight.offers.join(','));
+  res(elNoon.ctx.drop === false && elNoon.ctx.asleep === '' && elNoon.offers.join(',') === 'food,stress,other'
+      && Math.abs(elNoon.ctx.sinceFoodH - 6.5) < 1e-9,
+      'E-LITE GATE: the 15:00 rise, six and a half hours after food, by day: FOOD I DID NOT LOG first, then stress, then something else -- the ruled order');
+  HT.state().timeline[elD] = [HT.normalizeSignal({ type: 'sensor', kind: 'event', time: '14:00', source: 'quick', variant: 'left arm', device: 'dexcom-g7' })];
+  var elSensor = HT.eliteDay(elD);
+  res(elSensor[1].ctx.sensorDay === true && elSensor[1].offers[0] === 'sensor' && elSensor[0].ctx.sensorDay === false,
+      'E-LITE GATE (ruled B): within 24 h AFTER a sensor change the first offer is sensor artifact -- and the 03:00 rise, eleven hours BEFORE that change, is not in its first day');
+  HT.state().timeline[elD] = [HT.normalizeSignal({ type: 'woke', kind: 'event', time: '03:20', source: 'quick' })];
+  res(HT.eliteDay(elD)[0].offers.join(',') === 'sensor,asleep,waking,food,stress,other',
+      'E-LITE GATE: a logged waking within the hour adds AROUND WAKING, after asleep and before food');
+  HT.state().timeline[elD] = [];
+  HT.state().timeline[elP] = [HT.normalizeSignal({ type: 'sleep', kind: 'biometric', time: '23:00', value: 8, unit: 'h', source: 'manual' })];
+  res(HT.eliteDay(elD)[0].ctx.asleep === 'logged',
+      'E-LITE GATE: with a logged sleep covering 03:00 it is DURING LOGGED SLEEP -- observed, not assumed');
+  HT.state().timeline[elP] = [HT.normalizeSignal({ type: 'sleep', kind: 'biometric', time: '23:00', value: 3, unit: 'h', source: 'manual' })];
+  res(HT.eliteDay(elD)[0].ctx.asleep === '' && HT.eliteDay(elD)[0].offers.indexOf('asleep') < 0,
+      'E-LITE GATE: and with a logged sleep that ENDED at 02:00, the user was awake at 03:00 by their own record -- asleep is neither assumed nor offered');
+  HT.state().timeline = {};
+
+  // -- steps: known, or not known, and never confused ---------------------------------
+  res(HT.eliteDay(elD)[1].ctx.steps === null && HT.eliteDay(elD)[1].ctx.moving === false
+      && HT.eliteHTML(elD).indexOf('no steps held for this day') >= 0 && HT.stepsIn(elBase, elBase + 86400000).known === false,
+      'E-LITE GATE: with no steps held for the day the line says so -- a day with no steps HELD is not a day of standing still');
+  var elSt = {}; elSt[elD] = { t: [885, 890, 895], n: [100, 120, 90], src: 'iPhone' };
+  HT.stepsWrite(elSt);
+  res(HT.eliteDay(elD)[1].ctx.steps === 310 && HT.eliteDay(elD)[1].ctx.moving === true && HT.eliteDay(elD)[0].ctx.steps === 0
+      && HT.eliteDay(elD)[0].ctx.moving === false && HT.eliteHTML(elD).indexOf('moving · 310 steps') >= 0
+      && HT.eliteHTML(elD).indexOf('still · 0 steps') >= 0,
+      'E-LITE GATE: 310 steps from half an hour before the 15:00 rise to its peak is MOVING; none around 03:00 is STILL -- and zero is a count, because that day-s steps are held');
+  var elXml = [
+    ' <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-06-25 14:46:00 -0400" endDate="2026-06-25 14:52:00 -0400" value="200"/>',
+    ' <Record type="HKQuantityTypeIdentifierStepCount" sourceName="Watch" unit="count" startDate="2026-06-25 14:47:00 -0400" endDate="2026-06-25 14:50:00 -0400" value="90"/>',
+    ' <Record type="HKQuantityTypeIdentifierStepCount" sourceName="iPhone" unit="count" startDate="2026-01-02 10:00:00 -0500" endDate="2026-01-02 10:05:00 -0500" value="500"/>',
+    ' <Record type="HKQuantityTypeIdentifierHeartRate" sourceName="Watch" unit="count/min" startDate="2026-06-25 14:46:00 -0400" endDate="2026-06-25 14:46:00 -0400" value="72"/>' ].join('\n');
+  var elAcc = {};
+  HT.stepsScanAppleText(elXml, elAcc);
+  var elAccDays = Object.keys(elAcc).length;
+  HT.stepsWrite({});
+  var elIng = HT.stepsIngest(elAcc);
+  var elHeld = HT.stepsRead();
+  var elHeldDay = elHeld[Object.keys(elHeld)[0]] || { n: [], src: '' };
+  res(elAccDays === 2 && elIng.days === 1 && Object.keys(elHeld).length === 1 && elHeldDay.src === 'iPhone'
+      && elHeldDay.n.reduce(function (a, b) { return a + b; }, 0) === 200,
+      'E-LITE GATE (ruled D): from an Apple Health file, STEPS ONLY and for GLUCOSE-S DAYS ONLY -- the January day is read and not kept, the heart-rate line is not read at all, and of two sources counting the same day the larger is kept and the other dropped, never summed', JSON.stringify([elAccDays, elIng, elHeld]));
+  res(JSON.stringify(HT.normalizeStepsStore({ 'not-a-day': { t: [1], n: [1] }, '2026-06-25': { t: [5, 9999, 10], n: [3, 4, -1] } })) === '{"2026-06-25":{"t":[5],"n":[3],"src":""}}'
+      && HT.deleteAllKeys().indexOf(HT.STEPS_KEY) >= 0,
+      'E-LITE GATE: the steps cache has an allowlist normaliser like every other store, and "delete all my data" removes it -- a new key that the delete forgot would be a store that outlives the user-s wish');
+  HT.stepsWrite(elSt);
+
+  // -- the answer is STORED, as a timeline record ----------------------------------------
+  elDay = HT.eliteDay(elD);
+  var elLab = HT.eliteLabel(elD, elDay[1].rise.start, 'food');
+  var elRec = (HT.state().timeline[elD] || []).filter(function (r) { return r.type === HT.ELITE_TYPE; });
+  res(elLab.ok === true && elRec.length === 1 && elRec[0].variant === 'food' && elRec[0].time === '15:00' && elRec[0].value === 3.5
+      && elRec[0].unit === 'mmol/L' && elRec[0].source === 'quick' && elRec[0].kind === 'event' && typeof elRec[0].tzo === 'number',
+      'E-LITE GATE: an answer is STORED -- a timeline record carrying the rise it answers (its start as the time, its size as the value) and the answer itself', JSON.stringify(elRec));
+  res(HT.eliteDay(elD)[1].label === 'food' && HT.eliteHTML(elD).indexOf('You said: <b>food I didn’t log</b>') >= 0
+      && HT.signalRowLabel(elRec[0]) === 'Glucose rise · food I didn’t log',
+      'E-LITE GATE: the rise then shows the answer, and the timeline names the record in a person-s words -- never by its storage name');
+  var elBack = HT.normalizeSignal(JSON.parse(JSON.stringify(elRec[0])));
+  res(elBack.type === HT.ELITE_TYPE && elBack.variant === 'food' && elBack.value === 3.5 && elBack.time === '15:00',
+      'E-LITE GATE: the label survives export -> restore, through the timeline-s own normaliser -- no new store, no schema change');
+  var elRe = HT.eliteLabel(elD, elDay[1].rise.start, 'stress');
+  elRec = (HT.state().timeline[elD] || []).filter(function (r) { return r.type === HT.ELITE_TYPE; });
+  res(elRe.ok === true && elRe.replaced === true && elRec.length === 1 && elRec[0].variant === 'stress',
+      'E-LITE GATE: changing the answer REPLACES it -- one rise, one label -- and "stress" is storable, as the user-s own word');
+  HT.doUndo();
+  elRec = (HT.state().timeline[elD] || []).filter(function (r) { return r.type === HT.ELITE_TYPE; });
+  res(elRec.length === 1 && elRec[0].variant === 'food',
+      'E-LITE GATE: and undoing the change puts the earlier answer back');
+  var elDis = HT.eliteLabel(elD, elDay[0].rise.start, 'unsure');
+  res(elDis.ok === true && HT.eliteDay(elD)[0].label === 'unsure'
+      && (HT.state().timeline[elD] || []).filter(function (r) { return r.type === HT.ELITE_TYPE; }).length === 2,
+      'E-LITE GATE: a DISMISSAL is a label too -- "not sure" is stored, so a rise the user waved away is never later read as one they did not see');
+  res(HT.eliteLabel(elD, elDay[1].rise.start, 'made-up').ok === false
+      && HT.eliteLabel(elD, elBase + 540 * 60000, 'food').ok === false
+      && HT.eliteLabel(elD, elBase + 720 * 60000, 'food').ok === false,
+      'E-LITE GATE: an answer that is not on the list is refused; so is an answer about the EXPLAINED rise at 09:00, and about the 12:00 bump that is not a rise at all');
+  res(!!HT.eliteLabelFor(elD, elDay[1].rise.start + 10 * 60000) && HT.eliteLabelFor(elD, elDay[1].rise.start + 40 * 60000) === null,
+      'E-LITE GATE: a label finds its rise again when a re-import moves the start by ten minutes, and does not attach itself to a different rise forty minutes away');
+  var elMarks = HT.glucoseMarks(elBase, elBase + 86400000 - 1);
+  var elRiseMarks = elMarks.filter(function (m) { return m.kind === 'rise'; }).map(function (m) { return Math.round((m.t - elBase) / 60000); });
+  res(elRiseMarks.join(',') === '180,900' && elMarks.filter(function (m) { return m.label === HT.ELITE_TYPE; }).length === 0,
+      'E-LITE GATE (ruled C): the chart carries a MARK at each flagged rise -- answered or not -- and none at the explained one; the stored answers are not drawn as events of their own', elRiseMarks.join(','));
+
+  // -- the surface, as markup: passive, in order, and inferring nothing ----------------
+  HT.state().timeline[elD] = [];
+  var elH = HT.eliteHTML(elD);
+  var elAt = function (w) { return elH.indexOf('>' + w + '<'); };
+  res(elAt('sensor artifact') > 0 && elAt('sensor artifact') < elAt('while asleep') && elAt('while asleep') < elAt('food I didn’t log')
+      && elAt('food I didn’t log') < elAt('stress') && elAt('stress') < elAt('something else') && elH.indexOf('>not sure<') > 0,
+      'E-LITE GATE: for the night rise the answers are DRAWN in the ruled order -- sensor artifact, while asleep, food, stress, something else -- with "not sure" beside them');
+  res(elH.indexOf('03:00 · 5 → 8 mmol/L in 30 min') >= 0 && elH.indexOf('began right after a sudden drop') >= 0
+      && elH.indexOf('Marked by one rule: up 1.5 mmol/L or more inside an hour, with no food logged in the 4 hours before.') >= 0
+      && elH.indexOf('It does not weigh how much was eaten against how big the rise was.') >= 0,
+      'E-LITE GATE: each line says when it started, how far it went and in how long; and the block says WHICH RULE marked it and what that rule does not do (ruled A: "explained" is binary, and it says so)');
+  res(elH.indexOf('No heart rate or heart-rate variability is held on this device, so nothing here works out stress.') >= 0
+      && HT.eliteInputs().heartRate.wired === true && HT.eliteInputs().heartRate.days === 0
+      && HT.eliteInputs().rmssd.wired === true && HT.eliteInputs().rmssd.days === 0 && HT.eliteInputs().steps.days === 1,
+      'E-LITE GATE: the heart-rate and HRV inputs are WIRED AND EMPTY, and the surface SAYS so');
+  res(!/probab|likel|%|\bscore\b|caus|trigger|badge/i.test(elH.replace(/<[^>]*>/g, ' ')),
+      'E-LITE GATE: there is NO probability, no likelihood, no percentage, no score and no cause in it -- stress is never inferred, only answered');
+  HT.state().days[elD].items.push(HT.normalizeItem({ name: 'Late snack', meal: 'snack', time: '00:30', kcal: 100, confidence: 'eyeballed', source: 'manual' }, true));
+  HT.state().days[elD].items.push(HT.normalizeItem({ name: 'Lunch', meal: 'lunch', time: '13:00', kcal: 500, confidence: 'eyeballed', source: 'manual' }, true));
+  res(HT.eliteDay(elD).length === 0 && HT.eliteHTML(elD) === '',
+      'E-LITE GATE (D146): a day where every rise has food before it draws NOTHING -- not the heading, not the rule, not the note about heart rate');
+
+  HT.glucoseWrite(_elG);
+  HT.stepsWrite(_elS);
+  HT.state().days = _elDays;
+  HT.state().timeline = _elTl;
+  HT.state().plates = _elPl;
+  HT.resave();
+
 
 
   freeClock();

@@ -340,7 +340,11 @@ try {
   // EVERY sheet mode, so nothing is stranded -- but it is one tap further.
   tap(document.getElementById('fab'), 'the FAB');
   await sleep(200);
-  tap(byText('.sheetfoot .linklike', /^Log a dose I took$/i), 'Log a dose I took');
+  // R197/2: this link was tapped in the SHEET'S FOOT. The root has no foot any
+  // more -- it took a third of the screen and repeated the root's own links --
+  // so the same link, with the same words, is tapped where the root now offers
+  // it. One tap from the root, as before: THE PIN DOES NOT MOVE.
+  tap(byText('#sheetRoot .srlinks .linklike', /^Log a dose I took$/i), 'Log a dose I took');
   await sleep(250);
   document.getElementById('medName').value = 'Metformin';
   tap(byText('#pane-med button', /^Log this dose$/i), 'Log this dose');
@@ -388,7 +392,8 @@ try {
   taps = 0;
   tap(document.getElementById('fab'), 'FAB');
   await sleep(180);
-  tap(byText('.sheetfoot .linklike', /Add a medication from its label/i), 'Add a medication from its label');
+  // R197/2: as J2 -- from the root's own links, not the foot. Same tap, same count.
+  tap(byText('#sheetRoot .srlinks .linklike', /Add a medication from its label/i), 'Add a medication from its label');
   await sleep(250);
   taps++;                                 // Take photo; the shutter itself is the OS
   HT.openLabelDraft(JSON.stringify({ name: 'Metformin', generic_name: 'metformin hydrochloride',

@@ -44,6 +44,7 @@ correction-gate.ps1
 corpus-cache-gate.ps1
 corpus-gate.ps1
 dayroll-gate.ps1
+elite-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
 identity-search-gate.ps1
@@ -358,7 +359,19 @@ echo "-----------------------------------------"
 # item with no weight is refused. And the entry plate: removing a searched food
 # takes its plate (v0.86.0 offered it back as leftovers), undo restores both, and a
 # photographed plate still stands -- the control.
-EXPECTED_ASSERTIONS=2925
+# E-LITE and R197, v0.91.0: 2925 -> 2963, delta +38. The rule as a pure function --
+# the threshold either side, in both units, a hole or a unit change inside the
+# hour claiming nothing, a plateau as one rise -- and the defect its own first run
+# found, pinned: a rise starts where the climb starts and peaks at its real peak.
+# Then a day of three climbs: the 4 h window to the minute either side, the eaten
+# basis (a served plate explains nothing), the ruled order of what is offered for
+# a sudden drop, a sensor's first day, logged and assumed sleep, waking; steps
+# known, unknown, and never confused; steps from an Apple Health file, for
+# glucose's days only and one source; the answer stored as a timeline record,
+# replaced, undone, dismissed, refused where there is no rise; the mark on the
+# chart; and a surface with no probability, likelihood, score or cause in it.
+# Two R189/2 pins moved for R197/3: a weighed serving reads "weighed 200 g".
+EXPECTED_ASSERTIONS=2963
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
