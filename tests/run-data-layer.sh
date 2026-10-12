@@ -61,6 +61,7 @@ photo-lead-gate.ps1
 resolve-gate.ps1
 response-gate.ps1
 ring-size-gate.ps1
+sensor-gate.ps1
 update-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two
 # echo strings -- the real bar is the manifest above versus the files on disk
@@ -308,7 +309,25 @@ echo "-----------------------------------------"
 # owed an amount rather than given one, a typed part bringing no caffeine, the
 # total saying "from 1 of 2 parts" for both figures, a save with NOTHING logged
 # first, and the saved combo logging at 2x with the cited caffeine doubled.
-EXPECTED_ASSERTIONS=2830
+# v0.85.0: 2830 -> 2871, delta +41.
+# R187, +8 on ONE DOOR/2: the ranking found by LOOKING at it -- a row holding the
+# typed word as a whole token leads (milk before milkfish, egg before eggplant) and
+# the top row does not change when the word is finished; and the draft -- kept
+# across the back link and a closed sheet, said on the root, ended only by Save or
+# Start over. Two /2 pins MOVED rather than added: 'going back ABANDONS the draft'
+# (ruled against), and a ranking case whose two rows each answered one word and so
+# proved nothing about the rule it named.
+# R186, +33: every wear time cited, with the 15-day caveat beside its number;
+# `device` surviving the normaliser and never given to a record without one; the
+# countdown at pinned times -- Day 1, Day 3, Day 10, grace with hours, past, the
+# 15-day type as the control, no 'of N' for an untyped entry, no hours for an
+# untimed one, a newer change resetting it; the first tap asking and writing
+# nothing; the same arm deduped, the other arm correcting through editRecord, a
+# tap outside the window writing (the control); and the user's own edit keeping
+# 'no type was recorded' as '' because undefined does not survive JSON.
+# R189 (the source fix only): +3. A searched item's source is `corpus`, with a word,
+# through the normaliser; and in a combo the matched and typed parts keep their own.
+EXPECTED_ASSERTIONS=2874
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

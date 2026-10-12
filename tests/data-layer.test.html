@@ -186,8 +186,10 @@ window.setLS({});
   // case tests what it claims -- a SAME-version export->import identity. Pinned one
   // version behind, it would quietly become a migration test and stop asserting
   // round-trip equality at all (settings gained signalUnits + fasting; blob gained
-  // timeline + fastLog; v6 added the accepted portion). ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], combos: [], presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  // timeline + fastLog; v6 added the accepted portion; R186 added sensorDevice to
+  // settings -- an allowlist addition with no schema bump, so the fixture gains the
+  // key at the SAME version). ----
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], combos: [], presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
   var S1 = { version: 14, days: {}, current: td, settings: goalState, plates: {}, meds: {}, labels: {}, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
@@ -13136,9 +13138,28 @@ window.setLS({});
       'ONE-DOOR/2 GATE: a trailing STOP word is the matcher-s case too -- it must not be treated as the start of a rarer word');
   res(od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'olive oi', 8)).indexOf('4') === 0,
       'ONE-DOOR/2 GATE: finished words and the half-typed one are scored TOGETHER -- "olive oi" leads with the oil');
-  var od2Kept = od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'coffee cinn', 8));
+  // RE-PINNED, v0.85.0: the query was 'coffee cinn', whose two rows each answer ONE
+  // word, so their order was decided by weights and proved nothing about the
+  // rule. 'cinnamon coff' has a row answering BOTH words and a row answering one.
+  var od2Kept = od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'cinnamon coff', 8));
   res(od2Kept === '2,1',
-      'ONE-DOOR/2 GATE: a row that answers the finished word and not the half-typed one is ranked BENEATH, never dropped -- a list that empties mid-word reads as "not in here"', od2Kept);
+      'ONE-DOOR/2 GATE: a row answering BOTH words leads, and the row that answers only the half-typed one is ranked BENEATH, never dropped -- a list that empties mid-word reads as "not in here"', od2Kept);
+  // -- THE RANKING, found by looking at it (R187). v0.84.0 credited the half-typed
+  // word at each row-s OWN token weight, so the RAREST completion led: "milk" put
+  // milkfish first. Rows came back, so every assertion above passed.
+  var od2Rank = [[1, 'Fish, milkfish, raw'], [2, 'Milk, whole'], [3, 'Fish, milkfish, cooked'],
+                 [4, 'Eggplant, raw'], [5, 'Egg, whole, raw'], [6, 'Bread, wheat'], [7, 'Bread, rye'],
+                 [8, 'Bread, white'], [9, 'Rice, brown'], [10, 'Rice, white']];
+  var od2RIdx = HT.matchIndexFrom(od2Rank);
+  var od2Milk = od2Ids(HT.matchTypeaheadIn(od2RIdx, od2Rank, 'milk', 8));
+  res(od2Milk.indexOf('2') === 0 && od2Milk.split(',').length === 3,
+      'ONE-DOOR/2 GATE: the row holding the typed word AS A WHOLE TOKEN leads -- "milk" opens with milk and keeps milkfish beneath it, rather than leading with the rarer word that merely begins the same way', od2Milk);
+  var od2Egg = od2Ids(HT.matchTypeaheadIn(od2RIdx, od2Rank, 'egg', 8));
+  res(od2Egg === '5,4',
+      'ONE-DOOR/2 GATE: and "egg" opens with egg, not eggplant', od2Egg);
+  res(od2Ids(HT.matchTypeaheadIn(od2RIdx, od2Rank, 'milk', 8)).split(',')[0]
+      === od2Ids(HT.matchCandidatesIn(od2RIdx, od2Rank, 'milk ', 8)).split(',')[0],
+      'ONE-DOOR/2 GATE: so the TOP of the list does not change at the moment the word is finished -- the first row before the space is the matcher-s first row after it');
   res(od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'cheddar zzq', 8)) === '3'
       && HT.matchTypeaheadIn(od2Idx, od2List, 'zzqq', 8).length === 0,
       'ONE-DOOR/2 GATE: a half-typed word that begins NOTHING leaves the finished words standing, and alone it returns nothing rather than everything');
@@ -13154,8 +13175,15 @@ window.setLS({});
   var od2Own = HT.corpusOwnNumbers(od2Meta, od2Row, '171890', 'Coffee, brewed', 250);
   res(!!od2Own && od2Own.kcal === 5 && od2Own.protein_g === 1.25 && od2Own.fat_g === 0.625 && od2Own.carb_g === 0,
       'ONE-DOOR/2 GATE (ruling a): a searched food takes the row-s macros AS ITS OWN, scaled to the typed grams -- it has no other numbers to take');
-  res(od2Own.confidence === 'eyeballed' && od2Own.source === 'manual' && od2Own.grams === 250,
+  res(od2Own.confidence === 'eyeballed' && od2Own.grams === 250,
       'ONE-DOOR/2 GATE (ruling a): confidence is eyeballed, because the portion was typed and the row is a generic food');
+  // RE-PINNED, R189: this asserted `source === 'manual'`. Ruled: a searched item
+  // must carry corpus provenance. `manual` said a person typed figures nobody typed.
+  res(od2Own.source === 'corpus' && HT.sourceWord('corpus') === 'from the food database' && HT.wordCensus().ok === true,
+      'R189 GATE: an item whose own numbers are the database-s SAYS SO in its source -- declared on the record, with a word a person reads, rather than inferred from its macros equalling its ref-s');
+  res(HT.normalizeItem({ name: 'x', source: 'corpus', kcal: 1 }, true).source === 'corpus'
+      && HT.normalizeItem({ name: 'x', source: 'made-up', kcal: 1 }, true).source === 'manual',
+      'R189 GATE: the new source survives the normaliser, and an unknown one still falls back as it always did');
   res(od2Own.ref.ns === 'fdc' && od2Own.ref.id === '171890' && od2Own.ref.name === 'Coffee, brewed'
       && od2Own.ref.hash === 'od2hash' && od2Own.ref.attribution === 'OD2 test source' && od2Own.ref.g === 250,
       'ONE-DOOR/2 GATE (ruling a): and they are CITED -- the ref records ns, id, name, hash, attribution and the grams its values are at');
@@ -13228,6 +13256,8 @@ window.setLS({});
   res(!!od2Combo.parts[0].ref && od2Combo.parts[0].ref.id === '171890' && od2Combo.parts[0].kcal === 5
       && od2Combo.parts[0].grams === 250 && HT.refValueAt(od2Combo.parts[0].ref, 262) === 100,
       'ONE-DOOR/2 GATE: the matched part carries its ref, and with it the caffeine');
+  res(od2Combo.parts[0].source === 'corpus' && od2Combo.parts[1].source === 'manual',
+      'R189 GATE: in a combo the matched part is from the food database and the typed part is typed in -- two parts, two provenances, neither borrowing the other-s');
   res(od2Combo.parts[1].ref === undefined && od2Combo.parts[1].kcal === 18 && od2Combo.parts[1].grams === undefined
       && od2Combo.parts[1].name === 'cream <i>',
       'ONE-DOOR/2 GATE: the unmatched part carries NO ref -- so no caffeine -- and no portion nobody gave it');
@@ -13243,15 +13273,205 @@ window.setLS({});
     var d = HT.state().days[HT.state().current];
     if (d && od2Log.ok) d.items = d.items.filter(function (it) { return od2Log.items.indexOf(it) < 0; });
   })();
+  // RE-PINNED, R187: this asserted that going back ABANDONED the draft. Ruled: a
+  // half-built combo must not be silently discarded. So the pin moves to what
+  // replaced it -- the draft is KEPT, it is SAID on the root, and it ends only by
+  // Save (asserted above) or by the user-s own Start over.
   res(HT.setSheetMode('combo').ok === true && !!HT.comboNew() && HT.comboNew().parts.length === 0
-      && HT.setSheetMode('root').ok === true && HT.comboNew() === null,
-      'ONE-DOOR/2 GATE: the builder opens clean each time, and going back to the root ABANDONS the draft -- the rule the root already keeps for a pick');
+      && HT.comboNewDraft() === null && HT.sheetComboNewHTML().indexOf('+ New combo') >= 0,
+      'ONE-DOOR/2 GATE (R187): after a save the builder opens clean, and an opened-and-untouched builder is NOT a draft -- nothing is offered back that nobody made');
+  HT.comboNewName('Half built');
+  HT.comboNew().rows = [{ id: '171890', name: 'Coffee, brewed', row: od2Row, meta: od2Meta,
+                          kcal: 2, protein: 0.5, fat: 0.25, carb: 0 }];
+  HT.comboNewAddAt(0);
+  HT.comboNewAmount(0, 'grams', '125');
+  HT.setSheetMode('root');
+  res(!!HT.comboNew() && HT.comboNew().name === 'Half built' && HT.comboNew().parts.length === 1
+      && HT.comboNew().parts[0].grams === 125,
+      'ONE-DOOR/2 GATE (R187): going back KEEPS a half-built combo -- its name, its part and the amount typed for it. v0.84.0 threw all three away without a word');
+  res(HT.sheetComboNewHTML().indexOf('Continue combo draft') >= 0 && HT.sheetComboNewHTML().indexOf('1 part') >= 0
+      && HT.sheetComboNewHTML().indexOf('+ New combo') < 0,
+      'ONE-DOOR/2 GATE (R187): and the root SAYS a draft is kept, with how many parts -- a draft nobody can see is the silent discard with a longer fuse');
+  HT.closeSheet(); HT.openSheet(); HT.setSheetMode('search'); HT.setSheetMode('combo');
+  res(HT.comboNew().name === 'Half built' && HT.comboNew().parts.length === 1 && HT.comboNew().q === ''
+      && HT.comboNewTotalHTML().indexOf('Start over') >= 0,
+      'ONE-DOOR/2 GATE (R187): it survives closing the sheet and visiting another pane, the half-typed SEARCH is not part of it, and the way to throw it away is on the screen');
+  res(HT.comboNewDiscard().ok === true && HT.comboNewDraft() === null && HT.comboNew().parts.length === 0
+      && HT.comboNewTotalHTML().indexOf('Start over') < 0,
+      'ONE-DOOR/2 GATE (R187): Start over ends it -- the one way a draft is discarded, and it is the user-s own act');
+  HT.setSheetMode('root');
   res(HT.setSheetMode('search').ok === true && !!HT.foodSearch() && HT.searchPickAt(0).ok === false
       && HT.searchLog().ok === false && HT.setSheetMode('root').ok === true && HT.foodSearch() === null,
       'ONE-DOOR/2 GATE: Search is a declared mode, it refuses a pick and a log when nothing is there to pick, and leaving it puts the search down');
   HT.state().settings.combos = _od2Combos;
   HT.resave();
   HT.closeSheet();
+
+  // ============ R186: the sensor-change entry ============
+  //
+  // REPORTED FROM THE DEVICE: a tap on "New sensor, left arm" saved and said
+  // nothing; the row showed neither the sensor nor the arm; nothing counted the
+  // days; a second tap would have written a second change.
+  //
+  // HERE: the stored contract, the countdown at pinned times, the dedupe and the
+  // edit provenance -- everything that needs no screen. The confirmation bar, its
+  // 16px and the status line beside the badges are tests/sensor-gate.ps1-s.
+  var _snTimeline = JSON.parse(JSON.stringify(HT.state().timeline || {}));
+  var _snDevice = HT.state().settings.sensorDevice;
+  var snH = 3600000, snD = 86400000;
+
+  // -- the table is CITED, every row that states a wear time -------------------
+  var snUncited = HT.SENSOR_DEVICES.filter(function (d) {
+    return d.wearDays && !(d.cite && d.cite.org && d.cite.title && /^https:/.test(d.cite.url)
+                           && /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(d.cite.retrieved) && d.cite.quote); });
+  res(HT.SENSOR_DEVICES.filter(function (d) { return d.wearDays; }).length >= 2 && snUncited.length === 0,
+      'R186 GATE: every sensor type that states a wear time carries its source, its page, its retrieval date and the sentence it rests on -- a wear time is a claim about a device, and there is no bare 10 (D32)');
+  res(HT.SENSOR_DEVICES.some(function (d) { return !d.wearDays && !d.cite; })
+      && HT.sensorCiteHTML(HT.SENSOR_BY_ID.other) === ''
+      && HT.sensorCiteHTML(HT.SENSOR_BY_ID['dexcom-g7']).indexOf('up to 10 days') >= 0
+      && HT.sensorCiteHTML(HT.SENSOR_BY_ID['dexcom-g7']).indexOf('2026-10-11') >= 0
+      && HT.sensorCiteHTML(HT.SENSOR_BY_ID['dexcom-g7']).indexOf('not read from the sensor') >= 0,
+      'R186 GATE: a type with no cited wear time has NONE, and the citation shown says the count is from the logged time rather than from the sensor');
+  res(HT.sensorCiteHTML(HT.SENSOR_BY_ID['dexcom-g7-15']).indexOf('26% of sensors may not last') >= 0,
+      'R186 GATE: the 15-day type shows the maker-s own caveat WITH its number -- "of 15" is what it is indicated for, not what every sensor reaches');
+
+  // -- the stored contract (D129: declared with the first write) ---------------
+  var snRound = HT.normalizeSignal(JSON.parse(JSON.stringify(
+    { type: 'sensor', time: '12:47', source: 'quick', variant: 'left arm', device: 'dexcom-g7' })));
+  res(snRound.device === 'dexcom-g7' && snRound.variant === 'left arm',
+      'R186 GATE: `device` SURVIVES the normaliser -- undeclared, an export -> restore would keep the entry and delete what sensor it was (D129)');
+  res(HT.normalizeSignal({ type: 'weight', value: 80, unit: 'kg', time: '08:00', device: 'dexcom-g7' }).device === undefined
+      && HT.normalizeSignal({ type: 'sensor', time: '08:00', variant: 'left arm' }).device === undefined
+      && HT.normalizeSignal({ type: 'sensor', time: '08:00', device: 'some-future-sensor' }).device === 'some-future-sensor',
+      'R186 GATE: it is a field of SENSOR records only; a record without one is never given one (D137); and a type this build does not know is kept as written, not judged at the restore boundary');
+  res(HT.normalizeSettings({ sensorDevice: 'dexcom-g7-15' }).sensorDevice === 'dexcom-g7-15'
+      && HT.normalizeSettings({ sensorDevice: 'made-up' }).sensorDevice === ''
+      && HT.normalizeSettings({}).sensorDevice === '',
+      'R186 GATE: the last type used survives restore; an unknown one is ASKED AGAIN rather than used; and a new user has none -- nothing is chosen for someone who has not chosen');
+
+  // -- the words -----------------------------------------------------------------
+  res(HT.sensorWords({ type: 'sensor', variant: 'left arm', device: 'dexcom-g7' }) === 'New sensor \u00b7 Dexcom G7 \u00b7 left arm'
+      && HT.sensorWords({ type: 'sensor', variant: 'left arm' }) === 'New sensor \u00b7 left arm'
+      && HT.sensorWords({ type: 'sensor', variant: 'right arm', device: 'other' }) === 'New sensor \u00b7 right arm'
+      && HT.sensorWords({ type: 'sensor', variant: 'right arm', device: 'some-future-sensor' }) === 'New sensor \u00b7 right arm',
+      'R186 GATE: the entry NAMES its sensor and its site -- and an entry with no type, "another sensor", or a type this build does not know names none rather than a guessed one');
+  res(HT.signalRowLabel({ type: 'sensor', variant: 'left arm', device: 'dexcom-g7' }).indexOf('Dexcom G7') > 0
+      && HT.signalRowLabel({ type: 'weight', value: 80 }) === 'Weight',
+      'R186 GATE: a timeline row shows those words for a sensor and is unchanged for everything else');
+
+  // -- the countdown, at pinned times (D50) --------------------------------------
+  var snT0 = HT.dayKeyMs('2026-06-10') + 8 * snH;
+  var snSet = function (recs) { HT.state().timeline = recs; };
+  snSet({ '2026-06-10': [{ type: 'sensor', kind: 'event', time: '08:00', source: 'quick', variant: 'left arm', device: 'dexcom-g7' }] });
+  res(HT.sensorStatusWords(HT.sensorStatus(snT0 + 60000)) === 'Dexcom G7 \u00b7 Day 1 of 10 \u00b7 left arm',
+      'R186 GATE: a minute after the change it reads Day 1 of 10, with the type and the arm', HT.sensorStatusWords(HT.sensorStatus(snT0 + 60000)));
+  res(HT.sensorStatusWords(HT.sensorStatus(snT0 + 2 * snD + snH)) === 'Dexcom G7 \u00b7 Day 3 of 10 \u00b7 left arm'
+      && HT.sensorStatus(snT0 + 10 * snD - 60000).phase === 'wear' && HT.sensorStatus(snT0 + 10 * snD - 60000).day === 10,
+      'R186 GATE: Day 3 on the third day, and still Day 10 one minute before the wear time ends');
+  res(HT.sensorStatusWords(HT.sensorStatus(snT0 + 10 * snD + snH)) === 'Dexcom G7 \u00b7 grace period \u00b7 11 h left \u00b7 left arm',
+      'R186 GATE: an hour past ten days it is the GRACE PERIOD, with the hours left of the twelve', HT.sensorStatusWords(HT.sensorStatus(snT0 + 10 * snD + snH)));
+  res(HT.sensorStatusWords(HT.sensorStatus(snT0 + 10 * snD + 12 * snH + 60000)) === 'Dexcom G7 \u00b7 past its wear time \u00b7 left arm',
+      'R186 GATE: past the grace period it says so -- a statement of elapsed time, with no instruction in it');
+  HT.state().timeline['2026-06-10'][0].device = 'dexcom-g7-15';
+  res(HT.sensorStatusWords(HT.sensorStatus(snT0 + 10 * snD + snH)) === 'Dexcom G7 15 Day \u00b7 Day 11 of 15 \u00b7 left arm',
+      'R186 GATE: CONTROL -- the same moment on the 15-day type is Day 11 of 15, so the wear time is read from the table per type and not written once');
+  delete HT.state().timeline['2026-06-10'][0].device;
+  var snNoType = HT.sensorStatusWords(HT.sensorStatus(snT0 + 2 * snD + snH));
+  res(snNoType === 'Sensor \u00b7 day 3 \u00b7 left arm' && snNoType.indexOf(' of ') < 0,
+      'R186 GATE: an entry with NO type counts the days that have passed and claims no "of N" -- there is no wear time for a sensor nobody named', snNoType);
+  HT.state().timeline['2026-06-10'][0].device = 'other';
+  res(HT.sensorStatus(snT0 + 20 * snD).phase === 'elapsed' && HT.sensorStatus(snT0 + 20 * snD).day === 21,
+      'R186 GATE: "another sensor" is the same -- twenty days on it is day 21, never "past" a wear time this app has no source for');
+  HT.state().timeline['2026-06-10'][0].device = 'dexcom-g7';
+  HT.state().timeline['2026-06-10'][0].time = '';
+  var snUntimed = HT.sensorStatusWords(HT.sensorStatus(HT.dayKeyMs('2026-06-20') + 2 * snH));
+  res(snUntimed === 'Dexcom G7 \u00b7 grace period \u00b7 left arm',
+      'R186 GATE: an entry with NO CLOCK TIME states no hours left -- an hour figure resting on a time nobody recorded is the fabrication D112 forbids', snUntimed);
+  snSet({ '2026-06-10': [{ type: 'sensor', kind: 'event', time: '08:00', source: 'quick', variant: 'left arm', device: 'dexcom-g7' }],
+          '2026-06-14': [{ type: 'sensor', kind: 'event', time: '09:00', source: 'quick', variant: 'right arm', device: 'dexcom-g7' }] });
+  res(HT.sensorStatusWords(HT.sensorStatus(HT.dayKeyMs('2026-06-14') + 10 * snH)) === 'Dexcom G7 \u00b7 Day 1 of 10 \u00b7 right arm'
+      && HT.sensorStatusWords(HT.sensorStatus(HT.dayKeyMs('2026-06-13') + 10 * snH)) === 'Dexcom G7 \u00b7 Day 4 of 10 \u00b7 left arm',
+      'R186 GATE: a newer change RESETS the count to Day 1 -- and the day before it, the older one was still in force, so the reset is a reset and not just a number that happens to be 1');
+  res(HT.sensorArmFor('2026-06-13') === 'left arm' && HT.sensorArmFor('2026-06-14') === 'right arm',
+      'R186 GATE: sensorArmFor still reads the ARM from `variant` -- the night comparison (H26) is untouched by the new field');
+  snSet({});
+  res(HT.sensorStatus(snT0) === null && HT.sensorStatusHTML() === '',
+      'R186 GATE: with no sensor ever logged there is no status line at all (D146)');
+
+  // -- the tap: ask once, then write; and the second tap ---------------------------
+  var snNow = HT.dayKeyMs('2026-06-20') + 12 * snH + 47 * 60000;
+  HT.setClock(function () { return snNow; });
+  HT.state().settings.sensorDevice = '';
+  var snCount = function () { var n = 0; var tl = HT.state().timeline;
+    Object.keys(tl).forEach(function (k) { (tl[k] || []).forEach(function (e) { if (e.type === 'sensor') n++; }); }); return n; };
+  var snAsk = HT.quickEvent('sensor', 'left arm');
+  res(snAsk.ok === false && snAsk.asking === true && snCount() === 0 && !!HT.sensorAsk() && HT.sensorAsk().arm === 'left arm'
+      && HT.sensorStatusHTML().indexOf('Which sensor is this?') >= 0,
+      'R186 GATE (ruled A): the FIRST tap ever asks which sensor it is and writes NOTHING until answered -- no type is pre-selected in code');
+  res(HT.sensorChoose('made-up').ok === false && snCount() === 0,
+      'R186 GATE: an answer that is not on the list is refused, and still nothing is written');
+  var snFirst = HT.sensorChoose('dexcom-g7');
+  var snRec = snFirst.record || {};
+  res(snFirst.ok === true && snCount() === 1 && snRec.device === 'dexcom-g7' && snRec.variant === 'left arm'
+      && snRec.time === '12:47' && snRec.source === 'quick' && typeof snRec.tzo === 'number',
+      'R186 GATE: answering FINISHES the tap -- one entry, carrying the type, the site from the badge tapped, the time and the device offset (D29)');
+  res(HT.state().settings.sensorDevice === 'dexcom-g7' && HT.sensorAsk() === null
+      && HT.sensorStatusWords(HT.sensorStatus()) === 'Dexcom G7 \u00b7 Day 1 of 10 \u00b7 left arm',
+      'R186 GATE: the type is REMEMBERED, the question is gone, and the countdown reads Day 1 of 10');
+  snNow += 3 * 60000;
+  var snDup = HT.quickEvent('sensor', 'left arm');
+  res(snDup.ok === false && snDup.duplicate === true && snCount() === 1,
+      'R186 GATE (ruled C): a second tap on the SAME arm three minutes later writes NOTHING -- one sensor, one change');
+  snNow += 2 * 60000;
+  var snFix = HT.quickEvent('sensor', 'right arm');
+  var snOnly = (HT.state().timeline['2026-06-20'] || []).filter(function (e) { return e.type === 'sensor'; });
+  res(snFix.ok === true && snFix.corrected === true && snCount() === 1 && snOnly[0].variant === 'right arm'
+      && snOnly[0].time === '12:47' && snOnly[0].orig && snOnly[0].orig.variant === 'left arm' && !!snOnly[0].edited_at,
+      'R186 GATE (ruled C): the OTHER arm inside the window CORRECTS the entry -- still one record, at its first time, with the first-written site kept beside it');
+  HT.doUndo();
+  snOnly = (HT.state().timeline['2026-06-20'] || []).filter(function (e) { return e.type === 'sensor'; });
+  res(snCount() === 1 && snOnly[0].variant === 'left arm' && snOnly[0].orig === undefined,
+      'R186 GATE: and that correction is UNDOABLE, back to exactly what it was -- including having no edit history');
+  snNow += 6 * 60000;                                   // 12:58 -- eleven minutes after the entry
+  var snSecond = HT.quickEvent('sensor', 'right arm');
+  res(snSecond.ok === true && !snSecond.corrected && snCount() === 2 && snSecond.record.time === '12:58',
+      'R186 GATE: CONTROL -- eleven minutes after the entry a tap DOES write a second change, so the dedupe is a window and not a tap that never writes');
+  HT.doUndo();
+  res(snCount() === 1,
+      'R186 GATE: Undo removes exactly the entry the tap wrote');
+
+  // -- ruled D: code never back-fills a type; the USER may state one ----------------
+  snSet({ '2026-06-19': [{ type: 'sensor', kind: 'event', time: '12:47', source: 'quick', variant: 'left arm' },
+                         { type: 'weight', kind: 'biometric', time: '08:00', source: 'manual', value: 80, unit: 'kg' }] });
+  res(HT.state().timeline['2026-06-19'][0].device === undefined
+      && HT.sensorStatusWords(HT.sensorStatus()) === 'Sensor \u00b7 day 2 \u00b7 left arm',
+      'R186 GATE (ruled D): an entry written before the type existed is left WITHOUT one, even with a type remembered in settings -- nothing back-fills it');
+  var snEdHTML = HT.recordEditHTML('2026-06-19', 0, HT.state().timeline['2026-06-19'][0]);
+  res(snEdHTML.indexOf('id="reDevice"') >= 0 && snEdHTML.indexOf('not recorded') >= 0 && snEdHTML.indexOf('id="reSite"') >= 0
+      && snEdHTML.indexOf('id="reVal"') < 0
+      && HT.recordEditHTML('2026-06-19', 1, HT.state().timeline['2026-06-19'][1]).indexOf('id="reDevice"') < 0
+      && HT.recordEditHTML('2026-06-19', 1, HT.state().timeline['2026-06-19'][1]).indexOf('id="reVal"') >= 0,
+      'R186 GATE (ruled D): the editor offers a sensor entry its TYPE and SITE -- showing "not recorded" for one that has none -- and no value box, since a sensor change has no value; every other record-s editor is unchanged');
+  var snEdit = HT.editRecord('2026-06-19', 0, { device: 'dexcom-g7' });
+  var snEdited = HT.state().timeline['2026-06-19'][0];
+  res(snEdit.ok === true && snEdited.device === 'dexcom-g7' && snEdited.orig && snEdited.orig.device === '' && !!snEdited.edited_at,
+      'R186 GATE (ruled D): the user sets it, and the provenance is a USER EDIT -- edited_at says when, and orig keeps the fact that no type was first recorded');
+  var snBack = HT.normalizeSignal(JSON.parse(JSON.stringify(snEdited)));
+  res(snBack.device === 'dexcom-g7' && snBack.orig && snBack.orig.device === '' && snBack.edited_at === snEdited.edited_at,
+      'R186 GATE: and that survives export -> restore -- `undefined` would not have survived JSON, which is why the absence is kept as an empty string');
+  res(HT.sensorStatusWords(HT.sensorStatus()) === 'Dexcom G7 \u00b7 Day 2 of 10 \u00b7 left arm'
+      && HT.recordEditHTML('2026-06-19', 0, snEdited).indexOf('originally sensor type not recorded') >= 0,
+      'R186 GATE: once stated, the countdown has a wear time to count against, and the editor shows what it was before in a person-s words');
+  res(HT.editRecord('2026-06-19', 0, { device: 'made-up' }).ok === false
+      && HT.editRecord('2026-06-19', 0, { variant: 'forehead' }).ok === false
+      && HT.editRecord('2026-06-19', 1, { device: 'dexcom-g7' }).ok === false
+      && HT.state().timeline['2026-06-19'][1].device === undefined,
+      'R186 GATE: a type or a site that is not on its list is refused by name, and no other kind of record can be given a sensor type');
+
+  HT.setClock(null);
+  HT.state().timeline = _snTimeline;
+  HT.state().settings.sensorDevice = _snDevice;
+  HT.resave();
 
 
   freeClock();

@@ -125,6 +125,10 @@
   .btn.danger{border-color:var(--bad);color:var(--bad)}
   .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:700;font-size:16px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:23;max-width:90%;text-align:center}
   .toast.show{opacity:1}
+  /* R186/E: the one-tap confirmation is ONE LINE (ruled). The pill is as wide as
+     its words and never wraps; the type stays 16px, so on a narrow screen it is
+     the padding and the weight that give, never the size. */
+  .toast.tline{white-space:nowrap;max-width:calc(100% - 12px);padding:11px 12px;font-weight:600}
   .hrow{padding:9px 0;border-top:1px solid var(--line)}
   .hrow:first-child{border-top:none}
   .hd{display:flex;align-items:center;gap:8px}
@@ -516,6 +520,13 @@
   .qline b{font-size:16px;word-break:break-word}
   .qin{flex:1 1 140px;min-width:0;font-size:16px;padding:5px 7px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--txt)}
   .qnote{display:block;font-size:16px;color:var(--muted);margin-top:2px}
+  /* R186: the sensor's status line and the once-only type question. `sn`,
+     checked against the stylesheet first; every size 16px. */
+  .snstat{margin:10px 0 0;padding-top:8px;border-top:1px solid var(--line)}
+  .snwords{font-size:16px;font-weight:600}
+  .snchg,.sncancel{display:block;font-size:16px;min-height:44px;text-align:left;padding:0}
+  .snask{margin:10px 0 0;padding-top:8px;border-top:1px solid var(--line)}
+  .snq{font-size:16px;font-weight:600;margin-bottom:6px}
   .drugpanel{margin:8px 0;padding:10px;border:1px solid var(--accent);border-radius:12px}
   .drughead{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;font-size:16px}
   .drughead>b{flex:1 1 auto;min-width:0}
@@ -826,6 +837,16 @@
      new Medication route landed, making it less reachable than the link it
      replaced. Measured: 493px of buttons in a 283px bar. */
   .modes{display:flex;flex-wrap:wrap;gap:6px;flex:1;min-width:0}
+  /* THE STRIP WAS NEVER HIDDEN ON THE ROOT. `hidden` is an attribute and the rule
+     above is a class, so display:flex won and v0.83.0 and v0.84.0 both shipped the
+     root with the strip above it -- the list shown twice, which is the thing the
+     attribute was set to prevent. onedoor-gate asserted the ATTRIBUTE and passed;
+     a screenshot is what found it. It now reads the computed display. */
+  .modes[hidden]{display:none}
+  /* ...and with the strip really gone, nothing pushed the close button to the
+     right any more: it sat at the LEFT of the root. Seen in the next screenshot.
+     It holds its own edge now, whatever is or is not beside it. */
+  .sheethead .sheetx{margin-left:auto}
   .modebtn{flex:0 0 auto;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--muted);font:inherit;font-size:16px;font-weight:700;cursor:pointer}
   .modebtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
   .sheetx{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:2px 8px}
@@ -1041,6 +1062,9 @@
 .fqrow{display:block;width:100%;min-height:44px;text-align:left;font-size:16px;margin:0 0 6px}
 .fqnm{display:block}
 .fqmac{display:block;margin-top:2px;color:var(--muted);font-size:16px}
+/* A figure and its unit stay on one line: "339" / "cal" split across two reads as
+   two things. Seen in a screenshot, not measurable as ink. */
+.fqnb{white-space:nowrap;display:inline-block}
 .fqexit{display:block;font-size:16px;min-height:44px;text-align:left}
 .fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
 .fqlog,.cnsave{width:100%;min-height:44px;font-size:16px;margin-top:10px}

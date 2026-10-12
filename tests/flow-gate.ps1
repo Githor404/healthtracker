@@ -238,7 +238,20 @@ try {
   out.badgesGone = !document.querySelector('#dayView .qab');
   tap(document.getElementById('fab'), 'the FAB');
   await sleep(200);
-  tap(document.getElementById('mode-manual'), 'Manual (sheet tab)');
+  // v0.85.0: THIS TAPPED THE MODE STRIP'S "Manual" TAB -- ON THE ROOT, where ONE
+  // DOOR/1 ruled the strip hidden. It was not hidden: the attribute was set and a
+  // class rule overrode it, so the tab was on screen and `tap()`, which refuses an
+  // invisible node, found nothing to refuse. For two releases J1 was measured
+  // through a control that was ruled not to be there. The strip is really gone
+  // from the root now, and this gate said so at once -- "not visible, so not
+  // tappable" -- which is `tap()` doing exactly its job.
+  //
+  // The journey now takes the root's own "Manual" button, block (d). The PIN DOES
+  // NOT MOVE: it is still one tap from the root to the form, so J1 stays 4. What
+  // moved is which control the tap lands on -- recorded because /1's own record
+  // said "the root's Manual button costs one tap" while this line was tapping
+  // something else.
+  tap(byText('#sheetRoot .srbtn', /^Manual$/), 'Manual (the root, block d)');
   await sleep(220);
   document.getElementById('maName').value = 'Greek yogurt';
   document.getElementById('maKcal').value = '120';

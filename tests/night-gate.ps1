@@ -310,6 +310,11 @@ window.__stage = 'start';
   // ---- the sensor arm, through the mechanism H25 built ------------------
   stage('sensor');
   O.sensor.declared = (HT.QUICK_EVENTS || []).map(q => q.id).sort();
+  // R186: the first-ever sensor tap now ASKS which sensor it is and writes nothing
+  // until answered. This gate is about the ARM reaching the night comparison, so
+  // the type is given here as a user who has already answered would have it --
+  // the asking itself is sensor-gate's to assert.
+  HT.state().settings.sensorDevice = 'dexcom-g7';
   const sres = HT.quickEvent('sensor', 'left arm');
   O.sensor.ok = !!(sres && sres.ok);
   const today = HT.localDate();

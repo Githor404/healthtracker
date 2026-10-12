@@ -19,11 +19,17 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.84.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.85.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
-const SOURCES     = ['scan', 'ai-paste', 'manual', 'preset', 'supplement'];
+// R189 (ruled): `corpus` -- an item whose OWN numbers are the food database's
+// (ruling (a), corpusOwnNumbers). v0.84.0 wrote these as `manual`, which told the
+// record a person had typed figures nobody typed; the `ref` said where they came
+// from and the `source` contradicted it. An ADDITIVE value with no schema bump: a
+// build that does not know it falls back to `manual` at its own restore boundary,
+// which is what every such item said before this value existed.
+const SOURCES     = ['scan', 'ai-paste', 'manual', 'preset', 'supplement', 'corpus'];
 // Canonical micro keys (for future display). Ingest tolerates + preserves
 // unknown keys; it does not restrict to this list.
 const MICRO_KEYS  = ['sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg', 'magnesium_mg',
@@ -91,7 +97,7 @@ function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
   // R168: `stack` ships EMPTY, like `presets`. The multi-user rules forbid personal
   // calibrations in code, and a stack is the most personal thing in this app.
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], combos: [], presets: [], currency: '', signalUnits: {}, fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], combos: [], presets: [], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, labels: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -1010,6 +1016,10 @@ function normalizeSettings(s) {
     presets: Array.isArray(s.presets) ? s.presets : [],
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
     signalUnits: (s.signalUnits && typeof s.signalUnits === 'object' && !Array.isArray(s.signalUnits)) ? s.signalUnits : {},   // D20: last-used unit per signal type
+    // R186: the sensor type last used. Allowlist addition; validated against the
+    // table, so a type this build does not know is ASKED AGAIN rather than used.
+    // Absent stays '' -- nothing is chosen for a user who has not chosen.
+    sensorDevice: (typeof s.sensorDevice === 'string' && SENSOR_BY_ID[s.sensorDevice]) ? s.sensorDevice : '',
     fasting: normalizeFasting(s.fasting),   // D22: fasting detection config
     // H28/A1: `nudges` IS DELIBERATELY ABSENT. This normalizer is an ALLOWLIST
     // REBUILD, so an old export's `settings.nudges` is simply not copied forward:
@@ -1686,6 +1696,7 @@ let _toastT;
 function toast(m) {
   const e = document.getElementById('toast');
   if (!e) return;
+  e.classList.remove('tline');
   e.textContent = m; e.classList.add('show');
   clearTimeout(_toastT);
   _toastT = setTimeout(function () { e.classList.remove('show'); }, 1900);
@@ -1697,13 +1708,30 @@ function toast(m) {
 // removing the record recomputes the gap with no special-case repair. No confirm
 // dialogs anywhere on the log paths — undo protects only where the failure is.
 let _undoFn = null, _undoT = null;
-function offerUndo(label, fn) {
+// R186/E: `ms` and `cls` are optional and every existing caller passes neither,
+// so their bar is the 7 s it always was. A one-tap confirmation asks for ~5 s and
+// the one-line form.
+//
+// ONE LINE AT 16px IS A WIDTH BUDGET, and the words do not always fit it.
+// MEASURED: "New sensor . Dexcom G7 . left arm . 12:47 Undo" is 374px and fits a
+// 390 screen with nothing to spare; the 15-day type's line is 48px too long
+// there and 78px too long at 360. The type size is ruled and the line count is
+// ruled, so the WORDS give: `label` may be a list, fullest first, and the first
+// one that fits inside the bar is the one shown. Measured on the element, not
+// estimated from a character count.
+function offerUndo(label, fn, ms, cls) {
   _undoFn = fn;
   const e = document.getElementById('toast'); if (!e) return;
-  e.innerHTML = esc(label) + ' <button type="button" class="tundo" onclick="doUndo()">Undo</button>';
+  e.classList.toggle('tline', cls === 'tline');
+  const forms = Array.isArray(label) ? label : [label];
+  for (let i = 0; i < forms.length; i++) {
+    e.innerHTML = esc(forms[i]) + ' <button type="button" class="tundo" onclick="doUndo()">Undo</button>';
+    if (cls !== 'tline' || e.scrollWidth <= e.clientWidth + 1) break;
+  }
   e.classList.add('show');
   clearTimeout(_undoT);
-  _undoT = setTimeout(function () { e.classList.remove('show'); e.textContent = ''; _undoFn = null; }, 7000);
+  _undoT = setTimeout(function () { e.classList.remove('show'); e.textContent = ''; _undoFn = null; },
+                      (Number(ms) > 0) ? Number(ms) : 7000);
 }
 function doUndo() {
   const fn = _undoFn; _undoFn = null;
@@ -3787,7 +3815,8 @@ const NUTRIENT_LABELS = { kcal: 'cal', protein_g: 'protein', fat_g: 'fat', carb_
 // value that is added without it (D131).
 const CONF_WORD = { eyeballed: 'estimated', weighed: 'weighed', measured: 'measured' };
 const SOURCE_WORD = { scan: 'from barcode', 'ai-paste': 'from photo', manual: 'typed in',
-                      preset: 'saved item', supplement: 'daily supplement' };
+                      preset: 'saved item', supplement: 'daily supplement',
+                      corpus: 'from the food database' };
 function confWord(v) { const k = String(v == null ? '' : v); return CONF_WORD[k] || k; }
 function sourceWord(v) { const k = String(v == null ? '' : v); return SOURCE_WORD[k] || k; }
 function wordCensus() {
@@ -6428,6 +6457,12 @@ function normalizeSignal(raw) {
   // value meant rather than a transport of it (the v5->v6 migration refused to
   // mine 'scanned 150 g' for exactly this reason). H26 has to READ this.
   if (raw.variant != null && String(raw.variant) !== '') rec.variant = String(raw.variant);
+  // R186: the SENSOR TYPE, declared in the commit that first writes it -- the
+  // allowlist trap again, and D129 is what it cost last time. It is its own field
+  // because `variant` is the ARM and H26's sensorArmFor reads it as the arm. Kept
+  // as written even when this build does not know the id: restore is not the
+  // place to decide a type is wrong, and an unknown one simply shows no name.
+  if (rec.type === 'sensor' && raw.device != null && String(raw.device) !== '') rec.device = String(raw.device);
   if (raw.ref_low  != null && String(raw.ref_low)  !== '') rec.ref_low  = clampNonNeg(raw.ref_low);
   if (raw.ref_high != null && String(raw.ref_high) !== '') rec.ref_high = clampNonNeg(raw.ref_high);
   if (raw.ref_src === 'lab-report') rec.ref_src = 'lab-report';
@@ -6724,7 +6759,227 @@ function quickEvent(id, variant) {
     // become a category that later analysis treats as real.
     raw.variant = (q.variants.indexOf(variant) >= 0) ? variant : q.variants[q.variants.length - 1];
   }
-  return addSignal(raw);
+  // R186: the sensor has a type to name, a duplicate to refuse and a countdown to
+  // reset, so it takes its own path -- and comes back through the same addSignal.
+  if (q.id === 'sensor') return sensorTap(raw.variant);
+  const r = addSignal(raw);
+  // R186/E: A TAP THAT SAVED SAID NOTHING. The form path beside this one has
+  // always called offerSignalUndo; the one-tap path never did, for any of the
+  // four kinds. Reported from the device as "it saved, but" -- the record was
+  // there and nothing on screen said so. RULED: the confirmation IS the Undo bar.
+  if (r.ok) quickConfirm(quickEventWords(q, r.record), [r.record]);
+  return r;
+}
+const QUICK_UNDO_MS = 5000;        // ruled: ~5 s, one line, no modal
+function quickEventWords(q, rec) {
+  const bits = [q.label];
+  if (rec && rec.variant) bits.push(String(rec.variant));
+  if (rec && rec.time) bits.push(String(rec.time));
+  return bits.join(' · ');
+}
+function quickConfirm(words, records) {
+  offerUndo(words, undoRemove(APP_STATE.timeline[localDate()] || [], records), QUICK_UNDO_MS, 'tline');
+}
+// The sensor's confirmation, fullest first. The shorter form drops "New sensor"
+// and NOTHING ELSE: the tap that was just made says what it was, and the type,
+// the site and the time are the three things the report asked to see.
+function sensorConfirmForms(rec, tail) {
+  const end = ' \u00b7 ' + String(rec.time || '') + (tail ? ' \u00b7 ' + tail : '');
+  const full = sensorWords(rec) + end;
+  const dl = sensorDeviceLabel(rec.device);
+  const short = (dl ? dl + ' \u00b7 ' : '') + String(rec.variant || '') + end;
+  return (short !== full && dl) ? [full, short] : [full];
+}
+
+// ---- R186: THE SENSOR-CHANGE ENTRY -----------------------------------------
+//
+// REPORTED FROM THE DEVICE: "Tapped New sensor, left arm. Biometrics shows 12:47
+// New sensor -- it saved, but" no confirmation, no sensor type, no site on the
+// row, no countdown, and a second tap would have written a second change.
+//
+// THE WEAR TIME IS A CLAIM ABOUT A DEVICE, so it carries its source like every
+// other figure this app did not measure (D32's discipline). Each row below was
+// read on the manufacturer's own page on the date it carries, and the page's
+// sentence is kept beside the number it supports. There is NO bare 10 anywhere:
+// a type with no cited wear time has none, and its countdown says how many days
+// have passed and not how many there are.
+//
+// THIS LIST IS PRODUCT DATA. Which of them a fresh install uses is NOT: nothing
+// here is pre-selected, the first tap asks, and the answer is the user's setting
+// (the multi-user rule: no personal calibration in code).
+const SENSOR_DEVICES = [
+  { id: 'dexcom-g7', label: 'Dexcom G7', wearDays: 10, graceHours: 12,
+    cite: { org: 'Dexcom', title: 'How long can I wear the Dexcom G7 CGM sensor?',
+            url: 'https://www.dexcom.com/en-us/faqs/how-long-can-i-wear-the-sensor',
+            retrieved: '2026-10-11',
+            quote: 'The Dexcom G7 sensor is indicated to be worn for up to 10 days, with a 12-hour grace period at the end.' } },
+  { id: 'dexcom-g7-15', label: 'Dexcom G7 15 Day', wearDays: 15, graceHours: 12,
+    cite: { org: 'Dexcom', title: 'How long does the Dexcom G7 15 Day CGM sensor last?',
+            url: 'https://www.dexcom.com/en-us/faqs/how-long-does-dexcom-g7-15-day-sensor-last',
+            retrieved: '2026-10-11',
+            quote: 'The Dexcom G7 15 Day CGM sensor is indicated for 15 days of wear with an additional 12-hour grace period',
+            // The same page, and it belongs WITH the number: "of 15" is what the
+            // sensor is indicated for, not what every sensor reaches.
+            caveat: 'When using the product per the package labeling, approximately 26% of sensors may not last for the full 15 days.' } },
+  { id: 'other', label: 'Another sensor' },
+];
+const SENSOR_BY_ID = SENSOR_DEVICES.reduce(function (m, d) { m[d.id] = d; return m; }, {});
+const SENSOR_DEDUPE_MIN = 10;      // ruled: a second tap inside ~10 min is not a second sensor
+let SENSOR_ASK = null;             // { arm } while the type is being asked; arm null = just changing it
+
+// The NAME a record's type is shown by. A record with no type, a type this build
+// does not know, and "another sensor" all show none -- never a guessed one (D137:
+// a record cannot be classified by a field it predates).
+function sensorDeviceLabel(id) {
+  const d = SENSOR_BY_ID[String(id == null ? '' : id)];
+  return (d && d.wearDays) ? d.label : '';
+}
+function sensorWords(rec) {
+  const bits = ['New sensor'];
+  const dl = sensorDeviceLabel(rec && rec.device);
+  if (dl) bits.push(dl);
+  if (rec && rec.variant) bits.push(String(rec.variant));
+  return bits.join(' · ');
+}
+// What a timeline row calls its record. The sensor is the one event whose row
+// was hiding what it had stored: the arm was on the record and not on the screen.
+function signalRowLabel(r) {
+  if (r && r.type === 'sensor') return sensorWords(r);
+  const spec = r ? SIGNAL_BY_TYPE[r.type] : null;
+  return spec ? spec.label : String((r && r.type) || '');
+}
+// The most recent sensor change at or before `atMs`. A record with no clock time
+// is placed at the start of its day and marked untimed, so nothing downstream
+// states an hour figure that rests on a time nobody recorded (D112).
+function sensorLast(atMs) {
+  const now = (atMs == null) ? nowMs() : atMs;
+  const tl = APP_STATE.timeline || {};
+  let best = null;
+  Object.keys(tl).filter(isDayKey).forEach(function (dk) {
+    (tl[dk] || []).forEach(function (e, i) {
+      if (!e || e.type !== 'sensor') return;
+      const m = /^(\d{2}):(\d{2})$/.exec(String(e.time || ''));
+      const ms = dayKeyMs(dk) + (m ? (Number(m[1]) * 60 + Number(m[2])) * 60000 : 0);
+      if (ms > now + 60000) return;                    // a change logged for later is not in force yet
+      if (!best || ms >= best.ms) best = { date: dk, idx: i, rec: e, ms: ms, timed: !!m };
+    });
+  });
+  return best;
+}
+// Pure over the clock it is handed, so the countdown is gateable at a pinned
+// time (D50). COUNTED FROM WHEN THE CHANGE WAS LOGGED -- this app has no line to
+// the sensor, and the surface says so beside the citation.
+function sensorStatus(atMs) {
+  const now = (atMs == null) ? nowMs() : atMs;
+  const last = sensorLast(now);
+  if (!last) return null;
+  const dev = SENSOR_BY_ID[String(last.rec.device || '')];
+  const el = Math.max(0, now - last.ms);
+  const out = { date: last.date, idx: last.idx, device: (dev && dev.wearDays) ? dev.id : '',
+                label: (dev && dev.wearDays) ? dev.label : '', arm: String(last.rec.variant || ''),
+                day: Math.floor(el / 86400000) + 1, phase: 'elapsed', wearDays: null, graceLeftH: null };
+  if (dev && dev.wearDays) {
+    const wearMs = dev.wearDays * 86400000, graceMs = (dev.graceHours || 0) * 3600000;
+    out.wearDays = dev.wearDays;
+    if (el < wearMs) out.phase = 'wear';
+    else if (el < wearMs + graceMs) {
+      out.phase = 'grace';
+      if (last.timed) out.graceLeftH = Math.max(1, Math.ceil((wearMs + graceMs - el) / 3600000));
+    } else out.phase = 'past';
+  }
+  return out;
+}
+// A STATEMENT OF ELAPSED TIME, never an instruction. "past its wear time" says
+// what the clock says; whether to change the sensor is not this app's to say.
+function sensorStatusWords(s) {
+  if (!s) return '';
+  const bits = [];
+  if (s.phase === 'elapsed') { bits.push('Sensor'); bits.push('day ' + s.day); }
+  else {
+    bits.push(s.label);
+    if (s.phase === 'wear') bits.push('Day ' + s.day + ' of ' + s.wearDays);
+    else if (s.phase === 'grace') {
+      bits.push('grace period');
+      if (s.graceLeftH != null) bits.push(s.graceLeftH + ' h left');
+    } else bits.push('past its wear time');
+  }
+  if (s.arm) bits.push(s.arm);
+  return bits.join(' · ');
+}
+function sensorCiteHTML(dev) {
+  const c = dev && dev.cite;
+  if (!c) return '';
+  return '<details class="cited"><summary>Where the wear time comes from</summary><div class="citebody">'
+    + '<small class="labcite">' + esc(c.org) + ', “' + esc(c.title) + '”, read ' + esc(c.retrieved)
+    + ': “' + esc(c.quote) + '”'
+    + (c.caveat ? ' And: “' + esc(c.caveat) + '”' : '')
+    + ' Counted here from the time you logged the sensor, not read from the sensor itself.</small>'
+    + '</div></details>';
+}
+function sensorAskHTML() {
+  return '<div class="snask"><div class="snq">Which sensor is this?</div><div class="qgroup">'
+    + SENSOR_DEVICES.map(function (d) {
+        return '<button type="button" class="qbtn" onclick="sensorChoose(\'' + esc(d.id) + '\')">' + esc(d.label) + '</button>';
+      }).join('')
+    + '</div><button type="button" class="linklike sncancel" onclick="sensorAskCancel()">cancel</button></div>';
+}
+// D146: no sensor ever logged draws no line at all.
+function sensorStatusHTML() {
+  if (SENSOR_ASK) return sensorAskHTML();
+  const s = sensorStatus();
+  if (!s) return '';
+  return '<div class="snstat"><div class="snwords">' + esc(sensorStatusWords(s)) + '</div>'
+    + sensorCiteHTML(SENSOR_BY_ID[s.device])
+    + '<button type="button" class="linklike snchg" onclick="sensorAskType()">change sensor type</button></div>';
+}
+function sensorAskType() { SENSOR_ASK = { arm: null }; renderQuickEvents(); return { ok: true }; }
+function sensorAskCancel() { SENSOR_ASK = null; renderQuickEvents(); return { ok: true }; }
+function sensorChoose(id) {
+  if (!SENSOR_BY_ID[String(id)]) return { ok: false, error: 'Not a sensor type.' };
+  APP_STATE.settings.sensorDevice = String(id);
+  Store.saveState(APP_STATE);
+  const ask = SENSOR_ASK;
+  SENSOR_ASK = null;
+  // Asked BY a tap: the tap is finished now, so the first sensor still costs one
+  // tap on an arm and one on a type, and every one after it costs one.
+  if (ask && ask.arm) return sensorTap(ask.arm);
+  renderQuickEvents();
+  return { ok: true, device: String(id) };
+}
+function sensorTap(arm) {
+  const sites = QUICK_BY_ID.sensor.variants;
+  const site = (sites.indexOf(arm) >= 0) ? arm : sites[sites.length - 1];
+  const dev = APP_STATE.settings && APP_STATE.settings.sensorDevice;
+  // RULED A: the type is the last one used, and the FIRST time there is none --
+  // so it is asked, once, and nothing is written until it is answered.
+  if (!SENSOR_BY_ID[String(dev || '')]) {
+    SENSOR_ASK = { arm: site };
+    renderQuickEvents();
+    return { ok: false, asking: true, why: 'ask-device' };
+  }
+  const now = nowMs();
+  const last = sensorLast(now);
+  // RULED C. Inside the window a second tap is not a second sensor: the same arm
+  // writes NOTHING and says so; the other arm is far likelier a mis-tap than a
+  // second sensor in ten minutes, so it CORRECTS the entry's site -- through
+  // editRecord, so the first-written site is kept and the correction is undoable.
+  if (last && last.timed && (now - last.ms) < SENSOR_DEDUPE_MIN * 60000) {
+    if (String(last.rec.variant || '') === site) {
+      toast('Already logged at ' + last.rec.time);
+      return { ok: false, duplicate: true, why: 'duplicate', record: last.rec };
+    }
+    const er = editRecord(last.date, last.idx, { variant: site });
+    if (er.ok) {
+      const undo = _undoFn;                       // editRecord's own undo, re-worded
+      // Its own short wording: what changed, to what, on which entry.
+      offerUndo('Site corrected \u00b7 ' + er.record.variant + ' \u00b7 ' + er.record.time, undo, QUICK_UNDO_MS, 'tline');
+    }
+    return Object.assign({ corrected: !!er.ok }, er);
+  }
+  const r = addSignal({ type: 'sensor', source: 'quick', time: nowTime(), date: localDate(),
+                        variant: site, device: String(dev) });
+  if (r.ok) quickConfirm(sensorConfirmForms(r.record), [r.record]);
+  return r;
 }
 function addSignalFromForm() {
   const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
@@ -6827,7 +7082,7 @@ function renderTimelineOverlay() {
     if (r.type === 'sleep')
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
     const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
-    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(spec ? spec.label : r.type)}${val}${note}${edited}</span>${rm}</div>`;
+    return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(spec ? signalRowLabel(r) : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
 }
 
@@ -6883,8 +7138,14 @@ function recordsIn(date, collection) {
 }
 function editableFields(rec, collection) {
   if (collection === 'items') return EDITABLE_FIELDS.item.slice();
-  return (EDITABLE_FIELDS[rec && rec.kind === 'medication' ? 'medication' : 'signal']).slice();
+  const base = (EDITABLE_FIELDS[rec && rec.kind === 'medication' ? 'medication' : 'signal']).slice();
+  // R186, ruled D: code never back-fills a sensor's type, and the USER may state
+  // it. So on a sensor record -- and only there -- the type and the site are
+  // editable, through this one contract, which is what makes the provenance a
+  // user edit: `orig` keeps what was first written and `edited_at` says when.
+  return (rec && rec.type === 'sensor') ? base.concat(SENSOR_EDITABLE) : base;
 }
+const SENSOR_EDITABLE = ['device', 'variant'];
 // FORK C (ruled): the PROVENANCE of a record is a fact; the RELIABILITY of its
 // number is a claim. An edit changes the claim and never the fact.
 //
@@ -6914,7 +7175,8 @@ function demoteForEdit(rec, fields) {
 // input, and an allowlist inside the allowlist is cheaper than trusting it.
 const ORIG_KEYS = ['value', 'dose', 'time', 'notes', 'meal', 'kcal', 'protein_g',
                    'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g', 'confidence',
-                   'grams'];   // D57/R23: the accepted portion is editable, so it has an original
+                   'grams',    // D57/R23: the accepted portion is editable, so it has an original
+                   'device', 'variant'];   // R186: a sensor's type and site, same reason
 function normalizeOrig(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
   const out = {};
@@ -6990,6 +7252,14 @@ function editRecord(date, idx, patch, collection) {
       if (!Number.isFinite(n) || n < 0) return { ok: false, error: 'That is not a number.' };
       if (k === 'grams' && !(n > 0)) return { ok: false, error: 'Grams must be positive.' };
       next[k] = clampNonNeg(n);
+    } else if (k === 'device') {
+      // A closed list, refused by name: a typed-in type would be a category the
+      // countdown cannot source a wear time for.
+      if (!SENSOR_BY_ID[String(raw)]) return { ok: false, error: 'Not a sensor type.' };
+      next.device = String(raw);
+    } else if (k === 'variant') {
+      if (QUICK_BY_ID.sensor.variants.indexOf(raw) < 0) return { ok: false, error: 'Not a sensor site.' };
+      next.variant = raw;
     } else if (k === 'value' || k === 'dose') {
       // D52: an ordinal is REFUSED rather than snapped-to-absent here. At ingest a
       // stray 3.5 becomes absence because there is no user to ask; an edit has one
@@ -7049,7 +7319,13 @@ function editRecord(date, idx, patch, collection) {
   // FORK B: preserve AS FIRST WRITTEN, per field, write-once.
   const orig = rec.orig ? rec.orig : {};
   changed.forEach((k) => {
-    if (!Object.prototype.hasOwnProperty.call(orig, k)) orig[k] = rec[k];
+    if (Object.prototype.hasOwnProperty.call(orig, k)) return;
+    // R186: a sensor logged before the type existed has NO device, and
+    // `undefined` does not survive JSON -- so the fact "no type was recorded" would
+    // vanish on the next save and the record would read as always having had one.
+    // '' is that fact, kept. Only this field: every other editable field is always
+    // present on the records that carry it.
+    orig[k] = (k === 'device' && rec[k] === undefined) ? '' : rec[k];
   });
   const demoted = demoteForEdit(rec, changed);
   if (demoted && !Object.prototype.hasOwnProperty.call(orig, 'confidence')) orig.confidence = prior.confidence;
@@ -7121,14 +7397,32 @@ function recordEditHTML(date, idx, r) {
     : `<input id="reVal" type="number" inputmode="decimal" value="${cur == null ? '' : esc(cur)}">`;
   // Fork B, made visible: the original is kept, so it is also SHOWN. Provenance
   // the user cannot see is provenance they cannot check.
+  // R186: the two sensor fields are worded for a person -- `device` and `variant`
+  // are this file's names, not the user's -- and an original of '' is the fact
+  // that none was recorded, said as that.
+  const origWord = { device: 'sensor type', variant: 'site' };
+  const origVal = (k, v) => (k === 'device')
+    ? (v === '' ? 'not recorded' : (sensorDeviceLabel(v) || 'another sensor')) : String(v);
   const origNote = r.orig
     ? `<div class="renote">originally ` + Object.keys(r.orig).map((k) =>
-        `${esc(k)} ${esc(String(r.orig[k]))}`).join(' · ') + `</div>` : '';
+        `${esc(origWord[k] || k)} ${esc(origVal(k, r.orig[k]))}`).join(' · ') + `</div>` : '';
+  const sensorCtl = (r.type === 'sensor')
+    ? `<div class="rerow">
+      <div style="flex:1"><label>Sensor type</label><select id="reDevice">`
+      + (SENSOR_BY_ID[r.device] ? '' : `<option value="" selected>not recorded</option>`)
+      + SENSOR_DEVICES.map((d) =>
+          `<option value="${esc(d.id)}"${r.device === d.id ? ' selected' : ''}>${esc(d.label)}</option>`).join('')
+      + `</select></div>
+      <div style="flex:1"><label>Site</label><select id="reSite">`
+      + QUICK_BY_ID.sensor.variants.map((v) =>
+          `<option value="${esc(v)}"${r.variant === v ? ' selected' : ''}>${esc(v)}</option>`).join('')
+      + `</select></div>
+    </div>` : '';
   return `<div class="tlrow tleditopen"><div class="rewrap">
     <div class="rerow">
       <div style="flex:0 0 104px"><label>Time</label><input id="reTime" type="time" value="${esc(r.time || '')}"></div>
-      <div style="flex:1"><label>${numLabel}</label>${numCtl}</div>
-    </div>
+      ${r.type === 'sensor' ? '' : `<div style="flex:1"><label>${numLabel}</label>${numCtl}</div>`}
+    </div>${sensorCtl}
     <label>Notes</label><input id="reNotes" value="${esc(r.notes || '')}">
     <div id="reMsg"></div>${origNote}
     <div class="rerow" style="margin-top:8px">
@@ -7149,6 +7443,12 @@ function saveRecordEdit(date, idx) {
   const numKey = rec.kind === 'medication' ? 'dose' : 'value';
   const nv = g('reVal');
   if (nv !== undefined && String(nv).trim() !== '') patch[numKey] = nv;
+  // R186: "not recorded" is the empty option and is never sent -- leaving a type
+  // unstated is not an edit, and a type once stated cannot be un-stated here.
+  if (rec.type === 'sensor') {
+    const dv = g('reDevice'); if (dv) patch.device = dv;
+    const sv = g('reSite'); if (sv) patch.variant = sv;
+  }
   const r = editRecord(date, idx, patch);
   if (!r.ok) {
     // "No change" is not a failure the user needs told about -- it is a cancel
@@ -8975,6 +9275,7 @@ function quickEventsHTML() {
     return '<button type="button" class="qbtn" onclick="quickEvent(\'' + esc(q.id) + '\')">'
       + esc(q.label) + '</button>';
   }).join('') + '</div>'
+    + sensorStatusHTML()
     + '<div class="note qnote">One tap records that it happened, with the time \u2014 never a duration nobody entered.</div>';
 }
 function renderQuickEvents() {
@@ -11759,6 +12060,7 @@ const VERSION_LOG = [
   { v: '0.82.0', d: '2026-10-10', note: 'You can now make a combo out of things you have already logged. Log the coffee and the cream once the ordinary way, tap Save as combo on the day, tick the two of them, give it a name -- and that is it. The combo keeps each part-s portion exactly as you logged it, along with where its numbers came from, so a part matched to the food database keeps that match and a part from a published source keeps its citation. Nothing is retyped and nothing is estimated. The same list is the editor: rename it, delete it, or change a part-s portion -- and when you change a portion, the calories, the nutrients and the database match all move with it rather than one of them being left behind. Deleting a combo leaves the meals you already logged alone. The ticks only appear while you are choosing, so the day behaves exactly as before the rest of the time.' },
   { v: '0.83.0', d: '2026-10-11', note: 'There is one Log button now, and it opens one sheet. It leads with what is the same every day -- your daily stack, then your combos -- then the three foods you repeat most with the rest one tap away, then Photo, Scan and Manual for something new, and a line at the foot for a dose, an event or a biometric. It reads from most certain to least certain, which is the opposite of what it did before: it used to open on the camera, the one path that needs a barcode and good light. Quick add on the day opens the same sheet rather than a different one, which is the whole of the fix -- the two buttons went to the same place and showed you different things, and making a combo from the wrong door led nowhere. A combo you saved a minute ago can be logged straight away: it had nothing in your history yet, and the list it was offered from is counted from your history, so tapping it used to do nothing at all. Going back from a food now puts it down instead of keeping it half-picked.' },
   { v: '0.84.0', d: '2026-10-11', note: 'Two things the Log sheet was missing. Search: type a food and the food database answers as you type, from the first couple of letters -- pick a row, say how many grams, and it is logged. A food found this way takes the database-s figures as its own numbers, with the source named on it, because it has no other numbers to take; they are a typical one-s figures, not your label-s, so it is marked as an estimate. And + New combo: build a combo before you have ever logged it. Name it, search for each part and give it an amount, and the running total shows calories and caffeine as you go -- saying how many parts each figure is from, so a part the database does not know cannot make the total look complete.' },
+  { v: '0.85.0', d: '2026-10-11', note: 'Tapping New sensor now tells you it worked. The entry names the sensor and the arm -- New sensor, Dexcom G7, left arm -- and a line beside the buttons counts the days: Day 3 of 10, then the grace period, then that it is past its wear time. The first time, it asks which sensor you use and remembers the answer. The wear times are the maker-s own published figures, with the source one tap away, and they are counted from when you logged the sensor. A second tap within ten minutes no longer adds a second change: the same arm does nothing, and the other arm corrects the entry. You can open an older sensor entry and set its type yourself. Moved, Woke and Drink now confirm with an Undo as well. A food you logged by searching now says it is from the food database, where before it said typed in. In the Log sheet: going back from a half-built combo keeps it as a draft instead of throwing it away; searching puts the food you typed ahead of longer words that merely start with it, so milk no longer leads with milkfish; and the row of mode buttons no longer sits on top of the first screen.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15753,10 +16055,17 @@ function setSheetMode(mode) {
   });
   if (mode === 'quick') renderQuickChips();
   if (mode === 'root') { QUICK_PICK = null; renderSheetRoot(); }
-  // Entering either pane starts it CLEAN, and leaving abandons what was in it:
-  // the rule the root already keeps for a pick, kept for a search and a draft.
+  // A search starts CLEAN and leaving abandons it -- the rule the root already
+  // keeps for a pick: it is one typed word, and re-typing it costs nothing.
   if (mode === 'search') renderSearchPane(); else FOOD_SEARCH = null;
-  if (mode === 'combo') renderComboNew(); else COMBO_NEW = null;
+  // A COMBO DRAFT IS NOT THAT, and v0.84.0 treated it as if it were. A name and
+  // three parts with their amounts is real typing, and the back link threw it
+  // away without a word (R187). RULED: it must not be silently discarded. So the
+  // draft is KEPT -- leaving does nothing to it, coming back finds it, and the
+  // only things that end it are Save and the user's own "Start over". No
+  // "Discard?" question: D22's rule is that the protection is never a confirm
+  // dialog, and a draft that is simply still there needs no question asked.
+  if (mode === 'combo') renderComboNew();
   // The mode strip IS the root's own content, so it hides there and a back link
   // appears everywhere else. One door needs a spine: every pane has to be one tap
   // from the list it was chosen off, or the sheet becomes a maze with one entrance.
@@ -15978,7 +16287,7 @@ function biometricGroupHTML(dateKey) {
     const spec = SIGNAL_BY_TYPE[r.type];
     const val = (r.value != null) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
     return `<div class="bgline"><span class="mgitime">${esc(r.time || '')}</span>`
-      + `<span class="mginame">${esc(spec ? spec.label : (r.type || ''))}</span>`
+      + `<span class="mginame">${esc(spec ? signalRowLabel(r) : (r.type || ''))}</span>`
       + `<span class="bgval">${esc(val)}</span></div>`;
   }).join('');
   return h + '</div></div>';
@@ -16361,7 +16670,13 @@ function sheetCombosHTML() {
 // make the first one is not hidden behind already having one. A heading over an
 // apology is what D146 forbids; a control that does something is not that.
 function sheetComboNewHTML() {
-  return '<button type="button" class="linklike srnew" onclick="setSheetMode(\'combo\')">+ New combo</button>';
+  // A kept draft is SAID, here, on the surface the back link returns to: a draft
+  // nobody can see is the silent discard with a longer fuse.
+  const d = comboNewDraft();
+  const label = d
+    ? ('Continue combo draft' + (d.parts ? ' \u00b7 ' + d.parts + (d.parts === 1 ? ' part' : ' parts') : ''))
+    : '+ New combo';
+  return '<button type="button" class="linklike srnew" onclick="setSheetMode(\'combo\')">' + esc(label) + '</button>';
 }
 // Picking a combo from the root goes through the SAME stepper the top 10 uses, so
 // the multiplier, the part list and the citation line are one implementation.
@@ -16414,11 +16729,26 @@ function renderSheetRoot() {
 //
 // So the LAST word, while it is still being typed, matches any token it BEGINS.
 // Everything else is the matcher's own: the same index, the same tokens, the same
-// read-not-chosen weights (D136), the same weighted Jaccard. A row is credited
-// for the half-typed word ONCE, at the weight of ITS OWN token -- as if the user
-// had finished typing that word. A row that answers the finished words and not
-// the half-typed one is kept and ranked beneath, never dropped: the list is a
-// proposal (D119), and a proposal that vanishes mid-word reads as "not in here".
+// read-not-chosen weights (D136), the same weighted Jaccard. A row that answers
+// the finished words and not the half-typed one is kept and ranked beneath, never
+// dropped: the list is a proposal (D119), and a proposal that vanishes mid-word
+// reads as "not in here".
+//
+// WHAT THE HALF-TYPED WORD IS WORTH -- corrected in v0.85.0, from looking at it.
+// v0.84.0 credited each row at the weight of ITS OWN token, which sounded like
+// "as if the user had finished typing that word" and ranked the RAREST reading
+// first: "milk" led with milkfish, "coffee" with coffeecake, "egg" with eggplant.
+// Every gate passed, because every gate asked whether rows came back and none
+// asked whether they were the rows a person meant. Two rules replace it, both
+// still read off the index rather than tuned:
+//   1. A row holding the typed word AS A WHOLE TOKEN ranks above every row that
+//      merely begins with it. That is what the matcher itself returns one
+//      keystroke later, when the space is typed -- so the top of the list no
+//      longer changes under the user at the moment they finish the word.
+//   2. Among the rest, the half-typed word is credited at the weight of its
+//      COMMONEST completion, the same for every row. Rarity is a reason to
+//      credit a word the user TYPED; it is not a reason to prefer a word they
+//      have not typed over a shorter one they may be about to finish.
 const TYPEAHEAD_MIN = 2;         // one character is not a search (measured: 0 rows)
 const TYPEAHEAD_MAX = 8;         // IDENTITY_SEARCH_MAX's number, for its reason
 function matchTypeaheadIn(index, list, text, limit) {
@@ -16435,18 +16765,20 @@ function matchTypeaheadIn(index, list, text, limit) {
     .filter(function (t) { return t !== tail; });
   const keys = index.keys || (index.keys = Object.keys(index.idx));
   const pw = {}, exact = {};
-  let any = false;
+  let any = false, credit = Infinity;
   for (let i = 0; i < keys.length; i++) {
     const k = keys[i];
     if (k.indexOf(tail) !== 0) continue;
     any = true;
     const w = matchIdf(index, k);
+    if (w < credit) credit = w;                  // the commonest completion's weight
     const rows = index.idx[k];
     for (let j = 0; j < rows.length; j++) {
-      if (!(pw[rows[j]] >= w)) pw[rows[j]] = w;
+      pw[rows[j]] = 1;
       if (k === tail) exact[rows[j]] = 1;
     }
   }
+  if (any) Object.keys(pw).forEach(function (r) { pw[r] = credit; });
   // The half-typed word begins nothing in the index: a typo, or a word the corpus
   // does not hold. What was finished before it still stands.
   if (!any) return head.length ? matchCandidatesIn(index, list, head.join(' '), lim) : [];
@@ -16484,7 +16816,10 @@ function matchTypeaheadIn(index, list, text, limit) {
                jaccard: union > 0 ? h / union : 0 });
   });
   out.sort(function (a, b) {
-    return b.jaccard - a.jaccard || b.overlap - a.overlap || b.exact - a.exact;
+    // A row that answers MORE of the words typed outranks one that answers fewer
+    // ("chicken br" must not lead with a chicken row that has no "br" in it),
+    // then the whole-token rule, then the matcher's own Jaccard.
+    return b.overlap - a.overlap || b.exact - a.exact || b.jaccard - a.jaccard;
   });
   return out.slice(0, lim);
 }
@@ -16516,6 +16851,10 @@ function matchTypeahead(text, limit) {
 // cheddar, and that half of D120 is untouched. Confidence is `eyeballed`, because
 // the portion was typed rather than weighed and the row is a generic food.
 //
+// AND THE SOURCE SAYS SO (R189). `source: 'corpus'` is written here and nowhere
+// else, so "this item's own numbers are the database's" is a declared fact on the
+// record rather than an inference from its macros happening to equal its ref's.
+//
 // CONFINED HERE, so it is reversible in one place: the search log and the combo
 // builder both build their numbers through this function and nothing else copies
 // a corpus macro onto an item. A macro the row does not carry is LEFT OFF rather
@@ -16529,7 +16868,7 @@ function corpusOwnNumbers(meta, row, id, name, grams) {
   const ref = resolveItemFreeze({ grams: g }, meta, row, id, name, null, 'picked', 'capture');
   if (!ref) return null;
   const out = { name: String(name == null ? '' : name), grams: g,
-                confidence: 'eyeballed', source: 'manual', soluble_fiber_g: 0, ref: ref };
+                confidence: 'eyeballed', source: 'corpus', soluble_fiber_g: 0, ref: ref };
   Object.keys(CORPUS_OWN_MACROS).forEach(function (k) {
     const v = corpusScale(corpusValueAt(row, meta.slots, CORPUS_OWN_MACROS[k]), g);
     if (v != null) out[k] = v;
@@ -16638,7 +16977,7 @@ function searchStepHTML() {
   const cite = String((c.meta && c.meta.attribution) || '');
   return '<div class="fqstep">'
     + '<div class="qsname">' + esc(c.name) + '</div>'
-    + '<div class="fqsub">Food database, per 100 g: ' + esc(photoSearchMacroWords(c)) + '</div>'
+    + '<div class="fqsub">Food database, per 100 g: <span class="fqnb">' + esc(photoSearchMacroWords(c)) + '</span></div>'
     // The citation WITH the numbers, and the sentence that says whose they are:
     // this is the one place the app lets a database figure into the day's own.
     + (cite ? '<div class="fqsub fqcite">Food database: ' + esc(cite) + '</div>' : '')
@@ -16713,16 +17052,35 @@ function searchLog() {
 // is "from" rather than understating and looking complete. That is the honesty
 // rule arriving in a form field.
 let COMBO_NEW = null;       // { name, parts, q, phase, rows, seq } -- view state until Save
+// A draft is something worth keeping: a name, or a part. An opened-and-untouched
+// builder is not one, so it is never offered back as "your draft".
+function comboNewDraft() {
+  const st = COMBO_NEW;
+  if (!st) return null;
+  const named = String(st.name || '').trim() !== '';
+  return (named || st.parts.length) ? { name: String(st.name || ''), parts: st.parts.length } : null;
+}
+function comboNewDiscard() {
+  COMBO_NEW = null;
+  renderComboNew();
+  return { ok: true };
+}
 function renderComboNew() {
   const el = document.getElementById('comboNewBox');
-  COMBO_NEW = { name: '', parts: [], q: '', phase: '', rows: [], seq: 0 };
+  // KEPT across leaving the pane (R187). The half-typed SEARCH is not part of the
+  // draft and is dropped: its rows belong to a moment that has passed.
+  // MEMORY ONLY: it survives the back link and closing the sheet, and does not
+  // survive a reload. Persisting it would put a half-made thing in the export.
+  if (comboNewDraft()) { COMBO_NEW.q = ''; COMBO_NEW.phase = ''; COMBO_NEW.rows = []; COMBO_NEW.seq++; }
+  else COMBO_NEW = { name: '', parts: [], q: '', phase: '', rows: [], seq: 0 };
   if (!el) return;
   // Both fields rendered ONCE (the caret rule); the three regions under them are
   // what a keystroke or a tap redraws.
   el.innerHTML = '<div class="srhead">New combo</div>'
     + '<input id="cnName" type="text" class="cnin" placeholder="name it, e.g. my coffee"'
-    + ' aria-label="combo name" autocomplete="off" oninput="comboNewName(this.value)">'
-    + '<div id="cnParts"></div>'
+    + ' aria-label="combo name" autocomplete="off" value="' + esc(COMBO_NEW.name) + '"'
+    + ' oninput="comboNewName(this.value)">'
+    + '<div id="cnParts">' + comboNewPartsHTML() + '</div>'
     + '<label class="cnlab" for="cnQuery">Add a part</label>'
     + '<input id="cnQuery" type="text" class="cnin" placeholder="search the food database"'
     + ' aria-label="search for a part" autocomplete="off" oninput="comboNewType(this.value)">'
@@ -16844,10 +17202,11 @@ function comboNewPartsHTML() {
   return st.parts.map(function (p, i) {
     const sub = p.typed
       ? 'typed in · no database numbers'
-      : ('food database, per 100 g: ' + photoSearchMacroWords({ kcal: p.kcal100, protein: p.protein, fat: p.fat, carb: p.carb }));
+      : ('food database, per 100 g: <span class="fqnb">'
+         + esc(photoSearchMacroWords({ kcal: p.kcal100, protein: p.protein, fat: p.fat, carb: p.carb })) + '</span>');
     const val = function (x) { return x == null ? '' : String(x); };
     return '<div class="cnpart"><div class="cnpname">' + esc(p.name) + '</div>'
-      + '<div class="cnpsub">' + esc(sub) + '</div>'
+      + '<div class="cnpsub">' + sub + '</div>'
       + '<label class="cnlab">grams<input type="number" class="cnin cnamt" inputmode="decimal" min="0"'
       + ' value="' + esc(val(p.grams)) + '" oninput="comboNewAmount(' + esc(String(i)) + ', \'grams\', this.value)"'
       + ' aria-label="grams of ' + esc(p.name) + '"></label>'
@@ -16873,7 +17232,9 @@ function comboNewTotalHTML() {
     : '';
   return lines
     + '<button type="button" class="btn cnsave" onclick="comboNewSave()"' + (t.blocked ? ' disabled' : '') + '>Save combo</button>'
-    + (t.blocked ? '<div class="cnpsub cnwhy">' + esc(t.blocked) + '</div>' : '');
+    + (t.blocked ? '<div class="cnpsub cnwhy">' + esc(t.blocked) + '</div>' : '')
+    // The ONE way to throw a draft away, and it is the user's own act.
+    + (comboNewDraft() ? '<button type="button" class="linklike cnrm cnover" onclick="comboNewDiscard()">Start over</button>' : '');
 }
 function comboNewSave() {
   const st = COMBO_NEW;
@@ -18982,7 +19343,12 @@ window.HT = {
   CORPUS_OWN_MACROS, corpusOwnNumbers, sheetComboNewHTML,
   foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
   comboNew: () => COMBO_NEW, renderComboNew, comboNewName, comboNewType, comboNewAddAt, comboNewAddTyped,
-  comboNewRemove, comboNewAmount, comboNewPartNumbers, comboNewTotal, comboNewTotalHTML, comboNewSave,
+  comboNewRemove, comboNewAmount, comboNewDraft, comboNewDiscard,
+  // R186 -- the sensor-change entry
+  SENSOR_DEVICES, SENSOR_BY_ID, SENSOR_DEDUPE_MIN, QUICK_UNDO_MS, SENSOR_EDITABLE,
+  sensorTap, sensorChoose, sensorAskType, sensorAskCancel, sensorAsk: () => SENSOR_ASK,
+  sensorLast, sensorStatus, sensorStatusWords, sensorStatusHTML, sensorWords, sensorDeviceLabel,
+  signalRowLabel, quickEventWords, sensorCiteHTML, sensorConfirmForms, recordEditHTML, comboNewPartNumbers, comboNewTotal, comboNewTotalHTML, comboNewSave,
   // Phase 4 Slice — Regimen / timeline templates (D27)
   parseRegimen, addRegimenFromJSON, normalizeRegimens, setActiveRegimen, deleteRegimen, activeRegimen, regimenToday,
   logRegimenEntry, substituteRegimenEntry, unfulfillRegimenEntry, isGrosslyLate, buildPresetItem, REGIMEN_TEMPLATE, REGIMEN_SAMPLE,

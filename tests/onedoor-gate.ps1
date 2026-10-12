@@ -309,18 +309,33 @@ try {
 (function () {
   HT.closeSheet(); HT.openSheet();
   var modes = document.getElementById('sheetModes'), back = document.getElementById('sheetBack');
-  var rootHid = { modes: modes.hidden, back: back.hidden };
+  // MEASURED, not read off the attribute. This check used to read `.hidden`, and
+  // it passed through v0.83.0 and v0.84.0 while the strip sat on the root in
+  // plain sight: `hidden` is an attribute, `.modes{display:flex}` is a class rule,
+  // and the class won. A screenshot found it. So: is it on the screen?
+  var off = function (n) { var r = n.getBoundingClientRect();
+    return getComputedStyle(n).display === 'none' || r.height === 0; };
+  var rootHid = { modes: off(modes), back: off(back) };
+  var sx = document.querySelector('#entrySheet .sheetx'), sh = document.getElementById('entrySheet');
+  var xGap = Math.round(sh.getBoundingClientRect().right - sx.getBoundingClientRect().right);
+  // THE PLANT is the defect itself: the attribute still says hidden while the
+  // element is forced on screen. The old check would have passed here.
+  modes.style.display = 'flex';
+  var plant = { attr: modes.hidden, measuredOff: off(modes) };
+  modes.style.display = '';
   HT.setSheetMode('manual');
-  var inMode = { modes: modes.hidden, back: back.hidden };
+  var inMode = { modes: off(modes), back: off(back) };
   back.click();
   var after = document.getElementById('pane-root').className.indexOf('on') >= 0;
-  return { rootHid: rootHid, inMode: inMode, backReturns: after };
+  return { rootHid: rootHid, inMode: inMode, backReturns: after, plant: plant, xAtRight: xGap >= 0 && xGap < 40 };
 })()
 '@
   Write-Host ("  spine: " + $spine)
   Check (($spine -like '*"rootHid":{"modes":true,"back":true}*')) "on the root the mode strip is hidden -- the strip IS the root-s own content, so showing both is showing the list twice"
   Check (($spine -like '*"inMode":{"modes":false,"back":false}*')) "and inside a mode both the strip and the back link are there: one door needs a spine, or the sheet is a maze with one entrance"
   Check ($spine -like '*"backReturns":true*') "the back link returns to the root, by a real click"
+  Check ($spine -like '*"xAtRight":true*') "on the root the close button is at the RIGHT edge of the sheet -- hiding the strip for real left it stranded on the left, which a second screenshot found"
+  Check ($spine -like '*"plant":{"attr":true,"measuredOff":false}*') "PLANT: with the strip forced on screen while its attribute still says hidden, the measurement says ON SCREEN -- the attribute check this replaced passed on exactly that, for two releases"
 
   # ---- 6. D146: nothing configured draws no block -----------------------------
   $empty = EvalJ @'
@@ -460,6 +475,20 @@ HT.corpusEnsure().then(function () {
   Check ($sv.exitFirst -eq $true) "the way out comes BEFORE the list -- a list that always has a plausible first row needs its exit where someone who recognises nothing finds it first"
   Check (($sv.macros -eq $sv.rows) -and ($sv.cap -like '*per 100 g*')) "every row shows its macros, and the caption says what they are per"
 
+  $srank = EvalJ @'
+(function () {
+  var whole = function (q) {
+    var m = HT.matchTypeahead(q, 8);
+    var re = new RegExp('(^|[^a-z])' + q + '([^a-z]|$)', 'i');
+    return { first: m.length ? m[0].name : '', ok: m.length > 0 && re.test(m[0].name) };
+  };
+  return { milk: whole('milk'), egg: whole('egg'), coffee: whole('coffee') };
+})()
+'@
+  Write-Host ("  search ranking: " + $srank)
+  $sr = $srank | ConvertFrom-Json
+  Check (($sr.milk.ok -eq $true) -and ($sr.egg.ok -eq $true) -and ($sr.coffee.ok -eq $true)) "a word typed IN FULL leads with a row that holds it as a whole word -- milk before milkfish, egg before eggplant, coffee before coffeecake. v0.84.0 led with the rarer longer word on all three, and nothing here asked"
+
   $spick = EvalJ @'
 (function () {
   var st = HT.foodSearch();
@@ -501,7 +530,7 @@ HT.corpusEnsure().then(function () {
   return { pre: pre, added: day.items.length - w.before, name: it.name === w.name,
            kcal: Math.abs((it.kcal || 0) - w.kcal100 * 2.5) < 1e-6,
            ownIsRow: it.kcal === ref.v['208'] && it.protein_g === ref.v['203'] && it.fat_g === ref.v['204'],
-           grams: it.grams, conf: it.confidence, micros: it.micros === undefined,
+           grams: it.grams, conf: it.confidence, source: it.source, micros: it.micros === undefined,
            refId: ref.id === w.id, ns: ref.ns, hash: !!ref.hash, attribution: !!ref.attribution, refG: ref.g,
            refSlots: Object.keys(ref.v).length, closed: getComputedStyle(sheet).display === 'none',
            search: HT.foodSearch() };
@@ -516,6 +545,7 @@ HT.corpusEnsure().then(function () {
   Check ($sl.ownIsRow -eq $true) "...and its own macros are EXACTLY the cited values at those grams -- one arithmetic, so the item and its citation cannot disagree"
   Check (($sl.refId -eq $true) -and ($sl.hash -eq $true) -and ($sl.attribution -eq $true) -and ($sl.refG -eq 250) -and ($sl.ns -ne '')) "CITED: the item carries the row's namespace, id, hash, attribution and the grams its values are at"
   Check ($sl.conf -eq 'eyeballed') "confidence is eyeballed -- the portion was typed"
+  Check ($sl.source -eq 'corpus') "R189: and its SOURCE is the food database -- v0.84.0 wrote 'manual' here, which said a person had typed numbers nobody typed"
   Check (($sl.micros -eq $true) -and ($sl.refSlots -gt 5)) "MICROS DO NOT MOVE: the item has no micros map of its own, and the row's other values are in the citation where they were always kept"
   Check (($sl.closed -eq $true) -and ($null -eq $sl.search)) "the sheet closes on the day, and the search is put down"
 
@@ -630,6 +660,37 @@ HT.corpusEnsure().then(function () {
   Check (($cy.parts -eq 2) -and ($cy.kcalFrom -eq 1) -and ($cy.cafFrom -eq 1)) "the typed part brings NO calories and NO caffeine to the total"
   Check ($cy.says -eq 2) "and the total SAYS 'from 1 of 2 parts' for BOTH figures -- coverage grammar, not silence: without it one part's caffeine reads as the whole drink's"
   Check ($cy.calBox -eq 1) "only the typed part offers a calories box -- a matched part's numbers are the row's and cannot be typed over"
+  # ---- 10b. R187: BACK DOES NOT DISCARD A HALF-BUILT COMBO ----------------------
+  # v0.84.0 threw the name, both parts and the amount away on the back link,
+  # without a word. Ruled: keep it, or ask. It is KEPT -- and the root says so.
+  $cdraft = EvalJ @'
+(function () {
+  document.getElementById('sheetBack').click();
+  var btn = document.querySelector('#sheetRoot .srnew');
+  var out = { rootOn: document.getElementById('pane-root').className.indexOf('on') >= 0,
+              label: btn ? btn.textContent : '' };
+  HT.closeSheet(); HT.openSheet();
+  document.querySelector('#sheetRoot .srnew').click();
+  var amt = document.querySelector('#cnParts .cnamt');
+  var tot = (document.getElementById('cnTotal') || {}).textContent || '';
+  out.paneOn = document.getElementById('pane-combo').className.indexOf('on') >= 0;
+  out.name = document.getElementById('cnName').value;
+  out.parts = HT.comboNew().parts.length;
+  out.shownParts = document.querySelectorAll('#cnParts .cnpart').length;
+  out.amt = amt ? amt.value : '';
+  out.says = tot.split('from 1 of 2 parts').length - 1;
+  out.over = !!document.querySelector('#cnTotal .cnover');
+  out.query = document.getElementById('cnQuery').value;
+  return out;
+})()
+'@
+  Write-Host ("  new combo, the draft: " + $cdraft)
+  $cd = $cdraft | ConvertFrom-Json
+  Check (($cd.rootOn -eq $true) -and ($cd.label -like '*Continue combo draft*2 parts*')) "a real click on the back link returns to the root, and the root SAYS a draft is kept and how big it is"
+  Check (($cd.paneOn -eq $true) -and ($cd.name -eq 'Gate coffee') -and ($cd.parts -eq 2) -and ($cd.shownParts -eq 2)) "after CLOSING the sheet and coming back, the builder holds the name and both parts -- on the screen, not only in memory"
+  Check (($cd.amt -eq '250') -and ($cd.says -eq 2)) "the amount typed for the matched part is still in its box, and the total still says 'from 1 of 2 parts' twice"
+  Check (($cd.over -eq $true) -and ($cd.query -eq '')) "the way to throw it away is on the screen, and the half-typed search was not kept with it"
+
   $csave = EvalJ @'
 (function () {
   var b = document.querySelector('#cnTotal .cnsave');
@@ -648,7 +709,8 @@ HT.corpusEnsure().then(function () {
               rootOn: document.getElementById('pane-root').className.indexOf('on') >= 0, onRoot: !!row,
               p0ref: !!p0.ref, p0caf: p0.ref ? HT.refValueAt(p0.ref, 262) > 0 : false, p0g: p0.grams,
               p0own: !!p0.ref && p0.kcal === p0.ref.v['208'], p0conf: p0.confidence,
-              p1ref: p1.ref === undefined, p1name: p1.name, draft: HT.comboNew() };
+              p1ref: p1.ref === undefined, p1name: p1.name, draft: HT.comboNew(),
+              newLabel: (root.querySelector('.srnew') || {}).textContent || '' };
   if (row) row.click();
   var plan = HT.quickPlan();
   out.stepParts = plan && plan.combo ? plan.combo.rows.length : -1;
@@ -665,6 +727,26 @@ HT.corpusEnsure().then(function () {
   Check (($cs.p1ref -eq $true) -and ($cs.p1name -eq 'zzqqx cream')) "the part that did not match carries NO ref, so no caffeine -- it degrades exactly as pre-registered"
   Check (($cs.rootOn -eq $true) -and ($cs.onRoot -eq $true) -and ($null -eq $cs.draft)) "saving returns to the root with the new combo ON it, and the draft is gone"
   Check ($cs.stepParts -eq 2) "and a real click on that new row reaches the stepper with both parts -- the combo made a moment ago is loggable"
+  Check ($cs.newLabel -eq '+ New combo') "and with the draft saved the root offers '+ New combo' again, not a draft that no longer exists"
+  [void](Eval "(function(){ document.querySelector('#sheetRoot .srnew').click(); document.getElementById('cnName').focus(); return 1; })()")
+  TypeText 'Throwaway'
+  Settle
+  $cover = EvalJ @'
+(function () {
+  var b = document.querySelector('#cnTotal .cnover');
+  var had = !!b && !!HT.comboNewDraft();
+  if (b) b.click();
+  var out = { had: had, name: document.getElementById('cnName').value, draft: HT.comboNewDraft(),
+              gone: !document.querySelector('#cnTotal .cnover') };
+  HT.setSheetMode('root');
+  out.label = (document.querySelector('#sheetRoot .srnew') || {}).textContent || '';
+  return out;
+})()
+'@
+  Write-Host ("  new combo, start over: " + $cover)
+  Check ($cover -like '*"had":true*') "a name alone is a draft, and Start over is offered for it"
+  Check (($cover -like '*"name":""*') -and ($cover -like '*"draft":null*') -and ($cover -like '*"gone":true*')) "a real click on Start over empties the builder -- the one way a draft is discarded, and it is the user's own act"
+  Check ($cover -like '*"label":"+ New combo"*') "and the root no longer offers a draft"
 
   # ---- 11. no dead control on either new pane ----------------------------------
   # Section 7's scan, widened: these panes wire `oninput` as well as `onclick`,
@@ -694,6 +776,9 @@ HT.corpusEnsure().then(function () {
       HT.comboNewAddAt(0);
       HT.comboNew().q = 'something typed'; HT.comboNewAddTyped();
       var c = scan(document.getElementById('comboNewBox'));
+      // Drafts are KEPT now, so a gate that builds one must put it down or the
+      // next section opens on it.
+      HT.comboNewDiscard();
       return { controls: a.n + b.n + c.n, dead: a.bad.concat(b.bad).concat(c.bad) };
     });
   });
@@ -736,6 +821,7 @@ HT.corpusEnsure().then(function () {
       HT.comboNewAddAt(0);
       HT.comboNew().q = 'a typed part with a long name to wrap'; HT.comboNewAddTyped();
       measure(document.getElementById('comboNewBox'), acc);
+      HT.comboNewDiscard();
       HT.setSheetMode('root');
       return acc;
     });
