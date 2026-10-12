@@ -14877,3 +14877,363 @@ opened for. Pre-registered as **all four**, with the sensor's wording as ruled.
 
 **STOPPING for rulings A–D, and for one more: whether §1's "all four" is wanted,
 or the sensor alone.**
+
+---
+
+## R187 — RULED; ONE DOOR/2 LOOKED AT; R186 BUILT (2026-10-11, v0.85.0)
+
+`R187` and `R183` grepped per the standing rule. **`R187` is unused. `R183` names
+nothing in this repo** — *"Per R183: suite green → push → verify → report"* is the
+standing push ruling, which is recorded in the session memory under its date and
+under no number. Followed as that; recorded here so a future grep for R183 lands
+on this sentence rather than on nothing.
+
+### 1. RULED — R186, all five, with two additions
+
+| | ruled |
+|---|---|
+| A | asked once from a built-in list, remembered |
+| B | per-type table with the Dexcom citation. *"Dexcom G7 · Day 3 of 10 · left arm"*, then grace, then *"past its wear time"* |
+| C | same arm writes nothing; other arm corrects |
+| D | **no back-fill by code — but the user may edit an existing entry to set its type**, provenance = user edit |
+| E | all four (sensor, Moved, Woke, Drink). **The confirmation IS the Undo bar: one line, 16px, ~5 s, no modal** |
+
+**The ruling's own text reads `My sensor: Dexcom G7 [10-day / 15 Day]`** — the
+choice left unfilled. It did not need filling: both are in the table, and ruling A
+means the first tap asks. Nothing in the code prefers either.
+
+### 2. ONE DOOR/2, LOOKED AT — and the eyes found what 92 checks had not
+
+Ruled: *"gates measure ink, eyes check sense."* Nine screenshots at 390px, taken by
+a scratch script and read. **Four defects, all in shipped code, all behind a green
+suite:**
+
+| seen | what it was | why no gate saw it |
+|---|---|---|
+| **the mode strip sitting on the root** — Scan / Quick / Photo / Manual above the list that offers the same four | `hidden` is an attribute; `.modes{display:flex}` is a class rule; the class won. **Shipped in v0.83.0 AND v0.84.0** | `onedoor-gate` asserted `modes.hidden === true`. It was true. The strip was on screen |
+| **"milk" led with milkfish**, "coffee" with coffeecake, "egg" with eggplant | the half-typed word was credited at each row's *own* token weight, so the rarest completion won | every check asked whether rows came back; none asked whether they were the rows a person meant |
+| `339` / `cal` split across two lines | a figure and its unit wrapping apart | not measurable as ink |
+| **the close button on the LEFT** | found in the *second* round of screenshots: really hiding the strip removed the thing that had been pushing it right | did not exist until the first fix |
+
+> **The first row is the one to keep.** A gate that reads the attribute it expects
+> to have been set is asserting that the code ran, not that it worked. The check
+> now measures whether the element is on screen, and its plant *is* the defect:
+> the attribute still says hidden while the strip is forced visible, and the
+> measurement must say visible.
+
+**The ranking, corrected and still read rather than tuned** ([[D136]]). Three
+rules, in order: a row answering **more of the words typed** leads; then a row
+holding the typed word **as a whole token** — which is what the matcher itself
+returns one keystroke later, so the top of the list no longer changes at the
+moment the word is finished; then the weighted Jaccard, with the half-typed word
+credited at the weight of its **commonest** completion, the same for every row.
+*Rarity is a reason to credit a word the user typed; it is not a reason to prefer
+a word they have not typed over a shorter one they may be about to finish.*
+
+Before and after, on the shipped corpus, first row:
+
+| typed | v0.84.0 | v0.85.0 |
+|---|---|---|
+| `milk` | Fish, milkfish, raw | Crackers, milk |
+| `coffee` | Cake, coffeecake, cheese | SILK Coffee, soymilk |
+| `egg` | Eggplant, raw | Egg, whole, raw, fresh |
+| `yog` | Frozen yogurts, chocolate | Tofu yogurt |
+
+**Better, and not good, and the difference is stated.** `milk` now leads with a
+milk *cracker*; plain milk is fourth. That is the matcher's Jaccard preferring
+short names — it was always so, and search-as-you-type is where it shows. `coff`
+(unfinished) still leads with coffeecake. Neither is chased here: the next step is
+a ranking signal the index does not hold, and that is a ruling.
+
+**Seen, reported, NOT changed — three things that are rulings, not defects:**
+
+- **The sheet's foot is on every pane and takes about a third of a 390×844
+  screen**: four links (*Log event or biometric · Add a medication from its label
+  · Log a dose I took · Log a lab panel*). On the root, block (e)'s two links sit
+  directly above it and **two of the four are the same two**. The foot predates
+  ONE DOOR; /1 added (e) without noticing it. In the combo builder the working
+  area is what is left over.
+- **Inside any pane the head wraps to two rows**: *‹ Log* plus the four strip
+  buttons do not fit 390px. And the strip still offers **Quick** — the second door
+  — with no button lit in Search or the builder.
+- **A long corpus name runs to three lines** (*"Cheese, cheddar, reduced fat
+  (Includes foods for USDA's Food Distribution Program)"*).
+
+### 3. THE DRAFT — kept, not asked about
+
+Ruled: *"Back on a half-built combo must not silently discard it: keep it as a
+draft, or ask 'Discard combo?' — your call, gate it."*
+
+**Kept.** [[D22]]'s rule is that the protection is never a confirm dialog, and a
+draft that is simply still there needs no question. Leaving the builder does
+nothing to it; the root says **"Continue combo draft · 2 parts"** where it said
+"+ New combo"; it survives closing the sheet; it ends by **Save** or by the user's
+own **Start over**, which is on the builder whenever there is something to throw
+away. An opened-and-untouched builder is not a draft and is never offered back.
+
+**Its limit, stated:** it is memory only. It survives the back link and a closed
+sheet and **does not survive a reload** — including the reload an update forces.
+Persisting it would put a half-made thing in the export, and that is a storage
+decision nobody asked for.
+
+### 4. R186, AS BUILT
+
+**The wear times were read on Dexcom's own pages on 2026-10-11**, and each is
+stored with the sentence it rests on:
+
+| type | wear | grace | the sentence |
+|---|---|---|---|
+| Dexcom G7 | 10 d | 12 h | *"The Dexcom G7 sensor is indicated to be worn for up to 10 days, with a 12-hour grace period at the end."* |
+| Dexcom G7 15 Day | 15 d | 12 h | *"The Dexcom G7 15 Day CGM sensor is indicated for 15 days of wear with an additional 12-hour grace period"* — and, shown with it: *"approximately 26% of sensors may not last for the full 15 days."* |
+| Another sensor | — | — | none is cited, so none is stated: the line counts days passed and has no "of N" |
+
+**How first-hand, exactly:** the pages were fetched and the sentences returned by
+the fetch tool's own reader, which quotes rather than hands over the raw page. The
+two quotes agree with each other and with a separate search of dexcom.com. That is
+one step short of reading the HTML, and is recorded as that.
+
+**Counted from when the change was logged.** The app has no line to the sensor, a
+Dexcom session starts when the sensor is paired, and the citation on the surface
+says so in its last sentence.
+
+| | as built |
+|---|---|
+| the field | `device` on the record, declared in `normalizeSignal` in this commit ([[D129]]). Its own field because `variant` is the arm and `sensorArmFor` (H26) reads it as the arm |
+| the setting | `settings.sensorDevice`, allowlisted, validated against the table. **No schema bump**: an allowlist addition, on `primaryNutrient`'s precedent |
+| the first tap | asks, in the page, and **writes nothing** until answered. Then every later sensor is one tap |
+| the confirmation | the Undo bar, ~5 s. Every other undo bar keeps its 7 s |
+| the countdown | `sensorStatus(atMs)`, pure over the clock it is handed ([[D50]]). *"past its wear time"* is a statement of elapsed time — the gate asserts no instruction is in it |
+| dedupe | 10 min. Same arm: nothing, and *"Already logged at 12:47"*. Other arm: **through `editRecord`**, so the first-written site is kept and the correction is undoable |
+| ruled D | `device` and `variant` are editable **on sensor records only**. The editor shows *"not recorded"* for an entry with no type and offers no value box. `orig.device` keeps `''` — *"no type was first recorded"* — because `undefined` does not survive JSON and the fact would have vanished on the next save |
+
+**"ONE LINE AT 16px" IS A WIDTH BUDGET, MEASURED.** *"New sensor · Dexcom G7 ·
+left arm · 12:47 Undo"* is **374px** and fits a 390 screen with nothing to spare.
+The 15-day type's line is **48px too long at 390 and 78px too long at 360**. The
+type size is ruled and the line count is ruled, so the words give: the bar tries
+the full line and, only if it does not fit, drops *"New sensor"* and nothing else.
+The type, the site and the time are always there. On a 390 screen with a G7 the
+bar reads exactly as ruled.
+
+**One thing the gate's own first draft got wrong, worth keeping.** It measured
+"one line" as box height, and a no-wrap pill is *always* one line tall — the text
+spilled 96px outside the bar and the check passed. It now also requires the words
+to fit inside the element. *A measurement that cannot fail is the attribute check
+from §2 again.*
+
+### 5. Deferred, recorded only (ruled)
+
+- **Plurals** — `sardine` finds rows, `sardines` none.
+- **"+ New combo" with zero combos** — stays as built: shown, with no heading.
+- **A flow-gate pin for the Search path.**
+
+### 6. Evidence
+
+| | |
+|---|---|
+| harness | **2874** (+44: 41 here, 3 for §8's source fix), re-pinned; three /2 pins moved, each with its reason |
+| `tests/sensor-gate.ps1` | **NEW, 61 checks**, registered in the manifest. Real taps, a pinned clock, the toast's real five seconds |
+| `tests/onedoor-gate.ps1` | **92 → 104** (the last one is §8's source check): the strip measured (with the defect as its plant), the close button's edge, the ranking on the shipped corpus, the draft by real clicks, Start over |
+| `tests/night-gate.ps1` | one line: it taps "New sensor", which now asks a type first. It is given one, as a user who has answered would have; the asking is `sensor-gate`'s |
+| suite | **42 verdicts** (1 harness + 9 static + 32 CDP) |
+
+### 7. THE FIRST FULL RUN FAILED 40 OF 42 — and one of the two is the finding of the slice
+
+Nothing was pushed. Both failures were the suite doing its job on code the two
+new gates had passed.
+
+**`check-egress.sh`: `www.dexcom.com` undeclared.** The citation URLs are stored
+beside the figures they support, and every reachable host has to be declared with
+a class and a reason. Declared as `string`: never requested, and not rendered as a
+link — the surface shows the maker, the page title and the date.
+
+**`flow-gate.ps1`: *"not visible, so not tappable: Manual (sheet tab)"*.**
+
+> **J1 had been tapping the mode strip's "Manual" tab on the root — the control
+> ONE DOOR/1 ruled hidden there.** It was on screen, so `tap()`, which refuses an
+> invisible node, had nothing to refuse. For two releases the novel-food journey
+> was measured through a control that was ruled not to exist, and /1's record
+> said *"the root's Manual button costs one tap"* while the gate tapped something
+> else.
+
+So the hidden-strip defect in §2 was passing **two** gates, not one: `onedoor-gate`
+read the attribute, and `flow-gate` used the strip. Making the strip really hidden
+broke the second at once, by name. J1 now takes the root's own **Manual** button.
+**The pin does not move — it is still one tap, J1 stays 4** — and that is said
+rather than assumed, because a journey that changed which control it uses without
+changing its count is exactly what a tap count cannot show ([[D130]], and /1's own
+lesson about a metric that only counts the steps of a path it assumes exists).
+
+### 8. RULED WITH R189, done in v0.85.0 — a searched item's `source` is `corpus`
+
+> *"searched corpus items are saved with source: manual. They must carry corpus
+> provenance (ruling a)."*
+
+This is the marker §1 of ONE DOOR/2 raised and left for a ruling. `SOURCES` gains
+**`corpus`**, worded on the surface as **"from the food database"**, and it is
+written in exactly one place — `corpusOwnNumbers` — so *"this item's own numbers
+are the database's"* is a declared fact rather than an inference from its macros
+equalling its ref's. In a combo the matched part is `corpus` and the typed part
+stays `manual`.
+
+- **No schema bump.** An additive enum value: a build that does not know it falls
+  back to `manual` at its own restore boundary, which is what every such item
+  said before the value existed.
+- **Nothing is back-filled.** Any food logged by search under v0.84.0 keeps
+  `manual` ([[D137]]). It is the one day of records where the inference is still
+  the only way to tell, and it is said here so nobody later reads those as typed.
+- **The data contract in CLAUDE.md lists five sources.** It is now six in the
+  code. The brief is not edited from here.
+
+The suite that included this was **stopped by the machine for low memory** before
+it finished, so nothing above is pushed at the time of writing.
+
+---
+
+## R189 — SERVED vs EATEN — PRE-REGISTERED, MEASURED FIRST, NOT BUILT (2026-10-11)
+
+Serves **track**, and it is the denominator **evaluate** stands on: a glucose
+response read against 120 g of wings when 40 g were eaten is a response to a meal
+that did not happen. `R189` grepped: unused. (`R188` names nothing here either.)
+
+### 1. HALF OF THIS IS ALREADY BUILT, and that changes what the slice is
+
+The ruling describes two corrections. **The second one exists on the photo path
+and has since the plate slice:**
+
+| ruled | what the code already does |
+|---|---|
+| *"a photo records what was SERVED"* | a photo saves a **plate** — the served items at their served grams, kept |
+| *"Leftovers — user-stated"* | the save asks what was eaten: `normalizeAte` holds **all / a count / a fraction**, written as an explicit statement even for "all" |
+| *"totals use EATEN, never served"* | the day receives **consumption events** (`consumeFromPlate`), ordinary items frozen at the eaten grams. Totals never see the plate |
+| *"editable later"* | the remainder is derived (`plateRemainder`), and an open plate is offered back as leftovers |
+| *"never hide the served figure"* | **not done** — the plate keeps it, but the day's row shows only the eaten grams |
+
+Measured earlier in this log: 24 of 45 photo items reached the day through a plate
+and 7 were eaten as a fraction. **So on the reported case — a photo, 120 g of
+wings — the fraction could already be stated at save.** What the report shows is
+either that it was not found, or that it was asked at the wrong moment (before
+eating, when the answer is not yet known). That is a different defect from "not
+built", and the fix for it is a surface, not a store.
+
+> **Named rather than silently resolved (working rules):** building *"Ate: all · ¾
+> · ½ · ¼ · g"* as a new field on the item would be a SECOND leftovers mechanism
+> beside the plate. Pre-registered instead as **one mechanism**: the plate, reached
+> from every path that has a served weight, with the ruled five-way control as its
+> surface and "all" as its default.
+
+**What is genuinely new:** (a) the inedible part; (b) served-vs-eaten on paths
+that are not a photo — a weighed serving, a searched food, a scan; (c) showing both
+figures on the row; (d) asking *after*, not only at save.
+
+### 2. THE INEDIBLE PART, MEASURED — and "USDA refuse %" is not in the file we hold
+
+| source | refuse data |
+|---|---|
+| **USDA SR Legacy**, the file the `fdc` corpus is built from (210 MB JSON, read whole) | **none.** The word occurs only inside portion descriptions (*"fruit without refuse"*). There is no refuse field to cite |
+| **Canadian Nutrient File**, the `cnf` corpus | **`REFUSE AMOUNT.csv`: 5,642 of 5,690 foods have a total-refuse row; 1,224 are above zero**, each with its named parts |
+
+So the ruling's source does not exist in this repo's inputs and the Canadian one
+does. **Which corpus a device uses is decided by its locale**, so as things stand
+this correction can be cited on a `cnf` device and not on an `fdc` one. The older
+USDA SR28 release did carry a refuse field per food; it is not in `HTPrivate` and
+would be a new source to admit.
+
+**The wings, from CNF** — and the report's own arithmetic agrees with it:
+
+| row | total refuse | parts |
+|---|---|---|
+| Chicken, broiler, wing, meat and skin, roasted | **48%** | bone 48 |
+| …, batter dipped, fried | **38%** | bone 38 |
+| …, flour coated, fried | **47%** | bone 47 |
+| Chicken, broiler, wing, **meat**, roasted | **68%** | bone 48 + **skin 20** |
+
+*"120 g served · ~75 g edible"* is 37.5% — the batter-fried row. **And the fourth
+row is the trap in the first three:** refuse is a property of the ROW, not of the
+food. Matched to a meat-only row, the skin the user ate is "refuse" and 20% of
+the meal disappears.
+
+### 3. "AUTOMATIC" IS WRONG FOR MOST OF THE 1,224, and the data says which
+
+Refuse is measured against the food **as purchased**. A served weight includes it
+only sometimes:
+
+| food | CNF total refuse | is it on the plate when it is weighed or photographed? |
+|---|---|---|
+| chicken wing | 38–48% bone | **yes** — nobody serves wings deboned |
+| banana | 36% skin | usually **no** — "a banana, 120 g" is the fruit |
+| avocado | 26% seed and skin | **no** on toast, yes if halved |
+| egg | 12% shell | **never** once cooked |
+| anything with *separable fat* (126 foods) | varies | it was eaten or it was not; the table cannot know |
+
+Applied automatically to all of them, the correction would quietly remove 12% of
+every egg and a third of every banana — **fiction wearing decimals, in the other
+direction**. Named parts among the 1,224: bone 440, skin 145, separable fat 126,
+connective tissue 43, shells/husks 32, bone and skin 25, pits 23, bone and
+cartilage 22.
+
+**Proposed, and it is the ruling that matters most here:**
+
+- **Applied by default ONLY where the refuse is bone** (bone, bone and cartilage —
+  about 460 rows): the one case where the weight on the plate reliably includes it.
+- **Everything else is OFFERED, off by default**: one line, *"Weighed with the
+  peel? 36% of a banana is skin"*, one tap.
+- **Always shown, always one tap to undo**, and stored separately from the
+  leftover statement, as ruled — two corrections, two fields, two provenances
+  (`cited` and `user-stated`).
+
+### 4. RULINGS NEEDED
+
+| | question | proposed |
+|---|---|---|
+| A | one leftovers mechanism or two | **one — the plate**, extended to every path with a served weight |
+| B | the refuse source | **CNF**, cited as CNF. On an `fdc` device: no automatic correction and no figure, until a USDA refuse source is admitted. *Not* CNF figures shown under a USDA name |
+| C | automatic for what | **bone only**; all other refuse offered, default off (§3) |
+| D | a row whose refuse includes something eaten (the skin) | the correction uses the **matched row's** total, and the row it matched is shown beside it — so a meat-only match is visible as the reason 68% went missing |
+| E | when "Ate:" is asked | at save **and** on the logged meal afterwards, default all, never a prompt that waits for an answer |
+| F | the order of the two | refuse first, then the fraction: *120 g served · ~75 g edible · ate ½ · 37 g*. The fraction is of what was edible |
+
+### 5. PRE-REGISTERED GATE
+
+| | |
+|---|---|
+| wings, 120 g served, matched to a bone-in row with 38% refuse | edible **74.4 g**; own calories and `ref.v` both at 74.4 g, by one arithmetic |
+| **½ tapped** | eaten **37.2 g**; calories exactly half; the day total and the meal total move by exactly that |
+| the served figure | still on the row: served, edible and eaten all readable, **when they differ** — and only one figure when they do not |
+| the refuse carries its citation | source, row, percentage and named part, reachable from the row |
+| a banana, 120 g | **not** reduced; the offer is there and off |
+| an `fdc` device | no refuse applied, none shown |
+| refuse and fraction are separate fields | undoing one leaves the other; export → restore keeps both |
+| the glucose-response reader | takes eaten grams — asserted on the function that reads them, not on the display |
+| no prompt blocks | logging with nothing tapped records "all", and nothing asks again |
+| the control and every figure | **16px / 44px, measured**, at 390 and 360 — and looked at |
+
+**STOPPING for rulings A–F.** B and C change what gets built; the rest are
+defaults I would take.
+
+### 6. RULED (R190, 2026-10-11) — all six, and C is tightened
+
+`R190` grepped: unused.
+
+| | ruled |
+|---|---|
+| A | **one mechanism** — extend the existing plate to every path with a served weight |
+| B | **Canadian Nutrient File, cited.** No auto-correction on the US corpus until a USDA refuse source exists |
+| C | **bone only automatic — AND only when the matched food is itself bone-in.** *"A boneless or meat-only row never gets the bone correction."* Peel, shell, pit, fat: one tap, off by default |
+| D | the matched row's figure, with the row it matched shown |
+| E | at save and on the logged meal afterwards, default "all", never a waiting prompt |
+| F | refuse first, then the fraction of what was edible: *"120 g served · ~75 g edible · ate ½ · 37 g"* |
+
+**C as ruled is stricter than C as proposed, and the difference is §2's fourth
+row.** A meat-only wing row carries *bone 48%* in the table too — it is how much
+bone was removed to get that meat. Applied there, the correction would take the
+bone off a food that has none. So "the refuse is bone" is necessary and not
+sufficient: the **row itself** has to be the bone-in food. How a row says that is
+the first thing to measure when this is built — the CNF names do not say "with
+bone", so it will be read from the table and counted before it is trusted.
+
+**Added to the gate:** a banana and an egg logged by weight get **no** automatic
+correction.
+
+**Also ruled:** the source fix stands, with no back-fill; CLAUDE.md's data
+contract is updated to six sources in v0.85.0. **Build R189 after v0.85.0 is
+live.**

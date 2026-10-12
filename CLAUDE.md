@@ -64,7 +64,8 @@ Capabilities, as they actually stand:
 Item fields: `name, meal, time, kcal, protein_g, fat_g, carb_g, fiber_g, soluble_fiber_g, confidence, notes`, plus optional `barcode`, optional `micros`, and `source`.
 - `meal` ∈ breakfast | lunch | dinner | snack | drink | supplement
 - `confidence` ∈ eyeballed | weighed | measured
-- `source` ∈ scan | ai-paste | manual | preset | supplement
+- `source` ∈ scan | ai-paste | manual | preset | supplement | corpus
+  - `corpus` (ruled 2026-10-11, v0.85.0): an item found purely by search, whose OWN macros are the cited composition corpus's at the typed grams. Written in one place (`corpusOwnNumbers`); its `ref` carries the citation; its micros stay in `ref.v` and are never copied into `micros`. Additive, no schema bump — a build that does not know the value falls back to `manual` at its restore boundary. Items logged by search under v0.84.0 keep `manual` and are not back-filled.
 - `micros` is an optional flat map of canonical keys → numbers: `sodium_mg, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, vitamin_a_ug, vitamin_c_mg, vitamin_d_ug, vitamin_b12_ug, folate_ug, saturated_fat_g, sugars_g, cholesterol_mg` (extensible; unknown keys tolerated on ingest, preserved, not displayed until recognized). Only scan/manual items may carry micros per the honesty rule; ingest strips `micros` from `ai-paste` items and says so in the ingest report.
 - `soluble_fiber_g` always present (0 when unknown) on every creation path.
 

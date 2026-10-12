@@ -5782,3 +5782,54 @@ harness on it by name, which is the D29 census working as built.
 `GATE:` line so the runner never counts it. It is where the per-keystroke costs
 in DECISIONS come from, and it now times the typeahead itself, cold and warm,
 with the matcher's mid-word row count beside the typeahead's.
+
+### R186 / R187 — a new gate, and two checks that could not fail (2026-10-11, v0.85.0)
+
+**`tests/sensor-gate.ps1`, NEW — 61 checks, registered in the manifest in this
+commit.** The suite is now **42 verdicts** (1 harness + 9 static + 32 CDP).
+Harness **2830 -> 2874**.
+
+Why a gate: every defect in the report was a thing on the screen or missing from
+it, and the harness page has no toast and no badges — `offerUndo` returns early
+there. What it holds:
+
+- **the first tap ever ASKS and writes nothing**; answered, it writes one entry
+  with type, site and time;
+- **the confirmation, measured**: on screen and opaque, naming type, site and
+  time, carrying Undo, **16px** on the words and on the button, **one line**, and
+  — by real seconds, because the toast's own timer is the thing under test —
+  **still up at ~4 s and gone by ~6 s**;
+- **the countdown RESETS**: the line is read at Day 3 *before* the next tap and at
+  Day 1 after it, so the 1 is a reset and not a number that was always 1;
+- **grace and past on a pinned clock**, and a check that neither line contains an
+  instruction;
+- **the dedupe with its control**: same arm writes nothing, other arm corrects the
+  one record, and **eleven minutes later a tap does write** — without which the
+  dedupe could be a tap that never writes;
+- **Moved, Woke and Drink** each confirm and each Undo removes its record;
+- **the longest bar the app can produce**, at 390 and 360;
+- **ruled D through the editor's own Save**, and the citation reachable from the
+  same surface.
+
+**TWO CHECKS THAT COULD NOT FAIL, both replaced, both with the lesson kept:**
+
+1. **`onedoor-gate` read `modes.hidden`.** The attribute was true and the strip
+   was on screen, for two releases. It now measures whether the element is on
+   screen, and **its plant is the defect itself** — the attribute still says
+   hidden while the strip is forced visible. *A check that reads the attribute it
+   expects to have been set asserts that the code ran, not that it worked.*
+2. **`sensor-gate`'s first draft measured "one line" as box height.** A no-wrap
+   pill is always one line tall; the text spilled 96px outside it and the check
+   passed. It now also requires the words to fit inside the element — and that
+   second half is what found that the 15-day confirmation does not fit one line
+   at 16px on any screen the suite measures.
+
+**`onedoor-gate`: 92 -> 104.** The measured strip and its plant, the close
+button's edge, three ranking cases on the shipped corpus (`milk`, `egg`,
+`coffee` each lead with a row holding the word whole), the draft by real clicks
+across a closed sheet, Start over, and a searched item's `source` reading `corpus`.
+
+**What no gate here does, said plainly:** none of them looks at the screen. The
+four defects in DECISIONS §2 were found by reading screenshots. The screenshots
+are a scratch script and are not in the suite — a picture has no verdict — so
+"look at it" is a step a person or a session has to choose to take.
