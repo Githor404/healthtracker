@@ -15237,3 +15237,52 @@ correction.
 **Also ruled:** the source fix stands, with no back-fill; CLAUDE.md's data
 contract is updated to six sources in v0.85.0. **Build R189 after v0.85.0 is
 live.**
+
+### 7. v0.85.0 IS LIVE — and what it took
+
+Committed locally first, as ruled, then the full suite: **42 of 42 PASS**, pushed,
+and `verify-deploy` found the served site byte-identical on its second poll.
+
+It was the **third** full run. The first failed 40 of 42 (§7 of the R187 record).
+The second was stopped by the machine 24 minutes in for low memory — not a gate
+failure, and not restarted until asked. `R190` and `R191` grepped: both unused.
+
+### 8. THE BONE RULE, MEASURED AND RULED (R191)
+
+Ruling C said *"only when the matched food is itself bone-in"*. Measured in
+`REFUSE AMOUNT.csv` before anything was built, because the table had to be asked
+whether it could say that:
+
+| | rows |
+|---|---|
+| bone is the **only** refuse — the *meat and skin* / *lean and fat* rows, where everything but the bone is the food | **273** |
+| bone **plus** skin or fat — the *meat only* / *lean* rows | **239** — excluded by ruling C, cleanly |
+| of the 273, the name says **"bone-in"** | **22** |
+
+**The table can say a row's edible part excludes only bone. It cannot say the bone
+was on the plate.** *"Chicken, broiler, breast, meat and skin, roasted"* is in the
+273 at 19%, and a breast is usually served off the bone. The wing rows — the case
+this was opened for — do not say "bone-in" anywhere.
+
+> **RULED (R191):** automatic for rows that say **"bone-in"**, plus a declared list
+> of cuts served on the bone: **wing, drumstick, rib, neck**. **Every other bone
+> row: one tap, off by default.**
+
+**That list is CHOSEN, not read, and it is recorded as that.** [[D126]] warns that
+a tuned number is a measurement of nobody's question; this is four words rather
+than a number, they are the user's ruling rather than mine, and they live in one
+declared constant so the next reader sees a list somebody decided and can change
+it in one place.
+
+**Three additions, ruled:**
+
+- **Photo path:** if the identification says **"boneless"**, no correction.
+- **The user's override is remembered per food and WINS over the list next time**
+  — *"boneless"* or *"with bone"*, provenance user-stated. [[D133]]'s memory, on a
+  second question.
+- **Gate:** wings auto-corrected; a boneless breast not; wings marked boneless
+  once are not corrected on the next log.
+
+The controls, unchanged by any of it: a banana (36% skin) and an egg (12% shell)
+carry no bone refuse and get **no** automatic correction under every rule
+considered.
