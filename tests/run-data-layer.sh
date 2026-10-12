@@ -62,6 +62,7 @@ resolve-gate.ps1
 response-gate.ps1
 ring-size-gate.ps1
 sensor-gate.ps1
+served-gate.ps1
 update-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two
 # echo strings -- the real bar is the manifest above versus the files on disk
@@ -327,7 +328,19 @@ echo "-----------------------------------------"
 # 'no type was recorded' as '' because undefined does not survive JSON.
 # R189 (the source fix only): +3. A searched item's source is `corpus`, with a word,
 # through the normaliser; and in a combo the matched and typed parts keep their own.
-EXPECTED_ASSERTIONS=2874
+# R189, v0.86.0: 2874 -> 2909, delta +35. The decision as a pure function over a
+# refuse table built in the harness -- wings corrected, a meat-only row never, a
+# breast and a banana and an egg offered and not applied, 'boneless' in the
+# identification, the user's own earlier answer winning both ways, no figure on a
+# corpus with no table; the stored form dropped entire without its source; then
+# the real plate path -- 120 g served, 74.4 g edible, half eaten is 37.2 g and
+# 111.6 cal, the day total moving by that and not by 360, the remainder measured
+# against the edible part, the meal event the response reader takes holding eaten
+# grams; the afterwards control (all, a quarter, typed grams, capped, undoable);
+# 'it was boneless' putting the bone back while the half stays a half, remembered,
+# and undone back to no memory; and Search writing through the same plate, its
+# undo taking the plate with it, a banana and an egg by weight counted whole.
+EXPECTED_ASSERTIONS=2909
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -153,6 +153,13 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # not come from a form: they come through corpusOwnNumbers (ruling (a)), with the
 # citation on the item, and a form path would have to be handed a ref it never
 # otherwise carries.
+# R189: `searchLog` STAYS, and what it writes changed in v0.86.0. It no longer
+# pushes an item: a searched food is a PLATE of one with one "all of it" event
+# (ruled A, one mechanism). The item is consumeFromPlate's write, registered
+# below. What searchLog itself writes is the plate, and the plate is STAMPED --
+# tzo: nowTZO(), the offset of the moment it was served. I removed this entry
+# believing the write had moved away entirely, and this census put it back by
+# name on the next run: a plate is a record too.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill

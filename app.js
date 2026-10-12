@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.85.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.86.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -315,6 +315,11 @@ function normalizePlateItem(raw) {
   if (alts) out.ai_alts = alts;
   const pick = normalizeIdentityPick(r.identity_pick);
   if (pick) out.identity_pick = pick;
+  // R189: the cited inedible part, declared in the commit that first writes it
+  // (D129). On the PLATE item and not on the event: it is a fact about what was
+  // served, and every event that comes off this item reads it from here.
+  const rfz = normalizeRefuse(r.refuse);
+  if (rfz) out.refuse = rfz;
   out.notes = String(r.notes == null ? '' : r.notes);
   if (CONFIDENCES.includes(r.confidence)) out.confidence = r.confidence;
   if (SOURCES.includes(r.source)) out.source = r.source;
@@ -370,9 +375,13 @@ function plateRemainder(plate) {
   const per = plate.items.map((pi, idx) => {
     const eaten = evs.filter((e) => num(e.plateIdx) === idx)
                      .reduce((a, e) => a + num(e.grams), 0);
-    const left = Math.max(0, num(pi.grams) - eaten);
-    return { idx: idx, name: pi.name, grams: num(pi.grams), eaten: eaten, left: left,
-             count: pi.count, fraction: num(pi.grams) > 0 ? left / num(pi.grams) : 0 };
+    // R189: what is LEFT is left of the edible part. Measured against the served
+    // weight, a plate of wings eaten to the bone would stay "38% left" forever and
+    // go on being offered as leftovers that are a pile of bones.
+    const edible = plateEdibleG(pi);
+    const left = Math.max(0, edible - eaten);
+    return { idx: idx, name: pi.name, grams: num(pi.grams), edible: edible, eaten: eaten, left: left,
+             count: pi.count, fraction: edible > 0 ? left / edible : 0 };
   });
   const totalG = per.reduce((a, x) => a + x.grams, 0);
   const leftG = per.reduce((a, x) => a + x.left, 0);
@@ -3161,6 +3170,14 @@ const CORPUS_ASSET_HASH = {
   cnf: 'e734f60ccac4',
 };
 
+// R189: declared per namespace, and ONLY for a namespace whose source publishes a
+// refuse table. There is no `fdc` entry and there must not be one until a USDA
+// refuse source is admitted (ruled B). Checked against the shipped asset by
+// tests/check-slots.sh, exactly as the hash above is.
+const CORPUS_REFUSE_HASH = {
+  cnf: '2a6a566df340',
+};
+
 function corpusOpen() {
   if (CORPUS_DB_HANDLE) return Promise.resolve(CORPUS_DB_HANDLE);
   return new Promise(function (resolve, reject) {
@@ -3196,6 +3213,9 @@ function corpusInstall(meta, buf) {
         ns: meta.ns, version: meta.version, slots: meta.slots, cols: cols,
         hash: meta.hash, attribution: meta.attribution, basis: meta.basis,
         index: meta.index,
+        // R189: the refuse table, where the namespace has one. Absent on fdc, and
+        // absent is the answer there -- nothing downstream invents a figure.
+        refuse: (meta.refuse && typeof meta.refuse === 'object') ? meta.refuse : null,
       }, 'index');
       const vs = tx.objectStore(CORPUS_STORE_VALUES);
       // CLEARED FIRST, because an install is a REPLACEMENT and the row width can
@@ -3279,7 +3299,13 @@ function corpusAcquire(force) {
   // The hash half of this test is what gives the corpus an upgrade path: the
   // namespace alone said "mine is the right KIND", never "mine is current".
   const want = CORPUS_ASSET_HASH[ns];
-  const stale = !!(want && CORPUS_MEM && CORPUS_MEM.hash !== want);
+  // R189: the refuse table has its OWN hash, because the values did not change
+  // when it arrived and `hash` is stamped on every frozen ref as the provenance
+  // of those values. A corpus current in its values and missing its refuse table
+  // is stale all the same.
+  const wantRefuse = CORPUS_REFUSE_HASH[ns];
+  const haveRefuse = (CORPUS_MEM && CORPUS_MEM.refuse && CORPUS_MEM.refuse.hash) || '';
+  const stale = !!(CORPUS_MEM && ((want && CORPUS_MEM.hash !== want) || (wantRefuse && haveRefuse !== wantRefuse)));
   if (!force && CORPUS_MEM && CORPUS_MEM.ns === ns && !stale)
     return Promise.resolve({ ok: true, why: 'already', ns: ns });
   CORPUS_FETCHING = true;
@@ -4709,6 +4735,19 @@ function renderDayInner() {
       const tick = (COMBO_SEL && !it._auto)
         ? `<label class="cstick" onclick="event.stopPropagation()"><input type="checkbox"${COMBO_SEL.picks[String(idx)] ? ' checked' : ''} onchange="comboSelToggle(${idx})" aria-label="include ${esc(it.name)}"></label>`
         : '';
+      // R189, AND IT TOUCHES D144. D144 ruled the collapsed line is name, time and
+      // ONE number. R189 rules the served figure is never hidden when it differs
+      // from the eaten one. Both hold: the collapsed line is unchanged, and a row
+      // whose two figures differ gets a second line beneath it. A row where they
+      // do not -- nearly every row -- is exactly the row D144 made.
+      // Each figure is one unbreakable piece, so the line breaks BETWEEN figures and
+      // never inside one. Seen in a screenshot: "37.2" at the end of one line and
+      // its "g" alone on the next.
+      const servedTxt = it._auto ? '' : itemServedLine(it);
+      const servedHTML = servedTxt
+        ? `<div class="mserved">${servedTxt.split(' \u00b7 ').map((b) => `<span class="msbit">${esc(b)}</span>`).join(' \u00b7 ')}</div>`
+        : '';
+      const ateHTML = it._auto ? '' : itemAteHTML(dk, idx, it);
       html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
         <div class="mline">${tick}
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
@@ -4717,7 +4756,7 @@ function renderDayInner() {
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
-        </div>${isOpen ? `<div class="mbody">
+        </div>${servedHTML}${isOpen ? `<div class="mbody">${ateHTML}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${it._auto || !it.mealId ? '' : mealResponseHTML(dk, it.mealId)}
@@ -11179,7 +11218,7 @@ function renderPhotoDraftInner() {
     d.ate = d.items.map(() => ({ kind: 'all', fraction: 1 }));
   }
   const consumeHTML = d.consumeOpen ? consumeQuestionHTML(d) : '';
-  el.innerHTML = `<div class="pmdraft">${mstrip}${mealnote}${lead}${head}${rows}${photoAddFormHTML()}${consumeHTML}
+  el.innerHTML = `<div class="pmdraft">${mstrip}${mealnote}${lead}${head}${rows}${photoAddFormHTML()}${photoRefuseBlockHTML(d)}${consumeHTML}
     <div class="pmtot">${esc(kcalDisp(tot.kcal))} cal \u00b7 ${esc(rDisp(tot.protein_g))} g protein${draftCov}</div>
     </div>`;
 }
@@ -12061,6 +12100,7 @@ const VERSION_LOG = [
   { v: '0.83.0', d: '2026-10-11', note: 'There is one Log button now, and it opens one sheet. It leads with what is the same every day -- your daily stack, then your combos -- then the three foods you repeat most with the rest one tap away, then Photo, Scan and Manual for something new, and a line at the foot for a dose, an event or a biometric. It reads from most certain to least certain, which is the opposite of what it did before: it used to open on the camera, the one path that needs a barcode and good light. Quick add on the day opens the same sheet rather than a different one, which is the whole of the fix -- the two buttons went to the same place and showed you different things, and making a combo from the wrong door led nowhere. A combo you saved a minute ago can be logged straight away: it had nothing in your history yet, and the list it was offered from is counted from your history, so tapping it used to do nothing at all. Going back from a food now puts it down instead of keeping it half-picked.' },
   { v: '0.84.0', d: '2026-10-11', note: 'Two things the Log sheet was missing. Search: type a food and the food database answers as you type, from the first couple of letters -- pick a row, say how many grams, and it is logged. A food found this way takes the database-s figures as its own numbers, with the source named on it, because it has no other numbers to take; they are a typical one-s figures, not your label-s, so it is marked as an estimate. And + New combo: build a combo before you have ever logged it. Name it, search for each part and give it an amount, and the running total shows calories and caffeine as you go -- saying how many parts each figure is from, so a part the database does not know cannot make the total look complete.' },
   { v: '0.85.0', d: '2026-10-11', note: 'Tapping New sensor now tells you it worked. The entry names the sensor and the arm -- New sensor, Dexcom G7, left arm -- and a line beside the buttons counts the days: Day 3 of 10, then the grace period, then that it is past its wear time. The first time, it asks which sensor you use and remembers the answer. The wear times are the maker-s own published figures, with the source one tap away, and they are counted from when you logged the sensor. A second tap within ten minutes no longer adds a second change: the same arm does nothing, and the other arm corrects the entry. You can open an older sensor entry and set its type yourself. Moved, Woke and Drink now confirm with an Undo as well. A food you logged by searching now says it is from the food database, where before it said typed in. In the Log sheet: going back from a half-built combo keeps it as a draft instead of throwing it away; searching puts the food you typed ahead of longer words that merely start with it, so milk no longer leads with milkfish; and the row of mode buttons no longer sits on top of the first screen.' },
+  { v: '0.86.0', d: '2026-10-11', note: 'The day now counts what you ate, not what was on the plate. Two things can make those differ, and they are kept apart. The part you cannot eat: when a food is matched to the Canadian food database and that database says how much of it is bone, the weight is reduced for you on cuts served on the bone -- wings, drumsticks, ribs, necks, and anything it calls bone-in -- and the line says so, with the figure and where it comes from: 120 g served, about 74 g edible. Peel, shell, pits and fat are never taken off by themselves; there is one tap if your weight included them. Say a food was boneless once and it is remembered for that food. What you left: open any item that came from a photo or a search and tap Ate: all, three quarters, half, a quarter, or type the grams. Whenever the two figures differ the row shows both, so the served weight is never hidden. A food you log by searching can now be corrected the same way afterwards. On the US food database nothing is taken off, because it publishes no such figures.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -13098,7 +13138,10 @@ function photoGrams(draft, it) {
   return Math.round(it.aiGrams * sh.R);
 }
 function photoItemMacros(draft, it) {
-  const g = photoGrams(draft, it) / 100;
+  // R189: the EDIBLE grams. The draft's running total is what will reach the day,
+  // and the day counts what could be eaten -- so the figure on the Save button's
+  // screen and the figure the day shows afterwards are one figure.
+  const g = photoEdibleGrams(draft, it) / 100;
   // R30: an unresolved item has no per-100 g profile. Returning zeros here would be
   // the understatement R31 exists to remove, re-entering through the draft; every
   // caller checks `photoItemUnresolved` first, and this is the guard that makes a
@@ -15021,6 +15064,9 @@ function plateFromDraft(draft, dateKey) {
       const pi = { name: it.name, grams: photoGrams(draft, it), notes: it.notes || '' };
       // D141: the match travels with the food, not with the eating of it.
       if (it.ref) pi.ref = it.ref;
+      // R189: and so does the inedible part of it, decided from that match.
+      const rfp = photoRefuse(it);
+      if (rfp) pi.refuse = rfp;
       if (!photoItemUnresolved(it) && it.per100) {
         pi.per100 = {};
         MACRO_KEYS.forEach((k) => { pi.per100[k] = num(it.per100[k]); });
@@ -15040,6 +15086,349 @@ function plateFromDraft(draft, dateKey) {
     }),
   };
 }
+// ===========================================================================
+// R189 -- SERVED vs EATEN
+// ---------------------------------------------------------------------------
+// REPORTED: 120 g of wings served, about 40 g eaten, and the day counted 120.
+//
+// TWO CORRECTIONS, STORED SEPARATELY (ruled), and they are different KINDS of
+// fact, which is why they must never share a field:
+//
+//   1. THE INEDIBLE PART -- bone, peel, shell, pit. A CITED figure about the
+//      food, from the Canadian Nutrient File's refuse table. It lives on the
+//      PLATE ITEM, because it is a property of what was served.
+//   2. WHAT WAS LEFT -- the user's own statement. It already existed: the plate's
+//      consumption events carry `ate`, and have since R33.
+//
+// ONE MECHANISM (ruled A). The plate is the record of what was served; the
+// events are what was eaten; totals read the events and have never seen the
+// plate. So nothing here adds a "served" field to an item -- the served figure is
+// READ from the plate the item came off, and a second copy of it on the item
+// would be a second number that could disagree with the first.
+//
+// THE ORDER (ruled F): refuse first, then the fraction OF WHAT WAS EDIBLE.
+//   120 g served . ~74 g edible . ate 1/2 . 37 g
+// ===========================================================================
+
+// The part names CNF uses for refuse that is bone and nothing else. READ from the
+// table (five distinct names, 491 rows between them) -- "bone and skin" is
+// deliberately not here: skin is eaten or it is not, and the table cannot know.
+const REFUSE_BONE_PARTS = ['bone', 'bone and cartilage', 'bone and tendon',
+                           'bone and connective tissue', 'bone and hard tissue'];
+// RULED (R191), and CHOSEN rather than read -- said plainly, because D126 warns
+// about exactly this. The table can say a row's only refuse is bone; it cannot
+// say the bone was on the plate. 273 rows are bone-only and only 22 say "bone-in"
+// in their name; "Chicken, broiler, breast, meat and skin, roasted" is one of the
+// 273 at 19%, and a breast is usually served off the bone. So the correction is
+// automatic for a row that SAYS bone-in, plus these four cuts, which are served
+// on the bone. Every other bone row is offered, off. One list, one place.
+const REFUSE_BONE_CUTS = ['wing', 'drumstick', 'rib', 'neck'];
+const REFUSE_KINDS = ['bone', 'other'];
+const REFUSE_BY = ['rule', 'user', 'memory'];
+
+// Pure. The published row for a food, or null -- and null on any corpus that has
+// no refuse table at all, which is the USDA one (ruled B: no figure there, rather
+// than a Canadian figure under a USDA name).
+function refuseRow(meta, id) {
+  const rows = meta && meta.refuse && meta.refuse.rows;
+  const v = rows ? rows[String(id)] : null;
+  if (!Array.isArray(v) || !(Number(v[0]) > 0) || !(Number(v[0]) < 100)) return null;
+  return { pct: Number(v[0]), parts: Array.isArray(v[1]) ? v[1] : [],
+           attribution: String((meta.refuse && meta.refuse.attribution) || '') };
+}
+// bone: every named part is bone. bone-plus: bone AND something else, which is
+// the meat-only rows -- the bone is what was removed to GET that meat. other:
+// peel, shell, pit, fat, or a total with no part named (298 rows, egg among them).
+function refuseKind(row) {
+  if (!row) return '';
+  const names = row.parts.map(function (p) { return String(p[0]); });
+  if (names.length && names.every(function (n) { return REFUSE_BONE_PARTS.indexOf(n) >= 0; })) return 'bone';
+  if (names.some(function (n) { return /bone/.test(n); })) return 'bone-plus';
+  return 'other';
+}
+function refusePartWords(row) {
+  return (row && row.parts.length)
+    ? row.parts.map(function (p) { return String(p[0]); }).join(', ') : 'inedible part';
+}
+function refuseServedOnBone(rowName) {
+  const n = String(rowName == null ? '' : rowName).toLowerCase();
+  if (/bone[- ]in([^a-z]|$)/.test(n)) return true;
+  return REFUSE_BONE_CUTS.some(function (c) {
+    return new RegExp('(^|[^a-z])' + c + 's?([^a-z]|$)').test(n);
+  });
+}
+// THE DECISION, pure, and it never applies anything the rulings did not:
+//   - no published refuse            -> null: nothing to say
+//   - a meat-only row (bone-plus)    -> null: RULED, it never gets the bone
+//                                       correction, and offering it would be
+//                                       offering to remove skin somebody ate
+//   - bone, the user's own earlier answer for this food -> that answer WINS
+//   - bone, the row says bone-in or is a listed cut     -> applied, unless what
+//                                       was photographed was called boneless
+//   - every other bone row, and all peel / shell / pit / fat -> OFFERED, off
+function refuseDecide(meta, id, rowName, said, memory) {
+  const row = refuseRow(meta, id);
+  if (!row) return null;
+  const kind = refuseKind(row);
+  if (kind === 'bone-plus') return null;
+  const out = { pct: row.pct, part: refusePartWords(row), kind: kind, applied: false, by: 'rule',
+                id: String(id), ns: String((meta && meta.ns) || ''), row: String(rowName == null ? '' : rowName),
+                attribution: row.attribution };
+  if (kind === 'bone') {
+    if (memory && typeof memory.applied === 'boolean') { out.applied = memory.applied; out.by = 'memory'; }
+    else out.applied = refuseServedOnBone(rowName) && !/boneless/i.test(String(said == null ? '' : said));
+  }
+  return out;
+}
+// The stored form, an allowlist like every other. ALL of it or none: a correction
+// missing its percentage or its source is the uncited number D32 forbids.
+function normalizeRefuse(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const pct = Number(r.pct);
+  if (!(pct > 0) || !(pct < 100)) return null;
+  if (REFUSE_KINDS.indexOf(r.kind) < 0) return null;
+  const id = String(r.id == null ? '' : r.id), attribution = String(r.attribution == null ? '' : r.attribution);
+  if (!id || !attribution) return null;
+  return { pct: pct, part: String(r.part == null ? '' : r.part) || 'inedible part', kind: r.kind,
+           applied: r.applied === true, by: REFUSE_BY.indexOf(r.by) >= 0 ? r.by : 'rule',
+           id: id, ns: String(r.ns == null ? '' : r.ns), row: String(r.row == null ? '' : r.row),
+           attribution: attribution };
+}
+// RULED (R191): "boneless" / "with bone" is REMEMBERED PER FOOD and wins over the
+// list next time. D133's shape: nothing is stored for it -- the memory is the
+// most recent plate on which the USER answered for this row, read when asked. An
+// answer the app carried forward (`memory`) is not itself an answer, so it is
+// never what is remembered; only `user` is.
+function refuseMemory(rowId) {
+  const plates = (APP_STATE && APP_STATE.plates) || {};
+  const want = String(rowId == null ? '' : rowId);
+  let best = null, bestKey = '';
+  Object.keys(plates).forEach(function (pid) {
+    const pl = plates[pid];
+    (pl.items || []).forEach(function (pi) {
+      const rf = pi.refuse;
+      if (!rf || rf.by !== 'user' || rf.kind !== 'bone' || String(rf.id) !== want) return;
+      const key = String(pl.date || '') + ' ' + String(pl.time || '') + ' ' + pid;
+      if (key >= bestKey) { bestKey = key; best = { applied: rf.applied === true }; }
+    });
+  });
+  return best;
+}
+// What of a plate item can be eaten at all. THE one place the percentage is
+// applied, so the remainder, the event and the row cannot each do it their own way.
+function plateEdibleG(pi) {
+  const g = num(pi && pi.grams);
+  const rf = pi && pi.refuse;
+  return (rf && rf.applied === true && rf.pct > 0 && rf.pct < 100) ? g * (1 - rf.pct / 100) : g;
+}
+// An event re-expressed at new grams: its macros, its micros and its frozen ref
+// move TOGETHER or not at all -- buildRepeatItem's old trap, closed in one place.
+function itemScaleTo(it, grams) {
+  const old = num(it && it.grams), g = num(grams);
+  if (!(old > 0) || !(g > 0)) return false;
+  const k = g / old;
+  MACRO_KEYS.forEach(function (key) { if (it[key] != null) it[key] = num(it[key]) * k; });
+  if (it.micros) Object.keys(it.micros).forEach(function (key) { it.micros[key] = num(it.micros[key]) * k; });
+  if (it.ref) { const nr = refAtGrams(it.ref, g); if (nr) it.ref = nr; else delete it.ref; }
+  it.grams = g;
+  return true;
+}
+
+// ---- reading it back: an event, and the plate it came off ------------------
+function itemServed(it) {
+  if (!it || !it.plateId) return null;
+  const pl = getPlate(it.plateId);
+  const pi = pl && pl.items[num(it.plateIdx)];
+  if (!pi) return null;
+  const served = num(pi.grams), edible = plateEdibleG(pi), eaten = num(it.grams);
+  return { plate: pl, pi: pi, served: served, edible: edible, eaten: eaten,
+           refuse: pi.refuse || null, ate: it.ate || null,
+           differs: Math.abs(served - eaten) > 0.5 };
+}
+const ATE_SYMBOLS = [[1, 'all'], [0.75, '¾'], [0.5, '½'], [1 / 3, '⅓'], [0.25, '¼']];
+function ateWords(ate) {
+  if (!ate) return '';
+  if (ate.kind === 'count') return ate.count + ' of ' + ate.of;
+  const f = num(ate.fraction);
+  for (let i = 0; i < ATE_SYMBOLS.length; i++) if (Math.abs(f - ATE_SYMBOLS[i][0]) < 0.005) return ATE_SYMBOLS[i][1];
+  return Math.round(f * 100) + '%';
+}
+// RULED: never hide the served figure -- show both WHEN THEY DIFFER. When they do
+// not, there is one figure and this returns nothing, so an ordinary meal's row is
+// exactly the row it was. The edible figure is marked ~: it is a published
+// average for the food, not a weighing of this plate's bones.
+function itemServedLine(it) {
+  const s = itemServed(it);
+  if (!s || !s.differs) return '';
+  const bits = [rDisp(s.served) + ' g served'];
+  if (s.refuse && s.refuse.applied) bits.push('~' + rDisp(s.edible) + ' g edible');
+  const share = s.edible > 0 ? s.eaten / s.edible : 1;
+  if (share < 0.995) bits.push('ate ' + (ateWords(s.ate) || (Math.round(share * 100) + '%')));
+  bits.push(rDisp(s.eaten) + ' g');
+  return bits.join(' · ');
+}
+// One line for a correction, shared by the three surfaces that show one -- the
+// photo draft, the search amount step, the logged row -- so the percentage, the
+// part, the row it came from and the source are always shown together (ruled D).
+function refuseLineHTML(rf, servedG, onJS, offJS, rowShownAbove) {
+  if (!rf) return '';
+  // 298 rows publish a total with NO part named (an egg's 12% is one). They say
+  // what the table says -- that much is not eaten -- and name nothing it did not.
+  const named = rf.part !== 'inedible part';
+  // RULED D: the row it matched is shown. Where that row is ALREADY the heading
+  // directly above -- the search amount step -- the line says "of this" rather
+  // than printing a forty-character name twice and pushing Log off the screen.
+  const cite = '<span class="rfcite">' + esc(rf.pct) + '% of '
+    + (rowShownAbove ? 'this' : '“' + esc(rf.row) + '”') + ' is '
+    + (named ? esc(rf.part) : 'not eaten') + ' \u00b7 ' + esc(rf.attribution) + '</span>';
+  const g = num(servedG);
+  if (rf.applied) {
+    const head = (g > 0)
+      ? (rDisp(g) + ' g served · ~' + rDisp(g * (1 - rf.pct / 100)) + ' g edible') : (esc(rf.pct) + '% taken off');
+    return '<div class="rfline rfon"><span class="rfhead">' + esc(head) + '</span>' + cite
+      + '<button type="button" class="linklike rfbtn" onclick="' + offJS + '">'
+      + (rf.kind === 'bone' ? 'it was boneless' : 'it was weighed without that') + '</button></div>';
+  }
+  return '<div class="rfline"><span class="rfhead">'
+    + (rf.kind === 'bone' ? 'Served on the bone?'
+        : (named ? 'Weighed with the ' + esc(rf.part) + '?' : 'Weighed with the part you do not eat?')) + '</span>' + cite
+    + '<button type="button" class="linklike rfbtn" onclick="' + onJS + '">take ' + esc(rf.pct) + '% off</button></div>';
+}
+
+// ---- the photo draft --------------------------------------------------------
+// Decided from the row the item was MATCHED to (ruled D). The user's tap on the
+// draft is the only thing that outranks the rule and the memory, and it is what
+// the memory will later remember.
+function photoRefuse(it) {
+  if (!it || !it.ref) return null;
+  const m = CORPUS_MEM;
+  if (!m || String(m.ns) !== String(it.ref.ns)) return null;
+  const d = refuseDecide(m, it.ref.id, it.ref.name, String(it.name || '') + ' ' + String(it.aiIdentity || ''),
+                         refuseMemory(it.ref.id));
+  if (!d) return null;
+  if (typeof it.refuseUser === 'boolean') { d.applied = it.refuseUser; d.by = 'user'; }
+  return d;
+}
+function photoRefuseSet(idx, on) {
+  if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
+  PHOTO_DRAFT.items[idx].refuseUser = !!on;
+  renderPhotoDraft();
+  return { ok: true, applied: !!on };
+}
+function photoEdibleGrams(draft, it) {
+  const g = photoGrams(draft, it);
+  const rf = photoRefuse(it);
+  return (rf && rf.applied) ? g * (1 - rf.pct / 100) : g;
+}
+function photoRefuseBlockHTML(d) {
+  const lines = ((d && d.items) || []).map(function (it, i) {
+    if (it.excluded) return '';
+    const rf = photoRefuse(it);
+    if (!rf) return '';
+    return '<div class="rfitem"><div class="rfname">' + esc(it.name) + '</div>'
+      + refuseLineHTML(rf, photoGrams(d, it), 'photoRefuseSet(' + i + ', true)', 'photoRefuseSet(' + i + ', false)')
+      + '</div>';
+  }).join('');
+  return lines ? '<div class="rfblock">' + lines + '</div>' : '';
+}
+
+// ---- afterwards, on the logged meal (ruled E) -------------------------------
+// "Ate: all / 3/4 / 1/2 / 1/4 / g". Default all, never a prompt that waits: it
+// is in the opened row, for the day the user notices they left half. A fraction
+// is OF WHAT WAS EDIBLE (ruled F), and never more than is left of the plate.
+function eventOthersEaten(it) {
+  return plateEvents(it.plateId).filter(function (e) { return e !== it && num(e.plateIdx) === num(it.plateIdx); })
+    .reduce(function (a, e) { return a + num(e.grams); }, 0);
+}
+function eventSetEaten(dateKey, idx, ate, grams) {
+  const day = APP_STATE.days && APP_STATE.days[dateKey];
+  const it = day && day.items && day.items[num(idx)];
+  const s = itemServed(it);
+  if (!s) return { ok: false, error: 'This item did not come off a plate.' };
+  const avail = Math.max(0, s.edible - eventOthersEaten(it));
+  const g = Math.min(num(grams), avail);
+  if (!(g > 0)) return { ok: false, error: 'Nothing is left of that to have eaten.' };
+  const prior = JSON.parse(JSON.stringify(it));
+  if (!itemScaleTo(it, g)) return { ok: false, error: 'This item has no portion to scale from.' };
+  it.ate = ate;
+  if (day.status === 'complete') day.status = 'in_progress';
+  Store.saveState(APP_STATE); refresh();
+  // The AMOUNT, not the food's name: a corpus name runs to forty characters and
+  // the bar wrapped to four lines over the row it was confirming (seen, not
+  // measured). The row beneath it already says which food.
+  offerUndo('Ate ' + ateWords(ate) + ' \u00b7 ' + rDisp(g) + ' g', function () {
+    const d2 = APP_STATE.days[dateKey];
+    const at = d2 ? d2.items.indexOf(it) : -1;
+    if (at >= 0) d2.items[at] = prior;
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, item: it, grams: g };
+}
+function eventSetAte(dateKey, idx, fraction) {
+  const f = Math.max(0, Math.min(1, num(fraction)));
+  if (!(f > 0)) return { ok: false, error: 'Remove the item instead.' };
+  const day = APP_STATE.days && APP_STATE.days[dateKey];
+  const s = itemServed(day && day.items && day.items[num(idx)]);
+  if (!s) return { ok: false, error: 'This item did not come off a plate.' };
+  return eventSetEaten(dateKey, idx, normalizeAte(f >= 0.995 ? { kind: 'all' } : { kind: 'fraction', fraction: f }),
+                       s.edible * f);
+}
+function eventSetGrams(dateKey, idx, grams) {
+  const g = num(grams);
+  const day = APP_STATE.days && APP_STATE.days[dateKey];
+  const s = itemServed(day && day.items && day.items[num(idx)]);
+  if (!s) return { ok: false, error: 'This item did not come off a plate.' };
+  if (!(g > 0)) return { ok: false, error: 'Enter how many grams.' };
+  if (!(s.edible > 0)) return { ok: false, error: 'Nothing is left of that to have eaten.' };
+  return eventSetEaten(dateKey, idx, normalizeAte({ kind: 'fraction', fraction: Math.min(1, g / s.edible) }), g);
+}
+// Turning a correction on or off AFTER the meal moves every event that came off
+// that plate item, by the ratio the edible part moved by. It is recorded as the
+// USER's answer, which is what the memory reads next time.
+function plateRefuseSet(plateId, plateIdx, on) {
+  const pl = getPlate(plateId);
+  const pi = pl && pl.items[num(plateIdx)];
+  if (!pi || !pi.refuse) return { ok: false, error: 'There is no correction for that.' };
+  const before = plateEdibleG(pi);
+  const priorRefuse = JSON.parse(JSON.stringify(pi.refuse));
+  const evs = plateEvents(plateId).filter(function (e) { return num(e.plateIdx) === num(plateIdx); });
+  const priorEvs = evs.map(function (e) { return JSON.parse(JSON.stringify(e)); });
+  pi.refuse.applied = !!on; pi.refuse.by = 'user';
+  const after = plateEdibleG(pi);
+  const k = before > 0 ? after / before : 1;
+  evs.forEach(function (e) { itemScaleTo(e, num(e.grams) * k); });
+  Store.saveState(APP_STATE); refresh();
+  offerUndo((on ? 'Took ' + pi.refuse.pct + '% off' : 'Counted the whole weight'), function () {
+    pi.refuse = priorRefuse;
+    Object.keys(APP_STATE.days || {}).forEach(function (dk) {
+      const items = APP_STATE.days[dk].items || [];
+      evs.forEach(function (e, n) { const at = items.indexOf(e); if (at >= 0) items[at] = priorEvs[n]; });
+    });
+    Store.saveState(APP_STATE); refresh();
+  });
+  return { ok: true, applied: !!on, edible: after, events: evs.length };
+}
+const ATE_CHOICES = [['all', 1], ['¾', 0.75], ['½', 0.5], ['¼', 0.25]];
+function itemAteHTML(dateKey, idx, it) {
+  const s = itemServed(it);
+  if (!s) return '';
+  const share = s.edible > 0 ? s.eaten / s.edible : 1;
+  const btns = ATE_CHOICES.map(function (c) {
+    const on = Math.abs(share - c[1]) < 0.005;
+    return '<button type="button" class="atebtn' + (on ? ' ateon' : '') + '" onclick="eventSetAte(\'' + esc(dateKey)
+      + '\', ' + esc(String(idx)) + ', ' + c[1] + ')"' + (on ? ' aria-pressed="true"' : '') + '>' + esc(c[0]) + '</button>';
+  }).join('');
+  const rf = s.refuse
+    ? refuseLineHTML(s.refuse, s.served,
+        'plateRefuseSet(\'' + esc(String(it.plateId)) + '\', ' + esc(String(num(it.plateIdx))) + ', true)',
+        'plateRefuseSet(\'' + esc(String(it.plateId)) + '\', ' + esc(String(num(it.plateIdx))) + ', false)')
+    : '';
+  return '<div class="atebar"><span class="atelab">Ate:</span>' + btns
+    + '<label class="ateglab">g<input type="number" class="ateg" inputmode="decimal" min="0" value="' + esc(rDisp(s.eaten)) + '"'
+    + ' onchange="eventSetGrams(\'' + esc(dateKey) + '\', ' + esc(String(idx)) + ', this.value)"'
+    + ' aria-label="grams eaten of ' + esc(it.name) + '"></label></div>' + rf;
+}
+
 // One consumption statement per plate item. `all` is the common case and is written
 // as an explicit statement rather than as the absence of one -- "I ate all of it" is
 // a thing the user said, and a record that could not tell it from an unanswered
@@ -15079,8 +15468,11 @@ function consumeFromPlate(plateId, statements, opts) {
     if (!(ate.fraction > 0)) return;
     // Never more than is left. The remainder is derived, so this bound is read from
     // the events themselves rather than from a stored number that could disagree.
-    const avail = rem.items[idx] ? rem.items[idx].left : num(pi.grams);
-    const g = Math.min(num(pi.grams) * ate.fraction, avail);
+    // R189 (ruled F): the statement is a fraction OF WHAT WAS EDIBLE. "Ate half"
+    // of 120 g of wings is half of the 74 g that is not bone.
+    const edibleG = plateEdibleG(pi);
+    const avail = rem.items[idx] ? rem.items[idx].left : edibleG;
+    const g = Math.min(edibleG * ate.fraction, avail);
     if (!(g > 0)) return;
     // NO ai_grams / ai_identity / ai_alts / identity_pick / pinned here: those are
     // properties of confirming the plate and live on it. What the event carries is
@@ -16961,12 +17353,39 @@ function searchType(text) {
     return { ok: true, phase: r.phase, rows: r.rows.length };
   });
 }
+// R189: the correction for the picked row, if its source publishes one. The tap
+// on this step outranks the rule and the memory, as on the photo draft.
+function searchRefuse() {
+  const st = FOOD_SEARCH;
+  const c = st && st.pick;
+  if (!c) return null;
+  const d = refuseDecide(c.meta, c.id, c.name, c.name, refuseMemory(c.id));
+  if (!d) return null;
+  if (typeof st.refuseUser === 'boolean') { d.applied = st.refuseUser; d.by = 'user'; }
+  return d;
+}
+function searchRefuseSet(on) {
+  const st = FOOD_SEARCH;
+  if (!st || !st.pick) return { ok: false, why: 'nothing-picked' };
+  st.refuseUser = !!on;
+  const el = document.getElementById('fqLog');
+  if (el) el.innerHTML = searchLogHTML();
+  return { ok: true, applied: !!on };
+}
+function searchEdibleGrams() {
+  const st = FOOD_SEARCH;
+  const g = st ? st.grams : null;
+  const rf = searchRefuse();
+  return (g != null && rf && rf.applied) ? g * (1 - rf.pct / 100) : g;
+}
 function searchLogHTML() {
   const st = FOOD_SEARCH;
   if (!st || !st.pick) return '';
-  const built = corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, st.grams);
+  const rfS = searchRefuse();
+  const rfHTML = rfS ? refuseLineHTML(rfS, st.grams, 'searchRefuseSet(true)', 'searchRefuseSet(false)', true) : '';
+  const built = corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, searchEdibleGrams());
   const time = stampTime(APP_STATE.current) || nowTime();
-  return '<div class="fqsub">to <b>' + esc(mealAtCreation('', time)) + '</b></div>'
+  return rfHTML + '<div class="fqsub">to <b>' + esc(mealAtCreation('', time)) + '</b></div>'
     + '<button type="button" class="btn fqlog" onclick="searchLog()"' + (built ? '' : ' disabled') + '>'
     + (built ? ('Log ' + esc(kcalDisp(built.kcal)) + ' cal') : 'Enter an amount') + '</button>';
 }
@@ -17025,20 +17444,47 @@ function searchLog() {
   if (!built) return { ok: false, why: 'no-amount' };
   const day = dayForWrite();
   if (!day) return { ok: false, why: 'no-day' };
+  const dk = APP_STATE.current;
+  // R189 (ruled A): ONE MECHANISM. The typed grams are what was SERVED, so this
+  // is a plate of one item with one "all of it" event -- the same two records a
+  // photographed meal leaves, which is what lets "I only ate half" be said
+  // afterwards without a second leftovers mechanism beside the plate's.
+  //
+  // The numbers are still corpusOwnNumbers' and nothing else's (ruling (a), one
+  // place): the per-100 g profile is that function asked for 100 g, and
+  // consumeFromPlate scales it and the cited ref by the same grams.
+  const per = corpusOwnNumbers(c.meta, c.row, c.id, c.name, 100);
+  const per100 = {};
+  MACRO_KEYS.forEach(function (k) { per100[k] = (per && per[k] != null) ? per[k] : 0; });
+  const time = stampTime(dk);
+  const mealId = newMealId();
+  const pi = { name: built.name, grams: built.grams, notes: '', confidence: built.confidence,
+               source: built.source, ref: built.ref, per100: per100 };
+  const rf = searchRefuse();
+  if (rf) pi.refuse = rf;
   // D112: a past day gets no fabricated clock time; the meal still needs a
   // default, and it is the one the button's own line already named.
-  const time = stampTime(APP_STATE.current);
-  const item = normalizeItem(Object.assign({}, built, {
-    meal: mealAtCreation('', time || nowTime()), time: time, notes: '', tzo: nowTZO(),
-  }), true);
-  if (day.status === 'complete') day.status = 'in_progress';
-  day.items.push(item);
-  Store.saveState(APP_STATE);
+  const plate = normalizePlate({ id: newPlateId(), date: dk, meal: mealAtCreation('', time || nowTime()),
+                                 time: time, tzo: nowTZO(), mealId: mealId, items: [pi] });
+  if (!plate) return { ok: false, why: 'no-plate' };
+  APP_STATE.plates = APP_STATE.plates || {};
+  APP_STATE.plates[plate.id] = plate;
+  const r = consumeFromPlate(plate.id, null, { date: dk, mealId: mealId, all: true });
+  if (!r.ok) { delete APP_STATE.plates[plate.id]; Store.saveState(APP_STATE); return { ok: false, why: 'nothing-eaten' }; }
+  const item = r.items[0];
+  // Undoing a search log takes its plate with it. A photographed plate stands
+  // after an undo because the photo was real; a plate that exists only because
+  // of this tap would otherwise be left behind, offering leftovers of a food
+  // that was never logged.
+  const undoItems = _undoFn;
+  offerUndo('Logged ' + item.name, function () {
+    if (typeof undoItems === 'function') undoItems();
+    if (APP_STATE.plates) delete APP_STATE.plates[plate.id];
+    Store.saveState(APP_STATE); refresh();
+  });
   FOOD_SEARCH = null;
   closeSheet();
-  refresh();
-  offerFoodUndo(APP_STATE.current, item);
-  return { ok: true, item: item };
+  return { ok: true, item: item, plateId: plate.id };
 }
 
 // ---- "+ New combo": built WITHOUT logging anything first -------------------
@@ -19346,6 +19792,12 @@ window.HT = {
   comboNewRemove, comboNewAmount, comboNewDraft, comboNewDiscard,
   // R186 -- the sensor-change entry
   SENSOR_DEVICES, SENSOR_BY_ID, SENSOR_DEDUPE_MIN, QUICK_UNDO_MS, SENSOR_EDITABLE,
+  // R189 -- served vs eaten
+  CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
+  refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
+  itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,
+  photoRefuseBlockHTML, eventSetAte, eventSetGrams, plateRefuseSet, itemAteHTML,
+  searchRefuse, searchRefuseSet, searchEdibleGrams, corpusMem: () => CORPUS_MEM, photoSearchApply,
   sensorTap, sensorChoose, sensorAskType, sensorAskCancel, sensorAsk: () => SENSOR_ASK,
   sensorLast, sensorStatus, sensorStatusWords, sensorStatusHTML, sensorWords, sensorDeviceLabel,
   signalRowLabel, quickEventWords, sensorCiteHTML, sensorConfirmForms, recordEditHTML, comboNewPartNumbers, comboNewTotal, comboNewTotalHTML, comboNewSave,

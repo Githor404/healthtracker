@@ -13473,6 +13473,194 @@ window.setLS({});
   HT.state().settings.sensorDevice = _snDevice;
   HT.resave();
 
+  // ============ R189: served vs eaten ============
+  //
+  // REPORTED: 120 g of wings served, about 40 g eaten, and the day counted 120.
+  // Two corrections, kept apart: the cited inedible part (on the plate item) and
+  // the user-stated share (on the event, where it has lived since R33).
+  //
+  // HERE: the decision as a pure function over a refuse table built in this file,
+  // the arithmetic through the real plate path, and the search path. The screen
+  // -- both figures on the row, 16px, 44px -- is tests/served-gate.ps1's.
+  var _rfDays = JSON.parse(JSON.stringify(HT.state().days));
+  var _rfPlates = JSON.parse(JSON.stringify(HT.state().plates || {}));
+  var rfWing = 'Chicken, broiler, wing, meat and skin, batter dipped, fried';
+  var rfMeta = { ns: 'cnf', hash: 'rfh', attribution: 'CNF test', slots: [203, 204, 205, 208],
+    refuse: { attribution: 'CNF refuse test', hash: 'rfx', rows: {
+      '627': [38, [['bone', 38]]],
+      '631': [68, [['bone', 46], ['skin', 21], ['separable fat', 1]]],
+      '700': [19, [['bone', 19]]],
+      '710': [22, [['bone and cartilage', 22]]],
+      '800': [36, [['skin', 36]]],
+      '810': [12, []],
+      '820': [100, [['bone', 100]]] } } };
+  var rfNear = function (x, y) { return Math.abs(x - y) < 1e-6; };
+
+  // -- the decision -------------------------------------------------------------
+  var rfW = HT.refuseDecide(rfMeta, '627', rfWing, 'chicken wings', null);
+  res(!!rfW && rfW.applied === true && rfW.kind === 'bone' && rfW.pct === 38 && rfW.by === 'rule'
+      && rfW.part === 'bone' && rfW.row === rfWing && rfW.attribution === 'CNF refuse test' && rfW.id === '627',
+      'R189 GATE: WINGS are corrected automatically -- a bone-only row for a cut served on the bone -- and the correction carries its percentage, its part, the row it came from and its source (ruled C, D)');
+  res(HT.refuseDecide(rfMeta, '631', 'Chicken, broiler, wing, meat, raw', 'chicken wings', null) === null,
+      'R189 GATE: a MEAT-ONLY row never gets the bone correction, and is not offered one -- its 68% is the bone that was removed to get the meat, plus skin somebody may have eaten (ruled C)');
+  var rfBreast = HT.refuseDecide(rfMeta, '700', 'Chicken, broiler, breast, meat and skin, roasted', 'chicken breast', null);
+  res(!!rfBreast && rfBreast.kind === 'bone' && rfBreast.applied === false,
+      'R189 GATE: a BREAST is offered and not applied -- its only refuse is bone, and the table cannot say the bone was on the plate (R191)');
+  res(HT.refuseDecide(rfMeta, '710', 'Pork, shoulder, blade portion, bone-in, lean and fat, braised', 'pork', null).applied === true,
+      'R189 GATE: a row whose NAME says bone-in is corrected, whatever the cut');
+  var rfBan = HT.refuseDecide(rfMeta, '800', 'Banana, raw', 'banana', null);
+  var rfEgg = HT.refuseDecide(rfMeta, '810', 'Egg, chicken, whole, fresh or frozen, raw', 'egg', null);
+  res(!!rfBan && rfBan.kind === 'other' && rfBan.applied === false && rfBan.part === 'skin'
+      && !!rfEgg && rfEgg.kind === 'other' && rfEgg.applied === false && rfEgg.part === 'inedible part',
+      'R189 GATE: a BANANA and an EGG get NO automatic correction -- peel and shell are offered, off. Applied to them the table would quietly remove a third of every banana and 12% of every egg');
+  res(HT.refuseDecide(rfMeta, '627', rfWing, 'Boneless wings', null).applied === false,
+      'R189 GATE (R191): when what was photographed is called BONELESS, the bone is not taken off -- the row is still a wing row, and it is the identification that says the bone is not there');
+  res(HT.refuseDecide(rfMeta, '627', rfWing, 'chicken wings', { applied: false }).applied === false
+      && HT.refuseDecide(rfMeta, '627', rfWing, 'chicken wings', { applied: false }).by === 'memory'
+      && HT.refuseDecide(rfMeta, '700', 'Chicken, broiler, breast, meat and skin, roasted', 'breast', { applied: true }).applied === true,
+      'R189 GATE (R191): the USER-S OWN earlier answer WINS over the list, in both directions -- wings said to be boneless stay uncorrected, a breast said to be on the bone is corrected');
+  res(HT.refuseDecide({ ns: 'fdc', slots: [208] }, '627', rfWing, 'wings', null) === null
+      && HT.refuseDecide(rfMeta, '999', 'No such row', 'x', null) === null
+      && HT.refuseDecide(rfMeta, '820', 'Soup bones', 'bones', null) === null,
+      'R189 GATE (ruled B): on a corpus with NO refuse table -- the USDA one -- there is no correction and no figure; and a row the table does not hold, or one it calls 100% refuse, gets none either');
+  res(HT.refuseServedOnBone('Pork, back ribs, lean and fat') && HT.refuseServedOnBone('Turkey, all classes, neck')
+      && HT.refuseServedOnBone('Chicken, drumstick') && !HT.refuseServedOnBone('Chicken, broiler, breast')
+      && !HT.refuseServedOnBone('Ribbon fish') && !HT.refuseServedOnBone('Wingless thing'),
+      'R189 GATE: the served-on-the-bone list matches WORDS, not letters -- ribs and neck are on it, a ribbon fish is not');
+  res(HT.CORPUS_REFUSE_HASH.fdc === undefined && typeof HT.CORPUS_REFUSE_HASH.cnf === 'string',
+      'R189 GATE (ruled B): no refuse hash is declared for the US corpus, because it ships no refuse table');
+
+  // -- the stored form ------------------------------------------------------------
+  var rfStored = HT.normalizeRefuse(JSON.parse(JSON.stringify(rfW)));
+  res(JSON.stringify(rfStored) === JSON.stringify(rfW)
+      && HT.normalizeRefuse(Object.assign({}, rfW, { attribution: '' })) === null
+      && HT.normalizeRefuse(Object.assign({}, rfW, { pct: 0 })) === null
+      && HT.normalizeRefuse(Object.assign({}, rfW, { pct: 100 })) === null
+      && HT.normalizeRefuse(Object.assign({}, rfW, { kind: 'bone-plus' })) === null,
+      'R189 GATE: the correction survives its normaliser whole, and one missing its SOURCE, or with no percentage, or of a kind that is never applied, is dropped entire -- an uncited correction is the uncited number D32 forbids');
+  res(HT.plateEdibleG({ grams: 120, refuse: rfW }) === 120 * (1 - 38 / 100)
+      && HT.plateEdibleG({ grams: 120, refuse: rfBan }) === 120 && HT.plateEdibleG({ grams: 120 }) === 120,
+      'R189 GATE: 120 g of wings is 74.4 g edible; an OFFERED correction and no correction both leave 120');
+
+  // -- through the real plate path: wings, 120 g served, half eaten ----------------
+  var rfCur = HT.state().current;
+  if (!HT.state().days[rfCur]) HT.state().days[rfCur] = { status: 'in_progress', items: [], water_l: 0 };
+  var rfSum = function () { return HT.state().days[rfCur].items.reduce(function (t, x) { return t + (x.kcal || 0); }, 0); };
+  var rfMk = function (id, item) {
+    HT.state().plates = HT.state().plates || {};
+    HT.state().plates[id] = HT.normalizePlate({ id: id, date: rfCur, meal: 'dinner', time: '18:00', mealId: 'rfm-' + id, items: [item] });
+    return HT.state().plates[id]; };
+  var rfPl = rfMk('rf-wings', { name: 'Chicken wings', grams: 120, notes: '', confidence: 'eyeballed', source: 'ai-paste',
+    per100: { kcal: 300, protein_g: 20, fat_g: 22, carb_g: 5, fiber_g: 0, soluble_fiber_g: 0 }, refuse: rfW,
+    ref: { ns: 'cnf', id: '627', name: rfWing, hash: 'rfh', attribution: 'CNF test', g: 120, v: { '208': 360, '203': 24 } } });
+  res(!!rfPl && !!rfPl.items[0].refuse && rfPl.items[0].refuse.pct === 38 && rfPl.items[0].grams === 120,
+      'R189 GATE: the correction is stored on the PLATE ITEM, and the served weight stays as entered -- 120 g');
+  var rfBefore = rfSum();
+  var rfEat = HT.consumeFromPlate('rf-wings', [{ kind: 'fraction', fraction: 0.5 }], { date: rfCur });
+  var rfIt = (rfEat.items || [{}])[0];
+  res(rfEat.ok === true && rfNear(rfIt.grams, 37.2) && rfNear(rfIt.kcal, 111.6) && rfNear(rfIt.protein_g, 7.44),
+      'R189 GATE: HALF TAPPED -- eaten grams are half of the EDIBLE 74.4 g, 37.2 g, and the calories are the food-s at those grams, 111.6 (ruled F: refuse first, then the fraction of what was edible)', JSON.stringify([rfIt.grams, rfIt.kcal]));
+  res(rfNear(rfSum() - rfBefore, 111.6),
+      'R189 GATE: the DAY TOTAL moved by the eaten calories and nothing else -- 111.6, not the 360 that was served');
+  res(rfNear(HT.refValueAt(rfIt.ref, 208), 111.6) && rfNear(rfIt.ref.g, 37.2),
+      'R189 GATE: the cited values ride the same grams, so the item and its citation still agree');
+  var rfRem = HT.plateRemainder(HT.getPlate('rf-wings'));
+  res(rfNear(rfRem.items[0].edible, 74.4) && rfNear(rfRem.items[0].left, 37.2) && rfNear(rfRem.items[0].fraction, 0.5)
+      && rfRem.items[0].grams === 120,
+      'R189 GATE: what is LEFT is left of the edible part -- half -- so a plate of wings eaten to the bone stops being offered as leftovers that are a pile of bones');
+  res(HT.itemServedLine(rfIt) === '120 g served · ~74.4 g edible · ate ½ · 37.2 g',
+      'R189 GATE: THE SERVED FIGURE IS NEVER HIDDEN -- "120 g served . ~74.4 g edible . ate 1/2 . 37.2 g", in the ruled order', HT.itemServedLine(rfIt));
+  var rfEv = HT.mealEvents(rfCur).filter(function (e) { return e.items.indexOf(rfIt) >= 0; })[0];
+  res(!!rfEv && rfNear(rfEv.items[0].grams, 37.2) && rfNear(rfEv.items[0].carb_g, 1.86),
+      'R189 GATE: the meal event the glucose-response reader takes holds the EATEN grams and carbohydrate -- asserted on the function that reads them, not on the display');
+
+  // -- afterwards, on the logged meal (ruled E) ------------------------------------
+  var rfIdx = function () { return HT.state().days[rfCur].items.indexOf(rfIt); };
+  var rfAll = HT.eventSetAte(rfCur, rfIdx(), 1);
+  res(rfAll.ok === true && rfNear(rfIt.grams, 74.4) && rfNear(rfIt.kcal, 223.2) && rfIt.ate.kind === 'all'
+      && HT.itemServedLine(rfIt) === '120 g served · ~74.4 g edible · 74.4 g',
+      'R189 GATE: changed to ALL afterwards -- the edible 74.4 g, 223.2 cal, and the row drops "ate" because nothing was left');
+  res(HT.eventSetAte(rfCur, rfIdx(), 0.25).ok === true && rfNear(rfIt.grams, 18.6) && rfNear(rfIt.kcal, 55.8)
+      && rfNear(HT.refValueAt(rfIt.ref, 208), 55.8),
+      'R189 GATE: a quarter afterwards moves the grams, the calories AND the cited values together');
+  var rfG = HT.eventSetGrams(rfCur, rfIdx(), 40);
+  res(rfG.ok === true && rfNear(rfIt.grams, 40) && rfNear(rfIt.kcal, 120) && HT.itemServedLine(rfIt).indexOf('ate 54%') > 0,
+      'R189 GATE: typed grams are taken as typed -- 40 g, 120 cal -- and the row says what share of the edible part that is');
+  res(HT.eventSetGrams(rfCur, rfIdx(), 999).ok === true && rfNear(rfIt.grams, 74.4)
+      && HT.eventSetAte(rfCur, rfIdx(), 0).ok === false,
+      'R189 GATE: more than was edible is capped at what was edible, and "none" is refused -- that is a delete, and it is not disguised as a fraction');
+  HT.eventSetAte(rfCur, rfIdx(), 0.5);
+  HT.doUndo();
+  res(rfNear(rfIt.grams, 74.4) || rfNear(HT.state().days[rfCur].items.filter(function (x) { return x.plateId === 'rf-wings'; })[0].grams, 74.4),
+      'R189 GATE: a change of mind is UNDOABLE, back to exactly what the item was');
+  rfIt = HT.state().days[rfCur].items.filter(function (x) { return x.plateId === 'rf-wings'; })[0];
+  HT.eventSetAte(rfCur, rfIdx(), 0.5);
+
+  // -- the bone, marked wrong once, is remembered (R191) ----------------------------
+  res(HT.refuseMemory('627') === null,
+      'R189 GATE: with no answer from the user there is NO memory -- the rule-s own decision is not something to remember');
+  var rfOff = HT.plateRefuseSet('rf-wings', 0, false);
+  res(rfOff.ok === true && rfNear(rfIt.grams, 60) && rfNear(rfIt.kcal, 180) && HT.getPlate('rf-wings').items[0].refuse.by === 'user'
+      && HT.getPlate('rf-wings').items[0].refuse.applied === false && HT.itemServedLine(rfIt) === '120 g served · ate ½ · 60 g',
+      'R189 GATE: "it was boneless", said afterwards, puts the bone back -- the half that was eaten is now half of 120 g -- and the two corrections stay SEPARATE: the fraction did not move');
+  var rfMem = HT.refuseMemory('627');
+  res(!!rfMem && rfMem.applied === false
+      && HT.refuseDecide(rfMeta, '627', rfWing, 'chicken wings', rfMem).applied === false,
+      'R189 GATE (R191): WINGS MARKED BONELESS ONCE ARE NOT CORRECTED ON THE NEXT LOG -- remembered per food, as the user-s own statement');
+  HT.doUndo();
+  res(HT.getPlate('rf-wings').items[0].refuse.applied === true && HT.getPlate('rf-wings').items[0].refuse.by === 'rule'
+      && rfNear(HT.state().days[rfCur].items.filter(function (x) { return x.plateId === 'rf-wings'; })[0].grams, 37.2)
+      && HT.refuseMemory('627') === null,
+      'R189 GATE: undoing that restores the correction, the grams and the absence of a memory -- one correction undone, the other untouched');
+  var rfBack = HT.normalizePlate(JSON.parse(JSON.stringify(HT.getPlate('rf-wings'))));
+  res(!!rfBack.items[0].refuse && rfBack.items[0].refuse.pct === 38 && rfBack.items[0].refuse.row === rfWing,
+      'R189 GATE: the correction survives export -> restore on the plate (D129)');
+
+  // -- an ordinary meal is the row it always was ------------------------------------
+  rfMk('rf-plain', { name: 'Rice', grams: 150, notes: '', confidence: 'eyeballed', source: 'ai-paste',
+    per100: { kcal: 130, protein_g: 2.7, fat_g: 0.3, carb_g: 28, fiber_g: 0.4, soluble_fiber_g: 0 } });
+  var rfPlain = HT.consumeFromPlate('rf-plain', null, { date: rfCur, all: true }).items[0];
+  res(rfPlain.grams === 150 && HT.itemServedLine(rfPlain) === ''
+      && HT.itemAteHTML(rfCur, HT.state().days[rfCur].items.indexOf(rfPlain), rfPlain).indexOf('Ate:') >= 0,
+      'R189 GATE: a meal eaten whole with nothing to take off shows ONE figure -- no second line -- and still offers "Ate:" for the day half of it turns out to have been left (ruled E: default all, never a prompt)');
+  res(HT.itemAteHTML(rfCur, 0, { name: 'typed', grams: 50 }) === '' && HT.itemServedLine({ name: 'typed', grams: 50 }) === '',
+      'R189 GATE: an item that did not come off a plate is offered neither -- there is no served figure to be a share of');
+
+  // -- by weight, through Search: one mechanism (ruled A) ---------------------------
+  var rfRow = new Float32Array([20, 22, 5, 300]);
+  var rfSearch = function (id, name, grams) {
+    HT.setSheetMode('search');
+    HT.foodSearch().rows = [{ id: id, name: name, row: rfRow, meta: rfMeta, kcal: 300, protein: 20, fat: 22, carb: 5 }];
+    HT.searchPickAt(0); HT.searchGrams(String(grams));
+    var pre = { refuse: HT.searchRefuse(), edible: HT.searchEdibleGrams() };
+    var r = HT.searchLog();
+    return { pre: pre, r: r }; };
+  var rfS1 = rfSearch('627', rfWing, 120);
+  res(rfS1.pre.refuse.applied === true && rfNear(rfS1.pre.edible, 74.4) && rfS1.r.ok === true
+      && rfNear(rfS1.r.item.grams, 74.4) && rfNear(rfS1.r.item.kcal, 223.2) && rfS1.r.item.source === 'corpus'
+      && !!rfS1.r.item.plateId && HT.getPlate(rfS1.r.plateId).items[0].grams === 120
+      && HT.itemServedLine(rfS1.r.item) === '120 g served · ~74.4 g edible · 74.4 g',
+      'R189 GATE (ruled A): wings logged BY WEIGHT through Search go through the same plate -- 120 g served is kept, 74.4 g is counted, and the row shows both');
+  HT.doUndo();
+  res(HT.getPlate(rfS1.r.plateId) === null
+      && HT.state().days[rfCur].items.filter(function (x) { return x.plateId === rfS1.r.plateId; }).length === 0,
+      'R189 GATE: undoing a search log takes its PLATE with it -- otherwise a food that was never logged would be offered back as leftovers');
+  var rfS2 = rfSearch('800', 'Banana, raw', 120);
+  var rfS3 = rfSearch('810', 'Egg, chicken, whole, fresh or frozen, raw', 100);
+  res(rfS2.pre.refuse.applied === false && rfS2.r.item.grams === 120 && rfNear(rfS2.r.item.kcal, 360) && HT.itemServedLine(rfS2.r.item) === ''
+      && rfS3.pre.refuse.applied === false && rfS3.r.item.grams === 100 && HT.itemServedLine(rfS3.r.item) === '',
+      'R189 GATE: A BANANA AND AN EGG LOGGED BY WEIGHT GET NO AUTOMATIC CORRECTION -- 120 g and 100 g are counted whole, one figure on the row');
+  var rfBanPlate = HT.getPlate(rfS2.r.plateId).items[0];
+  res(!!rfBanPlate.refuse && rfBanPlate.refuse.applied === false && rfBanPlate.refuse.pct === 36
+      && HT.plateRefuseSet(rfS2.r.plateId, 0, true).ok === true && rfNear(rfS2.r.item.grams, 76.8)
+      && HT.refuseMemory('800') === null,
+      'R189 GATE: the peel is OFFERED and one tap takes it off -- and that tap is NOT remembered for next time: only "boneless / with bone" was ruled to be');
+
+  HT.state().days = _rfDays;
+  HT.state().plates = _rfPlates;
+  HT.resave();
+  HT.closeSheet();
+
 
   freeClock();
 

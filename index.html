@@ -1065,6 +1065,24 @@
 /* A figure and its unit stay on one line: "339" / "cal" split across two reads as
    two things. Seen in a screenshot, not measurable as ink. */
 .fqnb{white-space:nowrap;display:inline-block}
+/* R189: served vs eaten. `rf` is the cited inedible part, `ate` the user's own
+   statement, `mserved` the second line a row gets only when the two figures
+   differ. Prefixes checked against the stylesheet first; every size 16px. */
+.mserved{font-size:16px;color:var(--muted);padding:0 0 6px}
+.msbit{white-space:nowrap;display:inline-block}
+.atebar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0}
+.atelab{font-size:16px;color:var(--muted)}
+.atebtn{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font:inherit;font-size:16px;cursor:pointer}
+.atebtn.ateon{border-color:var(--accent);font-weight:700}
+.ateglab{font-size:16px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.ateg{width:84px;min-height:44px;font-size:16px;padding:8px;box-sizing:border-box}
+.rfblock{margin:10px 0}
+.rfitem{margin:0 0 8px}
+.rfname{font-size:16px;font-weight:600}
+.rfline{display:block;margin:6px 0;padding:8px 10px;border:1px solid var(--line);border-radius:8px}
+.rfhead{display:block;font-size:16px;font-weight:600}
+.rfcite{display:block;font-size:16px;color:var(--muted);margin-top:2px}
+.rfbtn{display:block;font-size:16px;min-height:44px;text-align:left;padding:0}
 .fqexit{display:block;font-size:16px;min-height:44px;text-align:left}
 .fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
 .fqlog,.cnsave{width:100%;min-height:44px;font-size:16px;margin-top:10px}

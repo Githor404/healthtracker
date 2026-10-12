@@ -77,6 +77,55 @@ def rows_cnf(src, idx_of, cnf_map):
         yield fid, (r.get('FoodDescription') or '').strip(), per.get(fid, {})
 
 
+# ---- R189: THE INEDIBLE PART ------------------------------------------------
+# CNF publishes, per food, how much of it AS PURCHASED is refuse, and names the
+# parts: bone, skin, shell, pits, separable fat. 1,224 of 5,690 foods are above
+# zero. It travels in the INDEX json, not in the .bin: it is a handful of numbers
+# for a fifth of the rows, it is not a nutrient, and putting it in a slot would
+# make "38% of this is bone" one more column a mis-indexed read could turn into a
+# plausible nutrient value.
+#
+# THE USDA FILE HAS NO SUCH FIELD. srlegacy.zip was read whole: the word "refuse"
+# occurs only inside portion descriptions ("fruit without refuse"). So there is no
+# rows_fdc counterpart, and an fdc device is given no refuse figure at all rather
+# than a Canadian one under a USDA name (ruled, R189/B).
+#
+# Stored exactly as published. The total is CNF's own "total refuse" row, never a
+# sum computed here: 5,642 foods have one and none with a part above zero lacks it.
+REFUSE_ATTRIBUTION = {
+    'cnf': 'Canadian Nutrient File, Health Canada, 2015 (refuse amounts)',
+}
+
+
+def refuse_cnf(src):
+    z = zipfile.ZipFile(os.path.join(src, 'cnf.zip'))
+
+    def rd(name):
+        return list(csv.DictReader(io.StringIO(z.read(name).decode('cp1252'))))
+
+    names = {str(r.get('RefuseID', '')).strip(): (r.get('RefuseDescription') or '').strip().lower()
+             for r in rd('REFUSE NAME.csv')}
+    total, parts = {}, collections.defaultdict(list)
+    for r in rd('REFUSE AMOUNT.csv'):
+        fid = str(r.get('FoodID', '')).strip()
+        try:
+            v = float((r.get('RefuseAmount') or '').strip())
+        except ValueError:
+            continue
+        d = names.get(str(r.get('RefuseID', '')).strip(), '')
+        if not fid or not d:
+            continue
+        if d == 'total refuse':
+            total[fid] = v
+        elif v > 0:
+            parts[fid].append([d, v])
+    out = {}
+    for fid in sorted(total, key=lambda k: (len(k), k)):
+        if total[fid] > 0:
+            out[fid] = [total[fid], sorted(parts.get(fid, []), key=lambda p: (-p[1], p[0]))]
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--src', required=True)
@@ -119,6 +168,20 @@ def main():
         'attribution': ATTRIBUTION[a.ns],
         'index': index,
     }
+    # R189: its OWN hash, beside the values' hash and never folded into it. `hash`
+    # is stamped onto every frozen ref as the provenance of its VALUES; changing
+    # it because refuse data arrived would make every past match look as though
+    # it came from a different corpus when not one number in it moved.
+    if a.ns == 'cnf':
+        known = set(fid for fid, _ in index)
+        rows = dict((fid, v) for fid, v in refuse_cnf(a.src).items() if fid in known)
+        canon = json.dumps(rows, separators=(',', ':'), sort_keys=True)
+        meta['refuse'] = {
+            'attribution': REFUSE_ATTRIBUTION['cnf'],
+            'basis': 'percent of the food as purchased, exactly as published',
+            'hash': hashlib.sha256(canon.encode('utf-8')).hexdigest()[:12],
+            'rows': rows,
+        }
     bin_path = os.path.join(a.out, '%s.bin' % a.ns)
     json_path = os.path.join(a.out, '%s.json' % a.ns)
     io.open(bin_path, 'wb').write(bytes(buf))

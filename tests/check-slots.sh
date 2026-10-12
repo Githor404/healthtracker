@@ -306,6 +306,33 @@ if src:
             hash_line = 'app hashes: ' + ', '.join(
                 '%s=%s' % (n, declared.get(n)) for n in sorted(metas))
 
+# 8. R189: THE REFUSE TABLE'S OWN HASH. It is separate from the values' hash on
+#    purpose (that one is stamped on every frozen ref), so it needs its own check
+#    or it is the stale constant of #7 over again. Both directions: a shipped
+#    table with no declared hash never reaches a device that already holds the
+#    corpus, and a declared hash for a namespace that ships no table would make
+#    every such device re-fetch on every acquire, for ever.
+refuse_line = 'refuse hashes: NOT CHECKED (app.js unreadable)'
+if src:
+    j = src.find('const CORPUS_REFUSE_HASH = {')
+    declared_r = {}
+    if j >= 0:
+        for line in src[j:src.find('};', j)].split('\n')[1:]:
+            line = line.strip().rstrip(',')
+            if ':' not in line or line.startswith('//'):
+                continue
+            k, v = line.split(':', 1)
+            declared_r[k.strip()] = v.strip().strip("'").strip('"')
+    shipped_r = dict((ns, (m.get('refuse') or {}).get('hash')) for ns, m in metas.items()
+                     if isinstance(m.get('refuse'), dict))
+    for ns in sorted(set(list(declared_r) + list(shipped_r))):
+        if declared_r.get(ns) != shipped_r.get(ns):
+            bad.append("app.js CORPUS_REFUSE_HASH.%s is %r but corpus/dist/%s.json ships %r"
+                       % (ns, declared_r.get(ns), ns, shipped_r.get(ns)))
+    if not [b for b in bad if 'CORPUS_REFUSE_HASH' in b]:
+        refuse_line = 'refuse hashes: ' + (', '.join('%s=%s' % (n, shipped_r[n]) for n in sorted(shipped_r))
+                                           or 'none shipped, none declared')
+
 if bad:
     print('SLOTS CHECK: FAIL')
     for b in bad[:14]:
@@ -317,6 +344,7 @@ print('slots: %d total = %d derived + %d judged (%d merges), bar %s, every judgm
 print('  ' + APPEND_LINE + ' (3 planted violations all caught)')
 print('  assets agree with the spec: ' + (', '.join(asset_line) if asset_line else 'NONE CHECKED'))
 print('  ' + hash_line)
+print('  ' + refuse_line)
 print('GATE: PASS')
 PY
 rc=$?
