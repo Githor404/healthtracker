@@ -15286,3 +15286,83 @@ it in one place.
 The controls, unchanged by any of it: a banana (36% skin) and an egg (12% shell)
 carry no bone refuse and get **no** automatic correction under every rule
 considered.
+
+### 9. R189 / 1 — AS BUILT (v0.86.0), AND WHAT RULING A STILL OWES
+
+Serves **track**, and the denominator **evaluate** reads.
+
+| ruled | as built |
+|---|---|
+| **A** one mechanism | the plate. **No "served" field was added to an item** — the served figure is read from the plate the item came off (`itemServed`), because a second copy on the item is a second number that could disagree with the first |
+| **B** CNF, cited | `corpus/encode.py` now carries CNF's refuse table in `cnf.json`: **1,224 rows**, each with its total and its named parts, exactly as published. `cnf.bin` is **byte-identical** — no nutrient value moved. `fdc.json` has no such field and `refuseRow` returns null there |
+| **C** bone only, bone-in only | `refuseDecide`, pure. A meat-only row returns **null** — not applied and not offered. The bone part names are **read** from the table (five of them); the four cuts are the **ruled** list, in one constant |
+| **D** the matched row, shown | every correction line carries its percentage, its part, the row and the source. On the search amount step the row is already the heading directly above, so the line says *"38% of this is bone"* rather than printing a forty-character name twice |
+| **E** at save and afterwards | the opened row has **Ate: all · ¾ · ½ · ¼ · g**, standing at whatever was said. Nothing on the day asks |
+| **F** refuse, then the fraction of edible | `consumeFromPlate` takes the fraction of `plateEdibleG`, the one place the percentage is applied. The remainder is measured against the edible part too — otherwise a plate of wings eaten to the bone stays "38% left" and is offered back as leftovers that are bones |
+| **R191** remembered per food | `refuseMemory`: the most recent plate on which the **user** answered for that row. Nothing is stored for it ([[D133]]'s shape). An answer the app carried forward is not itself an answer and is never what is remembered |
+
+**The two corrections are separate by construction, and the gate holds each from
+moving the other:** tapping ½ leaves the served 120 g and the bone correction
+alone; tapping *"it was boneless"* puts the bone back — 37.2 g becomes 60 g — and
+the half stays a half.
+
+> **RULING A IS NOT FULLY MET, and this is the line that says so.** *"Extend the
+> existing plate to every path with a served weight."* In v0.86.0 the plate is
+> reached from **Photo** (as before) and **Search** (new: a searched food is now a
+> plate of one with one "all of it" event). **Scan, Manual, a repeated food from
+> the top list, presets and combos still write an item directly**, with no plate —
+> so on those paths there is no served figure, no correction and no "Ate:". Each
+> has its own gated write path and its own undo; routing five of them through the
+> plate in the commit that also changes the plate's arithmetic would have been one
+> change too many to verify. **Owed as R189/2**, and not to be read as done.
+
+**The refuse table needed its own hash.** `hash` is stamped onto every frozen ref
+as the provenance of its *values*; folding the refuse data into it would have made
+every past match look as though it came from a different corpus when not one
+number in it moved. So `CORPUS_REFUSE_HASH` sits beside `CORPUS_ASSET_HASH`, and
+`check-slots.sh` holds it to the shipped asset in both directions.
+
+**D144 and "never hide the served figure" both hold, and the conflict is named.**
+D144 ruled the collapsed row is name, time and one number. R189 rules the served
+figure is shown whenever it differs. The collapsed line is unchanged; a row whose
+figures differ gets a second line beneath it. A row where they do not — nearly
+every row — is exactly the row D144 made, and the gate counts both kinds.
+
+**The draft's running total now counts the edible grams**, so the figure on the
+screen with the Save button is the figure the day shows afterwards.
+
+**Three things the screenshots found** (read at 390px, per the standing rule):
+*"37.2"* at the end of one line with its *"g"* alone on the next; the confirmation
+bar wrapped to four lines by a forty-character corpus name, over the row it was
+confirming; and the row name printed twice on the amount step. All three fixed,
+and the first is now asserted — no figure is split from its unit — at both widths.
+
+**One finding outside this slice, read in the code and NOT measured — raised, not
+fixed:**
+
+> `corpusHydrate()` is called in exactly one place: inside `corpusAcquire`, after
+> an install. Nothing loads the stored corpus into memory at startup. So on every
+> launch the first `corpusEnsure()` finds no corpus in memory and **fetches and
+> re-installs it from the network** — 5,690 database writes — and **offline there
+> is nothing to fetch**, although the corpus is sitting in the device's own
+> database. If that reading is right, search and nutrient matching do not work
+> offline, and the hash-based upgrade path in `corpusAcquire` is doing nothing
+> that a per-launch re-fetch does not already do. It is the reason this slice's
+> refuse table reaches an existing device at all. **Wants its own measurement and
+> its own gate before anything is changed.**
+
+**Still open from R187, and it bit here:** on the search amount step the **Log
+button is below the fold** at 390×844 once a correction line is showing. The
+sheet's four-link foot and the two-row head take the space. Reported then; not
+changed now.
+
+**Not edited: CLAUDE.md.** Its capability list describes neither Search nor
+served-vs-eaten.
+
+| evidence | |
+|---|---|
+| harness | **2909** (+35), re-pinned |
+| `tests/served-gate.ps1` | **NEW, 59 checks**, registered. The **shipped Canadian corpus** under a real `en-CA` override; exit 2 if it does not hydrate *with* its refuse table |
+| `tests/check-slots.sh` | holds the refuse hash to the shipped asset |
+| `tests/check-writesites.sh` | **put `searchLog` back.** I removed it believing the write had moved to `consumeFromPlate`; it now writes a plate, and the census named it on the next run. A plate is a record too |
+| suite | **43 verdicts** (1 harness + 9 static + 33 CDP) |

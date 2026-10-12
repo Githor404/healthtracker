@@ -5833,3 +5833,49 @@ across a closed sheet, Start over, and a searched item's `source` reading `corpu
 four defects in DECISIONS §2 were found by reading screenshots. The screenshots
 are a scratch script and are not in the suite — a picture has no verdict — so
 "look at it" is a step a person or a session has to choose to take.
+
+### R189 / 1 — served vs eaten, on the shipped Canadian corpus (2026-10-11, v0.86.0)
+
+**`tests/served-gate.ps1`, NEW — 59 checks, registered in the manifest in this
+commit.** The suite is now **43 verdicts** (1 harness + 9 static + 33 CDP).
+Harness **2874 -> 2909**.
+
+**It runs on the CANADIAN corpus, under a real `en-CA` override**, because that is
+the only one with a refuse table — and the override is the user-agent's
+`acceptLanguage`, the one `corpus-gate` measured as actually moving
+`navigator.language`. **If the corpus does not hydrate WITH its refuse table the
+gate exits 2.** A served-vs-eaten gate over a corpus with no refuse data would
+pass every "not corrected" check it contains and mean nothing.
+
+What the harness cannot hold and this does:
+
+- **the SHIPPED table says what the source says**: 1,224 rows; the batter-fried
+  wing row is `[38, [["bone", 38]]]`; a banana 36% skin; an egg 12% with no part
+  named. Read off the asset the device downloads, not off a fixture;
+- **the photo path**: wings corrected on the draft before the save, the item the
+  photo called *boneless* offered and not applied, and the draft's own total
+  equal to what then reaches the day;
+- **½ by a real click**: 37.2 g, 107.88 cal, and **the day total moved by exactly
+  −107.88**;
+- **both figures on the row**, with the row still closed — and exactly one row on
+  the day carrying the second line, so D144's row is seen to be unchanged
+  everywhere the figures agree;
+- **the two corrections held apart, in both directions**: the fraction does not
+  touch the served weight or the bone; taking the bone off does not touch the
+  fraction;
+- **"it was boneless" remembered**: the next log of the same row, found by real
+  typing, is offered and not applied, with `by: memory`;
+- **a breast, a banana and an egg by weight**: offered, off, counted whole;
+- **no figure split from its unit**, at 390 and 360 — a check that exists because
+  a screenshot showed `37.2` and `g` on different lines.
+
+**The harness block (+35)** holds the rule as a pure function over a refuse table
+built in the page, the plate arithmetic, and Search writing through the plate —
+including that undoing a search log takes its plate with it.
+
+**`check-slots.sh`** gained the refuse hash, both directions: a shipped table with
+no declared hash, and a declared hash for a namespace that ships none.
+
+**What this gate is NOT evidence of:** the US corpus. That it applies nothing
+there is asserted in the harness, on a meta with no refuse table; no browser gate
+drives a US-locale device through this path.
