@@ -15366,3 +15366,203 @@ served-vs-eaten.
 | `tests/check-slots.sh` | holds the refuse hash to the shipped asset |
 | `tests/check-writesites.sh` | **put `searchLog` back.** I removed it believing the write had moved to `consumeFromPlate`; it now writes a plate, and the census named it on the next run. A plate is a record too |
 | suite | **43 verdicts** (1 harness + 9 static + 33 CDP) |
+
+**The first full run of v0.86.0 was 42 of 43, and nothing was pushed.**
+`check-allowlist` read the undo in `plateRefuseSet` — `pi.refuse = priorRefuse` —
+as a write of `refuse` onto a DAY ITEM, because it classifies by the variable's
+name and `pi` is a plate item there. Nothing was at risk: the field is declared in
+`normalizePlateItem`, where it is stored. Fixed as **v0.86.1** by restoring the
+fields in place — the same thing, in the form the census classifies correctly.
+*A census that has to be argued with is a census that gets ignored.*
+
+---
+
+## R192–R195 — A PRESET BUILT, A VIEW PRE-REGISTERED, AN IMPORT PARKED, A DEAD END REMOVED (2026-10-11)
+
+`R192`, `R193`, `R194`, `R195` grepped per the standing rule: none was in use.
+
+### 1. R195 — "SAVE AS COMBO" WAS A DEAD END, AND IT IS REMOVED (v0.87.0)
+
+> *"name field, 'tick the items it is made of', then only a 'Nothing ticked'
+> button and cancel — no items listed to tick. Dead end."* — on v0.85.0, which was
+> the current build. **Not a stale cache.**
+
+**The cause, read in the code.** The link turned on a mode in which the item rows
+grew tick boxes. The rows live inside the day's meal groups, and **the groups are
+closed by default** (R159.1). The panel asked for a selection from a list it was
+not showing. COMBOS/3 shipped in v0.82.0 with six assertions on that surface, all
+passing: each asserted the *bar* or the *mode*, and none that a tick was anywhere
+a person could reach. It is the ONE DOOR lesson a fourth time — *counting a
+control is not reaching it* — and this time on a control that could not be
+reached at all.
+
+**RULED: remove it. One door.** *"Combos are made only via + Log → + New combo."*
+The link, the bar, the ticks, the selection state and its five functions are
+gone. **This reverses the earlier ruling** that kept "Save as combo" as the second
+route (ONE DOOR §4, and again in ONE DOOR/2 §3). There was one entry point and it
+is removed; nothing else led to the flow.
+
+**`comboFromItems` is KEPT, with no surface, and that is said rather than left to
+be discovered.** The combo editor's assertions build their combos through it, and
+it is the only thing that turns logged items into a combo with their provenance
+intact. It is a function with no caller in the app. If it should go too, that is
+a ruling and a larger edit to the harness.
+
+**What is lost, stated:** a combo could be made from items already logged,
+keeping each part's portion and its `ref` or `published` citation exactly. The
+builder makes parts from the food database or from typed text; it cannot yet
+adopt a logged item. Existing combos are untouched.
+
+**Item 2 — the update announcement — needed no change.** The phone was on v85,
+the build that was live. The D6 force-and-notify update and its "Updated to vX.Y"
+line exist and did their job; there was no silent staleness to close.
+
+**Item 3 — raw keys in the day's micronutrient list.** `renderDay` printed the
+storage key itself (`cholesterol_mg`, `vitamin_a_ug`). Now *"Cholesterol · mg"*,
+from the label table that was one lookup away. **A key this build does not
+recognise is no longer shown at all** — which is what the data contract has always
+said (*"preserved, not displayed until recognized"*) and the code had not done.
+
+> **And the gate had been looking straight at it.** `jargon-gate` seeds an item
+> with `sodium_mg` and `iron_mg` and sweeps that very summary. It passed, because
+> it bans *words* and a storage key is not a word anyone had listed. The ban is
+> now the **shape** — lower-case, underscores, a unit suffix. **Run before the
+> fix, it failed on the shipped page and named `sodium_mg` and `iron_mg`**; that
+> run is the evidence that it would have caught the report.
+
+### 2. R192 — RED LIGHT IN ONE TAP (v0.88.0), and the ruling it collided with
+
+`red_light` was already an event type, in minutes; it took the full form. Now a
+preset chip in the event pane logs it in one tap, through `addSignal` at `quick`
+provenance, with the Undo bar.
+
+- **The minutes are the last ones logged**, read from the log rather than stored
+  ([[D133]]'s shape), and **15** before there are any. 15 is the ruled default and
+  the product's, not a calibration.
+- **Timed from the tap, as a START**, as every other event here is. Tapped after
+  a session it sits one session late, and the entry's editor moves it. Stamping
+  it as having started fifteen minutes ago would be a time nobody recorded
+  ([[D112]]). **This matters for §3**: "within 90 minutes before breakfast" is read
+  off this time.
+
+> **"TOP CHIPS" MET D52/R20, and the gate said so.** Built first as the leading
+> chip of the strip. `chip-layout-gate` failed at once: on a phone the strip is
+> one scrolling row, so *placement is reachability*, and a wide "Red light · 15
+> min" chip in front pushed the bowel-movement chip — ruled reachable without
+> scrolling — off the screen. **Both rulings hold with the preset on its own row
+> ABOVE the strip**: it is still the first thing in the pane, and the strip is
+> exactly the strip it was. Named here because the instruction said "top chips"
+> and what shipped is "above the chips".
+
+**Seen and not changed:** the other chips in that strip are **36px** tall. They
+open the form rather than write, and no gate holds them to 44. The preset, which
+writes on a tap, is 44.
+
+### 3. R192 — THE n-OF-1 COMPARE VIEW — PRE-REGISTERED, NOT BUILT
+
+Serves **evaluate** — the first slice of that leg ([[D152]]).
+
+**The question it answers:** for one repeated breakfast, do the mornings with an
+event before it differ from the mornings without?
+
+| | pre-registered |
+|---|---|
+| the meal | a **combo**, picked by the user — the one thing in the log that is the same food at the same portion by construction |
+| the split | by **presence of a named event** in a window before the meal (first: Red light within 90 min before). Two groups, *with* and *without* |
+| per day | glucose **rise** and **return to baseline** — both already computed by `mealResponse` — and **2 h incremental AUC**, which is **not** computed yet and is built with the view (ruled) |
+| the summary | each group's mean **with its n and its spread**, shown side by side |
+| the verdict | **none.** The view states the two groups. Where the spreads overlap it says *"no clear difference"*, and below a floor it says *"not enough days yet"* and shows no means at all |
+| basis | **eaten** grams only (R189) — a comparison of two mornings where one breakfast was half left is a comparison of two different meals |
+
+**MEASURED n, and it is the first thing the view will have to say.** On the PC's
+snapshot, dated 2026-10-10 — the phone is the live log, so this is a floor:
+
+| | |
+|---|---|
+| red-light events | **2**, both in early September |
+| saved combos | **0** |
+| days with a breakfast item | 5, of which **4** have glucose |
+| days with glucose | 11 (2026-09-30 to 2026-10-10) |
+| **days with red light AND glucose** | **0** |
+
+> **So the first honest output is "not enough days yet", and the view is built to
+> say it.** A view that drew two bars from three mornings and four would be the
+> uncited claim this app refuses, with a chart on it.
+
+**Three things to rule before it is built:**
+
+- **The floor.** D95 uses 8 days for a "typical". Proposed: **5 per group** before
+  any mean is shown, and the count in each group shown from day one.
+- **"No clear difference" needs a definition that is not a p-value.** n=1 data on
+  a handful of mornings supports no significance test honestly. Proposed: the two
+  groups' ranges are drawn, and the sentence is chosen by whether they overlap —
+  stated as overlap, not as proof of no effect.
+- **Confounds the view cannot see** are named on it: the same combo eaten after a
+  bad night, at a different hour, with a different amount left. It can show the
+  hour and the eaten grams beside each day; it cannot adjust for them.
+
+**PRE-REGISTERED GATE:** below the floor no mean is rendered and the sentence says
+why; each group's n is on screen; a day whose response was `declined` or
+`bounded` is listed and not averaged; the event window is half-open and a session
+*during* the meal is not "before" it; iAUC is zero-floored against the same
+20-minute baseline `mealResponse` uses, and a gap inside the two hours makes it
+*not computed*, never interpolated; eaten grams, asserted on the reader; every
+string through `jargon-gate` including the mechanism words — *the view says what
+the glucose did, never what the light did*.
+
+### 4. R193 — THE APPLE HEALTH IMPORT IS PARKED (ruled R194)
+
+> *"PARK the import. No views on 2020–24 data. Re-open when ≥7 days of live Watch
+> (or Oura) HR overlap glucose; I'll say when. Keep the counts table."*
+
+**The counts, from one streamed pass of `export.xml`** (516 MB, dated 2026-10-10,
+kept outside the repo):
+
+| type | records | range | source |
+|---|---|---|---|
+| HeartRate | 152,913 | 2020-08-26 – 2024-11-21 | Apple Watch |
+| RestingHeartRate | 802 | 2020-08-27 – 2024-11-20 | Apple Watch |
+| HeartRateVariabilitySDNN | 2,796 | 2020-08-26 – 2024-11-21 | Apple Watch |
+| ↳ beat-to-beat entries inside them | 162,544 | same | every HRV record carries a list; 9–119 beats, median 59 |
+| RespiratoryRate | 6,328 | 2021-10-27 – 2024-11-21 | Apple Watch |
+| StepCount | 71,587 | 2020-04-27 – **2026-10-09** | Watch and iPhone |
+| ActiveEnergyBurned | 547,973 | 2020-07-13 – 2024-11-21 | Apple Watch |
+| Workouts | 391 | 2020-09-04 – 2024-11-18 | elliptical 214, stair climbing 174 |
+| SleepAnalysis | 4,626 | 2021-02-14 – 2024-11-22 | 4,037 *in bed*, 589 *asleep, unspecified* |
+| MindfulSession | **1** | 2021-03-20 | Apple Watch |
+| BloodGlucose | 2,739 | **2026-09-30 – 2026-10-10** | Dexcom G7 |
+| AppleSleepingWristTemperature, OxygenSaturation | 0 | — | — |
+| VO2Max, HeartRateRecoveryOneMinute, TimeInDaylight | 0 | — | — |
+
+**Why it is parked, in one line: the Watch stops in November 2024 and the glucose
+starts in September 2026.** There is no day on which heart rate, HRV, breathing
+rate or sleep overlaps glucose. Only steps — from the iPhone — run through the
+glucose period.
+
+Two things the request assumed that the file does not hold:
+
+- **Morning RMSSD from a waking Mindfulness session**: there is one session in six
+  years, in 2021, in the afternoon, with no beat list recorded during it. RMSSD
+  *can* be computed from the 2,796 historical lists; none of them is a
+  standardised waking reading.
+- **Sleep stages**: none. Only *in bed* and *asleep, unspecified*.
+
+**Re-open condition, ruled:** at least seven days of live heart rate overlapping
+glucose, on the user's word.
+
+### 5. E-LITE — RULED (R194), QUEUED, NOT YET PRE-REGISTERED
+
+*"Do not wait for HR. Build E-lite now on what exists."* Recorded here so the
+order is on the page: **v0.86.0 → R192 preset → R189 → E-lite.** Its
+pre-registration, with the cost declaration the ruling asks for, is written when
+it is reached — not now, and not from memory of this paragraph.
+
+### 6. Evidence
+
+| | |
+|---|---|
+| harness | **2912** (2909 → 2906 for R195, a drop on purpose; → 2912 for R192) |
+| `tests/jargon-gate.ps1` | the raw-key shape ban; failed on the shipped page before the fix |
+| `tests/sensor-gate.ps1` | 61 → **68**: the preset by a real click, above the strip and not in it |
+| `tests/chip-layout-gate.ps1` | unchanged, and it is what moved the preset |
+| one pin moved and moved back | `TL14`, the chip count — moved to the sum when the preset was in the strip, restored when it left |

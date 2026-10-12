@@ -5879,3 +5879,34 @@ no declared hash, and a declared hash for a namespace that ships none.
 **What this gate is NOT evidence of:** the US corpus. That it applies nothing
 there is asserted in the harness, on a meta with no refuse table; no browser gate
 drives a US-locale device through this path.
+
+### v0.86.1 – v0.88.0 — a census misread, a gate that looked past raw keys, and one that moved a chip (2026-10-11)
+
+Harness **2909 -> 2912**. No new gate script; the suite stays at **43 verdicts**.
+
+**`check-allowlist.sh` failed v0.86.0's first full run, 42 of 43.** It read an undo
+that reassigned `pi.refuse` as a write onto a day item, going by the variable's
+name; `pi` was a plate item and the field is declared where it is stored. The
+code now restores the fields in place. Kept as a note because the fix was to the
+code and not to the census: the census is right far more often than it is wrong,
+and teaching it an exception would have cost more than saying the same thing in
+the form it reads.
+
+**`jargon-gate.ps1`: a ban on the SHAPE of a stored nutrient key.** Reported from
+the device: the day's micronutrient list printed `cholesterol_mg`. The gate seeds
+`sodium_mg` and `iron_mg` and sweeps that list, and had passed for as long as the
+list existed — it bans words, and a key is not a word anyone listed. The new
+pattern is lower-case, underscores, a unit suffix. **Run before the fix it failed,
+naming both seeded keys**, which is the only evidence that a ban of this kind
+fires.
+
+**`chip-layout-gate.ps1` moved the Red light preset, unchanged itself.** Placed
+first in the strip, the preset pushed a chip that is ruled reachable without
+scrolling off a 380px touch screen. The preset is on its own row above the strip.
+`sensor-gate` asserts both halves: it is above the strip, and none is in it.
+
+**The harness LOST six assertions on purpose (2909 -> 2906).** They covered the
+day's "Save as combo" panel, removed by ruling. All six had passed on the build
+reported as a dead end. Three replace them: no such link or panel on a day that
+has items, the mode's functions gone rather than hidden, and the one door still
+there.
