@@ -463,6 +463,12 @@ try {
     # hazard for the middot; this list never got the lesson.
     @{ re = 'unresolved\s*\u2014\s*resolve'; say = 'the same word twice, neither of them the user''s' },
     @{ re = 'BYOK';                    say = 'an acronym only a developer knows' },
+    # R195, REPORTED FROM THE DEVICE: the day's micronutrient summary printed
+    # cholesterol_mg, vitamin_a_ug, saturated_fat_g. This gate SEEDS an item with
+    # sodium_mg and iron_mg and swept that very summary -- and passed, because it
+    # bans WORDS and a storage key is not a word anyone had listed. So the ban is
+    # the SHAPE: lower-case, underscore, a unit suffix. No list of keys to keep.
+    @{ re = '(^|[^A-Za-z0-9_])[a-z][a-z0-9]*(_[a-z0-9]+)*_(mg|ug|g)($|[^A-Za-z0-9_])'; say = 'a stored nutrient key shown raw -- the label and its unit are what a person reads (Cholesterol, mg)' },
     @{ re = '(^|\s)Ingest(ed|ing)?($|\s|\.)'; say = 'the app''s word for "add to my log"' },
     @{ re = '(^|[\s\d\(])kcal\b';      say = 'the unit token, ruled to "cal" on rows and "Calories" in headings' },
     # H24 / D157's second binding: NEVER PLAYS THE CLINICIAN. The app states what

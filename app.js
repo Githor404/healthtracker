@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.86.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.87.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -907,53 +907,21 @@ function setComboPartGrams(id, idx, grams) {
   return { ok: true, part: p, factor: k };
 }
 
-// ---- THE SELECTION MODE, and it is OFF by default ------------------------
-// A mode rather than a permanent checkbox column, because the day's taps are
-// already ruled: a tap on the head EXPANDS the row, the meal chip opens the editor
-// on meal, and the red x deletes with its own thumb path (D44). Giving the row a
-// fourth permanent meaning is the collision this file keeps closing; a mode the
-// user turns on asks once and changes nothing until they do.
-let COMBO_SEL = null;      // null = off; { picks: {idx:1}, name: '' }
-function comboSelStart() { COMBO_SEL = { picks: {}, name: '' }; refresh(); return { ok: true }; }
-function comboSelCancel() { COMBO_SEL = null; refresh(); return { ok: true }; }
-function comboSelToggle(idx) {
-  if (!COMBO_SEL) return { ok: false, why: 'not-selecting' };
-  const k = String(num(idx));
-  if (COMBO_SEL.picks[k]) delete COMBO_SEL.picks[k]; else COMBO_SEL.picks[k] = 1;
-  refresh();
-  return { ok: true, picks: Object.keys(COMBO_SEL.picks) };
-}
-function comboSelName(v) {
-  if (!COMBO_SEL) return { ok: false, why: 'not-selecting' };
-  COMBO_SEL.name = String(v == null ? '' : v);
-  return { ok: true };
-}
-function comboSelSave() {
-  if (!COMBO_SEL) return { ok: false, why: 'not-selecting' };
-  const idxs = Object.keys(COMBO_SEL.picks).map(function (k) { return num(k); })
-    .sort(function (a, b) { return a - b; });
-  const r = comboFromItems(APP_STATE.current, idxs, COMBO_SEL.name);
-  if (!r.ok) { toast(r.error || 'Could not save that.'); return r; }
-  COMBO_SEL = null;
-  toast('Saved ' + r.combo.name + ' - ' + r.combo.parts.length + ' items');
-  refresh();
-  return r;
-}
-// The bar: only while selecting, and it states what it will save BEFORE the tap.
-function comboSelBarHTML() {
-  if (!COMBO_SEL) return '';
-  const n = Object.keys(COMBO_SEL.picks).length;
-  return '<div class="csbar"><div class="csname">Save as combo</div>'
-    + '<input class="csin" type="text" placeholder="name it, e.g. my coffee"'
-    + ' value="' + esc(COMBO_SEL.name) + '" oninput="comboSelName(this.value)"'
-    + ' aria-label="combo name">'
-    + '<div class="cssub">' + esc(n ? ('tick the items it is made of - ' + n + ' selected')
-                                   : 'tick the items it is made of') + '</div>'
-    + '<button type="button" class="btn cssave" onclick="comboSelSave()"' + (n ? '' : ' disabled') + '>'
-    + (n ? ('Save ' + esc(String(n)) + ' item' + (n === 1 ? '' : 's') + ' as a combo') : 'Nothing ticked')
-    + '</button>'
-    + '<button type="button" class="linklike cscancel" onclick="comboSelCancel()">cancel</button></div>';
-}
+// ---- R195: THE SELECTION MODE IS GONE ------------------------------------
+// It was the day's "Save as combo": a link that turned on a mode in which the
+// item rows grew tick boxes. REPORTED FROM THE DEVICE as a dead end -- a name
+// field, "tick the items it is made of", a button reading "Nothing ticked", and
+// NOTHING TO TICK. The ticks were drawn on the rows, the rows live inside the
+// day's meal groups, and the groups are closed by default: the panel asked for a
+// selection from a list it was not showing.
+//
+// RULED: one door. Combos are made through + Log, "+ New combo", and nowhere
+// else. So the link, the bar, the ticks and the mode's state are removed rather
+// than repaired, and with them the earlier ruling that kept this as a second
+// route. `comboFromItems` above is KEPT, with no surface: the combo editor's
+// tests build their combos through it, and it is the only thing that can turn
+// logged items into a combo with their provenance intact. It is named here as a
+// function with no caller in the app, so it is not mistaken for a live route.
 
 // ---- RE-EXPRESSING A FROZEN REF AT A NEW PORTION -------------------------
 // H2's rule: a ref's values are frozen at `ref.g` grams, so a different portion
@@ -4163,10 +4131,18 @@ function renderGoalsHTML(t, day) {
   const micros = microRollup(day);
   const mk = Object.keys(micros);
   if (mk.length) {
-    html += `<div class="summary"><div class="sumhead">Micronutrients — labeled intake only</div>` + mk.map((k) => {
-      const mv = micros[k];
-      return `<div class="sumrow"><span>${esc(k)}</span><span>${esc(rDisp(mv.total))} <small>from ${esc(mv.n)} of ${esc(mv.m)} items</small></span></div>`;
-    }).join('') + `</div>`;
+    // R195, REPORTED: this printed the STORAGE KEY -- cholesterol_mg,
+    // vitamin_a_ug, saturated_fat_g. The label and the unit were one table away
+    // the whole time (MICRO_LABEL). Now "Cholesterol \u00b7 mg".
+    //
+    // A key this build does not recognise is NOT shown, which is what the data
+    // contract has always said: unknown keys are tolerated on ingest, preserved,
+    // and not displayed until recognised. The old code displayed them, raw.
+    const rowsHTML = mk.filter((k) => !!MICRO_LABEL[k]).map((k) => {
+      const mv = micros[k], sp = MICRO_LABEL[k];
+      return `<div class="sumrow"><span>${esc(sp.label)} \u00b7 ${esc(sp.unit)}</span><span>${esc(rDisp(mv.total))} <small>from ${esc(mv.n)} of ${esc(mv.m)} items</small></span></div>`;
+    }).join('');
+    if (rowsHTML) html += `<div class="summary"><div class="sumhead">Micronutrients — labeled intake only</div>` + rowsHTML + `</div>`;
   }
   return covLine + html;
 }
@@ -4732,9 +4708,6 @@ function renderDayInner() {
       // -- that is a setting, not an item anyone saves. stopPropagation keeps the
       // head's expand handler from firing underneath it, which is the same guard
       // the meal chip already needs for the same reason.
-      const tick = (COMBO_SEL && !it._auto)
-        ? `<label class="cstick" onclick="event.stopPropagation()"><input type="checkbox"${COMBO_SEL.picks[String(idx)] ? ' checked' : ''} onchange="comboSelToggle(${idx})" aria-label="include ${esc(it.name)}"></label>`
-        : '';
       // R189, AND IT TOUCHES D144. D144 ruled the collapsed line is name, time and
       // ONE number. R189 rules the served figure is never hidden when it differs
       // from the eaten one. Both hold: the collapsed line is unchanged, and a row
@@ -4749,7 +4722,7 @@ function renderDayInner() {
         : '';
       const ateHTML = it._auto ? '' : itemAteHTML(dk, idx, it);
       html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
-        <div class="mline">${tick}
+        <div class="mline">
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
             <span class="mname mginame" title="${esc(it.name)}">${esc(it.name)}</span>
             <span class="mtime mgitime">${esc(it.time || '')}</span>
@@ -4933,20 +4906,14 @@ function stepDay(dir) {
 //                pending fast is the gap line -> focusPendingResolve().
 // So this removes a shortcut row, not a feature.
 function dayActionsHTML() {
-  // "Save as combo" is offered only when there is something to make one FROM. A
-  // day with no items has nothing to select, and an offer leading to an empty
-  // selection asks without answering -- the R33 lesson, one surface along.
-  const cday = curDay();
-  const csavable = ((cday && cday.items) || []).filter(function (i) { return i && !i._auto; }).length;
-  const ccombo = (csavable && !COMBO_SEL)
-    ? '<button type="button" class="linklike dsavecombo" onclick="comboSelStart()">Save as combo</button>'
-    : '';
+  // R195: "Save as combo" used to follow this row. Removed -- one door: combos
+  // are made through + Log. See the note where the selection mode was.
   return '<div class="dact">'
     + '<button type="button" class="btn qa10" onclick="openQuickAdd()">'
     + 'Quick add \u00b7 top 10</button>'
     + '<button type="button" class="dcam" onclick="openSheet(\'photo\')"'
     + ' aria-label="Photograph a meal">Camera</button>'
-    + '</div>' + ccombo + comboSelBarHTML();
+    + '</div>';
 }
 // The empty kinds, ONE muted line (ruling D), each named kind its own target.
 // "I eat in a window; four fixed headers would be mostly dashes."
@@ -12102,6 +12069,7 @@ const VERSION_LOG = [
   { v: '0.85.0', d: '2026-10-11', note: 'Tapping New sensor now tells you it worked. The entry names the sensor and the arm -- New sensor, Dexcom G7, left arm -- and a line beside the buttons counts the days: Day 3 of 10, then the grace period, then that it is past its wear time. The first time, it asks which sensor you use and remembers the answer. The wear times are the maker-s own published figures, with the source one tap away, and they are counted from when you logged the sensor. A second tap within ten minutes no longer adds a second change: the same arm does nothing, and the other arm corrects the entry. You can open an older sensor entry and set its type yourself. Moved, Woke and Drink now confirm with an Undo as well. A food you logged by searching now says it is from the food database, where before it said typed in. In the Log sheet: going back from a half-built combo keeps it as a draft instead of throwing it away; searching puts the food you typed ahead of longer words that merely start with it, so milk no longer leads with milkfish; and the row of mode buttons no longer sits on top of the first screen.' },
   { v: '0.86.0', d: '2026-10-11', note: 'The day now counts what you ate, not what was on the plate. Two things can make those differ, and they are kept apart. The part you cannot eat: when a food is matched to the Canadian food database and that database says how much of it is bone, the weight is reduced for you on cuts served on the bone -- wings, drumsticks, ribs, necks, and anything it calls bone-in -- and the line says so, with the figure and where it comes from: 120 g served, about 74 g edible. Peel, shell, pits and fat are never taken off by themselves; there is one tap if your weight included them. Say a food was boneless once and it is remembered for that food. What you left: open any item that came from a photo or a search and tap Ate: all, three quarters, half, a quarter, or type the grams. Whenever the two figures differ the row shows both, so the served weight is never hidden. A food you log by searching can now be corrected the same way afterwards. On the US food database nothing is taken off, because it publishes no such figures.' },
   { v: '0.86.1', d: '2026-10-11', note: 'A fix under the hood for the release before this one: undoing a change to a bone or peel correction now restores it in a way the app-s own record checks can read. Nothing you logged is affected.' },
+  { v: '0.87.0', d: '2026-10-11', note: 'Two things from the Day screen. Save as combo is gone from under the day: it opened a panel that asked you to tick items and showed none, because the items were inside closed meal groups. Combos are now made in one place -- + Log, then + New combo. Combos you already saved are untouched. And the micronutrient list under the day now reads in plain words with its unit -- Cholesterol, mg; Vitamin A, mcg; Saturated fat, g -- where it was showing the app-s own internal names for them.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -19729,7 +19697,6 @@ window.HT = {
   stackOpen, stackCancel, stackToggle, stackConfirm,
   // COMBOS (schema v14)
   comboStepHTML, comboFromItems, renameCombo, deleteCombo, setComboPartGrams,
-  comboSelStart, comboSelCancel, comboSelToggle, comboSelName, comboSelSave, comboSelBarHTML,
   normalizeCombo, normalizeCombos, normalizeComboPart, normalizePublished,
   publishedLine, refAtGrams, comboById, comboPlan, logCombo, newComboId,
   migrateV13toV14, setClock, nowMs, nowMinutes, todayKey, localDate,

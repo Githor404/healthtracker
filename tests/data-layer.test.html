@@ -9837,24 +9837,21 @@ window.setLS({});
   res(HT.state().days[cKey].items.length === 3,
       'COMBOS/3 GATE: ...and deleting a combo leaves the ITEMS it wrote alone (D9) -- the definition is not the meals');
 
-  // the selection surface
-  res(HT.comboSelBarHTML() === '' && HT.dayActionsHTML().indexOf('dsavecombo') >= 0,
-      'COMBOS/3 GATE: the mode is OFF by default, and the day offers it only because there is something to make one from');
-  HT.comboSelStart();
-  res(HT.comboSelBarHTML().indexOf('Nothing ticked') >= 0,
-      'COMBOS/3 GATE: starting it offers no save until something is ticked');
-  HT.comboSelToggle(0); HT.comboSelToggle(1); HT.comboSelName('Pair');
-  res(HT.comboSelBarHTML().indexOf('Save 2 items as a combo') >= 0,
-      'COMBOS/3 GATE: the bar states WHAT IT WILL SAVE before the tap, not after');
+  // R195: THE SELECTION SURFACE IS REMOVED, and its six assertions with it. They
+  // all passed on the build that was reported from the device as a dead end --
+  // "tick the items it is made of", and nothing to tick -- because each of them
+  // asserted the BAR and the MODE, and none asserted that a tick was somewhere a
+  // person could reach. The rows are inside the day-s meal groups, which are
+  // closed by default. What replaces them asserts the ruling: one door.
   HT.renderDay();
-  res(document.getElementById('dayView').innerHTML.indexOf('cstick') >= 0,
-      'COMBOS/3 GATE: and the rows grow a tick only while selecting');
-  var selSave = HT.comboSelSave();
-  res(selSave.ok === true && selSave.combo.parts.length === 2,
-      'COMBOS/3 GATE: saving from the bar goes through comboFromItems, so the surface and the core cannot disagree');
-  HT.renderDay();
-  res(document.getElementById('dayView').innerHTML.indexOf('cstick') < 0,
-      'COMBOS/3 GATE: ...and the mode closes itself afterwards, so the ticks do not outlive the thing they were for');
+  var r195Day = document.getElementById('dayView').innerHTML;
+  res(HT.dayActionsHTML().indexOf('Save as combo') < 0 && HT.dayActionsHTML().indexOf('dsavecombo') < 0
+      && r195Day.indexOf('Save as combo') < 0 && r195Day.indexOf('cstick') < 0 && r195Day.indexOf('csbar') < 0,
+      'R195 GATE: the day offers NO "Save as combo" and draws no selection panel or ticks -- with items on it, which is the state that used to offer one');
+  res(typeof HT.comboSelStart === 'undefined' && typeof HT.comboSelBarHTML === 'undefined' && typeof window.comboSelStart === 'undefined',
+      'R195 GATE: the selection mode is GONE, not hidden -- no function is left for a stale control or a future link to reach');
+  res(HT.sheetComboNewHTML().indexOf("setSheetMode('combo')") >= 0,
+      'R195 GATE: ONE DOOR -- the way to make a combo is + Log, "+ New combo", and it is still there');
   // ...and hand the next block back exactly what it had.
   HT.state().days[cKey] = JSON.parse(JSON.stringify(_s3Day));
   HT.state().settings.combos = JSON.parse(JSON.stringify(_s3Combos));

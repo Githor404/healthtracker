@@ -340,7 +340,14 @@ echo "-----------------------------------------"
 # 'it was boneless' putting the bone back while the half stays a half, remembered,
 # and undone back to no memory; and Search writing through the same plate, its
 # undo taking the plate with it, a banana and an egg by weight counted whole.
-EXPECTED_ASSERTIONS=2909
+# R195, v0.87.0: 2909 -> 2906, delta -3, and it is a DROP ON PURPOSE. The day's
+# 'Save as combo' selection panel is removed (ruled: one door), and its six
+# assertions with it -- all six passed on the build reported from the device as a
+# dead end, because they asserted the bar and the mode and never that a tick was
+# anywhere a person could reach. Three replace them: the day offers no such link
+# and draws no panel or ticks, the mode's functions are gone rather than hidden,
+# and the one door is still there.
+EXPECTED_ASSERTIONS=2906
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -9,7 +9,7 @@
 // Any shell change flips the hash -> new sw.js bytes -> the browser installs a
 // new SW -> force-and-notify activates it on load and the app shows the changelog
 // notice. No serve-time build; sw.js's own edits are self-detecting.
-const SHELL_HASH = 'cf2755ec3670';
+const SHELL_HASH = 'adc07795cc59';
 const SHELL_PREFIX = 'healthtracker-shell-';
 const SHELL_CACHE = SHELL_PREFIX + SHELL_HASH;
 
