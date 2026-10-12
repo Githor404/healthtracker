@@ -15566,3 +15566,87 @@ it is reached — not now, and not from memory of this paragraph.
 | `tests/sensor-gate.ps1` | 61 → **68**: the preset by a real click, above the strip and not in it |
 | `tests/chip-layout-gate.ps1` | unchanged, and it is what moved the preset |
 | one pin moved and moved back | `TL14`, the chip count — moved to the sum when the preset was in the strip, restored when it left |
+
+**Shipped:** v0.86.0 – v0.88.0 went out together on one full run, **43 of 43**,
+and `verify-deploy` found the served site byte-identical. (It compares the eight
+shell files. `corpus/dist/cnf.json`, which carries the refuse table, was pushed
+in the same commit and is not one of the eight.)
+
+---
+
+## R189 / 2 — EVERY ITEM WITH A WEIGHT, AND A DEFECT IN /1 THAT WAS ALREADY LIVE (2026-10-12, v0.89.0)
+
+Serves **track**. Closes what §9 said ruling A still owed.
+
+### 1. The defect, found by reading — and it was shipped
+
+> **A food logged through Search and then removed was offered back as leftovers
+> for two days.**
+
+/1 made a searched food a plate of one. A plate whose events are all gone has its
+whole weight "left", and `openPlates` offers any plate with something left. For a
+**photographed** plate that is the design — it is how *"I did not eat it after
+all"* and *"I had the rest later"* both work, because the plate was really in
+front of the user. For a plate that exists **only because one item was logged**,
+it is a deleted food coming back. Live from v0.86.0; found while reading
+`openPlates` to build this slice, not by a gate and not from the device.
+
+**Fixed with a declared kind.** `plate.kind = 'entry'` marks a plate with no life
+of its own. Removing its last event removes it, and the undo brings both back. A
+photographed plate is untouched, and the harness holds that as the control.
+**The plates Search wrote in v0.86.0–v0.88.0 have no `kind`**, so `plateIsEntry`
+also reads them from what they are: one item, whose own numbers are the food
+database's. No photographed plate has that source.
+
+### 2. Ruling A, met — by attaching, not by re-routing
+
+*"Extend the existing plate to every path with a served weight."* §9 expected
+this to mean routing Scan, Manual, repeats, presets, the stack and combos through
+the plate's write path. It is not done that way, and the reason is a data-loss
+one:
+
+> **A scanned item carries LABEL micros, and a plate item has no field for them.**
+> Routed through `consumeFromPlate`, the one path that returns labelled
+> micronutrients in a tap would have stopped returning them.
+
+So every write path is **unchanged**, and the plate is **attached to an item the
+moment it is first reduced**: its weight at that moment is what was served, and
+from then on it is an event off a plate like any other — the same control, the
+same second line, the same remainder. An item nobody corrects never gets a plate,
+so there is nothing to tidy up for the days that does not happen.
+
+| | |
+|---|---|
+| offering "Ate:" on a row | writes **nothing** |
+| tapping **all**, or typing the weight it already has | changes nothing and makes no plate |
+| a fraction or typed grams | attaches an entry plate, then scales grams, macros, **label micros** and the frozen ref together |
+| the plate's time and offset | **the item's own**, not the tap's — the tap is when it was noticed, not when it was served ([[D29]] Pin 3) |
+| undo | puts back an item with no plate, and removes the plate made for the tap |
+| an item with **no weight** | offered nothing; a reduction is refused, because there is no served figure and inventing one is [[D8]]'s fabrication |
+
+**NO bone or peel correction on this route, deliberately.** A typed weight, a
+scanned portion and above all a **repeated** item are amounts the user has
+already said they ate. A repeat of 74 g of wings is 74 g of meat; taking the bone
+off again would correct the same food twice. The correction stays where a weight
+is first *served* — the photo and the search.
+
+**Ruling E is half met on these paths.** *"At save and on the logged meal
+afterwards."* Afterwards: yes, everywhere. **At save: only on the photo draft**,
+which had it. The Manual and Scan forms were not given an "Ate:" control. Said
+here rather than left to be assumed.
+
+**One thing not decided, and it is a real question:** reducing a `weighed` or
+`measured` item leaves its confidence as it was. The served weight was weighed;
+the eaten half is the user's estimate. `ate` records that it is a stated
+fraction, but the dot on the row still says *weighed*. `editRecord` demotes an
+item whose grams are hand-corrected, for the same reason. **Not changed here —
+it is a ruling about what the confidence word means for a share.**
+
+### 3. Evidence
+
+| | |
+|---|---|
+| harness | **2925** (+13); one /1 pin moved — it asserted an item with no plate was offered no "Ate:", which is the gap this closes |
+| `tests/served-gate.ps1` | 59 → **67**: a typed item reduced by a real click, and a removed search offered nothing |
+| `tests/check-writesites.sh` | `itemAttachPlate` and `deleteItem` registered **exempt**, each with its reason |
+| `tests/allowlist_census.py` | `normalizePlate` now declares 6 properties |
