@@ -9,7 +9,7 @@
 # words collided with honest copy:
 #   - "streak"      -- Trends renders `streak 3 days . 5 confirmed . avg 14h`,
 #                      a FACT about the user's own fasting, with its denominator
-#   - "don't break" -- Settings says "0-calorie drinks and the daily supplement
+#   - "don't break" -- Settings says "0-calorie drinks
 #                      don't break a fast", a factual rule
 #   - "consecutive" -- the fasting streak's own definition
 # Banning those words would fail the gate on truthful text, and a check that

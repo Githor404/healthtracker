@@ -1112,6 +1112,17 @@
 .rfbtn{display:block;font-size:16px;min-height:44px;text-align:left;padding:0}
 .fqexit{display:block;font-size:16px;min-height:44px;text-align:left}
 .fqmine{display:block;margin-top:2px;color:var(--accent);font-size:16px}
+.stked{padding:8px 0;border-bottom:1px solid var(--line)}
+.stkacts{display:flex;gap:18px}
+.stkacts .linklike,.stkcancel{font-size:16px;min-height:44px}
+.stkadd{width:100%;margin-top:10px;min-height:44px;font-size:16px}
+.stkform{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.stkform label{display:block;margin-top:8px}
+.stkkinds{display:flex;flex-wrap:wrap;gap:6px}
+.stkkinds button{min-height:44px;font-size:16px}
+.stkpicked{margin-top:8px;font-size:16px}
+.stksave{width:100%;margin-top:12px;min-height:44px}
+.mlegacy{color:var(--muted)}
 .fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
 .fqlog,.cnsave{width:100%;min-height:44px;font-size:16px;margin-top:10px}
 .cnpart{padding:8px 0;border-bottom:1px solid var(--line)}
@@ -1506,7 +1517,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <div id="pane-med" class="pane">
       <details open>
         <summary>Log a medication or supplement</summary>
-        <label>Name</label><input id="medName" placeholder="e.g. Metformin, Vitamin D3">
+        <label>Name</label><input id="medName" placeholder="e.g. Metformin">
         <div class="row">
           <div><label>Dose</label><input id="medDose" type="number" inputmode="decimal"></div>
           <div><label>Unit</label><select id="medDoseUnit"></select></div>
@@ -1600,29 +1611,11 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
       </details>
     </div>
-    <div class="card" data-setting="supplement">
-      <details id="supDetails">
-        <summary>Daily supplement</summary>
-        <div id="supWarn"></div>
-        <label class="checkline"><input type="checkbox" id="supEnabled"> Enable — auto-add to each new day</label>
-        <label>Name</label><input id="supName" placeholder="e.g. Psyllium + D3 + B12">
-        <div class="row">
-          <div><label>Calories</label><input id="supKcal" type="number" inputmode="decimal"></div>
-          <div><label>P (g)</label><input id="supP" type="number" inputmode="decimal"></div>
-          <div><label>F (g)</label><input id="supF" type="number" inputmode="decimal"></div>
-          <div><label>C (g)</label><input id="supC" type="number" inputmode="decimal"></div>
-        </div>
-        <div class="row">
-          <div><label>Fiber (g)</label><input id="supFib" type="number" inputmode="decimal"></div>
-          <div><label>Soluble (g)</label><input id="supSol" type="number" inputmode="decimal"></div>
-          <div></div>
-        </div>
-        <details class="micros">
-          <summary>Micronutrients (from the supplement label)<span id="supMicroCount"></span></summary>
-          <div id="supMicros"></div>
-        </details>
-        <button class="btn primary" onclick="saveSupplement()">Save supplement</button>
-        <div class="note">Off by default. When enabled, a flagged non-deletable item is added to today (if open) and every new day; disable to stop. Past days keep their record.</div>
+    <div class="card" data-setting="stack">
+      <details id="stackDetails">
+        <summary>Daily stack</summary>
+        <div id="stackEditor"></div>
+        <div class="note">What you take every day. Nothing here is ever logged by itself: you log it with one tap from + Log, &ldquo;Took my daily stack&rdquo;, and untick anything you skipped that day.</div>
       </details>
     </div>
     <div class="card" data-setting="byok">
@@ -1643,7 +1636,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
           <div style="flex:0 0 130px"><label>Min hours</label><input id="fastMinHours" type="number" inputmode="decimal"></div>
         </div>
         <button class="btn" onclick="setFastingFromForm()">Save</button>
-        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-calorie drinks and the daily supplement don't break a fast.</div>
+        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-calorie drinks don't break a fast.</div>
       </details>
     </div>
     <div class="card" data-setting="prompt">

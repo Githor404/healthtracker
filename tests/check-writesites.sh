@@ -176,7 +176,6 @@ photoSave
 removeMed
 addPriceEntry
 addSignal
-applySupplementToToday
 mealEvents
 ingestItems
 logPreset
@@ -189,7 +188,6 @@ searchLog
 itemAttachPlate
 deleteItem
 logScanItem
-maybeInjectSupplement
 consumeFromPlate
 photoAddItem
 priceComparison

@@ -254,7 +254,7 @@ try {
     // a TYPED item and a PRESET, so every source word renders
     mk({ name: 'black coffee', time: '12:33', confidence: 'weighed', source: 'manual' }),
     mk({ name: 'my usual shake', time: '12:34', source: 'preset' }),
-    mk({ name: 'Vitamin D3', time: '12:35', meal: 'supplement', source: 'supplement', _auto: true })
+    mk({ name: 'Daily capsule', time: '12:35', meal: 'supplement', source: 'supplement', autoLegacy: true })
   ] };
   S.timeline = S.timeline || {};
   S.timeline[DK] = [

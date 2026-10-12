@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.93.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 15;
+const APP_VERSION      = '0.94.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -97,7 +97,7 @@ function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
   // R168: `stack` ships EMPTY, like `presets`. The multi-user rules forbid personal
   // calibrations in code, and a stack is the most personal thing in this app.
-  return { goals: {}, supplement: { enabled: false, name: '', nutrients: {} }, stack: [], combos: [], presets: [], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  return { goals: {}, stack: [], combos: [], presets: [], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, labels: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -503,6 +503,10 @@ function normalizeRepeatedFrom(r) {
 function normalizeItem(it, clampMacros) {
   const N = clampMacros ? clampNonNeg : num;
   it = it || {};
+  // R203: an auto-added item arriving from an older export or paste is converted
+  // here exactly as the migration converts it -- there is no longer any way for
+  // the non-deletable flag to enter the store.
+  if (it._auto === true) it = legacyAutoItem(it);
   // R31 -- THE UNRESOLVED ITEM. Food whose portion is known and whose composition
   // is not: the shape R30's off-ramp produces when the user rejects every candidate
   // identity. Its macros are ABSENT, never 0.
@@ -534,7 +538,7 @@ function normalizeItem(it, clampMacros) {
   if (unresolved) out.unresolved = true;
   if (it.barcode != null && String(it.barcode) !== '') out.barcode = String(it.barcode);
   if (it.water_l != null) out.water_l = N(it.water_l);
-  if (it._auto === true) out._auto = true;
+  if (it.autoLegacy === true) out.autoLegacy = true;
   const micros = normalizeMicros(it.micros);
   if (micros) out.micros = micros;
   const tzo = normalizeTzo(it.tzo);      // D29: PRESERVE only -- creation paths supply it,
@@ -634,14 +638,6 @@ function normalizeSupplementNutrients(raw) {
   const micros = normalizeMicros(rawN.micros);
   if (micros) nutrients.micros = micros;
   return nutrients;
-}
-function normalizeSupplement(sup) {
-  sup = (sup && typeof sup === 'object' && !Array.isArray(sup)) ? sup : {};
-  return {
-    enabled: sup.enabled === true,
-    name: typeof sup.name === 'string' ? sup.name : '',
-    nutrients: normalizeSupplementNutrients(sup.nutrients),
-  };
 }
 // ===========================================================================
 // R168 -- THE DAILY STACK (schema v13)
@@ -745,6 +741,14 @@ function normalizeStackItem(raw) {
   // not a closed list anyone can author in advance, and a closed list would refuse
   // the next one. Escaped at render like every other user string.
   if (r.bioactive != null && String(r.bioactive).trim() !== '') out.bioactive = String(r.bioactive).trim();
+  // R203: the form or a remark -- "citrate, 300 mg elemental, 6.6 g powder". Free
+  // text, escaped at render, never parsed.
+  if (r.note != null && String(r.note).trim() !== '') out.note = String(r.note).trim().slice(0, 200);
+  // R203/R204: a FOOD in the stack is a food-database row at typed grams -- a
+  // combo part, in the combo part's own shape, so its numbers are the cited
+  // corpus's and are written exactly as a combo writes them.
+  const part = (r.part && typeof r.part === 'object') ? normalizeComboPart(r.part) : null;
+  if (part) out.part = part;
   return out;
 }
 function normalizeStack(raw) {
@@ -864,7 +868,6 @@ function comboFromItems(dateKey, idxs, name) {
   for (let i = 0; i < list.length; i++) {
     const it = day.items[num(list[i])];
     if (!it) return { ok: false, error: 'That item is no longer there.' };
-    if (it._auto) return { ok: false, error: 'The daily supplement is a setting, not an item to save.' };
     // The part takes the item's OWN numbers at the item's OWN portion. `meal` is
     // deliberately NOT copied: B1 ruled the clock decides at creation unless the
     // user chose, and a meal frozen into a combo would re-assert a morning choice
@@ -1010,7 +1013,6 @@ function normalizeSettings(s) {
   s = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
   return {
     goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
-    supplement: normalizeSupplement(s.supplement),
     stack: normalizeStack(s.stack),                   // R168 (v13): ships empty
     combos: normalizeCombos(s.combos),                // COMBOS (v14): ships empty
     presets: Array.isArray(s.presets) ? s.presets : [],
@@ -1121,8 +1123,7 @@ function ensureCurrentDay(state) {
   let changed = false;
   const today = localDate();
   if (!state.days[today]) {
-    state.days[today] = blankDay();
-    maybeInjectSupplement(state, today);   // device-side day creation (D8/4)
+    state.days[today] = blankDay();          // EMPTY. Nothing is logged without a tap (R203).
     changed = true;
   }
   if (state.current !== today) { state.current = today; changed = true; }
@@ -1132,7 +1133,7 @@ function ensureCurrentDay(state) {
 // ---- migration (D7): in-place v1 -> v2, add-only, byte-preserving ---------
 function migrateItemV1toV2(it) {
   it = it || {};
-  const source = (it._auto === true) ? 'supplement' : 'manual';   // inferred (v1 has no source)
+  const source = (it._auto === true) ? 'supplement' : 'manual';   // inferred (v1 has no source); v15 then converts it
   return normalizeItem(Object.assign({}, it, { source: source }), false);  // coerce, do NOT clamp
 }
 function migrateV1toV2(v1, nowISO) {
@@ -1402,6 +1403,72 @@ function migrateV13toV14(v13, nowISO) {
   out.migratedAt = typeof v13.migratedAt === 'string' ? v13.migratedAt : nowISO;
   return out;
 }
+// R202 / R203 / R204 -- v14 -> v15. NOTHING IS LOGGED WITHOUT A TAP.
+//
+// WHAT HAPPENED. The "Daily supplement" setting wrote an item into every day at
+// the moment the day's record was created -- which is app start, or a resume
+// after midnight -- stamped with THAT clock. A user asleep found a supplement
+// logged at 02:16, and their day's snack group read "865 cal . 02:16".
+//
+// RULED, and each part is a rewrite of stored history made on the user's word:
+//   1. Every auto-added item becomes an ORDINARY entry: the `_auto` flag (which
+//      meant "not a log entry: no delete, no edit") is dropped.
+//   2. Its TIME IS CLEARED. The stamp was when the app was opened, not when
+//      anything was taken, so no timing analysis may read it. The old stamp is
+//      kept in the note, where it is evidence and not a time. The item still
+//      counts on its day.
+//   3. It is MARKED (`autoLegacy`) so the row can say what it is.
+//   4. The supplement SETTING becomes one item in the stack -- its name and
+//      whatever nutrients it held, nothing invented (the old setting never
+//      stored an amount) -- and the setting itself is gone.
+// Boot snapshots the untouched blob before any migration (D7), as always.
+function legacyAutoItem(it) {
+  const out = Object.assign({}, it);
+  const t = String(out.time == null ? '' : out.time);
+  delete out._auto;
+  out.autoLegacy = true;
+  out.notes = 'auto-added by old setting' + (/^\d{2}:\d{2}$/.test(t) ? ' (at app open, ' + t + ')' : '');
+  out.time = '';
+  return out;
+}
+// The marker, read in one place. `_auto` cannot survive the item boundary any
+// more; it is still named here so an item built by hand in a test reads the same.
+function isLegacyAuto(it) { return !!it && (it.autoLegacy === true || it._auto === true); }
+const LEGACY_AUTO_TIME = 'time unknown (auto-added at app open)';
+const LEGACY_AUTO_SHORT = 'time unknown';
+function migrateV14toV15(v14, nowISO) {
+  const out = Object.assign({}, v14, { version: 15 });
+  const days = {};
+  Object.keys(v14.days || {}).forEach(function (dk) {
+    const d = v14.days[dk] || {};
+    days[dk] = Object.assign({}, d, {
+      items: (Array.isArray(d.items) ? d.items : []).map(function (it) {
+        return (it && it._auto === true) ? legacyAutoItem(it) : it;
+      }),
+    });
+  });
+  out.days = days;
+  const st = Object.assign({}, v14.settings || {});
+  const sup = st.supplement;
+  if (sup && typeof sup === 'object' && typeof sup.name === 'string' && sup.name.trim()) {
+    const stack = Array.isArray(st.stack) ? st.stack.slice() : [];
+    const nm = sup.name.trim();
+    const have = stack.some(function (x) { return x && String(x.name || '').trim().toLowerCase() === nm.toLowerCase(); });
+    if (!have) {
+      const n = normalizeSupplementNutrients(sup.nutrients);
+      const isFood = MACRO_KEYS.some(function (k) { return num(n[k]) > 0; });
+      const item = { name: nm, kind: isFood ? 'food' : 'dose', enabled: sup.enabled === true,
+                     note: 'carried over from the old Daily supplement setting' };
+      if (Object.keys(n).length) item.nutrients = n;
+      stack.push(item);
+    }
+    st.stack = stack;
+  }
+  delete st.supplement;
+  out.settings = st;
+  out.migratedAt = typeof v14.migratedAt === 'string' ? v14.migratedAt : nowISO;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -1420,6 +1487,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 11) < 12) out = migrateV11toV12(out, nowISO);
   if ((out.version || 12) < 13) out = migrateV12toV13(out, nowISO);
   if ((out.version || 13) < 14) out = migrateV13toV14(out, nowISO);
+  if ((out.version || 14) < 15) out = migrateV14toV15(out, nowISO);
   return out;
 }
 
@@ -3430,20 +3498,6 @@ function fillable(day) {
   return day.items.length === 0 && day.water_l === 0 && day.status === 'in_progress';
 }
 
-// Build the configured supplement as a flagged, non-deletable item. Nutrients are
-// user-attested label amounts, so micros are allowed (source 'supplement').
-function buildSupplementItem(sup, dayKey) {
-  const n = (sup && sup.nutrients) || {};
-  return normalizeItem({
-    name: (sup && sup.name) || 'Daily supplement',
-    meal: 'supplement', time: stampTime(dayKey),
-    kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
-    fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g,
-    confidence: 'measured', notes: 'auto-applied daily supplement',
-    source: 'supplement', _auto: true, micros: n.micros, tzo: nowTZO(),   // D29 (stamped)
-  }, true);
-}
-
 // ---- R168: THE STACK, AS A PLAN AND AS ONE WRITE -------------------------
 //
 // RULED D-D -- UNTICK BEFORE THE WRITE. `stackPlan()` is what the sheet opens
@@ -3466,6 +3520,7 @@ function stackPlan() {
     rows: stack.filter(function (s) { return s && s.enabled !== false; })
       .map(function (s) {
         const row = { id: s.id, name: s.name, kind: s.kind, ticked: true };
+        if (s.note) row.note = s.note;
         if (s.dose != null) row.dose = s.dose;
         if (s.dose_unit) row.dose_unit = s.dose_unit;
         if (s.bioactive) row.bioactive = s.bioactive;
@@ -3489,9 +3544,18 @@ function logStack(skip) {
   const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day.' };
   const items = [], records = [];
   taken.forEach(function (s) {
-    if (s.kind === 'food') {
-      // A FOOD ITEM, ordinary in every way (ruled D-B): no `_auto`, so it carries
-      // a delete control, can be edited and can be cycled. `source: 'supplement'`
+    if (s.kind === 'food' && s.part) {
+      // R203: a food-database food. The combo part's own write, at the stack's one
+      // timestamp, filed as a supplement so it is never placed by the clock.
+      const raw = comboPartRaw(s.part, 1, time);
+      raw.meal = 'supplement';
+      if (s.note) raw.notes = s.note;
+      const it = normalizeItem(raw, true);
+      day.items.push(it);
+      items.push(it);
+    } else if (s.kind === 'food') {
+      // A FOOD ITEM, ordinary in every way (ruled D-B): it carries a delete
+      // control, can be edited and can be cycled. `source: 'supplement'`
       // keeps SOURCES unchanged and says truthfully where it came from.
       const n = s.nutrients || {};
       const it = normalizeItem({
@@ -3499,7 +3563,7 @@ function logStack(skip) {
         kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
         fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g, micros: n.micros,
         grams: s.grams,
-        confidence: 'measured', notes: '', source: 'supplement',
+        confidence: 'measured', notes: s.note || '', source: 'supplement',
         bioactive: s.bioactive, tzo: nowTZO(),           // D29 (stamped)
       }, true);
       day.items.push(it);
@@ -3508,15 +3572,36 @@ function logStack(skip) {
       // A DOSE, through `addSignal` -- the one timeline contract (D19), declaring
       // `stack` as its adapter rather than passing itself off as manual.
       const r = addSignal({ kind: 'medication', name: s.name, dose: s.dose,
-                            dose_unit: s.dose_unit, bioactive: s.bioactive,
+                            dose_unit: s.dose_unit, bioactive: s.bioactive, notes: s.note || '',
                             time: time, date: dk, source: 'stack' });
       if (r && r.ok && r.record) records.push(r.record);
     }
   });
   if (items.length && day.status === 'complete') day.status = 'in_progress';   // reopen, as every path does
   Store.saveState(APP_STATE); refresh();
-  return { ok: true, time: time, items: items, records: records,
+  return { ok: true, time: time, date: dk, items: items, records: records,
            skipped: Object.keys(skipped).length };
+}
+// One combo part as the raw item it becomes -- shared by a combo and the stack.
+function comboPartRaw(p, m, time) {
+  const g = (p.grams != null) ? num(p.grams) * m : null;
+  const raw = { name: p.name, meal: mealAtCreation(p.meal, time), time: time,
+                confidence: p.confidence, source: p.source, tzo: nowTZO() };   // D29 (stamped)
+  MACRO_KEYS.forEach(function (k) { if (p[k] != null) raw[k] = num(p[k]) * m; });
+  if (p.micros) {
+    const mi = {};
+    Object.keys(p.micros).forEach(function (k) { mi[k] = num(p.micros[k]) * m; });
+    raw.micros = mi;
+  }
+  if (g != null) raw.grams = g;
+  if (p.published) raw.published = p.published;
+  // The ref re-expressed at THIS part's new portion, or dropped if it has no
+  // basis to re-express from. Never guessed.
+  if (p.ref) {
+    const nr = (g != null) ? refAtGrams(p.ref, g) : p.ref;
+    if (nr) raw.ref = nr;
+  }
+  return raw;
 }
 
 // ---- R168: THE INTAKE FLAG, AND IT IS THE APP'S FIRST ONE ----------------
@@ -3583,12 +3668,14 @@ function intakeFlagText(f) {
 // is a fact about one morning, not a setting.
 let STACK_OPEN = false;
 let STACK_SKIP = {};
-function stackOpen() { STACK_OPEN = true; STACK_SKIP = {}; renderQuickChips(); return { ok: true }; }
-function stackCancel() { STACK_OPEN = false; STACK_SKIP = {}; renderQuickChips(); return { ok: true }; }
+// The stack is drawn on the Quick pane AND on the Log sheet's root; both are redrawn.
+function stackRerender() { renderQuickChips(); renderSheetRoot(); }
+function stackOpen() { STACK_OPEN = true; STACK_SKIP = {}; stackRerender(); return { ok: true }; }
+function stackCancel() { STACK_OPEN = false; STACK_SKIP = {}; stackRerender(); return { ok: true }; }
 function stackToggle(id) {
   const k = String(id);
   if (STACK_SKIP[k]) delete STACK_SKIP[k]; else STACK_SKIP[k] = 1;
-  renderQuickChips();
+  stackRerender();
   return { ok: true, skipped: Object.keys(STACK_SKIP) };
 }
 function stackConfirm() {
@@ -3596,14 +3683,24 @@ function stackConfirm() {
   if (!r.ok) { toast(r.error || 'Nothing ticked.'); return r; }
   STACK_OPEN = false; STACK_SKIP = {};
   const n = r.items.length + r.records.length;
-  toast('Logged ' + n + ' item' + (n === 1 ? '' : 's') + ' at ' + r.time);
-  renderQuickChips();
+  // R203: ONE Undo for the one act -- the day items and the timeline doses it
+  // wrote go together. (It was a bare notice: logged, and no way back.)
+  offerUndo('Logged ' + n + ' item' + (n === 1 ? '' : 's') + ' at ' + r.time, function () {
+    const day = APP_STATE.days[r.date];
+    if (day) r.items.forEach(function (it) { const i = day.items.indexOf(it); if (i >= 0) day.items.splice(i, 1); });
+    const tl = (APP_STATE.timeline || {})[r.date];
+    if (Array.isArray(tl)) r.records.forEach(function (rec) { const i = tl.indexOf(rec); if (i >= 0) tl.splice(i, 1); });
+    Store.saveState(APP_STATE); refresh();
+  });
+  stackRerender();
   return r;
 }
 // What a row says it will deliver, as a phrase. Doses only -- never a pathway.
 function stackRowSub(s) {
   const bits = [];
-  if (s.dose != null) bits.push(rDisp(s.dose) + (s.dose_unit ? ' ' + s.dose_unit : ''));
+  if (s.dose != null) bits.push(rDisp(s.dose) + (s.dose_unit ? ' ' + doseUnitWord(s.dose_unit) : ''));
+  if (s.part && s.part.grams != null) bits.push(rDisp(s.part.grams) + ' g');
+  if (s.note) bits.push(s.note);
   bits.push(s.kind === 'food' ? 'counts in your day' : 'goes on your timeline');
   return bits.join(' · ');
 }
@@ -3642,6 +3739,237 @@ function stackSheetHTML() {
     + '</button>'
     + '<button type="button" class="linklike stkback" onclick="stackCancel()">back to the list</button>'
     + '</div>';
+}
+
+// ---- R203: THE STACK EDITOR --------------------------------------------------
+//
+// The stack has existed since R168 -- the plan, the untick, the one write -- and
+// NOTHING ON ANY SCREEN COULD PUT AN ITEM IN IT. `settings.stack` was written by
+// the normalisers and by nothing else. This is the editor, in Settings, where the
+// "Daily supplement" panel was.
+//
+// Two kinds, in the user's words:
+//   "goes on my timeline" -- a dose: name, amount, unit, a note. Optionally said
+//       to count toward a nutrient, converted AT ENTRY by doseToMicro or refused
+//       (an IU of anything but vitamin D has no conversion to invent).
+//   "counts in my day"    -- a food: a row picked from the food database at grams
+//       the user types. Its numbers are the cited corpus's, never typed here and
+//       never assumed -- a tablespoon has no weight this app will make up.
+//
+// NOTHING IN THE EDITOR LOGS ANYTHING. It changes a plan; the log is the tap on
+// "Took my daily stack".
+function doseUnitWord(u) { return u === 'mcg' ? 'µg' : String(u == null ? '' : u); }
+let STACK_FORM = null;           // { editId, kind, pick, kept, rows, seq } | null
+// The testable core. Validates, then writes one item -- in place when it has an
+// id the stack holds, otherwise appended.
+function stackUpsert(raw) {
+  const r = raw || {};
+  const kind = (r.kind === 'food') ? 'food' : 'dose';
+  const item = { id: r.id, kind: kind, enabled: r.enabled !== false, note: r.note, bioactive: r.bioactive };
+  let name = String(r.name == null ? '' : r.name).trim();
+  if (kind === 'food') {
+    const part = (r.part && typeof r.part === 'object') ? normalizeComboPart(r.part) : null;
+    if (!part) return { ok: false, error: 'Pick the food from the food database.' };
+    if (!(num(part.grams) > 0)) return { ok: false, error: 'Enter how many grams of it you take.' };
+    item.part = part;
+    if (!name) name = part.name;
+  } else {
+    const hasDose = r.dose != null && String(r.dose).trim() !== '';
+    if (hasDose) {
+      if (!(num(r.dose) >= 0) || !isFinite(Number(r.dose))) return { ok: false, error: 'The amount must be a number.' };
+      if (MED_DOSE_UNITS.indexOf(r.dose_unit) < 0) return { ok: false, error: 'Choose a unit for that amount.' };
+      item.dose = num(r.dose); item.dose_unit = r.dose_unit;
+    }
+    const key = String(r.microKey == null ? '' : r.microKey);
+    if (key) {
+      const spec = MICRO_LABEL[key];
+      if (!spec) return { ok: false, error: 'That nutrient is not one this app tracks.' };
+      if (!hasDose) return { ok: false, error: 'Enter an amount to count toward ' + spec.label + '.' };
+      const v = doseToMicro(key, r.dose, r.dose_unit);
+      if (v == null) {
+        return { ok: false, error: doseUnitWord(r.dose_unit) + ' cannot be counted toward ' + spec.label
+          + ', which is measured in ' + spec.unit + '. Leave "counts toward" empty, or use that unit.' };
+      }
+      const mi = {}; mi[key] = v;
+      item.nutrients = { micros: mi };
+    } else if (r.nutrients) {
+      item.nutrients = r.nutrients;          // carried over, e.g. from the old setting
+    }
+  }
+  if (!name) return { ok: false, error: 'Give it a name.' };
+  item.name = name;
+  const list = APP_STATE.settings.stack || (APP_STATE.settings.stack = []);
+  const at = (r.id != null && r.id !== '') ? list.map(function (x) { return x.id; }).indexOf(String(r.id)) : -1;
+  const norm = normalizeStackItem(item);
+  if (!norm) return { ok: false, error: 'Nothing savable in that.' };
+  if (at >= 0) list[at] = norm; else list.push(norm);
+  Store.saveState(APP_STATE);
+  return { ok: true, item: norm, edited: at >= 0 };
+}
+function stackItemRemove(id) {
+  const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const at = list.map(function (x) { return x.id; }).indexOf(String(id));
+  if (at < 0) return { ok: false, error: 'No such item.' };
+  const copy = JSON.parse(JSON.stringify(list[at]));
+  list.splice(at, 1);
+  Store.saveState(APP_STATE);
+  if (STACK_FORM && STACK_FORM.editId === String(id)) STACK_FORM = null;
+  renderStackEditor(); renderSheetRoot();
+  offerUndo('Removed ' + copy.name + ' from your stack', function () {
+    const l2 = APP_STATE.settings.stack || (APP_STATE.settings.stack = []);
+    l2.splice(Math.min(at, l2.length), 0, copy);
+    Store.saveState(APP_STATE); renderStackEditor(); renderSheetRoot();
+  });
+  return { ok: true, removed: copy };
+}
+function stackItemEnable(id, on) {
+  const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const it = list.filter(function (x) { return x.id === String(id); })[0];
+  if (!it) return { ok: false };
+  it.enabled = !!on;
+  Store.saveState(APP_STATE);
+  renderStackEditor(); renderSheetRoot();
+  return { ok: true, enabled: it.enabled };
+}
+function stackFormOpen(id) {
+  const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const it = (id == null || id === '') ? null : list.filter(function (x) { return x.id === String(id); })[0];
+  if (id != null && id !== '' && !it) return { ok: false };
+  STACK_FORM = { editId: it ? it.id : '', kind: it ? it.kind : 'dose', pick: null,
+                 kept: (it && it.part) ? JSON.parse(JSON.stringify(it.part)) : null, rows: [], seq: 0,
+                 seed: it ? JSON.parse(JSON.stringify(it)) : null };
+  renderStackEditor();
+  const nm = document.getElementById('stkName'); if (nm && nm.focus) nm.focus();
+  return { ok: true, editing: !!it };
+}
+function stackFormCancel() { STACK_FORM = null; renderStackEditor(); return { ok: true }; }
+function stackFormKind(k) {
+  if (!STACK_FORM) return { ok: false };
+  const keep = stackFormRead();
+  STACK_FORM.kind = (k === 'food') ? 'food' : 'dose';
+  STACK_FORM.seed = Object.assign({}, STACK_FORM.seed || {}, keep, { kind: STACK_FORM.kind });
+  renderStackEditor();
+  return { ok: true, kind: STACK_FORM.kind };
+}
+function stackFormRead() {
+  const g = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
+  return { name: g('stkName'), dose: g('stkDose'), dose_unit: g('stkUnit'), note: g('stkNote'),
+           microKey: g('stkMicro'), grams: g('stkGrams') };
+}
+// Only the RESULT ROWS are redrawn while typing -- the fields are rendered once,
+// so the caret is never lost under the user (the caret rule).
+function stackFormSearch(text) {
+  const st = STACK_FORM; if (!st) return Promise.resolve({ phase: 'closed', rows: [] });
+  const seq = ++st.seq;
+  return typeaheadRun(text).then(function (r) {
+    if (STACK_FORM !== st || st.seq !== seq) return r;
+    st.rows = r.rows || [];
+    const el = document.getElementById('stkRows');
+    if (el) el.innerHTML = stackFormRowsHTML(r.phase);
+    return r;
+  });
+}
+function stackFormRowsHTML(phase) {
+  const st = STACK_FORM; if (!st) return '';
+  if (phase === 'no-corpus') return '<div class="note fqnote">The food database is not on this device yet. Open this once while online.</div>';
+  if (phase === 'none') return '<div class="note fqnote">Nothing in the food database matches that.</div>';
+  return (st.rows || []).map(function (c, i) {
+    const mac = photoSearchMacroWords({ kcal: c.kcal, protein: c.protein, fat: c.fat, carb: c.carb });
+    return '<button type="button" class="btn fqrow" onclick="stackFormPick(' + i + ')">'
+      + '<span class="fqname">' + esc(c.name) + '</span>'
+      + (mac ? '<span class="fqmac">' + esc(mac) + '</span>' : '') + '</button>';
+  }).join('');
+}
+function stackFormPick(i) {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  const c = (st.rows || [])[i];
+  if (!c || !c.row) return { ok: false };
+  st.pick = c; st.kept = null; st.rows = [];
+  const keep = stackFormRead();
+  st.seed = Object.assign({}, st.seed || {}, keep);
+  renderStackEditor();
+  const g = document.getElementById('stkGrams'); if (g && g.focus) g.focus();
+  return { ok: true, name: c.name };
+}
+function stackFormSave() {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  const f = stackFormRead();
+  const raw = { id: st.editId, kind: st.kind, name: f.name, note: f.note,
+                enabled: st.seed ? st.seed.enabled !== false : true, bioactive: st.seed && st.seed.bioactive };
+  if (st.kind === 'food') {
+    const grams = (String(f.grams).trim() === '') ? null : num(f.grams);
+    if (st.pick) raw.part = (grams > 0) ? corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, grams) : { name: st.pick.name };
+    else if (st.kept) raw.part = (grams > 0) ? comboNewPartNumbers({ kept: true, stored: st.kept, grams: grams }) : { name: st.kept.name };
+  } else {
+    raw.dose = f.dose; raw.dose_unit = f.dose_unit; raw.microKey = f.microKey;
+    if (!f.microKey && st.seed && st.seed.nutrients && !(st.seed.nutrients.micros && Object.keys(st.seed.nutrients.micros).length === 1)) raw.nutrients = st.seed.nutrients;
+  }
+  const r = stackUpsert(raw);
+  const warn = document.getElementById('stkWarn');
+  if (!r.ok) { if (warn) warn.innerHTML = '<div class="warn">' + esc(r.error || 'Could not save.') + '</div>'; return r; }
+  STACK_FORM = null;
+  renderStackEditor(); renderSheetRoot();
+  toast((r.edited ? 'Saved ' : 'Added ') + r.item.name);
+  return r;
+}
+function stackEditorHTML() {
+  const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  let h = '';
+  if (!list.length) h += '<div class="note">Nothing in your stack yet. Add what you take every day; you log it with one tap from + Log.</div>';
+  h += list.map(function (s) {
+    const id = esc(String(s.id));
+    let flag = '';
+    const micros = (s.nutrients && s.nutrients.micros) || {};
+    Object.keys(micros).forEach(function (k) {
+      const f = intakeFlag(k, micros[k]);
+      if (f) flag += '<div class="stkflag">' + esc(intakeFlagText(f)) + '</div>';
+    });
+    return '<div class="stkrow stked' + (s.enabled === false ? ' stkoff' : '') + '">'
+      + '<label class="stktick"><input type="checkbox"' + (s.enabled === false ? '' : ' checked')
+      + ' onchange="stackItemEnable(\'' + id + '\', this.checked)" aria-label="include ' + esc(s.name) + ' in the daily stack">'
+      + '<span class="stkname">' + esc(s.name) + '</span></label>'
+      + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>' + flag
+      + '<div class="stkacts"><button type="button" class="linklike stkedit" onclick="stackFormOpen(\'' + id + '\')">Edit</button>'
+      + '<button type="button" class="linklike cnrm stkdel" onclick="stackItemRemove(\'' + id + '\')">Remove</button></div></div>';
+  }).join('');
+  const st = STACK_FORM;
+  if (!st) return h + '<button type="button" class="btn stkadd" onclick="stackFormOpen()">Add an item</button>';
+  const sd = st.seed || {};
+  const v = function (x) { return x == null ? '' : String(x); };
+  const mk = sd.microKey != null ? sd.microKey : Object.keys((sd.nutrients && sd.nutrients.micros) || {})[0] || '';
+  h += '<div class="stkform"><div class="srhead">' + (st.editId ? 'Edit item' : 'New item') + '</div><div id="stkWarn"></div>'
+    + '<div class="primsel stkkinds">'
+    + '<button type="button" class="' + (st.kind === 'dose' ? 'on' : '') + '" onclick="stackFormKind(\'dose\')">Goes on my timeline</button>'
+    + '<button type="button" class="' + (st.kind === 'food' ? 'on' : '') + '" onclick="stackFormKind(\'food\')">Counts in my day</button></div>';
+  if (st.kind === 'dose') {
+    h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" value="' + esc(v(sd.name)) + '">'
+      + '<div class="row"><div><label for="stkDose">Amount</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
+      + '<div><label for="stkUnit">Unit</label><select id="stkUnit">'
+      + MED_DOSE_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === (sd.dose_unit || 'mg') ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>'; }).join('')
+      + '</select></div></div>'
+      + '<label for="stkMicro">Counts toward (optional)</label><select id="stkMicro"><option value="">nothing</option>'
+      + MICRO_SPEC.map(function (m) { return '<option value="' + esc(m.key) + '"' + (m.key === mk ? ' selected' : '') + '>' + esc(m.label) + '</option>'; }).join('')
+      + '</select>';
+  } else {
+    const picked = st.pick ? st.pick.name : (st.kept ? ((st.kept.ref && st.kept.ref.name) || st.kept.name) : '');
+    h += (picked
+        ? '<div class="stkpicked">Food database: <b>' + esc(picked) + '</b></div>'
+        : '')
+      + '<label for="stkQuery">' + (picked ? 'Change the food' : 'Find the food') + '</label>'
+      + '<input id="stkQuery" type="text" class="cnin" autocomplete="off" placeholder="search the food database" oninput="stackFormSearch(this.value)">'
+      + '<div id="stkRows"></div>'
+      + '<label for="stkGrams">Grams each time</label><input id="stkGrams" type="number" inputmode="decimal" min="0" value="'
+      + esc(v(sd.grams != null ? sd.grams : (st.kept ? st.kept.grams : ''))) + '">'
+      + '<label for="stkName">Name (optional)</label><input id="stkName" type="text" autocomplete="off" value="' + esc(v(sd.name)) + '">';
+  }
+  h += '<label for="stkNote">Form or note (optional)</label><input id="stkNote" type="text" autocomplete="off" value="' + esc(v(sd.note)) + '">'
+    + '<button type="button" class="btn primary stksave" onclick="stackFormSave()">' + (st.editId ? 'Save changes' : 'Add to my stack') + '</button>'
+    + '<button type="button" class="linklike stkcancel" onclick="stackFormCancel()">Cancel</button></div>';
+  return h;
+}
+function renderStackEditor() {
+  const el = document.getElementById('stackEditor');
+  if (el) el.innerHTML = stackEditorHTML();
 }
 
 // ---- COMBOS: ONE TAP, N SEPARATE ITEMS, ONE TIMESTAMP --------------------
@@ -3687,26 +4015,8 @@ function logCombo(id, mult) {
   const time = stampTime(dk) || nowTime();
   const written = [];
   c.parts.forEach(function (p) {
-    const g = (p.grams != null) ? num(p.grams) * m : null;
-    const raw = { name: p.name, meal: mealAtCreation(p.meal, time), time: time,
-                  confidence: p.confidence, source: p.source,
-                  comboId: c.id, tzo: nowTZO() };               // D29 (stamped)
-    MACRO_KEYS.forEach(function (k) {
-      if (p[k] != null) raw[k] = num(p[k]) * m;
-    });
-    if (p.micros) {
-      const mi = {};
-      Object.keys(p.micros).forEach(function (k) { mi[k] = num(p.micros[k]) * m; });
-      raw.micros = mi;
-    }
-    if (g != null) raw.grams = g;
-    if (p.published) raw.published = p.published;
-    // The ref re-expressed at THIS part's new portion, or dropped if it has no
-    // basis to re-express from. Never guessed.
-    if (p.ref) {
-      const nr = (g != null) ? refAtGrams(p.ref, g) : p.ref;
-      if (nr) raw.ref = nr;
-    }
+    const raw = comboPartRaw(p, m, time);
+    raw.comboId = c.id;
     const item = normalizeItem(raw, true);
     day.items.push(item);
     written.push(item);
@@ -3719,75 +4029,11 @@ function logCombo(id, mult) {
   return { ok: true, id: c.id, name: c.name, mult: m, time: time, items: written };
 }
 
-// Inject the supplement at device-side day creation, if enabled and absent (D8/4).
-// Wholesale-arriving days (full-days merge / restore) do NOT call this.
-function maybeInjectSupplement(state, dayKey) {
-  const sup = (state.settings && state.settings.supplement) || {};
-  if (!sup.enabled) return false;
-  const day = state.days[dayKey];
-  if (!day || day.items.some((i) => i._auto)) return false;
-  day.items.push(buildSupplementItem(sup, dayKey));
-  return true;
-}
-
-// Unified day-scope application (D12): the setting governs today-while-in_progress
-// + future creations; a settled (complete) day — today-once-closed or past — is
-// never rewritten. Config is not a log action.
-function applySupplementToToday() {
-  const today = APP_STATE.days[localDate()];
-  if (!today || today.status !== 'in_progress') return;   // settled/absent: never touch
-  const sup = APP_STATE.settings.supplement || {};
-  const hasAuto = today.items.some((i) => i._auto);
-  if (sup.enabled) {
-    if (hasAuto) today.items = today.items.map((i) => (i._auto ? buildSupplementItem(sup, localDate()) : i));   // edit: rebuild in place
-    else today.items.push(buildSupplementItem(sup, localDate()));                                                // enable: inject
-  } else if (hasAuto) {
-    today.items = today.items.filter((i) => !i._auto);                                              // disable: remove standing dose
-  }
-}
-
-// Testable core: set the supplement config and apply the day-scope rule.
-function setSupplement(enabled, name, nutrients) {
-  APP_STATE.settings.supplement = normalizeSupplement({ enabled: enabled, name: name, nutrients: nutrients });
-  applySupplementToToday();
-  Store.saveState(APP_STATE); refresh();
-  return APP_STATE.settings.supplement;
-}
-
-function readSupplementForm() {
-  const g = (id) => { const el = document.getElementById(id); return el ? el.value : ''; };
-  const nutrients = {
-    kcal: g('supKcal'), protein_g: g('supP'), fat_g: g('supF'), carb_g: g('supC'),
-    fiber_g: g('supFib'), soluble_fiber_g: g('supSol'),
-  };
-  const micros = readMicroFields('sup_micro_');
-  if (Object.keys(micros).length) nutrients.micros = micros;
-  return { name: g('supName'), nutrients: nutrients };
-}
-function showSupplementWarnings(warns) {
-  const el = document.getElementById('supWarn'); if (!el) return;
-  el.innerHTML = (warns && warns.length) ? warns.map((w) => `<div class="warn">${esc(w)}</div>`).join('') : '';
-}
-function saveSupplement() {
-  const form = readSupplementForm();
-  const enabled = !!(document.getElementById('supEnabled') || {}).checked;
-  const warns = manualWarnings(form.nutrients);
-  setSupplement(enabled, form.name, form.nutrients);
-  showSupplementWarnings(warns);
-  toast(enabled ? 'Supplement saved & enabled' : 'Supplement disabled');
-}
-function renderSupplementForm() {
-  const sup = (APP_STATE.settings && APP_STATE.settings.supplement) || {};
-  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v == null ? '' : v); };
-  const en = document.getElementById('supEnabled'); if (en) en.checked = !!sup.enabled;
-  set('supName', sup.name || '');
-  const n = sup.nutrients || {};
-  set('supKcal', n.kcal); set('supP', n.protein_g); set('supF', n.fat_g); set('supC', n.carb_g);
-  set('supFib', n.fiber_g); set('supSol', n.soluble_fiber_g);
-  const micros = n.micros || {};
-  MICRO_SPEC.forEach((s) => { const el = document.getElementById('sup_micro_' + s.key); if (el) el.value = (micros[s.key] == null ? '' : micros[s.key]); });
-  updateMicroCount('sup_micro_', 'supMicroCount');
-}
+// R203 -- THERE IS NO AUTO-ADD. `maybeInjectSupplement`, `applySupplementToToday`
+// and the "Daily supplement" setting that drove them lived here. A day record is
+// now created EMPTY at every creation site, and the only things that put an
+// entry in it are functions a tap calls. Gated: start, resume and a simulated
+// midnight leave a day with nothing in it (noauto-gate, and the harness).
 
 function blankReport() {
   return { ok: true, added: [], created: [], supplemented: [], reopened: [], stripped: 0, skipped: [], mergedDays: [], rejectedItems: 0, itemRefs: [] };
@@ -3852,7 +4098,6 @@ function ensureIngestDay(d, report) {
   if (!APP_STATE.days[d]) {
     APP_STATE.days[d] = blankDay();
     report.created.push(d);
-    if (maybeInjectSupplement(APP_STATE, d)) report.supplemented.push(d);   // device-side creation (D8/4)
   }
 }
 function ingestItems(o, report) {
@@ -3895,7 +4140,6 @@ function renderIngestReport(report) {
   if (totalAdded) L.push('Added ' + totalAdded + ' item(s): ' + report.added.map((x) => esc(x.date) + ' (' + x.count + ')').join(', '));
   if (report.mergedDays.length) L.push('Merged ' + report.mergedDays.length + ' day(s): ' + report.mergedDays.map(esc).join(', '));
   if (report.created.length) L.push('Created ' + report.created.length + ' new day(s): ' + report.created.map(esc).join(', '));
-  if (report.supplemented.length) L.push('Supplement injected: ' + report.supplemented.map(esc).join(', '));
   if (report.reopened.length) L.push('Reopened (was complete): ' + report.reopened.map(esc).join(', '));
   if (report.stripped) L.push('Dropped vitamins and minerals from ' + report.stripped + ' photo item(s) — honesty rule');
   if (report.skipped.length) L.push('Skipped ' + report.skipped.length + ' populated day(s): ' + report.skipped.map(esc).join(', '));
@@ -3935,7 +4179,7 @@ const NUTRIENT_LABELS = { kcal: 'cal', protein_g: 'protein', fat_g: 'fat', carb_
 // value that is added without it (D131).
 const CONF_WORD = { eyeballed: 'estimated', weighed: 'weighed', measured: 'measured' };
 const SOURCE_WORD = { scan: 'from barcode', 'ai-paste': 'from photo', manual: 'typed in',
-                      preset: 'saved item', supplement: 'daily supplement',
+                      preset: 'saved item', supplement: 'supplement',
                       corpus: 'from the food database' };
 function confWord(v) { const k = String(v == null ? '' : v); return CONF_WORD[k] || k; }
 function sourceWord(v) { const k = String(v == null ? '' : v); return SOURCE_WORD[k] || k; }
@@ -4006,7 +4250,6 @@ function dayForWrite() {
   if (!isDayKey(k)) return null;
   if (!APP_STATE.days[k]) {
     APP_STATE.days[k] = blankDay();
-    maybeInjectSupplement(APP_STATE, k);      // device-side day creation (D8/4)
   }
   return APP_STATE.days[k];
 }
@@ -4044,14 +4287,11 @@ function dayRollCheck() {
 }
 
 // The same creation site as `dayForWrite`, for a KEY rather than for whatever
-// day is on screen. It must keep `maybeInjectSupplement`: that is the sanctioned
-// device-side day-creation point (D8/4), and bypassing it would make a day that
-// silently lacks the configured supplement.
+// day is on screen. Like every creation site it makes an EMPTY day (R203).
 function dayForWriteKey(k) {
   if (!APP_STATE || !isDayKey(k)) return null;
   if (!APP_STATE.days[k]) {
     APP_STATE.days[k] = blankDay();
-    maybeInjectSupplement(APP_STATE, k);
   }
   return APP_STATE.days[k];
 }
@@ -4368,9 +4608,17 @@ function mealKindOf(items) {
     if (!it) return 'snack';
     if (MEAL_KINDS.indexOf(it.meal) >= 0) return it.meal;
     if (it.mealId && byEvent[it.mealId]) return byEvent[it.mealId];
+    // R202: A SUPPLEMENT IS NEVER FILED UNDER A MEAL BY THE CLOCK. This fallback
+    // put an auto-added 02:16 supplement into "snack", where it became the time
+    // on the header of 865 calories eaten at 23:02.
+    if (it.meal === 'supplement') return 'supplement';
     return mealByTimeOfDay(it.time);
   };
 }
+// R202: SITTINGS FAR APART ARE NOT ONE GROUP. Ruled: more than three hours.
+const GROUP_SPLIT_MIN = 180;
+const GROUP_RANGE_MIN = 15;      // a group this long or longer shows a range, not one time
+const GROUP_KINDS = MEAL_KINDS.concat(['supplement']);
 
 // One entry per meal kind that HAS items, in meal order. `events` is the set of
 // mealIds the kind holds, because a kind with two sittings is two meals and the
@@ -4386,35 +4634,55 @@ function mealKindGroups(dateKey) {
     const k = kindOf(it);
     (bucket[k] = bucket[k] || []).push({ it: it, idx: idx });
   });
-  return MEAL_KINDS.filter(function (k) { return !!bucket[k]; }).map(function (k) {
-    const rows = bucket[k];
-    const its = rows.map(function (r) { return r.it; });
-    const tot = dayTotals({ items: its });
-    const cov = macroCoverage({ items: its });
-    // Chronological WITHIN the group -- the log stays in log order; this is a view.
-    const sorted = rows.slice().sort(function (a, b) {
+  const out = [];
+  GROUP_KINDS.filter(function (k) { return !!bucket[k]; }).forEach(function (k) {
+    // Chronological WITHIN the kind -- the log stays in log order; this is a view.
+    const sorted = bucket[k].slice().sort(function (a, b) {
       const x = String(a.it.time || ''), y = String(b.it.time || '');
       return x < y ? -1 : (x > y ? 1 : a.idx - b.idx);
     });
-    const evs = [];
+    // Cut where two consecutive TIMED items are more than three hours apart. An
+    // item with no time cannot be placed, so it stays with the first cluster
+    // rather than being given a position it does not have.
+    const clusters = [];
+    let last = null;
     sorted.forEach(function (r) {
-      const id = (r.it.mealId == null || String(r.it.mealId) === '') ? '' : String(r.it.mealId);
-      if (id && evs.indexOf(id) < 0) evs.push(id);
+      const m = hhmmToMin(r.it.time);
+      if (!clusters.length || (m != null && last != null && m - last > GROUP_SPLIT_MIN)) clusters.push([]);
+      clusters[clusters.length - 1].push(r);
+      if (m != null) last = m;
     });
-    const times = sorted.map(function (r) { return String(r.it.time || ''); }).filter(function (x) { return !!x; });
-    return {
-      kind: k, n: rows.length, kcal: tot.kcal, totals: tot, coverage: cov,
-      firstTime: times.length ? times[0] : '',
-      drinks: its.filter(function (it) { return it.meal === 'drink'; }).length,
-      events: evs, rows: sorted,
-    };
+    clusters.forEach(function (rows, ci) {
+      const its = rows.map(function (r) { return r.it; });
+      const tot = dayTotals({ items: its });
+      const cov = macroCoverage({ items: its });
+      const evs = [];
+      rows.forEach(function (r) {
+        const id = (r.it.mealId == null || String(r.it.mealId) === '') ? '' : String(r.it.mealId);
+        if (id && evs.indexOf(id) < 0) evs.push(id);
+      });
+      const times = rows.map(function (r) { return String(r.it.time || ''); }).filter(function (x) { return hhmmToMin(x) != null; });
+      const first = times.length ? times[0] : '', lastT = times.length ? times[times.length - 1] : '';
+      // THE HEADER'S TIME IS THE GROUP'S OWN: one time, or a range when the group
+      // runs a quarter of an hour or more. Never a time from another sitting.
+      const span = (first && lastT) ? (hhmmToMin(lastT) - hhmmToMin(first)) : 0;
+      out.push({
+        kind: k, key: ci ? (k + '#' + (ci + 1)) : k, part: ci + 1, of: clusters.length,
+        n: rows.length, kcal: tot.kcal, totals: tot, coverage: cov,
+        firstTime: first, lastTime: lastT,
+        timeLabel: first ? (span >= GROUP_RANGE_MIN ? (first + '\u2013' + lastT) : first) : '',
+        drinks: its.filter(function (it) { return it.meal === 'drink'; }).length,
+        events: evs, rows: rows,
+      });
+    });
   });
+  return out;
 }
 
 // The kinds with NOTHING in them. Ruled: they collapse into ONE muted line that
 // names them, not a row each.
 function emptyMealKinds(dateKey) {
-  const have = mealKindGroups(dateKey).map(function (g) { return g.kind; });
+  const have = mealKindGroups(dateKey).map(function (g) { return g.kind; });   // a split kind is still one kind
   return MEAL_KINDS.filter(function (k) { return have.indexOf(k) < 0; });
 }
 
@@ -4520,7 +4788,7 @@ function foodFrequency(limit) {
   const by = {};
   days.forEach(function (dk) {
     ((APP_STATE.days[dk] || {}).items || []).forEach(function (it) {
-      if (!it || it._auto) return;                 // the supplement is not a repeat
+      if (!it || isLegacyAuto(it)) return;         // an auto-added entry is not a repeat: nobody chose it
       const nm = String(it.name == null ? '' : it.name).trim();
       if (!nm) return;
       // ---- RULING 3: A COMBO IS ONE ROW -------------------------------------
@@ -4719,7 +4987,7 @@ function renderDayInner() {
   html += dayOrderToggleHTML(kgroups.length);
   if (!DAY_TIME_ORDER) {
   kgroups.forEach((g) => {
-    const gopen = dayGroupIsOpen(g.kind);
+    const gopen = dayGroupIsOpen(g.key);
     // R31, unchanged: a group's kcal understates by exactly as much as the group
     // is incomplete, so the group says so where the number is.
     const gnote = g.coverage.partial ? ` <small class="mcov">${esc(coverageNote(g.coverage))}</small>` : '';
@@ -4728,13 +4996,13 @@ function renderDayInner() {
     // nobody ate, and the header would be stating it as a fact about "dinner".
     const gresp = (g.events.length === 1) ? mealResponseLine(dk, g.events[0]) : '';
     const gt = g.totals;
-    html += `<div class="mgrp" data-kind="${esc(g.kind)}">`
+    html += `<div class="mgrp" data-kind="${esc(g.kind)}" data-key="${esc(g.key)}">`
       + `<button type="button" class="mghead" aria-expanded="${gopen ? 'true' : 'false'}"`
-      + ` onclick="dayGroupToggle('${esc(g.kind)}')">`
-      + `<span class="mgname">${esc(g.kind)}</span>`
+      + ` onclick="dayGroupToggle('${esc(g.key)}')">`
+      + `<span class="mgname">${esc(g.kind === 'supplement' ? 'supplements' : g.kind)}</span>`
       + `<span class="mgnum">${esc(kcalDisp(g.kcal))} cal${gnote}</span>`
       + `<span class="mgmeta">${esc(String(g.n))} item${g.n === 1 ? '' : 's'}`
-      + `${g.firstTime ? ' \u00b7 ' + esc(g.firstTime) : ''}`
+      + `${g.timeLabel ? ' \u00b7 ' + esc(g.timeLabel) : ''}`
       + `${g.events.length > 1 ? ' \u00b7 ' + esc(String(g.events.length)) + ' sittings' : ''}</span>`
       + (g.drinks ? `<span class="mgdrink">${esc(String(g.drinks))} drink${g.drinks === 1 ? '' : 's'}</span>` : '')
       + (gresp ? `<span class="mgresp">${esc(gresp)}</span>` : '')
@@ -4751,10 +5019,10 @@ function renderDayInner() {
         html += itemEditHTML(it, idx, ITEM_EDIT.focus);
         return;
       }
-      const rm = it._auto ? '' : `<button class="rm" onclick="deleteItem(${idx})" title="delete">×</button>`;
+      const rm = `<button class="rm" onclick="deleteItem(${idx})" title="delete">×</button>`;
       // E1: the chip opens the editor ON MEAL instead of cycling. stopPropagation
       // keeps the body's handler from firing over it and stealing that focus.
-      const chip = it._auto ? '' : `<button class="mealchip" onclick="event.stopPropagation();openItemEdit(${idx},'meal')" title="change meal">${esc(it.meal)}</button>`;
+      const chip = `<button class="mealchip" onclick="event.stopPropagation();openItemEdit(${idx},'meal')" title="change meal">${esc(it.meal)}</button>`;
       // `x` is NOT inside the tap that expands the row -- D44's rule that a
       // destructive action must not share a thumb path with a routine one, kept
       // intact through D144's restructure. It is now beside a tap that only
@@ -4842,25 +5110,30 @@ function renderDayInner() {
       // Each figure is one unbreakable piece, so the line breaks BETWEEN figures and
       // never inside one. Seen in a screenshot: "37.2" at the end of one line and
       // its "g" alone on the next.
-      const servedTxt = it._auto ? '' : itemServedLine(it);
+      const servedTxt = itemServedLine(it);
+      // R204: an auto-added entry has no time, and its row SAYS SO IN THE TIME'S OWN
+      // PLACE -- "time unknown" where the time would be. The collapsed row is ruled
+      // name, time and one number in one line (D144), so the reason is not a second
+      // line there: it is the first thing in the opened row.
+      const legacyHTML = (it.autoLegacy === true) ? `<div class="mserved mlegacy">${esc(LEGACY_AUTO_TIME)}</div>` : '';
       const servedHTML = servedTxt
         ? `<div class="mserved">${servedTxt.split(' \u00b7 ').map((b) => `<span class="msbit">${esc(b)}</span>`).join(' \u00b7 ')}</div>`
         : '';
-      const ateHTML = it._auto ? '' : itemAteHTML(dk, idx, it);
+      const ateHTML = itemAteHTML(dk, idx, it);
       html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
         <div class="mline">
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
             <span class="mname mginame" title="${esc(it.name)}">${esc(it.name)}</span>
-            <span class="mtime mgitime">${esc(it.time || '')}</span>
+            <span class="mtime mgitime">${esc(it.autoLegacy === true ? LEGACY_AUTO_SHORT : (it.time || ''))}</span>
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
-        </div>${servedHTML}${isOpen ? `<div class="mbody">${ateHTML}
+        </div>${servedHTML}${isOpen ? `<div class="mbody">${legacyHTML}${ateHTML}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${it._auto || !it.mealId ? '' : mealResponseHTML(dk, it.mealId)}
           ${it._auto || !it.mealId ? '' : mealTestHTML(dk, it.mealId)}
-          ${it._auto ? '' : `<button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>`}
+          <button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>
         </div>` : ''}</div>`;
     });
     html += `</div></div>`;
@@ -4960,11 +5233,10 @@ function trashHTML(dk) {
 // at all -- the date was a plain <div>, the history rows were inert, and
 // stepDay(+/-1) was the whole of navigation.
 //
-// A VISITED DAY IS NEVER CREATED. Every existing day-creation site carries
-// maybeInjectSupplement (D8/4), so creating a day on arrival would put a
-// supplement item -- real, counted intake -- on a day the user only LOOKED at.
-// That is precisely the "zero days' worth of fabricated intake" the Phase R gate
-// exists to forbid. So `current` may name a day with no record, the day view
+// A VISITED DAY IS NEVER CREATED. (When this was written every creation site
+// also injected the daily supplement, so arriving would have logged intake on a
+// day the user only LOOKED at. R203 removed the injection; the rule stands on
+// its own: looking is not a write.) So `current` may name a day with no record, the day view
 // renders it honestly empty, and the record is created by the first thing
 // WRITTEN to it, which is where the supplement has always belonged.
 function isDayKey(k) { return /^\d{4}-\d{2}-\d{2}$/.test(String(k)); }
@@ -5094,7 +5366,7 @@ function recentItems(limit) {
     const items = (APP_STATE.days[days[i]].items) || [];
     for (let j = items.length - 1; j >= 0 && out.length < cap; j--) {
       const it = items[j];
-      if (!it || it._auto) continue;                 // the supplement is not a thing you repeat
+      if (!it || isLegacyAuto(it)) continue;         // an auto-added entry is not a thing you repeat
       const key = String(it.name == null ? '' : it.name).trim().toLowerCase();
       if (!key || seen[key]) continue;
       seen[key] = 1;
@@ -5299,7 +5571,7 @@ function goToDay(k) {
 function deleteItem(idx) {
   const day = curDay(); if (!day) return { ok: false };
   const it = day.items[idx];
-  if (!it || it._auto) return { ok: false };   // supplement is non-deletable
+  if (!it) return { ok: false };               // R203: nothing that is logged is non-deletable
   const dk = APP_STATE.current;
   const copy = JSON.parse(JSON.stringify(it));
   // A splice renumbers every row after it, so an editor left open would be pointing
@@ -5364,7 +5636,6 @@ function openItemEdit(idx, focus) {
   const day = curDay(); if (!day) return { ok: false };
   const it = day.items[idx];
   if (!it) return { ok: false };
-  if (it._auto) return { ok: false, refused: ['_auto'] };   // the supplement is a setting, not a log entry
   ITEM_EDIT = { date: APP_STATE.current, idx: idx, focus: focus === 'meal' ? 'meal' : '' };
   refresh();
   return { ok: true };
@@ -7422,10 +7693,6 @@ function editRecord(date, idx, patch, collection) {
   const arr = recordsIn(date, coll);
   if (!arr || idx < 0 || idx >= arr.length) return { ok: false, error: 'No such record.' };
   const rec = arr[idx];
-  // The supplement is flagged non-deletable (D54); it is non-editable for the same
-  // reason -- it is not a thing the user logged, it is a setting persisting itself.
-  // Refused, never silently ignored.
-  if (coll === 'items' && rec._auto) return { ok: false, error: 'The supplement is set in Settings.', refused: ['_auto'] };
   const allowed = editableFields(rec, coll);
   const keys = Object.keys(patch || {});
   if (!keys.length) return { ok: false, error: 'Nothing to change.' };
@@ -7954,7 +8221,7 @@ function fastEvents() {
       // no calories, so the item counts as a food event on the strength of having
       // been eaten at a time, which is all this detector ever needed from it.
       const isFoodEvent = num(it.kcal) > 0 || it.unresolved === true;
-      if (isFoodEvent && it._auto !== true && /^\d{2}:\d{2}$/.test(String(it.time)))
+      if (isFoodEvent && !isLegacyAuto(it) && /^\d{2}:\d{2}$/.test(String(it.time)))
         evs.push(d + 'T' + it.time);
     });
   });
@@ -8973,7 +9240,7 @@ function mealEvents(dateKey) {
   if (!day) return [];
   const out = {}, order = [];
   (day.items || []).forEach(function (it, i) {
-    if (!it || it._auto) return;        // the supplement is not an eating event
+    if (!it || isLegacyAuto(it)) return;   // an auto-added entry is not an eating event, and has no time (R204)
     const id = (it.mealId != null && String(it.mealId) !== '') ? String(it.mealId) : ('_solo' + i);
     if (!out[id]) { out[id] = { mealId: id, time: String(it.time || ''), items: [] }; order.push(id); }
     out[id].items.push(it);
@@ -9340,7 +9607,7 @@ function eventModifiers(ev, dateKey) {
 function potentialFor(dateKey) {
   const day = APP_STATE.days && APP_STATE.days[dateKey];
   if (!day) return null;
-  const items = (day.items || []).filter(function (it) { return it && it._auto !== true; });
+  const items = (day.items || []).filter(function (it) { return it && !isLegacyAuto(it); });
   const r1 = function (x) { return Math.round(x * 10) / 10; };
   const hasRef = function (it) { return !!(it && it.ref && it.ref.v); };
   const events = mealEvents(dateKey).map(function (ev) {
@@ -10224,7 +10491,7 @@ function glucoseMarks(fromMs, toMs) {
     if (!isDayKey(dk)) return;
     const base = dayKeyMs(dk);
     ((days[dk] || {}).items || []).forEach(function (it) {
-      if (!it || !it.time || it._auto) return;
+      if (!it || !it.time || isLegacyAuto(it)) return;
       const p = String(it.time).split(':');
       const ms = base + (Number(p[0]) * 60 + Number(p[1])) * 60000;
       if (ms >= fromMs && ms <= toMs) out.push({ t: ms, kind: 'meal', label: it.name || 'meal' });
@@ -10689,7 +10956,7 @@ function eliteFoodTimes(fromMs, toMs) {
     const base = dayKeyMs(dk);
     if (base > toMs || base + 86400000 < fromMs) return;
     ((days[dk] || {}).items || []).forEach(function (it) {
-      if (!it || it._auto) return;
+      if (!it || isLegacyAuto(it)) return;
       const m = hhmmToMin(it.time);
       if (m == null) return;
       const ms = base + m * 60000;
@@ -11662,7 +11929,7 @@ function identityState(it) {
 function isFirstRun() {
   if (!APP_STATE) return true;
   const days = APP_STATE.days || {};
-  const hasItem = Object.keys(days).some((d) => (days[d].items || []).some((it) => !it._auto));
+  const hasItem = Object.keys(days).some((d) => (days[d].items || []).some((it) => !isLegacyAuto(it)));
   const s = APP_STATE.settings || {};
   const hasPreset = (s.presets || []).length > 0;
   const hasGoal = Object.keys(s.goals || {}).length > 0;
@@ -12566,7 +12833,6 @@ function renderDataStatus() {
   const el = document.getElementById('dataStatus');
   if (!el || !APP_STATE) return;
   const st = APP_STATE.settings || {};
-  const sup = st.supplement || {};
   const rows = [
     ['storage tier',   Store.tier],
     ['schema version', APP_STATE.version],
@@ -12574,7 +12840,7 @@ function renderDataStatus() {
     ['migrated at',    APP_STATE.migratedAt || '—'],
     ['current day',    APP_STATE.current || '—'],
     ['days stored',    String(Object.keys(APP_STATE.days || {}).length)],
-    ['supplement',     sup.enabled ? 'on' : 'off'],
+    ['daily stack',    String((st.stack || []).length) + ' item' + ((st.stack || []).length === 1 ? '' : 's')],
     ['goals set',      String(Object.keys(st.goals || {}).length)],
     ['presets',        String((st.presets || []).length)],
     ['price entries',  String(Object.keys(APP_STATE.priceLog || {}).length)],
@@ -12763,6 +13029,7 @@ const VERSION_LOG = [
   { v: '0.91.0', d: '2026-10-12', note: 'Glucose rises with no food logged before them are now marked. Open a day-s glucose and, under the chart, each one is listed with when it started, how far it went, and what is known about that moment -- hours since food, steps, a new sensor, sleep. You can say what it was: food you did not log, stress, something else, a sensor artifact, or not sure. Your answer is kept; nothing is asked unless you open it, and nothing here works out stress for you, because no heart rate is held on this phone. Importing an Apple Health export now also brings in steps, for the days glucose covers. Also: the Log sheet-s first screen no longer has a block of links pinned to its foot, so Search is in view without scrolling, and an item you weighed and then ate part of reads as weighed 180 g, ate half.' },
   { v: '0.92.0', d: '2026-10-12', note: 'Search finds what you mean more often. Sardines finds sardine; typing a food-s name puts that food ahead of longer names that only start with it -- coffee before coffee cake, milk before milk shake, egg before eggplant -- and anything you have logged before comes first, marked as such. You can now edit your combos: tap Edit beside My combos, tap one, and rename it, change an amount, add or remove a part, or delete it, each with an Undo. Nothing you already logged changes when you do. The Manual and Scan forms have an Ate: row, like the photo screen, to say you had three quarters or half of it at the moment you log it. And the Manual form-s Confidence box now says estimated, and its Meal box is wide enough to read.' },
   { v: '0.93.0', d: '2026-10-12', note: 'Search understands both spellings: yogurt finds yogourt and the other way round, and the same for flavor and flavour, fiber and fibre, whiskey and whisky. Branded products now come after the plain food of the same name, and a food named for the word you typed comes before one that only mentions it later in its name.' },
+  { v: '0.94.0', d: '2026-10-12', note: 'Nothing is logged unless you tap. The Daily supplement setting, which added an item to every new day by itself, is gone. What it added in the past is now an ordinary entry you can delete, marked time unknown because its time was only when the app was opened. In its place Settings has a Daily stack: list what you take, with amount, unit and a note, and log it with one tap from + Log, unticking anything you skipped. On the day, sittings more than three hours apart are no longer shown as one meal, and supplements have their own group instead of being filed under a meal by the clock.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14548,7 +14815,7 @@ function correctionsAll() {
     const items = APP_STATE.days[days[i]].items || [];
     for (let j = items.length - 1; j >= 0; j--) {
       const it = items[j];
-      if (!it || it._auto === true) continue;
+      if (!it || isLegacyAuto(it)) continue;
       const said = String(it.ai_identity == null ? '' : it.ai_identity);
       const chose = String(it.name == null ? '' : it.name);
       if (!said || !chose) continue;
@@ -17370,6 +17637,9 @@ function closeSheet() {
 }
 function openSettings() {
   const p = document.getElementById('settingsPanel'), s = document.getElementById('settingsScrim');
+  // The stack can change behind the panel (a restore, a migration), so the list
+  // is drawn when the panel opens -- but never over a form that is being typed in.
+  if (!STACK_FORM) renderStackEditor();
   if (p) p.style.display = 'flex';
   if (s) s.style.display = 'block';
   overlaySync();
@@ -20659,8 +20929,7 @@ function main() {
   requestPersistentStorage();
   checkVersionNotice();
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
-  renderMicroFields('supMicros', 'sup_micro_', 'supMicroCount');
-  renderSupplementForm();
+  renderStackEditor();
   renderSignalForm();
   renderMedForm();
   renderPromptCard();
@@ -20839,7 +21108,7 @@ window.HT = {
   // Phase 4 Layer-1 adherence — quick-log chips (D21)
   chipOrder, CHIP_DEFAULT, chipLabel, pickSignal, renderSignalChips, renderSignalForm, addSignalFromForm,
   exportJSON, parseImport, restore,
-  ingest, maybeInjectSupplement, buildSupplementItem, fillable, stampTime,
+  ingest, fillable, stampTime,
   // D114/D116 -- the micronutrient corpus
   corpusNamespace, corpusAssetURL, corpusOpen, corpusInstall, corpusHydrate, corpusState,
   corpusSlotIndex, corpusValueAt, corpusScale, corpusLookup, corpusAcquire,
@@ -20909,7 +21178,10 @@ window.HT = {
   getTypicalNutrient: () => TYPICAL_NUTRIENT, migrateV6toV7, SCHEMA_VERSION,
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor, openLabelCapture,
-  setSupplement, applySupplementToToday, normalizeSupplement,
+  legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
+  stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormKind, stackFormSearch, stackFormPick,
+  stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
+  stackSheetHTML, stackOpen, stackToggle, stackConfirm, stackCancel, mealKindGroups, GROUP_SPLIT_MIN,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,

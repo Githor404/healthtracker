@@ -130,7 +130,7 @@ try {
            barcode: '00000000', micros: { sodium_mg: 180, iron_mg: 1.2 } }),
     base({ name: 'repeated lentils', repeated_from: { date: '2026-09-22',
            name: 'cooked brown lentils', lostMatch: true } }),
-    base({ name: 'Vitamin D3', meal: 'supplement', time: '09:00', source: 'supplement', _auto: true })
+    base({ name: 'Daily capsule', meal: 'supplement', time: '', source: 'supplement', autoLegacy: true })
   ] };
   S.current = DK;
   S.settings = S.settings || {};

@@ -54,6 +54,7 @@ jargon-gate.ps1
 lab-form-gate.ps1
 landing-gate.ps1
 night-gate.ps1
+noauto-gate.ps1
 offline-gate.ps1
 onedoor-gate.ps1
 overlay-gate.ps1
@@ -398,7 +399,21 @@ echo "-----------------------------------------"
 # spellings, whole and half-typed; the table's size; the control that the
 # identity matcher still reads the word as written; and R198's four orders
 # unmoved.
-EXPECTED_ASSERTIONS=3007
+# R202 / R203 / R204, v0.94.0: 3007 -> 3043, delta +36, with about twenty cases
+# REWRITTEN TO ASSERT THE OPPOSITE of what they held. The old cases said: an
+# enabled supplement is injected at boot, at day creation and on a paste; it is
+# flagged, non-deletable, non-editable and refused as a combo part. Each now
+# says: boot, day creation, a paste and a simulated midnight write NOTHING; the
+# setting became one stack item; the old entry is ordinary, marked, timeless,
+# deletable with Undo, and still counted on its day. S1-S7 (the setting's own
+# behaviour) are replaced by the stack editor's: add, convert-or-refuse, edit in
+# place, a food as a food-database part at typed grams, enable, remove with
+# Undo, the tap logging N and N-1, and ONE Undo for the whole confirm. New: the
+# day's groups (the reported day reads 3 items at 23:02; a supplement group of
+# its own; the split at more than three hours with the exactly-three-hours
+# control; a range on a long group). Every schema pin moved 14 -> 15 and the
+# forward guard 15 -> 16; the migration-chain census gained its step.
+EXPECTED_ASSERTIONS=3043
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
