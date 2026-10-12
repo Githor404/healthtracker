@@ -1188,7 +1188,14 @@ window.setLS({});
   }
   HT.renderSignalForm(); HT.renderSignalChips();
   var chipsEl = document.getElementById('sigChips');
-  res(chipsEl.children.length===HT.CHIP_DEFAULT.length && chipsEl.children[0].tagName==='BUTTON', 'TL14: chip strip renders one button per curated signal');
+  // R192 TOUCHED THIS AND PUT IT BACK. The one-tap preset was first drawn as the
+  // leading chip of this strip, and this pin was moved to the sum. The chip
+  // layout gate then showed the preset pushing a ruled-reachable chip off a
+  // phone-s screen, so the preset went ABOVE the strip -- and the strip is again
+  // exactly one button per curated signal, with no preset in it.
+  res(chipsEl.children.length===HT.CHIP_DEFAULT.length && chipsEl.children[0].tagName==='BUTTON'
+      && chipsEl.querySelectorAll('.chippre').length===0,
+      'TL14: chip strip renders one button per curated signal, and the one-tap presets are NOT in it');
   var tlBefore14 = (HT.state().timeline[tdT]||[]).length;
   HT.pickSignal('weight');
   res(document.getElementById('sigType').value==='weight' && (HT.state().timeline[tdT]||[]).length===tlBefore14, 'TL14: pickSignal sets the type and creates NO record (prefill only)');
@@ -13468,6 +13475,36 @@ window.setLS({});
   HT.setClock(null);
   HT.state().timeline = _snTimeline;
   HT.state().settings.sensorDevice = _snDevice;
+  HT.resave();
+
+  // ============ R192: the one-tap Red light preset ============
+  var _rlTimeline = JSON.parse(JSON.stringify(HT.state().timeline || {}));
+  var rlNow = HT.dayKeyMs('2026-06-21') + (7 * 60 + 5) * 60000;
+  HT.setClock(function () { return rlNow; });
+  HT.state().timeline = {};
+  res(HT.SIGNAL_PRESETS.length === 1 && HT.signalPresetChips()[0].label === 'Red light' && HT.signalPresetChips()[0].minutes === 15,
+      'R192 GATE: the preset is Red light, and before anything is logged its minutes are the ruled default, 15');
+  var rlTap = HT.logSignalPreset('red_light');
+  var rlRec = rlTap.record || {};
+  res(rlTap.ok === true && rlRec.type === 'red_light' && rlRec.value === 15 && rlRec.unit === 'min' && rlRec.time === '07:05'
+      && rlRec.source === 'quick' && rlRec.kind === 'event' && typeof rlRec.tzo === 'number'
+      && (HT.state().timeline['2026-06-21'] || []).length === 1,
+      'R192 GATE: ONE TAP writes one red-light event -- 15 minutes, at the tap time, through addSignal at quick provenance, stamped (D29)');
+  res(HT.logSignalPreset('made_up').ok === false && (HT.state().timeline['2026-06-21'] || []).length === 1,
+      'R192 GATE: a type with no preset is refused and writes nothing');
+  HT.doUndo();
+  res((HT.state().timeline['2026-06-21'] || []).length === 0,
+      'R192 GATE: Undo removes exactly that entry');
+  HT.addSignal({ type: 'red_light', value: 20, unit: 'min', time: '06:30', date: '2026-06-20' });
+  HT.addSignal({ type: 'red_light', time: '06:40', date: '2026-06-21' });
+  res(HT.signalPresetMinutes('red_light') === 20 && HT.signalPresetChips()[0].minutes === 20,
+      'R192 GATE: the minutes are REMEMBERED from the log -- a 20-minute session logged by the form makes the chip say 20 -- and a later entry with NO duration does not reset it to nothing');
+  rlNow += 86400000;
+  var rlTap2 = HT.logSignalPreset('red_light');
+  res(rlTap2.ok === true && rlTap2.record.value === 20 && rlTap2.record.time === '07:05',
+      'R192 GATE: and the next tap logs the remembered 20, not the default');
+  HT.setClock(null);
+  HT.state().timeline = _rlTimeline;
   HT.resave();
 
   // ============ R189: served vs eaten ============

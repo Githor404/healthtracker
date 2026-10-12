@@ -347,7 +347,10 @@ echo "-----------------------------------------"
 # anywhere a person could reach. Three replace them: the day offers no such link
 # and draws no panel or ticks, the mode's functions are gone rather than hidden,
 # and the one door is still there.
-EXPECTED_ASSERTIONS=2906
+# R192, v0.88.0: +6. The one-tap Red light preset: 15 before anything is logged,
+# one event through addSignal at quick provenance, an unknown type refused, Undo,
+# and the minutes remembered from the log rather than stored.
+EXPECTED_ASSERTIONS=2912
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

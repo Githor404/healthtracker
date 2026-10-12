@@ -633,6 +633,12 @@
   /* Wide viewports wrap as well (belt-and-suspenders for wide non-hover screens). */
   @media (min-width:600px){ .chipstrip{flex-wrap:wrap;overflow-x:visible} }
   .chip{flex:0 0 auto;width:auto;padding:8px 14px;border:1px solid var(--line);border-radius:999px;background:var(--bg);color:var(--txt);font-size:16px;font-weight:700;white-space:nowrap;cursor:pointer}
+  /* R192: the one-tap preset. It WRITES on a tap, so it gets the 44px a control
+     that acts is owed; the chips beside it only open the form. Its border marks
+     it as the different kind of chip it is. */
+  .chip.chippre{min-height:44px;border-color:var(--accent)}
+  .sigpre{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+  .sigpre:empty{display:none}
   .chip:active{background:var(--accent);border-color:var(--accent);color:#fff}
   .tundo{pointer-events:auto;width:auto;background:none;border:none;color:#fff;font-weight:700;text-decoration:underline;font-size:16px;padding:0 0 0 6px;cursor:pointer}
   .fcand{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--line);font-size:16px}
@@ -1425,6 +1431,10 @@ svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;o
       <div id="pane-signal" class="pane">
       <details open>
         <summary>Log a biometric or event</summary>
+        <!-- R192: the one-tap presets, ABOVE the strip and not in it. In the strip
+             they pushed a chip that is ruled reachable-without-scrolling off a
+             phone's screen (D52/R20, chip-layout-gate). -->
+        <div id="sigPresets" class="sigpre"></div>
         <div id="sigChips" class="chipstrip"></div>
         <div id="sigWarn"></div>
         <div class="row" style="margin-top:10px">

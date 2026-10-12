@@ -372,6 +372,41 @@ try {
     Check ($qv.afterUndo -eq 0) ($says + "'s Undo removes the record it wrote")
   }
 
+  # ---- R192: Red light, one tap from the event pane -----------------------------------
+  $rl = EvalJ @'
+(function () {
+  var n0 = window.__count('red_light');
+  HT.openSheet(); HT.setSheetMode('signal');
+  var chips = document.querySelectorAll('#sigPresets .chip');
+  var first = chips[0];
+  if (!first) return { err: 'no preset in the event pane' };
+  var strip = document.getElementById('sigChips');
+  var above = first.getBoundingClientRect().bottom <= strip.getBoundingClientRect().top + 1;
+  var inStrip = strip.querySelectorAll('.chippre').length;
+  var label = first.textContent, vis = first.getBoundingClientRect().height > 0;
+  var fs = parseFloat(getComputedStyle(first).fontSize), h = first.offsetHeight;
+  first.click();
+  var t = window.__toast();
+  var tl = HT.state().timeline[HT.localDate()] || [];
+  var rec = tl.filter(function (e) { return e.type === 'red_light'; }).pop() || {};
+  var u = document.querySelector('#toast .tundo'); if (u) u.click();
+  var after = window.__count('red_light') - n0;
+  HT.closeSheet();
+  return { label: label, visible: vis, font: fs, height: h, added: (rec.type === 'red_light') ? 1 : 0, value: rec.value, unit: rec.unit,
+           source: rec.source, shown: t.shown, text: t.text, undo: t.undo, lines: t.lines, fits: t.fits, tfont: t.font, afterUndo: after,
+           above: above, inStrip: inStrip };
+})()
+'@
+  Write-Host ("  red light: " + $rl)
+  $rv = $rl | ConvertFrom-Json
+  Check (($rv.label -like 'Red light * 15 min') -and ($rv.visible -eq $true)) "R192: 'Red light . 15 min' is in the event pane -- one tap from Log event or biometric"
+  Check (($rv.above -eq $true) -and ($rv.inStrip -eq 0)) "it sits ABOVE the chip strip and not in it: in the strip it pushed a chip that is ruled reachable-without-scrolling off a phone's screen (D52/R20)"
+  Check (($rv.font -ge 16) -and ($rv.height -ge 44)) "it is >= 16px and >= 44px tall"
+  Check (($rv.added -eq 1) -and ($rv.value -eq 15) -and ($rv.unit -eq 'min') -and ($rv.source -eq 'quick')) "a real click logs ONE red-light event of 15 minutes -- no value box, no second tap"
+  Check (($rv.shown -eq $true) -and ($rv.text -like 'Red light * 15 min *Undo') -and ($rv.undo -eq $true)) "and confirms it on the Undo bar, by name and minutes"
+  Check (($rv.lines -eq 1) -and ($rv.fits -eq $true) -and ($rv.tfont -eq 16)) "one line, 16px, inside the bar"
+  Check ($rv.afterUndo -eq 0) "and Undo removes it"
+
   # ---- the longest bar there is, at both widths --------------------------------------
   # "Dexcom G7 15 Day ... right arm" is the longest confirmation this app can
   # produce, and 360 is the narrowest screen the suite measures.

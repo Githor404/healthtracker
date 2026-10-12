@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.87.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.88.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -6680,10 +6680,71 @@ function chipOrder() {
 }
 function renderSignalChips() {
   const el = document.getElementById('sigChips'); if (!el) return;
+  // R192, AND IT MET D52/R20. The preset was first built as the leading chip OF
+  // THIS STRIP, as "top chips" reads. chip-layout-gate failed at once: on a phone
+  // the strip is one scrolling row, so PLACEMENT IS REACHABILITY, and a wide
+  // "Red light . 15 min" chip in front pushed the bowel-movement chip -- ruled
+  // reachable without scrolling -- off the screen. Both rulings hold if the
+  // preset is above the strip rather than in it: it is still the first thing in
+  // the pane, and the strip is exactly the strip it was.
+  renderSignalPresets();
   const order = chipOrder(), sig = order.join(',');
   if (el.dataset.order === sig) return;                                     // re-render only when order changes (goal add/remove) -- no reshuffle on every log
   el.dataset.order = sig;
   el.innerHTML = order.map((t) => `<button type="button" class="chip" onclick="pickSignal('${t}')">${esc(chipLabel(t))}</button>`).join('');
+}
+function renderSignalPresets() {
+  const el = document.getElementById('sigPresets'); if (!el) return;
+  el.innerHTML = signalPresetChips().map((p) =>
+    `<button type="button" class="chip chippre" onclick="logSignalPreset('${esc(p.type)}')">${esc(p.label)} \u00b7 ${esc(rDisp(p.minutes))} min</button>`).join('');
+}
+// ---- R192: A ONE-TAP EVENT PRESET ---------------------------------------------
+// Every other chip here is a faster way INTO the form: it sets the type and puts
+// the caret in the value box, and the user still types and taps Log. Ruled for
+// Red light: ONE TAP, with its minutes. So a preset chip is the one kind of chip
+// that writes -- through the same addSignal, at `quick` provenance, with the
+// same Undo bar the day's one-tap events now carry.
+//
+// THE MINUTES ARE THE LAST ONES LOGGED, and 15 before there are any. "Remembered"
+// is read from the log rather than stored (D133's shape): the most recent red
+// light entry that carries a duration, whichever way it was logged, says what a
+// session is for this user. The 15 is the ruled default and is the product's,
+// not a calibration: it is what the chip says before the user has said anything.
+//
+// THE TIME IS THE TAP, as a START -- as for every other event here. Tapped after
+// a session it sits one session late, and the entry's own editor moves it. The
+// alternative, stamping it as having STARTED 15 minutes ago, would be a time
+// nobody recorded (D112).
+const SIGNAL_PRESETS = [
+  { type: 'red_light', label: 'Red light', minutes: 15 },
+];
+function signalPresetMinutes(type) {
+  const spec = SIGNAL_PRESETS.filter(function (p) { return p.type === type; })[0];
+  if (!spec) return null;
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  let best = null, bestKey = '';
+  Object.keys(tl).filter(isDayKey).forEach(function (dk) {
+    (tl[dk] || []).forEach(function (r, i) {
+      if (!r || r.type !== type || !(num(r.value) > 0)) return;
+      const key = dk + ' ' + String(r.time || '') + ' ' + String(i).padStart(4, '0');
+      if (key >= bestKey) { bestKey = key; best = num(r.value); }
+    });
+  });
+  return best != null ? best : spec.minutes;
+}
+function signalPresetChips() {
+  return SIGNAL_PRESETS.map(function (p) {
+    return { type: p.type, label: p.label, minutes: signalPresetMinutes(p.type) };
+  });
+}
+function logSignalPreset(type) {
+  const spec = SIGNAL_PRESETS.filter(function (p) { return p.type === type; })[0];
+  if (!spec) return { ok: false, error: 'No such preset.' };
+  const minutes = signalPresetMinutes(type);
+  const r = addSignal({ type: spec.type, value: minutes, unit: 'min', source: 'quick',
+                        time: nowTime(), date: localDate() });
+  if (r.ok) quickConfirm(spec.label + ' \u00b7 ' + rDisp(minutes) + ' min \u00b7 ' + r.record.time, [r.record]);
+  return r;
 }
 // A faster path INTO the form, NOT a second code path: set the type, run the
 // existing handler (unit/label/BP-pair), focus the value box. The user then types +
@@ -12070,6 +12131,7 @@ const VERSION_LOG = [
   { v: '0.86.0', d: '2026-10-11', note: 'The day now counts what you ate, not what was on the plate. Two things can make those differ, and they are kept apart. The part you cannot eat: when a food is matched to the Canadian food database and that database says how much of it is bone, the weight is reduced for you on cuts served on the bone -- wings, drumsticks, ribs, necks, and anything it calls bone-in -- and the line says so, with the figure and where it comes from: 120 g served, about 74 g edible. Peel, shell, pits and fat are never taken off by themselves; there is one tap if your weight included them. Say a food was boneless once and it is remembered for that food. What you left: open any item that came from a photo or a search and tap Ate: all, three quarters, half, a quarter, or type the grams. Whenever the two figures differ the row shows both, so the served weight is never hidden. A food you log by searching can now be corrected the same way afterwards. On the US food database nothing is taken off, because it publishes no such figures.' },
   { v: '0.86.1', d: '2026-10-11', note: 'A fix under the hood for the release before this one: undoing a change to a bone or peel correction now restores it in a way the app-s own record checks can read. Nothing you logged is affected.' },
   { v: '0.87.0', d: '2026-10-11', note: 'Two things from the Day screen. Save as combo is gone from under the day: it opened a panel that asked you to tick items and showed none, because the items were inside closed meal groups. Combos are now made in one place -- + Log, then + New combo. Combos you already saved are untouched. And the micronutrient list under the day now reads in plain words with its unit -- Cholesterol, mg; Vitamin A, mcg; Saturated fat, g -- where it was showing the app-s own internal names for them.' },
+  { v: '0.88.0', d: '2026-10-11', note: 'Red light is one tap now. Open + Log, Log event or biometric, and the first chip reads Red light, 15 min -- tap it and it is logged at this moment, with an Undo. The minutes follow you: log a 20-minute session once, by the chip or by the form, and the chip says 20. The entry is timed from the tap as the start; if you tap after the session, open the entry to move its time.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -19765,6 +19827,8 @@ window.HT = {
   foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
   comboNew: () => COMBO_NEW, renderComboNew, comboNewName, comboNewType, comboNewAddAt, comboNewAddTyped,
   comboNewRemove, comboNewAmount, comboNewDraft, comboNewDiscard,
+  // R192 -- the one-tap event preset
+  SIGNAL_PRESETS, signalPresetMinutes, signalPresetChips, logSignalPreset, renderSignalChips, renderSignalPresets,
   // R186 -- the sensor-change entry
   SENSOR_DEVICES, SENSOR_BY_ID, SENSOR_DEDUPE_MIN, QUICK_UNDO_MS, SENSOR_EDITABLE,
   // R189 -- served vs eaten
