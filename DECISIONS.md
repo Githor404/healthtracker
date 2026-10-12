@@ -6359,7 +6359,7 @@ computed style, never declarations), 18 surfaces, **737 distinct visible strings
 `corpus`, `provenance`, `normalize`, `schema`, `tzo`, `plateId`, `mealId`,
 `jaccard`. The internal vocabulary had largely stayed internal; what leaked was a
 **countable set of about twenty terms, most of them on one row type**. (My first
-scan “found” four D-numbers. They were `Vitamin D3`.)
+scan “found” four D-numbers. They were a vitamin's name.)
 
 | what rendered | where | now |
 |---|---|---|
@@ -12912,7 +12912,7 @@ personal calibrations in code*, and seed data is empty.
 
 | measured | consequence |
 |---|---|
-| `settings.supplement` is **`{enabled: true, name: "Vitamin D3", nutrients: {}}`** on the real log | the mechanism is already ON, already carrying one name — **and delivering nothing.** An empty `nutrients` map means the daily item contributes nothing to any total |
+| `settings.supplement` is **`{enabled: true, name: "<one supplement>", nutrients: {}}`** on the real log | the mechanism is already ON, already carrying one name — **and delivering nothing.** An empty `nutrients` map means the daily item contributes nothing to any total |
 | **the plumbing for the vitamin half already exists end to end** | `buildSupplementItem` passes `nutrients.micros` straight through, the settings form renders the **full `MICRO_SPEC` micro grid** (`renderMicroFields('supMicros', 'sup_micro_', …)`), and `vitamin_d_ug` is a declared micro key. **So this needs no new code at all — it needs amounts typed in** |
 | `vitamin_d_ug` carries `warn: 1250` mcg | an **implausibility guard** (a typo-catcher at 50,000 IU), **not** an upper intake level. The flag the ruling asks for is at 4000 IU — **100 µg, twelve times lower**. The two must never be presented as the same instrument: one catches a slip of the thumb, the other states what a body of evidence says |
 | the one blocker on the vitamin, therefore, is a **unit**: the field is µg, the bottle says IU | see §3 |
@@ -12928,28 +12928,28 @@ Decoded from the shipped `fdc.bin` / `cnf.bin` (47 slots, 7,793 SR Legacy rows,
 
 | | |
 |---|---|
-| **olive oil IS in the corpus**: FDC **171413**, *"Oil, olive, salad or cooking"* | per 100 g: fat **100 g**, energy **884 kcal**, saturated **13.8 g**, monounsaturated **73.0 g** (18:1 oleic **71.3 g**), polyunsaturated **10.5 g** (18:2 n-6 **9.76 g**). So *"fat with a fatty-acid profile and energy"* is **available from a cited source today**, at `reference` provenance |
+| **one of the two oils IS in the corpus**, as a single generic row | its fat, its fatty-acid profile and its energy per 100 g are all published. So *"fat with a fatty-acid profile and energy"* is **available from a cited source today**, at `reference` provenance |
 | **vitamin E is NOT a slot.** The 47 slots hold no 323 | so *"vitamin E"* **cannot** come from the corpus. Either it comes from the bottle's own label (the honesty rule's labelled path, which is fine), or slot 323 is admitted through `derive_slots.py --check` with measured coverage — the route the three judged additions took. **The sources are not in this repo**, so that measurement needs them downloaded |
 | **ALA 18:3 n-3 (851) is not a slot either** | relevant to any n-3 statement about either oil. The lipid panel holds 606/645/646/617/618/621/631/832/854/861 and no ALA |
-| **black seed oil is in NEITHER corpus** — zero rows match *nigella*, *black seed* or *black cumin* across 13,483 rows | label-only, by necessity. That is allowed and already has a path; it just has to be **said**, and its coverage line will differ from the olive oil's |
-| **vitamin D IS a slot** (328), admitted as a judged addition at 66.5% SR / 87.9% CNF | but a supplement's D3 does not come from a food database — it comes off the bottle |
+| **the other oil is in NEITHER corpus** — zero rows match any of its three names across 13,483 rows | label-only, by necessity. That is allowed and already has a path; it just has to be **said**, and its coverage line will differ from the first oil's |
+| **vitamin D IS a slot** (328), admitted as a judged addition at 66.5% SR / 87.9% CNF | but a supplement's vitamin does not come from a food database — it comes off the bottle |
 
 > **A correction worth recording, because it nearly became a finding.** The first
-> pass searched for `olive oil` and printed the first eight of twelve hits, saw a
-> mayonnaise and an anchovy, and concluded the corpus had no olive oil. It has.
+> pass searched for the first oil by name and printed the first eight of twelve hits, saw a
+> mayonnaise and an anchovy, and concluded the corpus did not hold it. It does.
 > **The truncation was read as the answer** — the same defect as a search pattern
 > typed from memory, one layer along. Settled by looking up the id.
 
 ### 3. THE UNIT PROBLEM, WHICH IS A CLAIM
 
-- The label says **9000 IU**; slot 328 is **µg**. The conversion for
-  cholecalciferol is **40 IU = 1 µg**, so 9000 IU is **225 µg**. That factor is a
+- The label is in **IU**; slot 328 is **µg**. The conversion for
+  cholecalciferol is **40 IU = 1 µg**. That factor is a
   claim the app would be making, and under [[D32]] a claim carries its source. It
   is a definitional conversion rather than a guideline, so it needs a citation but
   not a jurisdiction.
 - **"1 tbsp" is not grams.** The corpus is per 100 g and the item's portion field
-  is grams, so a tablespoon needs a declared density (olive oil ≈ 0.91 g/mL, 1 US
-  tbsp = 14.79 mL → ~13.5 g). Also a cited constant, also not guessable.
+  is grams, so a tablespoon needs a declared density and a spoon size
+  to become grams. Also a cited constant, also not guessable.
 
 ### 4. THE BIOACTIVES ALREADY HAVE A RECORD, AND A STANDING RULING OVER THEM
 
@@ -12967,9 +12967,14 @@ exactly *"a timed, dosed exposure"*.
 > names are removed here, and the ruling confirmed 2026-10-10 is that they stay
 > out. **They remain in this repo's git history** (commit `0680c9e`, pushed), and
 > taking them out of a public history is a rewrite and a force-push, which is the
-> user's call and not a thing to do quietly. *The corpus measurements in §2 stay
-> as they are: "FDC 171413 holds olive oil" and "no row matches nigella" are facts
-> about a public database that a reader has to be able to check.*
+> user's call and not a thing to do quietly.
+>
+> **Superseded in part, 2026-10-12 (R204).** This paragraph kept the corpus
+> measurements in §2 with the foods named, as facts a reader must be able to
+> check. The user has since ruled that nothing from their stack is written in
+> this repo, so §2, §3 and §5 are reworded above and below to say *what was
+> found* without saying *about which food*. The history still holds the old
+> text; the ruling on that is unchanged — the user's call, and it is to leave it.
 
 And D20 already ruled the thing this slice walks up to:
 
@@ -12991,7 +12996,7 @@ with no dose recorded is not a dosed exposure — it is a name with a timestamp.
 Needed before the stack can be configured: the amount and unit for each
 bioactive, and whether the oils are logged by volume or by weight.
 
-### 5. THE EVIDENCE LAYER HAS A SHAPE ALREADY, AND THE D3 FLAG WOULD BE A FIRST
+### 5. THE EVIDENCE LAYER HAS A SHAPE ALREADY, AND THE VITAMIN FLAG WOULD BE A FIRST
 
 The citation machinery to extend is `LAB_GUIDELINE` + `overlay`:
 `{org, cite, version, jurisdiction}` and `{value, direction, unit, applicability}`,
@@ -13001,7 +13006,7 @@ land on it like this:
 | ask | where it lands |
 |---|---|
 | *"suggest a 25(OH)D lab value, cited"* | **needs no new analyte.** `vit_d_25oh` is already in `LAB_SPEC` with Osteoporosis Canada's **75 nmol/L** sufficiency threshold, cited (Hanley et al., CMAJ 2010; reaffirmed 2024), **and** a disclosure that Health Canada/IOM define sufficiency at 50 and that the user's lab's printed interval may differ. The slice links the stack's D3 to that analyte; it does not invent a target |
-| *"flag, not verdict: 9000 IU exceeds the commonly cited adult upper intake (4000 IU)"* | **this would be the app's first cited INTAKE figure.** The calorie ring says so in its own words: *"D32 requires a citation for a target and the app has no cited intake targets."* Every cited number in here today is a lab reference range. An intake upper limit is a new class of claim, and the honest source is the IOM/NAM 2011 DRI tolerable upper intake level for adults — the same IOM the vitamin-D analyte's disclosure already names |
+| *"flag, not verdict: the dose exceeds the commonly cited adult upper intake (4000 IU)"* | **this would be the app's first cited INTAKE figure.** The calorie ring says so in its own words: *"D32 requires a citation for a target and the app has no cited intake targets."* Every cited number in here today is a lab reference range. An intake upper limit is a new class of claim, and the honest source is the IOM/NAM 2011 DRI tolerable upper intake level for adults — the same IOM the vitamin-D analyte's disclosure already names |
 
 > **A flag is not a verdict, and the difference has to be in the words.** The
 > wording has to state the figure, its source and its population, and must not
@@ -13053,8 +13058,8 @@ the slot question is settled, which is the honest state and also the useful one.
 | a bioactive's record carries `name` + `dose` + `dose_unit` and **no** pathway field | the claim never lands in the data |
 | every pathway sentence the app can render carries **source, population and strength**, and a plant with one of the three missing **fails** | the evidence layer's own contract |
 | the app's own voice contains **no** pathway assertion — the vocabulary gate extended to the new strings | [[D157]]: never plays the clinician |
-| the D3 flag states the figure, the source and the population, and **does not** advise a change | flag, not verdict |
-| the D3 flag's number is **absent** rather than guessed if the citation constant is missing | no uncited target, ever |
+| the vitamin flag states the figure, the source and the population, and **does not** advise a change | flag, not verdict |
+| the vitamin flag's number is **absent** rather than guessed if the citation constant is missing | no uncited target, ever |
 | a reference-fed nutrient and a labelled one are **not summed into one figure** without the panel saying so | the honesty rule as refined by D120 |
 | vitamin E renders as a **named absence** with its measurement while it is not a slot | H24's axis discipline |
 
@@ -13230,8 +13235,8 @@ check the correction against; the name is not theirs to need.
 
 | ruled now | |
 |---|---|
-| **IU → µg at entry** | the field is `vitamin_d_ug` and the bottle is in IU, so the conversion happens where the number is typed and the stored value is µg. 40 IU = 1 µg cholecalciferol, carried as a cited constant ([[D32]]: a claim carries its source). The ruled dose converts to **225 µg** |
-| **the D3 flag sits at 100 µg (4000 IU), cited** | and it is a flag, not a verdict. This remains the app's **first cited intake figure** — every cited number in here until now has been a lab reference range |
+| **IU → µg at entry** | the field is `vitamin_d_ug` and the bottle is in IU, so the conversion happens where the number is typed and the stored value is µg. 40 IU = 1 µg cholecalciferol, carried as a cited constant ([[D32]]: a claim carries its source). The ruled dose is converted by that factor |
+| **the vitamin flag sits at 100 µg (4000 IU), cited** | and it is a flag, not a verdict. This remains the app's **first cited intake figure** — every cited number in here until now has been a lab reference range |
 | the implausibility guard is a different instrument | `vitamin_d_ug` carries `warn: 1250` µg. The flag is at 100 µg, **twelve and a half times lower**. One catches a slip of the thumb; the other states what a body of evidence says, and they must never be shown as the same thing |
 
 ### 3. FORKS APPLIED AS RECOMMENDED
@@ -14293,7 +14298,7 @@ commit is not a rule.*
 The evidence layer cites **literature**: source, population, grade. This model
 reports **n=1 inference over the user's own log**. They are different kinds of
 statement and must not share a surface or a vocabulary: *"the literature says
-ashwagandha does X in population Y"* and *"your own eleven days put this at 72%"*
+a supplement does X in population Y"* and *"your own eleven days put this at 72%"*
 are not two strengths of the same claim.
 
 ### 6. WHAT IS ALREADY SETTLED AND NEEDS NO NEW RULE
@@ -16239,3 +16244,150 @@ what this user logged before.
 | harness | **3007** (+12): the three rules, each with a control; R198's four orders asserted unmoved |
 | `tests/rank-gate.ps1` | 18 → **22** checks: (b) and (d) as ruled properties on both databases; three pins moved, named above |
 | suite | 48 verdicts |
+
+---
+
+## R202 / R203 / R204 — RULED AND BUILT: NOTHING IS LOGGED WITHOUT A TAP; THE STACK EDITOR; A MEAL GROUP'S TIME IS ITS OWN (2026-10-12, v0.94.0, schema v15)
+
+**Labels.** `R202`, `R203`, `R204` are the user's relay labels; grepped, none
+previously recorded. **Per R204 nothing from the user's stack is written here**:
+this record says "the user's stack" and uses invented names in every example.
+
+**Serves** *track*. An entry the user did not make is not a tracked input; it is
+noise in every analysis that reads the log.
+
+### 1. THE REPORT, AND THE MECHANISM (traced before anything was changed, as ordered)
+
+**Reported:** a supplement appeared at 02:16 on a night the user was asleep; the
+day's three foods were logged at 23:02–23:03; the day view read *"Snack · 865 cal
+· 4 items · 02:16 · 2 sittings"*.
+
+**What wrote it:** the *Daily supplement* setting. `maybeInjectSupplement` pushed
+the configured item into a day **whenever that day's record was created** —
+`ensureCurrentDay` (app start, a restore, and the resume-after-midnight check
+added in R138), `dayForWrite` / `dayForWriteKey` (the first write to a day), and
+`ensureIngestDay` (a paste). The item's time was `stampTime(dayKey)`: the clock at
+creation. So the time on every such entry was **when the app first touched the
+day**, never when anything was taken. Which of start, resume or reload fired at
+02:16 cannot be known from the PC snapshot; the snapshot does show the same
+pattern on its four most recent days (first-open times, one per day).
+
+**Why the header misled:** the supplement's meal is `supplement`, which was not a
+day group, so `mealKindOf` placed it by the clock — 02:16 is "snack". The header's
+time was the group's earliest item, so a zero-calorie item set the time for the
+calories. "2 sittings" counted meal events however far apart.
+
+**Every write that needed no tap** (read from the callers of all 27 record-write
+sites): the injection above; `applySupplementToToday`, which re-stamped today's
+item on any Settings change; the empty day record and `current` at start and
+resume; and shape-only work at start (migration, settings normalisation, status
+repair). Only the first two were log entries.
+
+### 2. THIS WAS RULED BEHAVIOUR — AND THE RULING IS REPLACED
+
+D8/4 and D12 made the injection deliberate, and the v4 brief said the supplement
+*"persists into each new day as a flagged, non-deletable item"*. R202/R203
+contradict that directly: **nothing is logged without a tap; nothing logged is
+non-deletable.** The newer ruling wins, on the user's word, and the brief is
+amended rather than left saying both. D8/4's *reason* — every creation site must
+behave alike — is still honoured: they now all create an **empty** day.
+
+### 3. WHAT CHANGED IN THE STORE (schema v15) — a rewrite of history, each part ruled
+
+| | before | after |
+|---|---|---|
+| an auto-added item | `_auto: true`, a time, note "auto-applied daily supplement" | `_auto` gone; `autoLegacy: true`; **time `''`**; note "auto-added by old setting (at app open, HH:MM)" |
+| its numbers | counted on its day | **unchanged** — still counted (R204) |
+| the setting | `settings.supplement` | **removed**; its name and any nutrients become one `settings.stack` item, enabled as the setting was |
+| the amount | never stored | **still absent** — not invented |
+
+- **Why the time is cleared and not flagged.** R204: exclude these times from any
+  timing analysis. A flag has to be remembered by every analysis written from now
+  on; an empty time cannot be read by any of them. The old stamp survives in the
+  note, where it is evidence about the app and not a time of intake.
+- **The item boundary converts too**, so an `_auto` item arriving in an older
+  export or paste becomes the same ordinary entry. The non-deletable flag has no
+  way into the store.
+- **Nothing is deleted.** Removing the entries is the user's act, one at a time,
+  with Undo. Boot snapshots the untouched blob before migrating, as for every
+  schema step.
+- A disabled setting with a name is carried over disabled; a nameless one is
+  dropped; a name the stack already holds is not added twice.
+
+**Dead code left on purpose:** five render-side tests of `_auto` remain and can no
+longer be true. The guards that *refused* (delete, edit, meal change, save as a
+combo part) are removed.
+
+### 4. THE STACK EDITOR (R203/2)
+
+**The stack already existed and could not be filled.** R168 built the plan, the
+untick-before-write and the one write — and no screen wrote `settings.stack`. It
+was reachable only through a restore. The editor is that missing screen, in
+Settings where the retired panel was.
+
+- **A dose** ("goes on my timeline"): name, amount, unit, a form-or-note. Units
+  are the medication record's own list; micrograms are shown as µg.
+- **Counts toward** (optional): the amount converted **at entry** by
+  `doseToMicro`, or **refused in words** — an IU of anything but vitamin D has no
+  factor, and none is invented. This is what puts the cited vitamin D intake
+  flag beside an item that exceeds it. Ruled: *flag, no nag* — it is a line on
+  the row, never a prompt, never a block.
+- **A food** ("counts in my day"): a row picked from the food database at grams
+  the user types, stored as a combo part with its citation. **No spoon size is
+  assumed**: with no grams it is refused.
+- **Nothing in the editor logs anything**, asserted byte-for-byte on the day.
+- The confirm on the Log sheet now has **one Undo** for the whole act — the day
+  items and the timeline doses together. It had been a bare notice.
+
+**Not done, and said:** the user's own list is not in the code, the fixtures or
+this record (multi-user rule; R204). The migration carries over only what the
+device already held — one name with no amount. The rest is entered in the editor.
+
+### 5. THE DAY'S GROUPS (R202/2)
+
+- **A supplement is never filed under a meal by the clock.** It has a group of
+  its own, last, titled "supplements".
+- **Sittings more than three hours apart are separate groups** (ruled:
+  "e.g. >3 h" — taken as *more than* 180 minutes between consecutive timed
+  items, so exactly three hours is still one group; a control holds that).
+  A chain of shorter gaps stays one group however long it runs.
+- **A header's time is its own group's**: one time, or a range (`09:00–12:59`)
+  when the group runs fifteen minutes or more. The fifteen is mine, chosen so
+  that three items entered a minute apart read as one time; it is a display
+  threshold and changes no grouping.
+- An item with no time cannot be placed and stays with its kind's first group.
+
+### 6. REWORDED IN THE CURRENT FILES (R204/1, and the user's word of 2026-10-12)
+
+R168's record named parts of the user's stack across three sections, and a
+harness case and two gate fixtures used a dose and a name from it. All are
+reworded in the working files: the record now says what was found without
+saying about which food; the fixtures use invented names and a different dose.
+**The git history is untouched, as ruled.** R168's own note that the corpus
+measurements "stay as they are" is marked superseded where it stands.
+
+### 6b. A CONFLICT BETWEEN TWO RULINGS, NAMED
+
+R204 asks that a migrated entry's time be marked *"unknown (auto-added at app
+open)"*. D144 rules a collapsed row to **one line: name, time, one number**, and
+`collapse-gate` holds it at 60 px. Written as a second line under the row, the
+full phrase broke that gate (83 px at 390, 107 at 360).
+
+Resolved by putting each where it fits rather than by loosening either: the
+collapsed row says **"time unknown"** in the time's own place, and the full
+phrase is the first line of the opened row. Both are gated.
+
+### 7. Seen, reported, not changed
+
+- The medication form's placeholder gave a common vitamin as its second example.
+  Generic, but it is also in the user's stack; shortened to the first example.
+- A migrated entry's row shows "0 cal" where it had no calories. True, if bare.
+
+### 8. Evidence
+
+| | |
+|---|---|
+| harness | **3043** (+36), with about twenty cases rewritten to assert the reverse of what they held |
+| `tests/noauto-gate.ps1` | **NEW, 33 checks**, starting from a schema-14 store with the old setting on: the migration, **a simulated midnight through the page's own resume listener**, the reported day's headers, the editor by real typing, the tap logging N and N−1, delete and Undo |
+| `tests/check-writesites.sh` | 27 → **25** sites: the two that wrote without a tap are gone |
+| suite | **49 verdicts** (1 harness + 9 static + 39 CDP) |

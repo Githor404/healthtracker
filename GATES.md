@@ -6019,3 +6019,40 @@ states which rule decides between the two generic rows.
 
 **A rule measured and not shipped leaves a record, not a gate.** R200(a)
 generalised has its printout in DECISIONS; nothing in the suite asserts it.
+
+### v0.94.0 — twenty cases that asserted the defect, and a gate that starts from the old store (2026-10-12)
+
+**The harness had been holding the bug in place.** `I12` asserted that an enabled
+supplement *is* injected at boot; `I13` that a paste injects it; `D130-write` that
+a day created by a write injects it "exactly as every other creation site does";
+`D54-undo` and `R23` that it cannot be deleted or edited. None of these was
+wrong when written — each pinned a ruling. They are the reason a change of
+ruling is a rewrite of gates and not only of code: about twenty cases now assert
+the reverse, and each keeps a line saying what it used to say.
+
+**`noauto-gate` starts where the user's phone was.** A gate that began from a
+fresh profile could only show that a *new* user gets no auto-entry. This one
+writes a schema-14 blob with the old setting enabled and an auto-added 02:16
+item, and loads the app on it — so the migration, the cleared time and the
+group header are measured on the shape the defect actually had.
+
+**The midnight is the page's own.** The clock seam moves time past midnight and
+the gate dispatches `visibilitychange`; the app's real resume listener runs
+`dayRollCheck`. The precondition that the day *did* move is asserted before the
+claim that nothing was written — otherwise "no entry" could mean "no roll".
+
+**Two things the first runs taught.** A page reload clears the page's own
+variables: the gate's remembered day key vanished and three checks failed on an
+undefined key. And the food database is fetched on first use: a fixed pause was
+not enough, so the gate waits on `corpusEnsure` before typing into the editor's
+search.
+
+**`collapse-gate` refused the first rendering of R204.** The "time unknown" line
+was a second line on a collapsed row, and the gate that holds a row to one line
+failed it at both widths. That is the gate doing its job against a new ruling;
+see DECISIONS §6b for how the two were reconciled.
+
+**A screenshot found what no check asked.** The stack list in Settings read
+"Nothing in your stack yet" with three items in the store: the list was drawn at
+start and by its own buttons, and by nothing else — so a restore or a migration
+behind the panel would leave it stale. It is now drawn when Settings opens.
