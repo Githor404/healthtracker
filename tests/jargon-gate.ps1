@@ -186,7 +186,14 @@ try {
       const al = el.getAttribute && el.getAttribute('aria-label');
       t = String(t).replace(/\s+/g, ' ').trim();
       if (!t && !ph && !al) continue;
-      if (!visible(el)) continue;
+      // R198: AN <option> IS ON THE SCREEN THE MOMENT ITS BOX IS OPENED, and the
+      // selected one is on the screen all the time. The engine reports an option
+      // of a closed select as not visible, so this sweep had never read one --
+      // and the Manual form's Confidence box said 'eyeballed', the very word
+      // banned below, for as long as the ban has existed. An option is judged by
+      // whether its SELECT is visible.
+      const shown = (el.tagName === 'OPTION' || el.tagName === 'OPTGROUP') ? el.closest('select') : el;
+      if (!shown || !visible(shown)) continue;
       [t, ph, al].forEach(function (x) {
         if (!x) return;
         const k = String(x).replace(/\s+/g, ' ').trim();

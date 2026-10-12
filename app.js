@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.91.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.92.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -426,7 +426,12 @@ function openPlates(today) {
     .filter((pl) => {
       const gap = dayGap(pl.date, t);
       if (!(gap >= 0 && gap <= PLATE_RECALL_DAYS)) return false;
-      return plateRemainder(pl).open;
+      // R198: an ENTRY plate with NOTHING eaten from it can only be left over from
+      // an item that was removed by a path that did not know about it. It is never
+      // offered as leftovers -- the belt to deleteItem's braces.
+      const rem = plateRemainder(pl);
+      if (plateIsEntry(pl) && !rem.events) return false;
+      return rem.open;
     })
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
@@ -3030,13 +3035,30 @@ function matchTokens(s) {
 }
 // Pure: an index over any [[id, name], ...] list. Kept separate from the cached
 // one so it can be exercised without a database, which the harness cannot host.
-function matchIndexFrom(list) {
+// R198: AN INDEX CARRIES THE TOKENIZER IT WAS BUILT WITH (`tok`), so a query is
+// always cut the way its rows were. Absent, it is `matchTokens` -- which is every
+// index that existed before this, unchanged. The SEARCH index is built with the
+// plural-folding one below; the matcher that proposes identities for photos and
+// scans keeps the plain one, so nothing it was measured on has moved.
+function matchIndexFrom(list, tok) {
   const idx = {};
+  const cut = (typeof tok === 'function') ? tok : matchTokens;
   for (let r = 0; r < (list || []).length; r++) {
-    const tk = matchTokens(list[r][1]);
+    const tk = cut(list[r][1]);
     for (let i = 0; i < tk.length; i++) (idx[tk[i]] = idx[tk[i]] || []).push(r);
   }
-  return { idx: idx, n: (list || []).length };
+  const out = { idx: idx, n: (list || []).length };
+  if (typeof tok === 'function') out.tok = tok;
+  return out;
+}
+// "sardines" finds "Fish, sardine" (ruled, R198). The rule is `matchFold`, the
+// ONE morphological rule this file already has and the frequency key already
+// uses -- a trailing plural s, on words longer than three letters, never on
+// "-ss". Not a second, larger rule set written for the occasion.
+function matchTokensFold(s) {
+  const t = matchTokens(s), out = [];
+  for (let i = 0; i < t.length; i++) { const f = matchFold(t[i]); if (out.indexOf(f) < 0) out.push(f); }
+  return out;
 }
 function matchIndexBuild() {
   const m = CORPUS_MEM;
@@ -3074,7 +3096,8 @@ function matchIdf(index, t) {
 }
 function matchCandidatesIn(index, list, name, limit) {
   if (!index || !list) return [];
-  const q = matchTokens(name);
+  const cut = index.tok || matchTokens;
+  const q = cut(name);
   if (!q.length) return [];
   const qw = {};
   let qsum = 0;
@@ -3090,7 +3113,7 @@ function matchCandidatesIn(index, list, name, limit) {
   const out = [];
   Object.keys(hit).forEach(function (r) {
     const row = r | 0;
-    const t = matchTokens(list[row][1]);
+    const t = cut(list[row][1]);
     let tsum = 0;
     for (let i = 0; i < t.length; i++) tsum += matchIdf(index, t[i]);
     const union = tsum + qsum - hit[r];
@@ -5931,6 +5954,8 @@ function renderScan() {
   if (SCAN.mode === 'custom')
     h += `<label>Grams</label><input id="scanGrams" type="number" inputmode="decimal" value="${esc(SCAN.grams)}" oninput="setScanGrams(this.value)">`;
   h += `<div class="summary" id="scanSummary">${scanSummaryHTML(s)}</div>`;
+  // R198/3: the share, at save, as on the photo draft.
+  h += `<div id="scanAte">${formAteHTML('scan')}</div>`;
   h += `<div class="row" style="align-items:flex-end;margin-top:10px">` +
     `<div><label>Meal</label><select id="scanMeal" onchange="setScanMeal(this.value)">` +
     MEALS.filter((m) => m !== 'supplement').map((m) => `<option value="${esc(m)}"${m === SCAN.meal ? ' selected' : ''}>${esc(m)}</option>`).join('') +
@@ -5951,7 +5976,15 @@ function setScanMeal(m) { if (SCAN && SCAN.found) SCAN.meal = m; }
 function addScanToDay() {
   if (!SCAN || !SCAN.found) return;
   const r = logScanItem(SCAN.record, SCAN.mode, SCAN.grams, SCAN.meal);
-  if (r.ok) offerFoodUndo(APP_STATE.current, r.item);
+  if (r.ok) {
+    offerFoodUndo(APP_STATE.current, r.item);
+    // A scanned portion always has a weight, so the share can always be applied;
+    // the label micros scale with it (itemScaleTo), which is why this route
+    // attaches a plate rather than writing through one.
+    const ar = logAteApply(r.item, FORM_ATE.scan);
+    if (ar && ar.ok === false) toast('Logged whole \u2014 ' + (ar.error || 'the share could not be applied.'));
+    FORM_ATE.scan = 1;
+  }
 }
 function prefillManual(bc) {
   const name = document.getElementById('maName');
@@ -7725,13 +7758,76 @@ function showManualWarnings(warns) {
   const el = document.getElementById('maWarn'); if (!el) return;
   el.innerHTML = (warns && warns.length) ? warns.map((w) => `<div class="warn">${esc(w)}</div>`).join('') : '';
 }
+// ---- R198/3: "Ate:" AT SAVE, on the forms that had none ------------------------
+// The photo draft has asked "how much of this did you eat?" since R33. The Manual
+// and Scan forms logged the whole of whatever was typed or scanned, and the share
+// could only be said afterwards, on the row. Now it can be said at save, with the
+// photo draft's own choices.
+//
+// It is the SAME MECHANISM (R189, ruled A): the item is written exactly as the
+// form always wrote it, and the share is then applied through eventSetAte, which
+// attaches the plate that holds what was served. So a share needs a WEIGHT: with
+// no grams there is no served figure for the row to show, and the form says so
+// rather than quietly scaling the calories and losing what was served.
+const FORM_ATE = { manual: 1, scan: 1 };
+function formAteHTML(which) {
+  const cur = num(FORM_ATE[which]) || 1;
+  return '<div class="atebar"><span class="atelab">Ate:</span>'
+    + ATE_FRACTIONS.map(function (c) {
+        const on = Math.abs(cur - c[1]) < 0.005;
+        return '<button type="button" class="atebtn' + (on ? ' ateon' : '') + '" onclick="formAteSet(\'' + esc(which) + '\', ' + c[1] + ')"'
+          + (on ? ' aria-pressed="true"' : '') + '>' + esc(c[0]) + '</button>';
+      }).join('') + '</div>';
+}
+function renderFormAte() {
+  const el = document.getElementById('maAte');
+  if (el) el.innerHTML = formAteHTML('manual');
+  const sc = document.getElementById('scanAte');
+  if (sc) sc.innerHTML = formAteHTML('scan');
+}
+function formAteSet(which, f) {
+  if (!(which in FORM_ATE)) return { ok: false };
+  const v = Math.max(0, Math.min(1, num(f)));
+  FORM_ATE[which] = (v > 0) ? v : 1;
+  renderFormAte();
+  return { ok: true, ate: FORM_ATE[which] };
+}
+// Apply the share to an item JUST logged on the current day, and offer ONE undo
+// for the whole act -- the item and the plate made for it go together. Left to
+// the form's ordinary undo, the item would go and its plate would stay.
+function logAteApply(item, fraction) {
+  const f = num(fraction);
+  if (!(f > 0) || f >= 0.995) return { ok: true, unchanged: true };
+  const dk = APP_STATE.current;
+  const day = APP_STATE.days && APP_STATE.days[dk];
+  const idx = day ? day.items.indexOf(item) : -1;
+  if (idx < 0) return { ok: false, error: 'That item is no longer there.' };
+  const r = eventSetAte(dk, idx, f);
+  if (!r.ok) return r;
+  const pid = item.plateId;
+  offerUndo('Logged ' + item.name + ' \u00b7 ate ' + ateWords(item.ate), function () {
+    const d2 = APP_STATE.days[dk];
+    const at = d2 ? d2.items.indexOf(item) : -1;
+    if (at >= 0) d2.items.splice(at, 1);
+    if (pid && APP_STATE.plates && plateIsEntry(getPlate(pid)) && !plateEvents(pid).length) delete APP_STATE.plates[pid];
+    Store.saveState(APP_STATE); refresh();
+  });
+  return r;
+}
 function addManualItem() {
   const raw = readManualForm();
+  // Refused BEFORE anything is written: a share of an unstated weight.
+  if (FORM_ATE.manual < 0.995 && !(num(raw.grams) > 0)) {
+    toast('Enter the portion in grams to say how much of it you ate.');
+    return { ok: false, why: 'ate-needs-grams' };
+  }
   const r = addManualEntry(raw);
   if (!r.ok) { toast(r.error || 'Could not add'); return; }
   clearManualForm();
   showManualWarnings(r.warnings);
   offerFoodUndo(APP_STATE.current, r.item);
+  logAteApply(r.item, FORM_ATE.manual);       // its own, combined undo replaces the one above
+  FORM_ATE.manual = 1; renderFormAte();
   // D123: the sheet does not close itself -- three items in a meal would cost
   // three re-openings -- so the exit is OFFERED instead. The x in the corner is a
   // dismiss; this is a destination.
@@ -12627,6 +12723,7 @@ const VERSION_LOG = [
   { v: '0.89.0', d: '2026-10-12', note: 'Ate: now works on anything you logged with a weight -- typed in, scanned, repeated from your top list, a saved item, a combo part -- not only photos and searches. Open the item and tap three quarters, half, a quarter, or type the grams; the row then shows what was served beside what you ate. And a fix: a food logged by searching and then removed was being offered back to you as leftovers for two days. It no longer is.' },
   { v: '0.90.0', d: '2026-10-12', note: 'Search now works with no signal. The food database was being downloaded again every time the app opened, and when there was no network it found nothing -- although it was already saved on your phone. It is now read from the phone, and fetched again only when a new version of it ships. Opening the app uses less data, and searching, picking a food and logging it all work offline.' },
   { v: '0.91.0', d: '2026-10-12', note: 'Glucose rises with no food logged before them are now marked. Open a day-s glucose and, under the chart, each one is listed with when it started, how far it went, and what is known about that moment -- hours since food, steps, a new sensor, sleep. You can say what it was: food you did not log, stress, something else, a sensor artifact, or not sure. Your answer is kept; nothing is asked unless you open it, and nothing here works out stress for you, because no heart rate is held on this phone. Importing an Apple Health export now also brings in steps, for the days glucose covers. Also: the Log sheet-s first screen no longer has a block of links pinned to its foot, so Search is in view without scrolling, and an item you weighed and then ate part of reads as weighed 180 g, ate half.' },
+  { v: '0.92.0', d: '2026-10-12', note: 'Search finds what you mean more often. Sardines finds sardine; typing a food-s name puts that food ahead of longer names that only start with it -- coffee before coffee cake, milk before milk shake, egg before eggplant -- and anything you have logged before comes first, marked as such. You can now edit your combos: tap Edit beside My combos, tap one, and rename it, change an amount, add or remove a part, or delete it, each with an Undo. Nothing you already logged changes when you do. The Manual and Scan forms have an Ate: row, like the photo screen, to say you had three quarters or half of it at the moment you log it. And the Manual form-s Confidence box now says estimated, and its Meal box is wide enough to read.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17049,9 +17146,12 @@ function setSheetMode(mode) {
     if (btn) btn.classList.toggle('on', m === mode);
   });
   if (mode === 'quick') renderQuickChips();
+  // Leaving the root ends "editing the list": it is a state of that screen.
+  if (mode !== 'root') COMBOS_EDITING = false;
   if (mode === 'root') { QUICK_PICK = null; renderSheetRoot(); }
   // A search starts CLEAN and leaving abandons it -- the rule the root already
   // keeps for a pick: it is one typed word, and re-typing it costs nothing.
+  if (mode === 'manual' || mode === 'scan') renderFormAte();
   if (mode === 'search') renderSearchPane(); else FOOD_SEARCH = null;
   // A COMBO DRAFT IS NOT THAT, and v0.84.0 treated it as if it were. A name and
   // three parts with their amounts is real typing, and the back link threw it
@@ -17661,16 +17761,72 @@ const SR_TOP_FIRST = 3;          // ruled: three shown, then "Show all 10"
 function sheetCombosHTML() {
   const combos = (APP_STATE.settings && APP_STATE.settings.combos) || [];
   if (!combos.length) return '';          // D146, and the pre-registered gate
-  let h = '<div class="srhead">My combos</div>';
+  // R199: "Edit" beside the heading. A combo could be renamed, resized and deleted
+  // by functions that have existed since COMBOS/3 -- and by NOTHING ON ANY SCREEN:
+  // `renameCombo`, `deleteCombo` and `setComboPartGrams` had no caller in the app.
+  // While editing, a tap on a row opens it for editing rather than logging it,
+  // and the row says so; the link then reads Done. A visible link and a plain
+  // tap -- nothing here is behind a long press.
+  let h = '<div class="srheadrow"><span class="srhead">My combos</span>'
+    + '<button type="button" class="linklike sredit" onclick="combosEditToggle()">'
+    + (COMBOS_EDITING ? 'Done' : 'Edit') + '</button></div>';
   h += combos.map(function (c) {
       const parts = (c.parts || []).length;
       const kcal = (c.parts || []).reduce(function (a, p) { return a + num(p.kcal); }, 0);
-      return '<button type="button" class="btn srcombo" onclick="comboPickById(\'' + esc(String(c.id)) + '\')">'
+      const act = COMBOS_EDITING ? 'comboEditOpen' : 'comboPickById';
+      return '<button type="button" class="btn srcombo' + (COMBOS_EDITING ? ' srcediting' : '') + '" onclick="' + act + '(\'' + esc(String(c.id)) + '\')">'
         + '<span class="srcname">' + esc(c.name) + '</span>'
         + '<span class="srck">' + esc(kcalDisp(kcal)) + ' cal</span>'
-        + '<span class="srcsub">' + esc(String(parts)) + ' item' + (parts === 1 ? '' : 's') + '</span></button>';
+        + '<span class="srcsub">' + esc(String(parts)) + ' item' + (parts === 1 ? '' : 's')
+        + (COMBOS_EDITING ? ' \u00b7 tap to edit' : '') + '</span></button>';
   }).join('');
   return h;
+}
+let COMBOS_EDITING = false;
+function combosEditToggle(on) {
+  COMBOS_EDITING = (on === undefined) ? !COMBOS_EDITING : !!on;
+  renderSheetRoot();
+  return { ok: true, editing: COMBOS_EDITING };
+}
+// Opening a combo for editing loads it into the SAME builder "+ New combo" uses
+// -- one surface for making a combo and for changing one. Its saved parts come in
+// as `kept`: they carry the numbers and the citation they were saved with, and
+// an amount change scales those together (setComboPartGrams's rule), never
+// re-reads the food database behind the user's back.
+function comboEditOpen(id) {
+  const c = comboById(id);
+  if (!c) return { ok: false, why: 'no-such-combo' };
+  COMBO_NEW = { editId: c.id, name: c.name, q: '', phase: '', rows: [], seq: 0,
+                parts: (c.parts || []).map(function (p) {
+                  return { kept: true, stored: JSON.parse(JSON.stringify(p)), name: p.name,
+                           grams: (num(p.grams) > 0) ? num(p.grams) : null };
+                }) };
+  COMBOS_EDITING = false;
+  setSheetMode('combo');
+  return { ok: true, id: c.id, parts: COMBO_NEW.parts.length };
+}
+// A deletion with a way back (ruled: "with Undo"). `deleteCombo` had none.
+// EDITING OR DELETING A COMBO NEVER CHANGES PAST LOGS, and that is by
+// construction, not by a guard: logging a combo writes ordinary items, each a
+// copy of its part at that moment. They hold no reference to the definition
+// that could reach back and change them.
+function comboDeleteUndo(id) {
+  const list = (APP_STATE.settings && APP_STATE.settings.combos) || [];
+  const at = list.map(function (c) { return c.id; }).indexOf(String(id));
+  if (at < 0) return { ok: false, error: 'No such combo.' };
+  const copy = JSON.parse(JSON.stringify(list[at]));
+  list.splice(at, 1);
+  Store.saveState(APP_STATE);
+  COMBO_NEW = null;
+  setSheetMode('root');
+  refresh();
+  offerUndo('Deleted ' + copy.name, function () {
+    const l2 = APP_STATE.settings.combos || (APP_STATE.settings.combos = []);
+    l2.splice(Math.min(at, l2.length), 0, copy);
+    Store.saveState(APP_STATE); refresh();
+    renderSheetRoot();
+  });
+  return { ok: true, removed: copy };
 }
 // "+ New combo", beneath the combos -- and its OWN function, so that with no
 // combos saved the block above still draws nothing at all (D146) while the way to
@@ -17681,7 +17837,8 @@ function sheetComboNewHTML() {
   // nobody can see is the silent discard with a longer fuse.
   const d = comboNewDraft();
   const label = d
-    ? ('Continue combo draft' + (d.parts ? ' \u00b7 ' + d.parts + (d.parts === 1 ? ' part' : ' parts') : ''))
+    ? (d.editing ? ('Continue editing \u201c' + d.name + '\u201d')
+        : ('Continue combo draft' + (d.parts ? ' \u00b7 ' + d.parts + (d.parts === 1 ? ' part' : ' parts') : '')))
     : '+ New combo';
   return '<button type="button" class="linklike srnew" onclick="setSheetMode(\'combo\')">' + esc(label) + '</button>';
 }
@@ -17767,32 +17924,40 @@ function matchTypeaheadIn(index, list, text, limit) {
   const raw = String(text == null ? '' : text).toLowerCase();
   if (raw.trim().length < TYPEAHEAD_MIN) return [];
   const lim = Math.max(1, limit || TYPEAHEAD_MAX);
+  const cut = index.tok || matchTokens;
   const tm = raw.match(/([a-z0-9]+)$/);
-  const tail = tm ? tm[1] : '';
-  // A FINISHED word -- the text ends on a space -- is the matcher's case exactly,
-  // and so is a stop word. The matcher answers both, so the two cannot disagree.
-  if (!tail || MATCH_STOP.indexOf(tail) >= 0) return matchCandidatesIn(index, list, raw, lim);
-  const head = matchTokens(raw.slice(0, raw.length - tail.length))
-    .filter(function (t) { return t !== tail; });
+  let tail = tm ? tm[1] : '';
+  // A FINISHED word -- the text ends on a space -- and a stop word have no
+  // half-typed part: every word is scored as a whole token, by the matcher's own
+  // formula.
+  if (tail && MATCH_STOP.indexOf(tail) >= 0) tail = '';
+  let head = cut(tail ? raw.slice(0, raw.length - tail.length) : raw);
+  // The half-typed word, cut the way the index's own tokens were (so "sardines"
+  // is looked for as "sardine" in an index that folds plurals).
+  const tailK = tail ? ((cut(tail)[0]) || tail) : '';
+  head = head.filter(function (t) { return t !== tailK; });
   const keys = index.keys || (index.keys = Object.keys(index.idx));
   const pw = {}, exact = {};
   let any = false, credit = Infinity;
-  for (let i = 0; i < keys.length; i++) {
-    const k = keys[i];
-    if (k.indexOf(tail) !== 0) continue;
-    any = true;
-    const w = matchIdf(index, k);
-    if (w < credit) credit = w;                  // the commonest completion's weight
-    const rows = index.idx[k];
-    for (let j = 0; j < rows.length; j++) {
-      pw[rows[j]] = 1;
-      if (k === tail) exact[rows[j]] = 1;
+  if (tailK) {
+    for (let i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (k.indexOf(tailK) !== 0) continue;
+      any = true;
+      const w = matchIdf(index, k);
+      if (w < credit) credit = w;                  // the commonest completion's weight
+      const rows = index.idx[k];
+      for (let j = 0; j < rows.length; j++) {
+        pw[rows[j]] = 1;
+        if (k === tailK) exact[rows[j]] = 1;
+      }
     }
+    if (any) Object.keys(pw).forEach(function (r) { pw[r] = credit; });
   }
-  if (any) Object.keys(pw).forEach(function (r) { pw[r] = credit; });
   // The half-typed word begins nothing in the index: a typo, or a word the corpus
   // does not hold. What was finished before it still stands.
-  if (!any) return head.length ? matchCandidatesIn(index, list, head.join(' '), lim) : [];
+  const useTail = !!(tailK && any);
+  if (!head.length && !useTail) return [];
   const qw = {};
   let qsum = 0;
   for (let i = 0; i < head.length; i++) { qw[head[i]] = matchIdf(index, head[i]); qsum += qw[head[i]]; }
@@ -17804,41 +17969,114 @@ function matchTypeaheadIn(index, list, text, limit) {
       cnt[rows[j]] = (cnt[rows[j]] || 0) + 1;
     }
   }
-  Object.keys(pw).forEach(function (r) { if (hit[r] == null) { hit[r] = 0; cnt[r] = 0; } });
-  // A row's own token weight, summed once and kept: two letters can begin a
-  // thousand rows, and re-tokenising each of them on every keystroke is the one
-  // cost here that grows with the corpus rather than with the query.
+  if (useTail) Object.keys(pw).forEach(function (r) { if (hit[r] == null) { hit[r] = 0; cnt[r] = 0; } });
+  // A row's tokens and their summed weight, cut once and kept: two letters can
+  // begin a thousand rows, and re-tokenising each of them on every keystroke is
+  // the one cost here that grows with the corpus rather than with the query.
   const tsums = index.tsum || (index.tsum = {});
+  const rtoks = index.rowTok || (index.rowTok = {});
   const unmatched = Math.log(index.n || 1);     // an unanswered word, at its rarest
+  const words = head.length + (useTail ? 1 : 0);
+  // `begins`: a typed word, or one the half-typed word begins. A row that only
+  // BEGINS the word is ranked under one that holds it whole (step 2 below), so
+  // "egg" still finds Egg before Eggplant -- which the first cut of this ranking
+  // got wrong, and a printout of twenty queries is what showed it.
+  const begins = function (t) { return head.indexOf(t) >= 0 || (useTail && t.indexOf(tailK) === 0); };
+  // The LEADING word is the name's own first word, stop words included: "Frozen
+  // yogurts" leads with "frozen", and must not be read as leading with yogurt
+  // because the tokenizer skips the word in front of it.
+  // THE HEAD NAME is what comes before the first comma. Both databases name a
+  // food that way -- "Coffee, brewed", "Milk, dry whole", "Egg, chicken, dried"
+  // -- and a COMPOUND keeps going before its comma: "Coffee cake, cheese", "Milk
+  // shake", "Egg substitute". REPORTED (R199): "coffee" led with "Coffee cake,
+  // cheese" and the user wanted "Coffee, brewed". Both lead with the word; only
+  // one of them IS the word. So a row whose head name is exactly what was typed
+  // outranks a row that merely starts with it.
+  const heads = index.head || (index.head = {});
+  const headOf = function (row) {
+    // The head's LITERAL words, stop words included: "Frozen yogurts" is not
+    // headed "yogurt" because the tokenizer skips the word in front of it.
+    if (heads[row] == null) {
+      const ws = String(list[row][1]).split(',')[0].toLowerCase().replace(/\(.*?\)/g, ' ').match(/[a-z0-9]+/g) || [];
+      heads[row] = index.tok ? ws.map(matchFold) : ws;
+    }
+    return heads[row];
+  };
+  const firsts = index.first || (index.first = {});
+  const firstOf = function (row) {
+    if (firsts[row] == null) {
+      const w = (String(list[row][1]).toLowerCase().match(/[a-z0-9]+/) || [''])[0];
+      firsts[row] = index.tok ? matchFold(w) : w;
+    }
+    return firsts[row];
+  };
   const out = [];
   Object.keys(hit).forEach(function (r) {
     const row = r | 0;
+    const rt = rtoks[row] || (rtoks[row] = cut(list[row][1]));
     if (tsums[row] == null) {
-      const t = matchTokens(list[row][1]);
-      let s = 0;
-      for (let i = 0; i < t.length; i++) s += matchIdf(index, t[i]);
-      tsums[row] = s;
+      let sm = 0;
+      for (let i = 0; i < rt.length; i++) sm += matchIdf(index, rt[i]);
+      tsums[row] = sm;
     }
-    const got = pw[r] != null;
+    const got = useTail && pw[r] != null;
     const h = hit[r] + (got ? pw[r] : 0);
-    const union = tsums[row] + qsum + (got ? pw[r] : unmatched) - h;
-    out.push({ row: row, id: list[row][0], name: list[row][1],
-               overlap: cnt[r] + (got ? 1 : 0), exact: exact[r] ? 1 : 0,
+    const union = tsums[row] + qsum + (useTail ? (got ? pw[r] : unmatched) : 0) - h;
+    const overlap = cnt[r] + (got ? 1 : 0);
+    out.push({ row: row, id: list[row][0], name: list[row][1], overlap: overlap,
+               // every finished word is a whole-token match by construction
+               exact: useTail ? (exact[r] ? 1 : 0) : 1,
+               // RULED (R198): the row's LEADING word is one that was typed...
+               lead: begins(firstOf(row)) ? 1 : 0,
+               // ...and the HEAD NAME is what was typed, word for word (see headOf).
+               head: (function () { const hd = headOf(row); return (hd.length === words && hd.every(begins)) ? 1 : 0; })(),
+               parts: String(list[row][1]).split(',').length,
                jaccard: union > 0 ? h / union : 0 });
   });
+  // THE ORDER, each step ruled or measured:
+  //   1. more of the words typed   -- "chicken br" must not lead with a chicken
+  //                                   row that has no "br" in it
+  //   2. the word typed, WHOLE     -- "egg" before "eggplant": a word that was
+  //                                   finished outranks one that only begins so
+  //   3. the HEAD NAME             -- "Coffee, brewed" before "Coffee cake": the
+  //                                   food that IS the word before a compound
+  //                                   that starts with it (R198, R199)
+  //   4. the LEADING word          -- "Milk, ..." before "Crackers, milk": a food
+  //                                   named for the word outranks one flavoured
+  //                                   with it (R198)
+  //   5. AMONG ROWS THAT ARE EQUALLY THE FOOD TYPED, the one with FEWER
+  //      QUALIFIERS -- fewer comma-separated parts to its name. "Coffee, brewed,
+  //      prepared with tap water" is three; "Coffee, instant, regular, powder" is
+  //      four. The weighted Jaccard put the powder first, because "instant",
+  //      "regular" and "powder" are COMMON words and "brewed" is rare: rarity
+  //      doing the opposite of its job. A count of the name's own parts is read
+  //      off the name and has no weight in it.
+  //
+  //      TRIED FIRST AND REJECTED, on the printout: "the database's own order".
+  //      It put Coffee, brewed first too -- and Egg, dried before fresh egg,
+  //      whipped butter before butter, and on the US corpus scrambled frozen egg
+  //      mixture before egg. One example agreeing is not a rule.
+  //   6. the matcher's weighted Jaccard, unchanged, for everything still tied
   out.sort(function (a, b) {
-    // A row that answers MORE of the words typed outranks one that answers fewer
-    // ("chicken br" must not lead with a chicken row that has no "br" in it),
-    // then the whole-token rule, then the matcher's own Jaccard.
-    return b.overlap - a.overlap || b.exact - a.exact || b.jaccard - a.jaccard;
+    return b.overlap - a.overlap || b.exact - a.exact || b.head - a.head
+        || ((a.head && b.head) ? (a.parts - b.parts) : 0)
+        || b.lead - a.lead || b.jaccard - a.jaccard;
   });
   return out.slice(0, lim);
 }
+// The SEARCH index: the same rows, cut with the plural-folding tokenizer. Its own
+// index rather than the matcher's, because the matcher's is what proposes an
+// identity for a photographed or scanned food, and that proposal was measured
+// (D136) on plain tokens. Built lazily; dropped whenever the corpus in memory is.
+let SEARCH_INDEX = null;
 function matchTypeahead(text, limit) {
   const m = CORPUS_MEM;
   if (!m || !m.index) return [];
-  if (!MATCH_INDEX) matchIndexBuild();
-  return matchTypeaheadIn(MATCH_INDEX, m.index, text, limit);
+  if (!SEARCH_INDEX || SEARCH_INDEX.of !== m.index) {
+    SEARCH_INDEX = matchIndexFrom(m.index, matchTokensFold);
+    SEARCH_INDEX.of = m.index;
+  }
+  return matchTypeaheadIn(SEARCH_INDEX, m.index, text, limit);
 }
 
 // ---- RULED 2026-10-11 (a): THE FIRST TIME CORPUS NUMBERS REACH THE PRIMARY TOTALS
@@ -17891,16 +18129,52 @@ function corpusOwnNumbers(meta, row, id, name, grams) {
 // the corpus row they were read from AND the meta it was read under, so the pick
 // that follows is synchronous and cannot be answered by a corpus that was
 // replaced in between.
+// R199 -- WHAT YOU HAVE LOGGED BEFORE COMES FIRST. D133's rule, on this surface:
+// the memory is consulted LAST and moves a row to the front, changing nothing
+// about the order beneath it.
+//
+// WHY IT IS HERE AND NOT A RANKING RULE. Reported: "coffee" should lead with
+// "Coffee, brewed". The ranking now puts the coffee rows above "Coffee cake" --
+// but between "Coffee, brewed, prepared with tap water" and "Coffee, instant with
+// chicory, powder" there is no rule I could defend. Two were tried on a printout
+// of both corpora and rejected: the database's own order (it also put dried egg
+// before egg) and a third tie-break that would have been fitted to this one
+// word. What IS known is which one this user drinks, once they have logged it.
+// So their own earlier picks lead -- counted from the food-database matches on
+// their logged items and combo parts, read each time, stored nowhere.
+const TYPEAHEAD_POOL = 40;
+function refUseCounts(ns) {
+  const out = {};
+  const add = function (ref) {
+    if (ref && ref.id && String(ref.ns) === String(ns)) out[String(ref.id)] = (out[String(ref.id)] || 0) + 1;
+  };
+  const days = (APP_STATE && APP_STATE.days) || {};
+  Object.keys(days).forEach(function (dk) { ((days[dk] || {}).items || []).forEach(function (it) { if (it) add(it.ref); }); });
+  ((APP_STATE && APP_STATE.settings && APP_STATE.settings.combos) || []).forEach(function (c) {
+    (c.parts || []).forEach(function (p) { add(p.ref); });
+  });
+  return out;
+}
+// Pure over the two things it is given. A row moves to the front only if it
+// answers AS MANY of the typed words as the best row does: a food logged once
+// must not jump ahead of rows that match what is being typed better than it does.
+function typeaheadMineFirst(pool, used, limit) {
+  const top = pool.length ? pool[0].overlap : 0;
+  const mine = pool.filter(function (c) { return used[String(c.id)] > 0 && c.overlap === top; })
+    .sort(function (a, b) { return used[String(b.id)] - used[String(a.id)]; });
+  mine.forEach(function (c) { c.mine = used[String(c.id)]; });
+  return mine.concat(pool.filter(function (c) { return mine.indexOf(c) < 0; })).slice(0, Math.max(1, limit || TYPEAHEAD_MAX));
+}
 function typeaheadRun(text) {
   const q = String(text == null ? '' : text);
   if (q.trim().length < TYPEAHEAD_MIN) return Promise.resolve({ phase: 'short', rows: [] });
   return corpusEnsure().then(function () {
     const m = CORPUS_MEM;
     if (!m || !m.index) return { phase: 'no-corpus', rows: [] };
-    const cands = matchTypeahead(q, TYPEAHEAD_MAX);
+    const cands = typeaheadMineFirst(matchTypeahead(q, TYPEAHEAD_POOL), refUseCounts(m.ns), TYPEAHEAD_MAX);
     return Promise.all(cands.map(function (c) {
       return corpusLookup(c.id).then(function (row) {
-        return { id: String(c.id), name: c.name, row: row, meta: m,
+        return { id: String(c.id), name: c.name, row: row, meta: m, mine: c.mine || 0,
                  kcal: row ? corpusValueAt(row, m.slots, 208) : null,
                  protein: row ? corpusValueAt(row, m.slots, 203) : null,
                  fat: row ? corpusValueAt(row, m.slots, 204) : null,
@@ -17926,7 +18200,9 @@ function typeaheadRowsHTML(st, pickFn) {
         const mac = photoSearchMacroWords(c);
         return '<button type="button" class="btn fqrow" onclick="' + pickFn + '(' + esc(String(i)) + ')">'
           + '<span class="fqnm">' + esc(c.name) + '</span>'
-          + (mac ? '<span class="fqmac">' + esc(mac) + '</span>' : '') + '</button>';
+          + (mac ? '<span class="fqmac">' + esc(mac) + '</span>' : '')
+          // Why this row is first, said on the row (D133: a proposal says why).
+          + (c.mine ? '<span class="fqmine">you logged this before</span>' : '') + '</button>';
       }).join('');
 }
 
@@ -18123,7 +18399,8 @@ function comboNewDraft() {
   const st = COMBO_NEW;
   if (!st) return null;
   const named = String(st.name || '').trim() !== '';
-  return (named || st.parts.length) ? { name: String(st.name || ''), parts: st.parts.length } : null;
+  return (named || st.parts.length || st.editId)
+    ? { name: String(st.name || ''), parts: st.parts.length, editing: !!st.editId } : null;
 }
 function comboNewDiscard() {
   COMBO_NEW = null;
@@ -18141,7 +18418,7 @@ function renderComboNew() {
   if (!el) return;
   // Both fields rendered ONCE (the caret rule); the three regions under them are
   // what a keystroke or a tap redraws.
-  el.innerHTML = '<div class="srhead">New combo</div>'
+  el.innerHTML = '<div class="srhead">' + (COMBO_NEW.editId ? 'Edit combo' : 'New combo') + '</div>'
     + '<input id="cnName" type="text" class="cnin" placeholder="name it, e.g. my coffee"'
     + ' aria-label="combo name" autocomplete="off" value="' + esc(COMBO_NEW.name) + '"'
     + ' oninput="comboNewName(this.value)">'
@@ -18236,6 +18513,24 @@ function comboNewAmount(i, key, v) {
 // The matched branch is corpusOwnNumbers and nothing else (ruling (a), one place).
 function comboNewPartNumbers(p) {
   if (!p) return null;
+  // R199: a part that was already saved. Unchanged, it is saved back EXACTLY as
+  // it was. With a new amount its macros, its label micros and its cited values
+  // scale together from the amount it was saved at -- and if it was saved with no
+  // amount there is nothing to scale FROM, so it cannot be resized (D8: no
+  // invented basis) and is kept as it is.
+  if (p.kept) {
+    const st = JSON.parse(JSON.stringify(p.stored));
+    const g0 = num(st.grams);
+    if (!(g0 > 0)) return st;
+    if (p.grams == null) return null;                      // the box was cleared: an amount is owed
+    if (Math.abs(p.grams - g0) < 1e-9) return st;
+    const k = p.grams / g0;
+    MACRO_KEYS.forEach(function (key) { if (st[key] != null) st[key] = num(st[key]) * k; });
+    if (st.micros) Object.keys(st.micros).forEach(function (key) { st.micros[key] = num(st.micros[key]) * k; });
+    if (st.ref) { const nr = refAtGrams(st.ref, p.grams); if (nr) st.ref = nr; else delete st.ref; }
+    st.grams = p.grams;
+    return st;
+  }
   if (!p.typed) return corpusOwnNumbers(p.meta, p.row, p.id, p.name, p.grams);
   const out = { name: p.name, confidence: 'eyeballed', source: 'manual' };
   if (p.grams != null) out.grams = p.grams;
@@ -18265,16 +18560,20 @@ function comboNewPartsHTML() {
   const st = COMBO_NEW;
   if (!st || !st.parts.length) return '';
   return st.parts.map(function (p, i) {
-    const sub = p.typed
+    const sub = p.kept
+      ? ((num(p.stored.grams) > 0)
+          ? ('saved part \u00b7 ' + esc(kcalDisp(num(p.stored.kcal))) + ' cal at ' + esc(rDisp(p.stored.grams)) + ' g')
+          : 'saved with no amount, so it cannot be resized')
+      : p.typed
       ? 'typed in · no database numbers'
       : ('food database, per 100 g: <span class="fqnb">'
          + esc(photoSearchMacroWords({ kcal: p.kcal100, protein: p.protein, fat: p.fat, carb: p.carb })) + '</span>');
     const val = function (x) { return x == null ? '' : String(x); };
     return '<div class="cnpart"><div class="cnpname">' + esc(p.name) + '</div>'
       + '<div class="cnpsub">' + sub + '</div>'
-      + '<label class="cnlab">grams<input type="number" class="cnin cnamt" inputmode="decimal" min="0"'
+      + ((p.kept && !(num(p.stored.grams) > 0)) ? '' : '<label class="cnlab">grams<input type="number" class="cnin cnamt" inputmode="decimal" min="0"'
       + ' value="' + esc(val(p.grams)) + '" oninput="comboNewAmount(' + esc(String(i)) + ', \'grams\', this.value)"'
-      + ' aria-label="grams of ' + esc(p.name) + '"></label>'
+      + ' aria-label="grams of ' + esc(p.name) + '"></label>')
       + (p.typed
           ? '<label class="cnlab">calories, if you know them<input type="number" class="cnin cncal" inputmode="decimal" min="0"'
             + ' value="' + esc(val(p.kcal)) + '" oninput="comboNewAmount(' + esc(String(i)) + ', \'kcal\', this.value)"'
@@ -18296,16 +18595,46 @@ function comboNewTotalHTML() {
        + (t.caffeineFrom ? esc(rDisp(t.caffeine)) + ' mg' : 'not known') + '</b> · ' + esc(of(t.caffeineFrom)) + '</div></div>')
     : '';
   return lines
-    + '<button type="button" class="btn cnsave" onclick="comboNewSave()"' + (t.blocked ? ' disabled' : '') + '>Save combo</button>'
+    + '<button type="button" class="btn cnsave" onclick="comboNewSave()"' + (t.blocked ? ' disabled' : '') + '>'
+    + ((COMBO_NEW && COMBO_NEW.editId) ? 'Save changes' : 'Save combo') + '</button>'
     + (t.blocked ? '<div class="cnpsub cnwhy">' + esc(t.blocked) + '</div>' : '')
     // The ONE way to throw a draft away, and it is the user's own act.
-    + (comboNewDraft() ? '<button type="button" class="linklike cnrm cnover" onclick="comboNewDiscard()">Start over</button>' : '');
+    + (comboNewDraft() ? '<button type="button" class="linklike cnrm cnover" onclick="comboNewDiscard()">'
+        + ((COMBO_NEW && COMBO_NEW.editId) ? 'Discard changes' : 'Start over') + '</button>' : '')
+    // R199: deleting, in the place the combo is being looked at, with Undo.
+    + ((COMBO_NEW && COMBO_NEW.editId)
+        ? '<button type="button" class="linklike cnrm cndel" onclick="comboDeleteUndo(\'' + esc(String(COMBO_NEW.editId)) + '\')">Delete this combo</button>'
+        : '');
 }
 function comboNewSave() {
   const st = COMBO_NEW;
   if (!st) return { ok: false, why: 'not-building' };
   const t = comboNewTotal();
   if (t.blocked) return { ok: false, error: t.blocked };
+  // R199: an EDIT replaces the combo IN PLACE, under its own id -- so the link from
+  // items already logged with it (their `comboId`, which is how the top list
+  // groups them) still names this combo. Nothing about those items changes.
+  if (st.editId) {
+    const list = APP_STATE.settings.combos || [];
+    const at = list.map(function (c) { return c.id; }).indexOf(String(st.editId));
+    if (at < 0) return { ok: false, error: 'That combo is no longer there.' };
+    const before = JSON.parse(JSON.stringify(list[at]));
+    const next = normalizeCombo({ id: before.id, name: st.name, mult: before.mult, place: before.place,
+                                  parts: st.parts.map(comboNewPartNumbers) });
+    if (!next) return { ok: false, error: 'Nothing savable in that.' };
+    list[at] = next;
+    Store.saveState(APP_STATE);
+    COMBO_NEW = null;
+    setSheetMode('root');
+    refresh();
+    offerUndo('Saved ' + next.name, function () {
+      const l2 = APP_STATE.settings.combos || [];
+      const a2 = l2.map(function (c) { return c.id; }).indexOf(before.id);
+      if (a2 >= 0) l2[a2] = before; else l2.push(before);
+      Store.saveState(APP_STATE); refresh(); renderSheetRoot();
+    });
+    return { ok: true, combo: next, edited: true };
+  }
   const combo = normalizeCombo({ name: st.name, parts: st.parts.map(comboNewPartNumbers) });
   if (!combo) return { ok: false, error: 'Nothing savable in that.' };
   if (!Array.isArray(APP_STATE.settings.combos)) APP_STATE.settings.combos = [];
@@ -20403,7 +20732,11 @@ window.HT = {
   // D143 -- the overlay lock, driven from the DOM
   overlaySync, overlayVisible, overlayPageLayer, OVERLAY_SEL, renderQuickChips, quickLog, SHEET_MODES,
   // ONE DOOR / 2 -- the typeahead, ruling (a), Search, and "+ New combo"
-  TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, typeaheadRun, typeaheadRowsHTML,
+  TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, matchTokensFold,
+  TYPEAHEAD_POOL, refUseCounts, typeaheadMineFirst,
+  // R198/3 and R199/2 -- "Ate:" at save on the forms; editing and deleting combos
+  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay,
+  combosEditToggle, comboEditOpen, comboDeleteUndo, combosEditing: () => COMBOS_EDITING, typeaheadRun, typeaheadRowsHTML,
   CORPUS_OWN_MACROS, corpusOwnNumbers, sheetComboNewHTML,
   foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
   comboNew: () => COMBO_NEW, renderComboNew, comboNewName, comboNewType, comboNewAddAt, comboNewAddTyped,

@@ -38,6 +38,7 @@ anti-engagement-gate.ps1
 chart-gate.ps1
 import-gate.ps1
 chip-layout-gate.ps1
+cold-start-gate.ps1
 collapse-gate.ps1
 delete-all-gate.ps1
 correction-gate.ps1
@@ -47,6 +48,7 @@ dayroll-gate.ps1
 elite-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
+forms-gate.ps1
 identity-search-gate.ps1
 jargon-gate.ps1
 lab-form-gate.ps1
@@ -60,6 +62,7 @@ parity-gate.ps1
 panel-gate.ps1
 potential-gate.ps1
 photo-lead-gate.ps1
+rank-gate.ps1
 resolve-gate.ps1
 response-gate.ps1
 ring-size-gate.ps1
@@ -371,7 +374,24 @@ echo "-----------------------------------------"
 # replaced, undone, dismissed, refused where there is no rise; the mark on the
 # chart; and a surface with no probability, likelihood, score or cause in it.
 # Two R189/2 pins moved for R197/3: a weighed serving reads "weighed 200 g".
-EXPECTED_ASSERTIONS=2963
+# R198 / R199, v0.92.0: 2963 -> 2995, delta +32, and two pins MOVED. The search
+# ranking on a fixture: plural and singular through matchFold and nothing wider,
+# with the control that an index built without the fold keeps them apart; coffee
+# before Coffee cake, Milk before Milk shake before Crackers-milk before milkfish,
+# Egg before Egg substitute before Eggplant, and "Frozen yogurts" not headed
+# yogurt; the same order half-typed and finished. What was logged before leads,
+# but not past a row answering more of the words. Combo editing: opened in the
+# builder, an untouched part saved back exactly, an amount scaling calories,
+# label micros and cited values together, a part with no amount refused a
+# resize, in-place save under the same id, THE PAST LOG BYTE-IDENTICAL, the next
+# log at the new amount, delete and both undos. "Ate:" at save: one mechanism,
+# one Undo for the item and its plate, nothing extra for "all", refused without
+# a weight; and an entry plate with nothing eaten from it is never offered.
+# MOVED: two ONE-DOOR/2 pins compared the typeahead's rows to the matcher's byte
+# for byte. The typeahead's rows now carry their own ranking facts, so the bytes
+# differ by design; what the pins protected -- the same rows at the same score --
+# is asserted directly.
+EXPECTED_ASSERTIONS=2995
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

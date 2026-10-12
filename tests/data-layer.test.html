@@ -13133,13 +13133,20 @@ window.setLS({});
   res(HT.matchTypeaheadIn(od2Idx, od2List, 'c', 8).length === 0
       && HT.matchTypeaheadIn(od2Idx, od2List, '  ', 8).length === 0,
       'ONE-DOOR/2 GATE: one character is not a search, and neither is whitespace');
-  res(JSON.stringify(HT.matchTypeaheadIn(od2Idx, od2List, 'coffee ', 8))
-      === JSON.stringify(HT.matchCandidatesIn(od2Idx, od2List, 'coffee ', 8))
-      && HT.matchTypeaheadIn(od2Idx, od2List, 'coffee ', 8).length === 1,
-      'ONE-DOOR/2 GATE: a FINISHED word is answered by the matcher itself, byte for byte -- the typeahead reuses it rather than restating it, so the two cannot drift');
-  res(JSON.stringify(HT.matchTypeaheadIn(od2Idx, od2List, 'cheddar raw', 8))
-      === JSON.stringify(HT.matchCandidatesIn(od2Idx, od2List, 'cheddar raw', 8)),
-      'ONE-DOOR/2 GATE: a trailing STOP word is the matcher-s case too -- it must not be treated as the start of a rarer word');
+  // RE-PINNED, R198: these two compared the typeahead-s rows to the matcher-s BYTE
+  // FOR BYTE. The typeahead now carries its own ranking facts on each row (the
+  // head name, the leading word, the number of qualifiers), so the bytes differ by
+  // design. What the pin protected is asserted directly: the SAME ROWS, with the
+  // SAME SCORE -- the formula is still the matcher-s and cannot drift from it.
+  var od2Same = function (q) {
+    var a = HT.matchTypeaheadIn(od2Idx, od2List, q, 8), b = HT.matchCandidatesIn(od2Idx, od2List, q, 8);
+    var key = function (r) { return r.id + ':' + r.jaccard + ':' + r.overlap; };
+    return a.length === b.length && a.map(key).sort().join('|') === b.map(key).sort().join('|');
+  };
+  res(od2Same('coffee ') && HT.matchTypeaheadIn(od2Idx, od2List, 'coffee ', 8).length === 1,
+      'ONE-DOOR/2 GATE: a FINISHED word is scored by the matcher-s own formula -- the same rows, the same score to the last digit -- so the two cannot drift');
+  res(od2Same('cheddar raw'),
+      'ONE-DOOR/2 GATE: a trailing STOP word is not treated as the start of a rarer word -- again the matcher-s rows and the matcher-s scores');
   res(od2Ids(HT.matchTypeaheadIn(od2Idx, od2List, 'olive oi', 8)).indexOf('4') === 0,
       'ONE-DOOR/2 GATE: finished words and the half-typed one are scored TOGETHER -- "olive oi" leads with the oil');
   // RE-PINNED, v0.85.0: the query was 'coffee cinn', whose two rows each answer ONE
@@ -13765,6 +13772,151 @@ window.setLS({});
   HT.state().plates = _rfPlates;
   HT.resave();
   HT.closeSheet();
+
+
+  // ============ R198 / R199: ranking, the forms, and editing combos ============
+  var _r8Days = JSON.parse(JSON.stringify(HT.state().days));
+  var _r8Plates = JSON.parse(JSON.stringify(HT.state().plates || {}));
+  var _r8Combos = JSON.parse(JSON.stringify(HT.state().settings.combos || []));
+  var r8List = [[1, 'Coffee cake, cheese'], [2, 'Coffee, instant, regular, powder'], [3, 'Coffee, brewed, prepared with tap water'],
+                [4, 'Crackers, milk'], [5, 'Milk shake, chocolate'], [6, 'Milk, fluid, skim'], [7, 'Fish, milkfish, raw'],
+                [8, 'Fish, sardine, Atlantic, canned in oil'], [9, 'Eggplant, raw'], [10, 'Egg substitute, frozen'],
+                [11, 'Egg, chicken, whole, raw'], [12, 'Frozen yogurts, chocolate'], [13, 'Yogurt, plain'], [14, 'Bananas, raw']];
+  var r8Idx = HT.matchIndexFrom(r8List, HT.matchTokensFold);
+  var r8Top = function (q, n) { return HT.matchTypeaheadIn(r8Idx, r8List, q, n || 8).map(function (r) { return r.id; }).join(','); };
+
+  // -- plurals: the one fold this file already had ---------------------------------
+  res(r8Top('sardines') === '8' && r8Top('sardine') === '8' && r8Top('bananas') === '14' && r8Top('banana') === '14' && r8Top('eggs').indexOf('11') === 0,
+      'R198 GATE: PLURAL AND SINGULAR find each other -- "sardines" finds "Fish, sardine", "banana" finds "Bananas, raw" -- by matchFold, the one morphological rule the frequency key already used, not a new one');
+  res(HT.matchTypeaheadIn(od2Idx, od2List, 'olives', 8).length === 1 && HT.matchTypeaheadIn(od2Idx, od2List, 'olive', 8).map(function (r) { return r.id; }).join(',') === '4,5'
+      && JSON.stringify(HT.matchTokensFold('Olives, ripe, canned')) === '["olive","ripe"]' && JSON.stringify(HT.matchTokensFold('glass grass')) === '["glass","grass"]',
+      'R198 GATE: CONTROL -- an index built WITHOUT the fold still keeps them apart, so the fold is a property of the SEARCH index and the matcher that proposes identities is untouched; and "-ss" is never folded');
+
+  // -- the ruled order -------------------------------------------------------------
+  res(r8Top('coffee') === '3,2,1',
+      'R199 GATE: "coffee" puts the foods that ARE coffee -- "Coffee, brewed", "Coffee, instant" -- above the compound that starts with it, "Coffee cake". The reported case: it led with the cake', r8Top('coffee'));
+  res(r8Top('coffee').indexOf('3') === 0,
+      'R199 GATE: ...and among the foods that are equally coffee, the one with FEWER QUALIFIERS leads -- three parts to its name against four. A count read off the name, with no weight in it');
+  res(r8Top('milk') === '6,5,4,7',
+      'R198 GATE: "milk" -- the food headed Milk, then a compound that LEADS with it (Milk shake), then a food flavoured with it (Crackers, milk), then a word that only begins the same way (milkfish)', r8Top('milk'));
+  res(r8Top('egg') === '11,10,9',
+      'R198 GATE: "egg" -- Egg, then Egg substitute, then Eggplant: a finished word outranks one that merely begins so, and the head name outranks a compound', r8Top('egg'));
+  res(r8Top('yogurt') === '13,12',
+      'R198 GATE: "Frozen yogurts" is NOT headed yogurt -- the head is the name-s literal first words, stop words included, so the tokenizer skipping "frozen" does not promote it over "Yogurt, plain"', r8Top('yogurt'));
+  res(r8Top('coff') === '3,2,1' && r8Top('coffee ') === '3,2,1',
+      'R198 GATE: the order is the SAME half-typed, typed, and with the space after it -- the list does not reshuffle at the moment the word is finished');
+
+  // -- what you have logged before comes first (R199, D133-s shape) -----------------
+  var r8Pool = HT.matchTypeaheadIn(r8Idx, r8List, 'coffee', 40);
+  var r8Mine = HT.typeaheadMineFirst(JSON.parse(JSON.stringify(r8Pool)), { '2': 3 }, 8);
+  res(r8Mine.map(function (r) { return r.id; }).join(',') === '2,3,1' && r8Mine[0].mine === 3 && !r8Mine[1].mine,
+      'R199 GATE: a row the user HAS LOGGED BEFORE moves to the front and is marked -- the instant coffee they drink, ahead of the brewed one the rule prefers -- and nothing beneath it changes order');
+  var r8Two = HT.matchTypeaheadIn(r8Idx, r8List, 'coffee brewed', 40);
+  res(HT.typeaheadMineFirst(JSON.parse(JSON.stringify(r8Two)), { '2': 9 }, 8)[0].id === 3,
+      'R199 GATE: but NOT ahead of a row that answers more of what is being typed -- "coffee brewed" still leads with the brewed one, however often the instant was logged');
+  HT.state().days = { '2026-06-01': { status: 'complete', water_l: 0, items: [
+    HT.normalizeItem({ name: 'a', kcal: 1, ref: { ns: 'cnf', id: '2873', name: 'x', hash: 'h', attribution: 'a', g: 100, v: {} } }, true),
+    HT.normalizeItem({ name: 'b', kcal: 1, ref: { ns: 'fdc', id: '2873', name: 'x', hash: 'h', attribution: 'a', g: 100, v: {} } }, true) ] } };
+  HT.state().settings.combos = HT.normalizeCombos([{ id: 'r8c', name: 'c', parts: [{ name: 'p', grams: 10, kcal: 1, ref: { ns: 'cnf', id: '2873', name: 'x', hash: 'h', attribution: 'a', g: 10, v: {} } }] }]);
+  res(HT.refUseCounts('cnf')['2873'] === 2 && HT.refUseCounts('fdc')['2873'] === 1 && HT.refUseCounts('cnf')['9'] === undefined,
+      'R199 GATE: "logged before" is counted from the matches on logged items AND combo parts, per database -- read each time, stored nowhere');
+  HT.state().days = JSON.parse(JSON.stringify(_r8Days));
+
+  // -- editing a combo (R199/2) -------------------------------------------------------
+  var r8Cur = HT.state().current;
+  if (!HT.state().days[r8Cur]) HT.state().days[r8Cur] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().settings.combos = HT.normalizeCombos([
+    { id: 'r8a', name: 'Morning coffee', parts: [
+        { name: 'brewed coffee', grams: 250, kcal: 2, micros: { sodium_mg: 5 }, ref: { ns: 'cnf', id: '2873', name: 'Coffee, brewed', hash: 'h', attribution: 'CNF', g: 250, v: { '262': 100, '208': 2 } } },
+        { name: 'cream', kcal: 30 } ] },
+    { id: 'r8b', name: 'Other', parts: [{ name: 'x', grams: 10, kcal: 5 }] } ]);
+  var r8Log1 = HT.logCombo('r8a', 1);
+  var r8Old = JSON.parse(JSON.stringify(r8Log1.items));
+  res(HT.sheetCombosHTML().indexOf('>Edit<') > 0 && HT.sheetCombosHTML().indexOf('comboPickById') > 0 && HT.sheetCombosHTML().indexOf('comboEditOpen') < 0,
+      'R199 GATE: beside "My combos" there is an EDIT link, and until it is tapped a combo row still logs the combo');
+  HT.combosEditToggle(true);
+  res(HT.sheetCombosHTML().indexOf('>Done<') > 0 && HT.sheetCombosHTML().indexOf('comboEditOpen') > 0 && HT.sheetCombosHTML().indexOf('comboPickById') < 0
+      && HT.sheetCombosHTML().indexOf('tap to edit') > 0,
+      'R199 GATE: while editing, a tap on a row OPENS IT FOR EDITING and the row says so -- a visible link and a plain tap, nothing behind a long press');
+  var r8Open = HT.comboEditOpen('r8a');
+  res(r8Open.ok === true && HT.comboNew().editId === 'r8a' && HT.comboNew().name === 'Morning coffee' && HT.comboNew().parts.length === 2
+      && HT.comboNew().parts[0].kept === true && HT.comboNew().parts[0].grams === 250 && HT.combosEditing() === false
+      && HT.comboNewTotalHTML().indexOf('Save changes') > 0 && HT.comboNewTotalHTML().indexOf('Delete this combo') > 0,
+      'R199 GATE: it opens in the SAME builder, holding its name and both parts, with Save changes and Delete in reach');
+  res(JSON.stringify(HT.comboNewPartNumbers(HT.comboNew().parts[0])) === JSON.stringify(HT.state().settings.combos[0].parts[0])
+      && JSON.stringify(HT.comboNewPartNumbers(HT.comboNew().parts[1])) === JSON.stringify(HT.state().settings.combos[0].parts[1]),
+      'R199 GATE: a part that is not touched is saved back EXACTLY as it was -- numbers, label micros and citation');
+  HT.comboNewAmount(0, 'grams', '500');
+  var r8Scaled = HT.comboNewPartNumbers(HT.comboNew().parts[0]);
+  res(r8Scaled.grams === 500 && r8Scaled.kcal === 4 && r8Scaled.micros.sodium_mg === 10 && HT.refValueAt(r8Scaled.ref, 262) === 200 && r8Scaled.ref.g === 500,
+      'R199 GATE: a new AMOUNT scales the part-s calories, its label micros and its cited values together, from the amount it was saved at -- the food database is not re-read behind the user-s back');
+  res(HT.comboNewAmount(1, 'grams', '20').ok === true && HT.comboNewPartNumbers(HT.comboNew().parts[1]).grams === undefined
+      && HT.comboNewPartNumbers(HT.comboNew().parts[1]).kcal === 30,
+      'R199 GATE: a part saved with NO amount cannot be resized -- there is nothing to scale from, and inventing a basis is refused (D8); it is kept as it is');
+  HT.comboNewAmount(0, 'grams', '');
+  res(HT.comboNewTotal().blocked === '1 part still needs an amount.',
+      'R199 GATE: clearing a saved part-s amount does not save it as empty -- an amount is owed, and Save says so');
+  HT.comboNewAmount(0, 'grams', '500');
+  HT.comboNewName('Big coffee');
+  HT.comboNewRemove(1);
+  HT.comboNew().q = 'sugar'; HT.comboNewAddTyped();
+  var r8Save = HT.comboNewSave();
+  var r8Now = HT.state().settings.combos[0];
+  res(r8Save.ok === true && r8Save.edited === true && HT.state().settings.combos.length === 2 && r8Now.id === 'r8a' && r8Now.name === 'Big coffee'
+      && r8Now.parts.length === 2 && r8Now.parts[0].grams === 500 && r8Now.parts[1].name === 'sugar' && HT.state().settings.combos[1].id === 'r8b',
+      'R199 GATE: SAVING AN EDIT replaces the combo IN PLACE under its own id -- renamed, one part resized, one removed, one added -- and no second combo appears');
+  res(JSON.stringify(HT.state().days[r8Cur].items.filter(function (x) { return x.comboId === 'r8a'; })) === JSON.stringify(r8Old),
+      'R199 GATE: THE PAST LOG IS UNCHANGED -- the items logged before the edit are byte-for-byte what they were: 250 g, their own calories, their own citation');
+  var r8Log2 = HT.logCombo('r8a', 1);
+  res(r8Log2.ok === true && r8Log2.items[0].grams === 500 && r8Log2.items[0].kcal === 4 && r8Log2.items[1].name === 'sugar',
+      'R199 GATE: and THE NEXT LOG uses the new amount -- 500 g -- and the new parts');
+  HT.doUndo();                                                   // the second log
+  HT.comboEditOpen('r8a'); HT.comboNewName('Changed again'); HT.comboNewSave();
+  HT.doUndo();
+  res(HT.state().settings.combos[0].name === 'Big coffee',
+      'R199 GATE: an edit can be UNDONE, back to the combo as it stood');
+  HT.comboEditOpen('r8a');
+  var r8Del = HT.comboDeleteUndo('r8a');
+  res(r8Del.ok === true && HT.state().settings.combos.map(function (c) { return c.id; }).join(',') === 'r8b' && HT.sheetCombosHTML().indexOf('Big coffee') < 0
+      && HT.comboNew() === null,
+      'R199 GATE: DELETE removes it from My combos');
+  res(JSON.stringify(HT.state().days[r8Cur].items.filter(function (x) { return x.comboId === 'r8a'; })) === JSON.stringify(r8Old),
+      'R199 GATE: ...and the HISTORY IS INTACT -- everything logged with it is still on the day, unchanged');
+  HT.doUndo();
+  res(HT.state().settings.combos.map(function (c) { return c.id; }).join(',') === 'r8a,r8b' && HT.state().settings.combos[0].name === 'Big coffee',
+      'R199 GATE: and the delete can be UNDONE, back to the same place in the list');
+  res(HT.comboEditOpen('no-such').ok === false && HT.comboDeleteUndo('no-such').ok === false,
+      'R199 GATE: editing or deleting a combo that is not there is refused by name');
+
+  // -- "Ate:" at save, on the Manual and Scan forms (R198/3) ---------------------------
+  HT.state().days[r8Cur].items = [];
+  HT.state().plates = {};
+  res(HT.formAteHTML('manual').indexOf('Ate:') > 0 && HT.formAteHTML('scan').split('atebtn').length - 1 === 5
+      && HT.formAteHTML('manual').indexOf('ateon') > 0 && HT.FORM_ATE.manual === 1,
+      'R198/3 GATE: the Manual and Scan forms carry "Ate:", with the photo draft-s own five choices, standing at ALL');
+  var r8Item = HT.addManualEntry({ name: 'Form oats', meal: 'breakfast', time: '08:00', grams: 200, kcal: 300, micros: { iron_mg: 4 } }).item;
+  var r8Ap = HT.logAteApply(r8Item, 0.5);
+  res(r8Ap.ok === true && r8Item.grams === 100 && r8Item.kcal === 150 && r8Item.micros.iron_mg === 2 && !!HT.getPlate(r8Item.plateId)
+      && HT.getPlate(r8Item.plateId).items[0].grams === 200 && HT.itemServedLine(r8Item).indexOf('ate ½') > 0,
+      'R198/3 GATE: a HALF said at save is the SAME MECHANISM as a half said afterwards -- the item written as the form writes it, then 100 g of 200 served, with the served figure kept on a plate and the label micros halved');
+  HT.doUndo();
+  res(HT.state().days[r8Cur].items.length === 0 && Object.keys(HT.state().plates).length === 0,
+      'R198/3 GATE: ONE Undo takes back the whole act -- the item AND the plate made for it. Left to the form-s ordinary undo the plate would have stayed');
+  var r8Whole = HT.addManualEntry({ name: 'Form eggs', meal: 'breakfast', time: '08:05', grams: 100, kcal: 150 }).item;
+  res(HT.logAteApply(r8Whole, 1).unchanged === true && r8Whole.plateId === undefined && r8Whole.grams === 100,
+      'R198/3 GATE: ALL writes nothing extra -- no plate for an item that was eaten whole');
+  var r8Bare = HT.addManualEntry({ name: 'Form snack', meal: 'snack', time: '10:00', kcal: 90 }).item;
+  res(HT.logAteApply(r8Bare, 0.5).ok === false && r8Bare.kcal === 90,
+      'R198/3 GATE: a share of an item with NO weight is refused and nothing is scaled -- the form refuses it before writing, and this is the same rule underneath');
+  HT.state().plates = { orph: HT.normalizePlate({ id: 'orph', date: r8Cur, meal: 'snack', time: '09:00', kind: 'entry', items: [{ name: 'gone', grams: 50 }] }) };
+  res(HT.openPlates(r8Cur).length === 0,
+      'R198/3 GATE: an ENTRY plate with nothing eaten from it is never offered as leftovers -- it can only be what a removed item left behind');
+
+  HT.state().days = _r8Days;
+  HT.state().plates = _r8Plates;
+  HT.state().settings.combos = _r8Combos;
+  HT.resave();
+  HT.setSheetMode('root'); HT.closeSheet();
 
   // ============ E-LITE: rises with no food logged before them ============
   //

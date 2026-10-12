@@ -147,6 +147,12 @@
   label{display:block;font-size:16px;color:var(--muted);margin:6px 0 3px}
   input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font-size:16px}
   .row{display:flex;gap:8px}.row>div{flex:1;min-width:0}
+  /* R198: the Meal box read "by the cloc". Three equal columns gave it a third of
+     the row and its longest option needs more; it takes the share it needs. */
+  .row>div.mamealcol{flex:1.4}
+  /* ...and Confidence was cut too: measured at 390 px, 94 px given and 112
+     needed. Found by forms-gate, which measures every list on the form. */
+  .row>div.maconfcol{flex:1.25}
   details>summary{cursor:pointer;color:var(--accent);font-weight:700;font-size:16px;list-style:none}
   details>summary::-webkit-details-marker{display:none}
   .daynav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:0}
@@ -1057,6 +1063,12 @@
 .srbtn{flex:1 1 20%;min-width:0;min-height:44px;font-size:16px;padding-left:4px;padding-right:4px}
 .srcombo{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;min-height:44px;font-size:16px;text-align:left;padding:8px 10px}
 .srcname{font-weight:600}
+/* R199: "Edit" beside the combos heading, and a row that says it is being edited. */
+.srheadrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 6px}
+.srheadrow .srhead{margin:0}
+.sredit{font-size:16px;min-height:44px;padding:0 4px}
+.srcombo.srcediting{border-color:var(--accent)}
+.cndel{color:var(--bad, #e06c6c)}
 .srcsub{grid-column:1/-1;color:var(--muted);font-size:16px}
 .srmore{display:block;margin:6px auto 0;font-size:16px;min-height:44px}
 .srlinks{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
@@ -1099,6 +1111,7 @@
 .rfcite{display:block;font-size:16px;color:var(--muted);margin-top:2px}
 .rfbtn{display:block;font-size:16px;min-height:44px;text-align:left;padding:0}
 .fqexit{display:block;font-size:16px;min-height:44px;text-align:left}
+.fqmine{display:block;margin-top:2px;color:var(--accent);font-size:16px}
 .fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
 .fqlog,.cnsave{width:100%;min-height:44px;font-size:16px;margin-top:10px}
 .cnpart{padding:8px 0;border-bottom:1px solid var(--line)}
@@ -1405,9 +1418,9 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
                meal with `snack` selected, so the submit always looked like a choice
                and the clock was never consulted -- which is how 7 of 10 scanned
                items and 28 of 45 photo items got a tag nobody picked. -->
-          <div><label>Meal</label><select id="maMeal"><option value="" selected>by the clock</option><option value="breakfast">breakfast</option><option value="lunch">lunch</option><option value="dinner">dinner</option><option value="snack">snack</option><option value="drink">drink</option><option value="supplement">supplement</option></select></div>
+          <div class="mamealcol"><label>Meal</label><select id="maMeal"><option value="" selected>by the clock</option><option value="breakfast">breakfast</option><option value="lunch">lunch</option><option value="dinner">dinner</option><option value="snack">snack</option><option value="drink">drink</option><option value="supplement">supplement</option></select></div>
           <div><label>Time</label><input id="maTime" type="time"></div>
-          <div><label>Confidence</label><select id="maConf"><option value="eyeballed" selected>eyeballed</option><option value="weighed">weighed</option><option value="measured">measured</option></select></div>
+          <div class="maconfcol"><label>Confidence</label><select id="maConf"><option value="eyeballed" selected>estimated</option><option value="weighed">weighed</option><option value="measured">measured</option></select></div>
         </div>
         <div class="row">
           <div><label>Calories</label><input id="maKcal" type="number" inputmode="decimal"></div>
@@ -1431,6 +1444,8 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
           <summary>Micronutrients (from label)<span id="maMicroCount"></span></summary>
           <div id="maMicros"></div>
         </details>
+        <!-- R198/3: how much of it was eaten, at save, as on the photo draft. -->
+        <div id="maAte"></div>
         <div class="row" style="margin-top:12px">
           <button class="btn primary" onclick="addManualItem()">Add to day</button>
           <button class="btn" onclick="saveAsPreset()">Save as preset</button>
