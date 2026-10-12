@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 14;
-const APP_VERSION      = '0.88.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.89.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -338,7 +338,25 @@ function normalizePlate(raw) {
   if (r.mealId != null && String(r.mealId) !== '') out.mealId = String(r.mealId);
   const tzo = normalizeTzo(r.tzo);
   if (tzo !== undefined) out.tzo = tzo;
+  // R189/2: `entry` marks a plate that exists ONLY BECAUSE ONE ITEM WAS LOGGED --
+  // by Search, or made the moment a typed, scanned or repeated item was first
+  // reduced. A photographed plate is a thing that was really in front of the
+  // user, and it stands when its events are deleted: that is how "I did not eat
+  // it after all" and "I had the rest later" both work. An entry plate has no
+  // such independent existence, and one left behind by a deleted item was
+  // OFFERED BACK AS LEFTOVERS for two days -- shipped in v0.86.0, found by
+  // reading `openPlates` while building this. Absent means photographed, which
+  // is what every plate written before this field was.
+  if (r.kind === 'entry') out.kind = 'entry';
   return out;
+}
+// A plate with no life of its own. The second clause reads the plates Search
+// wrote in v0.86.0 - v0.88.0, before `kind` existed: one item, whose own numbers
+// are the food database's. No photographed plate has that source.
+function plateIsEntry(pl) {
+  if (!pl) return false;
+  if (pl.kind === 'entry') return true;
+  return pl.items.length === 1 && pl.items[0].source === 'corpus';
 }
 function normalizePlates(o) {
   const src = (o && typeof o === 'object' && !Array.isArray(o)) ? o : {};
@@ -5182,6 +5200,12 @@ function deleteItem(idx) {
   ITEM_EDIT = null;
   trashPut(dk, copy, idx);              // D134: the reversal that outlives the toast
   day.items.splice(idx, 1);
+  // R189/2: an ENTRY plate goes with its last event, and comes back with the undo.
+  // See normalizePlate. A photographed plate is never touched here.
+  const goneId = (it.plateId && plateIsEntry(getPlate(it.plateId)) && !plateEvents(it.plateId).length)
+    ? String(it.plateId) : '';
+  const gonePlate = goneId ? JSON.parse(JSON.stringify(getPlate(goneId))) : null;
+  if (goneId) delete APP_STATE.plates[goneId];
   // FORK F (ruled F1), the shipped inconsistency closed: every CREATION path already
   // reopened a completed day, and this one did not -- so removing a row from a closed
   // day changed its totals while it went on counting in the D10 averages as an
@@ -5194,6 +5218,7 @@ function deleteItem(idx) {
   offerUndo('Removed ' + (it.name || 'item'), function () {
     const d = APP_STATE.days[dk]; if (!d) return;
     d.items.splice(Math.min(idx, d.items.length), 0, copy);
+    if (gonePlate) { APP_STATE.plates = APP_STATE.plates || {}; APP_STATE.plates[goneId] = gonePlate; }
     d.status = priorStatus;            // the reopen was part of the delete
     // The fast path CONSUMES the slow one: two routes back, never two copies back.
     if (trashId) trashDrop(trashId);
@@ -12132,6 +12157,7 @@ const VERSION_LOG = [
   { v: '0.86.1', d: '2026-10-11', note: 'A fix under the hood for the release before this one: undoing a change to a bone or peel correction now restores it in a way the app-s own record checks can read. Nothing you logged is affected.' },
   { v: '0.87.0', d: '2026-10-11', note: 'Two things from the Day screen. Save as combo is gone from under the day: it opened a panel that asked you to tick items and showed none, because the items were inside closed meal groups. Combos are now made in one place -- + Log, then + New combo. Combos you already saved are untouched. And the micronutrient list under the day now reads in plain words with its unit -- Cholesterol, mg; Vitamin A, mcg; Saturated fat, g -- where it was showing the app-s own internal names for them.' },
   { v: '0.88.0', d: '2026-10-11', note: 'Red light is one tap now. Open + Log, Log event or biometric, and the first chip reads Red light, 15 min -- tap it and it is logged at this moment, with an Undo. The minutes follow you: log a 20-minute session once, by the chip or by the form, and the chip says 20. The entry is timed from the tap as the start; if you tap after the session, open the entry to move its time.' },
+  { v: '0.89.0', d: '2026-10-12', note: 'Ate: now works on anything you logged with a weight -- typed in, scanned, repeated from your top list, a saved item, a combo part -- not only photos and searches. Open the item and tap three quarters, half, a quarter, or type the grams; the row then shows what was served beside what you ate. And a fix: a food logged by searching and then removed was being offered back to you as leftovers for two days. It no longer is.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15367,6 +15393,53 @@ function photoRefuseBlockHTML(d) {
 // "Ate: all / 3/4 / 1/2 / 1/4 / g". Default all, never a prompt that waits: it
 // is in the opened row, for the day the user notices they left half. A fraction
 // is OF WHAT WAS EDIBLE (ruled F), and never more than is left of the plate.
+// R189/2 (ruled A): "extend the existing plate to every path with a served weight."
+//
+// NOT by re-routing six write paths through the plate. Scan, Manual, the repeat
+// list, presets, the stack and combos each have their own gated write and their
+// own undo, and a scanned item carries LABEL micros that a plate item has no
+// field for -- routed through consumeFromPlate it would lose them. So the item
+// is written exactly as it always was, and the plate is ATTACHED TO IT THE
+// MOMENT IT IS FIRST REDUCED: its grams at that moment are what was served, and
+// from then on it is an event off a plate like any other -- the same control,
+// the same row, the same remainder.
+//
+// So an item nobody ever corrects never gets a plate, and there is nothing left
+// behind to tidy up for the days it does not happen.
+//
+// NO INEDIBLE-PART CORRECTION ON THIS ROUTE, deliberately. A typed weight, a
+// scanned portion and above all a REPEATED item are amounts the user has already
+// said they ate; a repeat of 74 g of wings is 74 g of meat, and taking the bone
+// off it again would correct the same food twice. The bone rule stays where a
+// weight is first SERVED -- the photo and the search.
+function itemCanAttachPlate(it) {
+  return !!it && !it._auto && num(it.grams) > 0 && !itemServed(it);
+}
+function itemAttachPlate(dateKey, idx) {
+  const day = APP_STATE.days && APP_STATE.days[dateKey];
+  const it = day && day.items && day.items[num(idx)];
+  if (!itemCanAttachPlate(it)) return null;
+  const g = num(it.grams);
+  const pi = { name: it.name, grams: g, notes: '', confidence: it.confidence, source: it.source };
+  if (it.unresolved === true || !itemHasMacros(it)) pi.unresolved = true;
+  else {
+    pi.per100 = {};
+    MACRO_KEYS.forEach(function (k) { pi.per100[k] = num(it[k]) * 100 / g; });
+  }
+  if (it.ref) pi.ref = JSON.parse(JSON.stringify(it.ref));
+  // The plate describes the serving the ITEM already recorded, so it carries the
+  // item's own time and offset -- not the moment of this tap, which is when the
+  // user noticed, not when the food was served (D29 Pin 3, D112).
+  const spec = { id: newPlateId(), date: dateKey, meal: it.meal, time: it.time, kind: 'entry', items: [pi] };
+  if (it.tzo != null) spec.tzo = it.tzo;
+  if (it.mealId != null && String(it.mealId) !== '') spec.mealId = String(it.mealId);
+  const plate = normalizePlate(spec);
+  if (!plate) return null;
+  APP_STATE.plates = APP_STATE.plates || {};
+  APP_STATE.plates[plate.id] = plate;
+  it.plateId = plate.id; it.plateIdx = 0; it.ate = normalizeAte({ kind: 'all' });
+  return plate;
+}
 function eventOthersEaten(it) {
   return plateEvents(it.plateId).filter(function (e) { return e !== it && num(e.plateIdx) === num(it.plateIdx); })
     .reduce(function (a, e) { return a + num(e.grams); }, 0);
@@ -15374,12 +15447,18 @@ function eventOthersEaten(it) {
 function eventSetEaten(dateKey, idx, ate, grams) {
   const day = APP_STATE.days && APP_STATE.days[dateKey];
   const it = day && day.items && day.items[num(idx)];
+  // R189/2: taken BEFORE a plate is attached, so the undo puts back an item with
+  // no plate at all -- and the plate made for this tap goes with it.
+  const prior = it ? JSON.parse(JSON.stringify(it)) : null;
+  const attached = itemCanAttachPlate(it) ? itemAttachPlate(dateKey, idx) : null;
   const s = itemServed(it);
-  if (!s) return { ok: false, error: 'This item did not come off a plate.' };
+  if (!s) return { ok: false, error: 'This item has no weight to be a share of.' };
   const avail = Math.max(0, s.edible - eventOthersEaten(it));
   const g = Math.min(num(grams), avail);
-  if (!(g > 0)) return { ok: false, error: 'Nothing is left of that to have eaten.' };
-  const prior = JSON.parse(JSON.stringify(it));
+  if (!(g > 0)) {
+    if (attached) { delete APP_STATE.plates[attached.id]; delete it.plateId; delete it.plateIdx; delete it.ate; }
+    return { ok: false, error: 'Nothing is left of that to have eaten.' };
+  }
   if (!itemScaleTo(it, g)) return { ok: false, error: 'This item has no portion to scale from.' };
   it.ate = ate;
   if (day.status === 'complete') day.status = 'in_progress';
@@ -15391,26 +15470,39 @@ function eventSetEaten(dateKey, idx, ate, grams) {
     const d2 = APP_STATE.days[dateKey];
     const at = d2 ? d2.items.indexOf(it) : -1;
     if (at >= 0) d2.items[at] = prior;
+    if (attached && APP_STATE.plates) delete APP_STATE.plates[attached.id];
     Store.saveState(APP_STATE); refresh();
   });
-  return { ok: true, item: it, grams: g };
+  return { ok: true, item: it, grams: g, attached: !!attached };
+}
+// The figures the control and the two setters work from: the plate's, or -- for
+// an item that has not been reduced yet -- the item's own weight as both.
+function itemAteBasis(it) {
+  const s = itemServed(it);
+  if (s) return { served: s.served, edible: s.edible, eaten: s.eaten, refuse: s.refuse, attached: true };
+  if (itemCanAttachPlate(it)) return { served: num(it.grams), edible: num(it.grams), eaten: num(it.grams), refuse: null, attached: false };
+  return null;
 }
 function eventSetAte(dateKey, idx, fraction) {
   const f = Math.max(0, Math.min(1, num(fraction)));
   if (!(f > 0)) return { ok: false, error: 'Remove the item instead.' };
   const day = APP_STATE.days && APP_STATE.days[dateKey];
-  const s = itemServed(day && day.items && day.items[num(idx)]);
-  if (!s) return { ok: false, error: 'This item did not come off a plate.' };
+  const s = itemAteBasis(day && day.items && day.items[num(idx)]);
+  if (!s) return { ok: false, error: 'This item has no weight to be a share of.' };
+  // "All" on an item that was never reduced is the state it is already in: no
+  // plate is made for a tap that changes nothing.
+  if (f >= 0.995 && !s.attached) return { ok: true, unchanged: true };
   return eventSetEaten(dateKey, idx, normalizeAte(f >= 0.995 ? { kind: 'all' } : { kind: 'fraction', fraction: f }),
                        s.edible * f);
 }
 function eventSetGrams(dateKey, idx, grams) {
   const g = num(grams);
   const day = APP_STATE.days && APP_STATE.days[dateKey];
-  const s = itemServed(day && day.items && day.items[num(idx)]);
-  if (!s) return { ok: false, error: 'This item did not come off a plate.' };
+  const s = itemAteBasis(day && day.items && day.items[num(idx)]);
+  if (!s) return { ok: false, error: 'This item has no weight to be a share of.' };
   if (!(g > 0)) return { ok: false, error: 'Enter how many grams.' };
   if (!(s.edible > 0)) return { ok: false, error: 'Nothing is left of that to have eaten.' };
+  if (!s.attached && Math.abs(g - s.eaten) < 0.05) return { ok: true, unchanged: true };
   return eventSetEaten(dateKey, idx, normalizeAte({ kind: 'fraction', fraction: Math.min(1, g / s.edible) }), g);
 }
 // Turning a correction on or off AFTER the meal moves every event that came off
@@ -15448,7 +15540,7 @@ function plateRefuseSet(plateId, plateIdx, on) {
 }
 const ATE_CHOICES = [['all', 1], ['¾', 0.75], ['½', 0.5], ['¼', 0.25]];
 function itemAteHTML(dateKey, idx, it) {
-  const s = itemServed(it);
+  const s = itemAteBasis(it);
   if (!s) return '';
   const share = s.edible > 0 ? s.eaten / s.edible : 1;
   const btns = ATE_CHOICES.map(function (c) {
@@ -17503,7 +17595,7 @@ function searchLog() {
   // D112: a past day gets no fabricated clock time; the meal still needs a
   // default, and it is the one the button's own line already named.
   const plate = normalizePlate({ id: newPlateId(), date: dk, meal: mealAtCreation('', time || nowTime()),
-                                 time: time, tzo: nowTZO(), mealId: mealId, items: [pi] });
+                                 time: time, tzo: nowTZO(), mealId: mealId, kind: 'entry', items: [pi] });
   if (!plate) return { ok: false, why: 'no-plate' };
   APP_STATE.plates = APP_STATE.plates || {};
   APP_STATE.plates[plate.id] = plate;
@@ -19837,6 +19929,7 @@ window.HT = {
   itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,
   photoRefuseBlockHTML, eventSetAte, eventSetGrams, plateRefuseSet, itemAteHTML,
   searchRefuse, searchRefuseSet, searchEdibleGrams, corpusMem: () => CORPUS_MEM, photoSearchApply,
+  plateIsEntry, itemCanAttachPlate, itemAttachPlate, itemAteBasis,
   sensorTap, sensorChoose, sensorAskType, sensorAskCancel, sensorAsk: () => SENSOR_ASK,
   sensorLast, sensorStatus, sensorStatusWords, sensorStatusHTML, sensorWords, sensorDeviceLabel,
   signalRowLabel, quickEventWords, sensorCiteHTML, sensorConfirmForms, recordEditHTML, comboNewPartNumbers, comboNewTotal, comboNewTotalHTML, comboNewSave,

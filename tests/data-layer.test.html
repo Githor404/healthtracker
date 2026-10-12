@@ -13657,8 +13657,13 @@ window.setLS({});
   res(rfPlain.grams === 150 && HT.itemServedLine(rfPlain) === ''
       && HT.itemAteHTML(rfCur, HT.state().days[rfCur].items.indexOf(rfPlain), rfPlain).indexOf('Ate:') >= 0,
       'R189 GATE: a meal eaten whole with nothing to take off shows ONE figure -- no second line -- and still offers "Ate:" for the day half of it turns out to have been left (ruled E: default all, never a prompt)');
-  res(HT.itemAteHTML(rfCur, 0, { name: 'typed', grams: 50 }) === '' && HT.itemServedLine({ name: 'typed', grams: 50 }) === '',
-      'R189 GATE: an item that did not come off a plate is offered neither -- there is no served figure to be a share of');
+  // RE-PINNED, R189/2: this asserted that an item with no plate was offered NO
+  // "Ate:". That was the gap ruling A named -- every path with a served weight --
+  // and /2 closes it: a weight is enough. What still holds is that such a row
+  // shows ONE figure until something is actually left.
+  res(HT.itemAteHTML(rfCur, 0, { name: 'typed', grams: 50 }).indexOf('Ate:') >= 0 && HT.itemServedLine({ name: 'typed', grams: 50 }) === ''
+      && HT.itemAteHTML(rfCur, 0, { name: 'typed' }) === '',
+      'R189 GATE: an item that did not come off a plate shows ONE figure -- and is offered "Ate:" if it has a weight to be a share of, nothing if it has none');
 
   // -- by weight, through Search: one mechanism (ruled A) ---------------------------
   var rfRow = new Float32Array([20, 22, 5, 300]);
@@ -13689,6 +13694,69 @@ window.setLS({});
       && HT.plateRefuseSet(rfS2.r.plateId, 0, true).ok === true && rfNear(rfS2.r.item.grams, 76.8)
       && HT.refuseMemory('800') === null,
       'R189 GATE: the peel is OFFERED and one tap takes it off -- and that tap is NOT remembered for next time: only "boneless / with bone" was ruled to be');
+
+  // ============ R189 / 2: every item with a weight, and the entry plate ============
+  //
+  // Ruled A: extend the plate to every path with a served weight. Done by
+  // ATTACHING a plate to an item the moment it is first reduced, so no write path
+  // changes and an item nobody corrects never gets a plate.
+  var r2Count = function () { return Object.keys(HT.state().plates || {}).length; };
+  var r2It = HT.normalizeItem({ name: 'Typed oats', meal: 'breakfast', time: '08:00', grams: 200, kcal: 300,
+    protein_g: 10, fat_g: 6, carb_g: 54, fiber_g: 8, soluble_fiber_g: 0, confidence: 'weighed', source: 'manual',
+    micros: { sodium_mg: 40, iron_mg: 4 }, tzo: -240 }, true);
+  HT.state().days[rfCur].items.push(r2It);
+  var r2i = function () { return HT.state().days[rfCur].items.indexOf(r2It); };
+  var r2Plates0 = r2Count();
+  res(r2It.plateId === undefined && HT.itemServedLine(r2It) === '' && HT.itemAteHTML(rfCur, r2i(), r2It).indexOf('Ate:') >= 0
+      && r2Count() === r2Plates0,
+      'R189/2 GATE (ruled A): a TYPED item with a weight is offered "Ate:" -- and offering it writes nothing: no plate exists for an item nobody has reduced');
+  var r2All = HT.eventSetAte(rfCur, r2i(), 1);
+  res(r2All.ok === true && r2All.unchanged === true && r2Count() === r2Plates0 && r2It.plateId === undefined
+      && HT.eventSetGrams(rfCur, r2i(), 200).unchanged === true && r2Count() === r2Plates0,
+      'R189/2 GATE: tapping ALL, or typing the weight it already has, on an item that was never reduced changes NOTHING and makes no plate -- that is the state it is already in');
+  var r2Half = HT.eventSetAte(rfCur, r2i(), 0.5);
+  var r2Pl = HT.getPlate(r2It.plateId) || { items: [{}] };
+  res(r2Half.ok === true && r2Half.attached === true && r2It.grams === 100 && r2It.kcal === 150 && r2It.carb_g === 27
+      && r2It.micros.sodium_mg === 20 && r2It.micros.iron_mg === 2,
+      'R189/2 GATE: HALF, tapped afterwards on a typed item -- 100 g, half the calories, and the LABEL MICROS halved with them. Routed through the plate-s own write they would have been lost: a plate item has no field for them');
+  res(r2Pl.kind === 'entry' && r2Pl.items[0].grams === 200 && r2Pl.time === '08:00' && r2Pl.tzo === -240
+      && r2Pl.items[0].refuse === undefined && r2It.plateIdx === 0 && r2It.ate.fraction === 0.5,
+      'R189/2 GATE: the plate made for it is an ENTRY plate holding the 200 g that was served, at the ITEM-S OWN time and offset -- not the moment of the tap, which is when it was noticed and not when it was served');
+  res(HT.itemServedLine(r2It) === '200 g served · ate ½ · 100 g',
+      'R189/2 GATE: and the row now shows what was served beside what was eaten', HT.itemServedLine(r2It));
+  HT.doUndo();
+  r2It = HT.state().days[rfCur].items.filter(function (x) { return x.name === 'Typed oats'; })[0];
+  res(r2It.grams === 200 && r2It.kcal === 300 && r2It.plateId === undefined && r2It.micros.sodium_mg === 40 && r2Count() === r2Plates0,
+      'R189/2 GATE: UNDO puts back an item with no plate at all, and the plate made for the tap goes with it -- nothing is left behind to be offered as leftovers');
+  var r2Typed = HT.eventSetGrams(rfCur, r2i(), 150);
+  res(r2Typed.ok === true && r2It.grams === 150 && r2It.kcal === 225 && HT.itemServedLine(r2It) === '200 g served · ate ¾ · 150 g',
+      'R189/2 GATE: typed grams attach the plate the same way -- 150 of the 200 served', HT.itemServedLine(r2It));
+  res(HT.eventSetAte(rfCur, r2i(), 1).ok === true && r2It.grams === 200 && HT.itemServedLine(r2It) === '' && !!HT.getPlate(r2It.plateId),
+      'R189/2 GATE: and back to ALL -- one figure on the row again, with the plate kept, since it now records a real statement');
+  var r2Bare = HT.normalizeItem({ name: 'No weight', meal: 'snack', time: '10:00', kcal: 90, confidence: 'eyeballed', source: 'manual' }, true);
+  HT.state().days[rfCur].items.push(r2Bare);
+  res(HT.itemAteHTML(rfCur, HT.state().days[rfCur].items.indexOf(r2Bare), r2Bare) === ''
+      && HT.eventSetAte(rfCur, HT.state().days[rfCur].items.indexOf(r2Bare), 0.5).ok === false && r2Bare.kcal === 90,
+      'R189/2 GATE: an item with NO weight is offered nothing and cannot be reduced -- there is no served figure to be a share of, and inventing one is refused');
+
+  // -- an ENTRY plate goes with its last event; a PHOTOGRAPHED one stands -----------
+  var r2Ban = rfS2.r.item, r2BanPlate = rfS2.r.plateId;
+  res(HT.getPlate(r2BanPlate).kind === 'entry' && HT.plateIsEntry(HT.getPlate(r2BanPlate))
+      && HT.plateIsEntry({ items: [{ source: 'corpus' }] }) === true
+      && HT.plateIsEntry(HT.getPlate('rf-wings')) === false && HT.plateIsEntry(null) === false,
+      'R189/2 GATE: a plate Search wrote is an ENTRY plate -- and so is one it wrote before the field existed, read from its single database-sourced item -- while a photographed plate is not');
+  var r2Del = HT.deleteItem(HT.state().days[rfCur].items.indexOf(r2Ban));
+  res(r2Del.ok === true && HT.getPlate(r2BanPlate) === null
+      && HT.openPlates(rfCur).filter(function (p) { return p.id === r2BanPlate; }).length === 0,
+      'R189/2 GATE: REMOVING a searched food takes its plate with it -- v0.86.0 left the plate behind, with nothing eaten from it, and offered a food the user had deleted back as leftovers for two days');
+  HT.doUndo();
+  res(!!HT.getPlate(r2BanPlate) && HT.state().days[rfCur].items.filter(function (x) { return x.plateId === r2BanPlate; }).length === 1,
+      'R189/2 GATE: and undoing the removal brings back the item AND its plate');
+  var r2Wing = HT.state().days[rfCur].items.filter(function (x) { return x.plateId === 'rf-wings'; })[0];
+  HT.deleteItem(HT.state().days[rfCur].items.indexOf(r2Wing));
+  res(!!HT.getPlate('rf-wings') && HT.openPlates(rfCur).filter(function (p) { return p.id === 'rf-wings'; }).length === 1,
+      'R189/2 GATE: CONTROL -- a PHOTOGRAPHED plate stands when its event is removed, and is offered, exactly as before: that is how "I did not eat it after all" works, and this slice must not have changed it');
+  HT.doUndo();
 
   HT.state().days = _rfDays;
   HT.state().plates = _rfPlates;

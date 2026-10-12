@@ -160,6 +160,13 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # tzo: nowTZO(), the offset of the moment it was served. I removed this entry
 # believing the write had moved away entirely, and this census put it back by
 # name on the next run: a plate is a record too.
+# R189/2: `itemAttachPlate` is EXEMPT. It writes a plate for an item that ALREADY
+# EXISTS -- the plate is the record of the serving that item recorded, so it
+# carries the item's own tzo and time. Stamping the moment of the tap would say
+# the food was served when the user noticed they had left half of it (D29 Pin 3).
+# `deleteItem` is EXEMPT for removeMed's reason exactly: the only plate it writes
+# is in its UNDO, putting back the snapshot of an entry plate it removed with the
+# plate's last event. The record and its stamp are the ones that already existed.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
@@ -179,6 +186,8 @@ quickAddLog
 logStack
 logCombo
 searchLog
+itemAttachPlate
+deleteItem
 logScanItem
 maybeInjectSupplement
 consumeFromPlate

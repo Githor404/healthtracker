@@ -430,6 +430,63 @@ HT.corpusEnsure().then(function () {
   Check (([math]::Abs($wv.grams - 62.4) -lt 1e-6) -and ($wv.served -eq ('120 g served ' + [char]0xB7 + ' ~62.4 g edible ' + [char]0xB7 + ' 62.4 g')) -and ($wv.plate -eq $true)) "62.4 g counted of 120 g served, through the same plate, with both figures on the row"
   Check ($wv.pre.button -like 'Log * cal') "and the Log button stated the EDIBLE calories before it was tapped"
 
+  # ---- R189/2. a TYPED item, reduced afterwards; and a removed search ---------------
+  $typed = EvalJ @'
+(function () {
+  HT.closeSheet();
+  var r = HT.addManualEntry({ name: 'Gate oats', meal: 'breakfast', time: '08:00', grams: 200, kcal: 300,
+    protein_g: 10, fat_g: 6, carb_g: 54, fiber_g: 8, soluble_fiber_g: 0, confidence: 'weighed' });
+  HT.refresh(); window.__open();
+  var find = function () { var hit = null;
+    Array.prototype.forEach.call(document.querySelectorAll('#dayView .mitem'), function (x) {
+      if (!hit && (x.querySelector('.mname') || {}).textContent === 'Gate oats') hit = x; }); return hit; };
+  var row = find();
+  if (!row) return { err: 'no row for the typed item' };
+  var plates0 = Object.keys(HT.state().plates || {}).length;
+  var before = { served: !!row.querySelector('.mserved'), plate: !!r.item.plateId };
+  row.querySelector('.mhead').click();
+  row = find();
+  var bar = row.querySelector('.atebar');
+  var offered = !!bar, platesOffered = Object.keys(HT.state().plates || {}).length - plates0;
+  var b = null;
+  if (bar) Array.prototype.forEach.call(bar.querySelectorAll('.atebtn'), function (x) { if (x.textContent === '\u00bd') b = x; });
+  if (b) b.click();
+  row = find();
+  var it = HT.state().days[HT.state().current].items.filter(function (x) { return x.name === 'Gate oats'; })[0];
+  var pl = it.plateId ? HT.getPlate(it.plateId) : null;
+  return { before: before, offered: offered, platesOffered: platesOffered, grams: it.grams, kcal: it.kcal,
+           kind: pl ? pl.kind : '', servedG: pl ? pl.items[0].grams : null, refuse: pl ? !!pl.items[0].refuse : null,
+           line: (row.querySelector('.mserved') || {}).textContent || '' };
+})()
+'@
+  Write-Host ("  typed item: " + $typed)
+  $ty = $typed | ConvertFrom-Json
+  Check (($ty.before.served -eq $false) -and ($ty.before.plate -eq $false)) "R189/2: a TYPED item with a weight starts as an ordinary row -- one figure, no plate"
+  Check (($ty.offered -eq $true) -and ($ty.platesOffered -eq 0)) "opening it offers 'Ate:' (ruled A: every path with a served weight), and OFFERING it writes no plate"
+  Check (($ty.grams -eq 100) -and ($ty.kcal -eq 150)) "a real click on 1/2 halves it: 100 g, 150 cal"
+  Check (($ty.kind -eq 'entry') -and ($ty.servedG -eq 200) -and ($ty.refuse -eq $false)) "the plate is made at that moment, holding the 200 g served -- and NO bone or peel correction: a typed weight is already what the user says they had"
+  Check ($ty.line -eq ('200 g served ' + [char]0xB7 + ' ate ' + [char]0xBD + ' ' + [char]0xB7 + ' 100 g')) "and the row shows both figures: '200 g served . ate 1/2 . 100 g'"
+
+  $gone = EvalJ @'
+(function () {
+  var cur = HT.state().current, day = HT.state().days[cur];
+  var it = day.items.filter(function (x) { return x.name === window.__name('banana') && x.plateId; })[0];
+  if (!it) return { err: 'no searched banana on the day' };
+  var pid = it.plateId, wasEntry = HT.plateIsEntry(HT.getPlate(pid));
+  var open0 = HT.openPlates(cur).length;
+  HT.deleteItem(day.items.indexOf(it));
+  var out = { wasEntry: wasEntry, plateGone: HT.getPlate(pid) === null,
+              offered: HT.openPlates(cur).filter(function (p) { return p.id === pid; }).length, openDelta: HT.openPlates(cur).length - open0 };
+  var u = document.querySelector('#toast .tundo'); if (u) u.click();
+  out.back = !!HT.getPlate(pid) && day.items.filter(function (x) { return x.plateId === pid; }).length === 1;
+  return out;
+})()
+'@
+  Write-Host ("  a removed search: " + $gone)
+  Check ($gone -like '*"wasEntry":true*') "the searched banana's plate is an entry plate"
+  Check (($gone -like '*"plateGone":true*') -and ($gone -like '*"offered":0*') -and ($gone -like '*"openDelta":0*')) "REMOVING the banana takes its plate with it, and NOTHING is offered back as leftovers -- v0.86.0 offered a deleted food back for two days"
+  Check ($gone -like '*"back":true*') "a real click on Undo brings back the item and its plate together"
+
   # ---- 9. the opened row, measured at both widths ------------------------------------
   foreach ($w in @(390, 360)) {
     Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null

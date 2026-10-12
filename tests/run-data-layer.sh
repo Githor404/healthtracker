@@ -350,7 +350,14 @@ echo "-----------------------------------------"
 # R192, v0.88.0: +6. The one-tap Red light preset: 15 before anything is logged,
 # one event through addSignal at quick provenance, an unknown type refused, Undo,
 # and the minutes remembered from the log rather than stored.
-EXPECTED_ASSERTIONS=2912
+# R189/2, v0.89.0: +13. "Ate:" on any item with a weight, by ATTACHING a plate when
+# it is first reduced: offering it writes nothing, "all" on an untouched item makes
+# no plate, a half moves the grams, the macros AND the label micros, the plate is an
+# entry plate at the item's own time and offset, undo leaves no plate behind, and an
+# item with no weight is refused. And the entry plate: removing a searched food
+# takes its plate (v0.86.0 offered it back as leftovers), undo restores both, and a
+# photographed plate still stands -- the control.
+EXPECTED_ASSERTIONS=2925
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
