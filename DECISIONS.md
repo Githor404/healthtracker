@@ -15650,3 +15650,99 @@ it is a ruling about what the confidence word means for a share.**
 | `tests/served-gate.ps1` | 59 → **67**: a typed item reduced by a real click, and a removed search offered nothing |
 | `tests/check-writesites.sh` | `itemAttachPlate` and `deleteItem` registered **exempt**, each with its reason |
 | `tests/allowlist_census.py` | `normalizePlate` now declares 6 properties |
+
+**Shipped:** full suite **43 of 43**, pushed, `verify-deploy` byte-identical at
+v0.89.0.
+
+---
+
+## E-LITE — UNEXPLAINED GLUCOSE RISES — PRE-REGISTERED, MEASURED FIRST, NOT BUILT (2026-10-12)
+
+Serves **evaluate**, and it is the labelled data **predict** will need. Ruled in
+R194: *"do not wait for HR. Build E-lite now on what exists."*
+
+### 1. RULED
+
+- Flag glucose rises **not explained by logged food**, on the **eaten** basis.
+  *"Food I didn't log"* offered first, then stress, then other.
+- **Steps** for the moving covariate; **fed / fasting** from the logs.
+- **Every confirm and dismiss is stored as a label**, for the full model later.
+- **No stress badge and no probability** until heart-rate and HRV channels exist.
+  Those inputs are **wired but empty, and say so**.
+- Pre-register **with the cost declaration**: it defers heart-rate residuals, and
+  it *assumes unexplained rises are mostly unlogged food*.
+
+### 2. MEASURED — and the assumption in the cost declaration is half true
+
+The PC's snapshot, dated 2026-10-10: **11 days of glucose** (2,739 readings, one
+gap over 16 minutes) and **38 timed food items** inside them. The phone is the
+live log, so every "unexplained" below is a **ceiling** — a meal logged on the
+phone and not yet exported shows here as a rise with no food.
+
+A rise here is **at least 1.5 mmol/L inside 60 minutes**: 37 of them.
+
+| food counted as explaining it | unexplained | 00–06 | 06–12 | 12–18 | 18–24 |
+|---|---|---|---|---|---|
+| logged from 30 min before the rise to its peak | 27 | 10 | 4 | 3 | 10 |
+| logged within 2 h before | 20 | 10 | 2 | 3 | 5 |
+| logged within **4 h** before — `RESP_WINDOW_MIN`, the window the response code already uses | **14** | 5 | 2 | 3 | 4 |
+
+**The window matters more than the threshold**: the same 37 rises are 27
+unexplained or 14, depending on how long a meal is allowed to go on explaining.
+At 1.0 mmol/L there are 61 rises; at 2.0, 22.
+
+**The 14 that survive the 4-hour rule are not one kind of thing:**
+
+- **Five start between midnight and 06:00.** Two are on the first night of a new
+  sensor, one of them **4.0 → 11.5 in 45 minutes** at 03:06 — a reading the
+  sensor's first day makes hard to trust, and one no unlogged snack explains.
+- **Two are small rises around 06:00–06:20**, about waking.
+- **Several look exactly like unlogged meals** — Saturday 15:51, 6.5 → 11.2,
+  seventeen hours after the last logged food.
+
+> **So "unexplained rises are mostly unlogged food" holds for the daytime ones and
+> not for roughly half.** Offering *"food I didn't log"* first at 03:06 asks a
+> sleeping person whether they ate. The cost declaration stands as ruled for the
+> day; the night needs its own first answer.
+
+**Also measured, the other way round:** 25 of the 38 logged food items have **no**
+rise of 1.5 attached. A logged meal that does not move glucose is ordinary, and
+E-lite says nothing about it.
+
+### 3. COST DECLARATION
+
+| what E-lite defers or assumes | what that costs |
+|---|---|
+| **no heart rate, no HRV** — the Watch stream ends in November 2024 | it **cannot tell stress from anything else**. "Stress" is a label the user gives, never a thing the app infers. No badge, no probability |
+| **unexplained ⇒ probably unlogged food**, by day | every rise it flags is, on the measured numbers, more likely a meal the phone has and the analysis has not than a physiological event. Labels will be dominated by "food" |
+| **a rise is defined by a threshold and a window** — two chosen numbers | [[D126]]: a tuned number is a measurement of nobody's question. They are declared constants, the counts at neighbouring values are in §2, and the surface says which rule flagged a rise |
+| **sleep is not observed** — no stages in any data held | "asleep" is a clock window plus the `woke` event where one was logged, and is labelled as assumed |
+| **the sensor's first day** | flagged rises there are marked, from R186's sensor entries, and not counted toward anything |
+| **labels are sparse and self-selected** | a user labels the rises they understand. The later model must treat an unlabelled rise as unlabelled, not as "other" |
+
+### 4. PROPOSED — four things to rule
+
+| | question | proposed |
+|---|---|---|
+| A | the rule for a rise | **≥ 1.5 mmol/L within 60 min**, and *explained* if food was eaten in the **4 h** before — the existing response window, so E-lite and the meal response cannot disagree about which meal a rise belongs to |
+| B | night and waking | a rise that starts in the assumed-asleep window, or within an hour of a logged `woke`, is flagged with **"while asleep"** or **"around waking"** first; *"food I didn't log"* is still offered, second |
+| C | where it shows | **passive**: a mark on the day's glucose chart and one line under it. **Never a prompt, never a count that grows** ([[D157]]) — at about one a day, a list that waits is the right weight |
+| D | **steps** | E-lite needs them and R193's import is parked. Proposed: **StepCount only**, for the period glucose covers, through the Apple Health file path the glucose import already uses, kept as a re-acquirable cache like glucose. Nothing else from that file. **If parking was meant to cover steps too, the moving covariate is wired but empty, like heart rate, and says so** |
+
+### 5. PRE-REGISTERED GATE
+
+| | |
+|---|---|
+| a rise with food in the 4 h before is **not** flagged | and the food is read on the **eaten** basis — a plate with nothing eaten from it explains nothing |
+| a rise with no food before it **is** flagged, with its start, its size and the rule that flagged it | |
+| the three answers, in the ruled order by day | and "while asleep" / "around waking" first, by night |
+| a confirm and a dismiss are each **stored as a label**, with the rise they answer, and survive export → restore | a dismissed rise does not reappear |
+| **no probability, no badge, no word that infers stress** | asserted through `jargon-gate`, including the mechanism words |
+| the heart-rate and HRV inputs are **present, empty, and say so** on the surface | |
+| a rise in a sensor's first day is **marked** | from the sensor entries |
+| the flag is **passive** | nothing is shown that was not asked for; no count on the main surface |
+| a gap in the stream inside the window means **no rise is claimed** | never interpolated |
+| 16px, 44px, both widths, and looked at | |
+
+**STOPPING for rulings A–D.** D decides whether anything is imported; A decides
+what counts as a rise at all.
