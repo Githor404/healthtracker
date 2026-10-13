@@ -6056,3 +6056,27 @@ see DECISIONS §6b for how the two were reconciled.
 "Nothing in your stack yet" with three items in the store: the list was drawn at
 start and by its own buttons, and by nothing else — so a restore or a migration
 behind the panel would leave it stale. It is now drawn when Settings opens.
+
+### v0.95.0 — a scope that could not be gated by one number, and a sentence that was only right while it was alone (2026-10-12)
+
+**The magnesium check needs both halves.** "Stack 400 → flag" alone would pass
+on an implementation that compared the whole day's magnesium to the level, and
+"food 400 + stack 300 → no flag" alone would pass on one that never flagged
+magnesium at all. `stacktotals-gate` runs both, in that order, on the same day —
+and asserts the flag names **400**, the supplemental amount, while the row above
+it reads **800**.
+
+**"Still reads nothing" is the claim, not "a suggestion appears".** The gate
+types the name with real keystrokes and reads the list's selected option before
+the suggestion is tapped. A gate that only looked for the button would pass on
+an editor that also set the field.
+
+**A sentence written for one case.** The flag's last line recommended a vitamin
+D lab reading whatever the nutrient. No gate could have caught it before a
+second limit existed; the harness now asserts the magnesium sentence does not
+contain it.
+
+**The gate passed on its first run.** Its checks are exact strings and exact
+amounts rather than "a flag exists", so a first-run pass is evidence here; the
+two failures that shaped the build were in the harness (the panel's number
+format, and a missing container on the harness page).

@@ -16391,3 +16391,116 @@ phrase is the first line of the opened row. Both are gated.
 | `tests/noauto-gate.ps1` | **NEW, 33 checks**, starting from a schema-14 store with the old setting on: the migration, **a simulated midnight through the page's own resume listener**, the reported day's headers, the editor by real typing, the tap logging N and N−1, delete and Undo |
 | `tests/check-writesites.sh` | 27 → **25** sites: the two that wrote without a tap are gone |
 | suite | **49 verdicts** (1 harness + 9 static + 39 CDP) |
+
+---
+
+## R207 / R208 — RULED AND BUILT: A STACK DOSE COUNTS TOWARD ITS NUTRIENT; A LIMIT CARRIES ITS SCOPE (2026-10-12, v0.95.0)
+
+**Labels.** `R207`, `R208` are the user's relay labels; grepped, not previously
+recorded. Nothing from the user's stack is named here (R204).
+
+**Serves** *track* (what was taken, in the nutrient's own total) and the first
+step of *evaluate* (a cited level, compared to the intake it is actually about).
+
+### 1. CHECKED FIRST, AS ORDERED (R207)
+
+| question | answer, from the code |
+|---|---|
+| does a "goes on my timeline" dose reach the day's nutrient totals? | **No.** Totals and the panel read day items only |
+| does the intake flag see the day? | **No.** It compared ONE stack item's own amount to the level, on the stack row |
+| how many nutrients had a cited level? | **One** (vitamin D) |
+| which of the user's stack items map today? | reported to the user from their own export, by shape and not by name: none had both an amount and a nutrient set, so nothing in their history changes |
+
+### 2. THE REVERSAL, RECORDED
+
+R168 ruled, citing D120: *a dose reaches the timeline and NEVER food totals.*
+**R208 reverses that for a dose the user has said counts toward a nutrient.**
+
+What is kept of the older rule is its reason. D120's point was that figures of
+different standing must not be summed silently. So a dose is a **third
+provenance**, with its own fields in the rollup and its own line on the row —
+*"includes 300.00 mg from your stack"* — beside the label's figure and the food
+database's, inside neither. That line is never folded into the panel's
+"everything below is …" sentence. A dose mapped to nothing is unchanged:
+timeline only.
+
+**No calories.** A dose writes no day item; energy and macros are asserted
+byte-for-byte unchanged.
+
+### 3. MAPPING IS THE USER'S STATEMENT, NOT THE NAME
+
+The mapping is the editor's "Counts toward" field, which converts at entry or
+refuses. When the item's name holds a tracked nutrient's own name the editor
+shows *"Count it toward Magnesium?"* as a button; **the list still reads
+"nothing" until it is tapped.** Controls: a name holding no nutrient suggests
+nothing; a word that merely contains one ("Ironwood") suggests nothing.
+
+Why not set it from the name: a label can carry two numbers for one mineral —
+the compound's weight and the element's. The app cannot know which was typed.
+
+**What a dose record stores:** `micros` — key and amount, copied from the stack
+item at the tap. Additive, no schema bump: an older build strips the map and
+shows the dose without its contribution, which loses precision and no record.
+
+### 4. A LIMIT CARRIES ITS SCOPE (ruled) — and the second cited level
+
+`INTAKE_LIMITS[key].scope` is `'total'` or `'supplemental'`. **A limit with no
+scope produces no flag**, exactly as one with no citation does.
+
+| nutrient | level | scope | what the day's flag compares |
+|---|---|---|---|
+| vitamin D | 100 µg (4000 IU) | **total** | food labels + food database + supplements logged as items + stack doses |
+| magnesium | 350 mg | **supplemental** | supplements logged as items + stack doses. **Food is not counted.** |
+
+**The magnesium citation, read on 2026-10-12:** Health Canada, *Dietary
+reference intakes tables: Reference values for elements* (page dated
+2025-11-19). UL for magnesium, adults 19 and over: 350 mg/day. Its footnote,
+stored with the entry: *"The UL for magnesium represents intake from a
+pharmacological agent only and does not include intake from food and water."*
+The ruling named Health Canada / IOM; the Health Canada table was the page that
+could be read (the NIH fact sheet refused the request), so it is the one cited.
+The host is declared in `check-egress`; the URL is stored and never requested.
+
+**The ruled scenarios, gated in the harness and by real taps:**
+
+| | compared | result |
+|---|---|---|
+| food Mg 400 + stack Mg 300 | 300 vs 350 | **no flag** |
+| stack Mg 400 | 400 vs 350 | **flag** |
+| vitamin D 40 food + 75 stack | 115 vs 100 | **flag, on the total** — neither part alone is over |
+
+**A reference figure is in vitamin D's total.** The level is about everything
+taken in, and the food database's figure is the only estimate there is for an
+unlabelled food. The flag says so: it lists each part by source.
+
+### 5. THE SENTENCE
+
+The day's flag says what was summed before what it is above — *"Today: 115 µg —
+75 µg from your stack, 40 µg from food labels."* — then the level, whose it is,
+who it is for, the source, and the scope. For a supplemental level it names only
+the supplemental parts.
+
+**A defect this exposed:** the closing line about a vitamin D lab reading was
+printed for *every* nutrient. Harmless while there was one; with two, the
+magnesium flag would have ended by recommending a vitamin D test. It is now the
+vitamin's own.
+
+No instruction appears in either sentence (asserted against a word list): flag,
+no nag. The stack row keeps its per-item flag.
+
+### 6. WHERE THE DAY'S FLAG IS — and a limit of that
+
+On the nutrient's row in the Micronutrients panel, **which is closed by
+default.** So the day-level flag is seen only by someone who opens the panel;
+the per-item flag on the Log sheet's stack row is seen at the moment of
+logging. Left that way deliberately — a flag pushed onto the day view is the
+start of a nag — and stated here so it is a choice and not an oversight.
+
+### 7. Evidence
+
+| | |
+|---|---|
+| harness | **3068** (+25) |
+| `tests/stacktotals-gate.ps1` | **NEW, 19 checks**, by real typing and taps: the suggestion and its control; three doses and no day item; both rows' lines and flags at 16px; the two magnesium scenarios; the flag's source and scope |
+| `tests/check-egress.sh` | one host declared (`www.canada.ca`, a stored citation, never requested) |
+| suite | **50 verdicts** (1 harness + 9 static + 40 CDP) |
