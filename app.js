@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.95.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.96.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -97,7 +97,7 @@ function blankDay() { return { status: 'in_progress', items: [], water_l: 0 }; }
 function defaultSettings() {
   // R168: `stack` ships EMPTY, like `presets`. The multi-user rules forbid personal
   // calibrations in code, and a stack is the most personal thing in this app.
-  return { goals: {}, stack: [], combos: [], presets: [], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  return { goals: {}, stack: [], foods: [], combos: [], presets: [], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
 }
 function emptyState() {
   return { version: SCHEMA_VERSION, days: {}, current: '', settings: defaultSettings(), priceLog: {}, plates: {}, meds: {}, labels: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } };
@@ -539,6 +539,8 @@ function normalizeItem(it, clampMacros) {
   if (it.barcode != null && String(it.barcode) !== '') out.barcode = String(it.barcode);
   if (it.water_l != null) out.water_l = N(it.water_l);
   if (it.autoLegacy === true) out.autoLegacy = true;
+  if (STACK_KINDS.indexOf(it.stackKind) >= 0) out.stackKind = it.stackKind;   // R213: which kind of stack item wrote it
+  if (MYFOOD_BASES.indexOf(it.basis) >= 0) out.basis = it.basis;              // R213: a "my food" -- from label, or generic values
   const micros = normalizeMicros(it.micros);
   if (micros) out.micros = micros;
   const tzo = normalizeTzo(it.tzo);      // D29: PRESERVE only -- creation paths supply it,
@@ -668,7 +670,30 @@ function normalizeSupplementNutrients(raw) {
 //
 // The stack ships EMPTY, per the multi-user rules: no personal calibrations in
 // code, and seed data is zero.
-const STACK_KINDS = ['food', 'dose'];
+// R213: THREE KINDS, in the user's words. Until v0.96.0 there were two -- 'food'
+// and 'dose' -- and a dose was shown as "med" whatever it was.
+//   supplement -- the default. Goes on the timeline.
+//   medication -- goes on the timeline, and is KEPT DISTINCT IN THE DATA so a
+//                 later analysis can tell a medicine from a supplement.
+//   food       -- counts in the day, with its calories.
+// A stored 'dose' reads as 'supplement': a relabel, made at the boundary, with
+// no schema bump (an older build reads the new words as its own default).
+const STACK_KINDS = ['supplement', 'medication', 'food'];
+const STACK_KIND_WORD = { supplement: 'Supplement', medication: 'Medication', food: 'Food' };
+function stackKindOf(k) { return STACK_KINDS.indexOf(k) >= 0 ? k : 'supplement'; }
+function stackKindWord(k) { return STACK_KIND_WORD[stackKindOf(k)]; }
+// THE WORD A LOGGED ENTRY SHOWS. An entry written before the kind was recorded
+// is relabelled AT RENDER and nowhere else: a timeline dose the stack wrote, or
+// a day item filed as a supplement, reads "Supplement". The record is not
+// touched -- an entry logged before this version may have been a medicine, and
+// only the user can say so.
+function recordKindWord(r) {
+  if (!r) return '';
+  if (STACK_KIND_WORD[r.stackKind]) return STACK_KIND_WORD[r.stackKind];
+  if (r.kind === 'medication' && r.source === 'stack') return STACK_KIND_WORD.supplement;
+  if (r.meal === 'supplement' && r.source === 'supplement') return STACK_KIND_WORD.supplement;
+  return '';
+}
 // A stack item's dose unit is MED_DOSE_UNITS -- the medication record's own closed
 // list (D20), referenced rather than copied. A dose written from the stack and one
 // typed into the form are the same kind of fact, and two lists would be two facts.
@@ -726,7 +751,7 @@ function normalizeStackItem(raw) {
   const out = {
     id: String(r.id == null ? '' : r.id) || newStackId(),
     name: name,
-    kind: STACK_KINDS.indexOf(r.kind) >= 0 ? r.kind : 'dose',
+    kind: stackKindOf(r.kind),
     enabled: r.enabled !== false,                            // ruled default: on
   };
   // The dose, AS STATED on the bottle. Kept verbatim in its own unit -- the H4
@@ -750,6 +775,40 @@ function normalizeStackItem(raw) {
   const part = (r.part && typeof r.part === 'object') ? normalizeComboPart(r.part) : null;
   if (part) out.part = part;
   return out;
+}
+// ---- R213: MY FOODS -- a food that is in neither database ---------------------
+//
+// REPORTED: an oil the user takes daily is in neither food database, and was
+// being entered with a different oil standing in for it. Wherever a
+// food-database food was REQUIRED (a stack food, a combo part) there was no
+// other way in.
+//
+// A "my food" is the user's own statement about a food, with the one thing a
+// label states and a guess does not kept as a FIELD:
+//   basis 'label'   -- read off the package. Shown as "from label".
+//   basis 'generic' -- typical values for that kind of food, the user's
+//                      estimate. Shown as "generic values".
+// Stored per 100 g whatever way it was typed (a label gives either), with the
+// serving it was typed for kept beside it. MACROS ONLY in this first cut: a
+// label's micronutrients have their own entry path, and "generic values" for a
+// micronutrient would be exactly the uncited number the honesty rule forbids.
+// Ships empty, like presets and the stack (multi-user rule).
+const MYFOOD_BASES = ['label', 'generic'];
+const MYFOOD_BASIS_WORD = { label: 'from label', generic: 'generic values' };
+function normalizeMyFood(raw) {
+  const r = raw || {};
+  const name = String(r.name == null ? '' : r.name).trim();
+  if (!name) return null;
+  const out = { id: String(r.id == null ? '' : r.id) || newStackId(), name: name.slice(0, 120),
+                basis: MYFOOD_BASES.indexOf(r.basis) >= 0 ? r.basis : 'generic', per100: {} };
+  if (num(r.serving_g) > 0) out.serving_g = num(r.serving_g);
+  const src = (r.per100 && typeof r.per100 === 'object') ? r.per100 : {};
+  MACRO_KEYS.forEach(function (k) { if (src[k] != null && String(src[k]) !== '') out.per100[k] = clampNonNeg(src[k]); });
+  return out;
+}
+function normalizeMyFoods(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeMyFood).filter(function (x) { return !!x; });
 }
 function normalizeStack(raw) {
   if (!Array.isArray(raw)) return [];
@@ -814,6 +873,7 @@ function normalizeComboPart(raw) {
   if (ref) out.ref = ref;
   const pub = normalizePublished(r.published);
   if (pub) out.published = pub;
+  if (MYFOOD_BASES.indexOf(r.basis) >= 0) out.basis = r.basis;                // R213
   return out;
 }
 function normalizeCombo(raw) {
@@ -1014,6 +1074,7 @@ function normalizeSettings(s) {
   return {
     goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
     stack: normalizeStack(s.stack),                   // R168 (v13): ships empty
+    foods: normalizeMyFoods(s.foods),                 // R213: the user's own foods, ships empty
     combos: normalizeCombos(s.combos),                // COMBOS (v14): ships empty
     presets: Array.isArray(s.presets) ? s.presets : [],
     currency: typeof s.currency === 'string' ? s.currency : '',   // D18: last-used price currency
@@ -1457,7 +1518,7 @@ function migrateV14toV15(v14, nowISO) {
     if (!have) {
       const n = normalizeSupplementNutrients(sup.nutrients);
       const isFood = MACRO_KEYS.some(function (k) { return num(n[k]) > 0; });
-      const item = { name: nm, kind: isFood ? 'food' : 'dose', enabled: sup.enabled === true,
+      const item = { name: nm, kind: isFood ? 'food' : 'supplement', enabled: sup.enabled === true,
                      note: 'carried over from the old Daily supplement setting' };
       if (Object.keys(n).length) item.nutrients = n;
       stack.push(item);
@@ -1739,6 +1800,77 @@ function restore(raw) {
   return { ok: true, kind: parsed.kind, backedUp: backedUp, saved: saved };
 }
 
+// ---- R213/R206: A BACKUP THAT IS A FILE --------------------------------------
+// The only way out was "Copy data": the whole log on the clipboard, to be pasted
+// somewhere and kept by hand. A backup is a FILE with a name that says what it
+// is. On a phone it goes through the share sheet (Save to Files, iCloud Drive);
+// where sharing a file is not offered it is a download; the clipboard stays as a
+// secondary link.
+//
+// NO NAG. "Last backup" is a line in Settings and nothing else -- no badge, no
+// reminder, no count of days.
+const BACKUP_KEY = 'healthtracker-last-backup';
+function backupFileName(d) {
+  return 'healthtracker-backup-' + localDate(d || nowDate()) + '-v' + SCHEMA_VERSION + '.json';
+}
+function backupLast() {
+  let raw = null;
+  try { raw = Store.readRaw(BACKUP_KEY); } catch (e) {}
+  if (!raw) return null;
+  try { const o = JSON.parse(raw); return (o && typeof o.at === 'string') ? o : null; } catch (e) { return null; }
+}
+function backupMark(name, how) {
+  const rec = { at: nowDate().toISOString(), date: localDate(), name: String(name), how: String(how) };
+  Store.writeAux(BACKUP_KEY, JSON.stringify(rec));
+  renderBackupLast();
+  return rec;
+}
+function backupLastLine() {
+  const b = backupLast();
+  if (!b) return 'No backup file made yet.';
+  return 'Last backup: ' + fmtDateSmart(b.date || localDate(new Date(b.at)), true)
+    + (b.how === 'download' ? ' (downloaded)' : (b.how === 'share' ? ' (shared)' : ''));
+}
+function renderBackupLast() {
+  const el = document.getElementById('backupLast');
+  if (el) el.textContent = backupLastLine();
+}
+function backupDownload(json, name) {
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 60000);
+}
+// Returns a promise of how it left: 'share', 'download', or 'cancelled' (the
+// user closed the share sheet -- NOT recorded as a backup, because none was made).
+function exportBackup() {
+  const json = exportJSON();
+  const name = backupFileName();
+  let file = null;
+  try { file = new File([json], name, { type: 'application/json' }); } catch (e) { file = null; }
+  const canShare = !!(file && navigator.share && navigator.canShare && (function () {
+    try { return navigator.canShare({ files: [file] }); } catch (e) { return false; } })());
+  const download = function () {
+    backupDownload(json, name);
+    backupMark(name, 'download');
+    toast('Saved ' + name);
+    return { ok: true, how: 'download', name: name };
+  };
+  if (!canShare) return Promise.resolve(download());
+  return navigator.share({ files: [file], title: name }).then(function () {
+    backupMark(name, 'share');
+    toast('Backup shared');
+    return { ok: true, how: 'share', name: name };
+  }, function (err) {
+    if (err && err.name === 'AbortError') return { ok: false, how: 'cancelled', name: name };
+    return download();           // sharing failed for another reason: the file is still owed
+  });
+}
+
 // ---- DOM handlers ---------------------------------------------------------
 function copyOut() {
   const json = exportJSON();
@@ -1750,6 +1882,19 @@ function copyOut() {
     navigator.clipboard.writeText(json).then(function () { toast('Copied — paste to your AI or a safe place'); }).catch(function () {});
   }
   toast(done ? 'Copied' : 'Select-all + copy the text above');
+}
+// R213: a backup that is a file needs a way back that takes a file. It only
+// LOADS the file into the box; replacing everything is still the user's own tap
+// on Restore, with its confirmation and its pre-restore backup (D3).
+function restoreFilePicked(input) {
+  const f = input && input.files && input.files[0];
+  if (!f) return Promise.resolve({ ok: false });
+  return f.text().then(function (t) {
+    const box = document.getElementById('importBox');
+    if (box) box.value = t;
+    toast('Loaded ' + f.name + ' — tap Restore to replace all data');
+    return { ok: true, name: f.name, bytes: t.length };
+  }, function () { toast('That file could not be read'); return { ok: false }; });
 }
 function doRestore() {
   const box = document.getElementById('importBox');
@@ -2935,7 +3080,7 @@ function panelRowHTML(slot, e, depth, prevailing) {
     + '</div>'
     + (cov ? '<div class="pcov">' + esc(cov) + '</div>' : '')
     + (stackLine ? '<div class="pcov pstack">' + esc(stackLine) + '</div>' : '')
-    + (dflag ? '<div class="stkflag pflag">' + esc(dflag) + '</div>' : '')
+    + (dflag ? intakeNoteHTML(dflag, 'pflag') : '')
     + (alts.length ? '<details class="palt"><summary>other units</summary>'
         + '<div class="paltbody">' + alts.join(' \u00b7 ') + '</div></details>' : '')
     + '</div>';
@@ -3567,7 +3712,7 @@ function logStack(skip) {
       // R203: a food-database food. The combo part's own write, at the stack's one
       // timestamp, filed as a supplement so it is never placed by the clock.
       const raw = comboPartRaw(s.part, 1, time);
-      raw.meal = 'supplement';
+      raw.meal = 'supplement'; raw.stackKind = 'food';
       if (s.note) raw.notes = s.note;
       const it = normalizeItem(raw, true);
       day.items.push(it);
@@ -3582,7 +3727,7 @@ function logStack(skip) {
         kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
         fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g, micros: n.micros,
         grams: s.grams,
-        confidence: 'measured', notes: s.note || '', source: 'supplement',
+        confidence: 'measured', notes: s.note || '', source: 'supplement', stackKind: 'food',
         bioactive: s.bioactive, tzo: nowTZO(),           // D29 (stamped)
       }, true);
       day.items.push(it);
@@ -3593,6 +3738,7 @@ function logStack(skip) {
       const r = addSignal({ kind: 'medication', name: s.name, dose: s.dose,
                             dose_unit: s.dose_unit, bioactive: s.bioactive, notes: s.note || '',
                             micros: (s.nutrients && s.nutrients.micros) || undefined,   // R208
+                            stackKind: stackKindOf(s.kind),                             // R213
                             time: time, date: dk, source: 'stack' });
       if (r && r.ok && r.record) records.push(r.record);
     }
@@ -3615,6 +3761,7 @@ function comboPartRaw(p, m, time) {
   }
   if (g != null) raw.grams = g;
   if (p.published) raw.published = p.published;
+  if (p.basis) raw.basis = p.basis;
   // The ref re-expressed at THIS part's new portion, or dropped if it has no
   // basis to re-express from. Never guessed.
   if (p.ref) {
@@ -3724,6 +3871,31 @@ function dayIntakeParts(dateKey, key) {
   if (sd) p.stack = sd.amount;
   return p;
 }
+// R213 -- A FLAG IS A SMALL MARK, AND ITS SENTENCE IS ONE TAP AWAY. Every intake
+// flag was a paragraph drawn in full on the row: on the stack row it pushed the
+// rest of the sheet down a screen. Ruled: an icon and "Intake note -- tap to
+// read", neutral amber and never red, a 44-point target, the sentence inside,
+// and COLLAPSED EVERY TIME -- nothing remembers that it was opened, because a
+// note that stays open is a note that is always shouting.
+//
+// A <details>: the browser's own disclosure, so it works with a keyboard and a
+// screen reader with no handler of ours. It is rebuilt closed on every render.
+const INTAKE_NOTE_LABEL = 'Intake note \u2014 tap to read';
+function intakeNoteHTML(text, cls) {
+  if (!text) return '';
+  return '<details class="iflag ' + esc(cls || '') + '"><summary class="iflagsum" aria-label="' + esc(INTAKE_NOTE_LABEL) + '">'
+    + '<svg class="iflagico" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true" focusable="false">'
+    + '<path d="M3 1.5v13M3 2.5h9.5l-2.2 3 2.2 3H3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>'
+    + '<span class="iflaglab">' + esc(INTAKE_NOTE_LABEL) + '</span></summary>'
+    + '<div class="iflagbody">' + esc(text) + '</div></details>';
+}
+// One stack item's own flag: the item's amount first (ruled: "my amount"), then
+// the level, whose it is, the scope and the source.
+function itemIntakeFlagText(f) {
+  if (!f) return '';
+  const u = f.unit === 'ug' ? '\u00b5g' : f.unit;
+  return 'This item: ' + rDisp(f.amount) + ' ' + u + '. ' + intakeFlagText(f);
+}
 // THE DAY'S FLAGS. The amount compared is the one the limit's SCOPE names:
 // everything for 'total'; supplements and doses only for 'supplemental' -- so
 // 400 mg of magnesium from food and 300 from the stack is 300 against 350, and
@@ -3807,9 +3979,10 @@ function stackConfirm() {
 }
 // What a row says it will deliver, as a phrase. Doses only -- never a pathway.
 function stackRowSub(s) {
-  const bits = [];
+  const bits = [stackKindWord(s.kind)];
   if (s.dose != null) bits.push(rDisp(s.dose) + (s.dose_unit ? ' ' + doseUnitWord(s.dose_unit) : ''));
   if (s.part && s.part.grams != null) bits.push(rDisp(s.part.grams) + ' g');
+  if (s.part && MYFOOD_BASIS_WORD[s.part.basis]) bits.push(MYFOOD_BASIS_WORD[s.part.basis]);
   if (s.note) bits.push(s.note);
   const cm = Object.keys((s.kind !== 'food' && s.nutrients && s.nutrients.micros) || {});
   bits.push(s.kind === 'food' ? 'counts in your day' : 'goes on your timeline');
@@ -3835,7 +4008,7 @@ function stackSheetHTML() {
     const micros = (s.nutrients && s.nutrients.micros) || {};
     Object.keys(micros).forEach(function (k) {
       const f = intakeFlag(k, micros[k]);
-      if (f) flag += '<div class="stkflag">' + esc(intakeFlagText(f)) + '</div>';
+      if (f) flag += intakeNoteHTML(itemIntakeFlagText(f), 'stkflag');
     });
     return '<div class="stkrow' + (skipped ? ' stkoff' : '') + '">'
       + '<label class="stktick"><input type="checkbox"' + (skipped ? '' : ' checked')
@@ -3877,7 +4050,7 @@ let STACK_FORM = null;           // { editId, kind, pick, kept, rows, seq } | nu
 // id the stack holds, otherwise appended.
 function stackUpsert(raw) {
   const r = raw || {};
-  const kind = (r.kind === 'food') ? 'food' : 'dose';
+  const kind = stackKindOf(r.kind === 'dose' ? 'supplement' : r.kind);
   const item = { id: r.id, kind: kind, enabled: r.enabled !== false, note: r.note, bioactive: r.bioactive };
   let name = String(r.name == null ? '' : r.name).trim();
   if (kind === 'food') {
@@ -3948,7 +4121,7 @@ function stackFormOpen(id) {
   const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
   const it = (id == null || id === '') ? null : list.filter(function (x) { return x.id === String(id); })[0];
   if (id != null && id !== '' && !it) return { ok: false };
-  STACK_FORM = { editId: it ? it.id : '', kind: it ? it.kind : 'dose', pick: null,
+  STACK_FORM = { editId: it ? it.id : '', kind: it ? stackKindOf(it.kind) : 'supplement', pick: null,
                  kept: (it && it.part) ? JSON.parse(JSON.stringify(it.part)) : null, rows: [], seq: 0,
                  seed: it ? JSON.parse(JSON.stringify(it)) : null };
   renderStackEditor();
@@ -3959,7 +4132,7 @@ function stackFormCancel() { STACK_FORM = null; renderStackEditor(); return { ok
 function stackFormKind(k) {
   if (!STACK_FORM) return { ok: false };
   const keep = stackFormRead();
-  STACK_FORM.kind = (k === 'food') ? 'food' : 'dose';
+  STACK_FORM.kind = stackKindOf(k);
   STACK_FORM.seed = Object.assign({}, STACK_FORM.seed || {}, keep, { kind: STACK_FORM.kind });
   renderStackEditor();
   return { ok: true, kind: STACK_FORM.kind };
@@ -4008,6 +4181,7 @@ function stackFormRead() {
 function stackFormSearch(text) {
   const st = STACK_FORM; if (!st) return Promise.resolve({ phase: 'closed', rows: [] });
   const seq = ++st.seq;
+  st.q = String(text == null ? '' : text);
   return typeaheadRun(text).then(function (r) {
     if (STACK_FORM !== st || st.seq !== seq) return r;
     st.rows = r.rows || [];
@@ -4018,9 +4192,11 @@ function stackFormSearch(text) {
 }
 function stackFormRowsHTML(phase) {
   const st = STACK_FORM; if (!st) return '';
-  if (phase === 'no-corpus') return '<div class="note fqnote">The food database is not on this device yet. Open this once while online.</div>';
-  if (phase === 'none') return '<div class="note fqnote">Nothing in the food database matches that.</div>';
-  return (st.rows || []).map(function (c, i) {
+  // R213: the user's own foods first, then the way to add one, then the database.
+  const own = myFoodRowsHTML(st.q, 'stackFormPickMine', 'stackFoodFormOpen');
+  if (phase === 'no-corpus') return own + '<div class="note fqnote">The food database is not on this device yet. Open this once while online.</div>';
+  if (phase === 'none') return own + '<div class="note fqnote">Nothing in the food database matches that.</div>';
+  return own + (st.rows || []).map(function (c, i) {
     const mac = photoSearchMacroWords({ kcal: c.kcal, protein: c.protein, fat: c.fat, carb: c.carb });
     return '<button type="button" class="btn fqrow" onclick="stackFormPick(' + i + ')">'
       + '<span class="fqname">' + esc(c.name) + '</span>'
@@ -4038,6 +4214,19 @@ function stackFormPick(i) {
   const g = document.getElementById('stkGrams'); if (g && g.focus) g.focus();
   return { ok: true, name: c.name };
 }
+function stackFoodFormOpen() { return myFoodFormOpen('stack', STACK_FORM ? STACK_FORM.q : ''); }
+function stackFormPickMine(id) {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  const f = myFoods().filter(function (x) { return x.id === String(id); })[0];
+  if (!f) return { ok: false };
+  const keep = stackFormRead();
+  st.pick = { mine: f, name: f.name }; st.kept = null; st.rows = []; st.q = '';
+  st.seed = Object.assign({}, st.seed || {}, keep);
+  if (f.serving_g && !(num(st.seed.grams) > 0)) st.seed.grams = f.serving_g;      // the label's serving, offered
+  renderStackEditor();
+  const g = document.getElementById('stkGrams'); if (g && g.focus) g.focus();
+  return { ok: true, name: f.name };
+}
 function stackFormSave() {
   const st = STACK_FORM; if (!st) return { ok: false };
   const f = stackFormRead();
@@ -4045,7 +4234,8 @@ function stackFormSave() {
                 enabled: st.seed ? st.seed.enabled !== false : true, bioactive: st.seed && st.seed.bioactive };
   if (st.kind === 'food') {
     const grams = (String(f.grams).trim() === '') ? null : num(f.grams);
-    if (st.pick) raw.part = (grams > 0) ? corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, grams) : { name: st.pick.name };
+    if (st.pick && st.pick.mine) raw.part = (grams > 0) ? myFoodPart(st.pick.mine, grams) : { name: st.pick.name };
+    else if (st.pick) raw.part = (grams > 0) ? corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, grams) : { name: st.pick.name };
     else if (st.kept) raw.part = (grams > 0) ? comboNewPartNumbers({ kept: true, stored: st.kept, grams: grams }) : { name: st.kept.name };
   } else {
     raw.dose = f.dose; raw.dose_unit = f.dose_unit; raw.microKey = f.microKey;
@@ -4069,7 +4259,7 @@ function stackEditorHTML() {
     const micros = (s.nutrients && s.nutrients.micros) || {};
     Object.keys(micros).forEach(function (k) {
       const f = intakeFlag(k, micros[k]);
-      if (f) flag += '<div class="stkflag">' + esc(intakeFlagText(f)) + '</div>';
+      if (f) flag += intakeNoteHTML(itemIntakeFlagText(f), 'stkflag');
     });
     return '<div class="stkrow stked' + (s.enabled === false ? ' stkoff' : '') + '">'
       + '<label class="stktick"><input type="checkbox"' + (s.enabled === false ? '' : ' checked')
@@ -4086,9 +4276,13 @@ function stackEditorHTML() {
   const mk = sd.microKey != null ? sd.microKey : Object.keys((sd.nutrients && sd.nutrients.micros) || {})[0] || '';
   h += '<div class="stkform"><div class="srhead">' + (st.editId ? 'Edit item' : 'New item') + '</div><div id="stkWarn"></div>'
     + '<div class="primsel stkkinds">'
-    + '<button type="button" class="' + (st.kind === 'dose' ? 'on' : '') + '" onclick="stackFormKind(\'dose\')">Goes on my timeline</button>'
-    + '<button type="button" class="' + (st.kind === 'food' ? 'on' : '') + '" onclick="stackFormKind(\'food\')">Counts in my day</button></div>';
-  if (st.kind === 'dose') {
+    + STACK_KINDS.map(function (k) {
+        return '<button type="button" class="' + (st.kind === k ? 'on' : '') + '"' + (st.kind === k ? ' aria-pressed="true"' : '')
+          + ' onclick="stackFormKind(\'' + k + '\')">' + esc(stackKindWord(k)) + '</button>';
+      }).join('') + '</div>'
+    + '<div class="note stkkindnote">' + (st.kind === 'food' ? 'Counts in your day, with its calories.'
+        : (st.kind === 'medication' ? 'Goes on your timeline, kept apart from supplements.' : 'Goes on your timeline.')) + '</div>';
+  if (st.kind !== 'food') {
     h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" oninput="stackSuggestRender()" value="' + esc(v(sd.name)) + '">'
       + '<div class="row"><div><label for="stkDose">Amount</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
       + '<div><label for="stkUnit">Unit</label><select id="stkUnit">'
@@ -4099,12 +4293,13 @@ function stackEditorHTML() {
       + '</select><div id="stkSuggest"></div>';
   } else {
     const picked = st.pick ? st.pick.name : (st.kept ? ((st.kept.ref && st.kept.ref.name) || st.kept.name) : '');
+    const pickedMine = (st.pick && st.pick.mine) ? st.pick.mine.basis : ((st.kept && st.kept.basis) || '');
     h += (picked
-        ? '<div class="stkpicked">Food database: <b>' + esc(picked) + '</b></div>'
+        ? '<div class="stkpicked">' + (pickedMine ? ('Your food, ' + esc(MYFOOD_BASIS_WORD[pickedMine])) : 'Food database') + ': <b>' + esc(picked) + '</b></div>'
         : '')
       + '<label for="stkQuery">' + (picked ? 'Change the food' : 'Find the food') + '</label>'
       + '<input id="stkQuery" type="text" class="cnin" autocomplete="off" placeholder="search the food database" oninput="stackFormSearch(this.value)">'
-      + '<div id="stkRows"></div>'
+      + '<div id="stkRows"></div><div id="stkFood"></div>'
       + '<label for="stkGrams">Grams each time</label><input id="stkGrams" type="number" inputmode="decimal" min="0" value="'
       + esc(v(sd.grams != null ? sd.grams : (st.kept ? st.kept.grams : ''))) + '">'
       + '<label for="stkName">Name (optional)</label><input id="stkName" type="text" autocomplete="off" value="' + esc(v(sd.name)) + '">';
@@ -4118,6 +4313,155 @@ function renderStackEditor() {
   const el = document.getElementById('stackEditor');
   if (el) el.innerHTML = stackEditorHTML();
   stackSuggestRender();
+}
+
+// ---- R213: my foods -- write, match, turn into a part --------------------------
+function myFoods() { return (APP_STATE.settings && APP_STATE.settings.foods) || []; }
+// The testable core. `per` says how the numbers were typed: per 100 g, or per
+// the serving whose grams are given. Stored per 100 g either way.
+function myFoodUpsert(raw) {
+  const r = raw || {};
+  const name = String(r.name == null ? '' : r.name).trim();
+  if (!name) return { ok: false, error: 'Give the food a name.' };
+  if (MYFOOD_BASES.indexOf(r.basis) < 0) return { ok: false, error: 'Say whether these numbers are from the label or generic values.' };
+  const serving = (r.serving_g == null || String(r.serving_g).trim() === '') ? null : num(r.serving_g);
+  const per = (r.per === 'serving') ? 'serving' : '100g';
+  if (per === 'serving' && !(serving > 0)) return { ok: false, error: 'Enter the grams in one serving, so numbers per serving can be used.' };
+  if (r.kcal == null || String(r.kcal).trim() === '' || !isFinite(Number(r.kcal)) || Number(r.kcal) < 0)
+    return { ok: false, error: 'Enter the calories, as a number.' };
+  const k = (per === 'serving') ? (100 / serving) : 1;
+  const per100 = {};
+  let bad = '';
+  MACRO_KEYS.forEach(function (key) {
+    const v = r[key];
+    if (v == null || String(v).trim() === '') return;
+    if (!isFinite(Number(v)) || Number(v) < 0) { bad = key; return; }
+    per100[key] = Number(v) * k;
+  });
+  if (bad) return { ok: false, error: 'One of the amounts is not a number.' };
+  const food = normalizeMyFood({ id: r.id, name: name, basis: r.basis, serving_g: serving, per100: per100 });
+  const list = APP_STATE.settings.foods || (APP_STATE.settings.foods = []);
+  const at = (r.id != null && r.id !== '') ? list.map(function (x) { return x.id; }).indexOf(String(r.id)) : -1;
+  if (at >= 0) list[at] = food; else list.push(food);
+  Store.saveState(APP_STATE);
+  return { ok: true, food: food, edited: at >= 0 };
+}
+function myFoodRemove(id) {
+  const list = myFoods();
+  const at = list.map(function (x) { return x.id; }).indexOf(String(id));
+  if (at < 0) return { ok: false };
+  const copy = JSON.parse(JSON.stringify(list[at]));
+  list.splice(at, 1);
+  Store.saveState(APP_STATE); renderMyFoods();
+  offerUndo('Removed ' + copy.name + ' from your foods', function () {
+    const l2 = APP_STATE.settings.foods || (APP_STATE.settings.foods = []);
+    l2.splice(Math.min(at, l2.length), 0, copy);
+    Store.saveState(APP_STATE); renderMyFoods();
+  });
+  return { ok: true, removed: copy };
+}
+// Every typed word must begin a word of the name. The user's own short list, so
+// no weighting and no ranking: it is shown whole, above the database's rows.
+function myFoodsMatch(text) {
+  const q = String(text == null ? '' : text).toLowerCase().match(/[a-z0-9]+/g) || [];
+  if (!q.length) return [];
+  return myFoods().filter(function (f) {
+    const w = String(f.name).toLowerCase().match(/[a-z0-9]+/g) || [];
+    return q.every(function (t) { return w.some(function (x) { return x.indexOf(t) === 0; }); });
+  });
+}
+// A my-food at an amount, in the combo part's own shape -- so a stack and a combo
+// write it exactly as they write a food-database part. It has no `ref`: these
+// are the user's numbers, and `basis` says which kind.
+function myFoodPart(food, grams) {
+  const g = num(grams);
+  if (!food || !(g > 0)) return null;
+  const out = { name: food.name, grams: g, source: 'manual', basis: food.basis,
+                confidence: food.basis === 'label' ? 'measured' : 'eyeballed' };
+  MACRO_KEYS.forEach(function (k) { out[k] = (food.per100[k] != null) ? num(food.per100[k]) * g / 100 : 0; });
+  return out;
+}
+function myFoodWords(f) {
+  const p = f.per100 || {};
+  return MYFOOD_BASIS_WORD[f.basis] + ', per 100 g: ' + kcalDisp(p.kcal) + ' cal'
+    + (p.fat_g != null ? ' · F ' + rDisp(p.fat_g) : '') + (p.carb_g != null ? ' · C ' + rDisp(p.carb_g) : '')
+    + (p.protein_g != null ? ' · P ' + rDisp(p.protein_g) : '');
+}
+// The user's matching foods as rows, then the way to make a new one. `pickFn`
+// and `newFn` are names from this file, never text from anywhere else.
+function myFoodRowsHTML(text, pickFn, newFn) {
+  const rows = myFoodsMatch(text);
+  let h = '';
+  if (rows.length) {
+    h += '<div class="fqcap">Your foods</div>' + rows.map(function (f) {
+      return '<button type="button" class="btn fqrow fqown" onclick="' + pickFn + '(\'' + esc(String(f.id)) + '\')">'
+        + '<span class="fqnm">' + esc(f.name) + '</span><span class="fqmac">' + esc(myFoodWords(f)) + '</span></button>';
+    }).join('');
+  }
+  if (String(text == null ? '' : text).trim().length >= TYPEAHEAD_MIN)
+    h += '<button type="button" class="linklike fqexit fqnewfood" onclick="' + newFn + '()">Not in the database? Add it from its label</button>';
+  return h;
+}
+// ONE FORM, drawn into whichever builder asked for it. It is rendered once and
+// read on save, so the caret is never rebuilt under the user.
+let MYFOOD_FORM = null;          // { ctx: 'stack' | 'combo', host } | null
+function myFoodFormOpen(ctx, name) {
+  MYFOOD_FORM = { ctx: String(ctx) };
+  const el = document.getElementById(ctx === 'combo' ? 'cnFood' : 'stkFood');
+  if (el) el.innerHTML = myFoodFormHTML(name);
+  const f = document.getElementById('mfName'); if (f && f.focus) f.focus();
+  return { ok: !!el, ctx: MYFOOD_FORM.ctx };
+}
+function myFoodFormClose() {
+  const ctx = MYFOOD_FORM ? MYFOOD_FORM.ctx : '';
+  MYFOOD_FORM = null;
+  ['cnFood', 'stkFood'].forEach(function (id) { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  return { ok: true, ctx: ctx };
+}
+function myFoodFormHTML(name) {
+  const num1 = function (id, label) {
+    return '<div><label for="' + id + '">' + label + '</label><input id="' + id + '" type="number" inputmode="decimal" min="0"></div>'; };
+  return '<div class="mfform"><div class="srhead">A food from its label</div><div id="mfWarn"></div>'
+    + '<label for="mfName">Name</label><input id="mfName" type="text" autocomplete="off" value="' + esc(String(name == null ? '' : name)) + '">'
+    + '<div class="row"><div><label for="mfBasis">These numbers are</label><select id="mfBasis">'
+    + '<option value="label" selected>from the label</option><option value="generic">generic values</option></select></div>'
+    + '<div><label for="mfPer">Given</label><select id="mfPer"><option value="100g" selected>per 100 g</option><option value="serving">per serving</option></select></div></div>'
+    + '<label for="mfServing">Grams in one serving</label><input id="mfServing" type="number" inputmode="decimal" min="0" placeholder="needed for per serving">'
+    + '<div class="row">' + num1('mfKcal', 'Calories') + num1('mfFat', 'Fat, g') + '</div>'
+    + '<div class="row">' + num1('mfCarb', 'Carbs, g') + num1('mfProt', 'Protein, g') + '</div>'
+    + '<div class="row">' + num1('mfFib', 'Fibre, g') + '<div></div></div>'
+    + '<button type="button" class="btn primary mfsave" onclick="myFoodFormSave()">Save this food</button>'
+    + '<button type="button" class="linklike mfcancel" onclick="myFoodFormClose()">Cancel</button></div>';
+}
+function myFoodFormSave() {
+  if (!MYFOOD_FORM) return { ok: false };
+  const g = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
+  const r = myFoodUpsert({ name: g('mfName'), basis: g('mfBasis'), per: g('mfPer'), serving_g: g('mfServing'),
+                           kcal: g('mfKcal'), fat_g: g('mfFat'), carb_g: g('mfCarb'), protein_g: g('mfProt'), fiber_g: g('mfFib') });
+  if (!r.ok) {
+    const w = document.getElementById('mfWarn');
+    if (w) w.innerHTML = '<div class="warn">' + esc(r.error || 'Could not save.') + '</div>';
+    return r;
+  }
+  const ctx = MYFOOD_FORM.ctx;
+  myFoodFormClose();
+  renderMyFoods();
+  toast('Saved ' + r.food.name + ' to your foods');
+  if (ctx === 'combo') comboNewAddMine(r.food.id); else stackFormPickMine(r.food.id);
+  return r;
+}
+function myFoodsHTML() {
+  const list = myFoods();
+  if (!list.length) return '<div class="note">No foods of your own yet. Add one where a food is searched for — in the stack or in a combo — when it is not in the food database.</div>';
+  return list.map(function (f) {
+    return '<div class="stkrow stked"><div class="stkname">' + esc(f.name) + '</div>'
+      + '<div class="stksub">' + esc(myFoodWords(f)) + (f.serving_g ? ' · serving ' + esc(rDisp(f.serving_g)) + ' g' : '') + '</div>'
+      + '<div class="stkacts"><button type="button" class="linklike cnrm stkdel" onclick="myFoodRemove(\'' + esc(String(f.id)) + '\')">Remove</button></div></div>';
+  }).join('');
+}
+function renderMyFoods() {
+  const el = document.getElementById('myFoodsList');
+  if (el) el.innerHTML = myFoodsHTML();
 }
 
 // ---- COMBOS: ONE TAP, N SEPARATE ITEMS, ONE TIMESTAMP --------------------
@@ -4331,6 +4675,9 @@ const SOURCE_WORD = { scan: 'from barcode', 'ai-paste': 'from photo', manual: 't
                       corpus: 'from the food database' };
 function confWord(v) { const k = String(v == null ? '' : v); return CONF_WORD[k] || k; }
 function sourceWord(v) { const k = String(v == null ? '' : v); return SOURCE_WORD[k] || k; }
+// R213: a "my food" says which it is -- "from label" or "generic values" -- where
+// any other item says how it was entered.
+function itemSourceWord(it) { return (it && MYFOOD_BASIS_WORD[it.basis]) || sourceWord(it && it.source); }
 function wordCensus() {
   const miss = [];
   CONFIDENCES.forEach(function (v) { if (!CONF_WORD[v]) miss.push('confidence value with no word: ' + v); });
@@ -5271,13 +5618,13 @@ function renderDayInner() {
       html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
         <div class="mline">
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
-            <span class="mname mginame" title="${esc(it.name)}">${esc(it.name)}</span>
+            <span class="mname mginame" title="${esc(it.name)}">${esc((recordKindWord(it) ? recordKindWord(it) + ' \u00b7 ' : '') + it.name)}</span>
             <span class="mtime mgitime">${esc(it.autoLegacy === true ? LEGACY_AUTO_SHORT : (it.time || ''))}</span>
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
         </div>${servedHTML}${isOpen ? `<div class="mbody">${legacyHTML}${ateHTML}
-          <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(sourceWord(it.source))}</span>${edited}</div>
+          <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${it._auto || !it.mealId ? '' : mealResponseHTML(dk, it.mealId)}
           ${it._auto || !it.mealId ? '' : mealTestHTML(dk, it.mealId)}
@@ -7004,6 +7351,8 @@ function normalizeSignal(raw) {
     // nothing and stays a timeline fact only.
     const dmi = normalizeMicros(raw.micros);
     if (dmi) rec.micros = dmi;
+    // R213: supplement or medication -- kept in the record, not only in the label.
+    if (raw.stackKind === 'supplement' || raw.stackKind === 'medication') rec.stackKind = raw.stackKind;
   } else {
     rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
     if (raw.value != null && String(raw.value) !== '') {
@@ -7130,7 +7479,8 @@ function timelineForDay(date) {
   if (day) (day.items || []).forEach((it) => rows.push({ time: it.time || '', row: 'food', name: it.name, kcal: it.kcal }));
   ((APP_STATE.timeline && APP_STATE.timeline[date]) || []).forEach((s, idx) =>
     rows.push({ time: s.time || '', row: s.kind, type: s.type, value: s.value, unit: s.unit, notes: s.notes,
-                name: s.name, dose: s.dose, dose_unit: s.dose_unit, wake_src: s.wake_src, idx: idx }));
+                name: s.name, dose: s.dose, dose_unit: s.dose_unit, wake_src: s.wake_src, idx: idx,
+                kind: s.kind, source: s.source, stackKind: s.stackKind }));
   rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   return rows;
 }
@@ -7715,7 +8065,11 @@ function renderTimelineOverlay() {
       // way, and signals carry no id at all. The ending that follows a dose needs
       // it to find THIS dose instead of scrolling to the timeline and leaving the
       // eye to search a day's worth of rows.
-      return `<div class="tlrow" data-sidx="${esc(String(r.idx))}"><span class="tltime">${t}</span><span class="tltag medication">med</span><span class="tlmain"${openA}>${esc(r.name)}${dose}${note}${edited}</span>${rm}</div>`;
+      // R213: the kind's word leads the row -- "Supplement . name 300 mg" -- and
+      // the tag follows it, so a supplement is no longer tagged "med".
+      const kw = recordKindWord(r);
+      const tag = (kw === 'Supplement') ? 'supp' : 'med';
+      return `<div class="tlrow" data-sidx="${esc(String(r.idx))}"><span class="tltime">${t}</span><span class="tltag medication">${tag}</span><span class="tlmain"${openA}>${kw ? `<span class="tlkind">${esc(kw)} \u00b7 </span>` : ''}${esc(r.name)}${dose}${note}${edited}</span>${rm}</div>`;
     }
     const spec = SIGNAL_BY_TYPE[r.type];
     // D113: a sleep row says when the night ENDED, and says so when that end was
@@ -10726,7 +11080,7 @@ let CHART_PICK = null;                 // a moment in ms, or null
 // exactly like a parse error, and sent me looking for a syntax slip.
 function deleteAllKeys() {
   return [STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY,
-          GLUCOSE_KEY, STEPS_KEY, VERSION_KEY, SCANS_KEY, TRASH_KEY, BYOK_LS];
+          GLUCOSE_KEY, STEPS_KEY, VERSION_KEY, SCANS_KEY, TRASH_KEY, BYOK_LS, BACKUP_KEY];
 }
 // THE CORPUS IS KEPT, and the confirm says so rather than leaving it to be
 // guessed. It is a shipped asset, it contains nothing about the user, and
@@ -13186,6 +13540,7 @@ const VERSION_LOG = [
   { v: '0.93.0', d: '2026-10-12', note: 'Search understands both spellings: yogurt finds yogourt and the other way round, and the same for flavor and flavour, fiber and fibre, whiskey and whisky. Branded products now come after the plain food of the same name, and a food named for the word you typed comes before one that only mentions it later in its name.' },
   { v: '0.94.0', d: '2026-10-12', note: 'Nothing is logged unless you tap. The Daily supplement setting, which added an item to every new day by itself, is gone. What it added in the past is now an ordinary entry you can delete, marked time unknown because its time was only when the app was opened. In its place Settings has a Daily stack: list what you take, with amount, unit and a note, and log it with one tap from + Log, unticking anything you skipped. On the day, sittings more than three hours apart are no longer shown as one meal, and supplements have their own group instead of being filed under a meal by the clock.' },
   { v: '0.95.0', d: '2026-10-12', note: 'A stack item you set to count toward a nutrient now adds to that nutrient for the day, shown as its own line, from your stack, with no calories. The editor suggests the nutrient when the name matches one, and you confirm it; it is never set for you. Where a cited upper level is exceeded the nutrient row says so and names its source: vitamin D against everything taken that day, magnesium against supplements only, because that is what each figure is about.' },
+  { v: '0.96.0', d: '2026-10-13', note: 'Export backup makes a real file, named with the date, that you save to Files or iCloud Drive from the share sheet; Settings shows when the last one was made. A stack item is now a Supplement, a Medication or a Food, and logged entries say which. A food that is in neither food database can be added from its label, or with generic values, wherever a food is searched for in the stack or a combo; it is kept in your foods and found again by name. Intake notes are a small flag you tap to read, closed each time, instead of a paragraph on the row.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17796,6 +18151,8 @@ function openSettings() {
   // The stack can change behind the panel (a restore, a migration), so the list
   // is drawn when the panel opens -- but never over a form that is being typed in.
   if (!STACK_FORM) renderStackEditor();
+  renderMyFoods();
+  renderBackupLast();
   if (p) p.style.display = 'flex';
   if (s) s.style.display = 'block';
   overlaySync();
@@ -17854,6 +18211,16 @@ function biometricGroupHTML(dateKey) {
     const r = x.r;
     const spec = SIGNAL_BY_TYPE[r.type];
     const val = (r.value != null) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
+    // R213: A DOSE SAYS WHAT IT WAS. This row printed the stored word "medication"
+    // and nothing else -- no name, no amount -- for every dose on the day. Seen in
+    // a screenshot taken to check the kind's word; no gate asked.
+    if (r.kind === 'medication') {
+      const kw = recordKindWord(r);
+      const dose = (r.dose != null) ? (rDisp(r.dose) + (r.dose_unit ? ' ' + doseUnitWord(r.dose_unit) : '')) : '';
+      return `<div class="bgline bgdose"><span class="mgitime">${esc(r.time || '')}</span>`
+        + `<span class="mginame">${kw ? `<span class="mkind">${esc(kw)} · </span>` : ''}${esc(r.name || 'dose')}</span>`
+        + `<span class="bgval">${esc(dose)}</span></div>`;
+    }
     return `<div class="bgline"><span class="mgitime">${esc(r.time || '')}</span>`
       + `<span class="mginame">${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : (r.type || ''))}</span>`
       + `<span class="bgval">${esc(val)}</span></div>`;
@@ -18912,7 +19279,7 @@ function renderComboNew() {
     + '<label class="cnlab" for="cnQuery">Add a part</label>'
     + '<input id="cnQuery" type="text" class="cnin" placeholder="search the food database"'
     + ' aria-label="search for a part" autocomplete="off" oninput="comboNewType(this.value)">'
-    + '<div id="cnRows"></div>'
+    + '<div id="cnRows"></div><div id="cnFood"></div>'
     + '<div id="cnTotal">' + comboNewTotalHTML() + '</div>';
 }
 function comboNewPaint(which) {
@@ -18949,7 +19316,16 @@ function comboNewRowsHTML() {
     ? '<button type="button" class="linklike fqexit" onclick="comboNewAddTyped()">Not here? Add “'
       + esc(typed) + '” without database numbers</button>'
     : '';
-  return own + typeaheadRowsHTML(st, 'comboNewAddAt');
+  return myFoodRowsHTML(typed, 'comboNewAddMine', 'comboFoodFormOpen') + own + typeaheadRowsHTML(st, 'comboNewAddAt');
+}
+function comboFoodFormOpen() { return myFoodFormOpen('combo', COMBO_NEW ? COMBO_NEW.q : ''); }
+function comboNewAddMine(id) {
+  const st = COMBO_NEW;
+  const f = myFoods().filter(function (x) { return x.id === String(id); })[0];
+  if (!st || !f) return { ok: false, why: 'no-such-food' };
+  st.parts.push({ name: f.name, mine: f, grams: f.serving_g || null });
+  comboNewAdded();
+  return { ok: true, parts: st.parts.length, mine: true };
 }
 function comboNewAdded() {
   const st = COMBO_NEW;
@@ -19017,6 +19393,7 @@ function comboNewPartNumbers(p) {
     st.grams = p.grams;
     return st;
   }
+  if (p.mine) return (num(p.grams) > 0) ? myFoodPart(p.mine, p.grams) : null;      // R213
   if (!p.typed) return corpusOwnNumbers(p.meta, p.row, p.id, p.name, p.grams);
   const out = { name: p.name, confidence: 'eyeballed', source: 'manual' };
   if (p.grams != null) out.grams = p.grams;
@@ -19050,6 +19427,8 @@ function comboNewPartsHTML() {
       ? ((num(p.stored.grams) > 0)
           ? ('saved part \u00b7 ' + esc(kcalDisp(num(p.stored.kcal))) + ' cal at ' + esc(rDisp(p.stored.grams)) + ' g')
           : 'saved with no amount, so it cannot be resized')
+      : p.mine
+      ? ('your food \u00b7 ' + esc(myFoodWords(p.mine)))
       : p.typed
       ? 'typed in · no database numbers'
       : ('food database, per 100 g: <span class="fqnb">'
@@ -21086,6 +21465,8 @@ function main() {
   checkVersionNotice();
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
   renderStackEditor();
+  renderMyFoods();
+  renderBackupLast();
   renderSignalForm();
   renderMedForm();
   renderPromptCard();
@@ -21339,6 +21720,11 @@ window.HT = {
   stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, stackOpen, stackToggle, stackConfirm, stackCancel, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
+  STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,
+  MYFOOD_BASES, normalizeMyFood, normalizeMyFoods, myFoods, myFoodUpsert, myFoodRemove, myFoodsMatch, myFoodPart, myFoodWords,
+  myFoodRowsHTML, myFoodFormOpen, myFoodFormClose, myFoodFormSave, myFoodsHTML, renderMyFoods, itemSourceWord,
+  stackFormPickMine, stackFoodFormOpen, comboNewAddMine, comboFoodFormOpen,
+  restoreFilePicked, BACKUP_KEY, backupFileName, backupLast, backupMark, backupLastLine, renderBackupLast, exportBackup, backupDownload,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,

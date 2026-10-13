@@ -202,8 +202,8 @@ try {
     var st = r.querySelector('.pstack'), fl = r.querySelector('.pflag');
     var sb = st ? st.getBoundingClientRect() : null, fb = fl ? fl.getBoundingClientRect() : null;
     return { found: true, val: (r.querySelector('.pval') || {}).textContent, stack: st ? st.textContent : '', stackSeen: sb ? (sb.height > 0 && sb.width > 0) : false,
-             stackPx: st ? parseFloat(getComputedStyle(st).fontSize) : 0, flag: fl ? fl.textContent : '', flagSeen: fb ? (fb.height > 0 && fb.width > 0) : false,
-             flagPx: fl ? parseFloat(getComputedStyle(fl).fontSize) : 0, wide: r.scrollWidth - r.clientWidth };
+             stackPx: st ? parseFloat(getComputedStyle(st).fontSize) : 0, flag: fl ? ((fl.querySelector('.iflagbody') || {}).textContent || '') : '', flagSeen: fb ? (fb.height > 0 && fb.width > 0) : false,
+             flagPx: fl ? parseFloat(getComputedStyle(fl.querySelector('.iflaglab')).fontSize) : 0, wide: r.scrollWidth - r.clientWidth };
   };
   var day = HT.state().days[t], tl = HT.state().timeline[t] || [];
   return { mg: row('Magnesium'), vd: row('Vitamin D'), flags: document.querySelectorAll('#microPanel .pflag').length,
@@ -229,7 +229,7 @@ try {
   [void](Eval "document.querySelector('#stackEditor .stksave').click()")
   Settle
   [void](Eval "(function(){ HT.closeSettings(); HT.openSheet(); document.querySelector('#sheetRoot .stkopen').click(); return 1; })()")
-  $row = EvalJ "(function(){ var r = document.querySelectorAll('#sheetRoot .stkrow')[0]; var f = r ? r.querySelector('.stkflag') : null; return { flag: f ? f.textContent : '' }; })()"
+  $row = EvalJ "(function(){ var r = document.querySelectorAll('#sheetRoot .stkrow')[0]; var f = r ? r.querySelector('.stkflag .iflagbody') : null; return { flag: f ? f.textContent : '' }; })()"
   [void](Eval "(function(){ document.querySelector('#sheetRoot .stklog').click(); HT.closeSheet(); return 1; })()")
   Settle
   $p2 = EvalJ $panel

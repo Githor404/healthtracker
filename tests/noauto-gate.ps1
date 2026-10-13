@@ -175,7 +175,7 @@ try {
   $mv = $m | ConvertFrom-Json
   Check (($mv.version -eq 15) -and ($mv.current -eq $mv.today)) "PRECONDITION: the app started on a schema-14 store with the old setting ENABLED, migrated it, and is on today"
   Check (($mv.todayItems -eq 0) -and ($mv.todayDoses -eq 0) -and ($mv.rows -eq 0)) "R203: TODAY IS EMPTY -- starting the app logged nothing: no item, no dose, no row on screen. With the old setting this start wrote one"
-  Check (($mv.setting -eq $true) -and (@($mv.stack).Count -eq 1) -and ($mv.stack[0] -eq 'Daily capsule|dose|no-amount|true')) "R203: the setting is gone and became ONE stack item -- its name, and no amount, because the old setting never held one"
+  Check (($mv.setting -eq $true) -and (@($mv.stack).Count -eq 1) -and ($mv.stack[0] -eq 'Daily capsule|supplement|no-amount|true')) "R203: the setting is gone and became ONE stack item -- its name, and no amount, because the old setting never held one"
   Check (($mv.oldFlag -eq $true) -and ($mv.oldMark -eq $true) -and ($mv.oldTime -eq '') -and ($mv.oldNote -eq 'auto-added by old setting (at app open, 02:16)') -and ($mv.n -eq 4)) "R204: the entry it had auto-added is ordinary and marked, its time CLEARED, the old stamp kept in the note -- and it is still on its day"
 
   # ---- 2. a simulated midnight ----------------------------------------------------------
@@ -222,14 +222,14 @@ try {
   [void](Eval ("(function(){ " + $open + " return 1; })()"))
   $row = @'
 (function () {
-  var r = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (x) { return (x.querySelector('.mname') || {}).textContent === 'Daily capsule'; })[0];
+  var r = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (x) { return (x.querySelector('.mname') || { getAttribute: function () { return ''; } }).getAttribute('title') === 'Daily capsule'; })[0];
   if (!r) return { found: false, n: HT.state().days[window.__y].items.length };
   var rm = r.querySelector('.rm'), tm = r.querySelector('.mtime');
   var h0 = Math.round(r.getBoundingClientRect().height);
   var rb = rm ? rm.getBoundingClientRect() : null, tb = tm ? tm.getBoundingClientRect() : null;
   var tpx = tm ? parseFloat(getComputedStyle(tm).fontSize) : 0;
   r.querySelector('.mhead').click();                        // open it: the reason is the first thing inside
-  r = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (x) { return (x.querySelector('.mname') || {}).textContent === 'Daily capsule'; })[0];
+  r = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (x) { return (x.querySelector('.mname') || { getAttribute: function () { return ''; } }).getAttribute('title') === 'Daily capsule'; })[0];
   var lg = r.querySelector('.mbody .mlegacy');
   var b = lg ? lg.getBoundingClientRect() : null;
   rm = r.querySelector('.rm');
@@ -244,7 +244,7 @@ try {
   Check (($r1v.found -eq $true) -and ($r1v.time -eq 'time unknown') -and ($r1v.timeSeen -eq $true) -and ($r1v.timePx -ge 16) -and ($r1v.h -le 60)) ("R204 GATE: its COLLAPSED row says 'time unknown' where the time would be, on screen at 16px, and is still one line (" + $r1v.h + " px of 60)")
   Check (($r1v.says -eq 'time unknown (auto-added at app open)') -and ($r1v.seen -eq $true) -and ($r1v.saysPx -ge 16)) "R204 GATE: OPENED, it says why -- 'time unknown (auto-added at app open)', on screen, at 16px"
   Check (($r1v.rm -eq $true) -and ($r1v.rmSeen -eq $true)) "R203 GATE: and it has a visible delete control -- nothing that is logged is non-deletable"
-  [void](Eval "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (x) { return (x.querySelector('.mname') || {}).textContent === 'Daily capsule'; })[0]; r.querySelector('.rm').click(); return 1; })()")
+  [void](Eval "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (x) { return (x.querySelector('.mname') || { getAttribute: function () { return ''; } }).getAttribute('title') === 'Daily capsule'; })[0]; r.querySelector('.rm').click(); return 1; })()")
   Settle
   $d1 = EvalJ "(function(){ var t = document.getElementById('toast'); return { n: HT.state().days[window.__y].items.length, gone: !HT.state().days[window.__y].items.some(function (i) { return i.name === 'Daily capsule'; }), undo: !!(t && t.querySelector('.tundo') && t.classList.contains('show')), group: document.querySelectorAll('#dayView .mgrp[data-kind=supplement]').length }; })()"
   Write-Host ("  deleted: " + $d1)
@@ -295,7 +295,7 @@ try {
   [void](Eval "document.querySelector('#stackEditor .stksave').click()")
   Settle
   [void](Eval "document.querySelector('#stackEditor .stkadd').click()")
-  [void](Eval "document.querySelectorAll('#stackEditor .stkkinds button')[1].click()")
+  [void](Eval "document.querySelectorAll('#stackEditor .stkkinds button')[2].click()")
   # The food database is fetched once, on first use; wait for it rather than for a
   # fixed pause, so the search below is typed into a ready pane.
   $db = EvalA "HT.corpusEnsure().then(function (r) { return { ok: !!(r && r.ok), rows: HT.corpusState().rows }; })"
@@ -318,7 +318,7 @@ try {
 '@
   Write-Host ("  two items added: " + $pk + " " + $e1)
   $e1v = $e1 | ConvertFrom-Json
-  Check (($e1v.n -eq 3) -and ($e1v.dose -eq 'Gate capsule|600|mg|with food|dose')) "R203 GATE: a DOSE typed into the editor is saved -- name, amount, unit and note"
+  Check (($e1v.n -eq 3) -and ($e1v.dose -eq 'Gate capsule|600|mg|with food|supplement')) "R203 GATE: a DOSE typed into the editor is saved -- name, amount, unit and note"
   Check (($pk -like '*"typed":"butter"*') -and (-not ($pk -like '*"rows":0*')) -and ($e1v.food -eq $true) -and ($e1v.foodName -like 'Butter*')) "R203 GATE: a FOOD is found by typing into the editor's own search, picked, and given typed grams -- stored with the food database's numbers and its citation"
   Check ((@($e1v.rows).Count -eq 3) -and ($e1v.rows[1] -like '*Gate capsule*600 mg*with food*') -and ($e1v.rows[2] -like '*10 g*counts in your day*') -and ($e1v.form -eq $false)) "and the list SHOWS all three, each with its amount"
   Check (($e1v.todayItems -eq 0) -and ($e1v.todayDoses -eq 0)) "R203 GATE: EDITING THE STACK LOGGED NOTHING -- today still holds no item and no dose"

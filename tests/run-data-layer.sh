@@ -31,7 +31,8 @@ HTML="$DIR/data-layer.test.html"
 #
 # Adding a gate: add its name here, in the same commit -- deliberately, exactly
 # as EXPECTED_ASSERTIONS is re-pinned.
-GATE_SCRIPTS="bm-slider-gate.ps1
+GATE_SCRIPTS="backup-gate.ps1
+bm-slider-gate.ps1
 capture-gate.ps1
 capture-outcome-gate.ps1
 anti-engagement-gate.ps1
@@ -53,6 +54,7 @@ identity-search-gate.ps1
 jargon-gate.ps1
 lab-form-gate.ps1
 landing-gate.ps1
+myfood-gate.ps1
 night-gate.ps1
 noauto-gate.ps1
 offline-gate.ps1
@@ -426,7 +428,20 @@ echo "-----------------------------------------"
 # without a citation, flags nothing. The record boundary keeps the map on a dose
 # only. The editor suggests and never sets, with controls for a name that holds
 # no nutrient and a word that merely contains one.
-EXPECTED_ASSERTIONS=3068
+# R213, v0.96.0: 3068 -> 3102, delta +34. KINDS: three, supplement the default,
+# a stored "dose" reads as one; each row leads with its word; medication distinct
+# on the dose record; a food keeps its calories; the render-only relabel of
+# earlier entries and its controls (a dose typed into the form, ordinary food);
+# rendering changes no record. THE NOTE: collapsed in the markup, labelled, the
+# sentence inside; my amount first on an item's; one in the editor, on the Log
+# sheet and in the panel. THE BACKUP: the file's name, "none yet", "Last
+# backup", no urging, the key removed by delete-everything, the restore boundary
+# accepting it. MY FOODS: ships empty; per serving stored per 100 g; absent not
+# zero; five refusals; found by name; a part in the combo part's shape with no
+# citation; saved in the stack, logged, IN THE DAY'S TOTALS, "from label"; as a
+# combo part; listed first where a food is searched; remove with Undo changing
+# nothing already saved; the boundary.
+EXPECTED_ASSERTIONS=3102
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

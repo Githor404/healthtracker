@@ -1122,7 +1122,21 @@
 .stkkinds button{min-height:44px;font-size:16px}
 .stkpicked{margin-top:8px;font-size:16px}
 .stksug{display:block;font-size:16px;min-height:44px;text-align:left}
-.pstack,.pflag{font-size:16px}
+.pstack{font-size:16px}
+.iflag{margin:4px 0}
+/* the note is not the old boxed paragraph: closed, it is its summary and no more */
+.iflag.stkflag{border-left:0;padding:0;margin-top:2px}
+.iflag>summary.iflagsum{display:inline-flex;align-items:center;gap:8px;min-height:44px;min-width:44px;padding:0 6px 0 0;color:var(--warn);font-weight:600;font-size:16px;cursor:pointer}
+.iflagico{flex:none}
+.iflagbody{font-size:16px;color:var(--txt);border-left:3px solid var(--warn);padding:6px 0 6px 10px;margin:2px 0 6px}
+#backupCopy{display:block;font-size:16px;min-height:44px;text-align:left}
+#backupBtn{min-height:44px}
+.tlkind,.mkind{color:var(--muted);font-weight:400}
+.mfform{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.mfform label{display:block;margin-top:8px}
+.mfsave{width:100%;margin-top:12px;min-height:44px}
+.mfcancel{font-size:16px;min-height:44px}
+.fqnewfood{display:block;font-size:16px;min-height:44px;text-align:left}
 .stksave{width:100%;margin-top:12px;min-height:44px}
 .mlegacy{color:var(--muted)}
 .fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
@@ -1620,6 +1634,13 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <div class="note">What you take every day. Nothing here is ever logged by itself: you log it with one tap from + Log, &ldquo;Took my daily stack&rdquo;, and untick anything you skipped that day.</div>
       </details>
     </div>
+    <div class="card" data-setting="foods">
+      <details id="foodsDetails">
+        <summary>My foods</summary>
+        <div id="myFoodsList"></div>
+        <div class="note">Foods you added from a label or with generic values, because they are not in the food database. They are found by name where a food is searched for in the stack or a combo.</div>
+      </details>
+    </div>
     <div class="card" data-setting="byok">
       <details>
         <summary>Your own AI key</summary>
@@ -1648,10 +1669,12 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <div class="note">Used two ways. Capture on the Photo screen sends it for you when an API key is saved; without one, copy it to your own AI assistant with a meal photo and paste its reply into "Add to my log". Calories, protein, fat, carbs and fibre only — never vitamins or minerals from a photo.</div>
     </div>
     <div class="card" data-setting="export">
-      <h2>Export · copy data out</h2>
-      <button class="btn" onclick="copyOut()">⇪ Copy data</button>
-      <textarea id="exportBox" readonly placeholder="Tap Copy — your full log JSON appears here. Select and copy it to back up, or paste to Claude."></textarea>
-      <div class="note">Read-only. Nothing leaves your device — this is a local copy.</div>
+      <h2>Backup · your data as a file</h2>
+      <button class="btn primary" id="backupBtn" onclick="exportBackup()">Export backup</button>
+      <div class="note" id="backupLast"></div>
+      <button class="linklike" id="backupCopy" onclick="copyOut()">Copy as text instead</button>
+      <textarea id="exportBox" readonly placeholder="Copy as text puts your full log here as JSON, to select and copy by hand."></textarea>
+      <div class="note">The file holds everything in this app and is yours. It is made on this device and sent nowhere by the app: on a phone you choose where it goes (Files, iCloud Drive).</div>
     </div>
     <!-- H20/C: the FALLBACK home for the glucose import. Deliberately its OWN
          card and NOT inside "Import / restore" below: that card's button replaces
@@ -1674,7 +1697,9 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
     </div>
     <div class="card" data-setting="import">
       <h2>Import · restore <span style="color:var(--bad)">(replaces everything)</span></h2>
-      <textarea id="importBox" placeholder="Paste a HealthTracker export — or a legacy uha-log-v1 export — to REPLACE all current data."></textarea>
+      <textarea id="importBox" placeholder="Paste a HealthTracker export, or choose a backup file below, to REPLACE all current data."></textarea>
+      <label class="note" for="restoreFile" style="display:block;margin:8px 0 4px">Or choose a backup file:</label>
+      <input type="file" id="restoreFile" accept="application/json,.json" onchange="restoreFilePicked(this)">
       <button class="btn danger" onclick="doRestore()">Restore — replace all data</button>
       <div class="note">Destructive. Your current data is backed up first (single most-recent slot); the backup appears below after a restore — copy it to keep it.</div>
       <div id="prerestoreWrap" style="display:none">

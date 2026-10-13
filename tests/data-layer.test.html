@@ -192,7 +192,7 @@ window.setLS({});
   // timeline + fastLog; v6 added the accepted portion; R186 added sensorDevice to
   // settings -- an allowlist addition with no schema bump, so the fixture gains the
   // key at the SAME version). ----
-  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, stack: [], combos: [], presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
+  var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, stack: [], foods: [], combos: [], presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
   var S1 = { version: 15, days: {}, current: td, settings: goalState, plates: {}, meds: {}, labels: {}, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
@@ -403,7 +403,7 @@ window.setLS({});
   var mOff = HT.migrateV14toV15({ version: 14, days: {}, settings: { supplement: { enabled: false, name: 'Fibre', nutrients: {} }, stack: [] } }, '2026-01-01T00:00:00.000Z');
   var mNone = HT.migrateV14toV15({ version: 14, days: {}, settings: { supplement: { enabled: true, name: '  ', nutrients: {} } } }, '2026-01-01T00:00:00.000Z');
   var mDup = HT.migrateV14toV15({ version: 14, days: {}, settings: { supplement: { enabled: true, name: 'fibre', nutrients: {} }, stack: [{ id: 'a', name: 'Fibre', kind: 'dose' }] } }, '2026-01-01T00:00:00.000Z');
-  res(mOff.settings.stack.length === 1 && mOff.settings.stack[0].enabled === false && mOff.settings.stack[0].kind === 'dose' && mOff.settings.supplement === undefined
+  res(mOff.settings.stack.length === 1 && mOff.settings.stack[0].enabled === false && mOff.settings.stack[0].kind === 'supplement' && mOff.settings.supplement === undefined
       && (mNone.settings.stack || []).length === 0 && mNone.settings.supplement === undefined
       && mDup.settings.stack.length === 1,
       'R203: a DISABLED setting is carried over disabled; a nameless one is dropped; one the stack already names is not added twice');
@@ -683,7 +683,7 @@ window.setLS({});
   setLS({}); HT.boot();
   var skDay0 = JSON.stringify(HT.state().days);
   var sk1 = HT.stackUpsert({ name: 'Capsule A', dose: '600', dose_unit: 'mg', note: 'with breakfast' });
-  res(sk1.ok === true && sk1.edited === false && sk1.item.kind === 'dose' && sk1.item.dose === 600 && sk1.item.dose_unit === 'mg'
+  res(sk1.ok === true && sk1.edited === false && sk1.item.kind === 'supplement' && sk1.item.dose === 600 && sk1.item.dose_unit === 'mg'
       && sk1.item.note === 'with breakfast' && sk1.item.enabled === true && HT.state().settings.stack.length === 1,
       'R203 GATE: the editor ADDS an item -- name, amount, unit and a note');
   res(JSON.stringify(HT.state().days) === skDay0,
@@ -855,6 +855,132 @@ window.setLS({});
   HT.stackFormCancel();
   res(HT.stackRowSub(HT.state().settings.stack[0]).indexOf('counts toward Magnesium') > 0 && HT.stackRowSub(hbA.item).indexOf('counts toward') < 0,
       'R208: a mapped item-s row says what it counts toward; an unmapped one says nothing of the kind');
+  setLS({}); HT.boot();
+
+  // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
+  setLS({}); HT.boot();
+  // -- B2: three kinds --
+  res(HT.STACK_KINDS.join(',') === 'supplement,medication,food' && HT.stackKindOf('dose') === 'supplement' && HT.stackKindOf(undefined) === 'supplement'
+      && HT.normalizeStackItem({ name: 'Old', kind: 'dose' }).kind === 'supplement' && HT.normalizeStackItem({ name: 'New' }).kind === 'supplement',
+      'R213 GATE: a stack item is a Supplement, a Medication or a Food; SUPPLEMENT is the default, and an item stored before this as a "dose" reads as one');
+  var k3s = HT.stackUpsert({ name: 'Gate supplement', kind: 'supplement', dose: '300', dose_unit: 'mg' });
+  var k3m = HT.stackUpsert({ name: 'Gate medicine', kind: 'medication', dose: '10', dose_unit: 'mg' });
+  var k3f = HT.stackUpsert({ name: 'Gate oil', kind: 'food', part: { name: 'Gate oil', grams: 14, kcal: 120, fat_g: 14, source: 'manual', confidence: 'measured' } });
+  res(k3s.item.kind === 'supplement' && k3m.item.kind === 'medication' && k3f.item.kind === 'food'
+      && HT.stackRowSub(k3s.item).indexOf('Supplement') === 0 && HT.stackRowSub(k3m.item).indexOf('Medication') === 0 && HT.stackRowSub(k3f.item).indexOf('Food') === 0,
+      'R213 GATE: each kind is stored as itself, and each row LEADS with its word');
+  var k3log = HT.logStack([]);
+  var k3r = function (n) { return k3log.records.filter(function (r) { return r.name === n; })[0]; };
+  res(k3log.records.length === 2 && k3r('Gate supplement').stackKind === 'supplement' && k3r('Gate medicine').stackKind === 'medication'
+      && k3r('Gate medicine').kind === 'medication' && k3r('Gate supplement').kind === 'medication',
+      'R213 GATE: MEDICATION IS DISTINCT IN THE DATA -- both doses are timeline dose records, and each carries which it is, so a later analysis can tell a medicine from a supplement');
+  res(k3log.items.length === 1 && k3log.items[0].stackKind === 'food' && k3log.items[0].kcal === 120 && k3log.items[0].meal === 'supplement',
+      'R213 GATE: FOOD counts in the day and KEEPS ITS CALORIES -- 120 -- and is marked as a stack food');
+  res(HT.recordKindWord(k3r('Gate supplement')) === 'Supplement' && HT.recordKindWord(k3r('Gate medicine')) === 'Medication' && HT.recordKindWord(k3log.items[0]) === 'Food',
+      'R213 GATE: a logged entry shows its kind-s word');
+  res(HT.recordKindWord({ kind: 'medication', source: 'stack', name: 'Before' }) === 'Supplement'
+      && HT.recordKindWord({ meal: 'supplement', source: 'supplement', name: 'Before' }) === 'Supplement'
+      && HT.recordKindWord({ kind: 'medication', source: 'manual', name: 'Typed in the form' }) === ''
+      && HT.recordKindWord({ meal: 'lunch', source: 'manual' }) === '',
+      'R213 GATE: an entry logged BEFORE the kind was recorded is RELABELLED "Supplement" at render -- a stack dose, or a day item filed as a supplement. A dose typed into the medication form is not relabelled, nor is ordinary food');
+  var k3before = JSON.stringify(HT.state().timeline[td]);
+  HT.renderTimeline && HT.renderTimeline();
+  res(JSON.stringify(HT.state().timeline[td]) === k3before, 'R213 GATE: LABEL ONLY -- rendering changes no record');
+  res(HT.normalizeSignal({ kind: 'medication', name: 'X', stackKind: 'food' }).stackKind === undefined
+      && HT.normalizeSignal({ type: 'weight', value: 1, unit: 'kg', stackKind: 'medication' }).stackKind === undefined
+      && HT.normalizeItem({ name: 'x', stackKind: 'nonsense' }, true).stackKind === undefined,
+      'R213: the kind survives the boundary only where it belongs and only as one of its words');
+
+  // -- B4: the intake note --
+  var inH = HT.intakeNoteHTML('The sentence.', 'stkflag');
+  res(inH.indexOf('<details class="iflag stkflag">') === 0 && inH.indexOf(' open') < 0 && inH.indexOf('aria-label="Intake note — tap to read"') > 0
+      && inH.indexOf('<svg') > 0 && inH.indexOf('The sentence.') > inH.indexOf('</summary>') && HT.intakeNoteHTML('', 'x') === '',
+      'R213 GATE: an intake flag is a COLLAPSED note -- an icon and "Intake note — tap to read", the sentence inside it, never open in the markup; and no sentence draws no note');
+  var inF = HT.intakeFlag('vitamin_d_ug', 150);
+  res(HT.itemIntakeFlagText(inF).indexOf('This item: 150 µg. This is above the ') === 0 && HT.itemIntakeFlagText(inF).indexOf('Source: ') > 0,
+      'R213 GATE: an item-s note states MY AMOUNT first, then the level, whose it is and the source');
+  HT.state().settings.stack = HT.normalizeStack([{ id: 'n1', name: 'Gate vitamin', kind: 'supplement', dose: 6000, dose_unit: 'IU', nutrients: { micros: { vitamin_d_ug: 150 } } }]);
+  res(HT.stackEditorHTML().split('<details class="iflag stkflag">').length - 1 === 1 && HT.stackEditorHTML().indexOf('class="stkflag"') < 0,
+      'R213 GATE: in the stack editor the flag is the note, not a paragraph');
+  HT.stackOpen();
+  res(HT.stackSheetHTML().split('<details class="iflag stkflag">').length - 1 === 1 && HT.stackSheetHTML().indexOf('<details class="iflag stkflag" open') < 0,
+      'R213 GATE: on the Log sheet too, closed');
+  HT.stackCancel();
+  HT.state().timeline[td] = []; HT.state().days[td].items = [];
+  HT.logStack([]);
+  res(HT.panelHTML(HT.state().days[td], td).split('<details class="iflag pflag">').length - 1 === 1,
+      'R213 GATE: and in the Micronutrients panel');
+
+  // -- B1: the backup file --
+  HT.setClock(function () { return new Date(2026, 9, 13, 9, 30, 0).getTime(); });
+  res(HT.backupFileName() === 'healthtracker-backup-2026-10-13-v' + HT.SCHEMA_VERSION + '.json' && /-v\d+\.json$/.test(HT.backupFileName()),
+      'R213 GATE: the backup is named healthtracker-backup-YYYY-MM-DD-vNN.json, NN being the data format-s number', HT.backupFileName());
+  window.__ls._remove && window.__ls._remove('healthtracker-last-backup');
+  res(HT.backupLast() === null && HT.backupLastLine() === 'No backup file made yet.',
+      'R213 GATE: before any backup the line says none has been made -- and says nothing else: no count, no urging');
+  var bm = HT.backupMark(HT.backupFileName(), 'share');
+  res(HT.backupLast().date === '2026-10-13' && HT.backupLast().name === HT.backupFileName() && /^Last backup: .*Oct 13.*\(shared\)$/.test(HT.backupLastLine()),
+      'R213 GATE: after one, "Last backup: <date>"', HT.backupLastLine());
+  res(!/\b(overdue|days ago|remember|should|don.t forget|back up now)\b/i.test(HT.backupLastLine()) && HT.deleteAllKeys().indexOf(HT.BACKUP_KEY) >= 0,
+      'R213 GATE: NO NAG in the line; and the record of it is one of the keys "delete everything" removes');
+  var bkJson = HT.exportJSON(), bkState = JSON.parse(bkJson);
+  var bkParsed = HT.parseImport(bkJson);
+  res(bkParsed.ok === true && JSON.stringify(HT.normalizeState(JSON.parse(bkJson))) === JSON.stringify(HT.normalizeState(bkState))
+      && bkState.version === HT.SCHEMA_VERSION && Array.isArray(bkState.settings.foods),
+      'R213 GATE: what the backup holds is the whole store, at the current format, and the restore boundary ACCEPTS it');
+  HT.setClock(null);
+
+  // -- B3: my foods --
+  setLS({}); HT.boot();
+  res(HT.myFoods().length === 0 && HT.defaultSettings().foods.length === 0, 'R213: my foods ships EMPTY');
+  var mf1 = HT.myFoodUpsert({ name: 'Gate seed oil', basis: 'label', per: 'serving', serving_g: 14, kcal: 120, fat_g: 14, carb_g: 0, protein_g: 0 });
+  res(mf1.ok === true && Math.abs(mf1.food.per100.kcal - 857.142857) < 0.001 && Math.abs(mf1.food.per100.fat_g - 100) < 1e-9 && mf1.food.serving_g === 14 && mf1.food.basis === 'label',
+      'R213 GATE: a food typed PER SERVING from its label is stored per 100 g -- 120 cal in 14 g is 857 per 100 g -- with the serving kept beside it');
+  var mf2 = HT.myFoodUpsert({ name: 'Gate porridge', basis: 'generic', per: '100g', kcal: 70, carb_g: 12 });
+  res(mf2.ok === true && mf2.food.per100.kcal === 70 && mf2.food.per100.fat_g === undefined && mf2.food.basis === 'generic',
+      'R213 GATE: one typed per 100 g with generic values is stored as typed -- and what was not stated is ABSENT, not zero');
+  res(HT.myFoodUpsert({ name: '', basis: 'label', kcal: 1 }).ok === false && HT.myFoodUpsert({ name: 'X', kcal: 1 }).ok === false
+      && HT.myFoodUpsert({ name: 'X', basis: 'label', per: 'serving', kcal: 1 }).ok === false && HT.myFoodUpsert({ name: 'X', basis: 'label' }).ok === false
+      && HT.myFoodUpsert({ name: 'X', basis: 'label', kcal: 'abc' }).ok === false && HT.myFoods().length === 2,
+      'R213 GATE: no name, no statement of where the numbers come from, "per serving" with no serving size, no calories, or a non-number -- each refused, nothing saved');
+  res(HT.myFoodsMatch('seed').length === 1 && HT.myFoodsMatch('gate').length === 2 && HT.myFoodsMatch('oil se').length === 1 && HT.myFoodsMatch('zz').length === 0 && HT.myFoodsMatch('').length === 0,
+      'R213 GATE: my foods are FOUND BY NAME -- every typed word must begin a word of the name');
+  var mfP = HT.myFoodPart(mf1.food, 7);
+  res(mfP.grams === 7 && Math.abs(mfP.kcal - 60) < 1e-9 && Math.abs(mfP.fat_g - 7) < 1e-9 && mfP.basis === 'label' && mfP.source === 'manual' && mfP.confidence === 'measured'
+      && mfP.ref === undefined && HT.myFoodPart(mf2.food, 100).confidence === 'eyeballed' && HT.myFoodPart(mf1.food, 0) === null,
+      'R213 GATE: at an amount it is a part in the combo part-s own shape -- scaled, marked with its basis, a label-s numbers measured and generic ones estimated -- with NO database citation, because it has none');
+  var mfS = HT.stackUpsert({ kind: 'food', part: mfP, name: 'Gate seed oil' });
+  var mfKcal0 = HT.dayTotals(HT.state().days[td]).kcal;
+  var mfLog = HT.logStack([]);
+  var mfIt = mfLog.items[0];
+  res(mfS.ok === true && mfLog.items.length === 1 && mfIt.name === 'Gate seed oil' && mfIt.grams === 7 && Math.abs(mfIt.kcal - 60) < 1e-6 && mfIt.basis === 'label' && mfIt.stackKind === 'food',
+      'R213 GATE: SAVED IN THE STACK AND LOGGED -- the day item carries its numbers and its basis');
+  res(Math.abs(HT.dayTotals(HT.state().days[td]).kcal - (mfKcal0 + 60)) < 1e-6 && Math.abs(HT.dayTotals(HT.state().days[td]).fat_g - 7) < 1e-6,
+      'R213 GATE: THE DAY-S TOTALS INCLUDE IT -- 60 cal and 7 g of fat');
+  res(HT.itemSourceWord(mfIt) === 'from label' && HT.itemSourceWord({ basis: 'generic', source: 'manual' }) === 'generic values' && HT.itemSourceWord({ source: 'scan' }) === 'from barcode',
+      'R213 GATE: and its provenance reads "from label" -- "generic values" for the other kind -- where any other item says how it was entered');
+  res(HT.stackRowSub(mfS.item).indexOf('from label') > 0, 'R213: the stack row says so as well');
+  // as a combo part
+  HT.state().settings.combos = HT.normalizeCombos([{ id: 'mfc', name: 'With my food', parts: [HT.myFoodPart(mf2.food, 200)] }]);
+  var mfC = HT.logCombo('mfc', 1);
+  res(mfC.ok === true && mfC.items[0].kcal === 140 && mfC.items[0].basis === 'generic' && HT.state().settings.combos[0].parts[0].basis === 'generic',
+      'R213 GATE: it works as a COMBO PART too -- the basis survives the part and reaches the logged item');
+  // found again in both builders
+  res(HT.myFoodRowsHTML('seed', 'stackFormPickMine', 'stackFoodFormOpen').indexOf('Gate seed oil') > 0
+      && HT.myFoodRowsHTML('seed', 'stackFormPickMine', 'stackFoodFormOpen').indexOf('from label, per 100 g') > 0
+      && HT.myFoodRowsHTML('zzzz', 'comboNewAddMine', 'comboFoodFormOpen').indexOf('Not in the database? Add it from its label') > 0
+      && HT.myFoodRowsHTML('z', 'a', 'b') === '',
+      'R213 GATE: where a food is searched for, the user-s own foods are listed first with where their numbers come from, and "Not in the database? Add it from its label" is offered once something is typed');
+  var mfRm = HT.myFoodRemove(mf2.food.id);
+  res(mfRm.ok === true && HT.myFoods().length === 1, 'R213: a food can be removed from my foods');
+  HT.doUndo();
+  res(HT.myFoods().length === 2 && HT.myFoods()[1].name === 'Gate porridge', 'R213: ...with Undo');
+  res(HT.state().settings.combos[0].parts[0].kcal === 140 && Math.abs(mfIt.kcal - 60) < 1e-6,
+      'R213: removing a food from the list changes nothing already saved in a combo or logged -- they hold their own numbers');
+  var mfRt = HT.normalizeMyFoods(JSON.parse(JSON.stringify(HT.myFoods())));
+  res(JSON.stringify(mfRt) === JSON.stringify(HT.myFoods()) && HT.normalizeMyFoods([{ name: '' }, { name: 'N', basis: 'nonsense', per100: { kcal: -5 } }])[0].basis === 'generic'
+      && HT.normalizeMyFoods([{ name: 'N', per100: { kcal: -5 } }])[0].per100.kcal === 0 && HT.normalizeMyFoods('x').length === 0,
+      'R213: the store round-trips unchanged, and the boundary drops a nameless food, falls back to "generic" and clamps at zero');
   setLS({}); HT.boot();
 
   // ---- R202: the day-s groups ---------------------------------------------------------
@@ -7624,13 +7750,13 @@ window.setLS({});
   HT.state().days[dkU].items.push(HT.normalizeItem({ name: 'Standing dose', meal: 'supplement',
       time: '09:00', kcal: 0, source: 'supplement', _auto: true }, true));
   HT.renderDay();
-  var autoRow = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (r) { return (r.querySelector('.mname') || {}).textContent === 'Standing dose'; })[0];
+  var autoRow = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (r) { return (r.querySelector('.mname') || { getAttribute: function () { return ''; } }).getAttribute('title') === 'Standing dose'; })[0];
   res(!!autoRow && autoRow.querySelectorAll('.rm').length === 1,
       'R203 GATE (was R23-ui): the auto-added row HAS a delete control');
   res(!!autoRow && (autoRow.querySelector('.mtime') || {}).textContent === 'time unknown' && !autoRow.querySelector('.mlegacy'),
       'R204 GATE: the COLLAPSED row says "time unknown" where its time would be -- and stays one line: name, time, one number (D144)');
   if (autoRow) autoRow.querySelector('.mhead').click();
-  var autoRow2 = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (r) { return (r.querySelector('.mname') || {}).textContent === 'Standing dose'; })[0];
+  var autoRow2 = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), function (r) { return (r.querySelector('.mname') || { getAttribute: function () { return ''; } }).getAttribute('title') === 'Standing dose'; })[0];
   res(!!autoRow2 && autoRow2.classList.contains('mopen') && autoRow2.querySelectorAll('.medit').length === 1,
       'R203 GATE: opened, it offers Edit like any other row');
   res(!!autoRow2 && (autoRow2.querySelector('.mbody .mlegacy') || {}).textContent === 'time unknown (auto-added at app open)',
