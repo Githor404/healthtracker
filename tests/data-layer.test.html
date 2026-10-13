@@ -759,6 +759,104 @@ window.setLS({});
       && HT.normalizeStackItem({ name: 'N', part: { name: '' } }).part === undefined,
       'R203: a blank note is absent, a long one is cut at 200, and a nameless part is not a part');
 
+  // ---- R207 / R208: a stack dose that counts toward a nutrient ---------------------
+  setLS({}); HT.boot();
+  var r8mi = function (name, kcal, micros, extra) { return HT.normalizeItem(Object.assign({ name: name, meal: 'lunch', time: '12:00', kcal: kcal, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'measured', source: 'scan', micros: micros }, extra || {}), true); };
+  HT.state().days[td].items = [r8mi('Gate greens', 120, { magnesium_mg: 400, vitamin_d_ug: 40 })];
+  var mgA = HT.stackUpsert({ name: 'Gate mineral', dose: '300', dose_unit: 'mg', microKey: 'magnesium_mg' });
+  var vdA = HT.stackUpsert({ name: 'Gate vitamin', dose: '3000', dose_unit: 'IU', microKey: 'vitamin_d_ug' });
+  var hbA = HT.stackUpsert({ name: 'Gate herb', dose: '500', dose_unit: 'mg' });
+  var r8tot0 = JSON.stringify(HT.dayTotals(HT.state().days[td]));
+  res(Object.keys(HT.stackDoseMicros(td)).length === 0 && HT.dayIntakeFlags(td).length === 0,
+      'R208: PRECONDITION -- with the stack only SET UP, nothing counts toward anything and nothing is flagged: 400 mg of magnesium from food is not a supplement, and 40 micrograms of vitamin D is under its level');
+  var r8log = HT.logStack([]);
+  var r8rec = function (n) { return r8log.records.filter(function (r) { return r.name === n; })[0]; };
+  res(r8log.records.length === 3 && r8rec('Gate mineral').micros.magnesium_mg === 300 && r8rec('Gate vitamin').micros.vitamin_d_ug === 75
+      && r8rec('Gate herb').micros === undefined,
+      'R208 GATE: a logged dose CARRIES what it counts toward -- 300 mg magnesium, 75 micrograms vitamin D (3000 IU, converted when the item was set up) -- and an item mapped to nothing carries nothing');
+  var r8sd = HT.stackDoseMicros(td);
+  res(r8sd.magnesium_mg.amount === 300 && r8sd.magnesium_mg.n === 1 && r8sd.vitamin_d_ug.amount === 75 && Object.keys(r8sd).length === 2,
+      'R208 GATE: the day-s doses are summed by nutrient -- two nutrients, and the unmapped item is in neither. It stays a timeline fact only');
+  res(JSON.stringify(HT.dayTotals(HT.state().days[td])) === r8tot0 && HT.state().days[td].items.length === 1,
+      'R208 GATE: NO CALORIES and no day item -- the day-s energy and macros are byte-for-byte what they were');
+  var r8roll = HT.panelRollup(HT.state().days[td], r8sd);
+  res(r8roll[304].labelled === 400 && r8roll[304].stack === 300 && r8roll[304].stackN === 1 && r8roll[328].labelled === 40 && r8roll[328].stack === 75,
+      'R208 GATE: in the panel-s rollup the stack is a THIRD provenance with its own fields -- beside the label-s figure and the food database-s, never inside either');
+  res(JSON.stringify(HT.panelRollup(HT.state().days[td])[304]) === JSON.stringify(Object.assign({}, r8roll[304], { stack: 0, stackN: 0 })),
+      'R208: CONTROL -- rolled up without the doses, the labelled figure is the same; the stack moved nothing that was already there');
+  var r8html = HT.panelHTML(HT.state().days[td], td);
+  res(r8html.indexOf('includes 300.00 mg from your stack') > 0 && r8html.indexOf('includes 75.0 ') > 0 && r8html.indexOf('from your stack') > 0,
+      'R208 GATE: the panel SAYS IT -- "includes 300.00 mg from your stack" on the nutrient-s own row, in the panel-s own number format');
+  var r8f = HT.dayIntakeFlags(td);
+  res(r8f.length === 1 && r8f[0].key === 'vitamin_d_ug' && r8f[0].amount === 115 && r8f[0].scope === 'total'
+      && r8f[0].parts.food === 40 && r8f[0].parts.stack === 75,
+      'R208 GATE: VITAMIN D IS FLAGGED ON THE TOTAL -- 40 from food plus 75 from the stack is 115 against 100. Neither part alone is over', JSON.stringify(r8f.map(function (f) { return [f.key, f.amount]; })));
+  res(HT.dayIntakeParts(td, 'magnesium_mg').food === 400 && HT.dayIntakeParts(td, 'magnesium_mg').stack === 300
+      && r8f.every(function (f) { return f.key !== 'magnesium_mg'; }),
+      'R208 GATE: FOOD MAGNESIUM 400 + STACK MAGNESIUM 300 -> NO FLAG. The level is about supplements only, so 300 is compared to 350 and the 400 from food is not counted toward it');
+  res(/^Today: 115 /.test(HT.dayIntakeFlagText(r8f[0])) && HT.dayIntakeFlagText(r8f[0]).indexOf('75 µg from your stack') > 0
+      && HT.dayIntakeFlagText(r8f[0]).indexOf('40 µg from food labels') > 0 && HT.dayIntakeFlagText(r8f[0]).indexOf('25-OH vitamin D') > 0,
+      'R208 GATE: the day-s flag says WHAT WAS SUMMED before what it is above -- the total and each part by source');
+  res(r8html.indexOf('Today: 115') > 0 && r8html.split('pflag').length - 1 === 1,
+      'R208 GATE: and it is on the vitamin-s row in the panel -- one flag, on one row');
+  HT.doUndo && 0;
+  // stack magnesium 400 -> flag
+  HT.stackUpsert({ id: mgA.item.id, name: 'Gate mineral', dose: '400', dose_unit: 'mg', microKey: 'magnesium_mg' });
+  HT.state().timeline[td] = [];
+  HT.logStack([vdA.item.id, hbA.item.id]);
+  var r8f2 = HT.dayIntakeFlags(td);
+  res(r8f2.length === 1 && r8f2[0].key === 'magnesium_mg' && r8f2[0].amount === 400 && r8f2[0].scope === 'supplemental' && r8f2[0].value === 350,
+      'R208 GATE: STACK MAGNESIUM 400 -> FLAG, against 350, on the supplemental amount alone', JSON.stringify(r8f2.map(function (f) { return [f.key, f.amount]; })));
+  var r8mt = HT.dayIntakeFlagText(r8f2[0]);
+  res(r8mt.indexOf('Magnesium from supplements') > 0 && r8mt.indexOf('Health Canada') > 0 && r8mt.indexOf('Reference values for elements') > 0
+      && r8mt.indexOf('does not include magnesium from food and water') > 0 && r8mt.indexOf('25-OH') < 0 && r8mt.indexOf('food labels') < 0,
+      'R208 GATE: its sentence names the SOURCE and the SCOPE -- Health Canada, supplements only, not food and water -- and does not borrow the vitamin-s line about a lab reading, or list food it did not count');
+  res(!/\b(should|reduce|stop|lower|avoid|too much|must)\b/i.test(r8mt) && !/\b(should|reduce|stop|lower|avoid|too much|must)\b/i.test(HT.dayIntakeFlagText(r8f[0])),
+      'R208 GATE: FLAG, NO NAG -- neither sentence holds an instruction');
+  // a supplement the stack logged as a DAY ITEM counts as supplemental too
+  HT.state().timeline[td] = [];
+  HT.state().days[td].items.push(r8mi('Gate tablet', 0, { magnesium_mg: 360 }, { source: 'supplement', meal: 'supplement' }));
+  var r8f3 = HT.dayIntakeFlags(td);
+  res(r8f3.length === 1 && r8f3[0].key === 'magnesium_mg' && r8f3[0].amount === 360 && r8f3[0].parts.supplement === 360 && r8f3[0].parts.food === 400,
+      'R208: a supplement logged as a day item is supplemental as well -- 360 against 350 -- and the food beside it is still not counted');
+  HT.state().days[td].items.pop();
+  // scope is a field, not an assumption
+  var r8lim = HT.INTAKE_LIMITS.magnesium_mg, r8scope = r8lim.scope;
+  res(HT.INTAKE_SCOPES.join(',') === 'total,supplemental' && Object.keys(HT.INTAKE_LIMITS).every(function (k) { return HT.INTAKE_SCOPES.indexOf(HT.INTAKE_LIMITS[k].scope) >= 0; })
+      && r8lim.scope === 'supplemental' && HT.INTAKE_LIMITS.vitamin_d_ug.scope === 'total',
+      'R208 GATE: EVERY limit carries its scope as a field -- vitamin D total, magnesium supplemental');
+  delete r8lim.scope;
+  res(HT.intakeFlag('magnesium_mg', 900) === null, 'R208 GATE: a limit with NO scope produces NO flag -- which intake a number is about is part of what it means');
+  r8lim.scope = r8scope;
+  var r8cite = r8lim.cite; r8lim.cite = '';
+  res(HT.intakeFlag('magnesium_mg', 900) === null, 'R208 GATE: and one with no citation produces none either -- sum, but do not flag');
+  r8lim.cite = r8cite;
+  res(HT.intakeFlag('magnesium_mg', 350) === null && HT.intakeFlag('magnesium_mg', 351) !== null && !!r8lim.url && !!r8lim.retrieved && r8lim.quote.indexOf('pharmacological agent only') > 0,
+      'R208: at the figure there is no flag; above it there is; and the entry holds the page, the date it was read and the sentence it rests on');
+  // the boundary: only a dose record keeps the map
+  res(HT.normalizeSignal({ kind: 'medication', name: 'X', micros: { magnesium_mg: '120', nonsense: 5 } }).micros.magnesium_mg === 120
+      && HT.normalizeSignal({ type: 'weight', value: 80, unit: 'kg', micros: { magnesium_mg: 120 } }).micros === undefined
+      && HT.normalizeSignal({ kind: 'medication', name: 'X' }).micros === undefined,
+      'R208: the map survives the record boundary on a DOSE, coerced; a reading cannot carry one; and absent stays absent');
+  // the editor suggests and never sets
+  res(HT.stackSuggestMicro('Magnesium citrate') === 'magnesium_mg' && HT.stackSuggestMicro('Vitamin D3 drops') === 'vitamin_d_ug'
+      && HT.stackSuggestMicro('vitamin d') === 'vitamin_d_ug' && HT.stackSuggestMicro('Zinc') === 'zinc_mg',
+      'R208 GATE: a nutrient-s own name inside the item-s name is SUGGESTED');
+  res(HT.stackSuggestMicro('Herbal blend') === '' && HT.stackSuggestMicro('Ironwood extract') === '' && HT.stackSuggestMicro('Vitamin K2') === '' && HT.stackSuggestMicro('') === '',
+      'R208 GATE: CONTROL -- a name that holds no tracked nutrient suggests nothing, and a word that merely contains one ("Ironwood") does not either');
+  if (!document.getElementById('stackEditor')) { var r8ed = document.createElement('div'); r8ed.id = 'stackEditor'; document.body.appendChild(r8ed); }
+  HT.stackFormOpen();
+  document.getElementById('stkName').value = 'Magnesium citrate'; HT.stackSuggestHTML();
+  res(document.getElementById('stkMicro').value === '' && HT.stackSuggestHTML().indexOf('Count it toward Magnesium?') > 0,
+      'R208 GATE: with the name typed the list still reads NOTHING -- the suggestion is a button beside it, not a selection');
+  HT.stackSuggestAccept('magnesium_mg');
+  res(document.getElementById('stkMicro').value === 'magnesium_mg' && HT.stackSuggestHTML() === '',
+      'R208 GATE: tapped, it is set -- by the user -- and the suggestion goes away');
+  HT.stackFormCancel();
+  res(HT.stackRowSub(HT.state().settings.stack[0]).indexOf('counts toward Magnesium') > 0 && HT.stackRowSub(hbA.item).indexOf('counts toward') < 0,
+      'R208: a mapped item-s row says what it counts toward; an unmapped one says nothing of the kind');
+  setLS({}); HT.boot();
+
   // ---- R202: the day-s groups ---------------------------------------------------------
   setLS({}); HT.boot();
   var gk = '2026-08-02';

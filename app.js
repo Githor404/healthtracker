@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.94.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.95.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1939,14 +1939,20 @@ const PANEL_KEY_SLOT = (function () {
 // The existing microRollup is untouched and still counts LABELLED micros only,
 // exactly as it always has. This is the richer view the panel needs, and it is
 // SLOT-keyed throughout so the two sides are on the same axis.
-function panelRollup(day) {
+function panelRollup(day, doses) {
   const items = (day && day.items) || [];
   const out = {};
   const touch = function (slot) {
     if (!out[slot]) out[slot] = { slot: slot, labelled: 0, labelledN: 0,
-                                  reference: 0, referenceN: 0, m: items.length };
+                                  reference: 0, referenceN: 0, stack: 0, stackN: 0, m: items.length };
     return out[slot];
   };
+  // R208: doses that count toward a nutrient, in their own two fields.
+  Object.keys(doses || {}).forEach(function (k) {
+    const slot = PANEL_KEY_SLOT[k];
+    if (!slot) return;
+    const e = touch(slot); e.stack += num(doses[k].amount); e.stackN += num(doses[k].n);
+  });
   items.forEach(function (it) {
     if (it && it.micros) Object.keys(it.micros).forEach(function (k) {
       const slot = PANEL_KEY_SLOT[k];
@@ -2895,10 +2901,16 @@ function panelRowHTML(slot, e, depth, prevailing) {
   const ref = e ? e.reference : null;
   const hasL = !!(e && e.labelledN);
   const hasR = !!(e && e.referenceN);
+  const hasS = !!(e && e.stackN);
   // A COMBINED FIGURE MAY ONLY BE SHOWN WITH THE SENTENCE THAT EXPLAINS IT.
   // Generic cheddar is not your cheddar, so a reference value never disappears
   // into a labelled total without the coverage line saying it is in there.
-  const total = (hasL || hasR) ? ((hasL ? lab : 0) + (hasR ? ref : 0)) : null;
+  // R208: the same for a dose. It is IN the total, and the row always says how
+  // much of the total it is -- this line is never folded into "everything below".
+  const total = (hasL || hasR || hasS) ? ((hasL ? lab : 0) + (hasR ? ref : 0) + (hasS ? e.stack : 0)) : null;
+  const stackLine = hasS ? ('includes ' + panelText(e.stack, unit) + ' ' + unit + ' from your stack') : '';
+  const pkey = PANEL_SLOT_KEY[slot];
+  const dflag = (pkey && PANEL_FLAGS && PANEL_FLAGS[pkey]) ? dayIntakeFlagText(PANEL_FLAGS[pkey]) : '';
   const txt = panelText(total, unit);
   const st = panelState(total, unit);
   // D140/2: the panel states its coverage ONCE, at the top. A row repeats it
@@ -2922,6 +2934,8 @@ function panelRowHTML(slot, e, depth, prevailing) {
     + '<span class="pval">' + esc(txt) + (st === 'absent' ? '' : ' <small>' + esc(unit) + '</small>') + '</span>'
     + '</div>'
     + (cov ? '<div class="pcov">' + esc(cov) + '</div>' : '')
+    + (stackLine ? '<div class="pcov pstack">' + esc(stackLine) + '</div>' : '')
+    + (dflag ? '<div class="stkflag pflag">' + esc(dflag) + '</div>' : '')
     + (alts.length ? '<details class="palt"><summary>other units</summary>'
         + '<div class="paltbody">' + alts.join(' \u00b7 ') + '</div></details>' : '')
     + '</div>';
@@ -2931,9 +2945,13 @@ function panelRowHTML(slot, e, depth, prevailing) {
 // rather than threaded through every call site, in the manner of MATCH_INDEX,
 // and set on every render so it can never be stale.
 let PANEL_ROLL_FOR_ALT = null;
-function panelHTML(day) {
-  const roll = panelRollup(day);
+let PANEL_FLAGS = null;
+function panelHTML(day, dateKey) {
+  const dk = (dateKey == null) ? '' : String(dateKey);
+  const roll = panelRollup(day, dk ? stackDoseMicros(dk) : null);
   PANEL_ROLL_FOR_ALT = roll;
+  PANEL_FLAGS = {};
+  if (dk) dayIntakeFlags(dk).forEach(function (f) { PANEL_FLAGS[f.key] = f; });
   const items = (day && day.items) || [];
   const anyRef = items.some(function (it) { return it && it.ref; });
   const anyVal = Object.keys(roll).length > 0;
@@ -3003,14 +3021,15 @@ function panelHTML(day) {
   else if (anyRef)
     html += '<div class="pcite">These numbers come from the food database, not from a package label.</div>';
   html += '<div class="pcite">\u2013 not measured \u00b7 0.00 measured zero \u00b7 &lt;step present but below the shown step. '
-    + 'No percentages are shown: the app has no cited intake targets, and a target without a citation is a claim.</div>';
+    + 'No percentages are shown: the app has no cited intake targets, and a target without a citation is a claim. '
+    + 'Where a cited upper level is exceeded, the row says so and names its source.</div>';
   return html;
 }
 function renderPanel() {
   const el = document.getElementById('microPanel');
   if (!el) return;
   const day = APP_STATE.days[APP_STATE.current];
-  el.innerHTML = day ? panelHTML(day) : '';
+  el.innerHTML = day ? panelHTML(day, APP_STATE.current) : '';
 }
 
 // ---- D119: the matcher ------------------------------------------------------
@@ -3573,6 +3592,7 @@ function logStack(skip) {
       // `stack` as its adapter rather than passing itself off as manual.
       const r = addSignal({ kind: 'medication', name: s.name, dose: s.dose,
                             dose_unit: s.dose_unit, bioactive: s.bioactive, notes: s.note || '',
+                            micros: (s.nutrients && s.nutrients.micros) || undefined,   // R208
                             time: time, date: dk, source: 'stack' });
       if (r && r.ok && r.record) records.push(r.record);
     }
@@ -3624,9 +3644,28 @@ function comboPartRaw(p, m, time) {
 // MICRO_SPEC, twelve and a half times higher, and that one catches a slip of the
 // thumb. Showing them as the same kind of thing would make a typo-catcher look
 // like evidence.
+// R208 -- A LIMIT CARRIES ITS SCOPE AS A FIELD, NOT AN ASSUMPTION.
+//   'total'        -- the figure is about everything taken in: food and
+//                     supplements together. The day's flag sums them.
+//   'supplemental' -- the figure is about supplements and medicines ONLY. Food
+//                     is not counted toward it, however much there is.
+// A limit with no scope produces NO flag, exactly as one with no citation does:
+// which intake a number is about is part of what the number means.
+const INTAKE_SCOPES = ['total', 'supplemental'];
 const INTAKE_LIMITS = {
+  magnesium_mg: {
+    value: 350, unit: 'mg', direction: 'max', scope: 'supplemental',
+    org: 'Health Canada',
+    cite: 'Dietary reference intakes tables: Reference values for elements (Health Canada; page dated 2025-11-19, read 2026-10-12)',
+    url: 'https://www.canada.ca/en/health-canada/services/food-nutrition/healthy-eating/dietary-reference-intakes/tables/reference-values-elements.html',
+    retrieved: '2026-10-12',
+    quote: 'The UL for magnesium represents intake from a pharmacological agent only and does not include intake from food and water.',
+    version: '2025-11-19',
+    population: 'adults 19 years and older',
+    applicability: 'it covers magnesium from supplements and medicines only, and does not include magnesium from food and water',
+  },
   vitamin_d_ug: {
-    value: 100, unit: 'ug', direction: 'max',
+    value: 100, unit: 'ug', direction: 'max', scope: 'total',
     as_iu: 4000,
     org: 'Institute of Medicine (now the National Academy of Medicine)',
     cite: 'IOM/NAM Dietary Reference Intakes for Calcium and Vitamin D (2011)',
@@ -3644,11 +3683,76 @@ function intakeFlag(key, amount) {
   const lim = INTAKE_LIMITS[key];
   if (!lim) return null;
   if (!(lim.value > 0) || !lim.org || !lim.cite || !lim.population) return null;
+  if (INTAKE_SCOPES.indexOf(lim.scope) < 0) return null;       // R208: no scope, no flag
   const a = num(amount);
   if (!(a > lim.value)) return null;
-  return { key: key, amount: a, value: lim.value, unit: lim.unit, as_iu: lim.as_iu,
+  return { key: key, amount: a, value: lim.value, unit: lim.unit, as_iu: lim.as_iu, scope: lim.scope,
            org: lim.org, cite: lim.cite, version: lim.version,
            population: lim.population, applicability: lim.applicability, lab: lim.lab };
+}
+// R208 -- WHAT A DAY'S DOSES COUNT TOWARD. Timeline dose records that carry a
+// `micros` map, summed by nutrient. Its own source, kept apart from a label's
+// figure and the food database's the way those two are kept apart from each
+// other: three provenances, three numbers, never one silently.
+function stackDoseMicros(dateKey) {
+  const out = {};
+  const tl = (APP_STATE && APP_STATE.timeline && APP_STATE.timeline[String(dateKey)]) || [];
+  tl.forEach(function (r) {
+    if (!r || r.kind !== 'medication' || !r.micros) return;
+    Object.keys(r.micros).forEach(function (k) {
+      if (!out[k]) out[k] = { amount: 0, n: 0 };
+      out[k].amount += num(r.micros[k]); out[k].n += 1;
+    });
+  });
+  return out;
+}
+// Where a nutrient's day amount came from, in the four parts a limit's scope can
+// tell apart. `supplement` is a day item the stack wrote (a supplement with a
+// label's nutrients); `stack` is a dose on the timeline.
+function dayIntakeParts(dateKey, key) {
+  const day = (APP_STATE && APP_STATE.days && APP_STATE.days[String(dateKey)]) || { items: [] };
+  const slot = PANEL_KEY_SLOT[key];
+  const p = { food: 0, reference: 0, supplement: 0, stack: 0 };
+  (day.items || []).forEach(function (it) {
+    if (!it) return;
+    const lab = it.micros && it.micros[key];
+    if (lab != null) { if (it.source === 'supplement') p.supplement += num(lab); else p.food += num(lab); }
+    const rv = it.ref && it.ref.v && slot != null ? it.ref.v[slot] : null;
+    if (rv != null && isFinite(Number(rv))) p.reference += num(rv);
+  });
+  const sd = stackDoseMicros(dateKey)[key];
+  if (sd) p.stack = sd.amount;
+  return p;
+}
+// THE DAY'S FLAGS. The amount compared is the one the limit's SCOPE names:
+// everything for 'total'; supplements and doses only for 'supplemental' -- so
+// 400 mg of magnesium from food and 300 from the stack is 300 against 350, and
+// no flag.
+function dayIntakeFlags(dateKey) {
+  const out = [];
+  Object.keys(INTAKE_LIMITS).forEach(function (key) {
+    const lim = INTAKE_LIMITS[key];
+    const p = dayIntakeParts(dateKey, key);
+    const amount = (lim.scope === 'supplemental') ? (p.supplement + p.stack)
+      : (p.food + p.reference + p.supplement + p.stack);
+    const f = intakeFlag(key, amount);
+    if (f) { f.parts = p; out.push(f); }
+  });
+  return out;
+}
+// The day's own sentence: what was summed, said before what it is above.
+function dayIntakeFlagText(f) {
+  if (!f) return '';
+  const u = f.unit === 'ug' ? '\u00b5g' : f.unit;
+  const p = f.parts || {};
+  const bits = [];
+  if (p.stack > 0) bits.push(rDisp(p.stack) + ' ' + u + ' from your stack');
+  if (p.supplement > 0) bits.push(rDisp(p.supplement) + ' ' + u + ' from supplements you logged');
+  if (f.scope === 'total') {
+    if (p.food > 0) bits.push(rDisp(p.food) + ' ' + u + ' from food labels');
+    if (p.reference > 0) bits.push(rDisp(p.reference) + ' ' + u + ' from the food database');
+  }
+  return 'Today: ' + rDisp(f.amount) + ' ' + u + (bits.length ? ' \u2014 ' + bits.join(', ') : '') + '. ' + intakeFlagText(f);
 }
 // The sentence, in one place, because the flag's wording IS the ruling. Every
 // clause is a fact plus its owner, and there is no imperative anywhere in it.
@@ -3656,10 +3760,16 @@ function intakeFlagText(f) {
   if (!f) return '';
   const label = (MICRO_LABEL[f.key] && MICRO_LABEL[f.key].label) || f.key;
   const iu = f.as_iu ? (' (' + rDisp(f.as_iu) + ' IU)') : '';
-  return 'This is above the ' + f.org + '’s stated upper intake level of '
-    + rDisp(f.value) + ' ' + f.unit + iu + ' of ' + label + ' for ' + f.population
-    + '. Source: ' + f.cite + '. ' + (f.applicability ? f.applicability.charAt(0).toUpperCase() + f.applicability.slice(1) + '. ' : '')
-    + 'A 25-OH vitamin D reading is what would show where you actually are — you can record one under Labs.';
+  const u = f.unit === 'ug' ? '\u00b5g' : f.unit;
+  // R208: WHICH intake the figure is about is said in the sentence, and the
+  // closing line about a lab reading is the vitamin's own -- it was printed for
+  // every nutrient, which was harmless only while there was one.
+  const of = (f.scope === 'supplemental') ? (label + ' from supplements') : label;
+  const the = /^(Institute|National|World)\b/.test(String(f.org)) ? 'the ' : '';      // "the Institute of ...", but "Health Canada"
+  return 'This is above ' + the + f.org + '’s stated upper intake level of '
+    + rDisp(f.value) + ' ' + u + iu + ' of ' + of + ' for ' + f.population
+    + '. Source: ' + f.cite + '. ' + (f.applicability ? f.applicability.charAt(0).toUpperCase() + f.applicability.slice(1) + '.' : '')
+    + (f.lab === 'vit_d_25oh' ? ' A 25-OH vitamin D reading is what would show where you actually are — you can record one under Labs.' : '');
 }
 
 // ---- R168: THE CONFIRM SHEET (ruled D-D) ---------------------------------
@@ -3701,7 +3811,10 @@ function stackRowSub(s) {
   if (s.dose != null) bits.push(rDisp(s.dose) + (s.dose_unit ? ' ' + doseUnitWord(s.dose_unit) : ''));
   if (s.part && s.part.grams != null) bits.push(rDisp(s.part.grams) + ' g');
   if (s.note) bits.push(s.note);
+  const cm = Object.keys((s.kind !== 'food' && s.nutrients && s.nutrients.micros) || {});
   bits.push(s.kind === 'food' ? 'counts in your day' : 'goes on your timeline');
+  // R208: a dose that counts toward a nutrient says so on its row.
+  if (cm.length && MICRO_LABEL[cm[0]]) bits.push('counts toward ' + MICRO_LABEL[cm[0]].label);
   return bits.join(' · ');
 }
 function stackSheetHTML() {
@@ -3851,6 +3964,40 @@ function stackFormKind(k) {
   renderStackEditor();
   return { ok: true, kind: STACK_FORM.kind };
 }
+// R208: THE NAME MAY SUGGEST A NUTRIENT; ONLY THE USER SETS IT. A nutrient's own
+// name inside the item's name ("... vitamin D ...", "magnesium ...") is offered
+// as a button under the list. Nothing is selected by it. Guessing is where
+// "300 mg elemental in 6.6 g of powder" goes wrong: the app cannot know which of
+// two numbers on a label is the one that counts.
+function stackSuggestMicro(name) {
+  const n = ' ' + String(name == null ? '' : name).toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' ';
+  for (let i = 0; i < MICRO_SPEC.length; i++) {
+    const lab = String(MICRO_SPEC[i].label || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!lab || lab.length < 4) continue;
+    // "vitamin d" also answers "vitamin d3"; a mineral must appear as a whole word
+    if (n.indexOf(' ' + lab + ' ') >= 0 || (/^vitamin [a-z]$/.test(lab) && new RegExp(' ' + lab + '[0-9]{0,2} ').test(n))) return MICRO_SPEC[i].key;
+  }
+  return '';
+}
+function stackSuggestHTML() {
+  const nm = document.getElementById('stkName'), sel = document.getElementById('stkMicro');
+  if (!nm || !sel || sel.value) return '';
+  const k = stackSuggestMicro(nm.value);
+  if (!k || !MICRO_LABEL[k]) return '';
+  return '<button type="button" class="linklike stksug" onclick="stackSuggestAccept(\'' + esc(k) + '\')">'
+    + 'Count it toward ' + esc(MICRO_LABEL[k].label) + '?</button>';
+}
+function stackSuggestRender() {
+  const el = document.getElementById('stkSuggest');
+  if (el) el.innerHTML = stackSuggestHTML();
+}
+function stackSuggestAccept(key) {
+  const sel = document.getElementById('stkMicro');
+  if (!sel) return { ok: false };
+  sel.value = String(key);
+  stackSuggestRender();
+  return { ok: sel.value === String(key), key: sel.value };
+}
 function stackFormRead() {
   const g = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
   return { name: g('stkName'), dose: g('stkDose'), dose_unit: g('stkUnit'), note: g('stkNote'),
@@ -3942,14 +4089,14 @@ function stackEditorHTML() {
     + '<button type="button" class="' + (st.kind === 'dose' ? 'on' : '') + '" onclick="stackFormKind(\'dose\')">Goes on my timeline</button>'
     + '<button type="button" class="' + (st.kind === 'food' ? 'on' : '') + '" onclick="stackFormKind(\'food\')">Counts in my day</button></div>';
   if (st.kind === 'dose') {
-    h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" value="' + esc(v(sd.name)) + '">'
+    h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" oninput="stackSuggestRender()" value="' + esc(v(sd.name)) + '">'
       + '<div class="row"><div><label for="stkDose">Amount</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
       + '<div><label for="stkUnit">Unit</label><select id="stkUnit">'
       + MED_DOSE_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === (sd.dose_unit || 'mg') ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>'; }).join('')
       + '</select></div></div>'
-      + '<label for="stkMicro">Counts toward (optional)</label><select id="stkMicro"><option value="">nothing</option>'
+      + '<label for="stkMicro">Counts toward (optional)</label><select id="stkMicro" onchange="stackSuggestRender()"><option value="">nothing</option>'
       + MICRO_SPEC.map(function (m) { return '<option value="' + esc(m.key) + '"' + (m.key === mk ? ' selected' : '') + '>' + esc(m.label) + '</option>'; }).join('')
-      + '</select>';
+      + '</select><div id="stkSuggest"></div>';
   } else {
     const picked = st.pick ? st.pick.name : (st.kept ? ((st.kept.ref && st.kept.ref.name) || st.kept.name) : '');
     h += (picked
@@ -3970,6 +4117,7 @@ function stackEditorHTML() {
 function renderStackEditor() {
   const el = document.getElementById('stackEditor');
   if (el) el.innerHTML = stackEditorHTML();
+  stackSuggestRender();
 }
 
 // ---- COMBOS: ONE TAP, N SEPARATE ITEMS, ONE TIMESTAMP --------------------
@@ -6849,6 +6997,13 @@ function normalizeSignal(raw) {
     // that writes it (D129). It is a label, never a claim: nothing about a pathway
     // is stored here, only the name of the thing a cited claim may be about.
     if (raw.bioactive != null && String(raw.bioactive).trim() !== '') rec.bioactive = String(raw.bioactive).trim();
+    // R208: WHAT THIS DOSE COUNTS TOWARD -- a nutrient key and an amount in that
+    // nutrient's own unit, converted when the stack item was set up and copied
+    // here at the moment of the tap. An allowlist addition, declared in the
+    // commit that writes it (D129). A dose with no such map counts toward
+    // nothing and stays a timeline fact only.
+    const dmi = normalizeMicros(raw.micros);
+    if (dmi) rec.micros = dmi;
   } else {
     rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
     if (raw.value != null && String(raw.value) !== '') {
@@ -13030,6 +13185,7 @@ const VERSION_LOG = [
   { v: '0.92.0', d: '2026-10-12', note: 'Search finds what you mean more often. Sardines finds sardine; typing a food-s name puts that food ahead of longer names that only start with it -- coffee before coffee cake, milk before milk shake, egg before eggplant -- and anything you have logged before comes first, marked as such. You can now edit your combos: tap Edit beside My combos, tap one, and rename it, change an amount, add or remove a part, or delete it, each with an Undo. Nothing you already logged changes when you do. The Manual and Scan forms have an Ate: row, like the photo screen, to say you had three quarters or half of it at the moment you log it. And the Manual form-s Confidence box now says estimated, and its Meal box is wide enough to read.' },
   { v: '0.93.0', d: '2026-10-12', note: 'Search understands both spellings: yogurt finds yogourt and the other way round, and the same for flavor and flavour, fiber and fibre, whiskey and whisky. Branded products now come after the plain food of the same name, and a food named for the word you typed comes before one that only mentions it later in its name.' },
   { v: '0.94.0', d: '2026-10-12', note: 'Nothing is logged unless you tap. The Daily supplement setting, which added an item to every new day by itself, is gone. What it added in the past is now an ordinary entry you can delete, marked time unknown because its time was only when the app was opened. In its place Settings has a Daily stack: list what you take, with amount, unit and a note, and log it with one tap from + Log, unticking anything you skipped. On the day, sittings more than three hours apart are no longer shown as one meal, and supplements have their own group instead of being filed under a meal by the clock.' },
+  { v: '0.95.0', d: '2026-10-12', note: 'A stack item you set to count toward a nutrient now adds to that nutrient for the day, shown as its own line, from your stack, with no calories. The editor suggests the nutrient when the name matches one, and you confirm it; it is never set for you. Where a cited upper level is exceeded the nutrient row says so and names its source: vitamin D against everything taken that day, magnesium against supplements only, because that is what each figure is about.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -21182,6 +21338,7 @@ window.HT = {
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, stackOpen, stackToggle, stackConfirm, stackCancel, mealKindGroups, GROUP_SPLIT_MIN,
+  stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,

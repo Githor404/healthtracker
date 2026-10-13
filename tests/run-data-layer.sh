@@ -69,6 +69,7 @@ response-gate.ps1
 ring-size-gate.ps1
 sensor-gate.ps1
 served-gate.ps1
+stacktotals-gate.ps1
 update-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two
 # echo strings -- the real bar is the manifest above versus the files on disk
@@ -413,7 +414,19 @@ echo "-----------------------------------------"
 # its own; the split at more than three hours with the exactly-three-hours
 # control; a range on a long group). Every schema pin moved 14 -> 15 and the
 # forward guard 15 -> 16; the migration-chain census gained its step.
-EXPECTED_ASSERTIONS=3043
+# R207 / R208, v0.95.0: 3043 -> 3068, delta +25. A logged dose carries what it
+# counts toward, and an unmapped one carries nothing; the day's doses summed by
+# nutrient; NO calories and no day item; the stack as a third provenance in the
+# panel's rollup, with the control that the labelled figure is unmoved; the
+# panel's own line. The ruled scenarios: vitamin D 40 food + 75 stack flagged at
+# 115 on the total; magnesium 400 food + 300 stack NOT flagged; stack magnesium
+# 400 flagged at 350, supplemental only. The flag's sentence: what was summed,
+# the source, the scope, no borrowed line, no instruction. A day item logged as
+# a supplement counts as supplemental. Scope is a field: a limit without one, or
+# without a citation, flags nothing. The record boundary keeps the map on a dose
+# only. The editor suggests and never sets, with controls for a name that holds
+# no nutrient and a word that merely contains one.
+EXPECTED_ASSERTIONS=3068
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -47,6 +47,7 @@ dailymed.nlm.nih.gov|link|"Search DailyMed yourself" and the label's own page --
 github.com|link|the Source link in the About line, and the repo URL inside the OFF User-Agent string
 console.x.ai|string|prose in a comment saying where a key comes from
 www.dexcom.com|string|R186: the citation for a sensor's wear time -- the page each figure was read on, stored beside the figure. Never requested and not rendered as a link; the surface shows the maker, the page title and the date
+www.canada.ca|string|R208: the citation for magnesium's upper intake level -- the Health Canada page the figure and its scope were read on, stored beside the figure. Never requested and not rendered as a link.
 EOF
 )
 
