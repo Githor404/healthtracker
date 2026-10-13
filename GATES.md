@@ -6080,3 +6080,31 @@ contain it.
 amounts rather than "a flag exists", so a first-run pass is evidence here; the
 two failures that shaped the build were in the harness (the panel's number
 format, and a missing container on the harness page).
+
+### v0.96.0 — a round trip through a real file, and "zero height" that was not hidden (2026-10-13)
+
+**`backup-gate` does the whole loop on disk.** The bytes of the downloaded
+backup are written to a real file; the site's storage is cleared and the app
+reloaded, with a precondition that it is empty; the file is chosen through the
+real `<input type="file">` (`DOM.setFileInputFiles`); Restore is tapped. The
+assertion is that a **new export is byte-identical** to the file — not that
+"the items came back".
+
+A headless browser has no share sheet, so `navigator.share` is replaced with a
+stand-in that receives the file. What that proves is what the app hands over —
+one file, its name, its type, its bytes — and not that iOS saves it. That last
+step is the user's phone and is not claimed.
+
+**The cancelled share is its own check.** Without it, "closing the sheet falls
+through to a download" would pass every other assertion.
+
+**A closed `<details>` is not zero-height inside.** The first version of the
+note's check read the body's bounding box and failed on a correctly collapsed
+note (324 px "tall", invisible). It now asks `checkVisibility` and measures the
+whole note. That stricter measure then failed two of three notes for a real
+reason: the old flag's padding and rule were still on the collapsed element.
+
+**`-like` and square brackets.** A PowerShell `-like` pattern containing
+`["Supplement","Medication","Food"]` treats the brackets as a character class
+and fails on a string that matches exactly. Exact JSON fragments are compared
+with `.Contains`.

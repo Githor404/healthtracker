@@ -16504,3 +16504,236 @@ start of a nag — and stated here so it is a choice and not an oversight.
 | `tests/stacktotals-gate.ps1` | **NEW, 19 checks**, by real typing and taps: the suggestion and its control; three doses and no day item; both rows' lines and flags at 16px; the two magnesium scenarios; the flag's source and scope |
 | `tests/check-egress.sh` | one host declared (`www.canada.ca`, a stored citation, never requested) |
 | suite | **50 verdicts** (1 harness + 9 static + 40 CDP) |
+
+---
+
+## R213 — RULED AND BUILT: A BACKUP FILE, THE STACK ITEM'S KIND, A FOOD FROM ITS LABEL, THE INTAKE NOTE (2026-10-13, v0.96.0)
+
+**Labels.** `R213` combines `R206` and `R209`–`R212`, all the user's relay
+labels; grepped, none previously recorded. `R206` had not been built. Nothing
+from the user's stack is named here (R204): the real case behind item 3 is "a
+food the user takes daily that is in neither database".
+
+**Serves** *track* throughout.
+
+### A. Ruling recorded
+
+**The day-level intake flag stays in the panel (and on the stack row).** *Flags,
+not nudges.* It is not surfaced on the day view.
+
+### 1. A BACKUP THAT IS A FILE (R206)
+
+The only way out was "Copy data". Now `Export backup` makes
+`healthtracker-backup-YYYY-MM-DD-vNN.json` — NN is the **schema number**, the one
+that decides whether a build can read the file.
+
+| route | when | recorded as a backup? |
+|---|---|---|
+| share sheet | the browser can share a file | yes, once the share completes |
+| download | it cannot, or sharing fails for a reason other than cancelling | yes |
+| share sheet closed | the user cancelled | **no — none was made**, and it does not fall through to a download behind their back |
+| copy as text | secondary link | no |
+
+"Last backup: <date>" is one line in Settings. **No nag**: no count of days, no
+badge, no reminder; asserted against a word list.
+
+**A limit, stated:** a download can be recorded but not confirmed — the app
+cannot know the file was kept. "Last backup" means *the last time a file was
+handed over*.
+
+**Added, not asked, and named as such:** restore from a file. A backup that is a
+file with a restore that only takes pasted text is half a feature. The file
+input **only loads the file into the box**; replacing everything is still the
+user's tap on Restore, with D3's confirmation and pre-restore backup unchanged.
+
+### 2. THE STACK ITEM'S KIND
+
+`supplement` (default) · `medication` · `food`. A stored `dose` reads as
+`supplement` at the boundary — no schema bump.
+
+- **Medication is distinct in the data**: the dose record carries `stackKind`.
+  Both remain timeline dose records; the field is what a later analysis reads.
+- **The word leads the row** on the timeline, on the day view and on the Log
+  sheet. A supplement is no longer tagged "med".
+- **Relabel of entries already logged — LABEL ONLY, as ruled.** A stack dose or a
+  day item filed as a supplement, written before the kind was recorded, renders
+  as "Supplement". **No record is changed.** That matters: an earlier entry may
+  have been a medicine, and only the user can say so. A dose typed into the
+  medication form is not relabelled.
+
+**Found by looking, not by a gate:** the day view's Biometrics group printed the
+bare stored word "medication" for every dose — no name, no amount. It now reads
+kind, name and amount, and is gated.
+
+**A conflict between two rulings, named.** D144 rules a collapsed day row to
+*name, time and one number*, and `collapse-gate` counts the separate pieces on
+the row. The kind's word, drawn as its own element, made a fifth and failed the
+gate. It is now part of the **name's own text** — "Food · name" — which is what
+it is: a qualifier of the name, not another figure. The row's height budget
+(60 px) was never exceeded. If the word should be styled apart from the name,
+that needs D144 amended; it was not done here.
+
+**Left as it is, and said:** a stack Food is filed under the day's "Supplements"
+group (so the clock never places it under a meal), and its row says "Food ·".
+The heading and the word disagree mildly; renaming the group is a ruling.
+
+### 3. A FOOD THAT IS IN NEITHER DATABASE ("my foods")
+
+**The defect was a missing door:** a stack Food and a combo part *required* a
+food-database row, so a food the database lacks could only be entered as a
+different food.
+
+`settings.foods`: name, optional grams per serving, macros **stored per 100 g**
+whichever way they were typed, and **`basis`**:
+
+| basis | shown as | confidence on the item |
+|---|---|---|
+| `label` | "from label" | measured |
+| `generic` | "generic values" | estimated |
+
+`basis` travels to the stack part, the combo part and the logged item, and is
+what the day row shows in place of "typed in". There is no citation on such an
+item, because it has none.
+
+**A conflict with the honesty rule, resolved narrowly:** the rule admits
+micronutrients from a label or a cited corpus and forbids an uncited number.
+"Generic values" for a micronutrient would be exactly that. So **my foods carry
+macros only** in this cut — true for both bases, to keep one form — and a
+label's micronutrients keep the path they already have.
+
+**Not done, and said:** my foods are found in the stack and combo builders, the
+two places a database food was required. They are **not yet offered in the
+Search pane**, whose log path builds a plate from a corpus row.
+
+**Ruled gate, met by real taps:** created from its label (typed per serving,
+stored per 100 g) → saved in the stack → logged → the day's totals include it →
+its row says "from label".
+
+### 4. THE INTAKE NOTE
+
+Every intake flag was a paragraph drawn in full. Each is now a `<details>`:
+a flag icon and "Intake note — tap to read", amber, a 44-point target, the
+sentence inside. **Collapsed on every render** — nothing stores that it was
+opened. An item's note leads with "This item: <amount>"; the day's with
+"Today: <amount> — <parts by source>".
+
+*A measurement that had to change:* a closed `<details>` keeps a layout box for
+its hidden content, so "the body has zero height" is false while it is
+invisible. The gate asks whether the body is **visible** and how tall the whole
+note is. It then caught the note carrying the old flag's box padding in two of
+three places (60 px closed against 44).
+
+### 5. Evidence
+
+| | |
+|---|---|
+| harness | **3102** (+34) |
+| `tests/backup-gate.ps1` | **NEW, 13 checks**: the file handed to a share stand-in; the cancelled sheet; the download caught at the anchor; then storage cleared, the app reloaded empty, the file chosen through the real file input, Restore tapped — a new export **byte-identical** to the file |
+| `tests/myfood-gate.ps1` | **NEW, 28 checks**: the ruled gate for item 3 end to end; kinds on every surface; the note collapsed, opened and collapsed again in all three places |
+| `tests/stacktotals-gate.ps1`, `tests/noauto-gate.ps1` | re-pointed at the note's body and at rows that now lead with a kind word |
+| suite | **52 verdicts** (1 harness + 9 static + 42 CDP) |
+
+---
+
+## PRE-REGISTERED, NOT BUILT — THE MEAL RESPONSE REVIEW (R213/C, 2026-10-13)
+
+**The first slice of *evaluate* ([[D152]]).** For each logged meal with glucose
+coverage: the actual rise, the time back to baseline and the 2 h iAUC, on the
+eaten basis — beside what was *expected*, from its carbohydrate and from the
+user's own past similar meals, with n and spread; and *"not enough similar
+meals yet"* said plainly.
+
+### 1. MEASURED FIRST, from the latest export (counts only)
+
+Food: the export of 2026-10-12. Glucose: the file on this machine, which ends
+**2026-10-10 06:12** — two days before the food log does. *The phone has more of
+both; these are floors.*
+
+| | n |
+|---|---|
+| eating events with a time and calories, whole log | 82 over 25 days |
+| inside the glucose file's span | **30**, over 7 days |
+| logged after the glucose file ends (cannot be judged here) | 20 |
+| of the 30: a baseline (≥2 readings in the 20 min before) and 2 h of readings with no gap over 16 min | **30** |
+| …and 4 h likewise | 30 |
+| nothing else eaten in the 2 h after | **18** |
+| …nor in the 2 h before | **10** |
+| carbohydrate known and above zero | 26 (3 logged zero; 1 has an unresolved item) |
+
+Rise over baseline: median **1.2 mmol/L** (quartiles 0.6 – 2.2; range −1.2 to
+3.5). Carbohydrate per event: median **16 g** (quartiles 6 – 34).
+
+### 2. WHAT THE MEASUREMENT SAYS ABOUT "EXPECTED" — before a line is written
+
+**"From my own past similar meals":**
+
+| similar means | meals with ≥1 earlier similar | ≥3 | ≥5 |
+|---|---|---|---|
+| the same combo | 0 | 0 | 0 |
+| the same set of item names | 5 | **0** | 0 |
+| shares at least half its item names | 6 | **0** | 0 |
+| carbohydrate within 25 % (or 10 g) | 24 | 20 | 14 |
+
+**By what the meal WAS, no meal has three earlier similar ones.** At any floor
+of three, the honest output for all thirty is *"not enough similar meals yet"*.
+The view would be a column of that sentence.
+
+**"From its carbs":** on the 15 clean meals with carbohydrate known, the rank
+correlation between grams of carbohydrate and the rise is **0.04**. On this data
+carbohydrate predicts nothing about the rise — with a median of 16 g, the meals
+barely vary in it. So an "expected from its carbs" figure can come from only two
+places, and each has a cost:
+
+- **the user's own data** — which at ρ = 0.04, n = 15 is noise. A number drawn
+  from it would be a prediction with no demonstrated basis (and prediction is
+  leg 4, opt-in, with uncertainty shown — not this slice);
+- **the literature** — which makes it a *claim about a response* and brings the
+  evidence layer's rule with it: source, population studied, strength of
+  evidence. No such cited figure exists in the app, and a population's
+  glycaemic response is not this user's.
+
+"Similar by carbohydrate" has the n (14 meals with ≥5) and, by the same
+measurement, no reason to be believed.
+
+### 3. WHAT IS THEREFORE PRE-REGISTERED
+
+Fixed now, so none of it is chosen after seeing the result:
+
+1. **Per meal, measured only:** rise over the 20-minute baseline; time back to
+   baseline (the response code's existing figure, "not observed" when it is
+   not); **2 h iAUC** — trapezoid, the area above baseline only, in
+   mmol/L·min — added to the response code, not computed beside it.
+2. **A meal is judged only if** it has the baseline and 2 h of readings with no
+   gap over 16 minutes. Otherwise it is listed as not judged, with the reason.
+3. **Not clean is said, not hidden:** a meal with other food in the 2 h after,
+   or the 2 h before, is marked so; its numbers are shown and excluded from any
+   comparison.
+4. **"Similar" is by what the meal was** — the same combo, or the same set of
+   item names — **not by carbohydrate**. Floor: **three** earlier clean similar
+   meals. Below it: *"not enough similar meals yet (n of 3)"*, with the n.
+   At or above it: the earlier meals' median and their range, with n. No mean
+   of two; no interval the n cannot carry.
+5. **"Expected from its carbs" is NOT built in this slice.** It is recorded as
+   wanted, and blocked on one of: a cited figure admitted through the evidence
+   layer, or the user's own data showing a relation worth drawing. The view
+   says so in one line rather than leaving a blank column.
+6. Eaten basis only. No score, no colour for good or bad, no advice.
+
+**What would change this plan:** more meals. A re-measurement on a fresh export
+*with its glucose* is the first step of the build, and if similar-by-identity
+still has no meal at the floor, the honest slice is items 1–3 alone.
+
+### 4. COST DECLARATION
+
+| | |
+|---|---|
+| new code | iAUC inside the response function; a similarity function over combo / item-name sets; one new surface (a list per day, or a section of the existing response panel — to be ruled) |
+| data contract | **none.** Everything is derived at render; nothing is stored, so nothing migrates and nothing can go stale |
+| gates | one new CDP gate on a synthetic day with a known curve (rise, return and iAUC computed by hand); harness cases for iAUC, the judged / not-judged rule, the clean rule and the floor |
+| suite | one more verdict, about two minutes; a full run is about 100 minutes |
+| risk | **a column of "not enough similar meals yet".** Measured above: that is what today's data gives. Building the comparison half now buys a sentence |
+| not included | prediction, any carbohydrate model, any cited response figure, HR or HRV |
+
+**Recommendation carried with the pre-registration:** build items 1–3 (the
+measured half, which today's thirty meals fully support) and hold item 4 until a
+re-measurement shows at least a handful of meals at the floor.
