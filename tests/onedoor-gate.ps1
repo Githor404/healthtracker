@@ -703,7 +703,10 @@ HT.corpusEnsure().then(function () {
   $ctyp = EvalJ @'
 (function () {
   var box = document.getElementById('cnRows');
-  var own = box.querySelector('.fqexit');
+  // R217: v0.96.0 put "Not in the database? Add it from its label" (.fqnewfood)
+  // ahead of this offer with the same .fqexit class, so the bare selector took
+  // the my-food button. The typed-part offer is still there; ask for IT.
+  var own = box.querySelector('.fqexit:not(.fqnewfood)');
   var pre = { rows: box.querySelectorAll('.fqrow').length, offer: own ? own.textContent : '' };
   if (own) own.click();
   var tot = (document.getElementById('cnTotal') || {}).textContent || '';
