@@ -47,6 +47,7 @@ corpus-cache-gate.ps1
 corpus-gate.ps1
 dayroll-gate.ps1
 elite-gate.ps1
+entry-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
 forms-gate.ps1
@@ -54,6 +55,7 @@ identity-search-gate.ps1
 jargon-gate.ps1
 lab-form-gate.ps1
 landing-gate.ps1
+lookup-gate.ps1
 myfood-gate.ps1
 night-gate.ps1
 noauto-gate.ps1
@@ -441,7 +443,19 @@ echo "-----------------------------------------"
 # citation; saved in the stack, logged, IN THE DAY'S TOTALS, "from label"; as a
 # combo part; listed first where a food is searched; remove with Undo changing
 # nothing already saved; the boundary.
-EXPECTED_ASSERTIONS=3102
+# R215, v0.97.0: 3102 -> 3132, delta +30. THE D113 AUTO-CLOSE: three cases
+# REVERSED in place, same fixture, opposite outcome (still open past 24h with a
+# pattern; no inferred night written; the API gone) -- net 0. NEW: the one-tap
+# section in + Log and no drink kinds; the sensor line read-only; a stated
+# bedtime, last night's when later than now, with Undo; My usual offered from
+# eight nights and NOT before it has come; taken, stored as accepted; the wake
+# read through the night's own record and never an inferred one; a second start
+# refused; practice start and end with Undo; the ring read-only; the regimen
+# line and its checklist in + Log; Your drinks from the log, last size, kept out
+# of Your top, one tap adding its calories, Undo, the empty block; the old
+# badge label; the night summary naming both; adjusted normalised, said,
+# round-tripped; corpus kept only with a citation.
+EXPECTED_ASSERTIONS=3132
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

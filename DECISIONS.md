@@ -16737,3 +16737,186 @@ still has no meal at the floor, the honest slice is items 1–3 alone.
 **Recommendation carried with the pre-registration:** build items 1–3 (the
 measured half, which today's thirty meals fully support) and hold item 4 until a
 re-measurement shows at least a handful of meals at the floor.
+
+## R215 / R216 / R218 — RULED AND BUILT: EVERY ENTRY THROUGH + LOG; SLEEP IS ASKED; A DRINK IS FOOD; MANUAL ENTRY LOOKS THE FOOD UP (2026-10-14, v0.97.0)
+
+**Labels.** `R215` (the ruling), `R216` (its entry-point rulings) and `R218`
+(R215's text re-sent for the record after the 2026-10-14 restart) are the user's
+relay labels; grepped, none previously recorded. The original R215 message is
+in no saved session; R218 is its text. `R214` (a one-tap Drink badge that logs
+calories) was **superseded by R215 before it shipped**: its patch was never
+committed. Two of its pieces are used here — the "amount not recorded" wording
+and the night summary that names logged drinks apart from old taps. Four
+answers given on 2026-10-14 complete the rulings and are recorded in place
+below. Nothing from the user's stack is named here (R204); the from-label case is
+gated under a synthetic name.
+
+**Serves** *track* (every entry has one door; a drink's calories and alcohol
+reach the day; a stated wake time is stored) and the *evaluate* leg's inputs (a
+night's wake time feeds the glucose-rise context without a second record).
+
+### 1. THE RULING: ALL LOGGING GOES THROUGH + LOG
+
+The inventory (R215/1, made in the session that R217's restart killed):
+
+| # | control, where it was | writes | ruled |
+|---|---|---|---|
+| 1 | Drink: wine / beer / spirit / other — day, badge row | an event with no amount | **retired**: a drink is food (§3) |
+| 2 | Moved, Woke — day, badge row | a timeline event | **moved** into + Log |
+| 3 | New sensor, left / right arm — day, badge row | a sensor change | **moved**; the countdown stays on the day, **read-only** |
+| 4 | Water − / +0.25 / +0.5 — day | the day's water | **moved**: +0.25 / +0.5 at the top of the events, each with Undo; the day shows litres, **read-only**; the − is gone (Undo is the correction) — *answer, 2026-10-14* |
+| 5 | Fasted / Ate, didn't log — a fasting gap | an answer | **stays**: an answer, not an entry |
+| 6 | a glucose rise's answers — the glucose row | a label on the timeline | **stays**: an answer |
+| 7 | Sleep on / off — the ring | a sleep record | **moved**, beside Woke; the ring is **read-only** |
+| 8 | Which side did you sleep on — a flagged night | a timeline record | **stays**: an answer |
+| 9 | Today's regimen: Log / Logged elsewhere — the day | doses, food, ticks | **linked**: the checklist is drawn in + Log; the day keeps one line that opens it |
+| 10 | "N leftover" — the day | eating from a saved plate | **linked** (see the defect below) |
+
+**The ring's other timers** — sauna, meditation, red light — had the same on/off
+as sleep. *Answer, 2026-10-14: all of them move*; the ring only displays. A
+summoned lane now states itself ("Sauna · not on", "sleeping · 0.7h") and links
+to + Log.
+
+**What stays a link and is not an entry:** Quick add · top 10, Camera, the
+empty-meal chips (all already opened + Log), and controls that change or remove
+what was logged — delete, Undo, editing a row (Ate: ½ included), mark as a test,
+end or clear the day, and **Restore** from the trash, which brings back an entry
+that was logged rather than making one.
+
+**A defect found on the way.** "N leftover" opened + Log's root, and the
+leftovers list it promised was **drawn nowhere**: `plateRecallHTML` had no
+caller. The list is now the first block of the root.
+
+**The regimen line moved below the rings.** Drawn where the checklist was, it
+sat above the date — against R159.1's "nothing above the rings card but the
+date". It now sits beside the leftovers line. Seen in a 390 px screenshot, not
+caught by a gate.
+
+### 2. SLEEP IS ASKED, NEVER STAMPED — AND NEVER CLOSED FOR THE USER
+
+*Answer, 2026-10-14:* **remove the auto-close.** D113's writing half closed a
+sleep left open for 24 h at the sleeper's typical wake time, marked
+`inferred`, on the next render. It was a record nobody tapped for, against R202.
+It is gone: `maybeAutoCloseSleep`, `SLEEP_AUTO_CLOSE_MIN` and the render hook.
+The pattern (`typicalWake`) stays, as what "My usual" offers. Nights already
+written `inferred` keep their mark and stay out of the pattern.
+
+*And:* **starting or ending a sleep always asks the time first.**
+
+| | offered |
+|---|---|
+| ending ("Woke at…") | **Now** (highlighted, the default) · **My usual ~HH:MM, from N nights** (only with ≥ 8 of the user's own nights, and only once that time has come) · another time |
+| starting ("Went to bed at…") | **Now** · another time; a time later than now is last night |
+
+The chosen time is the time stored. "Now" and a typed time are `typed`; the
+usual taken unchanged is `accepted` (D113's D1 rule, kept). A typed end that has
+not happened yet is refused.
+
+**While a sleep is open, Woke is ending it** — one way to record waking. The
+button reads "Woke · end sleep". Nothing reads a second record for it: the
+glucose-rise context (`eliteWokeTimes`) and the day's "woke HH:MM" now also read
+the wake moment of a night's own record, keyed by the day it ended. An
+`inferred` night is no one's waking.
+
+**The forgotten-off question** still appears past each lane's threshold. It no
+longer writes: its one action, "Say when, in + Log", opens the picker. "Not now"
+and "discard this segment" are unchanged.
+
+A practice (sauna, meditation, red light) starts and ends at the tap; its
+forgotten-off question opens the same picker. **Starting now has an Undo**
+(`laneStartUndo`) — it had none.
+
+### 3. A DRINK IS FOOD
+
+A drink is a food entry tagged `meal: 'drink'` — the tag already in the data
+contract, so **no schema change**. It is logged like any food:
+
+- **Your drinks** (on + Log's root, below Photo / Scan / Search / Manual): the
+  drinks the user has logged, most-logged first, read from the log and stored
+  nowhere (D133's shape). **One tap logs the most recent one again at its last
+  size** through `logRepeat`, with its Undo. With none logged, the block is one
+  link. Drinks are counted there and **not** in Your top — one list per thing.
+  *Placed first between Your top and Something new*, it pushed Search below the
+  bottom of a full sheet — R197/2's ruled fold. `onedoor-gate` caught it; the
+  fold outranks the placement.
+- **Log a drink**: the food database search, headed so, tagging what it logs.
+  The amount is in **grams**: the database is per 100 g and holds no density, so
+  150 mL of wine is the user's own 150, not a conversion the app makes for them.
+- **Photo and Manual**: the meal choice already offers *drink*.
+- **A limit, found by the gate and stated:** on the US corpus, "wine" leads with
+  *Vinegar, red wine*; "table wine" finds the wine. A ranking question for its own
+  ruling, not changed here.
+
+Calories count in the day as any item's do. **Alcohol** rides in the cited ref
+where the row has it (slot 221, reference provenance) and is named, with its
+source, in what preceded a night — beside old badge taps, never merged.
+
+**R215/6 — the old badge's drinks are not back-filled.** They are shown
+"Drink · wine · amount not recorded", and their stored count of 1 is not printed
+as if it were an amount.
+
+### 4. MANUAL ENTRY LOOKS THE FOOD UP
+
+Typing in Manual's name field brings the food database's rows beneath it —
+the same rows, from the same function, as Search, the stack and a combo part,
+calories beside each. Above them, as everywhere: "Not in the database? Add it
+from its label".
+
+**A pick fills in** calories, protein, fat, carbs, fibre and every
+micronutrient the row carries, for the grams typed (100 g if none). Changing the
+grams rescales every number not changed. Every number stays editable.
+
+**Provenance** — *answer, 2026-10-14: a typed number is from the label:*
+
+| | stored as |
+|---|---|
+| a pick taken unchanged | exactly what Search writes: `source: corpus`, cited, micros left in `ref.v` at **reference** provenance (D120) |
+| a number typed over (or typed where the row had none) | the user's: `source: manual`, the citation kept, **`adjusted`** naming each changed field; a micronutrient typed over goes into `micros` as a **label** value, and its database figure is **taken out of `ref.v`**, so one nutrient of one item is never counted at two provenances |
+| a food from its label | R213's form, in the manual pane; saved to Your foods and picked into the form at its serving; `basis: label`, macros only |
+
+On the row: "from the food database", or **"from the food database,
+adjusted"**, or "from label". While a pick is on the form the micronutrient
+heading says the values are the food database's — **found in a screenshot**: it
+first said "(from label) (14 entered)" over 14 database values, the exact
+mislabel the honesty rule exists to prevent. Save as preset, after a pick, takes
+only the typed micronutrients.
+
+`adjusted` is additive and optional, declared in `normalizeItem` in the commit
+that writes it (D129), round-tripped; no schema bump — losing it to an older
+build loses a marking, not a number.
+
+**"Same lookup for stack and combo parts"** — read as the same rows and the same
+from-label exit, which both already had (R213). Typing over a matched part's
+numbers is **not** added there: a combo part's numbers are its row's (gated in
+onedoor), and changing that is a separate ruling.
+
+### 5. Evidence
+
+- `tests/entry-gate.ps1` — **a census, not a list.** Every surface that can
+  carry a control is seeded at once (an open sleep past its question, a pending
+  fast, a rise with no food before it, a flagged night, leftovers, a regimen, a
+  sensor, an item in the trash), every disclosure is opened, and **every visible
+  control outside + Log and Settings is clicked**, each from the same restored
+  state, with the stored entries counted before and after. Only the three named
+  answers write, plus Restore, counted apart. Then each moved one-tap control
+  writes from + Log and its Undo puts every count back; the two links open + Log
+  on what they name; Woke asks, stores the stated time, undoes; a day open is
+  still open.
+- `tests/lookup-gate.ps1` — by real typing on the shipped database: rows with
+  calories; a pick prefills macros and micronutrients; the amount rescales; taken
+  unchanged it is a corpus item with reference micros; typed over it is
+  `adjusted` with the typed calcium a label value and out of `ref.v`; the
+  from-label path ("Gate seed oil", 14 g, 120 cal) reaches the day's total as
+  "from label"; a drink found by search adds its calories, and one tap from Your
+  drinks adds them again, with Undo.
+- Harness: the one-tap HTML, the read-only sensor line, the stated bedtime, My
+  usual (offered, and not before it has come), `accepted`, the wake read through
+  the night's record, practice Undo, the regimen link, Your drinks read from the
+  log and kept out of Your top, a repeat at the last size adding its calories,
+  the old badge label, the night summary, `adjusted` round-tripped. The D113
+  auto-close cases are **reversed** to assert the opposite on the same fixture.
+- **Re-pointed, by ruling, not loosened:** `response-gate` measures the one-tap
+  row in + Log, built from the declarations without the drink, and now also
+  asserts the day carries none; `sensor-gate` taps the arms and answers the type
+  question in + Log and asserts the Drink badge is gone; five harness cases that
+  asserted the ring's on/off and the dialog's time field now assert the link.

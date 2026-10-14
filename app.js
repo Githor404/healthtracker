@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.96.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.97.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -191,6 +191,17 @@ const Store = (() => {
 // genuinely preserves unknown keys.) So an additive field like `tzo` must be
 // listed explicitly here to survive; that is deliberate, since opening a
 // passthrough would let arbitrary keys cross the untrusted paste boundary.
+// R215/4: a list of field keys (a macro key or a micro key), deduplicated.
+// Anything else is dropped; an empty list is no list.
+function normalizeAdjusted(a) {
+  if (!Array.isArray(a)) return null;
+  const out = [];
+  a.forEach(function (k) {
+    const s = String(k == null ? '' : k);
+    if (/^[a-z][a-z0-9_]{0,40}$/.test(s) && out.indexOf(s) < 0) out.push(s);
+  });
+  return out.length ? out : null;
+}
 function normalizeMicros(micros) {
   if (!micros || typeof micros !== 'object' || Array.isArray(micros)) return null;
   const out = {};
@@ -541,6 +552,10 @@ function normalizeItem(it, clampMacros) {
   if (it.autoLegacy === true) out.autoLegacy = true;
   if (STACK_KINDS.indexOf(it.stackKind) >= 0) out.stackKind = it.stackKind;   // R213: which kind of stack item wrote it
   if (MYFOOD_BASES.indexOf(it.basis) >= 0) out.basis = it.basis;              // R213: a "my food" -- from label, or generic values
+  // R215/4: which of the numbers a database lookup filled in the user then
+  // changed. Declared in the commit that writes it (D129); known keys only.
+  const adj = normalizeAdjusted(it.adjusted);
+  if (adj) out.adjusted = adj;
   const micros = normalizeMicros(it.micros);
   if (micros) out.micros = micros;
   const tzo = normalizeTzo(it.tzo);      // D29: PRESERVE only -- creation paths supply it,
@@ -4407,7 +4422,7 @@ function myFoodRowsHTML(text, pickFn, newFn) {
 let MYFOOD_FORM = null;          // { ctx: 'stack' | 'combo', host } | null
 function myFoodFormOpen(ctx, name) {
   MYFOOD_FORM = { ctx: String(ctx) };
-  const el = document.getElementById(ctx === 'combo' ? 'cnFood' : 'stkFood');
+  const el = document.getElementById(ctx === 'combo' ? 'cnFood' : (ctx === 'manual' ? 'maFood' : 'stkFood'));
   if (el) el.innerHTML = myFoodFormHTML(name);
   const f = document.getElementById('mfName'); if (f && f.focus) f.focus();
   return { ok: !!el, ctx: MYFOOD_FORM.ctx };
@@ -4415,7 +4430,7 @@ function myFoodFormOpen(ctx, name) {
 function myFoodFormClose() {
   const ctx = MYFOOD_FORM ? MYFOOD_FORM.ctx : '';
   MYFOOD_FORM = null;
-  ['cnFood', 'stkFood'].forEach(function (id) { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+  ['cnFood', 'stkFood', 'maFood'].forEach(function (id) { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
   return { ok: true, ctx: ctx };
 }
 function myFoodFormHTML(name) {
@@ -4447,7 +4462,9 @@ function myFoodFormSave() {
   myFoodFormClose();
   renderMyFoods();
   toast('Saved ' + r.food.name + ' to your foods');
-  if (ctx === 'combo') comboNewAddMine(r.food.id); else stackFormPickMine(r.food.id);
+  if (ctx === 'combo') comboNewAddMine(r.food.id);
+  else if (ctx === 'manual') manualPickMine(r.food.id);
+  else stackFormPickMine(r.food.id);
   return r;
 }
 function myFoodsHTML() {
@@ -4677,7 +4694,11 @@ function confWord(v) { const k = String(v == null ? '' : v); return CONF_WORD[k]
 function sourceWord(v) { const k = String(v == null ? '' : v); return SOURCE_WORD[k] || k; }
 // R213: a "my food" says which it is -- "from label" or "generic values" -- where
 // any other item says how it was entered.
-function itemSourceWord(it) { return (it && MYFOOD_BASIS_WORD[it.basis]) || sourceWord(it && it.source); }
+function itemSourceWord(it) {
+  const base = (it && MYFOOD_BASIS_WORD[it.basis]) || ((it && it.ref && it.adjusted) ? sourceWord('corpus') : sourceWord(it && it.source));
+  // R215/4: a looked-up item whose numbers the user changed SAYS so.
+  return (it && it.adjusted && it.adjusted.length) ? (base + ', adjusted') : base;
+}
 function wordCensus() {
   const miss = [];
   CONFIDENCES.forEach(function (v) { if (!CONF_WORD[v]) miss.push('confidence value with no word: ' + v); });
@@ -5209,7 +5230,12 @@ function biometricSummary(dateKey) {
   const w = ws.length ? ws[ws.length - 1] : null;
   if (w) bits.push('weight ' + rDisp(w.value) + (w.unit ? ' ' + w.unit : ''));
   const woke = recs.filter(function (r) { return r && r.type === 'woke'; });
-  const lastWoke = woke.length ? String(woke[woke.length - 1].time || '') : '';
+  let lastWoke = woke.length ? String(woke[woke.length - 1].time || '') : '';
+  // R215: a night ended in + Log says when they woke through its own record.
+  if (!lastWoke) {
+    const nights = recs.filter(function (r) { return r && r.type === 'sleep' && r.wake_src !== 'inferred' && sleepWakeMin(r) != null; });
+    if (nights.length) lastWoke = minutesToHHMM(sleepWakeMin(nights[nights.length - 1]));
+  }
   if (lastWoke) bits.push('woke ' + lastWoke);
   return {
     words: bits.join(' \u00b7 '),
@@ -5284,6 +5310,9 @@ function foodFrequency(limit) {
   days.forEach(function (dk) {
     ((APP_STATE.days[dk] || {}).items || []).forEach(function (it) {
       if (!it || isLegacyAuto(it)) return;         // an auto-added entry is not a repeat: nobody chose it
+      // R215/3: a DRINK is counted in "Your drinks", not here. Two lists offering
+      // the same thing on one sheet is the duplication the one-door root removed.
+      if (it.meal === 'drink' && !(it.comboId != null && String(it.comboId) !== '')) return;
       const nm = String(it.name == null ? '' : it.name).trim();
       if (!nm) return;
       // ---- RULING 3: A COMBO IS ONE ROW -------------------------------------
@@ -5472,7 +5501,7 @@ function renderDayInner() {
   // Biometrics, and NOTHING above the rings card but the date. The leftovers list
   // used to sit here; it is one quiet line now, below the card with the actions.
   html += renderGoalsHTML(t, day);
-  html += plateRecallLineHTML() + dayActionsHTML();
+  html += plateRecallLineHTML() + (dk === todayKey() ? regimenLinkHTML() : '') + dayActionsHTML();   // R215: both open + Log
 
   // ---- R159.1: THE DAY AS THE MEALS THAT HAPPENED ----------------------
   // Ruled: one collapsed header per meal kind that HAS items; the empty kinds
@@ -5684,8 +5713,9 @@ function renderDayInner() {
   html += `<details class="mpanel"${POTENTIAL_OPEN ? ' open' : ''} ontoggle="potentialToggle(this.open)"><summary>What this day delivered</summary><div id="potentialPanel"></div></details>`;
   if (unlogged) html += `<div class="emptyday">Nothing logged on this day.</div>`;
   html += trashHTML(dk);
-  html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span>
-      <span class="wbtns"><button onclick="addWater(-0.25)">−</button><button onclick="addWater(0.25)">+0.25</button><button onclick="addWater(0.5)">+0.5</button></span></div>`;
+  // R215: READ-ONLY. Water is added in + Log (+0.25 / +0.5, each with Undo);
+  // the minus went with it, because Undo is the correction for a mis-tap.
+  html += `<div class="waterrow"><span>Water <b>${esc(rDisp(w))}</b> L</span></div>`;
   // Nothing to complete and nothing to clear on a day that has no record. The
   // controls are absent rather than inert: a button that cannot act is a worse
   // answer than no button (D46 -- every exit paints).
@@ -6353,7 +6383,8 @@ function addManualEntry(raw) {
   const time = typed == null ? stampTime(APP_STATE.current) : typed;
   const item = normalizeItem(Object.assign({}, raw, { time: time,
                                                      meal: mealAtCreation(raw.meal, time),
-                                                     source: 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
+                                                     // R215/4: a lookup taken unchanged keeps the database's own source
+                                                     source: (raw.source === 'corpus' && raw.ref) ? 'corpus' : 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
   const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day' };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
   day.items.push(item);
@@ -7480,7 +7511,7 @@ function timelineForDay(date) {
   ((APP_STATE.timeline && APP_STATE.timeline[date]) || []).forEach((s, idx) =>
     rows.push({ time: s.time || '', row: s.kind, type: s.type, value: s.value, unit: s.unit, notes: s.notes,
                 name: s.name, dose: s.dose, dose_unit: s.dose_unit, wake_src: s.wake_src, idx: idx,
-                kind: s.kind, source: s.source, stackKind: s.stackKind }));
+                kind: s.kind, source: s.source, stackKind: s.stackKind, variant: s.variant }));
   rows.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   return rows;
 }
@@ -7766,6 +7797,169 @@ function quickEventWords(q, rec) {
 function quickConfirm(words, records) {
   offerUndo(words, undoRemove(APP_STATE.timeline[localDate()] || [], records), QUICK_UNDO_MS, 'tline');
 }
+
+// ---- R215: EVERY ONE-TAP EVENT LIVES IN + LOG ---------------------------------
+//
+// RULED (R215/R216): all logging goes through + Log. The badge row under the day
+// (Moved, Woke, New sensor, Drink), the water buttons on the day and the on/off
+// on the ring were side doors, each writing a record from a different screen.
+// They are here now, at the top of "Log event or biometric", one tap each, every
+// one with its Undo. The day keeps what it SHOWS -- the sensor countdown, the
+// water figure, the ring -- and nothing on it writes except the ruled answers
+// (Fasted / Ate, didn't log; a glucose rise's answer; the side slept on).
+//
+// SLEEP IS ASKED, NOT STAMPED (ruled 2026-10-14). Starting or ending a sleep
+// always asks the time first: "Now" is the default and is highlighted, "My
+// usual" is offered for a wake time when there are enough of the user's own
+// nights to have one, and any other time can be typed. The chosen time is what
+// is stored, so ending a night two hours late still records when they woke.
+// While a sleep is open, Woke IS ending it: one way to record waking, not two.
+// A practice (sauna, meditation, red light) starts and ends at the tap; its
+// forgotten-off question opens the same picker.
+const ONETAP_LANES = ['sauna', 'meditation', 'red_light'];
+let LANE_PICK = null;            // { lane, mode: 'start' | 'end' } while its time is asked
+function lanePickOpen(lane, mode) {
+  if (!LANE_ACTIONS[lane] || !LANE_ACTIONS[lane].toggle) return { ok: false };
+  LANE_PICK = { lane: String(lane), mode: mode === 'start' ? 'start' : 'end' };
+  renderQuickEvents();
+  return { ok: true, lane: LANE_PICK.lane, mode: LANE_PICK.mode };
+}
+function lanePickCancel() { LANE_PICK = null; renderQuickEvents(); return { ok: true }; }
+// The door the forgotten-off question and the ring use: + Log, events, the picker.
+function laneEndOpen(lane) {
+  openSheet('signal');
+  return lanePickOpen(lane, 'end');
+}
+// Where an end at HH:MM falls -- resolveLaneOpen's own rule: the first such
+// moment after the start.
+function laneEndAbs(lane, hhmm) {
+  const st = laneOpenState(lane);
+  const m = timeToMinutes(hhmm);
+  if (!st.open || m == null) return null;
+  const dm = isoToDayMin(st.start);
+  let d = dm.date, a = absMinutes(d, m), guard = 0;
+  while (a <= st.startAbs && guard++ < 3) { d = shiftDate(d, 1); a = absMinutes(d, m); }
+  return a;
+}
+function nowAbs() { return absMinutes(todayKey(), nowMinutes()); }
+// "My usual" for an END, or '' when there is none to offer: sleep only (a
+// practice has a typical duration, not a typical end), with a pattern, and not a
+// time still to come -- offering a wake time that has not happened is offering
+// to write one nobody lived.
+function lanePickUsual(lane) {
+  if (lane !== 'sleep') return { hhmm: '', n: 0 };
+  const pre = askPrefill('sleep');
+  if (!pre.hhmm) return pre;
+  const a = laneEndAbs('sleep', pre.hhmm);
+  return (a != null && a <= nowAbs()) ? pre : { hhmm: '', n: pre.n };
+}
+// A start at a stated time: today if that time has come, else yesterday.
+function laneOnAt(lane, hhmm) {
+  const spec = LANE_ACTIONS[lane];
+  if (!spec || !spec.toggle) return { ok: false };
+  if (laneOpenState(lane).open) return { ok: false, error: 'A ' + lane + ' segment is already open.' };
+  const m = timeToMinutes(hhmm);
+  if (m == null) return { ok: false, error: 'Enter the time as HH:MM.' };
+  const date = m <= nowMinutes() ? todayKey() : shiftDate(todayKey(), -1);
+  if (!APP_STATE.settings.laneOpen) APP_STATE.settings.laneOpen = {};
+  const hh = String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  APP_STATE.settings.laneOpen[lane] = { start: date + 'T' + hh, startedAt: new Date(nowMs()).toISOString() };
+  Store.saveState(APP_STATE); refresh();
+  laneStartUndo(lane);
+  return { ok: true, lane: lane, start: APP_STATE.settings.laneOpen[lane].start };
+}
+// R215 "Undo everywhere": a start had none. Its inverse is the open segment gone.
+function laneStartUndo(lane) {
+  const spec = LANE_ACTIONS[lane];
+  const o = (APP_STATE.settings.laneOpen || {})[lane];
+  if (!spec || !o) return;
+  offerUndo(spec.label + ' started ' + String(o.start).slice(11), function () {
+    if (APP_STATE.settings.laneOpen && APP_STATE.settings.laneOpen[lane] === o) delete APP_STATE.settings.laneOpen[lane];
+    Store.saveState(APP_STATE); refresh();
+  }, QUICK_UNDO_MS, 'tline');
+}
+function lanePickSave(choice) {
+  const p = LANE_PICK;
+  if (!p) return { ok: false, why: 'nothing-asked' };
+  const typedEl = document.getElementById('lpTime');
+  const typed = typedEl ? String(typedEl.value || '') : '';
+  let r;
+  if (p.mode === 'start') {
+    const hhmm = choice === 'time' ? typed : nowTime();
+    if (choice === 'time' && timeToMinutes(hhmm) == null) { toast('Enter the time.'); return { ok: false, why: 'no-time' }; }
+    r = laneOnAt(p.lane, hhmm);
+  } else if (choice === 'now') {
+    r = closeLaneSegment(p.lane, nowAbs(), todayKey(), 'typed');
+  } else {
+    const usual = lanePickUsual(p.lane);
+    const hhmm = choice === 'usual' ? usual.hhmm : typed;
+    if (timeToMinutes(hhmm) == null) { toast('Enter the time.'); return { ok: false, why: 'no-time' }; }
+    const a = laneEndAbs(p.lane, hhmm);
+    if (a == null || a > nowAbs()) { toast('That time has not come yet.'); return { ok: false, why: 'future' }; }
+    // 'accepted' only for the suggestion taken unchanged (D113's D1 rule).
+    r = resolveLaneOpen(p.lane, hhmm, choice === 'usual' ? 'accepted' : 'typed');
+  }
+  if (r && r.ok) { LANE_PICK = null; delete ASK_SNOOZED[p.lane]; renderQuickEvents(); renderSleepAsk(); }
+  else if (r && r.error) toast(r.error);
+  return r || { ok: false };
+}
+const LANE_PICK_HEAD = {
+  sleep: { start: 'Went to bed at…', end: 'Woke at…' },
+};
+function lanePickHTML() {
+  const p = LANE_PICK;
+  if (!p) return '';
+  const spec = LANE_ACTIONS[p.lane];
+  const head = (LANE_PICK_HEAD[p.lane] || {})[p.mode]
+    || (spec.label + (p.mode === 'start' ? ' started at…' : ' ended at…'));
+  const usual = p.mode === 'end' ? lanePickUsual(p.lane) : { hhmm: '' };
+  return '<div class="lpick" role="group" aria-label="' + esc(head) + '">'
+    + '<div class="lphead">' + esc(head) + '</div>'
+    + '<div class="lprow">'
+    + '<button type="button" class="btn primary lpnow" aria-pressed="true" onclick="lanePickSave(\'now\')">Now · ' + esc(nowTime()) + '</button>'
+    + (usual.hhmm ? ('<button type="button" class="btn lpusual" onclick="lanePickSave(\'usual\')">My usual · ~' + esc(usual.hhmm)
+        + '<small> from ' + esc(String(usual.n)) + ' nights</small></button>') : '')
+    + '</div>'
+    + '<div class="lprow"><label class="lplab" for="lpTime">Another time</label>'
+    + '<input id="lpTime" type="time" class="lptime">'
+    + '<button type="button" class="btn lpsave" onclick="lanePickSave(\'time\')">Save</button></div>'
+    + '<button type="button" class="linklike lpcancel" onclick="lanePickCancel()">cancel</button></div>';
+}
+// A practice: one tap starts it now, one tap ends it now.
+function laneTapStart(lane) {
+  const r = laneOn(lane);
+  if (r && r.ok) laneStartUndo(lane);
+  return r;
+}
+function laneTapEnd(lane) { return closeLaneSegment(lane, nowAbs(), todayKey(), 'typed'); }
+function oneTapHTML() {
+  const day = (APP_STATE.days || {})[APP_STATE.current] || {};
+  const sl = laneOpenState('sleep');
+  let h = '<div class="otsec otwater"><span class="otlab">Water <b>' + esc(rDisp(num(day.water_l))) + '</b> L</span>'
+    + '<button type="button" class="qbtn otbtn" onclick="addWater(0.25)">+0.25 L</button>'
+    + '<button type="button" class="qbtn otbtn" onclick="addWater(0.5)">+0.5 L</button></div>';
+  h += '<div class="otsec">'
+    + '<button type="button" class="qbtn otbtn" onclick="quickEvent(\'moved\')">Moved</button>'
+    + (sl.open
+        ? ('<button type="button" class="qbtn otbtn otwoke" onclick="lanePickOpen(\'sleep\',\'end\')">Woke · end sleep</button>'
+           + '<span class="otstate">sleeping · ' + esc(hoursLabel(sl.minutes)) + '</span>')
+        : ('<button type="button" class="qbtn otbtn otwoke" onclick="quickEvent(\'woke\')">Woke</button>'
+           + '<button type="button" class="qbtn otbtn otsleep" onclick="lanePickOpen(\'sleep\',\'start\')">Sleep</button>'))
+    + '</div>';
+  h += '<div class="otsec">' + ONETAP_LANES.map(function (k) {
+    const spec = LANE_ACTIONS[k], st = laneOpenState(k);
+    return st.open
+      ? ('<button type="button" class="qbtn otbtn oton" onclick="laneTapEnd(\'' + esc(k) + '\')">End ' + esc(spec.label.toLowerCase())
+         + ' · ' + esc(String(Math.round(st.minutes))) + ' min</button>')
+      : ('<button type="button" class="qbtn otbtn" onclick="laneTapStart(\'' + esc(k) + '\')">' + esc(spec.label) + ' start</button>');
+  }).join('') + '</div>';
+  const sn = QUICK_BY_ID.sensor;
+  h += '<div class="otsec"><span class="qgroup"><span class="qlab">' + esc(sn.label) + '</span>'
+    + sn.variants.map(function (v) {
+        return '<button type="button" class="qbtn" onclick="quickEvent(\'sensor\', \'' + esc(v) + '\')">' + esc(v) + '</button>';
+      }).join('') + '</span></div>';
+  return lanePickHTML() + h + sensorStatusHTML();
+}
 // The sensor's confirmation, fullest first. The shorter form drops "New sensor"
 // and NOTHING ELSE: the tap that was just made says what it was, and the type,
 // the site and the time are the three things the report asked to see.
@@ -7836,9 +8030,14 @@ function signalRowLabel(r) {
   // is named here, in a person's words, and never by its storage name.
   if (r && r.type === ELITE_TYPE)
     return 'Glucose rise · ' + (ELITE_LABEL_WORD[r.variant] || 'unlabelled');
+  // R215/6 (R214's wording): a drink tapped on the RETIRED badge is a time and
+  // nothing else. Left exactly as stored (ruled: no back-fill), it says what it lacks.
+  if (r && r.type === 'alcohol' && r.source === 'quick')
+    return 'Drink' + (r.variant ? ' · ' + String(r.variant) : '') + ' · amount not recorded';
   const spec = r ? SIGNAL_BY_TYPE[r.type] : null;
   return spec ? spec.label : String((r && r.type) || '');
 }
+function signalRowValueHidden(r) { return !!r && r.type === 'alcohol' && r.source === 'quick'; }
 // The most recent sensor change at or before `atMs`. A record with no clock time
 // is placed at the start of its day and marked untimed, so nothing downstream
 // states an hour figure that rests on a time nobody recorded (D112).
@@ -8076,7 +8275,7 @@ function renderTimelineOverlay() {
     // inferred rather than answered.
     if (r.type === 'sleep')
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
-    const val = (r.value != null) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
+    const val = (r.value != null && !signalRowValueHidden(r)) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
     return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
 }
@@ -8546,6 +8745,25 @@ function readMicroFields(prefix) {
 }
 function updateMicroCount(prefix, countId) {
   const el = document.getElementById(countId); if (!el) return;
+  // R215/4: after a database pick the filled fields are NOT a label's, and the
+  // heading must not say they are. It says which came from where.
+  if (countId === 'maMicroCount') {
+    const head = document.getElementById('maMicroHead');
+    const st = MANUAL_LOOK;
+    const looked = !!(st && st.pick && st.pick.kind === 'corpus');
+    if (head) head.textContent = looked ? 'Micronutrients (food database; a number you type is your label’s)' : 'Micronutrients (from label)';
+    if (looked) {
+      let db = 0, mine = 0;
+      MICRO_SPEC.forEach((s) => {
+        const i = document.getElementById(prefix + s.key);
+        if (!i || i.value.trim() === '') return;
+        const pre = st.pre[prefix + s.key];
+        if (pre && i.value === pre.shown) db++; else mine++;
+      });
+      el.textContent = (db || mine) ? (' (' + [db ? db + ' from the database' : '', mine ? mine + ' typed' : ''].filter(Boolean).join(', ') + ')') : '';
+      return;
+    }
+  }
   let n = 0;
   MICRO_SPEC.forEach((s) => { const i = document.getElementById(prefix + s.key); if (i && i.value.trim() !== '') n++; });
   el.textContent = n ? ' (' + n + ' entered)' : '';
@@ -8566,7 +8784,223 @@ function readManualForm() {
 function clearManualForm() {
   ['maName', 'maKcal', 'maP', 'maF', 'maC', 'maFib', 'maSol', 'maTime', 'maPortion', 'maGrams'].forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
   MICRO_SPEC.forEach((s) => { const el = document.getElementById('ma_micro_' + s.key); if (el) el.value = ''; });
+  MANUAL_LOOK = null; manualRowsPaint();
   updateMicroCount('ma_micro_', 'maMicroCount'); showManualWarnings([]);
+}
+
+// ---- R215/4: MANUAL ENTRY LOOKS THE FOOD UP ----------------------------------
+//
+// RULED: type a name and the food database answers beneath it, calories beside
+// each row (the same rows, from the same function, as Search, the stack and a
+// combo part -- one lookup). Picking a row FILLS IN the form at the grams typed
+// (100 g if none): calories, macros and every micronutrient the row carries.
+// Every number stays editable, and a number the user CHANGES is marked
+// "adjusted" on the logged row. Nothing matches -> "Not in the database? Add it
+// from its label" (R211/R213): the label form, saved to Your foods, picked here.
+//
+// PROVENANCE, ruled 2026-10-14 ("typed = from label"):
+//   - taken unchanged, the item is exactly what Search writes: `source: corpus`,
+//     its own macros the database's, cited, its micros left in `ref.v` at
+//     REFERENCE provenance (D120) -- the prefilled micro fields are a display.
+//   - a number typed over is the user's: `source: manual`, the citation kept,
+//     `adjusted` naming the changed fields. A micro typed over is a LABEL value
+//     (in `micros`) and its database value is taken out of `ref.v`, so one
+//     nutrient of one item is never counted at two provenances.
+// The amount is not an adjustment: changing the grams rescales every number
+// the user has not changed, and leaves the changed ones alone.
+let MANUAL_LOOK = null;          // { q, phase, rows, seq, pick, pre } -- view state, never written
+const MANUAL_MACRO_FIELDS = { maKcal: 'kcal', maP: 'protein_g', maF: 'fat_g', maC: 'carb_g', maFib: 'fiber_g' };
+function manualLookFresh() { return { q: '', phase: '', rows: [], seq: 0, pick: null, pre: {} }; }
+function manualType(text) {
+  if (!MANUAL_LOOK) MANUAL_LOOK = manualLookFresh();
+  const st = MANUAL_LOOK;
+  st.q = String(text == null ? '' : text);
+  if (st.pick) return Promise.resolve({ ok: true, picked: true });   // renaming a picked food is only its name
+  const seq = ++st.seq;
+  manualRowsPaint();
+  return typeaheadRun(st.q).then(function (r) {
+    if (MANUAL_LOOK !== st || st.seq !== seq || st.pick) return { ok: false, why: 'stale' };
+    st.phase = r.phase; st.rows = r.rows;
+    manualRowsPaint();
+    return { ok: true, phase: r.phase, rows: r.rows.length };
+  });
+}
+function manualRowsHTML() {
+  const st = MANUAL_LOOK;
+  if (!st || st.pick) return '';
+  const typed = String(st.q || '').trim();
+  if (typed.length < TYPEAHEAD_MIN) return '';
+  return myFoodRowsHTML(typed, 'manualPickMine', 'manualFoodFormOpen') + typeaheadRowsHTML(st, 'manualPickAt');
+}
+function manualPickedHTML() {
+  const st = MANUAL_LOOK;
+  if (!st || !st.pick) return '';
+  const p = st.pick;
+  const from = p.kind === 'corpus'
+    ? ('From the food database: <b>' + esc(p.c.name) + '</b>')
+    : ('From your foods (' + esc(MYFOOD_BASIS_WORD[p.food.basis] || '') + '): <b>' + esc(p.food.name) + '</b>');
+  const cite = p.kind === 'corpus' ? String((p.c.meta && p.c.meta.attribution) || '') : '';
+  return '<div class="mapicked">' + from + ', for the grams below. Change any number and it is marked adjusted.'
+    + (cite ? '<div class="fqsub fqcite">' + esc(cite) + '</div>' : '')
+    + '<button type="button" class="linklike mapunpick" onclick="manualUnpick()">not this one</button></div>';
+}
+function manualRowsPaint() {
+  const el = document.getElementById('maRows'); if (el) el.innerHTML = manualRowsHTML();
+  const pk = document.getElementById('maPicked'); if (pk) pk.innerHTML = manualPickedHTML();
+}
+function manualFoodFormOpen() {
+  // The rows go while the label form is open: it is the answer to "not in here".
+  const el = document.getElementById('maRows'); if (el) el.innerHTML = '';
+  return myFoodFormOpen('manual', MANUAL_LOOK ? MANUAL_LOOK.q : '');
+}
+// One decimal on the form; the precise figure is what an untouched field logs.
+function manualShown(v) { return String(Math.round(num(v) * 10) / 10); }
+// The numbers a pick puts in each field at `g` grams, by field id.
+function manualPickValues(pick, g) {
+  const out = {};
+  if (pick.kind === 'corpus') {
+    const c = pick.c;
+    const built = corpusOwnNumbers(c.meta, c.row, c.id, c.name, g);
+    if (!built) return out;
+    Object.keys(MANUAL_MACRO_FIELDS).forEach(function (id) {
+      const v = built[MANUAL_MACRO_FIELDS[id]];
+      if (v != null) out[id] = v;
+    });
+    MICRO_SPEC.forEach(function (s) {
+      const slot = PANEL_KEY_SLOT[s.key];
+      if (slot == null) return;
+      const v = corpusScale(corpusValueAt(c.row, c.meta.slots, slot), g);
+      if (v != null) out['ma_micro_' + s.key] = v;
+    });
+  } else {
+    const part = myFoodPart(pick.food, g);
+    Object.keys(MANUAL_MACRO_FIELDS).forEach(function (id) {
+      const v = part[MANUAL_MACRO_FIELDS[id]];
+      if (v != null) out[id] = v;
+    });
+  }
+  return out;
+}
+function manualGramsNow() {
+  const el = document.getElementById('maGrams');
+  const g = el ? num(el.value) : 0;
+  return g > 0 ? g : null;
+}
+// Write the pick's numbers. `fresh`: every field (a new pick). Otherwise only the
+// fields still holding what the pick last wrote -- a changed number is the user's.
+function manualPrefill(fresh) {
+  const st = MANUAL_LOOK;
+  if (!st || !st.pick) return { ok: false };
+  const g = manualGramsNow();
+  if (!g) return { ok: false, why: 'no-grams' };
+  const vals = manualPickValues(st.pick, g);
+  if (fresh) {
+    // A new pick owns every looked-up field: one it has no value for is cleared,
+    // not left holding the previous pick's number.
+    Object.keys(st.pre).forEach(function (id) { const el = document.getElementById(id); if (el && el.value === st.pre[id].shown) el.value = ''; });
+    st.pre = {};
+  }
+  Object.keys(vals).forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const prev = st.pre[id];
+    if (!fresh && prev && el.value !== prev.shown) return;
+    if (!fresh && !prev && String(el.value).trim() !== '') return;
+    const shown = manualShown(vals[id]);
+    el.value = shown;
+    st.pre[id] = { shown: shown, v: vals[id] };
+  });
+  updateMicroCount('ma_micro_', 'maMicroCount');
+  return { ok: true, grams: g, fields: Object.keys(vals).length };
+}
+function manualPickStart(pick, name, grams) {
+  if (!MANUAL_LOOK) MANUAL_LOOK = manualLookFresh();
+  const st = MANUAL_LOOK;
+  st.pick = pick; st.seq++;
+  const nm = document.getElementById('maName'); if (nm) nm.value = name;
+  st.q = name;
+  const gEl = document.getElementById('maGrams');
+  if (gEl && !(num(gEl.value) > 0)) gEl.value = String(grams);
+  const r = manualPrefill(true);
+  manualRowsPaint();
+  return r;
+}
+function manualPickAt(i) {
+  const st = MANUAL_LOOK;
+  const c = st && st.rows[num(i)];
+  if (!c) return { ok: false, why: 'no-such-row' };
+  if (!c.row || c.kcal == null) return { ok: false, why: 'no-numbers' };
+  const r = manualPickStart({ kind: 'corpus', c: c }, c.name, 100);
+  return Object.assign({ id: c.id, name: c.name }, r);
+}
+function manualPickMine(id) {
+  const f = myFoods().filter(function (x) { return x.id === String(id); })[0];
+  if (!f) return { ok: false, why: 'no-such-food' };
+  const r = manualPickStart({ kind: 'mine', food: f }, f.name, f.serving_g || 100);
+  return Object.assign({ mine: true, name: f.name }, r);
+}
+function manualGramsChanged() { return MANUAL_LOOK && MANUAL_LOOK.pick ? manualPrefill(false) : { ok: false }; }
+function manualUnpick() {
+  const st = MANUAL_LOOK;
+  if (!st) return { ok: false };
+  Object.keys(st.pre).forEach(function (id) { const el = document.getElementById(id); if (el && el.value === st.pre[id].shown) el.value = ''; });
+  st.pick = null; st.pre = {};
+  updateMicroCount('ma_micro_', 'maMicroCount');
+  manualType(st.q);
+  return { ok: true };
+}
+// The field keys the user changed after a pick: a looked-up number typed over,
+// or a number typed where the pick had none.
+function manualAdjustedKeys() {
+  const st = MANUAL_LOOK;
+  if (!st || !st.pick) return [];
+  const out = [];
+  const look = function (id, key) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const v = String(el.value).trim();
+    const prev = st.pre[id];
+    if (prev ? (el.value !== prev.shown) : (v !== '')) out.push(key);
+  };
+  Object.keys(MANUAL_MACRO_FIELDS).forEach(function (id) { look(id, MANUAL_MACRO_FIELDS[id]); });
+  MICRO_SPEC.forEach(function (s) { look('ma_micro_' + s.key, s.key); });
+  return out;
+}
+// The form's raw values, made into what a lookup means. With no pick this is
+// the form exactly as before.
+function manualBuild(raw) {
+  const st = MANUAL_LOOK;
+  if (!st || !st.pick) return raw;
+  const g = num(raw.grams);
+  if (!(g > 0)) return { error: 'Enter the amount in grams: the looked-up numbers are for an amount.' };
+  const adj = manualAdjustedKeys();
+  const out = Object.assign({}, raw);
+  const own = function (key, v) { if (adj.indexOf(key) < 0 && v != null) out[key] = v; };
+  if (st.pick.kind === 'corpus') {
+    const c = st.pick.c;
+    const built = corpusOwnNumbers(c.meta, c.row, c.id, c.name, g);
+    if (!built) return { error: 'The food database row could not be read.' };
+    Object.keys(MANUAL_MACRO_FIELDS).forEach(function (id) { own(MANUAL_MACRO_FIELDS[id], built[MANUAL_MACRO_FIELDS[id]]); });
+    out.ref = JSON.parse(JSON.stringify(built.ref));
+    const mic = {};
+    MICRO_SPEC.forEach(function (s) {
+      if (adj.indexOf(s.key) < 0 || !raw.micros || raw.micros[s.key] == null) return;
+      mic[s.key] = raw.micros[s.key];
+      const slot = PANEL_KEY_SLOT[s.key];
+      if (slot != null && out.ref.v) delete out.ref.v[slot];
+    });
+    if (Object.keys(mic).length) out.micros = mic; else delete out.micros;
+    if (adj.length) { out.source = 'manual'; out.adjusted = adj; }
+    else { out.source = 'corpus'; out.confidence = 'eyeballed'; }
+  } else {
+    const f = st.pick.food;
+    const part = myFoodPart(f, g);
+    Object.keys(MANUAL_MACRO_FIELDS).forEach(function (id) { own(MANUAL_MACRO_FIELDS[id], part[MANUAL_MACRO_FIELDS[id]]); });
+    out.basis = f.basis;
+    if (adj.length) out.adjusted = adj; else out.confidence = part.confidence;
+  }
+  if (String(out.soluble_fiber_g == null ? '' : out.soluble_fiber_g).trim() === '') out.soluble_fiber_g = 0;
+  return out;
 }
 function showManualWarnings(warns) {
   const el = document.getElementById('maWarn'); if (!el) return;
@@ -8629,14 +9063,16 @@ function logAteApply(item, fraction) {
   return r;
 }
 function addManualItem() {
-  const raw = readManualForm();
+  const raw0 = readManualForm();
+  const raw = manualBuild(raw0);
+  if (raw && raw.error) { toast(raw.error); return { ok: false, why: 'lookup', error: raw.error }; }
   // Refused BEFORE anything is written: a share of an unstated weight.
   if (FORM_ATE.manual < 0.995 && !(num(raw.grams) > 0)) {
     toast('Enter the portion in grams to say how much of it you ate.');
     return { ok: false, why: 'ate-needs-grams' };
   }
   const r = addManualEntry(raw);
-  if (!r.ok) { toast(r.error || 'Could not add'); return; }
+  if (!r.ok) { toast(r.error || 'Could not add'); return r; }
   clearManualForm();
   showManualWarnings(r.warnings);
   offerFoodUndo(APP_STATE.current, r.item);
@@ -8646,9 +9082,17 @@ function addManualItem() {
   // three re-openings -- so the exit is OFFERED instead. The x in the corner is a
   // dismiss; this is a destination.
   setNextMove('maNext', 'Added ' + r.item.name + '.', 'See my day', 'revealDay()');
+  return r;
 }
 function saveAsPreset() {
   const raw = readManualForm();
+  // R215/4: a looked-up micro the user did not type is the database's REFERENCE
+  // value; a preset's micros are label values, so only the typed ones go in.
+  if (MANUAL_LOOK && MANUAL_LOOK.pick && raw.micros) {
+    const adj = manualAdjustedKeys();
+    Object.keys(raw.micros).forEach(function (k) { if (adj.indexOf(k) < 0) delete raw.micros[k]; });
+    if (!Object.keys(raw.micros).length) delete raw.micros;
+  }
   const portion = (document.getElementById('maPortion') || {}).value;
   const r = saveManualPreset(raw, portion);
   if (!r.ok) { toast(r.error || 'Could not save preset'); return; }
@@ -10322,24 +10766,27 @@ function responseCoverageHTML() {
 // ---- the one-tap row ----------------------------------------------------
 // One control per declared kind, built FROM the declaration, so a fourth kind
 // cannot be added to the table and then forgotten on the surface.
+// R215: the one-tap events are drawn in + Log (oneTapHTML), and the day keeps
+// only what it SHOWS. The Drink kinds are not drawn anywhere: a drink is food,
+// logged from "Your drinks" or any food path (R215/3). Its row stays in
+// QUICK_EVENTS so the events the old badge wrote keep their shape and words.
 function quickEventsHTML() {
-  return '<div class="qrow">' + QUICK_EVENTS.map(function (q) {
-    if (q.variants && q.variants.length) {
-      return '<span class="qgroup"><span class="qlab">' + esc(q.label) + '</span>'
-        + q.variants.map(function (v) {
-            return '<button type="button" class="qbtn" onclick="quickEvent(\'' + esc(q.id)
-              + '\', \'' + esc(v) + '\')">' + esc(v) + '</button>';
-          }).join('') + '</span>';
-    }
-    return '<button type="button" class="qbtn" onclick="quickEvent(\'' + esc(q.id) + '\')">'
-      + esc(q.label) + '</button>';
-  }).join('') + '</div>'
-    + sensorStatusHTML()
+  return '<div class="otwrap">' + oneTapHTML() + '</div>'
     + '<div class="note qnote">One tap records that it happened, with the time \u2014 never a duration nobody entered.</div>';
+}
+// The day's sensor line: the countdown and its source, READ-ONLY (ruled). The
+// type is changed where the sensor is logged.
+function sensorPageHTML() {
+  const s = sensorStatus();
+  if (!s) return '';
+  return '<div class="snstat"><div class="snwords">' + esc(sensorStatusWords(s)) + '</div>'
+    + sensorCiteHTML(SENSOR_BY_ID[s.device]) + '</div>';
 }
 function renderQuickEvents() {
   const el = document.getElementById('quickEvents');
-  if (el) el.innerHTML = quickEventsHTML();
+  if (el) el.innerHTML = sensorPageHTML();
+  const ot = document.getElementById('sigOneTap');
+  if (ot) ot.innerHTML = quickEventsHTML();
 }
 // ---- H26: NIGHT PATTERNS ------------------------------------------------
 //
@@ -10646,11 +11093,21 @@ function nightPrecededBy(eveningKey) {
   const day = (APP_STATE.timeline && APP_STATE.timeline[String(eveningKey)]) || [];
   const bits = [];
   const drinks = day.filter(function (e) { return e && e.type === 'alcohol'; });
+  // R215/3: drinks logged as FOOD carry an amount, and their alcohol where the
+  // database row has it (slot 221, reference provenance). Said beside the old
+  // amount-less taps, never merged into one count with them.
+  const logged = (((APP_STATE.days || {})[String(eveningKey)] || {}).items || []).filter(function (it) { return it && it.meal === 'drink' && num(it.kcal) > 0; });
+  if (logged.length) {
+    let alc = 0, alcN = 0;
+    logged.forEach(function (it) { const a = it.ref && it.ref.v ? it.ref.v[221] : null; if (a != null && isFinite(Number(a))) { alc += num(a); alcN += 1; } });
+    bits.push('that day: ' + logged.length + ' drink' + (logged.length === 1 ? '' : 's') + ' logged'
+      + (alcN ? ' (' + rDisp(alc) + ' g alcohol, from the food database' + (alcN < logged.length ? ', for ' + alcN + ' of ' + logged.length : '') + ')' : ''));
+  }
   if (drinks.length) {
     const kinds = {};
     drinks.forEach(function (e) { if (e.variant) kinds[e.variant] = (kinds[e.variant] || 0) + 1; });
     const words = Object.keys(kinds).map(function (k) { return kinds[k] + ' ' + k; });
-    bits.push('that evening: ' + (words.length ? words.join(', ') : drinks.length + ' drink(s)'));
+    bits.push('that evening: ' + (words.length ? words.join(', ') : drinks.length + ' drink(s)') + ' (amount not recorded)');
   }
   const moved = day.filter(function (e) { return e && e.type === 'walk'; });
   if (moved.length) bits.push('moved that day');
@@ -11495,7 +11952,11 @@ function eliteWokeTimes() {
   Object.keys(tl).forEach(function (dk) {
     if (!isDayKey(dk)) return;
     (tl[dk] || []).forEach(function (r) {
-      const m = (r && r.type === 'woke') ? hhmmToMin(r.time) : null;
+      // R215: while a sleep is open, Woke IS ending it, so a night ended in + Log
+      // says when they woke through its own record (keyed by the day it ended)
+      // rather than through a second one. An inferred end is no one's waking.
+      const m = (r && r.type === 'woke') ? hhmmToMin(r.time)
+        : ((r && r.type === 'sleep' && r.wake_src !== 'inferred') ? sleepWakeMin(r) : null);
       if (m != null) out.push(dayKeyMs(dk) + m * 60000);
     });
   });
@@ -12280,10 +12741,27 @@ function regimenConfirmLog(entryId, mode) {
   if (!r.ok) toast(r.error || 'Could not log');
 }
 function regimenConfirmCancel() { REGIMEN_CONFIRM = null; renderRegimenChecklist(); }
+// R215 -- LINKED INTO + LOG. The checklist's Log buttons wrote from the day
+// view; ruled: all logging goes through + Log. The checklist is drawn on the
+// sheet's root, and the day keeps one line that opens it there.
+function regimenLinkHTML() {
+  const rt = APP_STATE ? regimenToday() : null;
+  if (!rt || !rt.entries.length) return '';
+  const done = rt.entries.filter(function (x) { return !!x.fulfilled; }).length;
+  return '<button type="button" class="plline rglink" onclick="openQuickAdd()">Today’s regimen · '
+    + esc(String(done)) + ' of ' + esc(String(rt.entries.length)) + ' logged</button>';
+}
 function renderRegimenChecklist() {
-  const el = document.getElementById('regimenChecklist'); if (!el || !APP_STATE) return;
+  // The day's link line is drawn by renderDay, below the rings beside the
+  // leftovers line -- nothing above the rings card but the date (R159.1).
+  const pg = document.getElementById('regimenChecklist');
+  if (pg) pg.innerHTML = '';
+  const el = document.getElementById('sheetRegimen'); if (!el || !APP_STATE) return;
+  el.innerHTML = regimenChecklistHTML();
+}
+function regimenChecklistHTML() {
   const rt = regimenToday();
-  if (!rt || !rt.entries.length) { el.innerHTML = ''; return; }        // silent-empty (Pin 3 / RG-empty)
+  if (!rt || !rt.entries.length) return '';        // silent-empty (Pin 3 / RG-empty)
   let html = '<div class="rgtitle">Today’s regimen</div>';
   if (rt.window) html += `<div class="rgwindow">eating window ${esc(rt.window.start)}–${esc(rt.window.end)}</div>`;
   html += rt.entries.map((x) => {
@@ -12304,7 +12782,7 @@ function renderRegimenChecklist() {
       + `<span class="rgbtns"><button type="button" class="linklike" onclick="regimenLogTap('${e.id}')">Log</button>`
       + `<button type="button" class="linklike" onclick="substituteRegimenEntry('${e.id}')">Logged elsewhere</button></span></div>`;
   }).join('');
-  el.innerHTML = html;
+  return html;
 }
 function renderRegimenAuthor() {
   const el = document.getElementById('regimenList'); if (!el || !APP_STATE) return;
@@ -13358,15 +13836,9 @@ function renderDataStatus() {
     `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`
   ).join('');
 }
-// The auto-close runs at the head of a render, once, and cannot re-enter:
-// closing calls refresh() itself, and a second pass would find nothing open.
-let AUTOCLOSE_BUSY = false;
+// R215: the sleep auto-close that ran here at the head of every render is GONE.
+// It wrote a record nobody tapped for (R202: nothing is logged without a tap).
 function refresh() {
-  if (!AUTOCLOSE_BUSY) {
-    AUTOCLOSE_BUSY = true;
-    try { maybeAutoCloseSleep(); } catch (e) { /* a render must not die for it */ }
-    AUTOCLOSE_BUSY = false;
-  }
   renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
@@ -13541,6 +14013,7 @@ const VERSION_LOG = [
   { v: '0.94.0', d: '2026-10-12', note: 'Nothing is logged unless you tap. The Daily supplement setting, which added an item to every new day by itself, is gone. What it added in the past is now an ordinary entry you can delete, marked time unknown because its time was only when the app was opened. In its place Settings has a Daily stack: list what you take, with amount, unit and a note, and log it with one tap from + Log, unticking anything you skipped. On the day, sittings more than three hours apart are no longer shown as one meal, and supplements have their own group instead of being filed under a meal by the clock.' },
   { v: '0.95.0', d: '2026-10-12', note: 'A stack item you set to count toward a nutrient now adds to that nutrient for the day, shown as its own line, from your stack, with no calories. The editor suggests the nutrient when the name matches one, and you confirm it; it is never set for you. Where a cited upper level is exceeded the nutrient row says so and names its source: vitamin D against everything taken that day, magnesium against supplements only, because that is what each figure is about.' },
   { v: '0.96.0', d: '2026-10-13', note: 'Export backup makes a real file, named with the date, that you save to Files or iCloud Drive from the share sheet; Settings shows when the last one was made. A stack item is now a Supplement, a Medication or a Food, and logged entries say which. A food that is in neither food database can be added from its label, or with generic values, wherever a food is searched for in the stack or a combo; it is kept in your foods and found again by name. Intake notes are a small flag you tap to read, closed each time, instead of a paragraph on the row.' },
+  { v: '0.97.0', d: '2026-10-14', note: 'Everything you log now goes through + Log. Moved, Woke, New sensor, water and starting or ending a sleep, sauna, meditation or red light are one tap each at the top of Log event or biometric, with Undo; the day still shows the sensor countdown, your water and the ring, but nothing there logs. Starting or ending a sleep asks the time first: Now, your usual wake time when there are enough of your own nights, or any other time, so ending it late still records when you woke. An open sleep is never closed for you any more. Drinks are food: Your drinks in + Log logs the one you had last at the same amount with one tap, and Log a drink finds a new one in the food database; its calories count in your day, and its alcohol where the database has it. Drinks tapped on the old badge stay as they were and say their amount was not recorded. Manual entry now looks the food up as you type its name: pick a row and the calories, macros and vitamins and minerals are filled in for the grams you enter; change any number and the entry says it was adjusted. If it is not in the database you can add it from its label. Food left from earlier and today’s regimen are logged from + Log, and the lines on the day open it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17334,7 +17807,12 @@ const SLEEP_MIN_SEGMENT_MIN = 5;            // Fork C (R16): kept, never discard
 //   object with a nicer name.
 const WAKE_MIN_NIGHTS = 8;                  // C1: dormant below this, no default ever
 const WAKE_WINDOW_DAYS = 28;                // D95's window
-const SLEEP_AUTO_CLOSE_MIN = 24 * 60;       // A1: the 11h mark ASKS; a full day CLOSES
+// R215 -- THE WRITING HALF OF D113 IS RETIRED. "Written only after they were
+// asked and did not answer" is still a record nobody tapped for, and R202 rules
+// that nothing is logged without a tap. The pattern stays: it is what "My usual"
+// offers when a sleep is ended in + Log. An open sleep now stays open until the
+// user ends or discards it. 'inferred' stays in WAKE_SRCS so the nights the
+// retired close already wrote keep their mark.
 // G1: three values stored, two shown. 'typed' is any moment the person supplied
 // -- tapping off as they wake, or entering a time. 'accepted' is the app's own
 // suggestion taken unchanged. 'inferred' is never answered at all.
@@ -17444,23 +17922,12 @@ function resolveLaneOpen(lane, endHHMM, src) {
   while (endAbs <= st.startAbs && guard++ < 3) { endDate = shiftDate(endDate, 1); endAbs = absMinutes(endDate, m); }
   return closeLaneSegment(lane, endAbs, endDate, src);
 }
-// A1: NO TIMER. D38 Fork F rules the open counter deliberately stale, and
-// contradicting it to buy a convenience would be reversing a ruling. So this
-// runs on the next render past the threshold, and on nothing else.
-function maybeAutoCloseSleep() {
-  const st = laneOpenState('sleep');
-  if (!st.open || st.minutes < SLEEP_AUTO_CLOSE_MIN) return { ok: false, why: 'not-stale' };
-  const tw = typicalWake(todayKey());
-  // C1: with no pattern there is nothing to infer FROM, so the segment stays
-  // open exactly as D38 has it. A default would be the fabrication this avoids.
-  if (!tw.enough) return { ok: false, why: 'no-pattern', n: tw.n };
-  return resolveLaneOpen('sleep', tw.hhmm, 'inferred');
-}
 // ---- the forgotten-off dialog (H12 Fork F2: it left the ring centre) ------
 // Snoozed for the SESSION rather than answered-or-nothing: reappearing on every
-// render is the nagging the ruling refused, and the 24h auto-close is the
-// backstop that makes silence safe to allow. Transient by design -- a reload
+// render is the nagging the ruling refused. Transient by design -- a reload
 // asks again, exactly as D38 Fork A reasons about view state.
+// R215: it no longer WRITES. Its one action opens + Log at the end picker, the
+// one way a lane is ended; the 24h auto-close that backstopped silence is gone.
 let ASK_SNOOZED = {};
 function askSnooze(lane) { ASK_SNOOZED[lane] = true; renderSleepAsk(); }
 function askLane() {
@@ -17492,16 +17959,13 @@ function sleepAskHTML() {
   if (!lane) return '';
   const spec = LANE_ACTIONS[lane];
   const st = laneOpenState(lane);
-  const pre = askPrefill(lane);
-  const note = pre.hhmm
-    ? `<div class="asknote">Filled in with the time you usually wake, from ${esc(String(pre.n))} of your own nights. Change it if it is wrong.</div>`
-    : '';
+  // R215: a LINK, not a write. The time is asked by the one end picker in + Log,
+  // which offers Now, My usual (sleep, with a pattern) and a time.
   return `<div class="askwrap"><div class="askbox" role="dialog" aria-modal="true" aria-label="${esc(spec.label)} ended when?">` +
     `<div class="askhead">${esc(spec.label)} ended when?</div>` +
     `<div class="asksub">Open ${esc(hoursLabel(st.minutes))}.</div>` +
-    `<input id="askEndAt" type="time" class="askin" value="${esc(pre.hhmm)}">` + note +
     `<div class="askrow">` +
-      `<button type="button" class="btn primary" onclick="askResolve('${esc(lane)}',(document.getElementById('askEndAt')||{}).value)">Save</button>` +
+      `<button type="button" class="btn primary" onclick="askSnooze('${esc(lane)}');laneEndOpen('${esc(lane)}')">Say when, in + Log</button>` +
       `<button type="button" class="btn" onclick="askSnooze('${esc(lane)}')">Not now</button>` +
     `</div>` +
     `<button type="button" class="linklike" onclick="askDiscard('${esc(lane)}')">discard this segment</button>` +
@@ -17661,10 +18125,13 @@ function laneControlHTML(lane, below) {
   // dialog. The summoned centre is now exactly one thing -- a two-state toggle for
   // the lane that was summoned -- and the question gets room for a prefill and an
   // explanation that never fitted inside a 31%-inset disc.
+  // R215: THE RING IS READ-ONLY. Its on/off was a second place a session was
+  // started and ended; ruled into + Log's events, the one way to record them.
+  // What is left here says the state and links to where it is changed.
   return `<div class="${wrap}" onclick="event.stopPropagation()">` +
-    (st.open ? `<span class="rcsub">${esc(spec.state)} \u00b7 ${esc(hoursLabel(st.minutes))}</span>` +
-               `<button type="button" class="btn" onclick="laneOff('${esc(lane)}')">${esc(spec.label)} off</button>`
-             : `<button type="button" class="btn" onclick="laneOn('${esc(lane)}')">${esc(spec.label)} on</button>`) +
+    (st.open ? `<span class="rcsub">${esc(spec.state)} \u00b7 ${esc(hoursLabel(st.minutes))}</span>`
+             : `<span class="rcsub">${esc(spec.label)} \u00b7 not on</span>`) +
+    `<button type="button" class="linklike" onclick="clearSummon();openSheet('signal')">in + Log</button>` +
     `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
 }
 function sleepControlHTML(below) { return laneControlHTML('sleep', below); }
@@ -17969,6 +18436,9 @@ function setSheetMode(mode) {
   // A search starts CLEAN and leaving abandons it -- the rule the root already
   // keeps for a pick: it is one typed word, and re-typing it costs nothing.
   if (mode === 'manual' || mode === 'scan') renderFormAte();
+  // R215: the one-tap events say the state NOW (sleeping 0.7h, sauna 12 min).
+  if (mode === 'signal') renderQuickEvents();
+  if (mode !== 'search') DRINK_PICKING = false;        // R215/3: logging a drink ends when the pane is left
   if (mode === 'search') renderSearchPane(); else FOOD_SEARCH = null;
   // A COMBO DRAFT IS NOT THAT, and v0.84.0 treated it as if it were. A name and
   // three parts with their amounts is real typing, and the back link threw it
@@ -18210,7 +18680,7 @@ function biometricGroupHTML(dateKey) {
   h += recs.map(function (x) {
     const r = x.r;
     const spec = SIGNAL_BY_TYPE[r.type];
-    const val = (r.value != null) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
+    const val = (r.value != null && !signalRowValueHidden(r)) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
     // R213: A DOSE SAYS WHAT IT WAS. This row printed the stored word "medication"
     // and nothing else -- no name, no amount -- for every dose on the day. Seen in
     // a screenshot taken to check the kind's word; no gate asked.
@@ -18583,6 +19053,63 @@ function quickLog(id) {
 // least-certain -- the things that are the same every day, then what repeats, then
 // what is new, then what is not food -- which is the opposite of what this sheet
 // did before, when it opened on Scan: the path needing a camera and a barcode.
+// ---- R215/3: YOUR DRINKS -------------------------------------------------------
+// A drink is FOOD with a drink tag (`meal: 'drink'`), logged like any food: from
+// here, from Search, from a photo or by hand. Its calories count in the day and
+// its alcohol rides in the cited ref where the database row has it.
+//
+// THE LIST IS READ FROM THE LOG, stored nowhere (D133's shape): the drinks the
+// user has logged, most-logged first, and ONE TAP logs the most recent one again
+// AT ITS LAST SIZE, through logRepeat -- the same record a repeat has always made,
+// with its Undo. Nothing is chosen for a user who has logged no drink: the block
+// is then one link.
+const DRINKS_SHOWN = 5;
+function drinkHistory() {
+  const days = Object.keys((APP_STATE && APP_STATE.days) || {}).filter(isDayKey).sort();
+  const by = {};
+  days.forEach(function (dk) {
+    ((APP_STATE.days[dk] || {}).items || []).forEach(function (it, idx) {
+      if (!it || it.meal !== 'drink' || isLegacyAuto(it)) return;
+      if (it.comboId != null && String(it.comboId) !== '') return;
+      const nm = String(it.name == null ? '' : it.name).trim();
+      if (!nm) return;
+      const key = matchKey(nm) || nm.toLowerCase();
+      const e = by[key] || (by[key] = { key: key, n: 0, name: nm, date: '', idx: -1, grams: null, kcal: null });
+      e.n++; e.name = nm; e.date = dk; e.idx = idx;
+      e.grams = (it.grams == null) ? null : num(it.grams);
+      e.kcal = num(it.kcal);
+    });
+  });
+  return Object.keys(by).map(function (k) { return by[k]; })
+    .sort(function (a, b) { return (b.n - a.n) || (a.date < b.date ? 1 : (a.date > b.date ? -1 : 0)); });
+}
+function drinkRepeatAt(i) {
+  const row = drinkHistory()[num(i)];
+  if (!row) return { ok: false, why: 'no-such-row' };
+  return logRepeat(row.date, row.idx);
+}
+let DRINK_PICKING = false;
+function drinkNew() {
+  DRINK_PICKING = true;              // read by renderSearchPane; cleared on leaving the pane
+  openSheet('search');
+  const f = document.getElementById('fqQuery'); if (f && f.focus) f.focus();
+  return { ok: true, picking: true };
+}
+function sheetDrinksHTML() {
+  const rows = drinkHistory().slice(0, DRINKS_SHOWN);
+  let h = '<div class="srheadrow"><span class="srhead">Your drinks</span>'
+    + '<button type="button" class="linklike srdrinknew" onclick="drinkNew()">Log a drink</button></div>';
+  if (!rows.length) return h;
+  h += rows.map(function (d, i) {
+    const port = (d.grams == null) ? 'no amount recorded' : (rDisp(d.grams) + ' g');
+    return '<button type="button" class="drkrow" onclick="drinkRepeatAt(' + esc(String(i)) + ')">'
+      + '<span class="qrname">' + esc(d.name) + '</span>'
+      + '<span class="qrn">' + esc(String(d.n)) + 'x</span>'
+      + '<span class="qrport">' + esc(port) + ' · ' + esc(kcalDisp(d.kcal)) + ' cal</span></button>';
+  }).join('');
+  return h;
+}
+
 let TOP_ALL = false;
 function topAllToggle(on) { TOP_ALL = (on === undefined) ? !TOP_ALL : !!on; renderSheetRoot(); return { ok: true, all: TOP_ALL }; }
 const SR_TOP_FIRST = 3;          // ruled: three shown, then "Show all 10"
@@ -18693,8 +19220,12 @@ function renderSheetRoot() {
       + esc(String(rows.length)) + '</button>'
     : (TOP_ALL && rows.length > SR_TOP_FIRST
         ? '<button type="button" class="linklike srmore" onclick="topAllToggle()">Show fewer</button>' : '');
+  // R215: the leftovers and today's regimen are logged HERE -- the day's lines
+  // for them are links to this root. Both draw nothing when there is nothing.
   el.innerHTML =
-      stackSheetHTML()
+      plateRecallHTML()
+    + '<div id="sheetRegimen">' + regimenChecklistHTML() + '</div>'
+    + stackSheetHTML()
     + sheetCombosHTML()
     + sheetComboNewHTML()
     + (shown.length
@@ -18708,6 +19239,10 @@ function renderSheetRoot() {
     + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'search\')">Search</button>'
     + '<button type="button" class="btn srbtn" onclick="setSheetMode(\'manual\')">Manual</button>'
     + '</div>'
+    // R215/3: Your drinks sits BELOW the four ways in. Placed above them it pushed
+    // Search off the bottom of a full sheet -- R197/2's ruled fold, caught by
+    // onedoor-gate. The fold outranks the placement.
+    + sheetDrinksHTML()
     + '<div class="srlinks">'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'med\')">Log a dose I took</button>'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'signal\')">Log event or biometric</button>'
@@ -19069,8 +19604,10 @@ function foodSearchFresh() { return { q: '', phase: '', rows: [], seq: 0, pick: 
 function renderSearchPane() {
   const el = document.getElementById('searchBox');
   FOOD_SEARCH = foodSearchFresh();
+  if (DRINK_PICKING) FOOD_SEARCH.asDrink = true;       // R215/3
   if (!el) return;
-  el.innerHTML = '<div class="srhead">Search the food database</div>'
+  el.innerHTML = '<div class="srhead">' + (DRINK_PICKING ? 'Log a drink' : 'Search the food database') + '</div>'
+    + (DRINK_PICKING ? '<div class="note fqdrinknote">Find it and enter how many grams you poured. It is logged as a drink, and goes to Your drinks for one tap next time.</div>' : '')
     + '<input id="fqQuery" type="text" class="fqin" placeholder="what was it?"'
     + ' aria-label="search the food database" autocomplete="off"'
     + ' oninput="searchType(this.value)">'
@@ -19133,7 +19670,7 @@ function searchLogHTML() {
   const rfHTML = rfS ? refuseLineHTML(rfS, st.grams, 'searchRefuseSet(true)', 'searchRefuseSet(false)', true) : '';
   const built = corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, searchEdibleGrams());
   const time = stampTime(APP_STATE.current) || nowTime();
-  return rfHTML + '<div class="fqsub">to <b>' + esc(mealAtCreation('', time)) + '</b></div>'
+  return rfHTML + '<div class="fqsub">' + (st.asDrink ? 'as a <b>drink</b>' : ('to <b>' + esc(mealAtCreation('', time)) + '</b>')) + '</div>'
     + '<button type="button" class="btn fqlog" onclick="searchLog()"' + (built ? '' : ' disabled') + '>'
     + (built ? ('Log ' + esc(kcalDisp(built.kcal)) + ' cal') : 'Enter an amount') + '</button>';
 }
@@ -19212,7 +19749,7 @@ function searchLog() {
   if (rf) pi.refuse = rf;
   // D112: a past day gets no fabricated clock time; the meal still needs a
   // default, and it is the one the button's own line already named.
-  const plate = normalizePlate({ id: newPlateId(), date: dk, meal: mealAtCreation('', time || nowTime()),
+  const plate = normalizePlate({ id: newPlateId(), date: dk, meal: st.asDrink ? 'drink' : mealAtCreation('', time || nowTime()),
                                  time: time, tzo: nowTZO(), mealId: mealId, kind: 'entry', items: [pi] });
   if (!plate) return { ok: false, why: 'no-plate' };
   APP_STATE.plates = APP_STATE.plates || {};
@@ -19220,6 +19757,7 @@ function searchLog() {
   const r = consumeFromPlate(plate.id, null, { date: dk, mealId: mealId, all: true });
   if (!r.ok) { delete APP_STATE.plates[plate.id]; Store.saveState(APP_STATE); return { ok: false, why: 'nothing-eaten' }; }
   const item = r.items[0];
+  if (st.asDrink && item.meal !== 'drink') { item.meal = 'drink'; Store.saveState(APP_STATE); }   // R215/3: tagged as a drink
   // Undoing a search log takes its plate with it. A photographed plate stands
   // after an undo because the photo was real; a plate that exists only because
   // of this tap would otherwise be left behind, offering leftovers of a food
@@ -19231,8 +19769,9 @@ function searchLog() {
     Store.saveState(APP_STATE); refresh();
   });
   FOOD_SEARCH = null;
+  DRINK_PICKING = false;
   closeSheet();
-  return { ok: true, item: item, plateId: plate.id };
+  return { ok: true, item: item, plateId: plate.id, drink: !!st.asDrink };
 }
 
 // ---- "+ New combo": built WITHOUT logging anything first -------------------
@@ -21677,9 +22216,9 @@ window.HT = {
   resolveHTML, renderResolve,
   panelFamily, panelIsEquivalent, panelRollup, panelCoverageLine,
   CORPUS_DB, CORPUS_STORE_META, CORPUS_STORE_VALUES, CORPUS_CACHE,
-  // D113 -- a forgotten night closes on the sleeper's own pattern
-  WAKE_MIN_NIGHTS, WAKE_WINDOW_DAYS, SLEEP_AUTO_CLOSE_MIN, WAKE_SRCS, minutesToHHMM,
-  sleepWakeMin, observedWakeMins, typicalWake, maybeAutoCloseSleep,
+  // D113 -- the sleeper's own pattern (its auto-close retired by R215)
+  WAKE_MIN_NIGHTS, WAKE_WINDOW_DAYS, WAKE_SRCS, minutesToHHMM,
+  sleepWakeMin, observedWakeMins, typicalWake,
   askLane, askPrefill, askResolve, askDiscard, askSnooze, sleepAskHTML, renderSleepAsk, sleepRowLabel,
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
@@ -21724,6 +22263,15 @@ window.HT = {
   MYFOOD_BASES, normalizeMyFood, normalizeMyFoods, myFoods, myFoodUpsert, myFoodRemove, myFoodsMatch, myFoodPart, myFoodWords,
   myFoodRowsHTML, myFoodFormOpen, myFoodFormClose, myFoodFormSave, myFoodsHTML, renderMyFoods, itemSourceWord,
   stackFormPickMine, stackFoodFormOpen, comboNewAddMine, comboFoodFormOpen,
+  // R215 -- every entry through + Log; the manual lookup; drinks as food
+  oneTapHTML, sensorPageHTML, ONETAP_LANES,
+  lanePickOpen, lanePickCancel, lanePickSave, lanePickHTML, lanePickUsual, laneEndOpen, laneOnAt, laneTapStart, laneTapEnd,
+  lanePick: () => LANE_PICK, laneStartUndo, eliteWokeTimes,
+  drinkHistory, drinkRepeatAt, drinkNew, sheetDrinksHTML, drinkPicking: () => DRINK_PICKING, signalRowValueHidden,
+  regimenLinkHTML, regimenChecklistHTML,
+  normalizeAdjusted, manualType, manualPickAt, manualPickMine, manualUnpick, manualGramsChanged, manualPrefill,
+  manualAdjustedKeys, manualBuild, manualRowsHTML, manualPickedHTML, manualFoodFormOpen,
+  manualLook: () => MANUAL_LOOK, searchLogHTML,
   restoreFilePicked, BACKUP_KEY, backupFileName, backupLast, backupMark, backupLastLine, renderBackupLast, exportBackup, backupDownload,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice

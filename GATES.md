@@ -6108,3 +6108,37 @@ reason: the old flag's padding and rule were still on the collapsed element.
 `["Supplement","Medication","Food"]` treats the brackets as a character class
 and fails on a string that matches exactly. Exact JSON fragments are compared
 with `.Contains`.
+
+### v0.97.0 — a census instead of a list, a reset that was not one, and a fold my own block broke (2026-10-14)
+
+**`entry-gate` clicks everything.** The ruling is "nothing outside + Log writes
+an entry except three named answers". A gate that tapped the buttons R215 moved
+would pass on the next side door somebody adds, so the gate does not know which
+buttons exist: it seeds every surface that can carry a control at once, opens
+every disclosure, and clicks each of the 83 visible controls outside + Log and
+Settings, counting stored entries before and after. The answers it found are
+the three named ones; Restore from the trash is counted apart.
+
+**An in-page reset is not a reset.** The first census restored storage and
+re-booted the app between clicks, and one control went missing in later rounds:
+the app keeps view state in memory (a "Not now" snooze lasts the session), so
+one click changed what the next round saw. Each click now starts from a fresh
+page load; the snapshot and the fixed clock ride in `sessionStorage`. The gate
+checks the list is the same after every load.
+
+**A refusal that was right.** The sleep check first stated a wake time of 06:45
+for a sleep begun at 08:00 the same day and failed: the app had refused a wake
+time still to come. The fixture was wrong, not the rule.
+
+**`onedoor-gate` caught my placement.** "Your drinks", placed between Your top
+and Something new, pushed Search below the bottom of a full sheet (R197/2). It
+now sits below the four ways in.
+
+**`lookup-gate` caught a ranking limit, and does not hide it.** On the US corpus
+"wine" leads with a red wine vinegar; the gate picks the table wine by name and
+the limit is recorded in R215 for its own ruling.
+
+**The full sweep was stopped by the host for low memory** at 37 of 52 verdicts,
+none failed. The new and re-pointed gates (entry, lookup, response, sensor,
+onedoor, ring-size) and the harness were run singly; the full sweep is run
+before the push.

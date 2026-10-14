@@ -422,9 +422,13 @@ window.__stage = 'start';
   // disclosure. Measuring a collapsed element reports 0px and would have read
   // as a touch-floor failure -- the control is where it belongs; the fixture
   // simply had not opened the section a user taps to reach it.
-  Array.prototype.slice.call(document.querySelectorAll('details')).forEach(function (d) { d.open = true; });
+  // R215: THE ONE-TAP ROW MOVED INTO + LOG ("Log event or biometric"), and the
+  // day keeps none of it. Measured where it now lives, opened as a user opens it.
+  HT.openSheet('signal');
+  Array.prototype.slice.call(document.querySelectorAll('#entrySheet details')).forEach(function (d) { d.open = true; });
   await sleep(250);
-  const qbtns = Array.prototype.slice.call(document.querySelectorAll('.qbtn'));
+  O.surface.pageQuick = Array.prototype.slice.call(document.querySelectorAll('.qbtn')).filter(function (b) { return !b.closest('#entrySheet') && !b.closest('#nights'); }).length;
+  const qbtns = Array.prototype.slice.call(document.querySelectorAll('#sigOneTap .qbtn'));
   O.surface.quickButtons = qbtns.length;
   O.surface.quickMinH = qbtns.length ? Math.min.apply(null, qbtns.map(b => Math.round(b.getBoundingClientRect().height))) : 0;
   O.surface.quickVisible = qbtns.length > 0 && qbtns.every(b => b.offsetParent !== null);
@@ -432,9 +436,13 @@ window.__stage = 'start';
   // and added its variants -- correct while `drink` was the only one, and wrong the
   // moment H26's `sensor` arrived with two of its own. A hand-computed expectation
   // that happens to match one configuration is a pin on a coincidence.
+  // R215: every kind but the retired drink, plus the two water chips, Sleep
+  // beside Woke (no sleep is open in this fixture) and each practice's start.
   O.surface.expectedButtons = HT.QUICK_EVENTS.reduce(function (n, q) {
+    if (q.id === 'drink') return n;
     return n + ((q.variants && q.variants.length) ? q.variants.length : 1);
-  }, 0);
+  }, 0) + 2 + 1 + HT.ONETAP_LANES.length;
+  HT.closeSheet();
 
   // the one-third figure, on the surface
   stage('surface-figure');
@@ -573,7 +581,8 @@ window.__stage = 'start';
   Chk ($SF.boundedSaysNotObserved -eq $true) "a bounded window does not say the return was NOT OBSERVED, in words"
   Chk ($SF.boundedSaysWhereItStops -eq $true) "a bounded window does not say WHERE the data stops -- the ruling's own wording is 'data stops at 95 min'"
   Chk ([int]$SF.warnFont -ge [int]$SF.lineFont) "the NOT-CLEAN statement renders at $($SF.warnFont)px against the figure's $($SF.lineFont)px -- a caveat quieter than the number it qualifies is a caveat that will not be read"
-  Chk ([int]$SF.quickButtons -eq [int]$SF.expectedButtons) "the one-tap row renders $($SF.quickButtons) control(s) against $($SF.expectedButtons) declared in QUICK_EVENTS -- it is built FROM the declaration so a fourth kind cannot be forgotten here"
+  Chk ([int]$SF.quickButtons -eq [int]$SF.expectedButtons) "the one-tap row in + Log renders $($SF.quickButtons) control(s) against $($SF.expectedButtons) declared (QUICK_EVENTS without the retired drink, water, sleep, the practices) -- it is built FROM the declaration so a fourth kind cannot be forgotten here"
+  Chk ([int]$SF.pageQuick -eq 0) "R215: the day itself carries NO one-tap control ($($SF.pageQuick) found) -- they live in + Log"
   Chk ($SF.quickVisible -eq $true) "a one-tap control is not visible"
   Chk ([int]$SF.quickMinH -ge 44) "the smallest one-tap control is $($SF.quickMinH)px -- a tap that needs aiming is not one tap"
   Chk ($SF.figureStatesBoth -eq $true) "the one-third figure does not state BOTH numbers ('$($SF.figureHTML)') -- ruled: the meals without a clean window are the figure the 'says so' half exists to report"

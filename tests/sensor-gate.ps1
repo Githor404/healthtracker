@@ -152,7 +152,7 @@ try {
   window.__count = function (type) { var n = 0, tl = HT.state().timeline || {};
     Object.keys(tl).forEach(function (k) { (tl[k] || []).forEach(function (e) { if (e && e.type === type) n++; }); }); return n; };
   window.__btn = function (text) { var hit = null;
-    Array.prototype.forEach.call(document.querySelectorAll('#quickEvents button'), function (b) {
+    Array.prototype.forEach.call(document.querySelectorAll('#sigOneTap button'), function (b) {
       if (!hit && (b.textContent || '').trim() === text) hit = b; }); return hit; };
   window.__toast = function () { var e = document.getElementById('toast'); var r = e.getBoundingClientRect();
     var u = e.querySelector('.tundo'); var cs = getComputedStyle(e);
@@ -169,7 +169,10 @@ try {
              fits: e.scrollWidth <= e.clientWidth + 1, spill: e.scrollWidth - e.clientWidth }; };
   HT.state().settings.sensorDevice = '';
   HT.refresh();
-  var q = document.getElementById('quickEvents');
+  // R215: the sensor is logged in + Log ("Log event or biometric"); the day keeps
+  // the countdown, read-only. Opened as a user opens it.
+  HT.openSheet('signal');
+  var q = document.getElementById('sigOneTap');
   var nd = new Date(HT.nowMs());
   return { time: String(nd.getHours()).padStart(2, '0') + ':' + String(nd.getMinutes()).padStart(2, '0'), sensors: window.__count('sensor'), left: !!window.__btn('left arm'), right: !!window.__btn('right arm'),
            status: !!q.querySelector('.snstat'), ask: !!q.querySelector('.snask') };
@@ -177,14 +180,14 @@ try {
 '@
   Write-Host ("  start: " + $pin)
   Check ($pin -like '*"time":"12:47"*') "the clock is pinned at 12:47 through the app's one clock seam (D50)"
-  Check (($pin -like '*"left":true*') -and ($pin -like '*"right":true*')) "both arm badges are on the page to tap"
+  Check (($pin -like '*"left":true*') -and ($pin -like '*"right":true*')) "both arm badges are in + Log to tap (R215: moved off the day)"
   Check (($pin -like '*"sensors":0*') -and ($pin -like '*"status":false*')) "with no sensor ever logged there is NO status line (D146) -- nothing counts days from a change that never happened"
 
   # ---- 8 (first): the first tap ever ASKS, and writes nothing -------------------
   $ask = EvalJ @'
 (function () {
   window.__btn('left arm').click();
-  var q = document.getElementById('quickEvents');
+  var q = document.getElementById('sigOneTap');
   var box = q.querySelector('.snask');
   var names = box ? Array.prototype.map.call(box.querySelectorAll('.qbtn'), function (b) { return b.textContent; }).join('|') : '';
   var small = [], short = [];
@@ -206,11 +209,11 @@ try {
   $first = EvalJ @'
 (function () {
   var b = null;
-  Array.prototype.forEach.call(document.querySelectorAll('#quickEvents .snask .qbtn'), function (x) { if (x.textContent === 'Dexcom G7') b = x; });
+  Array.prototype.forEach.call(document.querySelectorAll('#sigOneTap .snask .qbtn'), function (x) { if (x.textContent === 'Dexcom G7') b = x; });
   b.click();
   var tl = HT.state().timeline[HT.localDate()] || [];
   var rec = tl.filter(function (e) { return e.type === 'sensor'; })[0] || {};
-  var q = document.getElementById('quickEvents');
+  var q = document.getElementById('sigOneTap');
   return { sensors: window.__count('sensor'), device: rec.device, variant: rec.variant, time: rec.time, source: rec.source,
            setting: HT.state().settings.sensorDevice, askGone: !q.querySelector('.snask') };
 })()
@@ -233,11 +236,11 @@ try {
   var head = document.querySelector('#dayView .bghead');
   if (head && head.getAttribute('aria-expanded') !== 'true') head.click();
   var names = Array.prototype.map.call(document.querySelectorAll('#dayView .bgline .mginame'), function (n) { return n.textContent; });
-  var st = document.querySelector('#quickEvents .snwords');
+  var st = document.querySelector('#sigOneTap .snwords');
   var badge = window.__btn('left arm');
   return { group: !!document.querySelector('#dayView .bghead'), rows: names,
            status: st ? st.textContent : '', statusFont: st ? parseFloat(getComputedStyle(st).fontSize) : 0,
-           sameBox: !!st && !!badge && document.getElementById('quickEvents').contains(st),
+           sameBox: !!st && !!badge && document.getElementById('sigOneTap').contains(st),
            below: !!st && !!badge && st.getBoundingClientRect().top >= badge.getBoundingClientRect().bottom,
            gap: (st && badge) ? Math.round(st.getBoundingClientRect().top - badge.getBoundingClientRect().bottom) : -1 };
 })()
@@ -262,7 +265,7 @@ try {
   # ---- 7: the source is one tap away, on the same surface -----------------------
   $cite = EvalJ @'
 (function () {
-  var d = document.querySelector('#quickEvents .snstat details.cited');
+  var d = document.querySelector('#sigOneTap .snstat details.cited');
   if (!d) return { has: false };
   d.open = true;
   var t = d.textContent || '';
@@ -281,10 +284,10 @@ try {
 (function () {
   window.__now += 2 * 86400000 + 3600000;              // two days and an hour on
   HT.refresh();
-  var before = (document.querySelector('#quickEvents .snwords') || {}).textContent || '';
+  var before = (document.querySelector('#sigOneTap .snwords') || {}).textContent || '';
   var n0 = window.__count('sensor');
   window.__btn('right arm').click();
-  var q = document.getElementById('quickEvents');
+  var q = document.getElementById('sigOneTap');
   return { before: before, asked: !!q.querySelector('.snask'), added: window.__count('sensor') - n0,
            after: (q.querySelector('.snwords') || {}).textContent || '' };
 })()
@@ -312,7 +315,7 @@ try {
   var other = { added: window.__count('sensor') - n0, variant: recs[0] ? recs[0].variant : '', n: recs.length,
                 orig: recs[0] && recs[0].orig ? recs[0].orig.variant : '', toast: window.__toast().text,
                 undo: window.__toast().undo,
-                status: (document.querySelector('#quickEvents .snwords') || {}).textContent || '' };
+                status: (document.querySelector('#sigOneTap .snwords') || {}).textContent || '' };
   return { same: same, other: other };
 })()
 '@
@@ -345,7 +348,7 @@ try {
   $grace = EvalJ @'
 (function () {
   var last = HT.sensorLast();
-  var words = function () { HT.refresh(); return (document.querySelector('#quickEvents .snwords') || {}).textContent || ''; };
+  var words = function () { HT.refresh(); return (document.querySelector('#sigOneTap .snwords') || {}).textContent || ''; };
   window.__now = last.ms + 10 * 86400000 - 60000;      var d10 = words();
   window.__now = last.ms + 10 * 86400000 + 3600000;    var g = words();
   window.__now = last.ms + 10 * 86400000 + 12 * 3600000 + 60000;  var p = words();
@@ -360,8 +363,12 @@ try {
   Check ($gr.past -like '*past its wear time*') "and past the grace period it says so -- a statement of elapsed time, with no instruction in it"
   Check (-not (($gr.past + $gr.grace) -match '(?i)replace|change it|should|must|now')) "neither line tells the user what to do"
 
-  # ---- 6: Moved, Woke and Drink confirm too (ruled E) -------------------------------
-  foreach ($k in @(@('Moved', 'walk', 'Moved'), @('Woke', 'woke', 'Woke'), @('wine', 'alcohol', 'Drink'))) {
+  # ---- 6: Moved and Woke confirm too (ruled E) ---------------------------------------
+  # R215: the Drink badge is RETIRED -- a drink is food (tests/lookup-gate.ps1 logs
+  # one and its Undo). What is asserted for it here is that it is gone.
+  $nod = Eval "(function(){ return Array.prototype.filter.call(document.querySelectorAll('#sigOneTap button, #quickEvents button'), function (b) { return /^(wine|beer|spirit|Drink)$/.test((b.textContent || '').trim()); }).length; })()"
+  Check ([int]$nod -eq 0) "R215: no Drink badge, and none of its amount-less kinds, anywhere a one-tap event is offered"
+  foreach ($k in @(@('Moved', 'walk', 'Moved'), @('Woke', 'woke', 'Woke'))) {
     $label = $k[0]; $type = $k[1]; $says = $k[2]
     $js = "(function () { var n0 = window.__count('" + $type + "'); window.__btn('" + $label + "').click(); var added = window.__count('" + $type + "') - n0; var t = window.__toast(); var u = document.querySelector('#toast .tundo'); if (u) u.click(); return { added: added, shown: t.shown, text: t.text, undo: t.undo, font: t.font, lines: t.lines, fits: t.fits, afterUndo: window.__count('" + $type + "') - n0 }; })()"
     $qe = EvalJ $js
@@ -421,9 +428,9 @@ try {
   HT.state().settings.sensorDevice = 'dexcom-g7-15';
   window.__btn('right arm').click();
   var t = window.__toast();
-  var st = document.querySelector('#quickEvents .snstat');
+  var st = document.querySelector('#sigOneTap .snstat');
   var out = { text: t.text, lines: t.lines, fits: t.fits, spill: t.spill, font: t.font, left: t.left, right: t.right, vw: t.vw,
-              status: (document.querySelector('#quickEvents .snwords') || {}).textContent || '',
+              status: (document.querySelector('#sigOneTap .snwords') || {}).textContent || '',
               statusOverflow: st ? st.scrollWidth - st.clientWidth : -1,
               page: document.documentElement.scrollWidth - window.innerWidth };
   HT.doUndo();
@@ -447,16 +454,16 @@ try {
   $chg = EvalJ @'
 (function () {
   var n0 = window.__count('sensor');
-  var link = document.querySelector('#quickEvents .snchg');
+  var link = document.querySelector('#sigOneTap .snchg');
   if (!link) return { err: 'no change-type link' };
   link.click();
-  var asked = !!document.querySelector('#quickEvents .snask');
+  var asked = !!document.querySelector('#sigOneTap .snask');
   var b = null;
-  Array.prototype.forEach.call(document.querySelectorAll('#quickEvents .snask .qbtn'), function (x) { if (x.textContent === 'Dexcom G7 15 Day') b = x; });
+  Array.prototype.forEach.call(document.querySelectorAll('#sigOneTap .snask .qbtn'), function (x) { if (x.textContent === 'Dexcom G7 15 Day') b = x; });
   b.click();
   return { asked: asked, added: window.__count('sensor') - n0, setting: HT.state().settings.sensorDevice,
-           askGone: !document.querySelector('#quickEvents .snask'),
-           status: (document.querySelector('#quickEvents .snwords') || {}).textContent || '' };
+           askGone: !document.querySelector('#sigOneTap .snask'),
+           status: (document.querySelector('#sigOneTap .snwords') || {}).textContent || '' };
 })()
 '@
   Write-Host ("  change type: " + $chg)
@@ -473,7 +480,7 @@ try {
   HT.state().timeline = {};
   HT.state().timeline[d] = [{ type: 'sensor', kind: 'event', time: '09:15', source: 'quick', variant: 'left arm' }];
   HT.refresh();
-  var before = (document.querySelector('#quickEvents .snwords') || {}).textContent || '';
+  var before = (document.querySelector('#sigOneTap .snwords') || {}).textContent || '';
   HT.openRecordEdit(d, 0);
   var sel = document.getElementById('reDevice');
   if (!sel) return { err: 'the editor offered no sensor type' };
@@ -484,7 +491,7 @@ try {
   if (save) save.click();
   var rec = HT.state().timeline[d][0];
   return { before: before, first: first, hadVal: hadVal, device: rec.device, orig: rec.orig ? rec.orig.device : 'none',
-           edited: !!rec.edited_at, after: (document.querySelector('#quickEvents .snwords') || {}).textContent || '' };
+           edited: !!rec.edited_at, after: (document.querySelector('#sigOneTap .snwords') || {}).textContent || '' };
 })()
 '@
   Write-Host ("  the user's own edit: " + $edit)
@@ -498,7 +505,7 @@ try {
   $dead = EvalJ @'
 (function () {
   var scan = function () { var bad = [], n = 0;
-    Array.prototype.forEach.call(document.querySelectorAll('#quickEvents [onclick]'), function (b) {
+    Array.prototype.forEach.call(document.querySelectorAll('#sigOneTap [onclick]'), function (b) {
       n++;
       var a = b.getAttribute('onclick') || '';
       var fn = (a.match(/^([A-Za-z0-9_$.]+)\s*\(/) || [])[1];

@@ -399,6 +399,21 @@
   .qbtn{min-height:44px;padding:8px 14px;border:1px solid var(--line);border-radius:10px;
     background:var(--card);color:var(--fg);font-size:16px;font-family:inherit;cursor:pointer}
   .qnote{margin-top:6px}
+  /* R215: the one-tap events in + Log, one line per kind, and the time picker
+     that starting or ending a sleep always asks. */
+  .otwrap{margin:4px 0 10px}
+  .otsec{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 8px}
+  .otlab,.otstate{font-size:16px;color:var(--muted)}
+  .otlab b{color:var(--fg)}
+  .oton{border-color:var(--accent);color:var(--accent)}
+  .lpick{margin:0 0 10px;padding:10px;border:1px solid var(--accent);border-radius:12px}
+  .lphead{font-size:16px;font-weight:600;margin-bottom:8px}
+  .lprow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+  .lprow .btn{min-height:44px;font-size:16px}
+  .lplab{font-size:16px;color:var(--muted)}
+  .lptime{font-size:16px;min-height:44px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--fg)}
+  .lpcancel{font-size:16px;min-height:44px}
+  .lpusual small{font-size:16px;color:var(--muted)}
   /* H26. The shape is a description, so it is typeset as facts rather than as a
      verdict: no colour carries meaning here, and no word labels the pattern. */
   .nightp{margin:0}
@@ -695,14 +710,14 @@
   #regimenChecklist:not(:empty){margin-bottom:6px;padding-bottom:5px;border-bottom:1px solid var(--line)}
   .rgtitle{font-weight:700;font-size:16px}
   .rgwindow{color:var(--muted);font-size:16px;margin:2px 0 6px}
-  .rgrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:16px}
+  .rgrow{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;padding:5px 0;border-top:1px solid var(--line);font-size:16px}
   .rgrow:first-of-type{border-top:none}
   .rgtime{color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;font-size:16px}
   .rgtag{font-size:16px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;border-radius:6px;padding:1px 5px;min-width:44px;text-align:center;flex:0 0 auto}
   .rgtag.food{background:var(--accent);color:#fff}.rgtag.medication{border:1px solid var(--bad);color:var(--bad)}.rgtag.event{border:1px solid var(--warn);color:var(--warn)}
-  .rgmain{flex:1;min-width:0}.rgmain small{color:var(--muted)}
+  .rgmain{flex:1 1 8em;min-width:0}.rgmain small{color:var(--muted)}
   .rgrow.done .rgmain{color:var(--muted)}
-  .rgbtns{display:flex;gap:10px;flex:0 0 auto}
+  .rgbtns{display:flex;gap:10px;flex:0 0 auto;margin-left:auto}
   .rgmrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:16px}
   .rgtpl{white-space:pre-wrap;font-size:16px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;max-height:200px;overflow:auto;margin-top:8px}
 
@@ -1003,10 +1018,10 @@
 .dcam:active{background:var(--card2,rgba(127,127,127,.12))}
 /* ---- R159.1 screen 3: the quick-add sheet ----------------------- */
 .qsheet{margin-top:4px}
-.qfrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;min-height:44px;
+.qfrow,.drkrow{display:grid;grid-template-columns:1fr auto;gap:2px 10px;width:100%;min-height:44px;
   padding:10px 12px;margin-bottom:6px;border:1px solid var(--line);border-radius:10px;
   background:transparent;color:inherit;font:inherit;font-size:16px;text-align:left;cursor:pointer}
-.qfrow:active{background:var(--card2,rgba(127,127,127,.12))}
+.qfrow:active,.drkrow:active{background:var(--card2,rgba(127,127,127,.12))}
 .qrname{font-weight:700}
 .qrn{font-weight:700;text-align:right;white-space:nowrap}
 .qrport{grid-column:1/-1;color:var(--muted);font-size:16px}
@@ -1066,7 +1081,7 @@
 /* R199: "Edit" beside the combos heading, and a row that says it is being edited. */
 .srheadrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 6px}
 .srheadrow .srhead{margin:0}
-.sredit{font-size:16px;min-height:44px;padding:0 4px}
+.sredit,.srdrinknew{font-size:16px;min-height:44px;padding:0 4px}
 .srcombo.srcediting{border-color:var(--accent)}
 .cndel{color:var(--bad, #e06c6c)}
 .srcsub{grid-column:1/-1;color:var(--muted);font-size:16px}
@@ -1137,6 +1152,8 @@
 .mfsave{width:100%;margin-top:12px;min-height:44px}
 .mfcancel{font-size:16px;min-height:44px}
 .fqnewfood{display:block;font-size:16px;min-height:44px;text-align:left}
+.mapicked{font-size:16px;margin:6px 0 4px;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.mapunpick{display:block;font-size:16px;min-height:44px;text-align:left}
 .stksave{width:100%;margin-top:12px;min-height:44px}
 .mlegacy{color:var(--muted)}
 .fqlab,.cnlab{display:block;font-size:16px;margin:10px 0 4px}
@@ -1438,7 +1455,13 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <details open>
         <summary>Add manually</summary>
         <div id="maWarn"></div>
-        <label>Name</label><input id="maName" placeholder="e.g. Greek yogurt 150g">
+        <label for="maName">Name</label><input id="maName" placeholder="type to look it up, e.g. Greek yogurt" autocomplete="off" oninput="manualType(this.value)">
+        <!-- R215/4: the lookup. Rows (calories beside each) under the name; a pick
+             fills in the numbers below, each still editable; nothing found -> the
+             label form, saved to Your foods. -->
+        <div id="maPicked"></div>
+        <div id="maRows"></div>
+        <div id="maFood"></div>
         <div class="row">
           <!-- B1: "by the clock" is the DEFAULT and carries value="", so "I did not
                choose a meal" is representable. Every option here used to be a valid
@@ -1465,10 +1488,10 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
                the denominator its macros are measured against, which photoSetIdentity
                has been reading and nobody has been writing. Optional: absent stays
                absent, and an identity re-pick refuses rather than assuming 100. -->
-          <div><label>Portion (g)</label><input id="maGrams" type="number" inputmode="decimal" placeholder="optional"></div>
+          <div><label>Portion (g)</label><input id="maGrams" type="number" inputmode="decimal" placeholder="optional" oninput="manualGramsChanged()"></div>
         </div>
         <details class="micros">
-          <summary>Micronutrients (from label)<span id="maMicroCount"></span></summary>
+          <summary><span id="maMicroHead">Micronutrients (from label)</span><span id="maMicroCount"></span></summary>
           <div id="maMicros"></div>
         </details>
         <!-- R198/3: how much of it was eaten, at save, as on the photo draft. -->
@@ -1496,6 +1519,9 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <div id="pane-signal" class="pane">
       <details open>
         <summary>Log a biometric or event</summary>
+        <!-- R215: every one-tap event, the water chips and the sleep / practice
+             start and end live HERE, at the top -- the day only shows. -->
+        <div id="sigOneTap"></div>
         <!-- R192: the one-tap presets, ABOVE the strip and not in it. In the strip
              they pushed a chip that is ruled reachable-without-scrolling off a
              phone's screen (D52/R20, chip-layout-gate). -->

@@ -857,6 +857,139 @@ window.setLS({});
       'R208: a mapped item-s row says what it counts toward; an unmapped one says nothing of the kind');
   setLS({}); HT.boot();
 
+  // ---- R215: every entry through + Log; sleep asked, never closed for the user; a drink is food ----
+  // The page census (every control clicked) is tests/entry-gate.ps1's; the manual
+  // lookup, typed and tapped, is tests/lookup-gate.ps1's. Here: the rules underneath.
+  setLS({}); HT.boot();
+  var r215T = new Date(td + 'T21:00:00').getTime();
+  HT.setClock(function () { return r215T; });
+  // -- the one-tap section lives in + Log; the day keeps only what it shows --
+  var ot215 = HT.quickEventsHTML();
+  res(ot215.indexOf("addWater(0.25)") > 0 && ot215.indexOf("addWater(0.5)") > 0 && ot215.indexOf("quickEvent('moved')") > 0
+      && ot215.indexOf("quickEvent('woke')") > 0 && ot215.indexOf("lanePickOpen('sleep','start')") > 0
+      && ot215.indexOf("laneTapStart('sauna')") > 0 && ot215.indexOf("laneTapStart('meditation')") > 0 && ot215.indexOf("laneTapStart('red_light')") > 0
+      && ot215.indexOf("quickEvent('sensor', 'left arm')") > 0 && ot215.indexOf("quickEvent('sensor', 'right arm')") > 0,
+      'R215 GATE: + Log carries every one-tap entry -- water +0.25 and +0.5, Moved, Woke, Sleep, sauna / meditation / red light start, New sensor on either arm');
+  res(ot215.indexOf("quickEvent('drink'") < 0 && ot215.indexOf('>wine<') < 0 && ot215.indexOf('>beer<') < 0,
+      'R215 GATE: the Drink badge is GONE -- its four amount-less kinds are drawn nowhere; a drink is food');
+  HT.state().settings.sensorDevice = 'dexcom-g7';
+  HT.addSignal({ type: 'sensor', source: 'quick', date: td, time: '09:00', variant: 'left arm', device: 'dexcom-g7' });
+  var sp215 = HT.sensorPageHTML();
+  res(sp215.indexOf('Day 1 of 10') >= 0 && sp215.indexOf('<button') < 0,
+      'R215 GATE: the day keeps the sensor COUNTDOWN, read-only -- not a button on it (the type is changed in + Log)');
+  // -- sleep: started at a stated time, ended at a stated time, never by the app --
+  var on215 = HT.laneOnAt('sleep', '22:30');
+  res(on215.ok === true, 'R215: a stated bedtime is accepted');
+  res(HT.state().settings.laneOpen.sleep.start === HT.shiftDate(td, -1) + 'T22:30',
+      'R215 GATE: "Went to bed at 22:30" told at 21:00 is LAST NIGHT -- a time that has not come today is yesterday’s');
+  HT.doUndo();
+  res(!HT.laneOpenState('sleep').open,
+      'R215 GATE: and starting a sleep has an Undo -- it had none (Undo everywhere)');
+  // eight nights waking 06:30 make a pattern; "My usual" is offered from it
+  for (var n215 = 1; n215 <= 8; n215++)
+    HT.addSignal({ type: 'sleep', time: '23:00', value: 7.5, unit: 'h', date: HT.shiftDate(td, -n215), wake_src: 'typed' });
+  HT.laneOnAt('sleep', '20:00');
+  r215T = new Date(td + 'T21:00:00').getTime() + 10.5 * 3600000;       // 07:30 tomorrow
+  var u215 = HT.lanePickUsual('sleep');
+  res(u215.hhmm === '06:30' && u215.n === 8,
+      'R215: ending a sleep offers MY USUAL wake time, from the user’s own nights, with how many');
+  r215T = new Date(td + 'T21:00:00').getTime() + 9 * 3600000;          // 06:00: the usual has not come yet
+  res(HT.lanePickUsual('sleep').hhmm === '',
+      'R215 GATE: and does NOT offer it before it has happened -- a wake time nobody lived is not offered');
+  r215T = new Date(td + 'T21:00:00').getTime() + 10.5 * 3600000;
+  HT.lanePickOpen('sleep', 'end');
+  var e215 = HT.lanePickSave('usual');
+  res(e215.ok === true && e215.record && e215.record.wake_src === 'accepted' && HT.minutesToHHMM(HT.sleepWakeMin(e215.record)) === '06:30',
+      'R215 GATE: taken, the usual time is the time STORED -- woke 06:30, though ended at 07:30 -- marked as the suggestion taken (accepted)');
+  res(HT.eliteWokeTimes().some(function (ms) { var d = new Date(ms); return d.getHours() === 6 && d.getMinutes() === 30 && HT.localDate(d) === HT.shiftDate(td, 1); }),
+      'R215 GATE: a night ended in + Log SAYS WHEN THEY WOKE to whatever reads waking (the glucose-rise context) -- Woke and ending a sleep are one way, not two records');
+  HT.addSignal({ type: 'sleep', time: '23:00', value: 9, unit: 'h', date: HT.shiftDate(td, -20), wake_src: 'inferred' });
+  res(!HT.eliteWokeTimes().some(function (ms) { return HT.localDate(new Date(ms)) === HT.shiftDate(td, -20); }),
+      'R215: and a night the retired auto-close wrote (inferred) is no one’s waking');
+  HT.laneOnAt('sleep', '06:59');
+  var pl215 = HT.lanePickOpen('sleep', 'start');
+  res(pl215.ok === true && HT.lanePickSave('now').ok === false && HT.laneOpenState('sleep').open,
+      'R215: a second start while one is open is refused, and the open one is untouched');
+  HT.discardLaneOpen('sleep'); HT.lanePickCancel();
+  // -- a practice: one tap starts, one tap ends, both undoable --
+  var ps215 = HT.laneTapStart('sauna');
+  res(ps215.ok === true && HT.laneOpenState('sauna').open, 'R215: Sauna start is one tap');
+  HT.doUndo();
+  res(!HT.laneOpenState('sauna').open, 'R215 GATE: and Sauna start has its Undo');
+  HT.laneTapStart('sauna'); r215T += 20 * 60000;
+  var pe215 = HT.laneTapEnd('sauna');
+  res(pe215.ok === true && pe215.record.type === 'sauna' && pe215.record.value === 20,
+      'R215: End sauna is one tap, and writes the session -- 20 min');
+  HT.doUndo();
+  res(HT.laneOpenState('sauna').open, 'R215 GATE: and its Undo takes the session back and reopens it');
+  HT.discardLaneOpen('sauna');
+  // -- the ring and the forgotten-off question no longer write --
+  res(HT.laneControlHTML('sleep').indexOf('laneOn(') < 0 && HT.laneControlHTML('sleep').indexOf("openSheet('signal')") > 0,
+      'R215 GATE: the RING is read-only -- a summoned lane states itself and links to + Log');
+  HT.setClock(null); setLS({}); HT.boot();
+  // -- the regimen and the leftovers are logged in + Log --
+  HT.addRegimenFromJSON(JSON.stringify({ name: 'Gate plan', entries: [{ kind: 'medication', time: '08:00', name: 'Gate medicine' }] }));
+  HT.setActiveRegimen(HT.state().regimens.list[0].id);
+  res(HT.regimenLinkHTML().indexOf('0 of 1 logged') > 0 && HT.regimenLinkHTML().indexOf('openQuickAdd()') > 0 && HT.regimenLinkHTML().indexOf('regimenLogTap') < 0
+      && HT.regimenChecklistHTML().indexOf('regimenLogTap') > 0,
+      'R215 GATE: the day keeps a LINE for today’s regimen that opens + Log; the checklist that logs is drawn there');
+  setLS({}); HT.boot();
+  // -- a drink is food --
+  var dk215 = HT.state().current, y215 = HT.shiftDate(dk215, -1);
+  var drink = function (t, g, kc, nm) { return { name: nm || 'Gate wine', meal: 'drink', time: t, grams: g, kcal: kc, protein_g: 0, fat_g: 0, carb_g: 4, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }; };
+  HT.state().days[y215] = { status: 'complete', water_l: 0, items: [drink('19:00', 150, 124), drink('20:00', 200, 165), drink('18:00', 355, 153, 'Gate beer'),
+    { name: 'Gate rice', meal: 'dinner', time: '19:00', grams: 150, kcal: 200, protein_g: 4, fat_g: 0, carb_g: 44, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }] };
+  HT.resave();
+  var h215 = HT.drinkHistory();
+  res(h215.length === 2 && h215[0].name === 'Gate wine' && h215[0].n === 2 && h215[0].grams === 200 && h215[1].name === 'Gate beer',
+      'R215/3: Your drinks is READ FROM THE LOG -- most-logged first, each at its LAST size (the wine: 2 logged, last 200 g)');
+  res(HT.foodFrequency().every(function (f) { return f.name !== 'Gate wine' && f.name !== 'Gate beer'; }) && HT.foodFrequency().some(function (f) { return f.name === 'Gate rice'; }),
+      'R215/3: and drinks are counted there, not in Your top -- one list per thing on the sheet');
+  var k215 = HT.dayTotals(HT.state().days[dk215] || { items: [] }).kcal;
+  var rp215 = HT.drinkRepeatAt(0);
+  res(rp215.ok === true && rp215.item.meal === 'drink' && rp215.item.grams === 200 && rp215.item.kcal === 165
+      && HT.dayTotals(HT.state().days[dk215]).kcal === k215 + 165,
+      'R215/3 GATE: ONE TAP logs the drink again at its last size, TAGGED as a drink, and the day’s calories rise by its 165');
+  HT.doUndo();
+  res(HT.dayTotals(HT.state().days[dk215]).kcal === k215, 'R215/3 GATE: and Undo takes it back');
+  res(HT.sheetDrinksHTML().indexOf('Your drinks') > 0 && HT.sheetDrinksHTML().indexOf('drinkNew()') > 0 && HT.sheetDrinksHTML().indexOf('drinkRepeatAt(0)') > 0,
+      'R215/3: the block names itself, offers Log a drink, and a row per drink');
+  setLS({}); HT.boot();
+  res(HT.sheetDrinksHTML().indexOf('drkrow') < 0 && HT.sheetDrinksHTML().indexOf('drinkNew()') > 0,
+      'R215/3: with no drink logged nothing is chosen for the user -- the block is the one link');
+  // the old badge's drinks: left as stored, and said
+  var old215 = { time: '21:10', kind: 'event', type: 'alcohol', source: 'quick', notes: '', unit: 'drinks', value: 1, variant: 'wine' };
+  res(HT.signalRowLabel(old215) === 'Drink · wine · amount not recorded' && HT.signalRowValueHidden(old215) === true
+      && HT.signalRowLabel({ type: 'alcohol', source: 'manual', value: 2 }) === 'Alcohol' && HT.signalRowValueHidden({ type: 'alcohol', source: 'manual', value: 2 }) === false,
+      'R215/6 GATE: a drink tapped on the OLD badge is left exactly as stored and shown as "Drink · amount not recorded" -- an alcohol entry typed by hand keeps its own label and count');
+  var ev215 = '2026-03-03';
+  HT.state().days[ev215] = { status: 'complete', water_l: 0, items: [Object.assign(drink('20:00', 150, 124), { ref: { ns: 'cnf', id: '1', name: 'Wine', hash: 'h', attribution: 'CNF test', g: 150, v: { 221: 15.6 } } })] };
+  HT.state().timeline[ev215] = [old215];
+  var nt215 = HT.nightPrecededBy(ev215);
+  var nts215 = (typeof nt215 === 'string') ? nt215 : JSON.stringify(nt215);
+  res(nts215.indexOf('1 drink logged (15.6 g alcohol, from the food database)') >= 0 && nts215.indexOf('1 wine (amount not recorded)') >= 0,
+      'R215/3 GATE: what preceded a night names BOTH apart -- a logged drink with its alcohol and where that figure is from, and an old tap with its amount not recorded', nts215);
+  delete HT.state().days[ev215]; delete HT.state().timeline[ev215];
+  // -- "adjusted": declared, round-tripped, said --
+  res(JSON.stringify(HT.normalizeAdjusted(['kcal', 'calcium_mg', 'kcal', 'Bad Key', 7])) === '["kcal","calcium_mg"]' && HT.normalizeAdjusted([]) === null && HT.normalizeAdjusted('kcal') === null,
+      'R215/4: "adjusted" is a list of field keys -- deduplicated, anything else dropped, an empty list is none');
+  var ad215 = HT.addManualEntry({ name: 'Gate cheese', kcal: 125, grams: 30, source: 'manual', adjusted: ['kcal'],
+                                  ref: { ns: 'cnf', id: '9', name: 'Cheese', hash: 'h', attribution: 'CNF test', g: 30, v: { 301: 200 } } });
+  res(ad215.ok === true && ad215.item.source === 'manual' && JSON.stringify(ad215.item.adjusted) === '["kcal"]' && !!ad215.item.ref
+      && HT.itemSourceWord(ad215.item) === 'from the food database, adjusted',
+      'R215/4 GATE: a looked-up item the user changed is THEIRS (source manual), keeps its citation, and says "from the food database, adjusted"');
+  var asis215 = HT.addManualEntry({ name: 'Gate cheese 2', kcal: 120, grams: 30, source: 'corpus',
+                                    ref: { ns: 'cnf', id: '9', name: 'Cheese', hash: 'h', attribution: 'CNF test', g: 30, v: { 301: 200 } } });
+  res(asis215.item.source === 'corpus' && HT.itemSourceWord(asis215.item) === 'from the food database'
+      && HT.addManualEntry({ name: 'Gate x', kcal: 1, source: 'corpus' }).item.source === 'manual',
+      'R215/4: taken unchanged it keeps the database’s own source -- and "corpus" is refused without a citation to back it');
+  var ex215 = HT.exportJSON();
+  window.__confirm = true; HT.restore(ex215);
+  var back215 = HT.state().days[HT.state().current].items.filter(function (x) { return x.name === 'Gate cheese'; })[0];
+  res(!!back215 && JSON.stringify(back215.adjusted) === '["kcal"]',
+      'R215/4 GATE: "adjusted" survives export -> restore -- declared in the commit that writes it (D129)');
+  setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --
@@ -2051,7 +2184,8 @@ window.setLS({});
   setLS({}); HT.boot();
   HT.addRegimenFromJSON(JSON.stringify({name:'<b>reg</b>',entries:[{kind:'medication',time:'04:30',name:'<img src=x>'}]}));
   HT.renderRegimenChecklist();
-  var rhtml=document.getElementById('regimenChecklist').innerHTML;
+  // R215: the checklist is drawn in + Log; the day keeps a link line.
+  var rhtml=HT.regimenChecklistHTML();
   res(rhtml.indexOf('<img src=x>')<0 && rhtml.indexOf('&lt;img')>=0, 'RG-escaping: hostile medication name escaped in the checklist');
   setLS({}); HT.boot(); HT.renderRegimenChecklist();
   res(document.getElementById('regimenChecklist').innerHTML==='', 'RG-empty: no active regimen -> checklist renders silently empty');
@@ -5832,8 +5966,10 @@ window.setLS({});
   // the ring centre for its own dialog (H12 Fork F2). "Rather than guessing" is
   // now precise rather than absolute: it ASKS first, and only infers after a full
   // day, only from the person's own nights, and only marked.
-  res(/ended when/.test(HT.sleepAskHTML()) && HT.sleepAskHTML().indexOf('askEndAt') >= 0,
-      'R16-forgotten: it asks when sleep ended, in its own dialog, with a field to answer in');
+  // R215 re-point: still asked in its own dialog, and ANSWERED in + Log's one
+  // end picker -- the dialog no longer writes.
+  res(/ended when/.test(HT.sleepAskHTML()) && HT.sleepAskHTML().indexOf("laneEndOpen('sleep')") >= 0 && HT.sleepAskHTML().indexOf('askEndAt') < 0,
+      'R16-forgotten: it asks when sleep ended, in its own dialog, and opens + Log to answer it');
   res(HT.sleepControlHTML().indexOf('ended when') < 0,
       'R16-forgotten: and the ring centre no longer carries the question -- the summoned centre is one thing, a toggle');
   var badEnd = HT.resolveSleepOpen('nope');
@@ -5868,7 +6004,10 @@ window.setLS({});
   var sm1 = HT.summonLane('sleep');
   res(sm1.summoned===true && HT.summonActive().cat==='sleep', 'R16-summon: tapping the sleep badge summons its control');
   res(HT.laneFocus()==='sleep', 'R16-summon: highlight RIDES the summon — one tap does both');
-  res(/Sleep on/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))), 'R16-summon: the control appears in the centre');
+  // R215: the ring is READ-ONLY -- the summoned centre states and links.
+  var c215 = HT.rhythmCenterHTML(HT.rhythmModel(td));
+  res(/Sleep · not on/.test(c215) && c215.indexOf("openSheet('signal')") >= 0 && c215.indexOf('laneOn(') < 0 && c215.indexOf('laneOff(') < 0,
+      'R16-summon (R215): the centre says the state and links to + Log -- it has no on or off of its own');
   FIXED += HT.GOAL_SWAP_MS + 1;
   res(HT.summonActive()===null, 'R16-summon: it reverts on idle, deterministically, on the injected clock');
   res(HT.rhythmCenterHTML(HT.rhythmModel(td))===restCentre,
@@ -6078,8 +6217,8 @@ window.setLS({});
     // clause it used to carry -- "it never invents an end time" -- is now the
     // NEXT assertion's job, and for sleep it is amended rather than dropped: six
     // hours past the threshold, still open and still unwritten.
-    res(HT.sleepAskHTML().indexOf('ended when?') >= 0 && HT.sleepAskHTML().indexOf('askEndAt') >= 0,
-        'R181-candidate: ' + lane + ' asks when it ended in the dialog, with a field to say so');
+    res(HT.sleepAskHTML().indexOf('ended when?') >= 0 && HT.sleepAskHTML().indexOf("laneEndOpen('" + lane + "')") >= 0,
+        'R181-candidate: ' + lane + ' asks when it ended in the dialog, and opens + Log to say so');
     res(HT.laneControlHTML(lane).indexOf('laneEndAt') < 0,
         'R181-candidate: ' + lane + ' no longer asks inside the ring centre');
     FIXED = base181 + thr * 60000 + 6 * 3600000;
@@ -6284,8 +6423,8 @@ window.setLS({});
   setLS({}); HT.boot(); fixClock();
   var rest18 = HT.rhythmCenterHTML(HT.rhythmModel(td));
   HT.summonLane('sauna');
-  res(HT.summonActive().cat==='sauna' && /Sauna on/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),
-      'R18-contract: each lane summons its own control');
+  res(HT.summonActive().cat==='sauna' && /Sauna · not on/.test(HT.rhythmCenterHTML(HT.rhythmModel(td))),
+      'R18-contract: each lane summons its own state line (R215: read-only)');
   FIXED += HT.GOAL_SWAP_MS + 1;
   res(HT.summonActive()===null && HT.rhythmCenterHTML(HT.rhythmModel(td))===rest18,
       'R18-contract: it reverts on idle and the resting centre is unchanged');
@@ -12352,13 +12491,15 @@ window.setLS({});
       'D113-close GATE: at 23h open, WITH a pattern, it is still open -- the question gets a full day to be answered');
   FIXED += 2 * 3600 * 1000;
   HT.refresh();
-  res(HT.sleepOpenState().open === false,
-      'D113-close GATE: past 24h it closes on the next render -- no timer, because D38 Fork F rules the counter deliberately stale and reversing that to buy a convenience is not a trade this project makes');
+  // R215 REVERSES the rest of this block, by ruling: the close at 24h wrote a
+  // record nobody tapped for (R202). Same fixture, the opposite outcome.
+  res(HT.sleepOpenState().open === true,
+      'R215 GATE (was D113-close): past 24h, WITH a pattern, it is STILL OPEN -- no render writes a night; the user ends it in + Log');
   var d113rec = (HT.state().timeline[HT.localDate()] || []).filter(function (r) { return r.type === 'sleep' && r.wake_src === 'inferred'; })[0];
-  res(!!d113rec,
-      'D113-close GATE: and the night is written, marked INFERRED');
-  res(d113rec && HT.minutesToHHMM(HT.sleepWakeMin(d113rec)) === '06:30',
-      'D113-close GATE: at the sleeper\u2019s own typical wake time, not at a constant');
+  res(!d113rec,
+      'R215 GATE: and no night marked INFERRED is written -- the auto-close is gone, not merely delayed');
+  res(typeof HT.maybeAutoCloseSleep === 'undefined' && typeof HT.SLEEP_AUTO_CLOSE_MIN === 'undefined',
+      'R215: the auto-close and its threshold are gone from the API, so nothing can call them');
 
   // ---- F1: sleep only -----------------------------------------------------
   setLS({}); HT.boot(); fixClock();
