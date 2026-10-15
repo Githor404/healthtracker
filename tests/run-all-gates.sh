@@ -276,15 +276,25 @@ for f in "$DIR"/check-*.sh; do
   fi
 done
 
+# R221/5: IN PARALLEL. They read files and share nothing, so they are started
+# together and JUDGED IN ORDER afterwards -- the report reads exactly as before,
+# one line per check, each with its own exit code and output.
 N_STATIC=0
+STMP=$(mktemp -d)
+for c in $STATIC_CHECKS; do
+  [ -f "$DIR/$c" ] || continue
+  ( leashed bash "$DIR/$c" > "$STMP/$c.out" 2>&1; echo $? > "$STMP/$c.rc" ) &
+done
+wait
 for c in $STATIC_CHECKS; do
   N_STATIC=$((N_STATIC + 1))
   if [ ! -f "$DIR/$c" ]; then
     printf '  %-26s FAIL - missing\n' "$c"; FAILED="$FAILED ${c}(missing)"; continue
   fi
-  OUT=$(leashed bash "$DIR/$c" 2>&1); RC=$?
+  OUT=$(cat "$STMP/$c.out" 2>/dev/null); RC=$(cat "$STMP/$c.rc" 2>/dev/null || echo 99)
   judge "$c" "$RC" "$OUT"
 done
+rm -rf "$STMP"
 
 # ---- 3. every CDP gate, each of which must speak ---------------------------
 reap_orphans

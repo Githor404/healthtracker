@@ -190,7 +190,11 @@ if [ -z "$BROWSER" ]; then echo "ERROR: no headless Chrome/Edge found" >&2; exit
 
 # --virtual-time-budget: the D30 cases load the SHIPPED index.html into an iframe,
 # so the dump must wait for that async load rather than snapshotting mid-flight.
+# R221/5: the same lean flags every gate's browser now starts with (background
+# services off; nothing that changes rendering).
 OUT=$("$BROWSER" --headless --disable-gpu --no-sandbox --allow-file-access-from-files \
+  --disable-extensions --disable-background-networking --disable-component-update \
+  --disable-sync --disable-default-apps --mute-audio \
   --virtual-time-budget=45000 --dump-dom "$URL" 2>/dev/null \
   | grep -oE '<p class="(r|s)">[^<]*</p>' | sed -E 's/<[^>]+>//g')
 

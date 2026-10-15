@@ -104,7 +104,9 @@ function Cleanup {
   try { if ($ws) { $ws.Dispose() } } catch { }
   try { if ($chrome) { Stop-Process -Id $chrome.Id -Force -ErrorAction SilentlyContinue } } catch { }
   try { Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$udd*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch { }
-  try { Stop-Job $server -ErrorAction SilentlyContinue; Remove-Job $server -Force -ErrorAction SilentlyContinue } catch { }
+  # R221/5: KILL the server job's process, then remove the job. Stop-Job waited 120 s on a job
+  # blocked in GetContext() -- in every gate, ~88 min of a 100 min sweep spent holding memory.
+  try { Get-CimInstance Win32_Process -Filter "ParentProcessId=$PID AND Name='powershell.exe'" -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Remove-Job $server -Force -ErrorAction SilentlyContinue } catch { }
   try { if (Test-Path $udd) { Remove-Item $udd -Recurse -Force -ErrorAction SilentlyContinue } } catch { } }
 
 $fails = @()
@@ -113,7 +115,7 @@ function Check([bool]$ok, [string]$name) {
 
 try {
   Start-Sleep -Milliseconds 600
-  $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new",
+  $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
   $tabUrl = $null
@@ -176,7 +178,9 @@ navigator.serviceWorker.ready.then(function () { return caches.keys(); }).then(f
     Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$udd*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 1500 }
   $chrome = $null
-  try { Stop-Job $server -ErrorAction SilentlyContinue; Remove-Job $server -Force -ErrorAction SilentlyContinue } catch { }
+  # R221/5: KILL the server job's process, then remove the job. Stop-Job waited 120 s on a job
+  # blocked in GetContext() -- in every gate, ~88 min of a 100 min sweep spent holding memory.
+  try { Get-CimInstance Win32_Process -Filter "ParentProcessId=$PID AND Name='powershell.exe'" -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Remove-Job $server -Force -ErrorAction SilentlyContinue } catch { }
   $dead = $false
   for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep -Milliseconds 400
@@ -184,7 +188,7 @@ navigator.serviceWorker.ready.then(function () { return caches.keys(); }).then(f
   Check $dead "PRECONDITION: THE SERVER IS STOPPED -- the origin refuses a connection, so from here nothing can come from the network"
 
   # ---- C. a new browser, offline before its first request --------------------------
-  $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new",
+  $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
   $tabUrl = $null

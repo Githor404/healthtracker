@@ -452,7 +452,9 @@ function Cleanup {
   try { if ($ws) { $ws.Dispose() } } catch { }
   try { if ($chrome) { Stop-Process -Id $chrome.Id -Force -ErrorAction SilentlyContinue } } catch { }
   try { Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$udd*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch { }
-  try { Stop-Job $server -ErrorAction SilentlyContinue; Remove-Job $server -Force -ErrorAction SilentlyContinue } catch { }
+  # R221/5: KILL the server job's process, then remove the job. Stop-Job waited 120 s on a job
+  # blocked in GetContext() -- in every gate, ~88 min of a 100 min sweep spent holding memory.
+  try { Get-CimInstance Win32_Process -Filter "ParentProcessId=$PID AND Name='powershell.exe'" -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Remove-Job $server -Force -ErrorAction SilentlyContinue } catch { }
   try { if (Test-Path $udd) { Remove-Item $udd -Recurse -Force -ErrorAction SilentlyContinue } } catch { }
 }
 
@@ -461,7 +463,7 @@ try {
   try { Invoke-WebRequest "$origin/index.html" -UseBasicParsing -TimeoutSec 5 | Out-Null }
   catch { Write-Host "ERROR: test server did not start"; Cleanup; exit 2 }
 
-  $args = @('--headless=new', '--disable-gpu', '--no-sandbox', "--user-data-dir=$udd",
+  $args = @('--headless=new', '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-default-apps', '--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion', '--mute-audio', '--disable-gpu', '--no-sandbox', "--user-data-dir=$udd",
             "--remote-debugging-port=$dbg", '--remote-allow-origins=*', 'about:blank')
   $chrome = Start-Process $browser -PassThru -ArgumentList $args
 
