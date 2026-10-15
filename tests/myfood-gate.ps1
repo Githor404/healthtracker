@@ -229,7 +229,7 @@ try {
            name: nm ? nm.textContent : '', src: src ? src.textContent : '', srcSeen: src ? src.getBoundingClientRect().height > 0 : false, srcPx: src ? parseFloat(getComputedStyle(src).fontSize) : 0,
            recs: (S.timeline[t] || []).map(function (r) { return r.name + '|' + r.kind + '|' + r.stackKind; }), tl: tl,
            bio: (function () { var h = document.querySelector('#dayView .bghead'); if (h && h.getAttribute('aria-expanded') !== 'true') h.click();
-                               return Array.prototype.map.call(document.querySelectorAll('#dayView .bgdose'), function (e) { return e.innerText.replace(/\s+/g, ' ').trim(); }); })() };
+                               return Array.prototype.map.call(document.querySelectorAll('#dayView .bgdose'), function (e) { var c = e.cloneNode(true); Array.prototype.forEach.call(c.querySelectorAll('.bgrm'), function (b) { b.remove(); }); document.body.appendChild(c); var t = c.innerText; c.remove(); return t.replace(/\s+/g, ' ').trim(); }); })() };
 })()
 '@
   Write-Host ("  logged: " + $day)
