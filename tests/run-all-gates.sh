@@ -299,8 +299,18 @@ rm -rf "$STMP"
 # ---- 3. every CDP gate, each of which must speak ---------------------------
 reap_orphans
 N_CDP=0
+# R221/5: A RUN WHOSE CALLER IS GONE STOPS. MEASURED: when the host reaped a run
+# for low memory it killed only the shell that STARTED this file -- this runner
+# carried on, invisibly, gate after gate, holding memory and the ports a re-run
+# would need. So before each gate it checks that its parent still exists, and
+# stops by name if not.
+RUN_PARENT=$PPID
 for g in "$DIR"/*-gate.ps1; do
   name=$(basename "$g")
+  if ! kill -0 "$RUN_PARENT" 2>/dev/null; then
+    echo "  RUN STOPPED before $name -- the process that started this run is gone"
+    exit 3
+  fi
   N_CDP=$((N_CDP + 1))
   if [ ! -f "$g" ]; then
     echo "  ${name}: FAIL - missing"; FAILED="$FAILED ${name}(missing)"; continue
