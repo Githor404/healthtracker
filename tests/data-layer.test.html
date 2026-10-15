@@ -865,7 +865,7 @@ window.setLS({});
   HT.setClock(function () { return r215T; });
   // -- the one-tap section lives in + Log; the day keeps only what it shows --
   var ot215 = HT.quickEventsHTML();
-  res(ot215.indexOf("addWater(0.25)") > 0 && ot215.indexOf("addWater(0.5)") > 0 && ot215.indexOf("quickEvent('moved')") > 0
+  res(ot215.indexOf("waterTap(0.25)") > 0 && ot215.indexOf("waterTap(0.5)") > 0 && ot215.indexOf("quickEvent('moved')") > 0
       && ot215.indexOf("quickEvent('woke')") > 0 && ot215.indexOf("lanePickOpen('sleep','start')") > 0
       && ot215.indexOf("laneTapStart('sauna')") > 0 && ot215.indexOf("laneTapStart('meditation')") > 0 && ot215.indexOf("laneTapStart('red_light')") > 0
       && ot215.indexOf("quickEvent('sensor', 'left arm')") > 0 && ot215.indexOf("quickEvent('sensor', 'right arm')") > 0,
@@ -988,6 +988,44 @@ window.setLS({});
   var back215 = HT.state().days[HT.state().current].items.filter(function (x) { return x.name === 'Gate cheese'; })[0];
   res(!!back215 && JSON.stringify(back215.adjusted) === '["kcal"]',
       'R215/4 GATE: "adjusted" survives export -> restore -- declared in the commit that writes it (D129)');
+  setLS({}); HT.boot();
+
+  // ---- R221/2: a water tap is an ENTRY; R221/3: drinks first, by category ----------
+  setLS({}); HT.boot();
+  var wd221 = HT.state().current;
+  HT.state().days[wd221] = HT.state().days[wd221] || { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().days[wd221].water_l = 0.75;                    // logged before taps were entries
+  var w1 = HT.waterTap(0.5), w2 = HT.waterTap(0.5);
+  res(w1.ok && w2.ok && HT.dayWaterEntries(wd221).length === 2 && HT.dayWater(wd221) === 1.75 && HT.state().days[wd221].water_l === 0.75,
+      'R221/2 GATE: each water tap is its OWN ENTRY -- two taps, two entries -- and the day’s water is what was logged before (0.75, untouched) plus them: 1.75');
+  var wi221 = HT.state().timeline[wd221].indexOf(w2.record);
+  HT.deleteSignal(wd221, wi221);
+  res(HT.dayWater(wd221) === 1.25 && HT.dayWaterEntries(wd221).length === 1,
+      'R221/2 GATE: deleting ONE of them, long after its own Undo, takes exactly 0.5 off the day');
+  HT.doUndo();
+  res(HT.dayWater(wd221) === 1.75, 'R221/2: and the delete has its own Undo');
+  window.__confirm = true;
+  HT.clearDay();
+  res(HT.dayWater(wd221) === 0 && HT.dayWaterEntries(wd221).length === 0,
+      'R221/2: "Clear this day" clears the water entries with the rest');
+  HT.doUndo();
+  res(HT.dayWater(wd221) === 1.75 && HT.dayWaterEntries(wd221).length === 2,
+      'R221/2: and its Undo puts every one back');
+  res(HT.SIGNAL_BY_TYPE.water && HT.SIGNAL_BY_TYPE.water.kind === 'event' && HT.SIGNAL_BY_TYPE.water.unit === 'L',
+      'R221/2: water is an EVENT type in litres -- on the timeline, never in a food total');
+  // drinks first: a stable partition of the matcher's own pool, by the source's category
+  var pool221 = [{ id: '1', name: 'Vinegar, red wine' }, { id: '2', name: 'Cake, wine' }, { id: '3', name: 'Wine, table' }, { id: '4', name: 'Wine, dessert' }];
+  var bm221 = { groups: { beverage: ['3', '4'] } };
+  res(HT.beverageFirst(pool221, bm221).map(function (c) { return c.id; }).join(',') === '3,4,1,2',
+      'R221/3 GATE: beverage rows come before every other row, each half in the matcher’s own order, nothing dropped');
+  res(HT.beverageFirst(pool221, {}).map(function (c) { return c.id; }).join(',') === '1,2,3,4',
+      'R221/3: a corpus that carries no categories is left in the matcher’s order -- no word list stands in for one');
+  var tier221 = [{ id: '3', overlap: 2 }, { id: '1', overlap: 3 }, { id: '4', overlap: 2 }, { id: '2', overlap: 2 }].sort(function (x, y) { return y.overlap - x.overlap; });
+  res(HT.beverageFirst(tier221, bm221).map(function (c) { return c.id; }).join(',') === '1,3,4,2',
+      'R221/3 GATE: the category orders rows WITHIN a tier of words answered -- a row answering every typed word ("red wine vinegar") stays above beverages answering fewer');
+  res(Object.keys(HT.CORPUS_GROUPS_HASH).sort().join(',') === 'cnf,fdc'
+      && HT.corpusIsCurrent({ ns: 'fdc', index: [['1', 'x']], hash: HT.CORPUS_ASSET_HASH.fdc }) === false,
+      'R221/3: the categories have their own hash on BOTH databases, and a stored corpus without them is not current -- a device that has the old one fetches the new one once');
   setLS({}); HT.boot();
 
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------

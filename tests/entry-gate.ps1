@@ -345,6 +345,42 @@ try {
     if ($t.root) { Check ([double]$rr.kcal -gt 100) "R215 GATE: a drink from Your drinks ADDS ITS CALORIES to the day (+$($rr.kcal) cal) -- the defect R214 reported was a drink that did not" }
   }
 
+  # ---- R221/2: a water mis-tap stays fixable after its Undo bar has gone ------------
+  # The ruled gate, by real taps: +0.5 twice, wait past the Undo, delete one on the
+  # day -> the day's water drops by exactly 0.5.
+  Fresh
+  $w0 = EvalA @'
+(function () {
+  HT.openSheet('signal');
+  var b = document.querySelector('#sigOneTap .otwater button:nth-of-type(2)');
+  var d = HT.state().current, before = HT.dayWater(d);
+  b.click(); b.click();
+  return { label: b.textContent, before: before, after: HT.dayWater(d), entries: HT.dayWaterEntries(d).length };
+})()
+'@
+  Write-Host ("  two water taps: " + $w0)
+  Start-Sleep -Milliseconds 6500
+  $w1 = EvalA @'
+(function () {
+  var d = HT.state().current;
+  var undoGone = !document.querySelector('#toast.show .tundo');
+  HT.closeSheet(); HT.dayGroupsOpenAll(true);
+  var rows = Array.prototype.filter.call(document.querySelectorAll('#dayView .bgline'), function (r) { return /Water/.test((r.querySelector('.mginame') || {}).textContent || ''); });
+  var x = rows[0] && rows[0].querySelector('.bgrm');
+  var before = HT.dayWater(d);
+  var size = x ? x.getBoundingClientRect() : null;
+  if (x) x.click();
+  return { undoGone: undoGone, rows: rows.length, x: !!x, h: size ? Math.round(size.height) : 0, w: size ? Math.round(size.width) : 0,
+           before: before, after: HT.dayWater(d), entries: HT.dayWaterEntries(d).length,
+           undoBack: !!document.querySelector('#toast.show .tundo') };
+})()
+'@
+  Write-Host ("  after the Undo bar, one deleted on the day: " + $w1)
+  $wa = $w0 | ConvertFrom-Json; $wb = $w1 | ConvertFrom-Json
+  Check (($wa.label -like '+0.5*') -and ([Math]::Abs($wa.after - $wa.before - 1.0) -lt 1e-6) -and ($wa.entries -eq 2)) "R221/2: two taps of +0.5 L are two entries, and the day's water rises by 1.0"
+  Check ($wb.undoGone -and ($wb.rows -eq 2) -and $wb.x -and ($wb.h -ge 44) -and ($wb.w -ge 44)) "R221/2: with the Undo bar long gone, both are LISTED on the day, each with a 44 px x"
+  Check (([Math]::Abs($wb.before - $wb.after - 0.5) -lt 1e-6) -and ($wb.entries -eq 1) -and $wb.undoBack) "R221/2 GATE: deleting one drops the day's water by exactly 0.5 -- and that delete has its own Undo"
+
   # ---- sleep: asked, never stamped; never closed for the user ----------------------------
   Fresh
   $sl = EvalA @'

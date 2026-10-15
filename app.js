@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.97.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.98.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2898,6 +2898,8 @@ function corpusIsCurrent(m) {
   // R189: the refuse table has its OWN hash; a corpus current in its values and
   // missing its refuse table is stale all the same.
   if (wantRefuse && ((m.refuse && m.refuse.hash) || '') !== wantRefuse) return false;
+  const wantGroups = CORPUS_GROUPS_HASH[ns];
+  if (wantGroups && ((m.groups && m.groups.hash) || '') !== wantGroups) return false;
   return true;
 }
 function corpusEnsure() {
@@ -3521,6 +3523,14 @@ const CORPUS_ASSET_HASH = {
 const CORPUS_REFUSE_HASH = {
   cnf: '2a6a566df340',
 };
+// R221/3: the beverage rows, by each source's OWN category, with their own hash
+// (encode.py; checked by tests/check-slots.sh as the two above are). A corpus
+// current in its values and missing its groups is stale, so a device that holds
+// the old index fetches the new one once.
+const CORPUS_GROUPS_HASH = {
+  fdc: 'da605be01eb3',
+  cnf: 'f0598d00f670',
+};
 
 function corpusOpen() {
   if (CORPUS_DB_HANDLE) return Promise.resolve(CORPUS_DB_HANDLE);
@@ -3560,6 +3570,7 @@ function corpusInstall(meta, buf) {
         // R189: the refuse table, where the namespace has one. Absent on fdc, and
         // absent is the answer there -- nothing downstream invents a figure.
         refuse: (meta.refuse && typeof meta.refuse === 'object') ? meta.refuse : null,
+        groups: (meta.groups && typeof meta.groups === 'object') ? meta.groups : null,   // R221/3
       }, 'index');
       const vs = tx.objectStore(CORPUS_STORE_VALUES);
       // CLEARED FIRST, because an install is a REPLACEMENT and the row width can
@@ -5686,7 +5697,7 @@ function renderDayInner() {
   // are. Two places showing P/F/C is the duplication this redesign removes. The
   // coverage note and the glucose row keep their place.
   html += `${dnote}${grow}`;
-  const w = day.water_l || 0;
+  const w = dayWater(dk);   // R221/2: the day's figure plus its water entries
   // D121 / A1: the NEXT TAP after a save. Offered once, for the meal just
   // logged, and it walks forward through that meal rather than asking the user
   // to find each item again. Dismissable, and never shown twice.
@@ -6263,16 +6274,28 @@ function clearDay() {
   if (!window.confirm('Clear all items and water for ' + dk + '?')) return;
   const items = JSON.parse(JSON.stringify(day.items || []));
   const water = day.water_l || 0;
+  // R221/2: "clear all items and water" clears the water ENTRIES too, and the
+  // Undo puts them back where they were.
+  const tlDay = (APP_STATE.timeline && APP_STATE.timeline[dk]) || [];
+  const waterRecs = tlDay.filter(function (r) { return r && r.type === 'water'; });
   // D134: the day-wipe feeds the trash too. D44 called it the one destructive
   // action outside the undo grammar; if the largest deletion bypassed the trash,
   // the gap would only have moved.
   items.forEach(function (it, i) { if (!it._auto) trashPut(dk, it, i); });
   day.items = []; day.water_l = 0;
+  if (waterRecs.length) {
+    APP_STATE.timeline[dk] = tlDay.filter(function (r) { return waterRecs.indexOf(r) < 0; });
+    if (!APP_STATE.timeline[dk].length) delete APP_STATE.timeline[dk];
+  }
   Store.saveState(APP_STATE); refresh();
   offerUndo('Cleared ' + dk, function () {
     const back = APP_STATE.days[dk];
     if (!back) return;
     back.items = items; back.water_l = water;
+    if (waterRecs.length) {
+      if (!APP_STATE.timeline[dk]) APP_STATE.timeline[dk] = [];
+      waterRecs.forEach(function (r) { APP_STATE.timeline[dk].push(r); });
+    }
     Store.saveState(APP_STATE); refresh();
   });
   return { ok: true, date: dk, cleared: items.length };
@@ -6284,6 +6307,38 @@ function clearDay() {
 // 0.25 arrive by ingest and restore, so the case is narrow and real. It is the one
 // mutation in the app where the inverse gesture does not return the value, and it
 // had no undo at all. It joins the grammar rather than growing a special case.
+// ---- R221/2: WATER IS ENTRIES -------------------------------------------------
+// RULED: a mis-tap must stay fixable after the Undo bar is gone. A day's water
+// was ONE NUMBER, so a tap could only be undone for five seconds and then only by
+// tapping the opposite way. Each tap is now an ordinary timeline entry (type
+// `water`, in litres) -- on the day's Biometrics list and the time order, with
+// its x and Undo like any other (R203: every entry deletable).
+//
+// THE DAY'S WATER is `day.water_l` PLUS its water entries. `water_l` is kept,
+// untouched: it holds what was logged before this (and what an import or a
+// restore brings), and rewriting it into invented entries would make up times
+// nobody recorded (D112). No migration, no schema bump; nothing is lost.
+function dayWaterEntries(dk) {
+  return ((APP_STATE.timeline && APP_STATE.timeline[String(dk)]) || []).filter(function (r) { return r && r.type === 'water'; });
+}
+function dayWater(dk) {
+  const day = (APP_STATE.days || {})[String(dk)];
+  const base = day ? num(day.water_l) : 0;
+  const sum = dayWaterEntries(dk).reduce(function (a, r) { return a + num(r.value); }, 0);
+  return Math.round((base + sum) * 1000) / 1000;
+}
+function waterTap(delta) {
+  const dk = APP_STATE.current;
+  const v = Math.round(num(delta) * 1000) / 1000;
+  if (!(v > 0)) return { ok: false };
+  const r = addSignal({ type: 'water', value: v, unit: 'L', source: 'quick', time: stampTime(dk), date: dk });
+  if (!r.ok) return r;
+  offerUndo('Water +' + rDisp(v) + ' L · ' + rDisp(dayWater(dk)) + ' L today',
+            undoRemove(APP_STATE.timeline[dk] || [], [r.record]), QUICK_UNDO_MS, 'tline');
+  return { ok: true, record: r.record, total: dayWater(dk) };
+}
+// The one-number path, kept for the restore and import boundaries' callers and
+// the harness; no control on any screen calls it any more.
 function addWater(delta) {
   const day = dayForWrite(); if (!day) return { ok: false };
   const dk = APP_STATE.current;
@@ -7166,6 +7221,8 @@ const SIGNAL_SPEC = [
   { type: 'red_light',    kind: 'event', label: 'Red light (RLT)', unit: 'min', units: ['min'],   warn: 120 },
   { type: 'hbot',         kind: 'event', label: 'HBOT',        unit: 'min',    units: ['min'],    warn: 300 },
   { type: 'alcohol',      kind: 'event', label: 'Alcohol',     unit: 'drinks', units: ['drinks'], warn: 30 },
+  // R221/2: a water tap is an ENTRY -- listed and deletable like any other.
+  { type: 'water',        kind: 'event', label: 'Water',       unit: 'L',      units: ['L'],      warn: 10 },
   // H26/H25: waking is an EVENT, not the end of a sleep interval. The reported
   // pattern is a wake at ~03:30 in the MIDDLE of a night, which a bed-to-wake
   // interval cannot express. A new TYPE, not a new kind -- the D35/D52
@@ -7935,9 +7992,9 @@ function laneTapEnd(lane) { return closeLaneSegment(lane, nowAbs(), todayKey(), 
 function oneTapHTML() {
   const day = (APP_STATE.days || {})[APP_STATE.current] || {};
   const sl = laneOpenState('sleep');
-  let h = '<div class="otsec otwater"><span class="otlab">Water <b>' + esc(rDisp(num(day.water_l))) + '</b> L</span>'
-    + '<button type="button" class="qbtn otbtn" onclick="addWater(0.25)">+0.25 L</button>'
-    + '<button type="button" class="qbtn otbtn" onclick="addWater(0.5)">+0.5 L</button></div>';
+  let h = '<div class="otsec otwater"><span class="otlab">Water <b>' + esc(rDisp(dayWater(APP_STATE.current))) + '</b> L</span>'
+    + '<button type="button" class="qbtn otbtn" onclick="waterTap(0.25)">+0.25 L</button>'
+    + '<button type="button" class="qbtn otbtn" onclick="waterTap(0.5)">+0.5 L</button></div>';
   h += '<div class="otsec">'
     + '<button type="button" class="qbtn otbtn" onclick="quickEvent(\'moved\')">Moved</button>'
     + (sl.open
@@ -13803,7 +13860,7 @@ function renderHistory() {
     const hnote = hcov.partial ? ` · <span class="hcov">${esc(coverageNote(hcov))}</span>` : '';
     return `<div class="hrow" role="button" tabindex="0" onclick="dayJump('${esc(d)}', true)">
         <div class="hd"><span class="hdate">${esc(fmtDateSmart(d, true))}</span>${flag}</div>
-        <div class="hmeta">${esc(kcalDisp(t.kcal))} cal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(day.water_l))} L${hnote}</div>
+        <div class="hmeta">${esc(kcalDisp(t.kcal))} cal · P ${esc(rDisp(t.protein_g))} · F ${esc(rDisp(t.fat_g))} · C ${esc(rDisp(t.carb_g))} · ${esc(rDisp(t.fiber_g))} fib · ${esc(items)} items · ${esc(rDisp(dayWater(d)))} L${hnote}</div>
       </div>`;
   }).join('');
 }
@@ -14014,6 +14071,7 @@ const VERSION_LOG = [
   { v: '0.95.0', d: '2026-10-12', note: 'A stack item you set to count toward a nutrient now adds to that nutrient for the day, shown as its own line, from your stack, with no calories. The editor suggests the nutrient when the name matches one, and you confirm it; it is never set for you. Where a cited upper level is exceeded the nutrient row says so and names its source: vitamin D against everything taken that day, magnesium against supplements only, because that is what each figure is about.' },
   { v: '0.96.0', d: '2026-10-13', note: 'Export backup makes a real file, named with the date, that you save to Files or iCloud Drive from the share sheet; Settings shows when the last one was made. A stack item is now a Supplement, a Medication or a Food, and logged entries say which. A food that is in neither food database can be added from its label, or with generic values, wherever a food is searched for in the stack or a combo; it is kept in your foods and found again by name. Intake notes are a small flag you tap to read, closed each time, instead of a paragraph on the row.' },
   { v: '0.97.0', d: '2026-10-14', note: 'Everything you log now goes through + Log. Moved, Woke, New sensor, water and starting or ending a sleep, sauna, meditation or red light are one tap each at the top of Log event or biometric, with Undo; the day still shows the sensor countdown, your water and the ring, but nothing there logs. Starting or ending a sleep asks the time first: Now, your usual wake time when there are enough of your own nights, or any other time, so ending it late still records when you woke. An open sleep is never closed for you any more. Drinks are food: Your drinks in + Log logs the one you had last at the same amount with one tap, and Log a drink finds a new one in the food database; its calories count in your day, and its alcohol where the database has it. Drinks tapped on the old badge stay as they were and say their amount was not recorded. Manual entry now looks the food up as you type its name: pick a row and the calories, macros and vitamins and minerals are filled in for the grams you enter; change any number and the entry says it was adjusted. If it is not in the database you can add it from its label. Food left from earlier and today’s regimen are logged from + Log, and the lines on the day open it.' },
+  { v: '0.98.0', d: '2026-10-14', note: 'Each tap of water is now its own entry. It is listed with the day’s other entries under Biometrics, and you can delete it there with × and Undo, so a mis-tap can still be fixed after the Undo bar has gone. Water you logged before this is kept as it was. Log a drink now lists drinks first: rows the food database files as beverages come before everything else, so wine finds wine before red wine vinegar, which you can still find by its full name. Every entry under Biometrics can now be removed where it is listed.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -18681,6 +18739,10 @@ function biometricGroupHTML(dateKey) {
     const r = x.r;
     const spec = SIGNAL_BY_TYPE[r.type];
     const val = (r.value != null && !signalRowValueHidden(r)) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
+    // R221/2 + R203: EVERY ENTRY LISTED HERE IS DELETABLE HERE, with its Undo --
+    // a water tap noticed as a mis-tap after its Undo bar has gone is fixed on
+    // the row it shows up on, not by finding the time-order view.
+    const rmBtn = `<button type="button" class="rm bgrm" onclick="deleteSignal('${esc(dk)}',${esc(String(x.i))})" aria-label="remove" title="remove">×</button>`;
     // R213: A DOSE SAYS WHAT IT WAS. This row printed the stored word "medication"
     // and nothing else -- no name, no amount -- for every dose on the day. Seen in
     // a screenshot taken to check the kind's word; no gate asked.
@@ -18689,11 +18751,11 @@ function biometricGroupHTML(dateKey) {
       const dose = (r.dose != null) ? (rDisp(r.dose) + (r.dose_unit ? ' ' + doseUnitWord(r.dose_unit) : '')) : '';
       return `<div class="bgline bgdose"><span class="mgitime">${esc(r.time || '')}</span>`
         + `<span class="mginame">${kw ? `<span class="mkind">${esc(kw)} · </span>` : ''}${esc(r.name || 'dose')}</span>`
-        + `<span class="bgval">${esc(dose)}</span></div>`;
+        + `<span class="bgval">${esc(dose)}</span>${rmBtn}</div>`;
     }
     return `<div class="bgline"><span class="mgitime">${esc(r.time || '')}</span>`
       + `<span class="mginame">${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : (r.type || ''))}</span>`
-      + `<span class="bgval">${esc(val)}</span></div>`;
+      + `<span class="bgval">${esc(val)}</span>${rmBtn}</div>`;
   }).join('');
   return h + '</div></div>';
 }
@@ -19553,13 +19615,41 @@ function typeaheadMineFirst(pool, used, limit) {
   mine.forEach(function (c) { c.mine = used[String(c.id)]; });
   return mine.concat(pool.filter(function (c) { return mine.indexOf(c) < 0; })).slice(0, Math.max(1, limit || TYPEAHEAD_MAX));
 }
-function typeaheadRun(text) {
+// R221/3 -- "LOG A DRINK" PUTS DRINKS FIRST, BY CATEGORY. Reported: "wine" led
+// with a red wine vinegar. Ruled: rank rows from the source's beverage category
+// above all others, CATEGORY-BASED and not word-fitted. A stable partition of the
+// matcher's own pool: the order within each half is the matcher's, nothing is
+// dropped, and a vinegar is still found by its full name. Search outside "Log a
+// drink" is unchanged.
+let BEV_SET = null;
+function corpusBeverageSet(m) {
+  const list = m && m.groups && Array.isArray(m.groups.beverage) ? m.groups.beverage : null;
+  if (!list) return null;
+  if (!BEV_SET || BEV_SET.of !== list) { BEV_SET = { of: list, set: new Set(list.map(String)) }; }
+  return BEV_SET.set;
+}
+// WITHIN EACH TIER OF WORDS ANSWERED. The matcher's first key is how many of the
+// typed words a row answers (`overlap`). A flat beverages-first split pushed the
+// row answering ALL of "red wine vinegar" below eight red wines answering two --
+// caught by lookup-gate, against the ruling that the vinegar stays findable by
+// its full name. So the category decides order only among rows that answer the
+// same number of typed words; the matcher's order stands otherwise.
+function beverageFirst(pool, m) {
+  const set = corpusBeverageSet(m);
+  if (!set) return pool;
+  return pool.map(function (c, i) { return { c: c, i: i, b: set.has(String(c.id)) ? 1 : 0, o: num(c.overlap) }; })
+    .sort(function (x, y) { return (y.o - x.o) || (y.b - x.b) || (x.i - y.i); })
+    .map(function (x) { return x.c; });
+}
+function typeaheadRun(text, opts) {
   const q = String(text == null ? '' : text);
   if (q.trim().length < TYPEAHEAD_MIN) return Promise.resolve({ phase: 'short', rows: [] });
   return corpusEnsure().then(function () {
     const m = CORPUS_MEM;
     if (!m || !m.index) return { phase: 'no-corpus', rows: [] };
-    const cands = typeaheadMineFirst(matchTypeahead(q, TYPEAHEAD_POOL), refUseCounts(m.ns), TYPEAHEAD_MAX);
+    let pool = matchTypeahead(q, TYPEAHEAD_POOL);
+    if (opts && opts.drinks) pool = beverageFirst(pool, m);
+    const cands = typeaheadMineFirst(pool, refUseCounts(m.ns), TYPEAHEAD_MAX);
     return Promise.all(cands.map(function (c) {
       return corpusLookup(c.id).then(function (row) {
         return { id: String(c.id), name: c.name, row: row, meta: m, mine: c.mine || 0,
@@ -19629,7 +19719,7 @@ function searchType(text) {
   const st = FOOD_SEARCH;
   st.q = String(text == null ? '' : text);
   const seq = ++st.seq;
-  return typeaheadRun(st.q).then(function (r) {
+  return typeaheadRun(st.q, { drinks: !!st.asDrink }).then(function (r) {
     // A slower answer to an older keystroke must not overwrite a newer one.
     if (FOOD_SEARCH !== st || st.seq !== seq) return { ok: false, why: 'stale' };
     st.phase = r.phase; st.rows = r.rows;
@@ -22158,6 +22248,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
+  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
   itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,

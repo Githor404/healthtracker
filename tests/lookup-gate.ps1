@@ -318,6 +318,48 @@ try {
   $a9 = $r9 | ConvertFrom-Json
   Check (($a9.added -eq 1) -and ([double]$a9.grams -eq 150) -and ($a9.meal -eq 'drink') -and ([Math]::Abs([double]$a9.dk - [double]$a8.kcal) -lt 0.01)) "R215/3 GATE: ONE TAP on it logs the same drink at the LAST SIZE -- 150 g, the same calories again"
   Check ($a9.undo -and $a9.back) "and Undo takes it back"
+
+  # ---- 9. R221/3: "Log a drink" puts drinks first, by category, on BOTH databases ----
+  # Typed for real into the Log a drink search. The first row must be one the
+  # database files as a beverage AND a wine; the vinegar must still be findable by
+  # its full name -- promoted rows come first, nothing is hidden.
+  $drinkAsk = @'
+(function () {
+  HT.closeSheet(); HT.openSheet();
+  document.querySelector('#sheetRoot .srdrinknew').click();
+  return 1;
+})()
+'@
+  $drinkRead = @'
+(function () {
+  var rows = Array.prototype.map.call(document.querySelectorAll('#fqRows .fqrow .fqnm'), function (n) { return n.textContent; });
+  return { ns: (HT.corpusState() || {}).ns, first: rows[0] || '', rows: rows };
+})()
+'@
+  foreach ($db in @('US', 'CA')) {
+    if ($db -eq 'CA') {
+      $ua = Eval 'navigator.userAgent'
+      Invoke-CDP 'Network.enable' $null | Out-Null
+      Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua; acceptLanguage = 'en-CA' } | Out-Null
+      Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
+      Start-Sleep -Milliseconds 3000
+      $cr2 = EvalA "HT.corpusEnsure().then(function (r) { return { ok: !!(r && r.ok), ns: (HT.corpusState() || {}).ns }; })"
+      Write-Host ("  the Canadian database: " + $cr2)
+    }
+    [void](Eval $drinkAsk)
+    Focus 'fqQuery'; TypeText 'wine'
+    Settle
+    $w = EvalA $drinkRead
+    Write-Host ("  $db, 'wine' in Log a drink: " + $w)
+    $wv = $w | ConvertFrom-Json
+    Check (($wv.first -match '(?i)wine') -and -not ($wv.first -match '(?i)vinegar') -and -not ($wv.first -match '(?i)cake|sauce')) "R221/3 GATE ($db, $($wv.ns)): 'wine' in Log a drink leads with a WINE -- '$($wv.first)' -- a beverage by the database's own category"
+    [void](Eval "(function(){ var f = document.getElementById('fqQuery'); f.value = ''; return 1; })()")
+    Focus 'fqQuery'; TypeText 'red wine vinegar'
+    Settle
+    $v = EvalA $drinkRead
+    Write-Host ("  $db, 'red wine vinegar': " + $v)
+    Check ((($v | ConvertFrom-Json).rows | Where-Object { $_ -match '(?i)vinegar, red wine' }).Count -ge 1) "R221/3 ($db): and 'red wine vinegar' is still found by its full name -- promoted rows come first, nothing is hidden"
+  }
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

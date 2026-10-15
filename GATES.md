@@ -6142,3 +6142,18 @@ the limit is recorded in R215 for its own ruling.
 none failed. The new and re-pointed gates (entry, lookup, response, sensor,
 onedoor, ring-size) and the harness were run singly; the full sweep is run
 before the push.
+
+### v0.98.0 — a flat rule that hid the thing it promised to keep, and a write site found by its census (2026-10-14)
+
+**`lookup-gate` failed the first ranking on both databases, correctly.** Beverages
+first, as a flat split, put eight red wines above the row answering all three
+words of "red wine vinegar". The ruling said the vinegar stays findable by its
+full name, and the gate typed it. The category now orders rows within each tier
+of words answered.
+
+**`check-writesites` named `clearDay`** the moment its Undo began writing water
+entries back; classified EXEMPT with the reason, not re-pinned.
+
+**One harness run hung at the 35 s chain timeout** and the next passed whole --
+the intermittent D110 names, recorded in the pin comment so a second sighting
+can be counted.

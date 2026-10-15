@@ -455,7 +455,14 @@ echo "-----------------------------------------"
 # of Your top, one tap adding its calories, Undo, the empty block; the old
 # badge label; the night summary naming both; adjusted normalised, said,
 # round-tripped; corpus kept only with a citation.
-EXPECTED_ASSERTIONS=3132
+# R221, v0.98.0: 3132 -> 3142, delta +10 (the tenth: the category orders WITHIN a tier of words answered). WATER: two taps are two entries and the
+# day is the old figure plus them; deleting one takes 0.5 off; its Undo; clear
+# day takes the entries and its Undo puts them back; water is an event in litres.
+# DRINKS FIRST: the stable partition; no categories, no reorder; both hashes, and
+# a stored corpus without them is not current. (One run of this re-pin hung at
+# the 35 s chain timeout and passed whole on the next -- the intermittent D110
+# names, recorded here so a second sighting is countable.)
+EXPECTED_ASSERTIONS=3142
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

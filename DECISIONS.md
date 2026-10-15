@@ -16920,3 +16920,75 @@ onedoor), and changing that is a separate ruling.
   asserts the day carries none; `sensor-gate` taps the arms and answers the type
   question in + Log and asserts the Drink badge is gone; five harness cases that
   asserted the ring's on/off and the dialog's time field now assert the link.
+
+## R221 — RULED AND BUILT: A WATER TAP IS AN ENTRY; LOG A DRINK PUTS DRINKS FIRST, BY CATEGORY (2026-10-14, v0.98.0)
+
+**Label.** `R221` is the user's relay label; grepped, not previously recorded.
+It rules on v0.97.0 before that release was pushed, so both ship together after
+one full sweep. **Ruled and recorded, not built:** combo parts get no "adjusted"
+(R221/4 — leave as is). **Next, before new features:** suite memory (R221/5,
+R155 hygiene), its own slice.
+
+**Serves** *track* (a mis-tap stays correctable; a drink is found as a drink).
+
+### 1. A WATER TAP IS AN ENTRY (R221/2)
+
+R215 took the water − away on the reasoning that Undo covers a mis-tap. It does
+for five seconds. Ruled: a mis-tap must stay fixable after that, and every entry
+is deletable (R203) — so each tap is an ordinary entry, with no minus button.
+
+- A tap writes a timeline record `{ type: 'water', value: 0.25 | 0.5, unit: 'L' }`
+  through `addSignal` — the existing store, stamped, exported, restored. `water`
+  joins `SIGNAL_SPEC` as an **event** in litres, so it is never in a food total and
+  can also be logged by the form.
+- **The day's water is `day.water_l` plus its water entries** (`dayWater`), on
+  the day, in + Log and in the history list. `water_l` is **kept, untouched**: it
+  holds what was logged before (and what an import or a restore brings).
+  Rewriting it into entries would invent times nobody recorded (D112). **No
+  migration, no schema bump, nothing lost.**
+- **Every row in the day's Biometrics list now has its × (44 px) and Undo** —
+  water, events, doses. The time-order view had them; the list on the day,
+  where a water tap shows up, did not.
+- "Clear this day" clears the water entries with the rest; its Undo puts them
+  back. That makes `clearDay` a write site: **EXEMPT** in the D29 manifest for
+  `removeMed`'s and `deleteItem`'s reason — what its Undo writes back is the
+  snapshot, with the stamps it already had. (`check-writesites` caught it.)
+- `addWater` (the one-number path) stays for its existing callers; no control
+  calls it.
+
+### 2. LOG A DRINK PUTS DRINKS FIRST — BY THE SOURCE'S CATEGORY (R221/3)
+
+**Measured on both source files** before anything was built: CNF food group 14
+"Beverages" holds 243 rows, SR Legacy's category "Beverages" 366. Every row with
+"wine" in its name is in it on both, except **Vinegar, red wine**, which both file
+under Spices and Herbs. **Juices are in "Fruits and fruit juices"** on both and
+are not promoted — stated, not fixed.
+
+- `encode.py` reads each source's own category and writes the beverage ids into
+  the index json as `groups`, with **its own hash**, as the refuse table rides. The
+  `.bin` files are **byte-identical** and the values' hashes unchanged
+  (`e734f60ccac4`, `d58a7b97b334`), so no frozen ref changes provenance; the json
+  differs from the shipped one by the `groups` key and nothing else (compared).
+- `CORPUS_GROUPS_HASH` makes a stored corpus without the groups **not current**, so
+  a device fetches the new index once. `check-slots` checks the hash both ways (#9).
+- **The rule, and its correction.** First built as a flat split — every beverage
+  row above every other — it pushed the row answering *all* of "red wine vinegar"
+  below eight red wines answering two: `lookup-gate` failed it on both databases.
+  The category now orders rows **within each tier of words answered** (the
+  matcher's first key, `overlap`); the matcher's order stands otherwise. Only in
+  Log a drink; Search is unchanged.
+
+Results, typed for real: "wine" → *Alcoholic beverage, wine, table, all* (US),
+*Alcohol, dessert wine, dry* (Canadian); "red wine vinegar" → the vinegar, on both.
+
+### 3. Evidence
+
+- `entry-gate` — two real taps of +0.5 L are two entries (+1.0); after the Undo
+  bar has gone both are listed on the day with a 44 px ×; one deleted takes exactly
+  0.5 off, with its own Undo. The census now clicks the new ×s too.
+- `lookup-gate` — "wine" in Log a drink leads with a wine on BOTH databases (the
+  Canadian one reached by `Accept-Language: en-CA`, as `rank-gate` does), and "red
+  wine vinegar" finds the vinegar on both.
+- Harness 3132 → 3142: water entries, the sum with the old figure, delete and Undo,
+  clear day and its Undo, the type; the partition, its tiers, no categories → no
+  reorder, both hashes, and a stored corpus without them not current.

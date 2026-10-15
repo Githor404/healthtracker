@@ -333,6 +333,29 @@ if src:
         refuse_line = 'refuse hashes: ' + (', '.join('%s=%s' % (n, shipped_r[n]) for n in sorted(shipped_r))
                                            or 'none shipped, none declared')
 
+# 9. R221/3: THE BEVERAGE GROUPS' OWN HASH -- #8's check, for the second table that
+#    rides in the index json. Both directions, for #8's two reasons.
+groups_line = 'groups hashes: NOT CHECKED (app.js unreadable)'
+if src:
+    j = src.find('const CORPUS_GROUPS_HASH = {')
+    declared_g = {}
+    if j >= 0:
+        for line in src[j:src.find('};', j)].split('\n')[1:]:
+            line = line.strip().rstrip(',')
+            if ':' not in line or line.startswith('//'):
+                continue
+            k, v = line.split(':', 1)
+            declared_g[k.strip()] = v.strip().strip("'").strip('"')
+    shipped_g = dict((ns, (m.get('groups') or {}).get('hash')) for ns, m in metas.items()
+                     if isinstance(m.get('groups'), dict))
+    for ns in sorted(set(list(declared_g) + list(shipped_g))):
+        if declared_g.get(ns) != shipped_g.get(ns):
+            bad.append("app.js CORPUS_GROUPS_HASH.%s is %r but corpus/dist/%s.json ships %r"
+                       % (ns, declared_g.get(ns), ns, shipped_g.get(ns)))
+    if not [b for b in bad if 'CORPUS_GROUPS_HASH' in b]:
+        groups_line = 'groups hashes: ' + (', '.join('%s=%s' % (n, shipped_g[n]) for n in sorted(shipped_g))
+                                           or 'none shipped, none declared')
+
 if bad:
     print('SLOTS CHECK: FAIL')
     for b in bad[:14]:
@@ -345,6 +368,7 @@ print('  ' + APPEND_LINE + ' (3 planted violations all caught)')
 print('  assets agree with the spec: ' + (', '.join(asset_line) if asset_line else 'NONE CHECKED'))
 print('  ' + hash_line)
 print('  ' + refuse_line)
+print('  ' + groups_line)
 print('GATE: PASS')
 PY
 rc=$?

@@ -167,6 +167,9 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # `deleteItem` is EXEMPT for removeMed's reason exactly: the only plate it writes
 # is in its UNDO, putting back the snapshot of an entry plate it removed with the
 # plate's last event. The record and its stamp are the ones that already existed.
+# R221/2: `clearDay` is EXEMPT for removeMed's and deleteItem's reason exactly: the
+# water entries it pushes back are in its UNDO, the snapshot of the records it
+# cleared, with the stamps they already had.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
@@ -193,6 +196,7 @@ photoAddItem
 priceComparison
 resolveFast
 setFulfillment
+clearDay
 EOF
 )
 

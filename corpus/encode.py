@@ -49,7 +49,8 @@ def rows_fdc(src, idx_of, fdc_map):
             if amt is None or num not in fdc_map:
                 continue
             vals.setdefault(idx_of[fdc_map[num]], float(amt))
-        yield str(f.get('fdcId') or ''), (f.get('description') or '').strip(), vals
+        cat = ((f.get('foodCategory') or {}).get('description') or '').strip()
+        yield str(f.get('fdcId') or ''), (f.get('description') or '').strip(), vals, cat == FDC_BEVERAGES
 
 
 def rows_cnf(src, idx_of, cnf_map):
@@ -74,7 +75,24 @@ def rows_cnf(src, idx_of, cnf_map):
         per[fid].setdefault(idx_of[cnf_map[nid]], fv)
     for r in rd('FOOD NAME.csv'):
         fid = str(r.get('FoodID', '')).strip()
-        yield fid, (r.get('FoodDescription') or '').strip(), per.get(fid, {})
+        bev = str(r.get('FoodGroupID', '')).strip() == CNF_BEVERAGES
+        yield fid, (r.get('FoodDescription') or '').strip(), per.get(fid, {}), bev
+
+
+# ---- R221/3: WHICH ROWS ARE DRINKS, BY THE SOURCE'S OWN CATEGORY ---------------
+# "Log a drink" ranks beverage rows first. Which rows those are is the SOURCE'S
+# classification, never a word list fitted to the queries: CNF's food group 14
+# "Beverages" (243 rows) and SR Legacy's food category "Beverages" (366). Both
+# carry every wine row and file both vinegars under Spices and Herbs. Juices are
+# in "Fruits and fruit juices" in both and are NOT promoted -- stated, not fixed.
+# Like the refuse table it rides in the INDEX json with its OWN hash, so the
+# values' hash stamped on every frozen ref does not move because of it.
+CNF_BEVERAGES = '14'
+FDC_BEVERAGES = 'Beverages'
+GROUPS_SOURCE = {
+    'cnf': 'Canadian Nutrient File, Health Canada, 2015: food group 14, "Beverages"',
+    'fdc': 'USDA FoodData Central, SR Legacy (2018): food category "Beverages"',
+}
 
 
 # ---- R189: THE INEDIBLE PART ------------------------------------------------
@@ -144,9 +162,12 @@ def main():
     buf = bytearray()
     index = []
     filled = 0
-    for fid, name, vals in gen:
+    beverage = []
+    for fid, name, vals, bev in gen:
         if not fid or not name:
             continue
+        if bev:
+            beverage.append(fid)
         for i in range(ns):
             buf += struct.pack('<f', vals[i]) if i in vals else NAN
         filled += len(vals)
@@ -182,6 +203,12 @@ def main():
             'hash': hashlib.sha256(canon.encode('utf-8')).hexdigest()[:12],
             'rows': rows,
         }
+    canon_g = json.dumps(beverage, separators=(',', ':'))
+    meta['groups'] = {
+        'source': GROUPS_SOURCE[a.ns],
+        'hash': hashlib.sha256(canon_g.encode('utf-8')).hexdigest()[:12],
+        'beverage': beverage,
+    }
     bin_path = os.path.join(a.out, '%s.bin' % a.ns)
     json_path = os.path.join(a.out, '%s.json' % a.ns)
     io.open(bin_path, 'wb').write(bytes(buf))
@@ -192,6 +219,7 @@ def main():
     print('  %-22s %9d B  (gzip %d B)' % (os.path.basename(bin_path), len(buf), gz))
     print('  %-22s %9d B' % (os.path.basename(json_path), os.path.getsize(json_path)))
     print('  sha256[:12] = %s' % digest)
+    print('  beverage rows: %d (groups hash %s)' % (len(beverage), meta['groups']['hash']))
     if len(buf) != n * ns * 4:
         raise SystemExit('ENCODE FAIL: byte length is not rows x cols x 4')
 
