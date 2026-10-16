@@ -6167,3 +6167,22 @@ be a fourth action, and a click on an off-screen element through script proves
 nothing about the screen. The forgotten-sleep question appears past 11 h, so the
 fixture's sleep is seven hours old: a dialog covering the page would make the
 tap count a claim about a screen nobody could use.
+
+### R221/5 + R224 — the suite's memory, measured before and after (2026-10-16)
+
+Measured with `tests/measure-suite-memory.ps1` (new), every 2 s, beside full runs:
+
+| run | workers | time | peak suite memory | lowest free | result |
+|---|---|---|---|---|---|
+| baseline (one at a time, v0.98.0) | 1 | ~100 min | 675 MB | 2.16 GB | 54/54 |
+| after the cleanup fix + lean browser | 1 | 12 min | 582 MB | 2.69 GB | 54/54 |
+| same, next run | 1 | stopped at 5.5 min by the host | 596 MB | 2.40 GB | 30/30 when stopped |
+| R224 scheduler, run 1 | 2 (5.6 GB free) | 7.5 min | 894 MB | 4.11 GB | **54/54** |
+| R224 scheduler, run 2 | 1 (4.9 GB free) | 12.9 min | 616 MB | 3.86 GB | **54/54** |
+
+**The time was a cleanup wait, not the tests.** Every gate's `Stop-Job` waited
+120 s on a server job blocked in `GetContext()`; killing the job's process took
+a small gate from 124 s to 4.9 s. **A reaped run kept running**: the host killed
+only the shell that started the runner, which carried on unseen; it now stops by
+name when its parent is gone. **Workers by free memory** (R224): two consecutive
+uninterrupted green runs with normal apps open, which was the bar.
