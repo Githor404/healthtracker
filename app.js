@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.98.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.99.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4997,11 +4997,15 @@ function renderGoalsHTML(t, day) {
     // toggle joins the legend behind the ring tap. It is a control for the ring, so
     // the ring is the thing to tap for it.
     html = '<div class="dcard">'
+      // R223: THE RING OPENS + LOG AT THE SLEEP BUTTON -- a link into + Log (ONE
+      // DOOR allows it). Waking up is the easiest thing in the app: ring, the
+      // button, Now. The key moved to its own button beside the ring (ruled).
       + `<div class="ringbox ringsm" onclick="ringTap()" role="button" tabindex="0"`
-      + ` aria-label="${esc(RING_LEGEND_OPEN ? 'Hide the ring key' : 'Show the ring key')}">`
+      + ` aria-label="${esc(laneOpenState('sleep').open ? 'Woke? End your sleep in + Log' : 'Going to sleep? In + Log')}">`
       + `${rhythmSVG(model, 180)}${calorieRingSVG(cb, 180)}${calorieCentreHTML(cb, t)}</div>`
       + dayFiguresHTML(t, day, cb)
       + '</div>'
+      + `<button type="button" class="linklike ringkeybtn" onclick="ringLegendToggle()" aria-expanded="${RING_LEGEND_OPEN ? 'true' : 'false'}">${RING_LEGEND_OPEN ? 'Hide the ring key' : 'Ring key'}</button>`
       // DEPTH ON DEMAND, ruled: the key, the time range ("last 24 h"), the view
       // toggle AND the eating-window / sleep-hours lines are all behind one tap on
       // the rings. Closed, they cost no height at all.
@@ -7995,13 +7999,11 @@ function oneTapHTML() {
   let h = '<div class="otsec otwater"><span class="otlab">Water <b>' + esc(rDisp(dayWater(APP_STATE.current))) + '</b> L</span>'
     + '<button type="button" class="qbtn otbtn" onclick="waterTap(0.25)">+0.25 L</button>'
     + '<button type="button" class="qbtn otbtn" onclick="waterTap(0.5)">+0.5 L</button></div>';
+  // R223: no sleep control in this row any more -- the big button above leads.
+  // A bare "Woke" event stays for a morning with no sleep started.
   h += '<div class="otsec">'
     + '<button type="button" class="qbtn otbtn" onclick="quickEvent(\'moved\')">Moved</button>'
-    + (sl.open
-        ? ('<button type="button" class="qbtn otbtn otwoke" onclick="lanePickOpen(\'sleep\',\'end\')">Woke · end sleep</button>'
-           + '<span class="otstate">sleeping · ' + esc(hoursLabel(sl.minutes)) + '</span>')
-        : ('<button type="button" class="qbtn otbtn otwoke" onclick="quickEvent(\'woke\')">Woke</button>'
-           + '<button type="button" class="qbtn otbtn otsleep" onclick="lanePickOpen(\'sleep\',\'start\')">Sleep</button>'))
+    + (sl.open ? '' : '<button type="button" class="qbtn otbtn otwoke" onclick="quickEvent(\'woke\')">Woke</button>')
     + '</div>';
   h += '<div class="otsec">' + ONETAP_LANES.map(function (k) {
     const spec = LANE_ACTIONS[k], st = laneOpenState(k);
@@ -8015,7 +8017,18 @@ function oneTapHTML() {
     + sn.variants.map(function (v) {
         return '<button type="button" class="qbtn" onclick="quickEvent(\'sensor\', \'' + esc(v) + '\')">' + esc(v) + '</button>';
       }).join('') + '</span></div>';
-  return lanePickHTML() + h + sensorStatusHTML();
+  return sleepBigHTML() + lanePickHTML() + h + sensorStatusHTML();
+}
+// R223 -- WAKING UP IS THE EASIEST THING IN THE APP. The events pane LEADS with
+// one full-width button: "Woke — end sleep" while a sleep is open, "Going to
+// sleep" when none is. It asks the time (Now highlighted, My usual, another time)
+// and saves -- from the day: the ring, this button, Now. Three taps.
+function sleepBigHTML() {
+  const sl = laneOpenState('sleep');
+  return sl.open
+    ? ('<button type="button" class="btn primary otsleepbig" onclick="lanePickOpen(\'sleep\',\'end\')">Woke — end sleep'
+       + '<small class="otsleepsub">sleeping · ' + esc(hoursLabel(sl.minutes)) + '</small></button>')
+    : '<button type="button" class="btn otsleepbig" onclick="lanePickOpen(\'sleep\',\'start\')">Going to sleep</button>';
 }
 // The sensor's confirmation, fullest first. The shorter form drops "New sensor"
 // and NOTHING ELSE: the tap that was just made says what it was, and the type,
@@ -8254,10 +8267,32 @@ function addSignalFromForm() {
   if (isOrdinal(type)) onBmSlide(document.getElementById('sigBmSlider').value, type);
   showSignalWarnings(r.warnings || []);
   const spec = SIGNAL_BY_TYPE[type];
+  // R223 -- ONE SLEEP, ONE RECORD. Reported from real use: a sleep started the
+  // night before was still OPEN when the night was typed into this form, so the
+  // open one would later have been ended into a SECOND record for the same night.
+  // A night typed here while a sleep is open REPLACES the open one, and says so;
+  // Undo takes the typed night back and reopens the sleep.
+  let replacedOpen = null;
+  if (type === 'sleep' && laneOpenState('sleep').open) {
+    replacedOpen = APP_STATE.settings.laneOpen.sleep;
+    delete APP_STATE.settings.laneOpen.sleep;
+    Store.saveState(APP_STATE); refresh();
+  }
   const lbl = (type === 'bp')
     ? ('Logged BP ' + rDisp(r.systolic.value) + '/' + rDisp(r.diastolic.value))
-    : ('Logged ' + (spec ? spec.label : type) + (r.record.value != null ? ' ' + rDisp(r.record.value) : '') + (r.record.unit ? ' ' + r.record.unit : ''));
+    : ('Logged ' + (spec ? spec.label : type) + (r.record.value != null ? ' ' + rDisp(r.record.value) : '') + (r.record.unit ? ' ' + r.record.unit : '')
+       + (replacedOpen ? ' · the open sleep was ended by it' : ''));
   offerSignalUndo((type === 'bp') ? [r.systolic, r.diastolic] : [r.record], lbl);
+  if (replacedOpen) {
+    const undoTyped = _undoFn;
+    _undoFn = function () {
+      if (typeof undoTyped === 'function') undoTyped();
+      if (!APP_STATE.settings.laneOpen) APP_STATE.settings.laneOpen = {};
+      APP_STATE.settings.laneOpen.sleep = replacedOpen;
+      Store.saveState(APP_STATE); refresh();
+    };
+  }
+  return { ok: true, record: r.record, replacedOpen: !!replacedOpen };
 }
 
 // Medication form (its own detailed entry — D20 addendum). Closed enums populate
@@ -14072,6 +14107,7 @@ const VERSION_LOG = [
   { v: '0.96.0', d: '2026-10-13', note: 'Export backup makes a real file, named with the date, that you save to Files or iCloud Drive from the share sheet; Settings shows when the last one was made. A stack item is now a Supplement, a Medication or a Food, and logged entries say which. A food that is in neither food database can be added from its label, or with generic values, wherever a food is searched for in the stack or a combo; it is kept in your foods and found again by name. Intake notes are a small flag you tap to read, closed each time, instead of a paragraph on the row.' },
   { v: '0.97.0', d: '2026-10-14', note: 'Everything you log now goes through + Log. Moved, Woke, New sensor, water and starting or ending a sleep, sauna, meditation or red light are one tap each at the top of Log event or biometric, with Undo; the day still shows the sensor countdown, your water and the ring, but nothing there logs. Starting or ending a sleep asks the time first: Now, your usual wake time when there are enough of your own nights, or any other time, so ending it late still records when you woke. An open sleep is never closed for you any more. Drinks are food: Your drinks in + Log logs the one you had last at the same amount with one tap, and Log a drink finds a new one in the food database; its calories count in your day, and its alcohol where the database has it. Drinks tapped on the old badge stay as they were and say their amount was not recorded. Manual entry now looks the food up as you type its name: pick a row and the calories, macros and vitamins and minerals are filled in for the grams you enter; change any number and the entry says it was adjusted. If it is not in the database you can add it from its label. Food left from earlier and today’s regimen are logged from + Log, and the lines on the day open it.' },
   { v: '0.98.0', d: '2026-10-14', note: 'Each tap of water is now its own entry. It is listed with the day’s other entries under Biometrics, and you can delete it there with × and Undo, so a mis-tap can still be fixed after the Undo bar has gone. Water you logged before this is kept as it was. Log a drink now lists drinks first: rows the food database files as beverages come before everything else, so wine finds wine before red wine vinegar, which you can still find by its full name. Every entry under Biometrics can now be removed where it is listed.' },
+  { v: '0.99.0', d: '2026-10-16', note: 'Waking up is now the easiest thing to log. Tap the ring and + Log opens on one big button, Woke — end sleep, while a sleep is going, or Going to sleep when none is; pick Now, your usual time or another time, and it is saved — three taps from the day. The small close on the ring is gone, and the ring key has its own button beside the ring. A night typed in as an event while a sleep is open now ends that open sleep instead of leaving it to be ended again, so one night is always one entry; Undo puts both back.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -18127,9 +18163,18 @@ function ringLegendToggle(open) {
 // The ring's tap does BOTH jobs: it still clears a goal swap (which is what it
 // did before) and it now opens the legend. Dropping clearSwap would have left
 // the 8-second swapped ring with no way back.
+// R223: it still clears a goal swap; it no longer opens the legend (the key
+// button beside the ring does) -- it opens + Log at the sleep button.
 function ringTap() {
   clearSwap();
-  return ringLegendToggle();
+  return sleepButtonOpen();
+}
+// + Log, events, scrolled to the top, where the sleep button leads.
+function sleepButtonOpen() {
+  openSheet('signal');
+  const b = document.querySelector('#sigOneTap .otsleepbig');
+  if (b) { try { b.scrollIntoView({ block: 'center' }); b.focus({ preventScroll: true }); } catch (e) {} }
+  return { ok: !!b, open: laneOpenState('sleep').open };
 }
 function ringLegendHTML() {
   // Type identity lives in colour + this legend, since lanes no longer encode it.
@@ -18189,8 +18234,10 @@ function laneControlHTML(lane, below) {
   return `<div class="${wrap}" onclick="event.stopPropagation()">` +
     (st.open ? `<span class="rcsub">${esc(spec.state)} \u00b7 ${esc(hoursLabel(st.minutes))}</span>`
              : `<span class="rcsub">${esc(spec.label)} \u00b7 not on</span>`) +
-    `<button type="button" class="linklike" onclick="clearSummon();openSheet('signal')">in + Log</button>` +
-    `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
+    // R223: the small "close" is gone -- it wrote nothing and read as the way to
+    // end a sleep. The summon reverts by itself (idle, tap-away); the link goes to
+    // the sleep button for sleep, to the events for a practice.
+    `<button type="button" class="linklike" onclick="clearSummon();${lane === 'sleep' ? 'sleepButtonOpen()' : "openSheet('signal')"}">in + Log</button></div>`;
 }
 function sleepControlHTML(below) { return laneControlHTML('sleep', below); }
 // G1: THREE STATES STORED, TWO SHOWN. Typed and accepted both read plainly --
@@ -22248,7 +22295,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
-  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, dayWater, dayWaterEntries, waterTap,
+  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
   itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,

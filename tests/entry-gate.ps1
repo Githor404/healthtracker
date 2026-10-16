@@ -383,42 +383,129 @@ try {
   Check ($wb.undoGone -and ($wb.rows -eq 2) -and $wb.x -and ($wb.h -ge 44) -and ($wb.w -ge 44)) "R221/2: with the Undo bar long gone, both are LISTED on the day, each with a 44 px x"
   Check (([Math]::Abs($wb.before - $wb.after - 0.5) -lt 1e-6) -and ($wb.entries -eq 1) -and $wb.undoBack) "R221/2 GATE: deleting one drops the day's water by exactly 0.5 -- and that delete has its own Undo"
 
-  # ---- sleep: asked, never stamped; never closed for the user ----------------------------
+  # ---- R223: waking up is the easiest thing in the app -- counted in TAPS ---------------
+  # Reported from real use: ring -> Sleep -> a small "close" -> the night logged again
+  # as an event: 4+ taps, a hidden control, and two records for one sleep. Ruled: a
+  # wake-up is at most 3 taps from the day page, a bedtime at most 3, ONE record per
+  # night, and the time the picker is given is the time stored. Every tap below is a
+  # real click on an element that is ON SCREEN when it is clicked; they are counted.
+  $tapJs = @'
+  window.__taps = 0;
+  window.__tap = function (el, what) {
+    if (!el) throw new Error('no ' + what);
+    var r = el.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0 && r.top >= 0 && r.bottom <= window.innerHeight)) throw new Error(what + ' is not on screen (' + Math.round(r.top) + '..' + Math.round(r.bottom) + ')');
+    window.__taps++; el.click(); return r;
+  };
+  window.__sleeps = function () { var n = 0, tl = HT.state().timeline || {}; Object.keys(tl).forEach(function (d) { (tl[d] || []).forEach(function (r) { if (r.type === 'sleep') n++; }); }); return n; };
+'@
+  Fresh
+  $wk = EvalA ($tapJs + @'
+(function () {
+  window.__reset();
+  var d = HT.state().current;
+  HT.state().settings.laneOpen.sleep.start = d + 'T14:00'; HT.resave(); HT.refresh();
+  window.scrollTo(0, 0);
+  var o = { sleepsBefore: window.__sleeps() };
+  window.__tap(document.querySelector('#dayView .ringbox'), 'the ring');
+  var big = document.querySelector('#sigOneTap .otsleepbig');
+  o.big = big ? big.textContent : '';
+  var br = window.__tap(big, 'the Woke button');
+  o.bigH = Math.round(br.height); o.bigW = Math.round(br.width); o.vw = window.innerWidth;
+  o.asked = !!document.querySelector('#sigOneTap .lpick') && window.__sleeps() === o.sleepsBefore;
+  var now = document.querySelector('#sigOneTap .lpick .lpnow');
+  o.nowDefault = !!now && now.classList.contains('primary');
+  window.__tap(now, 'Now');
+  o.taps = window.__taps;
+  o.sleepsAfter = window.__sleeps();
+  o.closed = !HT.laneOpenState('sleep').open;
+  var rec = (HT.state().timeline[d] || []).filter(function (r) { return r.type === 'sleep'; }).pop();
+  o.wake = rec ? HT.minutesToHHMM(HT.sleepWakeMin(rec)) : '';
+  return o;
+})()
+'@)
+  Write-Host ("  waking, from the day: " + $wk)
+  $w = $wk | ConvertFrom-Json
+  Check (($w.big -like ('Woke ' + [char]0x2014 + ' end sleep*')) -and ($w.bigH -ge 44) -and ($w.bigW -ge ($w.vw - 60))) "R223: the ring opens + Log on ONE big button -- 'Woke - end sleep', $($w.bigH) px tall, full width"
+  Check ($w.asked -and $w.nowDefault) "it asks the time first, Now highlighted, nothing written yet"
+  Check (($w.taps -le 3) -and ($w.sleepsAfter -eq $w.sleepsBefore + 1) -and $w.closed -and ($w.wake -eq '21:00')) "R223 GATE: WAKING UP IN $($w.taps) TAPS from the day page -- ring, Woke, Now -- one sleep record, the sleep closed, woke 21:00"
+
+  Fresh
+  $bd = EvalA ($tapJs + @'
+(function () {
+  window.__reset();
+  delete HT.state().settings.laneOpen.sleep; HT.resave(); HT.refresh();
+  window.scrollTo(0, 0);
+  var o = {};
+  window.__tap(document.querySelector('#dayView .ringbox'), 'the ring');
+  var big = document.querySelector('#sigOneTap .otsleepbig');
+  o.big = big ? big.textContent : '';
+  window.__tap(big, 'Going to sleep');
+  window.__tap(document.querySelector('#sigOneTap .lpick .lpnow'), 'Now');
+  o.taps = window.__taps;
+  o.open = HT.laneOpenState('sleep').open;
+  o.start = (HT.state().settings.laneOpen.sleep || {}).start || '';
+  return o;
+})()
+'@)
+  Write-Host ("  going to sleep, from the day: " + $bd)
+  $b = $bd | ConvertFrom-Json
+  Check (($b.big -eq 'Going to sleep') -and ($b.taps -le 3) -and $b.open -and ($b.start -like '*T21:00')) "R223 GATE: GOING TO SLEEP IN $($b.taps) TAPS from the day page -- ring, Going to sleep, Now -- the sleep open from 21:00"
+
+  Fresh
+  $one = EvalA ($tapJs + @'
+(function () {
+  window.__reset();
+  var d = HT.state().current;
+  HT.state().settings.laneOpen.sleep.start = d + 'T14:00'; HT.resave(); HT.refresh();
+  var o = { before: window.__sleeps() };
+  // the reported path: the night typed into the event form while the sleep is open
+  HT.openSheet('signal');
+  var sel = document.getElementById('sigType'); sel.value = 'sleep'; sel.dispatchEvent(new Event('change'));
+  document.getElementById('sigValue').value = '6.5';
+  document.getElementById('sigTime').value = '14:00';
+  document.querySelector('#pane-signal .btn.primary[onclick^="addSignalFromForm"]').click();
+  o.afterForm = window.__sleeps();
+  o.openAfterForm = HT.laneOpenState('sleep').open;
+  o.toast = ((document.getElementById('toast') || {}).textContent || '').slice(0, 90);
+  // there is nothing left to end, so a second record cannot be made by ending it
+  o.bigNow = (document.querySelector('#sigOneTap .otsleepbig') || {}).textContent || '';
+  var u = document.querySelector('#toast.show .tundo'); if (u) u.click();
+  o.afterUndo = window.__sleeps(); o.reopened = HT.laneOpenState('sleep').open;
+  // the picker's own time is the time stored
+  HT.openSheet('signal');
+  document.querySelector('#sigOneTap .otsleepbig').click();
+  document.getElementById('lpTime').value = '19:15';
+  document.querySelector('#sigOneTap .lpsave').click();
+  var rec = (HT.state().timeline[d] || []).filter(function (r) { return r.type === 'sleep'; }).pop();
+  o.picked = rec ? HT.minutesToHHMM(HT.sleepWakeMin(rec)) : ''; o.src = rec ? rec.wake_src : '';
+  o.final = window.__sleeps();
+  // and the ring's detail view has no "close" any more
+  HT.closeSheet(); HT.ringLegendToggle(true); HT.summonLane('sleep');
+  var c = document.querySelector('#dayView .rctrl');
+  o.ctrl = c ? c.textContent : ''; o.keyBtn = !!document.querySelector('#dayView .ringkeybtn');
+  return o;
+})()
+'@)
+  Write-Host ("  one sleep, one record: " + $one)
+  $q = $one | ConvertFrom-Json
+  Check (($q.afterForm -eq $q.before + 1) -and (-not $q.openAfterForm) -and ($q.toast -like '*open sleep was ended*') -and ($q.bigNow -eq 'Going to sleep')) "R223 GATE: ONE SLEEP, ONE RECORD -- the night typed while a sleep was open ENDS the open one (it says so), so it cannot be ended again into a second record"
+  Check (($q.afterUndo -eq $q.before) -and $q.reopened) "and Undo takes the typed night back and reopens the sleep"
+  Check (($q.picked -eq '19:15') -and ($q.src -eq 'typed') -and ($q.final -eq $q.before + 1)) "R223 GATE: the time given to the picker is the time stored -- woke 19:15 -- and the night is still ONE record"
+  Check ((-not ($q.ctrl -match '(?i)close')) -and $q.keyBtn) "R223: the ring's detail view has no 'close'; the key has its own button beside the ring"
+
+  # ---- and never closed for the user ----------------------------------------------------
   Fresh
   $sl = EvalA @'
 (function () {
   window.__reset();
-  var o = {};
-  o.openBefore = HT.laneOpenState('sleep').open;
-  HT.openSheet('signal');
-  var w = document.querySelector('#sigOneTap .otwoke');
-  o.wokeWords = w ? w.textContent : '';
-  var t0 = window.__counts();
-  if (w) w.click();
-  o.asked = !!document.querySelector('#sigOneTap .lpick') && window.__counts().timeline === t0.timeline;
-  o.nowDefault = !!document.querySelector('#sigOneTap .lpick .lpnow.primary');
-  var tm = document.getElementById('lpTime'); if (tm) tm.value = '19:15';
-  var sv = document.querySelector('#sigOneTap .lpsave'); if (sv) sv.click();
-  var tl = HT.state().timeline[HT.state().current] || [];
-  var rec = tl.filter(function (r) { return r.type === 'sleep'; }).pop();
-  o.wake = rec ? HT.minutesToHHMM(HT.sleepWakeMin(rec)) : '';
-  o.src = rec ? rec.wake_src : '';
-  o.closed = !HT.laneOpenState('sleep').open;
-  var u = document.querySelector('#toast.show .tundo'); o.undo = !!u; if (u) u.click();
-  o.reopened = HT.laneOpenState('sleep').open && !(HT.state().timeline[HT.state().current] || []).some(function (r) { return r.type === 'sleep'; });
-  // and the page itself never closes it: a full day open, and a render
   HT.setClock(function () { return new Date(HT.state().current + 'T21:00:00').getTime() + 20 * 3600000; });
   HT.refresh();
-  o.stillOpen = HT.laneOpenState('sleep').open;
-  return o;
+  return { stillOpen: HT.laneOpenState('sleep').open };
 })()
 '@
-  Write-Host ("  sleep: " + $sl)
-  $s = $sl | ConvertFrom-Json
-  Check (($s.wokeWords -eq ('Woke ' + [char]0x00B7 + ' end sleep')) -and $s.asked -and $s.nowDefault) "with a sleep open, Woke IS ending it -- and the tap ASKS the time first, Now highlighted, nothing written yet"
-  Check (($s.wake -eq '19:15') -and ($s.src -eq 'typed') -and $s.closed) "the time the user gives is the time stored -- woke 19:15, told at 21:00 -- marked as the user's own"
-  Check ($s.undo -and $s.reopened) "and Undo takes the night back and the sleep is open again"
-  Check ($s.stillOpen) "R215 GATE: open for more than a day and redrawn, the sleep is STILL OPEN -- nothing closes it for the user any more"
+  Write-Host ("  a day later: " + $sl)
+  Check (($sl | ConvertFrom-Json).stillOpen) "R215 GATE: open for more than a day and redrawn, the sleep is STILL OPEN -- nothing closes it for the user any more"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

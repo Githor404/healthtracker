@@ -466,7 +466,10 @@ echo "-----------------------------------------"
 # a stored corpus without them is not current. (One run of this re-pin hung at
 # the 35 s chain timeout and passed whole on the next -- the intermittent D110
 # names, recorded here so a second sighting is countable.)
-EXPECTED_ASSERTIONS=3142
+# R223, v0.99.0: 3142 -> 3146, delta +4. The big sleep button: Going to sleep,
+# leading the pane and the only sleep control; Woke - end sleep with the hours;
+# the ring detail without close. The taps are entry-gate's.
+EXPECTED_ASSERTIONS=3146
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

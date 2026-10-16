@@ -924,7 +924,7 @@ window.setLS({});
   res(HT.laneOpenState('sauna').open, 'R215 GATE: and its Undo takes the session back and reopens it');
   HT.discardLaneOpen('sauna');
   // -- the ring and the forgotten-off question no longer write --
-  res(HT.laneControlHTML('sleep').indexOf('laneOn(') < 0 && HT.laneControlHTML('sleep').indexOf("openSheet('signal')") > 0,
+  res(HT.laneControlHTML('sleep').indexOf('laneOn(') < 0 && HT.laneControlHTML('sleep').indexOf("sleepButtonOpen()") > 0,
       'R215 GATE: the RING is read-only -- a summoned lane states itself and links to + Log');
   HT.setClock(null); setLS({}); HT.boot();
   // -- the regimen and the leftovers are logged in + Log --
@@ -1026,6 +1026,24 @@ window.setLS({});
   res(Object.keys(HT.CORPUS_GROUPS_HASH).sort().join(',') === 'cnf,fdc'
       && HT.corpusIsCurrent({ ns: 'fdc', index: [['1', 'x']], hash: HT.CORPUS_ASSET_HASH.fdc }) === false,
       'R221/3: the categories have their own hash on BOTH databases, and a stored corpus without them is not current -- a device that has the old one fetches the new one once');
+  setLS({}); HT.boot();
+
+  // ---- R223: waking up is the easiest thing; one sleep, one record -------------------
+  setLS({}); HT.boot();
+  var sb223 = HT.sleepBigHTML();
+  res(sb223.indexOf('Going to sleep') > 0 && sb223.indexOf("lanePickOpen('sleep','start')") > 0 && sb223.indexOf('otsleepbig') > 0,
+      'R223 GATE: with no sleep open the events pane leads with ONE big button, "Going to sleep"');
+  var q223 = HT.quickEventsHTML();
+  res(q223.indexOf('otsleepbig') >= 0 && q223.indexOf('otsleepbig') < q223.indexOf('otwater') && q223.split("lanePickOpen('sleep'").length === 2,
+      'R223: it LEADS the pane -- above the water -- and is the only sleep control in it');
+  HT.laneOn('sleep');
+  var so223 = HT.sleepBigHTML();
+  res(so223.indexOf('Woke — end sleep') > 0 && so223.indexOf("lanePickOpen('sleep','end')") > 0 && so223.indexOf('sleeping') > 0,
+      'R223 GATE: while a sleep is open the same spot reads "Woke — end sleep", with how long it has been');
+  var lc223 = HT.laneControlHTML('sleep');
+  res(lc223.indexOf('>close<') < 0 && lc223.indexOf('sleepButtonOpen()') > 0,
+      'R223: the ring detail has no "close"; its link goes to the sleep button');
+  HT.discardLaneOpen('sleep');
   setLS({}); HT.boot();
 
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
@@ -6044,7 +6062,7 @@ window.setLS({});
   res(HT.laneFocus()==='sleep', 'R16-summon: highlight RIDES the summon — one tap does both');
   // R215: the ring is READ-ONLY -- the summoned centre states and links.
   var c215 = HT.rhythmCenterHTML(HT.rhythmModel(td));
-  res(/Sleep · not on/.test(c215) && c215.indexOf("openSheet('signal')") >= 0 && c215.indexOf('laneOn(') < 0 && c215.indexOf('laneOff(') < 0,
+  res(/Sleep · not on/.test(c215) && c215.indexOf("sleepButtonOpen()") >= 0 && c215.indexOf('laneOn(') < 0 && c215.indexOf('laneOff(') < 0,
       'R16-summon (R215): the centre says the state and links to + Log -- it has no on or off of its own');
   FIXED += HT.GOAL_SWAP_MS + 1;
   res(HT.summonActive()===null, 'R16-summon: it reverts on idle, deterministically, on the injected clock');

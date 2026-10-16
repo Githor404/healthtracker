@@ -16992,3 +16992,51 @@ Results, typed for real: "wine" → *Alcoholic beverage, wine, table, all* (US),
 - Harness 3132 → 3142: water entries, the sum with the old figure, delete and Undo,
   clear day and its Undo, the type; the partition, its tiers, no categories → no
   reorder, both hashes, and a stored corpus without them not current.
+
+## R223 — RULED AND BUILT: WAKING UP IS THE EASIEST THING IN THE APP; ONE SLEEP, ONE RECORD (2026-10-16, v0.99.0)
+
+**Label.** `R223` is the user's relay label; grepped, not previously recorded.
+Ruled before R221/5 (suite memory), which is paused, not dropped. **Serves**
+*track*: a night is recorded once, at the time the user gives.
+
+### 1. The trace (asked first)
+
+Reported from real use: ring → Sleep → a small "close" under the eating-window
+text → the night logged again as an event. Traced in v0.98.0:
+
+| tap | does | writes |
+|---|---|---|
+| the ring | opened the ring key | nothing |
+| "sleep" in the key | "sleeping · Xh", a link "in + Log", "close" | nothing |
+| "close" | hid that line | nothing |
+| the night typed into the event form | a sleep record | one record — **and the open sleep stayed open** |
+
+So the form's record was one record, but the sleep started the night before was
+still open, and ending it later wrote a **second record for the same night**. A
+bug, as ruled: one sleep = one record.
+
+### 2. What changed
+
+- **The events pane leads with one full-width button** (≥ 56 px, 20px type):
+  "Woke — end sleep" with how long it has been, while a sleep is open; "Going to
+  sleep" when none is. It asks the time (Now highlighted · My usual · another
+  time) and saves. The row's own Sleep button is gone; a bare "Woke" event stays
+  for a morning with no sleep started.
+- **Tapping the ring opens + Log at that button** — a link into + Log (ONE DOOR).
+  *Conflict named and ruled (2026-10-16):* the ring tap was the only way to the
+  ring key (R159.1's depth on demand). The key now has its own 44 px "Ring key"
+  button beside the ring.
+- **The small "close" is gone** from the ring's detail view. The summoned line
+  still reverts by itself; its link goes to the sleep button.
+- **One sleep, one record.** A night typed into the event form while a sleep is
+  open **ends the open one** and says so ("the open sleep was ended by it");
+  Undo takes the typed night back and reopens the sleep.
+
+### 3. Evidence
+
+`entry-gate`, by real clicks, each on an element that is on screen, counted:
+waking **3 taps** from the day (ring, Woke, Now) → one record, the sleep closed;
+going to sleep **3 taps**; the night typed while open ends it and cannot be
+ended again into a second record; Undo reopens; the picker's 19:15 is the stored
+wake time; no "close" in the ring detail; the key button present. Harness +4
+(3146). Screenshots at 390 px read before the suite.

@@ -6157,3 +6157,13 @@ entries back; classified EXEMPT with the reason, not re-pinned.
 **One harness run hung at the 35 s chain timeout** and the next passed whole --
 the intermittent D110 names, recorded in the pin comment so a second sighting
 can be counted.
+
+### v0.99.0 — a gate that counts taps (2026-10-16)
+
+**The ruling was a number, so the gate counts.** "Wake-up in at most 3 taps"
+is asserted as a count of real clicks, each on an element checked to be ON
+SCREEN at the moment it is clicked -- a button that needs a scroll first would
+be a fourth action, and a click on an off-screen element through script proves
+nothing about the screen. The forgotten-sleep question appears past 11 h, so the
+fixture's sleep is seven hours old: a dialog covering the page would make the
+tap count a claim about a screen nobody could use.
