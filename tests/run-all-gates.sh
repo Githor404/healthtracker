@@ -296,35 +296,92 @@ for c in $STATIC_CHECKS; do
 done
 rm -rf "$STMP"
 
-# ---- 3. every CDP gate, each of which must speak ---------------------------
+# ---- 3. every CDP gate, each of which must speak -- in WORKERS (R224) -------
+#
+# RULED (R224): trim, do not disable the host's low-memory reaper, and do not rely
+# on the user closing apps. So the gates run in parallel WORKERS sized by the free
+# memory measured at the start, and every launch is PACED by free memory measured
+# just before it:
+#
+#   free at start >= 8 GB -> 3 workers;  5-8 GB -> 2;  < 5 GB -> 1
+#   before each launch: under HEADROOM (1.5 GB) free, WAIT -- unless nothing is
+#   running, in which case waiting would never end, so one gate runs alone
+#
+# Each gate is its own PowerShell with its own browser, and its Cleanup closes
+# that browser; before a worker starts its next gate, any headless gate browser
+# whose gate has exited is reaped, so a worker never holds two.
+#
+# SAFE TO RUN SIDE BY SIDE, checked when this was written: every gate declares
+# exactly two ports and no two gates share one; the files gates write are under
+# their own fixture folder or TEMP (update-gate's marker changes only what ITS
+# server returns).
+#
+# THE REPORT IS UNCHANGED: outputs are collected per gate and judged in the
+# fixed order, one line each, exactly as when they ran one at a time.
+# SUITE_WORKERS=<n> forces a count (for measuring); SUITE_HEADROOM_MB moves the bar.
+free_mb() {
+  powershell.exe -NoProfile -Command "[int]((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory/1024)" 2>/dev/null | tr -dc '0-9'
+}
+HEADROOM_MB=${SUITE_HEADROOM_MB:-1500}
+F0=$(free_mb); [ -n "$F0" ] || F0=0
+if [ -n "${SUITE_WORKERS:-}" ]; then WORKERS=$SUITE_WORKERS
+elif [ "$F0" -ge 8192 ]; then WORKERS=3
+elif [ "$F0" -ge 5120 ]; then WORKERS=2
+else WORKERS=1; fi
+echo "  gates: $WORKERS worker(s) -- ${F0} MB free at the start; each launch waits while under ${HEADROOM_MB} MB"
+
 reap_orphans
+GTMP=$(mktemp -d)
 N_CDP=0
+PACED=0
 # R221/5: A RUN WHOSE CALLER IS GONE STOPS. MEASURED: when the host reaped a run
 # for low memory it killed only the shell that STARTED this file -- this runner
 # carried on, invisibly, gate after gate, holding memory and the ports a re-run
 # would need. So before each gate it checks that its parent still exists, and
 # stops by name if not.
 RUN_PARENT=$PPID
-for g in "$DIR"/*-gate.ps1; do
+GATES=$(ls "$DIR"/*-gate.ps1)
+for g in $GATES; do
   name=$(basename "$g")
+  N_CDP=$((N_CDP + 1))
   if ! kill -0 "$RUN_PARENT" 2>/dev/null; then
     echo "  RUN STOPPED before $name -- the process that started this run is gone"
+    kill $(jobs -rp) 2>/dev/null
     exit 3
   fi
-  N_CDP=$((N_CDP + 1))
-  if [ ! -f "$g" ]; then
-    echo "  ${name}: FAIL - missing"; FAILED="$FAILED ${name}(missing)"; continue
-  fi
+  # a free worker
+  while [ "$(jobs -rp | wc -l)" -ge "$WORKERS" ]; do sleep 1; done
+  # the memory pace: never launch into less than the headroom while others run
+  while [ "$(jobs -rp | wc -l)" -gt 0 ]; do
+    f=$(free_mb)
+    if [ -n "$f" ] && [ "$f" -ge "$HEADROOM_MB" ]; then break; fi
+    PACED=$((PACED + 1))
+    sleep 3
+  done
+  # a worker never holds two browsers: whatever a finished gate left is reaped
+  reap_orphans >/dev/null 2>&1
   settle_for "$g"; SETTLE=$?
   if [ "$SETTLE" -eq 2 ]; then
     # Not run, and said so BY NAME. A gate that could only have produced a false
     # result is a failure of the run, never a silent skip.
-    FAILED="$FAILED ${name}(debug-port-held)"
+    echo "debug-port-held" > "$GTMP/$name.skip"
     continue
   fi
-  OUT=$(leashed powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$g" 2>&1); RC=$?
+  ( leashed powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$g" > "$GTMP/$name.out" 2>&1
+    echo $? > "$GTMP/$name.rc" ) &
+done
+wait
+[ "$PACED" -gt 0 ] && echo "  pacing: waited for memory $PACED time(s) (3 s each) before a launch"
+for g in $GATES; do
+  name=$(basename "$g")
+  if [ -f "$GTMP/$name.skip" ]; then FAILED="$FAILED ${name}(debug-port-held)"; continue; fi
+  if [ ! -f "$g" ]; then
+    echo "  ${name}: FAIL - missing"; FAILED="$FAILED ${name}(missing)"; continue
+  fi
+  OUT=$(cat "$GTMP/$name.out" 2>/dev/null); RC=$(cat "$GTMP/$name.rc" 2>/dev/null || echo 99)
   judge "$name" "$RC" "$OUT"
 done
+rm -rf "$GTMP"
 
 NP=$(printf '%s\n' $PASSED | grep -c .)
 NF=$(printf '%s\n' $FAILED | grep -c .)

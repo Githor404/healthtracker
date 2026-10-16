@@ -430,7 +430,9 @@ window.__stage = 'start';
   Array.prototype.slice.call(document.querySelectorAll('#entrySheet details')).forEach(function (d) { d.open = true; });
   await sleep(250);
   O.surface.pageQuick = Array.prototype.slice.call(document.querySelectorAll('.qbtn')).filter(function (b) { return !b.closest('#entrySheet') && !b.closest('#nights'); }).length;
-  const qbtns = Array.prototype.slice.call(document.querySelectorAll('#sigOneTap .qbtn'));
+  // R223: Sleep is the big button that leads the pane now, not a chip in the row --
+  // counted with the row, so a missing sleep control still fails here.
+  const qbtns = Array.prototype.slice.call(document.querySelectorAll('#sigOneTap .qbtn, #sigOneTap .otsleepbig'));
   O.surface.quickButtons = qbtns.length;
   O.surface.quickMinH = qbtns.length ? Math.min.apply(null, qbtns.map(b => Math.round(b.getBoundingClientRect().height))) : 0;
   O.surface.quickVisible = qbtns.length > 0 && qbtns.every(b => b.offsetParent !== null);
