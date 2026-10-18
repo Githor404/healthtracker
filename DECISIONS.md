@@ -17040,3 +17040,86 @@ going to sleep **3 taps**; the night typed while open ends it and cannot be
 ended again into a second record; Undo reopens; the picker's 19:15 is the stored
 wake time; no "close" in the ring detail; the key button present. Harness +4
 (3146). Screenshots at 390 px read before the suite.
+
+## R225 — RULED AND BUILT: THE MEAL RESPONSE REVIEW, the first slice of *evaluate* (2026-10-18, v0.100.0)
+
+**Label.** `R225` is the user's relay label; grepped, not previously recorded.
+Built to the pre-registration (R213/C, above) with **one ruling added** on
+2026-10-18. **Serves** *evaluate* (D152): each meal's measured response beside
+what the user's own past meals did.
+
+### 1. Re-measured first
+
+The "fresh export" is `HTPrivate\healthtracker-backup-2026-10-18-v15.json` (the
+R213 backup file; `export.json` there is still the Oct 12 one). **The backup
+holds no glucose** — glucose is a cache outside the export — and the newest
+glucose on the PC ends **2026-10-10 06:12**, so the food is a week newer than the
+stream that judges it. Counts only, no food names:
+
+| | n |
+|---|---|
+| eating events with a time and calories, whole log | **109** over 30 days (was 82) |
+| inside the glucose span / logged after it (counted, not judgeable here) | 30 / **47** |
+| judged (baseline + 2 h, no gap over 16 min) | **30** (4 h: 30) |
+| clean after / clean both sides | 18 / 10 |
+| carbohydrate known | 26 |
+| by type (judged) | snack 10, dinner 9, lunch 7, breakfast 3, drink 1 |
+| similar-by-identity groups ≥ 3, judged meals | **0** |
+| the same, whole log, any glucose | same item names: **5 groups, 22 meals** (one ≥ 5); same combo: **1 group, 7 meals** |
+| context within 4 h before a judged meal | red light 0 · stack dose 0 · drink 2 (alcohol events) / 1 (drink item) |
+| context, whole log | red light 2 · stack/medication doses 12 · alcohol events 9 · drink items 2 |
+
+Rise median 1.2 mmol/L (quartiles 0.6–2.2); 2 h iAUC median 63 mmol/L·min;
+carbs~rise on clean meals ρ 0.04 (n 15). **On the PC's stream nothing reaches the
+floor; on the phone, with glucose through Oct 18, the 5 repeat groups likely
+do.** The review computes on the device, so it shows what the phone has.
+
+### 2. The ruling added (2026-10-18), and the conflict it settles
+
+The pre-registration left "expected from its carbs" **unbuilt** (no cited
+figure; ρ 0.04 on the user's data). R225 asked for it. *Ruled:* **the user's own
+earlier clean meals within 25 % (or 10 g) of its carbohydrate** — median rise and
+2 h area, range, n, floor three — **no model and no population figure**, with
+how closely carbs and the rise have tracked on their meals stated beside it (ρ
+and n; when every meal had the same carbohydrate, that is said instead of "too
+few meals").
+
+### 3. What was built (to items 1–6 of the pre-registration)
+
+- **2 h iAUC inside `mealResponse`** (trapezoids from the baseline at the meal
+  minute, positive part only, its own full 2 h window). Null, with the reason,
+  unless the 2 h are covered with no gap over the response gap.
+- **Judged / not judged, clean / not clean** exactly as pre-registered; a meal
+  not clean shows its own numbers and is in no comparison, either way round.
+- **Similar = same combo or same set of item names**; floor three; median and
+  range with n; below it *"not enough similar meals yet (n of 3)"*.
+- **Measured vs expected look different:** measured lines plain, bold figures;
+  everything expected in its own **dashed, italic, muted box headed
+  "Expected, from your own earlier meals"**.
+- **Reached from the meal row** (the existing disclosure — depth on demand), now
+  for **every eating event**, including a single item logged with no `mealId`
+  (it was shown only for items that had one). No new nudge; nothing on the closed
+  day.
+- Nothing stored; no score, no colour, no advice.
+
+### 4. COST DECLARATION
+
+| | |
+|---|---|
+| defers | **heart rate and HRV** (no stream yet), any prediction (leg 4), any cited response figure, any carbohydrate model |
+| assumes | **the logged carbohydrate and the eaten fraction are accurate** — every figure is "based on what you logged eating, as logged"; a mis-logged meal is compared as logged |
+| data contract | none — derived at render, nothing stored, nothing migrates |
+| compute | the whole log's responses are computed when a meal row is opened (no cache) — fine at 109 events; revisit past a few thousand |
+| suite | one new gate (`review-gate`, ~1 min); harness +12 |
+| risk | on today's stream most meals read "not enough similar meals yet" — the honest output until more repeats are covered |
+
+### 5. Evidence
+
+`review-gate` on a hand-computed curve (baseline 5.0 → 7.0 at 30 min → 5.0 at
+90): the area shows **90 mmol/L·min**, as computed by hand; the closed day carries
+no review; the Expected box is dashed and italic and the measured line plain;
+three earlier meals give median 2 (1 to 3) and area 90 (45 to 135), n 3; carbs
+30–50 g, n 3; the floor sentence (2 of 3); a single item with food after it is
+"not clean" and not compared; a 30-min hole is "not judged — a gap". Harness
+(3158): iAUC, the floor, the clean rule both ways, not judged, the box, no verdict
+words, Spearman with ties, the flat-carbs sentence, **nothing stored**.

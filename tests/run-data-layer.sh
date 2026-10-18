@@ -70,6 +70,7 @@ photo-lead-gate.ps1
 rank-gate.ps1
 resolve-gate.ps1
 response-gate.ps1
+review-gate.ps1
 ring-size-gate.ps1
 sensor-gate.ps1
 served-gate.ps1
@@ -469,7 +470,12 @@ echo "-----------------------------------------"
 # R223, v0.99.0: 3142 -> 3146, delta +4. The big sleep button: Going to sleep,
 # leading the pane and the only sleep control; Woke - end sleep with the hours;
 # the ring detail without close. The taps are entry-gate's.
-EXPECTED_ASSERTIONS=3146
+# R225, v0.100.0: 3146 -> 3158, delta +12 (the twelfth: carbs all equal is said as such). The review on a hand-computed curve:
+# iAUC 90 inside the response; similar median/range/n at the floor; by carbs
+# 30-50 g, n 3; below the floor said with n; not clean both ways, not compared;
+# a gap -> not judged with the reason; the expected box; no verdict words;
+# Spearman incl. ties; nothing stored.
+EXPECTED_ASSERTIONS=3158
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

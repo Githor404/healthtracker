@@ -389,6 +389,12 @@
   .respcov{margin-top:4px;font-variant-numeric:tabular-nums}
   /* A statement that the figure is NOT clean may not be quieter than the figure. */
   .respwarn{font-size:16px;color:var(--warn);margin:2px 0}
+  /* R225: the review. EXPECTED is never dressed as MEASURED: its own dashed box,
+     italic, muted, and headed "Expected" -- the measured figures stay plain bold. */
+  .resprev{margin-top:0;border-radius:0 0 8px 0}
+  .respexp{margin:8px 0 2px;padding:8px 10px;border:1px dashed var(--muted);border-radius:8px;font-style:italic;color:var(--muted)}
+  .respexphead{font-size:16px;font-weight:600;margin-bottom:4px}
+  .respexpline,.respexpnote{font-size:16px;margin:2px 0}
   .mtest{margin-top:6px;min-height:44px}
   .mteston{color:var(--accent);font-weight:600}
   /* The one-tap row: every control clears the 44px floor, because a tap that needs

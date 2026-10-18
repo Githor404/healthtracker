@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.99.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.100.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5670,7 +5670,7 @@ function renderDayInner() {
         </div>${servedHTML}${isOpen ? `<div class="mbody">${legacyHTML}${ateHTML}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
-          ${it._auto || !it.mealId ? '' : mealResponseHTML(dk, it.mealId)}
+          ${isLegacyAuto(it) ? '' : (mealResponseHTML(dk, it.mealId ? it.mealId : '_solo' + idx) + mealReviewHTML(dk, it.mealId ? it.mealId : '_solo' + idx))}
           ${it._auto || !it.mealId ? '' : mealTestHTML(dk, it.mealId)}
           <button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>
         </div>` : ''}</div>`;
@@ -10347,6 +10347,10 @@ function mealResponse(dateKey, mealId) {
   for (let i = 0; i < pre.length; i++) sum += pre[i].v;
   const mean = Math.round((sum / baseN) * 10) / 10;
   const baseline = { mean: mean, n: baseN, contaminated: contaminated };
+  // R225 (pre-registered R213/C, item 1): the 2 h iAUC, INSIDE this function and
+  // not beside it. Its own window -- the full 2 h, not cut by a next meal, whose
+  // presence makes the meal not clean (said, and kept out of comparisons).
+  const iauc = mealIauc(mealMs, mean);
 
   // ---- the window, cut by the next eating event ------------------------
   const next = evs.filter(function (e) {
@@ -10356,7 +10360,7 @@ function mealResponse(dateKey, mealId) {
   const followingMin = next ? (hhmmToMin(next.time) - t0) : null;
   const endMin = next ? followingMin : RESP_WINDOW_MIN;
   const win = glucoseSeries(mealMs, mealMs + endMin * 60000);
-  if (!win.length) return { phase: 'none', why: 'no glucose covers this meal', baseline: baseline };
+  if (!win.length) return { phase: 'none', why: 'no glucose covers this meal', baseline: baseline, iauc2h: iauc.value, iaucWhy: iauc.why };
 
   // ---- coverage, as a COUNT and a gap count, never implied complete ----
   const gapMin = respGapMin();
@@ -10374,6 +10378,7 @@ function mealResponse(dateKey, mealId) {
   for (let i = 1; i < win.length; i++) if (win[i].v > win[pi].v) pi = i;
   const peakSeen = pi < win.length - 1;      // something lower came after it
   const out = { baseline: baseline, coverage: coverage,
+                iauc2h: iauc.value, iaucWhy: iauc.why,
                 following: next ? mealEventNames(next).join(' + ') : '',
                 followingMin: followingMin,
                 stopsAt: (stopsShort || gaps > 0) ? lastMin : null };
@@ -10406,6 +10411,195 @@ function mealResponse(dateKey, mealId) {
   out.phase = (back != null && gaps === 0 && !next && !stopsShort) ? 'ok' : 'bounded';
   if (out.phase === 'bounded' && out.stopsAt == null) out.stopsAt = lastMin;
   return out;
+}
+
+// ---- R225: THE MEAL RESPONSE REVIEW -- the first slice of EVALUATE (D152) ----
+//
+// PRE-REGISTERED (R213/C) and built to it, with one ruling added (R225, answered
+// 2026-10-18): "expected from its carbs" is the user's OWN earlier meals of similar
+// carbohydrate -- no model, no population figure -- with how closely carbs and
+// the rise have tracked on their meals shown beside it.
+//
+//   1. MEASURED: rise, time back to baseline (mealResponse), 2 h iAUC (here).
+//   2. JUDGED only with the baseline and 2 h of readings with no gap over the
+//      response gap; otherwise listed as not judged, with the reason.
+//   3. CLEAN only with no other eating in the 2 h before or after; otherwise
+//      its numbers are shown and it is in NO comparison, either way round.
+//   4. SIMILAR by what the meal WAS: the same combo, or the same set of item
+//      names. Floor THREE earlier judged clean meals; below it, said, with n.
+//      At or above: median and range, with n. No mean, no interval.
+//   5. FROM ITS CARBS: earlier judged clean meals within 25 % (or 10 g) of its
+//      carbohydrate, the same floor and the same figures.
+//   6. Eaten basis (items are what was eaten). No score, no good/bad colour, no
+//      advice. Derived at render; NOTHING is stored.
+const RESP_IAUC_MIN = 120;
+const RESP_CLEAN_MIN = 120;
+const REVIEW_FLOOR = 3;
+const REVIEW_CARB_PCT = 0.25, REVIEW_CARB_G = 10;
+// 2 h incremental area above the baseline: trapezoids from (meal, baseline)
+// through every reading, the positive part only, in mmol/L·min (or the
+// stream's own unit·min). Null, with the reason, unless the 2 h are covered.
+function mealIauc(mealMs, mean) {
+  if (mean == null) return { value: null, why: 'no baseline' };
+  const gapMin = respGapMin();
+  const w = glucoseSeries(mealMs, mealMs + RESP_IAUC_MIN * 60000);
+  if (!w.length) return { value: null, why: 'no readings in the 2 h after' };
+  const pts = [{ t: mealMs, v: mean }].concat(w);
+  for (let i = 1; i < pts.length; i++) {
+    if ((pts[i].t - pts[i - 1].t) / 60000 > gapMin) return { value: null, why: 'a gap in the readings inside the 2 h' };
+  }
+  if ((mealMs + RESP_IAUC_MIN * 60000 - w[w.length - 1].t) / 60000 > gapMin) return { value: null, why: 'the readings stop before 2 h' };
+  let area = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const dm = (pts[i].t - pts[i - 1].t) / 60000;
+    area += (Math.max(0, pts[i - 1].v - mean) + Math.max(0, pts[i].v - mean)) / 2 * dm;
+  }
+  return { value: Math.round(area), why: '' };
+}
+// What a meal WAS, for "similar": its combo(s), and its set of item names.
+function reviewEventKey(ev) {
+  const combos = (ev.items || []).map(function (it) { return it.comboId; }).filter(function (x) { return x != null && String(x) !== ''; });
+  const names = (ev.items || []).map(function (it) { return String(it.name || '').toLowerCase().replace(/\s+/g, ' ').trim(); }).sort();
+  return { combo: combos.length ? Array.from(new Set(combos.map(String))).sort().join('|') : '', names: names.join('|') };
+}
+// Every eating event in the log, with its absolute time and whether anything
+// else was eaten in the 2 h either side -- the pool the review compares within.
+function reviewPool() {
+  const out = [];
+  Object.keys(APP_STATE.days || {}).filter(isDayKey).sort().forEach(function (dk) {
+    mealEvents(dk).forEach(function (ev) {
+      const m = hhmmToMin(ev.time);
+      if (m == null) return;
+      const kcal = (ev.items || []).reduce(function (a, it) { return a + num(it.kcal); }, 0);
+      if (!(kcal > 0)) return;
+      out.push({ dk: dk, ev: ev, ms: dayKeyMs(dk) + m * 60000, key: reviewEventKey(ev),
+                 carbs: (ev.items || []).reduce(function (a, it) { return a + num(it.carb_g); }, 0),
+                 carbsKnown: !(ev.items || []).some(function (it) { return it.unresolved === true; }) });
+    });
+  });
+  out.sort(function (a, b) { return a.ms - b.ms; });
+  out.forEach(function (e, i) {
+    e.cleanBefore = !out.some(function (o, j) { return j !== i && o.ms >= e.ms - RESP_CLEAN_MIN * 60000 && o.ms < e.ms; });
+    e.cleanAfter = !out.some(function (o, j) { return j !== i && o.ms > e.ms && o.ms <= e.ms + RESP_CLEAN_MIN * 60000; });
+  });
+  return out;
+}
+function reviewEntry(e) {
+  if (!e.r) e.r = mealResponse(e.dk, e.ev.mealId);
+  e.judged = !!(e.r && e.r.baseline && e.r.baseline.mean != null && e.r.iauc2h != null && e.r.rise != null);
+  e.clean = e.cleanBefore && e.cleanAfter;
+  return e;
+}
+function median(a) {
+  const s = a.slice().sort(function (x, y) { return x - y; });
+  const n = s.length;
+  return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : null;
+}
+function reviewStats(members) {
+  const rises = members.map(function (m) { return m.r.rise; });
+  const areas = members.map(function (m) { return m.r.iauc2h; });
+  return { n: members.length,
+           rise: { median: Math.round(median(rises) * 10) / 10, lo: Math.min.apply(null, rises), hi: Math.max.apply(null, rises) },
+           iauc: { median: Math.round(median(areas)), lo: Math.min.apply(null, areas), hi: Math.max.apply(null, areas) } };
+}
+// Spearman's rank correlation, ties given their average rank.
+function spearman(xs, ys) {
+  const rank = function (v) {
+    const idx = v.map(function (x, i) { return [x, i]; }).sort(function (a, b) { return a[0] - b[0]; });
+    const r = new Array(v.length);
+    for (let i = 0; i < idx.length;) {
+      let j = i; while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
+      for (let k = i; k <= j; k++) r[idx[k][1]] = (i + j) / 2;
+      i = j + 1;
+    }
+    return r;
+  };
+  const n = xs.length;
+  if (n < 3) return null;
+  const a = rank(xs), b = rank(ys);
+  const ma = a.reduce(function (s, x) { return s + x; }, 0) / n, mb = b.reduce(function (s, x) { return s + x; }, 0) / n;
+  let sab = 0, saa = 0, sbb = 0;
+  for (let i = 0; i < n; i++) { sab += (a[i] - ma) * (b[i] - mb); saa += (a[i] - ma) * (a[i] - ma); sbb += (b[i] - mb) * (b[i] - mb); }
+  return (saa > 0 && sbb > 0) ? sab / Math.sqrt(saa * sbb) : null;
+}
+function mealReview(dateKey, mealId) {
+  const pool = reviewPool();
+  const me = pool.filter(function (e) { return e.dk === String(dateKey) && e.ev.mealId === String(mealId); })[0];
+  if (!me) return null;
+  reviewEntry(me);
+  const out = { response: me.r, judged: me.judged, clean: me.clean,
+                cleanBefore: me.cleanBefore, cleanAfter: me.cleanAfter,
+                carbs: Math.round(me.carbs * 10) / 10, carbsKnown: me.carbsKnown && me.carbs > 0 };
+  if (!me.judged) {
+    out.notJudged = (me.r && me.r.phase === 'declined') ? me.r.why : ((me.r && me.r.iaucWhy) || 'the 2 h after it are not fully covered');
+    return out;
+  }
+  if (!me.clean) return out;
+  const earlier = pool.filter(function (e) { return e.ms < me.ms; }).map(reviewEntry)
+    .filter(function (e) { return e.judged && e.clean; });
+  const same = earlier.filter(function (e) {
+    return (me.key.combo && e.key.combo === me.key.combo) || (e.key.names === me.key.names);
+  });
+  out.similar = same.length >= REVIEW_FLOOR ? reviewStats(same) : { n: same.length, below: true };
+  if (out.carbsKnown) {
+    const lo = Math.min(me.carbs * (1 - REVIEW_CARB_PCT), me.carbs - REVIEW_CARB_G);
+    const hi = Math.max(me.carbs * (1 + REVIEW_CARB_PCT), me.carbs + REVIEW_CARB_G);
+    const near = earlier.filter(function (e) { return e.carbsKnown && e.carbs > 0 && e.carbs >= lo && e.carbs <= hi; });
+    out.byCarbs = near.length >= REVIEW_FLOOR ? reviewStats(near) : { n: near.length, below: true };
+    out.byCarbs.lo = Math.max(0, Math.round(lo)); out.byCarbs.hi = Math.round(hi);
+    const all = pool.map(reviewEntry).filter(function (e) { return e.judged && e.clean && e.carbsKnown && e.carbs > 0; });
+    const rho = spearman(all.map(function (e) { return e.carbs; }), all.map(function (e) { return e.r.rise; }));
+    // With every meal at the same carbohydrate the ranks are flat and there is no
+    // relation to state -- that is said as such, not as "too few meals".
+    const flat = all.length >= 3 && all.every(function (e) { return e.carbs === all[0].carbs; });
+    out.carbRise = { rho: rho == null ? null : Math.round(rho * 100) / 100, n: all.length, flat: flat };
+  }
+  return out;
+}
+function reviewStatsWords(s, u) {
+  return 'rise median ' + rDisp(s.rise.median) + ' ' + u + ' (' + rDisp(s.rise.lo) + ' to ' + rDisp(s.rise.hi) + ')'
+    + ' · 2 h area median ' + s.iauc.median + ' (' + s.iauc.lo + ' to ' + s.iauc.hi + ')';
+}
+// The review's part of the meal row. MEASURED figures sit with the response's own
+// (plain, bold); everything EXPECTED is in its own box -- dashed, in italics,
+// headed as such -- so a comparison never reads as a measurement.
+function mealReviewHTML(dateKey, mealId) {
+  const inner = mealReviewInnerHTML(dateKey, mealId);
+  return inner ? '<div class="resp resprev">' + inner + '</div>' : '';
+}
+function mealReviewInnerHTML(dateKey, mealId) {
+  const v = mealReview(dateKey, mealId);
+  if (!v || !v.response || v.response.phase === 'none') return '';
+  const u = respUnitWord(v.response);
+  let h = '';
+  if (v.response.iauc2h != null)
+    h += '<div class="respline">2 h area above baseline <b>' + esc(String(v.response.iauc2h)) + ' ' + esc(u) + '·min</b></div>';
+  if (!v.judged) return h + '<div class="respwarn">Not judged — ' + esc(v.notJudged) + '.</div>';
+  if (!v.clean) {
+    const w = (!v.cleanBefore && !v.cleanAfter) ? 'before and after it' : (!v.cleanBefore ? 'before it' : 'after it');
+    return h + '<div class="respwarn">Not clean — other food in the 2 h ' + w + '. Its numbers are shown, and it is not compared.</div>';
+  }
+  h += '<div class="respexp"><div class="respexphead">Expected, from your own earlier meals</div>';
+  const s = v.similar;
+  h += '<div class="respexpline">' + (s.below
+    ? ('Meals like this: not enough similar meals yet (' + s.n + ' of ' + REVIEW_FLOOR + ').')
+    : ('Your ' + s.n + ' earlier meals like this: ' + esc(reviewStatsWords(s, u)) + '.')) + '</div>';
+  if (!v.carbsKnown) {
+    h += '<div class="respexpline">From its carbs: its carbohydrate is not known.</div>';
+  } else {
+    const c = v.byCarbs;
+    h += '<div class="respexpline">' + (c.below
+      ? ('Meals with similar carbs (' + c.lo + '–' + c.hi + ' g): not enough yet (' + c.n + ' of ' + REVIEW_FLOOR + ').')
+      : ('Your ' + c.n + ' earlier meals with similar carbs (' + c.lo + '–' + c.hi + ' g): ' + esc(reviewStatsWords(c, u)) + '.')) + '</div>';
+    const cr = v.carbRise;
+    h += '<div class="respexpnote">' + (cr && cr.rho != null
+      ? ('How closely carbs and the rise have tracked on your meals: ρ ' + rDisp(cr.rho) + ' (n ' + cr.n + '; 1 = always together, 0 = not at all).')
+      : (cr && cr.flat
+          ? ('Your ' + cr.n + ' meals so far all had the same carbohydrate, so how carbs and the rise track cannot be said yet.')
+          : 'Too few of your meals yet to say how closely carbs and the rise track.')) + '</div>';
+  }
+  h += '<div class="respexpnote">Based on what you logged eating, as logged.</div></div>';
+  return h;
 }
 
 // THE ONE-THIRD, AS A FIGURE (ruled: shown, not hidden). How many eating events
@@ -14108,6 +14302,7 @@ const VERSION_LOG = [
   { v: '0.97.0', d: '2026-10-14', note: 'Everything you log now goes through + Log. Moved, Woke, New sensor, water and starting or ending a sleep, sauna, meditation or red light are one tap each at the top of Log event or biometric, with Undo; the day still shows the sensor countdown, your water and the ring, but nothing there logs. Starting or ending a sleep asks the time first: Now, your usual wake time when there are enough of your own nights, or any other time, so ending it late still records when you woke. An open sleep is never closed for you any more. Drinks are food: Your drinks in + Log logs the one you had last at the same amount with one tap, and Log a drink finds a new one in the food database; its calories count in your day, and its alcohol where the database has it. Drinks tapped on the old badge stay as they were and say their amount was not recorded. Manual entry now looks the food up as you type its name: pick a row and the calories, macros and vitamins and minerals are filled in for the grams you enter; change any number and the entry says it was adjusted. If it is not in the database you can add it from its label. Food left from earlier and today’s regimen are logged from + Log, and the lines on the day open it.' },
   { v: '0.98.0', d: '2026-10-14', note: 'Each tap of water is now its own entry. It is listed with the day’s other entries under Biometrics, and you can delete it there with × and Undo, so a mis-tap can still be fixed after the Undo bar has gone. Water you logged before this is kept as it was. Log a drink now lists drinks first: rows the food database files as beverages come before everything else, so wine finds wine before red wine vinegar, which you can still find by its full name. Every entry under Biometrics can now be removed where it is listed.' },
   { v: '0.99.0', d: '2026-10-16', note: 'Waking up is now the easiest thing to log. Tap the ring and + Log opens on one big button, Woke — end sleep, while a sleep is going, or Going to sleep when none is; pick Now, your usual time or another time, and it is saved — three taps from the day. The small close on the ring is gone, and the ring key has its own button beside the ring. A night typed in as an event while a sleep is open now ends that open sleep instead of leaving it to be ended again, so one night is always one entry; Undo puts both back.' },
+  { v: '0.100.0', d: '2026-10-18', note: 'What a meal did. Open a meal on the day and, where your glucose covers it, you see how far it rose, when it came back, and the area above your baseline over two hours. Below that, in its own dashed box marked Expected: your earlier meals of the same food and your earlier meals with about as much carbohydrate, each with how many there were and their middle value and range, and how closely carbs and the rise have tracked on your meals so far. With fewer than three earlier meals to compare it says so. A meal with other food within two hours either side shows its own numbers and is not compared. Nothing is scored and nothing is suggested.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -22295,7 +22490,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
-  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
+  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
   itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,

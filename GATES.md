@@ -6186,3 +6186,14 @@ a small gate from 124 s to 4.9 s. **A reaped run kept running**: the host killed
 only the shell that started the runner, which carried on unseen; it now stops by
 name when its parent is gone. **Workers by free memory** (R224): two consecutive
 uninterrupted green runs with normal apps open, which was the bar.
+
+### v0.100.0 — a gate whose answer was computed before the app's, and three expectations of mine it corrected (2026-10-18)
+
+**`review-gate` knows the answer first.** The fixture is a straight-line curve,
+so the 2 h area is 1/2 x 90 x 2.0 = 90 mmol/L.min by hand, and the gate checks
+the app prints exactly that. Its first run failed three of my expectations, not
+the app: a rise of 1.0 makes 45, not 30; the breakfast's own response names the
+lunch as the next meal, so a row found by its TEXT was the wrong row (now by its
+head); and a fixture with every meal at 40 g made the carbs line say "too few
+meals" -- untrue, so the app now says the carbs were all the same, and the
+fixture varies them.

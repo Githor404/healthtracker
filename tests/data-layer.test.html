@@ -1046,6 +1046,85 @@ window.setLS({});
   HT.discardLaneOpen('sleep');
   setLS({}); HT.boot();
 
+  // ---- R225: the meal response review (pre-registered R213/C) -----------------------
+  setLS({}); HT.boot();
+  var p225 = function (n) { return String(n).padStart(2, '0'); };
+  var iso225 = function (ms) {
+    var d = new Date(ms), o = -d.getTimezoneOffset();
+    return d.getFullYear() + '-' + p225(d.getMonth() + 1) + '-' + p225(d.getDate()) + 'T' + p225(d.getHours()) + ':' + p225(d.getMinutes()) + ':00'
+      + (o < 0 ? '-' : '+') + p225(Math.floor(Math.abs(o) / 60)) + ':' + p225(Math.abs(o) % 60);
+  };
+  // a curve by hand: baseline 5.0, up to 5.0 + rise at 30 min, back to 5.0 at 90, flat to 120
+  var curve225 = function (dk, hhmm, rise, rows, opts) {
+    var t0 = HT.dayKeyMs(dk) + HT.hhmmToMin(hhmm) * 60000;
+    for (var m = -20; m <= 125; m += 5) {
+      if (opts && opts.gapFrom != null && m >= opts.gapFrom && m < opts.gapFrom + 30) continue;
+      var v = 5.0;
+      if (m > 0 && m <= 30) v = 5.0 + rise * m / 30;
+      else if (m > 30 && m < 90) v = 5.0 + rise * (90 - m) / 60;
+      if (m < 0 && m > -20) v = 5.0;
+      if (m === -20) continue;
+      rows.push({ t: iso225(t0 + m * 60000), v: Math.round(v * 1000) / 1000, unit: 'mmol/L' });
+    }
+  };
+  var item225 = function (name, time, mid, carbs) {
+    return { name: name, meal: 'breakfast', time: time, kcal: 300, protein_g: 10, fat_g: 10, carb_g: carbs, fiber_g: 0, soluble_fiber_g: 0,
+             confidence: 'eyeballed', source: 'manual', notes: '', mealId: mid };
+  };
+  var dd225 = function (back) { return HT.shiftDate(td, -back); };
+  var rows225 = [];
+  // three earlier days of the same breakfast (rises 1, 2, 3), each clean
+  [[4, 1], [3, 2], [2, 3]].forEach(function (x) {
+    var dk = dd225(x[0]);
+    HT.state().days[dk] = { status: 'complete', water_l: 0, items: [item225('Gate oats', '08:00', 'm' + x[0], 40)] };
+    curve225(dk, '08:00', x[1], rows225);
+  });
+  // today: the same breakfast, rise 2.0 -> area 90; and a snack 60 min after a lunch (not clean)
+  HT.state().days[td] = { status: 'in_progress', water_l: 0, items: [
+    item225('Gate oats', '08:00', 'mt', 40), item225('Gate lunch', '12:00', 'ml', 60), item225('Gate snack', '13:00', 'ms', 20) ] };
+  curve225(td, '08:00', 2, rows225);
+  curve225(td, '12:00', 1.5, rows225);
+  // yesterday: a meal whose 2 h have a 30-minute hole
+  HT.state().days[dd225(1)] = { status: 'complete', water_l: 0, items: [item225('Gate gap meal', '08:00', 'mg', 40)] };
+  curve225(dd225(1), '08:00', 2, rows225, { gapFrom: 40 });
+  HT.resave();
+  HT.glucoseIngest(rows225, { source: 'fixture' });
+  var snap225 = JSON.stringify(HT.state());
+  var r225 = HT.mealResponse(td, 'mt');
+  res(r225.iauc2h === 90 && r225.rise === 2 && r225.tToBaseline === 90,
+      'R225 GATE: the 2 h iAUC is computed INSIDE the response -- a hand-computed triangle (2.0 high, 90 min wide) is 90 mmol/L·min, beside rise 2.0 and back at 90 min', JSON.stringify({ a: r225.iauc2h, r: r225.rise, b: r225.tToBaseline }));
+  var v225 = HT.mealReview(td, 'mt');
+  res(v225.judged && v225.clean && v225.similar && !v225.similar.below && v225.similar.n === 3
+      && v225.similar.rise.median === 2 && v225.similar.rise.lo === 1 && v225.similar.rise.hi === 3,
+      'R225 GATE: three earlier clean meals of the same items -> their MEDIAN rise and range, with n (2.0, 1 to 3, n 3)', JSON.stringify(v225.similar));
+  res(v225.byCarbs && !v225.byCarbs.below && v225.byCarbs.n === 3 && v225.byCarbs.lo === 30 && v225.byCarbs.hi === 50,
+      'R225 GATE: "expected from its carbs" is the user’s OWN earlier meals within 25 % (or 10 g) of its carbohydrate (30–50 g for 40 g), n 3 -- no model', JSON.stringify(v225.byCarbs));
+  var v225b = HT.mealReview(dd225(2), 'm2');
+  res(v225b.similar.below === true && v225b.similar.n === 2 && HT.mealReviewHTML(dd225(2), 'm2').indexOf('not enough similar meals yet (2 of 3)') > 0,
+      'R225 GATE: below the floor it is SAID, with n -- the third breakfast has 2 earlier like it: "not enough similar meals yet (2 of 3)"');
+  var vl225 = HT.mealReview(td, 'ml'), vs225 = HT.mealReview(td, 'ms');
+  res(vl225.judged === true && vl225.clean === false && vl225.cleanAfter === false && !vl225.similar && !vs225.clean && vs225.cleanBefore === false,
+      'R225 GATE: other food within 2 h makes BOTH meals not clean -- the lunch (a snack after it) and the snack (a lunch before it) -- and neither is compared');
+  var vg225 = HT.mealReview(dd225(1), 'mg');
+  res(vg225.judged === false && /gap/.test(String(vg225.notJudged)),
+      'R225 GATE: a meal whose 2 h have a hole is NOT JUDGED, and says why ("' + vg225.notJudged + '")');
+  var h225 = HT.mealReviewHTML(td, 'mt');
+  res(h225.indexOf('2 h area above baseline <b>90 mmol/L·min</b>') >= 0 && h225.indexOf('class="respexp"') > 0
+      && h225.indexOf('Expected, from your own earlier meals') > 0 && h225.indexOf('Your 3 earlier meals like this') > 0,
+      'R225: the measured area is shown plain; the comparisons sit in their own box headed EXPECTED');
+  res(HT.mealReviewHTML(td, 'ml').indexOf('Not clean') >= 0 && HT.mealReviewHTML(td, 'ml').indexOf('respexp') < 0,
+      'R225: a meal that is not clean says so and carries no expected box at all');
+  res(h225.indexOf('Your 4 meals so far all had the same carbohydrate, so how carbs and the rise track cannot be said yet.') > 0,
+      'R225: with every meal at the same carbs there is no relation to state, and it says THAT -- not "too few meals"');
+  res(!/better|worse|good|bad|should|try |aim |great|well done/i.test(h225),
+      'R225: no score, no verdict, no advice in the review');
+  res(HT.spearman([1, 2, 3, 4], [1, 2, 3, 4]) === 1 && HT.spearman([1, 2, 3, 4], [4, 3, 2, 1]) === -1 && HT.spearman([1, 2], [1, 2]) === null
+      && Math.abs(HT.spearman([1, 2, 2, 3], [1, 3, 2, 4]) - 4.5 / Math.sqrt(22.5)) < 1e-9,
+      'R225: the rank correlation -- perfect, inverse, too few, and ties at their average rank');
+  res(JSON.stringify(HT.state()) === snap225,
+      'R225 GATE: NOTHING IS STORED -- the review is derived at render; the state is byte-identical after it');
+  setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --
