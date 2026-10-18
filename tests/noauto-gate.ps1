@@ -175,7 +175,7 @@ try {
 '@
   Write-Host ("  loaded on the old store: " + $m)
   $mv = $m | ConvertFrom-Json
-  Check (($mv.version -eq 16) -and ($mv.current -eq $mv.today)) "PRECONDITION: the app started on a schema-14 store with the old setting ENABLED, migrated it, and is on today"
+  Check (($mv.version -eq 17) -and ($mv.current -eq $mv.today)) "PRECONDITION: the app started on a schema-14 store with the old setting ENABLED, migrated it, and is on today"
   Check (($mv.todayItems -eq 0) -and ($mv.todayDoses -eq 0) -and ($mv.rows -eq 0)) "R203: TODAY IS EMPTY -- starting the app logged nothing: no item, no dose, no row on screen. With the old setting this start wrote one"
   Check (($mv.setting -eq $true) -and (@($mv.stack).Count -eq 1) -and ($mv.stack[0] -eq 'Daily capsule|supplement|no-amount|true')) "R203: the setting is gone and became ONE stack item -- its name, and no amount, because the old setting never held one"
   Check (($mv.oldFlag -eq $true) -and ($mv.oldMark -eq $true) -and ($mv.oldTime -eq '') -and ($mv.oldNote -eq 'auto-added by old setting (at app open, 02:16)') -and ($mv.n -eq 4)) "R204: the entry it had auto-added is ordinary and marked, its time CLEARED, the old stamp kept in the note -- and it is still on its day"

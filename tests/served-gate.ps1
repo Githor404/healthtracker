@@ -250,9 +250,12 @@ HT.corpusEnsure().then(function () {
   Check (($ph.a.cite -like '38%*') -and ($ph.a.cite -like '*bone*') -and ($ph.a.cite -like '*Chicken, broiler, wing*') -and ($ph.a.cite -like '*Canadian Nutrient File*')) "the correction shows its percentage, its part, THE ROW IT MATCHED and its source (ruled D)"
   Check (($ph.b.on -eq $false) -and ($ph.b.head -like 'Served on the bone*')) "R191: the item the photo called BONELESS is not corrected -- same row, and it is the identification that says the bone is not there. The correction is offered, off"
   Check ($photo.Contains('"small":[]') -and $photo.Contains('"short":[]')) "the draft's correction lines are >= 16px and their buttons >= 44px"
-  Check ($ph.total -like '506 cal*') "the draft's own total counts the EDIBLE wings (216) and the whole boneless ones (290): the figure beside Save is the figure the day will show"
-  Check (($ph.saved -eq $true) -and ([math]::Abs($ph.g0 - 74.4) -lt 1e-6) -and ([math]::Abs($ph.k0 - 215.76) -lt 1e-6) -and ($ph.g1 -eq 100)) "saved: 74.4 g and 215.76 cal of wings reach the day, and 100 g of the boneless ones"
-  Check ([math]::Abs($ph.added - 505.76) -lt 1e-6) "the day total moved by what was EATEN -- 505.76 -- not by the 638 that was served"
+  # R237 RE-POINT: the wings are MATCHED to the wing row, and a matched row's numbers
+  # are the item's now -- 324 kcal per 100 g on the shipped CNF row, not the
+  # photo's 290. Bone, eaten share and every rule below are unchanged.
+  Check ($ph.total -like '565 cal*') "the draft's own total counts the EDIBLE wings (241) and the whole boneless ones (324) at the MATCHED ROW's 324 kcal/100 g: the figure beside Save is the figure the day will show"
+  Check (($ph.saved -eq $true) -and ([math]::Abs($ph.g0 - 74.4) -lt 1e-6) -and ([math]::Abs($ph.k0 - 241.056) -lt 1e-6) -and ($ph.g1 -eq 100)) "saved: 74.4 g and 241.056 cal of wings reach the day (the row's 324/100 g), and 100 g of the boneless ones"
+  Check ([math]::Abs($ph.added - 565.056) -lt 1e-6) "the day total moved by what was EATEN -- 565.056 -- not by the 712.8 that was served"
   Check (($ph.served0 -eq 120) -and ($ph.plate0.applied -eq $true) -and ($ph.plate0.by -eq 'rule') -and ($ph.plate0.pct -eq 38)) "the plate keeps the served 120 g AS ENTERED, with the correction stored beside it as the rule's decision"
   Check (($ph.line0 -eq ('120 g served ' + [char]0xB7 + ' ~74.4 g edible ' + [char]0xB7 + ' 74.4 g')) -and ($ph.line1 -eq '')) "the wings' row will show both figures; the boneless row, where nothing differs, has ONE"
 
@@ -327,8 +330,8 @@ HT.corpusEnsure().then(function () {
   Write-Host ("  half: " + $half)
   $hf = $half | ConvertFrom-Json
   Check ([math]::Abs($hf.grams - 37.2) -lt 1e-6) "HALF TAPPED, by a real click: 37.2 g eaten -- half of the 74.4 g that was edible, not half of the 120 g served (ruled F)"
-  Check ([math]::Abs($hf.kcal - 107.88) -lt 1e-6) "the calories are exactly halved: 107.88"
-  Check ([math]::Abs($hf.moved + 107.88) -lt 1e-6) "THE TOTAL UPDATES: the day's calories fell by exactly the half that was not eaten"
+  Check ([math]::Abs($hf.kcal - 120.528) -lt 1e-6) "the calories are exactly halved: 120.528 (half of the edible 241.056)"
+  Check ([math]::Abs($hf.moved + 120.528) -lt 1e-6) "THE TOTAL UPDATES: the day's calories fell by exactly the half that was not eaten"
   Check ($hf.served -eq ('120 g served ' + [char]0xB7 + ' ~74.4 g edible ' + [char]0xB7 + ' ate ' + [char]0xBD + ' ' + [char]0xB7 + ' 37.2 g')) "the row reads '120 g served . ~74.4 g edible . ate 1/2 . 37.2 g' -- the ruled order, every figure present"
   Check (($hf.num -like ($hf.want + '*')) -and ($hf.pressed -eq [string][char]0xBD)) "the row's headline number is the eaten calories, and the control shows the half that was tapped"
   Check (($hf.plateGrams -eq 120) -and ($hf.refuse -eq $true)) "SEPARATE: the fraction did not touch the served weight or the bone correction"

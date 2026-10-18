@@ -67,6 +67,7 @@ page-overflow-gate.ps1
 parity-gate.ps1
 panel-gate.ps1
 potential-gate.ps1
+precedence-gate.ps1
 photo-lead-gate.ps1
 rank-gate.ps1
 resolve-gate.ps1
@@ -498,7 +499,16 @@ echo "-----------------------------------------"
 # 3200 -> 3203 (R232, same release): the mark is ALCOHOL only -- sparkling water
 # (source 0 g) asks nothing; a drink no source speaks for is asked once and the
 # answer is remembered and exported; white wine (source > 0) asks.
-EXPECTED_ASSERTIONS=3203
+# 3203 -> 3221 (v0.104.0, R233.1 + R234 + R237): +18 -- the precedence rule case
+# by case (row beats estimate; the user's set and typed values win; an empty form
+# takes the row; the row at the item's grams; estimate alone; nothing); a v16
+# file restored is recomputed and each change keeps what it was; a repeat counts
+# the same; a v17 round trip is byte-identical (which found normalizeRef turning a
+# null distance into 0); boot recomputes and keeps the v16 blob first; adjusted
+# untouched; a correction suggests at the new grams; provisional counting; the
+# day's not-counted line; confirm; nothing-to-suggest stays uncounted.
+# +1 (same release): a correction made on a plate is learned (C1/C3).
+EXPECTED_ASSERTIONS=3222
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

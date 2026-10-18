@@ -18,8 +18,11 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 16;
-const APP_VERSION      = '0.103.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+// R237: the copy taken before v16 -> v17 rewrote numbers. Its own key, because the
+// D7 slot above is write-once and already holds a far older blob on any real device.
+const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
+const SCHEMA_VERSION   = 17;
+const APP_VERSION      = '0.104.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -152,6 +155,15 @@ const Store = (() => {
       if (tier !== 'local') return false;
       if (readRaw(PREMIGRATION_KEY) != null) return true;
       return writeRaw(PREMIGRATION_KEY, rawV1);
+    },
+    // R237: before the precedence rule rewrites numbers (v16 -> v17), the untouched
+    // v16 blob. Write-once like D7's; best effort -- every changed item ALSO keeps
+    // its old figures in `recomputed.was`, so the change is reversible from the
+    // data itself even where this copy could not be written (quota).
+    snapshotBeforeV17(raw) {
+      if (tier !== 'local') return false;
+      if (readRaw(PREMIGRATION_V16_KEY) != null) return true;
+      return writeRaw(PREMIGRATION_V16_KEY, raw);
     },
 
     status() {
@@ -486,7 +498,9 @@ function normalizeRef(r) {
   // say so, never guess the basis.
   const rg = Number(r.g);
   if (Number.isFinite(rg) && rg > 0) out.g = rg;
-  const d = Number(r.d);
+  // R237 found: Number(null) is 0, so a null distance came back from every restore
+  // as 0 -- a forensic field silently rewritten, and no round trip byte-identical.
+  const d = (r.d == null || r.d === '') ? NaN : Number(r.d);
   out.d = Number.isFinite(d) ? d : null;
   const v = (r.v && typeof r.v === 'object' && !Array.isArray(r.v)) ? r.v : {};
   Object.keys(v).forEach(function (k) {
@@ -638,6 +652,15 @@ function normalizeItem(it, clampMacros) {
   if (rfI) out.repeated_from = rfI;
   const origI = normalizeOrig(it.orig);
   if (origI) out.orig = origI;
+  // R237 / R233.1, declared in the commit that writes them (D129):
+  //   recomputed  -- the precedence rule changed this item's numbers; what it had
+  //   suggested   -- a row the app SUGGESTS for an unconfirmed item (never confirmed)
+  //   provisional -- its numbers are that suggestion's, counted until confirmed
+  const recI = normalizeRecomputed(it.recomputed);
+  if (recI) out.recomputed = recI;
+  const sugI = normalizeRef(it.suggested);
+  if (sugI) out.suggested = sugI;
+  if (it.provisional === true && sugI) out.provisional = true;
   const edI = normalizeEditedAt(it.edited_at);
   if (edI) out.edited_at = edI;
   return out;
@@ -1570,6 +1593,38 @@ function migrateV15toV16(v15, nowISO) {
   out.migratedAt = typeof v15.migratedAt === 'string' ? v15.migratedAt : nowISO;
   return out;
 }
+// R237 (v17): THE NUMBER PRECEDENCE RULE, APPLIED TO THE PAST, automatically and
+// on the user's word ("user errors are signal, not chores" -- no repair list).
+// Every item whose numbers the rule now decides differently takes them, and keeps
+// what it had in `recomputed.was` with the rule's name and the moment. Values the
+// user set are never touched (see precUserKeys). An item with no linked row stays
+// exactly as logged.
+function recomputeItemByPrecedence(it, nowISO) {
+  if (!it || typeof it !== 'object' || isLegacyAuto(it)) return it;
+  const c = Object.assign({}, it);
+  const before = {};
+  MACRO_KEYS.forEach(function (k) { if (c[k] !== undefined) before[k] = c[k]; });
+  const wasUnres = c.unresolved === true;
+  const pr = applyPrecedence(c);
+  if (!pr.values) return it;
+  const changed = wasUnres || MACRO_KEYS.some(function (k) { return Math.abs(num(before[k]) - num(c[k])) > 1e-9; });
+  if (!changed) return it;
+  c.recomputed = { rule: 'R237', at: nowISO, was: wasUnres ? { unresolved: true } : before };
+  return c;
+}
+function migrateV16toV17(v16, nowISO) {
+  const out = Object.assign({}, v16, { version: 17 });
+  const days = {};
+  Object.keys(v16.days || {}).forEach(function (dk) {
+    const d = v16.days[dk] || {};
+    days[dk] = Object.assign({}, d, {
+      items: (Array.isArray(d.items) ? d.items : []).map(function (it) { return recomputeItemByPrecedence(it, nowISO); }),
+    });
+  });
+  out.days = days;
+  out.migratedAt = typeof v16.migratedAt === 'string' ? v16.migratedAt : nowISO;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -1590,6 +1645,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 13) < 14) out = migrateV13toV14(out, nowISO);
   if ((out.version || 14) < 15) out = migrateV14toV15(out, nowISO);
   if ((out.version || 15) < 16) out = migrateV15toV16(out, nowISO);
+  if ((out.version || 16) < 17) out = migrateV16toV17(out, nowISO);
   return out;
 }
 
@@ -1737,6 +1793,7 @@ function boot() {
           // version 1 or 2 (or version-absent, defensively) -> chained in-place
           // migration to the latest schema (D7 / D20). Snapshot the untouched blob first.
           Store.snapshotPremigration(raw);
+          if (typeof v === 'number' && v >= 2 && v < 17) Store.snapshotBeforeV17(raw);
           state = migrateToLatest(parsed, nowISO);
           source = 'migrated'; dirty = true;
         }
@@ -1829,7 +1886,11 @@ function parseImport(raw) {
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
     return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated', streams: null };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore'), streams: parseStreams(o) };   // < v10 upgrades, v10 as-is
+  // R237: a file from before v17 gets the precedence rule on the way in, exactly as
+  // boot gives it to a stored v16 log -- the same item, the same numbers, whichever
+  // way it arrived. (Its structural upgrades are normalizeState's, as before.)
+  const o17 = (v < 17) ? migrateV16toV17(o, new Date().toISOString()) : o;
+  return { ok: true, state: normalizeState(o17), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore'), streams: parseStreams(o) };   // < v10 upgrades, v10 as-is
 }
 
 function showPrerestore(json) {
@@ -3049,6 +3110,176 @@ function resolveItemFreeze(it, meta, row, corpusId, corpusName, distance, how, w
   };
 }
 // Nothing here decides: the caller passes the row the USER chose (D119).
+// ---- R237: NUMBER PRECEDENCE -- one function, every path ---------------------
+// Capture, the later resolve pass, a repeat, the v17 migration (restore and boot
+// both run it) -- each ends here, so the same item gets the same numbers whichever
+// way it arrived. In order:
+//   1. what the USER set wins: the lookup's `adjusted` keys, an edit's `orig`
+//      keys, and the numbers of a manual / scan / preset / stack entry (typed or
+//      read off a label) -- unless that entry is all zeros, an empty form;
+//   2. a LINKED ROW (`ref`, chosen or confirmed by the user) -- the row's numbers,
+//      re-expressed for the item's grams (ref.g is the basis, H2);
+//   3. the item's own estimate (the AI's), when no row is linked;
+//   4. an unconfirmed item with a SUGGESTED row counts provisionally from it,
+//      marked; with none it counts nothing, and the day says so.
+// A row with no soluble-fibre figure gives 0, as every corpus item already does.
+const PREC_SLOTS = { kcal: '208', protein_g: '203', fat_g: '204', carb_g: '205', fiber_g: '291' };
+const USER_NUMBER_SOURCES = ['manual', 'scan', 'preset', 'supplement'];
+function precUserKeys(it) {
+  const keys = {};
+  (Array.isArray(it.adjusted) ? it.adjusted : []).forEach(function (k) { if (MACRO_KEYS.indexOf(k) >= 0) keys[k] = 1; });
+  if (it.orig && typeof it.orig === 'object') Object.keys(it.orig).forEach(function (k) { if (MACRO_KEYS.indexOf(k) >= 0) keys[k] = 1; });
+  if (USER_NUMBER_SOURCES.indexOf(it.source) >= 0 && it.unresolved !== true
+      && MACRO_KEYS.some(function (k) { return num(it[k]) > 0; })) MACRO_KEYS.forEach(function (k) { keys[k] = 1; });
+  return keys;
+}
+function precRowValues(ref, grams) {
+  const v = ref && ref.v;
+  if (!v || v['208'] == null || !isFinite(Number(v['208']))) return null;
+  const basis = Number(ref.g), g = Number(grams);
+  const k = (basis > 0 && g > 0) ? g / basis : 1;
+  const out = {};
+  Object.keys(PREC_SLOTS).forEach(function (m) {
+    const x = v[PREC_SLOTS[m]];
+    out[m] = (x != null && isFinite(Number(x))) ? Number(x) * k : 0;
+  });
+  out.soluble_fiber_g = 0;
+  return out;
+}
+function precedenceOf(it) {
+  if (!it) return { from: 'none' };
+  const user = precUserKeys(it);
+  const mine = Object.keys(user).length > 0;
+  const row = precRowValues(it.ref, it.grams);
+  if (row) {
+    const vals = {};
+    MACRO_KEYS.forEach(function (k) { vals[k] = user[k] ? num(it[k]) : row[k]; });
+    return { from: mine ? 'row+yours' : 'row', values: vals, provisional: false };
+  }
+  const sug = precRowValues(it.suggested, it.grams);
+  if (sug && (it.provisional === true || it.unresolved === true)) return { from: 'suggested', values: sug, provisional: true };
+  if (it.unresolved !== true) return { from: mine ? 'yours' : 'estimate' };
+  return { from: 'none' };
+}
+function applyPrecedence(it) {
+  const pr = precedenceOf(it);
+  if (pr.values) { MACRO_KEYS.forEach(function (k) { it[k] = pr.values[k]; }); delete it.unresolved; }
+  if (pr.provisional) it.provisional = true; else delete it.provisional;
+  if (pr.from === 'row' || pr.from === 'row+yours') delete it.suggested;
+  return pr;
+}
+// ---- R233.1 / R237: WHAT A ROW SAYS ABOUT ITS OWN COUNT ---------------------
+// Under the collapsed line, never behind a tap -- an item the day is not counting
+// must not look like one it is:
+//   * no number at all  -> "Not counted -- pick a food for '<name>'" (the picker)
+//   * provisional       -> "suggested -- tap to confirm", and what it suggests
+function itemCountStateHTML(dk, idx, it) {
+  if (!it || isLegacyAuto(it)) return '';
+  if (it.provisional === true && it.suggested) {
+    return '<div class="mcount msugg"><button type="button" class="linklike msuggbtn" onclick="event.stopPropagation();confirmSuggested(\''
+      + esc(dk) + '\',' + idx + ')">suggested \u2014 tap to confirm</button>'
+      + '<span class="msuggfrom"> ' + esc(foodDisplayName(it.suggested.name || '')) + ', from what you chose before</span></div>';
+  }
+  if (!itemHasMacros(it)) {
+    return '<div class="mcount mnotc"><button type="button" class="linklike mnotcbtn" onclick="event.stopPropagation();resolveOpen(\''
+      + esc(dk) + '\',' + idx + ')">Not counted \u2014 pick a food for \u201c' + esc(String(it.name || '')) + '\u201d</button></div>';
+  }
+  return '';
+}
+// R237/B: a recounted item says so where its details are, with what it was.
+function itemRecountHTML(it) {
+  const r = it && it.recomputed;
+  if (!r) return '';
+  const was = r.was || {};
+  return '<div class="mrecount">Recounted from its food database row'
+    + (was.unresolved ? ' \u2014 it was not counted before' : ' \u2014 was ' + esc(kcalDisp(was.kcal)) + ' cal')
+    + '</div>';
+}
+// "suggested -- tap to confirm": the suggestion BECOMES the item's row, with Undo.
+function confirmSuggested(dk, idx) {
+  const day = APP_STATE.days[dk];
+  const it = day && day.items && day.items[idx];
+  if (!it || !it.suggested) return { ok: false, why: 'no-suggestion' };
+  const before = JSON.parse(JSON.stringify(it));
+  it.ref = Object.assign({}, it.suggested, { at: todayKey(), at_ms: nowMs(), how: 'proposed', when: 'later' });
+  delete it.suggested; delete it.provisional;
+  applyPrecedence(it);
+  Store.saveState(APP_STATE); refresh();
+  offerUndo('Confirmed ' + String(it.name || ''), function () {
+    const d2 = APP_STATE.days[dk];
+    if (d2 && d2.items && d2.items[idx] === it) { d2.items[idx] = normalizeItem(before, true); Store.saveState(APP_STATE); refresh(); }
+  });
+  return { ok: true, item: it };
+}
+// R233.1/5: THE UNDERCOUNT IS SAID ON THE DAY, beside its calories -- "1,450 cal +
+// 3 items not counted" -- with the list one tap away, each a route to its picker.
+let UNCOUNTED_OPEN = false;
+function dayUncounted(dk) {
+  const out = [];
+  (((APP_STATE.days || {})[dk] || {}).items || []).forEach(function (it, i) {
+    if (it && !isLegacyAuto(it) && !itemHasMacros(it)) out.push({ idx: i, it: it });
+  });
+  return out;
+}
+function dayProvisional(dk) {
+  return (((APP_STATE.days || {})[dk] || {}).items || []).filter(function (it) { return it && it.provisional === true; }).length;
+}
+function uncountedToggle(on) { UNCOUNTED_OPEN = (on === undefined) ? !UNCOUNTED_OPEN : !!on; renderDay(); return { ok: true, open: UNCOUNTED_OPEN }; }
+function uncountedLineHTML(dk, t) {
+  const u = dayUncounted(dk), pv = dayProvisional(dk);
+  if (!u.length && !pv) return '';
+  const head = esc(kcalDisp(t.kcal)) + ' cal'
+    + (u.length ? ' + ' + u.length + ' item' + (u.length === 1 ? '' : 's') + ' not counted' : '')
+    + (pv ? ' \u00b7 ' + pv + ' suggested, counted until you confirm' : '');
+  let h = '<div class="uncline"><button type="button" class="linklike uncbtn" aria-expanded="' + (UNCOUNTED_OPEN ? 'true' : 'false')
+    + '" onclick="uncountedToggle()">' + head + '</button>';
+  if (UNCOUNTED_OPEN && u.length) {
+    h += '<div class="unclist">' + u.map(function (x) {
+      return '<button type="button" class="btn uncitem" onclick="resolveOpen(\'' + esc(dk) + '\',' + x.idx + ')">'
+        + esc(String(x.it.name || 'item')) + (x.it.time ? ' \u00b7 ' + esc(x.it.time) : '') + ' \u2014 pick a food</button>';
+    }).join('') + '</div>';
+  }
+  return h + '</div>';
+}
+// R233.1/4 + R237/C: WHAT THE USER'S OWN PAST SAYS THIS IS. Their earlier
+// corrections first (the model called it X and they chose Y -- H31's memory),
+// then an earlier item of the same name with a linked row. Only the user's own
+// choices propose: the matcher's top pick is right 16 times in 38 (D141), and a
+// provisional number from it would be a wrong food counted quietly.
+function rememberedRefItem(key) {
+  if (!key || !APP_STATE || !APP_STATE.days) return null;
+  const days = Object.keys(APP_STATE.days).filter(isDayKey).sort().reverse();
+  for (let i = 0; i < days.length; i++) {
+    const items = APP_STATE.days[days[i]].items || [];
+    for (let j = items.length - 1; j >= 0; j--) {
+      const it = items[j];
+      if (!it || !it.ref || !it.ref.v || it.ref.v['208'] == null) continue;
+      if (it.ref.how === 'confirmed despite state mismatch') continue;   // D135/1
+      if (matchKey(it.name) === key || matchKey(it.ref.name) === key) return it;
+    }
+  }
+  return null;
+}
+function suggestionFor(it) {
+  const g = Number(it && it.grams);
+  if (!(g > 0)) return null;
+  let src = null;
+  const said = String((it && it.ai_identity) || '');
+  // The newest earlier correction of this model name THAT HAS A ROW. Not
+  // correctionLead's single newest: the plate being saved is already stored, so
+  // the newest correction can be this very item, with no row behind it.
+  const sk = said ? matchKey(said) : '';
+  const hit = sk ? correctionsAll().filter(function (c) { return c.modelKey === sk && c.refId; })[0] : null;
+  if (hit) src = rememberedRefItem(hit.chosenKey);
+  if (!src) src = rememberedRefItem(matchKey(String((it && it.name) || '')));
+  if (!src) return null;
+  const basis = Number(src.ref.g) > 0 ? Number(src.ref.g) : Number(src.grams);
+  if (!(basis > 0)) return null;
+  const k = g / basis, v = {};
+  Object.keys(src.ref.v || {}).forEach(function (sl) { v[sl] = Number(src.ref.v[sl]) * k; });
+  return { ns: src.ref.ns, id: src.ref.id, name: src.ref.name, at: todayKey(), hash: src.ref.hash,
+           attribution: src.ref.attribution, how: 'proposed', when: 'later', g: g, d: null, v: v };
+}
 function resolveItem(dayKey, idx, corpusId, corpusName, distance, how) {
   const day = APP_STATE.days[dayKey];
   const it = day && day.items && day.items[idx];
@@ -3061,6 +3292,10 @@ function resolveItem(dayKey, idx, corpusId, corpusName, distance, how) {
       const ref = resolveItemFreeze(it, m, row, corpusId, corpusName, distance, how);
       if (!ref) return { ok: false, why: 'no-basis' };
       it.ref = ref;
+      // R233.1/3 + R237: confirming a row GIVES the item the row's numbers and
+      // ends "unconfirmed" -- it used to store the link alone, so an unconfirmed
+      // item stayed at 0 kcal and an estimated one kept the AI's numbers.
+      applyPrecedence(it);
       Store.saveState(APP_STATE);
       refresh();
       return { ok: true, ref: ref };
@@ -5585,6 +5820,7 @@ function renderDayInner() {
   html += renderGoalsHTML(t, day);
   html += plateRecallLineHTML() + (dk === todayKey() ? regimenLinkHTML() : '') + dayActionsHTML();   // R215: both open + Log
   html += noDrinksAskHTML(dk);          // R226: an answer to what the page shows -- it removes or keeps, never adds
+  html += uncountedLineHTML(dk, t);     // R233.1/5: the undercount, said beside the calories
 
   // ---- R159.1: THE DAY AS THE MEALS THAT HAPPENED ----------------------
   // Ruled: one collapsed header per meal kind that HAS items; the empty kinds
@@ -5690,12 +5926,20 @@ function renderDayInner() {
       //     deeper, because enriching a figure that exists is not a dead end.
       // The second half is a real flow cost and flow-gate J4 is re-pinned for it
       // rather than quietly left reading 3 (D130: flow is a number that drifts).
+      // R233.1: a row with NO number says it is NOT COUNTED, in its headline slot,
+      // and the route is the same tap. "find nutrients" stays for a row that has
+      // numbers (an estimate) and could have better ones.
       const routeChip = (!it.ref && !it._auto)
-        ? `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">find nutrients</button>`
+        ? `<button class="mealchip rchip" onclick="event.stopPropagation();resolveOpen('${esc(dk)}',${idx})">${itemHasMacros(it) ? 'find nutrients' : 'not counted'}</button>`
         : '';
+      // R233.1 within D144: a provisional item's ONE number says it is suggested.
       const headSlot = (routeChip && !itemHasMacros(it))
         ? routeChip
-        : `<span class="mnum">${esc(itemHeadline(it))}</span>`;
+        : (it.provisional === true
+            // a word here crushed the name ("appl/e juice" at 390px): the ONE number
+            // carries the mark itself -- amber, a "?", and the word for a reader
+            ? `<span class="mnum msuggnum" title="suggested" aria-label="${esc(itemHeadline(it))}, suggested">${esc(itemHeadline(it))}?</span>`
+            : `<span class="mnum">${esc(itemHeadline(it))}</span>`);
       const bodyChip = (headSlot === routeChip) ? '' : routeChip;
       // D144: the collapsed line is NAME, TIME and ONE NUMBER. Everything the old
       // row printed moved into the body, which is one tap away.
@@ -5737,6 +5981,7 @@ function renderDayInner() {
         ? `<div class="mserved">${servedTxt.split(' \u00b7 ').map((b) => `<span class="msbit">${esc(b)}</span>`).join(' \u00b7 ')}</div>`
         : '';
       const ateHTML = itemAteHTML(dk, idx, it);
+      const stateHTML = itemCountStateHTML(dk, idx, it);
       html += `<div class="mitem mgitem${isDrink ? ' mgidrink' : ''}${isOpen ? ' mopen' : ''}">
         <div class="mline">
           <div class="mhead" role="button" tabindex="0" aria-expanded="${isOpen ? 'true' : 'false'}" onclick="itemToggle('${esc(dk)}',${idx})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();itemToggle('${esc(dk)}',${idx});}">
@@ -5745,7 +5990,7 @@ function renderDayInner() {
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
-        </div>${servedHTML}${isOpen ? `<div class="mbody">${legacyHTML}${ateHTML}
+        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${legacyHTML}${ateHTML}${itemRecountHTML(it)}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${isLegacyAuto(it) ? '' : sittingLinkHTML(dk, sittingOfItem(dk, idx))}
@@ -6042,6 +6287,17 @@ function buildRepeatItem(src, time, from, grams) {
   if (from && from.date) c.repeated_from = Object.assign(
     { date: String(from.date), name: String(from.name || '') },
     (c.repeated_from && c.repeated_from.lostMatch) ? { lostMatch: true } : {});
+  // R234/3 + R237: a repeat copies CONFIRMED numbers (the row's, at its grams);
+  // an unconfirmed source is copied provisionally from a suggestion where the
+  // user's past offers one -- never silently 0 (the day counts what is left).
+  delete c.recomputed;
+  if (c.suggested && !sameGrams) {
+    const b = Number(c.suggested.g), gN = Number(c.grams);
+    if (b > 0 && gN > 0) { const k = gN / b, sv = {}; Object.keys(c.suggested.v || {}).forEach(function (sl) { sv[sl] = c.suggested.v[sl] * k; }); c.suggested = Object.assign({}, c.suggested, { v: sv, g: gN }); }
+    else delete c.suggested;
+  }
+  if (!c.ref && !c.suggested && c.unresolved === true) { const sg = suggestionFor(c); if (sg) c.suggested = sg; }
+  applyPrecedence(c);
   return normalizeItem(c, true);
 }
 // A NEW RECORD AT A NEW TIME, never a revision (ruled). stampTime keeps D112's
@@ -8551,6 +8807,15 @@ const ORIG_KEYS = ['value', 'dose', 'time', 'notes', 'meal', 'kcal', 'protein_g'
                    'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g', 'confidence',
                    'grams',    // D57/R23: the accepted portion is editable, so it has an original
                    'device', 'variant'];   // R186: a sensor's type and site, same reason
+function normalizeRecomputed(r) {
+  if (!r || typeof r !== 'object' || Array.isArray(r)) return undefined;
+  const was = {};
+  const w = (r.was && typeof r.was === 'object' && !Array.isArray(r.was)) ? r.was : {};
+  MACRO_KEYS.forEach(function (k) { if (w[k] != null && isFinite(Number(w[k]))) was[k] = Number(w[k]); });
+  if (w.unresolved === true) was.unresolved = true;
+  return { rule: String(r.rule || 'R237').slice(0, 20),
+           at: /^\d{4}-\d{2}-\d{2}T/.test(String(r.at || '')) ? String(r.at) : '', was: was };
+}
 function normalizeOrig(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
   const out = {};
@@ -12071,7 +12336,7 @@ let CHART_PICK = null;                 // a moment in ms, or null
 // ReferenceError before anything ran -- which presents as "HT is not defined",
 // exactly like a parse error, and sent me looking for a syntax slip.
 function deleteAllKeys() {
-  return [STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY,
+  return [STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PREMIGRATION_V16_KEY, PRODUCTS_KEY,
           GLUCOSE_KEY, STEPS_KEY, VERSION_KEY, SCANS_KEY, TRASH_KEY, BYOK_LS, BACKUP_KEY];
 }
 // THE CORPUS IS KEPT, and the confirm says so rather than leaving it to be
@@ -14577,6 +14842,7 @@ const VERSION_LOG = [
   { v: '0.101.0', d: '2026-10-18', note: 'A backup is now the whole record. Export backup includes your imported glucose and steps, each with where it came from, and restoring the file brings them back, so a backup made on the phone has everything the app knows. A backup made before this has no glucose in it, so restoring one leaves the glucose already on this device as it is. Glucose adds about 2 KB a day to the file.' },
   { v: '0.102.0', d: '2026-10-18', note: 'A meal’s glucose response now belongs to the whole meal, not to one food in it. Everything you ate in one sitting — the foods in one meal, and anything logged within half an hour of them — is reviewed together, with its carbs, fat, protein and fibre added up as eaten, and the response is shown once, on the meal. Each food in it says which meal it was part of, with a link to the response. Food eaten in the same sitting no longer counts as eating on top of the meal; only food outside it within two hours does. Where there is no glucose yet, it says so plainly and when glucose was last imported; where it stops part-way, it says where and to import again. The technical detail is under why?' },
   { v: '0.103.0', d: '2026-10-18', note: 'Two new entries in + Log. No alcohol today marks a day with none; logging a drink with alcohol later asks whether to remove the mark. Alcohol-free rewards in Settings (off unless you turn it on) adds gold circles and counts to the 7-day and month rings. Stopped eating ends your eating window, and the day ring shows the time until your next food in its own colour.' },
+  { v: '0.104.0', d: '2026-10-18', note: 'A food you matched to a database row now counts that row’s numbers, and items matched before were recounted automatically; each one keeps what it was. Typing a name on a photo item now looks it up as you type, drinks first. Items the day is not counting say so, and the day shows how many beside its calories. Corrections you made on photos are now remembered for the next one.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -16439,9 +16705,21 @@ const NLNL = NLONE + NLONE;
 function correctionsAll() {
   const out = [];
   if (!APP_STATE || !APP_STATE.days) return out;
-  const days = Object.keys(APP_STATE.days).filter(isDayKey).sort().reverse();
+  // R237/C1 FOUND: a photo meal saved through a PLATE keeps the model's name on
+  // the plate item, never on the eaten record ("those are properties of confirming
+  // the plate"), so 150 of 178 photo items -- every correction made on a plate --
+  // were invisible here, and "apple juice -> white wine" was never learned. The
+  // plates are read too, by their date, newest first with the day items.
+  const byDay = {};
+  Object.keys(APP_STATE.days).filter(isDayKey).forEach(function (dk) { byDay[dk] = (APP_STATE.days[dk].items || []).slice(); });
+  Object.keys(APP_STATE.plates || {}).forEach(function (pid) {
+    const pl = APP_STATE.plates[pid];
+    if (!pl || !isDayKey(pl.date)) return;
+    (byDay[pl.date] = byDay[pl.date] || []).push.apply(byDay[pl.date], pl.items || []);
+  });
+  const days = Object.keys(byDay).sort().reverse();
   for (let i = 0; i < days.length; i++) {
-    const items = APP_STATE.days[days[i]].items || [];
+    const items = byDay[days[i]];
     for (let j = items.length - 1; j >= 0; j--) {
       const it = items[j];
       if (!it || isLegacyAuto(it)) continue;
@@ -16605,6 +16883,7 @@ function photoPickCorrection(idx) {
       it.name = String(lead.chosenName);
       delete it.unres;
       it.ref = ref;
+      draftTakeRow(it, m, row);
       photoSettle(idx, { kind: 'correction', rank: null });
       return { ok: true, ref: ref, name: it.name };
     });
@@ -16759,6 +17038,22 @@ function photoPickCandidate(idx, rank) {
 // cooked` shares no token with `cooked wheat ramen noodles`), so a proposal built
 // from the candidate list would carry no numbers. Absence never withholds the
 // proposal; it is shown as absent, like every other absence here.
+// R237/A, ON THE DRAFT: a row picked for a photo item becomes its per-100 g at
+// once, so the total beside Save is the total the day will show (the save then
+// applies the same rule to the record). The AI's estimate is not kept here: its
+// calibration evidence lives in `ai_grams` / `ai_identity` / the plate, not in a
+// number the draft would go on adding up.
+function draftTakeRow(it, m, row) {
+  if (!it || !m || !row) return;
+  const p = {};
+  Object.keys(CORPUS_OWN_MACROS).forEach(function (k) {
+    const v = corpusValueAt(row, m.slots, CORPUS_OWN_MACROS[k]);
+    p[k] = (v == null || v !== v) ? 0 : Number(v);
+  });
+  p.soluble_fiber_g = 0;
+  it.per100 = p;
+  it.estimateFrom = 'row';
+}
 function photoPickMemory(idx) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return Promise.resolve({ ok: false });
   const it = PHOTO_DRAFT.items[idx];
@@ -16773,7 +17068,7 @@ function photoPickMemory(idx) {
       const ref = row
         ? resolveItemFreeze(it, m, row, p.rem.id, p.rem.name, null, 'proposed', 'capture')
         : null;
-      if (ref) it.ref = ref;
+      if (ref) { it.ref = ref; draftTakeRow(it, m, row); }
       photoSettle(idx, { kind: 'memory', rank: 0 });
       return { ok: true, ref: ref || null, name: it.name };
     });
@@ -16817,9 +17112,44 @@ function photoSearchOpen(idx) {
 function photoSearchCancel() { PHOTO_SEARCH = null; renderPhotoDraft(); return { ok: true }; }
 // Typing does NOT re-render: the field would be rebuilt under the caret on every
 // keystroke. The text is held, and the search runs on a deliberate act.
+// R233.1/1: TYPING A NAME ON A PHOTO ITEM LOOKS IT UP, as Manual's field does
+// (R215): rows with their calories arrive as the name is typed. Reported: a
+// typed "wine" changed the name and linked nothing, so the item saved at 0 kcal
+// -- the search ran only on Enter or the Search button, and a typed name with no
+// search behind it read as an answer.
+let PHOTO_TYPE_TIMER = null;
+const PHOTO_TYPE_MS = 250;
 function photoSearchType(text) {
-  if (PHOTO_SEARCH) PHOTO_SEARCH.text = String(text == null ? '' : text);
+  if (!PHOTO_SEARCH) return { ok: true };
+  PHOTO_SEARCH.text = String(text == null ? '' : text);
+  const idx = PHOTO_SEARCH.idx, q = PHOTO_SEARCH.text;
+  if (PHOTO_TYPE_TIMER) clearTimeout(PHOTO_TYPE_TIMER);
+  if (q.trim().length < TYPEAHEAD_MIN) return { ok: true };
+  const st0 = PHOTO_SEARCH, d0 = PHOTO_DRAFT;
+  PHOTO_TYPE_TIMER = setTimeout(function () {
+    PHOTO_TYPE_TIMER = null;
+    // A search closed, or a draft replaced, while the timer ran is not this one.
+    if (PHOTO_SEARCH !== st0 || PHOTO_DRAFT !== d0 || st0.text !== q) return;
+    photoSearchRun(idx, q, { typing: true });
+  }, PHOTO_TYPE_MS);
   return { ok: true };
+}
+// A drink-like item gets the drinks first (R221/3's rule). Two signals, either is
+// enough: the model filed the photo as a DRINK (`aiMeal` -- the draft's own `meal`
+// is the clock's, not the model's), or the model's name for this item finds a
+// BEVERAGE row first, which catches the wine on a dinner photo.
+function photoItemIsDrink(it) {
+  if (!it) return false;
+  if (it.meal === 'drink' || (PHOTO_DRAFT && PHOTO_DRAFT.aiMeal === 'drink')) return true;
+  const m = CORPUS_MEM, said = String(it.aiIdentity || it.name || '');
+  if (!m || !m.index || !said) return false;
+  const set = corpusBeverageSet(m), top = matchTypeahead(said, 1)[0];
+  return !!(set && top && set.has(String(top.id)));
+}
+// The field is rebuilt by the render; the caret goes back where the user was typing.
+function photoSearchRefocus() {
+  const f = document.getElementById('pmsQuery');
+  if (f && f.focus) { f.focus(); try { const n = f.value.length; f.setSelectionRange(n, n); } catch (e) {} }
 }
 
 // The user's OWN presets, by plain lookup -- no scoring, no ranking, no
@@ -16846,7 +17176,9 @@ function photoSearchRun(idx, text, opts) {
   // local search the user appears to have typed.
   const prev = PHOTO_SEARCH || {};
   const keep = !!(opts && opts.keepNormalised);
-  PHOTO_SEARCH = { idx: idx, text: q, phase: 'looking', rows: [], presets: photoSearchPresets(q) };
+  PHOTO_SEARCH = { idx: idx, text: q, phase: (opts && opts.typing && prev.rows && prev.rows.length) ? 'rows' : 'looking',
+                   rows: (opts && opts.typing && prev.rows) ? prev.rows : [], proposed: (opts && opts.typing) ? prev.proposed : null,
+                   presets: photoSearchPresets(q) };
   if (keep) {
     PHOTO_SEARCH.normalised = true;
     PHOTO_SEARCH.asked = prev.asked || [];
@@ -16855,6 +17187,7 @@ function photoSearchRun(idx, text, opts) {
     PHOTO_SEARCH.typedBy = q;
   }
   renderPhotoDraft();
+  if (opts && opts.typing) photoSearchRefocus();
   if (!q.trim()) { PHOTO_SEARCH.phase = 'ask'; renderPhotoDraft(); return Promise.resolve({ ok: true, rows: 0 }); }
   const stale = function () { return !PHOTO_SEARCH || PHOTO_SEARCH.idx !== idx || PHOTO_SEARCH.text !== q; };
   return corpusEnsure().then(function () {
@@ -16867,7 +17200,11 @@ function photoSearchRun(idx, text, opts) {
       renderPhotoDraft();
       return { ok: false, why: 'no-corpus' };
     }
-    const cands = matchCandidates(q, IDENTITY_SEARCH_MAX);
+    // R233.1/1: Manual's lookup (R215) -- the half-typed last word matches, the
+    // user's own earlier picks lead -- and drinks first for a drink.
+    let pool = matchTypeahead(q, TYPEAHEAD_POOL);
+    if (photoItemIsDrink(PHOTO_DRAFT.items[idx])) pool = beverageFirst(pool, m);
+    const cands = typeaheadMineFirst(pool, refUseCounts(m.ns), IDENTITY_SEARCH_MAX);
     return Promise.all(cands.map(function (c) {
       return corpusLookup(c.id).then(function (row) {
         // THE FULL MACRO ROW, not energy alone. MEASURED on the two rows this
@@ -16914,6 +17251,7 @@ function photoSearchRun(idx, text, opts) {
         PHOTO_SEARCH.proposed = prop;
         PHOTO_SEARCH.phase = PHOTO_SEARCH.rows.length ? 'rows' : 'none';
         renderPhotoDraft();
+        if (opts && opts.typing) photoSearchRefocus();
         return { ok: true, rows: PHOTO_SEARCH.rows.length };
       });
     });
@@ -16988,6 +17326,7 @@ function photoSearchApply(idx, id, name, how) {
       it.name = String(name);
       delete it.unres;
       it.ref = ref;
+      draftTakeRow(it, m, row);
       PHOTO_SEARCH = null;
       photoSettle(idx, { kind: 'search', rank: null });
       return { ok: true, ref: ref, name: it.name };
@@ -17249,7 +17588,7 @@ function photoSearchHTML(idx, it) {
   // and neither is a reason to lose what the user said.
   const empty = (st.phase === 'none' || st.phase === 'no-corpus');
   const keep = (empty && typed)
-    ? '<button type="button" class="btn pmskeep" onclick="photoSearchKeep(' + idx + ')">Use “' + esc(typed) + '” with no nutrition</button>'
+    ? '<button type="button" class="btn pmskeep" onclick="photoSearchKeep(' + idx + ')">Use “' + esc(typed) + '” with no nutrition (not counted)</button>'
     : '';
   // RULED B: THE OFFER IS ALWAYS THERE when the search came back empty, and when
   // there is no key it SAYS SO rather than vanishing. The device finding was not a
@@ -17259,6 +17598,9 @@ function photoSearchHTML(idx, it) {
   // Still NOT automatic: rule D made it local-first precisely so the common path
   // costs no provider call, and auto-normalising would spend one on every empty
   // search.
+  // Fork D holds: offered only when the LOCAL search answered nothing. R233.1 made
+  // the lookup Manual's, which matches a half-typed word, so the device's "sui mai"
+  // now brings two weak partial rows and no offer -- named in DECISIONS, open.
   const ask = (empty && typed)
     ? (byokConfigured()
         ? '<button type="button" class="btn pmsask" onclick="photoSearchAskModel(' + idx + ')">'
@@ -18152,6 +18494,12 @@ function consumeFromPlate(plateId, statements, opts) {
       const sc = g / 100;
       MACRO_KEYS.forEach((k) => { rec[k] = num(pi.per100[k]) * sc; });
     }
+    // R237/A: a linked row's numbers win over the AI's per-100 g estimate -- the
+    // capture-time half of R233.1/3 (fried tofu 248 vs 474, pork chop 191 vs 299).
+    // With no row, an unconfirmed item takes a suggestion from the user's own
+    // past if there is one, counted provisionally (R233.1/4).
+    if (!rec.ref && rec.unresolved === true) { const sg = suggestionFor(Object.assign({ ai_identity: pi.ai_identity }, rec)); if (sg) rec.suggested = sg; }
+    applyPrecedence(rec);
     written.push(normalizeItem(rec, true));
   });
   if (!written.length) return { ok: false, error: 'Nothing was recorded as eaten.' };
@@ -23024,6 +23372,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
+  reviewEntry, applyPrecedence, precedenceOf, suggestionFor, recomputeItemByPrecedence, migrateV16toV17, confirmSuggested, dayUncounted, uncountedLineHTML, uncountedToggle, itemCountStateHTML, photoSearchType, photoItemIsDrink, PREMIGRATION_V16_KEY,
   noDrinksMark, noDrinksTap, noDrinksRemove, noDrinksKeep, noDrinksConflict, noDrinksAskHTML, dayAlcoholCount, dayUnknownDrink, drinkHasAlcohol, drinkAlcoholAnswer, drinkKey, afRewardsOn, setAlcoholFreeRewards, afDay, afCounts, afRun, afCountsHTML, eatStopOpen, eatStopSave, eatStopCancel, eatStopsAbs, eatStopSpans,
   CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, findMealEvent, sittingOfGroup, sittingsLedBy, sittingOfItem, sittingResponseHTML, sittingLinkHTML, sittingShow, glucoseExtent, lastImportWords, SITTING_JOIN_MIN, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,

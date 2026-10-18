@@ -217,7 +217,7 @@ window.__stage = 'start';
   const lists = all('.pmalts');
   lists[0].querySelector('.pmsomething').click();
   await sleep(200);
-  await HT.photoSearchRun(0, 'sui mai');
+  await HT.photoSearchRun(0, 'sui qxv');   // R233.1: the lookup is Manual's now and 'sui mai' finds two partial rows; this gate needs the EMPTY case
   await sleep(500);
   O.empty.rows = all('.pmsrow').length;
   const ask0 = document.querySelector('.pmsask');
@@ -237,7 +237,7 @@ window.__stage = 'start';
   // ---- with a key, the offer is live -----------------------------------
   stage('empty-with-key');
   HT.byokSave('grok', 'xai-GATEFIXTURE0000000000000', 5);
-  await HT.photoSearchRun(0, 'sui mai');
+  await HT.photoSearchRun(0, 'sui qxv');   // R233.1: the lookup is Manual's now and 'sui mai' finds two partial rows; this gate needs the EMPTY case
   await sleep(400);
   const ask1 = document.querySelector('.pmsask');
   O.empty.askVisibleWithKey = vis(ask1);

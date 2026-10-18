@@ -6261,3 +6261,35 @@ v0.103.0 "what's new" notice, lengthened by R232, measured 613 px tall above the
 day on a fresh profile. The note is cut to four sentences. Nothing asserts the
 notice's height directly -- entry-gate caught it only because it taps the ring
 from the top of the page. Recorded, not yet gated.
+
+### v0.104.0 — `precedence-gate`, and four defects it and the harness found (2026-10-18)
+
+**Real typing on the real corpus.** The reported case is driven end to end: an
+"apple juice" photo, "wine" typed character by character with no Enter, the
+white-wine row clicked, the meal saved. The first run found the drinks were not
+first -- "Vinegar, red wine" led -- because the drink test read the draft's
+`meal`, which is the CLOCK's; the model's word is `aiMeal`.
+
+**The memory that could not see plates.** Step 2 found no correction to offer:
+`correctionsAll` read day items only, and a plate keeps the model's name on the
+plate. Then the provisional step found the NEWEST correction was the item being
+saved (its plate is stored first), which has no row -- the suggestion now takes
+the newest correction that has one.
+
+**A typing timer that outlived its draft.** identity-search-gate caught the
+debounce firing after the draft was replaced and opening a search on the new one.
+
+**A boundary that rewrote null as 0.** The harness's byte-identical round trip
+failed on `"d": null` vs `"d": 0` -- `normalizeRef` had done that on every restore.
+
+**Two gate mistakes, mine:** "was 82.8 cal" where the app rounds to 83; and
+looking for a row inside closed meal groups.
+
+**First full run of v0.104.0: four failures.** `check-dupes` (a class split
+across two rule blocks); `noauto-gate`'s schema pin (16 -> 17); `served-gate`,
+which exposed the draft total adding the photo's numbers after a row was picked
+(fixed: the draft takes the row); `parity-gate`, whose "found nothing" query now
+finds two partial rows under Manual's lookup. Making the offer always visible
+fixed parity and broke `identity-search-gate`'s fork-D assertion -- the two
+gates encode one ruling from both sides, which is what they are for. Reverted;
+the query was changed instead, and the device case is open in DECISIONS.

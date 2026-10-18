@@ -17374,3 +17374,133 @@ the window ending at the stop, a repeated stop, "from last food", E-lite's order
 Evidence: `drinkfree-gate` re-pointed — sparkling water after the mark asks
 nothing; a kombucha with no source is asked once and "No" is remembered; white
 wine asks. Harness 3200 → 3203.
+
+
+## R233.1 + R234 + R237 — RULED AND BUILT: ONE NUMBER-PRECEDENCE RULE, THE PAST RECOMPUTED, CORRECTIONS LEARNED (2026-10-18, v0.104.0, schema v17)
+
+Serves **track** (the numbers the day counts) and is what **evaluate** and
+**predict** stand on: R231 cannot be honest about a response to carbohydrate the
+log has wrong. Standing rule recorded (R237): *user errors are signal, not chores*
+— the app never asks the user to clean up the past; it uses it.
+
+Costs, stated: a linked row is generic, not the user's food (D120) — for creamy
+coleslaw the row may be leaner than the plate; the rule makes the user's chosen
+row win anyway, because they chose it. Defers HR/HRV. Assumes the grams on an
+item are right.
+
+### 1. What was wrong — measured on the v16 backup, all foods (R234/1)
+
+The later resolve pass stored the row's LINK and never its numbers or the end of
+"unconfirmed"; capture did the same (the photo's per-100 g estimate became the
+item's numbers with a row attached); a repeat copied either state. 35 items:
+10 unconfirmed with a row (6 of them one-tap repeats), counting 0 (+2,028 kcal
+missing); 10 with a row but the AI's numbers (−314 net: coleslaw 1,066 vs 562,
+fried tofu 248 vs 474, pork chop 191 vs 299, the Oct 14 wine 82.8 vs 147.6); 1
+manual entry at 0 with a row (+410); 14 unconfirmed with nothing linked.
+
+### 2. The rule (R237/A) — `applyPrecedence`, every path
+
+Capture (the plate save), the resolve pass, a repeat, the v17 migration (boot and
+restore both run it). In order: (1) what the user set — the lookup's `adjusted`
+keys, an edit's `orig` keys, and every number of a manual / scan / preset / stack
+entry, **unless all of them are 0** (an empty form); (2) a linked row, at the
+item's grams; (3) the item's own estimate; (4) an unconfirmed item with a
+suggested row counts provisionally from it; otherwise 0, and the day says so.
+
+**Named, decided:** pre-R215 manual entries with typed numbers and a row linked
+later (for vitamins) are the user's numbers and are not touched; R237/B2's
+"1 manual at 0" is the empty-form case, which is.
+
+### 3. The past, automatically (R237/B) — schema v17
+
+`migrateV16toV17` applies the rule to every item. A changed item gets
+`recomputed: { rule: 'R237', at, was }` with its old numbers (or `unresolved`),
+and its opened row says *"Recounted from its food database row — was N cal"*.
+Values the user set are never touched. The untouched v16 blob is kept first under
+its own key (`healthtracker-log-premigration-v16`; the D7 slot is write-once and
+already full on any real device) — best effort, since every change also carries
+its own `was`. **Restore had a gap:** files from v2 up were normalised, never
+migrated, so a v16 backup restored into v17 would have kept the wrong numbers;
+it now gets the rule on the way in. No repair list (R237/B1 replaces R233.1/6 and
+R234/2). Badge drinks with no amount stay as they were (R237/B3: not guessed).
+
+### 4. The R237/D report — the v16 backup restored into this build
+
+21 items recomputed, **+2,125 kcal net**, 10 of them uncounted before; about
+**239 g of alcohol** newly counted (Sep 26 +15, Oct 4 +9, Oct 9 +122, Oct 15 +56,
+Oct 16 +37). Per day: Sep 8 +27 · Sep 24 −273 · Sep 26 +64 · Oct 1 −504 · Oct 4
++480 · Oct 7 +226 · Oct 8 +107 · Oct 9 +968 · Oct 14 +162 · Oct 15 +573 · Oct 16
++295. **14 items stay not counted** (no row): white wine ×3, lentils with carrot,
+mushroom stir-fry, hot-smoked salmon, "Unidentified item", meat ravioli ×2, egg
+tart, cremini mushrooms, soybean sprouts, soft boiled egg, roast turkey.
+Meals: 89 eating events, **55 judged**; **12 judged meals change** (10 by more
+than 1 g of carbohydrate); **7 judged meals hold an uncounted item** and are
+excluded from R231 (R233.1/7); of the 20 judged-and-clean, 5 change and 3 hold
+an uncounted item.
+
+### 5. Visible (R233.1/1, /4, /5) — and one conflict, named
+
+- Typing on a photo item is **Manual's lookup** (R215), run as it is typed —
+  the old search ran only on Enter, which is how "wine" became a name with
+  nothing behind it — with **drinks first** when the model filed the photo as a
+  drink or its name for the item finds a beverage row first.
+- A typed name kept with no pick says **"with no nutrition (not counted)"**.
+- The day: **"1,450 cal + 3 items not counted"** beside its calories, one tap to
+  the list, each a route to the picker; provisional items are counted there too.
+- **Conflict, decided:** B1 (D121) ruled no badge on unresolved rows, and D144
+  ruled the collapsed row is name, time and ONE number. R233.1 asks for "Not
+  counted — pick a food for '<name>'" on the item. Both kept: the collapsed
+  row's slot says **"not counted"** (a provisional item's number is amber with a
+  "?" — a word there crushed the name at 390 px, seen in a screenshot), and the
+  full sentence is the first thing in the opened row; the day line lists them
+  all. A line under every collapsed row failed collapse-gate's 60 px budget.
+
+### 6. Learned (R237/C)
+
+- **C1/C3 — a finding:** H31's correction memory read only day items, but a
+  photo meal saved through a PLATE keeps the model's name on the plate item —
+  150 of 178 photo items. **20 corrections were invisible**, "apple juice →
+  white wine" five times. Plates are read now; the next "apple juice" leads with
+  the wine, and unmatched names (egg tart, ravioli, roast turkey) lead too.
+- **Suggestions** come only from the user's own choices (their corrections with a
+  row, then an earlier item of the same name with a row) — never the matcher's
+  top pick (right 16 of 38, D141).
+- **C2 — calibration NOT applied.** Pairs with both an AI estimate and a linked
+  row: n = 10 across six foods (AI/row kcal median 0.91, range 0.52–1.90; the
+  error is mostly fat). Proposed floor: **≥ 5 pairs per food kind** before any
+  "calibrated from your history (n)" figure; open for ruling.
+
+### 7. Also found
+
+`normalizeRef` turned a `null` match distance into `0` on every restore
+(`Number(null)` is 0), so no round trip of an item with a row was
+byte-identical. Fixed at the boundary.
+
+### 8. Evidence
+
+`precedence-gate` (new, 12 checks, real typing on the real corpus): "wine" typed
+on an "apple juice" photo is looked up as typed, drinks first; the white-wine
+pick counts the row's 147.6 kcal, 4.7 g carbs, 18.5 g alcohol; the same numbers
+via capture, resolve, repeat and restore; the correction leads the next photo; a
+kept name says not counted; a provisional suggestion counts, confirms and undoes;
+the day line and its list; a v16 log recomputed on boot with `was` kept and an
+adjusted value untouched. Harness 3203 → 3222. Re-pointed: 36 schema pins
+(16 → 17); D121-row's chip wording; R189's test row completed (its numbers are
+the item's now).
+
+### 9. Found by the first full run
+
+- **The draft's total and the day disagreed.** After a row was picked on a photo
+  item, the total beside Save still added the photo's per-100 g while the saved
+  item took the row's. Every pick on a draft (search, correction, memory) now
+  makes the row the item's per-100 g at once (`draftTakeRow`), so the figure
+  beside Save is the figure the day shows. `served-gate` re-pointed to the wing
+  row's 324 kcal/100 g (the photo said 290): wings 241.056 kcal, the day +565.056,
+  the half 120.528. Bone and eaten-share rules unchanged.
+- **OPEN — "sui mai".** The photo search is Manual's lookup now (R233.1/1), which
+  matches a half-typed word. The device's "sui mai", which found nothing before,
+  now finds two weak partial rows — and fork D (the model's "other names" offer
+  only when the local search found NOTHING, so the common path costs no call)
+  then hides the offer. Kept as ruled; `parity-gate` uses a query that finds
+  nothing. Should a search whose rows answer none of the typed words in full
+  count as empty for that offer? Not decided here.
