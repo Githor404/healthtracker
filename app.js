@@ -11063,7 +11063,7 @@ function potentialFor(dateKey) {
     const its = ev.items || [];
     const withMacros = its.filter(itemHasMacros);
     const e = {
-      mealId: ev.mealId, time: ev.time, names: mealEventNames(ev),
+      mealId: ev.mealId, ids: ev.ids, time: ev.time, names: mealEventNames(ev),
       itemsN: its.length, withMacrosN: withMacros.length,
       resolvedN: its.filter(hasRef).length,
       modifiers: eventModifiers(ev, dateKey),

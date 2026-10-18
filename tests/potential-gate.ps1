@@ -217,13 +217,13 @@ window.__stage = 'start';
     // EVENT m4 -- the four RESOLVED rows, measured above.
     item({ name: 'honey',       time: '20:00', mealId: 'm4', carb_g: 41, grams: 100 }),
     item({ name: 'butter again', time: '20:00', mealId: 'm4', fat_g: 81, grams: 100 }),
-    item({ name: 'apple juice', time: '20:10', mealId: 'm5', carb_g: 11, grams: 100 }),
-    item({ name: 'cream soup',  time: '20:20', mealId: 'm6', carb_g: 8, grams: 100 }),
+    item({ name: 'apple juice', time: '20:45', mealId: 'm5', carb_g: 11, grams: 100 }),
+    item({ name: 'cream soup',  time: '21:30', mealId: 'm6', carb_g: 8, grams: 100 }),
     // EVENT m7 -- FIBRE EXCEEDS CARBOHYDRATE, which is legal on a label and real
     // on some. Event-level subtraction gives -4 g; per-item clamping gives 0. The
     // assertion on this row is the only thing that can tell whether availCarbG is
     // actually CALLED, as opposed to merely existing.
-    item({ name: 'psyllium husk', time: '21:00', mealId: 'm7',
+    item({ name: 'psyllium husk', time: '22:15', mealId: 'm7',
            carb_g: 2, fiber_g: 6, grams: 10 })
   ] };
   S.current = D;
@@ -263,7 +263,8 @@ window.__stage = 'start';
     const evs = (P && P.events) || [];
     O.load.n = evs.length;
     const byId = {};
-    evs.forEach(function (e) { byId[e.mealId] = e; });
+    // R229: an event is a SITTING now; it is found by any id it holds
+    evs.forEach(function (e) { byId[e.mealId] = e; (e.ids || []).forEach(function (id) { byId[id] = e; }); });
     O.load.m1carb = byId.m1 ? byId.m1.glucoseLoadG : null;
     O.load.m1carbRaw = byId.m1 ? byId.m1.carbG : null;
     O.load.m1fibre = byId.m1 ? byId.m1.fibreG : null;

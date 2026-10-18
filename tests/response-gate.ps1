@@ -288,7 +288,9 @@ window.__stage = 'start';
   stage('case5');
   const r5 = HT.mealResponse(D5, 'm7');
   O.cases.c5 = { phase: r5.phase, contaminated: !!(r5.baseline && r5.baseline.contaminated),
-                 baseN: r5.baseline && r5.baseline.n };
+                 baseN: r5.baseline && r5.baseline.n,
+                 // R229: food 10 min before is part of the same SITTING now
+                 joined: ((HT.findMealEvent(D5, 'm7') || { items: [] }).items || []).length };
 
   // ---- CASE 6: baseline n < 2 -> refused --------------------------------
   stage('case6');
@@ -534,8 +536,10 @@ window.__stage = 'start';
   Chk ($C.c4.followingMin -eq 60) "the following meal is declared at $($C.c4.followingMin) min, not 60"
   Chk ($C.c4.phase -ne 'ok') "a window containing another meal reported phase 'ok' -- it must not read as clean"
 
-  # --- CASE 5: a contaminated baseline says so (ruled) ---------------------
-  Chk ($C.c5.contaminated -eq $true) "an eating event 10 min before the meal did NOT mark the baseline -- the ruling applies the window rule to the thing the response is measured against"
+  # --- CASE 5: R229 RE-POINTED BY RULING. Food 10 min before a meal is no longer a
+  # separate event contaminating its baseline: within 30 min, it is part of the SAME
+  # sitting, so the sitting starts with it and its baseline is the 20 min before both.
+  Chk (([int]$C.c5.joined -ge 2) -and ($C.c5.contaminated -eq $false)) "R229: food eaten 10 min before the meal is PART of the same sitting (joined $($C.c5.joined)) -- so it does not mark the baseline, it moves the start"
 
   # --- CASE 6: baseline below n=2 is refused -------------------------------
   Chk ($C.c6.phase -eq 'declined') "a baseline of n=$($C.c6.baseN) produced phase '$($C.c6.phase)' -- below n=2 it is refused"
