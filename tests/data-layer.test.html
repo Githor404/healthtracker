@@ -4225,7 +4225,20 @@ window.setLS({});
         });
       };
       var hang = HT.byokCapture(FILE);
-      return new Promise(function (r) { setTimeout(r, 60); }).then(function () {
+      // R225 (D110's second sighting): this waited a FIXED 60 ms and assumed the
+      // capture had reached its fetch by then. On a busy machine the encode step
+      // was still running: the two asserts below failed, the cancel landed BEFORE
+      // the stub fetch attached its abort listener, `hang` never settled, and the
+      // whole chain ran out its 35 s. It now waits for the state it asserts on --
+      // up to 5 s -- and the assertions are unchanged.
+      var untilSending = function (t0) {
+        return new Promise(function (r) { setTimeout(r, 20); }).then(function () {
+          var s = HT.byokBusyState();
+          if ((s && s.phase === 'sending' && FETCHES.length) || Date.now() - t0 > 5000) return;
+          return untilSending(t0);
+        });
+      };
+      return untilSending(Date.now()).then(function () {
         var b = HT.byokBusyState();
         res(!!b && b.phase === 'sending' && /\d+s$/.test(String(b.message)),
             'R21.3-alive: while it waits, the elapsed seconds are counted on screen');

@@ -6197,3 +6197,12 @@ lunch as the next meal, so a row found by its TEXT was the wrong row (now by its
 head); and a fixture with every meal at 40 g made the carbs line say "too few
 meals" -- untrue, so the app now says the carbs were all the same, and the
 fixture varies them.
+
+**D110's intermittent, found.** v0.100.0's second full run failed on the harness's
+35 s chain timeout -- the second sighting after R221's. The cause was an older
+case, R21.3-alive: it waited a FIXED 60 ms and assumed a BYOK capture had reached
+its fetch. On a busy machine the encode step was still running, so the cancel
+landed before the stub fetch attached its abort listener and the capture's
+promise never settled. It now waits for the state it asserts on (up to 5 s);
+5/5 runs alone and 3/3 under four CPU-burning processes pass. Not pushed on
+that run; two fresh consecutive runs follow.
