@@ -94,6 +94,9 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # nothing, and there is nothing to stamp. The detector matches the shape, not the
 # store, which is the safe direction: it asked, and this is the answer.
 #
+# R229: `mealEvents` LEFT the manifest -- rebuilt to derive sittings, it no longer
+# pushes into an `out[id].items` array, so the detector no longer sees a write shape
+# there. It never wrote a record: the H25 exemption was for a derived view.
 # R25/D61: `photoAddItem` is EXEMPT. It pushes into PHOTO_DRAFT.items -- a DRAFT
 # held in memory and never persisted -- so it creates no record and there is
 # nothing to stamp. `photoSave` is the creation site for that path and it is
@@ -179,7 +182,6 @@ photoSave
 removeMed
 addPriceEntry
 addSignal
-mealEvents
 ingestItems
 logPreset
 logRegimenEntry

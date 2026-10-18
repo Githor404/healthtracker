@@ -1081,7 +1081,7 @@ window.setLS({});
   });
   // today: the same breakfast, rise 2.0 -> area 90; and a snack 60 min after a lunch (not clean)
   HT.state().days[td] = { status: 'in_progress', water_l: 0, items: [
-    item225('Gate oats', '08:00', 'mt', 40), item225('Gate lunch', '12:00', 'ml', 60), item225('Gate snack', '13:00', 'ms', 20) ] };
+    item225('Gate oats', '08:00', 'mt', 40), Object.assign(item225('Gate lunch', '12:00', 'ml', 60), { meal: 'lunch' }), Object.assign(item225('Gate snack', '13:00', 'ms', 20), { meal: 'snack' }) ] };
   curve225(td, '08:00', 2, rows225);
   curve225(td, '12:00', 1.5, rows225);
   // yesterday: a meal whose 2 h have a 30-minute hole
@@ -1163,6 +1163,64 @@ window.setLS({});
       'R227.1: v15 -> v16 changes the version and nothing in the log -- the streams stay in their own stores');
   res(HT.backupFileName(new Date(2026, 9, 18)) === 'healthtracker-backup-2026-10-18-v16.json',
       'R227.1: the backup file names the new schema, so a v16 file says so before it is opened');
+  setLS({}); HT.boot();
+
+  // ---- R229: the review is per SITTING, not per item; R228's plain words ------------
+  setLS({}); HT.boot();
+  var d229 = HT.shiftDate(td, -1);
+  var it229 = function (name, meal, time, carbs, extra) {
+    return Object.assign({ name: name, meal: meal, time: time, kcal: 200, protein_g: 10, fat_g: 5, carb_g: carbs, fiber_g: 2, soluble_fiber_g: 0,
+                           confidence: 'eyeballed', source: 'manual', notes: '' }, extra || {});
+  };
+  // a three-item dinner (one meal group), a dessert logged as a snack 15 min after its
+  // last item, and a coffee 90 min after that; plus a lone breakfast
+  HT.state().days[d229] = { status: 'complete', water_l: 0, items: [
+    it229('Gate udon', 'dinner', '19:00', 11.6), it229('Gate rice', 'dinner', '19:05', 40), it229('Gate bun', 'dinner', '19:10', 30),
+    it229('Gate dessert', 'snack', '19:25', 25), it229('Gate latte', 'snack', '20:55', 12), it229('Gate toast', 'breakfast', '08:00', 20) ] };
+  var rows229 = [], p229 = function (n) { return String(n).padStart(2, '0'); };
+  var iso229 = function (ms) { var d = new Date(ms), o = -d.getTimezoneOffset();
+    return d.getFullYear() + '-' + p229(d.getMonth() + 1) + '-' + p229(d.getDate()) + 'T' + p229(d.getHours()) + ':' + p229(d.getMinutes()) + ':00'
+      + (o < 0 ? '-' : '+') + p229(Math.floor(Math.abs(o) / 60)) + ':' + p229(Math.abs(o) % 60); };
+  for (var m229 = 7 * 60; m229 <= 21 * 60 + 30; m229 += 5) {
+    var v229 = 5.4; if (m229 > 19 * 60 && m229 <= 19 * 60 + 40) v229 = 5.4 + 4.3 * (m229 - 19 * 60) / 40; else if (m229 > 19 * 60 + 40 && m229 < 21 * 60) v229 = 9.7 - 4.3 * (m229 - 19 * 60 - 40) / 80;
+    rows229.push({ t: iso229(HT.dayKeyMs(d229) + m229 * 60000), v: Math.round(v229 * 100) / 100, unit: 'mmol/L' });
+  }
+  HT.resave(); HT.glucoseIngest(rows229, { source: 'fixture' });
+  var ev229 = HT.mealEvents(d229);
+  var din229 = ev229.filter(function (e) { return e.items.some(function (it) { return it.name === 'Gate udon'; }); })[0];
+  res(ev229.length === 3 && din229 && din229.items.length === 4 && din229.kind === 'dinner' && din229.time === '19:00',
+      'R229 GATE: the three dinner items are ONE sitting, and the dessert logged as a snack 15 min after them JOINS it -- 4 items, from 19:00, named for the dinner', JSON.stringify(ev229.map(function (e) { return e.items.length + '@' + e.time; })));
+  res(HT.findMealEvent(d229, '_solo0').mealId === din229.mealId && HT.findMealEvent(d229, '_solo3').mealId === din229.mealId
+      && HT.sittingOfItem(d229, 2).mealId === din229.mealId,
+      'R229: every item of it -- by its old id or its row -- resolves to the same sitting');
+  var r229 = HT.mealReview(d229, din229.mealId);
+  res(r229.carbs === 106.6,
+      'R229 GATE: the review sums the sitting’s carbs, as eaten -- 11.6 + 40 + 30 + 25 = 106.6 g, not the udon’s 11.6', String(r229.carbs));
+  res(r229.cleanBefore === true && r229.cleanAfter === false,
+      'R229 GATE: items INSIDE the sitting never make it unclean; the latte 90 min after its last item -- outside it -- does');
+  var lat229 = HT.findMealEvent(d229, '_solo4');
+  res(lat229 && lat229.items.length === 1 && lat229.mealId !== din229.mealId && HT.findMealEvent(d229, '_solo5').items.length === 1,
+      'R229: a coffee alone, and a breakfast alone, are each a sitting of one -- as before');
+  var lead229 = HT.mealKindGroups(d229).filter(function (g) { return g.kind === 'dinner'; })[0];
+  var sh229 = HT.sittingResponseHTML(d229, din229);
+  res(din229.leadKey === lead229.key && sh229.indexOf('Dinner as eaten · 4 items · carbs 106.6 g') >= 0 && sh229.indexOf('After this meal') > 0,
+      'R229 GATE: ONE block, on the dinner group, says what the sitting was as eaten and carries the response');
+  res(HT.sittingLinkHTML(d229, din229).indexOf('Part of Dinner — see meal response') > 0,
+      'R229: every other row says "Part of Dinner -- see meal response", as a link');
+  // R228's words -- a meal after the newest reading, and one whose readings stop part-way
+  HT.state().days[d229].items.push(it229('Gate supper', 'snack', '23:30', 10));
+  HT.state().settings.glucoseImportedAt = new Date(HT.dayKeyMs(d229) + (22 * 60) * 60000).toISOString();
+  HT.resave();
+  var sup229 = HT.findMealEvent(d229, '_solo6');
+  var nr229 = HT.mealResponseHTML(d229, sup229.mealId);
+  res(nr229.indexOf('No glucose for this meal yet. Readings arrive when you import from Apple Health (usually 3 h+ behind). Last import: ') > 0
+      && nr229.indexOf('22:00') > 0 && nr229.indexOf('<summary>why?</summary>') > 0,
+      'R229/R228 GATE: no glucose yet is SAID, with when glucose was last imported, and the technical reason is behind "why?"', nr229.replace(/<[^>]+>/g, ' ').slice(0, 260));
+  var lt229 = HT.mealResponseHTML(d229, lat229.mealId);
+  res(lt229.indexOf('Glucose stops at 21:30 — import again.') > 0,
+      'R229/R228 GATE: readings that stop part-way say where they stop and to import again', lt229.replace(/<[^>]+>/g, ' ').slice(0, 200));
+  res(HT.mealResponseHTML(HT.shiftDate(td, -40), 'S0') === '',
+      'R229: a meal from before any glucose was recorded says nothing at all');
   setLS({}); HT.boot();
 
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
@@ -3858,6 +3916,19 @@ window.setLS({});
       HT.capturePasteInstead();
       res(HT.captureOutcomeState() === 'none',
           'R21.5-fail: "Paste the response manually" closes the outcome and hands over to the path that always works');
+    }).then(function () {
+      // R229 (found by D110's hang): a Cancel tapped while the photo is still being
+      // PREPARED must stop the capture before anything is sent. It was erased, and
+      // the request went out -- charged -- after the user had cancelled.
+      byokReset(SECRET); HT.photoDiscard();
+      FETCHES = [];
+      var pc229 = HT.byokCapture(FILE);
+      HT.byokCancel();
+      return pc229.then(function (r) {
+        res(r && r.ok === false && r.kind === 'cancelled' && FETCHES.length === 0,
+            'R229 GATE: CANCEL BEFORE SENDING SENDS NOTHING -- a cancel during the photo’s preparation stops the capture with no request made', JSON.stringify({ r: r, fetches: FETCHES.length }));
+        HT.byokBusyClear(); window.fetch = SCRIPTED_FETCH;
+      });
     }).then(function () {
       // PENDING: counted, central, cancellable -- and it is the ONLY thing shown.
       byokReset(SECRET); HT.photoDiscard();

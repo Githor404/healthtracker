@@ -17193,3 +17193,67 @@ that landed before the capture reached `fetch` left a promise pending forever.
 Eight stubs now behave like the real thing. Since: **no hang in 54 runs**; one
 run had three failed assertions whose names were not caught, and 42 runs after
 it were clean. **Recorded as open, not as fixed.**
+
+## R229 — RULED AND BUILT: THE MEAL REVIEW IS PER SITTING, NOT PER ITEM (2026-10-18, v0.102.0)
+
+**Label.** `R229` (it replaces `R228`, whose wording rule is folded in as item 6)
+is the user's relay label; grepped, not previously recorded. **Fixes a shipped
+feature** (v0.100.0), taken before R226 as ruled. **Serves** *evaluate*.
+
+**Reported from real use:** a dinner of udon and other carbohydrate foods showed
+its rise on the udon row alone — at least 4.3 mmol/L "after" 11.6 g of carbs,
+compared with the user's 10–30 g meals. Glucose answers the whole sitting.
+
+### 1. The unit is the sitting — and a conflict inside the ruling, named
+
+R229/1 says *"all items in the same meal group, plus any items logged within
+~30 min of each other"*; its gate says *"food 90 min later makes it not clean"*.
+They cannot both hold: a day group (R202) keeps one meal kind together up to
+**three hours** apart, so a coffee logged as "dinner" by the clock 90 min after
+dinner would be *inside* the dinner. **Built to the gate's meaning:** items are one
+sitting when they **chain within 30 minutes** of each other, or share a `mealId`
+(one photographed meal). The day groups only **name** the sitting (its earliest
+group: "Dinner"); a group may hold two sittings, and then each block says which
+by its time. *To be ruled if the other reading was meant.*
+
+`mealEvents` now returns sittings, so everything built on it moved at once: the
+response, the review, the test tag, the clean count, the potential panel.
+`findMealEvent` resolves any id a caller held (an item's `mealId`, `_solo` +
+index) to its sitting.
+
+### 2. What the user sees
+
+- **One block per sitting**, on the meal group that leads it: *"Dinner as eaten ·
+  4 items · carbs 106.6 g · fat · protein · fibre"* (summed, eaten basis), then the
+  response, the review and "mark as a test".
+- **Every item row**, and every group a sitting only reaches into: *"Part of
+  Dinner — see meal response"*, a link that opens the meal and scrolls to it.
+- **Clean** = no food OUTSIDE the sitting within 2 h before or after; items in it
+  never count. The review compares sittings: same foods / same combo, and similar
+  **total** carbs (±25 % or 10 g).
+- **R228's words:** a meal past the newest reading — *"No glucose for this meal
+  yet. Readings arrive when you import from Apple Health (usually 3 h+ behind).
+  Last import: <date time>."* (`settings.glucoseImportedAt`, recorded at each
+  import from now on; until then *"Newest reading: …"*). Readings that end inside
+  the window — *"Glucose stops at HH:MM — import again."* A meal before any
+  glucose was recorded says nothing. The technical reason sits behind **why?**.
+  Jargon gate passes.
+
+### 3. An app bug the harness intermittent found
+
+D110's hang, chased again here, led to a **real defect in photo capture**: a
+Cancel tapped while the photo was being prepared was **erased** (the network call
+cleared the cancel flag as it began), and the request went to the user's provider
+— and was charged — after they had cancelled. The flag is now cleared when the
+*capture* starts and checked before anything is sent. A new harness case cancels
+at once and asserts **no request is made**; with the fix removed it fails by name.
+
+### 4. Evidence
+
+`review-gate` (15): a three-item dinner plus a dessert 15 min later is ONE block
+on the meal with carbs summed to 106.6 g; the dessert's group and each item row
+link to it; the latte 90 min later is a meal of its own and makes the dinner not
+clean; the R225 checks moved to the meal row. Harness 3167 → 3178. Re-measured on
+the v16 backup (food to Oct 18, glucose to **Oct 17 15:32**): 111 events, 72
+judged; under the clean rule 18 comparable, 0 at the floor for "meals like
+this", 5 for similar carbs.

@@ -148,6 +148,12 @@ try {
     curve(dd(x[0]), '08:00', x[1]);
   });
   HT.state().days[dd(1)] = { status: 'complete', water_l: 0, items: [item('Gate gap meal', '08:00', 'mg', 40)] };
+  // R229: a three-item dinner, a dessert logged as a snack 15 min after its last
+  // item, and a latte 90 min after that (all single items, no mealId)
+  HT.state().days[dd(5)] = { status: 'complete', water_l: 0, items: [
+    item('Gate udon', '19:00', null, 11.6, 'dinner'), item('Gate rice', '19:05', null, 40, 'dinner'), item('Gate bun', '19:10', null, 30, 'dinner'),
+    item('Gate dessert', '19:25', null, 25, 'snack'), item('Gate latte', '20:55', null, 12, 'snack') ] };
+  curve(dd(5), '19:00', 3);
   curve(dd(1), '08:00', 2, 40);
   // today: the breakfast; a lunch logged as a SINGLE item (no mealId) with a snack an hour after it
   HT.state().days[td] = { status: 'in_progress', water_l: 0, items: [
@@ -165,17 +171,20 @@ try {
   if (-not ($fx -like '*"ok":true*')) { Write-Host "ERROR: fixture"; Cleanup; exit 2 }
 
   # ---- 1. depth on demand: nothing on the closed day -----------------------------------
-  $c0 = Eval "(function(){ return document.querySelectorAll('#dayView .resprev, #dayView .respexp').length + '|' + /Expected|earlier meals/.test(document.getElementById('dayView').innerText); })()"
+  # R229: the review lives on the MEAL (its group), so "closed" is every group closed.
+  [void](Eval "(function(){ HT.dayGroupsOpenAll(false); return 1; })()")
+  $c0 = Eval "(function(){ return document.querySelectorAll('#dayView .sitresp, #dayView .resprev, #dayView .respexp').length + '|' + /Expected|earlier meals/.test(document.getElementById('dayView').innerText); })()"
   Check ($c0 -eq '0|false') "R225: with no meal opened the day carries NO review -- nothing added to the day, no nudge ($c0)"
 
-  # ---- 2. open the breakfast by a real tap on its row --------------------------------
+  # ---- 2. open the breakfast by a real tap on its MEAL header ----------------------------
   $open = EvalA @'
 (function () {
-  var head = Array.prototype.filter.call(document.querySelectorAll('#dayView .mhead'), function (h) { return /Gate oats/.test(h.textContent); })[0];
-  if (!head) return { err: 'no row' };
+  var head = document.querySelector('#dayView .mgrp[data-kind="breakfast"] .mghead');
+  if (!head) return { err: 'no breakfast group' };
   head.click();
-  var box = document.querySelector('#dayView .resprev');
-  if (!box) return { err: 'no review after opening' };
+  var sit = document.querySelector('#dayView .mgrp[data-kind="breakfast"] .sitresp');
+  var box = sit && sit.querySelector('.resprev');
+  if (!box) return { err: 'no review after opening the meal' };
   var meas = Array.prototype.filter.call(box.querySelectorAll('.respline'), function (l) { return /area above baseline/.test(l.textContent); })[0];
   var exp = box.querySelector('.respexp');
   var cs = function (el) { var s = getComputedStyle(el); return { style: s.fontStyle, border: s.borderTopStyle, px: parseFloat(s.fontSize) }; };
@@ -184,7 +193,8 @@ try {
            expHead: (exp.querySelector('.respexphead') || {}).textContent, eStyle: cs(exp),
            lines: Array.prototype.map.call(exp.querySelectorAll('.respexpline, .respexpnote'), function (l) { return l.textContent; }),
            small: Array.prototype.filter.call(exp.querySelectorAll('div'), function (d) { return parseFloat(getComputedStyle(d).fontSize) < 16; }).length,
-           inside: r.left >= 0 && r.right <= window.innerWidth };
+           inside: r.left >= 0 && r.right <= window.innerWidth,
+           blocks: document.querySelectorAll('#dayView .sitresp').length };
 })()
 '@
   Write-Host ("  the breakfast, opened: " + $open)
@@ -201,36 +211,77 @@ try {
   # ---- 3. a single item eaten an hour before a snack: shown, not clean, not compared --
   $lunch = EvalA @'
 (function () {
-  var head = Array.prototype.filter.call(document.querySelectorAll('#dayView .mhead'), function (h) { return /Gate lunch/.test(h.textContent); })[0];
-  head.click();
-  // by the row's own HEAD: the breakfast's response names the lunch as the next meal
-  var boxes = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem.mopen'), function (m) { return /Gate lunch/.test((m.querySelector('.mhead') || {}).textContent || ''); });
-  var b = boxes[0];
-  return { text: b ? (b.querySelector('.resprev') || {}).textContent || '' : '', exp: b ? !!b.querySelector('.respexp') : true, rise: b ? /rise/.test(b.textContent) : false };
+  document.querySelector('#dayView .mgrp[data-kind="lunch"] .mghead').click();
+  var sit = document.querySelector('#dayView .mgrp[data-kind="lunch"] .sitresp');
+  var t = sit ? sit.textContent : '';
+  // and the item row itself carries no review of its own, only the link to the meal's
+  var ih = Array.prototype.filter.call(document.querySelectorAll('#dayView .mgrp[data-kind="lunch"] .mhead'), function (h) { return /Gate lunch/.test(h.textContent); })[0];
+  if (ih) ih.click();
+  // the tap re-renders the day: look the row up again
+  var ih2 = Array.prototype.filter.call(document.querySelectorAll('#dayView .mgrp[data-kind="lunch"] .mhead'), function (h) { return /Gate lunch/.test(h.textContent); })[0];
+  var item = ih2 ? ih2.closest('.mitem') : null;
+  return { text: t, exp: sit ? !!sit.querySelector('.respexp') : true, rise: /rise/.test(t),
+           itemLink: item ? ((item.querySelector('.sitlink') || {}).textContent || '') : '', itemReview: item ? !!item.querySelector('.resp') : true };
 })()
 '@
   Write-Host ("  the lunch: " + $lunch)
   $lu = $lunch | ConvertFrom-Json
-  Check (($lu.text -like '*Not clean*other food in the 2 h after it*not compared*') -and (-not $lu.exp) -and $lu.rise) "R225 GATE: a meal with food in the 2 h after it -- a single item with no mealId, so every eating event is reached -- shows its own numbers, says NOT CLEAN, and is not compared"
+  Check (($lu.text -like '*Not clean*other food in the 2 h after it*not compared*') -and (-not $lu.exp) -and $lu.rise) "R225 GATE: a meal with food in the 2 h after it shows its own numbers, says NOT CLEAN, and is not compared"
+  Check (($lu.itemLink -eq ('Part of Lunch ' + [char]0x2014 + ' see meal response')) -and (-not $lu.itemReview)) "R229 GATE: the ITEM row has no review of its own -- it says 'Part of Lunch - see meal response', as a link"
 
   # ---- 4. below the floor, and a hole in the 2 h, on earlier days -----------------------
   $past = EvalA @'
 (function () {
-  var read = function (dk, name) {
-    HT.dayJump(dk); HT.dayGroupsOpenAll(true);
-    var head = Array.prototype.filter.call(document.querySelectorAll('#dayView .mhead'), function (h) { return h.textContent.indexOf(name) >= 0; })[0];
-    if (!head) return 'no row';
+  var read = function (dk, kind) {
+    HT.dayJump(dk); HT.dayGroupsOpenAll(false);
+    var head = document.querySelector('#dayView .mgrp[data-kind="' + kind + '"] .mghead');
+    if (!head) return 'no group';
     head.click();
-    var b = document.querySelector('#dayView .resprev');
+    var b = document.querySelector('#dayView .mgrp[data-kind="' + kind + '"] .sitresp');
     return b ? b.textContent : 'no review';
   };
-  return { below: read(window.__dd(2), 'Gate oats'), gap: read(window.__dd(1), 'Gate gap meal') };
+  return { below: read(window.__dd(2), 'breakfast'), gap: read(window.__dd(1), 'breakfast') };
 })()
 '@
   Write-Host ("  earlier days: " + $past)
   $pv = $past | ConvertFrom-Json
   Check ($pv.below -like '*Meals like this: not enough similar meals yet (2 of 3)*') "R225 GATE: below the floor it is SAID, with n -- 'not enough similar meals yet (2 of 3)'"
   Check ($pv.gap -like '*Not judged*gap in the readings inside the 2 h*') "R225 GATE: a hole in the 2 h -> 'Not judged', with the reason"
+
+  # ---- 5. R229: a dinner of three items is ONE meal; 15 min later joins; 90 min later does not --
+  $din = EvalA @'
+(function () {
+  var dk = window.__dd(5);
+  HT.dayJump(dk); HT.dayGroupsOpenAll(false);
+  document.querySelector('#dayView .mgrp[data-kind="dinner"] .mghead').click();
+  var dg = document.querySelector('#dayView .mgrp[data-kind="dinner"]');
+  var sits = dg.querySelectorAll('.sitresp');
+  var sum = sits[0] ? (sits[0].querySelector('.sitsum') || {}).textContent : '';
+  var txt = sits[0] ? sits[0].textContent : '';
+  // the snack group: the dessert 15 min later joined the dinner; it links, it does not review
+  document.querySelector('#dayView .mgrp[data-kind="snack"] .mghead').click();
+  var sg = document.querySelector('#dayView .mgrp[data-kind="snack"]');
+  var link = sg.querySelector(':scope > .mgbody > .sitlink');
+  var linkText = link ? link.textContent : '';
+  var snackBlocks = sg.querySelectorAll('.sitresp').length;
+  var snackBlockSum = snackBlocks ? (sg.querySelector('.sitresp .sitsum') || {}).textContent : '';
+  // an item row of the dinner: the link, which opens the meal's block
+  var udon = Array.prototype.filter.call(dg.querySelectorAll('.mhead'), function (h) { return /Gate udon/.test(h.textContent); })[0];
+  udon.click();
+  var dg2 = document.querySelector('#dayView .mgrp[data-kind="dinner"]');
+  var udon2 = Array.prototype.filter.call(dg2.querySelectorAll('.mhead'), function (h) { return /Gate udon/.test(h.textContent); })[0];
+  var ul = udon2 ? udon2.closest('.mitem').querySelector('.sitlink') : null;
+  var ulText = ul ? ul.textContent : '';
+  return { sits: sits.length, sum: sum, notClean: /Not clean/.test(txt) && /after it/.test(txt), linkText: linkText, snackBlocks: snackBlocks, snackBlockSum: snackBlockSum, udonLink: ulText,
+           total: document.querySelectorAll('#dayView .sitresp').length };
+})()
+'@
+  Write-Host ("  the dinner: " + $din)
+  $dn = $din | ConvertFrom-Json
+  Check (($dn.sits -eq 1) -and ($dn.sum -like ('Dinner as eaten ' + [char]0x00B7 + ' 4 items ' + [char]0x00B7 + ' carbs 106.6 g*'))) "R229 GATE: a three-item dinner -- with the dessert logged 15 min after it -- has ONE review, on the meal, with the carbs SUMMED as eaten: 106.6 g ($($dn.sum))"
+  Check (($dn.linkText -eq ('Part of Dinner ' + [char]0x2014 + ' see meal response')) -and ($dn.snackBlocks -eq 1) -and ($dn.snackBlockSum -like ('Snack at 20:55, as eaten ' + [char]0x00B7 + ' 1 item *'))) "R229 GATE: the snack group LINKS to the dinner for the dessert that joined it, and carries ONE review of its own -- the latte's, a meal of one item"
+  Check ($dn.udonLink -eq ('Part of Dinner ' + [char]0x2014 + ' see meal response')) "R229 GATE: each item row (here the udon) links to the meal's response instead of having its own"
+  Check $dn.notClean "R229 GATE: the latte 90 min after the meal is OUTSIDE it, so the meal is not clean -- items inside it never make it so"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

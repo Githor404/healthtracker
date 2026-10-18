@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 16;
-const APP_VERSION      = '0.101.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.102.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1086,7 +1086,7 @@ function publishedLine(p) {
 
 function normalizeSettings(s) {
   s = (s && typeof s === 'object' && !Array.isArray(s)) ? s : {};
-  return {
+  return Object.assign({
     goals: (s.goals && typeof s.goals === 'object' && !Array.isArray(s.goals)) ? s.goals : {},
     stack: normalizeStack(s.stack),                   // R168 (v13): ships empty
     foods: normalizeMyFoods(s.foods),                 // R213: the user's own foods, ships empty
@@ -1120,7 +1120,10 @@ function normalizeSettings(s) {
     // restore, so an open night survives the very update that migrates it. No
     // bump; `sleepOpen` simply stops being emitted.
     laneOpen: normalizeLaneOpen(s.laneOpen, s.sleepOpen),
-  };
+  }, (typeof s.glucoseImportedAt === 'string' && Date.parse(s.glucoseImportedAt) > 0)
+       // R229 (R228's "Last import"): when glucose last arrived. Present only once
+       // there has been an import, so a settings object without one keeps its shape.
+       ? { glucoseImportedAt: s.glucoseImportedAt } : {});
 }
 // R16: an open sleep segment -- a start with no end yet. Coerced at both
 // boundaries; anything malformed becomes null (absent), never a half-record.
@@ -5585,7 +5588,13 @@ function renderDayInner() {
     // THE RESPONSE LINE, only for a kind holding ONE event. Two sittings get a
     // count instead: one line of glucose for two different meals is an average
     // nobody ate, and the header would be stating it as a fact about "dinner".
-    const gresp = (g.events.length === 1) ? mealResponseLine(dk, g.events[0]) : '';
+    // R229: the line belongs to the SITTING and is shown on the group that leads it.
+    const gled = sittingsLedBy(dk, g.key);
+    const gsit = sittingOfGroup(dk, g.key);
+    // one line on the header only when the group leads exactly one sitting and
+    // holds nothing else -- one line for two sittings would be an average nobody ate
+    const gonly = gled.length === 1 && mealEvents(dk).filter(function (e) { return e.groupKeys.indexOf(g.key) >= 0; }).length === 1;
+    const gresp = gonly ? mealResponseLine(dk, gled[0].mealId) : '';
     const gt = g.totals;
     html += `<div class="mgrp" data-kind="${esc(g.kind)}" data-key="${esc(g.key)}">`
       + `<button type="button" class="mghead" aria-expanded="${gopen ? 'true' : 'false'}"`
@@ -5594,14 +5603,18 @@ function renderDayInner() {
       + `<span class="mgnum">${esc(kcalDisp(g.kcal))} cal${gnote}</span>`
       + `<span class="mgmeta">${esc(String(g.n))} item${g.n === 1 ? '' : 's'}`
       + `${g.timeLabel ? ' \u00b7 ' + esc(g.timeLabel) : ''}`
-      + `${g.events.length > 1 ? ' \u00b7 ' + esc(String(g.events.length)) + ' sittings' : ''}</span>`
+      + `</span>`
       + (g.drinks ? `<span class="mgdrink">${esc(String(g.drinks))} drink${g.drinks === 1 ? '' : 's'}</span>` : '')
       + (gresp ? `<span class="mgresp">${esc(gresp)}</span>` : '')
       + `</button>`;
     if (!gopen) { html += `</div>`; return; }
     html += `<div class="mgbody">`
       + `<div class="mgmac">P ${esc(rDisp(gt.protein_g))} F ${esc(rDisp(gt.fat_g))}`
-      + ` C ${esc(rDisp(gt.carb_g))} \u00b7 ${esc(rDisp(gt.fiber_g))} fib</div>`;
+      + ` C ${esc(rDisp(gt.carb_g))} \u00b7 ${esc(rDisp(gt.fiber_g))} fib</div>`
+      + gled.map(function (e) { return sittingResponseHTML(dk, e, !gonly); }).join('')
+      // and a link for every meal that only REACHES into this group (led elsewhere)
+      + mealEvents(dk).filter(function (e) { return e.leadKey !== g.key && e.groupKeys.indexOf(g.key) >= 0; })
+          .map(function (e) { return sittingLinkHTML(dk, e); }).join('');
     g.rows.forEach((row) => {
       const it = row.it, idx = row.idx;
       const dot = CONF_DOT[it.confidence] || 'muted';
@@ -5722,8 +5735,7 @@ function renderDayInner() {
         </div>${servedHTML}${isOpen ? `<div class="mbody">${legacyHTML}${ateHTML}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
-          ${isLegacyAuto(it) ? '' : (mealResponseHTML(dk, it.mealId ? it.mealId : '_solo' + idx) + mealReviewHTML(dk, it.mealId ? it.mealId : '_solo' + idx))}
-          ${it._auto || !it.mealId ? '' : mealTestHTML(dk, it.mealId)}
+          ${isLegacyAuto(it) ? '' : sittingLinkHTML(dk, sittingOfItem(dk, idx))}
           <button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>
         </div>` : ''}</div>`;
     });
@@ -10069,6 +10081,7 @@ async function glucoseImportFile(file) {
     // E-lite, ruled D: steps, for the days glucose now covers and no others. AFTER
     // the glucose ingest, because "the days glucose covers" is read from its store.
     if (res.steps) _gImport.steps = stepsIngest(res.steps);
+    if (out && out.stored > 0) { APP_STATE.settings.glucoseImportedAt = new Date(nowMs()).toISOString(); Store.saveState(APP_STATE); }
     glucoseImportAfter();
     return { ok: true, read: res.rows.length, added: _gImport.added, ingest: out };
   } catch (e) {
@@ -10330,23 +10343,89 @@ const RESP_BASELINE_MIN_N = 2;        // ruled: refused below two readings
 // threshold is how they drift apart (D140's rename defect, in numbers).
 function respGapMin() { return (GLUCOSE_STEP_S / 60) * 3; }
 
-// A MEAL IS ITS ITEMS MERGED BY mealId (ruled). An item with no mealId is its
-// own event -- it was logged alone, so it is one.
+// R229 -- THE EATING EVENT IS THE SITTING, NOT THE ITEM. Reported from real use:
+// a dinner of udon and other carbohydrate foods showed its glucose rise on the
+// udon row alone -- 4.3 mmol/L "after" 11.6 g of carbs, compared with the user's
+// 10-30 g meals. Glucose answers the whole sitting, so attributing it to one item
+// is wrong. Ruled: the unit is the SITTING --
+//   - every item of one meal group (a meal kind, cut where items are more than
+//     three hours apart -- R202's groups, exactly as the day shows them), and
+//   - any group with an item within SITTING_JOIN_MIN of one of its items.
+// So a sitting is one or more whole day groups, and every group belongs to one
+// sitting. Items logged under one mealId are always in one group, so the old
+// rule ("a meal is its items merged by mealId") is contained in this one. A single
+// item eaten alone is a sitting of one, as before.
+//
+// `mealId` on the event is the SITTING's id ('S' + the lowest item index); `ids`
+// holds every id an item could have been addressed by before (its mealId, or
+// '_solo' + its index), so findMealEvent resolves an old id to its sitting.
+const SITTING_JOIN_MIN = 30;
 function mealEvents(dateKey) {
   const day = APP_STATE.days && APP_STATE.days[dateKey];
   if (!day) return [];
-  const out = {}, order = [];
-  (day.items || []).forEach(function (it, i) {
-    if (!it || isLegacyAuto(it)) return;   // an auto-added entry is not an eating event, and has no time (R204)
-    const id = (it.mealId != null && String(it.mealId) !== '') ? String(it.mealId) : ('_solo' + i);
-    if (!out[id]) { out[id] = { mealId: id, time: String(it.time || ''), items: [] }; order.push(id); }
-    out[id].items.push(it);
-    // The event starts at its EARLIEST item: a lunch logged out of order is
-    // still one lunch, and the response is measured from the first mouthful.
-    if (String(it.time || '') < out[id].time) out[id].time = String(it.time || '');
+  // AS BUILT (a conflict inside R229, named in its record): "all items of one meal
+  // group" and "food 90 minutes later makes it not clean" cannot both hold, because
+  // a day group (R202) keeps one kind together up to three hours apart -- a coffee
+  // logged as dinner by the clock 90 min after dinner would join the dinner. The
+  // gate's meaning is taken: items are one sitting when they CHAIN within
+  // SITTING_JOIN_MIN of each other, or share a mealId (one photographed meal). The
+  // day groups only NAME the sitting; a group may hold two.
+  const gkeyOf = {}, kindOf = {};
+  mealKindGroups(dateKey).forEach(function (g) { g.rows.forEach(function (r) { gkeyOf[r.idx] = g.key; kindOf[r.idx] = g.kind; }); });
+  const rowsAll = [];
+  (day.items || []).forEach(function (it, idx) { if (it && !isLegacyAuto(it)) rowsAll.push({ it: it, idx: idx, m: hhmmToMin(it.time) }); });
+  const parent = {};
+  rowsAll.forEach(function (r) { parent[r.idx] = r.idx; });
+  const root = function (i) { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const join = function (a, b) { const ra = root(a), rb = root(b); if (ra !== rb) parent[Math.max(ra, rb)] = Math.min(ra, rb); };
+  const byMeal = {};
+  rowsAll.forEach(function (r) {
+    const id = (r.it.mealId != null && String(r.it.mealId) !== '') ? String(r.it.mealId) : '';
+    if (!id) return;
+    if (byMeal[id] != null) join(byMeal[id], r.idx); else byMeal[id] = r.idx;
   });
-  return order.map(function (id) { return out[id]; })
-    .sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
+  const timed = rowsAll.filter(function (r) { return r.m != null; }).sort(function (a, b) { return a.m - b.m || a.idx - b.idx; });
+  for (let i = 1; i < timed.length; i++) if (timed[i].m - timed[i - 1].m <= SITTING_JOIN_MIN) join(timed[i - 1].idx, timed[i].idx);
+  const by = {};
+  rowsAll.forEach(function (r) { const k = root(r.idx); (by[k] = by[k] || []).push(r); });
+  return Object.keys(by).map(function (k) {
+    const rows = by[k].slice()
+      .sort(function (a, b) { const x = String(a.it.time || ''), y = String(b.it.time || ''); return x < y ? -1 : (x > y ? 1 : a.idx - b.idx); });
+    const gs = [];
+    rows.forEach(function (r) { const gk = gkeyOf[r.idx]; if (gk != null && !gs.some(function (g) { return g.key === gk; })) gs.push({ key: gk, kind: kindOf[r.idx], rows: [r] }); });
+    const times = rows.map(function (r) { return String(r.it.time || ''); }).filter(function (t) { return hhmmToMin(t) != null; }).sort();
+    const minIdx = Math.min.apply(null, rows.map(function (r) { return r.idx; }));
+    const ids = [];
+    rows.forEach(function (r) {
+      const id = (r.it.mealId != null && String(r.it.mealId) !== '') ? String(r.it.mealId) : ('_solo' + r.idx);
+      if (ids.indexOf(id) < 0) ids.push(id);
+    });
+    // The sitting is named by its EARLIEST group -- "Dinner", "Lunch" -- and owned
+    // by it: that group's row is where the response is shown, once.
+    const lead = gs.slice().sort(function (a, b) {
+      const x = String((a.rows[0] && a.rows[0].it.time) || ''), y = String((b.rows[0] && b.rows[0].it.time) || '');
+      return x < y ? -1 : (x > y ? 1 : 0);
+    })[0];
+    return { mealId: 'S' + minIdx, time: times.length ? times[0] : '', items: rows.map(function (r) { return r.it; }),
+             idxs: rows.map(function (r) { return r.idx; }), ids: ids, groupKeys: gs.map(function (g) { return g.key; }),
+             leadKey: lead.key, kind: lead.kind };
+  }).sort(function (a, b) { return a.time < b.time ? -1 : (a.time > b.time ? 1 : 0); });
+}
+// Any id a caller holds -- a sitting id, an item's mealId, '_solo' + index -- to its sitting.
+function findMealEvent(dateKey, id) {
+  const s = String(id);
+  return mealEvents(dateKey).filter(function (e) { return e.mealId === s || e.ids.indexOf(s) >= 0; })[0] || null;
+}
+function sittingOfGroup(dateKey, groupKey) {
+  return mealEvents(dateKey).filter(function (e) { return e.groupKeys.indexOf(String(groupKey)) >= 0; })[0] || null;
+}
+// The sittings a group LEADS (shown in its body, each once), and the ones that
+// merely reach into it (linked from it).
+function sittingsLedBy(dateKey, groupKey) {
+  return mealEvents(dateKey).filter(function (e) { return e.leadKey === String(groupKey); });
+}
+function sittingOfItem(dateKey, idx) {
+  return mealEvents(dateKey).filter(function (e) { return e.idxs.indexOf(Number(idx)) >= 0; })[0] || null;
 }
 function mealEventNames(ev) {
   return (ev && ev.items || []).map(function (it) { return String(it.name || ''); });
@@ -10370,7 +10449,7 @@ function hhmmToMin(t) {
 // minimum rise would be a number nobody ruled.
 function mealResponse(dateKey, mealId) {
   const evs = mealEvents(dateKey);
-  const ev = evs.filter(function (e) { return e.mealId === String(mealId); })[0];
+  const ev = findMealEvent(dateKey, mealId);     // R229: any id, to its sitting
   if (!ev) return { phase: 'none', why: 'no such meal' };
   const t0 = hhmmToMin(ev.time);
   if (t0 == null) return { phase: 'none', why: 'the meal has no time' };
@@ -10576,7 +10655,8 @@ function spearman(xs, ys) {
 }
 function mealReview(dateKey, mealId) {
   const pool = reviewPool();
-  const me = pool.filter(function (e) { return e.dk === String(dateKey) && e.ev.mealId === String(mealId); })[0];
+  const evR = findMealEvent(dateKey, mealId);     // R229: the sitting the id belongs to
+  const me = evR ? pool.filter(function (e) { return e.dk === String(dateKey) && e.ev.mealId === evR.mealId; })[0] : null;
   if (!me) return null;
   reviewEntry(me);
   const out = { response: me.r, judged: me.judged, clean: me.clean,
@@ -10677,8 +10757,7 @@ function responseCoverage() {
 // the response NUMBERS. A test tag is an input, like the meal itself, and must
 // survive a reload.
 function toggleMealTest(dateKey, mealId) {
-  const evs = mealEvents(dateKey);
-  const ev = evs.filter(function (e) { return e.mealId === String(mealId); })[0];
+  const ev = findMealEvent(dateKey, mealId);     // R229: the tag marks the whole sitting
   if (!ev) return { ok: false, error: 'No such meal.' };
   const on = !ev.items.every(function (it) { return it.test === true; });
   ev.items.forEach(function (it) { if (on) it.test = true; else delete it.test; });
@@ -10732,12 +10811,58 @@ function testGroups() {
 // return that was never observed printed as a number, is the thing the 'says so'
 // half of the ruling exists to prevent.
 function respUnitWord(r) { return (r && r.coverage && r.coverage.unit) ? String(r.coverage.unit) : ''; }
+// R229 (was R228) -- WHY THERE IS NO NUMBER, IN PLAIN WORDS. Glucose reaches the
+// phone from Apple Health, usually three hours or more after it was measured,
+// and only when the user imports it. So a meal with no readings is most often a
+// meal the import has not reached yet, and the sentence says that, with when the
+// last import was. A meal whose readings stop part-way says where they stop and
+// that importing again will fill it. The technical reason is kept, one tap away.
+function glucoseExtent() {
+  const store = glucoseRead();
+  const ks = Object.keys(store).sort();
+  if (!ks.length) return null;
+  const f = store[ks[0]], l = store[ks[ks.length - 1]];
+  return { first: dayKeyMs(ks[0]) + f.t[0] * 60000, last: dayKeyMs(ks[ks.length - 1]) + l.t[l.t.length - 1] * 60000 };
+}
+function whenWords(ms) {
+  const d = new Date(ms);
+  return fmtDateSmart(localDate(d), true) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+function lastImportWords() {
+  const at = APP_STATE && APP_STATE.settings && APP_STATE.settings.glucoseImportedAt;
+  const ms = at ? Date.parse(at) : NaN;
+  if (ms > 0) return 'Last import: ' + whenWords(ms) + '.';
+  const ext = glucoseExtent();
+  return ext ? ('Newest reading: ' + whenWords(ext.last) + '.') : '';
+}
+function respWhyHTML(text) {
+  return text ? ('<details class="respwhy"><summary>why?</summary><div class="respcov">' + esc(text) + '</div></details>') : '';
+}
 function mealResponseHTML(dateKey, mealId) {
   const r = mealResponse(dateKey, mealId);
-  if (!r || r.phase === 'none') return '';     // no stream here: say nothing, claim nothing
+  if (!r) return '';
+  const ev = findMealEvent(dateKey, mealId);
+  const t0 = ev ? hhmmToMin(ev.time) : null;
+  const mealMs = t0 != null ? dayKeyMs(dateKey) + t0 * 60000 : null;
+  const ext = glucoseExtent();
+  const head = '<div class="resp"><div class="resphead">After this meal</div>';
+  // A meal whose 20 minutes before are already past the newest reading has no
+  // glucose YET, whatever phase the arithmetic gave it (a baseline of 0 readings
+  // is "declined", but the plain reason is that the import has not reached it).
+  if (ext && mealMs != null && mealMs > ext.last - RESP_BASELINE_MIN * 60000)
+    return head + '<div class="respline respnone">No glucose for this meal yet. Readings arrive when you import from Apple Health (usually 3 h+ behind). '
+      + esc(lastImportWords()) + '</div>' + respWhyHTML(r.why || 'no readings after this meal yet') + '</div>';
+  if (r.phase === 'none') {
+    // Before any glucose was recorded at all there is nothing to say.
+    if (!ext || mealMs == null || mealMs < ext.first) return '';
+    return head + '<div class="respline respnone">No glucose readings around this meal.</div>' + respWhyHTML(r.why) + '</div>';
+  }
+  // The readings END inside this meal's window (not a gap with data after it).
+  const endsHere = !!(ext && mealMs != null && ext.last < mealMs + RESP_WINDOW_MIN * 60000);
+  const stopWords = endsHere ? ('Glucose stops at ' + minutesToHHMM(Math.round((ext.last - dayKeyMs(dateKey)) / 60000)) + ' — import again.') : '';
   const u = respUnitWord(r);
   const b = r.baseline || {};
-  let html = '<div class="resp"><div class="resphead">After this meal</div>';
+  let html = head;
   // THE BASELINE, ALWAYS WITH ITS n (ruled).
   if (b.mean != null) {
     html += '<div class="respline">baseline <b>' + esc(rDisp(b.mean)) + ' ' + esc(u) + '</b>'
@@ -10748,7 +10873,8 @@ function mealResponseHTML(dateKey, mealId) {
       + RESP_BASELINE_MIN + ' minutes, so this baseline is not clean</div>';
   }
   if (r.phase === 'declined') {
-    html += '<div class="respwarn">No response reported \u2014 ' + esc(r.why) + '.</div>';
+    html += '<div class="respwarn">' + (stopWords || 'No response worked out for this meal.') + '</div>'
+      + respWhyHTML('No response reported \u2014 ' + r.why + '.');
     return html + '</div>';
   }
   html += '<div class="respline">rise <b>' + (r.phase === 'bounded' ? '\u2265 ' : '')
@@ -10756,16 +10882,48 @@ function mealResponseHTML(dateKey, mealId) {
   // NEVER A CLEAN NUMBER FOR A RETURN THAT WAS NOT OBSERVED (ruled).
   html += (r.tToBaseline != null)
     ? '<div class="respline">back to baseline <b>' + esc(r.tToBaseline) + ' min</b></div>'
-    : '<div class="respwarn">back to baseline: <b>not observed</b> \u2014 data stops at '
-      + esc(r.stopsAt) + ' min</div>';
-  if (r.following) {
-    html += '<div class="respwarn">another meal (' + esc(r.following) + ') at '
-      + esc(r.followingMin) + ' min, so the window ends there</div>';
-  }
+    : '<div class="respwarn">back to baseline: <b>not observed</b>' + (stopWords ? ' \u2014 ' + stopWords : '') + '</div>';
+  // R228: readings that END inside the window say so even when the return was
+  // seen -- the rest of the window (and the 2 h area) is still to come.
+  if (stopWords && r.tToBaseline != null) html += '<div class="respwarn">' + stopWords + '</div>';
+  // THE TECHNICAL PART, one tap away (R228): where the readings stop, a meal that
+  // cut the window, how many readings over how long.
   const c = r.coverage || {};
-  html += '<div class="respcov">from ' + esc(c.n) + ' readings over ' + esc(c.windowMin)
-    + ' min' + (c.gaps ? ' \u00b7 ' + esc(c.gaps) + ' gap' + (c.gaps === 1 ? '' : 's') : '') + '</div>';
+  const tech = [];
+  if (r.tToBaseline == null && r.stopsAt != null) tech.push('data stops at ' + r.stopsAt + ' min');
+  if (r.following) tech.push('another meal (' + r.following + ') at ' + r.followingMin + ' min, so the window ends there');
+  tech.push('from ' + c.n + ' readings over ' + c.windowMin + ' min' + (c.gaps ? ' \u00b7 ' + c.gaps + ' gap' + (c.gaps === 1 ? '' : 's') : ''));
+  html += respWhyHTML(tech.join('; ') + '.');
   return html + '</div>';
+}
+// R229: THE SITTING'S BLOCK, shown ONCE, on the row of the meal group that leads
+// the sitting: what was eaten in it, summed (eaten basis), then the response and
+// the review. Every other row of the sitting links here.
+function sittingResponseHTML(dateKey, ev, withTime) {
+  if (!ev) return '';
+  const sum = function (k) { return ev.items.reduce(function (a, it) { return a + num(it[k]); }, 0); };
+  const n = ev.items.length;
+  // In a group that holds more than one meal, the block says WHICH one, by its time.
+  const head = '<div class="sitsum">' + esc(sittingName(ev)) + (withTime && ev.time ? ' at ' + esc(ev.time) + ',' : '') + ' as eaten \u00b7 ' + n + ' item' + (n === 1 ? '' : 's')
+    + ' \u00b7 carbs ' + esc(rDisp(sum('carb_g'))) + ' g \u00b7 fat ' + esc(rDisp(sum('fat_g'))) + ' g \u00b7 protein '
+    + esc(rDisp(sum('protein_g'))) + ' g \u00b7 fibre ' + esc(rDisp(sum('fiber_g'))) + ' g</div>';
+  const body = mealResponseHTML(dateKey, ev.mealId) + mealReviewHTML(dateKey, ev.mealId);
+  return '<div class="sitresp" id="sit-' + esc(dateKey) + '-' + esc(ev.mealId) + '">' + head + body + mealTestHTML(dateKey, ev.mealId) + '</div>';
+}
+function sittingName(ev) {
+  const k = String((ev && ev.kind) || 'meal');
+  return k === 'supplement' ? 'Supplements' : (k.charAt(0).toUpperCase() + k.slice(1));
+}
+function sittingLinkHTML(dateKey, ev) {
+  return ev ? ('<button type="button" class="linklike sitlink" onclick="sittingShow(\'' + esc(dateKey) + '\',\'' + esc(ev.leadKey) + '\',\'' + esc(ev.mealId) + '\')">Part of '
+    + esc(sittingName(ev)) + ' \u2014 see meal response</button>') : '';
+}
+// The link's target: the lead group opened, its block in view.
+function sittingShow(dateKey, leadKey, sitId) {
+  if (!dayGroupIsOpen(leadKey)) dayGroupToggle(leadKey);
+  const el = document.getElementById('sit-' + dateKey + '-' + sitId);
+  if (el) { try { el.scrollIntoView({ block: 'start' }); } catch (e) {} }
+  return { ok: !!el };
 }
 
 // ===================== H24: METABOLIC POTENTIAL =====================
@@ -11083,7 +11241,7 @@ function renderPotential() {
 
 // The test tag is a DECLARATION, so it is a control, not a readout.
 function mealTestHTML(dateKey, mealId) {
-  const ev = mealEvents(dateKey).filter(function (e) { return e.mealId === String(mealId); })[0];
+  const ev = findMealEvent(dateKey, mealId);
   if (!ev) return '';
   const on = ev.items.every(function (it) { return it.test === true; });
   return '<button type="button" class="linklike mtest' + (on ? ' mteston' : '') + '"'
@@ -13774,6 +13932,11 @@ function byokCapture(file, source) {
   }
   byokBusy('sending', isLabel ? 'Reading the label\u2026' : 'Reading the photo\u2026');
   const capT0 = nowMs();                 // R27: the retry must know what it has left
+  // R229 (found by D110's hang): a Cancel tapped WHILE THE PHOTO IS BEING PREPARED
+  // was erased -- byokCall clears the flag as it starts -- and the request went out
+  // to the provider (and was charged) after the user had cancelled. The flag is
+  // now cleared when the CAPTURE starts, and checked before anything is sent.
+  BYOK_CANCELLED = false;
   byokTraceReset();                      // R28: one trace per capture
   byokLog('capture: source=' + (source === 'library' ? 'library' : 'camera') +
           ' type=' + String((file && file.type) || '?') +
@@ -13785,6 +13948,7 @@ function byokCapture(file, source) {
     byokTraceNote('bytes', String(img.dataUrl || '').length);
     byokTraceNote('w', img.w); byokTraceNote('h', img.h);
     byokLog('capture: decoded to ' + img.w + 'x' + img.h + ', sending');
+    if (BYOK_CANCELLED) { byokLog('capture: cancelled before sending -- nothing sent'); return { ok: false, kind: 'cancelled', sent: false }; }
     byokStartTick('Sending to your provider\u2026');
     byokCount();
     return byokCall(img.dataUrl, callOpts).then(byokNoteVerdict).then(function (r1) {
@@ -14356,6 +14520,7 @@ const VERSION_LOG = [
   { v: '0.99.0', d: '2026-10-16', note: 'Waking up is now the easiest thing to log. Tap the ring and + Log opens on one big button, Woke — end sleep, while a sleep is going, or Going to sleep when none is; pick Now, your usual time or another time, and it is saved — three taps from the day. The small close on the ring is gone, and the ring key has its own button beside the ring. A night typed in as an event while a sleep is open now ends that open sleep instead of leaving it to be ended again, so one night is always one entry; Undo puts both back.' },
   { v: '0.100.0', d: '2026-10-18', note: 'What a meal did. Open a meal on the day and, where your glucose covers it, you see how far it rose, when it came back, and the area above your baseline over two hours. Below that, in its own dashed box marked Expected: your earlier meals of the same food and your earlier meals with about as much carbohydrate, each with how many there were and their middle value and range, and how closely carbs and the rise have tracked on your meals so far. With fewer than three earlier meals to compare it says so. A meal with other food within two hours either side shows its own numbers and is not compared. Nothing is scored and nothing is suggested.' },
   { v: '0.101.0', d: '2026-10-18', note: 'A backup is now the whole record. Export backup includes your imported glucose and steps, each with where it came from, and restoring the file brings them back, so a backup made on the phone has everything the app knows. A backup made before this has no glucose in it, so restoring one leaves the glucose already on this device as it is. Glucose adds about 2 KB a day to the file.' },
+  { v: '0.102.0', d: '2026-10-18', note: 'A meal’s glucose response now belongs to the whole meal, not to one food in it. Everything you ate in one sitting — the foods in one meal, and anything logged within half an hour of them — is reviewed together, with its carbs, fat, protein and fibre added up as eaten, and the response is shown once, on the meal. Each food in it says which meal it was part of, with a link to the response. Food eaten in the same sitting no longer counts as eating on top of the meal; only food outside it within two hours does. Where there is no glucose yet, it says so plainly and when glucose was last imported; where it stops part-way, it says where and to import again. The technical detail is under why?' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -22543,7 +22708,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
-  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
+  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, findMealEvent, sittingOfGroup, sittingsLedBy, sittingOfItem, sittingResponseHTML, sittingLinkHTML, sittingShow, glucoseExtent, lastImportWords, SITTING_JOIN_MIN, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
   itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,

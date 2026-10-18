@@ -6220,3 +6220,14 @@ already-aborted signal, which a real `fetch` rejects at once; a cancel that beat
 the capture to its fetch left a promise pending forever and the chain hung.
 They now match the real thing. 54 runs: no hang; one unexplained three-assertion
 failure, kept open.
+
+### v0.102.0 — the review gate re-pointed to the meal, a stale reference after a tap, and a hang that was an app bug (2026-10-18)
+
+**The review moved from the item to the meal,** so `review-gate` now opens MEAL
+headers; "nothing on the closed day" is asserted with every group closed. A tap on
+a row re-renders the day, so a reference held across the tap was a detached node
+-- the gate looks the row up again after each tap.
+
+**The hang was the app.** The fixed 60 ms wait in R21.5-pending caught a cancel
+during photo preparation, which the app then ignored and sent anyway. The new case
+fails by name without the fix (checked) and passes with it.

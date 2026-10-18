@@ -481,7 +481,12 @@ echo "-----------------------------------------"
 # glucose alone; the boundary rebuilds a hostile stream; v15->v16 is the version
 # only; the file name says v16. (34 earlier cases moved 15 -> 16 / 16 -> 17, and
 # H19's 'export carries no glucose' was reversed by ruling -- same count.)
-EXPECTED_ASSERTIONS=3167
+# R229, v0.102.0: 3167 -> 3178, delta +11 (ten sitting cases + cancel-before-send, the app bug D110's hang exposed). The sitting: three dinner items and a
+# snack 15 min later are one; any id resolves to it; carbs summed; clean only by
+# food outside it; a coffee alone is a sitting of one; one block on the lead
+# group; the link; R228's no-glucose-yet with last import and why?; stops at;
+# nothing before glucose began.
+EXPECTED_ASSERTIONS=3178
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
