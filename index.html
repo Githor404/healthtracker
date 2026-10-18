@@ -19,6 +19,8 @@
     --lane-sleep:#4a56a6; --lane-eat:#0f8c7d; --lane-exercise:#a86a12;
     --lane-sauna:#b04a24; --lane-yoga:#7a52ab; --lane-meditation:#2d6f96; --lane-red_light:#a63a63;
     --lane-track:#c9d2de;
+    /* R226: the FASTED span from a marked stop -- its own hue, unlike meals and sleep */
+    --lane-fasted:#7a7f2a; --gold:#c9a227;
     --bg:#f4f6fa; --panel:#ffffff; --line:#e4e9f0;
     --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b; --accent:#2fb3a3;
     --tbhi:#5b6b80; --tblo:#b3bdcb; --tbband:#e6eaf0;
@@ -28,6 +30,7 @@
       --lane-sleep:#7b86c4; --lane-eat:#3fbfae; --lane-exercise:#d9a13e;
       --lane-sauna:#d97a5a; --lane-yoga:#a98cc8; --lane-meditation:#6fa8c4; --lane-red_light:#c4718f;
       --lane-track:#2a323f;
+      --lane-fasted:#b8bd5a; --gold:#e3bd3c;
       --bg:#12161c; --panel:#1b212b; --line:#2a323f;
       --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484; --accent:#3fbfae;
       --tbhi:#9fb2cc; --tblo:#57657a; --tbband:#2b3341;
@@ -232,6 +235,19 @@
   .rmk-eat{stroke:var(--lane-eat)}
   .rmini.on{border-color:var(--accent);color:var(--txt)}
   .rmini.rempty{opacity:.45}
+  /* R226: alcohol-free rewards -- gold, alcohol only (a ruled exception) */
+  .rmgold{fill:var(--gold);stroke:none}
+  .rmini.afgold{opacity:1}
+  .afcount{margin-top:8px;font-size:16px;color:var(--txt);font-variant-numeric:tabular-nums}
+  .afdot{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--gold);margin-right:6px;vertical-align:-1px}
+  .afrun{color:var(--muted)}
+  .ndbtn,.srstop{display:block;width:100%;min-height:44px;margin:6px 0;font-size:16px}
+  .ndrow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;font-size:16px;color:var(--muted)}
+  .ndremove{min-height:44px;font-size:16px}
+  .ndask{margin:8px 0;padding:10px;border:1px solid var(--warn);border-radius:12px;font-size:16px}
+  .ndbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+  .ndbtns .btn{min-height:44px;font-size:16px}
+  .rkey.rk-stopfast{background:var(--lane-fasted)}
   /* D35 addendum: the ring is the centerpiece, so it renders at centerpiece
      scale -- ~80% of viewport width, capped so desktop stays sane. Both ring
      SVGs carry a viewBox, so arcs, labels and the now-hand scale with it. */
@@ -1702,6 +1718,13 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         </div>
         <button class="btn" onclick="setFastingFromForm()">Save</button>
         <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-calorie drinks don't break a fast.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="alcoholfree">
+      <details>
+        <summary>Alcohol-free rewards</summary>
+        <label class="checkline"><input type="checkbox" id="afRewards" onchange="setAlcoholFreeRewards(this.checked)"> Alcohol-free rewards</label>
+        <div class="note">Shows a gold circle on each day you marked “No alcohol” in the 7-day and month rings, with how many days were alcohol-free and your current run. Off hides them; your marks are kept either way.</div>
       </details>
     </div>
     <div class="card" data-setting="prompt">

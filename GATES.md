@@ -6231,3 +6231,33 @@ a row re-renders the day, so a reference held across the tap was a detached node
 **The hang was the app.** The fixed 60 ms wait in R21.5-pending caught a cancel
 during photo preparation, which the app then ignored and sent anyway. The new case
 fails by name without the fix (checked) and passes with it.
+
+### v0.103.0 — `drinkfree-gate`: taps counted on screen, and a gold circle that had to be looked at (2026-10-18)
+
+**Taps are counted, scrolls apart.** Each tap is a real click on an element on
+screen when clicked; a row brought into view inside the sheet is a scroll, counted
+separately so it cannot hide inside "2 taps". Both entries passed with 0 scrolls.
+
+**The first colour check compared against nothing.** "Not the meals colour" read
+the stroke of a meals arc on a day whose only food was one breakfast -- there was
+no meals arc, so the comparison was against an empty string and passed vacuously.
+It now resolves the meals and sleep hues the way the browser does and compares
+against those.
+
+**Looked at before the suite** (390 px screenshots): the Settings checkbox showed
+unticked with rewards on, because it was only set at boot -- a restore that turns
+it on would leave it stale. It is now read whenever Settings opens, and the gate
+asserts it both ways.
+
+**R232, folded in before the push:** step 2 of `drinkfree-gate` now logs three
+drinks after the mark -- sparkling water whose source says 0 g alcohol (no
+question), a kombucha no source speaks for (asked once, answered No by a real tap,
+not asked again), white wine whose source says alcohol (asks) -- and only then
+removes the mark.
+
+**A release note that pushed the day off the screen.** The first run after R232
+failed `entry-gate` with no verdict: "the ring is not on screen (765..915)". The
+v0.103.0 "what's new" notice, lengthened by R232, measured 613 px tall above the
+day on a fresh profile. The note is cut to four sentences. Nothing asserts the
+notice's height directly -- entry-gate caught it only because it taps the ring
+from the top of the page. Recorded, not yet gated.

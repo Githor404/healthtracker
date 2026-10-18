@@ -19,7 +19,7 @@ const STORE_KEY        = 'healthtracker-log';                // D1: version-stab
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
 const SCHEMA_VERSION   = 16;
-const APP_VERSION      = '0.102.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.103.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1123,7 +1123,19 @@ function normalizeSettings(s) {
   }, (typeof s.glucoseImportedAt === 'string' && Date.parse(s.glucoseImportedAt) > 0)
        // R229 (R228's "Last import"): when glucose last arrived. Present only once
        // there has been an import, so a settings object without one keeps its shape.
-       ? { glucoseImportedAt: s.glucoseImportedAt } : {});
+       ? { glucoseImportedAt: s.glucoseImportedAt } : {},
+     // R226/R230: "Alcohol-free rewards" ships OFF (no personal default in a
+     // public app). Present only when switched on; the marks are recorded either way.
+     s.alcoholFreeRewards === true ? { alcoholFreeRewards: true } : {},
+     // R232: "Does this drink contain alcohol?" -- the user's answer, remembered
+     // per drink (its match key). Present only once something has been answered.
+     normalizeDrinkAlcohol(s.drinkAlcohol));
+}
+function normalizeDrinkAlcohol(m) {
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return {};
+  const out = {};
+  Object.keys(m).forEach(function (k) { if (k && typeof m[k] === 'boolean') out[String(k)] = m[k]; });
+  return Object.keys(out).length ? { drinkAlcohol: out } : {};
 }
 // R16: an open sleep segment -- a start with no end yet. Coerced at both
 // boundaries; anything malformed becomes null (absent), never a half-record.
@@ -5572,6 +5584,7 @@ function renderDayInner() {
   // used to sit here; it is one quiet line now, below the card with the actions.
   html += renderGoalsHTML(t, day);
   html += plateRecallLineHTML() + (dk === todayKey() ? regimenLinkHTML() : '') + dayActionsHTML();   // R215: both open + Log
+  html += noDrinksAskHTML(dk);          // R226: an answer to what the page shows -- it removes or keeps, never adds
 
   // ---- R159.1: THE DAY AS THE MEALS THAT HAPPENED ----------------------
   // Ruled: one collapsed header per meal kind that HAS items; the empty kinds
@@ -7303,6 +7316,13 @@ const SIGNAL_SPEC = [
   // row would be the daily question ruling C forbids.
   { type: 'sensor',       kind: 'event', label: 'New sensor',  unit: '',       units: [''],       warn: 0 },
   { type: 'sleep_side',   kind: 'event', label: 'Slept on',    unit: '',       units: [''],       warn: 0 },
+  // R226/R232: "No alcohol today" is an EXPLICIT ZERO -- a record with value 0, so
+  // a day the user said had none is told apart from a day nobody said anything about.
+  // "Stopped eating" ends the day's eating window at the time it carries. A new
+  // TYPE each, not a new kind (the D35/D52 precedent): an app that does not know
+  // them round-trips them intact.
+  { type: 'no_alcohol',   kind: 'event', label: 'No alcohol',  unit: 'drinks', units: ['drinks'], warn: 0 },
+  { type: 'eat_stop',     kind: 'event', label: 'Stopped eating', unit: '',    units: [''],       warn: 0 },
   { type: 'other',        kind: 'event', label: 'Other',       unit: 'min',    units: ['min'],    warn: 1440 },
 ];
 const SIGNAL_BY_TYPE = SIGNAL_SPEC.reduce((m, s) => { m[s.type] = s; return m; }, {});
@@ -7543,6 +7563,10 @@ function normalizeSignal(raw) {
   // as written even when this build does not know the id: restore is not the
   // place to decide a type is wrong, and an unknown one simply shows no name.
   if (rec.type === 'sensor' && raw.device != null && String(raw.device) !== '') rec.device = String(raw.device);
+  // R226: the user's answer KEEP to "you marked no alcohol today -- remove that
+  // mark?". Declared in the commit that writes it (D129): without it a restore
+  // would ask the same question again about a day already answered.
+  if (rec.type === 'no_alcohol' && raw.kept === true) rec.kept = true;
   if (raw.ref_low  != null && String(raw.ref_low)  !== '') rec.ref_low  = clampNonNeg(raw.ref_low);
   if (raw.ref_high != null && String(raw.ref_high) !== '') rec.ref_high = clampNonNeg(raw.ref_high);
   if (raw.ref_src === 'lab-report') rec.ref_src = 'lab-report';
@@ -8868,7 +8892,22 @@ function setPrimaryNutrientFromForm() {
   }
   return setPrimaryNutrient(el.value);
 }
+// R226/R230: the toggle. Turning it off hides the gold and the counts and
+// touches no mark: the data is recorded regardless.
+function afRewardsOn() { return !!(APP_STATE && APP_STATE.settings && APP_STATE.settings.alcoholFreeRewards === true); }
+function setAlcoholFreeRewards(on) {
+  if (on) APP_STATE.settings.alcoholFreeRewards = true;
+  else delete APP_STATE.settings.alcoholFreeRewards;
+  Store.saveState(APP_STATE); refresh();
+  try { renderRhythmGrid(); } catch (e) {}
+  return { ok: true, on: afRewardsOn() };
+}
+function renderAfRewardsForm() {
+  const el = document.getElementById('afRewards');
+  if (el) el.checked = afRewardsOn();
+}
 function renderFastingForm() {
+  renderAfRewardsForm();
   const f = (APP_STATE.settings && APP_STATE.settings.fasting) || { enabled: true, minHours: 16 };
   const en = document.getElementById('fastEnabled'); if (en) en.checked = f.enabled !== false;
   const mh = document.getElementById('fastMinHours'); if (mh && !mh.value) mh.value = f.minHours || 16;
@@ -12351,7 +12390,8 @@ const ELITE_ASLEEP_HOURS = [0, 6];                        // ASSUMED asleep when
 const ELITE_WAKE_MIN = 60;
 const ELITE_MOVING_STEPS = 250;                           // this many steps from 30 min before to the peak
 const ELITE_MOVING_BEFORE_MIN = 30;
-const ELITE_LABEL_MATCH_MIN = 15;                         // a label finds its rise again within this, after a re-import moves the start
+const ELITE_LABEL_MATCH_MIN = 15;
+const ELITE_STOP_MS = 24 * 3600000;                       // R226: a stop this recent, with no food after it, counts                         // a label finds its rise again within this, after a re-import moves the start
 const ELITE_TYPE = 'glucose_rise';
 // 'unsure' is the DISMISSAL, and it is a label like the others: "I do not know
 // what that was" is an answer, and a rise the user dismissed must not be read
@@ -12479,6 +12519,17 @@ function eliteContext(rise, series) {
   const assumedAsleep = !loggedAsleep && !nearSleep && hr >= ELITE_ASLEEP_HOURS[0] && hr < ELITE_ASLEEP_HOURS[1];
   const waking = eliteWokeTimes().some(function (w) { return Math.abs(w - rise.start) <= ELITE_WAKE_MIN * 60000; });
   const st = stepsIn(rise.start - ELITE_MOVING_BEFORE_MIN * 60000, rise.peak);
+  // R226: the user said they STOPPED EATING before this rise, and nothing was
+  // logged between. Their own statement makes "food I didn't log" less likely
+  // than the list assumes, so it is offered lower -- never removed.
+  let stoppedAt = null;
+  eatStopsAbs().forEach(function (x) {
+    const ms = dayKeyMs(x.date) + (timeToMinutes(x.time) || 0) * 60000;
+    if (ms > rise.start || rise.start - ms > ELITE_STOP_MS) return;
+    if (lastFood != null && lastFood > ms) return;
+    // the FIRST stop after the last food: the one the ring's fasted arc starts at
+    if (stoppedAt == null || ms < stoppedAt.ms) stoppedAt = { ms: ms, time: x.time };
+  });
   return {
     explained: foods.length > 0,
     sinceFoodH: lastFood == null ? null : (rise.start - lastFood) / 3600000,
@@ -12488,6 +12539,7 @@ function eliteContext(rise, series) {
     waking: waking,
     steps: st.known ? st.steps : null,
     moving: st.known && st.steps >= ELITE_MOVING_STEPS,
+    stoppedAt: stoppedAt ? stoppedAt.time : '',
   };
 }
 // RULED B, the order of what is offered: a sensor artifact FIRST when the rise
@@ -12498,7 +12550,9 @@ function eliteOffers(ctx) {
   if (ctx.sensorDay || ctx.drop) o.push('sensor');
   if (ctx.asleep) o.push('asleep');
   if (ctx.waking) o.push('waking');
-  o.push('food', 'stress', 'other');
+  // R226: after a marked "Stopped eating", food not logged comes LAST.
+  if (ctx.stoppedAt) o.push('stress', 'other', 'food');
+  else o.push('food', 'stress', 'other');
   return o;
 }
 function eliteLabelFor(dateKey, startMs) {
@@ -12587,6 +12641,7 @@ function eliteHTML(dateKey) {
     if (c.asleep === 'logged') bits.push('during logged sleep');
     if (c.asleep === 'assumed') bits.push('in the small hours, with no sleep logged');
     if (c.waking) bits.push('around the time you logged waking');
+    if (c.stoppedAt) bits.push('after you marked stopped eating at ' + c.stoppedAt);
     if (c.steps == null) bits.push('no steps held for this day');
     else bits.push(c.moving ? ('moving · ' + rDisp(c.steps) + ' steps') : ('still · ' + rDisp(c.steps) + ' steps'));
     const asking = !x.label || ELITE_EDIT === r.start;
@@ -14521,6 +14576,7 @@ const VERSION_LOG = [
   { v: '0.100.0', d: '2026-10-18', note: 'What a meal did. Open a meal on the day and, where your glucose covers it, you see how far it rose, when it came back, and the area above your baseline over two hours. Below that, in its own dashed box marked Expected: your earlier meals of the same food and your earlier meals with about as much carbohydrate, each with how many there were and their middle value and range, and how closely carbs and the rise have tracked on your meals so far. With fewer than three earlier meals to compare it says so. A meal with other food within two hours either side shows its own numbers and is not compared. Nothing is scored and nothing is suggested.' },
   { v: '0.101.0', d: '2026-10-18', note: 'A backup is now the whole record. Export backup includes your imported glucose and steps, each with where it came from, and restoring the file brings them back, so a backup made on the phone has everything the app knows. A backup made before this has no glucose in it, so restoring one leaves the glucose already on this device as it is. Glucose adds about 2 KB a day to the file.' },
   { v: '0.102.0', d: '2026-10-18', note: 'A meal’s glucose response now belongs to the whole meal, not to one food in it. Everything you ate in one sitting — the foods in one meal, and anything logged within half an hour of them — is reviewed together, with its carbs, fat, protein and fibre added up as eaten, and the response is shown once, on the meal. Each food in it says which meal it was part of, with a link to the response. Food eaten in the same sitting no longer counts as eating on top of the meal; only food outside it within two hours does. Where there is no glucose yet, it says so plainly and when glucose was last imported; where it stops part-way, it says where and to import again. The technical detail is under why?' },
+  { v: '0.103.0', d: '2026-10-18', note: 'Two new entries in + Log. No alcohol today marks a day with none; logging a drink with alcohol later asks whether to remove the mark. Alcohol-free rewards in Settings (off unless you turn it on) adds gold circles and counts to the 7-day and month rings. Stopped eating ends your eating window, and the day ring shows the time until your next food in its own colour.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14949,6 +15005,68 @@ function hoursLabel(mins) { const h = mins / 60; return (Math.round(h * 10) / 10
 // dishonesty as an inferred arc. 48 h is the constant: two full days is past any
 // fast this app models, and it is where "hours since" stops being a useful number.
 const GAP_DATE_AFTER_MIN = 48 * 60;
+// ---- R226: "STOPPED EATING" ------------------------------------------------
+// One tap in + Log ends the day's eating window at the time it carries. From it
+// to the next food logged, the ring draws a FASTED arc in its own colour --
+// the user said they stopped, so the span is theirs to call fasted, which an
+// inferred gap never is (D22 stands for those: they still say "since last
+// logged food", and a named fast among them says "from last food").
+// Several stops with no food between them are ONE stop: the first ended the
+// window, the rest repeat it. A stop with no food after it yet runs to now.
+function eatStopsAbs() {
+  const out = [], tl = (APP_STATE && APP_STATE.timeline) || {};
+  Object.keys(tl).forEach((d) => {
+    if (!isDayKey(d)) return;
+    (tl[d] || []).forEach((r, idx) => {
+      if (!r || r.type !== 'eat_stop') return;
+      const m = timeToMinutes(r.time);
+      if (m != null) out.push({ abs: absMinutes(d, m), date: d, idx: idx, time: String(r.time) });
+    });
+  });
+  return out.sort((a, b) => a.abs - b.abs);
+}
+function foodAbsAll() {
+  const out = [], days = (APP_STATE && APP_STATE.days) || {};
+  Object.keys(days).forEach((d) => {
+    if (!isDayKey(d)) return;
+    ((days[d] || {}).items || []).forEach((it) => {
+      if (!it || isLegacyAuto(it)) return;
+      const m = timeToMinutes(it.time);
+      if (m != null) out.push(absMinutes(d, m));
+    });
+  });
+  return out.sort((a, b) => a - b);
+}
+function fastDurWords(mins) {
+  const t = Math.max(0, Math.round(mins)), h = Math.floor(t / 60), m = t % 60;
+  return h ? (h + ' h ' + m + ' m') : (m + ' m');
+}
+function absHHMM(abs) {
+  const m = ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY;
+  return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+}
+// Every stop -> next food span. `nowAbs` closes one with no food after it yet;
+// a stop still to come is no span at all.
+function eatStopSpans(nowAbs) {
+  const foods = foodAbsAll(), out = [];
+  let coveredTo = -Infinity, open = false;
+  eatStopsAbs().forEach((st) => {
+    if (open || st.abs < coveredTo) return;          // the same fast, said again
+    const next = foods.filter((a) => a > st.abs)[0];
+    const src = 'stop:' + st.date + ':' + st.idx;
+    if (next != null) {
+      out.push({ a0: st.abs, a1: next, open: false, src: src,
+                 label: 'Fasted ' + fastDurWords(next - st.abs) + ' (' + absHHMM(st.abs) + ' \u2192 ' + absHHMM(next) + ')' });
+      coveredTo = next;
+    } else {
+      if (nowAbs == null || st.abs > nowAbs) return;
+      out.push({ a0: st.abs, a1: nowAbs, open: true, src: src,
+                 label: 'Fasted ' + fastDurWords(nowAbs - st.abs) + ' so far (' + absHHMM(st.abs) + ' \u2192 now)' });
+      open = true;
+    }
+  });
+  return out;
+}
 function gapLabel(mins, sinceDate) {
   return (mins >= GAP_DATE_AFTER_MIN && sinceDate)
     ? 'no food logged since ' + fmtDateSmart(sinceDate, false)
@@ -15069,7 +15187,11 @@ function rhythmModel(dateKey, opts) {
     });
     if (foodAbs.length >= 2) {
       foodAbs.sort((a, b) => a - b);
-      const a0 = foodAbs[0], a1 = foodAbs[foodAbs.length - 1];
+      const a0 = foodAbs[0];
+      let a1 = foodAbs[foodAbs.length - 1];
+      // R226: a "Stopped eating" after the last food ENDS the window there.
+      const stopEnd = eatStopsAbs().filter((st) => st.abs >= a1 && st.abs <= win1)[0];
+      if (stopEnd) a1 = stopEnd.abs;
       addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'eat', 'eating window ' + hoursLabel(a1 - a0),
         { lane: 'eat', cat: 'eat', src: 'eatwindow' });
     }
@@ -15090,15 +15212,24 @@ function rhythmModel(dateKey, opts) {
       });
     });
     // A fasting gap draws in the EAT anchor: it is that lane's own negative space.
+    const stopsHere = eatStopsAbs().map((st) => st.abs);
+    const stopSpansHere = eatStopSpans(isToday ? absMinutes(dateKey, nowM) : win1);
     (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).forEach((c) => {
       if (c.state === 'ate_didnt_log') return;
       const s0 = isoToDayMin(c.start), s1 = isoToDayMin(c.end);
       if (!s0 || !s1) return;
       const a0 = absMinutes(s0.date, s0.min), a1 = absMinutes(s1.date, s1.min);
       const pending = c.state !== 'fasted';
-      addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'fast',
-        rDisp(c.hours) + 'h ' + (pending ? 'gap \u00b7 pending' : 'fasted'),
+      const fa = addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'fast',
+        rDisp(c.hours) + 'h ' + (pending ? 'gap \u00b7 pending' : 'fasted') + ' \u00b7 from last food',
         { lane: 'eat', cat: 'eat', state: pending ? 'pending' : 'fasted', start: c.start, end: c.end, hours: c.hours, src: 'fast:' + c.start });
+      // R226: a stop marked inside it draws its own arc; this one stays in the
+      // model (its answer is still offered in the legend) and is not drawn twice.
+      if (fa && stopsHere.some((x) => x >= a0 && x < a1)) fa.suppressed = true;
+    });
+    stopSpansHere.forEach((sp) => {
+      addIntervalWin(arcs, win0, win1, sp.a0, sp.a1 - sp.a0, 'stopfast', sp.label,
+        { lane: 'eat', cat: 'eat', open: sp.open, stopAbs: sp.a0, nextAbs: sp.open ? null : sp.a1, src: sp.src });
     });
   }
 
@@ -15180,6 +15311,9 @@ function rhythmModel(dateKey, opts) {
             sinceMin: mins, sinceDate: sinceDate, src: 'open', label: gapLabel(mins, sinceDate) }
         : addIntervalWin(arcs, win0, win1, lastAbs, mins, 'open',
             gapLabel(mins, sinceDate), { open: true, lane: 'eat', cat: 'eat', sinceMin: mins, sinceDate: sinceDate, src: 'open' });
+      // R226: a "Stopped eating" since the last food draws the fasted arc from
+      // the stop; the open gap stays in the model (the centre says it), undrawn.
+      if (openGap && !openGap.suppressed && eatStopsAbs().some((st) => st.abs >= lastAbs && st.abs <= nowAbs)) openGap.suppressed = true;
     }
   }
 
@@ -15364,7 +15498,11 @@ function eatCoverage(arcs) {
 function suppressFullEatLane(arcs) {
   const full = EAT_FULL_FRAC * MIN_PER_DAY;
   const gapMax = EAT_GAP_MAX_FRAC * MIN_PER_DAY;
-  const mine = arcs.filter((a) => a.lane === 'eat' && !a.ref && !a.suppressed);
+  // R226: a FASTED arc from a marked stop is exempt from all three. It is not
+  // negative space read against "now": it has two real ends (the stop and the
+  // next food), its own colour that cannot read as meals, and its length IS the
+  // statement -- a 13 h fast drawn shorter, or not at all, would be the lie.
+  const mine = arcs.filter((a) => a.lane === 'eat' && !a.ref && !a.suppressed && a.kind !== 'stopfast');
   // (i) any single arc that fills the lane on its own, whatever its kind
   mine.forEach((a) => { if (a.endMin - a.startMin >= full) a.suppressed = true; });
   // (ii) a NEGATIVE-SPACE arc past half the lane. Positive arcs are exempt: an
@@ -15424,7 +15562,7 @@ function rhythmSVG(model, size, mini) {
     const dim = focus && focus !== a.cat ? ' rdim' : '';
     const cls = 'rk-' + a.cat + ' ra-' + a.kind + (a.ref ? ' rref' : '') + (a.state === 'pending' ? ' rpending' : '') + dim;
     out += '<path class="' + cls + '" data-src="' + esc(a.src || '') + '" data-lane="' + esc(a.lane) + '" data-cat="' + esc(a.cat) + '"' +
-           ' style="stroke:' + (RING_PALETTE[a.cat] || 'currentColor') + ';stroke-width:' + r2(g.stroke) + '"' +
+           ' style="stroke:' + (a.kind === 'stopfast' ? 'var(--lane-fasted)' : (RING_PALETTE[a.cat] || 'currentColor')) + ';stroke-width:' + r2(g.stroke) + '"' +
            ' d="' + arcPath(C, C, g.r, minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
   });
 
@@ -18895,7 +19033,7 @@ function rhythmGridDates() {
 // carries only the two ANCHORS -- the sleep span and the eating window. No tracks,
 // no now-hand, no centre text, nothing outside the box.
 const MINI_PX = 42;   // 7 per row at 390 pt: 7*42 + 6*4 gaps = 318 px inside a ~330 px card
-function miniRingSVG(model) {
+function miniRingSVG(model, gold) {
   const V = 100, C = 50, R = 42;                       // its own viewBox; marks stay inside
   const lanes = { sleep: R * 0.96, eat: R * 0.62 };
   let out = '<svg class="rmring" viewBox="0 0 ' + V + ' ' + V + '" width="' + MINI_PX + '" height="' + MINI_PX + '" aria-hidden="true">';
@@ -18909,9 +19047,39 @@ function miniRingSVG(model) {
       out += '<path class="rmk-' + cat + '" d="' + arcPath(C, C, lanes[cat], minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
     });
   });
+  // R226: a small GOLD circle in the middle of a no-alcohol day, rewards on only
+  if (gold) out += '<circle class="rmgold" cx="' + C + '" cy="' + C + '" r="13"/>';
   return out + '</svg>';
 }
 
+// ---- R226/1 + R230: ALCOHOL-FREE REWARDS -------------------------------------
+// A USER-CHOSEN EXCEPTION to "no streaks, no reward colours", scoped to alcohol
+// only (DECISIONS.md, R226) -- it extends to nothing else. Off unless switched on.
+// A day is alcohol-free when it carries a no-alcohol mark. A day with neither a
+// drink nor a mark is UNMARKED: not alcohol-free, and not hidden -- it counts in
+// the denominator. Counts are out of the days so far; the run is consecutive
+// marked days up to today, today counting once it is marked.
+function afDay(dk) { return !!noDrinksMark(dk); }
+function afCounts(dates) {
+  const t = todayKey();
+  const past = dates.filter(function (d) { return d <= t; });
+  return { n: past.filter(afDay).length, of: past.length, all: dates.length, soFar: past.length < dates.length };
+}
+function afRun() {
+  let d = todayKey(), n = 0;
+  if (!afDay(d)) d = shiftDate(d, -1);
+  while (afDay(d) && n < 3660) { n++; d = shiftDate(d, -1); }
+  return n;
+}
+function afCountsHTML(dates) {
+  if (!afRewardsOn()) return '';
+  const c = afCounts(dates);
+  const span = RHYTHM_RANGE === 'month' ? (c.soFar ? ' this month so far' : '') : (c.soFar ? ' this week so far' : '');
+  const run = afRun();
+  return '<div class="afcount"><span class="afdot" aria-hidden="true"></span>'
+    + esc(c.n + ' of ' + c.of + ' days alcohol-free' + span)
+    + '<span class="afrun"> \u00b7 current run ' + esc(String(run)) + ' day' + (run === 1 ? '' : 's') + '</span></div>';
+}
 function renderRhythmGrid() {
   const el = document.getElementById('rhythmGrid');
   if (!el || !APP_STATE) return;
@@ -18921,9 +19089,10 @@ function renderRhythmGrid() {
   el.innerHTML = `<div class="twin">${btns}</div><div class="rglabel">${esc(fmtRangeLabel(dates))}</div><div class="rgrid">` + dates.map((d) => {
     const m = rhythmModel(d, { live: false });                   // archival: mini-rings are calendar days
     const has = !!(APP_STATE.days || {})[d];
-    return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}" ` +
-      `onclick="goToDay('${esc(d)}')" title="${esc(d)}">${miniRingSVG(m)}<small>${esc(d.slice(8))}</small></button>`;
-  }).join('') + `</div>`;
+    const gold = afRewardsOn() && afDay(d);
+    return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}${gold ? ' afgold' : ''}" ` +
+      `onclick="goToDay('${esc(d)}')" title="${esc(d)}${gold ? ' \u00b7 alcohol-free' : ''}">${miniRingSVG(m, gold)}<small>${esc(d.slice(8))}</small></button>`;
+  }).join('') + `</div>` + afCountsHTML(dates);
 }
 
 // ---- D30: single entry point ----------------------------------------------
@@ -19141,6 +19310,7 @@ function openSettings() {
   if (!STACK_FORM) renderStackEditor();
   renderMyFoods();
   renderBackupLast();
+  renderAfRewardsForm();          // R226: a restore can switch it, so it is read when the panel opens
   if (p) p.style.display = 'flex';
   if (s) s.style.display = 'block';
   overlaySync();
@@ -19617,10 +19787,118 @@ function drinkNew() {
   const f = document.getElementById('fqQuery'); if (f && f.focus) f.focus();
   return { ok: true, picking: true };
 }
+// ---- R226/1 + R232: "NO ALCOHOL TODAY" -------------------------------------
+// One tap in the drinks section. It is an EXPLICIT ZERO on the timeline -- a
+// `no_alcohol` record with value 0 -- so a day the user said had none is a
+// different fact from a day with nothing logged, in the store and in the export.
+// Undo at the tap; deletable where it is listed, like every entry.
+// R232: IT IS ABOUT ALCOHOL ONLY. A drink WITH ALCOHOL logged on a marked day is
+// asked about, never resolved silently: "You marked no alcohol today -- remove
+// that mark?" Keep is an answer too, stored on the mark. Water, coffee, juice,
+// soda never ask. Whether a drink has alcohol comes from its SOURCE -- the cited
+// row's alcohol figure, 0 or more -- or from the user's own answer to "Does this
+// drink contain alcohol?", asked once per drink and remembered, for a drink whose
+// source says nothing (typed, photographed, one of My foods). An old one-tap
+// Drink event (wine, beer, spirit) was an alcohol record by definition.
+function noDrinksMark(dk) {
+  const arr = (APP_STATE.timeline && APP_STATE.timeline[String(dk)]) || [];
+  for (let i = 0; i < arr.length; i++) if (arr[i] && arr[i].type === 'no_alcohol') return { rec: arr[i], idx: i };
+  return null;
+}
+// quote-free, so it can ride in an onclick and be stored as the same string
+function drinkKey(it) { const nm = String((it && it.name) || '').trim(); return String(matchKey(nm) || nm.toLowerCase()).replace(/['"<>&]/g, ''); }
+// true / false from the source or the user's answer; null when neither says.
+function drinkHasAlcohol(it) {
+  const rv = it && it.ref && it.ref.v;
+  if (rv && rv['221'] != null && isFinite(Number(rv['221']))) return Number(rv['221']) > 0;
+  const ans = ((APP_STATE.settings && APP_STATE.settings.drinkAlcohol) || {})[drinkKey(it)];
+  return typeof ans === 'boolean' ? ans : null;
+}
+function dayDrinkItems(dk) {
+  return (((APP_STATE.days || {})[String(dk)] || {}).items || [])
+    .filter(function (it) { return it && it.meal === 'drink' && !isLegacyAuto(it); });
+}
+function dayAlcoholCount(dk) {
+  const ev = ((APP_STATE.timeline && APP_STATE.timeline[String(dk)]) || []).filter(function (r) { return r && r.type === 'alcohol'; }).length;
+  return dayDrinkItems(dk).filter(function (it) { return drinkHasAlcohol(it) === true; }).length + ev;
+}
+function dayUnknownDrink(dk) {
+  return dayDrinkItems(dk).filter(function (it) { return drinkHasAlcohol(it) === null; })[0] || null;
+}
+function drinkAlcoholAnswer(key, yes) {
+  if (!APP_STATE.settings.drinkAlcohol) APP_STATE.settings.drinkAlcohol = {};
+  APP_STATE.settings.drinkAlcohol[String(key)] = !!yes;
+  Store.saveState(APP_STATE); refresh(); renderSheetRoot();
+  return { ok: true, key: String(key), alcohol: !!yes };
+}
+function noDrinksWord(dk) { return String(dk) === todayKey() ? 'today' : 'this day'; }
+function noDrinksTap() {
+  const dk = APP_STATE.current || todayKey();
+  if (noDrinksMark(dk)) return { ok: false, why: 'already-marked' };
+  const r = addSignal({ type: 'no_alcohol', value: 0, unit: 'drinks', source: 'quick', date: dk,
+                        time: dk === todayKey() ? nowTime() : '' });
+  if (r.ok) offerUndo('No alcohol ' + noDrinksWord(dk), undoRemove(APP_STATE.timeline[dk] || [], [r.record]), QUICK_UNDO_MS, 'tline');
+  renderSheetRoot();
+  return r;
+}
+function noDrinksRemove(dk) {
+  dk = String(dk || APP_STATE.current);
+  const m = noDrinksMark(dk);
+  if (!m) return { ok: false, why: 'no-mark' };
+  const arr = APP_STATE.timeline[dk];
+  arr.splice(m.idx, 1);
+  if (!arr.length) delete APP_STATE.timeline[dk];
+  Store.saveState(APP_STATE); refresh(); renderSheetRoot();
+  offerUndo('No-alcohol mark removed', function () {
+    const a2 = APP_STATE.timeline[dk] || (APP_STATE.timeline[dk] = []);
+    a2.splice(Math.min(m.idx, a2.length), 0, m.rec);
+    Store.saveState(APP_STATE); refresh(); renderSheetRoot();
+  }, QUICK_UNDO_MS, 'tline');
+  return { ok: true, removed: m.rec };
+}
+function noDrinksKeep(dk) {
+  const m = noDrinksMark(dk || APP_STATE.current);
+  if (!m) return { ok: false, why: 'no-mark' };
+  m.rec.kept = true;
+  Store.saveState(APP_STATE); refresh(); renderSheetRoot();
+  return { ok: true };
+}
+function noDrinksConflict(dk) {
+  const m = noDrinksMark(dk);
+  return !!(m && !m.rec.kept && dayAlcoholCount(dk) > 0);
+}
+function noDrinksAskHTML(dk) {
+  const m = noDrinksMark(dk);
+  if (!m || m.rec.kept) return '';
+  if (!noDrinksConflict(dk)) {
+    // a drink nothing says anything about: asked ONCE, on a marked day only
+    const u = dayUnknownDrink(dk);
+    if (!u) return '';
+    const key = esc(drinkKey(u));
+    return '<div class="ndask" role="group" aria-label="Does this drink contain alcohol?">'
+      + '<div class="ndq">Does this drink contain alcohol? \u2014 ' + esc(String(u.name || 'a drink')) + '</div>'
+      + '<div class="ndbtns"><button type="button" class="btn" onclick="drinkAlcoholAnswer(\'' + key + '\', true)">Yes</button>'
+      + '<button type="button" class="btn" onclick="drinkAlcoholAnswer(\'' + key + '\', false)">No</button></div></div>';
+  }
+  const k = esc(String(dk));
+  return '<div class="ndask" role="group" aria-label="No-alcohol mark">'
+    + '<div class="ndq">You marked no alcohol ' + esc(noDrinksWord(dk)) + ' \u2014 remove that mark?</div>'
+    + '<div class="ndbtns"><button type="button" class="btn" onclick="noDrinksRemove(\'' + k + '\')">Remove mark</button>'
+    + '<button type="button" class="btn" onclick="noDrinksKeep(\'' + k + '\')">Keep it</button></div></div>';
+}
+function noDrinksRowHTML() {
+  const dk = APP_STATE.current || todayKey();
+  const m = noDrinksMark(dk);
+  if (!m) return '<button type="button" class="btn ndbtn" onclick="noDrinksTap()">No alcohol ' + esc(noDrinksWord(dk)) + '</button>';
+  return '<div class="ndrow"><span>No alcohol ' + esc(noDrinksWord(dk)) + ' \u00b7 marked'
+    + (m.rec.time ? ' ' + esc(m.rec.time) : '') + '</span>'
+    + '<button type="button" class="linklike ndremove" onclick="noDrinksRemove(\'' + esc(String(dk)) + '\')">remove</button></div>';
+}
 function sheetDrinksHTML() {
   const rows = drinkHistory().slice(0, DRINKS_SHOWN);
   let h = '<div class="srheadrow"><span class="srhead">Your drinks</span>'
-    + '<button type="button" class="linklike srdrinknew" onclick="drinkNew()">Log a drink</button></div>';
+    + '<button type="button" class="linklike srdrinknew" onclick="drinkNew()">Log a drink</button></div>'
+    + noDrinksAskHTML(APP_STATE.current || todayKey()) + noDrinksRowHTML();
   if (!rows.length) return h;
   h += rows.map(function (d, i) {
     const port = (d.grams == null) ? 'no amount recorded' : (rDisp(d.grams) + ' g');
@@ -19630,6 +19908,43 @@ function sheetDrinksHTML() {
       + '<span class="qrport">' + esc(port) + ' · ' + esc(kcalDisp(d.kcal)) + ' cal</span></button>';
   }).join('');
   return h;
+}
+
+// ---- R226/2: "STOPPED EATING" -- one tap, the time asked (Now · another time)
+// From the day: + Log, Stopped eating, Now -- three taps. It ends the eating
+// window; the ring draws the fasted span from it to the next food (see
+// eatStopSpans). Information only: no reward is attached to it.
+let EAT_STOP_PICK = false;
+function eatStopOpen() { EAT_STOP_PICK = true; renderSheetRoot(); return { ok: true }; }
+function eatStopCancel() { EAT_STOP_PICK = false; renderSheetRoot(); return { ok: true }; }
+function eatStopSave(choice) {
+  let hhmm = nowTime(), date = localDate();
+  if (choice === 'time') {
+    const el = document.getElementById('esTime');
+    hhmm = el ? String(el.value || '') : '';
+    const m = timeToMinutes(hhmm);
+    if (m == null) { toast('Enter the time.'); return { ok: false, why: 'no-time' }; }
+    // a time still to come today is last night's (laneOnAt's rule)
+    date = m <= nowMinutes() ? todayKey() : shiftDate(todayKey(), -1);
+  }
+  const r = addSignal({ type: 'eat_stop', source: 'quick', time: hhmm, date: date });
+  if (r.ok) {
+    EAT_STOP_PICK = false;
+    offerUndo('Stopped eating \u00b7 ' + hhmm, undoRemove(APP_STATE.timeline[date] || [], [r.record]), QUICK_UNDO_MS, 'tline');
+  }
+  renderSheetRoot();
+  return r;
+}
+function eatStopHTML() {
+  if (!EAT_STOP_PICK)
+    return '<button type="button" class="btn srstop" onclick="eatStopOpen()">Stopped eating</button>';
+  return '<div class="lpick esPick" role="group" aria-label="Stopped eating at\u2026">'
+    + '<div class="lphead">Stopped eating at\u2026</div>'
+    + '<div class="lprow"><button type="button" class="btn primary lpnow" aria-pressed="true" onclick="eatStopSave(\'now\')">Now \u00b7 ' + esc(nowTime()) + '</button></div>'
+    + '<div class="lprow"><label class="lplab" for="esTime">Another time</label>'
+    + '<input id="esTime" type="time" class="lptime">'
+    + '<button type="button" class="btn lpsave" onclick="eatStopSave(\'time\')">Save</button></div>'
+    + '<button type="button" class="linklike lpcancel" onclick="eatStopCancel()">cancel</button></div>';
 }
 
 let TOP_ALL = false;
@@ -19765,6 +20080,7 @@ function renderSheetRoot() {
     // Search off the bottom of a full sheet -- R197/2's ruled fold, caught by
     // onedoor-gate. The fold outranks the placement.
     + sheetDrinksHTML()
+    + eatStopHTML()
     + '<div class="srlinks">'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'med\')">Log a dose I took</button>'
     + '<button type="button" class="linklike" onclick="setSheetMode(\'signal\')">Log event or biometric</button>'
@@ -22708,6 +23024,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
+  noDrinksMark, noDrinksTap, noDrinksRemove, noDrinksKeep, noDrinksConflict, noDrinksAskHTML, dayAlcoholCount, dayUnknownDrink, drinkHasAlcohol, drinkAlcoholAnswer, drinkKey, afRewardsOn, setAlcoholFreeRewards, afDay, afCounts, afRun, afCountsHTML, eatStopOpen, eatStopSave, eatStopCancel, eatStopsAbs, eatStopSpans,
   CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, findMealEvent, sittingOfGroup, sittingsLedBy, sittingOfItem, sittingResponseHTML, sittingLinkHTML, sittingShow, glucoseExtent, lastImportWords, SITTING_JOIN_MIN, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,

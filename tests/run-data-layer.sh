@@ -46,6 +46,7 @@ correction-gate.ps1
 corpus-cache-gate.ps1
 corpus-gate.ps1
 dayroll-gate.ps1
+drinkfree-gate.ps1
 elite-gate.ps1
 entry-gate.ps1
 flow-gate.ps1
@@ -486,7 +487,18 @@ echo "-----------------------------------------"
 # food outside it; a coffee alone is a sitting of one; one block on the lead
 # group; the link; R228's no-glucose-yet with last import and why?; stops at;
 # nothing before glucose began.
-EXPECTED_ASSERTIONS=3178
+# 3178 -> 3200 (v0.103.0, R226 + R230): +22 -- rewards ship off; the no-drinks
+# mark is an explicit zero, once, distinct from missing in the export; a drink
+# on a marked day asks; Keep is stored; the mark deletes; 4 of 7 with unmarked
+# days counted; the month out of the days so far; the run with and without
+# today; counts off/on/off with every mark kept; the fasted span 800 min with its
+# words; the arc on both days; the stop ends the eating window; a repeated stop
+# is one fast; "from last food" without a stop; E-lite offers food last after a
+# stop; its context names the stop, and drops it once food follows.
+# 3200 -> 3203 (R232, same release): the mark is ALCOHOL only -- sparkling water
+# (source 0 g) asks nothing; a drink no source speaks for is asked once and the
+# answer is remembered and exported; white wine (source > 0) asks.
+EXPECTED_ASSERTIONS=3203
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

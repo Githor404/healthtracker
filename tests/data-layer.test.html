@@ -1223,6 +1223,122 @@ window.setLS({});
       'R229: a meal from before any glucose was recorded says nothing at all');
   setLS({}); HT.boot();
 
+  // ---- R226 + R230 + R232: "No alcohol today", alcohol-free rewards, "Stopped eating" ------
+  setLS({}); HT.boot();
+  var r226T = new Date(td + 'T21:00:00').getTime();
+  HT.setClock(function () { return r226T; });
+  res(HT.afRewardsOn() === false && !('alcoholFreeRewards' in HT.state().settings),
+      'R230 GATE: "Alcohol-free rewards" ships OFF -- a fresh install has no such setting at all');
+  HT.state().current = td;
+  var nd226 = HT.noDrinksTap();
+  var mk226 = HT.noDrinksMark(td);
+  res(nd226.ok && mk226 && mk226.rec.value === 0 && mk226.rec.unit === 'drinks' && mk226.rec.time === '21:00',
+      'R226 GATE: one tap marks the day "no alcohol" -- an EXPLICIT ZERO (value 0) at the time of the tap');
+  res(HT.noDrinksTap().ok === false && (HT.state().timeline[td] || []).filter(function (r) { return r.type === 'no_alcohol'; }).length === 1,
+      'R226: a second tap is not a second mark');
+  var ex226 = JSON.parse(HT.exportJSON());
+  var exd226 = (ex226.timeline[td] || []).filter(function (r) { return r.type === 'no_alcohol'; });
+  var exy226 = (ex226.timeline[HT.shiftDate(td, -1)] || []).filter(function (r) { return r.type === 'no_alcohol'; });
+  res(exd226.length === 1 && exd226[0].value === 0 && exy226.length === 0 && !ex226.days[HT.shiftDate(td, -1)],
+      'R226 GATE: in the EXPORT the marked day carries {type: no_alcohol, value: 0} and an unmarked day carries nothing -- zero is distinct from missing');
+  // R232: ALCOHOL ONLY. A drink whose source says 0 g alcohol never asks; one whose
+  // source says nothing is asked about ONCE and remembered; one with alcohol asks.
+  HT.state().days[td] = HT.state().days[td] || { status: 'partial', items: [], water_l: 0 };
+  var dr232 = function (name, time, ref) { return Object.assign({ name: name, meal: 'drink', time: time, kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }, ref ? { ref: ref } : {}); };
+  HT.state().days[td].items.push(dr232('Gate sparkling water', '21:10', { ns: 'fdc', id: 'x1', v: { '221': 0 } }));
+  HT.resave();
+  res(!HT.noDrinksConflict(td) && HT.noDrinksAskHTML(td) === '',
+      'R232 GATE: sparkling water (its source: 0 g alcohol) after the mark -> NO question');
+  HT.state().days[td].items.push(dr232('Gate kombucha', '21:15'));
+  HT.resave();
+  var uk232 = HT.noDrinksAskHTML(td);
+  res(!HT.noDrinksConflict(td) && uk232.indexOf('Does this drink contain alcohol? — Gate kombucha') > 0,
+      'R232 GATE: a drink its source says nothing about -> asked "Does this drink contain alcohol?", not told the mark is wrong');
+  HT.drinkAlcoholAnswer(HT.drinkKey({ name: 'Gate kombucha' }), false);
+  HT.state().days[td].items.push(dr232('Gate kombucha', '21:20'));
+  HT.resave();
+  res(HT.noDrinksAskHTML(td) === '' && JSON.parse(HT.exportJSON()).settings.drinkAlcohol[HT.drinkKey({ name: 'Gate kombucha' })] === false,
+      'R232: the answer is REMEMBERED for that drink -- a second kombucha asks nothing -- and it travels in the export');
+  HT.state().days[td].items.push(dr232('Gate white wine', '21:30', { ns: 'fdc', id: 'x2', v: { '221': 14.2 } }));
+  HT.resave();
+  var ask226 = HT.noDrinksAskHTML(td);
+  res(HT.noDrinksConflict(td) && ask226.indexOf('You marked no alcohol today — remove that mark?') >= 0
+      && ask226.indexOf('Remove mark') > 0 && ask226.indexOf('Keep it') > 0 && HT.noDrinksMark(td) !== null,
+      'R232 GATE: white wine (its source: alcohol > 0) after the mark ASKS "You marked no alcohol today -- remove that mark?", and the mark is untouched until answered');
+  HT.noDrinksKeep(td);
+  var kept226 = JSON.parse(HT.exportJSON()).timeline[td].filter(function (r) { return r.type === 'no_alcohol'; })[0];
+  res(!HT.noDrinksConflict(td) && HT.noDrinksAskHTML(td) === '' && kept226.kept === true,
+      'R226: "Keep it" is an answer, stored on the mark (and in the export), so the question is not asked again');
+  var rm226 = HT.noDrinksRemove(td);
+  res(rm226.ok && HT.noDrinksMark(td) === null, 'R226: the mark is deletable');
+  // -- the counts and the run (R230): out of the days so far; unmarked counts as not alcohol-free --
+  [0, 1, 2, 4].forEach(function (k) { HT.addSignal({ type: 'no_alcohol', value: 0, unit: 'drinks', source: 'quick', date: HT.shiftDate(td, -k), time: '20:00' }); });
+  var wk226 = []; for (var i226 = 6; i226 >= 0; i226--) wk226.push(HT.shiftDate(td, -i226));
+  var c226 = HT.afCounts(wk226);
+  res(c226.n === 4 && c226.of === 7 && c226.soFar === false,
+      'R230 GATE: 4 marked days in the 7 shown -> "4 of 7"; the three unmarked days are counted, not hidden', JSON.stringify(c226));
+  var d0226 = new Date(td + 'T00:00:00'), mo226 = [];
+  for (var j226 = 1; j226 <= new Date(d0226.getFullYear(), d0226.getMonth() + 1, 0).getDate(); j226++)
+    mo226.push(HT.localDate(new Date(d0226.getFullYear(), d0226.getMonth(), j226)));
+  var cm226 = HT.afCounts(mo226);
+  var last226 = mo226[mo226.length - 1] === td;
+  res(cm226.of === d0226.getDate() && cm226.soFar === !last226,
+      'R230 GATE: the month counts OUT OF THE DAYS SO FAR (' + cm226.of + ' of ' + mo226.length + '), and says "so far" until its last day', JSON.stringify(cm226));
+  res(HT.afRun() === 3, 'R230 GATE: the run is consecutive marked days up to today, today included once marked -- 3 (today, yesterday, the day before)', String(HT.afRun()));
+  HT.noDrinksRemove(td);
+  res(HT.afRun() === 2, 'R230: today unmarked, the run counts back from yesterday -- 2', String(HT.afRun()));
+  HT.addSignal({ type: 'no_alcohol', value: 0, unit: 'drinks', source: 'quick', date: td, time: '21:00' });
+  res(HT.afCountsHTML(wk226) === '', 'R226 GATE: rewards OFF -> no counts drawn');
+  HT.setAlcoholFreeRewards(true);
+  res(HT.afCountsHTML(wk226).indexOf('4 of 7 days alcohol-free') > 0 && HT.afCountsHTML(wk226).indexOf('current run 3 days') > 0,
+      'R226 GATE: rewards ON -> "4 of 7 days alcohol-free" and the current run beside the rings', HT.afCountsHTML(wk226).replace(/<[^>]+>/g, ''));
+  HT.setAlcoholFreeRewards(false);
+  res(HT.afCountsHTML(wk226) === '' && !('alcoholFreeRewards' in HT.state().settings) && HT.afDay(td) && HT.afDay(HT.shiftDate(td, -4)),
+      'R226 GATE: switched OFF, the counts go and EVERY MARK STAYS');
+  // -- "Stopped eating" --
+  setLS({}); HT.boot();
+  HT.setClock(function () { return r226T; });
+  var tm226 = HT.shiftDate(td, 1);
+  var food226 = function (name, time) { return { name: name, meal: 'dinner', time: time, kcal: 300, protein_g: 10, fat_g: 10, carb_g: 30, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }; };
+  HT.state().days[td] = { status: 'complete', water_l: 0, items: [food226('Gate oats', '08:00'), food226('Gate stew', '19:00')] };
+  HT.state().days[tm226] = { status: 'partial', water_l: 0, items: [food226('Gate eggs', '09:30')] };
+  HT.resave();
+  HT.addSignal({ type: 'eat_stop', source: 'quick', date: td, time: '20:10' });
+  var sp226 = HT.eatStopSpans(null);
+  res(sp226.length === 1 && sp226[0].a1 - sp226[0].a0 === 800 && sp226[0].label === 'Fasted 13 h 20 m (20:10 → 09:30)',
+      'R226 GATE: stop at 20:10, next food 09:30 -> "Fasted 13 h 20 m (20:10 → 09:30)", 800 min', JSON.stringify(sp226));
+  var m1226 = HT.rhythmModel(td, { live: false }), m2226 = HT.rhythmModel(tm226, { live: false });
+  var a1226 = m1226.arcs.filter(function (a) { return a.kind === 'stopfast'; })[0], a2226 = m2226.arcs.filter(function (a) { return a.kind === 'stopfast'; })[0];
+  var ew226 = m1226.arcs.filter(function (a) { return a.kind === 'eat'; })[0];
+  res(a1226 && a2226 && !a1226.suppressed && !a2226.suppressed && (a1226.endMin - a1226.startMin) + (a2226.endMin - a2226.startMin) === 800
+      && a1226.startMin === 20 * 60 + 10 && a2226.endMin === 9 * 60 + 30,
+      'R226 GATE: the FASTED ARC is exactly stop -> next food: 20:10 to midnight plus midnight to 09:30 = 800 min, drawn on both days');
+  res(ew226 && ew226.startMin === 8 * 60 && ew226.endMin === 20 * 60 + 10,
+      'R226: the stop ENDS the eating window -- 08:00 to 20:10, not to the last food at 19:00');
+  // a second stop with no food between is the same fast
+  HT.eatStopSave('now');
+  res(HT.eatStopSpans(null).length === 1 && HT.eatStopsAbs().length === 2,
+      'R226: a second "Stopped eating" (21:00) with no food between is the same fast -- recorded, not drawn twice');
+  // no stop marked: the old behaviour, and it says "from last food"
+  var g1226 = HT.shiftDate(td, -10), g2226 = HT.shiftDate(td, -9);
+  HT.state().days[g1226] = { status: 'complete', water_l: 0, items: [food226('Gate lunch', '12:00'), food226('Gate supper', '18:00')] };
+  HT.state().days[g2226] = { status: 'complete', water_l: 0, items: [food226('Gate brunch', '12:00')] };
+  HT.resave();
+  var fa226 = HT.rhythmModel(g2226, { live: false }).arcs.filter(function (a) { return a.kind === 'fast'; })[0];
+  res(fa226 && / · from last food$/.test(fa226.label) && HT.rhythmModel(g2226, { live: false }).arcs.every(function (a) { return a.kind !== 'stopfast'; }),
+      'R226 GATE: where no stop is marked the gap runs from the LAST FOOD, as before, and says so -- "from last food"', fa226 ? fa226.label : 'no fast arc');
+  // E-lite: food not logged offered lower after a marked stop
+  var o1226 = HT.eliteOffers({ stoppedAt: '20:10' }), o2226 = HT.eliteOffers({ stoppedAt: '' });
+  res(o1226.join(',') === 'stress,other,food' && o2226.join(',') === 'food,stress,other',
+      'R226 GATE: after a marked stop, "food I didn\'t log" is offered LAST, not first -- and nothing is removed');
+  var rs226 = { start: new Date(td + 'T23:00:00').getTime(), peak: new Date(td + 'T23:30:00').getTime(), v0: 5, vPeak: 7, unit: 'mmol/L' };
+  res(HT.eliteContext(rs226, []).stoppedAt === '20:10',
+      'R226: a rise at 23:00 after a stop at 20:10, nothing eaten between -> the context says when they stopped');
+  HT.state().days[td].items.push(food226('Gate toast', '22:00')); HT.resave();
+  res(HT.eliteContext(rs226, []).stoppedAt === '',
+      'R226: food logged AFTER the stop and before the rise -> the stop no longer counts for it');
+  HT.setClock(null); setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --

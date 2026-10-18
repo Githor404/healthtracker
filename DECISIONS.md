@@ -17257,3 +17257,120 @@ clean; the R225 checks moved to the meal row. Harness 3167 → 3178. Re-measured
 the v16 backup (food to Oct 18, glucose to **Oct 17 15:32**): 111 events, 72
 judged; under the clean rule 18 comparable, 0 at the floor for "meals like
 this", 5 for similar carbs.
+
+
+## R226 + R230 + R232 — RULED AND BUILT: "NO ALCOHOL TODAY" (first "No drinks today"), ALCOHOL-FREE REWARDS, "STOPPED EATING" (2026-10-18, v0.103.0)
+
+Serves **track**: two statements the log could not hold — "I had no drinks today"
+and "I stopped eating at 20:10" — each one tap in + Log. The rewards are a
+user-chosen exception, below. Costs, stated: the no-drinks mark is the user's
+word, not a measurement (a drink not logged is still not seen); the fasted span
+assumes every later food was logged.
+
+### 1. "No drinks today" — an explicit zero
+
+- In + Log's drinks section, beside Your drinks / Log a drink. One tap; Undo; the
+  record is listed and deletable like every entry, and the section shows the day
+  as *marked* with **remove**.
+- Stored as a timeline record `{ type: "no_drinks", value: 0, unit: "drinks" }`
+  on the day it was marked. **Zero is distinct from missing**: an unmarked day has
+  no record, in the store and in the export. A new type, not a kind (the D35/D52
+  precedent) — no schema bump.
+- **A drink logged on a marked day is asked about, never resolved silently:** *"You
+  marked no drinks today — remove that mark?"* — Remove mark / Keep it, on the day
+  and in the drinks section. *Keep it* is an answer and is stored on the mark
+  (`kept: true`, allow-listed in `normalizeSignal` in this commit, D129), so it is
+  not asked twice. Neither answer adds an entry (entry-gate's census stands).
+- **Named, not resolved silently:** the ruling says "a drink". A drink is any item
+  at `meal: drink`, so a sparkling water on a marked day asks too. Asking about a
+  non-alcoholic drink costs one tap; deciding which drinks "count" would be the app
+  judging the user's statement. Say if it should ask only for alcohol.
+
+### 2. THE EXCEPTION — alcohol-free rewards (user-chosen; alcohol ONLY)
+
+**Recorded as ruled:** this is a **user-chosen exception** to "no streaks, no
+reward colours", **scoped to alcohol only. It does not extend to any other
+feature** — not fasting, not sleep, not the stack, not goals. A future request
+to add a streak or a reward colour elsewhere is not covered by this entry.
+
+- **Settings → "Alcohol-free rewards"**, **off by default** (R230/1: no personal
+  default in a public app; the user switches it on). Stored only when on
+  (`settings.alcoholFreeRewards: true`). The marks are recorded regardless.
+- On: a small **gold circle** on each marked day in the 7-day and month rings, and
+  beside the rings *"N of M days alcohol-free"* and *"current run K days"*. Off:
+  both go; **no mark is touched**.
+- **Counts are out of the days so far** (R230/2): *"12 of 18 days alcohol-free
+  this month so far"*; at the end of the period *"x of 31"*. A day with neither a
+  drink nor a mark is **unmarked** — not alcohol-free, and **counted, not hidden**.
+- **Run** (R230/3) = consecutive marked days up to today; today counts once marked,
+  and while it is unmarked the run counts back from yesterday.
+- **Named:** the 7-day grid is the existing one — the **seven days ending on the
+  day shown**, not a calendar week — so its count reads *"x of 7"* and never needs
+  "so far" (none of its days are still to come). The ruling's example, *"5 of 6
+  days this week so far"*, assumes a calendar week. The count describes the rings
+  it sits beside; a calendar-week count would describe a different set of days
+  from the ones drawn. Say if the week grid should become a calendar week.
+
+### 3. "Stopped eating"
+
+- In + Log, under the drinks: **Stopped eating** → *"Stopped eating at…"* with
+  **Now · HH:MM** (highlighted) and *Another time* (a time not yet reached today
+  is last night's, `laneOnAt`'s rule). Three taps from the day: + Log, Stopped
+  eating, Now. Undo; deletable. Record: `{ type: "eat_stop", time }`.
+- **It ends the eating window** — the day ring's eating window ends at the stop,
+  not at the last food.
+- **The ring draws the fasted span** from the stop to the **next food logged**, in
+  its **own colour** (`--lane-fasted`, olive; neither the meals teal nor the sleep
+  blue). The ring key — one tap on *Ring key*, since the ring itself opens + Log
+  (R223) — reads *"Fasted 13 h 20 m (20:10 → 09:30)"*; with no food yet, *"…so far
+  (20:10 → now)"*. Several stops with no food between them are **one fast**, from
+  the **first** (it ended the window; the rest repeat it). E-lite uses the same
+  first stop, so the two never disagree.
+- **The fasted arc is exempt from the eat lane's three suppressions** (R18.1).
+  Those exist because an inferred gap measured to "now" reads as its opposite past
+  half the lane. This arc has two real ends, a colour that cannot read as meals,
+  and its length is the statement: a 13 h fast hidden for being over 12 h would
+  be the lie. An inferred gap with a stop inside it is not drawn twice (kept in
+  the model, its answer still offered in the key).
+- **Where no stop is marked**, the old behaviour stands: the gap runs from the last
+  food, and a named fast says **"from last food"** (*"17h fasted · from last
+  food"*). D22 is unchanged for those: an unconfirmed gap is never called a fast.
+- **E-lite:** a rise after a marked stop, with nothing logged between (within 24 h),
+  offers *food I didn't log* **last** — after stress and something else — and its
+  line says *"after you marked stopped eating at 20:10"*. Nothing is removed.
+
+### 4. Evidence
+
+`drinkfree-gate` (new, 13 checks, real counted taps at 390 px): no drinks today in
+2 taps, stored as 0, the export telling it from a day with nothing; a later drink
+asks on the day and Remove mark removes it; rewards off by default, then gold on
+exactly the marked days, "3 of 7" and run 2, the month out of the days so far,
+off again with every mark kept; the checkbox follows the stored setting; stopped
+eating in 3 taps with the time asked; the fasted arc exactly stop → next food (750
+min over two days), drawn in a colour that is neither meals nor sleep, and named
+in the key. Harness 3178 → 3200 (22: the rules underneath, incl. the 800 min case,
+the window ending at the stop, a repeated stop, "from last food", E-lite's order).
+
+### 5. R232 — ruled before the push, folded into v0.103.0: ALCOHOL ONLY
+
+1. **Week count "x of 7" over the rolling grid: kept** (§2's named conflict, ruled).
+2. **The mark is about alcohol only.** Renamed *"No alcohol today"*; the record is
+   `no_alcohol` (renamed before any release carried `no_drinks`, so no migration).
+   The question *"You marked no alcohol today — remove that mark?"* fires only for
+   a drink **with alcohol**: its source's alcohol figure (slot 221) > 0, or an old
+   one-tap Drink event (wine, beer, spirit — an alcohol record by definition).
+   A source figure of **0** never asks — water, coffee, juice, soda, sparkling
+   water. **Measured** on the shipped corpora: 303 of 366 FDC beverage rows and
+   228 of 243 CNF carry an alcohol figure, so a drink found in the database is
+   almost always known either way.
+   A drink no source speaks for (typed, photographed, one of My foods, or a row
+   with no figure) is asked about **once, on a marked day only**: *"Does this
+   drink contain alcohol? — <name>"*; the answer is stored per drink
+   (`settings.drinkAlcohol`, keyed by the drink's match key; allow-listed in
+   `normalizeSettings`, D129) and travels in the export. No word list decides
+   it — *"Irish coffee"* would defeat any.
+3. **Marked fasts over 12 h stay drawn: kept** (§3, ruled).
+
+Evidence: `drinkfree-gate` re-pointed — sparkling water after the mark asks
+nothing; a kombucha with no source is asked once and "No" is remembered; white
+wine asks. Harness 3200 → 3203.
