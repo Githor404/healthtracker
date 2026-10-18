@@ -636,10 +636,13 @@ try {
     }
   }
 
-  # ---- A: THE CACHE IS OUTSIDE THE EXPORT, BY CONSTRUCTION ----------------
-  $exp = Eval "JSON.stringify((function(){var j=HT.exportJSON();return {hasGlucose:/glucose/i.test(j),hasKey:/healthtracker-glucose/.test(j)};})())"
+  # ---- A: THE STORE IS OUTSIDE THE LOG; R227.1: THE EXPORT CARRIES IT ------
+  # REVERSED BY RULING (R227.1): the backup is the only file that leaves the
+  # phone, so it carries the imported glucose under `streams`. The store itself
+  # stays outside APP_STATE (asserted below), and no storage key travels.
+  $exp = Eval "JSON.stringify((function(){var j=HT.exportJSON(),o=JSON.parse(j);return {inStreams:!!(o.streams&&o.streams.glucose&&Object.keys(o.streams.glucose).length),hasKey:/healthtracker-glucose/.test(j)};})())"
   $E = $exp | ConvertFrom-Json
-  Chk 'M' (-not $E.hasGlucose) "the export carries a 'glucose' key -- A ruled a re-acquirable CACHE, excluded like the corpus"
+  Chk 'M' ([bool]$E.inStreams) "R227.1: the export does not carry the imported glucose under 'streams'"
   Chk 'M' (-not $E.hasKey) "the export mentions the glucose storage key"
   $sep = Eval "JSON.stringify((function(){try{return {inLS:!!localStorage.getItem('healthtracker-glucose'),inState:('glucose' in HT.state())};}catch(e){return {err:String(e)};}})())"
   $SEP = $sep | ConvertFrom-Json
