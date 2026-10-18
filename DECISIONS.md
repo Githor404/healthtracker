@@ -17123,3 +17123,73 @@ three earlier meals give median 2 (1 to 3) and area 90 (45 to 135), n 3; carbs
 "not clean" and not compared; a 30-min hole is "not judged — a gap". Harness
 (3158): iAUC, the floor, the clean rule both ways, not judged, the box, no verdict
 words, Spearman with ties, the flat-carbs sentence, **nothing stored**.
+
+## R227.1 — RULED AND BUILT: THE BACKUP CARRIES THE IMPORTED GLUCOSE (2026-10-18, v0.101.0, schema v16)
+
+**Label.** `R227.1` (it replaces an `R227` never received here) is the user's
+relay label; grepped, not previously recorded. **Serves** *track*: the backup is
+the only file that leaves the phone (USB is now blocked; the phone imports Apple
+Health itself), and a backup without the glucose could not carry the stream that
+judges every meal.
+
+**Reverses, by ruling:** D77/D134's "a cache, never exported" for glucose and
+steps, and the H19 harness case that asserted it. The **store** does not move —
+still its own compact column store outside APP_STATE, off the log's quota — only
+the **export** now carries it.
+
+### 1. What changed
+
+- `exportJSON` appends `streams: { v, note, glucose, steps }` — each glucose day
+  with its source and the unit as entered, each steps day with its source — as
+  **one compact line** after the indented state. Sensor changes and every other
+  entry were already timeline records in the state.
+- `restore` takes a file's streams through the stores' own allowlists
+  (`parseStreams`); a file that carries them **replaces** the device's; a file that
+  has none (v15 and older) **leaves the device's untouched** — nothing to restore is
+  not a reason to delete. The D3 pre-restore copy now includes the streams, so a
+  restore can be undone whole.
+- **Schema v16.** The log's shape is unchanged (`migrateV15toV16` moves the
+  version and nothing else; D7's pre-migration snapshot runs as usual on boot).
+  The bump is what protects an older build: v15 refuses a v16 file rather than
+  restoring it and silently dropping its glucose. Backup files are now named
+  `…-v16.json`.
+
+### 2. Size, measured — no compression needed
+
+| | |
+|---|---|
+| the user's Oct 18 backup | 439 KB |
+| + the PC's glucose (2,739 readings, 11 days), compact | **462 KB** (gzip: 61 KB) |
+| glucose per day, compact / indented | ~2 KB / ~5.5 KB |
+| projected: 30 / 90 / 365 days of glucose | +61 / +185 / +753 KB |
+
+Nothing is dropped and nothing is compressed; gzip is the next step if a backup
+ever passes a few MB.
+
+### 3. The cut-off, stated
+
+Until the user exports a v16 backup from the phone, every glucose figure here
+rests on the PC's file, which **ends 2026-10-10 06:12**. R225's re-measure is to
+be repeated from the first v16 backup.
+
+### 4. Evidence
+
+`backup-gate`, through a real file: export → `localStorage.clear()` + reload →
+the file chosen in the real file input → Restore. After it: the glucose store
+and the steps store **identical** (source kept), the E-lite rises **identical**
+(2 flagged), the **glucose chart's drawing byte-identical**, and the re-export
+byte-identical to the file. Harness +9 (3167): the streams in the export with
+provenance and on one line; export → wipe → restore byte for byte; an old file
+leaves glucose alone; a hostile stream rebuilt at the boundary; v15→v16 is the
+version only; the file name. 34 earlier cases moved 15 → 16 (and 16 → 17 for the
+"newer" probe), as every bump has.
+
+### 5. And the harness intermittent (D110), most of it found
+
+While this ran, the harness chain hung again (at 3,106). The cause was in the
+harness's own stand-in for `fetch`: a real `fetch` given an already-aborted
+signal rejects at once; the stubs only listened for a FUTURE abort, so a cancel
+that landed before the capture reached `fetch` left a promise pending forever.
+Eight stubs now behave like the real thing. Since: **no hang in 54 runs**; one
+run had three failed assertions whose names were not caught, and 42 runs after
+it were clean. **Recorded as open, not as fixed.**

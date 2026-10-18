@@ -126,7 +126,7 @@ window.setLS({});
   setLS({}); HT.boot();
   var s = HT.state();
   res(HT.Store.tier === 'local', '1: tier local');
-  res(s.version === 15 && s.current === td, '1: schema v15, current = today');
+  res(s.version === 16 && s.current === td, '1: schema v16, current = today');
   res(!!s.days[td] && s.days[td].status === 'in_progress', '1: today created in_progress');
   res(s.days[td].items.length === 0, '1: today has ZERO items (no fabricated supplement)');
   res(s.settings && s.settings.supplement === undefined && Array.isArray(s.settings.stack) && s.settings.stack.length === 0, '1: there is NO supplement setting (R203), and the stack ships empty');
@@ -144,7 +144,7 @@ window.setLS({});
   var v1json = JSON.stringify(v1);
   setLS({ 'healthtracker-log': v1json }); HT.boot();
   s = HT.state();
-  res(s.version === 15, '2: version bumped to 15 (chained v1->…->v15)');
+  res(s.version === 16, '2: version bumped to 16 (chained v1->…->v16)');
   res(isoRe.test(s.migratedAt || ''), '2: migratedAt stamped', s.migratedAt);
   res(!!s.settings && !!s.priceLog && !!s.timeline && !!s.fastLog, '2: settings + priceLog + timeline + fastLog added');
   res(!!s.days['2026-07-08'] && s.days['2026-07-08'].items.length === 2, '2: day + items preserved');
@@ -166,7 +166,7 @@ window.setLS({});
 
   // 4. Forward-version blob in storage is protected (now > 15 -- R203 took v15, and a
   // fixture that stops being ahead of SCHEMA_VERSION stops testing the guard)
-  var futureBlob = JSON.stringify({ version: 16, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
+  var futureBlob = JSON.stringify({ version: 17, days: { '2030-01-01': { status:'complete', items:[], water_l:0 } }, current:'2030-01-01', settings:{}, priceLog:{}, timeline:{}, fastLog:{}, regimens:{active:'',list:[],log:{}}, futureField: 1 });
   setLS({ 'healthtracker-log': futureBlob }); var r4 = HT.boot();
   res(r4.source === 'future', '4: forward blob -> source future');
   res(window.__ls._get('healthtracker-log') === futureBlob, '4: forward blob NOT overwritten');
@@ -193,7 +193,7 @@ window.setLS({});
   // settings -- an allowlist addition with no schema bump, so the fixture gains the
   // key at the SAME version). ----
   var goalState = { goals: { protein_g: { value: 120, direction: 'min' } }, stack: [], foods: [], combos: [], presets: [{ name: 'Latte', kcal: 65 }], currency: '', signalUnits: {}, sensorDevice: '', fasting: { enabled: true, minHours: 16 }, primaryNutrient: '', laneOpen: {} };
-  var S1 = { version: 15, days: {}, current: td, settings: goalState, plates: {}, meds: {}, labels: {}, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
+  var S1 = { version: 16, days: {}, current: td, settings: goalState, plates: {}, meds: {}, labels: {}, priceLog: { '3017620422003': { name: 'X', entries: [{ price: 2.5, currency: 'CHF', store: 'Coop', date: '2026-07-08' }] } }, timeline: { '2026-07-08': [{ time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 82.1 }] }, fastLog: {}, regimens: { active: '', list: [], log: {} } };
   S1.days['2026-07-08'] = { status:'complete', items:[ { name:'Eggs', meal:'breakfast', time:'08:00', kcal:180, protein_g:12, fat_g:14, carb_g:1, fiber_g:0, soluble_fiber_g:0, confidence:'weighed', notes:'', source:'manual' } ], water_l:1.5 };
   S1.days[td] = { status:'in_progress', items:[], water_l:0 };
 
@@ -222,7 +222,7 @@ window.setLS({});
   // 9. Restore routing: v1/v2/v3 migrate; version-absent rejected; >4 rejected
   setLS({}); HT.boot(); window.__confirm = true;
   var r9a = HT.restore(v1json);
-  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 15, '9: v1 paste -> migrated to v15');
+  res(r9a.ok && r9a.kind === 'migrated' && HT.state().version === 16, '9: v1 paste -> migrated to v16');
   res(r9a.backedUp === true && window.__ls._has('healthtracker-log-prerestore'), '9: D3 backup on v1 paste');
   setLS({}); HT.boot();
   var before9 = JSON.stringify(HT.state());
@@ -259,7 +259,7 @@ window.setLS({});
   var stateA = JSON.stringify(HT.state());
   HT.restore(JSON.stringify(S2));
   var slotA = window.__ls._get('healthtracker-log-prerestore');
-  res(slotA === stateA, '12: first restore backs up prior state');
+  res(slotA === JSON.stringify(Object.assign(JSON.parse(stateA), { streams: HT.exportStreams() })), '12: first restore backs up prior state -- R227.1: with its imported streams, so the restore can be undone whole');
   window.__confirm = false;
   HT.restore(JSON.stringify(S1));
   res(window.__ls._get('healthtracker-log-prerestore') === slotA, '12: declined restore preserves prior undo slot');
@@ -273,7 +273,7 @@ window.setLS({});
   res(JSON.stringify(HT.state()) === before13, '13: state untouched on invalid paste');
 
   // 14. Export carries version 2; cleanJSON tolerates smart quotes + nbsp
-  res(HT.exportJSON().indexOf('"version": 15') >= 0, '14: export carries version 15');
+  res(HT.exportJSON().indexOf('"version": 16') >= 0, '14: export carries version 16');
   setLS({}); HT.boot(); window.__confirm = true;
   var smart = '{“version”: 2,“days”:{“2026-07-08”:{“status”:“complete”,“items”:[],“water_l”:0}},“current”:“2026-07-08”,“settings”:{},“priceLog”:{}}';
   res(HT.restore(smart).ok, '14: smart-quoted + nbsp v2 JSON normalized and restored');
@@ -348,7 +348,7 @@ window.setLS({});
   var repV1 = HT.ingest(JSON.stringify({ version:1, days:{ '2025-12-01': { status:'complete', items:[{ name:'Old', kcal:5, _auto:true }], water_l:0 } }, known:[], current:'x' }));
   res(repV1.ok && HT.state().days['2025-12-01'].items[0].source === 'supplement' && HT.state().days['2025-12-01'].items[0]._auto === undefined && HT.state().days['2025-12-01'].items[0].autoLegacy === true, 'I8: v1 full-days migrated (source inferred, the auto flag converted) then merged');
   res(!HT.ingest(JSON.stringify({ days:{ '2025-12-02': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version-absent full-days rejected');
-  res(!HT.ingest(JSON.stringify({ version:16, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>15 full-days rejected');
+  res(!HT.ingest(JSON.stringify({ version:17, days:{ '2025-12-03': { status:'complete', items:[], water_l:0 } } })).ok, 'I8: version>16 full-days rejected');
 
   // I9. complete-day append -> reopens + reports
   setLS({}); HT.boot();
@@ -397,7 +397,7 @@ window.setLS({});
   HT.state().current = td;
   // A second boot from the migrated store changes nothing and still logs nothing.
   HT.resave(); HT.boot();
-  res(HT.state().days[td].items.length === 0 && HT.state().settings.stack.length === 1 && HT.state().version === 15,
+  res(HT.state().days[td].items.length === 0 && HT.state().settings.stack.length === 1 && HT.state().version === 16,
       'I12 / R203: a second boot logs nothing and does not carry the setting over twice');
   // A disabled setting with a name is carried over DISABLED; one with no name is dropped.
   var mOff = HT.migrateV14toV15({ version: 14, days: {}, settings: { supplement: { enabled: false, name: 'Fibre', nutrients: {} }, stack: [] } }, '2026-01-01T00:00:00.000Z');
@@ -1125,6 +1125,46 @@ window.setLS({});
       'R225 GATE: NOTHING IS STORED -- the review is derived at render; the state is byte-identical after it');
   setLS({}); HT.boot();
 
+  // ---- R227.1: the backup carries the imported streams -------------------------------
+  var gS = { '2026-10-09': { u: 'mmol/L', raw: 'mmol<180.1558800000541>/L', src: 'Dexcom G7', t: [480, 485, 490], v: [5.4, 5.9, 6.6] },
+             '2026-10-10': { u: 'mmol/L', src: 'Dexcom G7', t: [60, 65], v: [4.8, 4.9] } };
+  var sS = { '2026-10-09': { t: [480, 485], n: [120, 340], src: 'iPhone' } };
+  setLS({ 'healthtracker-glucose': JSON.stringify(gS), 'healthtracker-steps': JSON.stringify(sS) }); HT.boot();
+  var e227 = HT.exportJSON(), j227 = JSON.parse(e227);
+  res(j227.version === 16 && j227.streams && j227.streams.v === 1
+      && JSON.stringify(j227.streams.glucose) === JSON.stringify(HT.glucoseRead()) && JSON.stringify(j227.streams.steps) === JSON.stringify(HT.stepsRead()),
+      'R227.1 GATE: the export CARRIES the imported glucose and steps, exactly as stored');
+  res(j227.streams.glucose['2026-10-09'].src === 'Dexcom G7' && j227.streams.glucose['2026-10-09'].raw === 'mmol<180.1558800000541>/L' && j227.streams.steps['2026-10-09'].src === 'iPhone',
+      'R227.1: with their PROVENANCE -- the source of each day and the unit as it was entered');
+  res(e227.split('\n').filter(function (l) { return l.indexOf('"streams"') >= 0; }).length === 1 && /"t":\[480,485,490\]/.test(e227),
+      'R227.1: the streams are ONE compact line -- columns, as they are stored (measured: a third of the indented size)');
+  // export -> wipe -> restore on a device with nothing
+  setLS({}); HT.boot(); window.__confirm = true;
+  var rr227 = HT.restore(e227);
+  res(rr227.ok === true && rr227.streams && rr227.streams.glucoseDays === 2 && rr227.streams.stepsDays === 1
+      && JSON.stringify(HT.glucoseRead()) === JSON.stringify(j227.streams.glucose) && JSON.stringify(HT.stepsRead()) === JSON.stringify(j227.streams.steps),
+      'R227.1 GATE: EXPORT -> WIPE -> RESTORE brings the glucose and the steps back, byte for byte');
+  res(HT.exportJSON() === e227,
+      'R227.1 GATE: and the restored device exports the SAME FILE -- a byte-identical round trip');
+  // an older file (v15, no streams) never wipes what the device holds
+  var old227 = JSON.parse(e227); delete old227.streams; old227.version = 15;
+  var rr227b = HT.restore(JSON.stringify(old227));
+  res(rr227b.ok === true && rr227b.streams === null && JSON.stringify(HT.glucoseRead()) === JSON.stringify(j227.streams.glucose),
+      'R227.1 GATE: restoring a file from BEFORE this (no streams) leaves the device’s glucose exactly as it was -- nothing to restore is not a reason to delete');
+  // the boundary rebuilds a hostile stream
+  var bad227 = HT.parseStreams({ streams: { glucose: { 'not-a-day': { u: 'mmol/L', t: [1], v: [5] }, '2026-10-11': { u: 'furlongs', t: [1], v: [5] },
+                                                       '2026-10-12': { u: 'mmol/L', t: [5, 9999, 10], v: [5.5, 6, -3] } }, steps: { '2026-10-12': { t: [1], n: [-5] } } } });
+  res(Object.keys(bad227.glucose).join(',') === '2026-10-12' && JSON.stringify(bad227.glucose['2026-10-12'].t) === '[5]' && Object.keys(bad227.steps).length === 0
+      && HT.parseStreams({}) === null,
+      'R227.1: at the restore boundary a stream is REBUILT by the stores’ own allowlists -- bad day keys, unknown units, out-of-range minutes and negative values are dropped; no streams is null, not empty');
+  // the migration is the version and nothing else
+  var m227 = HT.migrateV15toV16({ version: 15, days: { '2026-10-01': { status: 'complete', items: [{ name: 'x', kcal: 1 }], water_l: 0 } }, migratedAt: '2026-01-01T00:00:00Z' }, '2026-10-18T00:00:00Z');
+  res(m227.version === 16 && JSON.stringify(m227.days) === '{"2026-10-01":{"status":"complete","items":[{"name":"x","kcal":1}],"water_l":0}}' && m227.migratedAt === '2026-01-01T00:00:00Z',
+      'R227.1: v15 -> v16 changes the version and nothing in the log -- the streams stay in their own stores');
+  res(HT.backupFileName(new Date(2026, 9, 18)) === 'healthtracker-backup-2026-10-18-v16.json',
+      'R227.1: the backup file names the new schema, so a v16 file says so before it is opened');
+  setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --
@@ -1722,7 +1762,7 @@ window.setLS({});
   var m45 = HT.migrateV4toV5({ version:4, days:{}, current:'', settings:{}, priceLog:{}, timeline:{}, fastLog:{} }, '2026-07-20T00:00:00Z');
   res(m45.version===5 && !!m45.regimens && m45.regimens.list.length===0 && !!m45.fastLog, 'TL6: migrateV4toV5 adds empty regimens, version 5');
   var m1 = HT.migrateToLatest({ version:1, days:{}, current:'' }, '2026-07-18T00:00:00Z');
-  res(m1.version === 15 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v15');
+  res(m1.version === 16 && !!m1.settings && !!m1.priceLog && !!m1.timeline && !!m1.fastLog && !!m1.regimens, 'TL6: migrateToLatest chains v1->…->v16');
 
   // TL7: normalizeTimeline restore hardening (incl. hostile medication) + round-trip
   var nt = HT.normalizeTimeline({
@@ -1921,7 +1961,7 @@ window.setLS({});
 
   // FX6: schema v4 migration end-to-end (a v3 blob gains fastLog on boot)
   setLS({'healthtracker-log': JSON.stringify({version:3,days:{'2026-06-01':{status:'complete',items:[],water_l:0}},current:'2026-06-01',settings:{},priceLog:{},timeline:{}})}); HT.boot();
-  res(HT.state().version === 15 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 14');
+  res(HT.state().version === 16 && !!HT.state().fastLog && !!HT.state().regimens, 'FX6: a v3 blob migrates on boot -> gains fastLog + regimens + version 14');
 
   // FX7: tolerance-matched identity + inert orphan
   setLS({}); HT.boot();
@@ -2517,7 +2557,7 @@ window.setLS({});
   var migKeep = HT.migrateToLatest({ version:1, current:'2026-01-06',
     days:{ '2026-01-06': { status:'complete', items:[{ name:'V1tz', kcal:300, tzo:FOREIGN }], water_l:0 } } }, new Date().toISOString());
   res(migKeep.days['2026-01-06'].items[0].tzo === FOREIGN, 'TZ-preserve: a v1 blob that carries tzo keeps it through v1->v6 migration');
-  res(HT.state().version === 15, 'TZ-preserve: the schema is at 15 because R203 bumped it, not this slice (Fork 1)');
+  res(HT.state().version === 16, 'TZ-preserve: the schema is at 16 because R227.1 bumped it, not this slice (Fork 1)');
 
   // ---- TZ-inert + TZ-absent-flows: Pin 1, nothing consumes the field ---------
   setLS({}); HT.boot();
@@ -3648,7 +3688,7 @@ window.setLS({});
         FETCHES.push({ url: String(u) });
         return new Promise(function (_, rej) {
           var sig = i && i.signal;
-          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
         });
       };
       return HT.byokCapture(FILE).then(function (r) {
@@ -3789,7 +3829,7 @@ window.setLS({});
         FETCHES.push({ url: String(u) });
         return new Promise(function (_, rej) {
           var sig = i && i.signal;
-          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
         });
       };
       return HT.byokCapture(FILE).then(function (r) {
@@ -3825,7 +3865,7 @@ window.setLS({});
         FETCHES.push({ url: String(u) });
         return new Promise(function (_, rej) {
           var sig = i && i.signal;
-          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
         });
       };
       var hang215 = HT.byokCapture(FILE);
@@ -4221,7 +4261,7 @@ window.setLS({});
         FETCHES.push({});
         return new Promise(function (_, rej) {
           var sig = i && i.signal;
-          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
         });
       };
       var hang = HT.byokCapture(FILE);
@@ -4269,7 +4309,7 @@ window.setLS({});
         FETCHES.push({});
         return new Promise(function (_, rej) {
           var sig = i && i.signal;
-          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
         });
       };
       return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
@@ -4339,7 +4379,7 @@ window.setLS({});
           return Promise.resolve({ ok: false, status: 401, text: function () { return Promise.resolve('{}'); } });
         return new Promise(function (_, rej) {
           var sig = i && i.signal;
-          if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+          if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
         });
       };
       return HT.byokCall('data:image/jpeg;base64,AA', {}).then(function (r) {
@@ -4412,7 +4452,7 @@ window.setLS({});
           FETCHES.push({ url: String(u), init: i });
           return new Promise(function (_, rej) {
             var sig = i && i.signal;
-            if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+            if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
           });
         };
         var pc = HT.byokCall('data:image/jpeg;base64,AA', {});
@@ -4695,7 +4735,7 @@ window.setLS({});
           FETCHES.push({});
           return new Promise(function (_, rej) {
             var sig = i && i.signal;
-            if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
+            if (sig && sig.aborted) { var e0 = new Error('aborted'); e0.name = 'AbortError'; rej(e0); return; }  /* like a real fetch: an ALREADY-aborted signal rejects at once (D110) */ if (sig) sig.addEventListener('abort', function () { var e = new Error('aborted'); e.name = 'AbortError'; rej(e); });
           });
         };
         var hang = HT.byokCapture(FILE);
@@ -5119,7 +5159,7 @@ window.setLS({});
 
   // ---- SE cases that need no DOM (behavior + invariants) --------------------
   setLS({}); HT.boot();
-  res(HT.state().version === 15, 'SE-noschema: presentation only — this slice bumped nothing; v15 is R203’s (auto-add retired)');
+  res(HT.state().version === 16, 'SE-noschema: presentation only — this slice bumped nothing; v16 is R227.1’s (the backup carries the imported streams)');
   var seBefore = HT.exportJSON();
   HT.openSheet(); HT.setSheetMode('quick'); HT.setSheetMode('photo'); HT.setSheetMode('manual');
   HT.setSheetMode('signal'); HT.setSheetMode('med'); HT.closeSheet();
@@ -5225,7 +5265,7 @@ window.setLS({});
   res(labRecs.every(function(r){ return r.panelId===lp.panelId; }) && lp.panelId!=='',
       'LB-A: every value in the panel shares one panelId (exact grouping, not inferred)');
   res(HT.labPanels().length===1 && HT.labPanels()[0].values.length===3, 'LB-A: the panel is a DERIVED grouping, never a record of its own');
-  res(HT.state().version === 15, 'LB-C: this slice bumped nothing; v15 is R203’s (auto-add retired)');
+  res(HT.state().version === 16, 'LB-C: this slice bumped nothing; v16 is R227.1’s (the backup carries the imported streams)');
 
   // LB-B: LAB_SPEC merged into the runtime lookup, but NOT into SIGNAL_SPEC.
   res(HT.isLabType('apo_b') && !HT.isLabType('weight') && !!HT.SIGNAL_BY_TYPE['apo_b'] && HT.SIGNAL_BY_TYPE['apo_b'].kind==='biometric',
@@ -5588,7 +5628,7 @@ window.setLS({});
   res(HT.state().settings.primaryNutrient==='fiber_g', 'RR-primary: it round-trips export -> restore EXACT (explicit normalizer allowlist addition)');
   res(HT.normalizeState({ version:5, settings:{ primaryNutrient:'weight' } }).settings.primaryNutrient==='',
       'RR-primary: a hostile/invalid declaration is dropped at the restore boundary');
-  res(HT.state().version === 15, 'RR-primary: this slice bumped nothing; v15 is R203’s (auto-add retired)');
+  res(HT.state().version === 16, 'RR-primary: this slice bumped nothing; v16 is R227.1’s (the backup carries the imported streams)');
 
   // ==========================================================================
   // R8 — ring fullness. Trailing-24h live ring, ghost plan-arcs, centre tenant.
@@ -5655,7 +5695,7 @@ window.setLS({});
       'R8-ghost: a malformed sleep window is rejected at the authoring boundary');
   res(HT.normalizeRegimens({list:[{id:'r',name:'n',entries:[],sleep:{start:'bad',end:'x'}}]}).list[0].sleep===undefined,
       'R8-ghost: a malformed sleep window is dropped at the restore boundary');
-  res(HT.state().version === 15, 'R8-ghost: a field on an existing store — this slice bumped nothing; v15 is R203’s (auto-add retired)');
+  res(HT.state().version === 16, 'R8-ghost: a field on an existing store — this slice bumped nothing; v16 is R227.1’s (the backup carries the imported streams)');
 
   // R8-centre: the centre carries the open-gap counter, in D22 grammar.
   setLS({}); HT.boot(); fixClock();
@@ -6719,7 +6759,7 @@ window.setLS({});
       HT.normalizeItem({ name:'x', pinned:'yes' }, true).pinned === undefined &&
       HT.normalizeItem({ name:'x', mealId:'' }, true).mealId === undefined,
       'R6-roundtrip: the fields are coerced at the boundary — pinned only from a real true, empty mealId dropped');
-  res(HT.state().version === 15, 'R6-roundtrip: this slice bumped nothing; v15 is R203’s (auto-add retired)');
+  res(HT.state().version === 16, 'R6-roundtrip: this slice bumped nothing; v16 is R227.1’s (the backup carries the imported streams)');
 
   // R6-unanchored: saving with nothing pinned is allowed.
   setLS({}); HT.boot(); fixClock();
@@ -7918,7 +7958,7 @@ window.setLS({});
       'R23-roundtrip: an unparseable portion clamps, and an ABSENT one stays absent -- never 0, which would claim a weightless meal');
 
   // ---- R23-bump: schema v6, and the forward guard moves with it ----
-  res(JSON.parse(HT.exportJSON()).version === 15,
+  res(JSON.parse(HT.exportJSON()).version === 16,
       'R23-bump: the schema is v14 (COMBOS’s bump). R23’s reason for v6 stands unchanged: every additive item field before it was a future calibration input, and the accepted portion is CONTENT THE USER AUTHORED, which is the other side of D29’s asymmetry test');
   var v5blob = { version: 5, days: { '2026-01-05': { status: 'complete', items: [
       { name: 'Old scan', meal: 'lunch', kcal: 210, confidence: 'measured', source: 'scan',
@@ -7930,9 +7970,9 @@ window.setLS({});
   res(m56.days['2026-01-05'].items[0].grams === undefined &&
       m56.days['2026-01-05'].items[0].notes === 'scanned 150 g',
       'R23-bump: and it invents NO portion. Mining "scanned 150 g" out of user-editable notes would be an INFERENCE about what a number meant, which is exactly the editorialising D4’s surviving principle forbids');
-  var fwd = HT.parseImport(JSON.stringify({ version: 16, days: {} }));
+  var fwd = HT.parseImport(JSON.stringify({ version: 17, days: {} }));
   res(fwd.ok === false && String(fwd.error).indexOf('newer version') >= 0,
-      'R23-bump: the forward guard moved with the schema -- v16 is refused, never silently loaded down');
+      'R23-bump: the forward guard moved with the schema -- v17 is refused, never silently loaded down');
 
   // ---- R23-complete: Fork F, and the shipped inconsistency it closes ----
   setLS({}); HT.boot(); fixClock();
@@ -8332,7 +8372,7 @@ window.setLS({});
   // portion, which is a different slice's reason. The claim R20 made -- that an
   // older app preserves a bm record unrendered rather than stripping it -- is what
   // is asserted here, now against the current version.
-  res(JSON.parse(HT.exportJSON()).version === 15,
+  res(JSON.parse(HT.exportJSON()).version === 16,
       'R20-nobump: R20 bumped nothing of its own; v14 is COMBOS’s, and a bm record still round-trips unrendered rather than being stripped');
   setLS({}); HT.boot(); fixClock();
 
@@ -8563,21 +8603,21 @@ window.setLS({});
       'R31-migrate: migrateV6toV7 stamps its own version');
   res(JSON.stringify(m67.days) === daysBefore,
       'R31-migrate GATE: and the days come through BYTE-IDENTICAL -- no existing item is unresolved, so a v6 blob has nothing to convert and nothing may be invented for it');
-  res(HT.migrateToLatest({ version: 6, days: {}, current: '', settings: {}, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } }, '2026-09-09T00:00:00.000Z').version === 15,
-      'R31-migrate: and the chain reaches 15 (R203 took v15), so a v6 blob on disk boots all the way forward rather than stopping at the version that introduced its first missing field');
+  res(HT.migrateToLatest({ version: 6, days: {}, current: '', settings: {}, priceLog: {}, timeline: {}, fastLog: {}, regimens: { active: '', list: [], log: {} } }, '2026-09-09T00:00:00.000Z').version === 16,
+      'R31-migrate: and the chain reaches 16 (R227.1 took v16), so a v6 blob on disk boots all the way forward rather than stopping at the version that introduced its first missing field');
   setLS({ 'healthtracker-log': JSON.stringify(v6blob) });
   var bootR = HT.boot();
-  res(bootR.source === 'migrated' && HT.state().version === 15 &&
+  res(bootR.source === 'migrated' && HT.state().version === 16 &&
       HT.state().days['2026-02-01'].items[0].kcal === 90,
       'R31-migrate GATE: a v6 blob migrates IN PLACE under the stable key on boot, content intact (D1)');
   res(window.__ls._has('healthtracker-log-premigration'),
       'R31-migrate: with the untouched original snapshotted first (D7)');
 
   // ---- R31-guard: the forward guard moved WITH the schema ------------------
-  res(HT.SCHEMA_VERSION === 15,
-      'R31-guard: SCHEMA_VERSION is 15');
-  res(HT.parseImport(JSON.stringify({ version: 16, days: {} })).ok === false,
-      'R31-guard GATE: and version 16 is refused. The guard is what protects an OLDER app from this blob -- it would strip `unresolved`, coerce the absent macros to 0, and show a day that silently under-reports. The bump is what arms the guard');
+  res(HT.SCHEMA_VERSION === 16,
+      'R31-guard: SCHEMA_VERSION is 16');
+  res(HT.parseImport(JSON.stringify({ version: 17, days: {} })).ok === false,
+      'R31-guard GATE: and version 17 is refused. The guard is what protects an OLDER app from this blob -- it would strip `unresolved`, coerce the absent macros to 0, and show a day that silently under-reports. The bump is what arms the guard');
   res(HT.parseImport(JSON.stringify({ version: 11, days: {} })).ok === true,
       'R31-guard CONTROL: v11 itself is accepted -- the guard moved, it did not merely tighten');
 
@@ -8921,7 +8961,7 @@ window.setLS({});
   var m78 = HT.migrateV7toV8(v7blob, '2026-09-11T00:00:00.000Z');
   res(m78.version === 8 && JSON.stringify(m78.days) === daysB4,
       'R30-migrate GATE: v7 -> v8 is a structural passthrough -- no existing item carries the new fields, so `days` comes through byte-identical');
-  res(HT.SCHEMA_VERSION === 15 && HT.parseImport(JSON.stringify({ version: 16, days: {} })).ok === false,
+  res(HT.SCHEMA_VERSION === 16 && HT.parseImport(JSON.stringify({ version: 17, days: {} })).ok === false,
       'R30-guard GATE: the forward guard moved with the schema -- v13 refused');
 
   setLS({}); HT.boot(); fixClock();
@@ -9112,7 +9152,7 @@ window.setLS({});
   var m89 = HT.migrateV8toV9(v8blob, '2026-09-11T00:00:00.000Z');
   res(m89.version === 9 && JSON.stringify(m89.days) === daysB8 && !!m89.plates,
       'R33-migrate GATE: v8 -> v9 is a structural passthrough -- `days` byte-identical, an empty plates store added');
-  res(HT.SCHEMA_VERSION === 15 && HT.parseImport(JSON.stringify({ version: 16, days: {} })).ok === false,
+  res(HT.SCHEMA_VERSION === 16 && HT.parseImport(JSON.stringify({ version: 17, days: {} })).ok === false,
       'R33-guard GATE: the forward guard moved with the schema -- v13 refused');
 
   // ---- R33-vocab ----------------------------------------------------------
@@ -9670,10 +9710,10 @@ window.setLS({});
       'H4-migrate GATE: v9 -> v10 is a structural passthrough -- `days` byte-identical, an empty medication store added');
   setLS({ 'healthtracker-log': JSON.stringify(h4v9) });
   var h4b9 = HT.boot();
-  res(h4b9.source === 'migrated' && HT.state().version === 15 && !!HT.state().meds &&
+  res(h4b9.source === 'migrated' && HT.state().version === 16 && !!HT.state().meds &&
       HT.state().days['2026-07-01'].items[0].kcal === 90,
       'H4-migrate GATE: a v9 blob migrates in place on boot, content intact');
-  res(HT.SCHEMA_VERSION === 15 && HT.parseImport(JSON.stringify({ version: 16, days: {} })).ok === false,
+  res(HT.SCHEMA_VERSION === 16 && HT.parseImport(JSON.stringify({ version: 17, days: {} })).ok === false,
       'H4-guard GATE: the forward guard moved with the schema -- v13 refused');
   res(HT.parseImport(JSON.stringify({ version: 11, days: {} })).ok === true,
       'H4-guard CONTROL: v11 itself is accepted');
@@ -9912,7 +9952,7 @@ window.setLS({});
   (function () {
     var src = String(HT.migrateToLatest);
     var steps = ['migrateV1toV2', 'migrateV2toV3', 'migrateV3toV4', 'migrateV4toV5', 'migrateV5toV6',
-                 'migrateV6toV7', 'migrateV7toV8', 'migrateV8toV9', 'migrateV9toV10', 'migrateV10toV11', 'migrateV11toV12', 'migrateV12toV13', 'migrateV13toV14', 'migrateV14toV15'];
+                 'migrateV6toV7', 'migrateV7toV8', 'migrateV8toV9', 'migrateV9toV10', 'migrateV10toV11', 'migrateV11toV12', 'migrateV12toV13', 'migrateV13toV14', 'migrateV14toV15', 'migrateV15toV16'];
     var missing = steps.filter(function (s) { return src.indexOf(s) < 0; });
     res(missing.length === 0,
         'H5-chain GATE: migrateToLatest calls EVERY step from v1 to the current schema' +
@@ -9955,12 +9995,12 @@ window.setLS({});
       'H5-migrate GATE: v10 -> v11 is a structural passthrough -- `days` byte-identical, an empty document store added');
   setLS({ 'healthtracker-log': JSON.stringify(h5v10) });
   var h5boot = HT.boot();
-  res(h5boot.source === 'migrated' && HT.state().version === 15 && !!HT.state().labels &&
+  res(h5boot.source === 'migrated' && HT.state().version === 16 && !!HT.state().labels &&
       HT.state().days['2026-07-01'].items[0].kcal === 90,
       'H5-migrate GATE: a v10 blob migrates in place on boot, content intact');
-  res(HT.SCHEMA_VERSION === 15 && HT.parseImport(JSON.stringify({ version: 16, days: {} })).ok === false &&
+  res(HT.SCHEMA_VERSION === 16 && HT.parseImport(JSON.stringify({ version: 17, days: {} })).ok === false &&
       HT.parseImport(JSON.stringify({ version: 12, days: {} })).ok === true,
-      'H5-guard GATE: the forward guard moved with the schema -- v15 refused, v14 accepted');
+      'H5-guard GATE: the forward guard moved with the schema -- v17 refused, v12 accepted');
   HT.scanListReset();
 
 
@@ -11087,8 +11127,12 @@ window.setLS({});
   res(!('glucose' in HT.state()),
       'H19-cache GATE: glucose is NOT in APP_STATE -- being outside it is what keeps it out of the export BY CONSTRUCTION rather than by a filter (D77 scan-list terms, as D134 took them)');
   var EXP19 = HT.exportJSON();
-  res(EXP19.indexOf('mmol') < 0 && !/healthtracker-glucose/.test(EXP19),
-      'H19-cache GATE: the export carries no reading and no glucose key -- it is re-acquirable from Apple Health, so it is a cache and travels nowhere');
+  // R227.1 REVERSES the second half of this, by ruling: the phone imports Apple
+  // Health itself and the backup is the only file that leaves it, so a backup
+  // without the glucose is not a backup. The store stays OUTSIDE APP_STATE (above,
+  // still asserted); the export now carries it under `streams`, by design.
+  res(JSON.parse(EXP19).streams && typeof JSON.parse(EXP19).streams.glucose === 'object' && !/healthtracker-glucose/.test(EXP19),
+      'R227.1 (was H19-cache): the export CARRIES the imported glucose under "streams" -- the store itself stays outside APP_STATE, and no storage key travels');
 
   // E: THE UNIT IS PART OF THE READING'S IDENTITY -- verbatim AND canonical.
   var S19 = HT.glucoseDaySummary('2026-09-26');

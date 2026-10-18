@@ -129,6 +129,32 @@ try {
   if (-not $boot) { Write-Host "ERROR: the app did not boot, or the backup functions are not on HT"; Cleanup; exit 2 }
   Invoke-CDP 'DOM.enable' $null | Out-Null
 
+  # R227.1: imported streams in the fixture -- glucose with rises E-lite flags, and
+  # steps -- and, before the file is made, the stores, the flagged rises and the
+  # rendered glucose chart, to be compared after the wipe and the restore.
+  [void](EvalA @'
+(function () {
+  var t = HT.todayKey();
+  window.__clock = new Date(t + 'T21:00:00').getTime();
+  HT.setClock(function () { return window.__clock; });
+  var p = function (n) { return String(n).padStart(2, '0'); };
+  var iso = function (ms) { var d = new Date(ms), o = -d.getTimezoneOffset();
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':00'
+      + (o < 0 ? '-' : '+') + p(Math.floor(Math.abs(o) / 60)) + ':' + p(Math.abs(o) % 60); };
+  var base = HT.dayKeyMs(t), rows = [];
+  for (var m = 0; m < 1260; m += 5) {
+    var v = 5.5;
+    if (m >= 180 && m <= 210) v = 5.0 + 3 * (m - 180) / 30;
+    if (m >= 1020 && m <= 1060) v = 5.5 + 3.5 * (m - 1020) / 40;
+    if (m > 1060 && m < 1120) v = 9 - 3.5 * (m - 1060) / 60;
+    rows.push({ t: iso(base + m * 60000), v: Math.round(v * 100) / 100, unit: 'mmol/L' });
+  }
+  return Promise.resolve(HT.glucoseIngest(rows, { source: 'Gate CGM' })).then(function () {
+    localStorage.setItem('healthtracker-steps', JSON.stringify((function () { var o = {}; o[t] = { t: [1015, 1020], n: [180, 240], src: 'Gate phone' }; return o; })()));
+    return 1;
+  });
+})()
+'@)
   [void](EvalJ @'
 (function () {
   var t = HT.todayKey();
@@ -138,6 +164,12 @@ try {
   HT.logStack([]);
   HT.resave();
   window.__before = HT.exportJSON();
+  HT.refresh(); HT.closeSettings && HT.closeSettings();
+  var gh = document.querySelector('#dayView .ghead'); if (gh) gh.click();
+  var chart = document.querySelector('#dayView .tchartbox');
+  sessionStorage.setItem('__r2271', JSON.stringify({ g: JSON.stringify(HT.glucoseRead()), s: JSON.stringify(HT.stepsRead()),
+    rises: JSON.stringify(HT.eliteDay(t)), chart: chart ? chart.innerHTML : '', clock: window.__clock }));
+  if (gh) gh.click();
   HT.openSettings();
   document.getElementById('backupBtn').scrollIntoView({ block: 'center' });
   return 1;
@@ -254,6 +286,26 @@ try {
   Write-Host ("  restored: items " + (@($rv.items) -join ', ') + " ; stack " + (@($rv.stack) -join ', ') + " ; foods " + (@($rv.foods) -join ', ') + " ; doses " + (@($rv.doses) -join ', ') + " ; identical " + $same)
   Check (($rv.items -contains 'Gate lunch|520') -and ($rv.stack -contains 'Gate capsule|300|supplement') -and ($rv.foods -contains 'Gate seed oil|label') -and ($rv.doses -contains 'Gate capsule|supplement')) "R213 GATE: ROUND TRIP -- the food, the stack, my foods and the logged dose are all back"
   Check $same "R213 GATE: and a new export of the restored app is BYTE-IDENTICAL to the file it was restored from"
+  $st = EvalJ @'
+(function () {
+  var b = JSON.parse(sessionStorage.getItem('__r2271') || '{}');
+  HT.setClock(function () { return b.clock; });
+  HT.closeSettings && HT.closeSettings(); HT.refresh();
+  var t = HT.todayKey();
+  var gh = document.querySelector('#dayView .ghead'); if (gh) gh.click();
+  var chart = document.querySelector('#dayView .tchartbox');
+  var rises = HT.eliteDay(t);
+  return { glucose: JSON.stringify(HT.glucoseRead()) === b.g, gDays: Object.keys(HT.glucoseRead()).length,
+           steps: JSON.stringify(HT.stepsRead()) === b.s, src: (HT.glucoseRead()[t] || {}).src || '',
+           rises: JSON.stringify(rises) === b.rises, nRises: (rises && rises.rises) ? rises.rises.length : (Array.isArray(rises) ? rises.length : -1),
+           chart: !!chart && chart.innerHTML === b.chart && b.chart.length > 100 };
+})()
+'@
+  Write-Host ("  the streams after the round trip: " + $st)
+  $sv2 = $st | ConvertFrom-Json
+  Check ($sv2.glucose -and ($sv2.gDays -ge 1) -and ($sv2.src -eq 'Gate CGM') -and $sv2.steps) "R227.1 GATE: EXPORT -> WIPE -> RESTORE brings the imported GLUCOSE and STEPS back, identical, with their source"
+  Check ($sv2.rises -and ($sv2.nRises -ge 1)) "R227.1 GATE: the E-lite RISES are identical to before ($($sv2.nRises) flagged)"
+  Check $sv2.chart "R227.1 GATE: and the GLUCOSE CHART renders identically -- the same drawing, byte for byte"
   try { Remove-Item $path -Force -ErrorAction SilentlyContinue } catch { }
 
 } catch {

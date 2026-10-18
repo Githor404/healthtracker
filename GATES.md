@@ -6206,3 +6206,17 @@ landed before the stub fetch attached its abort listener and the capture's
 promise never settled. It now waits for the state it asserts on (up to 5 s);
 5/5 runs alone and 3/3 under four CPU-burning processes pass. Not pushed on
 that run; two fresh consecutive runs follow.
+
+### v0.101.0 — a round trip that compares the drawing, and the harness's stand-in for fetch (2026-10-18)
+
+**`backup-gate` compares what the user sees.** Beside the byte-identical file it
+already proved, the round trip now carries a day of glucose with two rises E-lite
+flags, and steps; after the wipe and the restore the stores, the flagged rises
+and the rendered glucose chart's markup must be identical to before, at the same
+fixed clock.
+
+**A stub that was not a fetch.** Eight harness stand-ins for `fetch` ignored an
+already-aborted signal, which a real `fetch` rejects at once; a cancel that beat
+the capture to its fetch left a promise pending forever and the chain hung.
+They now match the real thing. 54 runs: no hang; one unexplained three-assertion
+failure, kept open.

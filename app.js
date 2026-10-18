@@ -18,8 +18,8 @@
 const STORE_KEY        = 'healthtracker-log';                // D1: version-stable key
 const PRERESTORE_KEY   = 'healthtracker-log-prerestore';     // D3: pre-restore backup
 const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 rollback
-const SCHEMA_VERSION   = 15;
-const APP_VERSION      = '0.100.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const SCHEMA_VERSION   = 16;
+const APP_VERSION      = '0.101.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1545,6 +1545,16 @@ function migrateV14toV15(v14, nowISO) {
   out.migratedAt = typeof v14.migratedAt === 'string' ? v14.migratedAt : nowISO;
   return out;
 }
+// R227.1 (v16): THE BACKUP CARRIES THE IMPORTED STREAMS. The stored log's SHAPE
+// does not change -- glucose and steps stay in their own column stores (the
+// D77/D134 cache reasons: compact, off the log's quota) -- but the EXPORT gains
+// `streams`, so the version moves: a v15 build must refuse a v16 file rather
+// than restore it and silently drop its glucose. Nothing in the state is rewritten.
+function migrateV15toV16(v15, nowISO) {
+  const out = Object.assign({}, v15, { version: 16 });
+  out.migratedAt = typeof v15.migratedAt === 'string' ? v15.migratedAt : nowISO;
+  return out;
+}
 // Chain the in-place migrators to the latest schema (D7/D20/D22/D27). version-absent
 // is treated as v1 defensively (our key). The same migrator serves boot + restore.
 function migrateToLatest(blob, nowISO) {
@@ -1564,6 +1574,7 @@ function migrateToLatest(blob, nowISO) {
   if ((out.version || 12) < 13) out = migrateV12toV13(out, nowISO);
   if ((out.version || 13) < 14) out = migrateV13toV14(out, nowISO);
   if ((out.version || 14) < 15) out = migrateV14toV15(out, nowISO);
+  if ((out.version || 15) < 16) out = migrateV15toV16(out, nowISO);
   return out;
 }
 
@@ -1751,7 +1762,37 @@ function boot() {
 }
 
 // ---- export / import-restore (D5 + amendment) -----------------------------
-function exportJSON() { return JSON.stringify(APP_STATE, null, 2); }
+// R227.1: THE EXPORT IS THE WHOLE RECORD. A backup without the imported glucose
+// was not a backup: the phone was the only place it lived, and the backup is the
+// only file that leaves the phone. `streams` carries every imported stream with
+// its provenance -- each glucose day keeps its source and its unit as entered;
+// each steps day its source -- in COMPACT JSON (columns, one line): measured,
+// 2 KB a day where the indented form is three times that. Sensor changes and
+// every other entry are timeline records, already in the state.
+const STREAMS_VERSION = 1;
+function exportStreams() {
+  return {
+    v: STREAMS_VERSION,
+    note: 'Imported on this device (Apple Health file or a Shortcut file); restored with the log.',
+    glucose: glucoseRead(),
+    steps: stepsRead(),
+  };
+}
+function exportJSON() {
+  const body = JSON.stringify(APP_STATE, null, 2);
+  // The state stays indented as it always was; the streams are appended as one
+  // compact line, so the file is still one valid JSON object.
+  return body.slice(0, body.lastIndexOf('}')).replace(/\s+$/, '')
+    + ',\n  "streams": ' + JSON.stringify(exportStreams()) + '\n}';
+}
+// The restore boundary for streams: allowlist rebuilds, the same normalizers the
+// stores use when they read themselves back. Absent -> null (an older file has
+// none, and restoring it must not wipe the device's).
+function parseStreams(o) {
+  const st = o && o.streams;
+  if (!st || typeof st !== 'object' || Array.isArray(st)) return null;
+  return { glucose: normalizeGlucoseStore(st.glucose || {}), steps: normalizeStepsStore(st.steps || {}) };
+}
 
 // Validate + route a pasted blob WITHOUT mutating. Version routing (D5 amend / D20):
 // absent -> reject; 1 -> chained in-place migrate; 2..9 -> normalized up; 10 -> as-is;
@@ -1772,8 +1813,8 @@ function parseImport(raw) {
   if (v > SCHEMA_VERSION)
     return { ok: false, error: 'This export is from a newer version of the app.' };
   if (v === 1)
-    return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated' };   // v1 shape -> chain to v3
-  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore') };   // < v10 upgrades, v10 as-is
+    return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated', streams: null };   // v1 shape -> chain to v3
+  return { ok: true, state: normalizeState(o), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore'), streams: parseStreams(o) };   // < v10 upgrades, v10 as-is
 }
 
 function showPrerestore(json) {
@@ -1792,7 +1833,9 @@ function restore(raw) {
   const parsed = parseImport(raw);
   if (!parsed.ok) return { ok: false, error: parsed.error };
 
-  const prev = APP_STATE;
+  // R227.1: the pre-restore copy is a WHOLE export -- the streams with the log --
+  // so a restore that replaces the glucose can be undone with it.
+  const prev = Object.assign({}, APP_STATE, { streams: exportStreams() });
   showPrerestore(JSON.stringify(prev, null, 2));
   const priorSlot = Store.peekBackup();            // snapshot existing undo slot (D5)
   const backedUp = Store.backup(prev);             // overwrite single rolling slot (D3)
@@ -1810,9 +1853,18 @@ function restore(raw) {
   normalizeStatuses(APP_STATE);
   ensureCurrentDay(APP_STATE);
   const saved = Store.saveState(APP_STATE);
+  // R227.1: a file that CARRIES streams replaces them; a file that has none (v15
+  // and older) leaves the device's own untouched -- there is nothing to restore,
+  // and wiping them would be the loss this exists to prevent.
+  let streamsRestored = null;
+  if (parsed.streams) {
+    glucoseWrite(parsed.streams.glucose);
+    stepsWrite(parsed.streams.steps);
+    streamsRestored = { glucoseDays: Object.keys(parsed.streams.glucose).length, stepsDays: Object.keys(parsed.streams.steps).length };
+  }
   APP_SOURCE = parsed.kind === 'migrated' ? 'migrated' : 'restored';
   refresh();
-  return { ok: true, kind: parsed.kind, backedUp: backedUp, saved: saved };
+  return { ok: true, kind: parsed.kind, backedUp: backedUp, saved: saved, streams: streamsRestored };
 }
 
 // ---- R213/R206: A BACKUP THAT IS A FILE --------------------------------------
@@ -14303,6 +14355,7 @@ const VERSION_LOG = [
   { v: '0.98.0', d: '2026-10-14', note: 'Each tap of water is now its own entry. It is listed with the day’s other entries under Biometrics, and you can delete it there with × and Undo, so a mis-tap can still be fixed after the Undo bar has gone. Water you logged before this is kept as it was. Log a drink now lists drinks first: rows the food database files as beverages come before everything else, so wine finds wine before red wine vinegar, which you can still find by its full name. Every entry under Biometrics can now be removed where it is listed.' },
   { v: '0.99.0', d: '2026-10-16', note: 'Waking up is now the easiest thing to log. Tap the ring and + Log opens on one big button, Woke — end sleep, while a sleep is going, or Going to sleep when none is; pick Now, your usual time or another time, and it is saved — three taps from the day. The small close on the ring is gone, and the ring key has its own button beside the ring. A night typed in as an event while a sleep is open now ends that open sleep instead of leaving it to be ended again, so one night is always one entry; Undo puts both back.' },
   { v: '0.100.0', d: '2026-10-18', note: 'What a meal did. Open a meal on the day and, where your glucose covers it, you see how far it rose, when it came back, and the area above your baseline over two hours. Below that, in its own dashed box marked Expected: your earlier meals of the same food and your earlier meals with about as much carbohydrate, each with how many there were and their middle value and range, and how closely carbs and the rise have tracked on your meals so far. With fewer than three earlier meals to compare it says so. A meal with other food within two hours either side shows its own numbers and is not compared. Nothing is scored and nothing is suggested.' },
+  { v: '0.101.0', d: '2026-10-18', note: 'A backup is now the whole record. Export backup includes your imported glucose and steps, each with where it came from, and restoring the file brings them back, so a backup made on the phone has everything the app knows. A backup made before this has no glucose in it, so restoring one leaves the glucose already on this device as it is. Glucose adds about 2 KB a day to the file.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -22490,7 +22543,7 @@ window.HT = {
   // R197 -- the corpus is read from the device, and fetched only on change
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
-  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
+  CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
   itemServed, itemServedLine, ateWords, refuseLineHTML, photoRefuse, photoRefuseSet, photoEdibleGrams,

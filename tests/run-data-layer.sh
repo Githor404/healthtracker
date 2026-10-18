@@ -475,7 +475,13 @@ echo "-----------------------------------------"
 # 30-50 g, n 3; below the floor said with n; not clean both ways, not compared;
 # a gap -> not judged with the reason; the expected box; no verdict words;
 # Spearman incl. ties; nothing stored.
-EXPECTED_ASSERTIONS=3158
+# R227.1, v0.101.0 (schema v16): 3158 -> 3167, delta +9. The export carries the
+# streams exactly, with provenance, in one compact line; export -> wipe -> restore
+# byte-identical, and a byte-identical re-export; a v15 file leaves the device's
+# glucose alone; the boundary rebuilds a hostile stream; v15->v16 is the version
+# only; the file name says v16. (34 earlier cases moved 15 -> 16 / 16 -> 17, and
+# H19's 'export carries no glucose' was reversed by ruling -- same count.)
+EXPECTED_ASSERTIONS=3167
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
