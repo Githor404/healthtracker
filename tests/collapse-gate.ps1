@@ -41,19 +41,19 @@ function Receive-One {
     $res = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $ct).GetAwaiter().GetResult()
     $ms.Write($buf, 0, $res.Count); if ($res.EndOfMessage) { break } }
   return ([Text.Encoding]::UTF8.GetString($ms.ToArray()) | ConvertFrom-Json) }
-function Invoke-CDP([string]$m, [hashtable]$p) {
-  $script:cid++; $pl = @{ id = $script:cid; method = $m }; if ($p) { $pl.params = $p }
+function Invoke-CDP([string]$m, [hashtable]$pv) {
+  $script:cid++; $pl = @{ id = $script:cid; method = $m }; if ($pv) { $pl.params = $pv }
   $b = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
   [void]$ws.SendAsync([ArraySegment[byte]]::new($b), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
-  $g = 0
-  while ($true) { if (++$g -gt 3000) { throw "no response for $m" }
+  $gv = 0
+  while ($true) { if (++$gv -gt 3000) { throw "no response for $m" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
-function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
+function Eval([string]$ev) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $ev; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) { return "EXCEPTION: " + $r.result.exceptionDetails.text }
-  return $r.result.result.value }
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) { return "EXCEPTION: " + $rv.result.exceptionDetails.text }
+  return $rv.result.result.value }
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
@@ -61,8 +61,8 @@ if (-not (Test-Path (Join-Path $repo 'corpus/dist/cnf.bin'))) {
   Write-Host "ERROR: corpus/dist/cnf.bin is missing"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -265,14 +265,14 @@ try {
   return O;
 })()
 '@
-  function Probe([int]$w, [int]$h) {
-    Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  function Probe([int]$w, [int]$hv) {
+    Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $hv; deviceScaleFactor = 2; mobile = $true } | Out-Null
     Start-Sleep -Milliseconds 700
     Eval 'window.scrollTo(0,0); 1' | Out-Null
     Start-Sleep -Milliseconds 150
-    $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $probe; returnByValue = $true }
-    if ($r.result.exceptionDetails) { throw "probe threw at ${w}: $($r.result.exceptionDetails.text)" }
-    return $r.result.result.value
+    $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $probe; returnByValue = $true }
+    if ($rv.result.exceptionDetails) { throw "probe threw at ${w}: $($rv.result.exceptionDetails.text)" }
+    return $rv.result.result.value
   }
 
   # =============== A2 + B1: the COLLAPSED day row ==========================
@@ -376,8 +376,8 @@ try {
   $G = $geo | ConvertFrom-Json
   Eval "window.scrollTo(0, Math.max(0, $($G.top) + window.scrollY - 300)); 1" | Out-Null
   Start-Sleep -Milliseconds 300
-  $g2 = Eval "JSON.stringify((function(){var r=document.querySelector('.mitem');var b=r.getBoundingClientRect();return {x:Math.round(b.left+b.width/2),y:Math.round(b.top+Math.min(24,b.height/2)),h:Math.round(b.height)};})())"
-  $G2 = $g2 | ConvertFrom-Json
+  $g2v = Eval "JSON.stringify((function(){var r=document.querySelector('.mitem');var b=r.getBoundingClientRect();return {x:Math.round(b.left+b.width/2),y:Math.round(b.top+Math.min(24,b.height/2)),h:Math.round(b.height)};})())"
+  $G2 = $g2v | ConvertFrom-Json
   $editBefore = Eval 'JSON.stringify(!!HT.itemEditTarget())'
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $G2.x; y = $G2.y }) } | Out-Null
   Start-Sleep -Milliseconds 40
@@ -484,8 +484,8 @@ try {
         $fails += "P1: an UNSETTLED row's identity control is collapsed -- a row that still has a question to ask must keep it open"
       }
       $settled = $m[1..($m.Count - 1)]
-      foreach ($r in $settled) {
-        if ($r.altsVisible) {
+      foreach ($rv in $settled) {
+        if ($rv.altsVisible) {
           $fails += "P1: a SETTLED row still shows its identity alternates -- once idDone there is nothing left to ask"
         }
       }

@@ -28,11 +28,11 @@ $udd = Join-Path $env:TEMP ("ht-chiptest-" + [System.Guid]::NewGuid().ToString('
 $ct = [Threading.CancellationToken]::None
 
 function Find-Browser {
-  foreach ($c in @(
+  foreach ($cv in @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $c) { return $c } }
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $cv) { return $cv } }
   return $null
 }
 function Receive-One {

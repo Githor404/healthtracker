@@ -30,11 +30,11 @@ $MIN_REF   = 56   # each reference-interval input
 $MIN_UNIT  = 74   # the unit select
 
 function Find-Browser {
-  foreach ($c in @(
+  foreach ($cv in @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $c) { return $c } }
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $cv) { return $cv } }
   return $null
 }
 function Receive-One {

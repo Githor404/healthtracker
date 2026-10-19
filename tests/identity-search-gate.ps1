@@ -66,13 +66,13 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
   }
 }
 function Eval([string]$expr) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
+  return $rv.result.result.value
 }
 function EvalAsync([string]$expr) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) { return "EXCEPTION: " + ($r.result.exceptionDetails.text) }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) { return "EXCEPTION: " + ($rv.result.exceptionDetails.text) }
+  return $rv.result.result.value
 }
 
 $browser = Find-Browser
@@ -542,9 +542,9 @@ try {
   return JSON.stringify(out);
 })()
 '@
-  $r = EvalAsync $probe
-  if ($r -like 'EXCEPTION*') { $fails += "the page threw: $r" }
-  $R = if ($r -like 'EXCEPTION*') { [pscustomobject]@{} } else { $r | ConvertFrom-Json }
+  $rv = EvalAsync $probe
+  if ($rv -like 'EXCEPTION*') { $fails += "the page threw: $rv" }
+  $R = if ($rv -like 'EXCEPTION*') { [pscustomobject]@{} } else { $rv | ConvertFrom-Json }
 
   # --- setup, and the hazard this gate exists to see (D96) ------------------
   if ($R.threw) { $fails += "the probe threw partway through: $($R.threw) -- everything measured after that point is absent, not false" }

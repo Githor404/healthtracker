@@ -80,8 +80,8 @@ $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -223,7 +223,7 @@ try {
   Write-Host ("  the reported day: " + $g)
   $gv = $g | ConvertFrom-Json
   Check (($gv.current -eq $true) -and (@($gv.snack).Count -eq 1) -and ($gv.snack[0] -like '3 items*23:02*') -and (-not ($gv.snack[0] -like '*02:16*')) -and ($gv.snackCal[0] -like '865*')) "R202 GATE: the snack header reads '865 cal . 3 items . 23:02' -- the food's own time. It read '4 items . 02:16'"
-  Check ((@($gv.sup).Count -eq 1) -and ($gv.sup[0] -like '1 item*') -and (-not ($gv.sup[0] -match '\d\d:\d\d')) -and ($gv.supName -eq 'supplements')) "R202 GATE: the supplement has a group OF ITS OWN, with no time on it -- it is never filed under a meal by the clock"
+  Check ((@($gv.sup).Count -eq 1) -and ($gv.sup[0] -like '1 item*') -and (-not ($gv.sup[0] -match '\d\d:\d\d')) -and ($gv.supName -eq 'Daily stack')) "R202 GATE: the supplement has a group OF ITS OWN, with no time on it -- it is never filed under a meal by the clock"
 
   [void](Eval ("(function(){ " + $open + " return 1; })()"))
   $row = @'
@@ -380,7 +380,7 @@ try {
 '@
   Write-Host ("  a stack entry deleted: " + $d2)
   $d2v = $d2 | ConvertFrom-Json
-  Check ((@($d2v.kinds).Count -eq 1) -and ($d2v.kinds[0] -eq 'supplement') -and ($d2v.rows -eq 2)) "the day shows them under 'supplements', not under whichever meal the clock would have picked"
+  Check ((@($d2v.kinds).Count -eq 1) -and ($d2v.kinds[0] -eq 'supplement') -and ($d2v.rows -eq 2)) "the day shows them under the stack's own group ('Daily stack'), not under whichever meal the clock would have picked"
   Check (($d2v.before -eq 2) -and ($d2v.after -eq 1) -and ($d2v.undo -eq $true)) "R203 GATE: a stack entry on the day is DELETED by its own control, with Undo offered"
   [void](Eval "document.querySelector('#toast .tundo').click()")
   Settle

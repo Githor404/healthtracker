@@ -52,9 +52,9 @@ function Receive-One {
   $ms = New-Object IO.MemoryStream
   $buf = New-Object byte[] 262144
   while ($true) {
-    $res = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $ct).GetAwaiter().GetResult()
-    $ms.Write($buf, 0, $res.Count)
-    if ($res.EndOfMessage) { break }
+    $resv = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $ct).GetAwaiter().GetResult()
+    $ms.Write($buf, 0, $resv.Count)
+    if ($resv.EndOfMessage) { break }
   }
   return ([Text.Encoding]::UTF8.GetString($ms.ToArray()) | ConvertFrom-Json)
 }
@@ -84,9 +84,9 @@ $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
+  param($repo, $portv)
   $l = New-Object System.Net.HttpListener
-  $l.Prefixes.Add("http://127.0.0.1:$port/")
+  $l.Prefixes.Add("http://127.0.0.1:$portv/")
   $l.Start()
   $mimes = @{ '.html' = 'text/html'; '.js' = 'application/javascript'; '.json' = 'application/json';
               '.png' = 'image/png'; '.svg' = 'image/svg+xml'; '.css' = 'text/css';

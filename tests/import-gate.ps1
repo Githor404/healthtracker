@@ -69,8 +69,8 @@ function Receive-One {
 }
 function Invoke-CDP([string]$m, [hashtable]$p) {
   $script:cid++; $pl = @{ id = $script:cid; method = $m }; if ($p) { $pl.params = $p }
-  $b = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
-  [void]$ws.SendAsync([ArraySegment[byte]]::new($b), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
+  $bv = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
+  [void]$ws.SendAsync([ArraySegment[byte]]::new($bv), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
   $g = 0
   while ($true) {
     if (++$g -gt 6000) { throw "no response for $m" }
@@ -217,8 +217,8 @@ foreach ($banned in @(('glucose' + 'Ingest'), ('glucose' + 'Write'), ('normalize
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome or Edge found"; exit 2 }
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -348,9 +348,9 @@ try {
   };
 })()
 '@
-  $b = EvalA $boot
-  if ($b -like 'EXCEPTION*') { Write-Host "ERROR: boot threw: $b"; Cleanup; exit 2 }
-  $B = $b | ConvertFrom-Json
+  $bv = EvalA $boot
+  if ($bv -like 'EXCEPTION*') { Write-Host "ERROR: boot threw: $bv"; Cleanup; exit 2 }
+  $B = $bv | ConvertFrom-Json
 
   Chk ([bool]$B.hasEmpty) "there is no .gempty glucose state in the day -- C ruled the FIRST import needs a home, and D146 made the row render nothing when there are no readings, so the row cannot be it"
   Chk ([bool]$B.hasFile) "there is no file input inside #dayView -- the route must be reachable from the day, not only from Settings"
@@ -406,7 +406,7 @@ JSON.stringify((function () {
     Chk ($p1.format -eq 'apple') "the first import sniffed format '$($p1.format)', expected 'apple'"
     Chk ([string]::IsNullOrEmpty($p1.error)) "the first import reported an error: $($p1.error)"
   }
-  $r1 = EvalA @'
+  $r1v = EvalA @'
 (async function () {
   const s = HT.glucoseDaySummary('2026-09-26');
   const prog = document.querySelector('#dayView .gprog, #dayView .gimportnote');
@@ -416,7 +416,7 @@ JSON.stringify((function () {
            prog: prog ? (prog.textContent || '').replace(/\s+/g, ' ').trim() : null };
 })()
 '@
-  $R1 = $r1 | ConvertFrom-Json
+  $R1 = $r1v | ConvertFrom-Json
   Chk ($R1.n -gt 0) "the picker selection imported nothing (n=$($R1.n)) -- this is the whole point: a real file input, no call to the ingest API anywhere in this test"
   Chk ($R1.unit -eq 'mmol/L') "the imported canonical unit is '$($R1.unit)', expected mmol/L"
   Chk ($null -ne $R1.raw -and ([string]$R1.raw).Length -gt 0) "the platform's verbatim unit string was not kept from the export (E)"
@@ -433,13 +433,13 @@ JSON.stringify((function () {
     Chk ($p2.format -eq 'shortcut') "the JSON was sniffed as '$($p2.format)', expected 'shortcut' -- ONE control, and it has to tell the two apart without being told"
     Chk ([string]::IsNullOrEmpty($p2.error)) "the JSON import reported an error: $($p2.error)"
   }
-  $r2 = EvalA @'
+  $r2v = EvalA @'
 (async function () {
   const s = HT.glucoseDaySummary('2026-09-26');
   return { n: s ? s.n : 0, unit: s ? s.unit : null };
 })()
 '@
-  $R2 = $r2 | ConvertFrom-Json
+  $R2 = $r2v | ConvertFrom-Json
   Chk ($R2.n -eq ($n_before + $JSON_N)) "a Shortcut-style glucose JSON, through the SAME control, on a grid that overlaps nothing, should have added exactly $JSON_N readings -- the count went $n_before -> $($R2.n). A ruled ONE control and two formats, sniffed; this is the assertion that fires if the sniff silently dropped the JSON"
   Chk ($R2.unit -eq 'mmol/L') "the JSON import's canonical unit is '$($R2.unit)', expected mmol/L"
 
@@ -455,13 +455,13 @@ JSON.stringify((function () {
     Chk ($p3.added -eq 0) "the re-import reported $($p3.added) NEW readings from a file already imported -- the merge is by timestamp and every one of these was already held"
     Chk ($p3.readings -gt 0) "the re-import parsed $($p3.readings) readings, so it did not actually re-read the file"
   }
-  $r3 = EvalA @'
+  $r3v = EvalA @'
 (async function () {
   const s = HT.glucoseDaySummary('2026-09-26');
   return { n: s ? s.n : 0 };
 })()
 '@
-  $R3 = $r3 | ConvertFrom-Json
+  $R3 = $r3v | ConvertFrom-Json
   Chk ($R3.n -eq $R2.n) "re-importing the same export changed the count ($($R2.n) -> $($R3.n)) -- the merge is by timestamp and a re-import must add nothing. This is the defect D146 found as `store[dk] = norm`, now reachable through the route"
 
   # ========== UNRECOGNISED INPUT IS REFUSED BY NAME ========================
@@ -480,14 +480,14 @@ JSON.stringify((function () {
       Chk (-not [string]::IsNullOrEmpty($pb.error)) "$what completed with NO error recorded -- it was accepted, or it failed silently"
       Chk ($pb.added -eq 0) "$what added $($pb.added) readings"
     }
-    $rb = EvalA @'
+    $rbv = EvalA @'
 (async function () {
   const s = HT.glucoseDaySummary('2026-09-26');
   const err = document.querySelector('#dayView .gerr, #dayView .gimportnote');
   return { n: s ? s.n : 0, msg: err ? (err.textContent || '').replace(/\s+/g, ' ').trim() : null };
 })()
 '@
-    $RB = $rb | ConvertFrom-Json
+    $RB = $rbv | ConvertFrom-Json
     Chk ($RB.n -eq $nBefore) "$what changed the stored readings ($nBefore -> $($RB.n)) -- an unrecognised or empty file must leave the cache untouched"
     Chk ($null -ne $RB.msg -and ([string]$RB.msg).Length -gt 0) "$what produced no message at all -- A ruled unrecognised input is REFUSED BY NAME, never guessed and never silent"
     if ($what -like '*DEFAULT date*') {
@@ -520,7 +520,7 @@ JSON.stringify((function () {
   # The peak has to be sampled WHILE the import runs, so this loop lives in the
   # page rather than in PowerShell -- and it stops on this attempt's sequence,
   # not on a `done` left standing by the last one.
-  $r4 = EvalA @'
+  $r4v = EvalA @'
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let peak = performance.memory ? performance.memory.usedJSHeapSize : 0;
@@ -535,7 +535,7 @@ JSON.stringify((function () {
            progress: HT.glucoseImportProgress ? HT.glucoseImportProgress() : null };
 })()
 '@
-  $R4 = $r4 | ConvertFrom-Json
+  $R4 = $r4v | ConvertFrom-Json
   $growthMB = [Math]::Round((($R4.peak - $H0) / 1048576), 1)
   Chk ($growthMB -lt 80) "importing the 64MB export grew the heap by ${growthMB}MB. Measured on this route: a 5x larger file moves the peak 1.24x (17.8 -> 22.1MB), against a 7.7MB noise band from importing one file twice -- so the peak tracks the 2MB chunk, not the file. Reading this file into one string would cost ~128MB of UTF-16 and is what this number separates. A peak that scales with the file is what kills an iOS tab on a 491MB export. The 80MB line sits between the two: bounded measures 22MB in isolation and up to 42MB with earlier imports uncollected, materialised would be ~128MB"
   Chk ($null -ne $R4.progress) "HT.glucoseImportProgress does not report -- D ruled progress shows BYTES and READINGS, because 99.99% of an export is not glucose and a readings-only counter sits at zero looking broken"

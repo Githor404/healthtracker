@@ -29,11 +29,11 @@ $MIN_BTN_W = 200  # it spans the card, not a token corner button
 $MIN_SLIDER = 90  # the correct-instead affordance stays usable in the same card
 
 function Find-Browser {
-  foreach ($c in @(
+  foreach ($cv in @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $c) { return $c } }
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $cv) { return $cv } }
   return $null
 }
 function Receive-One {

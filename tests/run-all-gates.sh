@@ -283,7 +283,8 @@ check-eol.sh
 check-ps-encoding.sh
 check-egress.sh
 check-engagement.sh
-check-dupes.sh"
+check-dupes.sh
+check-ps-case.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh
 check-writesites.sh

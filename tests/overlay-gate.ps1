@@ -51,12 +51,12 @@ function Receive-One {
     $res = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $ct).GetAwaiter().GetResult()
     $ms.Write($buf, 0, $res.Count); if ($res.EndOfMessage) { break } }
   return ([Text.Encoding]::UTF8.GetString($ms.ToArray()) | ConvertFrom-Json) }
-function Invoke-CDP([string]$m, [hashtable]$p) {
-  $script:cid++; $pl = @{ id = $script:cid; method = $m }; if ($p) { $pl.params = $p }
+function Invoke-CDP([string]$mv, [hashtable]$p) {
+  $script:cid++; $pl = @{ id = $script:cid; method = $mv }; if ($p) { $pl.params = $p }
   $b = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
   [void]$ws.SendAsync([ArraySegment[byte]]::new($b), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
-  $g = 0
-  while ($true) { if (++$g -gt 3000) { throw "no response for $m" }
+  $gv = 0
+  while ($true) { if (++$gv -gt 3000) { throw "no response for $mv" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
@@ -71,8 +71,8 @@ if (-not (Test-Path (Join-Path $repo 'corpus/dist/cnf.bin'))) {
   Write-Host "ERROR: corpus/dist/cnf.bin is missing"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -105,7 +105,7 @@ try {
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
   $tabUrl = $null
-  for ($i = 0; $i -lt 60; $i++) { Start-Sleep -Milliseconds 400
+  for ($iv = 0; $iv -lt 60; $iv++) { Start-Sleep -Milliseconds 400
     try { $tabs = Invoke-RestMethod -Uri "http://127.0.0.1:$Dbg/json" -TimeoutSec 3
       $pg = $tabs | Where-Object { $_.type -eq 'page' } | Select-Object -First 1
       if ($pg) { $tabUrl = $pg.webSocketDebuggerUrl; break } } catch { } }
@@ -146,9 +146,9 @@ try {
            overlays: document.querySelectorAll('[data-overlay]').length };
 })()
 '@
-  $s0 = EvalA $setup
-  if ($s0 -like 'EXCEPTION*') { Write-Host "ERROR: setup threw: $s0"; Cleanup; exit 2 }
-  $S0 = $s0 | ConvertFrom-Json
+  $s0v = EvalA $setup
+  if ($s0v -like 'EXCEPTION*') { Write-Host "ERROR: setup threw: $s0v"; Cleanup; exit 2 }
+  $S0 = $s0v | ConvertFrom-Json
   if ($S0.pageH -le ($S0.vh + 200)) {
     $fails += "the fixture page is only $($S0.pageH)px against a $($S0.vh)px viewport -- it cannot scroll, so nothing below could detect bleed (D96)"
   }
@@ -169,9 +169,9 @@ try {
   function Swipe([int]$x, [int]$y, [int]$dy) {
     $steps = 12
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
-    for ($i = 1; $i -le $steps; $i++) {
+    for ($iv = 1; $iv -le $steps; $iv++) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove';
-        touchPoints = @(@{ x = $x; y = ($y + [int]($dy * $i / $steps)) }) } | Out-Null
+        touchPoints = @(@{ x = $x; y = ($y + [int]($dy * $iv / $steps)) }) } | Out-Null
       Start-Sleep -Milliseconds 14 }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     Start-Sleep -Milliseconds 420 }
@@ -212,56 +212,56 @@ try {
     @{ n = 'Log sheet (Lab)';    o = "HT.openSheet(); HT.setSheetMode('lab');";    s = '#entrySheet';    c = 'HT.closeSheet();' },
     @{ n = 'Settings panel';     o = 'HT.openSettings();';                         s = '#settingsPanel'; c = 'HT.closeSettings();' }
   )
-  foreach ($f in $surfaces) {
+  foreach ($fv in $surfaces) {
     Park 320
     $parked = ScrollY
-    Eval ($f.o + ' 1') | Out-Null
+    Eval ($fv.o + ' 1') | Out-Null
     Start-Sleep -Milliseconds 620
 
     # 1. THE MECHANISM: locked, offset by the parked amount, page layer inert.
-    $m = Eval ("JSON.stringify((function(){var b=document.body;var cs=getComputedStyle(b);var e=document.querySelector('" + $f.s + "');var inert=document.querySelectorAll('[data-overlay-inert]').length;var pageInert=true;var k=document.body.children;for(var i=0;i<k.length;i++){var c=k[i];if(c.hasAttribute&&c.hasAttribute('data-overlay'))continue;var t=c.tagName;if(t==='SCRIPT'||t==='NOSCRIPT'||t==='TEMPLATE'||t==='STYLE')continue;if(!c.hasAttribute('inert'))pageInert=false;}var sb=e&&e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');return {pos:cs.position,top:cs.top,overflow:cs.overflow,inertCount:inert,pageInert:pageInert,found:!!e,chain:sb?getComputedStyle(sb).overscrollBehaviorY:null};})())")
-    $M = $m | ConvertFrom-Json
-    if (-not $M.found) { $fails += "$($f.n): the surface did not render"; Eval ($f.c + ' 1') | Out-Null; continue }
+    $mv = Eval ("JSON.stringify((function(){var b=document.body;var cs=getComputedStyle(b);var e=document.querySelector('" + $fv.s + "');var inert=document.querySelectorAll('[data-overlay-inert]').length;var pageInert=true;var k=document.body.children;for(var i=0;i<k.length;i++){var c=k[i];if(c.hasAttribute&&c.hasAttribute('data-overlay'))continue;var t=c.tagName;if(t==='SCRIPT'||t==='NOSCRIPT'||t==='TEMPLATE'||t==='STYLE')continue;if(!c.hasAttribute('inert'))pageInert=false;}var sb=e&&e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');return {pos:cs.position,top:cs.top,overflow:cs.overflow,inertCount:inert,pageInert:pageInert,found:!!e,chain:sb?getComputedStyle(sb).overscrollBehaviorY:null};})())")
+    $M = $mv | ConvertFrom-Json
+    if (-not $M.found) { $fails += "$($fv.n): the surface did not render"; Eval ($fv.c + ' 1') | Out-Null; continue }
     if ($M.pos -ne 'fixed') {
-      $fails += "$($f.n): the body is '$($M.pos)', not fixed -- an overflow lock alone is the technique that fails on iOS Safari, and it also loses the position"
+      $fails += "$($fv.n): the body is '$($M.pos)', not fixed -- an overflow lock alone is the technique that fails on iOS Safari, and it also loses the position"
     }
     if ($M.top -ne ("-" + $parked + "px")) {
-      $fails += "$($f.n): the body is offset '$($M.top)' but the page was parked at $parked px -- the offset IS the saved position, so a wrong one restores to the wrong place"
+      $fails += "$($fv.n): the body is offset '$($M.top)' but the page was parked at $parked px -- the offset IS the saved position, so a wrong one restores to the wrong place"
     }
     if (-not $M.pageInert) {
-      $fails += "$($f.n): part of the page layer is NOT inert -- it can still take touches and focus, and `pointer-events:none` would not remove it from the tab order"
+      $fails += "$($fv.n): part of the page layer is NOT inert -- it can still take touches and focus, and `pointer-events:none` would not remove it from the tab order"
     }
     if ($M.chain -and $M.chain -ne 'contain' -and $M.chain -ne 'none') {
-      $fails += "$($f.n): the overlay's scroller has overscroll-behavior-y '$($M.chain)' -- a swipe reaching its end chains to the page"
+      $fails += "$($fv.n): the overlay's scroller has overscroll-behavior-y '$($M.chain)' -- a swipe reaching its end chains to the page"
     }
 
     # 2. THE SYMPTOM: a real swipe inside, and again with the body at its end.
-    $g = Eval ("JSON.stringify((function(){var e=document.querySelector('" + $f.s + "');var r=e.getBoundingClientRect();var b=e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');var br=b?b.getBoundingClientRect():null;return {y:br?Math.round(br.top+Math.min(br.height/2,280)):Math.round(r.top+r.height/2),top:Math.round(r.top)};})())")
-    $G = $g | ConvertFrom-Json
+    $gv = Eval ("JSON.stringify((function(){var e=document.querySelector('" + $fv.s + "');var r=e.getBoundingClientRect();var b=e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');var br=b?b.getBoundingClientRect():null;return {y:br?Math.round(br.top+Math.min(br.height/2,280)):Math.round(r.top+r.height/2),top:Math.round(r.top)};})())")
+    $G = $gv | ConvertFrom-Json
     $before = ScrollY
     Swipe 195 $G.y -260
-    if ((ScrollY) -ne $before) { $fails += "$($f.n): a swipe inside the sheet SCROLLED THE PAGE ($before -> $(ScrollY)) -- the reported defect" }
-    Eval ("(function(){var e=document.querySelector('" + $f.s + "');var b=e&&e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');if(b)b.scrollTop=b.scrollHeight;return 1;})()") | Out-Null
+    if ((ScrollY) -ne $before) { $fails += "$($fv.n): a swipe inside the sheet SCROLLED THE PAGE ($before -> $(ScrollY)) -- the reported defect" }
+    Eval ("(function(){var e=document.querySelector('" + $fv.s + "');var b=e&&e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');if(b)b.scrollTop=b.scrollHeight;return 1;})()") | Out-Null
     Start-Sleep -Milliseconds 250
     $atEnd = ScrollY
     Swipe 195 $G.y -260
-    if ((ScrollY) -ne $atEnd) { $fails += "$($f.n): a swipe at the END of the sheet's own scroller CHAINED to the page ($atEnd -> $(ScrollY))" }
+    if ((ScrollY) -ne $atEnd) { $fails += "$($fv.n): a swipe at the END of the sheet's own scroller CHAINED to the page ($atEnd -> $(ScrollY))" }
 
     # 3. A TAP BEHIND must not reach the page.
     Eval 'window.__behind = null; document.addEventListener("click", function(e){ if(!e.target.closest("[data-overlay]")) window.__behind = String(e.target.className||e.target.tagName); }, { once: true, capture: true }); 1' | Out-Null
     Tap 195 ([Math]::Max(60, $G.top - 50))
     $hit = Eval 'String(window.__behind)'
-    if ($hit -and $hit -ne 'null') { $fails += "$($f.n): a tap behind the sheet reached the page ('$hit')" }
+    if ($hit -and $hit -ne 'null') { $fails += "$($fv.n): a tap behind the sheet reached the page ('$hit')" }
 
     # 4. CLOSING RESTORES EXACTLY.
-    Eval ($f.c + ' 1') | Out-Null
+    Eval ($fv.c + ' 1') | Out-Null
     Start-Sleep -Milliseconds 450
     $after = ScrollY
-    if ($after -ne $parked) { $fails += "$($f.n): closing restored the page to $after, not $parked -- 'exactly where it was' is the ruling" }
+    if ($after -ne $parked) { $fails += "$($fv.n): closing restored the page to $after, not $parked -- 'exactly where it was' is the ruling" }
     $un = Eval "JSON.stringify({ pos: getComputedStyle(document.body).position, inert: document.querySelectorAll('[data-overlay-inert]').length })"
     $U = $un | ConvertFrom-Json
-    if ($U.pos -eq 'fixed') { $fails += "$($f.n): the body is still fixed after closing" }
-    if ($U.inert -gt 0) { $fails += "$($f.n): $($U.inert) page element(s) are still inert after closing" }
+    if ($U.pos -eq 'fixed') { $fails += "$($fv.n): the body is still fixed after closing" }
+    if ($U.inert -gt 0) { $fails += "$($fv.n): $($U.inert) page element(s) are still inert after closing" }
   }
 
   # ---- FOCUS must not disturb the lock -----------------------------------
@@ -325,7 +325,7 @@ try {
 
   if ($fails.Count) {
     Write-Host "OVERLAY GATE: FAIL"
-    foreach ($f in $fails) { Write-Host "  - $f" }
+    foreach ($fv in $fails) { Write-Host "  - $fv" }
     Cleanup
     exit 1
   }

@@ -75,20 +75,20 @@ function Receive-One {
 }
 function Invoke-CDP([string]$m, [hashtable]$p) {
   $script:cid++; $pl = @{ id = $script:cid; method = $m }; if ($p) { $pl.params = $p }
-  $b = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
-  [void]$ws.SendAsync([ArraySegment[byte]]::new($b), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
-  $g = 0
+  $bv = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
+  [void]$ws.SendAsync([ArraySegment[byte]]::new($bv), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
+  $gv = 0
   while ($true) {
-    if (++$g -gt 4000) { throw "no response for $m" }
+    if (++$gv -gt 4000) { throw "no response for $m" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
-function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
+function Eval([string]$ev) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $ev; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) { return "EXCEPTION: " + $r.result.exceptionDetails.text }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) { return "EXCEPTION: " + $rv.result.exceptionDetails.text }
+  return $rv.result.result.value
 }
 # TAGGED, counted, and the tag travels into the failure text -- so the PASS line
 # can state what each half of the run was standing on.
@@ -106,8 +106,8 @@ function Tap([int]$x, [int]$y) {
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome or Edge found"; exit 2 }
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -236,9 +236,9 @@ try {
            hasSummary: typeof HT.glucoseDaySummary === 'function' };
 })()
 '@
-  $b = EvalA $boot
-  if ($b -like 'EXCEPTION*') { Write-Host "ERROR: boot threw: $b"; Cleanup; exit 2 }
-  $B = $b | ConvertFrom-Json
+  $bv = EvalA $boot
+  if ($bv -like 'EXCEPTION*') { Write-Host "ERROR: boot threw: $bv"; Cleanup; exit 2 }
+  $B = $bv | ConvertFrom-Json
   Chk 'M' ([bool]$B.hasIngest)  "HT.glucoseIngest does not exist -- there is no ingest to gate"
   Chk 'M' ([bool]$B.hasClear)   "HT.glucoseClear does not exist -- a CACHE that cannot be cleared is not a cache (A)"
   Chk 'M' ([bool]$B.hasChart)   "HT.timeChart does not exist -- F ruled a GENERIC control, so this is not a glucose-only function"
@@ -248,7 +248,7 @@ try {
   Chk 'M' ([bool]$B.hasSummary) "HT.glucoseDaySummary does not exist -- the collapsed row has nothing to state"
   if (-not $B.hasIngest -or -not $B.hasChart -or -not $B.hasSummary) {
     Write-Host "CHART GATE: FAIL"
-    foreach ($f in $fails) { Write-Host "  - $f" }
+    foreach ($fv in $fails) { Write-Host "  - $fv" }
     Write-Host "  (nothing is built yet, so the rest of the gate cannot run)"
     Write-Host "assertions run: $($ran['M']) on MEASURED cadence, $($ran['I']) on INVENTED cadence"
     Cleanup; exit 1
@@ -289,8 +289,8 @@ try {
   return JSON.stringify(O);
 })()
 '@
-  $r1 = Eval $rowProbe
-  $R1 = $r1 | ConvertFrom-Json
+  $r1v = Eval $rowProbe
+  $R1 = $r1v | ConvertFrom-Json
   if ($R1.err) {
     $fails += "[M] $($R1.err)"
   } else {
@@ -332,7 +332,7 @@ try {
       Chk 'M' ($null -ne $S1.rawUnit -and ([string]$S1.rawUnit).Length -gt 0) "the platform's verbatim unit string was not kept -- E ruled verbatim AND canonical"
     }
 
-    foreach ($f in @($R1.fonts)) { Chk 'M' ($f.px -ge 16) "16px floor -- $($f.sel) computes to $($f.px)px" }
+    foreach ($fv in @($R1.fonts)) { Chk 'M' ($fv.px -ge 16) "16px floor -- $($fv.sel) computes to $($fv.px)px" }
     Chk 'M' (@($R1.fonts).Count -ge 2) "only $(@($R1.fonts).Count) text classes found on the row -- coverage before the floor (D124)"
 
     # ---- ONE TAP OPENS THE CHART IN PLACE --------------------------------
@@ -378,8 +378,8 @@ try {
   return JSON.stringify(O);
 })()
 '@
-  $p1 = Eval $probe
-  $P1 = $p1 | ConvertFrom-Json
+  $p1v = Eval $probe
+  $P1 = $p1v | ConvertFrom-Json
   if ($P1.err) {
     $fails += "[M] $($P1.err)"
   } else {
@@ -424,7 +424,7 @@ try {
     Chk 'M' ($ax -notmatch '(?i)mmol') "the y-axis labels still carry the unit ('$ax'). H23/5 moved it to the window line because '14 mmol/L' is 76.7 units wide against a 38-unit gutter and covered the clip marker that says a value left the declared range"
     Chk 'M' ((Eval "(document.querySelector('#dayView .grow .twindow')||{}).textContent||''") -match '(?i)mmol') "the unit left the axis and did NOT appear on the window line, so it is nowhere on screen"
     Chk 'M' ($ax -match '(^|\s)2(\s|$)' -and $ax -match '14') "the y-axis does not show the declared 2-14 domain: '$ax'"
-    foreach ($f in @($P1.fonts)) { Chk 'M' ($f.px -ge 16) "16px floor -- $($f.sel) computes to $($f.px)px" }
+    foreach ($fv in @($P1.fonts)) { Chk 'M' ($fv.px -ge 16) "16px floor -- $($fv.sel) computes to $($fv.px)px" }
   }
 
   # ---- G: AXIS-LOCKED GESTURES, with real touch sequences -----------------
@@ -486,7 +486,7 @@ try {
   # ---- INK and the floor at 360 -------------------------------------------
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 360; height = 800; deviceScaleFactor = 2; mobile = $true } | Out-Null
   Start-Sleep -Milliseconds 700
-  $ink = Eval @'
+  $inkv = Eval @'
 (function () {
   const row = document.querySelector('#dayView .grow');
   if (!row) return JSON.stringify({ err: 'no .grow at 360' });
@@ -547,7 +547,7 @@ try {
     pageOver: document.documentElement.scrollWidth - docW });
 })()
 '@
-  $INK = $ink | ConvertFrom-Json
+  $INK = $inkv | ConvertFrom-Json
   Chk 'M' (-not $INK.err) "at 360: $($INK.err)"
   Chk 'M' (@($INK.hits).Count -eq 0) "at 360: label ink reaches a neighbour on $(@($INK.hits).Count) element(s) -- $(@($INK.hits) -join '; ')"
   # SCOPED, AND THE BASELINE RECORDED. The first version of this asserted that the
@@ -648,8 +648,8 @@ try {
   $E = $exp | ConvertFrom-Json
   Chk 'M' ([bool]$E.inStreams) "R227.1: the export does not carry the imported glucose under 'streams'"
   Chk 'M' (-not $E.hasKey) "the export mentions the glucose storage key"
-  $sep = Eval "JSON.stringify((function(){try{return {inLS:!!localStorage.getItem('healthtracker-glucose'),inState:('glucose' in HT.state())};}catch(e){return {err:String(e)};}})())"
-  $SEP = $sep | ConvertFrom-Json
+  $sepv = Eval "JSON.stringify((function(){try{return {inLS:!!localStorage.getItem('healthtracker-glucose'),inState:('glucose' in HT.state())};}catch(e){return {err:String(e)};}})())"
+  $SEP = $sepv | ConvertFrom-Json
   Chk 'M' ([bool]$SEP.inLS) "nothing is stored under the separate glucose key, so the cache is not where A ruled it"
   Chk 'M' (-not $SEP.inState) "glucose is inside APP_STATE -- being OUTSIDE it is what keeps it out of the export by construction rather than by a filter someone must remember"
 
@@ -985,7 +985,7 @@ try {
 
   if ($fails.Count) {
     Write-Host "CHART GATE: FAIL"
-    foreach ($f in $fails) { Write-Host "  - $f" }
+    foreach ($fv in $fails) { Write-Host "  - $fv" }
     Write-Host ""
     Write-Host "assertions run: $($ran['M']) on MEASURED cadence, $($ran['I']) on INVENTED cadence"
     Cleanup

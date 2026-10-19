@@ -62,8 +62,8 @@ function EvalA([string]$js) {
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome or Edge found"; exit 2 }
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -173,7 +173,7 @@ try {
   }
 
   # ---- THE CONFIRM SAYS WHAT GOES, AND WHAT DOES NOT ---------------------
-  $pv = EvalA @'
+  $pvv = EvalA @'
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const p = HT.deleteAllPreview();
@@ -185,7 +185,7 @@ try {
            tokenShape: p && typeof p.token === 'string' && p.token.length > 0 };
 })()
 '@
-  $PV = $pv | ConvertFrom-Json
+  $PV = $pvv | ConvertFrom-Json
   $ct2 = [string]$PV.confirmText
   Chk ([bool]$PV.tokenShape) "deleteAllPreview returns no token -- a destructive act should not be executable without one"
   Chk ($ct2 -match '(?i)export') "the confirm never mentions EXPORT: '$($ct2.Substring(0, [Math]::Min(160, $ct2.Length)))'. An export first is the only way back, and the user has to be told before the data is gone, not after"
@@ -194,7 +194,7 @@ try {
   Chk ($ct2 -match '(?i)glucose') "the confirm does not name the glucose cache, which is deleted and lives outside the export"
 
   # ---- CANCEL LEAVES EVERYTHING ------------------------------------------
-  $cx = EvalA @'
+  $cxv = EvalA @'
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const cancel = document.querySelector('#settingsPanel .delall-cancel, #settingsPanel [data-action=delete-all-cancel]');
@@ -211,13 +211,13 @@ try {
            })() };
 })()
 '@
-  $CX = $cx | ConvertFrom-Json
+  $CX = $cxv | ConvertFrom-Json
   Chk ([bool]$CX.cancelFound) "the confirm offers no way out -- a destructive confirm with no cancel is a trap"
   Chk ($CX.stillPresent -eq 9) "cancelling the confirm left only $($CX.stillPresent) of 9 keys -- a cancel that deletes anything is worse than no cancel"
   Chk ([bool]$CX.refusedWithoutToken) "deleteAllExecute ran with a WRONG token. The token is the only thing between a mis-tap and the whole log"
 
   # ---- AND THEN IT ACTUALLY DELETES EVERYTHING ---------------------------
-  $dl = EvalA @'
+  $dlv = EvalA @'
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const p = HT.deleteAllPreview();
@@ -243,7 +243,7 @@ try {
              .then(function (r) { return r.ok; }).catch(function () { return false; }) };
 })()
 '@
-  $DL = $dl | ConvertFrom-Json
+  $DL = $dlv | ConvertFrom-Json
   Chk ([bool]$DL.ok) "deleteAllExecute with the right token did not report success"
   Chk ($DL.leftN -eq 0) "$($DL.leftN) owned key(s) survived the delete: $(@($DL.left) -join ', ')"
   Chk (@($DL.strays).Count -eq 0) "localStorage still holds healthtracker key(s) the nine-key census does not know about: $(@($DL.strays) -join ', '). A census that misses a key leaves data behind while reporting none"

@@ -1430,6 +1430,53 @@ window.setLS({});
   setLS({}); HT.boot();
   setLS({}); HT.boot();
 
+  // ---- R242/A: one rescale; save a meal as a combo; "Daily stack"; the notice in one line ----
+  setLS({}); HT.boot();
+  var ref242 = { ns: 'cnf', id: '1', name: 'Row', at: '2026-10-19', hash: 'h', attribution: 'a', how: 'picked', when: 'later', g: 200, v: { '208': 100, '205': 20 } };
+  var half242 = HT.refAtGrams(ref242, 100);
+  res(half242 && half242.v['208'] === 50 && half242.v['205'] === 10 && half242.g === 100 && ref242.v['208'] === 100,
+      'R242/A GATE: the ONE rescale -- 200 g -> 100 g halves every value, records the new basis, and never touches the original');
+  var nob242 = { ns: 'cnf', id: '1', name: 'Row', v: { '208': 100 } };
+  res(HT.refAtGrams(nob242, 100) === null && HT.refAtGrams(nob242, 100, { noBasis: 'keep' }) === nob242
+      && HT.refAtGrams(nob242, 100, { basis: 50 }).v['208'] === 200,
+      'R242/A: a ref with NO basis is dropped by default, carried unscaled with noBasis:keep, and read at a stated basis -- one function, the policy stated by the caller');
+  res(['precRowValues', 'suggestionFor', 'buildRepeatItem', 'consumeFromPlate'].every(function (f) { return String(HT[f]).indexOf('refAtGrams(') > 0; })
+      && ['precRowValues', 'suggestionFor', 'buildRepeatItem', 'consumeFromPlate'].every(function (f) { return !/\.v\[(slot|sl)\] \* k/.test(String(HT[f])); }),
+      'R242/A GATE: the precedence rule, the suggestion, the repeat and the plate save ALL call refAtGrams, and none carries its own copy of the arithmetic');
+  // -- "Save this meal as a combo": a template, nothing written --
+  var d242 = HT.state().current;
+  var it242 = function (n, g, k) { return { name: n, meal: 'dinner', time: '19:00', grams: g, kcal: k, protein_g: 5, fat_g: 3, carb_g: 20, fiber_g: 2, soluble_fiber_g: 0, confidence: 'weighed', source: 'manual', notes: '', mealId: 'm242' }; };
+  HT.state().days[d242] = { status: 'in_progress', water_l: 0, items: [it242('Gate rice', 150, 200), it242('Gate dal', 220, 260)] };
+  HT.resave();
+  var ev242 = HT.findMealEvent(d242, 'm242');
+  var before242 = JSON.stringify(HT.state().days[d242]) + '|' + JSON.stringify(HT.state().settings.combos || []);
+  var sc242 = HT.sittingComboDraft(d242, ev242.mealId);
+  var dr242 = HT.comboNewDraft();
+  res(sc242.ok && sc242.parts === 2 && dr242 && dr242.parts === 2 && !dr242.editing,
+      'R242/2 GATE: "Save this meal as a combo" opens New combo with the meal’s two items in it');
+  res(JSON.stringify(HT.state().days[d242]) + '|' + JSON.stringify(HT.state().settings.combos || []) === before242,
+      'R242/2 GATE: and it is a TEMPLATE -- the day and the saved combos are byte-for-byte as they were; nothing is logged or saved');
+  var again242 = HT.sittingComboDraft(d242, ev242.mealId);
+  res(again242.ok === false && again242.why === 'draft-open' && HT.comboNewDraft().parts === 2,
+      'R242/2 (R187): an unsaved combo draft is never replaced -- the second tap opens it and says why');
+  HT.comboNewDiscard && HT.comboNewDiscard();
+  res(String(HT.sittingResponseHTML(d242, ev242)).indexOf('Save this meal as a combo') > 0,
+      'R242/2: the button is on the meal’s own block, where its response is');
+  // -- "Daily stack" --
+  res(HT.sittingName({ kind: 'supplement' }) === 'Daily stack' && HT.sittingName({ kind: 'dinner' }) === 'Dinner',
+      'R242/3: the stack’s group is named "Daily stack"');
+  // -- the notice, one line until tapped --
+  setLS({ 'healthtracker-version': '0.90.0' }); HT.boot();
+  if (!document.getElementById('versionNotice')) { var vn242 = document.createElement('div'); vn242.id = 'versionNotice'; document.body.appendChild(vn242); }
+  HT.checkVersionNotice();
+  var vh0 = document.getElementById('versionNotice').innerHTML;
+  HT.toggleVersionNotice(true);
+  var vh1 = document.getElementById('versionNotice').innerHTML;
+  HT.toggleVersionNotice(false); HT.dismissVersionNotice();
+  res(vh0.indexOf('vnrow') < 0 && vh0.indexOf('what’s new') > 0 && (vh1.match(/class="vnrow"/g) || []).length >= 3,
+      'R242/5 GATE: after an update the notice is ONE line -- no notes until "what’s new" is tapped, then every release since');
+  setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --
@@ -1946,7 +1993,7 @@ window.setLS({});
   if (!document.getElementById('versionNotice')) { var vnEl=document.createElement('div'); vnEl.id='versionNotice'; document.body.appendChild(vnEl); }
   HT.checkVersionNotice();
   var vnHtml = document.getElementById('versionNotice').innerHTML;
-  res(vnHtml.indexOf('Updated from v0.2.0 to v'+HT.APP_VERSION)>=0, 'VN6: notice renders from->to on version change');
+  res(vnHtml.indexOf('Updated to v'+HT.APP_VERSION)>=0 && vnHtml.indexOf('title="from v0.2.0"')>=0, 'VN6: notice renders on version change -- R242/5: "Updated to" the new version on its one line, where it came FROM in the tooltip');
   res((window.__ls._get('healthtracker-version'))===HT.APP_VERSION, 'VN6: stored version updated to running (notice fires once)');
   // VN6: unchanged version -> no notice rendered
   HT.boot(); document.getElementById('versionNotice').innerHTML=''; HT.checkVersionNotice();

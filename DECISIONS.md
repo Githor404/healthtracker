@@ -17591,3 +17591,71 @@ mid-gate -> 0 left; a planted leftover removed and reported at the start.
 **Also (R239/1):** the first rerun failed `sensor-gate` with "the app did not
 boot", then it passed alone 3/3. 33 gates waited a fixed 3 s and checked once;
 each now waits up to 30 s more for the app, and its own check decides.
+
+
+## R242 — LEDGER RULINGS; STEP A BUILT: R155 HYGIENE AND THREE RULINGS (2026-10-19, v0.105.0)
+
+**Rulings recorded.** The labels R180, R184, R185, R201, R205, R210, R211, R219,
+R220, R222, R235, R236 are the user's ledger; superseded where noted, no action.
+"Plainest name" stays a tie-breaker only. **R237/C2: the calibration floor is 5
+pairs per food kind** (no "calibrated from your history (n)" figure below it).
+Work order, one release per step, twice-green each: **A** R155 hygiene + rulings
+2/3/5 (this entry) → **B** FoodData Central search (Branded + mixed dishes, BYOK)
+→ **C** my foods in Search + R237/C3's search half → **D** R241's report, alongside.
+R192, R193, the stress model and R231 stay parked on data.
+
+### A. R155 hygiene — all four items, plus the copies that grew
+
+1. **Font floor on the two screens nobody swept.** The night panel's `<small>`
+   and the photo-search sheet's `.pmsub`, `.pmscap`, `.pmsmac` were 14px;
+   `font-floor-gate` now drives both screens into the DOM with real content,
+   asserts it REACHED them, and holds them to 16px. Run red first (both screens
+   listed), then the four declarations went to 16px. No declaration under 16px
+   remains in `index.html`.
+2. **PowerShell case collisions.** Measured again: **92** names written in two
+   cases across **45** scripts, 12 touching a loop variable (R155 counted 65 in
+   21). Each lowercase spelling was renamed (`$port` -> `$portv`, `$r` -> `$rv`,
+   loop `$c` -> `$cv`, ...) **in PowerShell code and double-quoted strings
+   only** — never inside the gates' JavaScript here-strings. The first pass used a
+   line-based guess at single-quoted strings and broke `overlay-gate`: its
+   selectors are built as `"...querySelector('" + $f.s + "')..."`, and `'" + $f.s
+   + "'` read as a single-quoted literal, so `$f` was left behind. Reverted, redone
+   with a lexer; the overlay gate and nine more were re-run green.
+   **Held from now on:** `tests/check-ps-case.sh` (-> `ps_case_collisions.py`),
+   wired into the suite's static checks — a name written in two cases fails it.
+3. **`verify-deploy` checks the food database.** `corpus/dist/*.json` (as text) and
+   `*.bin` (raw) are compared byte for byte with the served copies, the list from
+   `git ls-files`, never typed. Against the live site: all four identical.
+4. **One rescale.** R155 asked for three copies of "re-express a row's values at
+   new grams" to become one; v0.104.0 had made it five. All of them — the
+   precedence rule, the suggestion lookup, the repeat (match and suggestion) and
+   the plate save — now call `refAtGrams`, and the one thing they differed in (a
+   ref that recorded no basis: drop it, keep it unscaled, or read it at the
+   source item's grams) is an option each caller states. Gated: the harness
+   checks the behaviours and that no path keeps its own copy; `precedence-gate`
+   holds "same item, same numbers" on capture, resolve, repeat and restore.
+
+### Rulings 1, 2, 3, 5
+
+1. **R189/2 — keep "weighed" when a share is eaten.** Already the behaviour (R197/3:
+   a share tap rescales the item and never touches its confidence; the row reads
+   "weighed 200 g · ate ½ · 100 g"). Now asserted: `served-gate` checks the stored
+   confidence is still `weighed`, not only the line.
+2. **R195 — "Save this meal as a combo"**, on every meal's own block. It opens + Log's
+   New combo with the meal's items at their amounts (`comboPartFromItem`, shared
+   with `comboFromItems`), as a template: nothing is logged or saved until the
+   user names it and taps Save. **An unsaved combo draft is never replaced**
+   (R187): the tap opens that draft and says why.
+3. **R213 — the stack's group is "Daily stack"**, written as named (the meal-name
+   style would have printed "Daily Stack"). The kind word stays plain text; D144
+   untouched.
+5. **The what's-new notice is one line.** "Updated to vX" (where it came from in the
+   tooltip — "from v0.98.0 to ..." clipped the version that mattered at 390 px),
+   "what's new" to open the notes and "hide" to close them, and the dismiss x.
+   Gated in `ring-size-gate`, the fold's authority, which used to DISMISS the notice
+   before measuring: now it is shown after an update from v0.90.0 and held to one
+   text line (24 px; 70 px with the tap target), with the ring on the first screen
+   at 390 and 360.
+
+Evidence: harness 3222 -> 3231; `font-floor-gate`, `ring-size-gate`, `served-gate`,
+`noauto-gate` extended or re-pointed; `check-ps-case.sh` new.

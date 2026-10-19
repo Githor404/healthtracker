@@ -180,12 +180,12 @@ if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $port -ScriptBlock {
   param($repo, $port)
-  $l = New-Object System.Net.HttpListener
-  $l.Prefixes.Add("http://127.0.0.1:$port/")
-  $l.Start()
+  $lv = New-Object System.Net.HttpListener
+  $lv.Prefixes.Add("http://127.0.0.1:$port/")
+  $lv.Start()
   $mimes = @{ '.html' = 'text/html'; '.js' = 'application/javascript'; '.json' = 'application/json'; '.png' = 'image/png'; '.svg' = 'image/svg+xml'; '.css' = 'text/css' }
-  while ($l.IsListening) {
-    try { $ctx = $l.GetContext() } catch { break }
+  while ($lv.IsListening) {
+    try { $ctx = $lv.GetContext() } catch { break }
     try {
       $rel = [Uri]::UnescapeDataString($ctx.Request.Url.LocalPath).TrimStart('/')
       if ([string]::IsNullOrEmpty($rel)) { $rel = 'index.html' }

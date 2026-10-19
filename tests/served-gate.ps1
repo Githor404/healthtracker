@@ -97,8 +97,8 @@ $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -469,7 +469,7 @@ HT.corpusEnsure().then(function () {
   var pl = it.plateId ? HT.getPlate(it.plateId) : null;
   return { before: before, offered: offered, platesOffered: platesOffered, grams: it.grams, kcal: it.kcal,
            kind: pl ? pl.kind : '', servedG: pl ? pl.items[0].grams : null, refuse: pl ? !!pl.items[0].refuse : null,
-           line: (row.querySelector('.mserved') || {}).textContent || '' };
+           line: (row.querySelector('.mserved') || {}).textContent || '', conf: it.confidence };
 })()
 '@
   Write-Host ("  typed item: " + $typed)
@@ -479,6 +479,7 @@ HT.corpusEnsure().then(function () {
   Check (($ty.grams -eq 100) -and ($ty.kcal -eq 150)) "a real click on 1/2 halves it: 100 g, 150 cal"
   Check (($ty.kind -eq 'entry') -and ($ty.servedG -eq 200) -and ($ty.refuse -eq $false)) "the plate is made at that moment, holding the 200 g served -- and NO bone or peel correction: a typed weight is already what the user says they had"
   Check ($ty.line -eq ('weighed 200 g ' + [char]0xB7 + ' ate ' + [char]0xBD + ' ' + [char]0xB7 + ' 100 g')) "and the row shows both figures, the first AS WEIGHED: 'weighed 200 g . ate 1/2 . 100 g' (R197/3 -- the weight was measured, the share is the user's statement, and the item keeps its weighed dot)"
+  Check ($ty.conf -eq 'weighed') "R189/2 (ruled R242): the share leaves the CONFIDENCE as it was -- still 'weighed' ($($ty.conf)); the weight was measured, the share is the user's statement"
 
   $gone = EvalJ @'
 (function () {

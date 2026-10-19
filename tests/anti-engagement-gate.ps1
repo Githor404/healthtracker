@@ -62,8 +62,8 @@ function Receive-One {
 }
 function Invoke-CDP([string]$m, [hashtable]$p) {
   $script:cid++; $pl = @{ id = $script:cid; method = $m }; if ($p) { $pl.params = $p }
-  $b = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
-  [void]$ws.SendAsync([ArraySegment[byte]]::new($b), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
+  $bv = [Text.Encoding]::UTF8.GetBytes(($pl | ConvertTo-Json -Depth 20 -Compress))
+  [void]$ws.SendAsync([ArraySegment[byte]]::new($bv), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
   $g = 0
   while ($true) {
     if (++$g -gt 6000) { throw "no response for $m" }
@@ -73,16 +73,16 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) { return "EXCEPTION: " + $r.result.exceptionDetails.text }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) { return "EXCEPTION: " + $rv.result.exceptionDetails.text }
+  return $rv.result.result.value
 }
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome or Edge found"; exit 2 }
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
-  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$port/"); $l.Start()
+  param($repo, $portv)
+  $l = New-Object System.Net.HttpListener; $l.Prefixes.Add("http://127.0.0.1:$portv/"); $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
   while ($l.IsListening) {
@@ -343,11 +343,11 @@ try {
     @{ re = '(?i)\d+\s*day\s*(streak|run)\b';
        say = 'a streak worn as a prize. The factual form is "streak N days - M confirmed", which states its denominator' }
   )
-  foreach ($b in $banned) {
-    $hits = $strings | Where-Object { $_.t -match $b.re }
+  foreach ($bv in $banned) {
+    $hits = $strings | Where-Object { $_.t -match $bv.re }
     if ($hits) {
       $where = ($hits | Select-Object -First 3 | ForEach-Object { "'" + ($_.t.Substring(0, [Math]::Min(64, $_.t.Length))) + "' (" + $_.s + ")" }) -join '; '
-      $fails += "ENGAGEMENT: /$($b.re)/ is on the surface in $(@($hits).Count) place(s) -- $($b.say). Found: $where"
+      $fails += "ENGAGEMENT: /$($bv.re)/ is on the surface in $(@($hits).Count) place(s) -- $($bv.say). Found: $where"
     }
   }
 

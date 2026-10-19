@@ -508,7 +508,12 @@ echo "-----------------------------------------"
 # untouched; a correction suggests at the new grams; provisional counting; the
 # day's not-counted line; confirm; nothing-to-suggest stays uncounted.
 # +1 (same release): a correction made on a plate is learned (C1/C3).
-EXPECTED_ASSERTIONS=3222
+# 3222 -> 3231 (v0.105.0, R242/A): +9 -- the one rescale (halves, keeps the
+# original, three no-basis policies) and every path calling it with no copy of
+# its own; "Save this meal as a combo" prefills two parts, writes nothing, and
+# never replaces an open draft; its button is on the meal block; "Daily stack";
+# the update notice one line until tapped.
+EXPECTED_ASSERTIONS=3231
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

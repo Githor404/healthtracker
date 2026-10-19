@@ -65,8 +65,8 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
   }
 }
 function Eval([string]$expr) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
+  return $rv.result.result.value
 }
 function EvalAsyncB64([string]$js) {
   $j = $js -replace "`r`n", "`n"
@@ -74,11 +74,11 @@ function EvalAsyncB64([string]$js) {
   # await the PROMISE, then stringify inside the .then -- JSON.stringify of a
   # pending promise is "{}" and reads exactly like an empty result
   $expr = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) {
-    return "EXCEPTION: " + ($r.result.exceptionDetails.text) + " " + ($r.result.exceptionDetails.exception.description)
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) {
+    return "EXCEPTION: " + ($rv.result.exceptionDetails.text) + " " + ($rv.result.exceptionDetails.exception.description)
   }
-  return $r.result.result.value
+  return $rv.result.result.value
 }
 
 $browser = Find-Browser
@@ -383,9 +383,9 @@ try {
   return OUT;
 })()
 '@
-  $r = EvalAsyncB64 $js
-  if ($r -like 'EXCEPTION*') { Write-Host "ERROR: the page threw: $r"; Cleanup; exit 2 }
-  $R = $r | ConvertFrom-Json
+  $rv = EvalAsyncB64 $js
+  if ($rv -like 'EXCEPTION*') { Write-Host "ERROR: the page threw: $rv"; Cleanup; exit 2 }
+  $R = $rv | ConvertFrom-Json
 
   # ---- the instrument, before its findings ----------------------------------
   # D144: the day-view sweep now depends on rows being EXPANDED, because the

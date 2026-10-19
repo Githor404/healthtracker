@@ -78,9 +78,9 @@ function EvalAsyncB64([string]$js) {
   $j = $js -replace "`r`n", "`n"
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($j))
   $expr = "eval(decodeURIComponent(escape(atob('" + $enc + "')))).then(function(o){return JSON.stringify(o);})"
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) { return "EXCEPTION: " + $r.result.exceptionDetails.text + " " + $r.result.exceptionDetails.exception.description }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) { return "EXCEPTION: " + $rv.result.exceptionDetails.text + " " + $rv.result.exceptionDetails.exception.description }
+  return $rv.result.result.value
 }
 
 $browser = Find-Browser
@@ -89,9 +89,9 @@ if (-not (Test-Path (Join-Path $repo 'corpus/dist/cnf.bin'))) {
   Write-Host "ERROR: corpus/dist/cnf.bin is missing -- run corpus/encode.py first"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
+  param($repo, $portv)
   $l = New-Object System.Net.HttpListener
-  $l.Prefixes.Add("http://127.0.0.1:$port/")
+  $l.Prefixes.Add("http://127.0.0.1:$portv/")
   $l.Start()
   $mimes = @{ '.html'='text/html'; '.js'='application/javascript'; '.json'='application/json';
               '.png'='image/png'; '.svg'='image/svg+xml'; '.css'='text/css'; '.bin'='application/octet-stream' }
@@ -332,9 +332,9 @@ try {
   function Probe([int]$w, [int]$h) {
     Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 2; mobile = $true } | Out-Null
     Start-Sleep -Milliseconds 800
-    $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $probe; returnByValue = $true }
-    if ($r.result.exceptionDetails) { throw "probe threw at ${w}px: $($r.result.exceptionDetails.text)" }
-    return $r.result.result.value
+    $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $probe; returnByValue = $true }
+    if ($rv.result.exceptionDetails) { throw "probe threw at ${w}px: $($rv.result.exceptionDetails.text)" }
+    return $rv.result.result.value
   }
 
   # ======================= PHASE 0: the ruled visibility floor ============
@@ -436,9 +436,9 @@ try {
                 ForEach-Object { "$($_.from) over $($_.onto) by $($_.over)px (row $($_.row))" }) -join '; '
       $fails += "${w}px: LABEL INK REACHES A NEIGHBOUR on $(@($R.ink).Count) element(s) -- $worst. The measured baseline was ZERO, so this is a regression, not a tolerance"
     }
-    foreach ($f in @($R.fonts)) {
-      if ($null -eq $f.px) { $fails += "${w}px: $($f.sel) never rendered -- coverage before the floor (D124): the fixture must force every class it claims to check" }
-      elseif ($f.px -lt 16) { $fails += "${w}px: 16px floor -- $($f.sel) computes to $($f.px)px" }
+    foreach ($fv in @($R.fonts)) {
+      if ($null -eq $fv.px) { $fails += "${w}px: $($fv.sel) never rendered -- coverage before the floor (D124): the fixture must force every class it claims to check" }
+      elseif ($fv.px -lt 16) { $fails += "${w}px: 16px floor -- $($fv.sel) computes to $($fv.px)px" }
     }
     if (-not $R.footText) { $fails += "${w}px: #outcomeFoot was not found -- the photo modal's own footer is where Save lives (R21.5)" }
     else {
@@ -696,7 +696,7 @@ try {
 
   if ($fails.Count) {
     Write-Host "CAPTURE GATE: FAIL"
-    foreach ($f in $fails) { Write-Host "  - $f" }
+    foreach ($fv in $fails) { Write-Host "  - $fv" }
     Cleanup
     exit 1
   }

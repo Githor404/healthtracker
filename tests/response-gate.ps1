@@ -38,11 +38,11 @@ $udd = Join-Path $env:TEMP ("ht-response-" + [System.Guid]::NewGuid().ToString('
 $ct = [Threading.CancellationToken]::None
 
 function Find-Browser {
-  foreach ($c in @(
+  foreach ($cv in @(
     "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
     "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $c) { return $c } }
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")) { if (Test-Path $cv) { return $cv } }
   return $null
 }
 function Receive-One {
@@ -70,26 +70,26 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
   }
 }
 function Eval([string]$expr) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   # REPORT THE EXCEPTION. Discarding exceptionDetails here meant a probe with a
   # syntax error returned an empty string, and the gate said only "the probe would
   # not start" -- true, unhelpful, and it cost a diagnosis.
-  if ($r.result.exceptionDetails) { return 'EXCEPTION: ' + $r.result.exceptionDetails.text + ' | ' + $r.result.exceptionDetails.exception.description }
-  return $r.result.result.value
+  if ($rv.result.exceptionDetails) { return 'EXCEPTION: ' + $rv.result.exceptionDetails.text + ' | ' + $rv.result.exceptionDetails.exception.description }
+  return $rv.result.result.value
 }
 function EvalAsync([string]$expr) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
-  if ($r.result.exceptionDetails) { return "EXCEPTION: " + ($r.result.exceptionDetails.text) }
-  return $r.result.result.value
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
+  if ($rv.result.exceptionDetails) { return "EXCEPTION: " + ($rv.result.exceptionDetails.text) }
+  return $rv.result.result.value
 }
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
+  param($repo, $portv)
   $l = New-Object System.Net.HttpListener
-  $l.Prefixes.Add("http://127.0.0.1:$port/")
+  $l.Prefixes.Add("http://127.0.0.1:$portv/")
   $l.Start()
   $mimes = @{ '.html' = 'text/html'; '.js' = 'application/javascript'; '.json' = 'application/json';
               '.png' = 'image/png'; '.svg' = 'image/svg+xml'; '.css' = 'text/css';
@@ -478,18 +478,18 @@ window.__stage = 'start';
   if ($sane -ne 'object') { Write-Host "ERROR: the page did not load (typeof HT = $sane)"; Cleanup; exit 2 }
   $kick = Eval $probe
   if ($kick -ne '1') { $fails += "the probe would not start (got '$kick')" }
-  $r = $null
+  $rv = $null
   for ($w = 0; $w -lt 120; $w++) {
     Start-Sleep -Milliseconds 500
-    $r = Eval 'window.__out'
-    if ($r) { break }
+    $rv = Eval 'window.__out'
+    if ($rv) { break }
   }
-  if (-not $r) {
+  if (-not $rv) {
     $st = Eval 'String(window.__stage)'
     $fails += "the probe HUNG after 60s -- last stage reached: '$st'"
     $R = [pscustomobject]@{}
   } else {
-    $R = $r | ConvertFrom-Json
+    $R = $rv | ConvertFrom-Json
   }
   if ($R.threw) { $fails += "the probe threw partway through: $($R.threw) -- everything after that point is absent, not false" }
 

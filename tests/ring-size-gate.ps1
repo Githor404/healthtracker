@@ -422,6 +422,42 @@ function Measure-At([int]$w, [int]$h, [bool]$mobile) {
   return $m
 }
 
+# R242/5: THE WHAT'S-NEW NOTICE, SHOWN -- not dismissed first, as every fold
+# measurement above does. On the same seeded page, an update spanning many releases
+# (stored v0.90.0) renders it; it must be ONE line and leave the ring on the first
+# screen, and its notes must open on a tap and close again.
+$measureNotice = @'
+(function () {
+  try {
+    localStorage.setItem('healthtracker-version', '0.90.0');
+    HT.checkVersionNotice();
+    window.scrollTo(0, 0);
+    var vn = document.getElementById('versionNotice');
+    var r = vn.getBoundingClientRect(), ring = document.querySelector('#dayView .ringbox').getBoundingClientRect();
+    var hw = vn.querySelector('.vnwhat'); var o = { shown: vn.style.display !== 'none' && r.height > 0, h: Math.round(r.height), headH: hw ? Math.round(hw.getBoundingClientRect().height) : 99, rows0: vn.querySelectorAll('.vnrow').length,
+              ringBottom: Math.round(ring.bottom), vh: window.innerHeight };
+    var t = vn.querySelector('.vntoggle');
+    o.toggle = t ? t.textContent : '';
+    if (t) t.click();
+    o.rowsOpen = vn.querySelectorAll('.vnrow').length;
+    o.expanded = (vn.querySelector('.vntoggle') || {}).getAttribute ? vn.querySelector('.vntoggle').getAttribute('aria-expanded') : '';
+    var t2 = vn.querySelector('.vntoggle'); if (t2) t2.click();
+    o.rowsClosed = vn.querySelectorAll('.vnrow').length;
+    HT.dismissVersionNotice();
+    return JSON.stringify(o);
+  } catch (e) { return JSON.stringify({ err: String(e) }); }
+})()
+'@
+function Measure-Notice([int]$w, [int]$h) {
+  Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $true } | Out-Null
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
+  Start-Sleep -Milliseconds 1500
+  $sr = Eval $seed
+  if ($sr -notlike 'ok*') { Write-Host "  seed failed: $sr" }
+  Start-Sleep -Milliseconds 300
+  return (Eval $measureNotice | ConvertFrom-Json)
+}
+
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
@@ -504,6 +540,12 @@ try {
   $D_ok = ($D.ring -le 380) -and (-not $D.pageOverflow)
 
   $E = Measure-Sparse 390 745
+  $N1 = Measure-Notice 390 745
+  $N2 = Measure-Notice 360 690
+  $N_ok = $true
+  foreach ($nv in @($N1, $N2)) {
+    if (-not ($nv.shown -and ($nv.h -le 80) -and ($nv.headH -le 30) -and ($nv.rows0 -eq 0) -and ($nv.ringBottom -le $nv.vh) -and ($nv.rowsOpen -ge 3) -and ($nv.expanded -eq 'true') -and ($nv.rowsClosed -eq 0))) { $N_ok = $false }
+  }
   # A mostly-empty meals lane must not read as a ring: the dots carry the day.
   $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.maxPct -lt $EAT_MAX_ONE_PCT) -and ($E.dots -ge 2)
 
@@ -541,7 +583,10 @@ try {
   Write-Host ("                  thresholds: >=7 rings/row at <={0}px, zero overlap/spill/detachment; arc-vs-track >={1}, arc-vs-background >={2}, BOTH themes" -f `
     $MAX_MINI_PX, $MIN_ARC_TRACK, $MIN_ARC_BG)
 
-  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok) {
+  Write-Host ("  what's new    : 390 h={0}px head={9}px ringBottom={1}/{2} open={3} rows | 360 h={4}px ringBottom={5}/{6} open={7} rows -> {8}" -f `
+    $N1.h, $N1.ringBottom, $N1.vh, $N1.rowsOpen, $N2.h, $N2.ringBottom, $N2.vh, $N2.rowsOpen, $N_ok, $N1.headH)
+  Write-Host ("                  R242/5: shown after an update from v0.90.0, the notice is ONE line (its head one text line, <= 30px; the whole notice <= 80px: one 44px tap target plus the card's padding -- a second line of text would pass that), the ring stays on the first screen, 'what's new' opens the notes and 'hide' closes them")
+  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok -and $N_ok) {
     Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes + the now-hand clear of the centre text at every minute of the day)"
     Cleanup; exit 0
   }

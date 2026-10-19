@@ -58,9 +58,9 @@ function Receive-One {
   $ms = New-Object IO.MemoryStream
   $buf = New-Object byte[] 65536
   while ($true) {
-    $res = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $ct).GetAwaiter().GetResult()
-    $ms.Write($buf, 0, $res.Count)
-    if ($res.EndOfMessage) { break }
+    $resv = $ws.ReceiveAsync([ArraySegment[byte]]::new($buf), $ct).GetAwaiter().GetResult()
+    $ms.Write($buf, 0, $resv.Count)
+    if ($resv.EndOfMessage) { break }
   }
   return ([Text.Encoding]::UTF8.GetString($ms.ToArray()) | ConvertFrom-Json)
 }
@@ -71,9 +71,9 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
   $json = $payload | ConvertTo-Json -Depth 20 -Compress
   $bytes = [Text.Encoding]::UTF8.GetBytes($json)
   [void]$ws.SendAsync([ArraySegment[byte]]::new($bytes), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
-  $guard = 0
+  $guardv = 0
   while ($true) {
-    if (++$guard -gt 600) { throw "CDP: no response for $method" }
+    if (++$guardv -gt 600) { throw "CDP: no response for $method" }
     $msg = Receive-One
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
@@ -90,9 +90,9 @@ $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
+  param($repo, $portv)
   $l = New-Object System.Net.HttpListener
-  $l.Prefixes.Add("http://127.0.0.1:$port/")
+  $l.Prefixes.Add("http://127.0.0.1:$portv/")
   $l.Start()
   $mimes = @{ '.html' = 'text/html'; '.js' = 'application/javascript'; '.json' = 'application/json';
               '.png' = 'image/png'; '.svg' = 'image/svg+xml'; '.css' = 'text/css';

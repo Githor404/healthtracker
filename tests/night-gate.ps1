@@ -77,23 +77,23 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
   }
 }
 function Eval([string]$expr) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
+  $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   # Report the exception rather than returning an empty string: a probe with a
   # syntax error otherwise reports only "would not start", which cost a diagnosis
   # on the H25 gate.
-  if ($r.result.exceptionDetails) {
-    return 'EXCEPTION: ' + $r.result.exceptionDetails.text + ' | ' + $r.result.exceptionDetails.exception.description
+  if ($rv.result.exceptionDetails) {
+    return 'EXCEPTION: ' + $rv.result.exceptionDetails.text + ' | ' + $rv.result.exceptionDetails.exception.description
   }
-  return $r.result.result.value
+  return $rv.result.result.value
 }
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
 
 $server = Start-Job -ArgumentList $repo, $Port -ScriptBlock {
-  param($repo, $port)
+  param($repo, $portv)
   $l = New-Object System.Net.HttpListener
-  $l.Prefixes.Add("http://127.0.0.1:$port/")
+  $l.Prefixes.Add("http://127.0.0.1:$portv/")
   $l.Start()
   $mimes = @{ '.html' = 'text/html'; '.js' = 'application/javascript'; '.json' = 'application/json';
               '.png' = 'image/png'; '.svg' = 'image/svg+xml'; '.css' = 'text/css';
@@ -339,17 +339,17 @@ window.__stage = 'start';
 '@
   $kick = Eval $probe
   if ($kick -ne '1') { $fails += "the probe would not start: $kick" }
-  $r = $null
-  for ($w = 0; $w -lt 120; $w++) {
+  $rv = $null
+  for ($wv = 0; $wv -lt 120; $wv++) {
     Start-Sleep -Milliseconds 500
-    $r = Eval 'window.__out'
-    if ($r) { break }
+    $rv = Eval 'window.__out'
+    if ($rv) { break }
   }
-  if (-not $r) {
+  if (-not $rv) {
     $st = Eval 'String(window.__stage)'
     $fails += "the probe HUNG after 60s -- last stage reached: '$st'"
     $R = [pscustomobject]@{}
-  } else { $R = $r | ConvertFrom-Json }
+  } else { $R = $rv | ConvertFrom-Json }
   if ($R.threw) { $fails += "the probe threw: $($R.threw)" }
 
   $B = $R.boundary; $S = $R.shape; $A1 = $R.arm1; $A2 = $R.arm2; $CL = $R.clean; $W = $R.words; $SN = $R.sensor

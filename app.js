@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.104.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.105.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -955,6 +955,45 @@ function comboById(id) {
 //
 // `_auto` items are REFUSED as parts: the standing supplement is a setting rather
 // than a log entry, and a combo made of it would re-log a thing the app injects.
+// ONE conversion of a logged item into a combo part, for comboFromItems and for
+// "Save this meal as a combo" (R242/2). The part takes the item's OWN numbers at
+// the item's OWN portion. `meal` is deliberately NOT copied: B1 ruled the clock
+// decides at creation unless the user chose, and a meal frozen into a combo would
+// re-assert a morning choice every evening.
+function comboPartFromItem(it) {
+  const p = { name: it.name, confidence: it.confidence, source: it.source };
+  if (num(it.grams) > 0) p.grams = num(it.grams);
+  MACRO_KEYS.forEach(function (k) { if (it[k] != null) p[k] = num(it[k]); });
+  if (it.micros) p.micros = JSON.parse(JSON.stringify(it.micros));
+  if (it.ref) p.ref = JSON.parse(JSON.stringify(it.ref));
+  if (it.published) p.published = JSON.parse(JSON.stringify(it.published));
+  return p;
+}
+// R242/2 -- "SAVE THIS MEAL AS A COMBO", on a logged meal. It OPENS + Log's New
+// combo with the meal's items and amounts already in it, as a TEMPLATE: it logs
+// nothing and saves nothing -- the user names it and taps Save, or leaves. (R195
+// removed the old tick-the-items route as a dead end; this is one tap, no ticking.)
+// A combo draft the user has not finished is never replaced (R187: a draft is not
+// silently discarded): that draft is opened instead, and the toast says why.
+function sittingComboDraft(dateKey, mealId) {
+  const ev = findMealEvent(dateKey, mealId);
+  const items = ev ? (ev.items || []).filter(function (it) { return it && !isLegacyAuto(it); }) : [];
+  if (!items.length) return { ok: false, why: 'no-items' };
+  const d = comboNewDraft();
+  if (d) {
+    openSheet('combo');
+    toast('Your unsaved combo is open \u2014 save it or start over, then try again.');
+    return { ok: false, why: 'draft-open' };
+  }
+  COMBO_NEW = { name: '', q: '', phase: '', rows: [], seq: 0,
+                parts: items.map(function (it) {
+                  const p = comboPartFromItem(it);
+                  return { kept: true, stored: p, name: p.name, grams: num(p.grams) > 0 ? num(p.grams) : null };
+                }) };
+  COMBOS_EDITING = false;
+  openSheet('combo');
+  return { ok: true, parts: COMBO_NEW.parts.length };
+}
 function comboFromItems(dateKey, idxs, name) {
   const nm = String(name == null ? '' : name).trim();
   if (!nm) return { ok: false, error: 'Name the combo.' };
@@ -966,17 +1005,7 @@ function comboFromItems(dateKey, idxs, name) {
   for (let i = 0; i < list.length; i++) {
     const it = day.items[num(list[i])];
     if (!it) return { ok: false, error: 'That item is no longer there.' };
-    // The part takes the item's OWN numbers at the item's OWN portion. `meal` is
-    // deliberately NOT copied: B1 ruled the clock decides at creation unless the
-    // user chose, and a meal frozen into a combo would re-assert a morning choice
-    // every evening.
-    const p = { name: it.name, confidence: it.confidence, source: it.source };
-    if (num(it.grams) > 0) p.grams = num(it.grams);
-    MACRO_KEYS.forEach(function (k) { if (it[k] != null) p[k] = num(it[k]); });
-    if (it.micros) p.micros = JSON.parse(JSON.stringify(it.micros));
-    if (it.ref) p.ref = JSON.parse(JSON.stringify(it.ref));
-    if (it.published) p.published = JSON.parse(JSON.stringify(it.published));
-    parts.push(p);
+    parts.push(comboPartFromItem(it));
   }
   const combo = normalizeCombo({ name: nm, parts: parts });
   if (!combo) return { ok: false, error: 'Nothing savable in that selection.' };
@@ -1061,13 +1090,27 @@ function setComboPartGrams(id, idx, grams) {
 // change those gates cannot see. Raised for R155's hygiene list: three copies of
 // one rule is two too many, and the way to collapse them is one at a time with
 // the equivalence asserted, not in the commit that adds the third.
-function refAtGrams(ref, grams) {
+// R155/R242: AND NOW THE ONLY ONE. Five copies had grown -- the plate save, the
+// repeat (for the match and for a suggestion), the precedence rule and the
+// suggestion lookup -- reasoning identically and differing in exactly one thing:
+// what to do when a ref recorded NO basis (written before H2). That difference is
+// now an OPTION each caller states, not a sixth reimplementation:
+//   opts.noBasis === 'keep' -> carry the values UNSCALED (the plate save and the
+//                               precedence rule: an old match's numbers are what
+//                               they were, never guessed at a new weight)
+//   otherwise               -> null: DROP the match (the repeat; the combo stepper)
+//   opts.basis              -> the grams to read the values as being for when the ref
+//                               itself recorded none (a suggestion read off an item)
+function refAtGrams(ref, grams, opts) {
   if (!ref) return null;
-  const basis = Number(ref.g);
+  const o = opts || {};
+  const keep = o.noBasis === 'keep';
+  let basis = Number(ref.g);
+  if (!(Number.isFinite(basis) && basis > 0)) basis = Number(o.basis);
   const g = num(grams);
-  if (!(g > 0)) return null;
-  if (!(Number.isFinite(basis) && basis > 0)) return null;   // no basis: drop, never guess
-  if (g === basis) return ref;
+  if (!(g > 0)) return keep ? ref : null;
+  if (!(Number.isFinite(basis) && basis > 0)) return keep ? ref : null;   // no basis: never guess
+  if (g === basis && Number(ref.g) === g) return ref;
   const k = g / basis;
   const sv = {};
   Object.keys(ref.v || {}).forEach(function (slot) { sv[slot] = ref.v[slot] * k; });
@@ -3134,14 +3177,12 @@ function precUserKeys(it) {
   return keys;
 }
 function precRowValues(ref, grams) {
-  const v = ref && ref.v;
-  if (!v || v['208'] == null || !isFinite(Number(v['208']))) return null;
-  const basis = Number(ref.g), g = Number(grams);
-  const k = (basis > 0 && g > 0) ? g / basis : 1;
+  if (!ref || !ref.v || ref.v['208'] == null || !isFinite(Number(ref.v['208']))) return null;
+  const v = refAtGrams(ref, grams, { noBasis: 'keep' }).v;      // the one rescale (R242)
   const out = {};
   Object.keys(PREC_SLOTS).forEach(function (m) {
     const x = v[PREC_SLOTS[m]];
-    out[m] = (x != null && isFinite(Number(x))) ? Number(x) * k : 0;
+    out[m] = (x != null && isFinite(Number(x))) ? Number(x) : 0;
   });
   out.soluble_fiber_g = 0;
   return out;
@@ -3273,12 +3314,10 @@ function suggestionFor(it) {
   if (hit) src = rememberedRefItem(hit.chosenKey);
   if (!src) src = rememberedRefItem(matchKey(String((it && it.name) || '')));
   if (!src) return null;
-  const basis = Number(src.ref.g) > 0 ? Number(src.ref.g) : Number(src.grams);
-  if (!(basis > 0)) return null;
-  const k = g / basis, v = {};
-  Object.keys(src.ref.v || {}).forEach(function (sl) { v[sl] = Number(src.ref.v[sl]) * k; });
+  const at = refAtGrams(src.ref, g, { basis: src.grams });       // the one rescale (R242)
+  if (!at) return null;
   return { ns: src.ref.ns, id: src.ref.id, name: src.ref.name, at: todayKey(), hash: src.ref.hash,
-           attribution: src.ref.attribution, how: 'proposed', when: 'later', g: g, d: null, v: v };
+           attribution: src.ref.attribution, how: 'proposed', when: 'later', g: g, d: null, v: Object.assign({}, at.v) };
 }
 function resolveItem(dayKey, idx, corpusId, corpusName, distance, how) {
   const day = APP_STATE.days[dayKey];
@@ -5858,7 +5897,9 @@ function renderDayInner() {
     html += `<div class="mgrp" data-kind="${esc(g.kind)}" data-key="${esc(g.key)}">`
       + `<button type="button" class="mghead" aria-expanded="${gopen ? 'true' : 'false'}"`
       + ` onclick="dayGroupToggle('${esc(g.key)}')">`
-      + `<span class="mgname">${esc(g.kind === 'supplement' ? 'supplements' : g.kind)}</span>`
+      // R242/3: the stack's own group is named for what it is -- "Daily stack" --
+      // since it holds stack Foods and Medications too, not only supplements.
+      + `<span class="mgname${g.kind === 'supplement' ? ' mgstack' : ''}">${esc(g.kind === 'supplement' ? 'Daily stack' : g.kind)}</span>`
       + `<span class="mgnum">${esc(kcalDisp(g.kcal))} cal${gnote}</span>`
       + `<span class="mgmeta">${esc(String(g.n))} item${g.n === 1 ? '' : 's'}`
       + `${g.timeLabel ? ' \u00b7 ' + esc(g.timeLabel) : ''}`
@@ -6273,15 +6314,12 @@ function buildRepeatItem(src, time, from, grams) {
   //
   // A SAME-PORTION repeat is untouched: the ref it carries is the ref it had.
   if (!sameGrams && c.ref) {
-    const basis = Number(c.ref.g);
-    const gNew = Number(c.grams);
-    if (Number.isFinite(basis) && basis > 0 && Number.isFinite(gNew) && gNew > 0) {
-      const k = gNew / basis;
-      const sv = {};
-      Object.keys(c.ref.v || {}).forEach(function (slot) { sv[slot] = c.ref.v[slot] * k; });
-      // `g` becomes the NEW grams, which is what makes scaling twice impossible
-      // -- the next reader re-expresses from what the values are actually for.
-      c.ref = Object.assign({}, c.ref, { v: sv, g: gNew });
+    // the one rescale (R242); `g` becomes the NEW grams, which is what makes
+    // scaling twice impossible -- the next reader re-expresses from what the
+    // values are actually for.
+    const nr = refAtGrams(c.ref, c.grams);
+    if (nr) {
+      c.ref = nr;
     } else {
       // A ref written before the basis existed cannot be re-expressed, and
       // guessing one would be inventing the thing D141 refused to invent. It
@@ -6302,9 +6340,8 @@ function buildRepeatItem(src, time, from, grams) {
   // user's past offers one -- never silently 0 (the day counts what is left).
   delete c.recomputed;
   if (c.suggested && !sameGrams) {
-    const b = Number(c.suggested.g), gN = Number(c.grams);
-    if (b > 0 && gN > 0) { const k = gN / b, sv = {}; Object.keys(c.suggested.v || {}).forEach(function (sl) { sv[sl] = c.suggested.v[sl] * k; }); c.suggested = Object.assign({}, c.suggested, { v: sv, g: gN }); }
-    else delete c.suggested;
+    const ns = refAtGrams(c.suggested, c.grams);                   // the one rescale (R242)
+    if (ns) c.suggested = ns; else delete c.suggested;
   }
   if (!c.ref && !c.suggested && c.unresolved === true) { const sg = suggestionFor(c); if (sg) c.suggested = sg; }
   applyPrecedence(c);
@@ -11222,11 +11259,12 @@ function sittingResponseHTML(dateKey, ev, withTime) {
     + ' \u00b7 carbs ' + esc(rDisp(sum('carb_g'))) + ' g \u00b7 fat ' + esc(rDisp(sum('fat_g'))) + ' g \u00b7 protein '
     + esc(rDisp(sum('protein_g'))) + ' g \u00b7 fibre ' + esc(rDisp(sum('fiber_g'))) + ' g</div>';
   const body = mealResponseHTML(dateKey, ev.mealId) + mealReviewHTML(dateKey, ev.mealId);
-  return '<div class="sitresp" id="sit-' + esc(dateKey) + '-' + esc(ev.mealId) + '">' + head + body + mealTestHTML(dateKey, ev.mealId) + '</div>';
+  const save = '<button type="button" class="linklike sitcombo" onclick="sittingComboDraft(\'' + esc(dateKey) + '\',\'' + esc(ev.mealId) + '\')">Save this meal as a combo</button>';
+  return '<div class="sitresp" id="sit-' + esc(dateKey) + '-' + esc(ev.mealId) + '">' + head + body + mealTestHTML(dateKey, ev.mealId) + save + '</div>';
 }
 function sittingName(ev) {
   const k = String((ev && ev.kind) || 'meal');
-  return k === 'supplement' ? 'Supplements' : (k.charAt(0).toUpperCase() + k.slice(1));
+  return k === 'supplement' ? 'Daily stack' : (k.charAt(0).toUpperCase() + k.slice(1));   // R242/3
 }
 function sittingLinkHTML(dateKey, ev) {
   return ev ? ('<button type="button" class="linklike sitlink" onclick="sittingShow(\'' + esc(dateKey) + '\',\'' + esc(ev.leadKey) + '\',\'' + esc(ev.mealId) + '\')">Part of '
@@ -14854,6 +14892,7 @@ const VERSION_LOG = [
   { v: '0.103.0', d: '2026-10-18', note: 'Two new entries in + Log. No alcohol today marks a day with none; logging a drink with alcohol later asks whether to remove the mark. Alcohol-free rewards in Settings (off unless you turn it on) adds gold circles and counts to the 7-day and month rings. Stopped eating ends your eating window, and the day ring shows the time until your next food in its own colour.' },
   { v: '0.104.0', d: '2026-10-18', note: 'A food you matched to a database row now counts that row’s numbers, and items matched before were recounted automatically; each one keeps what it was. Typing a name on a photo item now looks it up as you type, drinks first. Items the day is not counting say so, and the day shows how many beside its calories. Corrections you made on photos are now remembered for the next one.' },
   { v: '0.104.1', d: '2026-10-18', note: 'When you type a name on a photo and the closest foods only match part of it, they are labelled partial match and you can still pick one; below them is the button to ask your AI for other names, which sends nothing until you tap it.' },
+  { v: '0.105.0', d: '2026-10-19', note: 'The update notice is now one line; tap what’s new to read it. A meal you logged can be saved as a combo from its own block, ready to name. The stack’s group on the day is now called Daily stack. A few small texts are larger.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -14889,17 +14928,37 @@ function checkVersionNotice() {
   if (!stored && isFirstRun()) return;                  // fresh install -> no spurious "updated" notice
   renderVersionNotice(notice);
 }
+// R242/5: ONE LINE, TAP TO READ. The notice sits above the day and was as tall as
+// its text: the 0.73.0 note made it 520 px, and v0.103.0's (before it was cut)
+// 613 px -- the ring went below the fold, and ring-size-gate had to dismiss it to
+// measure anything. Collapsed it is the head, a "what's new" link and the x; the
+// notes open on a tap, and close again on the next render of a new notice.
+let VN_OPEN = false, VN_LAST = null;
 function renderVersionNotice(notice) {
   const el = document.getElementById('versionNotice');
   if (!el) return;
-  const head = notice.from ? 'Updated from v' + esc(notice.from) + ' to v' + esc(notice.to) : 'Now on v' + esc(notice.to);
-  const lines = (notice.notes || []).map((e) => `<div class="vnrow"><b>v${esc(e.v)}</b> — ${esc(e.note)}</div>`).join('');
-  el.innerHTML = `<div class="vnhead"><span>${head}</span><button class="vnx" onclick="dismissVersionNotice()" title="dismiss">×</button></div>${lines}`;
+  VN_LAST = notice;
+  // One line has room for the version it went TO, which is the one that matters;
+  // where it came from is the tooltip (seen clipped at 390 px: "...v0.98.0 to ...").
+  const head = notice.from ? 'Updated to v' + esc(notice.to) : 'Now on v' + esc(notice.to);
+  const from = notice.from ? ' title="from v' + esc(notice.from) + '"' : '';
+  const notes = notice.notes || [];
+  const toggle = notes.length
+    ? `<button type="button" class="linklike vntoggle" aria-expanded="${VN_OPEN ? 'true' : 'false'}" onclick="toggleVersionNotice()">${VN_OPEN ? 'hide' : 'what\u2019s new'}</button>`
+    : '';
+  const lines = VN_OPEN ? notes.map((e) => `<div class="vnrow"><b>v${esc(e.v)}</b> — ${esc(e.note)}</div>`).join('') : '';
+  el.innerHTML = `<div class="vnhead"><span class="vnwhat"${from}>${head}</span>${toggle}<button class="vnx" onclick="dismissVersionNotice()" title="dismiss">×</button></div>${lines}`;
   el.style.display = 'block';
+}
+function toggleVersionNotice(on) {
+  VN_OPEN = (on === undefined) ? !VN_OPEN : !!on;
+  if (VN_LAST) renderVersionNotice(VN_LAST);
+  return { ok: true, open: VN_OPEN };
 }
 function dismissVersionNotice() {
   const el = document.getElementById('versionNotice');
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+  VN_OPEN = false; VN_LAST = null;
 }
 
 // ---- Lab panels (D34) ------------------------------------------------------
@@ -18500,17 +18559,7 @@ function consumeFromPlate(plateId, statements, opts) {
     // the grams actually eaten -- g_event / ref.g. Linear, so exact. A ref with
     // no basis recorded (written before H2) is carried UNSCALED rather than
     // guessed at, and `g` stays whatever it was so the next reader can tell.
-    if (pi.ref) {
-      const basis = Number(pi.ref.g);
-      if (Number.isFinite(basis) && basis > 0 && g !== basis) {
-        const k = g / basis;
-        const sv = {};
-        Object.keys(pi.ref.v || {}).forEach(function (slot) { sv[slot] = pi.ref.v[slot] * k; });
-        rec.ref = Object.assign({}, pi.ref, { v: sv, g: g });
-      } else {
-        rec.ref = pi.ref;
-      }
-    }
+    if (pi.ref) rec.ref = refAtGrams(pi.ref, g, { noBasis: 'keep' });   // the one rescale (R242)
     if (pi.unresolved === true || !pi.per100) { rec.unresolved = true; }
     else {
       const sc = g / 100;
@@ -23395,7 +23444,7 @@ window.HT = {
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
   reviewEntry, applyPrecedence, precedenceOf, suggestionFor, recomputeItemByPrecedence, migrateV16toV17, confirmSuggested, dayUncounted, uncountedLineHTML, uncountedToggle, itemCountStateHTML, photoSearchType, photoItemIsDrink, PREMIGRATION_V16_KEY,
-  rowAnswersAll,
+  rowAnswersAll, comboPartFromItem, sittingComboDraft, sittingName, precRowValues,
   noDrinksMark, noDrinksTap, noDrinksRemove, noDrinksKeep, noDrinksConflict, noDrinksAskHTML, dayAlcoholCount, dayUnknownDrink, drinkHasAlcohol, drinkAlcoholAnswer, drinkKey, afRewardsOn, setAlcoholFreeRewards, afDay, afCounts, afRun, afCountsHTML, eatStopOpen, eatStopSave, eatStopCancel, eatStopsAbs, eatStopSpans,
   CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, findMealEvent, sittingOfGroup, sittingsLedBy, sittingOfItem, sittingResponseHTML, sittingLinkHTML, sittingShow, glucoseExtent, lastImportWords, SITTING_JOIN_MIN, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
@@ -23515,7 +23564,7 @@ window.HT = {
   restoreFilePicked, BACKUP_KEY, backupFileName, backupLast, backupMark, backupLastLine, renderBackupLast, exportBackup, backupDownload,
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
-  VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice,
+  VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice, toggleVersionNotice,
   dismissVersionNotice,
   versionLine, renderVersionLine,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)

@@ -63,9 +63,20 @@ if [ -z "$TEXT" ] || [ -z "$BIN" ]; then
 fi
 # sw.js is excluded from the shell HASH (its own bytes change when it changes)
 # but it is still part of what gets deployed, so it is compared like the rest.
-ALL="$TEXT $BIN sw.js"
+# R155/R242: THE FOOD DATABASE TOO. It is not in the shell (it is fetched once and
+# kept -- corpus-cache-gate), so check-sw-hash's list does not hold it -- and H24's
+# corpus change had to be verified BY HAND, by hash, which is what this script
+# exists to abolish. The list comes from git (every tracked file under
+# corpus/dist), never typed: .json compared as text, .bin raw.
+CTEXT=$(git ls-files 'corpus/dist/*.json' | tr '\n' ' ')
+CBIN=$(git ls-files 'corpus/dist/*.bin' | tr '\n' ' ')
+if [ -z "$CTEXT" ] || [ -z "$CBIN" ]; then
+  echo "verify-deploy: git lists no corpus files under corpus/dist -- the food database cannot be checked"
+  echo "GATE: FAIL"; exit 1
+fi
+ALL="$TEXT $BIN sw.js $CTEXT $CBIN"
 N_FILES=$(printf '%s\n' $ALL | grep -c .)
-echo "verify-deploy: $N_FILES files  ($(printf '%s' "$TEXT" | wc -w) text, $(printf '%s' "$BIN" | wc -w) binary, + sw.js)"
+echo "verify-deploy: $N_FILES files  ($(printf '%s' "$TEXT" | wc -w) text, $(printf '%s' "$BIN" | wc -w) binary, + sw.js, + $(printf '%s %s' "$CTEXT" "$CBIN" | wc -w) food database)"
 
 for f in $ALL; do
   [ -f "$f" ] || { echo "verify-deploy: local $f is missing"; echo "GATE: FAIL"; exit 1; }
@@ -112,10 +123,10 @@ for i in $(seq 1 "$ATTEMPTS"); do
     MISMATCH="unreachable"
     continue
   fi
-  for f in $TEXT sw.js; do
+  for f in $TEXT sw.js $CTEXT; do
     [ "$(hash_text "$f")" = "$(hash_text "$TMP/served/$f")" ] || MISMATCH="$MISMATCH $f"
   done
-  for f in $BIN; do
+  for f in $BIN $CBIN; do
     [ "$(hash_raw "$f")" = "$(hash_raw "$TMP/served/$f")" ] || MISMATCH="$MISMATCH $f"
   done
   SERVED_V=$(grep -oE "APP_VERSION[[:space:]]*=[[:space:]]*'[^']*'" "$TMP/served/app.js" | head -1 | sed -E "s/.*'([^']*)'.*/\1/")

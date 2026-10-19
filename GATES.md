@@ -6315,3 +6315,12 @@ runner's caller killed mid-gate (the reaper's shape), 0 left; C -- a gate left
 running outside any run is removed by the next run's start sweep, which names it.
 The first launcher stopped every gate at its first poll: it watched the runner's
 WINDOWS parent, which for an MSYS process is a spawn helper that exits at once.
+
+### v0.105.0 -- R242/A
+
+`font-floor-gate` reaches the night panel and the photo-search sheet (asserted)
+and was run red on them first. `ring-size-gate` measures the what's-new notice
+SHOWN instead of dismissing it. `check-ps-case.sh` holds PowerShell variable names
+to one case. The rename that got it to zero was first done with a line-based
+guess at quoting and broke `overlay-gate` -- a gate catching the tool that edited
+it -- then redone with a lexer. `verify-deploy` covers `corpus/dist`.

@@ -181,9 +181,9 @@ try {
   # asset. Treating a page throw as an environment error let a planted defect
   # (two transactions instead of one) return NO VERDICT, which is the one
   # outcome a defect pass cannot read.
-  $a = EvalAsync $script
-  if ($a -like 'EXCEPTION*') { $fails += "the page threw: $a" }
-  $A = if ($a -like 'EXCEPTION*') { [pscustomobject]@{} } else { $a | ConvertFrom-Json }
+  $av = EvalAsync $script
+  if ($av -like 'EXCEPTION*') { $fails += "the page threw: $av" }
+  $A = if ($av -like 'EXCEPTION*') { [pscustomobject]@{} } else { $av | ConvertFrom-Json }
 
   if (-not $A.refused) { $fails += "a payload whose length is not rows x cols x 4 was ACCEPTED" }
   if (-not $A.nothingWritten) { $fails += "a refused install still wrote something -- there must be no half-corpus" }
@@ -238,9 +238,9 @@ try {
                           firstRowLen: row ? row.length : -1 });
 })()
 '@
-    $b = EvalAsync $script2
-    if ($b -like 'EXCEPTION*') { $fails += "the page threw on acquisition ($want): $b"; continue }
-    $B = $b | ConvertFrom-Json
+    $bv = EvalAsync $script2
+    if ($bv -like 'EXCEPTION*') { $fails += "the page threw on acquisition ($want): $bv"; continue }
+    $B = $bv | ConvertFrom-Json
     $seen[$want] = $B
 
     # THE LOAD-BEARING ASSERTION: the override must have actually taken. Without

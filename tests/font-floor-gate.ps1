@@ -185,6 +185,37 @@ try {
   HT.refresh();
   await sleep(250);
 
+  // R155/R242: TWO SCREENS THIS GATE NEVER SWEPT -- the night panel (H26) and the
+  // photo-search sheet (H27/H30) -- and the floor regressed on both unseen. Each is
+  // now driven into the DOM with real content, and reaching it is asserted below.
+  const pad = (n) => String(n).padStart(2, '0');
+  const iso = (ms) => { const d = new Date(ms), o = -d.getTimezoneOffset();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00'
+      + (o < 0 ? '-' : '+') + pad(Math.floor(Math.abs(o) / 60)) + ':' + pad(Math.abs(o) % 60); };
+  const eve = HT.shiftDate(today, -1), nightRows = [];
+  for (let m = 22 * 60; m <= 31 * 60; m += 5) nightRows.push({ t: iso(HT.dayKeyMs(eve) + m * 60000), v: 5 + Math.sin(m / 50) * 0.8, unit: 'mmol/L' });
+  await Promise.resolve(HT.glucoseIngest(nightRows, { source: 'Gate CGM' }));
+  try { HT.renderNights(); } catch (e) {}
+  await HT.corpusEnsure(); HT.matchIndexBuild();
+  HT.openPhotoDraft(JSON.stringify({ meal: 'dinner', items: [{ name: 'white wine', grams: 150, notes: 'from the photo',
+    alts: [{ name: 'white wine', p: 0.6 }, { name: 'apple juice', p: 0.4 }],
+    per100: { kcal: 46, protein_g: 0.1, fat_g: 0.1, carb_g: 11, fiber_g: 0.2, soluble_fiber_g: 0 } }] }));
+  await sleep(300);
+  HT.photoSearchOpen(0);
+  await HT.photoSearchRun(0, 'wine');
+  await sleep(250);
+  out.reachedEarly = { nights: document.querySelectorAll('.nightrow').length, pmsrows: document.querySelectorAll('.pmsrow').length,
+                       pmscap: document.querySelectorAll('.pmscap').length, pmsmac: document.querySelectorAll('.pmsmac').length,
+                       pmsub: document.querySelectorAll('.pmsub').length };
+  const swept = { nightUnder: [], photoUnder: [] };
+  const under = (sel) => Array.prototype.slice.call(document.querySelectorAll(sel + ' *, ' + sel)).filter((el) =>
+    parseFloat(getComputedStyle(el).fontSize) < FLOOR - 0.01 && Array.prototype.some.call(el.childNodes, (n) => n.nodeType === 3 && /\S/.test(n.nodeValue)))
+    .map((el) => el.tagName.toLowerCase() + '.' + String(el.className || '').split(' ')[0] + ' @' + parseFloat(getComputedStyle(el).fontSize) + 'px');
+  swept.nightUnder = under('#nights');
+  swept.photoUnder = under('.pmsearch');
+  out.swept = swept;
+  HT.photoDiscard && HT.photoDiscard();
+
   // every entry surface, and the settings panel with its cards expanded
   const modes = HT.SHEET_MODES.slice();
   HT.openSheet('scan');
@@ -256,6 +287,12 @@ try {
   if ($F.reached.meds -lt 1) { $fails += "no medication rows rendered -- the meds surface was not swept" }
   if ($F.reached.smalls -lt 5) { $fails += "no <small> elements rendered -- the one tag that taught us this cannot be checked by a grep was not swept" }
   if ($F.reached.controls -lt 40) { $fails += "only $($F.reached.controls) form controls rendered -- the controls were not swept" }
+  # R155/R242: the two screens that were never swept -- reached, then held to the floor
+  if ($F.reachedEarly.nights -lt 1) { $fails += "no night rows rendered -- the night panel was not swept" }
+  if (($F.reachedEarly.pmsrows -lt 1) -or ($F.reachedEarly.pmscap -lt 1) -or ($F.reachedEarly.pmsmac -lt 1)) { $fails += "the photo-search sheet did not render its rows, caption and figures ($($F.reachedEarly | ConvertTo-Json -Compress)) -- it was not swept" }
+  if (@($F.swept.nightUnder).Count -gt 0) { $fails += ("the NIGHT PANEL has text under 16px: " + (@($F.swept.nightUnder) -join ', ')) }
+  if (@($F.swept.photoUnder).Count -gt 0) { $fails += ("the PHOTO-SEARCH SHEET has text under 16px: " + (@($F.swept.photoUnder) -join ', ')) }
+  Write-Host ("  night panel and photo-search sheet reached: " + ($F.reachedEarly | ConvertTo-Json -Compress))
 
   if ($F.textUnder -gt 0) {
     $fails += "$($F.textUnder) element(s) render text below the 16px floor (D100)"
