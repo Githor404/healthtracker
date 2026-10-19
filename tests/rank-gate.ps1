@@ -141,6 +141,10 @@ try {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 3000
+  # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
+  # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
+  # more for HT and a loaded page; the gate's own boot check still decides.
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 
   $boot = Eval "typeof HT === 'object' && typeof HT.typeaheadMineFirst === 'function'"
   if (-not $boot) { Write-Host "ERROR: the app did not boot, or typeaheadMineFirst is not on HT"; Cleanup; exit 2 }
@@ -217,6 +221,10 @@ try {
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua; acceptLanguage = 'en-CA' } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 3000
+  # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
+  # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
+  # more for HT and a loaded page; the gate's own boot check still decides.
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
   $ca = EvalA ($ask + @'
 ({ 'coffee': ['Coffee, instant with chicory, powder', 'Coffee, brewed, prepared with tap water', 'Coffee, instant, regular, powder'],
    'milk': ['Milk, dry whole', 'Milk, fluid, skim', 'Milk, condensed, sweetened, canned'],

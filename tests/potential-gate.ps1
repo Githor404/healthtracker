@@ -159,6 +159,10 @@ try {
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 3000
+  # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
+  # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
+  # more for HT and a loaded page; the gate's own boot check still decides.
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 
   $sane = Eval "typeof HT"
   if ($sane -ne 'object') { Write-Host "ERROR: the page did not load (typeof HT = $sane)"; Cleanup; exit 2 }

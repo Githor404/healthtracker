@@ -6293,3 +6293,16 @@ finds two partial rows under Manual's lookup. Making the offer always visible
 fixed parity and broke `identity-search-gate`'s fork-D assertion -- the two
 gates encode one ruling from both sides, which is what they are for. Reverted;
 the query was changed instead, and the device case is open in DECISIONS.
+
+### v0.104.1 -- R238 in parity-gate
+
+A stage runs the device's own "sui mai" (two partial rows: labelled, pickable,
+the offer beneath them) and "coffee" (eight full rows, no offer), and counts
+provider requests across both: zero.
+
+**R239: a boot reported as a failure about the machine.** The first rerun of
+v0.104.1 failed `sensor-gate` with no verdict -- "the app did not boot" -- and it
+then passed alone three times out of three. 33 gates (35 navigations) waited a
+fixed 3 s after loading the page and checked ONCE. The 3 s stays (some gates may
+settle on it); after it, each now waits up to 30 s more for `HT` and a loaded page,
+and its own boot check still decides. A fast boot costs nothing extra.

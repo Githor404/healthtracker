@@ -17504,3 +17504,23 @@ the item's now).
   then hides the offer. Kept as ruled; `parity-gate` uses a query that finds
   nothing. Should a search whose rows answer none of the typed words in full
   count as empty for that offer? Not decided here.
+
+
+## R238 — RULED AND BUILT: WHEN "ASK MY AI FOR OTHER NAMES" IS OFFERED (2026-10-18, v0.104.1)
+
+Settles v0.104.0's open "sui mai" question.
+
+1. A photo search counts as **"found nothing"** for the AI-names offer when **no
+   row matches EVERY typed word as a whole word**, after the search's own plural
+   fold and measured spelling aliases (`rowAnswersAll`, on `matchTokensFold`).
+2. **Partial rows stay visible, above the offer, labelled "partial match"**, and
+   remain pickable. With no rows at all the offer stays directly under the input
+   (H30). "Keep with no nutrition (not counted)" is offered in both cases.
+3. **The cost ruling (fork D) holds, restated:** the offer never calls on its
+   own — a provider call happens **only on the user's tap**, so the common path
+   (a search answered in full) costs nothing and shows no offer.
+
+Evidence (`parity-gate`, real CNF corpus): "sui mai" -> 2 rows, both labelled
+partial ("Mushroom, Maitake, raw"; "Salad dressing, buttermilk as main
+ingredient"), the offer shown beneath them; "coffee" -> 8 full rows, no offer;
+no request sent by either search.

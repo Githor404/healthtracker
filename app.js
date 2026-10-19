@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.104.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.104.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3627,6 +3627,16 @@ const SEARCH_ALIAS = {
 function searchWord(w) {
   const f = matchFold(w);
   return Object.prototype.hasOwnProperty.call(SEARCH_ALIAS, f) ? SEARCH_ALIAS[f] : f;
+}
+// R238: DOES A ROW ANSWER EVERY TYPED WORD, as a whole word? Both sides cut by
+// the search's own tokenizer -- plural fold and the measured spelling aliases --
+// so "sardines" answers "Fish, sardine" and "yogourt" answers "yogurt", while a
+// half-typed or merely similar word ("mai" -> "maize") does not.
+function rowAnswersAll(query, rowName) {
+  const q = matchTokensFold(query);
+  if (!q.length) return false;
+  const r = matchTokensFold(rowName);
+  return q.every(function (w) { return r.indexOf(w) >= 0; });
 }
 function matchTokensFold(s) {
   const t = matchTokens(s), out = [];
@@ -14843,6 +14853,7 @@ const VERSION_LOG = [
   { v: '0.102.0', d: '2026-10-18', note: 'A meal’s glucose response now belongs to the whole meal, not to one food in it. Everything you ate in one sitting — the foods in one meal, and anything logged within half an hour of them — is reviewed together, with its carbs, fat, protein and fibre added up as eaten, and the response is shown once, on the meal. Each food in it says which meal it was part of, with a link to the response. Food eaten in the same sitting no longer counts as eating on top of the meal; only food outside it within two hours does. Where there is no glucose yet, it says so plainly and when glucose was last imported; where it stops part-way, it says where and to import again. The technical detail is under why?' },
   { v: '0.103.0', d: '2026-10-18', note: 'Two new entries in + Log. No alcohol today marks a day with none; logging a drink with alcohol later asks whether to remove the mark. Alcohol-free rewards in Settings (off unless you turn it on) adds gold circles and counts to the 7-day and month rings. Stopped eating ends your eating window, and the day ring shows the time until your next food in its own colour.' },
   { v: '0.104.0', d: '2026-10-18', note: 'A food you matched to a database row now counts that row’s numbers, and items matched before were recounted automatically; each one keeps what it was. Typing a name on a photo item now looks it up as you type, drinks first. Items the day is not counting say so, and the day shows how many beside its calories. Corrections you made on photos are now remembered for the next one.' },
+  { v: '0.104.1', d: '2026-10-18', note: 'When you type a name on a photo and the closest foods only match part of it, they are labelled partial match and you can still pick one; below them is the button to ask your AI for other names, which sends nothing until you tap it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17248,6 +17259,10 @@ function photoSearchRun(idx, text, opts) {
           prop.carb = corpusValueAt(prow, m.slots, 205);
         }
         PHOTO_SEARCH.rows = out.slice(0, IDENTITY_SEARCH_MAX);
+        // R238: each row says whether it answers EVERY typed word; with none that
+        // does, the search counts as having found nothing for the AI-names offer.
+        PHOTO_SEARCH.rows.forEach(function (c) { c.full = rowAnswersAll(q, c.name); });
+        PHOTO_SEARCH.anyFull = PHOTO_SEARCH.rows.some(function (c) { return c.full; });
         PHOTO_SEARCH.proposed = prop;
         PHOTO_SEARCH.phase = PHOTO_SEARCH.rows.length ? 'rows' : 'none';
         renderPhotoDraft();
@@ -17535,10 +17550,12 @@ function photoSearchRowsHTML(st) {
     const kc = mac ? '<span class="pmsmac">' + esc(mac) + '</span>' : '';
     const isProp = (prop !== null && String(c.id) === prop);
     const why = isProp ? '<span class="rwhy">' + proposedWhy(st.proposed) + '</span>' : '';
-    return '<button type="button" class="btn pmsrow' + (isProp ? ' pmsmem' : '') +
+    // R238: a row that does not answer every typed word stays pickable, and SAYS so
+    const part = (c.full === false && !isProp) ? '<span class="pmspartial">partial match</span>' : '';
+    return '<button type="button" class="btn pmsrow' + (isProp ? ' pmsmem' : '') + (part ? ' pmsisPartial' : '') +
       '" onclick="photoSearchPick(' + st.idx + ', \'' + esc(String(c.id)) + '\', \'' +
       esc(String(c.name).replace(/\'/g, ' ')) + '\')">'
-      + '<span class="pmsnm">' + esc(c.name) + '</span>' + kc + why + '</button>';
+      + '<span class="pmsnm">' + esc(c.name) + '</span>' + part + kc + why + '</button>';
   }).join('');
 }
 function photoSearchHTML(idx, it) {
@@ -17586,7 +17603,10 @@ function photoSearchHTML(idx, it) {
   // The keep offer is rendered wherever the search cannot answer -- no rows, and
   // no corpus on the device either. Both are "the database does not have this",
   // and neither is a reason to lose what the user said.
-  const empty = (st.phase === 'none' || st.phase === 'no-corpus');
+  // R238 (ruled): "found nothing" means no row answers EVERY typed word as a whole
+  // word. Partial rows stay above, labelled; the offer below is never automatic --
+  // a provider call happens only on the user's tap, so fork D's cost rule holds.
+  const empty = (st.phase === 'none' || st.phase === 'no-corpus' || (st.phase === 'rows' && st.anyFull === false));
   const keep = (empty && typed)
     ? '<button type="button" class="btn pmskeep" onclick="photoSearchKeep(' + idx + ')">Use “' + esc(typed) + '” with no nutrition (not counted)</button>'
     : '';
@@ -17598,9 +17618,9 @@ function photoSearchHTML(idx, it) {
   // Still NOT automatic: rule D made it local-first precisely so the common path
   // costs no provider call, and auto-normalising would spend one on every empty
   // search.
-  // Fork D holds: offered only when the LOCAL search answered nothing. R233.1 made
-  // the lookup Manual's, which matches a half-typed word, so the device's "sui mai"
-  // now brings two weak partial rows and no offer -- named in DECISIONS, open.
+  // Fork D, as R238 ruled it: offered when the local search answered nothing in
+  // FULL -- partial rows do not count -- and sent only on a tap.
+  const partialOnly = (st.phase === 'rows' && st.anyFull === false);
   const ask = (empty && typed)
     ? (byokConfigured()
         ? '<button type="button" class="btn pmsask" onclick="photoSearchAskModel(' + idx + ')">'
@@ -17635,7 +17655,9 @@ function photoSearchHTML(idx, it) {
   // searched, then the item's own estimate, then the rows, then the way out. The
   // offer used to sit last and the device finding is what that cost.
   return '<div class="pmsearch"><div class="pmsq">What was it?</div>'
-    + field + ask + searched + ours + failed + presets + body + keep
+    // R238/2: with only PARTIAL rows, they come first and the offer sits beneath
+    // them; with nothing at all it stays directly under the input (H30).
+    + field + (partialOnly ? '' : ask) + searched + ours + failed + presets + body + (partialOnly ? ask : '') + keep
     + '<button type="button" class="linklike pmscancel" onclick="photoSearchCancel()">leave it as it is</button>'
     + '</div>';
 }
@@ -23373,6 +23395,7 @@ window.HT = {
   CORPUS_ASSET_HASH, corpusIsCurrent,
   // R189 -- served vs eaten
   reviewEntry, applyPrecedence, precedenceOf, suggestionFor, recomputeItemByPrecedence, migrateV16toV17, confirmSuggested, dayUncounted, uncountedLineHTML, uncountedToggle, itemCountStateHTML, photoSearchType, photoItemIsDrink, PREMIGRATION_V16_KEY,
+  rowAnswersAll,
   noDrinksMark, noDrinksTap, noDrinksRemove, noDrinksKeep, noDrinksConflict, noDrinksAskHTML, dayAlcoholCount, dayUnknownDrink, drinkHasAlcohol, drinkAlcoholAnswer, drinkKey, afRewardsOn, setAlcoholFreeRewards, afDay, afCounts, afRun, afCountsHTML, eatStopOpen, eatStopSave, eatStopCancel, eatStopsAbs, eatStopSpans,
   CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, findMealEvent, sittingOfGroup, sittingsLedBy, sittingOfItem, sittingResponseHTML, sittingLinkHTML, sittingShow, glucoseExtent, lastImportWords, SITTING_JOIN_MIN, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,

@@ -160,6 +160,10 @@ try {
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 3000
+  # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
+  # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
+  # more for HT and a loaded page; the gate's own boot check still decides.
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 
   $sane = Eval "typeof HT"
   if ($sane -ne 'object') { Write-Host "ERROR: the page did not load (typeof HT = $sane)"; Cleanup; exit 2 }
@@ -242,6 +246,29 @@ window.__stage = 'start';
   const ask1 = document.querySelector('.pmsask');
   O.empty.askVisibleWithKey = vis(ask1);
   O.empty.askTextWithKey = txt(ask1).trim();
+
+  // ---- R238: "found nothing" = no row answers EVERY typed word ------------
+  // The device case: "sui mai" brings only partial rows under Manual's lookup.
+  // They stay, labelled and pickable, ABOVE the offer; "coffee" answers in full
+  // and gets no offer; and neither search sends anything without a tap.
+  stage('r238');
+  O.r238 = {};
+  const calls238 = O.asked.requests.length;
+  await HT.photoSearchRun(0, 'sui mai'); await sleep(400);
+  const pr238 = all('.pmsrow');
+  O.r238.suiRows = pr238.length;
+  O.r238.suiNames = pr238.map((r) => txt(r.querySelector('.pmsnm')));
+  O.r238.suiAllLabelled = pr238.length > 0 && pr238.every((r) => /partial match/.test(txt(r)));
+  O.r238.suiPickable = pr238.length > 0 && pr238.every((r) => r.tagName === 'BUTTON' && !r.disabled);
+  const a238 = document.querySelector('.pmsask');
+  O.r238.suiAsk = vis(a238);
+  O.r238.suiAskBelowRows = !!a238 && pr238.length > 0 && a238.getBoundingClientRect().top > pr238[pr238.length - 1].getBoundingClientRect().top;
+  await HT.photoSearchRun(0, 'coffee'); await sleep(400);
+  const cr238 = all('.pmsrow');
+  O.r238.coffeeRows = cr238.length;
+  O.r238.coffeeFull = cr238.filter((r) => !/partial match/.test(txt(r))).length;
+  O.r238.coffeeAsk = !!document.querySelector('.pmsask');
+  O.r238.noCall = O.asked.requests.length === calls238;
 
   // ---- D: five search terms, each run LOCALLY -------------------------
   stage('ask-model');
@@ -359,6 +386,15 @@ window.__stage = 'start';
   Chk ($E.askAboveKeep -eq $true) "the offer sits BELOW the keep button -- ruled: directly under the input"
   Chk ($E.askOnScreen -eq $true) "the offer is off screen"
   Chk ($E.askVisibleWithKey -eq $true) "with a key the offer is not visible"
+
+  # --- R238: partial rows do not count as an answer ----------------------
+  $X = $R.r238
+  Write-Host ("  R238: " + ($X | ConvertTo-Json -Compress -Depth 4))
+  Chk (($X.suiRows -gt 0) -and ($X.suiAllLabelled -eq $true) -and ($X.suiPickable -eq $true)) "R238: 'sui mai' shows its partial rows, each LABELLED 'partial match' and still pickable ($($X.suiRows) rows)"
+  Chk (($X.suiAsk -eq $true) -and ($X.suiAskBelowRows -eq $true)) "R238: with only partial rows the search counts as FOUND NOTHING -- the AI-names offer is shown, beneath the partial rows"
+  Chk (($X.coffeeFull -gt 0) -and ($X.coffeeAsk -eq $false)) "R238: 'coffee' is answered in full ($($X.coffeeFull) full rows) -- no offer"
+  Chk ($X.noCall -eq $true) "R238: neither search sent anything -- the offer calls only on a tap"
+
 
   # --- D: five terms, ONE call, each run locally -------------------------
   Chk ($A.ok -eq $true) "the normalisation call did not succeed against the stub"

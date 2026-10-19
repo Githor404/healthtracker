@@ -142,6 +142,10 @@ try {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 3000
+  # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
+  # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
+  # more for HT and a loaded page; the gate's own boot check still decides.
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 
   $boot = Eval "typeof HT === 'object' && typeof HT.renderSheetRoot === 'function'"
   if (-not $boot) { Write-Host "ERROR: the app did not boot, or the root sheet is not on HT"; Cleanup; exit 2 }
