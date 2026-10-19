@@ -17524,3 +17524,70 @@ Evidence (`parity-gate`, real CNF corpus): "sui mai" -> 2 rows, both labelled
 partial ("Mushroom, Maitake, raw"; "Salad dressing, buttermilk as main
 ingredient"), the offer shown beneath them; "coffee" -> 8 full rows, no offer;
 no request sent by either search.
+
+
+## R231 — PRE-REGISTERED; THE HELD-OUT CHECK FAILS; NOTHING SHIPS (2026-10-18)
+
+Pre-registered by the user (R231): stage 1 fits the user's own rise to eaten
+carbs, fat, protein, fibre, alcohol, time of day and prior-meal overlap across all
+judged meals, regularized, with uncertainty; per-meal component shares, overlap
+sharing, stage-2 food effects and trigger flags follow ONLY if a held-out check
+shows the model predicts unseen meals better than a carb-only baseline. Costs
+declared: defers HR/HRV; assumes logged foods, eaten shares and times are right.
+
+**Data** (v16 backup, after the R237 recompute, the app's own figures via
+`tests/r231-extract.ps1`): 89 eating events, 55 judged; 7 hold an uncounted item
+and are excluded (R233.1/7); **48 usable**, 0 provisional; **17 clean** (no food
+2 h either side), 31 overlapping (kept, with the food around them as inputs).
+Rise median 0.8 mmol/L (−1.2 to 4.5); carbs median 20 g (0–104); Spearman
+carbs~rise 0.45 (0.51 on the clean 17).
+
+**Parameters tried:** 8 inputs (carbs, fat, protein, fibre, alcohol, evening,
+carbs in the 2 h before, carbs in the 2 h after), ridge at three strengths
+(λ 1, 5, 20) on standardised inputs. At ~10 meals per parameter, 48 meals
+honestly support about 4; the 17 clean, 1–2.
+
+**Held-out (leave-one-out) mean absolute error, rise (mmol/L):** mean only 1.330
+· carbs only **1.201** · stage 1 best (λ 20) **1.187**. Difference 95 % CI
+[−0.10, +0.14] — indistinguishable. 2 h area: carbs only 41.7 vs stage 1 best
+43.0 (worse). Clean only: carbs 1.381 vs stage 1 1.383. Picking the best of
+three strengths on the same data favours the model, and it still does not
+separate. Carbs only beats the mean in 96 % of resamples.
+
+**Verdict, as pre-registered: no component shares, no overlap sharing, no
+stage 2, no trigger flags, no UI.**
+
+**Re-check rule (R239/3):** re-run `tests/r231-extract.ps1` +
+`tests/r231-heldout.py` each time the judged CLEAN meals grow by 15 over the last
+recorded check (17 now -> next at 32), and append the result below. The user is
+told only when the model first BEATS the baseline: lower rise error than
+carbs-only AND a 95 % interval of the difference excluding zero.
+
+| date | backup | usable | clean | carbs-only MAE | stage-1 MAE | 95 % CI of diff | verdict |
+|---|---|---|---|---|---|---|---|
+| 2026-10-18 | 2026-10-18 v16 | 48 | 17 | 1.201 | 1.187 (λ 20) | [−0.10, +0.14] | does not beat |
+
+## R239 — A STOPPED RUN LEAVES NOTHING BEHIND (2026-10-18, tests only)
+
+**Reported:** a reaper stop of the full suite left 1 gate script and 9 headless
+Chrome processes. **Cause:** the runner killed its bash jobs, which on Windows does
+not reach the native PowerShell a job started or that gate's browser, and the
+orphan sweep — by its own safe rule — skips a browser whose parent is alive (the
+gate script was).
+
+**Built:** (1) `tests/gate-launch.ps1` — every gate runs inside a Windows job
+object with KILL-ON-CLOSE, entered by the launcher before it starts the gate, so
+the gate and every process it starts die whenever the launcher ends; it also
+watches the runner and the runner's caller (the MSYS parent — the Windows parent
+of an MSYS process is a spawn helper that is gone at once, measured: the first
+version stopped every gate at its first poll). (2) The runner traps INT/TERM and
+ends its gates. (3) A start-of-run sweep (`reap-orphan-browsers.ps1 -Stale`)
+removes leftover gate scripts, launchers and headless `ht-*` browsers and says
+so — and stands down, saying so, if another runner outside this run's own tree
+is alive. **Evidence:** `tests/stop-cleanup-check.ps1` (not a `*-gate.ps1`, or the
+runner would run itself): runner killed mid-gate -> 0 left; its caller killed
+mid-gate -> 0 left; a planted leftover removed and reported at the start.
+
+**Also (R239/1):** the first rerun failed `sensor-gate` with "the app did not
+boot", then it passed alone 3/3. 33 gates waited a fixed 3 s and checked once;
+each now waits up to 30 s more for the app, and its own check decides.

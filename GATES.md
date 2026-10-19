@@ -6306,3 +6306,12 @@ then passed alone three times out of three. 33 gates (35 navigations) waited a
 fixed 3 s after loading the page and checked ONCE. The 3 s stays (some gates may
 settle on it); after it, each now waits up to 30 s more for `HT` and a loaded page,
 and its own boot check still decides. A fast boot costs nothing extra.
+
+### R239 -- the runner cleans up after itself (tests only)
+
+`tests/stop-cleanup-check.ps1`, re-runnable, run whenever the runner, the launcher
+or the reaper changes: A -- the runner killed outright mid-gate, 0 left; B -- the
+runner's caller killed mid-gate (the reaper's shape), 0 left; C -- a gate left
+running outside any run is removed by the next run's start sweep, which names it.
+The first launcher stopped every gate at its first poll: it watched the runner's
+WINDOWS parent, which for an MSYS process is a spawn helper that exits at once.

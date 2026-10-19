@@ -56,6 +56,38 @@ echo "==================================================================="
 echo " HealthTracker full gate suite -- presence + verdict, or fail"
 echo "==================================================================="
 
+# ---- R239: A STOPPED RUN LEAVES NOTHING BEHIND --------------------------------
+# REPORTED: a reaper stop left 1 gate script and 9 headless browsers running. Three
+# parts, each covering what the others cannot:
+#   1. every gate runs through tests/gate-launch.ps1, which puts itself in a Windows
+#      job with KILL-ON-CLOSE before starting the gate -- whatever ends the launcher
+#      ends the gate and its browser -- and which WATCHES this runner and its caller;
+#   2. Ctrl-C, TERM and an error exit here kill the running gates the same way;
+#   3. a START-OF-RUN SWEEP removes leftovers of an earlier stopped run, and says so.
+# tests/stop-cleanup-check.ps1 kills a real run mid-gate, three ways, and counts.
+RUN_WINPID=$(cat /proc/$$/winpid 2>/dev/null)
+# The caller is the MSYS parent: the WINDOWS parent of an MSYS process is a short-
+# lived spawn helper, gone at once (measured -- the first version stopped every gate
+# at its first poll). With no MSYS parent (PPID 1) there is nothing to watch, and
+# the between-gates check below still holds.
+PARENT_WINPID=""
+[ "$PPID" != "1" ] && PARENT_WINPID=$(cat /proc/$PPID/winpid 2>/dev/null)
+sweep_stale() {
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$DIR/reap-orphan-browsers.ps1" -Stale -SelfPid "${RUN_WINPID:-0}" 2>&1 | grep -vE "^\s*$" || true
+}
+on_stop() {
+  echo "  RUN STOPPED ($1) -- ending the running gates and their browsers"
+  kill $(jobs -rp) 2>/dev/null
+  sweep_stale
+  exit 130
+}
+trap 'on_stop interrupted' INT
+trap 'on_stop terminated' TERM
+sweep_stale
+# ONLY_GATES="a-gate.ps1 b-gate.ps1": run just those gates, no harness and no static
+# checks -- for the stop-cleanup check. Says so, and is never a suite verdict.
+ONLY_GATES=${ONLY_GATES:-}
+
 FAILED=""
 PASSED=""
 
@@ -213,6 +245,7 @@ judge() {  # judge <name> <rc> <output>
 }
 
 # ---- 1. the data-layer harness (carries the gate-script presence census) ----
+if [ -z "$ONLY_GATES" ]; then
 DL_OUT=$(bash "$DIR/run-data-layer.sh" 2>&1)
 DL_RC=$?
 DL_VERDICT=$(printf '%s\n' "$DL_OUT" | grep -oE 'GATE: (PASS|FAIL)' | tail -1)
@@ -295,6 +328,10 @@ for c in $STATIC_CHECKS; do
   judge "$c" "$RC" "$OUT"
 done
 rm -rf "$STMP"
+else
+  echo "  ONLY_GATES: $ONLY_GATES -- no harness, no static checks; this is not a suite verdict"
+  N_STATIC=0
+fi
 
 # ---- 3. every CDP gate, each of which must speak -- in WORKERS (R224) -------
 #
@@ -340,13 +377,15 @@ PACED=0
 # would need. So before each gate it checks that its parent still exists, and
 # stops by name if not.
 RUN_PARENT=$PPID
-GATES=$(ls "$DIR"/*-gate.ps1)
+if [ -n "$ONLY_GATES" ]; then GATES=$(for x in $ONLY_GATES; do echo "$DIR/$x"; done)
+else GATES=$(ls "$DIR"/*-gate.ps1); fi
 for g in $GATES; do
   name=$(basename "$g")
   N_CDP=$((N_CDP + 1))
   if ! kill -0 "$RUN_PARENT" 2>/dev/null; then
     echo "  RUN STOPPED before $name -- the process that started this run is gone"
     kill $(jobs -rp) 2>/dev/null
+    sweep_stale
     exit 3
   fi
   # a free worker
@@ -367,7 +406,7 @@ for g in $GATES; do
     echo "debug-port-held" > "$GTMP/$name.skip"
     continue
   fi
-  ( leashed powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$g" > "$GTMP/$name.out" 2>&1
+  ( leashed powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$DIR/gate-launch.ps1" -Gate "$g" -Watch "${RUN_WINPID},${PARENT_WINPID}" > "$GTMP/$name.out" 2>&1
     echo $? > "$GTMP/$name.rc" ) &
 done
 wait
@@ -386,6 +425,10 @@ rm -rf "$GTMP"
 NP=$(printf '%s\n' $PASSED | grep -c .)
 NF=$(printf '%s\n' $FAILED | grep -c .)
 TOTAL=$((1 + N_STATIC + N_CDP))
+if [ -n "$ONLY_GATES" ]; then
+  echo "ONLY_GATES run: passed $(printf '%s\n' $PASSED | grep -c .) of $N_CDP -- not a suite verdict"
+  [ -z "$FAILED" ] && exit 0 || exit 1
+fi
 NH=$(printf '%s\n' $IN_HARNESS | grep -c .)
 echo "-------------------------------------------------------------------"
 echo "passed: $NP   failed: $NF"

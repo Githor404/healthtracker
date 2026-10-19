@@ -26,9 +26,59 @@
 # because the first attempt was inlined and the nested quoting mangled it silently:
 # the conditions were all true, nothing was killed, and `2>/dev/null || true` ate
 # the error. A helper that cannot report its own failure is worse than none.
+#
+# R239 -- -Stale: THE START-OF-RUN SWEEP (and the runner's own stop). A gate whose
+# run was stopped can keep its browser alive through a LIVING parent -- the gate
+# script itself -- and the rule above, rightly, never touches that. Measured: one
+# gate script and nine browsers survived a reaper stop. At the start of a run there
+# is no gate that should already be running, so -Stale removes every gate script,
+# gate launcher and headless ht-* browser, and SAYS so -- unless another runner,
+# outside this run's own process tree, is alive, in which case it stands down and
+# says that instead (-SelfPid is this runner's Windows PID).
+param([switch]$Stale, [int]$SelfPid = 0)
 $ErrorActionPreference = 'Stop'
 $killed = @()
 $skipped = 0
+
+if ($Stale) {
+  try { $all = @(Get-CimInstance Win32_Process -ErrorAction Stop) } catch { Write-Host "  reap: could not enumerate processes ($($_.Exception.Message))"; exit 0 }
+  $byId = @{}; foreach ($q in $all) { $byId[[int]$q.ProcessId] = $q }
+  $inMine = {
+    param($proc)
+    $seen = 0; $cur = $proc
+    while ($cur -and $seen -lt 64) {
+      if ($SelfPid -gt 0 -and [int]$cur.ProcessId -eq $SelfPid) { return $true }
+      $cur = $byId[[int]$cur.ParentProcessId]; $seen++
+    }
+    return $false
+  }
+  # ...and not this run's own ANCESTORS either: the shell that launched it names
+  # run-all-gates.sh on its command line too, and would read as "another run".
+  $mineUp = @{}
+  $cur = $byId[$SelfPid]; $seen = 0
+  while ($cur -and $seen -lt 64) { $mineUp[[int]$cur.ProcessId] = 1; $cur = $byId[[int]$cur.ParentProcessId]; $seen++ }
+  $others = @($all | Where-Object { $_.Name -eq 'bash.exe' -and $_.CommandLine -like '*run-all-gates.sh*' -and -not $mineUp.ContainsKey([int]$_.ProcessId) -and -not (& $inMine $_) })
+  if ($others.Count -gt 0) {
+    Write-Host ("  reap: another run is live (pid {0}) -- the start-of-run sweep stood down" -f (($others | ForEach-Object { $_.ProcessId }) -join ', '))
+  } else {
+    $gates = @($all | Where-Object { $_.Name -eq 'powershell.exe' -and $_.CommandLine -and ($_.CommandLine -like '*-gate.ps1*' -or $_.CommandLine -like '*gate-launch.ps1*') -and [int]$_.ProcessId -ne $PID })
+    $browsers = @($all | Where-Object { $_.Name -in 'chrome.exe', 'msedge.exe' -and $_.CommandLine -like '*--headless*' -and $_.CommandLine -like '*\ht-*' })
+    $said = @()
+    foreach ($g in $gates) {
+      $nm = if ($g.CommandLine -match '([a-z0-9-]+-gate\.ps1)') { $Matches[1] } else { 'gate-launch' }
+      & taskkill.exe /T /F /PID $g.ProcessId 2>$null | Out-Null
+      $said += ("$nm (pid $($g.ProcessId))")
+    }
+    $nb = 0
+    foreach ($b in $browsers) {
+      if (Get-Process -Id $b.ProcessId -ErrorAction SilentlyContinue) { try { Stop-Process -Id $b.ProcessId -Force -ErrorAction Stop; $nb++ } catch { } }
+    }
+    if ($said.Count -gt 0 -or $nb -gt 0) {
+      Write-Host ("  reap: removed leftovers of a stopped run -- {0} gate script(s){1}, {2} gate browser process(es)" -f $said.Count, ($(if ($said.Count) { ': ' + ($said -join ', ') } else { '' })), $nb)
+    }
+  }
+  exit 0
+}
 
 try {
   $procs = Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='msedge.exe'" -ErrorAction Stop
