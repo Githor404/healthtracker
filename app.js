@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.105.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.106.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2584,6 +2584,10 @@ function rememberedRow(name) {
       const it = items[j];
       if (!it || !it.ref || !it.ref.id) continue;
       if (it.ref.how === 'confirmed despite state mismatch') continue;   // D135/1
+      // R242/B: a proposal is a row of the SHIPPED file, looked up by its id. An FDC
+      // pick's id names no row there, so it is not proposed here; it is remembered
+      // through suggestionFor, which reads the numbers its ref carries.
+      if (String(it.ref.ns) === FDC_NS) continue;
       if (matchKey(it.name) !== key) continue;
       // D137: the item's own NAME travels with the memory, not only the row it
       // points at. The key is DERIVED (D136), so it can merge two names that are
@@ -2829,7 +2833,68 @@ function resolveConfirmCancel() {
 function resolveConfirmUse() {
   const v = RESOLVE_VIEW, c = v && v.confirm;
   if (!c) return Promise.resolve({ ok: false });
+  if (c.fdc != null) {
+    const row = v.fdc && v.fdc.rows && v.fdc.rows[c.fdc];
+    return Promise.resolve(row ? resolveFdcApply(row, 'confirmed despite state mismatch') : { ok: false });
+  }
   return resolvePick(c.id, c.name, c.distance, 'confirmed');
+}
+// ---- R242/B: USDA FoodData Central on the resolve surface ---------------------
+// The words searched are the ones this list was made from: the item's name, or the
+// other word the user typed above.
+function resolveFdcTerms(v) {
+  const q = String((v && (v.query || v.name)) || '').trim();
+  return q ? [q] : [];
+}
+// The item's own figures per 100 g, when it has any to compare against.
+function resolveFdcEstimate(v) {
+  const day = v && APP_STATE.days[v.date];
+  const it = day && day.items && day.items[v.idx];
+  const g = num(it && it.grams);
+  if (!it || !(g > 0) || !itemHasMacros(it)) return '';
+  const k = 100 / g;
+  return fdcEstimateWords({ kcal: num(it.kcal) * k, protein_g: num(it.protein_g) * k,
+                            fat_g: num(it.fat_g) * k, carb_g: num(it.carb_g) * k });
+}
+function resolveFdcRun() {
+  const v = RESOLVE_VIEW;
+  if (!v) return Promise.resolve({ ok: false });
+  const terms = resolveFdcTerms(v);
+  if (!terms.length) return Promise.resolve({ ok: false, why: 'no-terms' });
+  return fdcRunInto(v, 'fdc', terms, function () { if (RESOLVE_VIEW === v) renderResolve(); });
+}
+function resolveFdcClose() {
+  if (RESOLVE_VIEW) { RESOLVE_VIEW.fdc = null; renderResolve(); }
+  return { ok: true };
+}
+function resolveFdcPick(i) {
+  const v = RESOLVE_VIEW;
+  const c = v && v.fdc && v.fdc.rows && v.fdc.rows[num(i)];
+  if (!c) return Promise.resolve({ ok: false });
+  const m = resolveMismatch(v, c);
+  if (m) {
+    v.confirm = { fdc: num(i), id: String(c.id), name: String(c.name), distance: null, m: m, was: 'picked' };
+    renderResolve();
+    return Promise.resolve({ ok: false, why: 'confirm-state' });
+  }
+  return Promise.resolve(resolveFdcApply(c, 'picked'));
+}
+// resolveItem's write, with the row in hand: the ref frozen at the item's grams,
+// then the precedence rule gives the item the row's numbers (R237).
+function resolveFdcApply(c, how) {
+  const v = RESOLVE_VIEW;
+  const day = v && APP_STATE.days[v.date];
+  const it = day && day.items && day.items[v.idx];
+  if (!it || !c) return { ok: false, why: 'no-item' };
+  const ref = resolveItemFreeze(it, c.meta, c.row, c.id, c.name, null, how);
+  if (!ref) return { ok: false, why: 'no-basis' };
+  it.ref = ref;
+  applyPrecedence(it);
+  Store.saveState(APP_STATE);
+  RESOLVE_JUST = { date: v.date, idx: v.idx, name: String(c.name || '') };
+  RESOLVE_VIEW = null; resolveWalkNext(); renderResolve();
+  refresh();
+  return { ok: true, ref: ref };
 }
 function resolvePick(id, name, distance, how) {
   const v = RESOLVE_VIEW;
@@ -3013,8 +3078,14 @@ function resolveHTML() {
     + '<div class="rvrow"><input id="rvQuery" type="text" class="rvin" value=""'
     + ' placeholder="try another word \u2014 e.g. spaghetti cooked" aria-label="search the database">'
     + '<button type="button" class="btn" onclick="resolveSearch((document.getElementById(\'rvQuery\')||{}).value)">Search</button></div>';
+  // R242/B: offered once the device's own database has answered, searched on a tap.
+  const fdcT = resolveFdcTerms(v);
+  const fdc = (v.phase !== 'loading' && fdcT.length)
+    ? fdcBlockHTML(v.fdc, fdcT, { run: 'resolveFdcRun', pick: 'resolveFdcPick', close: 'resolveFdcClose' },
+                   resolveFdcEstimate(v))
+    : '';
   return '<div class="rvwrap"><div class="rvbox" role="dialog" aria-modal="true" aria-label="Find nutrients">'
-    + head + src + search + body
+    + head + src + search + body + fdc
     + '<button type="button" class="linklike" onclick="resolveClose()">close</button></div></div>';
 }
 // D143: the resolve surface is RENDERED rather than toggled, so the lock is
@@ -14460,6 +14531,45 @@ function saveByok() {
   renderByok();
   return r;
 }
+// R242/B: the food-database key, Settings side. Write-only like the AI key: the
+// MASK renders, never the key, and the field is emptied after a save.
+let FDC_KEY_MSG = null;
+function renderFdcKey() {
+  const el = document.getElementById('fdcKeyBox');
+  if (!el) return;
+  const on = fdcConfigured();
+  el.innerHTML =
+    `<div class="note">USDA FoodData Central adds packaged foods and typical recipes to the places you look a food up. ` +
+    `It needs your own free key, from api.data.gov/signup (an email address is all it asks for).</div>` +
+    `<label>Key${on ? ' <small>(saved: ' + esc(fdcMask()) + ')</small>' : ''}</label>` +
+    `<input id="fdcKeyIn" type="password" autocomplete="off" placeholder="${on ? 'Enter a new key to replace it' : 'Paste your key'}">` +
+    `<div class="row" style="margin-top:8px">` +
+    `<button class="btn primary" onclick="saveFdcKey()">Save</button>` +
+    `<button class="btn" onclick="removeFdcKey()"${on ? '' : ' disabled'}>Remove key</button></div>` +
+    (FDC_KEY_MSG ? `<div class="byoks byokbad">${esc(FDC_KEY_MSG)}</div>` : '') +
+    citeBlock('How this key is handled',
+      `<small class="labcite">The key is stored on this device only and is never included in an export or a backup. ` +
+      `It is sent only to USDA, when you tap a search, and USDA's service takes it as part of the search address, ` +
+      `so it can appear in that service's logs. USDA allows 1,000 searches an hour per key. ` +
+      `What a search finds is shown as suggestions; nothing is used until you pick a row.</small>`);
+}
+function saveFdcKey() {
+  const k = document.getElementById('fdcKeyIn');
+  const r = fdcSaveKey(k ? k.value : '');
+  if (k) k.value = '';                        // never leave it in the DOM
+  FDC_KEY_MSG = r.blocked ? r.message
+    : (r.stored ? null : 'This device would not store the key. It will work until you reload, and then be gone.');
+  if (r.ok) toast(r.stored ? 'Key saved on this device' : 'Could not store the key');
+  renderFdcKey();
+  return r;
+}
+function removeFdcKey() {
+  const r = fdcClearKey();
+  FDC_KEY_MSG = null;
+  toast('Key removed');
+  renderFdcKey();
+  return r;
+}
 function renderCaptureBtn() {
   const el = document.getElementById('captureBox');
   if (!el) return;
@@ -14709,7 +14819,7 @@ function renderDataStatus() {
 // R215: the sleep auto-close that ran here at the head of every render is GONE.
 // It wrote a record nobody tapped for (R202: nothing is logged without a tap).
 function refresh() {
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -14893,6 +15003,7 @@ const VERSION_LOG = [
   { v: '0.104.0', d: '2026-10-18', note: 'A food you matched to a database row now counts that row’s numbers, and items matched before were recounted automatically; each one keeps what it was. Typing a name on a photo item now looks it up as you type, drinks first. Items the day is not counting say so, and the day shows how many beside its calories. Corrections you made on photos are now remembered for the next one.' },
   { v: '0.104.1', d: '2026-10-18', note: 'When you type a name on a photo and the closest foods only match part of it, they are labelled partial match and you can still pick one; below them is the button to ask your AI for other names, which sends nothing until you tap it.' },
   { v: '0.105.0', d: '2026-10-19', note: 'The update notice is now one line; tap what’s new to read it. A meal you logged can be saved as a combo from its own block, ready to name. The stack’s group on the day is now called Daily stack. A few small texts are larger.' },
+  { v: '0.106.0', d: '2026-10-20', note: 'Search, a photo’s food and a food not yet counted can now also be looked up in USDA FoodData Central, for packaged foods and typical recipes. It needs your own free key, entered under Settings. Nothing is sent until you tap the search, and nothing is used until you pick a row; None of these fits is always above the list.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -16809,12 +16920,43 @@ function correctionsAll() {
         modelName: said, modelKey: sk,
         chosenName: chose, chosenKey: ck,
         refId: (it.ref && it.ref.id) ? String(it.ref.id) : '',
+        refNs: (it.ref && it.ref.ns) ? String(it.ref.ns) : '',
         refName: (it.ref && it.ref.name) ? String(it.ref.name) : '',
         from: days[i],
       });
     }
   }
   return out;                            // newest first
+}
+
+// The earlier item that carries the chosen row, re-expressed at this item's grams
+// by the one rescale (R242). With no such item, or no grams, the name alone is taken.
+function photoCorrectionFromRef(idx, it, lead) {
+  const src = rememberedRefItem(matchKey(String(lead.chosenName || '')));
+  const g = num(it.grams);
+  const at = (src && src.ref && String(src.ref.id) === String(lead.refId) && g > 0)
+    ? refAtGrams(src.ref, g, { basis: src.grams }) : null;
+  it.name = String(lead.chosenName);
+  if (!at) { it.unres = true; return photoSettle(idx, { kind: 'correction', rank: null }); }
+  delete it.unres;
+  it.ref = Object.assign({}, at, { v: Object.assign({}, at.v), g: g, at: todayKey(), at_ms: nowMs(),
+                                   how: 'picked', when: 'capture', d: null });
+  draftTakeRef(it, it.ref);
+  photoSettle(idx, { kind: 'correction', rank: null });
+  return { ok: true, ref: it.ref, name: it.name };
+}
+// draftTakeRow for a ref already frozen at the item's grams: its per 100 g.
+function draftTakeRef(it, ref) {
+  const g = num(ref && ref.g);
+  if (!it || !ref || !(g > 0)) return;
+  const p = {};
+  Object.keys(CORPUS_OWN_MACROS).forEach(function (k) {
+    const v = ref.v ? ref.v[CORPUS_OWN_MACROS[k]] : null;
+    p[k] = (v == null || !isFinite(Number(v))) ? 0 : Number(v) * 100 / g;
+  });
+  p.soluble_fiber_g = 0;
+  it.per100 = p;
+  it.estimateFrom = 'row';
 }
 
 // RULED B: lead on the FIRST prior correction under the same model name, and
@@ -16838,7 +16980,7 @@ function correctionLead(modelName) {
   // smaller than the number of corrections to that food, and saying the bigger
   // number would be false about THIS guess.
   const count = hits.filter(function (c) { return c.chosenKey === top.chosenKey; }).length;
-  return { modelName: top.modelName, chosenName: top.chosenName, refId: top.refId,
+  return { modelName: top.modelName, chosenName: top.chosenName, refId: top.refId, refNs: top.refNs,
            refName: top.refName, from: top.from, count: count };
 }
 
@@ -16939,6 +17081,9 @@ function photoPickCorrection(idx) {
     it.unres = true;
     return Promise.resolve(photoSettle(idx, { kind: 'correction', rank: null }));
   }
+  // R242/B: a correction to an FDC row carries its numbers on the earlier item's
+  // ref -- there is no row of the shipped file to look up.
+  if (lead.refNs === FDC_NS) return Promise.resolve(photoCorrectionFromRef(idx, it, lead));
   return corpusEnsure().then(function () {
     const m = CORPUS_MEM;
     if (!m) return { ok: false, why: 'no-corpus' };
@@ -17378,6 +17523,11 @@ function photoSearchConfirmCancel() {
 function photoSearchConfirmUse() {
   const st = PHOTO_SEARCH, c = st && st.confirm;
   if (!c) return Promise.resolve({ ok: false });
+  // R242/B: the question was about an FDC row -- it carries its own numbers.
+  if (c.fdc != null) {
+    const row = st.fdc && st.fdc.rows && st.fdc.rows[c.fdc];
+    return Promise.resolve(row ? photoFdcApply(st.idx, row, 'confirmed despite state mismatch') : { ok: false });
+  }
   // D133: confirming past a state mismatch is the STRONGER fact and outranks
   // "this was a pick" -- and memory declines to repeat it (D135/1).
   return photoSearchApply(st.idx, c.id, c.name, 'confirmed despite state mismatch');
@@ -17406,6 +17556,55 @@ function photoSearchApply(idx, id, name, how) {
       return { ok: true, ref: ref, name: it.name };
     });
   });
+}
+// R242/B: USDA FoodData Central on the photo sheet. The names searched are the
+// AI's own short names when it supplied them (R238's offer) -- R245 measured that
+// a long photo description pulls up whichever word is most common -- and otherwise
+// what was typed.
+function photoFdcTerms(st) {
+  if (!st) return [];
+  if (st.normalised && st.asked && st.asked.length) return st.asked.slice(0, FDC_TERMS_MAX);
+  const t = String(st.text || '').trim();
+  return t ? [t] : [];
+}
+function photoFdcRun() {
+  const st = PHOTO_SEARCH;
+  if (!st) return Promise.resolve({ ok: false });
+  const terms = photoFdcTerms(st);
+  if (!terms.length) return Promise.resolve({ ok: false, why: 'no-terms' });
+  return fdcRunInto(st, 'fdc', terms, function () { if (PHOTO_SEARCH === st) renderPhotoDraft(); });
+}
+function photoFdcClose() {
+  if (PHOTO_SEARCH) { PHOTO_SEARCH.fdc = null; renderPhotoDraft(); }
+  return { ok: true };
+}
+// The same guard as a database row (D135/1): a row in a different state asks first.
+function photoFdcPick(i) {
+  const st = PHOTO_SEARCH;
+  const c = st && st.fdc && st.fdc.rows && st.fdc.rows[num(i)];
+  if (!c || !PHOTO_DRAFT || !PHOTO_DRAFT.items[st.idx]) return Promise.resolve({ ok: false });
+  const mm = photoSearchMismatch(PHOTO_DRAFT.items[st.idx], c);
+  if (mm) {
+    st.confirm = { fdc: num(i), id: String(c.id), name: String(c.name), m: mm };
+    renderPhotoDraft();
+    return Promise.resolve({ ok: false, why: 'confirm-state' });
+  }
+  return Promise.resolve(photoFdcApply(st.idx, c, 'picked'));
+}
+// ONE TAP, BOTH ANSWERS, as for a database row: the name becomes the row's and the
+// ref is frozen from it at the item's grams.
+function photoFdcApply(idx, c, how) {
+  const it = PHOTO_DRAFT && PHOTO_DRAFT.items[idx];
+  if (!it || !c) return { ok: false };
+  const ref = resolveItemFreeze(it, c.meta, c.row, c.id, c.name, null, how, 'capture');
+  if (!ref) return { ok: false, why: 'no-basis' };
+  it.name = String(c.name);
+  delete it.unres;
+  it.ref = ref;
+  draftTakeRow(it, c.meta, c.row);
+  PHOTO_SEARCH = null;
+  photoSettle(idx, { kind: 'search', rank: null });
+  return { ok: true, ref: ref, name: it.name };
 }
 // A preset is the user's OWN numbers, so it lands through the existing rail and
 // comes back with real macros rather than a corpus reference.
@@ -17706,6 +17905,14 @@ function photoSearchHTML(idx, it) {
       + '</div>'
     : '';
   const failed = st.askedFailed ? '<div class="pmsub">Your AI did not come back with a name.</div>' : '';
+  // R242/B: offered once the device's own database has answered, searched on a tap.
+  // The item's estimate is repeated INSIDE the block, so the FDC figures are read
+  // beside it (ruled) even when the rows above push the first statement away.
+  const fdcTerms = photoFdcTerms(st);
+  const fdc = ((st.phase === 'rows' || st.phase === 'none' || st.phase === 'no-corpus') && fdcTerms.length)
+    ? fdcBlockHTML(st.fdc, fdcTerms, { run: 'photoFdcRun', pick: 'photoFdcPick', close: 'photoFdcClose' },
+                   fdcEstimateWords(it && it.per100))
+    : '';
   // ORDER MATTERS, and it is the order of the question: what you typed, what the
   // database says about it, and THEN the two ways out -- keep the name, or ask for
   // a better word to search. The ways out come last because they are what is left
@@ -17716,7 +17923,7 @@ function photoSearchHTML(idx, it) {
   return '<div class="pmsearch"><div class="pmsq">What was it?</div>'
     // R238/2: with only PARTIAL rows, they come first and the offer sits beneath
     // them; with nothing at all it stays directly under the input (H30).
-    + field + (partialOnly ? '' : ask) + searched + ours + failed + presets + body + (partialOnly ? ask : '') + keep
+    + field + (partialOnly ? '' : ask) + searched + ours + failed + presets + body + (partialOnly ? ask : '') + fdc + keep
     + '<button type="button" class="linklike pmscancel" onclick="photoSearchCancel()">leave it as it is</button>'
     + '</div>';
 }
@@ -20770,6 +20977,271 @@ function corpusOwnNumbers(meta, row, id, name, grams) {
   return out;
 }
 
+// ---- R242/B: USDA FOODDATA CENTRAL, WITH THE USER'S OWN KEY ---------------------
+//
+// Ruled (2026-10-10, COMMERCIAL): FDC admitted -- Branded AND Survey (FNDDS) --
+// with the user's own key; every result shows its macros beside the item's own
+// estimate, and "nothing fits" comes BEFORE the list. R242/B: the key is entered
+// in Settings and stored on this device only, the provenance is cited, and the
+// precedence rule applies. R245 measured the first row WRONG in most of a ten-food
+// sample, so a row is a suggestion and nothing here ever picks one.
+//
+// THE SEAM. Every pick path in this file freezes a row through a `meta` (namespace,
+// slot list, hash, attribution) and a row indexed by those slots. An FDC result is
+// expressed as exactly that: its own namespace, and the corpus's own 47 slots,
+// whose numbers ARE FDC's nutrient numbers (corpus/slots.json's fdc_number_to_slot
+// is the identity on every one). So resolveItemFreeze, corpusOwnNumbers,
+// draftTakeRow and the precedence rule take it unchanged -- micronutrients
+// included, in the reference map like any database row's (D120).
+//
+// ITS OWN NAMESPACE, never `fdc`: that is the shipped SR Legacy file, and a
+// remembered id is looked up in the shipped file on two paths. An FDC id there
+// would find nothing -- or a different food.
+const FDC_NS = 'fdcapi';
+const FDC_LS = 'healthtracker-fdc';
+const FDC_API = 'https://api.nal.usda.gov/fdc/v1/foods/search';
+// MEASURED 2026-10-20: a GET carrying dataType=Survey (FNDDS) is refused by the
+// service's front end with a bare 400, encoded or not; the same filter in a POST
+// body returns 200 with CORS headers. So the search is a POST. (The bare 400s in
+// the R245 report were this, not the rate limit they were blamed on.)
+const FDC_TYPES = ['Branded', 'Survey (FNDDS)'];
+const FDC_ATTRIBUTION = 'U.S. Department of Agriculture, Agricultural Research Service. FoodData Central';
+const FDC_MAX = 8;              // the identity search's ceiling, stated on the surface
+const FDC_TERMS_MAX = 3;        // names searched per tap, at most (each is one call)
+const FDC_TIMEOUT_MS = 15000;
+// The corpus slot list, held here so a search works before the corpus has arrived;
+// fdc-gate holds it equal to the shipped files' own list.
+const FDC_SLOTS = [203, 204, 205, 207, 208, 212, 221, 255, 262, 263, 268, 269, 291, 301, 303, 304, 305, 306,
+  307, 309, 312, 318, 319, 320, 328, 401, 404, 405, 406, 409, 415, 417, 418, 431, 601, 606, 617, 618, 621,
+  631, 645, 646, 806, 815, 832, 854, 861];
+
+// The key: write-only, as the AI key is. Its own entry in this device's storage,
+// outside the log, so no export or backup can carry it; only the mask is shown.
+let _fdcMem = null;                         // D1: memory fallback
+function fdcRead() {
+  if (_fdcMem) return _fdcMem;
+  try {
+    const raw = localStorage.getItem(FDC_LS);
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    return (o && typeof o === 'object' && !Array.isArray(o)) ? o : null;
+  } catch (e) { return null; }
+}
+function fdcKey() { const o = fdcRead(); return String((o && o.key) || ''); }
+function fdcConfigured() { return fdcKey().length > 0; }
+function fdcMask() {
+  const k = fdcKey();
+  if (!k) return '';
+  return k.length <= 8 ? '********' : (k.slice(0, 3) + ' ... ' + k.slice(-3));
+}
+// A shape check, never a validity check: only the service can say whether a key works.
+function fdcKeyIssue(key) {
+  const k = String(key == null ? '' : key).trim();
+  if (!k) return 'No key entered.';
+  if (/\s/.test(k)) return 'That key contains a space — check for a copy-paste stray.';
+  if (k.length < 20) return 'That key looks too short to be complete.';
+  return '';
+}
+let FDC_CACHE = {};         // query -> parsed rows, for this session only; nothing is stored
+function fdcSaveKey(key) {
+  const issue = fdcKeyIssue(key);
+  if (issue) return { ok: false, blocked: true, message: issue, configured: fdcConfigured() };
+  _fdcMem = { key: String(key).trim() };
+  let stored = true;
+  try { localStorage.setItem(FDC_LS, JSON.stringify(_fdcMem)); } catch (e) { stored = false; }
+  FDC_CACHE = {};
+  return { ok: true, stored: stored, configured: true };
+}
+function fdcClearKey() {
+  _fdcMem = null;
+  try { localStorage.removeItem(FDC_LS); } catch (e) {}
+  FDC_CACHE = {};
+  return { ok: true };
+}
+
+// ONE FOOD FROM THE REPLY, or null. Measured on the reply (2026-10-20): Survey
+// (FNDDS) and Branded values are both per 100 g, keyed by `nutrientNumber`, and a
+// Branded value is FDC's re-expression of the label's per-serving figure carrying
+// HOW it was derived. Two of those are not values, so they are dropped -- absence
+// is never zero (D8), and a bound is not a measurement:
+//   LCSL -- the label said "less than" (a "<1 g" re-expressed per 100 g)
+//   LCCD at 0 -- derived from a % Daily Value of 0, which a label prints for
+//                anything under about 1%
+// Energy must be in kilocalories, or the food is not offered at all.
+function fdcParseFood(f, retrieved) {
+  if (!f || typeof f !== 'object') return null;
+  const id = String(f.fdcId == null ? '' : f.fdcId);
+  if (!/^\d+$/.test(id)) return null;
+  const type = String(f.dataType || '');
+  if (FDC_TYPES.indexOf(type) < 0) return null;
+  const name = String(f.description == null ? '' : f.description).replace(/\s+/g, ' ').trim();
+  if (!name) return null;
+  const row = FDC_SLOTS.map(function () { return NaN; });
+  const dropped = [];
+  (Array.isArray(f.foodNutrients) ? f.foodNutrients : []).forEach(function (n) {
+    if (!n || typeof n !== 'object') return;
+    const slot = Number(n.nutrientNumber);
+    const i = FDC_SLOTS.indexOf(slot);
+    if (i < 0) return;
+    const v = Number(n.value);
+    if (!(Number.isFinite(v) && v >= 0)) return;
+    if (slot === 208 && String(n.unitName || '').toUpperCase() !== 'KCAL') return;
+    const how = String(n.derivationCode || '');
+    if (how === 'LCSL' || (how === 'LCCD' && v === 0)) { dropped.push(slot); return; }
+    row[i] = v;
+  });
+  const at = function (slot) { const x = row[FDC_SLOTS.indexOf(slot)]; return (x === x) ? x : null; };
+  if (at(208) == null) return null;
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(retrieved)) ? String(retrieved) : todayKey();
+  const pub = /^\d{4}-\d{2}-\d{2}/.test(String(f.publishedDate || '')) ? String(f.publishedDate).slice(0, 10) : '';
+  const brand = String(f.brandName || f.brandOwner || '').replace(/\s+/g, ' ').trim();
+  // THE CITATION, carried on the ref like a corpus row's: whose, which row, and the
+  // date it was retrieved -- an FDC row can be revised, a shipped file cannot.
+  const meta = { ns: FDC_NS, slots: FDC_SLOTS, hash: type + (pub ? ' ' + pub : ''),
+                 attribution: FDC_ATTRIBUTION + ' — ' + type + ', FDC ' + id
+                   + (pub ? ', published ' + pub : '') + ', retrieved ' + day };
+  return { id: id, name: name, type: type, brand: brand, published: pub, meta: meta, row: row,
+           dropped: dropped, kcal: at(208), protein: at(203), fat: at(204), carb: at(205),
+           state: foodState(name), fdc: true };
+}
+// What kind of row it is, in words, so a packaged product and a typical recipe can
+// be told apart at the moment of choosing (ruled).
+function fdcTypeWords(c) {
+  if (!c) return '';
+  return c.type === 'Branded'
+    ? ('Packaged food' + (c.brand ? ' · ' + c.brand : '') + ' (Branded)')
+    : 'Typical recipe (Survey, FNDDS)';
+}
+function fdcFetchTerm(term, key) {
+  const k = String(term).toLowerCase();
+  if (FDC_CACHE[k]) return Promise.resolve({ ok: true, rows: FDC_CACHE[k], cached: true });
+  let ctl = null;
+  try { ctl = new AbortController(); } catch (e) { ctl = null; }
+  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, FDC_TIMEOUT_MS);
+  // THE KEY IS A QUERY PARAMETER: that is the service's design, so it travels in
+  // the address and can reach the service's logs. Settings says so.
+  return fetch(FDC_API + '?api_key=' + encodeURIComponent(key), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query: String(term), dataType: FDC_TYPES, pageSize: FDC_MAX }),
+    signal: ctl ? ctl.signal : undefined,
+  }).then(function (res) {
+    clearTimeout(timer);
+    if (res.status === 401 || res.status === 403) return { ok: false, why: 'key', status: res.status };
+    if (res.status === 429) return { ok: false, why: 'limit', status: 429 };
+    if (!res.ok) return { ok: false, why: 'http', status: res.status };
+    return res.json().then(function (j) {
+      const day = todayKey();
+      const rows = ((j && Array.isArray(j.foods)) ? j.foods : [])
+        .map(function (f) { return fdcParseFood(f, day); }).filter(function (x) { return !!x; });
+      FDC_CACHE[k] = rows;
+      return { ok: true, rows: rows };
+    }, function () { return { ok: false, why: 'reply' }; });
+  }, function (e) {
+    clearTimeout(timer);
+    return { ok: false, why: (e && e.name === 'AbortError') ? 'timeout' : 'network' };
+  });
+}
+// ONE TAP, UP TO THREE NAMES, EACH ONE CALL, the rows merged and deduplicated by
+// id under the same ceiling a typed search states. R245: a long description pulls
+// up whichever word is most common, so the photo path feeds its AI's short names.
+function fdcSearch(terms) {
+  const key = fdcKey();
+  if (!key) return Promise.resolve({ ok: false, why: 'no-key', rows: [], terms: [] });
+  const list = [];
+  (terms || []).forEach(function (t) {
+    const s = String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+    if (s && list.indexOf(s) < 0 && list.length < FDC_TERMS_MAX) list.push(s);
+  });
+  if (!list.length) return Promise.resolve({ ok: false, why: 'no-terms', rows: [], terms: [] });
+  if (typeof navigator !== 'undefined' && navigator.onLine === false)
+    return Promise.resolve({ ok: false, why: 'offline', rows: [], terms: list });
+  const acc = { rows: [], seen: {}, err: null, tried: [] };
+  return list.reduce(function (p, term) {
+    return p.then(function () {
+      if (acc.err) return null;
+      return fdcFetchTerm(term, key).then(function (r) {
+        acc.tried.push({ term: term, rows: r.ok ? r.rows.length : 0 });
+        if (!r.ok) { acc.err = r; return null; }
+        r.rows.forEach(function (c) {
+          if (acc.seen[c.id]) return;
+          acc.seen[c.id] = 1;
+          if (acc.rows.length < FDC_MAX) acc.rows.push(c);
+        });
+        return null;
+      });
+    });
+  }, Promise.resolve(null)).then(function () {
+    if (acc.err && !acc.rows.length)
+      return { ok: false, why: acc.err.why, status: acc.err.status, rows: [], terms: list, tried: acc.tried };
+    return { ok: true, rows: acc.rows, terms: list, tried: acc.tried };
+  });
+}
+function fdcWhyText(why, status) {
+  if (why === 'key') return 'USDA FoodData Central refused the key. Check it under Settings.';
+  if (why === 'limit') return 'Your key has reached its hourly limit (USDA allows 1,000 searches an hour). Try again later.';
+  if (why === 'offline') return 'This device is offline, so USDA FoodData Central cannot be searched.';
+  if (why === 'timeout') return 'USDA FoodData Central did not answer in time.';
+  if (why === 'no-key') return 'Searching USDA FoodData Central needs your own key, which you can add under Settings.';
+  return 'USDA FoodData Central could not be reached' + (status ? ' (error ' + status + ')' : '') + '.';
+}
+// The item's own estimate, per 100 g, in the words a row's figures are read in --
+// or '' when the item has none (a typed search has nothing to compare against).
+function fdcEstimateWords(p) {
+  if (!p || !(num(p.kcal) > 0)) return '';
+  return photoSearchMacroWords({ protein: num(p.protein_g), fat: num(p.fat_g), carb: num(p.carb_g), kcal: num(p.kcal) });
+}
+// THE SHARED BLOCK, for the three surfaces a food is picked on. Nothing is sent
+// until the tap on the first button, and nothing is picked until the tap on a row.
+// `h` names this file's own handlers for the surface: run, pick, close.
+function fdcBlockHTML(fdc, terms, h, estimate) {
+  if (!fdcConfigured())
+    return '<div class="fdcnote fdcnokey">USDA FoodData Central can also be searched, for packaged foods and typical '
+      + 'recipes — that needs your own free key, which you can add under Settings.</div>';
+  const label = (terms || []).join(', ');
+  if (!label) return '';
+  const go = '<button type="button" class="btn fdcgo" onclick="' + h.run + '()">Search USDA FoodData Central for “'
+    + esc(label) + '”</button>';
+  if (!fdc) return go;
+  if (fdc.phase === 'looking') return '<div class="fdcnote">Searching USDA FoodData Central…</div>';
+  if (fdc.phase === 'error')
+    return '<div class="fdcnote fdcerr">' + esc(fdcWhyText(fdc.why, fdc.status)) + '</div>' + go;
+  if (fdc.phase === 'none')
+    return '<div class="fdcnote">USDA FoodData Central has nothing named “' + esc((fdc.terms || []).join(', '))
+      + '” either.</div>';
+  // "NOTHING FITS" BEFORE THE LIST (ruled, for the measured Mai Tai): a list that
+  // always has a plausible first row needs its exit where it is seen first.
+  // THE HEADING FIRST, then the exit: seen at 390px, an exit directly under the
+  // device database's rows read as an answer to THOSE rows.
+  return '<div class="fdcblock">'
+    + '<div class="fdccap">USDA FoodData Central, per 100 g, for “' + esc((fdc.terms || []).join(', '))
+    + '” · suggestions only: nothing is used until you pick one</div>'
+    + '<button type="button" class="btn fdcnone" onclick="' + h.close + '()">None of these fits</button>'
+    + (estimate ? '<div class="fdcours">Yours, per 100 g: <b>' + esc(estimate) + '</b></div>' : '')
+    + (fdc.rows || []).map(function (c, i) {
+        return '<button type="button" class="btn fdcrow" onclick="' + h.pick + '(' + i + ')">'
+          + '<span class="fdcnm">' + esc(c.name) + '</span>'
+          + '<span class="fdctype">' + esc(fdcTypeWords(c)) + '</span>'
+          + '<span class="fdcmac">' + esc(photoSearchMacroWords(c)) + '</span></button>';
+      }).join('')
+    + '</div>';
+}
+// One run for a surface: the state object it writes into is the surface's own, and
+// an answer arriving after that surface moved on lands nowhere.
+function fdcRunInto(owner, slot, terms, rerender) {
+  const mine = { phase: 'looking', rows: [], terms: terms.slice() };
+  owner[slot] = mine;
+  rerender();
+  return fdcSearch(terms).then(function (r) {
+    if (owner[slot] !== mine) return { ok: false, why: 'stale' };
+    mine.phase = r.ok ? (r.rows.length ? 'rows' : 'none') : 'error';
+    mine.rows = r.rows || [];
+    mine.why = r.why; mine.status = r.status; mine.tried = r.tried;
+    if (r.terms && r.terms.length) mine.terms = r.terms;
+    rerender();
+    return { ok: r.ok, rows: mine.rows.length, why: r.why, terms: mine.terms };
+  });
+}
+
 // One run, for both surfaces that search as you type. The rows come back holding
 // the corpus row they were read from AND the meta it was read under, so the pick
 // that follows is synchronous and cannot be answered by a corpus that was
@@ -20907,11 +21379,45 @@ function searchRowsHTML() {
   const exit = (st.phase === 'rows' || st.phase === 'none')
     ? '<button type="button" class="linklike fqexit" onclick="setSheetMode(\'manual\')">Not here? Enter it by hand</button>'
     : '';
-  return exit + typeaheadRowsHTML(st, 'searchPickAt');
+  // R242/B: once the food database has answered, USDA FoodData Central is OFFERED
+  // beneath it -- searched only on a tap, its rows suggestions like the ones above.
+  const q = String(st.q || '').trim();
+  const fdc = (q.length >= TYPEAHEAD_MIN && (st.phase === 'rows' || st.phase === 'none' || st.phase === 'no-corpus'))
+    ? fdcBlockHTML(st.fdc, [q], { run: 'searchFdcRun', pick: 'searchFdcPick', close: 'searchFdcClose' }, '')
+    : '';
+  return exit + typeaheadRowsHTML(st, 'searchPickAt') + fdc;
+}
+function searchRowsPaint() {
+  const el = document.getElementById('fqRows');
+  if (el) el.innerHTML = searchRowsHTML();
+}
+function searchFdcRun() {
+  const st = FOOD_SEARCH;
+  if (!st) return Promise.resolve({ ok: false });
+  const q = String(st.q || '').trim();
+  if (!q) return Promise.resolve({ ok: false, why: 'no-terms' });
+  return fdcRunInto(st, 'fdc', [q], function () { if (FOOD_SEARCH === st) searchRowsPaint(); });
+}
+function searchFdcClose() {
+  if (FOOD_SEARCH) { FOOD_SEARCH.fdc = null; searchRowsPaint(); }
+  return { ok: true };
+}
+// A picked FDC row goes to the same amount step as a database row: it carries its
+// own meta and row, so corpusOwnNumbers builds the item and the citation the same way.
+function searchFdcPick(i) {
+  const st = FOOD_SEARCH;
+  const c = st && st.fdc && st.fdc.rows && st.fdc.rows[num(i)];
+  if (!c) return { ok: false, why: 'no-such-row' };
+  st.pick = c; st.grams = null;
+  const el = document.getElementById('searchBox');
+  if (el) el.innerHTML = searchStepHTML();
+  return { ok: true, id: c.id, name: c.name };
 }
 function searchType(text) {
   if (!FOOD_SEARCH) FOOD_SEARCH = foodSearchFresh();
   const st = FOOD_SEARCH;
+  // A new word is a new question: FDC rows for the old one are not its answer.
+  if (String(text == null ? '' : text) !== st.q) st.fdc = null;
   st.q = String(text == null ? '' : text);
   const seq = ++st.seq;
   return typeaheadRun(st.q, { drinks: !!st.asDrink }).then(function (r) {
@@ -20966,12 +21472,15 @@ function searchStepHTML() {
   const cite = String((c.meta && c.meta.attribution) || '');
   return '<div class="fqstep">'
     + '<div class="qsname">' + esc(c.name) + '</div>'
-    + '<div class="fqsub">Food database, per 100 g: <span class="fqnb">' + esc(photoSearchMacroWords(c)) + '</span></div>'
+    + (c.fdc ? '<div class="fqsub fdctype">' + esc(fdcTypeWords(c)) + '</div>' : '')
+    + '<div class="fqsub">' + (c.fdc ? 'USDA FoodData Central' : 'Food database') + ', per 100 g: <span class="fqnb">' + esc(photoSearchMacroWords(c)) + '</span></div>'
     // The citation WITH the numbers, and the sentence that says whose they are:
     // this is the one place the app lets a database figure into the day's own.
-    + (cite ? '<div class="fqsub fqcite">Food database: ' + esc(cite) + '</div>' : '')
+    + (cite ? '<div class="fqsub fqcite">' + (c.fdc ? 'Source: ' : 'Food database: ') + esc(cite) + '</div>' : '')
     + '<div class="fqsub">These become this item’s numbers for the amount you enter. '
-    + 'They are the database’s figures for a typical one, not a label’s.</div>'
+    + ((c.fdc && c.type === 'Branded')
+        ? 'They are this product’s label figures, as USDA FoodData Central records them.'
+        : 'They are the database’s figures for a typical one, not a label’s.') + '</div>'
     + '<label class="fqlab" for="fqGrams">How much, in grams</label>'
     + '<input id="fqGrams" type="number" class="fqin" inputmode="decimal" min="0"'
     + ' oninput="searchGrams(this.value)" aria-label="how much, in grams">'
@@ -23620,6 +24129,13 @@ window.HT = {
   chartPickSet: (t) => { CHART_PICK = (t == null ? null : num(t)); glucoseRedraw(); return CHART_PICK; },
   GLUCOSE_SC_LINE, GLUCOSE_SC_DATEFMT, GLUCOSE_SC_FILE, GLUCOSE_SC_DAYS, GLUCOSE_SC_STEPS,
   keys: { STORE_KEY, PRERESTORE_KEY, PREMIGRATION_KEY, PRODUCTS_KEY },
+  // R242/B -- USDA FoodData Central
+  FDC_NS, FDC_LS, FDC_TYPES, FDC_SLOTS, FDC_MAX, FDC_TERMS_MAX, fdcParseFood, fdcSearch, fdcSaveKey, fdcClearKey,
+  fdcConfigured, fdcMask, fdcTypeWords, fdcBlockHTML, fdcWhyText, fdcEstimateWords,
+  fdcCacheClear: () => { FDC_CACHE = {}; return true; },
+  searchFdcRun, searchFdcPick, searchFdcClose, photoFdcRun, photoFdcPick, photoFdcClose, photoFdcTerms,
+  resolveFdcRun, resolveFdcPick, resolveFdcClose, photoCorrectionFromRef, draftTakeRef, saveFdcKey, removeFdcKey,
+  renderFdcKey,
   state: () => APP_STATE,
   resave: () => Store.saveState(APP_STATE),
 };

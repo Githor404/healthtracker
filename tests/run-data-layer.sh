@@ -49,6 +49,7 @@ dayroll-gate.ps1
 drinkfree-gate.ps1
 elite-gate.ps1
 entry-gate.ps1
+fdc-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
 forms-gate.ps1
@@ -513,7 +514,18 @@ echo "-----------------------------------------"
 # its own; "Save this meal as a combo" prefills two parts, writes nothing, and
 # never replaces an open draft; its button is on the meal block; "Daily stack";
 # the update notice one line until tapped.
-EXPECTED_ASSERTIONS=3231
+# 3231 -> 3252 (v0.106.0, R242/B): +21 -- USDA FoodData Central: a survey food and
+# a packaged one parse into rows under their own namespace and the corpus slots;
+# "less than" and %DV zeros are dropped, a stated 0 kept; no kcal / wrong type /
+# no id / no name is not offered; the citation names source, kind, id, published
+# and retrieved dates; the freeze, the restore boundary and the precedence rule
+# take the row unchanged; no key says so with no button; a wrong key is refused;
+# the key is on the device only, masked, in neither log nor export; the offer is a
+# button until tapped; "None of these fits" and the estimate come before the rows;
+# kinds and macros on every row; refusals named; Remove key; a memory proposal
+# never carries an FDC id into the shipped file; corrections keep the namespace
+# and take the numbers from the earlier item's ref; the ruled constants.
+EXPECTED_ASSERTIONS=3252
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

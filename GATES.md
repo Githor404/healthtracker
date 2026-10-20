@@ -6324,3 +6324,30 @@ SHOWN instead of dismissing it. `check-ps-case.sh` holds PowerShell variable nam
 to one case. The rename that got it to zero was first done with a line-based
 guess at quoting and broke `overlay-gate` -- a gate catching the tool that edited
 it -- then redone with a lexer. `verify-deploy` covers `corpus/dist`.
+
+### v0.106.0 -- R242/B: `fdc-gate`
+
+USDA FoodData Central on the three surfaces a food is picked on -- Search, the
+not-counted picker, the photo sheet -- against a service STUBBED in the page
+(window.fetch answers for api.nal.usda.gov; synthetic rows; the gate needs no key
+and never calls USDA). 24 checks: the slot list held in app.js equals both shipped
+files' own; with no key Search says so and has no button; the Settings card saves
+the key masked, empties the field, keeps it out of the log and the export, and says
+where it goes; typing sends nothing, and the offer names the words it will search;
+the tap is ONE POST with the key, the words and Branded + Survey (FNDDS) only; the
+exit comes before the rows; every row shows its kind and macros; rows arriving
+write nothing; every new text is 16px or more; a picked row's amount step carries
+the citation with its retrieval date, and 200 g logs 240 cal with sodium in the
+reference values; a 429 is SAID and writes nothing; the not-counted picker offers
+the item's name, answers a repeat from the session's memory with no second call,
+closes on "None of these fits" and counts the item by the precedence rule on a
+pick, with the label's "less than" carbohydrate left absent; the photo sheet is fed
+the AI's short names (three, in order, one call each), states the item's estimate
+beside the rows, and a pick gives the item the row's name and numbers at its grams.
+`FDC_SHOTS=1` saves 390px screenshots of each surface; they were read before the
+suite, and moved the block's heading above its exit (an exit under the device
+database's rows read as answering THOSE rows).
+
+**Found while building:** the bare 400s the R245 report blamed on the demo key's
+rate limit were the service rejecting a GET that carries `dataType=Survey (FNDDS)`
+(encoded or not). The same filter in a POST body returns 200. The search is a POST.

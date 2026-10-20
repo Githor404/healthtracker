@@ -1477,6 +1477,102 @@ window.setLS({});
       'R242/5 GATE: after an update the notice is ONE line -- no notes until "what’s new" is tapped, then every release since');
   setLS({}); HT.boot();
 
+  // ---- R242/B: USDA FoodData Central, the user's own key --------------------------
+  setLS({}); HT.boot();
+  var N = function (num, v, unit, how) { return { nutrientNumber: String(num), value: v, unitName: unit || 'G', derivationCode: how || '' }; };
+  var fnd = { fdcId: 9100001, dataType: 'Survey (FNDDS)', description: 'Gate ravioli, meat-filled, no sauce', publishedDate: '2024-10-31',
+    foodNutrients: [N(208, 190, 'KCAL'), N(203, 12.5), N(204, 7.5), N(205, 17.5), N(291, 0.5), N(307, 770, 'MG'), N(328, 0.4, 'UG'), N(9999, 5)] };
+  var p242b = HT.fdcParseFood(fnd, '2026-10-20');
+  res(!!p242b && p242b.id === '9100001' && p242b.type === 'Survey (FNDDS)' && p242b.kcal === 190 && p242b.protein === 12.5
+      && p242b.meta.ns === HT.FDC_NS && HT.FDC_NS !== 'fdc' && p242b.meta.slots === HT.FDC_SLOTS,
+      'R242/B: an FDC survey food parses into a row under its OWN namespace (never the shipped file’s "fdc") and the corpus’s slots');
+  res(p242b.row[HT.FDC_SLOTS.indexOf(307)] === 770 && p242b.row[HT.FDC_SLOTS.indexOf(328)] === 0.4
+      && p242b.row.length === HT.FDC_SLOTS.length && p242b.row[HT.FDC_SLOTS.indexOf(269)] !== p242b.row[HT.FDC_SLOTS.indexOf(269)],
+      'R242/B: FDC nutrient numbers ARE the slots -- sodium and vitamin D land in theirs, an unknown number is ignored, and a nutrient the food does not carry stays ABSENT (NaN), never 0');
+  var a242b = p242b.meta.attribution;
+  res(a242b.indexOf('FoodData Central') >= 0 && a242b.indexOf('Survey (FNDDS)') > 0 && a242b.indexOf('FDC 9100001') > 0
+      && a242b.indexOf('retrieved 2026-10-20') > 0 && a242b.indexOf('published 2024-10-31') > 0,
+      'R242/B: the citation names the source, the kind of row, its id, when it was published and the date it was retrieved', a242b);
+  var brd = { fdcId: 9100002, dataType: 'Branded', description: 'GATE HOT SMOKED FISH', brandName: 'GATE BRAND', publishedDate: '2023-03-16',
+    foodNutrients: [N(208, 188, 'KCAL', 'LCCS'), N(203, 23.5, 'G', 'LCCS'), N(205, 1.75, 'G', 'LCSL'), N(303, 0, 'MG', 'LCCD'),
+                    N(306, 282, 'MG', 'LCCD'), N(301, 0, 'MG', 'LCCS'), N(324, 306, 'IU', 'LCCS')] };
+  var b242b = HT.fdcParseFood(brd, '2026-10-20');
+  var at242 = function (r, s) { var x = r.row[HT.FDC_SLOTS.indexOf(s)]; return x === x ? x : null; };
+  res(!!b242b && b242b.kcal === 188 && at242(b242b, 205) === null && at242(b242b, 303) === null && at242(b242b, 306) === 282
+      && at242(b242b, 301) === 0 && b242b.dropped.indexOf(205) >= 0 && b242b.dropped.indexOf(303) >= 0,
+      'R242/B GATE: a label’s "less than" (LCSL) is DROPPED, a 0 from a % Daily Value (LCCD) is DROPPED, a non-zero %DV figure and a stated 0 are kept -- a bound is not a value and absence is not zero');
+  res(HT.fdcParseFood({ fdcId: 1, dataType: 'Branded', description: 'X', foodNutrients: [N(208, 700, 'KJ')] }) === null
+      && HT.fdcParseFood({ fdcId: 2, dataType: 'SR Legacy', description: 'X', foodNutrients: [N(208, 70, 'KCAL')] }) === null
+      && HT.fdcParseFood({ dataType: 'Branded', description: 'X', foodNutrients: [N(208, 70, 'KCAL')] }) === null
+      && HT.fdcParseFood({ fdcId: 3, dataType: 'Branded', description: '', foodNutrients: [N(208, 70, 'KCAL')] }) === null,
+      'R242/B: no calories in kilocalories, a data type outside Branded and Survey (FNDDS), no id, or no name -- the food is not offered at all');
+  res(HT.fdcTypeWords(b242b).indexOf('Packaged food') === 0 && HT.fdcTypeWords(b242b).indexOf('GATE BRAND') > 0
+      && HT.fdcTypeWords(p242b).indexOf('Typical recipe') === 0 && HT.fdcTypeWords(p242b).indexOf('FNDDS') > 0,
+      'R242/B (ruled): a packaged product and a typical recipe are told apart in words at the moment of choosing');
+  // -- the freeze and the precedence rule take an FDC row unchanged --
+  var ref242b = HT.resolveItemFreeze({ grams: 150 }, p242b.meta, p242b.row, p242b.id, p242b.name, null, 'picked', 'later');
+  res(ref242b.ns === HT.FDC_NS && Math.abs(ref242b.v['208'] - 285) < 1e-9 && Math.abs(ref242b.v['307'] - 1155) < 1e-9 && ref242b.g === 150
+      && ref242b.v['269'] === undefined && ref242b.attribution === a242b,
+      'R242/B: the ref is frozen at the item’s grams like a database row’s -- 285 cal and 1155 mg sodium for 150 g, the citation with it, nothing invented');
+  var rt242b = HT.normalizeRef(JSON.parse(JSON.stringify(ref242b)));
+  res(JSON.stringify(rt242b) === JSON.stringify(HT.normalizeRef(ref242b)) && rt242b.ns === HT.FDC_NS && rt242b.attribution === a242b,
+      'R242/B: the FDC ref survives the restore boundary whole -- namespace, citation, values');
+  var pi242b = { name: 'meat ravioli', meal: 'dinner', time: '19:00', grams: 150, unresolved: true, source: 'ai-paste', confidence: 'eyeballed', notes: '', ref: ref242b };
+  HT.applyPrecedence(pi242b);
+  res(Math.abs(pi242b.kcal - 285) < 1e-9 && Math.abs(pi242b.protein_g - 18.75) < 1e-9 && pi242b.unresolved === undefined && HT.precedenceOf(pi242b).from === 'row',
+      'R242/B GATE: the precedence rule counts an FDC row as it counts any linked row -- the item is counted at 285 cal');
+  // -- the block: nothing sent, nothing picked, the exit first --
+  HT.fdcClearKey();
+  var nk242 = HT.fdcBlockHTML(null, ['ravioli'], { run: 'r', pick: 'p', close: 'c' }, '');
+  res(nk242.indexOf('needs your own free key') > 0 && nk242.indexOf('<button') < 0 && nk242.indexOf('Settings') > 0,
+      'R242/B: with no key the offer SAYS it needs one, under Settings -- and has no button');
+  res(HT.fdcSaveKey('short').blocked === true && HT.fdcSaveKey('has a space in it, twenty plus').blocked === true && !HT.fdcConfigured(),
+      'R242/B: a key that is certainly wrong (too short, a space) is refused before it is stored');
+  var K242 = 'GATEKEY0123456789abcdefGATEKEY0123456789';
+  var sv242 = HT.fdcSaveKey(K242);
+  res(sv242.ok && HT.fdcConfigured() && localStorage.getItem(HT.FDC_LS).indexOf(K242) > 0 && HT.fdcMask().indexOf(K242) < 0
+      && HT.exportJSON().indexOf(K242) < 0 && JSON.stringify(HT.state()).indexOf(K242) < 0,
+      'R242/B GATE: the key is stored on this device under its OWN entry, shown only masked, and is in NEITHER the log NOR the export');
+  var go242 = HT.fdcBlockHTML(null, ['ravioli'], { run: 'r', pick: 'p', close: 'c' }, '');
+  res(go242.indexOf('Search USDA FoodData Central for “ravioli”') > 0 && go242.indexOf('fdcrow') < 0,
+      'R242/B: with a key, it is OFFERED -- one button naming the words it will search; no row exists until it is tapped');
+  var rows242 = HT.fdcBlockHTML({ phase: 'rows', rows: [b242b, p242b], terms: ['ravioli'] }, ['ravioli'], { run: 'r', pick: 'p', close: 'c' }, 'P 9 · F 5 · C 20 · 170 cal');
+  var ixNone = rows242.indexOf('None of these fits'), ixRow = rows242.indexOf('class="btn fdcrow"');
+  res(ixNone > 0 && ixRow > ixNone && rows242.indexOf('Yours, per 100 g') > ixNone && rows242.indexOf('Yours, per 100 g') < ixRow
+      && rows242.indexOf('suggestions only') > 0 && (rows242.match(/class="btn fdcrow"/g) || []).length === 2,
+      'R242/B GATE (ruled): "None of these fits" comes BEFORE the list, the item’s own estimate sits above the rows, and the rows are labelled suggestions');
+  res(rows242.indexOf('Packaged food') > 0 && rows242.indexOf('Typical recipe') > 0 && rows242.indexOf('188 cal') > 0 && rows242.indexOf('190 cal') > 0,
+      'R242/B (ruled): every row shows its kind and its macros, so the right one can be told from the wrong one');
+  var er242 = HT.fdcBlockHTML({ phase: 'error', why: 'limit', status: 429, rows: [], terms: ['x'] }, ['x'], { run: 'r', pick: 'p', close: 'c' }, '');
+  res(er242.indexOf('hourly limit') > 0 && er242.indexOf('fdcgo') > 0 && HT.fdcWhyText('key').indexOf('refused the key') > 0,
+      'R242/B: a refusal says which -- the hourly limit, a refused key -- and the search can be tried again');
+  HT.fdcClearKey();
+  res(!HT.fdcConfigured() && localStorage.getItem(HT.FDC_LS) === null, 'R242/B: Remove key removes it');
+  // -- the memory: an FDC id is never looked up in the shipped file --
+  var d242b = HT.state().current;
+  HT.state().days[d242b] = { status: 'in_progress', water_l: 0, items: [
+    HT.normalizeItem({ name: 'Gate smoked fish', meal: 'dinner', time: '19:00', grams: 150, kcal: 282, protein_g: 35, fat_g: 0, carb_g: 0, fiber_g: 0,
+      soluble_fiber_g: 0, source: 'ai-paste', confidence: 'eyeballed', notes: '', ai_identity: 'Gate grilled fish',
+      ref: HT.resolveItemFreeze({ grams: 150 }, b242b.meta, b242b.row, b242b.id, b242b.name, null, 'picked', 'capture') }, true)] };
+  HT.resave();
+  res(HT.rememberedRow('Gate smoked fish') === null,
+      'R242/B GATE: a memory PROPOSAL is a row of the shipped file looked up by id -- an FDC pick is never proposed there, where its id would find nothing or a different food');
+  var cl242 = HT.correctionLead('Gate grilled fish');
+  res(!!cl242 && cl242.refNs === HT.FDC_NS && cl242.refId === '9100002',
+      'R242/B: a correction to an FDC row is remembered WITH its namespace');
+  HT.openPhotoDraft(JSON.stringify({ meal: 'dinner', items: [{ name: 'Gate grilled fish', grams: 100, notes: '',
+    alts: [{ name: 'Gate grilled fish', p: 0.6 }], per100: { kcal: 150, protein_g: 20, fat_g: 7, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0 } }] }));
+  var pc242;
+  HT.photoPickCorrection(0).then(function (r) { pc242 = r; });
+  var dr242b = HT.photoDraft() && HT.photoDraft().items[0];
+  res(!!dr242b && dr242b.name === 'Gate smoked fish' && dr242b.ref && dr242b.ref.ns === HT.FDC_NS && dr242b.ref.g === 100
+      && Math.abs(dr242b.ref.v['208'] - 188) < 1e-9 && Math.abs(dr242b.per100.kcal - 188) < 1e-9,
+      'R242/B GATE: applying that correction takes the FDC row’s numbers from the earlier item’s ref, re-expressed at this item’s grams (188 cal for 100 g) -- no lookup in the shipped file');
+  HT.photoDiscard && HT.photoDiscard();
+  res(String(HT.FDC_TYPES) === 'Branded,Survey (FNDDS)' && HT.FDC_MAX === 8 && HT.FDC_TERMS_MAX === 3,
+      'R242/B (ruled): Branded and Survey (FNDDS) only, at most 8 rows, at most 3 names a tap');
+  setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --

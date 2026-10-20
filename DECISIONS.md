@@ -17677,3 +17677,64 @@ after seeing the data.
 
 The R241 evidence store (private, HTPrivate) recorded the user's exposures the same
 day; none of them is written here (R204).
+
+
+## R242/B -- USDA FOODDATA CENTRAL, WITH THE USER'S OWN KEY (2026-10-20, v0.106.0)
+
+*Serves **track**: a food the shipped database does not hold -- a packaged product,
+a typical recipe -- can be counted from a cited source.*
+
+**Built as ruled** (COMMERCIAL 2026-10-10, R242/B, R245's design): Branded and
+Survey (FNDDS) only; the key entered in Settings ("Food database key (USDA)"),
+stored on this device under its own entry (`healthtracker-fdc`), never in the log,
+an export or a backup, shown only masked; nothing is sent until the user taps
+"Search USDA FoodData Central for ..." and nothing is used until a row is picked;
+"None of these fits" sits above the rows, under the section's heading; every row
+shows its kind ("Packaged food . brand (Branded)" or "Typical recipe (Survey,
+FNDDS)") and its macros, with the item's own estimate per 100 g stated in the block
+where it has one. Offered on Search, the not-counted picker and the photo sheet,
+after the device's own database has answered. The photo sheet searches its AI's
+short names when it supplied them (at most three, one call each); otherwise what
+was typed.
+
+**One seam, no new mechanism.** An FDC food becomes a `meta` + row exactly like a
+shipped database row: its own namespace `fdcapi` (never `fdc`, the shipped SR
+Legacy file), and the corpus's own 47 slots, which ARE FDC's nutrient numbers
+(`corpus/slots.json` fdc_number_to_slot is the identity on every one; `fdc-gate`
+holds the list equal to both shipped files'). So the freeze, `corpusOwnNumbers`,
+the photo draft and the precedence rule take it unchanged: a pick on Search logs
+`source: corpus` with the FDC ref; a pick on the not-counted picker counts the item
+by R237; micronutrients ride in the reference map (D120). No schema change.
+
+**The citation** is the ref's attribution: *U.S. Department of Agriculture,
+Agricultural Research Service. FoodData Central -- <type>, FDC <id>, published
+<date>, retrieved <date>.* A Branded row's amount step says the figures are that
+product's label, as FDC records them; a survey row's says they are a typical one's.
+
+**What a Branded value is, measured on the reply (2026-10-20).** Values are per
+100 g, FDC's re-expression of the label's per-serving figure, each with a
+derivation code. Two are not values and are DROPPED (absence is never zero, D8):
+`LCSL`, a label's "less than" (an upper bound), and `LCCD` at 0, a % Daily Value of
+0, which a label prints for anything under about 1%. A non-zero %DV figure and a
+stated 0 are kept. Energy must be in kilocalories or the food is not offered.
+
+**Namespace safety.** A memory PROPOSAL is a shipped-file row looked up by id, so an
+FDC pick is never proposed there (its id would find nothing, or a different food);
+it is remembered through `suggestionFor`, which reads the values the ref carries.
+A photo correction to an FDC row keeps its namespace and takes the numbers from the
+earlier item's ref by the one rescale.
+
+**Found while building:** a GET carrying `dataType=Survey (FNDDS)` is refused by the
+service with a bare 400, encoded or not; the same filter in a POST body returns 200
+with CORS headers. The bare 400s in the R245 report were this, not the rate limit
+they were blamed on. The search is a POST; the key is a query parameter by the
+service's design, and Settings says it can reach the service's logs.
+
+**Reported, not fixed (outside B):** after "Ask my AI for other names", the photo
+sheet's keep button names the LAST AI name tried ("Use 'FOURTH' with no
+nutrition"), not what was typed -- `photoSearchTryTerms` runs each term through
+`photoSearchRun`, which sets the field's text.
+
+Evidence: harness 3231 -> 3252 (+21); `fdc-gate` new (24 checks; manifest 47 -> 48); `check-egress` declares
+`api.nal.usda.gov` (request, on a tap only) and pins 7 fetch sites -- it failed the first
+suite run until it did, which is its job.

@@ -1176,6 +1176,14 @@
 .rfcite{display:block;font-size:16px;color:var(--muted);margin-top:2px}
 .rfbtn{display:block;font-size:16px;min-height:44px;text-align:left;padding:0}
 .fqexit{display:block;font-size:16px;min-height:44px;text-align:left}
+/* R242/B: USDA FoodData Central -- the offer, the exit FIRST, then rows read like the database's */
+.fdcnote,.fdccap,.fdcours{font-size:16px;color:var(--muted);margin:8px 0 4px}
+.fdcerr{color:var(--warn,#b45309)}
+.fdcgo,.fdcnone{display:block;width:100%;min-height:44px;font-size:16px;margin:8px 0 0;text-align:left}
+.fdcrow{display:block;width:100%;min-height:44px;text-align:left;font-size:16px;margin:0 0 6px}
+.fdcnm{display:block}
+.fdctype{display:block;margin-top:2px;color:var(--muted);font-size:16px;font-style:italic}
+.fdcmac{display:block;margin-top:2px;color:var(--muted);font-size:16px}
 .fqmine{display:block;margin-top:2px;color:var(--accent);font-size:16px}
 .stked{padding:8px 0;border-bottom:1px solid var(--line)}
 .stkacts{display:flex;gap:18px}
@@ -1721,6 +1729,12 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <details>
         <summary>Your own AI key</summary>
         <div id="byokBox"></div>
+      </details>
+    </div>
+    <div class="card" data-setting="fdc">
+      <details>
+        <summary>Food database key (USDA)</summary>
+        <div id="fdcKeyBox"></div>
       </details>
     </div>
     <div class="card" data-setting="presets">
