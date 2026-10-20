@@ -17659,3 +17659,21 @@ R192, R193, the stress model and R231 stay parked on data.
 
 Evidence: harness 3222 -> 3231; `font-floor-gate`, `ring-size-gate`, `served-gate`,
 `noauto-gate` extended or re-pointed; `check-ps-case.sh` new.
+
+
+## R248.1 — THE RED-LIGHT COMPARISON IS RANDOMISED (R192 amended, 2026-10-20; pre-registration only)
+
+**The design (user's ruling):** each morning a coin is flipped -- **heads: red light,
+20 min; tails: none.** Sessions are logged as 20 min. Sessions on **2026-10-19 and
+2026-10-20 were daily, before randomisation**, and are **excluded** from the
+light / no-light comparison (they stay in the log). The floor stays **5 days per
+group**; nothing is built until both groups reach it.
+
+**A named confound:** slow breathing (logged as an event from now on) often happens
+DURING red-light sessions. Where it happens only on red-light days, the
+comparison is **confounded by breathing**, and the view must say so rather than
+attribute a difference to the light. Pre-registered here so it is not decided
+after seeing the data.
+
+The R241 evidence store (private, HTPrivate) recorded the user's exposures the same
+day; none of them is written here (R204).
