@@ -217,7 +217,7 @@ try {
            herb: tl.filter(function (r) { return r.name === 'Gate herb'; }).map(function (r) { return r.micros === undefined; }) };
 })()
 '@
-  [void](Eval "(function(){ HT.closeSettings(); HT.openSheet(); document.querySelector('#sheetRoot .stkopen').click(); document.querySelector('#sheetRoot .stklog').click(); HT.closeSheet(); return 1; })()")
+  [void](Eval "(function(){ HT.closeSettings(); HT.openSheet(); document.querySelector('#sheetRoot .stkopen').click(); document.querySelector('#sheetRoot .stkall').click(); HT.closeSheet(); return 1; })()")
   Settle
   $p1 = EvalJ $panel
   Write-Host ("  food 400 + stack 300: " + $p1)
@@ -236,7 +236,7 @@ try {
   Settle
   [void](Eval "(function(){ HT.closeSettings(); HT.openSheet(); document.querySelector('#sheetRoot .stkopen').click(); return 1; })()")
   $row = EvalJ "(function(){ var r = document.querySelectorAll('#sheetRoot .stkrow')[0]; var f = r ? r.querySelector('.stkflag .iflagbody') : null; return { flag: f ? f.textContent : '' }; })()"
-  [void](Eval "(function(){ document.querySelector('#sheetRoot .stklog').click(); HT.closeSheet(); return 1; })()")
+  [void](Eval "(function(){ document.querySelector('#sheetRoot .stkall').click(); HT.closeSheet(); return 1; })()")
   Settle
   $p2 = EvalJ $panel
   Write-Host ("  stack 400: " + $e1 + " " + $p2)

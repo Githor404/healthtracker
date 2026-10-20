@@ -17814,3 +17814,63 @@ green runs counted from after the fix.
 
 Evidence: harness 3252 -> 3263 (+11); `searchmine-gate` new (28 checks, real typing
 at 390 px; manifest 48 -> 49).
+
+
+## R246 PART 1 -- THE DAILY STACK, ONE CHECKBOX ROW PER ITEM (2026-10-20, v0.108.0)
+
+*Serves **track** (what was taken, when, at what dose) and is what **evaluate**
+will need: each dose its own timeline entry with time, dose and kind.*
+
+**Supersedes R168's ruling D-D on this surface (named, not silently resolved).**
+D-D opened a sheet with everything ticked, the user unticked what they skipped and
+one confirm wrote the rest -- no write-then-delete, because a dose nobody took must
+never pass through the day's totals. R246 makes a tick the fact itself: "I took
+this, now". A tick writes only what happened; an uncheck takes a wrong tick back,
+with Undo. What unticking used to answer is answered by absence: **an unchecked
+item is not taken that day.**
+
+**The surface.** + Log shows the stack as ONE line -- "Daily stack · 2 of 5 taken"
+and **Took all** -- opened by a tap into one checkbox row per enabled item:
+- a tap on a row = taken **now** at the item's **usual dose** (D112: no clock on a
+  past day; the time button then reads "time not set");
+- a checked row reads name · dose · time, and the dose and the time are each a
+  44-point control: the time offers **Now** or another time; the dose its amount
+  and unit (a stack food's amount is its grams, re-counted by the one item rescale);
+- **uncheck** removes every entry of that item on the day, with Undo putting the
+  same records back;
+- **Took all** is R168's write (`logStack`), skipping what is already checked, at
+  one time, with one Undo; with everything taken it reads "all taken".
+
+**Chosen, not ruled (open to reversal): collapsed, first.** The root's ruled order
+puts the stack first (onedoor-gate), and a list of rows there would push Search
+below the fold (R197/2). Collapsed, the common case -- the whole stack -- is two
+taps (+ Log, Took all); one item alone is three (+ Log, open, tick). Every + Log
+opens it collapsed.
+
+**Data (additive, no schema bump; nothing existing changes).** A stack dose record
+and a stack food item carry `stackId` (the item they came from) and, when the user
+changed a value, `stated: ['dose' | 'time']` -- both declared in their normalisers
+in this commit (D129) and kept through the restore boundary. Entries from before
+R246 have no `stackId` and are matched to their item by name. An edited dose that
+counts toward a nutrient (R208) is re-expressed at the new amount in the unit it was
+converted for, and counts toward nothing in another unit -- no conversion invented.
+
+**The export says taken and not taken.** The backup file gains `stackDays`, derived
+and read-only (restore does not read it; its sources are `timeline` and `days`):
+from the first day the stack was used -- or today, if never -- each enabled item on
+each day the log holds is `taken` with every dose's time, amount, unit and `stated`,
+or `not taken`. *Known limit, stated in the file:* an item added to the stack later
+is reported "not taken" on earlier days too; the stack keeps no date an item joined.
+
+**Found while building:** (1) bounded per item at its own first taken day, an item
+never taken was never reported -- "not taken" was missing exactly where it applied
+(stackcheck-gate, red; now from the stack's first day, or today). (2) The list's
+open state survived to the next + Log, so the tap meant to open it closed it
+(stacktotals-gate); every + Log now opens it collapsed.
+(3) Suite run 1 (60/61): `check-engagement` read the export's `STACK_DAYS_*`
+constants as unclassified day counts; they are `STACK_EXPORT_*` now. Run discarded.
+
+D29: logStack's write moved unchanged into `stackWriteOne` (STAMPED, same reason).
+Evidence: harness 3263 -> 3278 (+15; four D-D sheet cases replaced);
+`stackcheck-gate` new (18 checks, real taps at 390 px, a reload for persistence;
+manifest 49 -> 50); `noauto-gate`, `myfood-gate`, `stacktotals-gate` drive Took all.

@@ -6378,3 +6378,22 @@ opens at 300 g and today's entry is that row's, cited and counted; yesterday's
 entries are byte-identical. "Log a drink" offers the drink only and logs it as a
 drink. `SEARCHMINE_SHOTS=1` saves the list, the step, the amount editor and the
 picker; all were read before the suite.
+
+### v0.108.0 -- R246 Part 1: `stackcheck-gate`
+
+A synthetic stack (Gate D 1000 IU, Gate capsule 2, Gate oil 10 g), saved and
+reloaded, then real taps at 390 px. 18 checks: + Log shows ONE line, "0 of 3 taken"
+and Took all, 44 px and 16px, with Search still above the fold; **two taps** (+ Log,
+Took all) take all three now at their usual doses, each linked to its item, and
+Undo takes them back; opened, three unchecked rows say their usual dose and "not
+taken"; **one tap** checks Gate D at now, 1000 IU, nothing stated, the row reading
+"Gate D 1000 IU <time>" with dose and time each a 44 x 44 control; the dose editor
+opens filled and focused, the time editor offers Now; 2000 IU at 07:45 is recorded
+as stated (dose + time) and **survives a reload**; the export says taken with time,
+dose and what was stated; **unchecked** the record is gone and the export says "not
+taken", with Undo bringing the same record back; Took all takes only the two not yet
+checked; **Took all then uncheck one** leaves two of three, the capsule "not taken".
+Run red first on the export: an item never taken was not reported at all.
+`STACKCHECK_SHOTS=1` saves the checked row, both editors and N-1; all were read
+before the suite. `noauto-gate`, `myfood-gate` and `stacktotals-gate` now log the
+stack through Took all; noauto's N-1 is Took all, then one unchecked.

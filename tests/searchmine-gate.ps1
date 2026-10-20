@@ -155,7 +155,7 @@ try {
     HT.normalizeItem({ name: 'Zebra stew', meal: 'dinner', time: '19:00', grams: 300, unresolved: true, confidence: 'eyeballed', notes: '', source: 'ai-paste' }, true),
     HT.normalizeItem(Object.assign({}, base, { name: 'Zebra cake', grams: 100, kcal: 300, source: 'corpus', ref: { ns: 'cnf', id: '1', name: 'Zebra cake row', g: 100, v: { '208': 300 } } }), true) ] };
   var f = HT.myFoodUpsert({ name: 'Zebra bar', basis: 'label', per: 'serving', serving_g: 40, kcal: 180, fat_g: 8, carb_g: 22, protein_g: 5 });
-  HT.saveState ? HT.saveState() : null;
+  HT.resave();
   return { y: y, food: f.ok, today: (S.days[t] || { items: [] }).items.length };
 })()
 '@

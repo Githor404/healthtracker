@@ -78,6 +78,7 @@ ring-size-gate.ps1
 searchmine-gate.ps1
 sensor-gate.ps1
 served-gate.ps1
+stackcheck-gate.ps1
 stacktotals-gate.ps1
 update-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two
@@ -535,7 +536,15 @@ echo "-----------------------------------------"
 # no numbers is never re-logged by its row -- it opens the picker, carrying its
 # grams; only "Log without nutrition" saves it with none; the past is untouched;
 # a database row logged before is not taken for a my-food (suite run 1).
-EXPECTED_ASSERTIONS=3263
+# 3263 -> 3278 (v0.108.0, R246 Part 1): +15 -- the stack's untick-then-confirm
+# sheet is replaced (four of its cases go): collapsed to one line with Took all;
+# rows unchecked until taken; one tap = taken now at the usual dose, linked to its
+# stack item; an edited dose and time are stated by the user and survive the
+# restore boundary, a vitamin re-expressed and another unit counting toward
+# nothing; a food's amount is its grams; the export says taken / not taken; uncheck
+# with Undo; Took all then uncheck one -> N-1; an old sheet's dose matched by name;
+# an item never taken still reads "not taken" (found by stackcheck-gate).
+EXPECTED_ASSERTIONS=3278
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -18,8 +18,8 @@
 #      has a group of its own with no time
 #   4. the stack editor in Settings: a dose typed in, a food picked from the food
 #      database at typed grams -- and neither act logs anything
-#   5. "+ Log -> Took my daily stack . N items": opening it logs nothing; the tap
-#      logs N; one unticked logs N-1; an entry is deleted and brought back
+#   5. "+ Log -> Daily stack . 0 of N taken" (R246): opening it logs nothing; Took all
+#      logs N; one unchecked leaves N-1; an entry is deleted and brought back
 #
 # Exit 0 PASS, 1 FAIL, 2 environment error.
 $ErrorActionPreference = 'Stop'
@@ -329,40 +329,38 @@ try {
   Check ((@($e1v.rows).Count -eq 3) -and ($e1v.rows[1] -like '*Gate capsule*600 mg*with food*') -and ($e1v.rows[2] -like '*10 g*counts in your day*') -and ($e1v.form -eq $false)) "and the list SHOWS all three, each with its amount"
   Check (($e1v.todayItems -eq 0) -and ($e1v.todayDoses -eq 0)) "R203 GATE: EDITING THE STACK LOGGED NOTHING -- today still holds no item and no dose"
 
-  # ---- 5. the one tap ----------------------------------------------------------------------------
+  # ---- 5. the one tap (R246: Took all, and a row unchecked) ------------------------------------
   [void](Eval "(function(){ HT.closeSettings(); HT.openSheet(); return 1; })()")
   Settle
   $s0 = EvalJ @'
 (function () {
   var b = document.querySelector('#sheetRoot .stkopen'), r = b ? b.getBoundingClientRect() : null, S = HT.state(), t = HT.todayKey();
-  return { label: b ? b.textContent : '', h: r ? r.height : 0, px: b ? parseFloat(getComputedStyle(b).fontSize) : 0,
+  var a = document.querySelector('#sheetRoot .stkall'), ra = a ? a.getBoundingClientRect() : null;
+  return { label: b ? b.textContent : '', h: r ? r.height : 0, px: b ? parseFloat(getComputedStyle(b).fontSize) : 0, all: a ? a.textContent : '', ah: ra ? ra.height : 0,
            items: (S.days[t] || { items: [] }).items.length, doses: (S.timeline[t] || []).length };
 })()
 '@
   Write-Host ("  + Log: " + $s0)
   $s0v = $s0 | ConvertFrom-Json
-  Check (($s0v.label -like 'Took my daily stack*3 items') -and ($s0v.h -ge 44) -and ($s0v.px -ge 16)) "R203: + Log offers 'Took my daily stack . 3 items' -- a proposal, 44 px, 16px"
+  Check (($s0v.label -like ('Daily stack ' + [char]0xB7 + ' 0 of 3 taken')) -and ($s0v.h -ge 44) -and ($s0v.px -ge 16) -and ($s0v.all -eq 'Took all') -and ($s0v.ah -ge 44)) "R203 / R246: + Log offers 'Daily stack . 0 of 3 taken' and 'Took all' -- 44 px, 16px"
   Check (($s0v.items -eq 0) -and ($s0v.doses -eq 0)) "and OPENING the sheet logged nothing"
   [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
-  $s1 = EvalJ "(function(){ var c = document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]'); var b = document.querySelector('#sheetRoot .stklog'); return { ticks: c.length, on: Array.prototype.filter.call(c, function (x) { return x.checked; }).length, log: b ? b.textContent : '', items: (HT.state().days[HT.todayKey()] || { items: [] }).items.length }; })()"
-  Check ($s1 -like '*"ticks":3*"on":3*"log":"Log 3 of 3"*"items":0*') "tapped, it lists the three, all ticked, and STILL nothing is logged until 'Log 3 of 3'"
-  [void](Eval "document.querySelector('#sheetRoot .stklog').click()")
+  $s1 = EvalJ "(function(){ var c = document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]'); return { ticks: c.length, on: Array.prototype.filter.call(c, function (x) { return x.checked; }).length, items: (HT.state().days[HT.todayKey()] || { items: [] }).items.length, doses: (HT.state().timeline[HT.todayKey()] || []).length }; })()"
+  Check ($s1 -like '*"ticks":3*"on":0*"items":0*"doses":0*') "R246: opened, it lists the three, NONE checked, and opening it logged nothing"
+  [void](Eval "document.querySelector('#sheetRoot .stkall').click()")
   Settle
-  $count = "(function(){ var S = HT.state(), t = HT.todayKey(), tl = S.timeline[t] || [], it = (S.days[t] || { items: [] }).items; var x = document.getElementById('toast'); return { items: it.length, doses: tl.length, names: it.map(function (i) { return i.name.split(',')[0] + '|' + i.grams + '|' + i.source + '|' + i.meal; }), dose: tl.map(function (r) { return r.name + '|' + (r.dose === undefined ? '' : r.dose) + '|' + r.source; }), times: it.concat(tl).map(function (r) { return r.time; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).length, undo: !!(x && x.querySelector('.tundo') && x.classList.contains('show')) }; })()"
+  $count = "(function(){ var S = HT.state(), t = HT.todayKey(), tl = S.timeline[t] || [], it = (S.days[t] || { items: [] }).items; var x = document.getElementById('toast'); return { items: it.length, doses: tl.length, names: it.map(function (i) { return i.name.split(',')[0] + '|' + i.grams + '|' + i.source + '|' + i.meal; }), dose: tl.map(function (r) { return r.name + '|' + (r.dose === undefined ? '' : r.dose) + '|' + r.source; }), times: it.concat(tl).map(function (r) { return r.time; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).length, undo: !!(x && x.querySelector('.tundo') && x.classList.contains('show')), on: Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]'), function (c) { return c.checked; }).length }; })()"
   $s2 = EvalJ $count
-  Write-Host ("  the tap: " + $s2)
+  Write-Host ("  Took all: " + $s2)
   $s2v = $s2 | ConvertFrom-Json
-  Check ((($s2v.items + $s2v.doses) -eq 3) -and ($s2v.items -eq 1) -and ($s2v.doses -eq 2)) "R203 GATE: THE STACK TAP LOGS N -- three: one food into the day, two doses onto the timeline"
+  Check ((($s2v.items + $s2v.doses) -eq 3) -and ($s2v.items -eq 1) -and ($s2v.doses -eq 2) -and ($s2v.on -eq 3)) "R203 / R246 GATE: TOOK ALL LOGS N -- three: one food into the day, two doses onto the timeline, every row now checked"
   Check (($s2v.names[0] -like 'Butter|10|corpus|supplement') -and (@($s2v.dose) -contains 'Gate capsule|600|stack') -and ($s2v.times -eq 1) -and ($s2v.undo -eq $true)) "at ONE time, each as it was set up, with Undo offered"
-  [void](Eval "(function(){ HT.closeSheet(); HT.openSheet(); document.querySelector('#sheetRoot .stkopen').click(); document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]')[1].click(); return 1; })()")
-  $s3 = EvalJ "(function(){ var b = document.querySelector('#sheetRoot .stklog'); var c = document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]'); return { log: b ? b.textContent : '', on: Array.prototype.filter.call(c, function (x) { return x.checked; }).length }; })()"
-  Check ($s3 -like '*"log":"Log 2 of 3"*"on":2*') "one UNTICKED, the button reads 'Log 2 of 3'"
-  [void](Eval "document.querySelector('#sheetRoot .stklog').click()")
+  [void](Eval "document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]')[1].click()")
   Settle
   $s4 = EvalJ $count
-  Write-Host ("  one unticked: " + $s4)
+  Write-Host ("  one unchecked: " + $s4)
   $s4v = $s4 | ConvertFrom-Json
-  Check ((($s4v.items + $s4v.doses) -eq 5) -and ($s4v.items -eq 2) -and ($s4v.doses -eq 3) -and (@(@($s4v.dose) | Where-Object { $_ -like 'Gate capsule*' }).Count -eq 1)) "R203 GATE: UNTICK ONE AND IT LOGS N-1 -- two more, and the unticked dose was not written a second time"
+  Check ((($s4v.items + $s4v.doses) -eq 2) -and ($s4v.items -eq 1) -and ($s4v.doses -eq 1) -and ($s4v.on -eq 2) -and (@(@($s4v.dose) | Where-Object { $_ -like 'Gate capsule*' }).Count -eq 0)) "R246 GATE: TOOK ALL, THEN UNCHECK ONE -> N-1 -- two entries, and the unchecked dose is gone"
 
   # every entry deletable, with Undo
   [void](Eval ("(function(){ HT.closeSheet(); " + $open + " return 1; })()"))
@@ -380,8 +378,8 @@ try {
 '@
   Write-Host ("  a stack entry deleted: " + $d2)
   $d2v = $d2 | ConvertFrom-Json
-  Check ((@($d2v.kinds).Count -eq 1) -and ($d2v.kinds[0] -eq 'supplement') -and ($d2v.rows -eq 2)) "the day shows them under the stack's own group ('Daily stack'), not under whichever meal the clock would have picked"
-  Check (($d2v.before -eq 2) -and ($d2v.after -eq 1) -and ($d2v.undo -eq $true)) "R203 GATE: a stack entry on the day is DELETED by its own control, with Undo offered"
+  Check ((@($d2v.kinds).Count -eq 1) -and ($d2v.kinds[0] -eq 'supplement') -and ($d2v.rows -eq 1)) "the day shows them under the stack's own group ('Daily stack'), not under whichever meal the clock would have picked"
+  Check (($d2v.before -eq 1) -and ($d2v.after -eq 0) -and ($d2v.undo -eq $true)) "R203 GATE: a stack entry on the day is DELETED by its own control, with Undo offered"
   [void](Eval "document.querySelector('#toast .tundo').click()")
   Settle
   $d3 = EvalJ @'
@@ -396,8 +394,8 @@ try {
 '@
   Write-Host ("  restored; then a dose deleted and restored: " + $d3)
   $d3v = $d3 | ConvertFrom-Json
-  Check ($d3v.items -eq 2) "and Undo brings the day entry back"
-  Check (($d3v.tl0 -eq 3) -and ($d3v.mid -eq 2) -and ($d3v.undo -eq $true) -and ($d3v.back -eq 3)) "R203 GATE: a stack DOSE on the timeline is deleted through the timeline's own delete, with Undo, and comes back"
+  Check ($d3v.items -eq 1) "and Undo brings the day entry back"
+  Check (($d3v.tl0 -eq 1) -and ($d3v.mid -eq 0) -and ($d3v.undo -eq $true) -and ($d3v.back -eq 1)) "R203 GATE: a stack DOSE on the timeline is deleted through the timeline's own delete, with Undo, and comes back"
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
@@ -414,7 +412,7 @@ if ($fails.Count -gt 0) {
   exit 1
 }
 Write-Host "NO-AUTO GATE: PASS -- starting the app, a midnight roll, opening the sheet and"
-Write-Host "  editing the stack log nothing; the stack tap logs N and N-1; an old"
+Write-Host "  editing the stack log nothing; Took all logs N, unchecking one leaves N-1; an old"
 Write-Host "  auto-added entry says its time is unknown; and everything can be deleted"
 Write-Host "  and brought back."
 Write-Host "GATE: PASS"

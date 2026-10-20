@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.107.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.108.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -565,6 +565,10 @@ function normalizeItem(it, clampMacros) {
   if (it.water_l != null) out.water_l = N(it.water_l);
   if (it.autoLegacy === true) out.autoLegacy = true;
   if (STACK_KINDS.indexOf(it.stackKind) >= 0) out.stackKind = it.stackKind;   // R213: which kind of stack item wrote it
+  // R246: the stack item it came from, and what of it the user stated themselves.
+  if (it.stackId != null && String(it.stackId) !== '') out.stackId = String(it.stackId);
+  const stI = normalizeStated(it.stated);
+  if (stI) out.stated = stI;
   if (MYFOOD_BASES.indexOf(it.basis) >= 0) out.basis = it.basis;              // R213: a "my food" -- from label, or generic values
   // R215/4: which of the numbers a database lookup filled in the user then
   // changed. Declared in the commit that writes it (D129); known keys only.
@@ -718,6 +722,13 @@ function normalizeSupplementNutrients(raw) {
 // no schema bump (an older build reads the new words as its own default).
 const STACK_KINDS = ['supplement', 'medication', 'food'];
 const STACK_KIND_WORD = { supplement: 'Supplement', medication: 'Medication', food: 'Food' };
+// R246: which of an entry's values the user stated, against the stack item's usual.
+const STATED_KEYS = ['dose', 'time'];
+function normalizeStated(v) {
+  if (!Array.isArray(v)) return null;
+  const out = STATED_KEYS.filter(function (k) { return v.indexOf(k) >= 0; });
+  return out.length ? out : null;
+}
 function stackKindOf(k) { return STACK_KINDS.indexOf(k) >= 0 ? k : 'supplement'; }
 function stackKindWord(k) { return STACK_KIND_WORD[stackKindOf(k)]; }
 // THE WORD A LOGGED ENTRY SHOWS. An entry written before the kind was recorded
@@ -1898,7 +1909,9 @@ function exportJSON() {
   // The state stays indented as it always was; the streams are appended as one
   // compact line, so the file is still one valid JSON object.
   return body.slice(0, body.lastIndexOf('}')).replace(/\s+$/, '')
-    + ',\n  "streams": ' + JSON.stringify(exportStreams()) + '\n}';
+    + ',\n  "streams": ' + JSON.stringify(exportStreams())
+    // R246: taken / not taken per stack item and day -- derived, for reading.
+    + ',\n  "stackDays": ' + JSON.stringify(exportStackDays()) + '\n}';
 }
 // The restore boundary for streams: allowlist rebuilds, the same normalizers the
 // stores use when they read themselves back. Absent -> null (an older file has
@@ -4156,45 +4169,54 @@ function logStack(skip) {
   const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day.' };
   const items = [], records = [];
   taken.forEach(function (s) {
-    if (s.kind === 'food' && s.part) {
-      // R203: a food-database food. The combo part's own write, at the stack's one
-      // timestamp, filed as a supplement so it is never placed by the clock.
-      const raw = comboPartRaw(s.part, 1, time);
-      raw.meal = 'supplement'; raw.stackKind = 'food';
-      if (s.note) raw.notes = s.note;
-      const it = normalizeItem(raw, true);
-      day.items.push(it);
-      items.push(it);
-    } else if (s.kind === 'food') {
-      // A FOOD ITEM, ordinary in every way (ruled D-B): it carries a delete
-      // control, can be edited and can be cycled. `source: 'supplement'`
-      // keeps SOURCES unchanged and says truthfully where it came from.
-      const n = s.nutrients || {};
-      const it = normalizeItem({
-        name: s.name, meal: 'supplement', time: time,
-        kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
-        fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g, micros: n.micros,
-        grams: s.grams,
-        confidence: 'measured', notes: s.note || '', source: 'supplement', stackKind: 'food',
-        bioactive: s.bioactive, tzo: nowTZO(),           // D29 (stamped)
-      }, true);
-      day.items.push(it);
-      items.push(it);
-    } else {
-      // A DOSE, through `addSignal` -- the one timeline contract (D19), declaring
-      // `stack` as its adapter rather than passing itself off as manual.
-      const r = addSignal({ kind: 'medication', name: s.name, dose: s.dose,
-                            dose_unit: s.dose_unit, bioactive: s.bioactive, notes: s.note || '',
-                            micros: (s.nutrients && s.nutrients.micros) || undefined,   // R208
-                            stackKind: stackKindOf(s.kind),                             // R213
-                            time: time, date: dk, source: 'stack' });
-      if (r && r.ok && r.record) records.push(r.record);
-    }
+    const w = stackWriteOne(s, time, dk, day);
+    if (w.item) items.push(w.item);
+    if (w.record) records.push(w.record);
   });
   if (items.length && day.status === 'complete') day.status = 'in_progress';   // reopen, as every path does
   Store.saveState(APP_STATE); refresh();
   return { ok: true, time: time, date: dk, items: items, records: records,
            skipped: Object.keys(skipped).length };
+}
+// ONE stack item, written: a food into the day, a dose onto the timeline. R246:
+// each carries `stackId`, the stack item it came from, so its row can be checked.
+function stackWriteOne(s, time, dk, day) {
+  if (s.kind === 'food' && s.part) {
+    // R203: a food-database food. The combo part's own write, at the stack's one
+    // timestamp, filed as a supplement so it is never placed by the clock.
+    const raw = comboPartRaw(s.part, 1, time);
+    raw.meal = 'supplement'; raw.stackKind = 'food'; raw.stackId = s.id;
+    if (s.note) raw.notes = s.note;
+    const it = normalizeItem(raw, true);
+    day.items.push(it);
+    return { item: it };
+  } else if (s.kind === 'food') {
+    // A FOOD ITEM, ordinary in every way (ruled D-B): it carries a delete
+    // control, can be edited and can be cycled. `source: 'supplement'`
+    // keeps SOURCES unchanged and says truthfully where it came from.
+    const n = s.nutrients || {};
+    const it = normalizeItem({
+      name: s.name, meal: 'supplement', time: time,
+      kcal: n.kcal, protein_g: n.protein_g, fat_g: n.fat_g, carb_g: n.carb_g,
+      fiber_g: n.fiber_g, soluble_fiber_g: n.soluble_fiber_g, micros: n.micros,
+      grams: s.grams,
+      confidence: 'measured', notes: s.note || '', source: 'supplement', stackKind: 'food',
+      bioactive: s.bioactive, tzo: nowTZO(),           // D29 (stamped)
+      stackId: s.id,
+    }, true);
+    day.items.push(it);
+    return { item: it };
+  } else {
+    // A DOSE, through `addSignal` -- the one timeline contract (D19), declaring
+    // `stack` as its adapter rather than passing itself off as manual.
+    const r = addSignal({ kind: 'medication', name: s.name, dose: s.dose,
+                          dose_unit: s.dose_unit, bioactive: s.bioactive, notes: s.note || '',
+                          micros: (s.nutrients && s.nutrients.micros) || undefined,   // R208
+                          stackKind: stackKindOf(s.kind),                             // R213
+                          stackId: s.id,                                              // R246
+                          time: time, date: dk, source: 'stack' });
+    return (r && r.ok && r.record) ? { record: r.record } : {};
+  }
 }
 // One combo part as the raw item it becomes -- shared by a combo and the stack.
 function comboPartRaw(p, m, time) {
@@ -4392,39 +4414,6 @@ function intakeFlagText(f) {
     + (f.lab === 'vit_d_25oh' ? ' A 25-OH vitamin D reading is what would show where you actually are — you can record one under Labs.' : '');
 }
 
-// ---- R168: THE CONFIRM SHEET (ruled D-D) ---------------------------------
-// Opens with every item TICKED; unticking skips it; one confirm writes only what
-// was taken. `STACK_SKIP` is UI state and is deliberately not persisted -- a skip
-// is a fact about one morning, not a setting.
-let STACK_OPEN = false;
-let STACK_SKIP = {};
-// The stack is drawn on the Quick pane AND on the Log sheet's root; both are redrawn.
-function stackRerender() { renderQuickChips(); renderSheetRoot(); }
-function stackOpen() { STACK_OPEN = true; STACK_SKIP = {}; stackRerender(); return { ok: true }; }
-function stackCancel() { STACK_OPEN = false; STACK_SKIP = {}; stackRerender(); return { ok: true }; }
-function stackToggle(id) {
-  const k = String(id);
-  if (STACK_SKIP[k]) delete STACK_SKIP[k]; else STACK_SKIP[k] = 1;
-  stackRerender();
-  return { ok: true, skipped: Object.keys(STACK_SKIP) };
-}
-function stackConfirm() {
-  const r = logStack(Object.keys(STACK_SKIP));
-  if (!r.ok) { toast(r.error || 'Nothing ticked.'); return r; }
-  STACK_OPEN = false; STACK_SKIP = {};
-  const n = r.items.length + r.records.length;
-  // R203: ONE Undo for the one act -- the day items and the timeline doses it
-  // wrote go together. (It was a bare notice: logged, and no way back.)
-  offerUndo('Logged ' + n + ' item' + (n === 1 ? '' : 's') + ' at ' + r.time, function () {
-    const day = APP_STATE.days[r.date];
-    if (day) r.items.forEach(function (it) { const i = day.items.indexOf(it); if (i >= 0) day.items.splice(i, 1); });
-    const tl = (APP_STATE.timeline || {})[r.date];
-    if (Array.isArray(tl)) r.records.forEach(function (rec) { const i = tl.indexOf(rec); if (i >= 0) tl.splice(i, 1); });
-    Store.saveState(APP_STATE); refresh();
-  });
-  stackRerender();
-  return r;
-}
 // What a row says it will deliver, as a phrase. Doses only -- never a pathway.
 function stackRowSub(s) {
   const bits = [stackKindWord(s.kind)];
@@ -4438,18 +4427,229 @@ function stackRowSub(s) {
   if (cm.length && MICRO_LABEL[cm[0]]) bits.push('counts toward ' + MICRO_LABEL[cm[0]].label);
   return bits.join(' · ');
 }
+// ---- R246 PART 1: THE STACK, ONE ROW PER ITEM, CHECKED WHEN TAKEN --------------
+//
+// SUPERSEDES R168's ruling D-D on this surface (ruled R246). D-D refused a write
+// that would later be removed, because a dose NOBODY TOOK must never pass through
+// the day's totals. Here a tick is the fact itself -- "I took this, now" -- so a
+// tick writes only what happened; an uncheck takes a wrong tick back, with Undo.
+// What the old sheet answered by unticking ("what did you skip?") is answered by
+// absence: an unchecked item is NOT TAKEN that day, and the export says so.
+//
+// The section opens collapsed -- "Daily stack · 2 of 5 taken" and Took all --
+// because the root's ruled order puts the stack FIRST and a list there would push
+// Search below the fold (R197/2). Took all is two taps from + Log.
+//
+// Which entry belongs to which stack item: `stackId`, written at the tap. An entry
+// logged before R246 has none and is matched by name, so this morning's doses
+// logged through the old sheet still read as taken.
+let STACK_OPEN = false;
+let STACK_EDIT = null;             // { id, what: 'time' | 'dose' } -- one editor at a time
+// The stack is drawn on the Quick pane AND on the Log sheet's root; both are redrawn.
+function stackRerender() { renderQuickChips(); renderSheetRoot(); }
+function stackOpen() { STACK_OPEN = true; STACK_EDIT = null; stackRerender(); return { ok: true }; }
+function stackCancel() { STACK_OPEN = false; STACK_EDIT = null; stackRerender(); return { ok: true }; }
+function stackEnabled() {
+  return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return s && s.enabled !== false; });
+}
+function stackById(id) {
+  return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return s && String(s.id) === String(id); })[0] || null;
+}
+// What the stack item writes, in the shape it is matched by.
+function stackFoodName(s) { return (s.part && s.part.name) ? s.part.name : s.name; }
+// Every entry of one stack item on one day, timeline doses and day foods alike,
+// newest last (by time; an untimed one first).
+function stackTaken(s, dk) {
+  const out = [];
+  if (!s) return out;
+  const sid = String(s.id);
+  ((APP_STATE.timeline || {})[dk] || []).forEach(function (r) {
+    if (!r || r.kind !== 'medication') return;
+    if (r.stackId != null ? String(r.stackId) === sid : (r.source === 'stack' && s.kind !== 'food' && r.name === s.name))
+      out.push({ where: 'tl', rec: r });
+  });
+  (((APP_STATE.days || {})[dk] || {}).items || []).forEach(function (it) {
+    if (!it || it.stackKind !== 'food') return;
+    if (it.stackId != null ? String(it.stackId) === sid : (s.kind === 'food' && it.name === stackFoodName(s)))
+      out.push({ where: 'day', rec: it });
+  });
+  out.sort(function (a, b) { const x = String(a.rec.time || ''), y = String(b.rec.time || ''); return x < y ? -1 : x > y ? 1 : 0; });
+  return out;
+}
+function stackLatest(s, dk) { const t = stackTaken(s, dk); return t.length ? t[t.length - 1] : null; }
+// One tick: the item at its usual dose, now (D112: no clock on a past day).
+function stackCheck(id) {
+  const s = stackById(id);
+  if (!s || s.enabled === false) return { ok: false, why: 'no-such-item' };
+  const dk = APP_STATE.current;
+  if (stackTaken(s, dk).length) return stackUncheck(id);
+  const day = dayForWrite(); if (!day) return { ok: false, why: 'no-day' };
+  const time = stampTime(dk);
+  const w = stackWriteOne(s, time, dk, day);
+  if (!w.item && !w.record) return { ok: false, why: 'not-written' };
+  if (w.item && day.status === 'complete') day.status = 'in_progress';
+  STACK_EDIT = null;
+  Store.saveState(APP_STATE); refresh(); stackRerender();
+  offerUndo('Took ' + s.name + (time ? ' at ' + time : ''), function () {
+    stackRemoveEntries(dk, [w.item ? { where: 'day', rec: w.item } : { where: 'tl', rec: w.record }]);
+    Store.saveState(APP_STATE); refresh(); stackRerender();
+  });
+  return { ok: true, date: dk, time: time, item: w.item || null, record: w.record || null };
+}
+function stackRemoveEntries(dk, list) {
+  const tl = (APP_STATE.timeline || {})[dk] || [];
+  const items = ((APP_STATE.days || {})[dk] || {}).items || [];
+  list.forEach(function (e) {
+    const arr = e.where === 'tl' ? tl : items;
+    const i = arr.indexOf(e.rec);
+    if (i >= 0) arr.splice(i, 1);
+  });
+}
+// UNCHECK = NOT TAKEN: every entry of that item on the day goes, with Undo that
+// puts the same records back where they were.
+function stackUncheck(id) {
+  const s = stackById(id);
+  if (!s) return { ok: false, why: 'no-such-item' };
+  const dk = APP_STATE.current;
+  const list = stackTaken(s, dk);
+  if (!list.length) return { ok: false, why: 'not-taken' };
+  const tl = (APP_STATE.timeline || {})[dk] || [];
+  const items = ((APP_STATE.days || {})[dk] || {}).items || [];
+  const where = list.map(function (e) { return { e: e, at: (e.where === 'tl' ? tl : items).indexOf(e.rec) }; });
+  stackRemoveEntries(dk, list);
+  STACK_EDIT = null;
+  Store.saveState(APP_STATE); refresh(); stackRerender();
+  offerUndo('Unchecked ' + s.name, function () {
+    where.slice().sort(function (a, b) { return a.at - b.at; }).forEach(function (w) {
+      const arr = w.e.where === 'tl' ? ((APP_STATE.timeline = APP_STATE.timeline || {})[dk] = APP_STATE.timeline[dk] || [])
+        : (((APP_STATE.days || {})[dk] || { items: [] }).items);
+      arr.splice(Math.min(Math.max(w.at, 0), arr.length), 0, w.e.rec);
+    });
+    Store.saveState(APP_STATE); refresh(); stackRerender();
+  });
+  return { ok: true, removed: list.length };
+}
+// TOOK ALL: every enabled item not yet checked, at its usual dose, now -- the
+// R168 write (`logStack`), skipping what is already taken. One Undo.
+function stackTookAll() {
+  const dk = APP_STATE.current;
+  const skip = stackEnabled().filter(function (s) { return stackTaken(s, dk).length > 0; }).map(function (s) { return s.id; });
+  const r = logStack(skip);
+  if (!r.ok) { toast(r.error === 'Nothing ticked.' ? 'Everything is already checked.' : (r.error || 'Nothing to log.')); return r; }
+  STACK_EDIT = null;
+  const n = r.items.length + r.records.length;
+  offerUndo('Took ' + n + ' item' + (n === 1 ? '' : 's') + (r.time ? ' at ' + r.time : ''), function () {
+    const day = APP_STATE.days[r.date];
+    if (day) r.items.forEach(function (it) { const i = day.items.indexOf(it); if (i >= 0) day.items.splice(i, 1); });
+    const tl = (APP_STATE.timeline || {})[r.date];
+    if (Array.isArray(tl)) r.records.forEach(function (rec) { const i = tl.indexOf(rec); if (i >= 0) tl.splice(i, 1); });
+    Store.saveState(APP_STATE); refresh(); stackRerender();
+  });
+  stackRerender();
+  return r;
+}
+// ---- the dose and the time, edited on the checked row ------------------------
+// What the user changes is STATED BY THEM: `stated` names which ('time', 'dose').
+function stackStated(rec, what) {
+  const s = Array.isArray(rec.stated) ? rec.stated.slice() : [];
+  if (s.indexOf(what) < 0) s.push(what);
+  rec.stated = s.sort();
+}
+function stackEditOpen(id, what) {
+  STACK_EDIT = { id: String(id), what: what === 'dose' ? 'dose' : 'time' };
+  stackRerender();
+  const f = document.getElementById(STACK_EDIT.what === 'dose' ? 'stkEdDose' : 'stkEdTime');
+  if (f && f.focus) f.focus();
+  return { ok: true, edit: STACK_EDIT };
+}
+function stackEditClose() { STACK_EDIT = null; stackRerender(); return { ok: true }; }
+function stackSaveTime(id, v) {
+  const s = stackById(id);
+  const e = s && stackLatest(s, APP_STATE.current);
+  if (!e) return { ok: false, why: 'not-taken' };
+  const t = (v === 'now') ? stampTime(APP_STATE.current) : String(v == null ? '' : v);
+  if (!/^\d{2}:\d{2}$/.test(t)) return { ok: false, why: 'bad-time', error: 'Enter a time.' };
+  e.rec.time = t;
+  stackStated(e.rec, 'time');
+  STACK_EDIT = null;
+  Store.saveState(APP_STATE); refresh(); stackRerender();
+  return { ok: true, time: t, rec: e.rec };
+}
+// A dose's amount and unit; a food's grams. A dose that counts toward a nutrient
+// keeps its count only in the unit it was converted for -- re-expressed at the new
+// amount -- and counts toward nothing in another unit, rather than an invented
+// conversion.
+function stackSaveDose(id, amount, unit) {
+  const s = stackById(id);
+  const e = s && stackLatest(s, APP_STATE.current);
+  if (!e) return { ok: false, why: 'not-taken' };
+  const a = Number(amount);
+  if (amount == null || String(amount).trim() === '' || !isFinite(a) || !(a > 0)) return { ok: false, why: 'bad-amount', error: 'Enter the amount, as a number.' };
+  if (e.where === 'day') {
+    if (!itemScaleTo(e.rec, a)) return { ok: false, why: 'no-basis', error: 'This food has no weight to scale from.' };
+  } else {
+    const u = (unit == null || unit === '') ? e.rec.dose_unit : String(unit);
+    if (MED_DOSE_UNITS.indexOf(u) < 0) return { ok: false, why: 'bad-unit', error: 'Choose a unit.' };
+    const old = num(e.rec.dose);
+    if (e.rec.micros) {
+      if (u === e.rec.dose_unit && old > 0) Object.keys(e.rec.micros).forEach(function (k) { e.rec.micros[k] = num(e.rec.micros[k]) * a / old; });
+      else delete e.rec.micros;
+    }
+    e.rec.dose = a; e.rec.dose_unit = u;
+  }
+  stackStated(e.rec, 'dose');
+  STACK_EDIT = null;
+  Store.saveState(APP_STATE); refresh(); stackRerender();
+  return { ok: true, rec: e.rec };
+}
+function stackDoseWords(e) {
+  const r = e.rec;
+  if (e.where === 'day') return r.grams != null ? rDisp(r.grams) + ' g' : 'amount';
+  return r.dose != null ? rDisp(r.dose) + (r.dose_unit ? ' ' + doseUnitWord(r.dose_unit) : '') : 'dose';
+}
+function stackUsualWords(s) {
+  if (s.kind === 'food') return (s.part && s.part.grams != null) ? rDisp(s.part.grams) + ' g' : '';
+  return s.dose != null ? rDisp(s.dose) + (s.dose_unit ? ' ' + doseUnitWord(s.dose_unit) : '') : '';
+}
+function stackEditorHTML_(s, e) {
+  const ed = STACK_EDIT;
+  if (!ed || ed.id !== String(s.id) || !e) return '';
+  const sid = esc(String(s.id));
+  if (ed.what === 'time') {
+    const today = !!stampTime(APP_STATE.current);
+    return '<div class="stked1">'
+      + (today ? '<button type="button" class="btn stkednow" onclick="stackSaveTime(\'' + sid + '\', \'now\')">Now</button>' : '')
+      + '<label class="stkedlab" for="stkEdTime">Another time</label>'
+      + '<input id="stkEdTime" type="time" class="stkedin" value="' + esc(String(e.rec.time || '')) + '">'
+      + '<button type="button" class="btn stkedsave" onclick="stackSaveTime(\'' + sid + '\', (document.getElementById(\'stkEdTime\') || {}).value)">Save time</button>'
+      + '<button type="button" class="linklike stkedx" onclick="stackEditClose()">Cancel</button></div>';
+  }
+  const amt = e.where === 'day' ? e.rec.grams : e.rec.dose;
+  const unitSel = e.where === 'day' ? '<span class="stkedunit">g</span>'
+    : '<select id="stkEdUnit" class="stkedin" aria-label="unit">' + MED_DOSE_UNITS.map(function (u) {
+        return '<option value="' + esc(u) + '"' + (u === e.rec.dose_unit ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>';
+      }).join('') + '</select>';
+  return '<div class="stked1"><label class="stkedlab" for="stkEdDose">Amount</label>'
+    + '<div class="stkedrow"><input id="stkEdDose" type="number" inputmode="decimal" min="0" class="stkedin" value="' + esc(amt != null ? rDisp(amt) : '') + '">' + unitSel + '</div>'
+    + '<button type="button" class="btn stkedsave" onclick="stackSaveDose(\'' + sid + '\', (document.getElementById(\'stkEdDose\') || {}).value, (document.getElementById(\'stkEdUnit\') || {}).value)">Save amount</button>'
+    + '<button type="button" class="linklike stkedx" onclick="stackEditClose()">Cancel</button></div>';
+}
 function stackSheetHTML() {
-  const stack = (APP_STATE.settings && APP_STATE.settings.stack) || [];
-  const on = stack.filter(function (s) { return s && s.enabled !== false; });
+  const on = stackEnabled();
   // D146: nothing configured draws NO row. An empty stack must not advertise
   // itself on a sheet the user opens to log food.
   if (!on.length) return '';
-  if (!STACK_OPEN) {
-    return '<div class="qsheet"><button type="button" class="btn stkopen" onclick="stackOpen()">'
-      + 'Took my daily stack · ' + esc(String(on.length)) + ' items</button></div>';
-  }
+  const dk = APP_STATE.current;
+  const taken = on.filter(function (s) { return stackTaken(s, dk).length > 0; }).length;
+  const left = on.length - taken;
+  const head = '<div class="stkhead"><button type="button" class="btn stkopen" aria-expanded="' + (STACK_OPEN ? 'true' : 'false') + '"'
+    + ' onclick="' + (STACK_OPEN ? 'stackCancel()' : 'stackOpen()') + '">Daily stack · ' + esc(String(taken)) + ' of ' + esc(String(on.length)) + ' taken</button>'
+    + (left > 0 ? '<button type="button" class="btn stkall" onclick="stackTookAll()">Took all</button>' : '<span class="stkalldone">all taken</span>')
+    + '</div>';
+  if (!STACK_OPEN) return '<div class="qsheet stksec">' + head + '</div>';
   const rows = on.map(function (s) {
-    const skipped = !!STACK_SKIP[String(s.id)];
+    const e = stackLatest(s, dk);
+    const sid = esc(String(s.id));
     // The vitamin's own flag, beside the item it is about, and only when the
     // converted amount actually exceeds the cited figure.
     let flag = '';
@@ -4458,22 +4658,58 @@ function stackSheetHTML() {
       const f = intakeFlag(k, micros[k]);
       if (f) flag += intakeNoteHTML(itemIntakeFlagText(f), 'stkflag');
     });
-    return '<div class="stkrow' + (skipped ? ' stkoff' : '') + '">'
-      + '<label class="stktick"><input type="checkbox"' + (skipped ? '' : ' checked')
-      + ' onchange="stackToggle(\'' + esc(String(s.id)) + '\')"'
+    const usual = stackUsualWords(s);
+    const what = e
+      ? '<div class="stkdone"><button type="button" class="btn stkdose" onclick="stackEditOpen(\'' + sid + '\', \'dose\')" aria-label="change the amount of ' + esc(s.name) + '">'
+        + esc(stackDoseWords(e)) + '</button><button type="button" class="btn stktime" onclick="stackEditOpen(\'' + sid + '\', \'time\')" aria-label="change the time of ' + esc(s.name) + '">'
+        + esc(e.rec.time ? e.rec.time : 'time not set') + '</button></div>'
+      : '<div class="stksub">' + esc(stackKindWord(s.kind) + (usual ? ' · usual ' + usual : '') + ' · not taken') + '</div>';
+    return '<div class="stkrow' + (e ? ' stkon' : '') + '">'
+      + '<label class="stktick"><input type="checkbox"' + (e ? ' checked' : '')
+      + ' onchange="stackCheck(\'' + sid + '\')"'
       + ' aria-label="' + esc(s.name) + '"><span class="stkname">' + esc(s.name) + '</span></label>'
-      + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>' + flag + '</div>';
+      + what + stackEditorHTML_(s, e) + flag + '</div>';
   }).join('');
-  const n = on.length - Object.keys(STACK_SKIP).length;
-  return '<div class="qsheet"><div class="rpthead">Your daily stack · untick anything you skipped</div>'
-    + rows
-    + '<button type="button" class="btn stklog" onclick="stackConfirm()"'
-    + (n > 0 ? '' : ' disabled') + '>'
-    + (n > 0 ? ('Log ' + esc(String(n)) + ' of ' + esc(String(on.length))) : 'Nothing ticked')
-    + '</button>'
-    + '<button type="button" class="linklike stkback" onclick="stackCancel()">back to the list</button>'
-    + '</div>';
+  return '<div class="qsheet stksec">' + head + rows + '</div>';
 }
+// ---- R246: THE EXPORT SAYS TAKEN AND NOT TAKEN ---------------------------------
+// Derived from the log for reading, like nothing else in the file: restore does
+// not read it (the entries it is made from are in `timeline` and `days`). Each
+// stack item is reported from its first taken day on, over the days the log holds:
+// "taken" with every dose's time, amount and what the user stated, or "not taken".
+const STACK_EXPORT_VERSION = 1;
+function exportStackDays() {
+  const on = stackEnabled();
+  const days = {};
+  if (!on.length) return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, days: days };
+  const keys = Object.keys(Object.assign({}, APP_STATE.days || {}, APP_STATE.timeline || {})).filter(isDayKey).sort();
+  // From the first day the stack was used at all -- or today, if it never has
+  // been -- every enabled item is reported on every day the log holds. Found by
+  // stackcheck-gate: bounded per item at its own first taken day, an item never
+  // taken was never reported, and "not taken" was missing exactly where it applied.
+  let start = '';
+  for (let i = 0; i < keys.length && !start; i++) {
+    if (on.some(function (s) { return stackTaken(s, keys[i]).length > 0; })) start = keys[i];
+  }
+  const today = localDate();
+  if (!start || today < start) start = today;
+  keys.filter(function (dk) { return dk >= start; }).forEach(function (dk) {
+    days[dk] = on.map(function (s) {
+      const t = stackTaken(s, dk);
+      const row = { name: s.name, kind: stackKindOf(s.kind), status: t.length ? 'taken' : 'not taken' };
+      if (t.length) row.doses = t.map(function (e) {
+        const d = { time: String(e.rec.time || '') };
+        if (e.where === 'day') { if (e.rec.grams != null) { d.amount = e.rec.grams; d.unit = 'g'; } }
+        else if (e.rec.dose != null) { d.amount = e.rec.dose; d.unit = e.rec.dose_unit || ''; }
+        if (Array.isArray(e.rec.stated) && e.rec.stated.length) d.stated = e.rec.stated.slice();
+        return d;
+      });
+      return row;
+    });
+  });
+  return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, days: days };
+}
+const STACK_EXPORT_NOTE = 'Derived from the log for reading; not read on restore. From the first day the stack was used (or today), each item in the stack is "taken" with every dose, or "not taken", on each day the log holds. An item added to the stack later is reported on earlier days too.';
 
 // ---- R203: THE STACK EDITOR --------------------------------------------------
 //
@@ -7903,6 +8139,10 @@ function normalizeSignal(raw) {
     if (dmi) rec.micros = dmi;
     // R213: supplement or medication -- kept in the record, not only in the label.
     if (raw.stackKind === 'supplement' || raw.stackKind === 'medication') rec.stackKind = raw.stackKind;
+    // R246: which stack item this dose is, and what the user changed from its usual.
+    if (raw.stackId != null && String(raw.stackId) !== '') rec.stackId = String(raw.stackId);
+    const stS = normalizeStated(raw.stated);
+    if (stS) rec.stated = stS;
   } else {
     rec.unit = String(raw.unit == null ? '' : raw.unit) || (spec ? spec.unit : '');
     if (raw.value != null && String(raw.value) !== '') {
@@ -15006,6 +15246,7 @@ const VERSION_LOG = [
   { v: '0.106.0', d: '2026-10-20', note: 'Search, a photo’s food and a food not yet counted can now also be looked up in USDA FoodData Central, for packaged foods and typical recipes. It needs your own free key, entered under Settings. Nothing is sent until you tap the search, and nothing is used until you pick a row; None of these fits is always above the list.' },
   { v: '0.106.1', d: '2026-10-20', note: 'After Ask my AI for other names, the photo search keeps what you typed: the field and the Use with no nutrition button show your words, and tapping it saves them, not the last name your AI suggested.' },
   { v: '0.107.0', d: '2026-10-20', note: 'Search shows your own foods first, then foods you logged before that had no match in the food database. One tap logs one of those again as last time.' },
+  { v: '0.108.0', d: '2026-10-20', note: 'Your daily stack is now one row per item. Tick an item when you take it: it is logged now at its usual dose, and the row shows the dose and the time. Tap either to change it. Untick to take it back, with Undo. Took all ticks everything not yet taken. An item left unticked counts as not taken that day, and your backup file says so.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -19931,6 +20172,8 @@ function openSheet(mode) {
   if (sheet) sheet.style.display = 'flex';
   if (scrim) scrim.style.display = 'block';
   overlaySync();
+  // R246: every + Log opens with the stack collapsed -- its count and Took all.
+  STACK_OPEN = false; STACK_EDIT = null;
   // RULED: the default is ROOT, not scan. The device finding was that '+ Log'
   // opened the camera-and-barcode path while the stack, the combos and the top 10
   // sat behind another button -- and the default argument was the whole split.
@@ -24151,7 +24394,8 @@ window.HT = {
   STACK_KINDS, IU_TO_UG, doseToMicro, normalizeStackItem, normalizeStack,
   normalizeSupplementNutrients, stackPlan, logStack, migrateV12toV13,
   INTAKE_LIMITS, intakeFlag, intakeFlagText, stackSheetHTML, stackRowSub,
-  stackOpen, stackCancel, stackToggle, stackConfirm,
+  stackOpen, stackCancel, stackCheck, stackUncheck, stackTookAll, stackTaken, stackEditOpen, stackEditClose,
+  stackSaveTime, stackSaveDose, exportStackDays, normalizeStated, stackWriteOne,
   // COMBOS (schema v14)
   comboStepHTML, comboFromItems, renameCombo, deleteCombo, setComboPartGrams,
   normalizeCombo, normalizeCombos, normalizeComboPart, normalizePublished,
@@ -24341,7 +24585,7 @@ window.HT = {
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
-  stackSheetHTML, stackOpen, stackToggle, stackConfirm, stackCancel, mealKindGroups, GROUP_SPLIT_MIN,
+  stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,
   MYFOOD_BASES, normalizeMyFood, normalizeMyFoods, myFoods, myFoodUpsert, myFoodRemove, myFoodsMatch, myFoodPart, myFoodWords,

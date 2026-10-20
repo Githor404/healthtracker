@@ -1097,7 +1097,18 @@
    which font-floor-gate holds), and every class is prefixed `stk` -- checked
    against the stylesheet before being written, which is what `.qrow` taught: the
    one you style is not the only one you style. */
-.stkopen{width:100%;min-height:44px;font-size:16px}
+/* R246: the stack's head -- the count and Took all -- and a checked row's dose and time */
+.stkhead{display:flex;gap:8px;align-items:stretch}
+.stkopen{flex:1 1 auto;min-width:0;min-height:44px;font-size:16px;text-align:left}
+.stkall{flex:0 0 auto;min-height:44px;font-size:16px}
+.stkalldone{flex:0 0 auto;align-self:center;font-size:16px;color:var(--muted)}
+.stkdone{display:flex;gap:8px;flex-wrap:wrap}
+.stkdose,.stktime{min-height:44px;min-width:44px;font-size:16px}
+.stked1{display:grid;gap:6px;margin:6px 0 4px}
+.stkedrow{display:flex;gap:8px}.stkedrow .stkedin{flex:1 1 auto;min-width:0}
+.stkedin{min-height:44px;font-size:16px;padding:8px;box-sizing:border-box}
+.stkedlab,.stkedunit{font-size:16px;color:var(--muted);align-self:center}
+.stkednow,.stkedsave{min-height:44px;font-size:16px}.stkedx{min-height:44px;font-size:16px;text-align:left}
 .stkrow{display:grid;gap:2px;padding:8px 0;border-bottom:1px solid var(--line)}
 .stkoff{opacity:.55}
 .stktick{display:flex;align-items:center;gap:10px;min-height:44px;font-size:16px}
@@ -1720,7 +1731,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <details id="stackDetails">
         <summary>Daily stack</summary>
         <div id="stackEditor"></div>
-        <div class="note">What you take every day. Nothing here is ever logged by itself: you log it with one tap from + Log, &ldquo;Took my daily stack&rdquo;, and untick anything you skipped that day.</div>
+        <div class="note">What you take every day. Nothing here is ever logged by itself: you log it from + Log, under &ldquo;Daily stack&rdquo;: tick each item when you take it, or tap Took all. An item left unticked is not taken that day.</div>
       </details>
     </div>
     <div class="card" data-setting="foods">

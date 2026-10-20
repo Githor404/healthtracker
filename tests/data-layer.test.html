@@ -736,16 +736,19 @@ window.setLS({});
   res(skDel.ok !== false && HT.state().days[td].items.indexOf(skFood) < 0, 'R203 GATE: a stack entry in the day is DELETABLE');
   HT.doUndo();
   res(HT.state().days[td].items.filter(function (x) { return x.name === 'Oil, olive'; }).length === 2, 'R203 GATE: ...with Undo');
-  // the confirm's own Undo takes back the whole act, day and timeline together
-  HT.stackOpen();
-  var skBefore = { i: HT.state().days[td].items.length, t: (HT.state().timeline[td] || []).length };
-  HT.stackConfirm();
-  res(HT.state().days[td].items.length === skBefore.i + 1 && HT.state().timeline[td].length === skBefore.t + 3, 'R203: the confirm writes the four');
+  // Took all's own Undo takes back the whole act, day and timeline together (R246:
+  // Took all is the old confirm's write, skipping what is already checked).
+  var skKeepI = HT.state().days[td].items.slice(), skKeepT = (HT.state().timeline[td] || []).slice();
+  HT.state().days[td].items = []; HT.state().timeline[td] = [];
+  var skBefore = { i: 0, t: 0 };
+  HT.stackTookAll();
+  res(HT.state().days[td].items.length === skBefore.i + 1 && HT.state().timeline[td].length === skBefore.t + 3, 'R203 / R246: Took all writes the four');
   HT.doUndo();
   res(HT.state().days[td].items.length === skBefore.i && HT.state().timeline[td].length === skBefore.t,
-      'R203 GATE: ONE Undo on the confirm takes back all four -- the day item and the timeline doses together. It was a bare notice with no way back');
+      'R203 GATE: ONE Undo on Took all takes back all four -- the day item and the timeline doses together. It was a bare notice with no way back');
+  HT.state().days[td].items = skKeepI; HT.state().timeline[td] = skKeepT;
   var skRm = HT.stackItemRemove(sk2.item.id);
-  res(skRm.ok === true && HT.state().settings.stack.length === 3 && HT.stackSheetHTML().indexOf('3 items') > 0, 'R203: an item can be REMOVED from the stack, and the Log sheet counts what is left');
+  res(skRm.ok === true && HT.state().settings.stack.length === 3 && HT.stackSheetHTML().indexOf('of 3 taken') > 0, 'R203: an item can be REMOVED from the stack, and the Log sheet counts what is left');
   HT.doUndo();
   res(HT.state().settings.stack.length === 4 && HT.state().settings.stack[1].name === 'Vitamin D', 'R203: ...with Undo, back in its place');
   res(HT.stackEditorHTML().indexOf('Capsule A') > 0 && HT.stackEditorHTML().indexOf('Add an item') > 0 && HT.stackEditorHTML().indexOf('with breakfast') < 0
@@ -11191,27 +11194,26 @@ window.setLS({});
       nutrients: { micros: { vitamin_d_ug: 150 } } },
     { id: 'd1', name: 'Capsule A', kind: 'dose', dose: 600, dose_unit: 'mg', bioactive: 'ash' },
   ]);
+  // R246 replaced the untick-then-confirm sheet: each row is checked when TAKEN.
+  HT.state().timeline = {}; HT.state().days[kKey].items = [];
   HT.stackCancel();
   var sh0 = HT.stackSheetHTML();
-  res(sh0.indexOf('Took my daily stack') >= 0 && sh0.indexOf('2 items') >= 0,
-      'R168/2 GATE: the sheet offers ONE tap that names how many items it will log');
+  res(sh0.indexOf('Daily stack · 0 of 2 taken') >= 0 && sh0.indexOf('Took all') >= 0 && sh0.indexOf('type="checkbox"') < 0,
+      'R168/2 / R246 GATE: the sheet opens COLLAPSED -- one line naming how many of the stack are taken, and Took all beside it');
   HT.stackOpen();
   var sh1 = HT.stackSheetHTML();
   res((sh1.match(/type="checkbox"/g) || []).length === 2
-      && (sh1.match(/ checked/g) || []).length === 2,
-      'R168/2 GATE: opening it shows every item TICKED -- ruling D-D, untick before the write');
-  res(sh1.indexOf('Log 2 of 2') >= 0,
-      'R168/2 GATE: and the button states what it will log, so the count is read before the tap and not after');
-  HT.stackToggle('d1');
+      && (sh1.match(/ checked/g) || []).length === 0 && (sh1.match(/not taken/g) || []).length === 2,
+      'R246 GATE: opened, every item is a checkbox row, UNCHECKED until taken, saying "not taken"');
+  HT.stackCheck('d1');
   var sh2 = HT.stackSheetHTML();
-  res((sh2.match(/ checked/g) || []).length === 1 && sh2.indexOf('Log 1 of 2') >= 0,
-      'R168/2 GATE: unticking one drops it from the count the button states');
-  res(sh2.indexOf('stkoff') >= 0,
-      'R168/2 GATE: ...and the row it unticked is visibly dimmed rather than silently different');
-  HT.stackToggle('v1');
-  res(HT.stackSheetHTML().indexOf('Nothing ticked') >= 0,
-      'R168/2 GATE: with everything unticked the button says so instead of offering to log nothing');
-  HT.stackToggle('v1'); HT.stackToggle('d1');
+  res((sh2.match(/ checked/g) || []).length === 1 && sh2.indexOf('1 of 2 taken') >= 0 && sh2.indexOf('stkon') >= 0
+      && sh2.indexOf('600 mg') >= 0 && sh2.indexOf('08:30') >= 0,
+      'R246 GATE: ONE TAP checks it -- the count moves to 1 of 2, and the row shows the usual dose and the time it was taken');
+  HT.stackCheck('v1');
+  res(HT.stackSheetHTML().indexOf('all taken') >= 0 && HT.stackSheetHTML().indexOf('Took all') < 0,
+      'R246: with everything taken, Took all gives way to "all taken"');
+  HT.stackUncheck('v1'); HT.stackUncheck('d1');
 
   // THE FLAG. Stated, sourced, and NOT an instruction.
   var fl = HT.intakeFlag('vitamin_d_ug', 150);
@@ -11242,7 +11244,7 @@ window.setLS({});
       'R168/2 GATE: a limit missing its SOURCE produces no flag at all -- an uncited number is the one thing D32 forbids, so it is absent rather than bare');
   HT.INTAKE_LIMITS.vitamin_d_ug.org = _savedOrg;
   HT.stackCancel();
-  res(HT.stackSheetHTML().indexOf('Took my daily stack') >= 0,
+  res(HT.stackSheetHTML().indexOf('Daily stack ·') >= 0,
       'R168/2 CONTROL: ...and restoring the citation brings the sheet back, so the assertion above measured the citation and not a broken fixture');
   HT.state().settings.stack = [];
   res(HT.stackSheetHTML() === '',
@@ -11252,6 +11254,96 @@ window.setLS({});
   HT.state().days = _kDays; HT.state().current = _kCur;
   HT.state().settings = JSON.parse(JSON.stringify(_kSet));
   HT.state().timeline = _kTl;
+
+  // ---- R246 PART 1: ONE ROW PER STACK ITEM, CHECKED WHEN TAKEN --------------------
+  // Synthetic items only, never the user's stack (R204).
+  var _gDays = HT.state().days, _gCur = HT.state().current, _gTl = HT.state().timeline;
+  var _gSet = JSON.parse(JSON.stringify(HT.state().settings));
+  var gPart = { name: 'Gate oil row', grams: 10, kcal: 90, fat_g: 10, protein_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'corpus',
+                ref: { ns: 'cnf', id: '9', name: 'Gate oil row', hash: 'h', attribution: 'CNF', g: 10, v: { '208': 90, '204': 10 } } };
+  HT.setClock(function () { return new Date(2026, 9, 11, 7, 0, 0).getTime(); });
+  var gY = HT.todayKey();
+  HT.state().days = {}; HT.state().timeline = {};
+  HT.state().days[gY] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().current = gY;
+  HT.state().settings.stack = HT.normalizeStack([
+    { id: 'g1', name: 'Gate D', kind: 'supplement', dose: 1000, dose_unit: 'IU', nutrients: { micros: { vitamin_d_ug: 25 } } },
+    { id: 'g2', name: 'Gate capsule', kind: 'medication', dose: 2, dose_unit: 'capsule' },
+    { id: 'g3', name: 'Gate oil', kind: 'food', part: gPart } ]);
+  var gAll1 = HT.stackTookAll();
+  res(gAll1.ok === true && gAll1.records.length === 2 && gAll1.items.length === 1
+      && gAll1.records.every(function (r) { return !!r.stackId; }) && gAll1.items[0].stackId === 'g3',
+      'R246: Took all writes every item, and each entry carries the stack item it came from');
+  // the next morning, 08:10
+  HT.setClock(function () { return new Date(2026, 9, 12, 8, 10, 0).getTime(); });
+  var gT = HT.todayKey();
+  HT.state().days[gT] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().current = gT;
+  var gC = HT.stackCheck('g1');
+  var gR = gC.record || {};
+  res(gC.ok === true && gR.name === 'Gate D' && gR.dose === 1000 && gR.dose_unit === 'IU' && gR.time === '08:10' && gR.stackId === 'g1'
+      && gR.stackKind === 'supplement' && gR.stated === undefined && HT.state().timeline[gT].length === 1,
+      'R246 GATE: ONE TAP = taken NOW at the USUAL dose -- 1000 IU at 08:10, nothing stated by the user', JSON.stringify(gR));
+  res(gR.micros && gR.micros.vitamin_d_ug === 25, 'R246: the dose carries what it counts toward, as the stack tap always has (R208)');
+  // the dose and the time, edited
+  var gD = HT.stackSaveDose('g1', '2000', 'IU');
+  res(gD.ok === true && gR.dose === 2000 && gR.micros.vitamin_d_ug === 50 && String(gR.stated) === 'dose',
+      'R246 GATE: an edited dose is the dose -- 2000 IU, its vitamin D re-expressed (50 micrograms), and marked STATED BY THE USER');
+  var gTm = HT.stackSaveTime('g1', '07:45');
+  res(gTm.ok === true && gR.time === '07:45' && String(gR.stated) === 'dose,time', 'R246: an edited time likewise -- 07:45, stated');
+  var gRt = HT.normalizeTimeline(JSON.parse(JSON.stringify(HT.state().timeline)))[gT][0];
+  res(gRt.stackId === 'g1' && String(gRt.stated) === 'dose,time' && gRt.dose === 2000 && gRt.time === '07:45',
+      'R246 GATE: AN EDIT PERSISTS -- through the restore boundary the dose, the time, the stack link and what was stated all survive');
+  res(HT.stackSaveDose('g1', '3', 'capsule').ok === true && gR.micros === undefined && gR.dose_unit === 'capsule',
+      'R246: in ANOTHER unit the dose counts toward nothing -- no conversion is invented');
+  res(HT.stackSaveDose('g1', '', 'IU').ok === false && HT.stackSaveTime('g1', 'soon').ok === false,
+      'R246: no amount, or no time, is refused');
+  HT.stackSaveDose('g1', '1000', 'IU');
+  // the food's amount is its grams
+  HT.stackCheck('g3');
+  var gF = HT.stackTaken(HT.state().settings.stack[2], gT)[0].rec;
+  res(gF.grams === 10 && Math.round(gF.kcal) === 90 && HT.stackSaveDose('g3', '15').ok === true && gF.grams === 15 && Math.round(gF.kcal) === 135 && String(gF.stated) === 'dose',
+      'R246: a stack FOOD-s amount is its grams -- 15 g re-counts it to 135 cal, stated');
+  // UNCHECKED = NOT TAKEN, in the export
+  var gX = JSON.parse(HT.exportJSON()).stackDays;
+  var gXd = (gX.days[gT] || []).map(function (r) { return r.name + ':' + r.status; }).join(',');
+  res(gXd === 'Gate D:taken,Gate capsule:not taken,Gate oil:taken',
+      'R246 GATE: AN UNCHECKED ITEM IS "NOT TAKEN" that day, and the export says so beside "taken"', gXd);
+  var gXo = (gX.days[gT] || [])[0];
+  res(gXo.doses.length === 1 && gXo.doses[0].time === '07:45' && gXo.doses[0].amount === 1000 && gXo.doses[0].unit === 'IU' && String(gXo.doses[0].stated) === 'dose,time'
+      && (gX.days[gY] || []).every(function (r) { return r.status === 'taken'; }),
+      'R246: "taken" carries each dose-s time, amount and what the user stated; the day before reads all taken');
+  // UNCHECK, with Undo
+  var gU = HT.stackUncheck('g1');
+  res(gU.ok === true && HT.stackTaken(HT.state().settings.stack[0], gT).length === 0 && JSON.parse(HT.exportJSON()).stackDays.days[gT][0].status === 'not taken',
+      'R246 GATE: UNCHECK removes it -- the item is not taken that day');
+  HT.doUndo();
+  res(HT.stackTaken(HT.state().settings.stack[0], gT).length === 1 && HT.stackTaken(HT.state().settings.stack[0], gT)[0].rec.time === '07:45',
+      'R246: ...with Undo, the same record back');
+  // TOOK ALL, THEN UNCHECK ONE -> N-1
+  HT.state().timeline[gT] = []; HT.state().days[gT].items = [];
+  var gA = HT.stackTookAll();
+  var gN = HT.state().settings.stack.filter(function (x) { return HT.stackTaken(x, gT).length > 0; }).length;
+  HT.stackUncheck('g2');
+  var gN1 = HT.state().settings.stack.filter(function (x) { return HT.stackTaken(x, gT).length > 0; }).length;
+  res(gA.ok === true && gN === 3 && gN1 === 2 && HT.state().timeline[gT].length === 1 && HT.state().days[gT].items.length === 1,
+      'R246 GATE: TOOK ALL, THEN UNCHECK ONE -> N-1 -- three taken, then two, the unchecked dose gone from the timeline');
+  res(HT.stackTookAll().records.length === 1 && HT.stackTookAll().ok === false,
+      'R246: Took all takes only what is not yet checked -- the one left -- and then has nothing to take');
+  // an entry logged before R246 (no stackId) still reads as taken, by name
+  HT.state().timeline[gT] = [HT.normalizeSignal({ kind: 'medication', name: 'Gate capsule', dose: 2, dose_unit: 'capsule', time: '06:00', source: 'stack' })];
+  res(HT.stackTaken(HT.state().settings.stack[1], gT).length === 1 && HT.stackTaken(HT.state().settings.stack[0], gT).length === 0,
+      'R246: a dose logged by the old sheet (no stack link) still checks its row, matched by name -- and no other');
+  // Found by stackcheck-gate: an item NEVER taken was not reported at all, so "not
+  // taken" was missing exactly where it applied.
+  HT.state().days = {}; HT.state().timeline = {};
+  HT.state().days[gT] = { status: 'in_progress', items: [], water_l: 0 };
+  var gZ = JSON.parse(HT.exportJSON()).stackDays.days;
+  res(Object.keys(gZ).join(',') === gT && gZ[gT].map(function (r) { return r.status; }).join(',') === 'not taken,not taken,not taken',
+      'R246 GATE: with nothing ever taken, today still reads every item "not taken" -- not silence', JSON.stringify(gZ));
+  HT.setClock(null);
+  HT.state().days = _gDays; HT.state().current = _gCur; HT.state().timeline = _gTl;
+  HT.state().settings = JSON.parse(JSON.stringify(_gSet));
 
   // ---- B1: THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ---------
   //

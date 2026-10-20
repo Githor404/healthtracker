@@ -219,7 +219,7 @@ try {
   $subs = EvalJ "(function(){ return Array.prototype.map.call(document.querySelectorAll('#sheetRoot .stkrow .stksub'), function (e) { return e.textContent.split(' ')[0]; }); })()"
   Check ([string]$subs -eq '["Food","Supplement","Medication"]') "R213/B2: each row on the Log sheet leads with its kind's word"
   $k0d = EvalJ "(function(){ return { kcal: HT.dayTotals(HT.state().days[HT.todayKey()]).kcal, fat: HT.dayTotals(HT.state().days[HT.todayKey()]).fat_g }; })()"
-  [void](Eval "(function(){ document.querySelector('#sheetRoot .stklog').click(); HT.closeSheet(); Array.prototype.forEach.call(document.querySelectorAll('#dayView .mghead'), function (h) { if (h.className.indexOf('bghead') < 0 && h.getAttribute('aria-expanded') !== 'true') h.click(); }); return 1; })()")
+  [void](Eval "(function(){ document.querySelector('#sheetRoot .stkall').click(); HT.closeSheet(); Array.prototype.forEach.call(document.querySelectorAll('#dayView .mghead'), function (h) { if (h.className.indexOf('bghead') < 0 && h.getAttribute('aria-expanded') !== 'true') h.click(); }); return 1; })()")
   Settle
   $day = EvalJ @'
 (function () {
