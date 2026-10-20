@@ -173,6 +173,12 @@ FOUND=$(printf '%s\n' "$MATCHES" | awk '
 # R221/2: `clearDay` is EXEMPT for removeMed's and deleteItem's reason exactly: the
 # water entries it pushes back are in its UNDO, the snapshot of the records it
 # cleared, with the stamps they already had.
+# C (v0.107.0): `searchLogMine` and `searchWriteEarlier` are STAMPED. The first
+# writes one of the user's own foods at typed grams with tzo: nowTZO(); the second
+# is logRepeat's copy (buildRepeatItem sets tzo: nowTZO()) at Search's meal. Their
+# own sites rather than callers of searchLog: neither has a database row, so
+# neither is a plate of corpusOwnNumbers. R254: the row tap, the edited amount and
+# "Log without nutrition" all write through `searchWriteEarlier`.
 MANIFEST=$(cat <<'EOF'
 addManualEntry
 addMedFill
@@ -190,6 +196,8 @@ quickAddLog
 logStack
 logCombo
 searchLog
+searchLogMine
+searchWriteEarlier
 itemAttachPlate
 deleteItem
 logScanItem

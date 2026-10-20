@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.106.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.107.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -15005,6 +15005,7 @@ const VERSION_LOG = [
   { v: '0.105.0', d: '2026-10-19', note: 'The update notice is now one line; tap what’s new to read it. A meal you logged can be saved as a combo from its own block, ready to name. The stack’s group on the day is now called Daily stack. A few small texts are larger.' },
   { v: '0.106.0', d: '2026-10-20', note: 'Search, a photo’s food and a food not yet counted can now also be looked up in USDA FoodData Central, for packaged foods and typical recipes. It needs your own free key, entered under Settings. Nothing is sent until you tap the search, and nothing is used until you pick a row; None of these fits is always above the list.' },
   { v: '0.106.1', d: '2026-10-20', note: 'After Ask my AI for other names, the photo search keeps what you typed: the field and the Use with no nutrition button show your words, and tapping it saves them, not the last name your AI suggested.' },
+  { v: '0.107.0', d: '2026-10-20', note: 'Search shows your own foods first, then foods you logged before that had no match in the food database. One tap logs one of those again as last time.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -21400,7 +21401,252 @@ function searchRowsHTML() {
   const fdc = (q.length >= TYPEAHEAD_MIN && (st.phase === 'rows' || st.phase === 'none' || st.phase === 'no-corpus'))
     ? fdcBlockHTML(st.fdc, [q], { run: 'searchFdcRun', pick: 'searchFdcPick', close: 'searchFdcClose' }, '')
     : '';
-  return exit + typeaheadRowsHTML(st, 'searchPickAt') + fdc;
+  return (st.reprise ? searchRepriseHTML(st) : exit) + searchMineHTML(st) + typeaheadRowsHTML(st, 'searchPickAt') + fdc;
+}
+// ---- C (R213 + R237/C3): THE USER'S OWN, ABOVE THE DATABASE -------------------
+// Two groups, both the user's and both short, so neither is ranked against the
+// database: their own foods (R213), then foods they logged before that no
+// database row answers (R237/C3 -- done for photos in v0.104.0, the Search half
+// here). Shown once the typed words are long enough, with or without a corpus.
+const SEARCH_EARLIER_MAX = 3;
+function searchWordsMatch(text, name) {
+  const q = String(text == null ? '' : text).toLowerCase().match(/[a-z0-9]+/g) || [];
+  if (!q.length) return false;
+  const w = String(name == null ? '' : name).toLowerCase().match(/[a-z0-9]+/g) || [];
+  return q.every(function (t) { return w.some(function (x) { return x.indexOf(t) === 0; }); });
+}
+// An earlier item is UNMATCHED when no row is linked to it: no `ref` -- whatever
+// it counts from (the user's numbers, the AI's estimate, a suggestion, or
+// nothing). Newest first, one per name (matchKey), at most three. A stack entry,
+// an auto-added one and a my-food are not offered here: the stack has its own
+// door, and a my-food is already the row above. "Log a drink" offers drinks only.
+function searchEarlier(text, opts) {
+  const o = opts || {};
+  if (String(text == null ? '' : text).trim().length < TYPEAHEAD_MIN) return [];
+  const mine = {};
+  myFoods().forEach(function (f) { const k = matchKey(f.name); if (k) mine[k] = 1; });
+  const days = Object.keys((APP_STATE && APP_STATE.days) || {}).filter(isDayKey).sort().reverse();
+  const seen = {}, out = [];
+  for (let i = 0; i < days.length && out.length < SEARCH_EARLIER_MAX; i++) {
+    const items = APP_STATE.days[days[i]].items || [];
+    for (let j = items.length - 1; j >= 0 && out.length < SEARCH_EARLIER_MAX; j--) {
+      const it = items[j];
+      if (!it || isLegacyAuto(it) || it.ref || it.source === 'corpus') continue;
+      if (it.source === 'supplement' || it.meal === 'supplement' || it.stackKind || it.basis) continue;
+      if (o.drinks && it.meal !== 'drink') continue;
+      const k = matchKey(it.name);
+      if (!k || seen[k] || mine[k] || !searchWordsMatch(text, it.name)) continue;
+      seen[k] = 1;
+      out.push({ date: days[i], idx: j, name: String(it.name), item: it });
+    }
+  }
+  return out;
+}
+// What one tap will log, said on the row: last time's count. The amount is its
+// own control beside it (R254/1).
+function searchEarlierWords(e) {
+  const it = e.item;
+  return 'Log again as last time (' + fmtDateSmart(e.date, false) + '): ' + kcalDisp(it.kcal) + ' cal'
+    + (it.provisional === true ? ', suggested' : (USER_NUMBER_SOURCES.indexOf(it.source) >= 0 ? ', your numbers' : ', an estimate'));
+}
+// R254/1: a row with numbers is TWO targets -- the row logs at once at the amount
+// shown; the amount opens an editor first (the stack rows' pattern, R246). R254/2:
+// a row with NO numbers is one target, and it opens the picker -- it never re-logs
+// a food with nothing behind it.
+function searchEarlierRowHTML(e, i) {
+  const it = e.item;
+  if (!itemHasMacros(it)) {
+    return '<button type="button" class="btn fqrow fqearlier fqenone" onclick="searchRepriseOpen(' + i + ')">'
+      + '<span class="fqnm">' + esc(e.name) + '</span><span class="fqmac">No numbers last time — pick a food</span></button>';
+  }
+  const g = num(it.grams) > 0 ? num(it.grams) : 0;
+  return '<div class="fqerow"><button type="button" class="btn fqrow fqearlier" onclick="searchLogEarlier(' + i + ')">'
+    + '<span class="fqnm">' + esc(e.name) + '</span><span class="fqmac">' + esc(searchEarlierWords(e)) + '</span></button>'
+    + (g ? '<button type="button" class="btn fqamt" onclick="searchEarlierAmount(' + i + ')" aria-label="change the amount, now '
+      + esc(rDisp(g)) + ' g">' + esc(rDisp(g)) + ' g<span class="fqamtw">change</span></button>' : '')
+    + '</div><div id="fqEarlyEdit' + i + '"></div>';
+}
+function searchMineHTML(st) {
+  const q = String(st.q || '');
+  if (q.trim().length < TYPEAHEAD_MIN) { st.mineRows = []; st.earlier = []; return ''; }
+  st.mineRows = myFoodsMatch(q);
+  // While a not-counted food is being given numbers, the list under it is the
+  // picker's: offering the same food back again would be a loop.
+  st.earlier = st.reprise ? [] : searchEarlier(q, { drinks: !!st.asDrink });
+  st.earlyEdit = null;
+  let h = '';
+  if (st.mineRows.length) {
+    h += '<div class="fqcap">Your foods</div>' + st.mineRows.map(function (f, i) {
+      return '<button type="button" class="btn fqrow fqown" onclick="searchPickMine(' + i + ')">'
+        + '<span class="fqnm">' + esc(f.name) + '</span><span class="fqmac">' + esc(myFoodWords(f)) + '</span></button>';
+    }).join('');
+  }
+  if (st.earlier.length) {
+    h += '<div class="fqcap">You logged before, with no food database match</div>'
+      + st.earlier.map(searchEarlierRowHTML).join('');
+  }
+  return h;
+}
+// A my-food goes to the same amount step, its serving filled in where it has one.
+function searchPickMine(i) {
+  const st = FOOD_SEARCH;
+  const f = st && st.mineRows && st.mineRows[num(i)];
+  if (!f) return { ok: false, why: 'no-such-row' };
+  // `myFood`, never `mine`: a database row already carries `mine`, the count behind
+  // "you logged this before" (typeaheadMineFirst).
+  st.pick = { myFood: true, food: f, name: f.name }; st.grams = f.serving_g > 0 ? num(f.serving_g) : null;
+  const el = document.getElementById('searchBox');
+  if (el) el.innerHTML = searchStepHTML();
+  return { ok: true, name: f.name, grams: st.grams };
+}
+// R254/1: THE AMOUNT, EDITED FIRST. Drawn once under its row (the caret rule);
+// a keystroke redraws only the button under the field.
+function searchEarlierAmount(i) {
+  const st = FOOD_SEARCH;
+  const e = st && st.earlier && st.earlier[num(i)];
+  if (!e || !(num(e.item.grams) > 0)) return { ok: false, why: 'no-amount' };
+  (st.earlier || []).forEach(function (x, n) { const o = document.getElementById('fqEarlyEdit' + n); if (o) o.innerHTML = ''; });
+  st.earlyEdit = { i: num(i), grams: num(e.item.grams) };
+  const el = document.getElementById('fqEarlyEdit' + num(i));
+  if (el) {
+    el.innerHTML = '<div class="fqeedit"><label class="fqlab" for="fqEarlyG">How much, in grams</label>'
+      + '<input id="fqEarlyG" type="number" class="fqin" inputmode="decimal" min="0" value="' + esc(rDisp(e.item.grams)) + '"'
+      + ' oninput="searchEarlierGrams(this.value)" aria-label="how much, in grams">'
+      + '<div id="fqEarlyLog">' + searchEarlierLogHTML() + '</div>'
+      + '<button type="button" class="linklike fqexit" onclick="searchEarlierAmountClose()">Cancel</button></div>';
+    const f = document.getElementById('fqEarlyG'); if (f && f.focus) f.focus();
+  }
+  return { ok: true, grams: st.earlyEdit.grams };
+}
+function searchEarlierAmountClose() {
+  const st = FOOD_SEARCH;
+  if (st && st.earlyEdit) { const el = document.getElementById('fqEarlyEdit' + st.earlyEdit.i); if (el) el.innerHTML = ''; st.earlyEdit = null; }
+  return { ok: true };
+}
+function searchEarlierGrams(v) {
+  const st = FOOD_SEARCH;
+  if (!st || !st.earlyEdit) return { ok: false };
+  const g = (v == null || String(v).trim() === '') ? null : clampNonNeg(v);
+  st.earlyEdit.grams = (g != null && g > 0) ? g : null;
+  const el = document.getElementById('fqEarlyLog');
+  if (el) el.innerHTML = searchEarlierLogHTML();
+  return { ok: true, grams: st.earlyEdit.grams };
+}
+function searchEarlierLogHTML() {
+  const st = FOOD_SEARCH;
+  const ed = st && st.earlyEdit;
+  const e = ed && st.earlier[ed.i];
+  if (!e) return '';
+  const g = ed.grams;
+  const old = num(e.item.grams);
+  const words = !(g > 0) ? 'Enter an amount'
+    : (e.item.provisional === true ? ('Log ' + rDisp(g) + ' g') : ('Log ' + kcalDisp(num(e.item.kcal) * g / old) + ' cal'));
+  return '<button type="button" class="btn fqlog" onclick="searchLogEarlier(' + ed.i + ', FOOD_SEARCH && FOOD_SEARCH.earlyEdit ? FOOD_SEARCH.earlyEdit.grams : null)"'
+    + (g > 0 ? '' : ' disabled') + '>' + esc(words) + '</button>';
+}
+// ONE TAP, the repeat path's own copy (buildRepeatItem): last time's amount and
+// numbers, run through the precedence rule again, at a new time. The meal is
+// now's, as every other Search log is; a drink stays a drink. With `grams` the
+// item is re-expressed at the new amount by the one item rescale (`itemScaleTo`);
+// a suggestion is re-expressed by the repeat path itself, as a repeat's is.
+// A row with no numbers is logged only by `searchRepriseBare` -- the user's
+// explicit "Log without nutrition" (R254/2).
+function searchLogEarlier(i, grams) {
+  const st = FOOD_SEARCH;
+  const e = st && st.earlier && st.earlier[num(i)];
+  if (!e) return { ok: false, why: 'no-such-row' };
+  if (!itemHasMacros(e.item)) return { ok: false, why: 'no-numbers' };
+  return searchWriteEarlier(st, e, grams);
+}
+function searchWriteEarlier(st, e, grams) {
+  const day = dayForWrite();
+  if (!day) return { ok: false, why: 'no-day' };
+  const dk = APP_STATE.current;
+  const time = stampTime(dk);
+  const src = e.item, from = { date: e.date, name: src.name };
+  const g = num(grams), old = num(src.grams);
+  const changed = g > 0 && old > 0 && Math.abs(g - old) > 1e-9;
+  let item;
+  if (changed && src.provisional !== true) { item = buildRepeatItem(src, time, from); if (item) itemScaleTo(item, g); }
+  else item = buildRepeatItem(src, time, from, changed ? g : undefined);
+  if (!item) return { ok: false, why: 'no-item' };
+  item.meal = (st.asDrink || src.meal === 'drink') ? 'drink' : mealAtCreation('', time || nowTime());
+  if (day.status === 'complete') day.status = 'in_progress';
+  day.items.push(item);
+  Store.saveState(APP_STATE);
+  FOOD_SEARCH = null;
+  DRINK_PICKING = false;
+  closeSheet();
+  refresh();
+  offerFoodUndo(dk, item);
+  return { ok: true, item: item };
+}
+// R254/2: A FOOD THAT HAD NO NUMBERS OPENS THE PICKER, prefilled with its name --
+// the device's database, the USDA offer, "Enter from label" -- so TODAY's entry
+// gets real numbers. The earlier entry is not touched. Its grams carry into the
+// amount step of whatever is picked.
+function searchRepriseOpen(i) {
+  const st = FOOD_SEARCH;
+  const e = st && st.earlier && st.earlier[num(i)];
+  if (!e) return Promise.resolve({ ok: false, why: 'no-such-row' });
+  st.reprise = { date: e.date, idx: e.idx, name: e.name, item: e.item, grams: num(e.item.grams) > 0 ? num(e.item.grams) : null };
+  const f = document.getElementById('fqQuery');
+  if (f) f.value = e.name;
+  return searchType(e.name).then(function (r) { return Object.assign({ reprise: true, name: e.name }, r); });
+}
+function searchRepriseHTML(st) {
+  const r = st && st.reprise;
+  if (!r) return '';
+  return '<div class="fqreprise"><div class="fqsub">No numbers last time for “' + esc(r.name) + '”'
+    + (r.grams ? ' (' + esc(rDisp(r.grams)) + ' g, ' : ' (') + esc(fmtDateSmart(r.date, false)) + '). Pick a food for today’s entry:</div>'
+    + '<button type="button" class="btn fqrow fqlabel" onclick="searchRepriseLabel()">Enter from label</button>'
+    + '<button type="button" class="linklike fqexit fqbare" onclick="searchRepriseBare()">Log without nutrition</button></div>';
+}
+// "Enter from label": Manual, with the name and the grams carried in.
+function searchRepriseLabel() {
+  const st = FOOD_SEARCH;
+  const r = st && st.reprise;
+  if (!r) return { ok: false };
+  setSheetMode('manual');
+  const nm = document.getElementById('maName'); if (nm) nm.value = r.name;
+  const g = document.getElementById('maGrams'); if (g && r.grams) g.value = String(r.grams);
+  if (typeof manualType === 'function') manualType(r.name);
+  return { ok: true, name: r.name, grams: r.grams };
+}
+// The explicit choice to log it with none: the day's "not counted" line says so.
+function searchRepriseBare() {
+  const st = FOOD_SEARCH;
+  const r = st && st.reprise;
+  if (!r) return { ok: false };
+  return searchWriteEarlier(st, { date: r.date, idx: r.idx, name: r.name, item: r.item }, null);
+}
+// The user's numbers at the typed grams, through the part the stack and combos
+// already write (myFoodPart): `source: manual`, its `basis`, no `ref`.
+function searchMineBuilt(st) {
+  const f = st && st.pick && st.pick.myFood ? st.pick.food : null;
+  return f ? myFoodPart(f, st.grams) : null;
+}
+function searchLogMine() {
+  const st = FOOD_SEARCH;
+  const built = searchMineBuilt(st);
+  if (!built) return { ok: false, why: 'no-amount' };
+  const day = dayForWrite();
+  if (!day) return { ok: false, why: 'no-day' };
+  const dk = APP_STATE.current;
+  const time = stampTime(dk);
+  const raw = Object.assign({}, built, { meal: st.asDrink ? 'drink' : mealAtCreation('', time || nowTime()),
+                                          time: time, tzo: nowTZO(), notes: '', soluble_fiber_g: 0 });
+  const item = normalizeItem(raw, true);
+  applyPrecedence(item);
+  if (day.status === 'complete') day.status = 'in_progress';
+  day.items.push(item);
+  Store.saveState(APP_STATE);
+  FOOD_SEARCH = null;
+  DRINK_PICKING = false;
+  closeSheet();
+  refresh();
+  offerFoodUndo(dk, item);
+  return { ok: true, item: item };
 }
 function searchRowsPaint() {
   const el = document.getElementById('fqRows');
@@ -21423,7 +21669,7 @@ function searchFdcPick(i) {
   const st = FOOD_SEARCH;
   const c = st && st.fdc && st.fdc.rows && st.fdc.rows[num(i)];
   if (!c) return { ok: false, why: 'no-such-row' };
-  st.pick = c; st.grams = null;
+  st.pick = c; st.grams = (st.reprise && st.reprise.grams) || null;   // R254/2: the earlier amount carries
   const el = document.getElementById('searchBox');
   if (el) el.innerHTML = searchStepHTML();
   return { ok: true, id: c.id, name: c.name };
@@ -21449,7 +21695,7 @@ function searchType(text) {
 function searchRefuse() {
   const st = FOOD_SEARCH;
   const c = st && st.pick;
-  if (!c) return null;
+  if (!c || c.myFood) return null;
   const d = refuseDecide(c.meta, c.id, c.name, c.name, refuseMemory(c.id));
   if (!d) return null;
   if (typeof st.refuseUser === 'boolean') { d.applied = st.refuseUser; d.by = 'user'; }
@@ -21472,6 +21718,13 @@ function searchEdibleGrams() {
 function searchLogHTML() {
   const st = FOOD_SEARCH;
   if (!st || !st.pick) return '';
+  if (st.pick.myFood) {
+    const b = searchMineBuilt(st);
+    const t = stampTime(APP_STATE.current) || nowTime();
+    return '<div class="fqsub">' + (st.asDrink ? 'as a <b>drink</b>' : ('to <b>' + esc(mealAtCreation('', t)) + '</b>')) + '</div>'
+      + '<button type="button" class="btn fqlog" onclick="searchLog()"' + (b ? '' : ' disabled') + '>'
+      + (b ? ('Log ' + esc(kcalDisp(b.kcal)) + ' cal') : 'Enter an amount') + '</button>';
+  }
   const rfS = searchRefuse();
   const rfHTML = rfS ? refuseLineHTML(rfS, st.grams, 'searchRefuseSet(true)', 'searchRefuseSet(false)', true) : '';
   const built = corpusOwnNumbers(st.pick.meta, st.pick.row, st.pick.id, st.pick.name, searchEdibleGrams());
@@ -21484,6 +21737,20 @@ function searchStepHTML() {
   const st = FOOD_SEARCH;
   if (!st || !st.pick) return '';
   const c = st.pick;
+  if (c.myFood) {
+    const f = c.food;
+    return '<div class="fqstep">'
+      + '<div class="qsname">' + esc(f.name) + '</div>'
+      + '<div class="fqsub">Your food, ' + esc(myFoodWords(f)) + '</div>'
+      + '<div class="fqsub">These are your own numbers, ' + (f.basis === 'label' ? 'from its label' : 'generic values you entered') + ', for the amount you enter.</div>'
+      + '<label class="fqlab" for="fqGrams">How much, in grams</label>'
+      + '<input id="fqGrams" type="number" class="fqin" inputmode="decimal" min="0"'
+      + (st.grams ? ' value="' + esc(rDisp(st.grams)) + '"' : '')
+      + ' oninput="searchGrams(this.value)" aria-label="how much, in grams">'
+      + '<div id="fqLog">' + searchLogHTML() + '</div>'
+      + '<button type="button" class="linklike fqexit" onclick="searchBack()">back to the list</button>'
+      + '</div>';
+  }
   const cite = String((c.meta && c.meta.attribution) || '');
   return '<div class="fqstep">'
     + '<div class="qsname">' + esc(c.name) + '</div>'
@@ -21498,6 +21765,7 @@ function searchStepHTML() {
         : 'They are the database’s figures for a typical one, not a label’s.') + '</div>'
     + '<label class="fqlab" for="fqGrams">How much, in grams</label>'
     + '<input id="fqGrams" type="number" class="fqin" inputmode="decimal" min="0"'
+    + (st.grams ? ' value="' + esc(rDisp(st.grams)) + '"' : '')
     + ' oninput="searchGrams(this.value)" aria-label="how much, in grams">'
     + '<div id="fqLog">' + searchLogHTML() + '</div>'
     + '<button type="button" class="linklike fqexit" onclick="searchBack()">back to the list</button>'
@@ -21508,7 +21776,7 @@ function searchPickAt(i) {
   const c = st && st.rows[num(i)];
   if (!c) return { ok: false, why: 'no-such-row' };
   if (!c.row || c.kcal == null) return { ok: false, why: 'no-numbers' };
-  st.pick = c; st.grams = null;
+  st.pick = c; st.grams = (st.reprise && st.reprise.grams) || null;   // R254/2: the earlier amount carries
   const el = document.getElementById('searchBox');
   if (el) el.innerHTML = searchStepHTML();
   return { ok: true, id: c.id, name: c.name };
@@ -21525,7 +21793,9 @@ function searchGrams(v) {
 }
 function searchBack() {
   const q = FOOD_SEARCH ? FOOD_SEARCH.q : '';
+  const rp = FOOD_SEARCH ? FOOD_SEARCH.reprise : null;
   renderSearchPane();
+  if (rp && FOOD_SEARCH) FOOD_SEARCH.reprise = rp;           // R254/2: still picking for that food
   const f = document.getElementById('fqQuery');
   if (f) f.value = q;
   return searchType(q);
@@ -21534,6 +21804,7 @@ function searchLog() {
   const st = FOOD_SEARCH;
   const c = st && st.pick;
   if (!c) return { ok: false, why: 'nothing-picked' };
+  if (c.myFood) return searchLogMine();
   const built = corpusOwnNumbers(c.meta, c.row, c.id, c.name, st.grams);
   if (!built) return { ok: false, why: 'no-amount' };
   const day = dayForWrite();
@@ -24148,6 +24419,8 @@ window.HT = {
   FDC_NS, FDC_LS, FDC_TYPES, FDC_SLOTS, FDC_MAX, FDC_TERMS_MAX, fdcParseFood, fdcSearch, fdcSaveKey, fdcClearKey,
   fdcConfigured, fdcMask, fdcTypeWords, fdcBlockHTML, fdcWhyText, fdcEstimateWords,
   fdcCacheClear: () => { FDC_CACHE = {}; return true; },
+  searchEarlier, searchWordsMatch, searchMineHTML, searchPickMine, searchLogEarlier, searchLogMine,
+  searchEarlierAmount, searchEarlierGrams, searchRepriseOpen, searchRepriseLabel, searchRepriseBare, searchStepHTML,
   searchFdcRun, searchFdcPick, searchFdcClose, photoFdcRun, photoFdcPick, photoFdcClose, photoFdcTerms,
   resolveFdcRun, resolveFdcPick, resolveFdcClose, photoCorrectionFromRef, draftTakeRef, saveFdcKey, removeFdcKey,
   renderFdcKey,

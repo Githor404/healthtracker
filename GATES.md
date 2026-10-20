@@ -6358,3 +6358,23 @@ Stage 8: type a word nothing matches, ask your AI (the stub returns four names, 
 last "FOURTH"), and assert the keep button and the field say the typed word and a
 tap keeps it as the name. Run red against v0.106.0 first: all three failed, and the
 saved item was named "FOURTH". 24 -> 28 checks.
+
+### v0.107.0 -- C: `searchmine-gate`
+
+Search at 390 px, by real typing and taps, over synthetic Zebra foods. 28 checks:
+the field keeps what was typed; the order is exit, Your foods, earlier unmatched
+foods (newest first), then the database; an item WITH a row is not offered; the row
+with numbers says what one tap logs and carries its amount as its own 44 x 44
+control, the row with none says "No numbers last time - pick a food"; every row
+44 px and 16px, nothing off the side. A food of the user's own opens at its serving
+(40 g, "Log 180 cal"), says the numbers are theirs with no citation, re-counts at
+60 g (270 cal) and logs manual / label / measured / no ref. An earlier food logs in
+ONE tap as last time (80 g, 250 cal, the AI's estimate, `repeated_from` yesterday),
+with Undo that takes it back. R254: the amount tapped first opens an editor (80 g,
+focused, nothing written), 120 g reads and logs 375 cal; a food with no numbers
+writes nothing on its tap and opens the picker with its name, "Enter from label"
+carries name and 300 g into the form, another word keeps the picker, a database row
+opens at 300 g and today's entry is that row's, cited and counted; yesterday's
+entries are byte-identical. "Log a drink" offers the drink only and logs it as a
+drink. `SEARCHMINE_SHOTS=1` saves the list, the step, the amount editor and the
+picker; all were read before the suite.

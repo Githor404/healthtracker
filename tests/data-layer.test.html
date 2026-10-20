@@ -1573,6 +1573,82 @@ window.setLS({});
       'R242/B (ruled): Branded and Survey (FNDDS) only, at most 8 rows, at most 3 names a tap');
   setLS({}); HT.boot();
 
+  // ---- C: my foods and earlier unmatched foods in Search (R213 + R237/C3) ---------
+  setLS({}); HT.boot();
+  var cIt = function (o) { return Object.assign({ meal: 'lunch', time: '12:00', kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0,
+                                                  confidence: 'eyeballed', notes: '', source: 'ai-paste' }, o); };
+  HT.state().days['2026-03-01'] = { status: 'in_progress', water_l: 0, items: [
+    cIt({ name: 'Gate egg tart', grams: 80, kcal: 250, carb_g: 30 }),
+    cIt({ name: 'Gate egg salad', grams: 120, source: 'corpus', kcal: 200, ref: { ns: 'cnf', id: '1', name: 'Egg salad', g: 120, v: { '208': 200 } } }),
+    cIt({ name: 'Gate egg nog', meal: 'drink', grams: 200, kcal: 180 }),
+    cIt({ name: 'Gate egg pill', meal: 'supplement', source: 'supplement', kcal: 5, stackKind: 'supplement' }) ] };
+  HT.state().days['2026-03-02'] = { status: 'in_progress', water_l: 0, items: [
+    cIt({ name: 'Gate egg tart', grams: 90, unresolved: true, kcal: undefined }),
+    cIt({ name: 'Gate eggplant stew', grams: 300, unresolved: true, kcal: undefined }) ] };
+  var ce1 = HT.searchEarlier('gate egg');
+  res(ce1.map(function (e) { return e.name + '@' + e.date; }).join(',') === 'Gate eggplant stew@2026-03-02,Gate egg tart@2026-03-02,Gate egg nog@2026-03-01',
+      'C GATE: Search offers foods logged before with NO database row -- newest first, one per name, at most three; a matched item and a stack entry are not offered',
+      JSON.stringify(ce1.map(function (e) { return e.name + '@' + e.date; })));
+  res(HT.searchEarlier('gate egg', { drinks: true }).map(function (e) { return e.name; }).join(',') === 'Gate egg nog'
+      && HT.searchEarlier('g').length === 0 && HT.searchEarlier('zzz').length === 0 && HT.searchEarlier('tart egg').length === 1,
+      'C: in Log a drink only drinks are offered; one letter is not a search; every typed word must begin a word of the name, in any order');
+  HT.myFoodUpsert({ name: 'Gate egg tart', basis: 'label', per: 'serving', serving_g: 70, kcal: 210, fat_g: 11, carb_g: 24, protein_g: 4 });
+  res(HT.searchEarlier('egg tart').length === 0,
+      'C: a name that is one of the user’s own foods is offered once, as their food, not again as an earlier item');
+  HT.setSheetMode('search');
+  var cst = HT.foodSearch(); cst.q = 'gate egg'; cst.phase = 'none'; cst.rows = [];
+  var ch = HT.searchMineHTML(cst);
+  res(ch.indexOf('Your foods') >= 0 && ch.indexOf('You logged before, with no food database match') > ch.indexOf('Your foods')
+      && ch.indexOf('searchPickMine(0)') > 0 && ch.indexOf('searchRepriseOpen(0)') > 0 && ch.indexOf('No numbers last time — pick a food') > 0
+      && ch.indexOf('searchLogEarlier(1)') > 0 && ch.indexOf('searchEarlierAmount(1)') > 0 && ch.indexOf('searchLogEarlier(0)') < 0,
+      'C / R254: the Search list leads with Your foods, then the earlier unmatched foods -- a row with numbers logs or opens its amount, a row with none opens the picker and never logs');
+  // Run 1 of the v0.107.0 suite: a database row the user logged before carries `mine`
+  // (the count behind "you logged this before"); the my-food flag used the same name,
+  // and picking that row threw in the amount step (onedoor-gate, served-gate).
+  HT.setSheetMode('search');
+  var cmeta = { ns: 'cnf', slots: [208, 203, 204, 205], attribution: 'Gate corpus' };
+  HT.foodSearch().rows = [{ id: '7', name: 'Gate logged row', row: new Float32Array([100, 5, 2, 10]), meta: cmeta, kcal: 100, protein: 5, fat: 2, carb: 10, mine: 3 }];
+  var cpm = HT.searchPickAt(0);
+  res(cpm.ok === true && HT.foodSearch().pick.myFood === undefined && HT.searchStepHTML().indexOf('Your food,') < 0 && HT.searchStepHTML().indexOf('Food database') >= 0,
+      'C (run 1): a DATABASE row the user logged before opens as a database row -- its `mine` count is not the my-food flag');
+  HT.setSheetMode('search');
+  cst = HT.foodSearch(); cst.q = 'gate egg'; cst.phase = 'none'; cst.rows = [];
+  HT.searchMineHTML(cst);
+  var cp = HT.searchPickMine(0);
+  res(cp.ok === true && cp.grams === 70, 'C: picking one of the user’s foods opens the amount step with its serving filled in (70 g)');
+  var cl = HT.searchLogMine();
+  var ci = cl.item || {};
+  res(cl.ok === true && ci.name === 'Gate egg tart' && Math.round(ci.kcal) === 210 && Math.round(ci.fat_g) === 11 && ci.source === 'manual'
+      && ci.basis === 'label' && ci.confidence === 'measured' && !ci.ref && !ci.unresolved && HT.foodSearch() === null,
+      'C GATE: a food of the user’s own logged from Search carries THEIR numbers at the typed grams -- manual, from label, no database citation', JSON.stringify(ci));
+  HT.state().settings.foods = [];
+  HT.setSheetMode('search');
+  var cst2 = HT.foodSearch(); cst2.q = 'egg tart'; cst2.phase = 'none'; cst2.rows = [];
+  HT.searchMineHTML(cst2);
+  var tk = HT.todayKey(), before = (HT.state().days[tk] || { items: [] }).items.length;
+  var past254 = JSON.stringify(HT.state().days['2026-03-02']);
+  var cr = HT.searchLogEarlier(0);
+  res(cr.ok === false && cr.why === 'no-numbers' && (HT.state().days[tk] || { items: [] }).items.length === before,
+      'R254/2 GATE: an earlier food with NO numbers is never re-logged by its row -- nothing is written');
+  HT.searchRepriseOpen(0);
+  var rp254 = HT.searchMineHTML(cst2) + '';
+  res(!!cst2.reprise && cst2.reprise.grams === 90 && cst2.reprise.name === 'Gate egg tart' && cst2.q === 'Gate egg tart' && cst2.earlier.length === 0 && rp254.indexOf('searchRepriseOpen') < 0,
+      'R254/2: its row opens the picker for that name, carrying its 90 g, with the earlier list out of the way');
+  var cb = HT.searchRepriseBare();
+  var cri = cb.item || {};
+  res(cb.ok === true && cri.name === 'Gate egg tart' && cri.unresolved === true && !(cri.kcal > 0) && cri.grams === 90
+      && cri.repeated_from && cri.repeated_from.date === '2026-03-02' && HT.state().days[tk].items.length === before + 1
+      && JSON.stringify(HT.state().days['2026-03-02']) === past254,
+      'R254/2 GATE: only "Log without nutrition" saves it with none -- 90 g, not counted -- and the past entry is untouched', JSON.stringify(cri));
+  HT.setSheetMode('search');
+  var cst3 = HT.foodSearch(); cst3.q = 'egg nog'; cst3.phase = 'none'; cst3.rows = [];
+  HT.searchMineHTML(cst3);
+  var cn = HT.searchLogEarlier(0, 300);
+  var cni = cn.item || {};
+  res(cn.ok === true && cni.name === 'Gate egg nog' && cni.grams === 300 && Math.round(cni.kcal) === 270 && cni.meal === 'drink',
+      'R254/1 GATE: an amount edited first is the amount logged, the numbers re-expressed for it -- 300 g of what was 200 g at 180 cal is 270 cal', JSON.stringify(cni));
+  setLS({}); HT.boot();
+
   // ---- R213: kinds, the intake note, the backup file, my foods ----------------------
   setLS({}); HT.boot();
   // -- B2: three kinds --

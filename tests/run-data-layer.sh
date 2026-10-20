@@ -75,6 +75,7 @@ resolve-gate.ps1
 response-gate.ps1
 review-gate.ps1
 ring-size-gate.ps1
+searchmine-gate.ps1
 sensor-gate.ps1
 served-gate.ps1
 stacktotals-gate.ps1
@@ -525,7 +526,16 @@ echo "-----------------------------------------"
 # kinds and macros on every row; refusals named; Remove key; a memory proposal
 # never carries an FDC id into the shipped file; corrections keep the namespace
 # and take the numbers from the earlier item's ref; the ruled constants.
-EXPECTED_ASSERTIONS=3252
+# 3252 -> 3263 (v0.107.0, C + R254): +11 -- Search offers foods logged before with no
+# database row (newest first, one per name, at most three; matched items, stack
+# entries and the user's own foods are not repeated there; drinks only in Log a
+# drink); Your foods lead; a picked food opens at its serving and logs the
+# user's numbers; one tap logs an earlier unmatched food again as last time.
+# R254: an amount edited first is the amount logged, re-expressed; a food with
+# no numbers is never re-logged by its row -- it opens the picker, carrying its
+# grams; only "Log without nutrition" saves it with none; the past is untouched;
+# a database row logged before is not taken for a my-food (suite run 1).
+EXPECTED_ASSERTIONS=3263
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -17756,3 +17756,61 @@ what the field, the keep button, the keep and a second ask use; typing in the fi
 updates it, so a later edit wins. The field's copy is untrimmed (it is re-rendered
 while typing). Gate: `fdc-gate` stage 8, red on v0.106.0 (all three checks), green
 after.
+
+
+## C -- MY FOODS IN SEARCH, AND THE SEARCH HALF OF R237/C3 (2026-10-20, v0.107.0)
+
+*Serves **track**: a food the databases do not hold is logged again in the place
+the user types it, with the numbers it had.*
+
+**What Search lists now, top to bottom:** "Not here? Enter it by hand" (when the
+database has answered), **Your foods** (R213's `settings.foods`, matched as the
+stack and combo builders match them), **You logged before, with no food database
+match**, the database's rows, then the USDA offer. Both new groups are the user's
+own and short, so they are not ranked against the database; they are shown with or
+without a corpus, from two typed letters.
+
+**Your foods.** A pick opens the same amount step with the food's serving filled in
+(where it has one) and says whose numbers they are ("your own numbers, from its
+label"), with no database citation. Logged through `myFoodPart` -- the shape the
+stack and combos already write: `source: manual`, its `basis`, `measured` for a
+label and `eyeballed` for generic values, no `ref`. The R213 brief line "not yet
+offered in the Search pane" is retired.
+
+**Earlier unmatched foods (R237/C3, Search half).** An earlier day item with no
+`ref` -- whatever it counted from: the user's numbers, the AI's estimate, a
+suggestion, or nothing -- newest first, one per name (`matchKey`), at most three.
+Not offered: a matched item, a stack entry, an auto-added entry, a my-food (it is
+the row above), and in "Log a drink" anything but a drink. The row says what one
+tap will log, and **one tap logs it** through the repeat path (`buildRepeatItem`):
+same grams, numbers run through the precedence rule again, `repeated_from` set, at
+now's meal (a drink stays a drink), with Undo. (As first built, a food with no
+numbers was re-logged with none; R254 below replaced that.)
+
+**R254 (ruled, before the suite).** C's order and drinks-only rule accepted, with
+two changes:
+
+1. **A row with numbers is two targets.** The row logs at once at the amount shown
+   (with Undo); the amount beside it ("80 g / change", 44 px, a button with its word
+   underlined) opens an editor first -- grams prefilled and focused, the count
+   following the typing -- and logs at the new amount. Own numbers are re-expressed
+   by the one item rescale (`itemScaleTo`); a suggestion by the repeat path's own.
+2. **A row with no numbers is never re-logged by its row.** It says "No numbers last
+   time -- pick a food" and opens the picker for its name: the device's database,
+   the USDA offer, "Enter from label" (Manual, name and grams carried in), and
+   "Log without nutrition" -- the only way it is saved with none, shown in the
+   day's not-counted line. Last time's grams carry into the amount step of whatever
+   is picked; typing another word keeps the picker for that food; the earlier list
+   is hidden while picking. Today's entry gets the picked row's numbers, cited;
+   the past entry is untouched.
+
+D29: `searchLogMine` and `searchWriteEarlier` registered STAMPED (tzo: nowTZO()).
+**Found by suite run 1 (58/60):** `onedoor-gate` and `served-gate` failed with one
+cause. A database row the user has logged before carries `mine` -- the count behind
+"you logged this before" -- and the my-food pick used the same property as its
+flag, so picking such a row took the my-food branch of the amount step and threw.
+The flag is `myFood`; a harness case holds it. The run was discarded and the two
+green runs counted from after the fix.
+
+Evidence: harness 3252 -> 3263 (+11); `searchmine-gate` new (28 checks, real typing
+at 390 px; manifest 48 -> 49).
