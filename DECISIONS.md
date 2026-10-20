@@ -17738,3 +17738,21 @@ nutrition"), not what was typed -- `photoSearchTryTerms` runs each term through
 Evidence: harness 3231 -> 3252 (+21); `fdc-gate` new (24 checks; manifest 47 -> 48); `check-egress` declares
 `api.nal.usda.gov` (request, on a tap only) and pins 7 fetch sites -- it failed the first
 suite run until it did, which is its job.
+
+
+## R253/1 -- THE PHOTO SEARCH KEEPS WHAT THE USER TYPED (R238 bug, 2026-10-20, v0.106.1)
+
+*Serves **track**: a food the databases do not hold is kept under the user's own name.*
+
+**The defect, worse than reported.** After "Ask my AI for other names", each AI
+name is searched through `photoSearchRun`, which leaves the LAST one in the search
+state's `text`. The keep button read "Use 'FOURTH' with no nutrition" -- and, run
+red against v0.106.0, **tapping it saved the item as "FOURTH"**, a name the user
+never gave; the field showed it too. `typedBy` already held the user's words across
+those runs and nothing read it.
+
+**Fixed:** `photoSearchTyped` -- the user's words once the AI has been asked -- is
+what the field, the keep button, the keep and a second ask use; typing in the field
+updates it, so a later edit wins. The field's copy is untrimmed (it is re-rendered
+while typing). Gate: `fdc-gate` stage 8, red on v0.106.0 (all three checks), green
+after.

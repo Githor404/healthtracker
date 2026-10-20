@@ -415,11 +415,47 @@ try {
        'PHOTO PICKED: one tap gives the item the row\u2019s name and its numbers at the item\u2019s 80 g (200 cal), and closes the search', JSON.stringify({ name: it.name, per100: it.per100 && it.per100.kcal }));
     HT.photoDiscard && HT.photoDiscard();
   } catch (e) { ok(false, 'stage 7 threw', e && e.stack); }
-  return { checks: G.checks };
+  return { n: G.checks.length };
 })()
 '@
   $r7 = EvalAsyncB64 $js7
-  if ($r7 -like 'EXCEPTION*') { $fails += "stage 7: $r7"; $R = $null } else { $R = $r7 | ConvertFrom-Json }
+  if ($r7 -like 'EXCEPTION*') { $fails += "stage 7: $r7" }
+
+  # ---- stage 8: R253/1 (the R238 bug) -- the keep button says what was TYPED ----
+  # Before the fix this screen read "Use 'FOURTH' with no nutrition": the AI's last
+  # suggested name, left in the field's text by the search of each name.
+  $js8 = @'
+(async function () {
+  const G = window.__G, sleep = window.__sleep;
+  const ok = (c, m, d) => G.checks.push({ ok: !!c, m: m, d: d === undefined ? '' : String(d).slice(0, 300) });
+  const $ = (s) => document.querySelector(s);
+  try {
+    HT.openPhotoDraft(JSON.stringify({ meal: 'lunch', items: [{ name: 'creamy fish thing', grams: 80, notes: 'from the photo',
+      alts: [{ name: 'creamy fish thing', p: 0.5 }], per100: { kcal: 230, protein_g: 15, fat_g: 18, carb_g: 2, fiber_g: 0, soluble_fiber_g: 0 } }] }));
+    await sleep(300);
+    HT.photoSearchOpen(0);
+    await HT.photoSearchRun(0, 'gate qxvz'); await sleep(200);
+    await HT.photoSearchAskModel(0); await sleep(400);
+    const st = HT.photoSearchState() || {};
+    const keep = $('.pmsearch .pmskeep');
+    const kt = String((keep && keep.textContent) || '');
+    ok(st.normalised === true && st.asked && st.asked.length === 4,
+       'R253/1 setup: your AI suggested four names and each was searched');
+    ok(!!keep && kt.indexOf('\u201cgate qxvz\u201d') > 0 && kt.indexOf('FOURTH') < 0 && kt.indexOf('fish pate') < 0,
+       'R253/1 GATE: after "Ask my AI for other names" the keep button names what YOU typed, not the AI\u2019s last name', kt);
+    ok(String(($('#pmsQuery') || {}).value) === 'gate qxvz',
+       'R253/1: the field still holds what you typed');
+    keep.click(); await sleep(200);
+    const it = HT.photoDraft().items[0];
+    ok(it.name === 'gate qxvz' && it.unres === true && !it.ref,
+       'R253/1 GATE: tapping it keeps YOUR words as the name, not counted', JSON.stringify({ name: it.name, unres: it.unres }));
+    HT.photoDiscard && HT.photoDiscard();
+  } catch (e) { ok(false, 'stage 8 threw', e && e.stack); }
+  return { checks: G.checks };
+})()
+'@
+  $r8 = EvalAsyncB64 $js8
+  if ($r8 -like 'EXCEPTION*') { $fails += "stage 8: $r8"; $R = $null } else { $R = $r8 | ConvertFrom-Json }
   if ($R) {
     foreach ($c in $R.checks) {
       if ($c.ok) { Write-Host "  ok    $($c.m)" }

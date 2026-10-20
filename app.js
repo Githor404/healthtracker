@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.106.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.106.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -15004,6 +15004,7 @@ const VERSION_LOG = [
   { v: '0.104.1', d: '2026-10-18', note: 'When you type a name on a photo and the closest foods only match part of it, they are labelled partial match and you can still pick one; below them is the button to ask your AI for other names, which sends nothing until you tap it.' },
   { v: '0.105.0', d: '2026-10-19', note: 'The update notice is now one line; tap what’s new to read it. A meal you logged can be saved as a combo from its own block, ready to name. The stack’s group on the day is now called Daily stack. A few small texts are larger.' },
   { v: '0.106.0', d: '2026-10-20', note: 'Search, a photo’s food and a food not yet counted can now also be looked up in USDA FoodData Central, for packaged foods and typical recipes. It needs your own free key, entered under Settings. Nothing is sent until you tap the search, and nothing is used until you pick a row; None of these fits is always above the list.' },
+  { v: '0.106.1', d: '2026-10-20', note: 'After Ask my AI for other names, the photo search keeps what you typed: the field and the Use with no nutrition button show your words, and tapping it saves them, not the last name your AI suggested.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -17337,6 +17338,7 @@ const PHOTO_TYPE_MS = 250;
 function photoSearchType(text) {
   if (!PHOTO_SEARCH) return { ok: true };
   PHOTO_SEARCH.text = String(text == null ? '' : text);
+  PHOTO_SEARCH.typedBy = PHOTO_SEARCH.text;          // R253/1: what the user typed
   const idx = PHOTO_SEARCH.idx, q = PHOTO_SEARCH.text;
   if (PHOTO_TYPE_TIMER) clearTimeout(PHOTO_TYPE_TIMER);
   if (q.trim().length < TYPEAHEAD_MIN) return { ok: true };
@@ -17361,6 +17363,19 @@ function photoItemIsDrink(it) {
   const set = corpusBeverageSet(m), top = matchTypeahead(said, 1)[0];
   return !!(set && top && set.has(String(top.id)));
 }
+// R253/1 (R238 bug): WHAT THE USER TYPED. After "Ask my AI for other names" each AI
+// name is run through photoSearchRun, which leaves the LAST one in `text` -- and the
+// keep button read "Use 'FOURTH' with no nutrition", a name the user never gave.
+// `typedBy` holds the user's words across those runs; the field, the keep button,
+// the keep itself and a second ask all use it.
+// Untrimmed for the FIELD: it is re-rendered while the user types, and a trimmed
+// value would eat the space after "egg" in "egg tart".
+function photoSearchTypedRaw(st) {
+  if (!st) return '';
+  const t = st.normalised ? (st.typedBy != null ? st.typedBy : st.text) : st.text;
+  return String(t == null ? '' : t);
+}
+function photoSearchTyped(st) { return photoSearchTypedRaw(st).trim(); }
 // The field is rebuilt by the render; the caret goes back where the user was typing.
 function photoSearchRefocus() {
   const f = document.getElementById('pmsQuery');
@@ -17620,7 +17635,7 @@ function photoSearchPickPreset(idx, presetId) {
 function photoSearchKeep(idx) {
   if (!PHOTO_DRAFT || !PHOTO_DRAFT.items[idx]) return { ok: false };
   const st = PHOTO_SEARCH;
-  const nm = String((st && st.text) || '').trim();
+  const nm = photoSearchTyped(st);
   if (!nm) return { ok: false, error: 'Type what it was first.' };
   const it = PHOTO_DRAFT.items[idx];
   it.name = nm;
@@ -17710,7 +17725,7 @@ function identityNormaliseParse(text) {
 function photoSearchAskModel(idx) {
   const st = PHOTO_SEARCH;
   if (!st || st.idx !== idx) return Promise.resolve({ ok: false });
-  const typed = String(st.text || '').trim();
+  const typed = photoSearchTyped(st);
   if (!typed) return Promise.resolve({ ok: false });
   if (!byokConfigured()) return Promise.resolve({ ok: false, why: 'no-key' });
   st.asking = true;
@@ -17841,13 +17856,13 @@ function photoSearchHTML(idx, it) {
       + '</div>'
     : '';
   const field = '<div class="pmsrowin">'
-    + '<input id="pmsQuery" type="text" class="pmsin" value="' + esc(String(st.text || '')) + '"'
+    + '<input id="pmsQuery" type="text" class="pmsin" value="' + esc(photoSearchTypedRaw(st)) + '"'
     + ' placeholder="what was it?" aria-label="say what this was"'
     + ' oninput="photoSearchType(this.value)"'
     + ' onkeydown="if(event.key===\'Enter\'){event.preventDefault();photoSearchRun(' + idx + ', this.value);}">'
     + '<button type="button" class="btn pmsgo" onclick="photoSearchRun(' + idx + ', (document.getElementById(\'pmsQuery\')||{}).value)">Search</button>'
     + '</div>';
-  const typed = String(st.text || '').trim();
+  const typed = photoSearchTyped(st);
   // RULED C: the normalised word is a QUERY THE APP RAN, never an answer. The
   // wording is deliberately about the search and not about the food.
   const searched = (st.normalised && st.searchedFor)

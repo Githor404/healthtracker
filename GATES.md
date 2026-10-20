@@ -6351,3 +6351,10 @@ database's rows read as answering THOSE rows).
 **Found while building:** the bare 400s the R245 report blamed on the demo key's
 rate limit were the service rejecting a GET that carries `dataType=Survey (FNDDS)`
 (encoded or not). The same filter in a POST body returns 200. The search is a POST.
+
+### v0.106.1 -- R253/1 in `fdc-gate`
+
+Stage 8: type a word nothing matches, ask your AI (the stub returns four names, the
+last "FOURTH"), and assert the keep button and the field say the typed word and a
+tap keeps it as the name. Run red against v0.106.0 first: all three failed, and the
+saved item was named "FOURTH". 24 -> 28 checks.
