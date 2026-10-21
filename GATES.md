@@ -6428,3 +6428,22 @@ character class), not on the app; the check now compares parsed fields.
 **Suite run 1 (60/61), discarded:** `stacktotals-gate` read every `.stksub` in the
 Settings stack editor by position, and each row now carries a second one ("In your
 stack since ..."). The gate now reads `.stksub:not(.stksince)`; the app was right.
+
+### v0.110.0 -- R251.2: `bpchart-gate`
+
+Synthetic readings, saved and reloaded, at 390 px: yesterday 07:10 128/82, 13:00
+141/88 (above both reference lines), 21:30 122/79; today 08:10 131/84; and one six
+days earlier. 10 checks: Trends shows ONE "Blood pressure mmHg" chart and no
+separate BP rows; **true times** (13:00 sits 350/860 of the way from 07:10 to
+21:30, measured on screen); the **band**, and the six-day-old reading **not
+joined** (one line per series); the **135 and 85 lines labelled** and placed
+between 140/120 and 100/80; **no colour change** (every systolic marker one
+computed fill and stroke, the band the same ink); told apart **without colour**
+(no dash vs dashed, legend "Systolic, Diastolic", 16px; reference labels outside
+the plot); every word 16px at scale 1, nothing off the side; a **real tap** on the
+13:00 marker reads "141/88 mmHg · pulse pressure 53 · <date> 13:00 · entered by
+hand" with a crosshair; the **step buttons** (44 x 44) go to 21:30 and back; the
+ⓘ (44 px) opens both citations. Red first on the tap: 15 px off the marker picked
+21:30 -- the step buttons were added. `BPCHART_SHOTS=1` saves `bp-chart` and
+`bp-ref`; both read before the suite (the first pair showed labels on the data,
+moved to a legend and a margin).

@@ -1293,6 +1293,38 @@ svg.tchart .tclip{fill:var(--muted)}
 svg.tchart .txaxis line{stroke:var(--line);stroke-width:1}
 svg.tchart .txaxis text{font-size:16px;fill:var(--muted);text-anchor:middle}
 svg.tchart .tcross{stroke:var(--fg);stroke-width:1;stroke-dasharray:3 2}
+/* R251.2: blood pressure, one chart. One neutral ink throughout -- nothing is
+   coloured by its value; the two lines differ by dash and marker shape. */
+.bpwrap{overflow-x:auto}
+.bplegend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:16px;margin:4px 0}
+.bpleg{display:inline-flex;align-items:center;gap:6px}
+svg.bplegsvg{display:inline-block;max-width:none;color:var(--fg)}
+svg.bplegsvg .bplsys{stroke:currentColor;stroke-width:2}
+svg.bplegsvg .bpldia{stroke:currentColor;stroke-width:2;stroke-dasharray:6 4}
+svg.bplegsvg .bplms{fill:currentColor}
+svg.bplegsvg .bplmd{fill:var(--panel);stroke:currentColor;stroke-width:1.6}
+svg.bplegsvg .bplband{fill:currentColor;opacity:.12}
+svg.bpchart{display:block;max-width:100%;height:auto;touch-action:pan-y;color:var(--fg)}
+svg.bpchart .bpgrid line{stroke:var(--line);stroke-width:1}
+svg.bpchart .bpgrid text,svg.bpchart .txaxis text{font-size:16px;fill:var(--muted)}
+svg.bpchart .txaxis line{stroke:var(--line);stroke-width:1}
+svg.bpchart .txaxis text{text-anchor:middle}
+svg.bpchart .bpref line{stroke:var(--muted);stroke-width:1;stroke-dasharray:1 4;opacity:.8}
+svg.bpchart .bpref text{font-size:16px;fill:var(--muted)}
+svg.bpchart .bpband{fill:currentColor;opacity:.12;stroke:none}
+svg.bpchart .bpsys{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
+svg.bpchart .bpdia{fill:none;stroke:currentColor;stroke-width:2;stroke-dasharray:6 4;stroke-linejoin:round}
+svg.bpchart .bpmsys{fill:currentColor;stroke:currentColor;stroke-width:1}
+svg.bpchart .bpmdia{fill:var(--panel);stroke:currentColor;stroke-width:1.6}
+svg.bpchart .bphit{fill:transparent;cursor:pointer}
+svg.bpchart .tcross{stroke:var(--fg);stroke-width:1;stroke-dasharray:3 2}
+.bpreadrow{display:flex;align-items:center;gap:6px}
+.bpreadout{font-size:16px;min-height:44px;display:flex;align-items:center;flex:1;min-width:0}
+.bpstep{min-width:44px;min-height:44px;font-size:22px;padding:0}
+.bprefinfo{font-size:16px;color:var(--muted)}
+.bprefsum{min-height:44px;display:flex;align-items:center;cursor:pointer;list-style:none}
+.bprefsum::-webkit-details-marker{display:none}
+.bprefbody{padding:0 0 8px}
 /* Meals distinct from events, as ruled -- visual only, never tap targets:
    44pt hit zones overlap 4.6x at the 3-day preset, measured. */
 svg.tchart .tmark[data-kind="meal"]{stroke:var(--accent);stroke-dasharray:none;opacity:0.55}

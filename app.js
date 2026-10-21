@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.109.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.110.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -13891,6 +13891,209 @@ function typicalRowHTML(sourced) {
   }
   return html + '</div>';
 }
+// ---- R251.2: BLOOD PRESSURE, ONE CHART --------------------------------------
+//
+// Systolic and diastolic were two separate sparklines, each on its own scale and
+// neither at its true time. Here they share one fixed mmHg axis, every reading at
+// the moment it was taken, with the pulse pressure (systolic minus diastolic) as a
+// NEUTRAL band between them. The lines are told apart without colour: systolic is
+// solid with filled circles, diastolic dashed with hollow squares, and each is
+// named in words. NOTHING CHANGES COLOUR ANYWHERE, a reading above a reference
+// line included: the chart shows readings, it does not grade them.
+//
+// The faint lines at 135 and 85 are Hypertension Canada's 2020 threshold for the
+// MEAN of a home series (ruled R251.2; the 2020 edition kept by the user's choice
+// after the 2025 edition was found to use 130/80 -- both cited behind the info
+// button). A threshold for a week's mean is drawn behind single readings, and the
+// info button says so.
+//
+// GAPS ARE BREAKS, as on the glucose chart: readings more than BP_GAP_MS apart are
+// not joined, and every reading has its own marker so a lone one is still seen.
+const BP_DOMAIN = { min: 40, max: 200, step: 20 };       // fixed, never fitted to the data
+const BP_REF = { sys: 135, dia: 85 };
+const BP_GAP_MS = 30 * 3600000;                           // twice-daily joins; a missed day breaks
+const BP_REF_WORDS = 'Faint lines at 135 and 85 mmHg: Hypertension Canada\u2019s threshold for home readings, 2020 edition \u2014 a mean home blood pressure of 135/85 mmHg, from a series of readings taken morning and evening for a week (Rabi DM et al. Hypertension Canada\u2019s 2020 Comprehensive Guidelines for the Prevention, Diagnosis, Risk Assessment, and Treatment of Hypertension in Adults and Children. Can J Cardiol 2020;36(5):596\u2013624; Hypertension Canada practical guide 2020\u201322). Hypertension Canada\u2019s 2025 primary-care guideline lowered this to 130/80 mmHg for home readings (Goupil R et al. CMAJ 2025;197:E549\u201364, doi:10.1503/cmaj.241770). The threshold is for the mean of a series; the chart draws single readings.';
+const BP_SOURCE_WORDS = { manual: 'entered by hand', quick: 'entered by hand', lab: 'from a lab panel' };
+let BP_PICK = null;                                       // the picked reading's key (dk + time + index)
+// Every paired reading in the window, at its true time. Systolic and diastolic are
+// two records written at one time (logBP); they are paired by day and time, in
+// order. A reading with no time cannot be placed and is counted, not drawn.
+function bpReadings(days) {
+  const cut = windowCutoff(days);
+  const out = [];
+  let untimed = 0;
+  Object.keys(APP_STATE.timeline || {}).filter(isDayKey).sort().forEach(function (dk) {
+    if (dk < cut) return;
+    const recs = APP_STATE.timeline[dk] || [];
+    const sys = recs.filter(function (r) { return r && r.type === 'bp_systolic' && r.value != null; });
+    const dia = recs.filter(function (r) { return r && r.type === 'bp_diastolic' && r.value != null; });
+    const used = {};
+    sys.forEach(function (r) {
+      if (!/^[0-9]{2}:[0-9]{2}$/.test(String(r.time || ''))) { untimed++; return; }
+      let j = -1;
+      for (let i = 0; i < dia.length; i++) if (!used[i] && dia[i].time === r.time) { j = i; break; }
+      if (j >= 0) used[j] = 1;
+      const d = j >= 0 ? dia[j] : null;
+      out.push({ dk: dk, time: r.time, t: new Date(dk + 'T' + r.time + ':00').getTime(),
+                 sys: num(r.value), dia: d ? num(d.value) : null, source: r.source || 'manual' });
+    });
+    dia.forEach(function (d, i) {
+      if (used[i]) return;
+      if (!/^[0-9]{2}:[0-9]{2}$/.test(String(d.time || ''))) { untimed++; return; }
+      out.push({ dk: dk, time: d.time, t: new Date(dk + 'T' + d.time + ':00').getTime(),
+                 sys: null, dia: num(d.value), source: d.source || 'manual' });
+    });
+  });
+  out.sort(function (a, b) { return a.t - b.t; });
+  out.forEach(function (p, i) { p.key = p.dk + 'T' + p.time + '#' + i; });
+  return { points: out, untimed: untimed };
+}
+function bpReadoutWords(p) {
+  const v = (p.sys != null ? rDisp(p.sys) : '\u2014') + '/' + (p.dia != null ? rDisp(p.dia) : '\u2014') + ' mmHg';
+  const pp = (p.sys != null && p.dia != null) ? ' \u00b7 pulse pressure ' + rDisp(p.sys - p.dia) : '';
+  return v + pp + ' \u00b7 ' + fmtMonthDay(p.dk) + ' ' + p.time + ' \u00b7 ' + (BP_SOURCE_WORDS[p.source] || String(p.source));
+}
+function bpChartSVG(pts, W) {
+  // padR is the reference labels' own margin: inside the plot they sat on the
+  // newest readings (seen in the 390 px screenshot before the suite).
+  const H = 260, padL = 40, padR = 62, padT = 10, padB = 26;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const r1 = function (x) { return Math.round(x * 10) / 10; };
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const edge = Math.max(3600000, (t1 - t0) * 0.04);       // a reading never sits on the frame
+  const from = t0 - edge, to = t1 + edge, span = to - from;
+  const xOf = function (t) { return padL + ((t - from) / span) * plotW; };
+  const yOf = function (v) {
+    const c = Math.min(BP_DOMAIN.max, Math.max(BP_DOMAIN.min, v));
+    return padT + (1 - (c - BP_DOMAIN.min) / (BP_DOMAIN.max - BP_DOMAIN.min)) * plotH;
+  };
+  let grid = '<g class="bpgrid">';
+  for (let v = BP_DOMAIN.min; v <= BP_DOMAIN.max; v += BP_DOMAIN.step) {
+    const y = r1(yOf(v));
+    grid += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
+      + '<text x="' + (padL - 4) + '" y="' + r1(y + 5.5) + '" text-anchor="end">' + v + '</text>';
+  }
+  grid += '</g>';
+  const refs = '<g class="bpref">' + [['sys', BP_REF.sys], ['dia', BP_REF.dia]].map(function (r) {
+    const y = r1(yOf(r[1]));
+    return '<line data-ref="' + r[1] + '" x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
+      + '<text data-ref="' + r[1] + '" x="' + (W - padR + 4) + '" y="' + r1(y + 5.5) + '" text-anchor="start">' + r[1] + ' ref</text>';
+  }).join('') + '</g>';
+  const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to).map(function (tk) {
+    const x = r1(xOf(tk.t));
+    if (x < padL + 18 || x > W - padR - 18) return '';
+    const d = new Date(tk.t);
+    const lab = tk.step >= 86400000 ? (d.getMonth() + 1) + '/' + d.getDate() : hhmm(tk.t);
+    return '<line x1="' + x + '" y1="' + (padT + plotH) + '" x2="' + x + '" y2="' + (padT + plotH + 3) + '"/>'
+      + '<text x="' + x + '" y="' + (padT + plotH + 19) + '">' + esc(lab) + '</text>';
+  }).join('') + '</g>';
+  // runs, cut on the gap; within a run, a line per series and the band between
+  const runs = []; let cur = [];
+  pts.forEach(function (p, i) {
+    if (i && p.t - pts[i - 1].t > BP_GAP_MS) { runs.push(cur); cur = []; }
+    cur.push(p);
+  });
+  if (cur.length) runs.push(cur);
+  let band = '', sysL = '', diaL = '';
+  runs.forEach(function (run) {
+    const both = run.filter(function (p) { return p.sys != null && p.dia != null; });
+    if (both.length >= 2) {
+      band += '<polygon class="bpband" points="' + both.map(function (p) { return r1(xOf(p.t)) + ',' + r1(yOf(p.sys)); })
+        .concat(both.slice().reverse().map(function (p) { return r1(xOf(p.t)) + ',' + r1(yOf(p.dia)); })).join(' ') + '"/>';
+    }
+    const sp = run.filter(function (p) { return p.sys != null; });
+    const dp = run.filter(function (p) { return p.dia != null; });
+    if (sp.length >= 2) sysL += '<polyline class="bpsys" points="' + sp.map(function (p) { return r1(xOf(p.t)) + ',' + r1(yOf(p.sys)); }).join(' ') + '"/>';
+    if (dp.length >= 2) diaL += '<polyline class="bpdia" points="' + dp.map(function (p) { return r1(xOf(p.t)) + ',' + r1(yOf(p.dia)); }).join(' ') + '"/>';
+  });
+  let marks = '';
+  pts.forEach(function (p) {
+    const x = r1(xOf(p.t));
+    if (p.sys != null) marks += '<circle class="bpmsys" data-key="' + esc(p.key) + '" cx="' + x + '" cy="' + r1(yOf(p.sys)) + '" r="4"/>';
+    if (p.dia != null) marks += '<rect class="bpmdia" data-key="' + esc(p.key) + '" x="' + r1(x - 3.5) + '" y="' + r1(yOf(p.dia) - 3.5) + '" width="7" height="7"/>';
+  });
+  const pick = pts.filter(function (p) { return p.key === BP_PICK; })[0];
+  const cross = pick ? '<line class="tcross" x1="' + r1(xOf(pick.t)) + '" y1="' + padT + '" x2="' + r1(xOf(pick.t)) + '" y2="' + (padT + plotH) + '"/>' : '';
+  // ONE tap target, the whole plot: the nearest reading to the tap is picked, so
+  // every reading's target is as wide as the space around it (never under 44 px
+  // unless two readings are closer than that on screen).
+  const hit = '<rect class="bphit" x="' + padL + '" y="0" width="' + plotW + '" height="' + (padT + plotH) + '" onclick="bpTap(event)"/>';
+  return '<svg class="bpchart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Blood pressure, systolic and diastolic, mmHg"'
+    + ' data-from="' + from + '" data-to="' + to + '" data-padl="' + padL + '" data-plotw="' + plotW + '">'
+    + grid + refs + band + sysL + diaL + marks + xaxis + cross + hit + '</svg>';
+}
+function bpChartHTML(days) {
+  const r = bpReadings(days);
+  const pts = r.points;
+  const head = '<div class="thead">Blood pressure <small>mmHg</small></div>';
+  if (!pts.length) return '';
+  const untimed = r.untimed ? '<div class="tsum"><small class="tcov">' + esc(r.untimed) + ' reading' + (r.untimed === 1 ? '' : 's') + ' with no time, not drawn</small></div>' : '';
+  if (pts.length < TREND_MIN_POINTS) {
+    return head + '<div class="tsum">' + pts.map(function (p) { return esc(bpReadoutWords(p)); }).join('<br>') + '</div>' + untimed;
+  }
+  const el = document.getElementById('trends');
+  const W = Math.max(260, Math.min(640, Math.round((el && el.clientWidth) || 328)));
+  const pick = pts.filter(function (p) { return p.key === BP_PICK; })[0];
+  const sv = pts.filter(function (p) { return p.sys != null; }).map(function (p) { return p.sys; });
+  const dv = pts.filter(function (p) { return p.dia != null; }).map(function (p) { return p.dia; });
+  const range = function (a) { return a.length ? rDisp(Math.min.apply(null, a)) + '\u2013' + rDisp(Math.max.apply(null, a)) : '\u2014'; };
+  return head
+    // The lines are named in a legend with a sample of each, rather than on the
+    // plot, where a name collides with whatever reading is near it.
+    + '<div class="bplegend">'
+    + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><line class="bplsys" x1="1" y1="7" x2="33" y2="7"/><circle class="bplms" cx="17" cy="7" r="4"/></svg><span class="bpleglab">Systolic</span></span>'
+    + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><line class="bpldia" x1="1" y1="7" x2="33" y2="7"/><rect class="bplmd" x="13.5" y="3.5" width="7" height="7"/></svg><span class="bpleglab">Diastolic</span></span>'
+    + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><rect class="bplband" x="1" y="1" width="32" height="12"/></svg><span class="bpleglab">pulse pressure</span></span>'
+    + '</div>'
+    + '<div class="bpwrap">' + bpChartSVG(pts, W) + '</div>'
+    // Found by bpchart-gate: over a week at 390 px, readings hours apart on one day
+    // are ~15 px apart, so a tap alone cannot give each one a 44-point target. The
+    // step buttons can: a tap picks the nearest, and ‹ › move one reading at a time.
+    + '<div class="bpreadrow"><button type="button" class="btn bpstep" aria-label="previous reading" onclick="bpStep(-1)"'
+    + (pick && pts.indexOf(pick) > 0 ? '' : ' disabled') + '>‹</button>'
+    + '<div class="bpreadout" aria-live="polite">' + (pick ? esc(bpReadoutWords(pick)) : 'Tap the chart, or use ‹ ›, for a reading') + '</div>'
+    + '<button type="button" class="btn bpstep" aria-label="next reading" onclick="bpStep(1)"'
+    + (!pick || pts.indexOf(pick) < pts.length - 1 ? '' : ' disabled') + '>›</button></div>'
+    + '<div class="tsum">' + esc(pts.length) + ' reading' + (pts.length === 1 ? '' : 's') + ' \u00b7 systolic ' + esc(range(sv)) + ' \u00b7 diastolic ' + esc(range(dv)) + ' mmHg</div>'
+    + untimed
+    + '<details class="bprefinfo"><summary class="bprefsum" aria-label="about the reference lines">\u24d8 Reference lines</summary>'
+    + '<div class="bprefbody">' + esc(BP_REF_WORDS) + '</div></details>';
+}
+function bpRender() {
+  const el = document.getElementById('bpChart');
+  if (el) el.innerHTML = bpChartHTML(TREND_WINDOW);
+}
+function bpTap(evt) {
+  const svg = evt && evt.target && evt.target.ownerSVGElement;
+  if (!svg) return { ok: false };
+  const box = svg.getBoundingClientRect();
+  const vbW = svg.viewBox.baseVal.width || box.width;
+  const x = (evt.clientX - box.left) * (vbW / (box.width || 1));
+  const from = Number(svg.getAttribute('data-from')), to = Number(svg.getAttribute('data-to'));
+  const padL = Number(svg.getAttribute('data-padl')), plotW = Number(svg.getAttribute('data-plotw'));
+  const t = from + ((x - padL) / plotW) * (to - from);
+  return bpPickNear(t);
+}
+// One reading back or forward; with none picked, › starts at the newest.
+function bpStep(dir) {
+  const pts = bpReadings(TREND_WINDOW).points;
+  if (!pts.length) return { ok: false };
+  let i = -1;
+  pts.forEach(function (p, k) { if (p.key === BP_PICK) i = k; });
+  const j = i < 0 ? pts.length - 1 : Math.max(0, Math.min(pts.length - 1, i + (dir < 0 ? -1 : 1)));
+  BP_PICK = pts[j].key;
+  bpRender();
+  return { ok: true, reading: pts[j], words: bpReadoutWords(pts[j]) };
+}
+function bpPickNear(t) {
+  const pts = bpReadings(TREND_WINDOW).points;
+  if (!pts.length) return { ok: false };
+  let best = pts[0];
+  pts.forEach(function (p) { if (Math.abs(p.t - t) < Math.abs(best.t - t)) best = p; });
+  BP_PICK = best.key;
+  bpRender();
+  return { ok: true, reading: best, words: bpReadoutWords(best) };
+}
 function setTrendWindow(d) { TREND_WINDOW = d; renderTrends(); }
 function renderTrends() {
   const el = document.getElementById('trends'); if (!el || !APP_STATE) return;
@@ -13901,6 +14104,13 @@ function renderTrends() {
   let bio = '';
   SIGNAL_SPEC.forEach((sp) => {
     if (sp.kind !== 'biometric') return;
+    // R251.2: blood pressure is ONE chart, both values on one axis at true times.
+    if (sp.type === 'bp_diastolic') return;
+    if (sp.type === 'bp_systolic') {
+      const bp = bpChartHTML(win);
+      if (bp) bio += '<div id="bpChart" class="trow">' + bp + '</div>';
+      return;
+    }
     const s = signalSeries(sp.type, win);
     if (s.points.length < TREND_MIN_POINTS) return;          // min-data
     const sm = seriesSummary(s);
@@ -15474,6 +15684,7 @@ const VERSION_LOG = [
   { v: '0.107.0', d: '2026-10-20', note: 'Search shows your own foods first, then foods you logged before that had no match in the food database. One tap logs one of those again as last time.' },
   { v: '0.108.0', d: '2026-10-20', note: 'Your daily stack is now one row per item. Tick an item when you take it: it is logged now at its usual dose, and the row shows the dose and the time. Tap either to change it. Untick to take it back, with Undo. Took all ticks everything not yet taken. An item left unticked counts as not taken that day, and your backup file says so.' },
   { v: '0.109.0', d: '2026-10-20', note: 'Each item in your daily stack now has the date it joined. On a day before that it reads "not in stack yet" instead of "not taken", here and in your backup file. Settings shows each date and how it was worked out. A removed item keeps its dates. Switching an item off or on in Settings is now recorded with its time: on a day it was off, it reads \"switched off\", and on a day you switched it, the times are behind its ⓘ.' },
+  { v: '0.110.0', d: '2026-10-20', note: 'Blood pressure is now one chart in Trends: systolic and diastolic on one mmHg scale, each reading at the time you took it, with the gap between them (pulse pressure) shaded. Systolic is a solid line with dots, diastolic a dashed line with squares. Faint lines at 135 and 85 show Hypertension Canada\'s 2020 threshold for home readings; the ⓘ has the source and says the 2025 guideline lowered it to 130/80. Tap the chart to read a reading. Nothing is coloured as good or bad.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -24624,6 +24835,7 @@ window.HT = {
   stackOpen, stackCancel, stackCheck, stackUncheck, stackTookAll, stackTaken, stackEditOpen, stackEditClose,
   stackSaveTime, stackSaveDose, exportStackDays, normalizeStated, stackWriteOne,
   stackBackfillAddedOn, stackDayState, stackIdDay, stackListed, stackSinceWords,
+  bpReadings, bpReadoutWords, bpChartHTML, bpPickNear, bpStep, BP_REF, BP_REF_WORDS, BP_GAP_MS,
   normalizeStackSwitches, stackOnAtEnd, stackSwitchesOn, stackSwitchWords,
   // COMBOS (schema v14)
   comboStepHTML, comboFromItems, renameCombo, deleteCombo, setComboPartGrams,

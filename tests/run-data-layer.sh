@@ -32,6 +32,7 @@ HTML="$DIR/data-layer.test.html"
 # Adding a gate: add its name here, in the same commit -- deliberately, exactly
 # as EXPECTED_ASSERTIONS is re-pinned.
 GATE_SCRIPTS="backup-gate.ps1
+bpchart-gate.ps1
 bm-slider-gate.ps1
 capture-gate.ps1
 capture-outcome-gate.ps1
@@ -551,7 +552,10 @@ echo "-----------------------------------------"
 # 3296 -> 3310 (v0.109.0, R256): +14 -- every switch of a stack item's include
 # box with its time (off 09:00 / on 15:30 the same day both kept); a day ended off
 # reads "switched off", a partial day shows its times; the backup lists the events.
-EXPECTED_ASSERTIONS=3310
+# 3310 -> 3320 (v0.110.0, R251.2): +10 -- blood pressure as one chart: pairing at
+# true times, the readout, gaps not joined, 135/85 labelled with both editions
+# cited, no verdict, the nearest reading picked, fewer than three in words.
+EXPECTED_ASSERTIONS=3320
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

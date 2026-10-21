@@ -11521,6 +11521,50 @@ window.setLS({});
   HT.state().days = _wDays; HT.state().current = _wCur; HT.state().timeline = _wTl;
   HT.state().settings = JSON.parse(JSON.stringify(_wSet));
 
+  // ---- R251.2: BLOOD PRESSURE, ONE CHART -----------------------------------------------
+  var _bTl = HT.state().timeline;
+  HT.setClock(function () { return new Date(2026, 9, 21, 9, 0, 0).getTime(); });
+  var bpR = function (dk, time, type, v) { return HT.normalizeSignal({ type: type, value: v, unit: 'mmHg', time: time, source: 'manual' }); };
+  var bpPair = function (dk, time, sv, dv) { (HT.state().timeline[dk] = HT.state().timeline[dk] || []).push(bpR(dk, time, 'bp_systolic', sv), bpR(dk, time, 'bp_diastolic', dv)); };
+  HT.state().timeline = {};
+  bpPair('2026-10-15', '07:00', 125, 80);
+  bpPair('2026-10-20', '07:10', 128, 82);
+  bpPair('2026-10-20', '13:00', 141, 88);
+  bpPair('2026-10-20', '21:30', 122, 79);
+  bpPair('2026-10-21', '08:10', 131, 84);
+  HT.state().timeline['2026-10-20'].push(HT.normalizeSignal({ type: 'bp_systolic', value: 119, unit: 'mmHg', time: '', source: 'manual' }));
+  var bpX = HT.bpReadings(90);
+  var bpW = bpX.points.map(function (p) { return p.dk + ' ' + p.time + ' ' + p.sys + '/' + p.dia; }).join(',');
+  res(bpW === '2026-10-15 07:00 125/80,2026-10-20 07:10 128/82,2026-10-20 13:00 141/88,2026-10-20 21:30 122/79,2026-10-21 08:10 131/84' && bpX.untimed === 1,
+      'R251.2: each systolic is paired with the diastolic taken at the same time, in time order, at its true time; a reading with no time is counted, not placed', bpW);
+  res(bpX.points[2].t - bpX.points[1].t === (5 * 60 + 50) * 60000 && bpX.points[4].t - bpX.points[3].t === (10 * 60 + 40) * 60000,
+      'R251.2: TRUE TIMES -- 07:10 to 13:00 is 5 h 50 min, 21:30 to the next morning 08:10 is 10 h 40 min');
+  res(HT.bpReadoutWords(bpX.points[4]) === '131/84 mmHg · pulse pressure 47 · Oct 21 08:10 · entered by hand',
+      'R251.2 GATE: the readout says both values, mmHg, the pulse pressure, the date and time, and the source', HT.bpReadoutWords(bpX.points[4]));
+  var bpH = HT.bpChartHTML(90);
+  res((bpH.match(/class="bpsys"/g) || []).length === 1 && (bpH.match(/class="bpdia"/g) || []).length === 1 && (bpH.match(/class="bpband"/g) || []).length === 1
+      && (bpH.match(/class="bpmsys"/g) || []).length === 5 && (bpH.match(/class="bpmdia"/g) || []).length === 5,
+      'R251.2 GATE: GAPS ARE NOT JOINED -- the reading five days earlier has its markers and no line or band to the next; the four within 30 h are one line each and one band');
+  res(/data-ref="135"[^>]*>[^<]*/.test(bpH) && bpH.indexOf('>135 ref<') > 0 && bpH.indexOf('>85 ref<') > 0 && bpH.indexOf('class="bpleglab">Systolic<') > 0 && bpH.indexOf('class="bpleglab">Diastolic<') > 0
+      && bpH.indexOf('Blood pressure <small>mmHg</small>') >= 0,
+      'R251.2: the reference lines at 135 and 85 are labelled, the two lines are named in words, and the unit is mmHg');
+  res(HT.BP_REF_WORDS.indexOf('2020 edition') > 0 && HT.BP_REF_WORDS.indexOf('Can J Cardiol 2020;36(5):596') > 0 && HT.BP_REF_WORDS.indexOf('130/80') > 0
+      && HT.BP_REF_WORDS.indexOf('CMAJ 2025;197:E549') > 0 && bpH.indexOf('Reference lines') > 0,
+      'R251.2: behind the info button, the 2020 edition and its citation, and that the 2025 edition lowered the threshold to 130/80, with its own');
+  res(!/\b(high|elevated|normal|good|bad|warning|danger|should)\b/i.test(bpH.replace(/<[^>]*>/g, ' ').replace(HT.BP_REF_WORDS, '')) && !/(red|green|amber|orange|warn|flag)/i.test((bpH.match(/class="[^"]*"/g) || []).join(' ')),
+      'R251.2 GATE: no verdict -- no word grading a reading, and no class that could colour one');
+  var bpP = HT.bpPickNear(new Date(2026, 9, 20, 12, 0).getTime());
+  res(bpP.ok && bpP.reading.time === '13:00' && bpP.words === '141/88 mmHg · pulse pressure 53 · Oct 20 13:00 · entered by hand',
+      'R251.2: a tap is the NEAREST reading -- noon picks 13:00, above the reference lines, read out like any other');
+  HT.state().timeline = {};
+  bpPair('2026-10-20', '07:10', 128, 82); bpPair('2026-10-20', '21:30', 122, 79);
+  res(HT.bpChartHTML(90).indexOf('<svg') < 0 && HT.bpChartHTML(90).indexOf('128/82 mmHg') > 0,
+      'R251.2: under three readings there is no chart, only the readings in words (never a 2-point trend)');
+  HT.state().timeline = {};
+  res(HT.bpChartHTML(90) === '', 'R251.2: no readings, nothing drawn');
+  HT.setClock(null);
+  HT.state().timeline = _bTl;
+
   // ---- B1: THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ---------
   //
   // The reported defect was a header reading "Dinner - 10:51 - 4 sittings", so the

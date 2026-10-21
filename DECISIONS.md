@@ -18127,3 +18127,53 @@ memory reported; the user chooses. **First deliverable: a design report and five
 example practices across the three experts; no further seeding until approved.**
 *Note:* R244 and R247 were not recorded in this file before; their G/T/R tiers are
 the evidence store's direct / team / reference (R261/7).
+
+## R251.2 -- BLOOD PRESSURE, ONE CHART (2026-10-20, v0.110.0)
+
+*Serves **track**: one picture of systolic, diastolic and the gap between them, at
+the times they were taken.* (R251 itself was never recorded here; this entry
+carries its .2 slice as the user ruled it.)
+
+**Ruled (R251.2).** One chart in Trends replaces the two BP sparklines: systolic
+and diastolic lines at **true times**, **mmHg gridlines** on a fixed axis (40-200,
+every 20, never fitted to the data), the **pulse pressure** (systolic minus
+diastolic) as a **neutral band** between them; faint, labelled **reference lines
+at 135 and 85**; **no verdict colour or message** -- a reading above a line is
+drawn in the same ink as any other; a tap reads **"128/82 mmHg · pulse pressure
+46 · Oct 20 08:10 · <source>"**; the lines told apart **without colour**; text
+>= 16 px; targets >= 44 pt; **gaps not joined**.
+
+**The citation, verified -- and a conflict named, then ruled.** The ruling's
+135/85 is Hypertension Canada's home-reading threshold in its **2020** guidelines
+(Rabi DM et al., Can J Cardiol 2020;36(5):596-624; the 2020-22 practical guide:
+"Home BP threshold for diagnosis: SBP >135 mmHg or DBP >85 mmHg"). Checking the
+edition found the **2025 primary-care guideline** (Goupil R, Tsuyuki RT, Santesso
+N, et al. CMAJ 2025;197:E549-64, doi:10.1503/cmaj.241770) uses **130/80** for
+office, daytime ambulatory **and home** readings (its Figure 2; its FAQ appendix:
+"using identical thresholds for AOBP, daytime ABPM, and HBPM"). Asked, the user
+chose **135/85, labelled as the 2020 edition**; the ⓘ says the 2025 guideline
+lowered it to 130/80, with both citations, and that the threshold is for the mean
+of a week's series while the chart draws single readings.
+
+**Chosen, not ruled (open to reversal):**
+- **The gap:** readings more than **30 h** apart are not joined (morning and
+  evening join; a missed day breaks). Every reading has its own marker, so a lone
+  one is still seen.
+- **Telling the lines apart:** systolic solid with filled circles, diastolic dashed
+  with hollow squares, one neutral ink; named in a **legend** with a sample of
+  each, not on the plot -- on the plot a name collided with the nearest reading
+  (seen in the 390 px screenshot before the suite). The reference labels sit in a
+  right margin of their own for the same reason.
+- **The tap:** the whole plot is one target and picks the **nearest** reading; and
+  **‹ › step buttons (44 x 44)** move one reading at a time. *Found by
+  bpchart-gate:* over a week at 390 px, readings hours apart on one day are about
+  15 px apart, so a tap 15 px off a marker picked its neighbour -- a tap alone
+  cannot give every reading a 44-point target; the buttons do.
+- Under three readings there is no chart, only the readings in words (the Trends
+  rule: never a 2-point trend). Pairing: a systolic and a diastolic at the same day
+  and time, in order; a reading with no time is counted, not placed.
+- The source word: "entered by hand" for manual and quick entries.
+
+Nothing stored changes: the chart reads the existing `bp_systolic` /
+`bp_diastolic` timeline records. Evidence: harness 3310 -> 3320 (+10);
+`bpchart-gate` new (10 checks; manifest 50 -> 51).
