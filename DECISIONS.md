@@ -18177,3 +18177,75 @@ of a week's series while the chart draws single readings.
 Nothing stored changes: the chart reads the existing `bp_systolic` /
 `bp_diastolic` timeline records. Evidence: harness 3310 -> 3320 (+10);
 `bpchart-gate` new (10 checks; manifest 50 -> 51).
+
+## R262 -- R257 RULED: DATA FLOW AND THE WEEKLY REVIEW (2026-10-21; record only)
+
+*The weekly review serves **evaluate**. Built after the R258 and R259 reports.*
+
+**A. Data flow.**
+1. **Phone import: the current route stays** -- Health data exported to Files and
+   imported through the app's Import button. Neither the pasted Shortcut (A2) nor
+   the Safari-tab URL route (A3) is built now; H22 stays pre-registered, unbuilt.
+2. **PC: the user emails the exported backup to themselves** and saves it into
+   HTPrivate. **The user's own override** of R257's "nothing to a third-party
+   server" exclusion, for this route only: the backup passes through the user's
+   mail provider. The app changes nothing for it (the share sheet already offers
+   Mail). No scheduled copy task (B1/B2) now.
+3. **A4, a native shell reading HealthKit, stays the long-term route** (roadmap
+   leg 1).
+
+**B. Weekly review -- approved as designed (R257 report), with:**
+1. Weeks run **Monday to Sunday** ("this week so far" until Sunday); **typical =
+   the 28 days before** the week. A comparison word appears only beside a
+   **calculated** probability; **40-60 % reads "no clear change"** (R260).
+2. **Four rings:** meal responses; fasting; alcohol-free days (gold, the
+   R226/R230/R232 exception); sleep, hidden until sleep data exists.
+3. **Fasting, newly defined** (replaces "days with >= N hours"):
+   - A fast runs from the **last logged food** to the **next logged food**.
+   - Its start is the last food's time, unless the user taps **Stopped eating**
+     (Now or a picked time) -- then that time is the start.
+   - **Past 20 h with no food logged, the app asks once, on the next open (no
+     push):** "20 h since your last meal -- are you fasting?" -- **"Yes -- planned
+     length: [hours]"** (stored with the fast) or **"No -- I ate and didn't log
+     it"** (feeds E-lite's "food I didn't log" label; not counted as a fast).
+   - Ring: centre = the open fast's running time if one is open, else the week's
+     longest fast in hours; a declared fast shows progress toward its planned
+     length; the ring fills by the week's fasts and their durations -- **no
+     threshold, no target colour**. The card lists each fast: start -> end,
+     duration, declared (planned length) or not.
+4. **Entry point:** a **"This week" link under the 7-day row** (>= 44 pt); tapping
+   the rings still opens + Log (R223).
+5. Headline, coverage line, the dashed typical curve on the meal card only, the
+   footer, and the quiet "Last week's review is ready" line (**off by default**),
+   as proposed.
+
+**Gates:** rings and numbers; the screen at 390 px; harness. Plus: a fast starts at
+the last food; Stopped eating with an edited time moves the start; the 20 h
+question appears once, the planned length is stored, "didn't log it" is excluded
+from fasts. A cost declaration comes with the build.
+
+**Named against what exists (to settle before the build, not resolved here):**
+- **The 20 h question is a prompt on open.** E-lite is "passive: no prompt", and
+  intake flags are "flags, not nudges" (R213). The user has ruled this one
+  question in, so it is a **ruled exception** scoped to it: asked once per open
+  gap, never repeated, answerable later from the day. It is an *answer* to what
+  the page shows, so it fits the R215/R216 answer exception (as Fasted / Ate,
+  didn't log already does).
+- **The app already has fasting gaps** (D22: `fastLog`, "fasting candidates"):
+  closed gaps of >= 16 h (`settings.fasting.minHours`) answered **Fasted** or
+  **Ate, didn't log**, the second already excluded from every analysis. R262's "No
+  -- I ate and didn't log it" is that same state, asked while the gap is still
+  open; the build reuses `fastLog` rather than adding a second store. The planned
+  length is an additive field on the entry (no schema bump).
+- **"No threshold" meets every gap between two meals.** Read literally, lunch to
+  dinner is a fast. The existing candidates count a gap only from 16 h. The
+  ring's meaning differs a great deal between the two; **the user's reading is
+  asked before the build.**
+- **D22 Pin 1: an unanswered gap never counts** (`confirmedFasts()` returns only
+  `fasted`). R262 lists every fast, "declared or not". Proposed reading: the ring
+  and card show every gap from last food to next food as **measured from the
+  log**, a declared or Fasted-answered one marked as such, and "didn't log it"
+  removed; D22's `confirmedFasts()` stays the surface any analysis reads. Asked
+  with the threshold question.
+- **Where "didn't log it" feeds E-lite:** a rise inside that gap offers "food I
+  didn't log" first, since the user has said so for the span.
