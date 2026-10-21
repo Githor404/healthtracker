@@ -159,6 +159,25 @@ Static, no build step, GitHub-Pages-deployable; vanilla HTML/CSS/JS in a handful
 
 > **Correction (2026-10-04).** The first draft of this section called the whole candidate list *withdrawn*, which would have told every future reader that a shipped, gated capability had been abandoned. The cause: the price entry below was audited against the code because the ruling demanded it, and the rest of this document was reasoned about instead of checked. *A claim about the code made without consulting the code is the same defect as a search pattern typed from memory.*
 
+## Standing rule: data and the AI's probability; the user decides (R260/R261)
+
+Every **inferred** value, claim, practice, trigger, suggestion or interpretation
+shown carries an explicit probability, saying what it is a probability **of**, with
+its basis behind an ⓘ (evidence grade, n, own data used or "no personal data yet",
+the main uncertainty). **General** (from cited evidence) and **personal** (from the
+user's data; **minimum n 5**, else "no personal estimate yet") are kept separate.
+GRADE is the evidence label and the probability is the estimate -- both shown,
+never merged. **No "should", no priorities, no verdicts** (sole exception:
+alcohol-free rewards). **No probability -> not shown as advice**; raw data always
+may be. General probabilities are written into the evidence database by an agent
+at authoring (model, version, date), fixed, re-assessed only as a new version;
+**the app makes no AI calls for probabilities**. A probability computed from the
+user's data is labelled **"calculated"**. Every probability shown is logged once
+per claim per day, resolved when the data allows, and summarised in a calibration
+table behind an ⓘ in Settings. "Best practice" appears only when expert agreement
+and evidence strength are both high, beside the probability. Ruled 2026-10-20;
+the screens that carry it are built slice by slice -- see DECISIONS R260/R261.
+
 ## Working rules (unchanged)
 
 Small single-purpose commits; data-loss implications stated and ruled before touching storage/ingest/export/migration; pre-registered, re-runnable gate evidence; ruled contracts live in DECISIONS.md and bind equally; ask before adding scope; name conflicts between patterns rather than silently resolving them.

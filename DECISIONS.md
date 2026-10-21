@@ -17995,3 +17995,135 @@ off is taken; byte-identical restore; the boundary drops a bad event; an item fr
 before R256 has no history). `stackcheck-gate` 21 -> 25 checks: the Settings box
 clicked at four pinned times, kept through a reload; today's ⓘ opened by a tap;
 yesterday reads "switched off" on the sheet and in the backup.
+
+## R260 + R261 -- STANDING RULE: DATA AND THE AI'S PROBABILITY; THE USER DECIDES (2026-10-20; record only)
+
+*Applies to the app, the private evidence database, R257-R259, and every future
+agent and feature.* Nothing on a screen changes in this commit: the per-feature
+mapping below was reported first, as the rule requires, and is built later.
+
+**The rule (R260).**
+1. Every **inferred** value, claim, practice, trigger, suggestion or interpretation
+   shown to the user carries an explicit **probability** -- e.g. "likely trigger ·
+   72%", "walk after meals lowers your rise · 80% in general, 64% for you (n 9)".
+2. Each probability says in plain words **what it is a probability of**, and behind
+   its ⓘ its **basis**: evidence grade, n, the user's own data used (or "no personal
+   data yet"), and the main uncertainty.
+3. Two kinds where relevant, **kept separate**: **general** (how likely the claim
+   holds for people like the user, from the cited evidence) and **personal**
+   (updated with the user's own data, n shown). Below the minimum n: "no personal
+   estimate yet".
+4. **GRADE stays the evidence-quality label**; the probability is the AI's best
+   estimate. Both shown, never merged.
+5. **The user decides.** No "should", no priorities, no verdicts: the app presents
+   data and probability; actions are the user's. (Exception already ruled:
+   alcohol-free rewards, R226 + R230 + R232, v0.103.0.)
+6. **Calibration.** Every probability shown is logged with its date; when an
+   outcome resolves in the user's data, the result is recorded; a calibration
+   table (stated % against how often true), per agent/feature, sits behind an ⓘ in
+   Settings.
+7. **No probability -> not shown as advice.** Raw data can always be shown.
+
+**Rulings (R261).**
+1. **Minimum n for a personal estimate: 5.** The meal range keeps its floor of 3,
+   where its probability reads 50%.
+2. **Glucose-rise causes (E-lite):** one fixed neutral order every time, no
+   "likely" wording and no probability, until a cited general figure exists AND at
+   least 5 of the user's answers support a personal estimate. The ⓘ says that
+   calibration here measures agreement with the user's judgement, not the true
+   cause.
+3. **Wording:** the fingerstick sentence stays, as a **quoted manufacturer
+   instruction with its source (Dexcom)**, not in the app's own voice. The vitamin
+   D flag's 25-OH sentence becomes "25-OH vitamin D can be recorded under Labs".
+4. **Calibration store: approved as reported** -- one entry per distinct claim per
+   day (never per render): feature, producer (model name and version, or
+   "calculated"), date shown, the claim in plain words, probability, general or
+   personal, n, how it resolves, the result and its date. Carried in the backup.
+   Settings ⓘ: probability bands with stated mean against observed share and n;
+   a thin band says so.
+5. **General probabilities** are written by an agent into the evidence database
+   when a claim is authored, with model name, version and date, and are **fixed**
+   thereafter. When a claim's evidence is updated its probability is re-assessed
+   as a **new version**; the old one is kept and shown in history. **The app makes
+   no AI calls for probabilities**; its only AI calls remain the user's own-key
+   photo features. A probability the app computes from the user's data is labelled
+   **"calculated"** -- e.g. the meal range's (n-1)/(n+1), which its ⓘ says.
+6. **R259's "best practice" label** is kept, defined mechanically: shown only when
+   expert agreement AND evidence strength are both high; the rule is stated behind
+   its ⓘ; always shown **beside** the probability, never instead of it.
+7. **G/T/R = direct / team / reference** (own words / circle / third-party),
+   confirmed; these are the evidence store's existing tier names.
+
+**The mapping, as reported (to be built; each its own slice):**
+- *Rise flags:* the mark is data (the ruled rule, stated) and carries no
+  probability; the causes as ruling 2.
+- *Meal review "Expected":* becomes the range of the user's n similar meals with
+  P = (n-1)/(n+1) that the next falls inside it (50 % at n 3, 80 % at n 9),
+  "calculated"; no general figure (own baseline only); resolves itself when the
+  meal's glucose arrives. The carbs/rise correlation stays raw data with n.
+- *R231 shares:* never shown; if ever, the held-out hit rate with n.
+- *Intake flags, lab ranges, FDA labels:* data with citations, no inference; the
+  two sentences as ruling 3.
+- *Also found:* "suggested -- tap to confirm" and the photo matcher's proposed row
+  (personal: the user's confirm rate, resolves on confirm/change); the BYOK model's
+  food name (the model's probability, model named, resolves on confirm/rename);
+  AI-estimated macros (a range with a probability; resolves only if weighed, said
+  so). Usual wake time and Search's "logged before" order are data, with n.
+
+## R257 / R258 / R259 -- PRE-REGISTERED: DATA FLOW, WEEKLY REVIEW, PATHWAY AGENT, EXPERT CURATORS (2026-10-20; record only)
+
+Recorded in general terms; anything drawn from the user's own data or stack lives
+in HTPrivate, never here (R204). **Reports first, nothing built or scheduled until
+the user chooses.** Queued after R251.2, in this order. Each report carries a cost
+declaration, and everything they show the user falls under R260/R261.
+
+**R257 -- A. Data flow (phone -> app -> PC).** Options with taps per week, limits
+and privacy: (1) an iOS Shortcut automation reading glucose and steps (later
+HR/HRV) from Apple Health into a dated iCloud Drive file the app imports in one
+tap or as directly as a web app allows -- including what Shortcuts can read and
+how often; (2) fewer steps from the app's backup to HTPrivate (e.g. a synced
+iCloud Drive folder), only by routes the user's work PC allows; (3) anything else
+that removes a manual step **without sending data to a third-party server**. One
+recommended; the user chooses. **B. Weekly review** (*evaluate*): computed on the
+phone, nothing to a server; a one-sentence headline with no verdict; four rings
+proposed for the user to choose (meal responses against the user's typical,
+fasting days >= N h from "Stopped eating" to first food, alcohol-free days in gold
+under R226 + R230 + R232, sleep where data exists), each with n and coverage; the previous 28
+days as "typical you", with a dashed typical curve where it fits; a coverage line;
+"no clear change" when that is the honest answer; no priorities, grades of the
+user, or moral messages; detail behind ⓘ; reached from the day view's rings; a
+weekly notice, off by default. Report: rings, exact computations, a 390 px mockup.
+
+**R258 -- background pathway agent (on the user's PC).** Reads the latest backup in
+HTPrivate and the private evidence database; writes a dated report to
+HTPrivate\reports\ (and later a compact section behind the weekly review): per
+pathway, what the period's inputs contribute; matching claims with grade words and
+G/T/R tiers; "things you could try or test", each with its grade, what the user's
+data could show and how long it would take -- never "you should"; interactions
+seen in the logs, as facts with grades; safety-relevant items (doses above cited
+limits, known drug-supplement interactions) stated plainly. No invented expert
+voice; quotes and grades from the database only; no medical claim beyond what is
+cited; **nothing leaves the PC**; claims an agent proposes enter with
+`reviewed_by_me = null`. Scheduling options (Task Scheduler running the CLI
+non-interactively on a schedule or on each new backup) reported with cost, memory
+and what happens when the PC is off; the user chooses. **First deliverable: one
+hand-run report from current data, for review, before any scheduling.**
+
+**R259 -- expert curators and a master synthesis agent** (extends R241, R247,
+R258). One curator per expert the user follows (three named in the ruling, more
+later) gathers that expert's actual claims and protocols into the evidence
+database (R241 schema) with G/T/R tiers and commercial interests as fact; no
+filtering -- contested and weak claims included, graded and labelled; short
+verbatim quotes with source and locator, labelled summaries only where no quote is
+found, never a statement invented in anyone's voice; everything enters
+`reviewed_by_me = null`. The master agent groups claims into **practices** and
+shows two separate axes -- expert agreement (endorse / oppose / silent, with
+sources) and evidence strength (GRADE + plain words) -- with "best practice" only
+as R261/6 defines it, and the gap labelled honestly otherwise; conflicts flagged.
+Linked to the user through R258 (doing it already? testable? how long?), phrased
+"could try / could test". Reflected into the app as a compiled read-only pack, one
+line per practice, detail behind G/T/R ⓘ icons. Schedule, refresh, token cost and
+memory reported; the user chooses. **First deliverable: a design report and five
+example practices across the three experts; no further seeding until approved.**
+*Note:* R244 and R247 were not recorded in this file before; their G/T/R tiers are
+the evidence store's direct / team / reference (R261/7).
