@@ -6397,3 +6397,34 @@ Run red first on the export: an item never taken was not reported at all.
 `STACKCHECK_SHOTS=1` saves the checked row, both editors and N-1; all were read
 before the suite. `noauto-gate`, `myfood-gate` and `stacktotals-gate` now log the
 stack through Took all; noauto's N-1 is Took all, then one unchecked.
+
+### v0.109.0 -- R255: `stackcheck-gate`, a day before an item joined
+
+The fixture's three items now joined three days ago (`added_on`, `created`). New
+section 6, after a reload: an item added through the editor's save joins today
+(`added`), and Settings reads "In your stack since <today> (the day it was added)"
+beside "(the day it was created in Settings)" for the others; then **by taps** --
+back one day (‹), + Log, open the stack -- yesterday's list reads "0 of 3 taken",
+three checkboxes, and "Gate new · Supplement · not in stack yet · added <today>"
+with no checkbox, at 16px, nothing off the side; the backup for that day says
+"not in stack yet" for it beside "not taken" for the three. 21 checks. The export
+check was red at first, because the fixture's undated items began the export at the
+stack's first use (today); dated as the backfill dates real items, it is green.
+`STACKCHECK_SHOTS=1` adds `stack-notyet`, read before the suite.
+
+**R256, same release -- section 7.** The Settings include box for Gate capsule is
+clicked with the app's clock pinned for each click: two days ago 21:00 off; today
+08:00 on, 09:00 off, 15:30 on. After a reload all four events are there, each with
+its full time, offset and `stated`; today's row keeps its checkbox and its ⓘ (44 x
+44), tapped open, reads "Switched on 08:00 · switched off 09:00 · switched on
+15:30" at 16px; yesterday (off all day), reached by ‹, reads "Gate capsule ·
+Medication · switched off" with no checkbox under "0 of 2 taken", and the backup
+says "switched off" that day and lists all four events. **25 checks** (R246 18,
+R255 3, R256 4 -- the "21" written for v0.108.0, and the "24" first drafted here,
+were wrong). Shots `stack-switch-times` and `stack-switched-off` read before the
+suite. A first run was red on a PowerShell `-like` pattern holding `[` (a
+character class), not on the app; the check now compares parsed fields.
+
+**Suite run 1 (60/61), discarded:** `stacktotals-gate` read every `.stksub` in the
+Settings stack editor by position, and each row now carries a second one ("In your
+stack since ..."). The gate now reads `.stksub:not(.stksince)`; the app was right.

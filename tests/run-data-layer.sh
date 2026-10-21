@@ -544,7 +544,14 @@ echo "-----------------------------------------"
 # nothing; a food's amount is its grams; the export says taken / not taken; uncheck
 # with Undo; Took all then uncheck one -> N-1; an old sheet's dose matched by name;
 # an item never taken still reads "not taken" (found by stackcheck-gate).
-EXPECTED_ASSERTIONS=3278
+# 3278 -> 3296 (v0.109.0, R255): +18 -- each stack item's added_on and the rule
+# that set it (created / logged / auto / unknown), backfilled once and on restore;
+# an item added today reads "not in stack yet" yesterday, on the sheet and in the
+# backup; a removed item kept with removed_on.
+# 3296 -> 3310 (v0.109.0, R256): +14 -- every switch of a stack item's include
+# box with its time (off 09:00 / on 15:30 the same day both kept); a day ended off
+# reads "switched off", a partial day shows its times; the backup lists the events.
+EXPECTED_ASSERTIONS=3310
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

@@ -186,7 +186,7 @@ try {
 (function () {
   var S = HT.state(), t = HT.todayKey(), st = S.settings.stack || [];
   return { n: st.length, map: st.map(function (s) { return s.name + '|' + s.dose + '|' + s.dose_unit + '|' + JSON.stringify((s.nutrients && s.nutrients.micros) || {}); }),
-           rows: Array.prototype.map.call(document.querySelectorAll('#stackEditor .stkrow .stksub'), function (e) { return e.textContent; }),
+           rows: Array.prototype.map.call(document.querySelectorAll('#stackEditor .stkrow .stksub:not(.stksince)'), function (e) { return e.textContent; }),
            doses: (S.timeline[t] || []).length };
 })()
 '@

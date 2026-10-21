@@ -17874,3 +17874,124 @@ D29: logStack's write moved unchanged into `stackWriteOne` (STAMPED, same reason
 Evidence: harness 3263 -> 3278 (+15; four D-D sheet cases replaced);
 `stackcheck-gate` new (18 checks, real taps at 390 px, a reload for persistence;
 manifest 49 -> 50); `noauto-gate`, `myfood-gate`, `stacktotals-gate` drive Took all.
+
+
+## R255 -- R246 PART 1 RULED; EACH STACK ITEM KNOWS WHEN IT JOINED (2026-10-20, v0.109.0)
+
+*Serves **track**: a day before an item was in the stack is not a day it was
+skipped, and **evaluate** must not read it as one.*
+
+**Ruled (R255/1): a tick is the fact; an untick takes it back, with Undo.** This
+**replaces R168's ruling D-D** ("untick what you skipped, confirm once"; no
+write-then-delete) wherever the stack is logged. R246 Part 1 built it; R255 rules
+it. D-D's concern -- a dose nobody took passing through the day's totals -- is
+answered by Undo and by "unchecked = not taken", not by a confirm. D-D stands as
+history only.
+
+**Ruled (R255/2): the stack stays one line on + Log** -- "Daily stack · x of N
+taken" and Took all, opening to the checkbox list -- so Search stays on screen.
+R246's "chosen, not ruled" note on the collapsed layout is now ruled.
+
+**Ruled (R255/3): `added_on`, and `removed_on`.** Each stack item carries the day it
+joined the stack (`added_on`) and, once removed, the day it left (`removed_on`).
+On a day before `added_on` the item reads **"not in stack yet"**, never "not
+taken", on + Log's stack list for that day and in the backup's `stackDays`.
+- **A new item** joins today: `added_basis: 'added'`. An edit keeps both dates.
+- **Existing items** are dated once, at boot and at restore, by the earlier of
+  two days -- and the rule used is kept beside the date (`added_basis`), because
+  the ruling asks for it per item: `created`, the day it was created in Settings,
+  read from its id (`newStackId` writes the clock into every id it makes);
+  `logged`, the first day an entry of it was logged from the stack (by `stackId`,
+  or by name on a stack-written entry); `auto`, the first day the retired Daily
+  supplement setting auto-added an entry of that name (`autoLegacy`). A tie is
+  `created`. An item with neither is `unknown` and gets **no** date: it counts as
+  in the stack from the start, as before, and a later log never re-dates it -- no
+  date is invented.
+- Settings shows each: "In your stack since Oct 12 (the day it was created in
+  Settings)". The backup's `stackDays` (now v2) lists every item with `added_on`,
+  `added_basis` and `removed_on`.
+- **Removing keeps the item** with `removed_on` (Undo clears it); it leaves the
+  Settings list and + Log, and the days it was in the stack still say so. An item
+  removed the day it was added and never logged is deleted outright -- it was
+  never in the stack on any day.
+
+**Chosen, not ruled (open to reversal):**
+- "In the day view" is read as **+ Log's stack list for the day being viewed** --
+  the only place a day lists stack items it did not take. The day's own "Daily
+  stack" group lists only entries, so it has nothing to say "not in stack yet" on.
+- **An item logged on a day is shown as taken that day whatever its dates** -- the
+  entry is the fact. So on the day an item is removed, a dose taken that morning
+  still shows, and counts.
+- A not-yet item has **no checkbox** on that day (it is not in the plan), and Took
+  all on that day skips it. A dose of it that day can still be logged through + Log
+  like any other entry.
+- ~~An item **switched off** (not removed) is still left out of + Log and the backup
+  on every day, as before: the switch keeps no history.~~ **Superseded by R256,
+  in the same release:** the switch now keeps its history, and a switched-off item
+  is shown as "switched off".
+- The backup reports days from the earliest `added_on`, or the stack's first use.
+
+**Data (additive, no schema bump).** Three fields on a stack item, declared in its
+normaliser (D129/D131): `added_on`, `added_basis`, `removed_on`. An older build's
+allowlist rebuild drops them, and this build re-derives them on its next boot. A
+removed item read by an older build would reappear in its list; removal is new
+with this build, so no such item exists yet.
+
+**R255/4 (report only, nothing changed):** the line counts items whose Settings
+switch is on (`enabled`); a stack Food counts like any other item. Answered in the
+session, not recorded here (R204).
+
+Evidence: harness 3278 -> 3296 (+18; R203's removal case now reads the list);
+`stackcheck-gate` 18 -> 21 checks (an item added today reads "not in stack yet"
+yesterday, by taps, on the sheet and in the backup; Settings says since when).
+*Correction:* the R246 entry and GATES v0.108.0 say `stackcheck-gate` had 21
+checks; it had **18** (counted from its `Check` calls). The number was written
+from a draft, not from the file.
+
+## R256 -- EVERY SWITCH OF A STACK ITEM, WITH ITS TIME (2026-10-20, v0.109.0)
+
+*Serves **track**, for **evaluate** later.* **Purpose, ruled (R256/4): future
+circadian analysis.** Each dose already carries its own time; with the on/off
+periods also timed, a later analysis can tell "not taken" from "not meant to be
+taken" and place both against the clock. Nothing analyses it yet.
+
+**Ruled.**
+1. **Switching an item off or on** (Settings → Daily stack, the include box)
+   records an **event**: `{ on, at, tzo, stated }` on the item's `switches` --
+   `at` the full local time to the second, `tzo` the device's offset (D29),
+   `stated: true` because it is the user's own tap. **Every event is kept:** an
+   off and an on on the same day both stay, with their times; nothing is collapsed
+   or overwritten. A tap that changes nothing records nothing.
+2. **Effect on days.** An item **off at the end of a day** (for today: now) reads
+   **"switched off"** -- not "not taken" -- on + Log's stack list for that day and
+   in the backup's `stackDays`; it is not counted in "x of N", has no checkbox, and
+   Took all skips it. A **partial day** (a switch on it) shows the item with the
+   switch times behind its ⓘ ("Switched on 08:00 · switched off 09:00 · switched on
+   15:30"), a 44-point disclosure. **A dose logged is "taken"** whatever the switch
+   said, as before.
+3. **The backup** lists every item's events (`stackDays.items[].switches`) and each
+   day's own (`days[d][].switches`), and says where history begins.
+   **Existing items have no history before this release:** each gets
+   `switches_from` (the day this build first ran, or restored the file), and
+   Settings says "Switching on and off recorded from Oct 20; none before" where
+   that is later than the item joined. Before its first event an item was in the
+   opposite state of that event; with no events at all, its current state applies
+   to every day -- no history is invented.
+
+**Chosen, not ruled (open to reversal):** a partial day counts the item in "x of
+N" (with a checkbox) only if it **ended the day switched on**; one switched off
+partway reads "switched off" with its times behind the ⓘ. Stack writes that add a
+field (the date backfill, a switch, a removal) now pass the item back through its
+normaliser, so its keys stay in the normaliser's order and a backup round trip
+stays byte-identical -- the harness found the order differing on the first try.
+
+**Data (additive, no schema bump):** `switches` and `switches_from` on a stack
+item, declared in its normaliser; a malformed event is dropped, never repaired.
+
+Evidence: harness 3296 -> 3310 (+14: off 09:00 / on 15:30 the same day both kept
+with times; a day off all day reads "switched off", uncounted, untickable, skipped
+by Took all; a partial day's words; the backup's events and statuses; a dose while
+off is taken; byte-identical restore; the boundary drops a bad event; an item from
+before R256 has no history). `stackcheck-gate` 21 -> 25 checks: the Settings box
+clicked at four pinned times, kept through a reload; today's ⓘ opened by a tap;
+yesterday reads "switched off" on the sheet and in the backup.

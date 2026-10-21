@@ -7,6 +7,11 @@
 #   Took all checks every item not yet taken. The ruled gates: one tap = checked at
 #   Now with the usual dose; an edit persists; unchecked counts as not taken; Took
 #   all then uncheck one -> N-1; two taps for the common case (+ Log, Took all).
+#   R255: an item added today reads "not in stack yet" yesterday -- on the sheet,
+#   uncounted and without a checkbox, and in the backup.
+#   R256: every switch of the Settings include box is kept with its time; off at 09:00
+#   and on at 15:30 the same day both stay; a day off all day reads "switched off";
+#   a partial day's times sit behind the item's info button; the backup lists them.
 #
 # Synthetic items only (the Gate items); never the user's stack (R204).
 # Exit 0 PASS, 1 FAIL, 2 environment error.
@@ -140,10 +145,13 @@ try {
   [void](Eval @'
 (function () {
   var S = HT.state();
+  // R255: joined the stack three days ago, as the backfill would date them
+  var d3 = new Date(); d3.setDate(d3.getDate() - 3);
+  var k3 = d3.getFullYear() + '-' + ('0' + (d3.getMonth() + 1)).slice(-2) + '-' + ('0' + d3.getDate()).slice(-2);
   S.settings.stack = HT.normalizeStack([
-    { id: 'g1', name: 'Gate D', kind: 'supplement', dose: 1000, dose_unit: 'IU' },
-    { id: 'g2', name: 'Gate capsule', kind: 'medication', dose: 2, dose_unit: 'capsule' },
-    { id: 'g3', name: 'Gate oil', kind: 'food', part: { name: 'Gate oil row', grams: 10, kcal: 90, fat_g: 10, protein_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0,
+    { id: 'g1', added_on: k3, added_basis: 'created', name: 'Gate D', kind: 'supplement', dose: 1000, dose_unit: 'IU' },
+    { id: 'g2', added_on: k3, added_basis: 'created', name: 'Gate capsule', kind: 'medication', dose: 2, dose_unit: 'capsule' },
+    { id: 'g3', added_on: k3, added_basis: 'created', name: 'Gate oil', kind: 'food', part: { name: 'Gate oil row', grams: 10, kcal: 90, fat_g: 10, protein_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0,
       confidence: 'eyeballed', source: 'corpus', ref: { ns: 'cnf', id: '9', name: 'Gate oil row', hash: 'h', attribution: 'CNF', g: 10, v: { '208': 90, '204': 10 } } } } ]);
   HT.resave();
   return 1;
@@ -252,6 +260,90 @@ try {
   Check (($n4 -like '*"on":2*') -and ($n4 -like '*2 of 3 taken*') -and ($n4 -like '*"Gate D:taken","Gate capsule:not taken","Gate oil:taken"*')) "R246 GATE: TOOK ALL, THEN UNCHECK ONE -> N-1 -- two of three taken, the capsule not taken in the export"
   Shot 'stack-n-1'
 
+  # ---- 6. R255: AN ITEM ADDED TODAY READS "NOT IN STACK YET" YESTERDAY -----------------------
+  # Added through the editor's own save (stackUpsert), then everything else by taps:
+  # back one day, + Log, open the stack.
+  [void](Eval @'
+(function () {
+  HT.closeSheet();
+  var r = HT.stackUpsert({ name: 'Gate new', kind: 'supplement', dose: 5, dose_unit: 'mg' });
+  var d = new Date(); d.setDate(d.getDate() - 1);
+  var yk = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+  HT.state().days[yk] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.resave();
+  return r.ok;
+})()
+'@)
+  Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
+  Start-Sleep -Milliseconds 2500
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
+  $a0 = EvalJ "(function(){ var t = HT.todayKey(); var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Gate new'; })[0] || {}; var s = Array.prototype.map.call(document.querySelectorAll('#stackEditor .stksince'), function (e) { return e.textContent; }); return { added: g.added_on === t, basis: g.added_basis, since: s }; })()"
+  Write-Host ("  added: " + $a0)
+  Check (($a0 -like '*"added":true*"basis":"added"*') -and ($a0 -like '*(the day it was added)*') -and ($a0 -like '*(the day it was created in Settings)*')) "R255: a new item joins the stack today, and Settings says since when and by which rule"
+  [void](Eval "(function(){ var b = Array.prototype.filter.call(document.querySelectorAll('.navbtn'), function (x) { return x.textContent.indexOf(String.fromCharCode(8249)) >= 0; })[0]; b.click(); return 1; })()")
+  Settle
+  [void](Eval "document.getElementById('fab').click()")
+  Settle
+  [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
+  Settle
+  $y0 = EvalJ "(function(){ var n = document.querySelector('#sheetRoot .stknotyet'); return { day: HT.state().current, head: document.querySelector('#sheetRoot .stkopen').textContent, boxes: document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]').length, line: n ? n.innerText.replace(/\s+/g, ' ').trim() : '', box: n ? n.querySelectorAll('input').length : -1, px: n ? parseFloat(getComputedStyle(n.querySelector('.stksub')).fontSize) : 0, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth }; })()"
+  Write-Host ("  yesterday: " + $y0)
+  $y0v = $y0 | ConvertFrom-Json
+  Check (($y0v.day -ne (Eval "HT.todayKey()")) -and ($y0v.head -eq ('Daily stack ' + [char]0xB7 + ' 0 of 3 taken')) -and ($y0v.boxes -eq 3) -and ($y0v.line -like ('Gate new*not in stack yet*')) -and ($y0v.box -eq 0) -and ($y0v.px -ge 16) -and ($y0v.wide -le 0)) "R255 GATE: AN ITEM ADDED TODAY READS 'NOT IN STACK YET' YESTERDAY -- shown without a checkbox, not counted (0 of 3), never 'not taken'"
+  $y1 = EvalJ "(function(){ var t = HT.state().current; var d = JSON.parse(HT.exportJSON()).stackDays.days[t] || []; return d.map(function (r) { return r.name + ':' + r.status; }); })()"
+  Write-Host ("  export, yesterday: " + $y1)
+  Check (($y1 -like '*"Gate new:not in stack yet"*') -and ($y1 -like '*"Gate D:not taken"*') -and ($y1 -notlike '*"Gate new:not taken"*')) "R255 GATE: and the backup says the same for that day -- 'not in stack yet', beside the items that were in it"
+  Shot 'stack-notyet'
+
+  # ---- 7. R256: EVERY SWITCH, WITH ITS TIME --------------------------------------------------
+  # The include box in Settings, clicked, with the app's clock pinned for each click:
+  # two days ago 21:00 off; today 08:00 on, 09:00 off, 15:30 on. So yesterday was off
+  # all day and today is a partial day.
+  [void](Eval @'
+(function () {
+  HT.closeSheet();
+  var box = function () { return document.querySelector('#stackEditor input[aria-label="include Gate capsule in the daily stack"]'); };
+  var at = function (dd, h, m) { var d = new Date(); d.setDate(d.getDate() + dd); d.setHours(h, m, 0, 0); var t = d.getTime(); HT.setClock(function () { return t; }); };
+  at(-2, 21, 0); box().click();
+  at(0, 8, 0); box().click();
+  at(0, 9, 0); box().click();
+  at(0, 15, 30); box().click();
+  HT.setClock(null);
+  return 1;
+})()
+'@)
+  Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
+  Start-Sleep -Milliseconds 2500
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
+  $w0 = EvalJ "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Gate capsule'; })[0] || {}; var t = HT.todayKey(); return { ev: (g.switches || []).map(function (e) { return (e.on ? 'on' : 'off') + '@' + (e.at.slice(0, 10) === t ? 'today' : 'earlier') + e.at.slice(10) + (e.stated ? '/stated' : '') + (typeof e.tzo === 'number' ? '/tzo' : ''); }), on: g.enabled }; })()"
+  Write-Host ("  switches, after a reload: " + $w0)
+  Check (($w0 -like '*"off@earlierT21:00:00/stated/tzo","on@todayT08:00:00/stated/tzo","off@todayT09:00:00/stated/tzo","on@todayT15:30:00/stated/tzo"*') -and ($w0 -like '*"on":true*')) "R256 GATE: OFF AT 09:00 AND ON AT 15:30 THE SAME DAY -- every click stored with its full time, offset and 'stated', all four kept through a reload"
+  $nav = "(function (dd) { var d = new Date(); d.setDate(d.getDate() + dd); var k = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); for (var i = 0; i < 6 && HT.state().current !== k; i++) { var ch = HT.state().current > k ? 8249 : 8250; var b = Array.prototype.filter.call(document.querySelectorAll('.navbtn'), function (x) { return x.textContent.indexOf(String.fromCharCode(ch)) >= 0; })[0]; if (!b) break; b.click(); } return HT.state().current === k; })"
+  $ok0 = Eval ($nav + "(0)")
+  [void](Eval "document.getElementById('fab').click()")
+  Settle
+  [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
+  Settle
+  [void](Eval "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.innerText.indexOf('Gate capsule') >= 0; })[0]; r.querySelector('.stkinfosum').click(); return 1; })()")
+  Settle
+  $w1 = EvalJ "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.innerText.indexOf('Gate capsule') >= 0; })[0]; var sm = r.querySelector('.stkinfosum'), b = r.querySelector('.stkinfobody'); var rs = sm.getBoundingClientRect(); return { box: r.querySelectorAll('input[type=checkbox]').length, info: b ? b.innerText : '', seen: b ? b.getBoundingClientRect().height > 0 : false, h: Math.round(rs.height), w: Math.round(rs.width), px: b ? parseFloat(getComputedStyle(b).fontSize) : 0, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth }; })()"
+  Write-Host ("  today: " + $ok0 + " " + $w1)
+  $w1v = $w1 | ConvertFrom-Json
+  Check (($ok0 -eq $true) -and ($w1v.box -eq 1) -and ($w1v.info -eq ('Switched on 08:00 ' + [char]0xB7 + ' switched off 09:00 ' + [char]0xB7 + ' switched on 15:30')) -and $w1v.seen -and ($w1v.h -ge 44) -and ($w1v.w -ge 44) -and ($w1v.px -ge 16) -and ($w1v.wide -le 0)) "R256 GATE: A PARTIAL DAY shows the item, with its checkbox, and every switch time behind its info button (44 px, 16px)"
+  Shot 'stack-switch-times'
+  [void](Eval "HT.closeSheet()")
+  $ok1 = Eval ($nav + "(-1)")
+  [void](Eval "document.getElementById('fab').click()")
+  Settle
+  [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
+  Settle
+  $w2 = EvalJ "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.innerText.indexOf('Gate capsule') >= 0; })[0]; var d = JSON.parse(HT.exportJSON()).stackDays; var it = d.items.filter(function (i) { return i.name === 'Gate capsule'; })[0]; return { line: r ? r.innerText.replace(/\s+/g, ' ').trim() : '', box: r ? r.querySelectorAll('input').length : -1, head: document.querySelector('#sheetRoot .stkopen').textContent, exp: (d.days[HT.state().current] || []).filter(function (x) { return x.name === 'Gate capsule'; }).map(function (x) { return x.status; }), events: it ? it.switches.length : 0, nine: it ? it.switches.filter(function (e) { return !e.on && /T09:00:00$/.test(e.at); }).length : 0 }; })()"
+  Write-Host ("  yesterday: " + $ok1 + " " + $w2)
+  $w2v = $w2 | ConvertFrom-Json
+  Check (($ok1 -eq $true) -and ($w2v.line -eq ('Gate capsule Medication ' + [char]0xB7 + ' switched off')) -and ($w2v.box -eq 0) -and ($w2v.head -eq ('Daily stack ' + [char]0xB7 + ' 0 of 2 taken')) -and ((@($w2v.exp) -join ',') -eq 'switched off')) "R256 GATE: ON A DAY IT WAS OFF ALL DAY THE ITEM READS 'SWITCHED OFF' -- no checkbox, not counted (0 of 2), and the backup says the same"
+  Check (($w2 -like '*"events":4*') -and ($w2 -like '*"nine":1*')) "R256 GATE: THE BACKUP LISTS THE EVENTS -- all four for the item, the 09:00 off among them"
+  Shot 'stack-switched-off'
+
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup
@@ -268,6 +360,8 @@ if ($fails.Count -gt 0) {
 }
 Write-Host "STACK CHECK GATE: PASS -- + Log, Took all logs the stack in two taps; one tap on a row"
 Write-Host "  is taken now at the usual dose; an edited dose and time are stated and survive a"
-Write-Host "  reload; unchecked is not taken in the export; Took all then uncheck one is N-1."
+Write-Host "  reload; unchecked is not taken in the export; Took all then uncheck one is N-1;"
+Write-Host "  an item added today reads 'not in stack yet' yesterday, on the sheet and in the backup;"
+Write-Host "  every switch is kept with its time, an off day reads 'switched off', the backup lists them."
 Write-Host "GATE: PASS"
 exit 0

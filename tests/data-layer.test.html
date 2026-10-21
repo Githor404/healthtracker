@@ -748,7 +748,11 @@ window.setLS({});
       'R203 GATE: ONE Undo on Took all takes back all four -- the day item and the timeline doses together. It was a bare notice with no way back');
   HT.state().days[td].items = skKeepI; HT.state().timeline[td] = skKeepT;
   var skRm = HT.stackItemRemove(sk2.item.id);
-  res(skRm.ok === true && HT.state().settings.stack.length === 3 && HT.stackSheetHTML().indexOf('of 3 taken') > 0, 'R203: an item can be REMOVED from the stack, and the Log sheet counts what is left');
+  // R255: today's own dose of it is still shown as taken, so the count of what is
+  // left is read on the day with nothing logged.
+  HT.state().days[td].items = []; HT.state().timeline[td] = [];
+  res(skRm.ok === true && skRm.kept === true && HT.stackListed().length === 3 && HT.stackSheetHTML().indexOf('of 3 taken') > 0, 'R203 / R255: an item can be REMOVED from the stack (kept, out of the list), and the Log sheet counts what is left');
+  HT.state().days[td].items = skKeepI; HT.state().timeline[td] = skKeepT;
   HT.doUndo();
   res(HT.state().settings.stack.length === 4 && HT.state().settings.stack[1].name === 'Vitamin D', 'R203: ...with Undo, back in its place');
   res(HT.stackEditorHTML().indexOf('Capsule A') > 0 && HT.stackEditorHTML().indexOf('Add an item') > 0 && HT.stackEditorHTML().indexOf('with breakfast') < 0
@@ -11344,6 +11348,178 @@ window.setLS({});
   HT.setClock(null);
   HT.state().days = _gDays; HT.state().current = _gCur; HT.state().timeline = _gTl;
   HT.state().settings = JSON.parse(JSON.stringify(_gSet));
+
+  // ---- R255: WHEN AN ITEM JOINED THE STACK -----------------------------------------
+  // Synthetic items only, never the user's stack (R204).
+  var _hDays = HT.state().days, _hCur = HT.state().current, _hTl = HT.state().timeline;
+  var _hSet = JSON.parse(JSON.stringify(HT.state().settings));
+  HT.setClock(function () { return new Date(2026, 9, 12, 8, 10, 0).getTime(); });
+  var hT = HT.todayKey();
+  var hId = function (m, d, n) { return 's' + new Date(2026, m, d, 21, 30, 0).getTime().toString(36) + '_' + n; };
+  res(HT.stackIdDay(hId(9, 5, 1)) === '2026-10-05' && HT.stackIdDay('g1') === ''
+      && HT.stackIdDay('s' + new Date(2027, 0, 1).getTime().toString(36) + '_1') === '',
+      'R255: an id newStackId made gives the day it was made, on the local clock; any other id, or a clock in the future, gives none');
+  // created Oct 5 but auto-added by the old setting from Sep 28; created Oct 5 and
+  // first logged Oct 8; no date in its id, first logged Oct 9; neither.
+  HT.state().days = {}; HT.state().timeline = {};
+  HT.state().days['2026-09-28'] = { status: 'in_progress', water_l: 0,
+    items: [HT.normalizeItem({ name: 'Gate D', meal: 'supplement', kcal: 0, source: 'supplement', autoLegacy: true }, true)] };
+  HT.state().timeline['2026-10-08'] = [HT.normalizeSignal({ kind: 'medication', name: 'Gate capsule', dose: 2, dose_unit: 'capsule', time: '08:00', source: 'stack' })];
+  HT.state().timeline['2026-10-09'] = [HT.normalizeSignal({ kind: 'medication', name: 'Gate tea', dose: 1, dose_unit: 'capsule', time: '08:00', source: 'stack', stackId: 'h3' })];
+  HT.state().settings.stack = HT.normalizeStack([
+    { id: hId(9, 5, 1), name: 'Gate D', kind: 'supplement', dose: 1000, dose_unit: 'IU' },
+    { id: hId(9, 5, 2), name: 'Gate capsule', kind: 'medication', dose: 2, dose_unit: 'capsule' },
+    { id: 'h3', name: 'Gate tea', kind: 'supplement', dose: 1, dose_unit: 'capsule' },
+    { id: 'h4', name: 'Gate none', kind: 'supplement' } ]);
+  var hB = HT.stackBackfillAddedOn(HT.state());
+  var hS = HT.state().settings.stack;
+  var hW = hS.map(function (x) { return x.name + ':' + (x.added_on || '-') + ':' + x.added_basis; }).join(',');
+  res(hB === true && hW === 'Gate D:2026-09-28:auto,Gate capsule:2026-10-05:created,Gate tea:2026-10-09:logged,Gate none:-:unknown',
+      'R255 GATE: an existing item gets the EARLIER of the day it was created and the first day it was logged, and the rule used is kept beside it -- auto-added by the old setting, created in Settings, first logged, or no date known', hW);
+  res(HT.stackBackfillAddedOn(HT.state()) === false && hS[3].added_on === undefined,
+      'R255: the backfill runs once -- a second pass changes nothing, and an item with no date is never re-dated by a later log');
+  res(HT.stackSinceWords(hS[0]) === 'In your stack since Sep 28 (the first day the old Daily supplement setting added it)'
+      && HT.stackSinceWords(hS[3]) === 'In your stack from the start (no date known)',
+      'R255: Settings says, per item, since when and by which rule', HT.stackSinceWords(hS[0]));
+  var hRaw = JSON.parse(HT.exportJSON());
+  hRaw.settings.stack.forEach(function (x) { delete x.added_on; delete x.added_basis; });
+  var hRs = HT.parseImport(JSON.stringify(hRaw));
+  var hRw = hRs.ok ? hRs.state.settings.stack.map(function (x) { return (x.added_on || '-') + ':' + x.added_basis; }).join(',') : '';
+  res(hRw === '2026-09-28:auto,2026-10-05:created,2026-10-09:logged,-:unknown',
+      'R255: a backup from before R255 gains the same dates on restore', hRw);
+  res(HT.normalizeStackItem({ name: 'x', added_on: 'soon', added_basis: 'guess', removed_on: '2026-10-12' }).added_on === undefined
+      && HT.normalizeStackItem({ name: 'x', added_on: 'soon', added_basis: 'guess', removed_on: '2026-10-12' }).added_basis === undefined
+      && HT.normalizeStackItem({ name: 'x', added_on: 'soon', added_basis: 'guess', removed_on: '2026-10-12' }).removed_on === '2026-10-12',
+      'R255: the normaliser keeps day keys and a known rule only');
+  // THE GATE: an item added today reads "not in stack yet" yesterday
+  var hY = '2026-10-11';
+  HT.state().days = {}; HT.state().timeline = {};
+  HT.state().days[hY] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().days[hT] = { status: 'in_progress', items: [], water_l: 0 };
+  HT.state().current = hT;
+  HT.state().settings.stack = HT.normalizeStack([{ id: 'h1', name: 'Gate D', kind: 'supplement', dose: 1000, dose_unit: 'IU', added_on: '2026-10-01', added_basis: 'created' }]);
+  var hNew = HT.stackUpsert({ name: 'Gate new', kind: 'supplement', dose: 5, dose_unit: 'mg' });
+  res(hNew.ok && hNew.item.added_on === hT && hNew.item.added_basis === 'added', 'R255: a new item joins the stack today, "added"');
+  var hEd = HT.stackUpsert({ id: hNew.item.id, name: 'Gate new', kind: 'supplement', dose: 6, dose_unit: 'mg' });
+  res(hEd.ok && hEd.edited && hEd.item.added_on === hT && hEd.item.added_basis === 'added', 'R255: an edit keeps the day it joined');
+  HT.state().current = hY;
+  HT.stackOpen();
+  var hYh = HT.stackSheetHTML();
+  res(hYh.indexOf('0 of 1 taken') > 0 && /Gate new<\/span><div class="stksub">[^<]*not in stack yet/.test(hYh) && hYh.indexOf('Gate new') > hYh.indexOf('stknotyet'),
+      'R255 GATE: AN ITEM ADDED TODAY READS "NOT IN STACK YET" YESTERDAY -- shown, not counted (0 of 1), never "not taken"', hYh);
+  res(HT.stackCheck(hNew.item.id).why === 'not-in-stack-yet' && (HT.state().timeline[hY] || []).length === 0,
+      'R255: ...and cannot be ticked on that day');
+  var hTa = HT.stackTookAll();
+  res(hTa.ok && hTa.records.length === 1 && hTa.records[0].name === 'Gate D', 'R255: Took all on that day takes only what was in the stack then');
+  HT.state().timeline[hY] = [];
+  HT.stackCancel();
+  HT.state().current = hT;
+  res(HT.stackSheetHTML().indexOf('0 of 2 taken') > 0, 'R255 CONTROL: today it is in the stack and counted -- 0 of 2');
+  var hX = JSON.parse(HT.exportJSON()).stackDays;
+  var hXy = (hX.days[hY] || []).map(function (r) { return r.name + ':' + r.status; }).join(',');
+  var hXt = (hX.days[hT] || []).map(function (r) { return r.name + ':' + r.status; }).join(',');
+  res(hXy === 'Gate D:not taken,Gate new:not in stack yet' && hXt === 'Gate D:not taken,Gate new:not taken',
+      'R255 GATE: the backup says "not in stack yet" before the day an item joined, and "not taken" from that day', hXy + ' | ' + hXt);
+  res(hX.v === 2 && hX.items.length === 2 && hX.items[1].added_on === hT && hX.items[1].added_basis === 'added' && hX.note.indexOf('added_basis') >= 0,
+      'R255: the backup lists each item with the day it joined and the rule that set it');
+  // REMOVED: kept with the day it left; reported before it, not after
+  HT.stackCheck('h1');
+  var hRm = HT.stackItemRemove('h1');
+  var h1 = HT.state().settings.stack.filter(function (x) { return x.id === 'h1'; })[0];
+  res(hRm.ok && hRm.kept === true && h1 && h1.removed_on === hT && HT.stackListed().length === 1,
+      'R255: a removed item is KEPT with the day it left, and leaves the list');
+  HT.setClock(function () { return new Date(2026, 9, 13, 8, 0, 0).getTime(); });
+  HT.state().days['2026-10-13'] = { status: 'in_progress', items: [], water_l: 0 };
+  var hX2 = JSON.parse(HT.exportJSON()).stackDays.days;
+  var hX2w = [hY, hT, '2026-10-13'].map(function (d) { return (hX2[d] || []).map(function (r) { return r.name + ':' + r.status; }).join(','); }).join(' | ');
+  res(hX2w === 'Gate D:not taken,Gate new:not in stack yet | Gate D:taken,Gate new:not taken | Gate new:not taken',
+      'R255: the days it was in the stack still say so; after it left it is not reported', hX2w);
+  HT.setClock(function () { return new Date(2026, 9, 12, 8, 10, 0).getTime(); });
+  HT.doUndo();
+  res(!HT.state().settings.stack.filter(function (x) { return x.id === 'h1'; })[0].removed_on && HT.stackListed().length === 2,
+      'R255: Undo puts it back in the stack');
+  var hRm2 = HT.stackItemRemove(hNew.item.id);
+  res(hRm2.ok && hRm2.kept === false && HT.state().settings.stack.length === 1,
+      'R255: an item removed the day it was added, never logged, is deleted outright -- it was never in the stack on any day');
+  HT.setClock(null);
+  HT.state().days = _hDays; HT.state().current = _hCur; HT.state().timeline = _hTl;
+  HT.state().settings = JSON.parse(JSON.stringify(_hSet));
+
+  // ---- R256: EVERY SWITCH OF THE INCLUDE BOX, WITH ITS TIME ---------------------------
+  // Synthetic items only (R204). Oct 10 21:00 off; Oct 11 off all day; Oct 12 on at
+  // 08:00, off at 09:00, on at 15:30.
+  var _wDays = HT.state().days, _wCur = HT.state().current, _wTl = HT.state().timeline;
+  var _wSet = JSON.parse(JSON.stringify(HT.state().settings));
+  var wAt = function (d, h, m) { HT.setClock(function () { return new Date(2026, 9, d, h, m, 0).getTime(); }); };
+  HT.state().days = {}; HT.state().timeline = {};
+  ['2026-10-10', '2026-10-11', '2026-10-12'].forEach(function (k) { HT.state().days[k] = { status: 'in_progress', items: [], water_l: 0 }; });
+  HT.state().settings.stack = HT.normalizeStack([
+    { id: 'w1', name: 'Gate D', kind: 'supplement', dose: 1000, dose_unit: 'IU', added_on: '2026-10-01', added_basis: 'created' },
+    { id: 'w2', name: 'Gate capsule', kind: 'medication', dose: 2, dose_unit: 'capsule', added_on: '2026-10-01', added_basis: 'created' } ]);
+  var w2 = function () { return HT.state().settings.stack[1]; };
+  wAt(10, 21, 0); HT.stackItemEnable('w2', false);
+  wAt(12, 8, 0); HT.stackItemEnable('w2', true);
+  wAt(12, 9, 0); HT.stackItemEnable('w2', false);
+  wAt(12, 15, 30); HT.stackItemEnable('w2', true);
+  var wEv = (w2().switches || []).map(function (e) { return (e.on ? 'on' : 'off') + '@' + e.at; }).join(',');
+  res(wEv === 'off@2026-10-10T21:00:00,on@2026-10-12T08:00:00,off@2026-10-12T09:00:00,on@2026-10-12T15:30:00'
+      && w2().switches.every(function (e) { return e.stated === true && typeof e.tzo === 'number'; }),
+      'R256 GATE: OFF AT 09:00 AND ON AT 15:30 THE SAME DAY -- both events stored with their full times, the device offset, and stated by the user; nothing collapsed', wEv);
+  wAt(12, 16, 0);
+  HT.stackItemEnable('w2', true);
+  res(w2().switches.length === 4, 'R256: a tap that changes nothing records nothing');
+  res(HT.stackDayState(w2(), '2026-10-09') === 'in' && HT.stackDayState(w2(), '2026-10-10') === 'off' && HT.stackDayState(w2(), '2026-10-11') === 'off'
+      && HT.stackDayState(w2(), '2026-10-12') === 'in',
+      'R256: on before the first switch; off at the end of Oct 10 and all of Oct 11; on at the end of Oct 12');
+  HT.state().current = '2026-10-11';
+  HT.stackOpen();
+  var wH11 = HT.stackSheetHTML();
+  res(wH11.indexOf('0 of 1 taken') > 0 && /Gate capsule<\/span><div class="stksub">Medication · switched off<\/div><\/div>/.test(wH11)
+      && (wH11.match(/type="checkbox"/g) || []).length === 1 && wH11.indexOf('not taken') === wH11.lastIndexOf('not taken'),
+      'R256 GATE: ON A DAY IT WAS OFF ALL DAY THE ITEM READS "SWITCHED OFF" -- shown, no checkbox, not counted (0 of 1), never "not taken"', wH11);
+  res(HT.stackCheck('w2').why === 'switched-off', 'R256: ...and cannot be ticked on that day');
+  var wTa = HT.stackTookAll();
+  res(wTa.ok && wTa.records.length === 1 && wTa.records[0].name === 'Gate D', 'R256: Took all on that day skips it');
+  HT.state().timeline['2026-10-11'] = [];
+  HT.state().current = '2026-10-10';
+  var wH10 = HT.stackSheetHTML();
+  res(/Gate capsule<\/span><div class="stksub">Medication · switched off<\/div><details class="stkinfo">[^]*Switched off 21:00/.test(wH10),
+      'R256: a day it was switched off partway reads "switched off" with the time behind its info button', wH10);
+  HT.state().current = '2026-10-12';
+  var wH12 = HT.stackSheetHTML();
+  res(wH12.indexOf('0 of 2 taken') > 0 && wH12.indexOf('Switched on 08:00 · switched off 09:00 · switched on 15:30') > 0 && wH12.indexOf('stkswoff') < 0,
+      'R256 GATE: A PARTIAL DAY shows the item, counted (it ended the day on), with every switch time behind its info button', wH12);
+  HT.stackCancel();
+  // a dose logged inside an off period is taken
+  HT.state().timeline['2026-10-11'] = [HT.normalizeSignal({ kind: 'medication', name: 'Gate capsule', dose: 2, dose_unit: 'capsule', time: '10:00', source: 'stack', stackId: 'w2' })];
+  var wX = JSON.parse(HT.exportJSON()).stackDays;
+  var wXs = ['2026-10-10', '2026-10-11', '2026-10-12'].map(function (d) { return (wX.days[d] || []).filter(function (r) { return r.name === 'Gate capsule'; }).map(function (r) { return r.status + (r.switches ? '/' + r.switches.length : ''); })[0]; }).join(',');
+  res(wXs === 'switched off/1,taken,not taken/3',
+      'R256: the backup says "switched off" for a day it ended off, "taken" for a dose logged even while off, and lists each day-s switches', wXs);
+  var wXi = wX.items.filter(function (i) { return i.name === 'Gate capsule'; })[0];
+  res(wXi && wXi.switches.length === 4 && wXi.switches[2].on === false && wXi.switches[2].at === '2026-10-12T09:00:00' && wXi.switches[2].stated === true && wX.note.indexOf('no switch history before') >= 0,
+      'R256 GATE: THE BACKUP LISTS THE EVENTS per item, with their times, and says there is no history before it began', JSON.stringify(wXi));
+  res(HT.stackSwitchWords(HT.stackSwitchesOn(w2(), '2026-10-12')) === 'Switched on 08:00 · switched off 09:00 · switched on 15:30',
+      'R256: the words behind the info button');
+  // through the restore boundary, and the boundary's discipline
+  var wSig = function (e) { return [e.on, e.at, e.tzo, e.stated]; };
+  HT.stackBackfillAddedOn(HT.state());          // as boot does
+  var wRs = HT.parseImport(HT.exportJSON());
+  res(wRs.ok && JSON.stringify(wRs.state.settings.stack) === JSON.stringify(HT.state().settings.stack) && wRs.state.settings.stack[1].switches.length === 4,
+      'R256: the switch events survive a backup and restore BYTE FOR BYTE -- the whole stack, dates and switches, in the normaliser-s own key order');
+  var wN = HT.normalizeStackSwitches([{ on: 'yes', at: '2026-10-12T09:00' }, { on: false, at: 'today' }, { on: true, at: '2026-10-12T09:00', tzo: 'x', stated: 'maybe' }]);
+  res(wN.length === 1 && wN[0].on === true && wN[0].tzo === undefined && wN[0].stated === undefined,
+      'R256: an event with no on/off or no time is dropped, never repaired; a bad offset or "stated" is left off');
+  // an item from before R256: no history, said so; its current state holds on every day
+  var wOld = HT.normalizeStack([{ id: 'w3', name: 'Gate old', kind: 'supplement', enabled: false, added_on: '2026-10-01', added_basis: 'created' }]);
+  HT.state().settings.stack = wOld;
+  HT.stackBackfillAddedOn(HT.state());
+  res(wOld[0].switches_from === '2026-10-12' && HT.stackDayState(wOld[0], '2026-10-05') === 'off'
+      && JSON.parse(HT.exportJSON()).stackDays.items[0].switches_from === '2026-10-12',
+      'R256: an item from before R256 gets the day its switch history begins (today), and its current switch applies to every day before -- no history is invented');
+  HT.setClock(null);
+  HT.state().days = _wDays; HT.state().current = _wCur; HT.state().timeline = _wTl;
+  HT.state().settings = JSON.parse(JSON.stringify(_wSet));
 
   // ---- B1: THE CLOCK DECIDES THE MEAL TAG, UNLESS THE USER CHOSE ---------
   //

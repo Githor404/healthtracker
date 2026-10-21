@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.108.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.109.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -823,6 +823,32 @@ function normalizeStackItem(raw) {
   // corpus's and are written exactly as a combo writes them.
   const part = (r.part && typeof r.part === 'object') ? normalizeComboPart(r.part) : null;
   if (part) out.part = part;
+  // R255: when the item joined the stack, by which rule that date was set, and
+  // when it left. Day keys only; anything else is dropped.
+  if (isDayKey(r.added_on)) out.added_on = String(r.added_on);
+  if (STACK_ADDED_BASES.indexOf(r.added_basis) >= 0 && (out.added_on || r.added_basis === 'unknown')) out.added_basis = r.added_basis;
+  if (isDayKey(r.removed_on)) out.removed_on = String(r.removed_on);
+  // R256: every switch of the include box, kept in full, never collapsed.
+  const sw = normalizeStackSwitches(r.switches);
+  if (sw.length) out.switches = sw;
+  if (isDayKey(r.switches_from)) out.switches_from = String(r.switches_from);
+  return out;
+}
+// R256: one event per switch -- on or off, the full local time, the device's
+// offset (D29), and that the user said it. A malformed event is dropped, never
+// repaired into a time nobody switched at.
+const STACK_SWITCH_AT = /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?$/;
+function normalizeStackSwitches(v) {
+  if (!Array.isArray(v)) return [];
+  const out = [];
+  v.forEach(function (e) {
+    if (!e || typeof e !== 'object' || typeof e.on !== 'boolean' || !STACK_SWITCH_AT.test(String(e.at))) return;
+    const o = { on: e.on, at: String(e.at) };
+    const tz = normalizeTzo(e.tzo);
+    if (tz !== undefined) o.tzo = tz;
+    if (e.stated === true) o.stated = true;
+    out.push(o);
+  });
   return out;
 }
 // ---- R213: MY FOODS -- a food that is in neither database ---------------------
@@ -865,6 +891,83 @@ function normalizeStack(raw) {
 }
 let _stackSeq = 0;
 function newStackId() { _stackSeq++; return 's' + Date.now().toString(36) + '_' + _stackSeq; }
+
+// ---- R255: WHEN AN ITEM JOINED THE STACK ---------------------------------------
+// R246's export reported an item added to the stack later as "not taken" on the
+// days before it was there. Each item now carries `added_on` (and `removed_on`
+// once removed), and a day before `added_on` reads "not in stack yet".
+//
+// An item made before R255 is given the EARLIER of two dates, and the rule that
+// gave it is kept beside it (`added_basis`), because the user asked to be told:
+//   created -- the day it was created in Settings, read from its id (newStackId
+//              writes the clock into every id it makes);
+//   logged  -- the first day an entry of it was logged from the stack;
+//   auto    -- the first day the retired Daily supplement setting added it.
+// A new item is `added`, today. An item with neither date is `unknown` and has no
+// `added_on`: it counts as in the stack from the start, exactly as before -- no
+// date is invented for it, and it is never re-dated by a later log.
+const STACK_ADDED_BASES = ['added', 'created', 'logged', 'auto', 'unknown'];
+const STACK_ADDED_WORDS = {
+  added: 'the day it was added',
+  created: 'the day it was created in Settings',
+  logged: 'the first day it was logged',
+  auto: 'the first day the old Daily supplement setting added it',
+  unknown: 'no date known, so counted from the start',
+};
+function stackIdDay(id) {
+  const m = /^s([0-9a-z]+)_[0-9]+$/.exec(String(id == null ? '' : id));
+  if (!m) return '';
+  const ms = parseInt(m[1], 36);
+  // a plausible clock only: not before 2024, not in the future
+  if (!(ms >= Date.UTC(2024, 0, 1)) || ms > nowDate().getTime() + 2 * 86400000) return '';
+  return localDate(new Date(ms));
+}
+// The first day an entry of this item is in the log, and what wrote it. Matched as
+// stackTaken matches (its stackId, or its name on a stack-written entry), plus the
+// old setting's own items by name.
+function stackFirstLogged(state, s, keys) {
+  const sid = String(s.id);
+  const fname = (s.part && s.part.name) ? s.part.name : s.name;
+  for (let i = 0; i < keys.length; i++) {
+    const dk = keys[i];
+    const tl = ((state.timeline || {})[dk]) || [];
+    const items = (((state.days || {})[dk] || {}).items) || [];
+    let auto = false, logged = false;
+    tl.forEach(function (r) {
+      if (!r || r.kind !== 'medication') return;
+      if (r.stackId != null ? String(r.stackId) === sid : (r.source === 'stack' && r.name === s.name)) logged = true;
+    });
+    items.forEach(function (it) {
+      if (!it) return;
+      if (it.stackId != null) { if (String(it.stackId) === sid) logged = true; return; }
+      if (it.stackKind === 'food' && it.name === fname) logged = true;
+      else if (it.source === 'supplement' && it.name === s.name) { if (it.autoLegacy) auto = true; else logged = true; }
+    });
+    if (logged) return { day: dk, basis: 'logged' };
+    if (auto) return { day: dk, basis: 'auto' };
+  }
+  return { day: '', basis: '' };
+}
+// Fills in what is missing, never what is there. Returns whether anything changed.
+function stackBackfillAddedOn(state) {
+  const list = state && state.settings && state.settings.stack;
+  if (!Array.isArray(list)) return false;
+  let changed = false, keys = null;
+  list.forEach(function (it) {
+    // R256: switches are recorded from this build on; before it there is no history.
+    if (it && !it.switches_from) { it.switches_from = localDate(); changed = true; }
+    if (!it || it.added_on || it.added_basis) return;
+    if (!keys) keys = Object.keys(Object.assign({}, state.days || {}, state.timeline || {})).filter(isDayKey).sort();
+    const c = stackIdDay(it.id), l = stackFirstLogged(state, it, keys);
+    if (c && (!l.day || c <= l.day)) { it.added_on = c; it.added_basis = 'created'; }
+    else if (l.day) { it.added_on = l.day; it.added_basis = l.basis; }
+    else it.added_basis = 'unknown';
+    changed = true;
+  });
+  // in the normaliser's own key order, so a backup round trip is byte-identical
+  if (changed) list.forEach(function (it, i) { if (it) list[i] = normalizeStackItem(it) || it; });
+  return changed;
+}
 
 // ===========================================================================
 // COMBOS -- saved multi-item entries (schema v14)
@@ -1727,6 +1830,7 @@ function normalizeState(o) {
       water_l: clampNonNeg(src.water_l),   // untrusted -> clamp
     };
   });
+  stackBackfillAddedOn(s);                   // R255: an older file's stack gains its dates
   if (typeof o.migratedAt === 'string') s.migratedAt = o.migratedAt;      // preserve stamps (round-trip)
   if (typeof o.knownDropped === 'number') s.knownDropped = o.knownDropped;
   return s;
@@ -1877,6 +1981,7 @@ function boot() {
   const normSettings = JSON.stringify(normalizeSettings(state.settings));
   if (normSettings !== JSON.stringify(state.settings)) dirty = true;
   state.settings = JSON.parse(normSettings);
+  if (stackBackfillAddedOn(state)) dirty = true;        // R255: once, then stored
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
@@ -4142,7 +4247,7 @@ function stackPlan() {
   const time = stampTime(APP_STATE.current) || nowTime();
   return {
     time: time,
-    rows: stack.filter(function (s) { return s && s.enabled !== false; })
+    rows: stack.filter(function (s) { return s && stackDayState(s, APP_STATE.current) === 'in'; })
       .map(function (s) {
         const row = { id: s.id, name: s.name, kind: s.kind, ticked: true };
         if (s.note) row.note = s.note;
@@ -4160,11 +4265,11 @@ function logStack(skip) {
   const skipped = {};
   (Array.isArray(skip) ? skip : []).forEach(function (id) { skipped[String(id)] = 1; });
   const stack = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const dk = APP_STATE.current;
   const taken = stack.filter(function (s) {
-    return s && s.enabled !== false && !skipped[String(s.id)];
+    return s && stackDayState(s, dk) === 'in' && !skipped[String(s.id)];
   });
   if (!taken.length) return { ok: false, error: 'Nothing ticked.', items: [], records: [] };
-  const dk = APP_STATE.current;
   const time = stampTime(dk) || nowTime();
   const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day.' };
   const items = [], records = [];
@@ -4450,7 +4555,60 @@ function stackRerender() { renderQuickChips(); renderSheetRoot(); }
 function stackOpen() { STACK_OPEN = true; STACK_EDIT = null; stackRerender(); return { ok: true }; }
 function stackCancel() { STACK_OPEN = false; STACK_EDIT = null; stackRerender(); return { ok: true }; }
 function stackEnabled() {
-  return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return s && s.enabled !== false; });
+  return stackListed().filter(function (s) { return s.enabled !== false; });
+}
+// R255: the stack as the user sees it in Settings -- a removed item is kept (its
+// `removed_on` is the record) but is no longer listed.
+function stackListed() {
+  return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return s && !s.removed_on; });
+}
+// Was the item in the stack on day dk? 'in', 'notyet' (before added_on) or 'out'
+// (switched off now, or on/after removed_on). A removed item was in the stack on
+// the days before it left, whatever its switch said when it went.
+//
+// R256: and 'off' -- switched off at the END of that day (for today: now), read
+// from the item's switch events. With no event on or before the day, the item was
+// in the opposite state of its first event; with no events at all, in its current
+// state (no history before R256). A day with a switch on it is a PARTIAL day: the
+// item is shown, counted only if it ended the day switched on, and its switch
+// times sit behind its info button.
+function stackDayState(s, dk) {
+  if (!s) return 'out';
+  if (s.removed_on && String(dk) >= s.removed_on) return 'out';
+  if (s.added_on && String(dk) < s.added_on) return 'notyet';
+  if (!stackOnAtEnd(s, dk)) return 'off';
+  return 'in';
+}
+function stackSwitchesSorted(s) {
+  return (Array.isArray(s.switches) ? s.switches : []).slice().sort(function (a, b) { return a.at < b.at ? -1 : a.at > b.at ? 1 : 0; });
+}
+function stackOnAtEnd(s, dk) {
+  const ev = stackSwitchesSorted(s);
+  const end = String(dk) + 'T99';                 // after every time on that day
+  let last = null;
+  ev.forEach(function (e) { if (e.at < end) last = e; });
+  if (last) return last.on;
+  if (ev.length) return !ev[0].on;
+  return s.enabled !== false;
+}
+function stackSwitchesOn(s, dk) {
+  return stackSwitchesSorted(s).filter(function (e) { return e.at.slice(0, 10) === String(dk); });
+}
+function stackSwitchWords(evs) {
+  const w = evs.map(function (e) { return 'switched ' + (e.on ? 'on' : 'off') + ' ' + e.at.slice(11, 16); }).join(' · ');
+  return w ? w.charAt(0).toUpperCase() + w.slice(1) : '';
+}
+// The item's info button on a day with a switch: the browser's own disclosure.
+function stackSwitchInfoHTML(s, dk) {
+  const ev = stackSwitchesOn(s, dk);
+  if (!ev.length) return '';
+  return '<details class="stkinfo"><summary class="stkinfosum" aria-label="switch times for ' + esc(s.name) + '">ⓘ</summary>'
+    + '<div class="stkinfobody">' + esc(stackSwitchWords(ev)) + '</div></details>';
+}
+function stackStampNow() {
+  const d = nowDate();
+  const p = function (n) { return String(n).padStart(2, '0'); };
+  return localDate(d) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
 }
 function stackById(id) {
   return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return s && String(s.id) === String(id); })[0] || null;
@@ -4480,9 +4638,11 @@ function stackLatest(s, dk) { const t = stackTaken(s, dk); return t.length ? t[t
 // One tick: the item at its usual dose, now (D112: no clock on a past day).
 function stackCheck(id) {
   const s = stackById(id);
-  if (!s || s.enabled === false) return { ok: false, why: 'no-such-item' };
+  if (!s) return { ok: false, why: 'no-such-item' };
   const dk = APP_STATE.current;
   if (stackTaken(s, dk).length) return stackUncheck(id);
+  const ds = stackDayState(s, dk);
+  if (ds !== 'in') return { ok: false, why: ds === 'notyet' ? 'not-in-stack-yet' : ds === 'off' ? 'switched-off' : 'no-such-item' };
   const day = dayForWrite(); if (!day) return { ok: false, why: 'no-day' };
   const time = stampTime(dk);
   const w = stackWriteOne(s, time, dk, day);
@@ -4635,19 +4795,38 @@ function stackEditorHTML_(s, e) {
     + '<button type="button" class="linklike stkedx" onclick="stackEditClose()">Cancel</button></div>';
 }
 function stackSheetHTML() {
-  const on = stackEnabled();
+  const dk = APP_STATE.current;
+  // R255: what was in the stack ON THIS DAY. An item taken that day is shown
+  // whatever its state; one added after this day reads "not in stack yet" and is
+  // not counted; one switched off, or removed before this day, is not shown.
+  const all = ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return !!s; });
+  const counted = all.filter(function (s) { return stackDayState(s, dk) === 'in' || stackTaken(s, dk).length > 0; });
+  const notyet = all.filter(function (s) { return stackDayState(s, dk) === 'notyet' && !stackTaken(s, dk).length; });
+  const off = all.filter(function (s) { return stackDayState(s, dk) === 'off' && !stackTaken(s, dk).length; });
   // D146: nothing configured draws NO row. An empty stack must not advertise
   // itself on a sheet the user opens to log food.
-  if (!on.length) return '';
-  const dk = APP_STATE.current;
-  const taken = on.filter(function (s) { return stackTaken(s, dk).length > 0; }).length;
-  const left = on.length - taken;
+  if (!counted.length && !notyet.length && !off.length) return '';
+  const taken = counted.filter(function (s) { return stackTaken(s, dk).length > 0; }).length;
+  const left = counted.length - taken;
+  const none = (off.length && !notyet.length) ? 'switched off' : (notyet.length && !off.length) ? 'not in stack yet on this day' : 'nothing in it on this day';
   const head = '<div class="stkhead"><button type="button" class="btn stkopen" aria-expanded="' + (STACK_OPEN ? 'true' : 'false') + '"'
-    + ' onclick="' + (STACK_OPEN ? 'stackCancel()' : 'stackOpen()') + '">Daily stack · ' + esc(String(taken)) + ' of ' + esc(String(on.length)) + ' taken</button>'
-    + (left > 0 ? '<button type="button" class="btn stkall" onclick="stackTookAll()">Took all</button>' : '<span class="stkalldone">all taken</span>')
+    + ' onclick="' + (STACK_OPEN ? 'stackCancel()' : 'stackOpen()') + '">Daily stack · '
+    + (counted.length ? esc(String(taken)) + ' of ' + esc(String(counted.length)) + ' taken' : none) + '</button>'
+    + (left > 0 ? '<button type="button" class="btn stkall" onclick="stackTookAll()">Took all</button>'
+      : (counted.length ? '<span class="stkalldone">all taken</span>' : ''))
     + '</div>';
   if (!STACK_OPEN) return '<div class="qsheet stksec">' + head + '</div>';
-  const rows = on.map(function (s) {
+  const later = notyet.map(function (s) {
+    return '<div class="stkrow stknotyet"><span class="stkname">' + esc(s.name) + '</span>'
+      + '<div class="stksub">' + esc(stackKindWord(s.kind) + ' · not in stack yet · added ' + fmtDateSmart(s.added_on)) + '</div></div>';
+  }).join('');
+  // R256: switched off that day -- shown, not counted, no checkbox; a day with a
+  // switch on it carries the times behind the info button.
+  const offRows = off.map(function (s) {
+    return '<div class="stkrow stknotyet stkswoff"><span class="stkname">' + esc(s.name) + '</span>'
+      + '<div class="stksub">' + esc(stackKindWord(s.kind) + ' · switched off') + '</div>' + stackSwitchInfoHTML(s, dk) + '</div>';
+  }).join('');
+  const rows = counted.map(function (s) {
     const e = stackLatest(s, dk);
     const sid = esc(String(s.id));
     // The vitamin's own flag, beside the item it is about, and only when the
@@ -4668,35 +4847,50 @@ function stackSheetHTML() {
       + '<label class="stktick"><input type="checkbox"' + (e ? ' checked' : '')
       + ' onchange="stackCheck(\'' + sid + '\')"'
       + ' aria-label="' + esc(s.name) + '"><span class="stkname">' + esc(s.name) + '</span></label>'
-      + what + stackEditorHTML_(s, e) + flag + '</div>';
+      + what + stackSwitchInfoHTML(s, dk) + stackEditorHTML_(s, e) + flag + '</div>';
   }).join('');
-  return '<div class="qsheet stksec">' + head + rows + '</div>';
+  return '<div class="qsheet stksec">' + head + rows + offRows + later + '</div>';
 }
 // ---- R246: THE EXPORT SAYS TAKEN AND NOT TAKEN ---------------------------------
 // Derived from the log for reading, like nothing else in the file: restore does
-// not read it (the entries it is made from are in `timeline` and `days`). Each
-// stack item is reported from its first taken day on, over the days the log holds:
-// "taken" with every dose's time, amount and what the user stated, or "not taken".
-const STACK_EXPORT_VERSION = 1;
+// not read it (the entries it is made from are in `timeline` and `days`).
+// R255: `items` says when each item joined the stack and by which rule; a day
+// before that reads "not in stack yet", never "not taken".
+const STACK_EXPORT_VERSION = 2;
 function exportStackDays() {
-  const on = stackEnabled();
+  // Every item that is or was in the stack. R256: one switched off is reported
+  // too -- "switched off" on its days, with every switch event in `items`.
+  const all = ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return !!s; });
   const days = {};
-  if (!on.length) return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, days: days };
+  const items = all.map(function (s) {
+    const o = { name: s.name, kind: stackKindOf(s.kind), added_on: s.added_on || null, added_basis: s.added_basis || 'unknown' };
+    if (s.removed_on) o.removed_on = s.removed_on;
+    o.switches_from = s.switches_from || null;
+    o.switches = stackSwitchesSorted(s).map(function (e) { const x = { on: e.on, at: e.at }; if (e.tzo !== undefined) x.tzo = e.tzo; if (e.stated) x.stated = true; return x; });
+    return o;
+  });
+  if (!all.length) return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, items: items, days: days };
   const keys = Object.keys(Object.assign({}, APP_STATE.days || {}, APP_STATE.timeline || {})).filter(isDayKey).sort();
-  // From the first day the stack was used at all -- or today, if it never has
-  // been -- every enabled item is reported on every day the log holds. Found by
-  // stackcheck-gate: bounded per item at its own first taken day, an item never
-  // taken was never reported, and "not taken" was missing exactly where it applied.
+  // From the earliest day an item joined the stack, or the first day the stack was
+  // used -- or today, if neither. Found by stackcheck-gate: bounded per item at its
+  // own first taken day, an item never taken was never reported.
   let start = '';
   for (let i = 0; i < keys.length && !start; i++) {
-    if (on.some(function (s) { return stackTaken(s, keys[i]).length > 0; })) start = keys[i];
+    if (all.some(function (s) { return stackTaken(s, keys[i]).length > 0; })) start = keys[i];
   }
+  all.forEach(function (s) { if (s.added_on && (!start || s.added_on < start)) start = s.added_on; });
   const today = localDate();
   if (!start || today < start) start = today;
   keys.filter(function (dk) { return dk >= start; }).forEach(function (dk) {
-    days[dk] = on.map(function (s) {
+    const rows = [];
+    all.forEach(function (s) {
       const t = stackTaken(s, dk);
-      const row = { name: s.name, kind: stackKindOf(s.kind), status: t.length ? 'taken' : 'not taken' };
+      const st = stackDayState(s, dk);
+      if (!t.length && st === 'out') return;              // removed before this day: not in it
+      const row = { name: s.name, kind: stackKindOf(s.kind),
+                    status: t.length ? 'taken' : (st === 'notyet' ? 'not in stack yet' : st === 'off' ? 'switched off' : 'not taken') };
+      const sw = stackSwitchesOn(s, dk);
+      if (sw.length) row.switches = sw.map(function (e) { return { on: e.on, at: e.at }; });
       if (t.length) row.doses = t.map(function (e) {
         const d = { time: String(e.rec.time || '') };
         if (e.where === 'day') { if (e.rec.grams != null) { d.amount = e.rec.grams; d.unit = 'g'; } }
@@ -4704,12 +4898,13 @@ function exportStackDays() {
         if (Array.isArray(e.rec.stated) && e.rec.stated.length) d.stated = e.rec.stated.slice();
         return d;
       });
-      return row;
+      rows.push(row);
     });
+    if (rows.length) days[dk] = rows;
   });
-  return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, days: days };
+  return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, items: items, days: days };
 }
-const STACK_EXPORT_NOTE = 'Derived from the log for reading; not read on restore. From the first day the stack was used (or today), each item in the stack is "taken" with every dose, or "not taken", on each day the log holds. An item added to the stack later is reported on earlier days too.';
+const STACK_EXPORT_NOTE = 'Derived from the log for reading; not read on restore. "items" gives each stack item\'s added_on, the rule that set it (added_basis: added = the day it was added; created = the day it was created in Settings, read from its id; logged = the first day it was logged; auto = the first day the old Daily supplement setting added it; unknown = no date known, counted from the start), removed_on if removed, and every switch of its include box (switches: on or off, local time, device offset in minutes, stated by the user), recorded from switches_from -- there is no switch history before that day. From the earliest added_on, or the first day the stack was used, each item is "taken" with every dose, "not taken", "switched off" (off at the end of that day), or "not in stack yet" on each day the log holds, with that day\'s switches; a removed item is not reported after it left unless it was taken. A dose logged is "taken" whatever the switch said.';
 
 // ---- R203: THE STACK EDITOR --------------------------------------------------
 //
@@ -4770,33 +4965,56 @@ function stackUpsert(raw) {
   item.name = name;
   const list = APP_STATE.settings.stack || (APP_STATE.settings.stack = []);
   const at = (r.id != null && r.id !== '') ? list.map(function (x) { return x.id; }).indexOf(String(r.id)) : -1;
+  // R255: an edit keeps when the item joined (and left); a new one joins today.
+  if (at >= 0) { ['added_on', 'added_basis', 'removed_on', 'switches', 'switches_from'].forEach(function (k) { if (list[at][k] != null) item[k] = list[at][k]; }); }
+  else { item.added_on = todayKey(); item.added_basis = 'added'; item.switches_from = todayKey(); }
   const norm = normalizeStackItem(item);
   if (!norm) return { ok: false, error: 'Nothing savable in that.' };
   if (at >= 0) list[at] = norm; else list.push(norm);
   Store.saveState(APP_STATE);
   return { ok: true, item: norm, edited: at >= 0 };
 }
+// R255: a removed item is KEPT with `removed_on`, so the days it was in the stack
+// still say so; it leaves the list and + Log. Only an item removed the day it
+// was added, never logged, is deleted outright -- it was never in the stack on
+// any day, and there is nothing to remember.
 function stackItemRemove(id) {
   const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
   const at = list.map(function (x) { return x.id; }).indexOf(String(id));
-  if (at < 0) return { ok: false, error: 'No such item.' };
+  if (at < 0 || list[at].removed_on) return { ok: false, error: 'No such item.' };
   const copy = JSON.parse(JSON.stringify(list[at]));
-  list.splice(at, 1);
+  const today = todayKey();
+  const keys = Object.keys(Object.assign({}, APP_STATE.days || {}, APP_STATE.timeline || {})).filter(isDayKey);
+  const everLogged = keys.some(function (dk) { return stackTaken(list[at], dk).length > 0; });
+  const gone = (list[at].added_on && list[at].added_on >= today && !everLogged);
+  if (gone) list.splice(at, 1); else list[at] = normalizeStackItem(Object.assign({}, list[at], { removed_on: today }));
   Store.saveState(APP_STATE);
   if (STACK_FORM && STACK_FORM.editId === String(id)) STACK_FORM = null;
   renderStackEditor(); renderSheetRoot();
   offerUndo('Removed ' + copy.name + ' from your stack', function () {
     const l2 = APP_STATE.settings.stack || (APP_STATE.settings.stack = []);
-    l2.splice(Math.min(at, l2.length), 0, copy);
+    const i2 = l2.map(function (x) { return x.id; }).indexOf(copy.id);
+    if (i2 >= 0) l2[i2] = copy; else l2.splice(Math.min(at, l2.length), 0, copy);
     Store.saveState(APP_STATE); renderStackEditor(); renderSheetRoot();
   });
-  return { ok: true, removed: copy };
+  return { ok: true, removed: copy, kept: !gone };
 }
+// R256: every switch is an event with its full time, kept -- an off and an on on
+// the same day both stay. A tap that changes nothing records nothing.
 function stackItemEnable(id, on) {
   const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
   const it = list.filter(function (x) { return x.id === String(id); })[0];
   if (!it) return { ok: false };
+  if (!!on !== (it.enabled !== false)) {
+    // in the normaliser's own key order, so a backup round trip is byte-identical
+    const ev = { on: !!on, at: stackStampNow() };
+    const tz = normalizeTzo(nowTZO());
+    if (tz !== undefined) ev.tzo = tz;
+    ev.stated = true;
+    (it.switches = Array.isArray(it.switches) ? it.switches : []).push(ev);
+  }
   it.enabled = !!on;
+  list[list.indexOf(it)] = normalizeStackItem(it);       // key order, as above
   Store.saveState(APP_STATE);
   renderStackEditor(); renderSheetRoot();
   return { ok: true, enabled: it.enabled };
@@ -4933,8 +5151,13 @@ function stackFormSave() {
   toast((r.edited ? 'Saved ' : 'Added ') + r.item.name);
   return r;
 }
+// R255: since when, and by which rule -- the user asked to be told per item.
+function stackSinceWords(s) {
+  if (!s.added_on) return 'In your stack from the start (no date known)';
+  return 'In your stack since ' + fmtDateSmart(s.added_on) + ' (' + (STACK_ADDED_WORDS[s.added_basis] || STACK_ADDED_WORDS.added) + ')';
+}
 function stackEditorHTML() {
-  const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
+  const list = stackListed();
   let h = '';
   if (!list.length) h += '<div class="note">Nothing in your stack yet. Add what you take every day; you log it with one tap from + Log.</div>';
   h += list.map(function (s) {
@@ -4949,7 +5172,10 @@ function stackEditorHTML() {
       + '<label class="stktick"><input type="checkbox"' + (s.enabled === false ? '' : ' checked')
       + ' onchange="stackItemEnable(\'' + id + '\', this.checked)" aria-label="include ' + esc(s.name) + ' in the daily stack">'
       + '<span class="stkname">' + esc(s.name) + '</span></label>'
-      + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>' + flag
+      + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>'
+      + '<div class="stksub stksince">' + esc(stackSinceWords(s)) + '</div>'
+      + (s.switches_from && (!s.added_on || s.switches_from > s.added_on)
+        ? '<div class="stksub stksince">' + esc('Switching on and off recorded from ' + fmtDateSmart(s.switches_from) + '; none before') + '</div>' : '') + flag
       + '<div class="stkacts"><button type="button" class="linklike stkedit" onclick="stackFormOpen(\'' + id + '\')">Edit</button>'
       + '<button type="button" class="linklike cnrm stkdel" onclick="stackItemRemove(\'' + id + '\')">Remove</button></div></div>';
   }).join('');
@@ -15047,7 +15273,7 @@ function renderDataStatus() {
     ['migrated at',    APP_STATE.migratedAt || '—'],
     ['current day',    APP_STATE.current || '—'],
     ['days stored',    String(Object.keys(APP_STATE.days || {}).length)],
-    ['daily stack',    String((st.stack || []).length) + ' item' + ((st.stack || []).length === 1 ? '' : 's')],
+    ['daily stack',    String(stackListed().length) + ' item' + (stackListed().length === 1 ? '' : 's')],
     ['goals set',      String(Object.keys(st.goals || {}).length)],
     ['presets',        String((st.presets || []).length)],
     ['price entries',  String(Object.keys(APP_STATE.priceLog || {}).length)],
@@ -15247,6 +15473,7 @@ const VERSION_LOG = [
   { v: '0.106.1', d: '2026-10-20', note: 'After Ask my AI for other names, the photo search keeps what you typed: the field and the Use with no nutrition button show your words, and tapping it saves them, not the last name your AI suggested.' },
   { v: '0.107.0', d: '2026-10-20', note: 'Search shows your own foods first, then foods you logged before that had no match in the food database. One tap logs one of those again as last time.' },
   { v: '0.108.0', d: '2026-10-20', note: 'Your daily stack is now one row per item. Tick an item when you take it: it is logged now at its usual dose, and the row shows the dose and the time. Tap either to change it. Untick to take it back, with Undo. Took all ticks everything not yet taken. An item left unticked counts as not taken that day, and your backup file says so.' },
+  { v: '0.109.0', d: '2026-10-20', note: 'Each item in your daily stack now has the date it joined. On a day before that it reads "not in stack yet" instead of "not taken", here and in your backup file. Settings shows each date and how it was worked out. A removed item keeps its dates. Switching an item off or on in Settings is now recorded with its time: on a day it was off, it reads \"switched off\", and on a day you switched it, the times are behind its ⓘ.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -24396,6 +24623,8 @@ window.HT = {
   INTAKE_LIMITS, intakeFlag, intakeFlagText, stackSheetHTML, stackRowSub,
   stackOpen, stackCancel, stackCheck, stackUncheck, stackTookAll, stackTaken, stackEditOpen, stackEditClose,
   stackSaveTime, stackSaveDose, exportStackDays, normalizeStated, stackWriteOne,
+  stackBackfillAddedOn, stackDayState, stackIdDay, stackListed, stackSinceWords,
+  normalizeStackSwitches, stackOnAtEnd, stackSwitchesOn, stackSwitchWords,
   // COMBOS (schema v14)
   comboStepHTML, comboFromItems, renameCombo, deleteCombo, setComboPartGrams,
   normalizeCombo, normalizeCombos, normalizeComboPart, normalizePublished,
