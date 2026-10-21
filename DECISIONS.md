@@ -18249,3 +18249,50 @@ from fasts. A cost declaration comes with the build.
   with the threshold question.
 - **Where "didn't log it" feeds E-lite:** a rise inside that gap offers "food I
   didn't log" first, since the user has said so for the span.
+
+## R263 -- R258 RULED (SCHEDULING, PROBABILITIES HELD) AND THE FASTING THRESHOLD (2026-10-21; record only)
+
+**1. Scheduling: S1 + S3** (from the R258 report). A local script in HTPrivate
+(`reports\make_pathway_report.py`; no network, no AI) runs from **Windows Task
+Scheduler every hour**, and does anything only when the newest
+`healthtracker-backup-*.json` in HTPrivate differs (name, size, time) from the one
+last reported. It then writes the dated report and appends to
+`reports\calibration.jsonl` **one entry per claim shown per day** (R260/R261),
+never twice. Set up 2026-10-21 as task "HealthTracker pathway report": run only
+while the user is logged on, a missed hour runs when the PC is next available,
+5-minute limit, errors to `reports\run.log`. Checked by a run with no new backup
+(nothing written) and one after clearing its state (report rewritten, 19
+calibration entries, no duplicates). **No unattended AI runs (S2 refused).** An
+AI writes claims and probabilities only in sessions the user starts (S3). Nothing
+of this is in the repo; the script reads the user's stack and log.
+
+**2. The 19 proposed general probabilities are HELD** in
+`evidence\probabilities.proposed.json`, not written into the claim records,
+until the user has reviewed them. The report shows them labelled "proposed, not in
+the database", and their calibration entries say the same.
+
+**3. Report shape:** under the user's review; unchanged meanwhile.
+
+**4. Exposure and a mistyped dose.** The user confirmed a stack dose's amount as
+logged; the evidence store's exposure records carry it as stated by the user (in
+HTPrivate). A past dose entry the user says was a typo is **not revised in the
+log** (the user does not revise past data) and is **kept out of every intake
+figure**. The script reads an exclusions list (`reports\exclusions.json`: date,
+time, name, amount, reason) and **each report says what it left out**. This is
+the R258 report's rule only; the app's own day totals still count the entry as
+logged.
+
+**5. The R262 fasting ring: the threshold** (folded into the R262 build):
+- A gap between two logged foods **counts as a fast when it is >= 12 h**.
+- After a tap on **Stopped eating**, the fast counts from that time (as edited)
+  **whatever its length**.
+- **Unanswered gaps are shown** on the ring, measured from the log. **Analyses read
+  only confirmed fasts** (D22 Pin 1 kept: `confirmedFasts()` unchanged). **The D22
+  store (`fastLog`) is reused**; no second store.
+- The 20 h question stays as ruled in R262.
+
+*Named for the build:* D22's candidate threshold is `settings.fasting.minHours`,
+default 16 h, and it decides which closed gaps are offered "Fasted / Ate, didn't
+log". The ring's 12 h is a different number for a different job (what the ring
+draws). The build will either keep the two apart and say so, or ask before moving
+the default to 12, which would offer more gaps for an answer.
