@@ -18296,3 +18296,70 @@ default 16 h, and it decides which closed gaps are offered "Fasted / Ate, didn't
 log". The ring's 12 h is a different number for a different job (what the ring
 draws). The build will either keep the two apart and say so, or ask before moving
 the default to 12, which would offer more gaps for an answer.
+
+## R264 -- THE PATHWAY REPORT REVIEWED; THE 19 PROBABILITIES APPROVED AS VERSION 1 (2026-10-21; record only)
+
+*Everything here lives in HTPrivate (the script, the evidence store, the reports);
+nothing about the user's data is written in this repo (R204).*
+
+**Report shape approved, with changes, all made in the S1 script:**
+1. **Each claim once**, numbered, tagged with every pathway it belongs to, with a
+   by-pathway index of claim numbers; "could try or test" refers to claims by
+   number instead of repeating them.
+2. **A summary block first:** the week in numbers as a table with coverage (food,
+   glucose, steps, sleep, alcohol, stack doses, HRV), then the **three to five
+   highest-probability claims touching what the user actually did that week**, one
+   line each, with what the log shows. "Did" is a fixed rule per claim, written in
+   the script (e.g. steps imported that week; alcohol logged; a dose on the
+   timeline); a claim whose feature the log cannot see -- the order of foods within
+   a sitting -- is never marked as done.
+3. **A probability is OF the claim as written.** All 19 were checked against their
+   claim's own sentence; 16 were re-worded to it, 3 already matched. Vinegar: the
+   probability was redefined to "improves insulin sensitivity in insulin
+   resistance", because the claim is its source's own finding and rewording it
+   would detach it from the source; its uncertainty now says the user's glucose
+   shows the meal rise, a proxy, not insulin sensitivity. Where the meaning
+   moved, the number moved with it: magnesium 55% -> 45% (the claim is "insulin
+   resistance AND fasting glucose"), vinegar 65% -> 60%, alcohol 85% -> 80%
+   ("even at low doses"). An interaction record held a finding and no sentence, so
+   each of the 8 gains a `claim` sentence written to match the finding, and its
+   probability is of that sentence.
+4. **Coverage caveat:** a week with median steps under 2,000 a day (a chosen,
+   stated threshold) says the phone may not have been carried and that step-based
+   comparisons may undercount -- in the coverage table, the detail and each
+   steps-based test.
+5. **Safety lists every glucose reading below 3.0 mmol/L with its time**, grouped
+   into episodes, with context from the log (inside a logged sleep; the sensor's
+   day and site). It quotes the manufacturer, never the app's voice: *"If your
+   glucose alerts and readings from the G7 do not match symptoms or expectations,
+   use a blood glucose meter to make diabetes treatment decisions."* (Dexcom G7 CGM
+   System User Guide, AW00078-10 Rev 005, 05/2026, section 1). It names a sensor
+   artifact as a **possibility, not a conclusion**, quoting the same guide's
+   troubleshooting: *"Sometimes when something is pressing on your sensor, for
+   example, if you're lying on it, it can affect your sensor readings."* -- and
+   says the data cannot tell a real low from an artifact and that no fingerstick
+   is recorded. *For the R261 wording slice:* the app's own fingerstick sentence
+   (`FINGERSTICK_WORDS`) is still in the app's voice; this verified quote and
+   citation are the ones it will use.
+6. **The 19 general probabilities are approved as version 1** (claude-opus-5-5,
+   2026-10-21) after fix 3, and written into the 11 claim records and 8
+   interaction records as `probability: {current_version, versions: [...]}`. Each
+   version carries p, what it is of, kind (general), basis (grade, n, own data,
+   main uncertainty), producer and approval; a version whose wording or number
+   changed from the proposal keeps the proposal under `from_proposal`. The proposal
+   file is kept, marked superseded. **Approving a probability is not reviewing the
+   claim:** `reviewed_by_me` stays null.
+
+**Found while doing it:** both evidence builders rewrite their files from scratch,
+so a rebuild would have erased the probabilities, the interaction sentences and
+the dose the user stated in R263. Each now carries those fields forward from the
+files on disk. Checked by simulating a rebuild (19 probabilities, 8 sentences and
+the stated dose survive; claim text untouched); not checked by a real rebuild,
+which re-fetches every source.
+
+**Calibration** is now keyed per day by claim, probability and wording, so the
+proposed figures the user saw earlier and the approved version-1 figures are both
+logged once.
+
+**S1** was already in place (R263); it now runs this script. Checked by a
+scheduled run after clearing its state: exit 0, the report rewritten, no errors.
