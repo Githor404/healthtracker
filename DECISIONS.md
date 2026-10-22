@@ -18454,3 +18454,46 @@ nothing sent anywhere. The review computes every sitting's response in the 35 da
 it covers when it opens (the meal review's own function); render time on the real
 log not measured on the device. Tests: one gate (about 1 min), 24 harness
 assertions.
+
+## R266 -- PRE-REGISTERED: THE FULL PATHWAY TAXONOMY AND THE EVIDENCE BACK END (2026-10-21; record only)
+
+*Supersedes R241's seven-pathway scope; folds R259's curators into the back end.
+Report first, nothing built until the user approves. Queued after R265.1.*
+Everything about the user's data and stack stays in HTPrivate (R204).
+
+**A. Taxonomy.** Pathways mapped to an open curated ontology -- Reactome as the
+reference, its IDs recorded per pathway; restricted sources (e.g. KEGG) only as
+IDs or links where their licence allows; every source's licence reported. Two
+layers: detailed pathways relevant to diet, supplements, activity, sleep, light,
+alcohol, fasting, the microbiome and mitochondria; and a plain-language grouping
+for the app, starting from six groups (energy production; glucose storage and
+supply; liver fuel handling; cell sensors and maintenance; gut microbiome;
+control systems) and extended where the backbone shows more (one-carbon,
+amino acids and urea, iron, calcium/vitamin D, nitric oxide ...), each addition
+reported with why. Each record: id, plain and technical name, group, backbone
+IDs, one plain sentence, key cofactors and nutrients, what the app can observe
+(direct / proxy / not observable), links to claims, interactions and food
+features.
+
+**B. Food features,** phased by data quality, each with source, licence, coverage
+of the user's logged foods and "absent is not zero". Phase 1: plant diversity
+(distinct plants a week), fermented foods with live microbes (a published
+classification), polyphenols (Phenol-Explorer), omega-3 (EPA/DHA) and omega-6
+(the food databases). Phase 2: fermentable fibre types, dietary nitrate, glycemic
+load, CoQ10 and other cofactors. Stack items and events map to pathways too.
+
+**C. Back end, on the PC in HTPrivate:** `evidence\`, `reports\`, `curators\`,
+`packs\`; a **local git repository with no remote**; a schema checker and tests
+before any compile (IDs resolve, every probability is of its claim, every quote
+has a source and locator, nothing of the stack leaks into the public repo); one
+curator per expert the user follows (three named in the ruling), no culling,
+verbatim quotes, G/T/R tiers, and a master synthesis agent with the two axes and
+the mechanical "best practice" label, all `reviewed_by_me = null`, run only in
+sessions the user starts (R263); the S1 scripts on schedule with no network; a
+pack builder producing one read-only, versioned, hashed pack the app imports
+through the existing Import route; a one-line-per-entry review list whose
+approval writes `reviewed_by_me` with the date. R244, R247, R260/R261 apply.
+
+**D. The report:** the taxonomy (groups -> pathways with backbone IDs), the Phase 1
+features with sources, licences and coverage, the folder and pipeline diagram,
+run costs (tokens, memory, time), and a cost declaration.
