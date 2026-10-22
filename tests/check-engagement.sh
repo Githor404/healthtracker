@@ -132,7 +132,8 @@ DECLARED="GLUCOSE_SC_DAYS=parameter:how many days the Shortcut recipe exports
 PLATE_RECALL_DAYS=recall:how long a saved plate keeps offering itself; keyed on an ACTION, not on usage
 TRASH_MAX_AGE_DAYS=retention:how long a deleted record is recoverable
 TYPICAL_MIN_DAYS=sufficiency:a typical needs this many days to BE a typical (D95). SUPPRESSES output rather than producing it
-WAKE_WINDOW_DAYS=window:the span D95 computes a wake time over"
+WAKE_WINDOW_DAYS=window:the span D95 computes a wake time over
+WEEK_TYPICAL_DAYS=window:the 28 days before a week that the weekly review calls typical (R262); a comparison window, decides nothing about showing"
 
 FOUND=$(grep -oE "^const [A-Z][A-Z0-9_]*_DAYS" "$APP" | sed 's/^const //' | sort -u)
 DECL_NAMES=$(printf '%s\n' "$DECLARED" | sed 's/=.*//' | sort -u)

@@ -81,7 +81,8 @@ sensor-gate.ps1
 served-gate.ps1
 stackcheck-gate.ps1
 stacktotals-gate.ps1
-update-gate.ps1"
+update-gate.ps1
+weekly-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two
 # echo strings -- the real bar is the manifest above versus the files on disk
 # (GS_MISSING / GS_EXTRA). Setting it to 21 with 22 gates present changed
@@ -555,7 +556,14 @@ echo "-----------------------------------------"
 # 3310 -> 3320 (v0.110.0, R251.2): +10 -- blood pressure as one chart: pairing at
 # true times, the readout, gaps not joined, 135/85 labelled with both editions
 # cited, no verdict, the nearest reading picked, fewer than three in words.
-EXPECTED_ASSERTIONS=3320
+# 3320 -> 3344 (v0.111.0, R265.1 + R262): +24 -- fasting by one 12 h rule (12 h
+# exactly is a fast, 11 h 59 m is not; from a Stopped eating; green/orange on the
+# ring; nothing asked, D22's question retired), and the weekly review: Monday
+# weeks, the pairwise probability with n 5 a side and its words, the meal and
+# fasting numbers on a fixture, three rings with sleep hidden, nothing stored,
+# the optional notice. Retired cases (pending, resolve, figure-and-ground) were
+# rewritten in place, not dropped.
+EXPECTED_ASSERTIONS=3344
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

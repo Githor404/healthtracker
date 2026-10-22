@@ -264,12 +264,13 @@ window.__stage = 'start';
   const flagHTML = String(HT.lowFlagHTML() || '');
   const flagText = flagHTML.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   O.words.flagText = flagText.slice(0, 400);
-  O.words.flagFingerstick = /fingerstick/i.test(flagText);
+  O.words.flagFingerstick = /use a blood glucose meter/i.test(flagText) && /AW00078-10/.test(flagText);
   O.words.flagNoAlarms = /(3[- ]hour look[- ]back|look[- ]back)/i.test(flagText) && /Dexcom/i.test(flagText);
-  O.words.flagHasNoAlertWord = !/\balert(s|ed|ing)?\b|\balarm(s|ed|ing)?\b(?! )/i.test(flagText.replace(/no alarms?/ig, '').replace(/never alerts?/ig, ''));
+  // R265.1: the Dexcom quote speaks of ITS alerts in its own words; the app's own voice is what is checked.
+  O.words.flagHasNoAlertWord = !/\balert(s|ed|ing)?\b|\balarm(s|ed|ing)?\b(?! )/i.test(flagText.replace(/\u201c[^\u201d]*\u201d/g, '').replace(/no alarms?/ig, '').replace(/never alerts?/ig, ''));
   const sumText = String(HT.clinicianSummaryHTML() || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
   O.words.sumText = sumText.slice(0, 500);
-  O.words.sumFingerstick = /fingerstick/i.test(sumText);
+  O.words.sumFingerstick = /use a blood glucose meter/i.test(sumText) && /AW00078-10/.test(sumText);
   O.words.sumHasDates = /2026-09-10/.test(sumText);
   O.words.sumHasLowest = /2\.8/.test(sumText);
   O.words.sumAvailable = sumText.length > 40;

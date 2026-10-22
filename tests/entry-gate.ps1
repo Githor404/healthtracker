@@ -2,10 +2,10 @@
 #
 # RULED (R215/R216, 2026-10-13; answers 2026-10-14): all logging goes through
 # + Log. A side entry point is removed, or becomes a link that opens + Log at the
-# right spot. Three things stay on the page because they are ANSWERS to something
-# the page shows, not entries: Fasted / Ate, didn't log (a fasting gap), the
-# answer to a glucose rise, and the side slept on (a flagged night). The gate
-# allows EXACTLY that list and nothing else.
+# right spot. Things stay on the page only because they are ANSWERS to something
+# the page shows, not entries: the answer to a glucose rise and the side slept on
+# (a flagged night). R265.1 retired the third, Fasted / Ate, didn't log -- no
+# fasting question is asked anywhere. The gate allows EXACTLY that list.
 #
 # HOW IT IS ASKED -- A CENSUS, NOT A LIST OF KNOWN BUTTONS. A gate that checked
 # the buttons R215 moved would pass on the next side door somebody adds. So the
@@ -175,7 +175,7 @@ try {
     sessionStorage.setItem('__egclock', String(at21));
     return { ok: !!window.__SNAP['healthtracker-log'], keys: Object.keys(window.__SNAP).map(function (k) { return k + ':' + window.__SNAP[k].length; }).join(' '),
              tier: (typeof Store !== 'undefined') ? Store.tier : '?', dk: dk, trash: HT.trashRead().length, leftovers: HT.plateRecallCount(),
-             flagged: HT.lowFlagState().flagged, pending: HT.pendingFastCandidates().length };
+             flagged: HT.lowFlagState().flagged, fasts: HT.confirmedFasts().length };
   });
 })()
 '@
@@ -278,7 +278,7 @@ try {
   Check ($outside.Count -eq 0) "R215 GATE: NO control on the page writes an entry except the named answers -- every one of $n was clicked, and the writes found were all answers or a Restore"
   foreach ($o in $outside) { Write-Host ("    NOT ALLOWED: '" + $o.text + "' " + $o.on + " grew " + ($o.grew -join ',')) }
   $kinds = @($answers | ForEach-Object { ($_.on -replace '^event\.stopPropagation\(\);', '') -replace '\(.*$', '' } | Sort-Object -Unique)
-  Check (($kinds -join ',') -eq 'eliteLabel,logSleepSide,resolveFastAt') "and ALL THREE named answers were on the page and did write: the fasting gap, the glucose rise, the side slept on (found: $($kinds -join ','))"
+  Check (($kinds -join ',') -eq 'eliteLabel,logSleepSide') "and BOTH named answers were on the page and did write: the glucose rise, the side slept on -- and no fasting answer, which R265.1 retired (found: $($kinds -join ','))"
   Check ($restores.Count -ge 1) "the trash's Restore was on the page too, and is counted apart from the answers -- it brings back an entry, it does not make one"
   $moved = @($results | Where-Object { $_.on -match '^(quickEvent|addWater|laneOn|laneOff|laneTapStart|laneTapEnd|lanePickOpen|regimenLogTap|regimenConfirmLog|substituteRegimenEntry|drinkTap|drinkRepeatAt|openPlateConsume|logRepeat|logSignalPreset)\(' })
   Check ($moved.Count -eq 0) "none of the moved controls is on the page in any form -- no Moved/Woke/sensor/water/start/stop/regimen/leftover/drink button outside + Log (found $($moved.Count))"

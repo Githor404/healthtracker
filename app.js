@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.110.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.111.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -5900,8 +5900,7 @@ function renderGoalsHTML(t, day) {
              + ringLegendHTML()
              + rhythmCaptionHTML(model)
              + '</div>')
-          : '')
-      + resolveRowHTML();
+          : '');
     // RULED: the typical-day line appears ONCE -- the short one beside the rings.
     // The long sentence that repeated it below is gone. The gap counter keeps its
     // own line, and the caption has moved behind the ring tap above.
@@ -9697,29 +9696,10 @@ function deleteSignal(date, idx) {
   return { ok: true, removed: copy };
 }
 
-// ---- fasting candidates DOM (D22): passive, inline resolve, mirror-never-nag --
-// Surface candidates that ENDED on the viewed day (Fork 6); silent when none (no
-// badge/count/nag). Resolve buttons write through the same resolveFast contract.
-function fmtSpan(iso) {                                   // 'YYYY-MM-DDTHH:MM'
-  const d = iso.slice(0, 10), t = iso.slice(11);
-  return (d === APP_STATE.current ? '' : (d.slice(5) + ' ')) + t;   // omit date if same day
-}
+// R265.1: retired -- no fasting question is asked, and the ring draws the fasts.
 function renderFastCandidates() {
   const el = document.getElementById('fastCandidates'); if (!el || !APP_STATE) return;
-  const cands = detectFastCandidates().filter((c) => c.end.slice(0, 10) === APP_STATE.current);
-  if (!cands.length) { el.innerHTML = ''; return; }                // silent when none
-  el.innerHTML = cands.map((c) => {
-    const span = `<small>${esc(fmtSpan(c.start) + ' → ' + fmtSpan(c.end))}</small>`;
-    const lng = c.tooLong ? ' <span class="flong">long — check</span>' : '';
-    const undo = `<button type="button" class="fundo" onclick="resolveFastAt('${c.start}','${c.end}',${c.hours},'pending')">undo</button>`;
-    if (c.state === 'fasted')
-      return `<div class="fcand done"><span class="fmain">Fast · ${esc(rDisp(c.hours))}h ✓${lng} ${span}</span>${undo}</div>`;
-    if (c.state === 'ate_didnt_log')
-      return `<div class="fcand denied"><span class="fmain">${esc(rDisp(c.hours))}h gap · ate, didn't log ${span}</span>${undo}</div>`;
-    return `<div class="fcand"><span class="fmain">Possible fast · ${esc(rDisp(c.hours))}h${lng} ${span}</span>`
-      + `<span class="fbtns"><button type="button" onclick="resolveFastAt('${c.start}','${c.end}',${c.hours},'fasted')">Fasted</button>`
-      + `<button type="button" onclick="resolveFastAt('${c.start}','${c.end}',${c.hours},'ate_didnt_log')">Ate, didn't log</button></span></div>`;
-  }).join('');
+  el.innerHTML = '';
 }
 function resolveFastAt(start, end, hours, state) { resolveFast(start, end, hours, state); }
 // Lives inside the existing Goals settings entry, so the flat settings list and
@@ -9755,19 +9735,12 @@ function renderAfRewardsForm() {
   const el = document.getElementById('afRewards');
   if (el) el.checked = afRewardsOn();
 }
+// R265.1: the fasting settings (D22's switch and minimum hours) are retired with
+// its question; the stored settings.fasting is kept as it was, read by nothing
+// that draws or counts. The card left says the rule.
 function renderFastingForm() {
   renderAfRewardsForm();
-  const f = (APP_STATE.settings && APP_STATE.settings.fasting) || { enabled: true, minHours: 16 };
-  const en = document.getElementById('fastEnabled'); if (en) en.checked = f.enabled !== false;
-  const mh = document.getElementById('fastMinHours'); if (mh && !mh.value) mh.value = f.minHours || 16;
-}
-function setFastingFromForm() {
-  const en = document.getElementById('fastEnabled');
-  const mh = document.getElementById('fastMinHours');
-  const v = mh ? num(mh.value) : 16;
-  APP_STATE.settings.fasting = { enabled: !(en && !en.checked), minHours: v > 0 ? v : 16 };
-  Store.saveState(APP_STATE); refresh();
-  toast('Fasting settings saved');
+  renderWeekNoticeForm();
 }
 
 // ---- manual-add DOM (form generation, read-back, handlers) ----------------
@@ -10261,10 +10234,12 @@ function matchResolution(start, end) {
   }
   return { state: 'pending', resolved_by: null };
 }
-// The SOLE surface any average/analysis/correlation reads (Pin 1): confirmed fasts
-// only. Pending (absence) and ate_didnt_log are excluded by construction.
+// The SOLE surface any average/analysis/correlation reads. R265.1: the 12 h rule
+// (fastsClosed), no longer D22's answered candidates -- nothing is asked any more,
+// so "confirmed" means measured from the log. ate_didnt_log stays excluded.
 function confirmedFasts() {
-  return detectFastCandidates().filter((c) => c.state === 'fasted');
+  return fastsClosed().map((g) => ({ id: g.start, start: g.start, end: g.end, hours: g.hours,
+                                     stop: g.stop, state: 'fasted', resolved_by: 'rule' }));
 }
 // Resolve a candidate. Only resolved states persist; 'pending' deletes the record
 // (pending = absence). A future biometric resolver writes resolved_by:'biometric'.
@@ -10292,7 +10267,7 @@ function resolveFast(start, end, hours, state, resolvedBy) {
 function fastEndedByItem(dateKey, timeStr) {
   if (!/^\d{2}:\d{2}$/.test(String(timeStr))) return 0;
   const target = dateKey + 'T' + timeStr;
-  const c = detectFastCandidates().filter((x) => x.end === target)[0];
+  const c = confirmedFasts().filter((x) => x.end === target)[0];     // R265.1: the 12 h rule
   return c ? c.hours : 0;
 }
 
@@ -10478,11 +10453,11 @@ function macroSeries(nutrient, days) {
 // (ending today, else yesterday) with a confirmed fast; pending candidates in-window
 // are surfaced ("N unresolved") — never inflate (pending != fasted) nor silently hide
 // that resolving could change it (the streak pin).
+// R265.1: fasts by the 12 h rule; nothing is pending, because nothing is asked.
 function fastingStats(days) {
   const cut = windowCutoff(days);
-  const cands = detectFastCandidates();
-  const confirmed = cands.filter((c) => c.state === 'fasted' && c.end.slice(0, 10) >= cut);
-  const pendingInWin = cands.filter((c) => c.state === 'pending' && c.end.slice(0, 10) >= cut).length;
+  const confirmed = confirmedFasts().filter((c) => c.end.slice(0, 10) >= cut);
+  const pendingInWin = 0;
   const hrs = confirmed.map((c) => c.hours);
   const confirmedDays = {};
   confirmed.forEach((c) => { confirmedDays[c.end.slice(0, 10)] = true; });
@@ -12330,7 +12305,11 @@ function nightIsFlagged(eveningKey) {
 // Ruled E and F. They ride with EVERY low, because a safety sentence the user
 // has to go and find is a safety sentence that was not said -- and one copy per
 // surface is four chances for them to drift apart (D140, in words).
-const FINGERSTICK_WORDS = 'A CGM low should be confirmed with a fingerstick before you act on it.';
+// R265.1 (from R261/R264): the manufacturer's own words, verified and cited, in
+// place of a sentence in the app's voice. Quoted exactly; the source follows it.
+const FINGERSTICK_WORDS = 'Dexcom’s G7 user guide: “If your glucose alerts and readings from the G7 do not match '
+  + 'symptoms or expectations, use a blood glucose meter to make diabetes treatment decisions.” '
+  + '(Dexcom G7 CGM System User Guide, AW00078-10 Rev 005, 05/2026, section 1)';
 const NO_ALARMS_WORDS = 'This is a look-back over readings already taken \u2014 it does not watch, '
   + 'and it will never sound. The Dexcom app is the live safety tool.';
 
@@ -14162,7 +14141,7 @@ function renderTrends() {
   const fs = fastingStats(win);
   if (fs.count > 0 || fs.pending > 0) {
     const pend = fs.pending > 0 ? ` <small class="tcov">${esc(fs.pending)} gap${fs.pending === 1 ? '' : 's'} to confirm</small>` : '';
-    html += `<div class="trow"><div class="thead">Fasting</div><div class="tsum">streak ${esc(fs.streak)} day${fs.streak === 1 ? '' : 's'}${pend} · ${esc(fs.count)} confirmed · avg ${esc(rDisp(fs.avg))}h · longest ${esc(rDisp(fs.longest))}h</div></div>`;
+    html += `<div class="trow"><div class="thead">Fasting</div><div class="tsum">streak ${esc(fs.streak)} day${fs.streak === 1 ? '' : 's'}${pend} · ${esc(fs.count)} fast${fs.count === 1 ? '' : 's'} of 12 h or more · avg ${esc(rDisp(fs.avg))}h · longest ${esc(rDisp(fs.longest))}h</div></div>`;
   }
   const ms = macroSeries('kcal', win);
   let macroShown = false;
@@ -15685,6 +15664,7 @@ const VERSION_LOG = [
   { v: '0.108.0', d: '2026-10-20', note: 'Your daily stack is now one row per item. Tick an item when you take it: it is logged now at its usual dose, and the row shows the dose and the time. Tap either to change it. Untick to take it back, with Undo. Took all ticks everything not yet taken. An item left unticked counts as not taken that day, and your backup file says so.' },
   { v: '0.109.0', d: '2026-10-20', note: 'Each item in your daily stack now has the date it joined. On a day before that it reads "not in stack yet" instead of "not taken", here and in your backup file. Settings shows each date and how it was worked out. A removed item keeps its dates. Switching an item off or on in Settings is now recorded with its time: on a day it was off, it reads \"switched off\", and on a day you switched it, the times are behind its ⓘ.' },
   { v: '0.110.0', d: '2026-10-20', note: 'Blood pressure is now one chart in Trends: systolic and diastolic on one mmHg scale, each reading at the time you took it, with the gap between them (pulse pressure) shaded. Systolic is a solid line with dots, diastolic a dashed line with squares. Faint lines at 135 and 85 show Hypertension Canada\'s 2020 threshold for home readings; the ⓘ has the source and says the 2025 guideline lowered it to 130/80. Tap the chart to read a reading. Nothing is coloured as good or bad.' },
+  { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -16134,13 +16114,11 @@ function hoursLabel(mins) { const h = mins / 60; return (Math.round(h * 10) / 10
 // fast this app models, and it is where "hours since" stops being a useful number.
 const GAP_DATE_AFTER_MIN = 48 * 60;
 // ---- R226: "STOPPED EATING" ------------------------------------------------
-// One tap in + Log ends the day's eating window at the time it carries. From it
-// to the next food logged, the ring draws a FASTED arc in its own colour --
-// the user said they stopped, so the span is theirs to call fasted, which an
-// inferred gap never is (D22 stands for those: they still say "since last
-// logged food", and a named fast among them says "from last food").
+// One tap in + Log ends the day's eating window at the time it carries.
+// R265.1: the stop is where the orange (fasting) span starts instead of the
+// last food; the 12 h rule then decides whether that span is a fast (fastGaps).
 // Several stops with no food between them are ONE stop: the first ended the
-// window, the rest repeat it. A stop with no food after it yet runs to now.
+// window, the rest repeat it.
 function eatStopsAbs() {
   const out = [], tl = (APP_STATE && APP_STATE.timeline) || {};
   Object.keys(tl).forEach((d) => {
@@ -16153,18 +16131,6 @@ function eatStopsAbs() {
   });
   return out.sort((a, b) => a.abs - b.abs);
 }
-function foodAbsAll() {
-  const out = [], days = (APP_STATE && APP_STATE.days) || {};
-  Object.keys(days).forEach((d) => {
-    if (!isDayKey(d)) return;
-    ((days[d] || {}).items || []).forEach((it) => {
-      if (!it || isLegacyAuto(it)) return;
-      const m = timeToMinutes(it.time);
-      if (m != null) out.push(absMinutes(d, m));
-    });
-  });
-  return out.sort((a, b) => a - b);
-}
 function fastDurWords(mins) {
   const t = Math.max(0, Math.round(mins)), h = Math.floor(t / 60), m = t % 60;
   return h ? (h + ' h ' + m + ' m') : (m + ' m');
@@ -16173,32 +16139,58 @@ function absHHMM(abs) {
   const m = ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY;
   return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
 }
-// Every stop -> next food span. `nowAbs` closes one with no food after it yet;
-// a stop still to come is no span at all.
-function eatStopSpans(nowAbs) {
-  const foods = foodAbsAll(), out = [];
-  let coveredTo = -Infinity, open = false;
-  eatStopsAbs().forEach((st) => {
-    if (open || st.abs < coveredTo) return;          // the same fast, said again
-    const next = foods.filter((a) => a > st.abs)[0];
-    const src = 'stop:' + st.date + ':' + st.idx;
-    if (next != null) {
-      out.push({ a0: st.abs, a1: next, open: false, src: src,
-                 label: 'Fasted ' + fastDurWords(next - st.abs) + ' (' + absHHMM(st.abs) + ' \u2192 ' + absHHMM(next) + ')' });
-      coveredTo = next;
-    } else {
-      if (nowAbs == null || st.abs > nowAbs) return;
-      out.push({ a0: st.abs, a1: nowAbs, open: true, src: src,
-                 label: 'Fasted ' + fastDurWords(nowAbs - st.abs) + ' so far (' + absHHMM(st.abs) + ' \u2192 now)' });
-      open = true;
-    }
+// ---- R265.1: FASTING, ONE RULE ----------------------------------------------
+// The ruling (replaces R262's 20 h question, R263's details and D22's question):
+// from the last food -- or from a "Stopped eating" after it, which becomes the
+// start -- the span to the next food is a FAST when it lasts 12 h or more, and
+// part of the eating window when it is shorter. An open span (no food after it
+// yet) is the fasting window as it runs; it counts as a fast from 12 h. NOTHING
+// IS ASKED. A gap the user answered "Ate, didn't log" under D22 is their own
+// statement and stays out of the fasts; no other D22 answer changes anything.
+// Food is what D22's detector already reads as breaking a fast (fastEvents):
+// calories above zero, or eaten with its composition unknown.
+const FAST_MIN_H = 12;
+function absIso(abs) {
+  const d = new Date(Math.floor(abs / MIN_PER_DAY) * 86400000).toISOString().slice(0, 10);
+  return d + 'T' + absHHMM(abs);
+}
+function fastGaps(nowAbs) {
+  const foods = [];
+  fastEvents().forEach((iso) => {
+    const s = isoToDayMin(iso);
+    if (s) foods.push({ abs: absMinutes(s.date, s.min), iso: iso });
   });
+  foods.sort((a, b) => a.abs - b.abs);
+  const stops = eatStopsAbs(), out = [];
+  for (let i = 0; i < foods.length; i++) {
+    const prev = foods[i], next = foods[i + 1] || null;
+    if (next && next.abs === prev.abs) continue;
+    const hi = next ? next.abs : nowAbs;
+    if (hi == null || !(hi > prev.abs)) continue;
+    const st = stops.filter((s) => s.abs >= prev.abs && s.abs < hi)[0] || null;
+    const a0 = st ? st.abs : prev.abs;
+    const mins = hi - a0;
+    const excluded = !!next && matchResolution(prev.iso, next.iso).state === 'ate_didnt_log';
+    out.push({ food: prev.abs, a0: a0, a1: hi, open: !next, stop: !!st, mins: mins,
+               fast: mins >= FAST_MIN_H * 60 && !excluded, excluded: excluded,
+               start: absIso(a0), end: next ? next.iso : null,
+               hours: Math.round(mins / 6) / 10 });
+  }
   return out;
 }
-function gapLabel(mins, sinceDate) {
-  return (mins >= GAP_DATE_AFTER_MIN && sinceDate)
-    ? 'no food logged since ' + fmtDateSmart(sinceDate, false)
-    : hoursLabel(mins) + ' since last logged food';
+// Closed fasts only: the set every count and analysis reads.
+function fastsClosed() { return fastGaps(null).filter((g) => !g.open && g.fast); }
+// The span running now, if any (from the last food or a stop after it).
+function fastOpenNow() {
+  const g = fastGaps(absMinutes(todayKey(), nowMinutes())).filter((x) => x.open)[0];
+  return g || null;
+}
+// R265.1: the running span's words. Under 12 h it is a time since; from 12 h
+// it is a fast, and says so; past 48 h it names the date (R11.1).
+function openFastLabel(mins, sinceDate, stop) {
+  if (mins >= GAP_DATE_AFTER_MIN && sinceDate) return 'no food logged since ' + fmtDateSmart(sinceDate, false);
+  if (mins >= FAST_MIN_H * 60) return 'fasting ' + hoursLabel(mins) + ' so far';
+  return hoursLabel(mins) + (stop ? ' since Stopped eating' : ' since last logged food');
 }
 
 // The model IS the gate surface: every arc traces to a record, and every record of
@@ -16301,28 +16293,16 @@ function rhythmModel(dateKey, opts) {
 
   // ---- PHASE 2: emit for the requested view, using the shared assignment.
   if (!plan) {
-    const foodAbs = [];
     scan.forEach((d) => {
       (((days[d] || {}).items) || []).forEach((it, idx) => {
         const m = timeToMinutes(it.time);
         if (m == null) return;
         const abs = absMinutes(d, m);
         if (!inWin(abs)) return;
-        foodAbs.push(abs);
         ticks.push({ lane: 'eat', cat: 'eat', kind: 'eat', min: ((abs % MIN_PER_DAY) + MIN_PER_DAY) % MIN_PER_DAY,
                      label: String(it.name || 'food'), src: 'item:' + d + ':' + idx });
       });
     });
-    if (foodAbs.length >= 2) {
-      foodAbs.sort((a, b) => a - b);
-      const a0 = foodAbs[0];
-      let a1 = foodAbs[foodAbs.length - 1];
-      // R226: a "Stopped eating" after the last food ENDS the window there.
-      const stopEnd = eatStopsAbs().filter((st) => st.abs >= a1 && st.abs <= win1)[0];
-      if (stopEnd) a1 = stopEnd.abs;
-      addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'eat', 'eating window ' + hoursLabel(a1 - a0),
-        { lane: 'eat', cat: 'eat', src: 'eatwindow' });
-    }
     practiceUnion.filter((it) => it.origin === 'actual').forEach((it) => {
       addIntervalWin(arcs, win0, win1, it.startAbs, it.endAbs - it.startAbs, 'practice', it.label,
         { lane: practiceLaneKey(it.plane), cat: it.cat, src: it.src });
@@ -16339,26 +16319,37 @@ function rhythmModel(dateKey, opts) {
           'sleep ' + hoursLabel(durMin), { lane: 'sleep', cat: 'sleep', src: 'sig:' + owner + ':' + idx });
       });
     });
-    // A fasting gap draws in the EAT anchor: it is that lane's own negative space.
-    const stopsHere = eatStopsAbs().map((st) => st.abs);
-    const stopSpansHere = eatStopSpans(isToday ? absMinutes(dateKey, nowM) : win1);
-    (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).forEach((c) => {
-      if (c.state === 'ate_didnt_log') return;
-      const s0 = isoToDayMin(c.start), s1 = isoToDayMin(c.end);
-      if (!s0 || !s1) return;
-      const a0 = absMinutes(s0.date, s0.min), a1 = absMinutes(s1.date, s1.min);
-      const pending = c.state !== 'fasted';
-      const fa = addIntervalWin(arcs, win0, win1, a0, a1 - a0, 'fast',
-        rDisp(c.hours) + 'h ' + (pending ? 'gap \u00b7 pending' : 'fasted') + ' \u00b7 from last food',
-        { lane: 'eat', cat: 'eat', state: pending ? 'pending' : 'fasted', start: c.start, end: c.end, hours: c.hours, src: 'fast:' + c.start });
-      // R226: a stop marked inside it draws its own arc; this one stays in the
-      // model (its answer is still offered in the legend) and is not drawn twice.
-      if (fa && stopsHere.some((x) => x >= a0 && x < a1)) fa.suppressed = true;
+    // R265.1: THE EAT LANE IS EATING (green) AND FASTING (orange), FROM ONE RULE.
+    // Each span from a food to the next is green when it is under 12 h; a fast
+    // (12 h or more) is green from the food to its "Stopped eating", if one was
+    // tapped, and orange from there. The span still running is orange from the
+    // last food (or the stop after it) to now, whatever its length so far.
+    const nowAbsE = absMinutes(todayKey(), nowMinutes());
+    const greens = [];
+    fastGaps(nowAbsE).forEach((g) => {
+      if (g.open || g.fast) {
+        if (g.a0 > g.food) greens.push([g.food, g.a0]);
+        const len = g.a1 - g.a0;
+        const sinceDate = absIso(g.a0).slice(0, 10);
+        const label = g.open ? openFastLabel(len, sinceDate, g.stop)
+          : 'fasting ' + fastDurWords(len) + ' (' + absHHMM(g.a0) + ' \u2192 ' + absHHMM(g.a1) + ')' + (g.stop ? ' \u00b7 from Stopped eating' : '');
+        addIntervalWin(arcs, win0, win1, g.a0, len, g.open ? 'open' : 'fasting', label,
+          { lane: 'eat', cat: 'eat', fast: g.open ? len >= FAST_MIN_H * 60 : true, stop: g.stop,
+            open: g.open, sinceMin: len, sinceDate: sinceDate, start: g.start, end: g.end, hours: g.hours,
+            src: (g.open ? 'open:' : 'fast:') + g.start });
+      } else {
+        greens.push([g.food, g.a1]);
+      }
     });
-    stopSpansHere.forEach((sp) => {
-      addIntervalWin(arcs, win0, win1, sp.a0, sp.a1 - sp.a0, 'stopfast', sp.label,
-        { lane: 'eat', cat: 'eat', open: sp.open, stopAbs: sp.a0, nextAbs: sp.open ? null : sp.a1, src: sp.src });
+    greens.sort((x, y) => x[0] - y[0]);
+    const merged = [];
+    greens.forEach((x) => {
+      const last = merged[merged.length - 1];
+      if (last && x[0] <= last[1]) last[1] = Math.max(last[1], x[1]);
+      else merged.push([x[0], x[1]]);
     });
+    merged.forEach((x) => addIntervalWin(arcs, win0, win1, x[0], x[1] - x[0], 'eat', 'eating ' + hoursLabel(x[1] - x[0]),
+      { lane: 'eat', cat: 'eat', src: 'eat:' + absIso(x[0]) }));
   }
 
   // ---- DECLARED regimen content: ghosts in day view, the whole picture in plan
@@ -16413,37 +16404,9 @@ function rhythmModel(dateKey, opts) {
     });
   }
 
+  // The centre states the span running now; it is the orange arc drawn above.
   let openGap = null;
-  if (isToday && !plan) {
-    const nowAbs = absMinutes(dateKey, nowM);
-    let lastAbs = null;
-    Object.keys(days).forEach((d) => {
-      ((days[d].items) || []).forEach((it) => {
-        const m = timeToMinutes(it.time);
-        if (m == null) return;
-        const a = absMinutes(d, m);
-        if (a <= nowAbs && (lastAbs == null || a > lastAbs)) lastAbs = a;
-      });
-    });
-    if (lastAbs != null && nowAbs - lastAbs > 0) {
-      const sinceDate = shiftDate(dateKey, Math.floor(lastAbs / MIN_PER_DAY) - dayIndex(dateKey));
-      const mins = nowAbs - lastAbs;
-      // A gap that fills the whole window has no edge to read against: as an arc
-      // it becomes a full circle on the meals lane and says "meals everywhere",
-      // which is the opposite of what it means. The centre tenant already states
-      // it exactly ("no food logged since ..."), so the arc is suppressed and only
-      // the model record is kept. Gated with REAL-shaped data (records aged out).
-      const spansWholeWindow = lastAbs <= win0;
-      openGap = spansWholeWindow
-        ? { kind: 'open', lane: 'eat', cat: 'eat', open: true, suppressed: true,
-            sinceMin: mins, sinceDate: sinceDate, src: 'open', label: gapLabel(mins, sinceDate) }
-        : addIntervalWin(arcs, win0, win1, lastAbs, mins, 'open',
-            gapLabel(mins, sinceDate), { open: true, lane: 'eat', cat: 'eat', sinceMin: mins, sinceDate: sinceDate, src: 'open' });
-      // R226: a "Stopped eating" since the last food draws the fasted arc from
-      // the stop; the open gap stays in the model (the centre says it), undrawn.
-      if (openGap && !openGap.suppressed && eatStopsAbs().some((st) => st.abs >= lastAbs && st.abs <= nowAbs)) openGap.suppressed = true;
-    }
-  }
+  if (isToday && !plan) openGap = arcs.filter((a) => a.kind === 'open')[0] || null;
 
   // ---- CHANNELS: one named channel per CATEGORY. Categories are the stable
   // thing now that lanes are allocated by conflict, and a future radial response
@@ -16537,7 +16500,7 @@ const RING_ANCHORS = [
 ];
 // Categories carry identity. The legend keys these; lanes are positional only.
 const RING_CATS = ['sleep', 'eat', 'exercise', 'sauna', 'yoga', 'meditation', 'red_light'];
-const CAT_LABELS = { sleep: 'sleep', eat: 'meals', exercise: 'exercise', sauna: 'sauna',
+const CAT_LABELS = { sleep: 'sleep', eat: 'eating', exercise: 'exercise', sauna: 'sauna',
                      yoga: 'yoga', meditation: 'meditation', red_light: 'red light' };
 // Four named practice categories claim their own colour; every other
 // duration-carrying event (cold plunge, HBOT, walk, workout, other) falls into
@@ -16546,7 +16509,8 @@ const CAT_OF_EVENT = { sauna: 'sauna', yoga: 'yoga', meditation: 'meditation', r
 function catOfEventType(t) { return CAT_OF_EVENT[t] || 'exercise'; }
 
 // Deliberate categorical palette: seven muted, distinct hues. NO red/green
-// good-bad axis (Fork G holds) -- there is no green in the set at all. Plan view
+// good-bad axis (Fork G holds). R265.1: the eat lane is green (eating) and orange
+// (fasting) by the user's ruling -- states, each named in the key. Plan view
 // renders the SAME hues at reduced opacity, so the flip reads as the day dimmed
 // to intention rather than a grayscale copy.
 // R17: colour is a CSS custom property per category, defined for BOTH themes, so
@@ -16603,16 +16567,13 @@ function minToDeg(m) { return (m / MIN_PER_DAY) * 360; }
 // EAT_FULL_FRAC is deliberately just under 1: at 97% of the circle the remaining
 // wedge is ~11 minutes of arc, which no one reads as a gap -- it reads as a ring.
 const EAT_FULL_FRAC = 0.97;
-// R18.1 (second pass): 0.97 was measured against the UNION and missed the common
-// case entirely. A single trailing gap of 20-22 h draws 300-330 deg -- a ring with
-// a notch in it, which is what the device kept showing. The boundary is not "how
-// close to 360" but FIGURE AND GROUND: past half the lane the eye stops reading
-// the arc as the gap and starts reading the REMAINDER as the mark, so a gap arc
-// that big says the opposite of what it means. Under half it reads as a gap and
-// is genuinely useful; over half the centre tenant carries it in words -- which it
-// already does, unconditionally, whether or not the arc is drawn.
-const EAT_GAP_MAX_FRAC = 0.5;
-const EAT_GAP_KINDS = ['open', 'fast'];      // the lane's negative space
+// R265.1: the gap arcs are no longer negative space. They are FASTING, in their
+// own colour and named in the ring key, so the R18.1 figure-and-ground rules --
+// a muted gap past half the lane reads as meals -- have nothing left to guard:
+// an orange arc reads as fasting at any length. What stays is R11.1's limit:
+// past 48 h a running span is a date, not a duration, and is not drawn (the
+// centre names the date). Green keeps rule (i): one eating arc filling the lane.
+const FAST_KINDS = ['open', 'fasting'];
 function eatCoverage(arcs) {
   const seen = new Uint8Array(MIN_PER_DAY);
   arcs.forEach((a) => {
@@ -16625,25 +16586,10 @@ function eatCoverage(arcs) {
 }
 function suppressFullEatLane(arcs) {
   const full = EAT_FULL_FRAC * MIN_PER_DAY;
-  const gapMax = EAT_GAP_MAX_FRAC * MIN_PER_DAY;
-  // R226: a FASTED arc from a marked stop is exempt from all three. It is not
-  // negative space read against "now": it has two real ends (the stop and the
-  // next food), its own colour that cannot read as meals, and its length IS the
-  // statement -- a 13 h fast drawn shorter, or not at all, would be the lie.
-  const mine = arcs.filter((a) => a.lane === 'eat' && !a.ref && !a.suppressed && a.kind !== 'stopfast');
-  // (i) any single arc that fills the lane on its own, whatever its kind
-  mine.forEach((a) => { if (a.endMin - a.startMin >= full) a.suppressed = true; });
-  // (ii) a NEGATIVE-SPACE arc past half the lane. Positive arcs are exempt: an
-  // eating window that really did span 14 h is two real meal times with ticks at
-  // both ends, and shortening it would be the lie. A gap has no such endpoints --
-  // its far edge is just "now".
-  mine.forEach((a) => {
-    if (EAT_GAP_KINDS.indexOf(a.kind) >= 0 && a.endMin - a.startMin >= gapMax) a.suppressed = true;
+  arcs.filter((a) => a.lane === 'eat' && !a.ref && !a.suppressed).forEach((a) => {
+    if (FAST_KINDS.indexOf(a.kind) >= 0) { if (num(a.sinceMin) >= GAP_DATE_AFTER_MIN) a.suppressed = true; }
+    else if (a.endMin - a.startMin >= full) a.suppressed = true;
   });
-  // (iii) the union case -- arcs each under their own limit that together tile it
-  const live = mine.filter((a) => !a.suppressed);
-  if (eatCoverage(live) >= EAT_FULL_FRAC)
-    live.forEach((a) => { if (EAT_GAP_KINDS.indexOf(a.kind) >= 0) a.suppressed = true; });
   return arcs;
 }
 
@@ -16690,7 +16636,7 @@ function rhythmSVG(model, size, mini) {
     const dim = focus && focus !== a.cat ? ' rdim' : '';
     const cls = 'rk-' + a.cat + ' ra-' + a.kind + (a.ref ? ' rref' : '') + (a.state === 'pending' ? ' rpending' : '') + dim;
     out += '<path class="' + cls + '" data-src="' + esc(a.src || '') + '" data-lane="' + esc(a.lane) + '" data-cat="' + esc(a.cat) + '"' +
-           ' style="stroke:' + (a.kind === 'stopfast' ? 'var(--lane-fasted)' : (RING_PALETTE[a.cat] || 'currentColor')) + ';stroke-width:' + r2(g.stroke) + '"' +
+           ' style="stroke:' + (FAST_KINDS.indexOf(a.kind) >= 0 ? 'var(--lane-fasting)' : (RING_PALETTE[a.cat] || 'currentColor')) + ';stroke-width:' + r2(g.stroke) + '"' +
            ' d="' + arcPath(C, C, g.r, minToDeg(a.startMin), minToDeg(a.endMin)) + '"/>';
   });
 
@@ -19972,9 +19918,9 @@ const LANE_ACTIONS = {
                 maxOpenMin: FORGOT_OFF_MIN.meditation, toValue: (m) => Math.round(m) },
   red_light:  { toggle: true, type: 'red_light',  unit: 'min', label: 'Red light',  state: 'red light on',
                 maxOpenMin: FORGOT_OFF_MIN.red_light, toValue: (m) => Math.round(m) },
-  // R18 Fork E: meals summons the EXISTING three-state fast resolve, relocated --
-  // no new semantics. It offers an action only while a candidate is pending.
-  eat:        { toggle: false, resolve: true, label: 'Meals' },
+  // R18 Fork E summoned D22's fast resolve here; R265.1 retired the question, so
+  // the eating lane has no summoned action at all.
+  eat:        { toggle: false, label: 'Eating' },
 };
 // R18 Fork F, recorded as a RULING not an omission: exercise and yoga get NO
 // summoned action. Their logging carries a value (a workout has a duration, often
@@ -19984,7 +19930,6 @@ const LANE_ACTIONS = {
 function laneHasAction(cat) {
   const spec = LANE_ACTIONS[cat];
   if (!spec) return false;
-  if (spec.resolve) return pendingFastCandidates().length > 0;
   return !!spec.toggle;
 }
 let SUMMON = null;
@@ -20052,7 +19997,9 @@ function ringLegendHTML() {
   // Type identity lives in colour + this legend, since lanes no longer encode it.
   return '<div class="rlegend">' + RING_CATS.map((c) =>
     `<button type="button" class="rlkey${LANE_FOCUS === c ? ' on' : ''}" onclick="event.stopPropagation();summonLane('${esc(c)}')">` +
-    `<span class="rlswatch" style="background:${RING_PALETTE[c]}"></span>${esc(CAT_LABELS[c] || c)}</button>`).join('') + '</div>';
+    `<span class="rlswatch" style="background:${RING_PALETTE[c]}"></span>${esc(CAT_LABELS[c] || c)}</button>` +
+    // R265.1: the eat lane's second state, named beside its colour (a key, not a control)
+    (c === 'eat' ? '<span class="rlkey rlfast"><span class="rlswatch" style="background:var(--lane-fasting)"></span>fasting</span>' : '')).join('') + '</div>';
 }
 function ringViewToggleHTML() {
   return `<div class="rviewsel"><button type="button" class="${RING_VIEW === 'day' ? 'on' : ''}" onclick="event.stopPropagation();setRingView('day')">my day</button>` +
@@ -20065,12 +20012,11 @@ function ringViewToggleHTML() {
 // evidence of one. Tapping it surfaces the most recent PENDING candidate's resolve
 // (a pending candidate is a CLOSED gap awaiting attestation -- a different object
 // from the open one shown, which is why the tap reveals rather than asserts).
-let RESOLVE_FOCUS = false;
-function pendingFastCandidates() {
-  return (typeof detectFastCandidates === 'function' ? detectFastCandidates() : []).filter((c) => c.state === 'pending');
-}
-function focusPendingResolve() { RESOLVE_FOCUS = true; renderDay(); return { ok: true, pending: pendingFastCandidates().length }; }
-function clearResolveFocus() { RESOLVE_FOCUS = false; renderDay(); return { ok: true }; }
+// R265.1: NO FASTING QUESTIONS ANYWHERE. D22's "Fasted / Ate, didn't log" is
+// retired with every surface that offered it (the centre tap, the resolve row,
+// the summoned meals lane, the legend). Answers already given stay in fastLog,
+// in the backup, untouched; an "ate, didn't log" still keeps its gap out of the
+// fasts (fastGaps).
 // `below` is NOT cosmetic. This returns `ringval rcenter`, and `.ringval` is
 // `position:absolute; inset:0`. R159.1/A2 moved the centre's content below the
 // rings, outside `.ringbox` -- its positioned ancestor -- so a summoned control
@@ -20083,18 +20029,7 @@ function clearResolveFocus() { RESOLVE_FOCUS = false; renderDay(); return { ok: 
 function laneControlHTML(lane, below) {
   const wrap = below ? 'rcline rctrl' : 'ringval rcenter rctrl';
   const spec = LANE_ACTIONS[lane];
-  if (!spec) return '';
-  if (spec.resolve) {                                    // meals: the existing resolve
-    const pend = pendingFastCandidates();
-    if (!pend.length) return '';
-    const c = pend[pend.length - 1];
-    const h = esc(String(num(c.hours)));
-    return `<div class="${wrap}" onclick="event.stopPropagation()">` +
-      `<span class="rcsub">${esc(rDisp(c.hours))}h gap \u00b7 pending</span>` +
-      `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'fasted');clearSummon()">Fasted</button>` +
-      `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'ate_didnt_log');clearSummon()">Ate, didn\u2019t log</button>` +
-      `<button type="button" class="linklike" onclick="clearSummon()">close</button></div>`;
-  }
+  if (!spec || !spec.toggle) return '';                // R265.1: eating has no action
   const st = laneOpenState(lane);
   // H12 Fork F2 + D113: the forgotten-off QUESTION has left the centre for its own
   // dialog. The summoned centre is now exactly one thing -- a two-state toggle for
@@ -20259,30 +20194,15 @@ function rhythmCenterHTML(model, below) {
   // confirm" -- so it moves rather than goes.
   const cls = below ? 'rcline' : 'ringval rcenter';
   if (!model || !model.openGap) return openLine ? `<div class="${cls}">${openLine}</div>` : '';
-  // D140: these are FASTING candidates, answered "Fasted" or "Ate, didn't log"
-  // -- not unresolved foods. D139 renamed this count to "need nutrients" because
-  // it read the RENDERED WORDS without asking what produced them, and "resolve"
-  // means one thing for a food match and another for a meal gap.
-  const pend = pendingFastCandidates();
-  const mins = num(model.openGap.sinceMin);
-  const body = (mins >= GAP_DATE_AFTER_MIN && model.openGap.sinceDate)
-    ? `<span class="rcsub">no food logged since</span><b class="rcdate">${esc(fmtDateSmart(model.openGap.sinceDate, false))}</b>`
-    : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">since last logged food</span>`;
-  const tap = pend.length ? ` onclick="event.stopPropagation();focusPendingResolve()"` : ' onclick="event.stopPropagation()"';
-  return `<div class="${cls}"${tap}>` + body + openLine +
-    (pend.length ? `<span class="rcsub rctap">${esc(pend.length)} gap${pend.length === 1 ? '' : 's'} to confirm</span>` : '') + `</div>`;
-}
-// The resolve row -- BELOW the ring, never inside it.
-function resolveRowHTML() {
-  if (!RESOLVE_FOCUS) return '';
-  const pend = pendingFastCandidates();
-  if (!pend.length) return '';
-  const c = pend[pend.length - 1];
-  const h = esc(String(num(c.hours)));
-  return `<div class="rresolve"><span>${esc(rDisp(c.hours))}h gap \u00b7 pending</span>` +
-    `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'fasted');clearResolveFocus()">Fasted</button>` +
-    `<button type="button" class="btn" onclick="resolveFastAt('${esc(c.start)}','${esc(c.end)}',${h},'ate_didnt_log');clearResolveFocus()">Ate, didn\u2019t log</button>` +
-    `<button type="button" class="linklike" onclick="clearResolveFocus()">cancel</button></div>`;
+  // R265.1: the span running now, in the ring's words -- a time since the last
+  // food or the stop; from 12 h a fast, and said so; past 48 h a date.
+  const og = model.openGap, mins = num(og.sinceMin);
+  const body = (mins >= GAP_DATE_AFTER_MIN && og.sinceDate)
+    ? `<span class="rcsub">no food logged since</span><b class="rcdate">${esc(fmtDateSmart(og.sinceDate, false))}</b>`
+    : (mins >= FAST_MIN_H * 60)
+      ? `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">fasting${og.stop ? ' \u00b7 since Stopped eating' : ''}</span>`
+      : `<b>${esc(hoursLabel(mins))}</b><span class="rcsub">${og.stop ? 'since Stopped eating' : 'since last logged food'}</span>`;
+  return `<div class="${cls}" onclick="event.stopPropagation()">` + body + openLine + `</div>`;
 }
 
 // ---- goal swap (ruled 2) ---------------------------------------------------
@@ -20413,7 +20333,379 @@ function renderRhythmGrid() {
     const gold = afRewardsOn() && afDay(d);
     return `<button type="button" class="rmini${d === APP_STATE.current ? ' on' : ''}${has ? '' : ' rempty'}${gold ? ' afgold' : ''}" ` +
       `onclick="goToDay('${esc(d)}')" title="${esc(d)}${gold ? ' \u00b7 alcohol-free' : ''}">${miniRingSVG(m, gold)}<small>${esc(d.slice(8))}</small></button>`;
-  }).join('') + `</div>` + afCountsHTML(dates);
+  }).join('') + `</div>` + afCountsHTML(dates) + weekLinkHTML();
+}
+
+// ---- R262 + R265.1: THE WEEKLY REVIEW -- evaluate (D152) ----------------------
+//
+// Approved as designed in the R257 report, ruled in R262, fasting by R265.1:
+//   * a week is MONDAY TO SUNDAY, "so far" until Sunday; "typical" is the 28 days
+//     before the week;
+//   * four rings -- meal responses, fasting, alcohol-free days (gold, the R226 /
+//     R230 / R232 exception, and only while the user has it switched on), sleep
+//     (hidden until any sleep exists) -- none with a target colour;
+//   * a comparison word appears only beside a CALCULATED probability (R260), and
+//     40-60 % reads "no clear change". The probability is of one stated thing:
+//     that a meal this week rose more than a meal of the typical 28 days, over
+//     every pair (ties count half). Personal, so its floor is R260's n 5 on each
+//     side; below it, "no personal estimate yet".
+// Derived at render from the stores that exist. NOTHING IS STORED, except the
+// one "seen" marker the optional notice needs (settings.weekSeen), written only
+// while that notice is switched on.
+const WEEK_TYPICAL_DAYS = 28;
+const WEEK_P_MIN_N = 5;                 // R260: personal estimates need n 5
+const WEEK_CURVE_MIN_N = 3;             // R225's floor for a median of meals
+const WEEK_GLUCOSE_DAY_FRAC = 0.7;      // R257: a day counts for glucose at 70 %
+const WEEK_CURVE_STEP = 10, WEEK_CURVE_MIN = 120;
+let WEEK_OPEN = null;                   // the Monday of the week on screen
+function weekMonday(dk) {
+  const d = new Date(String(dk) + 'T00:00:00');
+  return shiftDate(dk, -((d.getDay() + 6) % 7));
+}
+function weekDates(mon) { return [0, 1, 2, 3, 4, 5, 6].map((i) => shiftDate(mon, i)); }
+function weekRangeWords(dates) { return fmtRangeLabel(dates); }
+function weekFoodDay(dk) {
+  const d = (APP_STATE.days || {})[dk];
+  return !!d && (d.items || []).some((it) => it && !isLegacyAuto(it));
+}
+function weekGlucoseDay(dk) {
+  const s = glucoseDaySummary(dk);
+  if (!s) return false;
+  const mins = dk === todayKey() ? nowMinutes() : MIN_PER_DAY;
+  return s.n >= WEEK_GLUCOSE_DAY_FRAC * (mins * 60 / GLUCOSE_STEP_S);
+}
+function weekSleepHours(dk) {
+  let h = 0, any = false;
+  (((APP_STATE.timeline || {})[dk]) || []).forEach((r) => {
+    if (r && r.type === 'sleep' && num(r.value) > 0) { h += num(r.value); any = true; }
+  });
+  return any ? h : null;
+}
+function weekAnySleep() {
+  const tl = APP_STATE.timeline || {};
+  return Object.keys(tl).some((d) => (tl[d] || []).some((r) => r && r.type === 'sleep' && num(r.value) > 0));
+}
+// Glucose relative to the meal's own baseline, every 10 min to 2 h. Only judged
+// meals reach here, and a judged meal has its 2 h with no gap (mealIauc).
+function weekCurve(e) {
+  const mean = e.r.baseline.mean;
+  const w = glucoseSeries(e.ms, e.ms + WEEK_CURVE_MIN * 60000);
+  const pts = [{ t: e.ms, v: mean }].concat(w);
+  const out = [];
+  for (let m = 0; m <= WEEK_CURVE_MIN; m += WEEK_CURVE_STEP) {
+    const t = e.ms + m * 60000;
+    let v = null;
+    for (let i = 1; i < pts.length; i++) {
+      if (pts[i].t >= t) {
+        const a = pts[i - 1], b = pts[i];
+        v = b.t === a.t ? b.v : a.v + (b.v - a.v) * (t - a.t) / (b.t - a.t);
+        break;
+      }
+    }
+    if (v == null && pts.length) v = pts[pts.length - 1].v;
+    out.push(Math.round((v - mean) * 100) / 100);
+  }
+  return out;
+}
+function weekMedianCurve(members) {
+  if (members.length < WEEK_CURVE_MIN_N) return null;
+  const cs = members.map(weekCurve);
+  return cs[0].map((_, i) => median(cs.map((c) => c[i])));
+}
+// P(a meal this week rose more than a typical one), over all pairs, ties half.
+function weekPSuperior(a, b) {
+  if (a.length < WEEK_P_MIN_N || b.length < WEEK_P_MIN_N) return null;
+  let s = 0;
+  a.forEach((x) => b.forEach((y) => { s += x > y ? 1 : (x === y ? 0.5 : 0); }));
+  return s / (a.length * b.length);
+}
+function weekPWord(p) {
+  if (p == null) return '';
+  if (p >= 0.6) return 'higher than typical';
+  if (p <= 0.4) return 'lower than typical';
+  return 'no clear change';
+}
+function weekMeals(dates, soFar) {
+  const t0 = shiftDate(dates[0], -WEEK_TYPICAL_DAYS), t1 = shiftDate(dates[0], -1);
+  const last = soFar[soFar.length - 1];
+  const pool = reviewPool();
+  const inWeek = [], inTyp = [];
+  pool.forEach((e) => {
+    if (e.dk >= dates[0] && e.dk <= last) inWeek.push(e);
+    else if (e.dk >= t0 && e.dk <= t1) inTyp.push(e);
+  });
+  inWeek.concat(inTyp).forEach(reviewEntry);
+  const used = (arr) => arr.filter((e) => e.judged && e.clean);
+  const uw = used(inWeek), ut = used(inTyp);
+  // One unit per comparison, as a glucose day is keyed by its unit (D152): the
+  // week's commonest unit, and the meals in any other are counted, not compared.
+  const units = {};
+  uw.concat(ut).forEach((e) => { const u = e.r.coverage.unit; units[u] = (units[u] || 0) + 1; });
+  const wu = {};
+  uw.forEach((e) => { const u = e.r.coverage.unit; wu[u] = (wu[u] || 0) + 1; });
+  const src = Object.keys(wu).length ? wu : units;
+  const unit = Object.keys(src).sort((a, b) => src[b] - src[a])[0] || '';
+  const W = uw.filter((e) => e.r.coverage.unit === unit), T = ut.filter((e) => e.r.coverage.unit === unit);
+  const rw = W.map((e) => e.r.rise), rt = T.map((e) => e.r.rise);
+  const p = weekPSuperior(rw, rt);
+  return {
+    logged: inWeek.length, used: W.length, typicalUsed: T.length, unit: unit,
+    otherUnit: (uw.length - W.length) + (ut.length - T.length),
+    notJudged: inWeek.filter((e) => !e.judged).length,
+    notClean: inWeek.filter((e) => e.judged && !e.clean).length,
+    median: rw.length ? Math.round(median(rw) * 10) / 10 : null,
+    typicalMedian: rt.length ? Math.round(median(rt) * 10) / 10 : null,
+    p: p, word: weekPWord(p),
+    curve: weekMedianCurve(W), typicalCurve: weekMedianCurve(T),
+  };
+}
+function weekFasts(dates, soFar) {
+  const nowAbs = absMinutes(todayKey(), nowMinutes());
+  const w0 = absMinutes(dates[0], 0);
+  const w1 = Math.min(absMinutes(dates[6], 0) + MIN_PER_DAY, nowAbs);
+  const list = fastGaps(nowAbs).filter((g) => g.fast && g.a1 > w0 && g.a0 < w1);
+  let mins = 0;
+  list.forEach((g) => { mins += Math.max(0, Math.min(g.a1, w1) - Math.max(g.a0, w0)); });
+  const closed = list.filter((g) => !g.open);
+  // "fasting now" belongs to the week that holds today; a past week lists the
+  // span still running with "so far", and its centre is its longest closed fast.
+  const running = (w1 === nowAbs) ? (list.filter((g) => g.open)[0] || null) : null;
+  const longest = closed.length ? Math.max.apply(null, closed.map((g) => g.mins)) : 0;
+  return { list: list, closed: closed, running: running, anyOpen: list.some((g) => g.open), longestMin: longest,
+           fastMin: mins, spanMin: Math.max(0, w1 - w0) };
+}
+function weekAfRun(endDk) {
+  let d = endDk, n = 0;
+  if (!afDay(d) && d === todayKey()) d = shiftDate(d, -1);   // today counts once it is marked
+  while (afDay(d) && n < 3660) { n++; d = shiftDate(d, -1); }
+  return n;
+}
+function weekReview(mon) {
+  const dates = weekDates(mon), t = todayKey();
+  const soFar = dates.filter((d) => d <= t);
+  const n = soFar.length;
+  const food = soFar.filter(weekFoodDay).length;
+  const gluc = soFar.filter(weekGlucoseDay).length;
+  const sleepH = soFar.map(weekSleepHours).filter((h) => h != null);
+  const af = afCounts(dates);
+  return {
+    mon: mon, dates: dates, soFar: soFar, n: n, partial: n < 7,
+    coverage: { food: food, glucose: gluc, sleep: sleepH.length },
+    meals: weekMeals(dates, soFar),
+    fasts: weekFasts(dates, soFar),
+    af: { n: af.n, of: af.of, run: weekAfRun(soFar[soFar.length - 1] || dates[6]), gold: afRewardsOn() },
+    sleep: { show: weekAnySleep(), nights: sleepH.length,
+             median: sleepH.length ? Math.round(median(sleepH) * 10) / 10 : null },
+  };
+}
+function weekHeadline(R) {
+  const lf = R.fasts.longestMin ? rDisp(Math.round(R.fasts.longestMin / 6) / 10) + ' h' : 'none of 12 h or more';
+  return weekRangeWords(R.dates) + (R.partial ? ' (so far)' : '') + ': food logged ' + R.coverage.food + ' of ' + R.n
+    + ' day' + (R.n === 1 ? '' : 's') + ', glucose ' + R.coverage.glucose + ' of ' + R.n + '; '
+    + R.meals.used + ' meal' + (R.meals.used === 1 ? '' : 's') + ' with a measured rise; '
+    + R.af.n + ' alcohol-free day' + (R.af.n === 1 ? '' : 's') + '; longest fast ' + lf + '.';
+}
+// A plain progress ring: a track and one arc, no target, no zone.
+function weekRingSVG(frac, colour) {
+  const S = 120, C = 60, r = 50, f = Math.max(0, Math.min(1, num(frac)));
+  let out = '<svg class="wkring" viewBox="0 0 ' + S + ' ' + S + '" aria-hidden="true">'
+    + '<circle class="wktrack" cx="' + C + '" cy="' + C + '" r="' + r + '"/>';
+  if (f > 0) out += '<path class="wkarc" style="stroke:' + colour + '" d="' + arcPath(C, C, r, 0, f * 360) + '"/>';
+  return out + '</svg>';
+}
+function weekRingHTML(name, frac, colour, big, unit, sub, id) {
+  return '<div class="wkcell" data-ring="' + esc(id) + '"><div class="wkringbox">' + weekRingSVG(frac, colour)
+    + '<div class="wkcentre"><b>' + esc(big) + '</b>' + (unit ? '<span>' + esc(unit) + '</span>' : '') + '</div></div>'
+    + '<div class="wkname">' + esc(name) + '</div><div class="wksub">' + esc(sub) + '</div></div>';
+}
+function weekInfo(label, body) {
+  return '<details class="wkinfo"><summary class="wkinfosum" aria-label="' + esc(label) + '">ⓘ How this is worked out</summary>'
+    + '<div class="wkinfobody">' + body + '</div></details>';
+}
+function weekCurveSVG(a, b, unit) {
+  const W = 300, H = 150, pl = 40, pr = 4, pt = 10, pb = 28;
+  const vals = (a || []).concat(b || []);
+  const lo = Math.min(0, Math.min.apply(null, vals)), hi = Math.max(0.5, Math.max.apply(null, vals));
+  const x = (i) => pl + (i / ((a || b).length - 1)) * (W - pl - pr);
+  const y = (v) => pt + (hi - v) / (hi - lo) * (H - pt - pb);
+  const line = (c) => c.map((v, i) => (i ? 'L' : 'M') + r2(x(i)) + ' ' + r2(y(v))).join(' ');
+  let out = '<svg class="wkcurve" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="median glucose rise after meals, this week and typical">'
+    + '<line class="wkzero" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + r2(y(0)) + '" y2="' + r2(y(0)) + '"/>';
+  [0, 60, 120].forEach((m) => {
+    const i = m / WEEK_CURVE_STEP;
+    out += '<text class="wkax" x="' + r2(x(i)) + '" y="' + (H - 6) + '" text-anchor="' + (m === 0 ? 'start' : m === 120 ? 'end' : 'middle') + '">' + m + ' min</text>';
+  });
+  out += '<text class="wkax" x="' + (pl - 4) + '" y="' + r2(y(hi) + 12) + '" text-anchor="end">+' + esc(rDisp(Math.round(hi * 10) / 10)) + '</text>';
+  out += '<text class="wkax" x="' + (pl - 4) + '" y="' + r2(y(0) + 5) + '" text-anchor="end">0</text>';
+  if (b) out += '<path class="wktyp" d="' + line(b) + '"/>';
+  if (a) out += '<path class="wkthis" d="' + line(a) + '"/>';
+  return out + '</svg>';
+}
+function weekMealCardHTML(R) {
+  const M = R.meals, u = M.unit || 'mmol/L';
+  let h = '<div class="wkcard" data-card="meals"><h3>Meal responses</h3>';
+  if (!M.logged) return h + '<div class="wkline">No meals logged this week yet.</div></div>';
+  h += '<div class="wkline">' + esc(M.used + ' of ' + M.logged + ' meals have a measured rise') + '</div>';
+  if (M.used >= REVIEW_FLOOR)
+    h += '<div class="wkline">Median rise this week <b>' + esc(rDisp(M.median)) + ' ' + esc(u) + '</b>'
+      + (M.typicalMedian != null ? ' · typical ' + esc(rDisp(M.typicalMedian)) + ' ' + esc(u) + ' (n ' + esc(M.typicalUsed) + ')' : ' · no typical meals with a measured rise') + '</div>';
+  else
+    h += '<div class="wkline">Not enough meals with glucose for a median (' + esc(M.used) + ' of ' + REVIEW_FLOOR + ').</div>';
+  if (M.p != null)
+    h += '<div class="wkline wkprob">A meal this week rose more than a typical meal <b>' + esc(String(Math.round(M.p * 100))) + '%</b> of the time'
+      + ' (calculated; n ' + esc(M.used) + ' this week, ' + esc(M.typicalUsed) + ' typical) — ' + esc(M.word) + '.</div>';
+  else
+    h += '<div class="wkline wkprob">No personal estimate yet — it needs ' + WEEK_P_MIN_N + ' meals with a measured rise in each (this week '
+      + esc(M.used) + ', typical ' + esc(M.typicalUsed) + ').</div>';
+  if (M.curve || M.typicalCurve)
+    h += weekCurveSVG(M.curve, M.typicalCurve, u)
+      + '<div class="wkkey"><span class="wkkthis"></span>this week' + (M.curve ? ' (n ' + esc(M.used) + ')' : ' — fewer than ' + WEEK_CURVE_MIN_N + ' meals')
+      + ' <span class="wkktyp"></span>typical 28 days' + (M.typicalCurve ? ' (n ' + esc(M.typicalUsed) + ')' : ' — fewer than ' + WEEK_CURVE_MIN_N + ' meals') + '</div>';
+  const why = [];
+  if (M.notJudged) why.push(M.notJudged + ' without enough glucose around them');
+  if (M.notClean) why.push(M.notClean + ' with other food within 2 h');
+  if (M.otherUnit) why.push(M.otherUnit + ' in another glucose unit, not compared');
+  if (why.length) h += '<div class="wkline wkmuted">Not compared: ' + esc(why.join('; ')) + '.</div>';
+  h += weekInfo('about meal responses',
+    'A meal’s rise is its highest reading in the 4 h after it minus the mean of the 20 min before (the meal review’s own measure). '
+    + 'Only meals with that baseline and 2 h of readings with no gap, and with no other food within 2 h either side, are used. '
+    + '<br>The probability is of one thing: that a meal this week rose more than a meal from the 28 days before the week, '
+    + 'counted over every pair of the two (a tie counts half). It is calculated from your own data only, with no evidence grade, '
+    + 'and shown only with ' + WEEK_P_MIN_N + ' or more meals on each side. 60 % or more reads “higher than typical”, '
+    + '40 % or less “lower than typical”, and in between “no clear change”. '
+    + '<br>Main uncertainty: few meals, and meals differ in what was eaten — the comparison does not match meals by food or carbohydrate. '
+    + 'The curves are the median rise every 10 min, this week solid and the typical 28 days dashed, both from 0.');
+  return h + '</div>';
+}
+function weekFastCardHTML(R) {
+  const F = R.fasts;
+  let h = '<div class="wkcard" data-card="fasting"><h3>Fasting</h3>';
+  if (!F.list.length) h += '<div class="wkline">No fast of 12 h or more this week.</div>';
+  else {
+    h += '<div class="wkline">' + esc(F.closed.length + ' fast' + (F.closed.length === 1 ? '' : 's') + ' of 12 h or more'
+      + (F.anyOpen ? ', and one still running' : '')) + ' · ' + esc(hoursLabel(F.fastMin)) + ' of the week’s ' + esc(hoursLabel(F.spanMin)) + '</div>';
+    h += '<ul class="wkfasts">' + F.list.map((g) => {
+      const a = fmtMonthDay(absIso(g.a0).slice(0, 10), true) + ' ' + absHHMM(g.a0);
+      const b = g.open ? 'now' : fmtMonthDay(absIso(g.a1).slice(0, 10), true) + ' ' + absHHMM(g.a1);
+      return '<li>' + esc(a + ' → ' + b) + ' · <b>' + esc(fastDurWords(g.mins)) + '</b>'
+        + (g.open ? ' so far' : '') + (g.stop ? ' · from Stopped eating' : '') + '</li>';
+    }).join('') + '</ul>';
+  }
+  h += weekInfo('about fasting',
+    'A fast runs from your last logged food — or from a “Stopped eating” you tapped after it — to the next food you logged, '
+    + 'and counts when it lasts 12 h or more. Shorter gaps are part of the eating window. Food is anything logged with calories, or eaten with its nutrition unknown; '
+    + '0-calorie drinks don’t end a fast. Measured from your log: a meal you didn’t log makes a fast look longer than it was. '
+    + 'The ring is the share of the week so far spent in those fasts. Nothing is asked.');
+  return h + '</div>';
+}
+function weekAfCardHTML(R) {
+  const A = R.af;
+  return '<div class="wkcard" data-card="alcohol"><h3>Alcohol-free days</h3>'
+    + '<div class="wkline">' + esc(A.n + ' of ' + A.of + ' days marked “No alcohol today”') + '</div>'
+    + (A.gold ? '<div class="wkline">Current run ' + esc(A.run + ' day' + (A.run === 1 ? '' : 's')) + '</div>' : '')
+    + weekInfo('about alcohol-free days',
+      'A day counts when you marked “No alcohol today”. A day with neither a drink nor a mark is not counted as alcohol-free. '
+      + (A.gold ? 'Gold is the alcohol-free rewards you switched on in Settings — the one place the app uses a reward colour.'
+                : 'Alcohol-free rewards are off in Settings, so the ring is plain and no run is shown.'))
+    + '</div>';
+}
+function weekSleepCardHTML(R) {
+  const S = R.sleep;
+  return '<div class="wkcard" data-card="sleep"><h3>Sleep</h3>'
+    + '<div class="wkline">' + esc(S.nights + ' of ' + R.n + ' nights with sleep logged')
+    + (S.median != null ? ' · median ' + esc(rDisp(S.median)) + ' h' : '') + '</div>'
+    + weekInfo('about sleep', 'A night counts when a sleep is logged on that day. The median is of each night’s total.')
+    + '</div>';
+}
+function weekReviewHTML(mon) {
+  const R = weekReview(mon);
+  const curMon = weekMonday(todayKey());
+  const M = R.meals, F = R.fasts, A = R.af, S = R.sleep;
+  const mealBig = M.used >= REVIEW_FLOOR ? rDisp(M.median) : '–';
+  const fastBig = F.running && F.running.mins >= FAST_MIN_H * 60 ? F.running.mins : F.longestMin;
+  let h = '<div class="wknav">'
+    + '<button type="button" class="btn wkstep" aria-label="previous week" onclick="weekStep(-1)">‹</button>'
+    + '<b class="wktitle">Week of ' + esc(fmtDateSmart(mon, false)) + '</b>'
+    + '<button type="button" class="btn wkstep" aria-label="next week"' + (mon >= curMon ? ' disabled' : '') + ' onclick="weekStep(1)">›</button></div>'
+    + '<p class="wkhead">' + esc(weekHeadline(R)) + '</p>'
+    + '<div class="wkgrid">'
+    + weekRingHTML('Meal responses', M.logged ? M.used / M.logged : 0, 'var(--accent)', mealBig, M.used >= REVIEW_FLOOR ? (M.unit || 'mmol/L') + ' median rise' : 'median rise',
+        M.used + ' of ' + M.logged + ' meals measured', 'meals')
+    + weekRingHTML('Fasting', F.spanMin ? F.fastMin / F.spanMin : 0, 'var(--lane-fasting)', fastBig ? hoursLabel(fastBig) : '0h',
+        F.running && F.running.mins >= FAST_MIN_H * 60 ? 'fasting now' : 'longest fast',
+        F.closed.length + ' fast' + (F.closed.length === 1 ? '' : 's') + ' of 12 h+', 'fasting')
+    + weekRingHTML('Alcohol-free days', A.of ? A.n / A.of : 0, A.gold ? 'var(--gold)' : 'var(--muted)', String(A.gold ? A.run : A.n),
+        A.gold ? 'day run' : 'days', A.n + ' of ' + A.of + ' days', 'alcohol')
+    + (S.show ? weekRingHTML('Sleep', R.n ? S.nights / R.n : 0, 'var(--lane-sleep)', S.median != null ? rDisp(S.median) + 'h' : '–', 'median',
+        S.nights + ' of ' + R.n + ' nights', 'sleep') : '')
+    + '</div>'
+    + '<div class="wkcov">' + esc('food logged ' + R.coverage.food + ' of ' + R.n + ' days · glucose ' + R.coverage.glucose + ' of ' + R.n
+      + (S.show ? ' · sleep ' + R.coverage.sleep + ' of ' + R.n : '')) + '</div>'
+    + weekMealCardHTML(R) + weekFastCardHTML(R) + weekAfCardHTML(R) + (S.show ? weekSleepCardHTML(R) : '')
+    + '<p class="wkfoot">Your own data, computed on this phone. No scores.</p>';
+  return h;
+}
+function renderWeek() {
+  const el = document.getElementById('weekBody');
+  if (el && WEEK_OPEN) el.innerHTML = weekReviewHTML(WEEK_OPEN);
+}
+function openWeek(mon) {
+  WEEK_OPEN = isDayKey(mon) ? weekMonday(mon) : weekMonday(todayKey());
+  weekMarkSeen(WEEK_OPEN);
+  renderWeek();
+  const p = document.getElementById('weekPanel');
+  if (p) p.style.display = 'flex';
+  overlaySync();
+  return { ok: true, mon: WEEK_OPEN };
+}
+function closeWeek() {
+  WEEK_OPEN = null;
+  const p = document.getElementById('weekPanel');
+  if (p) p.style.display = 'none';
+  overlaySync();
+  try { renderRhythmGrid(); } catch (e) {}
+  return { ok: true };
+}
+function weekStep(n) {
+  if (!WEEK_OPEN) return { ok: false };
+  const next = shiftDate(WEEK_OPEN, 7 * (n < 0 ? -1 : 1));
+  if (next > weekMonday(todayKey())) return { ok: false, why: 'future' };
+  WEEK_OPEN = next;
+  weekMarkSeen(WEEK_OPEN);
+  renderWeek();
+  return { ok: true, mon: WEEK_OPEN };
+}
+// The optional notice (R262/B5, off by default): one quiet line under the 7-day
+// row once a week has ended, until that week is opened. Nothing else.
+function weekNoticeOn() { return !!(APP_STATE && APP_STATE.settings && APP_STATE.settings.weekNotice === true); }
+function setWeekNotice(on) {
+  if (on) APP_STATE.settings.weekNotice = true;
+  else { delete APP_STATE.settings.weekNotice; delete APP_STATE.settings.weekSeen; }
+  Store.saveState(APP_STATE);
+  try { renderRhythmGrid(); } catch (e) {}
+  return { ok: true, on: weekNoticeOn() };
+}
+function renderWeekNoticeForm() {
+  const el = document.getElementById('weekNotice');
+  if (el) el.checked = weekNoticeOn();
+}
+function weekMarkSeen(mon) {
+  if (!weekNoticeOn()) return;
+  const last = shiftDate(weekMonday(todayKey()), -7);
+  if (mon === last && APP_STATE.settings.weekSeen !== last) {
+    APP_STATE.settings.weekSeen = last;
+    Store.saveState(APP_STATE);
+  }
+}
+function weekNoticeDue() {
+  if (!weekNoticeOn()) return null;
+  const last = shiftDate(weekMonday(todayKey()), -7);
+  return APP_STATE.settings.weekSeen === last ? null : last;
+}
+function weekLinkHTML() {
+  const due = weekNoticeDue();
+  return '<button type="button" class="linklike weeklink" onclick="openWeek()">This week</button>'
+    + (due ? '<button type="button" class="linklike weeknote" onclick="openWeek(\'' + esc(due) + '\')">Last week’s review is ready</button>' : '');
 }
 
 // ---- D30: single entry point ----------------------------------------------
@@ -24793,11 +25085,11 @@ window.HT = {
   addLabPanel, addLabPanelFromForm, renderLabForm, readLabForm, renderLabTrends, LAB_TREND_MIN, LAB_DIRECTION_MIN,
   // D35 — rhythm ring (Layer 2 Mirror)
   rhythmModel, rhythmSVG, rhythmCaptionHTML, goalRingBoxHTML, goalCellsHTML,
-  rhythmCenterHTML, focusPendingResolve, clearResolveFocus, pendingFastCandidates, addIntervalWin,
-  gapLabel, GAP_DATE_AFTER_MIN, RING_CENTER_R, RING_R, RESERVED_FRAC,
+  rhythmCenterHTML, addIntervalWin,
+  GAP_DATE_AFTER_MIN, RING_CENTER_R, RING_R, RESERVED_FRAC,
   RING_ANCHORS, RING_CATS, CAT_LABELS, RING_PALETTE, PLAN_OPACITY, laneGeometry, catOfEventType,
   packPractice, practiceLaneKey, MAX_PRACTICE_LANES, LANE_PRACTICE_STROKE, LANE_ANCHOR_STROKE,
-  ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML, resolveRowHTML,
+  ringView, setRingView, toggleRingView, laneFocus, focusLane, ringLegendHTML, ringViewToggleHTML,
   parsePhotoMeal, photoShared, renderPhotoDraft, doPhotoPaste, photoGrams, photoItemMacros, photoSetGrams, photoUnpin, photoSetIdentity,
   photoSave, photoReopen, photoDiscard, photoDraft, aiPromptText, DIVERGE_MAX, newMealId,
   // R25 / D61 -- the third rail: add what the photo could not show
@@ -24826,7 +25118,7 @@ window.HT = {
   ozHint, photoWeightShaped, photoLeadIndex, photoLeadOpen, photoConfirmLead,
   sleepOn, sleepOff, sleepOpenState, resolveSleepOpen, discardSleepOpen, normalizeSleepOpen, normalizeLaneOpen,
   laneOn, laneOff, laneOpenState, openLanes, resolveLaneOpen, discardLaneOpen, closeLaneSegment, laneControlHTML,
-  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, EAT_GAP_MAX_FRAC, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
+  SLEEP_OPEN_MAX_MIN, SLEEP_MIN_SEGMENT_MIN, FORGOT_OFF_MIN, EAT_FULL_FRAC, FAST_KINDS, eatCoverage, suppressFullEatLane, summonLane, summonActive, clearSummon, laneHasAction, LANE_ACTIONS, sleepControlHTML,
   swapGoal, clearSwap, swapActive, GOAL_SWAP_MS, kcalDisp, nutDisp,
   // R168: the daily stack (schema v13)
   STACK_KINDS, IU_TO_UG, doseToMicro, normalizeStackItem, normalizeStack,
@@ -24925,7 +25217,7 @@ window.HT = {
   // R189 -- served vs eaten
   reviewEntry, applyPrecedence, precedenceOf, suggestionFor, recomputeItemByPrecedence, migrateV16toV17, confirmSuggested, dayUncounted, uncountedLineHTML, uncountedToggle, itemCountStateHTML, photoSearchType, photoItemIsDrink, PREMIGRATION_V16_KEY,
   rowAnswersAll, comboPartFromItem, sittingComboDraft, sittingName, precRowValues,
-  noDrinksMark, noDrinksTap, noDrinksRemove, noDrinksKeep, noDrinksConflict, noDrinksAskHTML, dayAlcoholCount, dayUnknownDrink, drinkHasAlcohol, drinkAlcoholAnswer, drinkKey, afRewardsOn, setAlcoholFreeRewards, afDay, afCounts, afRun, afCountsHTML, eatStopOpen, eatStopSave, eatStopCancel, eatStopsAbs, eatStopSpans,
+  noDrinksMark, noDrinksTap, noDrinksRemove, noDrinksKeep, noDrinksConflict, noDrinksAskHTML, dayAlcoholCount, dayUnknownDrink, drinkHasAlcohol, drinkAlcoholAnswer, drinkKey, afRewardsOn, setAlcoholFreeRewards, afDay, afCounts, afRun, afCountsHTML, weekMonday, weekDates, weekReview, weekReviewHTML, weekHeadline, weekPSuperior, weekPWord, weekCurve, openWeek, closeWeek, weekStep, renderWeek, setWeekNotice, weekNoticeOn, weekNoticeDue, weekLinkHTML, eatStopOpen, eatStopSave, eatStopCancel, eatStopsAbs, fastGaps, fastsClosed, fastOpenNow, openFastLabel, FAST_MIN_H,
   CORPUS_GROUPS_HASH, corpusBeverageSet, beverageFirst, findMealEvent, sittingOfGroup, sittingsLedBy, sittingOfItem, sittingResponseHTML, sittingLinkHTML, sittingShow, glucoseExtent, lastImportWords, SITTING_JOIN_MIN, exportStreams, parseStreams, migrateV15toV16, STREAMS_VERSION, hhmmToMin, mealIauc, mealReview, mealReviewHTML, reviewPool, spearman, median, REVIEW_FLOOR, RESP_IAUC_MIN, RESP_CLEAN_MIN, sleepButtonOpen, sleepBigHTML, dayWater, dayWaterEntries, waterTap,
   CORPUS_REFUSE_HASH, REFUSE_BONE_PARTS, REFUSE_BONE_CUTS, refuseRow, refuseKind, refusePartWords,
   refuseServedOnBone, refuseDecide, normalizeRefuse, refuseMemory, plateEdibleG, itemScaleTo,
@@ -24943,7 +25235,7 @@ window.HT = {
   // Phase 4 Slice X — fasting candidates + undo (D22)
   detectFastCandidates, confirmedFasts, resolveFast, matchResolution, fastEvents, fastEndedByItem,
   normalizeFastLog, normalizeFasting, offerUndo, doUndo, undoRemove,
-  renderFastCandidates, renderFastingForm, setFastingFromForm, resolveFastAt, addManualItem, addMedicationFromForm, doIngest,
+  renderFastCandidates, renderFastingForm, resolveFastAt, addManualItem, addMedicationFromForm, doIngest,
   // Phase 4 Slice — Mirror / Layer 2 self-trends (D23)
   signalSeries, estUnits, isEstimatedUnit, measuredUnit, seriesSummary, macroSeries, fastingStats, convertUnit, windowCutoff, sparklineSVG, renderTrends, setTrendWindow, UNIT_CONVERT,
   // Phase 4 Slice — Nudge / Layer 3 (D25)

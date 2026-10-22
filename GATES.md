@@ -6447,3 +6447,37 @@ hand" with a crosshair; the **step buttons** (44 x 44) go to 21:30 and back; the
 21:30 -- the step buttons were added. `BPCHART_SHOTS=1` saves `bp-chart` and
 `bp-ref`; both read before the suite (the first pair showed labels on the data,
 moved to a legend and a margin).
+
+### v0.111.0 -- R265.1 + R262: `weekly-gate`
+
+Synthetic data at 390 px, reloaded: last week (Mon-Sun) one clean noon meal a day
+rising 3.0 mmol/L, the ten days before it rising 1.0, two "No alcohol today" marks.
+11 checks by real taps: "This week" sits **under the 7-day row**, 44 px, and opens
+this week over a locked page; ‹ goes back a week; **three rings** (sleep hidden, no
+sleep data), two to a row, 120-150 px; meal responses "3 mmol/L median rise", 7 of
+7 measured, and the sentence "A meal this week rose more than a typical meal 100%
+of the time (calculated; n 7 this week, 10 typical) -- higher than typical."; fasting
+"24h longest fast" and seven noon-to-noon fasts listed plus the span still running;
+alcohol-free 2 of 7, **not gold** with rewards off; the headline and coverage line
+from the numbers, the curves solid and dashed; no "should" or verdict word; the ⓘ
+(44 px) states what the probability is of, no grade, the n 5 floor, the words, the
+main uncertainty; every word 16 px, every control 44 px, nothing off the side;
+closing leaves storage **byte-identical**; then the day ring: 14 h after a meal the
+running span is **solid orange** (the `--lane-fasting` token), the centre says
+"fasting", the key names eating (green) and fasting (orange).
+
+Red first, all fixed in the app: the × close was 28 px (now 44 on this panel --
+the same × on Settings and + Log is 28 px, pre-existing, reported); the running
+span still wore the old muted dashed "gap" style; a past week said "one running
+now" and centred a running fast (now only the week holding today does).
+`WEEKLY_SHOTS=1` saves `week-last`, `week-info`, `day-ring` (dark) and
+`day-ring-light`, `week-light`; all read before the suite (fast durations wrapped
+mid-figure -- now kept on one line).
+
+Changed with the ruling, not loosened: `drinkfree-gate` (the stop's arc is now the
+orange fast from the stop, 750 min, and the key names eating and fasting),
+`entry-gate` (two on-page answers; the fasting answer is retired), `night-gate`
+(the Dexcom quote with its document number; "alerts" inside the quoted
+manufacturer text is not the app's voice), `anti-engagement-gate` (the streak's
+denominator is "fasts of 12 h or more"), `jargon-gate` (coverage of "fasting"
+replaces "gaps to confirm"). Harness 3320 -> 3344.

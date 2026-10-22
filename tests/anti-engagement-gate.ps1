@@ -355,7 +355,8 @@ try {
   $streaks = @($R.streakStrings)
   Chk ($streaks.Count -ge 1) "no string containing 'streak' was found on any swept surface, so the assertion below -- that a streak always carries its denominator -- had nothing to test. Fixture: $($R.behaviour.fastEvents) eating events, $($R.behaviour.fastsResolved) fasts resolved, fastingStats streak = $($R.behaviour.streak). A streak is DERIVED from gaps between meals and resolved in fastLog keyed by the candidate's start timestamp -- it cannot be seeded directly"
   foreach ($s in $streaks) {
-    Chk ($s -match '(?i)confirmed') "a streak is on the surface WITHOUT its denominator: '$s'. 'streak 3 days' alone is a prize; 'streak 3 days - 5 confirmed' is a count, and that difference is the whole ruling"
+    # R265.1: nothing is "confirmed" any more -- the count names what it counts.
+    Chk ($s -match '(?i)confirmed|fasts? of 12 h or more') "a streak is on the surface WITHOUT its denominator: '$s'. 'streak 3 days' alone is a prize; 'streak 3 days - 5 confirmed' is a count, and that difference is the whole ruling"
   }
 
   # ---- THE BEHAVIOURAL HALF: a dismissed offer never returns --------------

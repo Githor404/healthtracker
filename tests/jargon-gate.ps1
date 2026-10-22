@@ -441,7 +441,7 @@ try {
     @{ re = '^Food database: ';  why = 'the citation line in the micronutrient panel' },
     @{ re = 'no nutrition yet'; why = 'the words that replaced "composition not recorded"' },
     @{ re = 'Day total';        why = 'the words that replaced "Total (est.)"' },
-    @{ re = 'gaps? to confirm'; why = 'the fasting-gap count, which D139 wrongly renamed to a nutrition count' },
+    @{ re = '^fasting$';        why = 'R265.1: the ring key names the orange span (the fasting-gap count it replaced is retired)' },
     @{ re = 'not counted in averages'; why = 'the words that replaced "excluded from averages"' },
     @{ re = 'Lentils \(boiled\)'; why = 'the readable form of a cited row name' },
     @{ re = '\d+ cal';          why = 'the row unit ruled in place of kcal' },

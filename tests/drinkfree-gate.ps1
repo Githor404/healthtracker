@@ -279,22 +279,30 @@ try {
     var tm = HT.shiftDate(td, 1);
     HT.state().days[tm] = { status: 'partial', water_l: 0, items: [{ name: 'Gate eggs', meal: 'breakfast', time: '09:30', kcal: 200, protein_g: 12, fat_g: 10, carb_g: 2, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }] };
     HT.resave();
-    var sp = HT.eatStopSpans(null)[0];
-    o.label2 = sp ? sp.label : ''; o.mins = sp ? sp.a1 - sp.a0 : 0;
-    var arcs = [td, tm].map(function (d) { return HT.rhythmModel(d, { live: false }).arcs.filter(function (a) { return a.kind === 'stopfast'; })[0]; });
+    // R265.1: the stop is the start of the orange span; 12 h 30 m makes it a fast
+    var sp = HT.fastsClosed()[0];
+    o.mins = sp ? sp.a1 - sp.a0 : 0; o.fromStop = !!(sp && sp.stop);
+    var arcs = [td, tm].map(function (d) { return HT.rhythmModel(d, { live: false }).arcs.filter(function (a) { return a.kind === 'fasting'; })[0]; });
+    o.label2 = arcs[0] ? arcs[0].label : '';
     o.arcSum = arcs.reduce(function (s, a) { return s + (a ? a.endMin - a.startMin : 0); }, 0);
+    // the green eating window, drawn on the day it belongs to (lunch -> the stop)
+    HT.goToDay(td); HT.refresh();
+    var eatPath = document.querySelector('#dayView path.ra-eat');
+    o.eatDrawn = eatPath ? getComputedStyle(eatPath).stroke : '';
     // drawn on the page: the day after, with its ring
     HT.goToDay(tm); HT.refresh();
-    var path = document.querySelector('#dayView path.ra-stopfast');
+    var path = document.querySelector('#dayView path.ra-fasting');
     o.drawn = !!path; o.stroke = path ? getComputedStyle(path).stroke : '';
     // the meals and sleep hues, resolved the way the browser resolves them
     var hue = function (v) { var d = document.createElement('div'); d.style.color = 'var(' + v + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; };
-    o.eatStroke = hue('--lane-eat'); o.sleepStroke = hue('--lane-sleep');
+    o.eatStroke = hue('--lane-eat'); o.sleepStroke = hue('--lane-sleep'); o.fastStroke = hue('--lane-fasting');
     // the words: ONE tap on "Ring key" beside the ring (the ring itself opens + Log, R223)
     window.__taps = 0;
     window.__tap(document.querySelector('#dayView .ringkeybtn'), 'Ring key');
     o.keyTaps = window.__taps;
-    o.legend = Array.prototype.map.call(document.querySelectorAll('#dayView .rrrow'), function (r) { return r.textContent; }).filter(function (t) { return /Fasted/.test(t); })[0] || '';
+    o.legend = Array.prototype.map.call(document.querySelectorAll('#dayView .rrrow'), function (r) { return r.textContent; }).filter(function (t) { return /^fasting /.test(t.trim()); })[0] || '';
+    o.legend = o.legend.trim();
+    o.keyWords = Array.prototype.map.call(document.querySelectorAll('#dayView .rlkey'), function (k) { return k.textContent.trim(); });
     return o;
   } catch (e) { return { err: String(e) }; }
 })()
@@ -302,9 +310,10 @@ try {
   Write-Host ("  stopped eating: " + $st)
   $s = $st | ConvertFrom-Json
   Check (($s.label -eq 'Stopped eating') -and $s.asked -and $s.nowDefault -and ($s.taps -le 3) -and ($s.n -eq 1) -and ($s.time -eq '21:00')) "R226 GATE: 'Stopped eating' in $($s.taps) TAPS from the day -- + Log, Stopped eating, Now -- the time ASKED first, Now highlighted, one record at 21:00"
-  Check (($s.mins -eq 750) -and ($s.arcSum -eq 750) -and ($s.label2 -eq ('Fasted 12 h 30 m (21:00 ' + [char]0x2192 + ' 09:30)'))) "R226 GATE: the fasting arc is exactly stop -> next food: 21:00 to 09:30 = 750 min, over two days ($($s.label2))"
-  Check ($s.drawn -and ($s.stroke -ne '') -and ($s.stroke -ne $s.eatStroke) -and ($s.stroke -ne $s.sleepStroke)) "R226 GATE: it is DRAWN on the ring in its own colour -- not the meals colour, not sleep's ($($s.stroke) vs $($s.eatStroke), $($s.sleepStroke))"
-  Check (($s.keyTaps -eq 1) -and ($s.legend -eq ('Fasted 12 h 30 m (21:00 ' + [char]0x2192 + ' 09:30)'))) "R226 GATE: one tap on 'Ring key' says it in words: 'Fasted 12 h 30 m (21:00 -> 09:30)'"
+  $fastWords = 'fasting 12 h 30 m (21:00 ' + [char]0x2192 + ' 09:30) ' + [char]0x00b7 + ' from Stopped eating'
+  Check (($s.mins -eq 750) -and $s.fromStop -and ($s.arcSum -eq 750) -and ($s.label2 -eq $fastWords)) "R265.1 GATE: the fast starts AT THE STOP and runs to the next food: 21:00 to 09:30 = 750 min, over two days ($($s.label2))"
+  Check ($s.drawn -and ($s.stroke -eq $s.fastStroke) -and ($s.stroke -ne $s.eatStroke) -and ($s.stroke -ne $s.sleepStroke) -and ($s.eatDrawn -eq $s.eatStroke)) "R265.1 GATE: DRAWN on the ring in ORANGE (the fasting token), the eating window in GREEN, neither sleep's ($($s.stroke) / $($s.eatDrawn) vs $($s.fastStroke), $($s.eatStroke), $($s.sleepStroke))"
+  Check (($s.keyTaps -eq 1) -and ($s.legend -eq $fastWords) -and (@($s.keyWords) -contains 'eating') -and (@($s.keyWords) -contains 'fasting')) "R265.1 GATE: one tap on 'Ring key' says it in words ('$($s.legend)'), and the key names both colours: eating, fasting ($(@($s.keyWords) -join ', '))"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

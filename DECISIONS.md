@@ -18363,3 +18363,94 @@ logged once.
 
 **S1** was already in place (R263); it now runs this script. Checked by a
 scheduled run after clearing its state: exit 0, the report rewritten, no errors.
+
+## R265.1 -- FASTING SIMPLIFIED (EATING GREEN, FASTING ORANGE) AND THE WEEKLY REVIEW BUILT (2026-10-21, v0.111.0)
+
+*Replaces R265; amends R262 and R263. Fasting serves **track**; the weekly review
+serves **evaluate**.*
+
+**1. Fasting -- the rule as built (`fastGaps`).** Food is what D22's detector
+already reads as breaking a fast (calories above zero, or eaten with its
+composition unknown); 0-calorie drinks and auto-added legacy entries do not. For
+each food and the next: the span starts at the food, or at the first "Stopped
+eating" after it; it is a **fast when it lasts 12 h or more** and part of the
+eating window when shorter. The span after the last food runs to now and is a
+fast from 12 h. `confirmedFasts()` -- still the one surface every count and
+analysis reads -- now returns the closed fasts by this rule; Trends' fasting row,
+the "broke a fast" context on a meal, the undo toast and the weekly review all
+read it.
+
+**2. The ring.** Eat lane: green arcs for the eating window (each under-12 h span,
+merged; from a food to its stop when a fast follows), orange for every fast and
+for the span running now, from its first minute (rule 2). Both colours are
+tokens for light and dark (`--lane-eat` #2e8b3e / #5cc06a, `--lane-fasting`
+#e86a0c / #ff7a1f, each checked against the other lane hues: nearest dE76 about
+25-36, sauna and exercise; contrast 3.2:1 on white). The ring key names
+"eating" and "fasting" beside their swatches (rule 7); the meals lane is now
+called eating. The centre says "Nh since last logged food" (or "since Stopped
+eating") under 12 h, "Nh fasting" from 12 h, and a date past 48 h. R18.1's
+figure-and-ground suppression is retired for these arcs -- it existed because a
+muted gap could read as meals, and orange cannot -- and R11.1's 48 h limit stays:
+a running span past 48 h is a date, not drawn.
+
+**3. No fasting questions anywhere (rule 6).** Retired: D22's "Fasted / Ate,
+didn't log" on the day, in the ring's legend, in the centre tap, in the resolve
+row and in the summoned meals lane; Settings' fasting switch and minimum hours
+(the card now states the rule). The R262 20 h question is not built. `fastLog`
+and its answers stay in the store and the backup, untouched. E-lite unchanged.
+
+**4. The weekly review, as R262 approved, with R265.1's fasting.** Built as
+recorded in CLAUDE.md 4i: "This week" under the 7-day row (44 px), Monday to
+Sunday, typical = the 28 days before, a headline from the numbers, rings for meal
+responses, fasting, alcohol-free days and sleep (hidden until any sleep exists),
+a coverage line, a card per ring with its basis behind ⓘ, the meal card's median
+2 h curve (solid this week, dashed typical), the footer, and the optional
+"Last week's review is ready" line, off by default. The probability: that a meal
+this week rose more than a typical one, over every pair (ties half), calculated,
+shown only with n 5 on each side (R260); 60 % or more "higher than typical", 40 %
+or less "lower than typical", between "no clear change". Meals compared are the
+meal review's judged, clean sittings, in one glucose unit.
+
+**5. The fingerstick sentence** is the Dexcom G7 User Guide's own (R264): quoted,
+with AW00078-10 Rev 005, 05/2026, section 1, on the low flag and the clinician
+summary.
+
+**Named, not resolved -- for the user:**
+- **Fork G ("no green") gives way here only.** The ruling's colours are states,
+  named in the key; no red is used in the eat lane.
+- **A stop no longer makes a fast by itself.** R263 counted a fast from Stopped
+  eating "whatever its length"; R265.1 makes the stop the start and the 12 h rule
+  the test. A stop followed by food within 12 h is eating (gated: 18:00 food, stop
+  19:00, food 06:30 -> 11.5 h from the stop, not a fast).
+- **An old "Ate, didn't log" answer still removes its gap from the fasts.** The
+  ruling keeps D22 answers "in history"; I read the user's own statement that
+  they ate as still true. Say if past answers should be ignored instead.
+- **No upper limit on a fast.** A 69 h gap with nothing logged counts as a fast
+  in the counts and the weekly list (it is not drawn past 48 h). D22 flagged
+  gaps over 48 h "long -- check". Say if a ceiling is wanted.
+- **0-calorie items never end a fast**, so a drink logged at 0 kcal by mistake
+  (R258 found five wine entries at 0 kcal) does not end one.
+- **No calibration entry for the weekly probability.** It describes the user's own
+  data (a probability of superiority between two sets of measured meals); there is
+  nothing for it to come true or false against later, so R260's calibration log
+  has nothing to resolve. Shown as "calculated" with its basis. Say if it should be
+  logged anyway.
+- **Alcohol ring:** gold, with the run, only while alcohol-free rewards are on;
+  off, it is plain and shows only the count.
+- **The quote names the G7** whatever sensor is recorded; it is attributed, not
+  the app's voice. The night gate's "no alert word" check now skips the quoted
+  manufacturer text (the quote says "glucose alerts").
+- **Pre-existing, found by the new gate:** the × close on Settings and + Log is 28
+  px tall; the new panel's is 44. Not changed elsewhere in this slice.
+
+**Gates.** New `weekly-gate` (11 checks, real taps at 390 px; red first on the ×,
+the old dashed gap style and a past week's "running now"). Changed with the
+ruling: `drinkfree-gate`, `entry-gate`, `night-gate`, `anti-engagement-gate`,
+`jargon-gate`. Harness 3320 -> 3344; retired cases rewritten in place. Screens
+read at 390 px in dark and light before the suite.
+
+**Cost.** App: about 430 lines added, 200 removed; no schema change, no new store,
+nothing sent anywhere. The review computes every sitting's response in the 35 days
+it covers when it opens (the meal review's own function); render time on the real
+log not measured on the device. Tests: one gate (about 1 min), 24 harness
+assertions.

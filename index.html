@@ -14,23 +14,25 @@
   :root{
     --ringw:min(84vw,380px);
     /* R17: lane hues per theme. Light values are darker + more saturated so an arc
-       reads against a white panel; dark values are the tuned R13 set. No green in
-       either set, so no green/red pair can read as an evaluation (Fork G). */
-    --lane-sleep:#4a56a6; --lane-eat:#0f8c7d; --lane-exercise:#a86a12;
+       reads against a white panel; dark values are the tuned R13 set. R265.1 (the
+       user's ruling) makes eating GREEN and fasting ORANGE -- state, not verdict,
+       always named beside its swatch; Fork G's "no green" gives way to it there
+       only, and no red sits in the eat lane. */
+    --lane-sleep:#4a56a6; --lane-eat:#2e8b3e; --lane-exercise:#a86a12;
     --lane-sauna:#b04a24; --lane-yoga:#7a52ab; --lane-meditation:#2d6f96; --lane-red_light:#a63a63;
     --lane-track:#c9d2de;
-    /* R226: the FASTED span from a marked stop -- its own hue, unlike meals and sleep */
-    --lane-fasted:#7a7f2a; --gold:#c9a227;
+    /* R265.1: the FASTING span (from the last food or a Stopped eating) */
+    --lane-fasting:#e86a0c; --gold:#c9a227;
     --bg:#f4f6fa; --panel:#ffffff; --line:#e4e9f0;
     --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b; --accent:#2fb3a3;
     --tbhi:#5b6b80; --tblo:#b3bdcb; --tbband:#e6eaf0;
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --lane-sleep:#7b86c4; --lane-eat:#3fbfae; --lane-exercise:#d9a13e;
+      --lane-sleep:#7b86c4; --lane-eat:#5cc06a; --lane-exercise:#d9a13e;
       --lane-sauna:#d97a5a; --lane-yoga:#a98cc8; --lane-meditation:#6fa8c4; --lane-red_light:#c4718f;
       --lane-track:#2a323f;
-      --lane-fasted:#b8bd5a; --gold:#e3bd3c;
+      --lane-fasting:#ff7a1f; --gold:#e3bd3c;
       --bg:#12161c; --panel:#1b212b; --line:#2a323f;
       --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484; --accent:#3fbfae;
       --tbhi:#9fb2cc; --tblo:#57657a; --tbband:#2b3341;
@@ -184,7 +186,7 @@
   .rring.rplan path{opacity:.38}
   .rring.rplan .rdot{opacity:.38}
   .rring path.rpending{stroke-dasharray:5 4}
-  .rring .ra-open{stroke-dasharray:4 4;opacity:.55}
+  /* R265.1: the running span is FASTING, solid orange like a closed fast; the now-hand shows it is live */
   .rdim{opacity:.12 !important}
   .rlegend{display:flex;flex-wrap:wrap;gap:2px;justify-content:center;margin-top:1px}
   .rlkey{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border:1px solid transparent;border-radius:9px;background:none;color:var(--muted);font:inherit;font-size:16px;cursor:pointer}
@@ -222,7 +224,7 @@
   .rrrow{display:flex;align-items:center;gap:7px;padding:2px 0;flex-wrap:wrap}
   .rrmuted{color:var(--muted)}
   .rkey{flex:0 0 auto;width:10px;height:10px;border-radius:3px;background:var(--line)}
-  .rkey.rk-eat{background:var(--accent)}.rkey.rk-sleep{background:#7b86c4}
+  .rkey.rk-eat{background:var(--lane-eat)}.rkey.rk-sleep{background:#7b86c4}
   .rkey.rk-exercise{background:var(--good)}.rkey.rk-fast{background:var(--muted)}
   .rkey.rk-open{background:var(--muted);opacity:.5}.rkey.rk-window{background:var(--accent);opacity:.3}
   .rglabel{margin-top:8px;font-size:16px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -250,7 +252,47 @@
   .ndask{margin:8px 0;padding:10px;border:1px solid var(--warn);border-radius:12px;font-size:16px}
   .ndbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
   .ndbtns .btn{min-height:44px;font-size:16px}
-  .rkey.rk-stopfast{background:var(--lane-fasted)}
+  .rkey.rk-fasting,.rkey.rk-open{background:var(--lane-fasting);opacity:1}
+  .rlkey.rlfast{cursor:default}
+  /* R262 + R265.1: the weekly review */
+  #weekPanel .sheetx{min-width:44px;min-height:44px}
+  .weeklink{display:block;min-height:44px;margin-top:6px;font-size:16px;text-align:left}
+  .weeknote{display:block;min-height:44px;margin-top:0;font-size:16px;text-align:left;color:var(--muted)}
+  .wknav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px}
+  .wkstep{min-width:44px;min-height:44px;font-size:20px;padding:0}
+  .wktitle{font-size:18px}
+  .wkhead{font-size:16px;margin:0 0 10px}
+  .wkgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px}
+  .wkcell{text-align:center;min-width:0}
+  .wkringbox{position:relative;width:100%;max-width:150px;margin:0 auto}
+  .wkring{display:block;width:100%;height:auto}
+  .wktrack{fill:none;stroke:var(--lane-track);stroke-width:12}
+  .wkarc{fill:none;stroke-width:12;stroke-linecap:butt}
+  .wkcentre{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.1;padding:0 22%}
+  .wkcentre b{font-size:24px}
+  .wkcentre span{font-size:16px;color:var(--muted)}
+  .wkname{font-size:16px;font-weight:700;margin-top:4px}
+  .wksub{font-size:16px;color:var(--muted)}
+  .wkcov{font-size:16px;color:var(--muted);margin:12px 0}
+  .wkcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px 0}
+  .wkcard h3{margin:0 0 6px;font-size:17px}
+  .wkline{font-size:16px;margin:4px 0}
+  .wkmuted{color:var(--muted)}
+  .wkfasts{margin:6px 0;padding-left:20px;font-size:16px}
+  .wkfasts li{margin:3px 0}
+  .wkfasts b{white-space:nowrap}
+  .wkinfo{margin-top:6px}
+  .wkinfosum{min-height:44px;display:flex;align-items:center;font-size:16px;color:var(--accent);cursor:pointer}
+  .wkinfobody{font-size:16px;color:var(--muted)}
+  .wkcurve{display:block;width:100%;height:auto;margin-top:6px}
+  .wkzero{stroke:var(--line);stroke-width:1}
+  .wkax{font-size:16px;fill:var(--muted)}
+  .wkthis{fill:none;stroke:var(--accent);stroke-width:2.5}
+  .wktyp{fill:none;stroke:var(--muted);stroke-width:2;stroke-dasharray:5 4}
+  .wkkey{font-size:16px;color:var(--muted);display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+  .wkkthis{display:inline-block;width:18px;height:0;border-top:3px solid var(--accent);vertical-align:middle}
+  .wkktyp{display:inline-block;width:18px;height:0;border-top:2px dashed var(--muted);vertical-align:middle}
+  .wkfoot{font-size:16px;color:var(--muted);margin:14px 0 4px}
   /* R233.1 / R237: what a row and the day say about what is counted */
   .mcount{padding:0 0 4px;font-size:16px}
   .msuggnum{color:var(--warn)}
@@ -1798,12 +1840,14 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
     <div class="card" data-setting="fasting">
       <details>
         <summary>Fasting</summary>
-        <label class="checkline"><input type="checkbox" id="fastEnabled" checked> Show fasting candidates</label>
-        <div class="row" style="margin-top:8px">
-          <div style="flex:0 0 130px"><label>Min hours</label><input id="fastMinHours" type="number" inputmode="decimal"></div>
-        </div>
-        <button class="btn" onclick="setFastingFromForm()">Save</button>
-        <div class="note">A gap ≥ this many hours between meals (default 16) becomes a candidate on the day it ended — resolve it "Fasted" or "Ate, didn't log" from the timeline. Pending never counts toward anything. 0-calorie drinks don't break a fast.</div>
+        <div class="note">The day ring draws eating in green and fasting in orange. From your last food &mdash; or from the time you tapped &ldquo;Stopped eating&rdquo; after it &mdash; the ring turns orange. Food logged within 12 hours turns that gap green, part of the eating window; 12 hours or more with no food is a fast. Nothing is asked. 0-calorie drinks don&rsquo;t end a fast.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="weekly">
+      <details>
+        <summary>Weekly review</summary>
+        <label class="checkline"><input type="checkbox" id="weekNotice" onchange="setWeekNotice(this.checked)"> &ldquo;Last week&rsquo;s review is ready&rdquo; line</label>
+        <div class="note">Off by default. When on, one quiet line under the 7-day row after a week ends, until you open that week. Nothing else.</div>
       </details>
     </div>
     <div class="card" data-setting="alcoholfree">
@@ -1880,6 +1924,14 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
        exclusive states of this one modal -- so "exactly one outcome, in view"
        is a property of the STRUCTURE and not of three surfaces agreeing. -->
   <div data-overlay="scrim" id="outcomeScrim" class="scrim oscrim" style="display:none" onclick="captureOutcomeDismiss()"></div>
+  <!-- R262 + R265.1: the weekly review. A full-screen panel like Settings; nothing on it writes. -->
+  <div data-overlay="panel" id="weekPanel" class="panel" style="display:none" role="dialog" aria-modal="true" aria-label="Weekly review">
+    <div class="sheethead">
+      <div class="modes"><b style="font-size:16px">Weekly review</b></div>
+      <button type="button" class="sheetx" onclick="closeWeek()" aria-label="Close">&times;</button>
+    </div>
+    <div class="wrap"><div id="weekBody"></div></div>
+  </div>
   <div data-overlay="modal" id="captureOutcome" class="omodal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="outcomeTitle">
     <div class="sheethead">
       <b id="outcomeTitle"></b>
