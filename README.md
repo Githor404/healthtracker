@@ -82,4 +82,4 @@ folder over any static host. It installs as a home-screen PWA and works offline.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+No licence is granted. All rights reserved; the copyright holder is to be confirmed.

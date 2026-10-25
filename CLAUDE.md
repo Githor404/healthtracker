@@ -76,7 +76,7 @@ Capabilities, as they actually stand:
 - **No personal calibrations in code.** The daily **stack** (`settings.stack`) is the user's own list and ships **empty**; it is never seeded from code, and nothing from a user's stack is written in this repo — records refer to "the user's stack" only (ruled R204). Quick-add presets ship **empty**; users create their own (name + nutrient amounts + default portion). Seed data is zero days, zero presets.
 - **First-run experience.** An empty state that teaches the two input paths, prompts goal setup (skippable), and exposes the copyable AI prompt template. No feature assumes the user knows the JSON contract — the app teaches it.
 - **Privacy is a stated feature.** README + in-app about line: all data local, no accounts, no telemetry, export-is-yours. Device location is used only when the user invokes nearby-price comparison, is sent only as an Open Prices query parameter, and is never stored.
-- **License:** add one before distribution (default MIT unless the user rules otherwise — open ruling).
+- **Licence (ruled R269, 2026-10-25):** **no open-source licence.** No LICENSE file and no licence grant anywhere in the tree; all rights reserved; the copyright holder is to be confirmed by the user — do not choose one. The MIT LICENSE added 2026-07-11 was removed by R269; it stays in the public git history.
 - **OFF etiquette:** every OpenFoodFacts / Open Prices request carries a custom User-Agent identifying the app (`HealthTracker/<version> (<repo URL>)`). Cache-first lookups are the rate-limit courtesy.
 - Repo stays history-free and now fixture-synthetic forever; it is public-facing.
 
