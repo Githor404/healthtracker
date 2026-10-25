@@ -262,6 +262,10 @@ try {
     mk({ name: 'my usual shake', time: '12:34', source: 'preset' }),
     mk({ name: 'Daily capsule', time: '12:35', meal: 'supplement', source: 'supplement', autoLegacy: true })
   ] };
+  // R269 #2: the evening before, so the 12:30 meal ends a real 16.5 h fast and the
+  // ring key names "fasting". (Its coverage came from a gap of weeks before the fixture,
+  // which R269 makes an unlogged gap -- no fast is 48 h or longer.)
+  S.days['2026-09-25'] = { status: 'complete', water_l: 0, items: [mk({ name: 'gate supper', meal: 'dinner', time: '20:00' })] };
   S.timeline = S.timeline || {};
   S.timeline[DK] = [
     { time: '07:00', kind: 'biometric', type: 'weight', source: 'manual', notes: '', unit: 'kg', value: 90 },

@@ -204,6 +204,8 @@ try {
            mealSub: txt('#weekBody [data-ring="meals"] .wksub'), afSub: txt('#weekBody [data-ring="alcohol"] .wksub'),
            head: txt('#weekBody .wkhead'), cov: txt('#weekBody .wkcov'), prob: txt('#weekBody [data-card="meals"] .wkprob'),
            fastCard: txt('#weekBody [data-card="fasting"] .wkline'), fastItems: document.querySelectorAll('#weekBody .wkfasts li').length,
+           unlogged: txt('#weekBody .wkunlogged'),
+           runH: (Date.now() - new Date(HT.shiftDate(HT.weekMonday(HT.todayKey()), -1) + 'T12:00:00').getTime()) / 3600000,
            curves: [document.querySelectorAll('#weekBody .wkcurve .wkthis').length, document.querySelectorAll('#weekBody .wkcurve .wktyp').length],
            afStroke: (function () { var a = document.querySelector('#weekBody [data-ring="alcohol"] .wkarc'); return a ? getComputedStyle(a).stroke : ''; })(),
            gold: (function () { var d = document.createElement('div'); d.style.color = 'var(--gold)'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; })(),
@@ -216,7 +218,14 @@ try {
   $b = @($o2v.boxes)
   Check (($b.Count -eq 3) -and ($b[0].top -eq $b[1].top) -and ($b[2].top -gt $b[0].top) -and (@($b | Where-Object { $_.w -lt 120 -or $_.w -gt 150 }).Count -eq 0)) ("R262: the rings sit two to a row, each 120-150 px (" + ((@($b) | ForEach-Object { $_.w }) -join ',') + ")")
   Check (($o2v.meal -eq '3 mmol/L median rise') -and ($o2v.mealSub -eq '7 of 7 meals measured') -and ($o2v.prob -like 'A meal this week rose more than a typical meal 100% of the time (calculated; n 7 this week, 10 typical)*higher than typical.')) "R260 GATE: meal responses -- median 3 against the typical days, and the probability is CALCULATED, of one stated thing, with its n and its word ('$($o2v.prob)')"
-  Check (($o2v.fast -eq '24h longest fast') -and ($o2v.fastCard -like '7 fasts of 12 h or more, and one still running*') -and ($o2v.fastItems -eq 8)) "R265.1 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h, seven listed start to end plus the span still running (listed 'so far'), nothing asked ('$($o2v.fastCard)')"
+  # R269 #2: the span after the fixture's last meal (last Sunday noon) runs to now. Under
+  # 48 h it is the fast still running; from 48 h it is an UNLOGGED GAP, listed apart and
+  # not counted -- which of the two depends on the day the gate runs, so both are checked.
+  if ([double]$o2v.runH -lt 48) {
+    Check (($o2v.fast -eq '24h longest fast') -and ($o2v.fastCard -like '7 fasts of 12 h or more, and one still running*') -and ($o2v.fastItems -eq 8) -and (-not $o2v.unlogged)) "R265.1 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h, seven listed start to end plus the span still running (listed 'so far'), nothing asked ('$($o2v.fastCard)')"
+  } else {
+    Check (($o2v.fast -eq '24h longest fast') -and ($o2v.fastCard -like '7 fasts of 12 h or more*') -and ($o2v.fastCard -notlike '*still running*') -and ($o2v.fastItems -eq 8) -and ($o2v.unlogged -like 'One gap of 48 h or more with no food logged*not counted as fasting.')) "R265.1 + R269 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h, seven fasts listed; the span since the last meal is past 48 h, so it is an UNLOGGED GAP, listed apart and not counted ('$($o2v.fastCard)' / '$($o2v.unlogged)')"
+  }
   Check (($o2v.af -eq '2 days') -and ($o2v.afSub -eq '2 of 7 days') -and ($o2v.afStroke -ne $o2v.gold)) "R226/R262: alcohol-free 2 of 7 -- and with rewards OFF the ring is NOT gold and shows no run"
   Check (($o2v.head -like '*: food logged 7 of 7 days, glucose 7 of 7; 7 meals with a measured rise; 2 alcohol-free days; longest fast 24 h.') -and ($o2v.cov -eq ('food logged 7 of 7 days ' + [char]0x00b7 + ' glucose 7 of 7')) -and ((@($o2v.curves) -join ',') -eq '1,1')) "R262: the headline and the coverage line are assembled from the numbers; the meal card draws this week solid and typical dashed"
   Check (($o2v.foot -eq 'Your own data, computed on this phone. No scores.') -and -not ($o2v.head + $o2v.prob + $o2v.fastCard -match '(?i)\bshould\b|\bgood\b|\bbad\b|well done|great')) "R260: no 'should', no verdict word; the footer says no scores"

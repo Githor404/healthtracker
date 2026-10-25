@@ -18647,7 +18647,11 @@ more (47 h is one; 48 h and 60 h are gaps); the not-counted past suggested from 
 user's own later choice at its own grams, on restore and on boot, once, keeping what
 it was; the day says "not counted" before and "suggested" after; the export ->
 restore round trip after the pass is byte-identical. R181-eatring repointed in
-place (its 78 h gap now draws nothing). Screens read at 390 px before the suite:
+place (its 78 h gap now draws nothing). Changed with the ruling: `weekly-gate` (its fixture's
+last meal is last Sunday noon, so the span to now is a running fast under 48 h and an
+unlogged gap from 48 h -- checked for whichever the day gives; it was red on the 25th),
+`jargon-gate` (its "fasting" coverage came from a weeks-long gap now unlogged; the fixture
+gains the evening meal before, a 16.5 h fast). Screens read at 390 px before the suite:
 + Log, Settings, drug label, capture outcome, version notice, resolve, clinician
 summary, the weekly fasting card with two unlogged gaps, a day with a not-counted wine.
 

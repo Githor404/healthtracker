@@ -6507,3 +6507,6 @@ wine at 150 g) takes the row of a later picked wine on restore -- 114.8 and 123 
 provisional, `recomputed.was` kept -- and on boot; one without grams stays as logged
 and the day says "1 not counted"; export -> restore after the pass is byte-identical.
 R181-eatring repointed in place: the 78 h gap draws nothing.
+Changed: `weekly-gate` checks the span after its fixture's last meal as a running fast
+under 48 h and as an unlogged gap from 48 h (red on 2026-10-25, a week after that meal);
+`jargon-gate`'s fixture gains the evening before, so "fasting" is named by a real fast.
