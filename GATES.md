@@ -6481,3 +6481,29 @@ orange fast from the stop, 750 min, and the key names eating and fasting),
 manufacturer text is not the app's voice), `anti-engagement-gate` (the streak's
 denominator is "fasts of 12 h or more"), `jargon-gate` (coverage of "fasting"
 replaces "gaps to confirm"). Harness 3320 -> 3344.
+
+### v0.111.0 -- R269: `close-gate`, and the harness for #2 and #4
+
+`close-gate`, 4 checks at 390 px, synthetic data. The CENSUS comes from the source:
+every button in `app.js` and `index.html` that shows the x or says close / dismiss
+in its text, aria-label or title -- 8 handlers (`closeSheet`, `closeSettings`,
+`closeWeek`, `captureOutcomeDismiss`, `dismissVersionNotice`, `resolveClose`,
+`closeClinicianSummary`, `drugClose`). Each surface holding one is opened (+ Log,
+Settings, a synthetic medication's drug label inside Settings, the weekly review,
+a capture failure, a version notice, Find nutrients on a not-counted item, the
+clinician summary inside Nights) and every close control on screen is measured with
+`getBoundingClientRect`. FAIL if any is under 44 x 44, or if a handler the source
+holds was never measured on a rendered surface. Red first against HEAD (the gate
+copied into a worktree): 7 of 8 under 44 -- 30 x 28 (+ Log, Settings, capture
+outcome), 15.7 x 20 (version notice), 26 tall (the three close links); green after.
+`CLOSE_SHOTS=1` saves the eight surfaces; all read before the suite.
+
+Harness 3344 -> 3357 (R269 #2, #4): FX2 repointed (a 0 kcal drink keeps a fast only
+when a linked row says 0; the same 0 with no row is not counted and ends it; a
+label basis is a known zero); a Manual "White wine" saved empty and a scan with no
+energy figure are unknown zeros; 60 h with nothing logged is an unlogged gap, 47 h a
+fast, 48 h a gap; the not-counted past (a photographed wine at 140 g, an empty-form
+wine at 150 g) takes the row of a later picked wine on restore -- 114.8 and 123 kcal,
+provisional, `recomputed.was` kept -- and on boot; one without grams stays as logged
+and the day says "1 not counted"; export -> restore after the pass is byte-identical.
+R181-eatring repointed in place: the 78 h gap draws nothing.

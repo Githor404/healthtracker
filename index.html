@@ -145,7 +145,8 @@
   /* R242/5: one line -- the head may clip, it never wraps the notice taller */
   .vnwhat{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vntoggle{flex:0 0 auto;font-size:16px;min-height:44px;white-space:nowrap}
-  .vnx{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;padding:0 2px;width:auto;cursor:pointer}
+  .vnx{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;padding:0 2px;width:auto;cursor:pointer;
+       flex:0 0 auto;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center}
   .vnrow{font-size:16px;color:var(--muted);margin-top:6px;line-height:1.45}
   .vnrow b{color:var(--txt);font-variant-numeric:tabular-nums}
   #ingestReport{margin-top:10px}
@@ -255,7 +256,6 @@
   .rkey.rk-fasting,.rkey.rk-open{background:var(--lane-fasting);opacity:1}
   .rlkey.rlfast{cursor:default}
   /* R262 + R265.1: the weekly review */
-  #weekPanel .sheetx{min-width:44px;min-height:44px}
   .weeklink{display:block;min-height:44px;margin-top:6px;font-size:16px;text-align:left}
   .weeknote{display:block;min-height:44px;margin-top:0;font-size:16px;text-align:left;color:var(--muted)}
   .wknav{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px}
@@ -966,7 +966,11 @@
   .sheethead .sheetx{margin-left:auto}
   .modebtn{flex:0 0 auto;padding:8px 12px;border:1px solid var(--line);border-radius:11px;background:var(--bg);color:var(--muted);font:inherit;font-size:16px;font-weight:700;cursor:pointer}
   .modebtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
-  .sheetx{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:2px 8px}
+  /* R269: EVERY CLOSE CONTROL IS A 44 x 44 TARGET (close-gate). The x on Settings
+     and + Log was 28 px tall; the weekly review's alone had been made 44. */
+  .sheetx{flex:0 0 auto;background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:2px 8px;
+          min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center}
+  .linklike.xclose{min-width:44px;min-height:44px}
   /* D143/2: a swipe that reaches the end of an overlay's scroller must not
      chain to the page behind it. This is a property of the scroller, so it
      is declared here rather than fought in an event handler. */
@@ -1840,7 +1844,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
     <div class="card" data-setting="fasting">
       <details>
         <summary>Fasting</summary>
-        <div class="note">The day ring draws eating in green and fasting in orange. From your last food &mdash; or from the time you tapped &ldquo;Stopped eating&rdquo; after it &mdash; the ring turns orange. Food logged within 12 hours turns that gap green, part of the eating window; 12 hours or more with no food is a fast. Nothing is asked. 0-calorie drinks don&rsquo;t end a fast.</div>
+        <div class="note">The day ring draws eating in green and fasting in orange. From your last food &mdash; or from the time you tapped &ldquo;Stopped eating&rdquo; after it &mdash; the ring turns orange. Food logged within 12 hours turns that gap green, part of the eating window; 12 hours or more with no food is a fast, up to 48 hours; 48 hours or more with nothing logged is a gap in the log, not a fast. Nothing is asked. Only a drink the food database or a label says has no calories (water, black coffee, plain tea) leaves a fast going; anything with its calories unknown ends it.</div>
       </details>
     </div>
     <div class="card" data-setting="weekly">

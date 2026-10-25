@@ -18442,6 +18442,11 @@ summary.
   manufacturer text (the quote says "glucose alerts").
 - **Pre-existing, found by the new gate:** the × close on Settings and + Log is 28
   px tall; the new panel's is 44. Not changed elsewhere in this slice.
+- **Pending (R269, 2026-10-25).** The user ruled the 48 h ceiling and the 0 kcal
+  rule (R269). Every other item named above stays as built and is **pending**: Fork G,
+  a stop no longer making a fast by itself, past "Ate, didn't log" answers, no
+  calibration entry for the weekly probability, the alcohol ring, the G7 quote. (The
+  relay numbered four of them #1, #3, #5, #6 in its own order; all are recorded.)
 
 **Gates.** New `weekly-gate` (11 checks, real taps at 390 px; red first on the ×,
 the old dashed gap style and a past week's "running now"). Changed with the
@@ -18497,3 +18502,155 @@ approval writes `reviewed_by_me` with the date. R244, R247, R260/R261 apply.
 **D. The report:** the taxonomy (groups -> pathways with backbone IDs), the Phase 1
 features with sources, licences and coverage, the folder and pipeline diagram,
 run costs (tokens, memory, time), and a cost declaration.
+
+## R269 -- R265.1 #2 AND #4 RULED (NO FAST OVER 48 H; ONLY A KNOWN ZERO KEEPS A FAST), CLOSE CONTROLS 44 PX, NO LICENCE (2026-10-25, folded into v0.111.0)
+
+*The user's rulings of 25 Oct, folded into the unreleased v0.111.0 so that one
+release carries R265.1 and these. #2 and #4 serve **track**; the close controls
+and the licence serve no leg and need none (a fix and a ruling).*
+
+**Part 1 #2 -- no fast is longer than 48 h.** A span of 48 h or more with no food
+logged is an **unlogged gap**: not a fast and not eating. `fastGaps` marks it
+`unlogged` and never `fast`, so it leaves every count and duration -- the ring
+(nothing is drawn for a closed one; a running one was already a date, R11.1),
+the weekly review (its fasting card lists such gaps on their own line, "not
+counted as fasting"), Trends (`confirmedFasts`). The line is R11.1's own: 48 h
+exactly is a gap, 47 h is a fast. The weekly ⓘ and the Settings fasting note say so.
+
+**Part 1 #4 -- only a known zero leaves a fast intact.** A food ends a fast unless
+its source says it has no calories: a linked database row whose energy is 0 (water,
+black coffee, plain tea), or the user's own food entered from its label (`basis:
+label`). Anything with its calories unknown or not counted under R237 ends it.
+One read-time rule, `itemZeroUnknown`: an item whose numbers are all zero, with no
+linked row behind it and no label basis, is **not a measured zero** -- `itemHasMacros`
+is false, so the day says "not counted" (the R233.1 line and the row's "Not counted
+-- pick a food"), the macro averages leave the day out (R31), the meal review does
+not treat its carbs as known, and `fastEvents` reads it as food. Nothing stored
+changes for this part; its macro fields open empty and editable.
+
+*Why the user's wine resolved to 0 / not counted* -- found in the newest backup on
+the PC (`healthtracker-backup-2026-10-18-v16.json`; the phone holds a week more,
+not seen). 15 wine items; three causes:
+
+1. **An empty Manual form is stored as 0 kcal.** "White wine" on Oct 5 (and Oct 4)
+   is `source: manual`, all six macros 0, no row; Oct 5 has no grams. Manual saves
+   blank fields as 0 (`normalizeItem` coerces), and every reader but R237's
+   precedence took that 0 as a measurement: counted complete at 0 cal, and -- by
+   R265.1's rule, "0-calorie drinks don't end a fast" -- leaving a fast intact.
+   Probability this is how those two got their 0: **90 %** (the shape matches the
+   code path exactly; the residual is a hand-typed 0, which the record cannot tell
+   apart and which reads the same). Oct 4 carries a proposed row, so on the phone
+   R237 already counts it from the row (410 kcal at 500 g).
+2. **Photo wines from before any row was chosen stayed not counted.** Sep 12 and
+   Oct 11 (x2): the AI named "white wine" with no numbers (`unresolved`), no row
+   linked. R237 suggests a row only at capture and left rowless past items "exactly
+   as logged", so the user's own later choice (CNF 2852, picked Sep 26 and Oct 17)
+   never reached them, though later wines carry that row (CNF 2852, which the user
+   picked on Sep 26 and Oct 17). These did end fasts (unresolved counts as food) but
+   count no calories. Probability this is the cause: **95 %**.
+3. **Unconfirmed rows in a v16 backup.** Sep 26, Oct 9 (x2), Oct 15 (x3), Oct 16
+   (x2) carry a proposed row but `kcal: null` in the v16 file. On the phone the
+   v17 migration (R237, v0.104.0) already counts them from the row; a reader of the
+   raw v16 file sees nothing. R258's "five wine entries at 0 kcal" are, at **85 %**,
+   Oct 15 x3 + Oct 16 x2 read this way by the report script (`kcal or 0`) -- the
+   week 12-18 Oct holds exactly five such wines. No app change for this cause;
+   backups written since v0.104.0 carry the recomputed numbers.
+
+*The fix, in code* (no hand repair, R237's "user errors are signal, not chores"):
+cause 1 by `itemZeroUnknown` above; cause 2 by `suggestUncountedPast` -- every
+not-counted item (unresolved, or a zero nobody measured) with grams and no row or
+suggestion takes the row the user's OWN past offers (`suggestionFor`, capture's rule:
+their earlier corrections, then an earlier item of the same name with a row) and
+counts **provisionally**, "suggested -- tap to confirm", re-expressed for its own
+grams; what it had stays in `recomputed: { rule: 'R269', was }`. Run at boot and on
+every import (restore and merge), idempotent. On the Oct 18 data that gives Sep 12
+(240 g) 196.8 kcal and each Oct 11 glass (140 g) 114.8 kcal, provisional; Oct 5 has
+no grams and stays not counted -- now said, and now ending a fast. `precUserKeys` no
+longer reads a provisional item's numbers as the user's.
+
+**Named, not resolved -- for the user:**
+- **Cause 2's fix is applied at load and then SAVED with the log**, the way R237's
+  migration is: the suggestion and `recomputed.was` are written into the item on
+  the next save. The ruling says "applied on read". The display and the fast rule
+  (cause 1) are purely on read; the suggestion is not, because the day's totals
+  read stored numbers. Nothing the user entered is overwritten -- the original is
+  kept beside it and the row says "suggested". Say if it must never be stored; it
+  would then need one read-time number accessor across every total.
+- **This reverses R237's "an item with no linked row stays exactly as logged"** for
+  not-counted items. Named because it is a ruled sentence; R269's "retroactive"
+  is read as superseding it.
+- **Other zeros change too.** Read-time, every all-zero item with no row reads not
+  counted: on the Oct 18 data three Manual "Coffee" entries (black coffee is 0, coffee
+  with milk is not; no source says which), a Manual "Har gau" (28 g) and a bagel, and
+  two scans of "Ravioli Beef" whose label had no energy figure (OpenFoodFacts gives
+  none -> 0). Each now says not counted and ends a fast; the coffees move the start of
+  some morning fasts.
+- **A scanned label that really says 0 kcal reads as unknown** (a diet drink): the
+  stored scan item cannot tell "label says 0" from "label had no figure", because
+  `offEnergyKcal` returns 0 for both. Rare; linking its database row makes it known.
+- **R265.1 #1, #3, #5, #6 are not ruled** and stay as built (below, in the R265.1
+  record). The relay numbered R265.1's decisions #1-#6; its numbering is not the
+  order of R265.1's "Named, not resolved" list, so every R265.1 item not ruled here
+  is recorded as pending rather than guessing which four were meant.
+
+**Part 2 -- every close control is a 44 x 44 px tap target.** `.sheetx` (the x on
++ Log, Settings, the weekly review and the capture outcome) and the version notice's
+x are 44 x 44 minimum, centred; the text "close" links (resolve panel, clinician
+summary, drug label) carry `.xclose`, 44 minimum. New **`close-gate`** (4 checks):
+the list of close controls comes **from the source** (a button showing the x, or
+saying close / dismiss in its text, aria-label or title: 8 found), every surface
+holding one is opened at 390 px, each is measured as laid out, and the gate fails if
+any is under 44 x 44 **or if a close control in the source was never measured**.
+Red first on HEAD: seven of the eight were under 44 -- the x on + Log, Settings and
+the capture outcome 30 x 28, the version notice's 15.7 x 20, the three close links
+26 tall; only the weekly review's passed. *Found, not fixed:* a Find-nutrients panel
+closed while its database is still loading opens again when the database answers
+(`resolveOpen`'s promise re-renders); the gate waits for the load.
+
+**Part 3 -- no licence granted; all rights reserved; copyright holder to be confirmed
+by Thor.** Findings: a `LICENSE` file (MIT, "Copyright (c) 2026" with a name)
+was added on 2026-07-11 in `8d666bc` "Add MIT LICENSE (ruled)" and **has been on the
+public GitHub repo since** (origin/main holds it); README's License section said
+"MIT -- see LICENSE". There is no `package.json` and no other licence field; the
+corpus licences (CNF, USDA) are data attributions and are untouched. Removed:
+`LICENSE`; README now says "No licence is granted. All rights reserved; the copyright
+holder is to be confirmed." CLAUDE.md's open ruling is replaced by this one. **Not
+undone by this:** the MIT grant stays in the public git history, and copies taken
+while it was in the tree came with it -- removing the file governs the tree from
+now on. Rewriting public history was not asked for and is not done. No copyright
+holder is chosen. Supersedes CLAUDE.md's "default MIT unless the user rules
+otherwise" and DECISIONS' earlier descriptions of the project as MIT (e.g. the
+"free, MIT, local-only public good" line), which stay as history.
+
+**Part 4 -- release, stopped for memory.** Free memory before the suite: **2.94 GB
+of 15.70 GB**, under the 4 GB floor the ruling set, so the suite was not started and
+nothing was pushed; the R266 report waits with it (Part 5). The push rule as
+DECISIONS records it (R187, quoting R183): *"Per R183: suite green -> push -> verify
+-> report"*. "One uninterrupted green run" (R222) is not written in DECISIONS --
+R222 appears here only as "the user's ledger" -- it is the session memory's
+wording; and "the two green runs counted from after the fix" (R254) describes that
+slice's evidence, not a rule. Followed as: one uninterrupted green full-suite run,
+then push and `verify-deploy`.
+
+*check-version and "one release":* the version check measures shell drift against
+the LAST COMMIT, which assumes every commit is a release; v0.111.0 was committed
+and never pushed, so folding R269 into it fails the check while uncommitted. It is
+committed under v0.111.0, after which the check compares like with like; the phone
+has v0.110.0, will update once, and its notice is v0.111.0's line, which now names
+R269's changes. Named, because it uses the check in a case its comment did not
+foresee.
+
+**Gates.** New `close-gate` (4 checks; red first as above). Harness 3344 -> 3357:
+a known zero (a row or a label that says 0) keeps a fast; an unknown zero is not
+counted and ends it; a scan with no energy figure is unknown; no fast of 48 h or
+more (47 h is one; 48 h and 60 h are gaps); the not-counted past suggested from the
+user's own later choice at its own grams, on restore and on boot, once, keeping what
+it was; the day says "not counted" before and "suggested" after; the export ->
+restore round trip after the pass is byte-identical. R181-eatring repointed in
+place (its 78 h gap now draws nothing). Screens read at 390 px before the suite:
++ Log, Settings, drug label, capture outcome, version notice, resolve, clinician
+summary, the weekly fasting card with two unlogged gaps, a day with a not-counted wine.
+
+**Cost.** App: about 120 lines; no schema change, no new store, nothing sent
+anywhere; boot does one more pass over the log (suggestions only for not-counted
+items with grams). Tests: one gate (about 1 min), 13 harness assertions.

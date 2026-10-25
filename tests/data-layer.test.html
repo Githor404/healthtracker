@@ -1357,6 +1357,51 @@ window.setLS({});
       'R226: food logged AFTER the stop and before the rise -> the stop no longer counts for it');
   HT.setClock(null); setLS({}); HT.boot();
 
+  // ---- R269 #4: A ZERO NOBODY MEASURED, AND THE NOT-COUNTED PAST SUGGESTED ----
+  // The user's wine, synthetic: photographed "white wine" before any row was chosen
+  // (not counted), a Manual "White wine" saved with its numbers empty (stored as 0),
+  // one with no grams, and a later wine whose row the user DID pick.
+  setLS({}); HT.boot();
+  var d269 = HT.shiftDate(td, -3), e269 = HT.shiftDate(td, -2);
+  var row269 = { ns: 'cnf', id: '2852', name: 'Alcohol, table wine, white', at: '2026-10-09', hash: 'h', attribution: 'CNF test',
+                 how: 'picked', when: 'now', g: 180, v: { '208': 147.6, '203': 0.13, '204': 0, '205': 4.68, '291': 0 } };
+  var picked269 = { name: 'white wine', meal: 'drink', time: '19:00', grams: 180, kcal: 147.6, protein_g: 0.13, fat_g: 0, carb_g: 4.68, fiber_g: 0,
+                    soluble_fiber_g: 0, confidence: 'eyeballed', source: 'corpus', notes: '', ref: row269 };
+  var photo269 = { name: 'white wine', meal: 'drink', time: '18:17', grams: 140, unresolved: true, source: 'ai-paste', confidence: 'eyeballed', notes: '' };
+  var zero269 = function (g) { var o = { name: 'White wine', meal: 'snack', time: g ? '17:04' : '19:03', kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0,
+                    soluble_fiber_g: 0, source: 'manual', confidence: 'eyeballed', notes: '' }; if (g) o.grams = g; return o; };
+  res(HT.itemZeroUnknown(zero269(150)) && !HT.itemHasMacros(zero269(150)) && !HT.itemZeroUnknown(picked269),
+      'R269 GATE #4: a Manual "White wine" saved with its numbers empty is NOT a measured 0 -- no row, no label: not counted');
+  var scan269 = Object.assign(zero269(100), { name: 'Gate ravioli', source: 'scan' });
+  res(HT.itemZeroUnknown(scan269), 'R269 #4: nor is a scan whose label had no energy figure (OFF absent -> 0) -- absence is not zero');
+  HT.state().days[d269] = { status: 'complete', water_l: 0, items: [photo269, zero269(150), zero269(0)] };
+  HT.state().days[e269] = { status: 'complete', water_l: 0, items: [picked269] };
+  HT.resave();
+  res(/Not counted/.test(HT.itemCountStateHTML(d269, 2, HT.state().days[d269].items[2])) && HT.dayUncounted(d269).length === 3,
+      'R269 GATE #4: before the pass, the day SAYS so -- all three wines are "not counted", none reads 0 cal');
+  var raw269 = JSON.stringify(HT.state());
+  var ex269 = HT.exportJSON();
+  window.__confirm = true;
+  HT.restore(ex269);
+  var w269 = HT.state().days[d269].items;
+  res(w269[0].provisional === true && w269[0].suggested && w269[0].suggested.id === '2852' && Math.abs(w269[0].kcal - 114.8) < 1e-9
+      && w269[0].recomputed && w269[0].recomputed.rule === 'R269' && w269[0].recomputed.was.unresolved === true,
+      'R269 GATE #4: on restore the photographed wine takes the row the user CHOSE later, at its own 140 g -- 114.8 kcal, provisional, and it keeps that it was not counted',
+      JSON.stringify(w269[0]));
+  res(w269[1].provisional === true && Math.abs(w269[1].kcal - 123) < 1e-9 && w269[1].recomputed.was.kcal === 0 && w269[1].source === 'manual',
+      'R269 GATE #4: the empty-form wine at 150 g counts 123 kcal from the same choice, provisionally; what it had (0) is kept', JSON.stringify(w269[1]));
+  res(!w269[2].provisional && !w269[2].recomputed && w269[2].kcal === 0 && HT.dayUncounted(d269).length === 1,
+      'R269 #4: with no grams nothing can be re-expressed -- it stays exactly as logged, and the day still says "1 not counted"');
+  res(/suggested/.test(HT.itemCountStateHTML(d269, 0, w269[0])),
+      'R269 #4: a suggested wine says so on its row -- "suggested -- tap to confirm" (R237), never silently counted');
+  var ex269b = HT.exportJSON(); HT.restore(ex269b);
+  res(HT.exportJSON() === ex269b, 'R269 GATE: the pass runs once -- export -> restore after it is byte-identical');
+  setLS({ 'healthtracker-log': raw269 }); HT.boot();
+  var b269 = HT.state().days[d269].items;
+  res(b269[0].provisional === true && Math.abs(b269[1].kcal - 123) < 1e-9 && HT.state().days[e269].items[0].kcal === 147.6,
+      'R269 GATE: BOOT gives a stored log the same suggestions -- in code, on read, retroactive; the picked wine is untouched');
+  setLS({}); HT.boot();
+
   // ---- R233.1 + R234 + R237: one number-precedence rule, every path; the past recomputed ----
   setLS({}); HT.boot();
   var d237 = HT.shiftDate(td, -2);
@@ -2418,7 +2463,13 @@ window.setLS({});
 
   // FX2: kcal>0 breaks a fast; 0-kcal drink + _auto supplement are exempt
   fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'02:00',kcal:0},{date:'2026-06-02',time:'12:00'}]);
-  res(HT.detectFastCandidates().length===1 && HT.detectFastCandidates()[0].hours===16, 'FX2: 0-kcal drink mid-gap does NOT break the fast');
+  HT.state().days['2026-06-02'].items[0].ref = { ns:'cnf', id:'gate-water', name:'Water, tap', v:{ '208':0 } };
+  res(HT.detectFastCandidates().length===1 && HT.detectFastCandidates()[0].hours===16, 'FX2 + R269: a drink its linked database row says is 0 kcal does NOT break the fast');
+  HT.state().days['2026-06-02'].items[0].name = 'White wine'; delete HT.state().days['2026-06-02'].items[0].ref;
+  res(HT.detectFastCandidates().length===0 && !HT.itemHasMacros(HT.state().days['2026-06-02'].items[0]) && HT.itemZeroUnknown(HT.state().days['2026-06-02'].items[0]),
+      'R269 GATE #4: the same 0 kcal with NO row or label behind it is not a known zero -- not counted, and it ENDS the fast (6 h + 10 h)');
+  HT.state().days['2026-06-02'].items[0].basis = 'label';
+  res(HT.detectFastCandidates().length===1, 'R269 #4: a 0 the user entered from a LABEL (their own food, basis label) is a known zero and leaves the fast intact');
   fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'02:00',kcal:5,_auto:true},{date:'2026-06-02',time:'12:00'}]);
   res(HT.detectFastCandidates().length===1, 'FX2 / R204: an auto-added entry mid-gap does NOT break the fast -- its time is not a time');
   fdays([{date:'2026-06-01',time:'20:00'},{date:'2026-06-02',time:'02:00',kcal:300},{date:'2026-06-02',time:'12:00'}]);
@@ -5719,8 +5770,14 @@ window.setLS({});
   setLS({}); HT.boot();
   HT.state().days['2026-06-01'] = { status:'complete', items:[{ name:'a', meal:'snack', time:'08:00', kcal:100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
   HT.state().days['2026-06-03'] = { status:'complete', items:[{ name:'b', meal:'snack', time:'20:00', kcal:100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
-  res(HT.confirmedFasts().length === 1 && HT.dayTotals(HT.state().days['2026-06-01']).kcal === 100 && HT.dayTotals(HT.state().days['2026-06-03']).kcal === 100,
-      'R265.1 SE-invariants 3: a fast is measured from the log (60 h, nothing asked) and never touches a food total');
+  res(HT.confirmedFasts().length === 0 && HT.fastGaps(null)[0].unlogged === true && HT.dayTotals(HT.state().days['2026-06-01']).kcal === 100 && HT.dayTotals(HT.state().days['2026-06-03']).kcal === 100,
+      'R269 SE-invariants 3: 60 h with nothing logged is an UNLOGGED GAP, not a fast (no fast is longer than 48 h), and never touches a food total');
+  HT.state().days['2026-06-03'].items[0].time = '07:00';
+  res(HT.confirmedFasts().length === 1 && HT.confirmedFasts()[0].hours === 47,
+      'R269 SE-invariants 3: 47 h is still a fast, measured from the log with nothing asked');
+  HT.state().days['2026-06-03'].items[0].time = '08:00';
+  res(HT.confirmedFasts().length === 0 && HT.fastGaps(null)[0].unlogged === true && HT.fastGaps(null)[0].hours === 48,
+      'R269 GATE #2: 48 h exactly is an unlogged gap, at the ring line of R11.1 -- out of every count');
   setLS({}); HT.boot();
   var seIng = HT.ingest(JSON.stringify([{ name:'AI', kcal:400, date:td, micros:{ iron_mg:9 }, confidence:'measured', source:'scan' }]));
   var seAi = HT.state().days[td].items[HT.state().days[td].items.length - 1];
@@ -6963,19 +7020,21 @@ window.setLS({});
   rrDay('2026-09-02', [rrFood('a', '18:00', 600), rrFood('b', '18:48', 300)]);
   var MB = HT.rhythmModel(HT.state().current);
   var eatB = MB.arcs.filter(function (a) { return a.lane === 'eat'; });
-  res(eatB.length === 3 && eatB.filter(function (a) { return a.kind === 'fasting'; }).length === 1 &&
+  // R269 #2: the 78 h gap is now an UNLOGGED gap (no fast is longer than 48 h) and
+  // has no arc at all; the case is kept, repointed, because its shape is real.
+  res(eatB.length === 2 && eatB.filter(function (a) { return a.kind === 'fasting'; }).length === 0 &&
       eatB.filter(function (a) { return a.kind === 'open'; }).length === 1,
-      'R181-eatring: the device shape reproduces -- an eating-window arc, the 78 h gap before it, and the running span');
-  res(HT.eatCoverage(eatB) >= 1,
-      'R181-eatring CONTROL: unsuppressed, those three arcs TILE the whole lane -- this case really does reproduce the defect');
+      'R269 R181-eatring: the device shape -- an eating-window arc and the running span; the 78 h gap before them is UNLOGGED, not a fast, and draws nothing');
+  res(HT.eatCoverage(eatB) < 1,
+      'R269 R181-eatring CONTROL: with the unlogged gap undrawn, even unsuppressed the arcs cannot tile the lane -- the arc R181 had to suppress no longer exists');
   res(HT.eatCoverage(eatB.filter(function (a) { return !a.suppressed; })) < HT.EAT_FULL_FRAC,
       'R181-eatring: as drawn, the meals lane is NEVER fully covered');
   // Repointed by R18.2: the rule is now per-arc figure-and-ground, so at 00:30 the
   // 263-degree fast candidate is withheld while the 86-degree trailing gap still
   // DRAWS -- at that size it reads as a gap, which is the whole point of drawing it.
-  res(eatB.filter(function (a) { return a.kind === 'fasting' && a.suppressed; }).length === 1 &&
+  res(eatB.filter(function (a) { return a.kind === 'fasting'; }).length === 0 &&
       eatB.filter(function (a) { return a.kind === 'open' && !a.suppressed; }).length === 1,
-      'R265.1 R181-eatring: a span past 48 h is a date, not a duration (R11.1) and is withheld; the 5.7 h running span draws, orange');
+      'R269 R181-eatring: the 5.7 h running span draws, orange; the 78 h gap is neither a fast nor drawn (R11.1 line, R269 #2)');
   res(eatB.some(function (a) { return a.kind === 'eat' && !a.suppressed; }),
       'R181-eatring: the real eating-window arc still draws -- suppression is not a blanket');
   res(MB.ticks.filter(function (t) { return t.lane === 'eat'; }).length === 2,

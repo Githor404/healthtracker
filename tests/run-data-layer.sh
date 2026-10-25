@@ -40,6 +40,7 @@ anti-engagement-gate.ps1
 chart-gate.ps1
 import-gate.ps1
 chip-layout-gate.ps1
+close-gate.ps1
 cold-start-gate.ps1
 collapse-gate.ps1
 delete-all-gate.ps1
@@ -563,7 +564,13 @@ echo "-----------------------------------------"
 # fasting numbers on a fixture, three rings with sleep hidden, nothing stored,
 # the optional notice. Retired cases (pending, resolve, figure-and-ground) were
 # rewritten in place, not dropped.
-EXPECTED_ASSERTIONS=3344
+# 3344 -> 3357 (v0.111.0, R269): +13 -- a zero nobody measured is not counted and
+# ends a fast (a row or a label that says 0 does not); no fast of 48 h or more
+# (47 h is one, 48 h and 60 h are unlogged gaps); the not-counted past is
+# suggested from the user's own later choice at its own grams, on restore and on
+# boot, once, keeping what it was. R181-eatring repointed in place (the 78 h gap
+# draws nothing now).
+EXPECTED_ASSERTIONS=3357
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"

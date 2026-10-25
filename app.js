@@ -43,7 +43,17 @@ const MICRO_KEYS  = ['sodium_mg', 'potassium_mg', 'calcium_mg', 'iron_mg', 'magn
 const MACRO_KEYS  = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble_fiber_g'];
 // An item carries composition, or it does not. Unlike micros this is all-or-
 // nothing per item, so ONE coverage figure covers every macro on a day.
-const itemHasMacros = (it) => !!it && it.unresolved !== true;
+// R269: AN ITEM WHOSE NUMBERS ARE ALL ZERO IS NOT A MEASURED ZERO unless a source
+// says so. A Manual form saved with its numbers left empty, or a scan whose label
+// had no energy figure, stores 0 -- and read as 0 it was "White wine, 0 cal",
+// counted complete and leaving a fast intact. Only a linked database row (which
+// may itself say 0: water, black coffee, tea) or the user's own food from its
+// label is a known zero; anything else is NOT COUNTED, said on the day, and ends
+// a fast. Decided on read: the stored item is untouched.
+const itemZeroUnknown = (it) => !!it && it.unresolved !== true && !isLegacyAuto(it)
+  && !MACRO_KEYS.some((k) => num(it[k]) > 0)
+  && !precRowValues(it.ref, it.grams) && it.basis !== 'label';
+const itemHasMacros = (it) => !!it && it.unresolved !== true && !itemZeroUnknown(it);
 
 // ---- small helpers --------------------------------------------------------
 // Escaper covers & < > " ' (baseline rule #2).
@@ -1982,6 +1992,7 @@ function boot() {
   if (normSettings !== JSON.stringify(state.settings)) dirty = true;
   state.settings = JSON.parse(normSettings);
   if (stackBackfillAddedOn(state)) dirty = true;        // R255: once, then stored
+  if (suggestUncountedPast(state, nowISO)) dirty = true; // R269: the not-counted past, suggested
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
@@ -2045,13 +2056,18 @@ function parseImport(raw) {
     return { ok: false, error: 'Unrecognized log format (no version).' };   // legacy/absent rejected
   if (v > SCHEMA_VERSION)
     return { ok: false, error: 'This export is from a newer version of the app.' };
-  if (v === 1)
-    return { ok: true, state: migrateToLatest(o, new Date().toISOString()), kind: 'migrated', streams: null };   // v1 shape -> chain to v3
+  if (v === 1) {
+    const s1 = migrateToLatest(o, new Date().toISOString());
+    suggestUncountedPast(s1, new Date().toISOString());                    // R269, as boot does
+    return { ok: true, state: s1, kind: 'migrated', streams: null };   // v1 shape -> chain to v3
+  }
   // R237: a file from before v17 gets the precedence rule on the way in, exactly as
   // boot gives it to a stored v16 log -- the same item, the same numbers, whichever
   // way it arrived. (Its structural upgrades are normalizeState's, as before.)
   const o17 = (v < 17) ? migrateV16toV17(o, new Date().toISOString()) : o;
-  return { ok: true, state: normalizeState(o17), kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore'), streams: parseStreams(o) };   // < v10 upgrades, v10 as-is
+  const st = normalizeState(o17);
+  suggestUncountedPast(st, new Date().toISOString());                      // R269, as boot does
+  return { ok: true, state: st, kind: (v < SCHEMA_VERSION ? 'migrated' : 'restore'), streams: parseStreams(o) };   // < v10 upgrades, v10 as-is
 }
 
 function showPrerestore(json) {
@@ -3204,7 +3220,7 @@ function resolveHTML() {
     : '';
   return '<div class="rvwrap"><div class="rvbox" role="dialog" aria-modal="true" aria-label="Find nutrients">'
     + head + src + search + body + fdc
-    + '<button type="button" class="linklike" onclick="resolveClose()">close</button></div></div>';
+    + '<button type="button" class="linklike xclose" onclick="resolveClose()">close</button></div></div>';
 }
 // D143: the resolve surface is RENDERED rather than toggled, so the lock is
 // synced from the render instead of from a call site that might not run.
@@ -3361,7 +3377,8 @@ function precUserKeys(it) {
   const keys = {};
   (Array.isArray(it.adjusted) ? it.adjusted : []).forEach(function (k) { if (MACRO_KEYS.indexOf(k) >= 0) keys[k] = 1; });
   if (it.orig && typeof it.orig === 'object') Object.keys(it.orig).forEach(function (k) { if (MACRO_KEYS.indexOf(k) >= 0) keys[k] = 1; });
-  if (USER_NUMBER_SOURCES.indexOf(it.source) >= 0 && it.unresolved !== true
+  // R269: a PROVISIONAL item's numbers are its suggestion's, not the user's.
+  if (USER_NUMBER_SOURCES.indexOf(it.source) >= 0 && it.unresolved !== true && it.provisional !== true
       && MACRO_KEYS.some(function (k) { return num(it[k]) > 0; })) MACRO_KEYS.forEach(function (k) { keys[k] = 1; });
   return keys;
 }
@@ -3507,6 +3524,41 @@ function suggestionFor(it) {
   if (!at) return null;
   return { ns: src.ref.ns, id: src.ref.id, name: src.ref.name, at: todayKey(), hash: src.ref.hash,
            attribution: src.ref.attribution, how: 'proposed', when: 'later', g: g, d: null, v: Object.assign({}, at.v) };
+}
+// R269 #4: THE NOT-COUNTED PAST GETS THE SUGGESTION TOO, in code and
+// retroactively (the user ruled against repairing by hand). R237 left an item
+// with no linked row "exactly as logged", so a "white wine" photographed before
+// the user first chose its row stayed not counted forever, though their own
+// later choice said what it was. Every uncounted item (unresolved, or a zero
+// nobody measured) with grams and no row or suggestion now takes the row the
+// user's OWN past offers -- suggestionFor, capture's own rule -- and counts
+// provisionally, "suggested -- tap to confirm"; what it had stays in
+// `recomputed.was`. No remembered row, no change. Idempotent; boot and import.
+function suggestUncountedPast(state, nowISO) {
+  if (!state || !state.days) return 0;
+  const keep = APP_STATE;
+  let n = 0;
+  APP_STATE = state;                                  // suggestionFor reads the log it is given
+  try {
+    Object.keys(state.days).filter(isDayKey).forEach(function (dk) {
+      const items = (state.days[dk] && state.days[dk].items) || [];
+      items.forEach(function (it, i) {
+        if (!it || isLegacyAuto(it) || it.ref || it.suggested || itemHasMacros(it)) return;
+        const sg = suggestionFor(it);
+        if (!sg) return;
+        const was = {};
+        if (it.unresolved === true) was.unresolved = true;
+        else MACRO_KEYS.forEach(function (k) { if (it[k] !== undefined) was[k] = num(it[k]); });
+        const c = Object.assign({}, it, { suggested: sg, provisional: true });
+        applyPrecedence(c);
+        if (c.provisional !== true) return;
+        c.recomputed = { rule: 'R269', at: nowISO, was: was };
+        items[i] = normalizeItem(c, true);
+        n++;
+      });
+    });
+  } finally { APP_STATE = keep; }
+  return n;
 }
 function resolveItem(dayKey, idx, corpusId, corpusName, distance, how) {
   const day = APP_STATE.days[dayKey];
@@ -7102,10 +7154,12 @@ function itemEditHTML(it, idx, focus) {
   // 0 -- the same treatment `grams` already gets one row down, for the same reason.
   // rDisp(undefined) is "0", and a 0 sitting in an editable field is an answer the
   // user never gave that they would have to notice in order to correct.
-  const hasM = itemHasMacros(it);
+  // R269: a zero nobody measured opens EMPTY too, and stays editable -- the
+  // user typing its numbers is how it becomes theirs.
+  const hasM = itemHasMacros(it), canM = it.unresolved !== true;
   const macros = ITEM_MACROS.map(([k, lab]) =>
-    `<div style="flex:1 1 30%"><label>${esc(lab)}</label><input id="ie_${esc(k)}" type="number" inputmode="decimal" value="${hasM ? esc(rDisp(it[k])) : ''}"${hasM ? '' : ' disabled'}></div>`).join('');
-  const unresNote = hasM ? ''
+    `<div style="flex:1 1 30%"><label>${esc(lab)}</label><input id="ie_${esc(k)}" type="number" inputmode="decimal" value="${hasM ? esc(rDisp(it[k])) : ''}"${canM ? '' : ' disabled'}></div>`).join('');
+  const unresNote = canM ? ''
     : `<div class="renote">No composition was recorded for this item, so its macros are not editable here yet. Its grams, meal, time and notes still are.</div>`;
   // Provenance is SHOWN, not merely kept (D55 Fork B). A row the user cannot check
   // is a row that cannot be argued with.
@@ -10190,7 +10244,9 @@ function fastEvents() {
       // not happen rather than merely understating a total. Unknown calories are not
       // no calories, so the item counts as a food event on the strength of having
       // been eaten at a time, which is all this detector ever needed from it.
-      const isFoodEvent = num(it.kcal) > 0 || it.unresolved === true;
+      // R269: and a zero nobody measured (itemZeroUnknown) is unknown too. Only a
+      // known zero -- a linked row or a label that says 0 -- leaves a fast intact.
+      const isFoodEvent = num(it.kcal) > 0 || !itemHasMacros(it);
       if (isFoodEvent && !isLegacyAuto(it) && /^\d{2}:\d{2}$/.test(String(it.time)))
         evs.push(d + 'T' + it.time);
     });
@@ -11468,7 +11524,7 @@ function reviewPool() {
       if (!(kcal > 0)) return;
       out.push({ dk: dk, ev: ev, ms: dayKeyMs(dk) + m * 60000, key: reviewEventKey(ev),
                  carbs: (ev.items || []).reduce(function (a, it) { return a + num(it.carb_g); }, 0),
-                 carbsKnown: !(ev.items || []).some(function (it) { return it.unresolved === true; }) });
+                 carbsKnown: !(ev.items || []).some(function (it) { return !itemHasMacros(it); }) });
     });
   });
   out.sort(function (a, b) { return a.ms - b.ms; });
@@ -12488,7 +12544,7 @@ function renderNights() {
   if (!el) return;
   el.innerHTML = nightPanelHTML()
     + (CLIN_OPEN ? clinicianSummaryHTML()
-         + '<button type="button" class="linklike" onclick="closeClinicianSummary()">close</button>'
+         + '<button type="button" class="linklike xclose" onclick="closeClinicianSummary()">close</button>'
        : (nightKeys().length ? '<button type="button" class="linklike nightsumlink" onclick="openClinicianSummary()">Prepare this for a clinician</button>' : ''));
 }
 function glucoseLastMs() {
@@ -15664,7 +15720,7 @@ const VERSION_LOG = [
   { v: '0.108.0', d: '2026-10-20', note: 'Your daily stack is now one row per item. Tick an item when you take it: it is logged now at its usual dose, and the row shows the dose and the time. Tap either to change it. Untick to take it back, with Undo. Took all ticks everything not yet taken. An item left unticked counts as not taken that day, and your backup file says so.' },
   { v: '0.109.0', d: '2026-10-20', note: 'Each item in your daily stack now has the date it joined. On a day before that it reads "not in stack yet" instead of "not taken", here and in your backup file. Settings shows each date and how it was worked out. A removed item keeps its dates. Switching an item off or on in Settings is now recorded with its time: on a day it was off, it reads \"switched off\", and on a day you switched it, the times are behind its ⓘ.' },
   { v: '0.110.0', d: '2026-10-20', note: 'Blood pressure is now one chart in Trends: systolic and diastolic on one mmHg scale, each reading at the time you took it, with the gap between them (pulse pressure) shaded. Systolic is a solid line with dots, diastolic a dashed line with squares. Faint lines at 135 and 85 show Hypertension Canada\'s 2020 threshold for home readings; the ⓘ has the source and says the 2025 guideline lowered it to 130/80. Tap the chart to read a reading. Nothing is coloured as good or bad.' },
-  { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide.' },
+  { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -15719,7 +15775,7 @@ function renderVersionNotice(notice) {
     ? `<button type="button" class="linklike vntoggle" aria-expanded="${VN_OPEN ? 'true' : 'false'}" onclick="toggleVersionNotice()">${VN_OPEN ? 'hide' : 'what\u2019s new'}</button>`
     : '';
   const lines = VN_OPEN ? notes.map((e) => `<div class="vnrow"><b>v${esc(e.v)}</b> — ${esc(e.note)}</div>`).join('') : '';
-  el.innerHTML = `<div class="vnhead"><span class="vnwhat"${from}>${head}</span>${toggle}<button class="vnx" onclick="dismissVersionNotice()" title="dismiss">×</button></div>${lines}`;
+  el.innerHTML = `<div class="vnhead"><span class="vnwhat"${from}>${head}</span>${toggle}<button type="button" class="vnx" onclick="dismissVersionNotice()" title="dismiss" aria-label="Dismiss">×</button></div>${lines}`;
   el.style.display = 'block';
 }
 function toggleVersionNotice(on) {
@@ -16149,6 +16205,9 @@ function absHHMM(abs) {
 // statement and stays out of the fasts; no other D22 answer changes anything.
 // Food is what D22's detector already reads as breaking a fast (fastEvents):
 // calories above zero, or eaten with its composition unknown.
+// R269 #2: NO FAST IS LONGER THAN 48 H. A span of 48 h or more with no food
+// logged is an UNLOGGED GAP -- not a fast, not eating: out of every count and
+// duration (ring, weekly review, Trends), at R11.1's own 48 h line.
 const FAST_MIN_H = 12;
 function absIso(abs) {
   const d = new Date(Math.floor(abs / MIN_PER_DAY) * 86400000).toISOString().slice(0, 10);
@@ -16171,8 +16230,9 @@ function fastGaps(nowAbs) {
     const a0 = st ? st.abs : prev.abs;
     const mins = hi - a0;
     const excluded = !!next && matchResolution(prev.iso, next.iso).state === 'ate_didnt_log';
+    const unlogged = mins >= GAP_DATE_AFTER_MIN;
     out.push({ food: prev.abs, a0: a0, a1: hi, open: !next, stop: !!st, mins: mins,
-               fast: mins >= FAST_MIN_H * 60 && !excluded, excluded: excluded,
+               fast: mins >= FAST_MIN_H * 60 && !excluded && !unlogged, excluded: excluded, unlogged: unlogged,
                start: absIso(a0), end: next ? next.iso : null,
                hours: Math.round(mins / 6) / 10 });
   }
@@ -16327,6 +16387,9 @@ function rhythmModel(dateKey, opts) {
     const nowAbsE = absMinutes(todayKey(), nowMinutes());
     const greens = [];
     fastGaps(nowAbsE).forEach((g) => {
+      // R269 #2: a closed gap of 48 h or more is unlogged -- nothing drawn, the
+      // empty lane is the gap (a running one is already a date, R11.1).
+      if (g.unlogged && !g.open) return;
       if (g.open || g.fast) {
         if (g.a0 > g.food) greens.push([g.food, g.a0]);
         const len = g.a1 - g.a0;
@@ -16334,7 +16397,7 @@ function rhythmModel(dateKey, opts) {
         const label = g.open ? openFastLabel(len, sinceDate, g.stop)
           : 'fasting ' + fastDurWords(len) + ' (' + absHHMM(g.a0) + ' \u2192 ' + absHHMM(g.a1) + ')' + (g.stop ? ' \u00b7 from Stopped eating' : '');
         addIntervalWin(arcs, win0, win1, g.a0, len, g.open ? 'open' : 'fasting', label,
-          { lane: 'eat', cat: 'eat', fast: g.open ? len >= FAST_MIN_H * 60 : true, stop: g.stop,
+          { lane: 'eat', cat: 'eat', fast: g.fast, stop: g.stop,
             open: g.open, sinceMin: len, sinceDate: sinceDate, start: g.start, end: g.end, hours: g.hours,
             src: (g.open ? 'open:' : 'fast:') + g.start });
       } else {
@@ -20463,7 +20526,9 @@ function weekFasts(dates, soFar) {
   const nowAbs = absMinutes(todayKey(), nowMinutes());
   const w0 = absMinutes(dates[0], 0);
   const w1 = Math.min(absMinutes(dates[6], 0) + MIN_PER_DAY, nowAbs);
-  const list = fastGaps(nowAbs).filter((g) => g.fast && g.a1 > w0 && g.a0 < w1);
+  const gaps = fastGaps(nowAbs).filter((g) => g.a1 > w0 && g.a0 < w1);
+  const list = gaps.filter((g) => g.fast);
+  const unlogged = gaps.filter((g) => g.unlogged);               // R269 #2: listed, never counted
   let mins = 0;
   list.forEach((g) => { mins += Math.max(0, Math.min(g.a1, w1) - Math.max(g.a0, w0)); });
   const closed = list.filter((g) => !g.open);
@@ -20471,7 +20536,7 @@ function weekFasts(dates, soFar) {
   // span still running with "so far", and its centre is its longest closed fast.
   const running = (w1 === nowAbs) ? (list.filter((g) => g.open)[0] || null) : null;
   const longest = closed.length ? Math.max.apply(null, closed.map((g) => g.mins)) : 0;
-  return { list: list, closed: closed, running: running, anyOpen: list.some((g) => g.open), longestMin: longest,
+  return { list: list, closed: closed, unlogged: unlogged, running: running, anyOpen: list.some((g) => g.open), longestMin: longest,
            fastMin: mins, spanMin: Math.max(0, w1 - w0) };
 }
 function weekAfRun(endDk) {
@@ -20591,10 +20656,21 @@ function weekFastCardHTML(R) {
         + (g.open ? ' so far' : '') + (g.stop ? ' · from Stopped eating' : '') + '</li>';
     }).join('') + '</ul>';
   }
+  if (F.unlogged.length) {
+    h += '<div class="wkline wkunlogged">' + esc(F.unlogged.length === 1 ? 'One gap of 48 h or more with no food logged'
+      : F.unlogged.length + ' gaps of 48 h or more with no food logged') + ' — not counted as fasting.</div>'
+      + '<ul class="wkfasts">' + F.unlogged.map((g) => {
+        const a = fmtMonthDay(absIso(g.a0).slice(0, 10), true);
+        const b = g.open ? 'now' : fmtMonthDay(absIso(g.a1).slice(0, 10), true);
+        return '<li>' + esc('no food logged ' + a + ' → ' + b) + '</li>';
+      }).join('') + '</ul>';
+  }
   h += weekInfo('about fasting',
     'A fast runs from your last logged food — or from a “Stopped eating” you tapped after it — to the next food you logged, '
-    + 'and counts when it lasts 12 h or more. Shorter gaps are part of the eating window. Food is anything logged with calories, or eaten with its nutrition unknown; '
-    + '0-calorie drinks don’t end a fast. Measured from your log: a meal you didn’t log makes a fast look longer than it was. '
+    + 'and counts when it lasts 12 h or more and under 48 h; 48 h or more with nothing logged is a gap in the log, not a fast. '
+    + 'Shorter gaps are part of the eating window. Food is anything logged, unless its source says it has no calories '
+    + '(water, black coffee or plain tea from the food database, or a label that says 0); a food with its calories unknown ends a fast. '
+    + 'Measured from your log: a meal you didn’t log makes a fast look longer than it was. '
     + 'The ring is the share of the week so far spent in those fasts. Nothing is asked.');
   return h + '</div>';
 }
@@ -24962,7 +25038,7 @@ function renderDrugInfo() {
   if (!med) { el.innerHTML = ''; return; }
   const head = `<div class="drughead"><b>${esc(med.printed.name)}</b>` +
     `${med.printed.strength ? ' \u00b7 ' + esc(med.printed.strength) : ''}` +
-    `<button type="button" class="linklike" onclick="drugClose()">Close</button></div>`;
+    `<button type="button" class="linklike xclose" onclick="drugClose()">Close</button></div>`;
   let body = '';
   if (v.phase === 'idle') {
     body = `<div class="pmnote">Look up the US prescribing information for this medication. Nothing is sent until you tap.</div>` +
@@ -25337,7 +25413,8 @@ window.HT = {
   requestPersistentStorage,
   // D6 force-and-notify: version + changelog notice
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice, toggleVersionNotice,
-  dismissVersionNotice,
+  dismissVersionNotice, renderVersionNotice, byokBusy,
+  itemZeroUnknown, suggestUncountedPast, weekFasts,   // R269
   versionLine, renderVersionLine,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,
