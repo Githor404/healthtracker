@@ -19022,3 +19022,78 @@ privately (HTPrivate). Two proposed sources added to the commercial-blockers lis
 (R273): DSLD (licence not stated) and the user's own AI provider for a label read.
 Health Canada's LNHPD is Open Government Licence - Canada (commercial use allowed, with
 attribution) and OpenFoodFacts is ODbL -- neither is a blocker.
+
+
+## R280 -- A DAY CLOSES BY ITSELF AT 04:00 THE NEXT MORNING (2026-10-28, v0.111.3)
+
+*The user's ruling of 28 Oct: days close automatically, no tap needed. Serves
+**track** (the averages) and **evaluate** (what they are made of).*
+
+**1. The rule, on read.** The calendar day is unchanged (midnight to midnight). It is
+**closed** -- complete, counted in the averages, trends and the typical day -- from
+**04:00 local time the next morning** (`dayIsComplete`: stored `complete`, or the
+app's clock at or past `dayCloseMs`). Nothing is written: the stored `status` stays
+what it was, so the export is the log as kept, and every past day in the user's data
+is closed by the rule. The manual close stays, **optional**, until 04:00 ("Close this
+day now (optional)"); a day the rule has closed shows "Closed by itself at 04:00 on
+<date> . counted in averages. You can still add, change or delete entries." and no
+reopen. The past-day badge exists only between 00:00 and 04:00: "closes at 04:00 .
+not yet in averages". Every reader of `status === 'complete'` now asks `dayIsComplete`
+(averages, the calorie trend, the typical day, the history counts and flags, the
+badge); the writers that reopen a day on a new entry are unchanged and harmless, since
+the rule still closes it.
+
+**2. Backfill.** A closed day takes new entries, edits and deletes as before;
+everything is derived at render, so averages, rings and the weekly review recompute.
+No prompt.
+
+**3. Gaps, flagged.** A closed day carries, behind an info button (44 px, neutral ink,
+no verdict colour), what it is missing, each with its basis: **no food logged**; **calories
+look incomplete** -- under 50 % of the median of the closed days with food in the 28 days
+ending on it (the pathway report's rule, R277.2/c; no median under 3 days); **no glucose
+readings** -- none on a day after the first imported glucose day (a day before any import
+is not flagged). Flagged days are still included. Each average adds "N closed days
+included . K flagged", the flagged days behind its info button. (Unchanged and restated:
+a day with no food is left out of the calorie and macro means, never counted as zero --
+D90.)
+
+**4. Report only -- 00:00 to 04:00.** An entry goes to the day on screen, and the day on
+screen is the calendar day: at boot and on every resume after midnight
+(`dayRollCheck`, R138) the app moves to the new date. So a 00:30 snack is filed under
+the **new** calendar day, at 00:30, and counts in that day's totals, while the day before
+is still open until 04:00. A photo draft started before midnight keeps its own day (ruled
+F). An entry made with the previous day deliberately on screen goes to that day with no
+time. Fasting spans and glucose responses are time-based and cross midnight unchanged; the
+weekly review is Monday to Sunday by calendar day. In the user's backup of 27 Oct: one food
+item in 00:00-04:00 (Sep 2, 00:09, filed under Sep 2), ten sleep entries and two glucose-rise
+answers. No change made.
+
+*Gates:* `dayclose-gate` (new, real browser at 390 px): at 03:59:59 yesterday is open
+(badge, optional close, 5 days in the 7-day average); at 04:00:00 it is closed with no
+tap, joins the average (6) and its stored status is unchanged; six past days never closed
+by hand count, "6 closed days included . 2 flagged", 1,700 cal (the empty day out of the
+mean); the 500-cal day's flag (44 px, 16px) carries its rule and numbers; a 1,000-cal
+entry backfilled through the Manual form moves the average to 1,900 and the flags to 1.
+Harness +8, and the cases that assumed an unclosed past day stays open (A1, A2, A5, M5,
+DS-badge, DS-logic, H7) re-pointed to the hours before 04:00 or to today -- each keeps
+what it guarded; `jargon-gate` now requires "counted in averages". In the user's data:
+70 day records, 15 closed by hand, **all 70 now closed** (55 by the rule); of them 22 have
+no food (left out of the calorie mean), about 11 hold an item with no numbers (left out of
+the macro mean), about 37 count in full.
+
+## BP CHART -- EXPAND AND SCROLL (the user's request, 28 Oct; v0.111.3)
+
+The blood pressure chart in Trends gains Zoom out / Zoom in (44 px): 1x (the whole
+window, as before), 2x, 4x, 8x. Zoomed, the chart is drawn that many times wider inside a
+frame that scrolls sideways (touch-action pan-x and pan-y, so a vertical swipe still scrolls
+the page), opened at the newest readings, with the mmHg axis pinned at the left; time
+ticks are spaced for one screen (hours when zoomed in, a midnight tick naming its day);
+where the user scrolled to is kept across redraws; ‹ › bring a picked reading into view;
+a tap picks the nearest reading as before. Nothing about what is drawn changes (true
+times, gaps over 30 h, no verdict colour). Serves **track**. *Gate:* `bpchart-gate` +5:
+2x is twice as wide, opened at the newest, axis pinned, page not wider, buttons 44 px;
+touch-action allows a sideways pan; at 8x a real sideways scroll input reaches the oldest
+reading with the axis still pinned; a real tap picks 13:00 and a redraw keeps the scroll;
+zoom out returns to the whole window. *Noted:* an emulated touch swipe in headless Chrome
+triggers its history back-swipe and leaves the page, so the gate scrolls with a wheel
+input and asserts touch-action for the finger.

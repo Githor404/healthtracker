@@ -524,9 +524,12 @@ window.setLS({});
   function mkDay(items){ return { status:'complete', items: items, water_l:0 }; }
   function mkItem(o){ return Object.assign({ name:'x', meal:'snack', time:'', kcal:0, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'measured', notes:'', source:'manual' }, o); }
 
-  // A1. 7-day calendar window: day-3 in, day-8 out; in-progress excluded
+  // A1. 7-day calendar window: day-3 in, day-8 out; in-progress excluded.
+  // R280: a past day closes by itself at 04:00 the next morning, so the day still
+  // in progress is TODAY (an hour that is never 00:00-04:00 here: the clock is pinned).
   setLS({}); HT.boot();
-  var d3 = dayOffset(-3), d8 = dayOffset(-8), d2 = dayOffset(-2);
+  HT.setClock(function () { var n = new Date(); n.setHours(14, 0, 0, 0); return n.getTime(); });
+  var d3 = dayOffset(-3), d8 = dayOffset(-8), d2 = dayOffset(0);
   HT.state().days[d3] = mkDay([ mkItem({ name:'a', kcal:200 }) ]);
   HT.state().days[d8] = mkDay([ mkItem({ name:'b', kcal:1000 }) ]);
   HT.state().days[d2] = { status:'in_progress', items:[ mkItem({ name:'c', kcal:5000 }) ], water_l:0 };
@@ -537,6 +540,11 @@ window.setLS({});
   // A2. all-time = all complete days (regardless of window)
   var allKeys = HT.completeDaysInWindow('all');
   res(allKeys.indexOf(d3) >= 0 && allKeys.indexOf(d8) >= 0 && allKeys.indexOf(d2) < 0, 'A2: all-time = every complete day');
+  var d5 = dayOffset(-5);
+  HT.state().days[d5] = { status:'in_progress', items:[ mkItem({ name:'e', kcal:300 }) ], water_l:0 };
+  res(HT.completeDaysInWindow('all').indexOf(d5) >= 0 && HT.state().days[d5].status === 'in_progress',
+      'R280 GATE: A PAST DAY NEVER CLOSED BY HAND COUNTS AS COMPLETE -- closed by the rule on read; its stored status is unchanged');
+  HT.setClock(null);
 
   // A3. RE-POINTED BY D90. This case asserted the defect, and had since Phase 1.
   // D10 read "every complete day has them (0 for a fasting day)", and this case
@@ -563,7 +571,7 @@ window.setLS({});
   // A5. empty state: no complete days -> n=0, empty-state text (not zeros)
   setLS({}); HT.boot(); HT.refresh();
   res(HT.averageOver(HT.completeDaysInWindow('week')).n === 0, 'A5: no complete days -> n=0');
-  res(document.getElementById('averages').innerHTML.indexOf('No complete days') >= 0, 'A5: empty-state rendered (not zeros)');
+  res(document.getElementById('averages').innerHTML.indexOf('No closed days yet') >= 0, 'A5: empty-state rendered (not zeros) -- R280 wording: a day closes by itself');
 
   // A6. persisted supplement is included in averages (no render-time addition)
   setLS({}); HT.boot();
@@ -2731,8 +2739,14 @@ window.setLS({});
   st5.days['2026-06-01']={status:'complete',items:[{name:'a',meal:'lunch',time:'12:00',kcal:600,soluble_fiber_g:0}],water_l:0};
   st5.days['2026-06-02']={status:'in_progress',items:[{name:'b',meal:'lunch',time:'12:00',kcal:9999,soluble_fiber_g:0}],water_l:0};
   st5.days['2026-06-03']={status:'complete',items:[{name:'c',meal:'lunch',time:'12:00',kcal:800,soluble_fiber_g:0}],water_l:0};
+  HT.setClock(function(){ return new Date(2026, 5, 3, 2, 0, 0).getTime(); });   // R280: Jun 2 closes at 04:00 on Jun 3
   var mac=HT.macroSeries('kcal','all');
   res(mac.points.length===2 && mac.points.map(function(p){return p.v;}).join(',')==='600,800', 'M5: macro trend = complete days only (in-progress excluded)');
+  HT.setClock(function(){ return new Date(2026, 5, 3, 4, 0, 0).getTime(); });
+  var mac4=HT.macroSeries('kcal','all');
+  res(mac4.points.length===3 && mac4.points.map(function(p){return p.v;}).join(',')==='600,9999,800',
+      'R280 GATE: AT 04:00 THE NEXT MORNING THE DAY CLOSES WITHOUT ANY TAP -- Jun 2 joins the trend at 04:00:00 on Jun 3, not a minute before');
+  HT.setClock(null);
 
   // M6: min-data -> honest empty state, no fabricated trend
   setLS({}); HT.boot();
@@ -7790,8 +7804,10 @@ window.setLS({});
   // D35 amendments — day-status label + date display. Presentation only: the
   // status binary, averages and export formats must be byte-unchanged.
   // ==========================================================================
-  setLS({}); HT.boot(); fixClock();
-  var past = HT.shiftDate(td, -3), older = HT.shiftDate(td, -9);
+  // R280: a past day left unclosed exists only until 04:00 the next morning, so
+  // `past` is YESTERDAY and the clock is pinned at 02:00 today for these cases.
+  setLS({}); HT.boot(); HT.setClock(function(){ return new Date(td + 'T02:00:00').getTime(); });
+  var past = HT.shiftDate(td, -1), older = HT.shiftDate(td, -9);
   rrDay(past, [rrFood('a','08:00')]);   HT.state().days[past].status = 'in_progress';
   rrDay(older, [rrFood('b','08:00')]);  HT.state().days[older].status = 'complete';
 
@@ -7799,8 +7815,8 @@ window.setLS({});
   res(HT.dayStatusBadge(td, HT.state().days[td])==='', 'DS-badge: today carries NO status badge (the now-hand already says it)');
   res(HT.dayStatusBadge(older, HT.state().days[older])==='', 'DS-badge: a complete past day carries no mark');
   var pb = HT.dayStatusBadge(past, HT.state().days[past]);
-  res(pb!=='' && /day not finished/.test(pb), 'DS-badge: a PAST UNCLOSED day is the one state that keeps a visible label -- wording moved by D139');
-  res(/not counted in averages/.test(pb), 'DS-badge: the label surfaces the silent consequence — it sits out of averages (D10)');
+  res(pb!=='' && /closes at 04:00/.test(pb), 'DS-badge: a PAST UNCLOSED day is the one state that keeps a visible label -- R280: it says when it closes');
+  res(/not yet in averages/.test(pb), 'DS-badge: the label surfaces the consequence until then — it is not yet in averages (D10)');
   HT.state().days[past].status = 'complete';
   res(HT.dayStatusBadge(past, HT.state().days[past])==='', 'DS-badge: closing the day removes the label');
   HT.state().days[past].status = 'in_progress';
@@ -7811,12 +7827,17 @@ window.setLS({});
   var completeKeys = HT.completeDaysInWindow('all');
   res(completeKeys.indexOf(older)>=0 && completeKeys.indexOf(past)<0,
       'DS-logic: averages stay complete-days-only — the unclosed day is still excluded');
+  HT.setClock(function(){ return new Date(td + 'T04:00:00').getTime(); });
+  res(HT.dayStatusBadge(past, HT.state().days[past])==='' && HT.completeDaysInWindow('all').indexOf(past)>=0 && HT.state().days[past].status==='in_progress',
+      'R280: at 04:00 the label goes and the day is counted -- nothing was written');
+  HT.setClock(function(){ return new Date(td + 'T02:00:00').getTime(); });
   var avgBefore = JSON.stringify(HT.averageOver(HT.completeDaysInWindow('all')));
   HT.renderDay();
   res(JSON.stringify(HT.averageOver(HT.completeDaysInWindow('all')))===avgBefore,
       'DS-logic: rendering the day view changes no average (display only)');
   res(HT.toggleDayStatus!==undefined || true, 'DS-logic: close/reopen remains its own control, not the badge');
 
+  fixClock();                                   // R280: back to the section's 14:00
   // DT-header: month + day, no year.
   HT.state().current = td; HT.renderDay();
   // D123 re-point (D92, history carried): this read the day header by slicing the
@@ -11721,6 +11742,46 @@ window.setLS({});
       'R279 2: the same linked database row counts as the same item; the same id in another database does not');
   HT.state().days = _yDays; HT.state().current = _yCur;
 
+  // ---- R280: A DAY CLOSES BY ITSELF AT 04:00; BACKFILL; GAPS FLAGGED -------------------
+  var _zDays = HT.state().days, _zCur = HT.state().current;
+  HT.setClock(function () { return new Date(2026, 9, 21, 14, 0, 0).getTime(); });
+  var zF = function (k) { return { name: 'Gate food', meal: 'lunch', time: '12:00', kcal: k, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', notes: '', source: 'manual' }; };
+  HT.state().days = {};
+  ['2026-10-15', '2026-10-16', '2026-10-17', '2026-10-20'].forEach(function (d) { HT.state().days[d] = { status: 'in_progress', water_l: 0, items: [zF(2000)] }; });
+  HT.state().days['2026-10-18'] = { status: 'in_progress', water_l: 0, items: [zF(500)] };
+  HT.state().days['2026-10-19'] = { status: 'in_progress', water_l: 0, items: [] };
+  HT.state().days['2026-10-21'] = { status: 'in_progress', water_l: 0, items: [zF(1000)] };
+  var zWk = HT.completeDaysInWindow('week');
+  res(zWk.join(',') === '2026-10-15,2026-10-16,2026-10-17,2026-10-18,2026-10-19,2026-10-20',
+      'R280 GATE: PAST DAYS IN A FIXTURE COUNT AS COMPLETE -- six days never closed by hand are in the 7-day average; today (still open) is not', zWk.join(','));
+  res(HT.dayCloseMs('2026-10-20') === new Date(2026, 9, 21, 4, 0, 0).getTime() && HT.dayIsComplete('2026-10-20') && !HT.dayIsComplete('2026-10-21'),
+      'R280: Oct 20 closed at 04:00 on Oct 21; Oct 21 is open');
+  var zA0 = HT.averageOver(zWk);
+  res(zA0.n === 6 && zA0.nMacro === 5 && zA0.macros.kcal === 1700,
+      'R280: the average of those days -- 6 included, the day with no food left out of the calorie mean (not a zero): 8,500 / 5 = 1,700', JSON.stringify(zA0.macros.kcal) + ' ' + zA0.nMacro);
+  var zG = { '2026-10-15': { t: [1], v: [5] } };
+  var zFl = function (d) { return HT.dayGapFlags(d, zG).map(function (f) { return f.key; }).join(','); };
+  res(zFl('2026-10-19') === 'nofood,noglucose' && zFl('2026-10-18') === 'lowkcal,noglucose' && zFl('2026-10-17') === 'noglucose'
+      && zFl('2026-10-15') === '' && zFl('2026-10-21') === '',
+      'R280 GATE 3: gaps on CLOSED days are flagged -- no food; calories under half the median; no glucose after the first import -- and an open day is not flagged', [zFl('2026-10-19'), zFl('2026-10-18'), zFl('2026-10-17'), zFl('2026-10-15'), zFl('2026-10-21')].join(' | '));
+  var zLow = HT.dayGapFlags('2026-10-18', {})[0] || {};
+  res(zLow.words === 'Calories look incomplete (500 cal)' && /Under 50 % of the median/.test(zLow.basis) && /2,?000 cal, 4 days/.test(zLow.basis) && /still counts/.test(zLow.basis),
+      'R280 3: the flag carries its provenance -- the rule, the median, how many days -- and says the day still counts', zLow.basis);
+  var zH = HT.avgDaysHTML(zA0);
+  res(zH.indexOf('6 closed days included · 2 flagged') >= 0 && zH.indexOf('<details') === 0 && !/class="[^"]*(bad|warn|red)/.test(zH),
+      'R280 GATE 3: the average says how many days it includes and how many are flagged, behind an info button, no verdict colour', zH);
+  // backfill: an entry added to a closed day, through the Manual path
+  HT.state().current = '2026-10-18';
+  var zM = HT.addManualEntry({ name: 'Gate late', meal: 'dinner', kcal: 1000, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', notes: '' });
+  var zA1 = HT.averageOver(HT.completeDaysInWindow('week'));
+  res(zM.ok && HT.dayIsComplete('2026-10-18') && zA1.n === 6 && zA1.macros.kcal === 1900 && HT.dayGapFlags('2026-10-18', {}).length === 0,
+      'R280 GATE 2: A BACKFILLED ENTRY ON A CLOSED DAY CHANGES THE AVERAGE -- 1,700 to 1,900; the day stays closed and its calorie flag goes; nothing asked', JSON.stringify(zA1.macros.kcal));
+  HT.setClock(function () { return new Date(2026, 9, 21, 3, 59, 59).getTime(); });
+  res(!HT.dayIsComplete('2026-10-20') && HT.dayIsComplete('2026-10-19'),
+      'R280: at 03:59:59 the day before is still open; the one before that is closed');
+  HT.setClock(null);
+  HT.state().days = _zDays; HT.state().current = _zCur;
+
   // ---- R251.2: BLOOD PRESSURE, ONE CHART -----------------------------------------------
   var _bTl = HT.state().timeline;
   HT.setClock(function () { return new Date(2026, 9, 21, 9, 0, 0).getTime(); });
@@ -14610,7 +14671,9 @@ window.setLS({});
       'H7-quantiles: the rule interpolates between neighbours and degenerates correctly at n=1');
 
   // -- complete days only, and the denominator on the surface ------------------
-  HT.state().days[dk(-11)] = { status:'in_progress', water_l:0, items:[ h7item(99999, 999) ] };
+  // R280: a past day is closed by 04:00 the next morning, so the open day is today
+  HT.setClock(function(){ var n = new Date(); n.setHours(14, 0, 0, 0); return n.getTime(); });
+  HT.state().days[dk(0)] = { status:'in_progress', water_l:0, items:[ h7item(99999, 999) ] };
   HT.resave();
   var w7b = HT.typicalWindow('kcal', HT.TYPICAL_WINDOW);
   res(w7b.n === 10 && w7b.median === 550,
@@ -14624,6 +14687,7 @@ window.setLS({});
       'H7-denominator-renders GATE: the denominator is ON THE SURFACE, not merely in the returned object -- "from N of M" is the claim, and a figure without it is an argument');
   res(h7text.indexOf('typical 550') >= 0 && /middle half 325.*775/.test(h7text),
       'H7-denominator-renders: and the figures rendered are the ones computed');
+  HT.setClock(null);
 
   // -- the two exclusions, each counted and named (D90 carried into H7) --------
   delete HT.state().days[dk(-11)];

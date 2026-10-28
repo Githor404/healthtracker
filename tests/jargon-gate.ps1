@@ -446,7 +446,7 @@ try {
     @{ re = 'no nutrition yet'; why = 'the words that replaced "composition not recorded"' },
     @{ re = 'Day total';        why = 'the words that replaced "Total (est.)"' },
     @{ re = '^fasting$';        why = 'R265.1: the ring key names the orange span (the fasting-gap count it replaced is retired)' },
-    @{ re = 'not counted in averages'; why = 'the words that replaced "excluded from averages"' },
+    @{ re = 'counted in averages'; why = 'the words that replaced "excluded from averages" -- R280: on a past day, the closed-day note (the unclosed badge now shows only between 00:00 and 04:00)' },
     @{ re = 'Lentils \(boiled\)'; why = 'the readable form of a cited row name' },
     @{ re = '\d+ cal';          why = 'the row unit ruled in place of kcal' },
     @{ re = 'What each meal delivered'; why = 'H24: the heading that states DELIVERED rather than any verb about pathways' },

@@ -1165,6 +1165,10 @@
 .stkswsel{display:flex;gap:6px}
 .stkswsel button{min-height:44px;min-width:64px;font-size:16px}
 .stkoffword{font-weight:600}
+.gapflag{margin-top:8px;font-size:16px}
+.gapflag .gapsum{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--txt)}
+.gapflag .gapbody{display:grid;gap:6px;color:var(--muted);line-height:1.45;padding:4px 0 6px}
+.dayclosed{margin-top:12px}
 .stkalldone{flex:0 0 auto;align-self:center;font-size:16px;color:var(--muted)}
 .stkdone{display:flex;gap:8px;flex-wrap:wrap}
 .stkdose,.stktime{min-height:44px;min-width:44px;font-size:16px}
@@ -1360,6 +1364,14 @@ svg.tchart .tcross{stroke:var(--fg);stroke-width:1;stroke-dasharray:3 2}
 /* R251.2: blood pressure, one chart. One neutral ink throughout -- nothing is
    coloured by its value; the two lines differ by dash and marker shape. */
 .bpwrap{overflow-x:auto}
+.bpwrap.bpscroll{display:flex;align-items:flex-start;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+.bpscroll svg.bpchart{max-width:none;flex:none;margin-left:-40px;touch-action:pan-x pan-y}
+svg.bpyaxis{position:sticky;left:0;z-index:1;flex:none;display:block}
+svg.bpyaxis rect{fill:var(--panel)}
+svg.bpyaxis text{font-size:16px;fill:var(--muted)}
+.bpzoomrow{display:flex;align-items:center;gap:8px;margin:4px 0}
+.bpzoom{min-width:44px;min-height:44px;font-size:22px;padding:0}
+.bpzoomlab{font-size:16px;color:var(--muted)}
 .bplegend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:16px;margin:4px 0}
 .bpleg{display:inline-flex;align-items:center;gap:6px}
 svg.bplegsvg{display:inline-block;max-width:none;color:var(--fg)}
@@ -1535,7 +1547,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
     <div class="card">
       <h2>Averages</h2>
       <div id="averages"></div>
-      <div class="note">Complete days only. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
+      <div class="note">Closed days only: a day closes by itself at 04:00 the next morning, or when you close it. 7-day is the last 7 calendar days; micros show per-nutrient coverage.</div>
     </div>
     <div class="card">
       <details id="historyDetails">

@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.111.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.111.3';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1410,6 +1410,81 @@ function normalizeStatuses(state) {
     if (typeof day.water_l !== 'number') { day.water_l = clampNonNeg(day.water_l); changed = true; }
   });
   return changed;
+}
+
+// ---- R280: A DAY CLOSES BY ITSELF AT 04:00 THE NEXT MORNING ---------------------
+// The calendar day is unchanged (midnight to midnight). It is CLOSED -- complete,
+// counted in the averages -- from 04:00 local time the next morning, read here and
+// never written: the stored `status` stays what it was, so an export is the log as
+// kept. A day the user closed by hand (status 'complete') is closed at once, as
+// before; that tap is optional now, never required. A closed day still takes a
+// late entry, an edit or a delete (backfill), and everything derived from it is
+// derived again at the next render -- no prompt, nothing asked.
+const DAY_CLOSE_HOUR = 4;
+function dayCloseMs(dk) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dk));
+  if (!m) return Infinity;
+  return new Date(+m[1], +m[2] - 1, +m[3] + 1, DAY_CLOSE_HOUR, 0, 0, 0).getTime();
+}
+function dayClosedByRule(dk) { return nowMs() >= dayCloseMs(dk); }
+function dayIsComplete(dk, day) {
+  const d = day || (APP_STATE && APP_STATE.days && APP_STATE.days[dk]);
+  if (!d) return false;
+  return d.status === 'complete' || dayClosedByRule(dk);
+}
+// R280/3: what a CLOSED day is missing, each with where the reading comes from.
+// A flag, not a nudge: shown behind an info button and counted beside the
+// averages; nothing is excluded or coloured by it.
+const GAP_INCOMPLETE_FRAC = 0.5;      // the pathway report's rule (R277.2/c)
+const GAP_MEDIAN_DAYS = 28;           // the median is of the closed days in the 28 ending on this one
+const GAP_MEDIAN_MIN = 3;             // fewer days than this: no median, no calorie flag
+function gapKcalMedian(dk) {
+  const days = (APP_STATE && APP_STATE.days) || {};
+  const from = shiftDate(dk, -(GAP_MEDIAN_DAYS - 1));
+  const v = Object.keys(days).filter(function (d) {
+    return isDayKey(d) && d >= from && d <= dk && dayIsComplete(d, days[d]) && dayHasMacros(days[d]);
+  }).map(function (d) { return num(dayTotals(days[d]).kcal); }).sort(function (a, b) { return a - b; });
+  if (v.length < GAP_MEDIAN_MIN) return null;
+  const h = Math.floor(v.length / 2);
+  return { median: v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2, n: v.length };
+}
+function dayGapFlags(dk, gstore) {
+  const day = APP_STATE && APP_STATE.days && APP_STATE.days[dk];
+  if (!day || !dayIsComplete(dk, day)) return [];
+  const out = [];
+  const items = day.items || [];
+  if (!items.length) {
+    out.push({ key: 'nofood', words: 'No food logged',
+               basis: 'No entry in this day\u2019s log. Read from the log; a day with nothing on it is not counted as zero in any average.' });
+  } else if (dayHasMacros(day)) {
+    const md = gapKcalMedian(dk);
+    const k = num(dayTotals(day).kcal);
+    if (md && md.median > 0 && k < GAP_INCOMPLETE_FRAC * md.median) {
+      out.push({ key: 'lowkcal', words: 'Calories look incomplete (' + kcalDisp(k) + ' cal)',
+                 basis: 'Under ' + Math.round(GAP_INCOMPLETE_FRAC * 100) + ' % of the median of your closed days with food in the '
+                   + GAP_MEDIAN_DAYS + ' days ending on this one (' + kcalDisp(md.median) + ' cal, ' + md.n + ' days). Marked only: the day still counts.' });
+    }
+  }
+  const g = gstore || glucoseRead();
+  const gk = Object.keys(g).sort();
+  if (gk.length && dk >= gk[0] && !(g[dk] && g[dk].t && g[dk].t.length)) {
+    out.push({ key: 'noglucose', words: 'No glucose readings',
+               basis: 'None in the glucose imported on this device, which has readings from ' + fmtDateSmart(gk[0]) + '. A day before your first import is not flagged.' });
+  }
+  return out;
+}
+function dayGapHTML(dk) {
+  const f = dayGapFlags(dk);
+  if (!f.length) return '';
+  return '<details class="gapflag"><summary class="gapsum" aria-label="what this day is missing">\u24d8 '
+    + esc(f.map(function (x) { return x.words; }).join(' \u00b7 ')) + '</summary><div class="gapbody">'
+    + f.map(function (x) { return '<div><b>' + esc(x.words) + '.</b> ' + esc(x.basis) + '</div>'; }).join('')
+    + '<div>This day closed ' + esc(dayCloseWords(dk)) + '. Entries can still be added, changed or deleted.</div></div></details>';
+}
+function dayCloseWords(dk) {
+  const day = APP_STATE.days[dk];
+  if (day && day.status === 'complete' && !dayClosedByRule(dk)) return 'when you closed it';
+  return 'by itself at 04:00 on ' + fmtDateSmart(shiftDate(dk, 1));
 }
 
 // Ensure today's day exists (in_progress) and is selected. Never overwrites.
@@ -6183,9 +6258,11 @@ function renderGoalsHTML(t, day) {
 // The underlying binary is untouched: in_progress | complete, averages
 // complete-only. This is display only.
 function dayStatusBadge(dateKey, day) {
-  if (!day || day.status === 'complete') return '';            // complete: no mark
+  // R280: a past day closes by itself at 04:00; the label is only for the hours
+  // before that, and it says when.
+  if (!day || dayIsComplete(dateKey, day)) return '';         // closed: no mark
   if (dateKey >= todayKey()) return '';                        // today (or ahead): the now-hand says it
-  return ' <span class="dstat">day not finished \u00b7 not counted in averages</span>';
+  return ' <span class="dstat">closes at 04:00 \u00b7 not yet in averages</span>';
 }
 // ---- R33 Fork F: the recall badge -----------------------------------------
 // A plate with remainder ASKS. The object itself never expires and is never
@@ -6635,6 +6712,7 @@ function renderDayInner() {
   const unlogged = !rec;
   const day = rec || blankDay();
   const complete = !unlogged && day.status === 'complete';
+  const autoClosed = !unlogged && !complete && dayClosedByRule(dk);     // R280
   const t = dayTotals(day);
   const jr = dayJumpRange();
 
@@ -6889,7 +6967,12 @@ function renderDayInner() {
   // controls are absent rather than inert: a button that cannot act is a worse
   // answer than no button (D46 -- every exit paints).
   if (!unlogged) {
-    html += `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'End &amp; complete this day'}</button>`;
+    // R280: closing is automatic at 04:00; the tap stays, optional, until then.
+    // A day the rule has closed has nothing to reopen, so it shows the fact.
+    html += autoClosed
+      ? `<div class="note dayclosed">Closed by itself at 04:00 on ${esc(fmtDateSmart(shiftDate(dk, 1)))} \u00b7 counted in averages. You can still add, change or delete entries.</div>${dayGapHTML(dk)}`
+      : `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'Close this day now (optional)'}</button>`
+        + (complete ? dayGapHTML(dk) : '');
     html += `<div class="dayclr"><button class="clrday" onclick="clearDay()">Clear this day</button></div>`;
   }
 
@@ -10424,7 +10507,7 @@ function renderPresets() {
 // Complete days in the window. 'week' = calendar window (>= today-6 days);
 // 'all' = every complete day. In-progress days never qualify.
 function completeDaysInWindow(kind) {
-  const complete = Object.keys(APP_STATE.days).filter((d) => APP_STATE.days[d].status === 'complete');
+  const complete = Object.keys(APP_STATE.days).filter((d) => dayIsComplete(d, APP_STATE.days[d]));   // R280
   if (kind === 'all') return complete.sort();
   const cut = new Date(localDate() + 'T00:00:00');
   cut.setDate(cut.getDate() - 6);
@@ -10464,7 +10547,7 @@ function averageOver(dateKeys) {
   Object.keys(macros).forEach((k) => { macroAvg[k] = nMacro ? macros[k] / nMacro : 0; });
   const microAvg = {};
   Object.keys(microSum).forEach((K) => { microAvg[K] = { avg: microSum[K] / microN[K], nK: microN[K], m: M }; });
-  return { n: M, nMacro: nMacro, macros: macroAvg, micros: microAvg };
+  return { n: M, nMacro: nMacro, macros: macroAvg, micros: microAvg, keys: dateKeys.slice() };
 }
 
 // ---- fasting candidates (D22): derived detection, persisted resolutions ----
@@ -10567,7 +10650,7 @@ function fastEndedByItem(dateKey, timeStr) {
 
 function avgBlockHTML(label, a) {
   if (a.n === 0) {
-    return `<div class="avgblock"><div class="avghead">${esc(label)}</div><div class="note">No complete days yet — close a day to see averages.</div></div>`;
+    return `<div class="avgblock"><div class="avghead">${esc(label)}</div><div class="note">No closed days yet — a day closes by itself at 04:00 the next morning.</div></div>`;
   }
   let html = `<div class="avgblock"><div class="avghead">${esc(label)} <small>n=${esc(a.n)}</small></div>`;
   // R31: the macro mean's own denominator, stated in the SAME words the micro rows
@@ -10580,6 +10663,7 @@ function avgBlockHTML(label, a) {
   } else {
     html += `<div class="avgmacros"><b>${esc(kcalDisp(a.macros.kcal))}</b> cal · P ${esc(rDisp(a.macros.protein_g))} F ${esc(rDisp(a.macros.fat_g))} C ${esc(rDisp(a.macros.carb_g))} · ${esc(rDisp(a.macros.fiber_g))} fib (${esc(rDisp(a.macros.soluble_fiber_g))} sol)${macroCov}</div>`;
   }
+  html += avgDaysHTML(a);
   const mk = Object.keys(a.micros);
   if (mk.length) {
     html += `<div class="avgmicros"><div class="sumhead">Micronutrients — labeled intake only</div>` + mk.map((K) => {
@@ -10589,6 +10673,20 @@ function avgBlockHTML(label, a) {
     }).join('') + `</div>`;
   }
   return html + `</div>`;
+}
+
+// R280/3: the days an average includes, and how many of them carry a gap flag --
+// the flags themselves behind the info button, each with its basis.
+function avgDaysHTML(a) {
+  const keys = a.keys || [];
+  if (!keys.length) return '';
+  const g = glucoseRead();
+  const flagged = keys.map(function (d) { return { d: d, f: dayGapFlags(d, g) }; }).filter(function (x) { return x.f.length; });
+  const head = keys.length + (keys.length === 1 ? ' closed day' : ' closed days') + ' included \u00b7 ' + flagged.length + ' flagged';
+  if (!flagged.length) return `<div class="avgdays note">${esc(head)}</div>`;
+  return `<details class="avgdays gapflag"><summary class="gapsum">\u24d8 ${esc(head)}</summary><div class="gapbody">`
+    + flagged.map(function (x) { return '<div>' + esc(fmtDateSmart(x.d)) + ': ' + esc(x.f.map(function (y) { return y.words; }).join(' \u00b7 ')) + '</div>'; }).join('')
+    + `<div>Flagged days are still included. A day with no food is left out of the calorie and macro figures (it is not a zero); the rules are on each day.</div></div></details>`;
 }
 
 // ---- Mirror (Layer 2, D23): descriptive self-trends, READ-ONLY ---------------
@@ -10730,7 +10828,7 @@ function macroSeries(nutrient, days) {
   Object.keys(APP_STATE.days || {}).forEach((d) => {
     if (d < cut) return;
     const day = APP_STATE.days[d];
-    if (!day || day.status !== 'complete') return;          // complete days only (labeled in the view)
+    if (!day || !dayIsComplete(d, day)) return;             // complete days only (labeled in the view); R280: closed by rule too
     const cov = macroCoverage(day);
     // D90: a day marked complete with nothing on it is NOT a zero-intake day. In
     // the log that found this, all three such days sat inside fast windows the user
@@ -12855,12 +12953,15 @@ const CHART_PAD = { L: 38, R: 6, T: 8, B: 24 };
 // window wins, so the axis gets denser as you zoom in without being told to.
 const CHART_TICK_MS = [3600000, 2 * 3600000, 3 * 3600000, 6 * 3600000,
                        12 * 3600000, 86400000, 2 * 86400000, 5 * 86400000];
-function chartTimeTicks(from, to) {
+function chartTimeTicks(from, to, screens) {
   const span = to - from;
   if (!(span > 0)) return [];
+  // `screens`: how many screen-widths the axis is drawn across (a zoomed BP chart);
+  // the ticks are spaced for one screen, so about six show at a time.
+  const per = 6 * (Number(screens) > 1 ? Number(screens) : 1);
   let step = CHART_TICK_MS[CHART_TICK_MS.length - 1];
   for (let i = 0; i < CHART_TICK_MS.length; i++) {
-    if (span / CHART_TICK_MS[i] <= 6) { step = CHART_TICK_MS[i]; break; }
+    if (span / CHART_TICK_MS[i] <= per) { step = CHART_TICK_MS[i]; break; }
   }
   // Aligned to LOCAL wall-clock boundaries, not to multiples of the epoch: a
   // tick at 03:17 tells you nothing you came to the chart for.
@@ -14021,7 +14122,7 @@ function typicalWindow(nutrient, win) {
   Object.keys(APP_STATE.days || {}).forEach((d) => {
     if (d < cut) return;
     const day = APP_STATE.days[d];
-    if (!day || day.status !== 'complete') return;
+    if (!day || !dayIsComplete(d, day)) return;             // R280
     const cov = macroCoverage(day);
     if (cov.absent) { empty++; return; }
     if (cov.partial) { omitted++; return; }
@@ -14188,6 +14289,13 @@ const BP_GAP_MS = 30 * 3600000;                           // twice-daily joins; 
 const BP_REF_WORDS = 'Faint lines at 135 and 85 mmHg: Hypertension Canada\u2019s threshold for home readings, 2020 edition \u2014 a mean home blood pressure of 135/85 mmHg, from a series of readings taken morning and evening for a week (Rabi DM et al. Hypertension Canada\u2019s 2020 Comprehensive Guidelines for the Prevention, Diagnosis, Risk Assessment, and Treatment of Hypertension in Adults and Children. Can J Cardiol 2020;36(5):596\u2013624; Hypertension Canada practical guide 2020\u201322). Hypertension Canada\u2019s 2025 primary-care guideline lowered this to 130/80 mmHg for home readings (Goupil R et al. CMAJ 2025;197:E549\u201364, doi:10.1503/cmaj.241770). The threshold is for the mean of a series; the chart draws single readings.';
 const BP_SOURCE_WORDS = { manual: 'entered by hand', quick: 'entered by hand', lab: 'from a lab panel' };
 let BP_PICK = null;                                       // the picked reading's key (dk + time + index)
+// The user's request (28 Oct): expand the chart and scroll it. Zoomed, the chart is
+// drawn wider than the screen inside a frame that scrolls sideways; the mmHg axis
+// stays pinned at the left. Opened at the newest readings; where the user scrolled
+// to is kept across redraws, as the share of the chart at the frame's centre.
+const BP_ZOOMS = [1, 2, 4, 8];
+let BP_ZOOM = 1;
+let BP_CENTRE = 1;                                        // 0 = oldest edge, 1 = newest edge
 // Every paired reading in the window, at its true time. Systolic and diastolic are
 // two records written at one time (logBP); they are paired by day and time, in
 // order. A reading with no time cannot be placed and is counted, not drawn.
@@ -14226,7 +14334,7 @@ function bpReadoutWords(p) {
   const pp = (p.sys != null && p.dia != null) ? ' \u00b7 pulse pressure ' + rDisp(p.sys - p.dia) : '';
   return v + pp + ' \u00b7 ' + fmtMonthDay(p.dk) + ' ' + p.time + ' \u00b7 ' + (BP_SOURCE_WORDS[p.source] || String(p.source));
 }
-function bpChartSVG(pts, W) {
+function bpChartSVG(pts, W, noYLabels) {
   // padR is the reference labels' own margin: inside the plot they sat on the
   // newest readings (seen in the 390 px screenshot before the suite).
   const H = 260, padL = 40, padR = 62, padT = 10, padB = 26;
@@ -14244,7 +14352,7 @@ function bpChartSVG(pts, W) {
   for (let v = BP_DOMAIN.min; v <= BP_DOMAIN.max; v += BP_DOMAIN.step) {
     const y = r1(yOf(v));
     grid += '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
-      + '<text x="' + (padL - 4) + '" y="' + r1(y + 5.5) + '" text-anchor="end">' + v + '</text>';
+      + (noYLabels ? '' : '<text x="' + (padL - 4) + '" y="' + r1(y + 5.5) + '" text-anchor="end">' + v + '</text>');
   }
   grid += '</g>';
   const refs = '<g class="bpref">' + [['sys', BP_REF.sys], ['dia', BP_REF.dia]].map(function (r) {
@@ -14252,11 +14360,12 @@ function bpChartSVG(pts, W) {
     return '<line data-ref="' + r[1] + '" x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
       + '<text data-ref="' + r[1] + '" x="' + (W - padR + 4) + '" y="' + r1(y + 5.5) + '" text-anchor="start">' + r[1] + ' ref</text>';
   }).join('') + '</g>';
-  const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to).map(function (tk) {
+  const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to, BP_ZOOM).map(function (tk) {
     const x = r1(xOf(tk.t));
     if (x < padL + 18 || x > W - padR - 18) return '';
     const d = new Date(tk.t);
-    const lab = tk.step >= 86400000 ? (d.getMonth() + 1) + '/' + d.getDate() : hhmm(tk.t);
+    // zoomed to hours, a midnight tick names its day, so the scrolled axis says which
+    const lab = (tk.step >= 86400000 || (d.getHours() === 0 && d.getMinutes() === 0)) ? (d.getMonth() + 1) + '/' + d.getDate() : hhmm(tk.t);
     return '<line x1="' + x + '" y1="' + (padT + plotH) + '" x2="' + x + '" y2="' + (padT + plotH + 3) + '"/>'
       + '<text x="' + x + '" y="' + (padT + plotH + 19) + '">' + esc(lab) + '</text>';
   }).join('') + '</g>';
@@ -14305,8 +14414,11 @@ function bpChartHTML(days) {
     return head + '<div class="tsum">' + pts.map(function (p) { return esc(bpReadoutWords(p)); }).join('<br>') + '</div>' + untimed;
   }
   const el = document.getElementById('trends');
-  const W = Math.max(260, Math.min(640, Math.round((el && el.clientWidth) || 328)));
+  const W0 = Math.max(260, Math.min(640, Math.round((el && el.clientWidth) || 328)));
+  const zoomed = BP_ZOOM > 1;
+  const W = Math.round(W0 * BP_ZOOM);
   const pick = pts.filter(function (p) { return p.key === BP_PICK; })[0];
+  const zi = BP_ZOOMS.indexOf(BP_ZOOM);
   const sv = pts.filter(function (p) { return p.sys != null; }).map(function (p) { return p.sys; });
   const dv = pts.filter(function (p) { return p.dia != null; }).map(function (p) { return p.dia; });
   const range = function (a) { return a.length ? rDisp(Math.min.apply(null, a)) + '\u2013' + rDisp(Math.max.apply(null, a)) : '\u2014'; };
@@ -14318,7 +14430,11 @@ function bpChartHTML(days) {
     + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><line class="bpldia" x1="1" y1="7" x2="33" y2="7"/><rect class="bplmd" x="13.5" y="3.5" width="7" height="7"/></svg><span class="bpleglab">Diastolic</span></span>'
     + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><rect class="bplband" x="1" y="1" width="32" height="12"/></svg><span class="bpleglab">pulse pressure</span></span>'
     + '</div>'
-    + '<div class="bpwrap">' + bpChartSVG(pts, W) + '</div>'
+    + '<div class="bpzoomrow"><button type="button" class="btn bpzoom" aria-label="zoom out" onclick="bpZoom(-1)"' + (zi <= 0 ? ' disabled' : '') + '>\u2212</button>'
+    + '<span class="bpzoomlab">' + (zoomed ? esc(BP_ZOOM + '\u00d7 wide \u00b7 scroll sideways') : 'Whole window') + '</span>'
+    + '<button type="button" class="btn bpzoom" aria-label="zoom in" onclick="bpZoom(1)"' + (zi >= BP_ZOOMS.length - 1 ? ' disabled' : '') + '>+</button></div>'
+    + '<div class="bpwrap' + (zoomed ? ' bpscroll' : '') + '" id="bpWrap"' + (zoomed ? ' onscroll="bpScrolled(this)"' : '') + '>'
+    + (zoomed ? bpYAxisSVG() : '') + bpChartSVG(pts, W, zoomed) + '</div>'
     // Found by bpchart-gate: over a week at 390 px, readings hours apart on one day
     // are ~15 px apart, so a tap alone cannot give each one a 44-point target. The
     // step buttons can: a tap picks the nearest, and ‹ › move one reading at a time.
@@ -14335,6 +14451,49 @@ function bpChartHTML(days) {
 function bpRender() {
   const el = document.getElementById('bpChart');
   if (el) el.innerHTML = bpChartHTML(TREND_WINDOW);
+  bpPlaceScroll();
+}
+// The pinned axis: the same scale as the chart, its own narrow SVG, drawn over the
+// chart's left margin and held there while the chart scrolls under it.
+function bpYAxisSVG() {
+  const H = 260, padL = 40, padT = 10, padB = 26, plotH = H - padT - padB;
+  let t = '';
+  for (let v = BP_DOMAIN.min; v <= BP_DOMAIN.max; v += BP_DOMAIN.step) {
+    const y = padT + (1 - (v - BP_DOMAIN.min) / (BP_DOMAIN.max - BP_DOMAIN.min)) * plotH;
+    t += '<text x="' + (padL - 4) + '" y="' + (Math.round((y + 5.5) * 10) / 10) + '" text-anchor="end">' + v + '</text>';
+  }
+  return '<svg class="bpyaxis" viewBox="0 0 ' + padL + ' ' + H + '" width="' + padL + '" height="' + H + '" aria-hidden="true">'
+    + '<rect x="0" y="0" width="' + padL + '" height="' + H + '"/>' + t + '</svg>';
+}
+// Scrolled to where the user left it; a picked reading off screen is brought in.
+function bpPlaceScroll() {
+  const w = document.getElementById('bpWrap');
+  if (!w || BP_ZOOM <= 1) return;
+  const max = w.scrollWidth - w.clientWidth;
+  if (max <= 0) return;
+  w.scrollLeft = Math.round(BP_CENTRE * max);
+  const svg = w.querySelector('svg.bpchart');
+  const pk = svg ? svg.querySelector('.tcross') : null;
+  if (pk) {
+    const x = Number(pk.getAttribute('x1'));
+    const left = w.scrollLeft + 40, right = w.scrollLeft + w.clientWidth - 62;
+    if (x < left || x > right) {
+      w.scrollLeft = Math.max(0, Math.min(max, x - w.clientWidth / 2));
+      BP_CENTRE = w.scrollLeft / max;
+    }
+  }
+}
+function bpScrolled(w) {
+  const max = w.scrollWidth - w.clientWidth;
+  if (max > 0) BP_CENTRE = w.scrollLeft / max;
+}
+function bpZoom(dir) {
+  const i = BP_ZOOMS.indexOf(BP_ZOOM);
+  const j = Math.max(0, Math.min(BP_ZOOMS.length - 1, (i < 0 ? 0 : i) + (dir < 0 ? -1 : 1)));
+  if (BP_ZOOM === 1 && BP_ZOOMS[j] > 1) BP_CENTRE = 1;     // opened at the newest readings
+  BP_ZOOM = BP_ZOOMS[j];
+  bpRender();
+  return { ok: true, zoom: BP_ZOOM };
 }
 function bpTap(evt) {
   const svg = evt && evt.target && evt.target.ownerSVGElement;
@@ -14470,6 +14629,7 @@ function renderTrends() {
   else
     html += `<div class="note" style="margin:10px 0 0">Your own data over ${esc(winLabel)} — figures only, no interpretation.</div>`;
   el.innerHTML = html;
+  bpPlaceScroll();                          // a zoomed BP chart keeps where it was scrolled to
 }
 
 // ---- Regimen (D27): a named timeline template for a repeating day ------------
@@ -15703,7 +15863,7 @@ const nutDisp = (key, v) => (key === 'kcal' ? kcalDisp(v) : rDisp(v));
 function historyCounts() {
   const keys = Object.keys((APP_STATE && APP_STATE.days) || {}).sort();
   let inProgress = 0;
-  keys.forEach((d) => { if (APP_STATE.days[d].status !== 'complete') inProgress++; });
+  keys.forEach((d) => { if (!dayIsComplete(d, APP_STATE.days[d])) inProgress++; });   // R280
   return { keys: keys, logged: keys.length, inProgress: inProgress };
 }
 function renderHistorySummary() {
@@ -15723,7 +15883,7 @@ function renderHistory() {
   el.innerHTML = keys.map((d) => {
     const day = APP_STATE.days[d];
     const t = dayTotals(day);
-    const flag = day.status !== 'complete' ? '<span class="flag">in progress</span>' : '';
+    const flag = !dayIsComplete(d, day) ? '<span class="flag">in progress</span>' : '';   // R280
     const items = String((day.items || []).length);
     // R31: the history row prints the same understated kcal the day view does, so it
     // carries the same sentence. Enumerating surfaces was never the rule -- "every
@@ -15961,6 +16121,7 @@ const VERSION_LOG = [
   { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide. Closing Find nutrients while its database is loading now keeps it closed.' },
   { v: '0.111.1', d: '2026-10-27', note: 'An item switched off in your daily stack now has a Switch on button in + Log, today, so it can be switched back on where you log it; each switch is still recorded with its time. Its type (supplement, medication or food) is changed under Settings, Daily stack, Edit.' },
   { v: '0.111.2', d: '2026-10-28', note: 'A scan or photo log now says so at the top of the screen, naming the item, amount and time, with Undo. Scanning the same product again within 10 minutes asks first: Already logged at <time>, Log another or Cancel. In your daily stack, + Log has Switch off and Switch on, and + Add to stack for a new item; in Settings each row has Edit only, with On and Off inside Edit.' },
+  { v: '0.111.3', d: '2026-10-28', note: 'A day now closes by itself at 04:00 the next morning, so your past days count in the averages without a tap; closing a day by hand is optional. You can still add, change or delete entries on a closed day, and everything recomputes. A closed day that looks incomplete (no food, no glucose readings, or calories under half your usual) says so behind its info button, and each average says how many days it includes and how many are flagged. The blood pressure chart in Trends can be zoomed in (up to 8 times wider) and scrolled sideways, with the mmHg axis kept in view.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -25516,7 +25677,7 @@ window.HT = {
   TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, matchTokensFold,
   TYPEAHEAD_POOL, refUseCounts, typeaheadMineFirst, SEARCH_ALIAS, searchWord, nameIsBranded,
   // R198/3 and R199/2 -- "Ate:" at save on the forms; editing and deleting combos
-  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay, scanGuardCancel, recentSameItem, logConfirmShow, logConfirmHide, logConfirmUndo, logConfirmWords,
+  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay, scanGuardCancel, recentSameItem, bpZoom, bpScrolled, bpPlaceScroll, BP_ZOOMS, logConfirmShow, logConfirmHide, logConfirmUndo, logConfirmWords,
   combosEditToggle, comboEditOpen, comboDeleteUndo, combosEditing: () => COMBOS_EDITING, typeaheadRun, typeaheadRowsHTML,
   CORPUS_OWN_MACROS, corpusOwnNumbers, sheetComboNewHTML,
   foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
@@ -25603,7 +25764,7 @@ window.HT = {
   goalProgress, microRollup, dayTotals, setGoal, removeGoal, isNutrientGoal, renderGoalsHTML, onGoalTypeChange,   // D24 signal goals (mixed namespace)
   manualWarnings, addManualEntry, saveManualPreset, logPreset, deletePreset,
   renderMicroFields, readMicroFields, MICRO_SPEC,
-  averageOver, avgBlockHTML, completeDaysInWindow, clearDay,
+  averageOver, avgBlockHTML, completeDaysInWindow, dayIsComplete, dayClosedByRule, dayCloseMs, dayGapFlags, dayGapHTML, avgDaysHTML, gapKcalMedian, clearDay,
   // R33 plates (D69)
   normalizePlate, normalizePlates, normalizePlateItem, normalizeAte, plateFromDraft,
   consumeFromPlate, plateRemainder, plateEvents, getPlate, openPlates, deletePlate,

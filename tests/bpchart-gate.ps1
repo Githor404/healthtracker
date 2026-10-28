@@ -245,6 +245,60 @@ try {
   Check (($c3v.h -ge 44) -and $c3v.seen -and ($c3v.text -like '*Hypertension Canada*2020 edition*Can J Cardiol 2020;36(5):596*2025*130/80*CMAJ 2025;197:E549*')) "R251.2: the info button (44 px) opens the source -- Hypertension Canada 2020, cited, and that the 2025 guideline lowered the threshold to 130/80"
   Shot 'bp-ref'
 
+  # ---- 5. EXPAND AND SCROLL (the user's request, 28 Oct) -------------------------------------
+  # Zoom in draws the chart wider than the screen in a frame that scrolls sideways,
+  # opened at the newest readings, the mmHg axis pinned at the left; a tap still
+  # picks the nearest reading; a redraw keeps the scroll; zoom out is the whole window.
+  $zs = "(function(){ try { var w = document.getElementById('bpWrap'), svg = w.querySelector('svg.bpchart'), ax = w.querySelector('svg.bpyaxis'); var wr = w.getBoundingClientRect(); var ms = Array.prototype.slice.call(svg.querySelectorAll('.bpmsys')); var inView = function (e) { var r = e.getBoundingClientRect(); return r.left >= wr.left + 40 && r.right <= wr.right; }; var zb = Array.prototype.map.call(document.querySelectorAll('#bpChart .bpzoom'), function (b) { var r = b.getBoundingClientRect(); return Math.round(Math.min(r.width, r.height)); }); return { scroll: w.classList.contains('bpscroll'), svgW: Math.round(svg.getBoundingClientRect().width), wrapW: Math.round(wr.width), sl: Math.round(w.scrollLeft), max: w.scrollWidth - w.clientWidth, newest: inView(ms[ms.length - 1]), oldest: inView(ms[0]), axis: ax ? Math.round(ax.getBoundingClientRect().left - wr.left) : -1, axisText: ax ? ax.querySelectorAll('text').length : 0, lab: document.querySelector('#bpChart .bpzoomlab').textContent, zb: zb, page: document.documentElement.scrollWidth - document.documentElement.clientWidth }; } catch (e) { return { err: String(e && e.stack || e), html: (document.getElementById('bpChart') || {}).className || 'no bpChart' }; } })()"
+  $z0 = EvalJ "(function(){ var r = document.querySelector('#bpChart svg.bpchart').getBoundingClientRect(); return Math.round(r.width); })()"
+  [void](Eval "document.querySelector('#bpChart .bpzoom[aria-label=\'zoom in\']').click()")
+  Settle
+  $z1 = EvalJ $zs
+  Write-Host ("  zoom 2x: fit width " + $z0 + " -> " + $z1)
+  $z1v = $z1 | ConvertFrom-Json
+  Check ($z1v.scroll -and ($z1v.svgW -ge (2 * [int]$z0 - 2)) -and ($z1v.max -gt 0) -and ($z1v.sl -ge $z1v.max - 1) -and $z1v.newest -and ($z1v.axis -eq 0) -and ($z1v.axisText -eq 9) -and ($z1v.page -le 0) -and ((@($z1v.zb) | Where-Object { $_ -lt 44 }).Count -eq 0) -and ($z1v.lab -like '2*wide*scroll sideways*')) "BP EXPAND: zoom in (44 px) draws the chart twice as wide in a frame that scrolls sideways -- opened at the newest reading, the mmHg axis pinned at the left, the page itself not wider"
+  [void](Eval "document.querySelector('#bpChart .bpzoom[aria-label=\'zoom in\']').click()")
+  Settle
+  [void](Eval "document.querySelector('#bpChart .bpzoom[aria-label=\'zoom in\']').click()")
+  Settle
+  $wr = EvalJ "(function(){ var w = document.getElementById('bpWrap'); w.scrollIntoView({ block: 'center' }); var r = w.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + 120 }; })()" | ConvertFrom-Json
+  # A real input event that scrolls the frame: a horizontal wheel (trackpad) on it.
+  # (Emulated touch swipes in headless Chrome trigger its history back-swipe and
+  # leave the page, so they cannot stand for a finger here; the frame's touch-action
+  # is asserted instead -- pan-x is what lets a finger scroll it on the phone.)
+  function Swipe([double]$x0, [double]$y0, [double]$dx) {
+    for ($rep = 0; $rep -lt 12; $rep++) {
+      Invoke-CDP 'Input.dispatchMouseEvent' @{ type = 'mouseWheel'; x = $x0; y = $y0; deltaX = (-1 * $dx); deltaY = 0 } | Out-Null
+      Start-Sleep -Milliseconds 60 } }
+  $ta = Eval "(function(){ var s = document.querySelector('#bpWrap svg.bpchart'); return getComputedStyle(s).touchAction + ' / ' + getComputedStyle(s.querySelector('.bphit')).touchAction; })()"
+  Write-Host ("  touch-action: " + $ta)
+  Check ($ta -like 'pan-x pan-y*') "BP SCROLL: zoomed, the chart lets a finger pan sideways (touch-action pan-x) as well as scroll the page"
+  Swipe ($wr.x - 120) $wr.y 260
+  Settle
+  $z2 = EvalJ $zs
+  Write-Host ("  zoom 8x, swiped to the start: " + $z2)
+  $z2v = $z2 | ConvertFrom-Json
+  Check (($z2v.svgW -ge (8 * [int]$z0 - 8)) -and ($z2v.sl -le 1) -and $z2v.oldest -and (-not $z2v.newest) -and ($z2v.axis -eq 0) -and ($z2v.page -le 0)) "BP SCROLL: at 8x a real sideways scroll (wheel input on the frame) goes back to the oldest reading (six days ago), the newest now off screen, the axis still pinned"
+  Shot 'bp-zoom-oldest'
+  # back to the newest by a swipe the other way, then a real tap on the 13:00 reading
+  Swipe ($wr.x + 120) $wr.y -260
+  Settle
+  $pz = EvalJ "(function(){ var e = document.querySelectorAll('#bpChart .bpmsys')[2]; e.scrollIntoView({ block: 'nearest', inline: 'center' }); var r = e.getBoundingClientRect(); return { x: r.left + r.width / 2 + 6, y: r.top + r.height / 2 }; })()" | ConvertFrom-Json
+  Invoke-CDP 'Input.dispatchMouseEvent' @{ type = 'mousePressed'; x = $pz.x; y = $pz.y; button = 'left'; clickCount = 1 } | Out-Null
+  Invoke-CDP 'Input.dispatchMouseEvent' @{ type = 'mouseReleased'; x = $pz.x; y = $pz.y; button = 'left'; clickCount = 1 } | Out-Null
+  Settle
+  $z3 = EvalJ "(function(){ var w = document.getElementById('bpWrap'); return { text: document.querySelector('#bpChart .bpreadout').textContent, sl: Math.round(w.scrollLeft) }; })()"
+  [void](Eval "HT.renderTrends()")
+  Settle
+  $z4 = EvalJ "(function(){ var w = document.getElementById('bpWrap'); return { sl: Math.round(w.scrollLeft), cross: document.querySelectorAll('#bpChart .tcross').length }; })()"
+  Write-Host ("  zoomed tap: " + $z3 + " after a redraw: " + $z4)
+  $z3v = $z3 | ConvertFrom-Json; $z4v = $z4 | ConvertFrom-Json
+  Check (($z3v.text -like '141/88 mmHg*13:00*') -and ([Math]::Abs($z4v.sl - $z3v.sl) -le 2) -and ($z4v.cross -eq 1)) "BP EXPAND: zoomed, a real tap picks the 13:00 reading, and a redraw of Trends keeps where the chart was scrolled to"
+  Shot 'bp-zoom-tap'
+  for ($k = 0; $k -lt 3; $k++) { [void](Eval "document.querySelector('#bpChart .bpzoom[aria-label=\'zoom out\']').click()"); Settle }
+  $z5 = EvalJ "(function(){ var w = document.getElementById('bpWrap'); var s = w.querySelector('svg.bpchart'); return { scroll: w.classList.contains('bpscroll'), fits: s.getBoundingClientRect().width <= w.getBoundingClientRect().width + 1, axis: !!w.querySelector('svg.bpyaxis'), out: document.querySelector('#bpChart .bpzoom[aria-label=\'zoom out\']').disabled, lab: document.querySelector('#bpChart .bpzoomlab').textContent }; })()"
+  Check ($z5 -like '*"scroll":false,"fits":true,"axis":false,"out":true,"lab":"Whole window"*') ("BP EXPAND: zoom out returns to the whole window, nothing to scroll (" + $z5 + ")")
+
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup
