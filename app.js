@@ -1438,26 +1438,44 @@ function dayIsComplete(dk, day) {
 const GAP_INCOMPLETE_FRAC = 0.5;      // the pathway report's rule (R277.2/c)
 const GAP_MEDIAN_DAYS = 28;           // the median is of the closed days in the 28 ending on this one
 const GAP_MEDIAN_MIN = 3;             // fewer days than this: no median, no calorie flag
-function gapKcalMedian(dk) {
+// What every day's flags are read from, worked out ONCE per render: each closed day
+// with food's calories, and which days have glucose. An average asks for the flags of
+// every day it holds, and computing these per day made each redraw quadratic in the
+// days logged (found by a slow suite run, R280).
+function gapContext(gstore) {
   const days = (APP_STATE && APP_STATE.days) || {};
+  const kc = {};
+  Object.keys(days).forEach(function (d) {
+    if (isDayKey(d) && dayIsComplete(d, days[d]) && dayHasMacros(days[d])) kc[d] = num(dayTotals(days[d]).kcal);
+  });
+  const g = gstore || glucoseRead();
+  const gk = Object.keys(g).filter(function (d) { return g[d] && g[d].t && g[d].t.length; }).sort();
+  const gset = {};
+  gk.forEach(function (d) { gset[d] = 1; });
+  return { gapCtx: true, kc: kc, keys: Object.keys(kc).sort(), g0: gk[0] || null, gset: gset };
+}
+function gapKcalMedian(dk, ctx) {
+  const c = (ctx && ctx.gapCtx) ? ctx : gapContext();
   const from = shiftDate(dk, -(GAP_MEDIAN_DAYS - 1));
-  const v = Object.keys(days).filter(function (d) {
-    return isDayKey(d) && d >= from && d <= dk && dayIsComplete(d, days[d]) && dayHasMacros(days[d]);
-  }).map(function (d) { return num(dayTotals(days[d]).kcal); }).sort(function (a, b) { return a - b; });
+  const v = c.keys.filter(function (d) { return d >= from && d <= dk; })
+    .map(function (d) { return c.kc[d]; }).sort(function (a, b) { return a - b; });
   if (v.length < GAP_MEDIAN_MIN) return null;
   const h = Math.floor(v.length / 2);
   return { median: v.length % 2 ? v[h] : (v[h - 1] + v[h]) / 2, n: v.length };
 }
-function dayGapFlags(dk, gstore) {
+// `ctx` is a gapContext, or a glucose store to build one from (the harness passes
+// a store), or nothing.
+function dayGapFlags(dk, ctx) {
   const day = APP_STATE && APP_STATE.days && APP_STATE.days[dk];
   if (!day || !dayIsComplete(dk, day)) return [];
+  const c = (ctx && ctx.gapCtx) ? ctx : gapContext(ctx);
   const out = [];
   const items = day.items || [];
   if (!items.length) {
     out.push({ key: 'nofood', words: 'No food logged',
                basis: 'No entry in this day\u2019s log. Read from the log; a day with nothing on it is not counted as zero in any average.' });
   } else if (dayHasMacros(day)) {
-    const md = gapKcalMedian(dk);
+    const md = gapKcalMedian(dk, c);
     const k = num(dayTotals(day).kcal);
     if (md && md.median > 0 && k < GAP_INCOMPLETE_FRAC * md.median) {
       out.push({ key: 'lowkcal', words: 'Calories look incomplete (' + kcalDisp(k) + ' cal)',
@@ -1465,11 +1483,9 @@ function dayGapFlags(dk, gstore) {
                    + GAP_MEDIAN_DAYS + ' days ending on this one (' + kcalDisp(md.median) + ' cal, ' + md.n + ' days). Marked only: the day still counts.' });
     }
   }
-  const g = gstore || glucoseRead();
-  const gk = Object.keys(g).sort();
-  if (gk.length && dk >= gk[0] && !(g[dk] && g[dk].t && g[dk].t.length)) {
+  if (c.g0 && dk >= c.g0 && !c.gset[dk]) {
     out.push({ key: 'noglucose', words: 'No glucose readings',
-               basis: 'None in the glucose imported on this device, which has readings from ' + fmtDateSmart(gk[0]) + '. A day before your first import is not flagged.' });
+               basis: 'None in the glucose imported on this device, which has readings from ' + fmtDateSmart(c.g0) + '. A day before your first import is not flagged.' });
   }
   return out;
 }
@@ -10680,8 +10696,8 @@ function avgBlockHTML(label, a) {
 function avgDaysHTML(a) {
   const keys = a.keys || [];
   if (!keys.length) return '';
-  const g = glucoseRead();
-  const flagged = keys.map(function (d) { return { d: d, f: dayGapFlags(d, g) }; }).filter(function (x) { return x.f.length; });
+  const ctx = gapContext();
+  const flagged = keys.map(function (d) { return { d: d, f: dayGapFlags(d, ctx) }; }).filter(function (x) { return x.f.length; });
   const head = keys.length + (keys.length === 1 ? ' closed day' : ' closed days') + ' included \u00b7 ' + flagged.length + ' flagged';
   if (!flagged.length) return `<div class="avgdays note">${esc(head)}</div>`;
   return `<details class="avgdays gapflag"><summary class="gapsum">\u24d8 ${esc(head)}</summary><div class="gapbody">`
