@@ -378,19 +378,42 @@ $measureEat = "(function(){" +
   "var svg=document.querySelector('#dayView .rring');if(!svg)return JSON.stringify({err:'no-ring'});" +
   "var track=svg.querySelector('circle.rtrack[data-lane=eat]');if(!track)return JSON.stringify({err:'no-eat-track'});" +
   "var r=parseFloat(track.getAttribute('r'))||0;var circ=2*Math.PI*r;" +
-  # R273: the RUNNING orange fasting span (class ra-open) is exempt from R18.2 and
-  # measured on its own; every other span on the lane keeps R18.2's limits.
+  # R273 + R274: FASTING SPANS ARE EXEMPT from R18.2 -- the running one (ra-open) and
+  # a closed one (ra-fasting), each measured on its own; every other span on the lane
+  # keeps R18.2's limits.
   "var all=[].slice.call(svg.querySelectorAll('path[data-lane=eat]'));" +
   "var run=all.filter(function(e){return e.classList.contains('ra-open');});" +
-  "var paths=all.filter(function(e){return !e.classList.contains('ra-open');});" +
+  "var shut=all.filter(function(e){return e.classList.contains('ra-fasting');});" +
+  "var paths=all.filter(function(e){return !e.classList.contains('ra-open')&&!e.classList.contains('ra-fasting');});" +
   "var L=function(e){try{return e.getTotalLength();}catch(err){return 0;}};" +
-  "var lens=paths.map(L);var rlens=run.map(L);" +
+  "var lens=paths.map(L);var rlens=run.map(L);var slens=shut.map(L);" +
   "var sum=lens.reduce(function(a,b){return a+b;},0);var rsum=rlens.reduce(function(a,b){return a+b;},0);" +
+  "var ssum=slens.reduce(function(a,b){return a+b;},0);" +
   "var dots=svg.querySelectorAll('circle.rdot[data-lane=eat]').length;" +
   "return JSON.stringify({paths:paths.length,dots:dots,circ:Math.round(circ*10)/10," +
   "sumPct:circ?Math.round(sum/circ*1000)/10:0,maxPct:circ?Math.round(Math.max.apply(null,lens.concat([0]))/circ*1000)/10:0," +
   "runN:run.length,runPct:circ?Math.round(rsum/circ*1000)/10:0," +
-  "runOrange:run.length>0&&run.every(function(e){return /--lane-fasting/.test(e.getAttribute('style')||'');})});})()"
+  "runOrange:run.length>0&&run.every(function(e){return /--lane-fasting/.test(e.getAttribute('style')||'');})," +
+  "shutN:shut.length,shutPct:circ?Math.round(ssum/circ*1000)/10:0," +
+  "shutOrange:shut.length>0&&shut.every(function(e){return /--lane-fasting/.test(e.getAttribute('style')||'');})});})()"
+
+# R274: A CLOSED FAST, DRAWN AT ITS TRUE LENGTH. Last meal 20:00 yesterday, the next
+# at 12:00 today, the clock at 13:00: a 16 h closed fast, 16/24 of the lane (66.7 %).
+$seedClosedFast = "(function(){try{localStorage.clear();" +
+  "HT.setClock(function(){return new Date(2026,8,3,13,0,0).getTime();});HT.boot();" +
+  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "HT.state().days['2026-09-02']={status:'open',items:[mk('a','20:00',600)],water_l:0};" +
+  "HT.state().days['2026-09-03']={status:'open',items:[mk('b','12:00',600)],water_l:0};" +
+  "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
+
+# R274 CONTROL: the gate must still FAIL when a NON-fasting span passes half the lane.
+# A planted eating arc of 60 % of the lane is added to the drawn ring and measured;
+# it must be caught (largest non-fasting span >= 50 %), then removed.
+$plantEat = "(function(){var svg=document.querySelector('#dayView .rring');var t=svg.querySelector('circle.rtrack[data-lane=eat]');" +
+  "var cx=parseFloat(t.getAttribute('cx')),cy=parseFloat(t.getAttribute('cy')),r=parseFloat(t.getAttribute('r'));" +
+  "var a1=0.6*2*Math.PI;var x1=cx+r*Math.sin(a1),y1=cy-r*Math.cos(a1);" +
+  "var p=document.createElementNS('http://www.w3.org/2000/svg','path');p.setAttribute('class','rk-eat ra-eat gateplant');p.setAttribute('data-lane','eat');" +
+  "p.setAttribute('d','M'+cx+' '+(cy-r)+' A'+r+' '+r+' 0 1 1 '+x1+' '+y1);svg.appendChild(p);return 'ok';})()"
 
 # R273: A LONG RUNNING FAST, DRAWN AT FULL LENGTH. One meal at 18:00 yesterday and
 # the clock at 12:00 today: an 18 h running fast, which must draw orange over 18/24
@@ -568,6 +591,13 @@ try {
   $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.maxPct -lt $EAT_MAX_ONE_PCT) -and ($E.dots -ge 2) -and ($E.runN -ge 1) -and $E.runOrange
   # R273: an 18 h running fast is drawn orange at FULL length -- 75 % of the lane, +-1.5.
   $F = Measure-Sparse 390 745 $seedLongFast
+  # R274: a 16 h closed fast is drawn orange at its TRUE length -- 66.7 % of the lane,
+  # +-1.5; and the planted 60 % eating arc on the same ring is caught.
+  $K = Measure-Sparse 390 745 $seedClosedFast
+  $K_ok = ($K.shutN -ge 1) -and $K.shutOrange -and ([math]::Abs($K.shutPct - 66.7) -le 1.5) -and ($K.sumPct -lt $EAT_MAX_PCT) -and ($K.maxPct -lt $EAT_MAX_ONE_PCT)
+  [void](Eval $plantEat)
+  $KP = Eval $measureEat | ConvertFrom-Json
+  $KP_ok = ($KP.maxPct -ge $EAT_MAX_ONE_PCT)
   $F_ok = ($F.runN -ge 1) -and $F.runOrange -and ([math]::Abs($F.runPct - 75) -le 1.5) -and ($F.sumPct -lt $EAT_MAX_PCT) -and ($F.maxPct -lt $EAT_MAX_ONE_PCT)
 
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
@@ -598,6 +628,9 @@ try {
   Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference, no single arc past {1}%, and keeps its meal dots -- every span but the running orange fasting span (R273)" -f $EAT_MAX_PCT, $EAT_MAX_ONE_PCT)
   Write-Host ("  18 h fast     : running spans={0} orange={1} drawn={2}% of the lane (want 75 +-1.5); other spans {3}% (largest {4}%) -> {5}" -f `
     $F.runN, $F.runOrange, $F.runPct, $F.sumPct, $F.maxPct, $F_ok)
+  Write-Host ("  16 h closed   : closed spans={0} orange={1} drawn={2}% of the lane (want 66.7 +-1.5); other spans {3}% (largest {4}%) -> {5}" -f `
+    $K.shutN, $K.shutOrange, $K.shutPct, $K.sumPct, $K.maxPct, $K_ok)
+  Write-Host ("  planted ctrl  : a 60% eating arc added -> largest non-fasting span {0}% -- caught (>= {1}%) = {2}" -f $KP.maxPct, $EAT_MAX_ONE_PCT, $KP_ok)
   Write-Host "-----------------------------------------"
 
   Write-Host ("  mini grid     : {0} rings at {1}px, {2}/row, overlaps={3} spill={4} detached-labels={5} -> {6}" -f `
@@ -610,7 +643,7 @@ try {
   Write-Host ("  what's new    : 390 h={0}px head={9}px ringBottom={1}/{2} open={3} rows | 360 h={4}px ringBottom={5}/{6} open={7} rows -> {8}" -f `
     $N1.h, $N1.ringBottom, $N1.vh, $N1.rowsOpen, $N2.h, $N2.ringBottom, $N2.vh, $N2.rowsOpen, $N_ok, $N1.headH)
   Write-Host ("                  R242/5: shown after an update from v0.90.0, the notice is ONE line (its head one text line, <= 30px; the whole notice <= 80px: one 44px tap target plus the card's padding -- a second line of text would pass that), the ring stays on the first screen, 'what's new' opens the notes and 'hide' closes them")
-  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok -and $F_ok -and $N_ok) {
+  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok -and $F_ok -and $K_ok -and $KP_ok -and $N_ok) {
     Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes + the now-hand clear of the centre text at every minute of the day)"
     Cleanup; exit 0
   }

@@ -1188,7 +1188,7 @@ Ate yesterday evening, look at it this evening: **20–22 hours, and the lane is
 
 **`EAT_GAP_MAX_FRAC = 0.5`.** A negative-space arc (`open`, `fast`) draws only while it is **under half the lane**. The boundary is **figure and ground**: past half, the eye stops reading the arc as the gap and starts reading the **remainder** as the mark — so an oversized gap arc says the opposite of what it means. Under half it reads as a gap and is genuinely useful, which is why it is kept rather than removed outright.
 
-> **Exemption (R273, 2026-10-27):** the **running orange fasting span** (`ra-open`, R265.1) is exempt from this half-the-lane limit and is drawn at full length (up to R11.1's 48 h line); every other span keeps it. `ring-size-gate` enforces both. See R273.
+> **Exemption (R273, R274, 2026-10-27): Fasting spans, running or closed, are exempt (R273, R274).** The running orange span (`ra-open`, R265.1) draws at full length up to R11.1's 48 h line, a closed fast (`ra-fasting`) at its true length; every other span keeps this limit. `ring-size-gate` enforces both, with a planted control that a non-fasting span past half the lane still fails. See R273, R274.
 
 **The information never depended on the arc.** `rhythmCenterHTML` states the gap in words unconditionally — *"22h since last logged food"*, or a date past 48 h — whether or not anything is drawn. Gated at every point in the sweep.
 
@@ -18857,3 +18857,70 @@ data, R204's rule applied to combos). Nothing was fixed.
 **3. Copyright holder -- deferred by the user.** README stays "No licence is granted.
 All rights reserved; the copyright holder is to be confirmed." (R269/3). No holder is
 named anywhere in the tree until the user rules.
+
+## R274 -- CLOSED FASTS EXEMPT FROM R18.2 TOO (2026-10-27, v0.111.1)
+
+*The user's ruling on the question R273 named. Serves **track**.*
+
+**Fasting spans, running or closed, are exempt (R273, R274)** -- recorded against
+R18.2 at D43. Every fasting span draws at its true length; every other span keeps
+R18.2's limit. No app change: v0.111.0 already drew a closed fast at its length
+(R265.1); the gate and the record now say so.
+
+**Gate.** `ring-size-gate`: the R18.2 measure now excludes `ra-fasting` as well as
+`ra-open`, each measured apart. New fixture: last meal 20:00, next 12:00, clock
+13:00 -> one closed fast, orange, **66.7 %** of the lane (want 66.7 +- 1.5). The
+running-fast cases stay (21 h: 88.3 %; 18 h: 75.0 %). **Control:** a 60 % eating arc
+planted on the drawn ring is caught (largest non-fasting span 60 % >= 50 %), so the
+gate still fails if any non-fasting span passes half the lane. PASS.
+
+R266 report: later, on the user's word. R275: the records-only commit of R272 goes
+out with this release, not alone.
+
+## R276 -- A SWITCHED-OFF STACK ITEM COULD NOT BE REACHED FROM + LOG (R270.1 Part 2; 2026-10-27, v0.111.1)
+
+*Reported: one of the user's stack items -- a food, the user's own from its label --
+was listed in + Log as "<name> -- Food -- switched off" and could be neither ticked
+nor turned back on. Serves **track**. The item's name stays out of the repo (R204);
+the gate uses "Item A".*
+
+**Cause (verified in code; probability 95 % for the whole account).** + Log drew a
+switched-off item as text only -- no checkbox and no way to switch it back on -- and
+the only way back was the "include" box under Settings > Daily stack, which + Log
+did not point to. The item's type was not the cause: + Log treats every switched-off
+item the same, whatever its type. *Who switched it off:* the only code that sets a
+stack item off is `stackItemEnable`, called only by that Settings box -- a user's
+tap, recorded since v0.109.0 as a switch event with its time and `stated` (R256).
+No code switches an item off: R202/R203's auto-add retirement never touches
+`enabled`, and nothing else writes it. The newest backup on the PC (Oct 18) has the
+item switched on with no switch events, so the switch happened on the phone after
+Oct 18; its time is in the phone's switch history (not seen here). Residual 5 %:
+something on the phone after Oct 18 that this record cannot see.
+
+**Fix (code; no stored data changed).** On today, a switched-off item in + Log >
+Daily stack carries a **Switch on** button (44 px, 16px): one tap is the user's
+switch, recorded as an event with its time exactly as the Settings box records it;
+nothing switches on by itself. A past day stays read-only (a switch made now does
+not change how that day ended). The item's **type** is shown on its Settings row
+and in Settings > Daily stack > Edit, which shows the current type selected and
+changes it on the user's tap and Save, keeping the item's switch history and join
+date -- already so; now gated. The type of the user's item is not changed.
+
+**R270.1 Part 1 (report only, no build).** Adding a supplement: Settings > Daily
+stack (open) > Add an item > Name, Amount, Unit (optional: counts toward, note) >
+Add to my stack -- four taps plus typing and a scroll, reachable only from Settings.
+A new item carries a dose and a unit; it joins the stack the day it is added
+(`added_on`, basis "added"), with no user-chosen start date; it appears in + Log >
+Daily stack as a checkbox row the same day, earlier days read "not in stack yet",
+and its switch history starts that day. *Proposed, not built:* an "+ Add to stack"
+row at the foot of + Log > Daily stack opening the same form in place (three taps
+plus typing), with a start date that defaults to today.
+
+**Gate.** `stackcheck-gate` +4 (real taps at 390 px): "Item A", a food from a label,
+switched off yesterday, is listed today as "Food . switched off" with a 44 x 44
+Switch on button; one touch switches it on (a second event, the user's, dated today;
+the type untouched) and gives the row its checkbox; ticked, it is taken at its usual
+10 g, 88 kcal; Settings > Edit shows Food selected and changes it to Supplement on
+the user's taps, keeping two switch events and the join date. **Red first** on
+v0.111.0: the first three fail (no Switch on), the fourth as a consequence (the item
+never switched on); green with the fix.

@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.111.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.111.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4953,9 +4953,17 @@ function stackSheetHTML() {
   }).join('');
   // R256: switched off that day -- shown, not counted, no checkbox; a day with a
   // switch on it carries the times behind the info button.
+  // R276: and TODAY it can be switched back on from here, in one tap -- the user's
+  // tap, recorded as a switch event like the Settings box (R256). It was text only,
+  // so an item switched off in Settings could not be reached from + Log at all. A
+  // past day stays read-only: a switch made now does not change how that day ended.
+  const today = dk === todayKey();
   const offRows = off.map(function (s) {
     return '<div class="stkrow stknotyet stkswoff"><span class="stkname">' + esc(s.name) + '</span>'
-      + '<div class="stksub">' + esc(stackKindWord(s.kind) + ' · switched off') + '</div>' + stackSwitchInfoHTML(s, dk) + '</div>';
+      + '<div class="stksub">' + esc(stackKindWord(s.kind) + ' · switched off') + '</div>'
+      + (today ? '<button type="button" class="btn stkswon" onclick="stackItemEnable(\'' + esc(String(s.id)) + '\', true)"'
+        + ' aria-label="switch ' + esc(s.name) + ' back on in your daily stack">Switch on</button>' : '')
+      + stackSwitchInfoHTML(s, dk) + '</div>';
   }).join('');
   const rows = counted.map(function (s) {
     const e = stackLatest(s, dk);
@@ -5147,7 +5155,7 @@ function stackItemEnable(id, on) {
   it.enabled = !!on;
   list[list.indexOf(it)] = normalizeStackItem(it);       // key order, as above
   Store.saveState(APP_STATE);
-  renderStackEditor(); renderSheetRoot();
+  renderStackEditor(); stackRerender();                  // R276: + Log's rows and the Quick pane too
   return { ok: true, enabled: it.enabled };
 }
 function stackFormOpen(id) {
@@ -15811,6 +15819,7 @@ const VERSION_LOG = [
   { v: '0.109.0', d: '2026-10-20', note: 'Each item in your daily stack now has the date it joined. On a day before that it reads "not in stack yet" instead of "not taken", here and in your backup file. Settings shows each date and how it was worked out. A removed item keeps its dates. Switching an item off or on in Settings is now recorded with its time: on a day it was off, it reads \"switched off\", and on a day you switched it, the times are behind its ⓘ.' },
   { v: '0.110.0', d: '2026-10-20', note: 'Blood pressure is now one chart in Trends: systolic and diastolic on one mmHg scale, each reading at the time you took it, with the gap between them (pulse pressure) shaded. Systolic is a solid line with dots, diastolic a dashed line with squares. Faint lines at 135 and 85 show Hypertension Canada\'s 2020 threshold for home readings; the ⓘ has the source and says the 2025 guideline lowered it to 130/80. Tap the chart to read a reading. Nothing is coloured as good or bad.' },
   { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide. Closing Find nutrients while its database is loading now keeps it closed.' },
+  { v: '0.111.1', d: '2026-10-27', note: 'An item switched off in your daily stack now has a Switch on button in + Log, today, so it can be switched back on where you log it; each switch is still recorded with its time. Its type (supplement, medication or food) is changed under Settings, Daily stack, Edit.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

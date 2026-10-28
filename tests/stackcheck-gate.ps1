@@ -344,6 +344,70 @@ try {
   Check (($w2 -like '*"events":4*') -and ($w2 -like '*"nine":1*')) "R256 GATE: THE BACKUP LISTS THE EVENTS -- all four for the item, the 09:00 off among them"
   Shot 'stack-switched-off'
 
+  # ---- 8. R276: A SWITCHED-OFF ITEM IS REACHABLE AND SWITCHES ON IN ONE TAP ------------------
+  # Reported: a stack item -- a food, the user's own from its label -- read "food --
+  # switched off" in + Log and could not be ticked or turned back on there. Placeholder
+  # "Item A" (R204), saved as a food from a label, switched off yesterday by the user.
+  [void](Eval "HT.closeSheet()")
+  [void](Eval ($nav + "(0)"))
+  [void](Eval @'
+(function () {
+  var S = HT.state();
+  var d1 = new Date(); d1.setDate(d1.getDate() - 1); d1.setHours(20, 0, 0, 0);
+  var p = function (n) { return ('0' + n).slice(-2); };
+  var at = d1.getFullYear() + '-' + p(d1.getMonth() + 1) + '-' + p(d1.getDate()) + 'T20:00:00';
+  var d3 = new Date(); d3.setDate(d3.getDate() - 3);
+  var k3 = d3.getFullYear() + '-' + p(d3.getMonth() + 1) + '-' + p(d3.getDate());
+  S.settings.stack = HT.normalizeStack(S.settings.stack.concat([
+    { id: 'gA', added_on: k3, added_basis: 'created', name: 'Item A', kind: 'food', enabled: false,
+      switches: [{ on: false, at: at, stated: true }],
+      part: { name: 'Item A', grams: 10, kcal: 88, fat_g: 10, protein_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0,
+              confidence: 'measured', source: 'manual', basis: 'label' } } ]));
+  HT.resave();
+  return 1;
+})()
+'@)
+  Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
+  Start-Sleep -Milliseconds 2500
+  for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
+  [void](Eval ($nav + "(0)"))
+  [void](Eval "document.getElementById('fab').click()")
+  Settle
+  [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
+  Settle
+  $rowA = "Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.querySelector('.stkname') && x.querySelector('.stkname').textContent === 'Item A'; })[0]"
+  $a0 = EvalJ ("(function(){ var r = " + $rowA + "; if (!r) return { listed: false }; var b = r.querySelector('.stkswon'); if (b) b.scrollIntoView({ block: 'center' }); var rb = b ? b.getBoundingClientRect() : null; return { listed: true, line: r.querySelector('.stksub').innerText, box: r.querySelectorAll('input[type=checkbox]').length, btn: b ? b.textContent : '', h: rb ? Math.round(rb.height) : 0, w: rb ? Math.round(rb.width) : 0, x: rb ? rb.left + rb.width / 2 : -1, y: rb ? rb.top + rb.height / 2 : -1, px: b ? parseFloat(getComputedStyle(b).fontSize) : 0 }; })()")
+  Write-Host ("  Item A, off: " + $a0)
+  $a0v = $a0 | ConvertFrom-Json
+  Check ($a0v.listed -and ($a0v.line -eq ('Food ' + [char]0xB7 + ' switched off')) -and ($a0v.box -eq 0) -and ($a0v.btn -eq 'Switch on') -and ($a0v.h -ge 44) -and ($a0v.w -ge 44) -and ($a0v.px -ge 16)) "R276 GATE: a food item switched off is LISTED in + Log and REACHABLE -- 'Food . switched off' with a 'Switch on' button, 44 x 44 at 16px"
+  Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $a0v.x; y = $a0v.y }) } | Out-Null
+  Start-Sleep -Milliseconds 40
+  Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
+  Settle
+  $a1 = EvalJ ("(function(){ var r = " + $rowA + "; var g = HT.state().settings.stack.filter(function (x) { return x.id === 'gA'; })[0]; var ev = g.switches || []; var last = ev[ev.length - 1] || {}; return { box: r ? r.querySelectorAll('input[type=checkbox]').length : -1, sub: r && r.querySelector('.stksub') ? r.querySelector('.stksub').innerText : '', on: g.enabled, n: ev.length, lastOn: last.on, stated: last.stated === true, today: String(last.at || '').slice(0, 10) === HT.todayKey(), kind: g.kind }; })()")
+  Write-Host ("  Item A, after one tap: " + $a1)
+  $a1v = $a1 | ConvertFrom-Json
+  Check (($a1v.box -eq 1) -and ($a1v.on -eq $true) -and ($a1v.n -eq 2) -and ($a1v.lastOn -eq $true) -and $a1v.stated -and $a1v.today -and ($a1v.kind -eq 'food') -and ($a1v.sub -like ('Food ' + [char]0xB7 + ' usual 10 g*not taken'))) "R276 GATE: ONE TAP SWITCHES IT ON -- a new switch event of the user's, dated today, kept beside the old one; the row now has its checkbox; its type is untouched"
+  [void](Eval ("(function(){ var r = " + $rowA + "; r.querySelector('input[type=checkbox]').click(); return 1; })()"))
+  Settle
+  $a2 = Eval "JSON.stringify((HT.state().days[HT.todayKey()] || { items: [] }).items.filter(function (i) { return i.stackId === 'gA'; }).map(function (i) { return i.name + '|' + i.grams + '|' + i.kcal; }))"
+  Check ($a2 -eq '["Item A|10|88"]') ("R276: and it can be ticked -- taken today at its usual 10 g, 88 kcal (" + $a2 + ")")
+  # its type, in ONE place: Settings -> Daily stack -> Edit shows it and changes it
+  [void](Eval "HT.closeSheet()")
+  [void](Eval "(function(){ HT.openSettings(); var d = document.getElementById('stackDetails'); if (d) d.open = true; HT.stackFormOpen('gA'); return 1; })()")
+  Settle
+  $k0 = EvalJ "(function(){ var on = document.querySelector('#stackEditor .stkkinds button[aria-pressed=true]'); var row = Array.prototype.filter.call(document.querySelectorAll('#stackEditor .stked'), function (x) { return x.querySelector('.stkname').textContent === 'Item A'; })[0]; return { pressed: on ? on.textContent : '', rowSub: row ? row.querySelector('.stksub').innerText : '' }; })()"
+  $k0v = $k0 | ConvertFrom-Json
+  [void](Eval "(function(){ var b = Array.prototype.filter.call(document.querySelectorAll('#stackEditor .stkkinds button'), function (x) { return x.textContent === 'Supplement'; })[0]; b.click(); return 1; })()")
+  Settle
+  [void](Eval "document.querySelector('#stackEditor .stksave').click()")
+  Settle
+  $k1 = EvalJ "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.id === 'gA'; })[0]; return { kind: g.kind, n: (g.switches || []).length, added: g.added_on != null, on: g.enabled }; })()"
+  Write-Host ("  Item A type: " + $k0 + " -> " + $k1)
+  $k1v = $k1 | ConvertFrom-Json
+  Check (($k0v.pressed -eq 'Food') -and ($k0v.rowSub -like 'Food *') -and ($k1v.kind -eq 'supplement') -and ($k1v.n -eq 2) -and $k1v.added -and ($k1v.on -eq $true)) "R276 GATE: ITS TYPE IS SHOWN AND CHANGED IN ONE PLACE -- Settings > Daily stack > Edit shows 'Food' selected; the user's tap on Supplement and Save change it, keeping its switch history and join date"
+  Shot 'stack-switch-on'
+
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup
