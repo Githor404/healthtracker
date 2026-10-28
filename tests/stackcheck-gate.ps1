@@ -380,6 +380,7 @@ try {
   Write-Host ("  Item A, off: " + $a0)
   $a0v = $a0 | ConvertFrom-Json
   Check ($a0v.listed -and ($a0v.line -eq ('Food ' + [char]0xB7 + ' switched off')) -and ($a0v.box -eq 0) -and ($a0v.btn -eq 'Switch on') -and ($a0v.h -ge 44) -and ($a0v.w -ge 44) -and ($a0v.px -ge 16)) "R276 GATE: a food item switched off is LISTED in + Log and REACHABLE -- 'Food . switched off' with a 'Switch on' button, 44 x 44 at 16px"
+  Shot 'stack-item-off'
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $a0v.x; y = $a0v.y }) } | Out-Null
   Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
