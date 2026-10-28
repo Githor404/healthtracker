@@ -190,6 +190,9 @@ try {
   Write-Host ("  opened: " + $r0)
   $r0v = $r0 | ConvertFrom-Json
   Check (($r0v.n -eq 3) -and ($r0v.checked -eq 0) -and ($r0v.sub[0] -like ('Supplement ' + [char]0xB7 + ' usual 1000 IU ' + [char]0xB7 + ' not taken'))) "R246: opened, each item is a checkbox row, unchecked, saying its usual dose and 'not taken'"
+  # The clock is read on both sides of the tap: a tap in the last second of a minute is
+  # stamped with that minute and read back in the next (seen in a suite run, 18:28 / 18:29).
+  $nowB = Eval "(function(){ var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); })()"
   [void](Eval "document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]')[0].click()")
   Settle
   $r1 = EvalJ "(function(){ var r = document.querySelectorAll('#sheetRoot .stkrow')[0]; var d = r.querySelector('.stkdose'), t = r.querySelector('.stktime'); var rd = d ? d.getBoundingClientRect() : null, rt = t ? t.getBoundingClientRect() : null; return { checked: r.querySelector('input').checked, line: r.innerText.replace(/\s+/g, ' ').trim(), dose: d ? d.textContent : '', time: t ? t.textContent : '', dh: rd ? Math.round(rd.height) : 0, dw: rd ? Math.round(rd.width) : 0, th: rt ? Math.round(rt.height) : 0, tw: rt ? Math.round(rt.width) : 0, px: d ? parseFloat(getComputedStyle(d).fontSize) : 0, head: document.querySelector('#sheetRoot .stkopen').textContent, wide: document.documentElement.scrollWidth - document.documentElement.clientWidth }; })()"
@@ -197,8 +200,9 @@ try {
   $r1v = $r1 | ConvertFrom-Json
   $t2 = EvalJ $state
   $t2v = $t2 | ConvertFrom-Json
-  Check (($r1v.checked -eq $true) -and (@($t2v.doses).Count -eq 1) -and ($t2v.doses[0] -eq ('Gate D|1000|IU|' + $t2v.now + '|g1|'))) "R246 GATE: ONE TAP = CHECKED, taken NOW at the USUAL dose -- 1000 IU, linked to its item, nothing stated"
-  Check (($r1v.line -like ('Gate D 1000 IU ' + $t2v.now + '*')) -and ($r1v.head -eq ('Daily stack ' + [char]0xB7 + ' 1 of 3 taken'))) ("R246: the row reads 'Gate D . 1000 IU . " + $t2v.now + "' and the head counts it (" + $r1v.line + ")")
+  $tTap = if ((@($t2v.doses).Count -eq 1) -and ($t2v.doses[0] -eq ('Gate D|1000|IU|' + $nowB + '|g1|'))) { $nowB } else { $t2v.now }
+  Check (($r1v.checked -eq $true) -and (@($t2v.doses).Count -eq 1) -and ($t2v.doses[0] -eq ('Gate D|1000|IU|' + $tTap + '|g1|'))) "R246 GATE: ONE TAP = CHECKED, taken NOW at the USUAL dose -- 1000 IU, linked to its item, nothing stated"
+  Check (($r1v.line -like ('Gate D 1000 IU ' + $tTap + '*')) -and ($r1v.head -eq ('Daily stack ' + [char]0xB7 + ' 1 of 3 taken'))) ("R246: the row reads 'Gate D . 1000 IU . " + $tTap + "' and the head counts it (" + $r1v.line + ")")
   Check (($r1v.dh -ge 44) -and ($r1v.dw -ge 44) -and ($r1v.th -ge 44) -and ($r1v.tw -ge 44) -and ($r1v.px -ge 16) -and ($r1v.wide -le 0)) "the dose and the time are each a 44 x 44 control at 16px, nothing off the side at 390 px"
   Shot 'stack-checked'
 
