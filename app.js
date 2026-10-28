@@ -50,10 +50,16 @@ const MACRO_KEYS  = ['kcal', 'protein_g', 'fat_g', 'carb_g', 'fiber_g', 'soluble
 // may itself say 0: water, black coffee, tea) or the user's own food from its
 // label is a known zero; anything else is NOT COUNTED, said on the day, and ends
 // a fast. Decided on read: the stored item is untouched.
+// R271: A SCANNED LABEL THAT PRINTS AN ENERGY FIGURE IS A LABEL. Its 0 (a diet
+// drink) is a known zero; `kcal_on_label` is set at the scan only when OFF carried
+// an energy figure, so a scan whose label had none (absent -> 0) stays unknown.
 const itemZeroUnknown = (it) => !!it && it.unresolved !== true && !isLegacyAuto(it)
   && !MACRO_KEYS.some((k) => num(it[k]) > 0)
-  && !precRowValues(it.ref, it.grams) && it.basis !== 'label';
+  && !precRowValues(it.ref, it.grams) && it.basis !== 'label' && it.kcal_on_label !== true;
 const itemHasMacros = (it) => !!it && it.unresolved !== true && !itemZeroUnknown(it);
+// R271: the field that marks an item as carrying R269's READING of it -- held in
+// memory only, never stored (storedItem / storedState).
+const R269_VIEW = '_r269';
 
 // ---- small helpers --------------------------------------------------------
 // Escaper covers & < > " ' (baseline rule #2).
@@ -142,7 +148,7 @@ const Store = (() => {
     readRaw,
 
     saveState(blob) {
-      const json = JSON.stringify(blob);
+      const json = JSON.stringify(storedState(blob));   // R271: as logged, never R269's reading
       if (tier === 'local' && writeRaw(STORE_KEY, json)) { lastWriteOk = true; return true; }
       lastWriteOk = false; tier = 'memory'; memoryBlob = blob; return false;
     },
@@ -150,7 +156,7 @@ const Store = (() => {
     // D3: durable single-slot pre-restore backup.
     backup(blob) {
       if (tier !== 'local') return false;
-      return writeRaw(PRERESTORE_KEY, JSON.stringify(blob));
+      return writeRaw(PRERESTORE_KEY, JSON.stringify(storedState(blob)));   // R271
     },
     peekBackup() { return readRaw(PRERESTORE_KEY); },
     revertBackup(snapshot) {
@@ -677,6 +683,13 @@ function normalizeItem(it, clampMacros) {
   if (it.provisional === true && sugI) out.provisional = true;
   const edI = normalizeEditedAt(it.edited_at);
   if (edI) out.edited_at = edI;
+  // R271, declared in the commit that writes it (D129): the scan's label carried
+  // an energy figure, so its kcal -- 0 included -- is the label's.
+  if (it.kcal_on_label === true) out.kcal_on_label = true;
+  // R271: the in-memory R269 reading rides through a rebuild of a LIVE item, so
+  // the save boundary can still write the item as logged (storedItem). Never
+  // stored: storedState removes it, and the restore boundary drops one arriving.
+  if (it[R269_VIEW] && it[R269_VIEW].was) out[R269_VIEW] = it[R269_VIEW];
   return out;
 }
 
@@ -1992,7 +2005,7 @@ function boot() {
   if (normSettings !== JSON.stringify(state.settings)) dirty = true;
   state.settings = JSON.parse(normSettings);
   if (stackBackfillAddedOn(state)) dirty = true;        // R255: once, then stored
-  if (suggestUncountedPast(state, nowISO)) dirty = true; // R269: the not-counted past, suggested
+  suggestUncountedPast(state, nowISO);                  // R269/R271: suggested on read, never dirty
 
   if (normalizeStatuses(state)) dirty = true;
   if (ensureCurrentDay(state)) dirty = true;
@@ -2021,7 +2034,7 @@ function exportStreams() {
   };
 }
 function exportJSON() {
-  const body = JSON.stringify(APP_STATE, null, 2);
+  const body = JSON.stringify(storedState(APP_STATE), null, 2);   // R271: the log as logged
   // The state stays indented as it always was; the streams are appended as one
   // compact line, so the file is still one valid JSON object.
   return body.slice(0, body.lastIndexOf('}')).replace(/\s+$/, '')
@@ -2056,6 +2069,11 @@ function parseImport(raw) {
     return { ok: false, error: 'Unrecognized log format (no version).' };   // legacy/absent rejected
   if (v > SCHEMA_VERSION)
     return { ok: false, error: 'This export is from a newer version of the app.' };
+  // R271: a reading is never data -- a file cannot bring one in.
+  Object.keys(o.days).forEach(function (k) {
+    const its = o.days[k] && o.days[k].items;
+    if (Array.isArray(its)) its.forEach(function (x) { if (x && typeof x === 'object') delete x[R269_VIEW]; });
+  });
   if (v === 1) {
     const s1 = migrateToLatest(o, new Date().toISOString());
     suggestUncountedPast(s1, new Date().toISOString());                    // R269, as boot does
@@ -2850,10 +2868,14 @@ function resolveOpen(dateKey, idx, queryOverride) {
   const day = APP_STATE.days[dateKey];
   const it = day && day.items && day.items[idx];
   if (!it) return Promise.resolve({ ok: false, why: 'no-item' });
-  RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'loading', name: it.name,
+  // R271: the panel this call opened. Closed (or replaced by a newer search)
+  // while the database was still loading, it stays closed: the answer arriving
+  // later re-rendered it, so a closed panel opened again by itself.
+  const opened = RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'loading', name: it.name,
                    query: queryOverride != null ? queryOverride : it.name };
   renderResolve();
   return corpusEnsure().then(function () {
+    if (RESOLVE_VIEW !== opened) return { ok: false, why: 'closed' };
     const m = CORPUS_MEM;
     if (!m || !m.index) {
       RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'none', why: 'no-corpus', name: it.name };
@@ -2884,6 +2906,7 @@ function resolveOpen(dateKey, idx, queryOverride) {
                  state: foodState(c.name) };
       });
     })).then(function (rows) {
+      if (RESOLVE_VIEW !== opened) return { ok: false, why: 'closed' };   // R271
       const byId = {};
       rows.forEach(function (r) { byId[r.id] = r; });
       const rich = cands.map(function (c) {
@@ -3425,7 +3448,8 @@ function itemCountStateHTML(dk, idx, it) {
   if (it.provisional === true && it.suggested) {
     return '<div class="mcount msugg"><button type="button" class="linklike msuggbtn" onclick="event.stopPropagation();confirmSuggested(\''
       + esc(dk) + '\',' + idx + ')">suggested \u2014 tap to confirm</button>'
-      + '<span class="msuggfrom"> ' + esc(foodDisplayName(it.suggested.name || '')) + ', from what you chose before</span></div>';
+      + '<span class="msuggfrom"> ' + esc(foodDisplayName(it.suggested.name || '')) + ', from what you chose '
+      + (it[R269_VIEW] && it[R269_VIEW].from ? 'on ' + esc(fmtDateSmart(it[R269_VIEW].from, false)) : 'before') + '</span></div>';
   }
   if (!itemHasMacros(it)) {
     return '<div class="mcount mnotc"><button type="button" class="linklike mnotcbtn" onclick="event.stopPropagation();resolveOpen(\''
@@ -3438,6 +3462,9 @@ function itemRecountHTML(it) {
   const r = it && it.recomputed;
   if (!r) return '';
   const was = r.was || {};
+  // R271: R269's reading is not a recount of the stored item -- it is shown, not kept.
+  if (it[R269_VIEW]) return '<div class="mrecount">Suggested on read, not saved \u2014 as logged it '
+    + (was.unresolved || !(num(was.kcal) > 0) ? 'was not counted' : 'was ' + esc(kcalDisp(was.kcal)) + ' cal') + '</div>';
   return '<div class="mrecount">Recounted from its food database row'
     + (was.unresolved ? ' \u2014 it was not counted before' : ' \u2014 was ' + esc(kcalDisp(was.kcal)) + ' cal')
     + '</div>';
@@ -3493,7 +3520,7 @@ function uncountedLineHTML(dk, t) {
 // then an earlier item of the same name with a linked row. Only the user's own
 // choices propose: the matcher's top pick is right 16 times in 38 (D141), and a
 // provisional number from it would be a wrong food counted quietly.
-function rememberedRefItem(key) {
+function rememberedRefItem(key, out) {
   if (!key || !APP_STATE || !APP_STATE.days) return null;
   const days = Object.keys(APP_STATE.days).filter(isDayKey).sort().reverse();
   for (let i = 0; i < days.length; i++) {
@@ -3502,12 +3529,15 @@ function rememberedRefItem(key) {
       const it = items[j];
       if (!it || !it.ref || !it.ref.v || it.ref.v['208'] == null) continue;
       if (it.ref.how === 'confirmed despite state mismatch') continue;   // D135/1
-      if (matchKey(it.name) === key || matchKey(it.ref.name) === key) return it;
+      if (matchKey(it.name) === key || matchKey(it.ref.name) === key) {
+        if (out) out.date = days[i];                  // R271: which entry it came from
+        return it;
+      }
     }
   }
   return null;
 }
-function suggestionFor(it) {
+function suggestionFor(it, out) {
   const g = Number(it && it.grams);
   if (!(g > 0)) return null;
   let src = null;
@@ -3517,8 +3547,8 @@ function suggestionFor(it) {
   // the newest correction can be this very item, with no row behind it.
   const sk = said ? matchKey(said) : '';
   const hit = sk ? correctionsAll().filter(function (c) { return c.modelKey === sk && c.refId; })[0] : null;
-  if (hit) src = rememberedRefItem(hit.chosenKey);
-  if (!src) src = rememberedRefItem(matchKey(String((it && it.name) || '')));
+  if (hit) src = rememberedRefItem(hit.chosenKey, out);
+  if (!src) src = rememberedRefItem(matchKey(String((it && it.name) || '')), out);
   if (!src) return null;
   const at = refAtGrams(src.ref, g, { basis: src.grams });       // the one rescale (R242)
   if (!at) return null;
@@ -3532,8 +3562,16 @@ function suggestionFor(it) {
 // later choice said what it was. Every uncounted item (unresolved, or a zero
 // nobody measured) with grams and no row or suggestion now takes the row the
 // user's OWN past offers -- suggestionFor, capture's own rule -- and counts
-// provisionally, "suggested -- tap to confirm"; what it had stays in
-// `recomputed.was`. No remembered row, no change. Idempotent; boot and import.
+// provisionally, "suggested -- tap to confirm".
+//
+// R271: ON READ, NOT STORED. R269 wrote the suggestion into the log on the next
+// save; the ruling was "applied on read", and R237's "an item with no linked row
+// stays exactly as logged" stands. So the reading lives on the in-memory item
+// only, with what the item was as logged under `_r269`, and every write of the
+// log (Store.saveState, the pre-restore backup, the export, the trash) goes
+// through storedItem, which writes such an item back exactly as logged -- unless
+// the user has since confirmed it or picked a row, which makes the numbers
+// theirs. Boot and import run it; it never makes the log dirty. Idempotent.
 function suggestUncountedPast(state, nowISO) {
   if (!state || !state.days) return 0;
   const keep = APP_STATE;
@@ -3543,22 +3581,63 @@ function suggestUncountedPast(state, nowISO) {
     Object.keys(state.days).filter(isDayKey).forEach(function (dk) {
       const items = (state.days[dk] && state.days[dk].items) || [];
       items.forEach(function (it, i) {
-        if (!it || isLegacyAuto(it) || it.ref || it.suggested || itemHasMacros(it)) return;
-        const sg = suggestionFor(it);
+        if (!it || isLegacyAuto(it) || it.ref || it.suggested || it[R269_VIEW] || itemHasMacros(it)) return;
+        const from = {};
+        const sg = suggestionFor(it, from);
         if (!sg) return;
         const was = {};
-        if (it.unresolved === true) was.unresolved = true;
-        else MACRO_KEYS.forEach(function (k) { if (it[k] !== undefined) was[k] = num(it[k]); });
+        MACRO_KEYS.concat(['unresolved']).forEach(function (k) {
+          if (Object.prototype.hasOwnProperty.call(it, k)) was[k] = it[k];
+        });
         const c = Object.assign({}, it, { suggested: sg, provisional: true });
         applyPrecedence(c);
         if (c.provisional !== true) return;
-        c.recomputed = { rule: 'R269', at: nowISO, was: was };
-        items[i] = normalizeItem(c, true);
+        const view = { was: was, keys: Object.keys(it), from: from.date || '' };
+        if (it.recomputed !== undefined) view.recomputed = it.recomputed;
+        c.recomputed = { rule: 'R269', at: nowISO,
+                         was: was.unresolved === true ? { unresolved: true } : MACRO_KEYS.reduce(function (o, k) {
+                           if (was[k] !== undefined) o[k] = num(was[k]); return o; }, {}) };
+        c[R269_VIEW] = view;
+        items[i] = c;
         n++;
       });
     });
   } finally { APP_STATE = keep; }
   return n;
+}
+// R271: an item as it is STORED. One carrying R269's reading goes back exactly as
+// logged -- its own numbers, its own fields, its own key order -- while it is
+// still only suggested; its other fields (a time, an eaten share the user set)
+// are kept. Confirmed or given a row, it is the user's now and is stored as it is.
+function storedItem(it) {
+  const r = it && it[R269_VIEW];
+  if (!r) return it;
+  const out = Object.assign({}, it);
+  delete out[R269_VIEW];
+  if (out.provisional !== true) return out;
+  delete out.suggested; delete out.provisional; delete out.unresolved; delete out.recomputed;
+  MACRO_KEYS.forEach(function (k) { delete out[k]; });
+  Object.keys(r.was || {}).forEach(function (k) { out[k] = r.was[k]; });
+  if (r.recomputed !== undefined) out.recomputed = r.recomputed;
+  const o = {};
+  (Array.isArray(r.keys) ? r.keys : []).forEach(function (k) {
+    if (Object.prototype.hasOwnProperty.call(out, k)) o[k] = out[k];
+  });
+  Object.keys(out).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(o, k)) o[k] = out[k]; });
+  return o;
+}
+function storedState(state) {
+  if (!state || !state.days || typeof state.days !== 'object') return state;
+  let any = false;
+  const days = {};
+  Object.keys(state.days).forEach(function (dk) {
+    const d = state.days[dk];
+    if (d && Array.isArray(d.items) && d.items.some(function (x) { return x && x[R269_VIEW]; })) {
+      any = true;
+      days[dk] = Object.assign({}, d, { items: d.items.map(storedItem) });
+    } else days[dk] = d;
+  });
+  return any ? Object.assign({}, state, { days: days }) : state;
 }
 function resolveItem(dayKey, idx, corpusId, corpusName, distance, how) {
   const day = APP_STATE.days[dayKey];
@@ -6885,6 +6964,8 @@ function buildRepeatItem(src, time, from, grams) {
   const c = JSON.parse(JSON.stringify(src));
   delete c.plateId; delete c.plateIdx; delete c.mealId; delete c.ate;   // this is not that plate
   delete c.orig; delete c.edited_at; delete c._auto;                    // nor that record's history
+  delete c[R269_VIEW];                                                  // R271: a new entry, stored as made
+  if (c.recomputed && c.recomputed.rule === 'R269') delete c.recomputed;
   c.time = time;
   c.tzo = nowTZO();
   if (grams != null && String(grams) !== '') c.grams = clampNonNeg(grams);
@@ -7525,6 +7606,11 @@ function offEnergyKcal(n) {
   if (n['energy_100g'] != null)      return clampNonNeg(num(n['energy_100g']) / 4.184);
   return 0;
 }
+function offEnergyOnLabel(n) {
+  return ['energy-kcal_100g', 'energy_100g'].some(function (k) {
+    return n[k] != null && String(n[k]).trim() !== '' && Number.isFinite(Number(n[k]));
+  });
+}
 
 // OFF nutriment base -> canonical micro key + target unit. Sodium is special
 // (sodium OR salt-derived) and handled outside this table.
@@ -7585,6 +7671,9 @@ function mapOffProduct(json, barcode) {
   };
   const micros = mapOffMicros(n);
   if (Object.keys(micros).length) rec.micros = micros;   // absence -> omit the key entirely
+  // R271: whether the label PRINTS an energy figure. offEnergyKcal gives 0 for a
+  // printed 0 and for no figure alike; only this tells them apart.
+  if (offEnergyOnLabel(n)) rec.kcalOnLabel = true;
   return rec;
 }
 
@@ -7640,6 +7729,7 @@ function buildScanItem(rec, mode, customGrams, meal, dayKey) {
     grams: s.grams,
     notes: '',
     micros: s.micros, tzo: nowTZO(),   // D29 (stamped)
+    kcal_on_label: rec.kcalOnLabel === true,   // R271: a printed 0 is a known 0
   }, true);
 }
 function logScanItem(rec, mode, customGrams, meal) {
@@ -15720,7 +15810,7 @@ const VERSION_LOG = [
   { v: '0.108.0', d: '2026-10-20', note: 'Your daily stack is now one row per item. Tick an item when you take it: it is logged now at its usual dose, and the row shows the dose and the time. Tap either to change it. Untick to take it back, with Undo. Took all ticks everything not yet taken. An item left unticked counts as not taken that day, and your backup file says so.' },
   { v: '0.109.0', d: '2026-10-20', note: 'Each item in your daily stack now has the date it joined. On a day before that it reads "not in stack yet" instead of "not taken", here and in your backup file. Settings shows each date and how it was worked out. A removed item keeps its dates. Switching an item off or on in Settings is now recorded with its time: on a day it was off, it reads \"switched off\", and on a day you switched it, the times are behind its ⓘ.' },
   { v: '0.110.0', d: '2026-10-20', note: 'Blood pressure is now one chart in Trends: systolic and diastolic on one mmHg scale, each reading at the time you took it, with the gap between them (pulse pressure) shaded. Systolic is a solid line with dots, diastolic a dashed line with squares. Faint lines at 135 and 85 show Hypertension Canada\'s 2020 threshold for home readings; the ⓘ has the source and says the 2025 guideline lowered it to 130/80. Tap the chart to read a reading. Nothing is coloured as good or bad.' },
-  { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide.' },
+  { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide. Closing Find nutrients while its database is loading now keeps it closed.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -23543,7 +23633,7 @@ function trashPut(dateKey, item, idx) {
   const list = trashRead();
   const entry = { id: 'tr_' + nowMs().toString(36) + '_' + Math.random().toString(36).slice(2, 7),
                   date: String(dateKey), idx: (idx >= 0 ? idx : -1), at: nowMs(),
-                  item: JSON.parse(JSON.stringify(item)) };
+                  item: JSON.parse(JSON.stringify(storedItem(item))) };   // R271: as logged
   list.push(entry);
   const pruned = trashPrune(list);
   trashWrite(pruned);
@@ -23574,6 +23664,7 @@ function trashRestore(id) {
   day.items.splice(at, 0, JSON.parse(JSON.stringify(e.item)));
   if (day.status === 'complete') day.status = 'in_progress';
   trashDrop(e.id);
+  suggestUncountedPast(APP_STATE, new Date().toISOString());   // R271: read again, as boot does
   Store.saveState(APP_STATE); refresh();
   return { ok: true, date: e.date, index: at, exact: at === e.idx };
 }
@@ -25415,6 +25506,7 @@ window.HT = {
   VERSION_LOG, cmpVersion, versionNotesBetween, versionNotice, checkVersionNotice, toggleVersionNotice,
   dismissVersionNotice, renderVersionNotice, byokBusy,
   itemZeroUnknown, suggestUncountedPast, weekFasts,   // R269
+  storedItem, storedState, R269_VIEW, offEnergyOnLabel, itemRecountHTML,   // R271
   versionLine, renderVersionLine,
   // Phase 2 Slice 1 — OFF lookup + micros + portion + cache (D13, D14)
   mapOffProduct, mapOffMicros, offToTarget, scalePortion, portionGrams,

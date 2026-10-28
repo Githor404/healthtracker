@@ -18658,3 +18658,76 @@ summary, the weekly fasting card with two unlogged gaps, a day with a not-counte
 **Cost.** App: about 120 lines; no schema change, no new store, nothing sent
 anywhere; boot does one more pass over the log (suggestions only for not-counted
 items with grams). Tests: one gate (about 1 min), 13 harness assertions.
+
+## R271 -- R269 CORRECTED: THE WINE SUGGESTION IS A READING, NEVER STORED; A LABEL'S 0 IS A KNOWN 0; FIND NUTRIENTS STAYS CLOSED (2026-10-27, folded into v0.111.0)
+
+*The user's rulings of 27 Oct on two places where R269 departed from what was
+ruled, and on the bug R269 found. All three serve **track**. Folded into the
+unreleased v0.111.0 with R265.1 and R269.*
+
+**Part 1 -- on read, not stored.** R269 wrote the suggested numbers into the log on
+the next save; the ruling was "fix in code, applied on read", the user has refused
+manual repair of stored data, and **R237's "an item with no linked row stays exactly
+as logged" stands** (R269's reading of it as superseded is withdrawn). Now:
+`suggestUncountedPast` builds the provisional reading on the in-memory item only,
+keeping what the item was as logged -- its own numbers, its key order and any earlier
+`recomputed` -- under `_r269`. Every write of the log passes `storedState` /
+`storedItem`: `Store.saveState`, the pre-restore backup, the export and the trash,
+so each such entry is written back **exactly as logged** while it is only
+suggested. Boot no longer marks the log dirty for it. A file cannot bring a reading
+in (the restore boundary drops `_r269`); a repeat of a suggested item is a new entry
+and carries none. Two acts make the numbers the user's and are stored as they are:
+**"tap to confirm"** and picking a row. Changing a suggested item's eaten share or
+time stores that change with the item's logged numbers, and the suggestion is
+worked out again on the next read.
+
+*What "a provisional suggestion from your own later choice of food" means:* for an
+entry with no numbers, the app looks for the **newest entry you yourself linked to a
+database row under the same name** (or, for a photo item, your newest correction of
+what the AI called it, if that has a row), and counts **that row at this entry's
+grams**, marked "suggested -- tap to confirm", because your own choice of what that
+food was is better evidence than the matcher's guess; for the photographed wines
+that is the CNF 2852 white-wine row you picked, which postdates them -- hence
+"later". The row now says which entry: "..., from what you chose on Oct 24", and
+under it "Suggested on read, not saved -- as logged it was not counted".
+
+**Part 2 -- a label that prints 0 kcal is a known 0.** R269 named the gap: a scan
+stored 0 for a label that prints 0 and for a label with no energy figure alike.
+`mapOffProduct` now records whether the label prints an energy figure (kcal or kJ, 0
+included) and the scan item carries `kcal_on_label: true` (additive, allowlisted in
+`normalizeItem`, no schema bump). `itemZeroUnknown` treats it as a known zero:
+counted, and it leaves a fast intact. A label with no figure stays unknown (the
+ravioli case, kept). *Limit, stated:* scans logged before this build carry no flag
+and the product cache kept only the mapped 0, so a past diet-drink scan still reads
+unknown; linking its database row, or scanning it again, makes it known.
+
+**Part 3 -- accepted as built** (no change): the bagel, the har gau and the two
+ravioli scans read "not counted" and end a fast; the three Manual coffees stay as
+built while the user answers whether they were black.
+
+**Part 4 -- Find nutrients stays closed.** Closed (or replaced by a newer search)
+while its database was still loading, the panel was opened again by the answer
+arriving. `resolveOpen` now keeps the view it opened and does nothing when the
+answer finds a different one.
+
+**Part 5 -- pending, unchanged:** R265.1's open items (Fork G, Stopped eating,
+past "Ate, didn't log" answers, the calibration entry, the alcohol ring, the G7
+quote) and the copyright holder.
+
+**Gates.** Harness 3357 -> 3369 (+12): boot suggests and stores nothing (the stored
+day byte-identical to the day as logged); a save of the same day for another reason
+writes the wines back as logged and no `_r269` reaches storage; the export carries
+the entries as logged; on screen the reading still counts (114.8 kcal provisional)
+with its source entry's date and "not saved"; a restore reads again and stores the
+file's wines as logged; a confirm stores that one wine with its row and leaves the
+other a reading. "Diet drink A", a scanned label at 0 kcal, is counted and keeps a
+16 h fast; the same scan with no energy figure ends it (control); kJ 0 counts as a
+printed figure; the flag round-trips. `close-gate` +3: on a fresh profile the corpus
+download is **held** by CDP (the page bypasses the service worker, whose fetches are
+out of the page's sight), the panel is open and loading, its close link is
+**tapped**, the download released -- the panel stays closed. **Red first** on HEAD's
+`app.js` (the panel reopened, phase "pick"); green with the fix. The changed row read
+at 390 px before the suite.
+
+**Cost.** App: about 110 lines; no schema change, no new store, nothing sent
+anywhere. Tests: 12 harness assertions, 3 close-gate checks (seconds).

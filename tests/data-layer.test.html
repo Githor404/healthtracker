@@ -1400,6 +1400,69 @@ window.setLS({});
   var b269 = HT.state().days[d269].items;
   res(b269[0].provisional === true && Math.abs(b269[1].kcal - 123) < 1e-9 && HT.state().days[e269].items[0].kcal === 147.6,
       'R269 GATE: BOOT gives a stored log the same suggestions -- in code, on read, retroactive; the picked wine is untouched');
+  // ---- R271 Part 1: ON READ, NOT STORED. The suggestion is a reading; the log keeps
+  // every entry exactly as logged (R237's "no linked row stays as logged" stands).
+  var asLogged271 = JSON.stringify(JSON.parse(raw269).days[d269]);
+  var stored271 = function () { return JSON.stringify(JSON.parse(localStorage.getItem('healthtracker-log')).days[d269]); };
+  res(stored271() === asLogged271,
+      'R271 GATE 1: BOOT suggests and STORES NOTHING -- the stored day is byte-identical to the day as logged', stored271());
+  HT.state().days[d269].items.push({ name: 'Gate apple', meal: 'snack', time: '15:00', grams: 100, kcal: 52, protein_g: 0.3, fat_g: 0.2, carb_g: 14, fiber_g: 2.4,
+                                     soluble_fiber_g: 0, source: 'manual', confidence: 'eyeballed', notes: '' });
+  HT.resave();
+  var s271 = JSON.parse(localStorage.getItem('healthtracker-log')).days[d269].items;
+  res(JSON.stringify(s271.slice(0, 3)) === JSON.stringify(JSON.parse(raw269).days[d269].items) && s271.length === 4
+      && localStorage.getItem('healthtracker-log').indexOf('_r269') < 0,
+      'R271 GATE 1: a SAVE of the same day for another reason writes the suggested wines back exactly as logged, and no reading is ever stored', JSON.stringify(s271[0]));
+  var ex271 = HT.exportJSON();
+  res(JSON.stringify(JSON.parse(ex271).days[d269].items.slice(0, 3)) === JSON.stringify(JSON.parse(raw269).days[d269].items) && ex271.indexOf('_r269') < 0,
+      'R271 GATE 1: the EXPORT carries the entries as logged, not the suggestion');
+  res(HT.state().days[d269].items[0].provisional === true && Math.abs(HT.state().days[d269].items[0].kcal - 114.8) < 1e-9
+      && HT.dayUncounted(d269).length === 1,
+      'R271 1: on screen the reading still counts -- 114.8 kcal provisional; only the gramless wine says not counted');
+  var from271 = HT.itemCountStateHTML(d269, 0, HT.state().days[d269].items[0]);
+  res(from271.indexOf('from what you chose on ' + HT.fmtDateSmart(e269, false)) >= 0 && /suggested/.test(from271)
+      && /Suggested on read, not saved/.test(HT.itemRecountHTML(HT.state().days[d269].items[0])),
+      'R271 1: its provenance is shown -- "suggested -- tap to confirm", the entry it came from (that date), and that it is a reading, not saved', from271);
+  HT.restore(ex271);
+  var r271 = JSON.parse(localStorage.getItem('healthtracker-log')).days[d269].items;
+  res(r271[0].unresolved === true && !r271[0].provisional && !r271[0].suggested && r271[1].kcal === 0 && !r271[1].provisional
+      && localStorage.getItem('healthtracker-log').indexOf('_r269') < 0 && HT.state().days[d269].items[0].provisional === true,
+      'R271 1: a RESTORE suggests on read again and stores the wines as the file logged them', JSON.stringify(r271[0]));
+  HT.confirmSuggested(d269, 0);
+  var c271 = JSON.parse(localStorage.getItem('healthtracker-log')).days[d269].items;
+  res(c271[0].ref && c271[0].ref.id === '2852' && Math.abs(c271[0].kcal - 114.8) < 1e-9 && !c271[0].provisional && !('_r269' in c271[0])
+      && c271[1].kcal === 0 && !c271[1].provisional && !c271[1].suggested,
+      'R271 1: CONFIRMED by the user\'s tap, that one wine is theirs and is stored with its row; the other suggestion stays a reading', JSON.stringify(c271[0]));
+  setLS({}); HT.boot();
+  // ---- R271 Part 2: A LABEL 0 IS A KNOWN 0. A scanned label that PRINTS 0 kcal (a
+  // diet drink) is a label value, not an absence; a label with no energy figure is.
+  var off271 = function (nut) { return HT.mapOffProduct({ product: { product_name: 'Diet drink A', serving_quantity: 330, nutriments: nut } }, '00000000271'); };
+  var diet271 = off271({ 'energy-kcal_100g': 0, 'proteins_100g': 0, 'fat_100g': 0, 'carbohydrates_100g': 0 });
+  var dietKj271 = off271({ 'energy_100g': '0' });
+  var none271 = off271({ 'proteins_100g': 0 });
+  res(diet271.kcalOnLabel === true && dietKj271.kcalOnLabel === true && none271.kcalOnLabel !== true,
+      'R271 2: the scan records WHETHER the label prints an energy figure (kcal or kJ, 0 included) -- a label with none does not');
+  var dItem271 = HT.buildScanItem(diet271, 'per_serving', 0, 'drink', td);
+  var nItem271 = HT.buildScanItem(none271, 'per_serving', 0, 'drink', td);
+  res(dItem271.kcal_on_label === true && dItem271.kcal === 0 && !HT.itemZeroUnknown(dItem271) && HT.itemHasMacros(dItem271)
+      && HT.itemZeroUnknown(nItem271) && !nItem271.kcal_on_label,
+      'R271 GATE 2: "Diet drink A", a scanned label that reads 0 kcal, is a KNOWN 0 (counted); a label with no energy figure stays not counted');
+  var fs271 = HT.state(); fs271.days = {}; fs271.days[td] = { status: 'in_progress', items: [], water_l: 0 };
+  fs271.days['2026-06-01'] = { status: 'in_progress', water_l: 0, items: [{ name: 'm', meal: 'lunch', time: '20:00', kcal: 500, soluble_fiber_g: 0 }] };
+  fs271.days['2026-06-02'] = { status: 'in_progress', water_l: 0, items: [
+    { name: 'Diet drink A', meal: 'drink', time: '02:00', grams: 330, kcal: 0, protein_g: 0, fat_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0,
+      source: 'scan', confidence: 'measured', barcode: '00000000271', notes: '', kcal_on_label: true },
+    { name: 'm', meal: 'lunch', time: '12:00', kcal: 500, soluble_fiber_g: 0 }] };
+  res(HT.detectFastCandidates().length===1 && HT.detectFastCandidates()[0].hours===16,
+      'R271 GATE 2: a scanned 0 kcal label mid-gap leaves the fast INTACT (one 16 h fast)');
+  delete HT.state().days['2026-06-02'].items[0].kcal_on_label;
+  res(HT.detectFastCandidates().length===0,
+      'R271 2 CONTROL: the same scan with no energy figure on its label ends the fast (R269, kept: the ravioli case)');
+  HT.state().days['2026-06-02'].items[0].kcal_on_label = true; HT.resave();
+  var rt271 = HT.exportJSON(); window.__confirm = true; HT.restore(rt271);
+  var rt271b = HT.exportJSON(); HT.restore(rt271b);
+  res(HT.state().days['2026-06-02'].items[0].kcal_on_label === true && HT.exportJSON() === rt271b,
+      'R271 2: kcal_on_label survives export -> restore, byte-identical');
   setLS({}); HT.boot();
 
   // ---- R233.1 + R234 + R237: one number-precedence rule, every path; the past recomputed ----

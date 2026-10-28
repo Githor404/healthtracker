@@ -36,7 +36,10 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
   [void]$ws.SendAsync([ArraySegment[byte]]::new($b), [Net.WebSockets.WebSocketMessageType]::Text, $true, $ct).GetAwaiter().GetResult()
   $g = 0
   while ($true) { if (++$g -gt 3000) { throw "no response for $m" }
-    $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
+    $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
+    # R271: a held corpus download is an EVENT; kept, so the gate can release it.
+    if ($msg.method -eq 'Fetch.requestPaused') { $script:paused += $msg.params.requestId } } }
+$script:paused = @()
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 # Multi-line JS goes over base64 so no quoting survives to be mangled; the result
 # is stringified INSIDE the page (CDP: await the promise -- a JSON.stringify of an
@@ -133,6 +136,51 @@ try {
 
   $boot = Eval "typeof HT === 'object' && typeof HT.openSheet === 'function' && typeof HT.openSettings === 'function' && typeof HT.renderVersionNotice === 'function' && typeof HT.byokBusy === 'function'"
   if (-not $boot) { Write-Host "ERROR: the app did not boot, or the surfaces' open functions are not on HT"; Cleanup; exit 2 }
+
+  # ---- R271: CLOSED WHILE LOADING STAYS CLOSED ----------------------------------------------
+  # Found by this gate (R269): a Find-nutrients panel closed while its database was
+  # still loading opened again when the database answered. Run FIRST, on a fresh
+  # profile, so the corpus is not yet on the device; its download is HELD by CDP
+  # (Fetch) so the panel is provably still loading when the close link is TAPPED,
+  # then released, and the panel must stay closed.
+  # (the service worker fetches for the page from its own target, out of this one's
+  # sight, so the page bypasses it for this check)
+  Invoke-CDP 'Network.enable' $null | Out-Null
+  Invoke-CDP 'Network.setBypassServiceWorker' @{ bypass = $true } | Out-Null
+  Invoke-CDP 'Fetch.enable' @{ patterns = @(@{ urlPattern = '*corpus/dist/*' }) } | Out-Null
+  $o271 = EvalJ @'
+(function(){ var S = HT.state(), dk = HT.todayKey();
+  S.days[dk] = S.days[dk] || { status: 'in_progress', water_l: 0, items: [] };
+  S.days[dk].items.push({ name: 'Gate soup', meal: 'lunch', time: '12:00', grams: 250, unresolved: true, source: 'ai-paste', confidence: 'eyeballed', notes: '' });
+  HT.resave(); HT.goToDay(dk); HT.refresh();
+  window.__r271 = null;
+  HT.resolveOpen(dk, S.days[dk].items.length - 1).then(function (r) { window.__r271 = r || {}; });
+  return 1; })()
+'@
+  for ($w = 0; $w -lt 40 -and $script:paused.Count -eq 0; $w++) { [void](Eval "1"); Start-Sleep -Milliseconds 100 }
+  $held = $script:paused.Count
+  $pre271 = (EvalJ "(function(){ var v = HT.resolveView(); var b = document.querySelector('#resolveBox .rvbox .xclose'); if (b) b.scrollIntoView({ block: 'center' }); var r = b ? b.getBoundingClientRect() : null; return { phase: v ? v.phase : null, x: r ? r.left + r.width / 2 : -1, y: r ? r.top + r.height / 2 : -1 }; })()") | ConvertFrom-Json
+  Check (($held -gt 0) -and ($pre271.phase -eq 'loading') -and ($pre271.x -ge 0)) "R271: the panel is open and LOADING -- the corpus download is held ($held request(s)), the close link is on screen"
+  Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $pre271.x; y = $pre271.y }) } | Out-Null
+  Start-Sleep -Milliseconds 40
+  Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
+  Start-Sleep -Milliseconds 300
+  $mid271 = Eval "JSON.stringify({ open: !!HT.resolveView(), box: !!document.querySelector('#resolveBox .rvbox') })" | ConvertFrom-Json
+  Check ((-not $mid271.open) -and (-not $mid271.box)) "R271: one tap on close closes it while the database is still loading"
+  # release the download (and any that follow), then wait for the database to answer
+  for ($w = 0; $w -lt 100; $w++) {
+    $ids = $script:paused; $script:paused = @()
+    foreach ($id in $ids) { Invoke-CDP 'Fetch.continueRequest' @{ requestId = $id } | Out-Null }
+    $done = Eval "window.__r271 ? JSON.stringify(window.__r271) : ''"
+    if ($done) { break }
+    Start-Sleep -Milliseconds 150 }
+  Invoke-CDP 'Fetch.disable' $null | Out-Null
+  Invoke-CDP 'Network.setBypassServiceWorker' @{ bypass = $false } | Out-Null
+  Invoke-CDP 'Network.disable' $null | Out-Null
+  Settle
+  $post271 = Eval "JSON.stringify({ open: !!HT.resolveView(), box: !!document.querySelector('#resolveBox .rvbox'), why: (window.__r271 || {}).why || '' })" | ConvertFrom-Json
+  Check ([bool]$done -and (-not $post271.open) -and (-not $post271.box)) ("R271 GATE: closed while loading, the Find-nutrients panel STAYS closed when the database answers (answered: " + $done + ")")
+  [void](Eval "(function(){ var S = HT.state(), dk = HT.todayKey(); S.days[dk].items = S.days[dk].items.filter(function (x) { return x.name !== 'Gate soup'; }); HT.resave(); HT.refresh(); return 1; })()"); Settle
 
   # ---- 0. THE CENSUS, FROM THE SOURCE: every control that closes or dismisses ----------
   # A close control is a button that shows an x (the multiplication sign, by

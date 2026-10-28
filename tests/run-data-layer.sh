@@ -570,7 +570,13 @@ echo "-----------------------------------------"
 # suggested from the user's own later choice at its own grams, on restore and on
 # boot, once, keeping what it was. R181-eatring repointed in place (the 78 h gap
 # draws nothing now).
-EXPECTED_ASSERTIONS=3357
+# 3357 -> 3369 (v0.111.0, R271): +12 -- R269's suggestion is a reading, never
+# stored: boot, a save for another reason, the export and a restore all keep the
+# wines exactly as logged, while the screen counts them provisionally and says
+# which entry the suggestion came from; a user's confirm stores that one. A scanned
+# label that prints 0 kcal is a known 0 ("Diet drink A": counted, a fast kept); a
+# label with no energy figure is not (control), and the flag round-trips.
+EXPECTED_ASSERTIONS=3369
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
