@@ -1433,7 +1433,7 @@ function dayIsComplete(dk, day) {
   return d.status === 'complete' || dayClosedByRule(dk);
 }
 // R280/3: what a CLOSED day is missing, each with where the reading comes from.
-// A flag, not a nudge: shown behind an info button and counted beside the
+// A flag only, never a prompt: shown behind an info button and counted beside the
 // averages; nothing is excluded or coloured by it.
 const GAP_INCOMPLETE_FRAC = 0.5;      // the pathway report's rule (R277.2/c)
 const GAP_MEDIAN_DAYS = 28;           // the median is of the closed days in the 28 ending on this one

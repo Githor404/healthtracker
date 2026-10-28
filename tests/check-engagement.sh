@@ -128,7 +128,8 @@ EOF3
 # an engagement trigger takes, so every such constant is enumerated FROM THE
 # SOURCE and must appear below with a class. A new one fails BY NAME, and whoever
 # adds it has to say what it is for. `engagement` is not an available class.
-DECLARED="GLUCOSE_SC_DAYS=parameter:how many days the Shortcut recipe exports
+DECLARED="GAP_MEDIAN_DAYS=window:the 28 days ending on a closed day whose median calories a gap flag compares it with (R280); decides nothing about showing
+GLUCOSE_SC_DAYS=parameter:how many days the Shortcut recipe exports
 PLATE_RECALL_DAYS=recall:how long a saved plate keeps offering itself; keyed on an ACTION, not on usage
 TRASH_MAX_AGE_DAYS=retention:how long a deleted record is recoverable
 TYPICAL_MIN_DAYS=sufficiency:a typical needs this many days to BE a typical (D95). SUPPRESSES output rather than producing it
