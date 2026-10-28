@@ -19097,3 +19097,42 @@ reading with the axis still pinned; a real tap picks 13:00 and a redraw keeps th
 zoom out returns to the whole window. *Noted:* an emulated touch swipe in headless Chrome
 triggers its history back-swipe and leaves the page, so the gate scrolls with a wheel
 input and asserts touch-action for the finger.
+
+
+## R282 -- GATES WAIT ON CONDITIONS; A PERFORMANCE GATE (2026-10-28, v0.111.3)
+
+*The user's ruling of 28 Oct: gates that fail in different places per run and pass
+alone are timing-sensitive, and a lucky green run does not prove the build. Fix them
+with waits on a condition -- not looser checks, not longer timeouts -- and add a
+performance gate.*
+
+**1. The redraw, measured on one fixture** (365 past days x 8 items, none closed by hand;
+`HT.refresh()` plus the layout it forces). The figures first reported (153 ms v0.111.2,
+275 ms R280) were MEANS of 10 on a busy machine and are not comparable; on the same machine,
+MEDIANS of 21, two runs each: **v0.111.2 78-82 ms; R280 before its fix 117-118 ms; after the
+fix 88-90 ms**. As a ratio to a reference workload timed beside each redraw: 2.19-2.34,
+3.21-3.29, 2.44-2.58. The fix took back about three quarters of R280's cost; the rest is R280
+itself -- every past day now counts, so Trends draws all of them.
+
+**2. The gates that failed in the last runs, and their waits:**
+
+| run | gate | failing check | what it waited on | fix |
+|---|---|---|---|---|
+| 2 | stackcheck-gate | R246 one tap = taken now | read "now" after the tap (a clock race, not a sleep) | the clock read on both sides of the tap (d47f837) |
+| 3 | noauto-gate | Took all ... with Undo offered | a fixed 400 ms Settle, then a second round trip to read the bar | Undo read in the same step as the tap |
+| 3 | sensor-gate | the bar is still up about four seconds | fixed sleeps of 3.0 + 2.4 s, assuming 0.8 s had passed | the bar's up and down stamped on the page's clock (MutationObserver); the gate waits for the down |
+| 4 | flow-gate | J4 and everything after it empty | fixed in-page sleeps of 120-900 ms between steps | every step waits for what the next needs (polled 25 ms); a thrown step names what it was waiting for. This found a gate defect: J4's offer was read from the first `.nextmove .nmbtn` in the page -- a hidden one left by J1 -- and is now the first VISIBLE one |
+| 5 | photo-lead-gate | 360 px: every measure blank | a fixed 1.4 s after each navigation | waits for the NEW page's app (the old page is marked first) |
+
+Every check reads as before; no assertion was loosened. The waits poll and go on the moment
+the condition holds; their deadlines (10 s per flow step, 15 s for the bar, 30 s for a boot)
+are failure deadlines, not delays. Not changed: the shared 400 ms `Settle` after synchronous
+taps in other gates -- the DOM is already drawn when it starts, and none of them failed.
+
+**3. `perf-gate` (new).** The fixture above, reloaded from storage; 21 rounds, each timing one
+redraw and, back to back, a fixed reference workload (sort 120,000 numbers, build and lay out
+400 rows); the verdict is on the ratio of the medians. **Budget 3.0** -- about 20 % over the
+worst post-fix figure (2.58) and below R280 before its fix, which it fails. Measured under
+load (three other gates running): 2.35 and 2.6, PASS; red first on the pre-fix build: 3.15,
+FAIL, on a machine slow enough that day to triple both raw timings (297 ms against 94 ms).
+`PERF_REPO=<dir>` measures another build.

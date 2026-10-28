@@ -160,16 +160,26 @@ try {
 (async function () {
   const out = {};
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // R282: NO FIXED WAITS BETWEEN STEPS. Each step waits FOR the thing the next one
+  // needs -- polled every 25 ms, going on the moment it holds. 10 s is a failure
+  // deadline only (the fixed sleeps it replaces were 120-900 ms, and under suite load
+  // the screen was sometimes not there yet). `until` never throws: a step that needs
+  // what did not come is refused by tap(), by name, as before.
+  let step = 'setup';
+  const until = async (cond, why) => { step = why; const t0 = performance.now();
+    for (;;) { let v = null; try { v = cond(); } catch (e) { v = null; }
+      if (v) return v; if (performance.now() - t0 > 10000) return null; await sleep(25); } };
+  const seen = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return (r.width > 0 && r.height > 0) ? el : null; };
   let taps = 0;
   function tap(el, why) {
-    if (!el) throw new Error('nothing to tap: ' + why);
+    if (!el) throw new Error('nothing to tap: ' + why + ' (waiting for: ' + step + ')');
     // A pane is display-toggled, not removed, so its controls still EXIST when it
     // is hidden -- and a gate that clicks one is counting a tap no thumb could
     // make. Measured: routing the row to the wrong mode failed nothing, because
     // the manual form answered from behind a hidden pane. Rect, not offsetParent:
     // the FAB is position:fixed and has no offsetParent even when it is visible.
     const r = el.getBoundingClientRect();
-    if (!(r.width > 0 && r.height > 0)) throw new Error('not visible, so not tappable: ' + why);
+    if (!(r.width > 0 && r.height > 0)) throw new Error('not visible, so not tappable: ' + why + ' (waiting for: ' + step + ')');
     taps++; el.click();
   }
   function byText(sel, re, root) {
@@ -200,7 +210,7 @@ try {
     confidence: 'eyeballed', source: 'manual', notes: '' }];
   HT.state().current = today;
   HT.refresh();
-  await sleep(200);
+  await until(() => document.querySelector('.daysel .dayjump'), 'the day header');
 
   // ---- JOURNEY 0: a past day, and I am on it ------------------------------
   // Was FIFTEEN taps, one per day, with no other route.
@@ -212,17 +222,17 @@ try {
     picker.value = OLD;
     picker.dispatchEvent(new Event('change', { bubbles: true }));
     taps++;                              // tap 2: the day, in the OS picker
-    await sleep(250);
+    await until(() => HT.state().current === OLD, 'the jump to the old day');
   }
   out.j0 = { taps: taps, arrived: HT.state().current === OLD };
 
   // the same jump to a day NOTHING was ever written to -- and it must stay written-to-nothing
   const VOID = HT.shiftDate(today, -9);
   delete HT.state().days[VOID];
-  HT.refresh(); await sleep(120);
+  HT.refresh(); await until(() => document.querySelector('.daysel .dayjump'), 'the day header again');
   taps = 0;
   const p2 = document.querySelector('.daysel .dayjump');
-  if (p2) { taps++; p2.value = VOID; p2.dispatchEvent(new Event('change', { bubbles: true })); taps++; await sleep(250); }
+  if (p2) { taps++; p2.value = VOID; p2.dispatchEvent(new Event('change', { bubbles: true })); taps++; await until(() => HT.state().current === VOID, 'the jump to the empty day'); }
   out.j0void = { taps: taps, arrived: HT.state().current === VOID,
                  created: !!HT.state().days[VOID],
                  dayViewDrawn: (document.getElementById('dayView').innerHTML || '').length > 80,
@@ -230,7 +240,7 @@ try {
   // the history list is the second route, and it used to be inert
   out.historyTappable = !!document.querySelector('.hrow[onclick]');
 
-  HT.state().current = today; HT.refresh(); await sleep(150);
+  HT.state().current = today; HT.refresh(); await until(() => HT.state().current === today && seen(document.querySelector('#dayView .dact .qa10')), 'today drawn');
 
   // ---- JOURNEY 1: I eat something -> logged -> I see my day ---------------
   taps = 0;
@@ -243,7 +253,7 @@ try {
   out.camPresent = !!document.querySelector('#dayView .dact .dcam');
   out.badgesGone = !document.querySelector('#dayView .qab');
   tap(document.getElementById('fab'), 'the FAB');
-  await sleep(200);
+  await until(() => sheetOpen() && seen(byText('#sheetRoot .srbtn', /^Manual$/)), 'the sheet root');
   // v0.85.0: THIS TAPPED THE MODE STRIP'S "Manual" TAB -- ON THE ROOT, where ONE
   // DOOR/1 ruled the strip hidden. It was not hidden: the attribute was set and a
   // class rule overrode it, so the tab was on screen and `tap()`, which refuses an
@@ -258,17 +268,17 @@ try {
   // said "the root's Manual button costs one tap" while this line was tapping
   // something else.
   tap(byText('#sheetRoot .srbtn', /^Manual$/), 'Manual (the root, block d)');
-  await sleep(220);
+  await until(() => seen(document.getElementById('maName')), 'the Manual form');
   document.getElementById('maName').value = 'Greek yogurt';
   document.getElementById('maKcal').value = '120';
   tap(byText('#pane-manual button', /^Add to day$/i), 'Add to day');
-  await sleep(300);
+  await until(() => document.querySelector('#maNext .nmbtn'), 'the offer after Add to day');
   const nm1 = document.querySelector('#maNext .nmbtn');
   out.j1Mode = !!(document.getElementById('pane-manual') || { classList: { contains: function () { return false; } } })
                  .classList.contains('on');
   out.j1 = { offered: !!nm1, said: (document.querySelector('#maNext .nmsaid') || {}).textContent || '',
              logged: (HT.state().days[today].items || []).length > n1 };
-  if (nm1) { tap(nm1, 'See my day'); await sleep(250); }
+  if (nm1) { tap(nm1, 'See my day'); await until(() => !sheetOpen(), 'the sheet to close'); }
   out.j1.taps = taps;
   out.j1.sheetClosed = !sheetOpen();
   shut();
@@ -284,10 +294,10 @@ try {
     window.__clickErr.push(String(e.message || e) + ' @ ' + (e.lineno || '?'));
   });
   tap(document.querySelector('#dayView .dact .qa10'), 'Quick add - top 10');
-  await sleep(300);
+  await until(() => seen(document.querySelector('#sheetRoot .qfrow')), 'the top-10 rows');
   const qr = document.querySelector('#sheetRoot .qfrow');
   out.j1b = { rowOffered: !!qr };
-  if (qr) { tap(qr, 'the food row'); await sleep(250); }
+  if (qr) { tap(qr, 'the food row'); await until(() => document.querySelector('.qlog'), 'the Log button'); }
   out.j1b.sheetMode = String(HT.sheetMode ? HT.sheetMode() : '?');
   out.j1b.chips = (document.getElementById('quickChips') || {}).innerHTML || '';
   out.j1b.chipLen = out.j1b.chips.length;
@@ -305,7 +315,7 @@ try {
     && document.getElementById('pane-quick').classList.contains('on');
   const qlog = document.querySelector('.qlog');  out.j1b.logOffered = !!qlog;
   out.j1b.logSaysCal = !!(qlog && /\d/.test(qlog.textContent || ''));
-  if (qlog) { tap(qlog, 'Log N cal'); await sleep(300); }
+  if (qlog) { tap(qlog, 'Log N cal'); await until(() => !sheetOpen(), 'the sheet to close after Log'); }
   out.j1b.taps = taps;
   out.j1b.typed = typed1b;
   out.j1b.logged = (HT.state().days[HT.state().current].items || []).length > n1b;
@@ -327,14 +337,14 @@ try {
   taps = 0;
   const n1c = (HT.state().days[HT.state().current].items || []).length;
   tap(document.getElementById('fab'), 'the FAB');
-  await sleep(300);
+  await until(() => seen(document.querySelector('#sheetRoot .qfrow')), 'the top-10 rows from + Log');
   const qr1c = document.querySelector('#sheetRoot .qfrow');
   out.j1c = { rowOffered: !!qr1c };
-  if (qr1c) { tap(qr1c, 'the food row'); await sleep(250); }
+  if (qr1c) { tap(qr1c, 'the food row'); await until(() => document.querySelector('.qlog'), 'the Log button from + Log'); }
   const qlog1c = document.querySelector('.qlog');
   out.j1c.logOffered = !!qlog1c;
   out.j1c.logVisible = !!(qlog1c && qlog1c.getBoundingClientRect().height > 0);
-  if (qlog1c) { tap(qlog1c, 'Log N cal'); await sleep(300); }
+  if (qlog1c) { tap(qlog1c, 'Log N cal'); await until(() => !sheetOpen(), 'the sheet to close after Log, from + Log'); }
   out.j1c.taps = taps;
   out.j1c.logged = (HT.state().days[HT.state().current].items || []).length > n1c;
   out.j1c.sheetClosed = !sheetOpen();
@@ -345,21 +355,21 @@ try {
   // The Dose badge is ruled away with the rest of the row. The footer link is in
   // EVERY sheet mode, so nothing is stranded -- but it is one tap further.
   tap(document.getElementById('fab'), 'the FAB');
-  await sleep(200);
+  await until(() => seen(byText('#sheetRoot .srlinks .linklike', /^Log a dose I took$/i)), 'the dose link');
   // R197/2: this link was tapped in the SHEET'S FOOT. The root has no foot any
   // more -- it took a third of the screen and repeated the root's own links --
   // so the same link, with the same words, is tapped where the root now offers
   // it. One tap from the root, as before: THE PIN DOES NOT MOVE.
   tap(byText('#sheetRoot .srlinks .linklike', /^Log a dose I took$/i), 'Log a dose I took');
-  await sleep(250);
+  await until(() => seen(document.getElementById('medName')), 'the dose form');
   document.getElementById('medName').value = 'Metformin';
   tap(byText('#pane-med button', /^Log this dose$/i), 'Log this dose');
-  await sleep(300);
+  await until(() => document.querySelector('#medNext .nmbtn'), 'the offer after the dose');
   out.j2Mode = !!(document.getElementById('pane-med') || { classList: { contains: function () { return false; } } })
                  .classList.contains('on');
   const nm2 = document.querySelector('#medNext .nmbtn');
   out.j2 = { offered: !!nm2 };
-  if (nm2) { tap(nm2, 'See it on the timeline'); await sleep(400); }
+  if (nm2) { tap(nm2, 'See it on the timeline'); await until(() => !sheetOpen() && document.querySelector('.tlrow.flash, #timelineOverlay.flash'), 'the timeline row, found'); }
   out.j2.taps = taps;
   out.j2.sheetClosed = !sheetOpen();
   // The row must carry THIS dose's id. `.tlrow[data-sid]` was not enough: the
@@ -397,22 +407,22 @@ try {
   // ---- JOURNEY 3: a medication from its label -> saved -> drug info -------
   taps = 0;
   tap(document.getElementById('fab'), 'FAB');
-  await sleep(180);
+  await until(() => seen(byText('#sheetRoot .srlinks .linklike', /Add a medication from its label/i)), 'the label link');
   // R197/2: as J2 -- from the root's own links, not the foot. Same tap, same count.
   tap(byText('#sheetRoot .srlinks .linklike', /Add a medication from its label/i), 'Add a medication from its label');
-  await sleep(250);
+  await until(() => sheetOpen(), 'the label pane');
   taps++;                                 // Take photo; the shutter itself is the OS
   HT.openLabelDraft(JSON.stringify({ name: 'Metformin', generic_name: 'metformin hydrochloride',
     strength: '500 mg', directions: 'Take one tablet twice daily with food' }),
     { whose: 'mine', source: 'label-photo' });
-  await sleep(250);
+  await until(() => seen(byText('.pmok, button', /that.s what it says/i)), 'the label draft');
   tap(byText('.pmok, button', /that.s what it says/i), 'confirm');
-  await sleep(250);
+  await until(() => seen(byText('button', /^Save to my medications$/i)), 'the Save button');
   tap(byText('button', /^Save to my medications$/i), 'Save to my medications');
-  await sleep(350);
+  await until(() => document.querySelector('#labelNext .nmbtn'), 'the offer after Save');
   const nm3 = document.querySelector('#labelNext .nmbtn');
   out.j3 = { offered: !!nm3, saved: HT.medList(false).length };
-  if (nm3) { tap(nm3, 'Drug info'); await sleep(350); }
+  if (nm3) { tap(nm3, 'Drug info'); await until(() => (document.getElementById('settingsPanel') || {}).style.display === 'flex' && HT.drugView() && HT.drugView().medId, 'the drug surface'); }
   out.j3.taps = taps;
   out.j3.settingsOpen = (document.getElementById('settingsPanel') || {}).style.display === 'flex';
   out.j3.medsExpanded = !!(document.getElementById('medsDetails') || {}).open;
@@ -420,8 +430,8 @@ try {
   HT.closeSettings(); shut();
 
   // ---- JOURNEY 4: an old item -> resolved -> seen in the panel ------------
-  HT.dayJump(OLD); await sleep(200);
-  window.scrollTo(0, 0); await sleep(60);
+  HT.dayJump(OLD); await until(() => HT.state().current === OLD && seen(document.querySelector('#dayView .mitem .mhead')), 'the old day drawn');
+  window.scrollTo(0, 0);
   taps = 0;
   // D144 re-pin: the row now EXPANDS on the first tap and "find nutrients" is
   // inside the body, because the surface was 117-278px per row with 5-13 facts on
@@ -429,36 +439,36 @@ try {
   // route is the one that moved (a row with no number headlines the chip and is
   // unchanged). Pinned at 4 below, deliberately, rather than left reading 3.
   const row4 = document.querySelector('#dayView .mitem .mhead');
-  if (row4) { tap(row4, 'expand the row'); await sleep(250); }
+  if (row4) { tap(row4, 'expand the row'); await until(() => seen(byText('.rchip, button', /find nutrients/i)), 'the row opened, find nutrients'); }
   tap(byText('.rchip, button', /find nutrients/i), 'find nutrients');
-  for (let w = 0; w < 40 && !document.querySelector('.rcandbtn'); w++) await sleep(500);
+  for (let w = 0; w < 40 && !document.querySelector('.rcandbtn'); w++) await sleep(500);   // unchanged: a condition already, the corpus answer
   const cands = document.querySelectorAll('.rcandbtn');
   out.j4 = { candidates: cands.length };
-  if (cands.length) { tap(cands[0], 'pick'); await sleep(900); }
-  const nm4 = document.querySelector('.nextmove .nmbtn');
+  if (cands.length) { tap(cands[0], 'pick'); await until(() => Array.prototype.slice.call(document.querySelectorAll('.nextmove .nmbtn')).filter(seen)[0], 'the offer after the pick (a visible one: earlier journeys leave theirs in hidden panes)'); }
+  const nm4 = Array.prototype.slice.call(document.querySelectorAll('.nextmove .nmbtn')).filter(seen)[0] || null;
   out.j4.offered = !!nm4;
-  if (nm4) { tap(nm4, 'See it in the panel'); await sleep(350); }
+  if (nm4) { tap(nm4, 'See it in the panel'); await until(() => { const m = document.querySelector('details.mpanel'); return m && m.open; }, 'the panel open'); }
   out.j4.taps = taps;
   out.j4.expandedFirst = !!document.querySelector('#dayView .mitem.mopen');
   const mp = document.querySelector('details.mpanel');
   out.j4.panelOpen = !!(mp && mp.open);
   // and it STAYS open across a refresh -- it used to close itself on every one,
   // which is what made it unreachable as a destination
-  HT.refresh(); await sleep(150);
+  HT.refresh(); await until(() => document.querySelector('details.mpanel'), 'the panel after a refresh');
   const mp2 = document.querySelector('details.mpanel');
   out.j4.panelSurvivesRefresh = !!(mp2 && mp2.open);
 
   // ---- B1: the editor, counted -- D144 ruled it ONE TAP DEEPER, which is a
   // number and therefore belongs here rather than in a sentence.
-  HT.closeItemEdit(); HT.itemCollapseAll(); HT.refresh(); await sleep(200);
-  window.scrollTo(0, 0); await sleep(60);
+  HT.closeItemEdit(); HT.itemCollapseAll(); HT.refresh(); await until(() => seen(document.querySelector('#dayView .mitem .mhead')), 'the rows collapsed');
+  window.scrollTo(0, 0);
   taps = 0;
   const eh = document.querySelector('#dayView .mitem .mhead');
-  if (eh) { tap(eh, 'expand'); await sleep(250); }
+  if (eh) { tap(eh, 'expand'); await until(() => seen(document.querySelector('#dayView .mitem.mopen .medit')), 'the row opened, edit'); }
   const eb = document.querySelector('#dayView .mitem.mopen .medit');
-  if (eb) { tap(eb, 'edit'); await sleep(250); }
+  if (eb) { tap(eb, 'edit'); await until(() => HT.itemEditTarget(), 'the editor'); }
   out.editTaps = HT.itemEditTarget() ? taps : -1;
-  HT.closeItemEdit(); HT.itemCollapseAll(); HT.refresh(); await sleep(150);
+  HT.closeItemEdit(); HT.itemCollapseAll(); HT.refresh(); await until(() => document.querySelector('#dayView'), 'the day');
 
   // the constraints, on every ending the page can show at once
   const nmAll = Array.prototype.slice.call(document.querySelectorAll('.nextmove'))

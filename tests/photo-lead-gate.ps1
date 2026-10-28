@@ -92,8 +92,12 @@ function Measure-Lead([int]$w, [int]$h, [bool]$mobile, [bool]$touch) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null
   if ($touch) { Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null }
   else        { Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $false } | Out-Null }
+  # R282: wait FOR the new page's app, not a fixed 1.4 s. The old page is marked before
+  # navigating, so the wait cannot be answered by it; 30 s is a failure deadline only.
+  # Under suite load the fixed sleep ended before boot and every measure came back blank.
+  [void](Eval "window.__plOld = 1")
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 1400
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = Eval "!window.__plOld && typeof HT === 'object' && typeof HT.openSheet === 'function' && document.readyState === 'complete'" } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 100 }
   return (Eval $measure | ConvertFrom-Json)
 }
 

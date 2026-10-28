@@ -216,6 +216,18 @@ try {
 (function () {
   var b = null;
   Array.prototype.forEach.call(document.querySelectorAll('#sigOneTap .snask .qbtn'), function (x) { if (x.textContent === 'Dexcom G7') b = x; });
+  // R282: the bar's lifetime is measured on the PAGE's clock -- when it went up and when
+  // it came down -- not by the gate sleeping and hoping its own wake-up is on time.
+  var tEl = document.getElementById('toast');
+  window.__tst = { on: null, off: null };
+  if (window.__tmo) window.__tmo.disconnect();
+  window.__tmo = new MutationObserver(function () {
+    var up = tEl.className.indexOf('show') >= 0, t = performance.now();
+    if (up && window.__tst.on == null) window.__tst.on = t;
+    if (!up && window.__tst.on != null && window.__tst.off == null) window.__tst.off = t;
+  });
+  window.__tmo.observe(tEl, { attributes: true, attributeFilter: ['class'] });
+  window.__tst.tap = performance.now();
   b.click();
   var tl = HT.state().timeline[HT.localDate()] || [];
   var rec = tl.filter(function (e) { return e.type === 'sensor'; })[0] || {};
@@ -258,15 +270,17 @@ try {
   Check (($rw.statusFont -ge 16) -and ($rw.sameBox -eq $true) -and ($rw.below -eq $true) -and ($rw.gap -lt 120)) "it sits NEAR THE BADGES -- same block, directly beneath them -- at >= 16px"
 
   # ---- 2 (the five seconds) ------------------------------------------------------
-  # Real seconds: the toast's own timer is the thing under test. About 0.8 s have
-  # passed since the tap, so it must still be up at ~4 s and gone by ~6 s.
-  Start-Sleep -Milliseconds 3000
-  $mid = EvalJ "window.__toast().shown"
-  Start-Sleep -Milliseconds 2400
-  $end = EvalJ "window.__toast().shown"
-  Write-Host ("  the bar at ~4 s: " + $mid + "   at ~6.3 s: " + $end)
-  Check ($mid -eq 'true') "the bar is still up about four seconds after the tap"
-  Check ($end -eq 'false') "and gone by about six -- ~5 s, as ruled, not the 7 s every other undo bar keeps"
+  # The toast's own timer is the thing under test. R282: read on the page's clock --
+  # the MutationObserver set before the tap stamps when the bar went up and when it
+  # came down -- and the gate WAITS FOR the bar to come down (a condition, polled)
+  # instead of sleeping 3.0 + 2.4 s and assuming 0.8 s had passed. Under suite load
+  # the gate's own sleeps overran and the bar had already gone at "~4 s".
+  $tst = $null
+  for ($w = 0; $w -lt 150; $w++) { $tst = EvalJ "window.__tst" | ConvertFrom-Json; if ($tst.off -ne $null) { break }; Start-Sleep -Milliseconds 100 }
+  $upMs = if ($tst.off -ne $null) { [double]$tst.off - [double]$tst.tap } else { -1 }
+  Write-Host ("  the bar, on the page's clock: up " + ([double]$tst.on - [double]$tst.tap) + " ms after the tap, down " + $upMs + " ms after it")
+  Check ($upMs -ge 4000) "the bar is still up about four seconds after the tap"
+  Check (($upMs -gt 0) -and ($upMs -le 6300)) "and gone by about six -- ~5 s, as ruled, not the 7 s every other undo bar keeps"
 
   # ---- 7: the source is one tap away, on the same surface -----------------------
   $cite = EvalJ @'

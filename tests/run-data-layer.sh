@@ -43,6 +43,7 @@ chip-layout-gate.ps1
 close-gate.ps1
 cold-start-gate.ps1
 dayclose-gate.ps1
+perf-gate.ps1
 collapse-gate.ps1
 delete-all-gate.ps1
 correction-gate.ps1

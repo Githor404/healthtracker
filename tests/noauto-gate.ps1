@@ -347,14 +347,16 @@ try {
   [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
   $s1 = EvalJ "(function(){ var c = document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]'); return { ticks: c.length, on: Array.prototype.filter.call(c, function (x) { return x.checked; }).length, items: (HT.state().days[HT.todayKey()] || { items: [] }).items.length, doses: (HT.state().timeline[HT.todayKey()] || []).length }; })()"
   Check ($s1 -like '*"ticks":3*"on":0*"items":0*"doses":0*') "R246: opened, it lists the three, NONE checked, and opening it logged nothing"
-  [void](Eval "document.querySelector('#sheetRoot .stkall').click()")
-  Settle
+  # R282: Undo is read in the SAME step as the tap -- the bar is drawn synchronously by
+  # the tap -- rather than after a fixed wait and a second round trip, which under
+  # suite load could outlast the bar's own timer.
+  $u0 = EvalJ "(function(){ document.querySelector('#sheetRoot .stkall').click(); var x = document.getElementById('toast'); return !!(x && x.querySelector('.tundo') && x.classList.contains('show')); })()"
   $count = "(function(){ var S = HT.state(), t = HT.todayKey(), tl = S.timeline[t] || [], it = (S.days[t] || { items: [] }).items; var x = document.getElementById('toast'); return { items: it.length, doses: tl.length, names: it.map(function (i) { return i.name.split(',')[0] + '|' + i.grams + '|' + i.source + '|' + i.meal; }), dose: tl.map(function (r) { return r.name + '|' + (r.dose === undefined ? '' : r.dose) + '|' + r.source; }), times: it.concat(tl).map(function (r) { return r.time; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).length, undo: !!(x && x.querySelector('.tundo') && x.classList.contains('show')), on: Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]'), function (c) { return c.checked; }).length }; })()"
   $s2 = EvalJ $count
   Write-Host ("  Took all: " + $s2)
   $s2v = $s2 | ConvertFrom-Json
   Check ((($s2v.items + $s2v.doses) -eq 3) -and ($s2v.items -eq 1) -and ($s2v.doses -eq 2) -and ($s2v.on -eq 3)) "R203 / R246 GATE: TOOK ALL LOGS N -- three: one food into the day, two doses onto the timeline, every row now checked"
-  Check (($s2v.names[0] -like 'Butter|10|corpus|supplement') -and (@($s2v.dose) -contains 'Gate capsule|600|stack') -and ($s2v.times -eq 1) -and ($s2v.undo -eq $true)) "at ONE time, each as it was set up, with Undo offered"
+  Check (($s2v.names[0] -like 'Butter|10|corpus|supplement') -and (@($s2v.dose) -contains 'Gate capsule|600|stack') -and ($s2v.times -eq 1) -and ($u0 -eq 'true')) ("at ONE time, each as it was set up, with Undo offered (times " + $s2v.times + ", undo at the tap " + $u0 + ")")
   [void](Eval "document.querySelectorAll('#sheetRoot .stkrow input[type=checkbox]')[1].click()")
   Settle
   $s4 = EvalJ $count
