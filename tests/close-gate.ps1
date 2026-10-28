@@ -281,6 +281,12 @@ try {
   Shot 'clinician'
   [void](Eval "HT.closeClinicianSummary()"); Settle
 
+  # R279: the log confirmation at the top of the screen, after a scan or photo log
+  [void](Eval "HT.logConfirmShow([{ name: 'Gate seeds', grams: 30, time: '12:00' }], function () {})"); Settle
+  $n9 = MeasureOn 'Log confirmation (R279)'
+  Shot 'log-confirm'
+  [void](Eval "HT.logConfirmHide()"); Settle
+
   # ---- 2. the verdicts -------------------------------------------------------------------
   $small = @($script:measured | Where-Object { ($_.w -lt 44) -or ($_.h -lt 44) })
   foreach ($s in $small) { Write-Host ("    UNDER 44: " + $s.surface + " " + $s.fn + " " + $s.w + " x " + $s.h) }
