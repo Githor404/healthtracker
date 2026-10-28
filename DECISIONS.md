@@ -18419,14 +18419,17 @@ summary.
 
 **Named, not resolved -- for the user:**
 - **Fork G ("no green") gives way here only.** The ruling's colours are states,
-  named in the key; no red is used in the eat lane.
+  named in the key; no red is used in the eat lane. **RULED R272 (2026-10-27): as
+  built -- green for eating is an approved exception, eat lane only.**
 - **A stop no longer makes a fast by itself.** R263 counted a fast from Stopped
   eating "whatever its length"; R265.1 makes the stop the start and the 12 h rule
   the test. A stop followed by food within 12 h is eating (gated: 18:00 food, stop
-  19:00, food 06:30 -> 11.5 h from the stop, not a fast).
+  19:00, food 06:30 -> 11.5 h from the stop, not a fast). **RULED R272: as built --
+  a stop does not make a fast on its own; food within 12 h of it is eating.**
 - **An old "Ate, didn't log" answer still removes its gap from the fasts.** The
   ruling keeps D22 answers "in history"; I read the user's own statement that
-  they ate as still true. Say if past answers should be ignored instead.
+  they ate as still true. Say if past answers should be ignored instead. **RULED
+  R272: as built -- past answers keep excluding their gaps from fasts.**
 - **No upper limit on a fast.** A 69 h gap with nothing logged counts as a fast
   in the counts and the weekly list (it is not drawn past 48 h). D22 flagged
   gaps over 48 h "long -- check". Say if a ceiling is wanted.
@@ -18436,12 +18439,14 @@ summary.
   data (a probability of superiority between two sets of measured meals); there is
   nothing for it to come true or false against later, so R260's calibration log
   has nothing to resolve. Shown as "calculated" with its basis. Say if it should be
-  logged anyway.
+  logged anyway. **RULED R272: as built -- no calibration entry; descriptive, it
+  never resolves.**
 - **Alcohol ring:** gold, with the run, only while alcohol-free rewards are on;
-  off, it is plain and shows only the count.
+  off, it is plain and shows only the count. **RULED R272: keep as built.**
 - **The quote names the G7** whatever sensor is recorded; it is attributed, not
   the app's voice. The night gate's "no alert word" check now skips the quoted
-  manufacturer text (the quote says "glucose alerts").
+  manufacturer text (the quote says "glucose alerts"). **RULED R272: keep as
+  built.**
 - **Pre-existing, found by the new gate:** the × close on Settings and + Log is 28
   px tall; the new panel's is 44. Not changed elsewhere in this slice.
 - **Pending (R269, 2026-10-25).** The user ruled the 48 h ceiling and the 0 kcal
@@ -18449,6 +18454,7 @@ summary.
   a stop no longer making a fast by itself, past "Ate, didn't log" answers, no
   calibration entry for the weekly probability, the alcohol ring, the G7 quote. (The
   relay numbered four of them #1, #3, #5, #6 in its own order; all are recorded.)
+- **All six ruled (R272, 2026-10-27), as built.** Nothing in R265.1 is pending.
 
 **Gates.** New `weekly-gate` (11 checks, real taps at 390 px; red first on the ×,
 the old dashed gap style and a past week's "running now"). Changed with the
@@ -18827,3 +18833,27 @@ not started; its timing is the user's call.
 
 **Gates.** `ring-size-gate`: the R18.2 measure excludes `ra-open` and asserts it is
 drawn orange; new 18 h running-fast case (full length, 75.0 %). No app change.
+
+## R272 -- R265.1'S SIX OPEN ITEMS RULED AS BUILT; COFFEE ENDS A FAST; THE COPYRIGHT HOLDER DEFERRED (2026-10-27; records only)
+
+*The user's rulings of 27 Oct. Records only: no change to the v0.111.0 build,
+committed after v0.111.0 was live (R273's release, verify-deploy byte-identical).*
+
+**1. R265.1's open items -- all six ruled as built** and marked in the R265.1
+record: Fork G (green for eating, an approved exception, eat lane only); a Stopped
+eating does not make a fast on its own (food within 12 h of it is eating); past
+"Ate, didn't log" answers keep excluding their gaps from fasts; no calibration
+entry for the weekly probability (descriptive, it never resolves); the alcohol ring
+as built; the Dexcom G7 user-guide quote as built.
+
+**2. Coffee ends a fast.** The user's coffee has cream in it, so coffee is not a
+known zero. The three Manual "Coffee" entries that read "not counted" under R269
+(all numbers 0, no row, no label) are correct as built, and they end fasts; no
+stored data changes (R237, R271). A check of the user's coffee combos -- whether the
+cream's calories come from a linked database row or a label -- was made on the
+newest backup on the PC and **reported to the user, not recorded here** (their own
+data, R204's rule applied to combos). Nothing was fixed.
+
+**3. Copyright holder -- deferred by the user.** README stays "No licence is granted.
+All rights reserved; the copyright holder is to be confirmed." (R269/3). No holder is
+named anywhere in the tree until the user rules.
