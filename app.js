@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.111.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.111.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2288,7 +2288,67 @@ function doUndo() {
   const fn = _undoFn; _undoFn = null;
   clearTimeout(_undoT);
   const e = document.getElementById('toast'); if (e) { e.classList.remove('show'); e.textContent = ''; }
+  logConfirmHide();
   if (typeof fn === 'function') { fn(); toast('Undone'); }
+}
+// ---- R279/1: A LOG FROM A SCAN OR A PHOTO SAYS SO, WHERE IT CANNOT BE MISSED ----
+// The user scanned one product three times because nothing said it was logged:
+// the toast is a pill at the bottom for 7 s, and the scan card stayed as it was.
+// This is a banner at the TOP of the screen, above the sheet, naming the item, the
+// amount and the time, with Undo. It reports a fact; it asks nothing.
+let _logConfirmFn = null, _logConfirmT = null;
+const LOG_CONFIRM_MS = 20000;
+function logConfirmWords(items) {
+  const one = function (it) {
+    return String(it.name || 'item') + (num(it.grams) > 0 ? ' ' + rDisp(it.grams) + ' g' : '');
+  };
+  const list = (items || []).filter(Boolean);
+  const t = (list[0] && list[0].time) ? ' \u00b7 ' + list[0].time : '';
+  if (list.length <= 1) return 'Logged: ' + (list[0] ? one(list[0]) : 'item') + t;
+  return 'Logged: ' + list.slice(0, 2).map(one).join(', ')
+    + (list.length > 2 ? ' + ' + (list.length - 2) + ' more' : '') + t;
+}
+function logConfirmShow(items, undoFn) {
+  const e = document.getElementById('logConfirm'); if (!e) return { ok: false };
+  _logConfirmFn = (typeof undoFn === 'function') ? undoFn : null;
+  e.innerHTML = '<span class="lcword">' + esc(logConfirmWords(items)) + '</span>'
+    + (_logConfirmFn ? '<button type="button" class="lcundo" onclick="logConfirmUndo()">Undo</button>' : '')
+    + '<button type="button" class="lcx" onclick="logConfirmHide()" aria-label="Close">&times;</button>';
+  e.hidden = false;
+  clearTimeout(_logConfirmT);
+  _logConfirmT = setTimeout(logConfirmHide, LOG_CONFIRM_MS);
+  return { ok: true, text: logConfirmWords(items) };
+}
+function logConfirmHide() {
+  clearTimeout(_logConfirmT); _logConfirmFn = null;
+  const e = document.getElementById('logConfirm'); if (e) { e.hidden = true; e.innerHTML = ''; }
+}
+// The banner's Undo is the toast's: the same function, run once.
+function logConfirmUndo() {
+  const fn = _logConfirmFn;
+  if (fn && fn === _undoFn) return doUndo();
+  logConfirmHide();
+  if (typeof fn === 'function') { fn(); toast('Undone'); }
+}
+// R279/2: the same product -- the same barcode, or the same linked database row --
+// logged on this day within the last 10 minutes. Returns that entry, latest first.
+const SAME_ITEM_MIN = 10;
+function recentSameItem(dk, probe, at) {
+  const day = APP_STATE.days && APP_STATE.days[dk];
+  const now = timeToMin(at);
+  if (!day || now == null || !probe) return null;
+  const same = function (it) {
+    if (probe.barcode && it.barcode && String(it.barcode) === String(probe.barcode)) return true;
+    return !!(probe.ref && it.ref && probe.ref.ns && String(it.ref.ns) === String(probe.ref.ns) && String(it.ref.id) === String(probe.ref.id));
+  };
+  let best = null;
+  day.items.forEach(function (it) {
+    const t = timeToMin(it.time);
+    if (t == null || !same(it)) return;
+    const d = now - t;
+    if (d >= 0 && d <= SAME_ITEM_MIN && (!best || t >= timeToMin(best.time))) best = it;
+  });
+  return best;
 }
 // Remove created record(s) by reference (survives array reordering), persist, refresh.
 function undoRemove(arr, refs) {
@@ -4925,7 +4985,9 @@ function stackEditorHTML_(s, e) {
     + '<button type="button" class="btn stkedsave" onclick="stackSaveDose(\'' + sid + '\', (document.getElementById(\'stkEdDose\') || {}).value, (document.getElementById(\'stkEdUnit\') || {}).value)">Save amount</button>'
     + '<button type="button" class="linklike stkedx" onclick="stackEditClose()">Cancel</button></div>';
 }
-function stackSheetHTML() {
+// R278: `where` is 'root' on the + Log sheet's root; the Quick pane draws the same
+// rows without the add form, whose fields have ids and must exist once.
+function stackSheetHTML(where) {
   const dk = APP_STATE.current;
   // R255: what was in the stack ON THIS DAY. An item taken that day is shown
   // whatever its state; one added after this day reads "not in stack yet" and is
@@ -4982,13 +5044,29 @@ function stackSheetHTML() {
         + esc(stackDoseWords(e)) + '</button><button type="button" class="btn stktime" onclick="stackEditOpen(\'' + sid + '\', \'time\')" aria-label="change the time of ' + esc(s.name) + '">'
         + esc(e.rec.time ? e.rec.time : 'time not set') + '</button></div>'
       : '<div class="stksub">' + esc(stackKindWord(s.kind) + (usual ? ' · usual ' + usual : '') + ' · not taken') + '</div>';
+    // R278/A: switching off is here too, today, as a labelled button -- never the
+    // unlabelled include box that switched an item off by accident (R276). One
+    // taken today and switched off after stays listed, so it offers Switch on.
+    const dst = stackDayState(s, dk), isOn = dst === 'in';
+    const swOff = (!today || (!isOn && dst !== 'off')) ? ''
+      : isOn ? '<button type="button" class="btn stkswbtn stkoffnow" onclick="stackItemEnable(\'' + sid + '\', false)"'
+        + ' aria-label="switch ' + esc(s.name) + ' off in your daily stack">Switch off</button>'
+      : '<button type="button" class="btn stkswon" onclick="stackItemEnable(\'' + sid + '\', true)"'
+        + ' aria-label="switch ' + esc(s.name) + ' back on in your daily stack">Switch on</button>';
     return '<div class="stkrow' + (e ? ' stkon' : '') + '">'
       + '<label class="stktick"><input type="checkbox"' + (e ? ' checked' : '')
       + ' onchange="stackCheck(\'' + sid + '\')"'
       + ' aria-label="' + esc(s.name) + '"><span class="stkname">' + esc(s.name) + '</span></label>'
-      + what + stackSwitchInfoHTML(s, dk) + stackEditorHTML_(s, e) + flag + '</div>';
+      + what + stackSwitchInfoHTML(s, dk) + swOff + stackEditorHTML_(s, e) + flag + '</div>';
   }).join('');
-  return '<div class="qsheet stksec">' + head + rows + offRows + later + '</div>';
+  // R278/B: "+ Add to stack" -- the ONE DOOR for a new item, today, on the root. A
+  // Settings form being typed in is never replaced from here.
+  let add = '';
+  if (today && where === 'root') {
+    if (STACK_FORM && STACK_FORM.host === 'log') add = '<div class="stklogform">' + stackFormHTML() + '</div>';
+    else if (!STACK_FORM) add = '<button type="button" class="btn stkaddlog" onclick="stackFormOpen(\'\', \'log\')">+ Add to stack</button>';
+  }
+  return '<div class="qsheet stksec">' + head + rows + offRows + later + add + '</div>';
 }
 // ---- R246: THE EXPORT SAYS TAKEN AND NOT TAKEN ---------------------------------
 // Derived from the log for reading, like nothing else in the file: restore does
@@ -5158,18 +5236,27 @@ function stackItemEnable(id, on) {
   renderStackEditor(); stackRerender();                  // R276: + Log's rows and the Quick pane too
   return { ok: true, enabled: it.enabled };
 }
-function stackFormOpen(id) {
+function stackFormOpen(id, host) {
   const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
   const it = (id == null || id === '') ? null : list.filter(function (x) { return x.id === String(id); })[0];
   if (id != null && id !== '' && !it) return { ok: false };
   STACK_FORM = { editId: it ? it.id : '', kind: it ? stackKindOf(it.kind) : 'supplement', pick: null,
                  kept: (it && it.part) ? JSON.parse(JSON.stringify(it.part)) : null, rows: [], seq: 0,
-                 seed: it ? JSON.parse(JSON.stringify(it)) : null };
+                 seed: it ? JSON.parse(JSON.stringify(it)) : null,
+                 // R278/B: where the form is drawn -- Settings, or + Log's Daily stack
+                 host: host === 'log' ? 'log' : 'settings' };
+  if (STACK_FORM.host === 'log') STACK_OPEN = true;
   renderStackEditor();
   const nm = document.getElementById('stkName'); if (nm && nm.focus) nm.focus();
   return { ok: true, editing: !!it };
 }
-function stackFormCancel() { STACK_FORM = null; renderStackEditor(); return { ok: true }; }
+function stackFormCancel() { const log = STACK_FORM && STACK_FORM.host === 'log'; STACK_FORM = null; renderStackEditor(); if (log) renderSheetRoot(); return { ok: true }; }
+// R278/A: the Edit screen's on/off. What is typed so far is kept across the redraw.
+function stackFormSwitch(on) {
+  const st = STACK_FORM; if (!st || !st.editId) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  return stackItemEnable(st.editId, on);
+}
 function stackFormKind(k) {
   if (!STACK_FORM) return { ok: false };
   const keep = stackFormRead();
@@ -5271,8 +5358,11 @@ function stackFormPickMine(id) {
 function stackFormSave() {
   const st = STACK_FORM; if (!st) return { ok: false };
   const f = stackFormRead();
+  // R278/A: Save never switches an item. Its on/off state is the stored one, which
+  // only a switch tap (stackItemEnable) changes and records; a new item starts on.
+  const cur = st.editId ? ((APP_STATE.settings.stack || []).filter(function (x) { return x.id === st.editId; })[0]) : null;
   const raw = { id: st.editId, kind: st.kind, name: f.name, note: f.note,
-                enabled: st.seed ? st.seed.enabled !== false : true, bioactive: st.seed && st.seed.bioactive };
+                enabled: cur ? cur.enabled !== false : true, bioactive: st.seed && st.seed.bioactive };
   if (st.kind === 'food') {
     const grams = (String(f.grams).trim() === '') ? null : num(f.grams);
     if (st.pick && st.pick.mine) raw.part = (grams > 0) ? myFoodPart(st.pick.mine, grams) : { name: st.pick.name };
@@ -5307,11 +5397,13 @@ function stackEditorHTML() {
       const f = intakeFlag(k, micros[k]);
       if (f) flag += intakeNoteHTML(itemIntakeFlagText(f), 'stkflag');
     });
+    // R278/A: the row carries name, type and Edit -- no on/off control beside Edit.
+    // The include box that sat here switched an item off by accident (R276).
+    // Switching is in + Log's Daily stack and inside Edit.
     return '<div class="stkrow stked' + (s.enabled === false ? ' stkoff' : '') + '">'
-      + '<label class="stktick"><input type="checkbox"' + (s.enabled === false ? '' : ' checked')
-      + ' onchange="stackItemEnable(\'' + id + '\', this.checked)" aria-label="include ' + esc(s.name) + ' in the daily stack">'
-      + '<span class="stkname">' + esc(s.name) + '</span></label>'
+      + '<div class="stkname">' + esc(s.name) + '</div>'
       + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>'
+      + (s.enabled === false ? '<div class="stksub stkoffword">Switched off</div>' : '')
       + '<div class="stksub stksince">' + esc(stackSinceWords(s)) + '</div>'
       + (s.switches_from && (!s.added_on || s.switches_from > s.added_on)
         ? '<div class="stksub stksince">' + esc('Switching on and off recorded from ' + fmtDateSmart(s.switches_from) + '; none before') + '</div>' : '') + flag
@@ -5319,7 +5411,13 @@ function stackEditorHTML() {
       + '<button type="button" class="linklike cnrm stkdel" onclick="stackItemRemove(\'' + id + '\')">Remove</button></div></div>';
   }).join('');
   const st = STACK_FORM;
-  if (!st) return h + '<button type="button" class="btn stkadd" onclick="stackFormOpen()">Add an item</button>';
+  if (!st || st.host === 'log') return h + (st ? '' : '<button type="button" class="btn stkadd" onclick="stackFormOpen()">Add an item</button>');
+  return h + stackFormHTML();
+}
+// R278/B: the one form, drawn in Settings or in + Log's Daily stack (never both).
+function stackFormHTML() {
+  const st = STACK_FORM; if (!st) return '';
+  let h = '';
   const sd = st.seed || {};
   const v = function (x) { return x == null ? '' : String(x); };
   const mk = sd.microKey != null ? sd.microKey : Object.keys((sd.nutrients && sd.nutrients.micros) || {})[0] || '';
@@ -5331,6 +5429,17 @@ function stackEditorHTML() {
       }).join('') + '</div>'
     + '<div class="note stkkindnote">' + (st.kind === 'food' ? 'Counts in your day, with its calories.'
         : (st.kind === 'medication' ? 'Goes on your timeline, kept apart from supplements.' : 'Goes on your timeline.')) + '</div>';
+  // R278/A: inside Edit, a clearly labelled on/off control. Each tap is a switch,
+  // recorded with its time at once (stackItemEnable) -- not held until Save.
+  const cur = st.editId ? ((APP_STATE.settings.stack || []).filter(function (x) { return x.id === st.editId; })[0]) : null;
+  if (cur) {
+    const on = cur.enabled !== false;
+    h += '<div class="stkedsw"><div class="stkedlab" id="stkSwLab">In your daily stack</div>'
+      + '<div class="primsel stkswsel" role="group" aria-labelledby="stkSwLab">'
+      + '<button type="button" class="' + (on ? 'on' : '') + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="stackFormSwitch(true)">On</button>'
+      + '<button type="button" class="' + (on ? '' : 'on') + '" aria-pressed="' + (on ? 'false' : 'true') + '" onclick="stackFormSwitch(false)">Off</button>'
+      + '</div><div class="note">' + (on ? 'Shown in + Log each day.' : 'Switched off: not shown to tick, and its days read \u201cswitched off\u201d.') + '</div></div>';
+  }
   if (st.kind !== 'food') {
     h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" oninput="stackSuggestRender()" value="' + esc(v(sd.name)) + '">'
       + '<div class="row"><div><label for="stkDose">Amount</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
@@ -5361,6 +5470,7 @@ function stackEditorHTML() {
 function renderStackEditor() {
   const el = document.getElementById('stackEditor');
   if (el) el.innerHTML = stackEditorHTML();
+  if (STACK_FORM && STACK_FORM.host === 'log') renderSheetRoot();      // R278/B
   stackSuggestRender();
 }
 
@@ -7918,7 +8028,12 @@ function renderScan() {
     `<div><label>Meal</label><select id="scanMeal" onchange="setScanMeal(this.value)">` +
     MEALS.filter((m) => m !== 'supplement').map((m) => `<option value="${esc(m)}"${m === SCAN.meal ? ' selected' : ''}>${esc(m)}</option>`).join('') +
     `</select></div>` +
-    `<div><button class="btn primary" style="width:100%" onclick="addScanToDay()">Add to day</button></div></div>`;
+    (SCAN.guard
+      ? `</div><div class="scanguard" role="group" aria-label="already logged"><div class="scanguardword">Already logged at ${esc(SCAN.guard)}</div>` +
+        `<button class="btn primary" onclick="addScanToDay(true)">Log another</button>` +
+        `<button class="btn" onclick="scanGuardCancel()">Cancel</button></div>`
+      : `<div><button class="btn primary" style="width:100%" onclick="addScanToDay()">Add to day</button></div></div>`);
+  if (SCAN.logged) h += `<div class="scanlogged">${esc(SCAN.logged)}</div>`;
   h += priceCaptureHTML(rec.barcode, rec.name);   // D18: optional price capture, inline
   h += `<button class="linklike" onclick="doBarcodeLookup(true)">↻ Refresh from OpenFoodFacts</button>`;
   host.innerHTML = h;
@@ -7931,8 +8046,21 @@ function setScanGrams(v) {
   if (el) el.innerHTML = scanSummaryHTML(scalePortion(SCAN.record, SCAN.mode, SCAN.grams));   // update preview, keep focus
 }
 function setScanMeal(m) { if (SCAN && SCAN.found) SCAN.meal = m; }
-function addScanToDay() {
-  if (!SCAN || !SCAN.found) return;
+// R279/2: `again` is the user's "Log another". Without it, the same product logged
+// on this day in the last 10 minutes is NOT logged a second time silently: the
+// card says when it was, and the next tap is the user's choice.
+function addScanToDay(again) {
+  if (!SCAN || !SCAN.found) return { ok: false };
+  if (again !== true) {
+    const prev = recentSameItem(APP_STATE.current, { barcode: SCAN.record.barcode }, stampTime(APP_STATE.current));
+    if (prev) {
+      // the earlier log's toast would sit over the guard's two buttons; the banner
+      // at the top keeps its Undo
+      const t = document.getElementById('toast'); if (t) t.classList.remove('show');
+      SCAN.guard = prev.time; renderScan(); return { ok: false, guard: prev.time };
+    }
+  }
+  SCAN.guard = null;
   const r = logScanItem(SCAN.record, SCAN.mode, SCAN.grams, SCAN.meal);
   if (r.ok) {
     offerFoodUndo(APP_STATE.current, r.item);
@@ -7942,7 +8070,19 @@ function addScanToDay() {
     const ar = logAteApply(r.item, FORM_ATE.scan);
     if (ar && ar.ok === false) toast('Logged whole \u2014 ' + (ar.error || 'the share could not be applied.'));
     FORM_ATE.scan = 1;
+    // R279/1: the banner carries the toast's own undo, so either one takes it back.
+    const fn = _undoFn;
+    logConfirmShow([r.item], function () { if (typeof fn === 'function') fn(); if (SCAN) { SCAN.logged = ''; renderScan(); } });
+    if (_logConfirmFn) { _undoFn = _logConfirmFn; }
+    SCAN.logged = logConfirmWords([r.item]);
+    renderScan();
   }
+  return r;
+}
+function scanGuardCancel() {
+  if (!SCAN) return { ok: false };
+  SCAN.guard = null; renderScan();
+  return { ok: true };
 }
 function prefillManual(bc) {
   const name = document.getElementById('maName');
@@ -15820,6 +15960,7 @@ const VERSION_LOG = [
   { v: '0.110.0', d: '2026-10-20', note: 'Blood pressure is now one chart in Trends: systolic and diastolic on one mmHg scale, each reading at the time you took it, with the gap between them (pulse pressure) shaded. Systolic is a solid line with dots, diastolic a dashed line with squares. Faint lines at 135 and 85 show Hypertension Canada\'s 2020 threshold for home readings; the ⓘ has the source and says the 2025 guideline lowered it to 130/80. Tap the chart to read a reading. Nothing is coloured as good or bad.' },
   { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide. Closing Find nutrients while its database is loading now keeps it closed.' },
   { v: '0.111.1', d: '2026-10-27', note: 'An item switched off in your daily stack now has a Switch on button in + Log, today, so it can be switched back on where you log it; each switch is still recorded with its time. Its type (supplement, medication or food) is changed under Settings, Daily stack, Edit.' },
+  { v: '0.111.2', d: '2026-10-28', note: 'A scan or photo log now says so at the top of the screen, naming the item, amount and time, with Undo. Scanning the same product again within 10 minutes asks first: Already logged at <time>, Log another or Cancel. In your daily stack, + Log has Switch off and Switch on, and + Add to stack for a new item; in Settings each row has Edit only, with On and Off inside Edit.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -19591,6 +19732,7 @@ function consumeFromPlate(plateId, statements, opts) {
     APP_STATE.days[dk].items = priorCopy;
     Store.saveState(APP_STATE); refresh();
   });
+  logConfirmShow(written, _undoFn);           // R279/1: the photo log says so too
   return { ok: true, mealId: mealId, items: written, plateId: plate.id,
            remainder: plateRemainder(getPlate(plate.id)) };
 }
@@ -21079,6 +21221,7 @@ function openSheet(mode) {
   overlaySync();
   // R246: every + Log opens with the stack collapsed -- its count and Took all.
   STACK_OPEN = false; STACK_EDIT = null;
+  if (STACK_FORM && STACK_FORM.host === 'log') STACK_FORM = null;   // R278/B: a closed sheet's add form is not kept
   // RULED: the default is ROOT, not scan. The device finding was that '+ Log'
   // opened the camera-and-barcode path while the stack, the combos and the top 10
   // sat behind another button -- and the default argument was the whole split.
@@ -21852,7 +21995,7 @@ function renderSheetRoot() {
   el.innerHTML =
       plateRecallHTML()
     + '<div id="sheetRegimen">' + regimenChecklistHTML() + '</div>'
-    + stackSheetHTML()
+    + stackSheetHTML('root')
     + sheetCombosHTML()
     + sheetComboNewHTML()
     + (shown.length
@@ -25373,7 +25516,7 @@ window.HT = {
   TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, matchTokensFold,
   TYPEAHEAD_POOL, refUseCounts, typeaheadMineFirst, SEARCH_ALIAS, searchWord, nameIsBranded,
   // R198/3 and R199/2 -- "Ate:" at save on the forms; editing and deleting combos
-  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay,
+  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay, scanGuardCancel, recentSameItem, logConfirmShow, logConfirmHide, logConfirmUndo, logConfirmWords,
   combosEditToggle, comboEditOpen, comboDeleteUndo, combosEditing: () => COMBOS_EDITING, typeaheadRun, typeaheadRowsHTML,
   CORPUS_OWN_MACROS, corpusOwnNumbers, sheetComboNewHTML,
   foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
@@ -25492,7 +25635,7 @@ window.HT = {
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor, openLabelCapture,
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
-  stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormKind, stackFormSearch, stackFormPick,
+  stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,

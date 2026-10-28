@@ -11650,6 +11650,77 @@ window.setLS({});
   HT.state().days = _wDays; HT.state().current = _wCur; HT.state().timeline = _wTl;
   HT.state().settings = JSON.parse(JSON.stringify(_wSet));
 
+  // ---- R278: THE SWITCH MOVES OFF THE SETTINGS ROW; + ADD TO STACK IN + LOG ------------
+  // Synthetic items only (R204).
+  var _xDays = HT.state().days, _xCur = HT.state().current, _xTl = HT.state().timeline;
+  var _xSet = JSON.parse(JSON.stringify(HT.state().settings));
+  HT.setClock(function () { return new Date(2026, 9, 20, 9, 0, 0).getTime(); });
+  HT.state().days = { '2026-10-20': { status: 'in_progress', items: [], water_l: 0 } }; HT.state().timeline = {};
+  HT.state().current = '2026-10-20';
+  HT.state().settings.stack = HT.normalizeStack([
+    { id: 'x1', name: 'Item A', kind: 'supplement', dose: 1, dose_unit: 'capsule', added_on: '2026-10-01', added_basis: 'created' } ]);
+  var x1 = function () { return HT.state().settings.stack.filter(function (x) { return x.id === 'x1'; })[0]; };
+  var xEd = HT.stackEditorHTML();
+  res(xEd.indexOf('<input') < 0 && xEd.indexOf('stackItemEnable') < 0 && xEd.indexOf('stackFormOpen(\'x1\')') > 0,
+      'R278 GATE A: the Settings row has NO on/off control -- name, type and Edit only', xEd);
+  HT.stackFormOpen('x1');
+  var xF = HT.stackFormHTML();
+  res(xF.indexOf('In your daily stack') > 0 && xF.indexOf('stackFormSwitch(true)') > 0 && xF.indexOf('stackFormSwitch(false)') > 0
+      && /aria-pressed="true" onclick="stackFormSwitch\(true\)"/.test(xF),
+      'R278 GATE A: inside Edit, a labelled On / Off control, On pressed for an item that is on', xF);
+  HT.setClock(function () { return new Date(2026, 9, 20, 9, 5, 0).getTime(); });
+  var xS = HT.stackFormSwitch(false);
+  res(xS.ok && x1().enabled === false && (x1().switches || []).length === 1 && x1().switches[0].on === false
+      && x1().switches[0].at === '2026-10-20T09:05:00' && x1().switches[0].stated === true,
+      'R278 GATE A: Off inside Edit is ONE switch event, with its time, at the tap', JSON.stringify(x1().switches));
+  var xSv = HT.stackFormSave();
+  res(xSv.ok && x1().enabled === false && x1().switches.length === 1,
+      'R278 A: Save after the switch keeps it off and records nothing more -- Save never switches an item');
+  HT.stackOpen();
+  var xR = HT.stackSheetHTML('root');
+  res(xR.indexOf('stackItemEnable(\'x1\', true)') > 0 && xR.indexOf('Switch on') > 0,
+      'R278 A: switched off, + Log offers Switch on today');
+  HT.stackItemEnable('x1', true);
+  var xR2 = HT.stackSheetHTML('root');
+  res(xR2.indexOf('stackItemEnable(\'x1\', false)') > 0 && xR2.indexOf('>Switch off<') > 0 && x1().switches.length === 2,
+      'R278 GATE A: + Log offers Switch off on an item that is on, today; Switch on was one more event', xR2);
+  res(xR2.indexOf('stackFormOpen(\'\', \'log\')') > 0 && xR2.indexOf('+ Add to stack') > 0 && HT.stackSheetHTML().indexOf('+ Add to stack') < 0,
+      'R278 GATE B: "+ Add to stack" is in + Log\'s Daily stack (the root), not on the Quick pane');
+  HT.state().current = '2026-10-19';
+  res(HT.stackSheetHTML('root').indexOf('+ Add to stack') < 0 && HT.stackSheetHTML('root').indexOf('Switch off') < 0,
+      'R278: a past day is read-only -- no add, no switch');
+  HT.state().current = '2026-10-20';
+  HT.stackFormOpen('', 'log');
+  var xL = HT.stackSheetHTML('root');
+  res(xL.indexOf('id="stkName"') > 0 && xL.indexOf('Add to my stack') > 0 && HT.stackSheetHTML().indexOf('id="stkName"') < 0
+      && HT.stackEditorHTML().indexOf('id="stkName"') < 0,
+      'R278 B: the add form is drawn once, in + Log -- not on the Quick pane, not in Settings', xL);
+  res(HT.stackUpsert({ name: 'Item B', kind: 'supplement', dose: 2, dose_unit: 'mg' }).ok
+      && HT.stackListed().filter(function (s) { return s.name === 'Item B'; })[0].added_on === '2026-10-20'
+      && HT.stackListed().filter(function (s) { return s.name === 'Item B'; })[0].added_basis === 'added',
+      'R278 B: a new item joins the stack today, by the rule "added"');
+  HT.stackFormCancel();
+  HT.setClock(null);
+  HT.state().days = _xDays; HT.state().current = _xCur; HT.state().timeline = _xTl;
+  HT.state().settings = JSON.parse(JSON.stringify(_xSet));
+
+  // ---- R279: A SCAN SAYS IT WAS LOGGED; THE SAME PRODUCT TWICE IN 10 MIN ASKS ---------
+  var _yDays = HT.state().days, _yCur = HT.state().current;
+  HT.state().days = { '2026-10-20': { status: 'in_progress', water_l: 0, items: [
+    HT.normalizeItem({ name: 'Gate seeds', meal: 'snack', time: '22:41', kcal: 170, grams: 30, barcode: '0000000000017', source: 'scan', confidence: 'measured' }, true),
+    HT.normalizeItem({ name: 'Gate oats', meal: 'snack', time: '22:35', kcal: 100, grams: 25, source: 'corpus', confidence: 'eyeballed',
+                       ref: { ns: 'cnf', id: '123', name: 'Oats' } }, true) ] } };
+  HT.state().current = '2026-10-20';
+  res(HT.logConfirmWords([HT.state().days['2026-10-20'].items[0]]) === 'Logged: Gate seeds 30 g · 22:41',
+      'R279 GATE 1: the confirmation names the item, the amount and the time', HT.logConfirmWords([HT.state().days['2026-10-20'].items[0]]));
+  var yS = function (probe, at) { var r = HT.recentSameItem('2026-10-20', probe, at); return r ? r.name + '@' + r.time : ''; };
+  res(yS({ barcode: '0000000000017' }, '22:45') === 'Gate seeds@22:41' && yS({ barcode: '0000000000017' }, '22:51') === 'Gate seeds@22:41'
+      && yS({ barcode: '0000000000017' }, '22:52') === '' && yS({ barcode: '0000000000024' }, '22:45') === '',
+      'R279 GATE 2: the same barcode within 10 minutes is found; at 11 minutes, or another barcode, it is not');
+  res(yS({ ref: { ns: 'cnf', id: '123' } }, '22:40') === 'Gate oats@22:35' && yS({ ref: { ns: 'fdc', id: '123' } }, '22:40') === '',
+      'R279 2: the same linked database row counts as the same item; the same id in another database does not');
+  HT.state().days = _yDays; HT.state().current = _yCur;
+
   // ---- R251.2: BLOOD PRESSURE, ONE CHART -----------------------------------------------
   var _bTl = HT.state().timeline;
   HT.setClock(function () { return new Date(2026, 9, 21, 9, 0, 0).getTime(); });

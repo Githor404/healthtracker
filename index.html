@@ -130,6 +130,16 @@
   .btn.danger{border-color:var(--bad);color:var(--bad)}
   .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--good);color:#fff;padding:11px 18px;border-radius:22px;font-weight:700;font-size:16px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:23;max-width:90%;text-align:center}
   .toast.show{opacity:1}
+  /* R279/1: a log from a scan or a photo says so at the TOP, above the sheet */
+  .logconfirm{position:fixed;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top));z-index:24;display:flex;align-items:center;gap:8px;background:var(--panel);color:var(--txt);border:2px solid var(--good);border-left-width:8px;border-radius:14px;padding:8px 8px 8px 12px;font-size:16px;font-weight:700;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+  .logconfirm[hidden]{display:none}
+  .logconfirm .lcword{flex:1;min-width:0;overflow-wrap:anywhere}
+  .logconfirm .lcundo{min-height:44px;min-width:64px;font:inherit;font-weight:700;background:none;border:1px solid var(--line);border-radius:10px;color:var(--txt);text-decoration:underline;cursor:pointer}
+  .logconfirm .lcx{min-height:44px;min-width:44px;font-size:22px;background:none;border:none;color:var(--txt);cursor:pointer}
+  .scanguard{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;padding:10px;border:2px solid var(--warn);border-radius:12px}
+  .scanguard .scanguardword{flex:1 1 100%;font-weight:700;font-size:16px}
+  .scanguard .btn{min-height:44px;flex:1}
+  .scanlogged{margin-top:10px;font-weight:700;font-size:16px;color:var(--txt);border-left:6px solid var(--good);padding:6px 10px}
   /* R186/E: the one-tap confirmation is ONE LINE (ruled). The pill is as wide as
      its words and never wraps; the type stays 16px, so on a narrow screen it is
      the padding and the weight that give, never the size. */
@@ -1148,6 +1158,13 @@
 .stkopen{flex:1 1 auto;min-width:0;min-height:44px;font-size:16px;text-align:left}
 .stkall{flex:0 0 auto;min-height:44px;font-size:16px}
 .stkswon{min-height:44px;min-width:44px;font-size:16px;margin-top:6px}
+.stkswbtn{width:auto;justify-self:start;min-height:44px;min-width:44px;font-size:16px;font-weight:400;color:var(--muted);margin-top:6px}
+.stkaddlog{width:100%;margin-top:10px;min-height:44px;font-size:16px}
+.stklogform{margin-top:10px}
+.stkedsw{margin:10px 0}
+.stkswsel{display:flex;gap:6px}
+.stkswsel button{min-height:44px;min-width:64px;font-size:16px}
+.stkoffword{font-weight:600}
 .stkalldone{flex:0 0 auto;align-self:center;font-size:16px;color:var(--muted)}
 .stkdone{display:flex;gap:8px;flex-wrap:wrap}
 .stkdose,.stktime{min-height:44px;min-width:44px;font-size:16px}
@@ -1950,6 +1967,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
     <div class="ofoot" id="outcomeFoot"></div>
   </div>
   <div data-overlay="toast" class="toast" id="toast"></div>
+  <div data-overlay="toast" class="logconfirm" id="logConfirm" role="status" aria-live="polite" hidden></div>
   <script src="app.js"></script>
   <script>
   // SW registration + FORCE-AND-NOTIFY update delivery (DECISIONS.md D6 amendment).

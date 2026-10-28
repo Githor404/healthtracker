@@ -18820,6 +18820,8 @@ added; nothing commercial ships while an entry is open.
 | Live-microbe classification (Marco et al. 2022, J Nutr) | fermented foods with live microbes (R266 Phase 1) | CC BY-NC 4.0 | a commercial licence from the rights holder (OUP / the authors), or replacing it with an openly licensed classification |
 | Phenol-Explorer 3.6 | polyphenol content of foods (R266 Phase 1; private use only) | no named licence; redistribution and commercial use need the authors' permission | written permission from the authors for commercial redistribution, or an openly licensed polyphenol source |
 | KEGG (not used) | -- | copyright Kanehisa Laboratories; non-academic use needs a commercial licence | a KEGG commercial licence, or staying on Reactome / WikiPathways (CC0) |
+| NIH ODS Dietary Supplement Label Database (DSLD; proposed, R279 Part 2, not used) | supplement labels by UPC | licence not stated; a US federal database, but label text and images are the manufacturers'; the policy pages could not be fetched on 2026-10-28 | a written statement of terms from ODS (https://dsld.od.nih.gov/) |
+| The user's own AI provider (BYOK label read; proposed, R279 Part 2) | reading a supplement label photo | not a data licence: the provider's terms govern its outputs | checking the chosen provider's terms for commercial reuse of outputs |
 
 *Checked and not blockers:* Reactome (CC0 data), Gene Ontology (CC BY 4.0, with
 attribution), WikiPathways (CC0), Canadian Nutrient File (Open Government Licence -
@@ -18937,3 +18939,86 @@ before taps were recorded -- most likely during that edit, the box sitting besid
 Edit on the same row: **about 90 %**; the rest is what the data cannot show. No code
 switched it off. Its stored record is unchanged; v0.111.1's Switch on is the user's
 way back.
+
+
+## R278 -- THE STACK SWITCH LEAVES THE SETTINGS ROW; + ADD TO STACK IN + LOG (2026-10-28, v0.111.2)
+
+*The user's rulings of 27 Oct, after R276 found the cause of the accidental switch-off:
+the include box beside Edit on the Settings row. Serves **track**.*
+
+**A. The include box moves ("move", not "confirm" -- no dialog).** The Settings ->
+Daily stack row keeps name, type and Edit only (plus "Switched off" as words when it
+is). Switching is done (1) in + Log -> Daily stack, today: **Switch off** on an item
+that is on (a compact 44 px button, muted, not a full-width bar), **Switch on** on one
+that is off -- including one already taken today and then switched off, which stays
+listed; and (2) inside the item's **Edit**, a labelled control "In your daily stack:
+On / Off" (44 px). Every switch is the user's tap, recorded at once with its time
+(R256); **Save never switches an item** -- it keeps the stored state, so an edit can
+no longer turn an item off as a side effect. A past day stays read-only.
+
+**B. "+ Add to stack" in + Log (ONE DOOR).** Inside + Log -> Daily stack, today, on
+the root: it opens the same form Settings uses (name; type Supplement / Medication /
+Food; dose and unit; a Food reuses the search -- your foods, the food database, "add it
+from its label"), drawn once (never on the Quick pane, never in Settings at the same
+time). Saved, the item joins **today** by the rule "added" (R255) and appears as its
+own row, tickable. **Taps from the home screen: 4** -- + Log, Daily stack, + Add to
+stack, Add to my stack (typing aside; a Food adds a search pick and grams). A Settings
+form being typed in is never replaced from + Log; a closed sheet drops its unsaved add
+form. Settings -> Daily stack stays for editing.
+
+*Named, not resolved:* D146 draws **no stack section** when the stack is empty, so
+"+ Add to stack" exists only once an item does; the first item of a new user is still
+added in Settings. The join date is today and is not editable here (a back-dated join
+would change what earlier days read). Both are the user's call.
+
+*Gate:* `stackcheck-gate` section 7 now switches through Edit's On / Off (the box is
+gone); section 9 (+4 checks, real touches at 390 px): no Settings row has a checkbox,
+input or switch; inside Edit one tap on Off is one stated event, Save adds none; in
++ Log Switch on and Switch off are one event each, 44 px; placeholder **"Item B"**
+added from + Log in 4 taps is in the stack, joined today ("added"), on its own row,
+ticked as taken at 2 capsule with the backup saying so. Harness +10.
+
+## R279 -- A SCAN SAYS IT WAS LOGGED; THE SAME PRODUCT AGAIN WITHIN 10 MIN ASKS FIRST (2026-10-28, v0.111.2)
+
+*The user scanned one product three times because the app gave no sign the scan was
+logged: user error as signal. The cause, measured: after "Add to day" the scan card
+stayed exactly as it was and the only sign was the 7 s toast at the bottom. Serves
+**track**.*
+
+**Pre-registered (the ruling's criteria, written into `forms-gate` before its first
+run):** (1) after a scan or photo log, a confirmation naming item, amount and time
+("Logged: <item> 30 g . 22:41") with Undo, visible without scrolling at 390 px, light
+and dark; (2) the same item -- the same barcode, or the same linked database row
+(namespace and id) -- logged on this day within the last 10 minutes is not logged
+silently: "Already logged at <time>", **Log another** / **Cancel**, nothing written
+until the user's tap, nothing else blocked; (3) gates: a scan shows the confirmation; a
+second identical scan within 10 min shows the guard and logs only on Log another; Undo
+removes the entry.
+
+**Built.** A banner at the top of the screen, above the sheet (`#logConfirm`, marked
+as a toast so it is never inerted), with Undo (44 px) and a close; it stays 20 s. Its
+Undo is the toast's own function, run once. The scan card also keeps a "Logged: ..."
+line under Add to day. The photo path shows the same banner when its items reach the
+day. The guard is on the scan card (it replaces Add to day); when it shows, the earlier
+log's toast is hidden so it cannot cover the two buttons (seen in the first
+screenshot). A flag, not a nudge: no count, no colour verdict.
+
+*Gate:* `forms-gate` +6 (390 px, real Scan form): the banner reads exactly
+"Logged: Gate spread 15 g . <time>", is the topmost element at its point and inside
+the viewport, Undo 44 x 44, 16px, contrast 14.1 light and 13.5 dark; a second Add
+within 10 min shows "Already logged at <time>" with Log another and Cancel (44 px) and
+writes nothing; Cancel writes nothing; Log another writes one, confirmed ("30 g");
+the banner's Undo removes it and leaves no second Undo on the toast. Harness +3 (the
+words; same barcode at 4 and 10 min found, at 11 min or another barcode not; same
+linked row found, the same id in another namespace not).
+
+**Existing data (report only; nothing deleted or merged):** in the user's backup of
+2026-10-27 the product appears three times on Oct 27 (times and positions reported to
+the user; the user deletes duplicates). Log items carry no id field; they are named by
+day, time and position.
+
+**Part 2 -- scanning supplements into the stack: report only, nothing built.** Written
+privately (HTPrivate). Two proposed sources added to the commercial-blockers list
+(R273): DSLD (licence not stated) and the user's own AI provider for a label read.
+Health Canada's LNHPD is Open Government Licence - Canada (commercial use allowed, with
+attribution) and OpenFoodFacts is ODbL -- neither is a blocker.

@@ -296,19 +296,27 @@ try {
   Shot 'stack-notyet'
 
   # ---- 7. R256: EVERY SWITCH, WITH ITS TIME --------------------------------------------------
-  # The include box in Settings, clicked, with the app's clock pinned for each click:
+  # R278/A: the include box is gone from the Settings row; the switch is the On / Off
+  # control inside the item's Edit, tapped with the app's clock pinned for each tap:
   # two days ago 21:00 off; today 08:00 on, 09:00 off, 15:30 on. So yesterday was off
   # all day and today is a partial day.
   [void](Eval @'
 (function () {
   HT.closeSheet();
-  var box = function () { return document.querySelector('#stackEditor input[aria-label="include Gate capsule in the daily stack"]'); };
+  var tog = function () {
+    if (!document.querySelector('#stackEditor .stkswsel')) {
+      var r = Array.prototype.filter.call(document.querySelectorAll('#stackEditor .stked'), function (x) { return x.querySelector('.stkname').textContent === 'Gate capsule'; })[0];
+      r.querySelector('.stkedit').click();
+    }
+    Array.prototype.filter.call(document.querySelectorAll('#stackEditor .stkswsel button'), function (b) { return b.getAttribute('aria-pressed') === 'false'; })[0].click();
+  };
   var at = function (dd, h, m) { var d = new Date(); d.setDate(d.getDate() + dd); d.setHours(h, m, 0, 0); var t = d.getTime(); HT.setClock(function () { return t; }); };
-  at(-2, 21, 0); box().click();
-  at(0, 8, 0); box().click();
-  at(0, 9, 0); box().click();
-  at(0, 15, 30); box().click();
+  at(-2, 21, 0); tog();
+  at(0, 8, 0); tog();
+  at(0, 9, 0); tog();
+  at(0, 15, 30); tog();
   HT.setClock(null);
+  HT.stackFormCancel();
   return 1;
 })()
 '@)
@@ -408,6 +416,86 @@ try {
   $k1v = $k1 | ConvertFrom-Json
   Check (($k0v.pressed -eq 'Food') -and ($k0v.rowSub -like 'Food *') -and ($k1v.kind -eq 'supplement') -and ($k1v.n -eq 2) -and $k1v.added -and ($k1v.on -eq $true)) "R276 GATE: ITS TYPE IS SHOWN AND CHANGED IN ONE PLACE -- Settings > Daily stack > Edit shows 'Food' selected; the user's tap on Supplement and Save change it, keeping its switch history and join date"
   Shot 'stack-switch-on'
+
+  # ---- 9. R278: THE SWITCH LEAVES THE SETTINGS ROW; + ADD TO STACK IN + LOG --------------
+  # R276's cause: the unlabelled include box beside Edit switched an item off by
+  # accident. Ruled: the row keeps name, type and Edit; switching is in + Log and
+  # inside Edit; every switch is one recorded event. Placeholders only (R204).
+  function TapSel([string]$sel) {
+    $r = EvalJ ("(function(){ var b = document.querySelector(" + (ConvertTo-Json $sel) + "); if (!b) return { ok: false }; b.scrollIntoView({ block: 'center' }); var q = b.getBoundingClientRect(); return { ok: true, x: q.left + q.width / 2, y: q.top + q.height / 2, h: Math.round(q.height), w: Math.round(q.width) }; })()") | ConvertFrom-Json
+    if (-not $r.ok) { return $r }
+    Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $r.x; y = $r.y }) } | Out-Null
+    Start-Sleep -Milliseconds 40
+    Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
+    Settle
+    return $r
+  }
+  $gEv = "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.id === 'gA'; })[0]; var ev = g.switches || []; var l = ev[ev.length - 1] || {}; return { on: g.enabled, n: ev.length, lastOn: l.on, stated: l.stated === true, today: String(l.at || '').slice(0, 10) === HT.todayKey() }; })()"
+  [void](Eval "HT.stackFormCancel()")
+  Settle
+  $s9a = EvalJ "(function(){ var rows = document.querySelectorAll('#stackEditor .stked'); var ctl = 0; Array.prototype.forEach.call(rows, function (r) { ctl += r.querySelectorAll('input, select, [onclick*=stackItemEnable], [onchange*=stackItemEnable]').length; }); return { rows: rows.length, ctl: ctl, edits: document.querySelectorAll('#stackEditor .stked .stkedit').length }; })()"
+  Write-Host ("  Settings rows: " + $s9a)
+  $s9av = $s9a | ConvertFrom-Json
+  Check (($s9av.rows -ge 3) -and ($s9av.ctl -eq 0) -and ($s9av.edits -eq $s9av.rows)) "R278 GATE A: THE SETTINGS ROW HAS NO ON/OFF CONTROL -- every row has Edit and no checkbox, input or switch"
+  Shot 'stack-settings-rows'
+  # Off, then On, inside Edit -- one event each, at the tap
+  $n9 = ($(EvalJ $gEv) | ConvertFrom-Json).n
+  [void](Eval "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#stackEditor .stked'), function (x) { return x.querySelector('.stkname').textContent === 'Item A'; })[0]; r.querySelector('.stkedit').click(); return 1; })()")
+  Settle
+  $t9 = TapSel '#stackEditor .stkswsel button[aria-pressed=false]'
+  $e9a = EvalJ $gEv
+  $e9p = EvalJ "(function(){ var p = document.querySelector('#stackEditor .stkswsel button[aria-pressed=true]'); var l = document.getElementById('stkSwLab'); return { pressed: p ? p.textContent : '', label: l ? l.textContent : '' }; })()"
+  Write-Host ("  Edit Off: " + $e9a + " " + $e9p + " tap " + ($t9 | ConvertTo-Json -Compress))
+  $e9av = $e9a | ConvertFrom-Json
+  Check (($t9.h -ge 44) -and ($t9.w -ge 44) -and ($e9av.on -eq $false) -and ($e9av.n -eq ($n9 + 1)) -and ($e9av.lastOn -eq $false) -and $e9av.stated -and $e9av.today -and ($e9p -like '*"pressed":"Off"*"label":"In your daily stack"*')) "R278 GATE A: INSIDE EDIT, a labelled On / Off ('In your daily stack', 44 px): one tap on Off is ONE switch event, stated, today"
+  Shot 'stack-edit-switch'
+  [void](Eval "document.querySelector('#stackEditor .stksave').click()")
+  Settle
+  $e9s = EvalJ $gEv
+  Check ($e9s -like ('*"on":false,"n":' + ($n9 + 1) + ',*')) ("R278 A: Save after it keeps it off and records nothing more (" + $e9s + ")")
+  # + Log: Switch on, then Switch off -- one event each
+  [void](Eval "HT.closeSettings()")
+  [void](Eval "document.getElementById('fab').click()")
+  Settle
+  [void](Eval "document.querySelector('#sheetRoot .stkopen').click()")
+  Settle
+  $rowSel = "#sheetRoot .stkrow button[aria-label='switch Item A back on in your daily stack']"
+  [void](TapSel $rowSel)
+  $e9b = EvalJ $gEv
+  $offSel = "#sheetRoot .stkrow button[aria-label='switch Item A off in your daily stack']"
+  $t9b = TapSel $offSel
+  $e9c = EvalJ $gEv
+  Write-Host ("  + Log on/off: " + $e9b + " -> " + $e9c + " tap " + ($t9b | ConvertTo-Json -Compress))
+  $e9bv = $e9b | ConvertFrom-Json; $e9cv = $e9c | ConvertFrom-Json
+  Check (($e9bv.on -eq $true) -and ($e9bv.n -eq ($n9 + 2)) -and $t9b.ok -and ($t9b.h -ge 44) -and ($t9b.w -ge 44) -and ($e9cv.on -eq $false) -and ($e9cv.n -eq ($n9 + 3)) -and ($e9cv.lastOn -eq $false) -and $e9cv.stated) "R278 GATE A: IN + LOG, Switch on and Switch off (44 px) -- each one tap, each ONE recorded switch event"
+  [void](TapSel $rowSel)
+  # + Add to stack: from the home screen, counted
+  [void](Eval "HT.closeSheet()")
+  Settle
+  $taps = 0
+  $u1 = TapSel '#fab'; if ($u1.ok) { $taps++ }
+  $u2 = TapSel '#sheetRoot .stkopen'; if ($u2.ok) { $taps++ }
+  $u3 = TapSel '#sheetRoot .stkaddlog'; if ($u3.ok) { $taps++ }
+  $f9 = EvalJ "(function(){ var f = document.querySelector('#sheetRoot .stklogform'); var k = f ? f.querySelector('.stkkinds button[aria-pressed=true]') : null; return { form: !!f, kind: k ? k.textContent : '', kinds: f ? Array.prototype.map.call(f.querySelectorAll('.stkkinds button'), function (b) { return b.textContent; }) : [], name: !!document.querySelector('#sheetRoot #stkName'), settings: !!document.querySelector('#stackEditor #stkName'), wide: document.documentElement.scrollWidth - document.documentElement.clientWidth }; })()"
+  Write-Host ("  add form: " + $f9)
+  [void](Eval "document.getElementById('stkName').focus()")
+  TypeText 'Item B'
+  [void](Eval "(function(){ var d = document.getElementById('stkDose'); d.focus(); return 1; })()")
+  TypeText '2'
+  [void](Eval "(function(){ var u = document.getElementById('stkUnit'); u.value = 'capsule'; return 1; })()")
+  Shot 'stack-add-log'
+  $u4 = TapSel '#sheetRoot .stklogform .stksave'; if ($u4.ok) { $taps++ }
+  $b9 = EvalJ "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Item B'; })[0]; var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.querySelector('.stkname') && x.querySelector('.stkname').textContent === 'Item B'; })[0]; return { saved: !!g, kind: g ? g.kind : '', dose: g ? g.dose + ' ' + g.dose_unit : '', joined: g ? g.added_on === HT.todayKey() : false, basis: g ? g.added_basis : '', on: g ? g.enabled : null, row: !!r, box: r ? r.querySelectorAll('input[type=checkbox]').length : 0, form: !!document.querySelector('#sheetRoot .stklogform') }; })()"
+  Write-Host ("  taps " + $taps + "; Item B: " + $b9)
+  $b9v = $b9 | ConvertFrom-Json
+  Check (($f9 -like '*"form":true,"kind":"Supplement"*"Food"*"name":true,"settings":false*') -and ($f9 -like '*"wide":0*')) "R278 B: + Add to stack opens the form inside + Log's Daily stack -- name, type (Supplement / Medication / Food), dose and unit; drawn once, no page-wide scroll"
+  Check (($taps -eq 4) -and $b9v.saved -and ($b9v.kind -eq 'supplement') -and ($b9v.dose -eq '2 capsule') -and $b9v.joined -and ($b9v.basis -eq 'added') -and ($b9v.on -eq $true) -and $b9v.row -and ($b9v.box -eq 1) -and (-not $b9v.form)) "R278 GATE B: 'Item B' ADDED FROM + LOG IN 4 TAPS (+ Log, Daily stack, + Add to stack, Add to my stack) -- in the stack, joined today by the rule 'added', on its own row with a checkbox"
+  [void](Eval "(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.querySelector('.stkname') && x.querySelector('.stkname').textContent === 'Item B'; })[0]; r.querySelector('input[type=checkbox]').click(); return 1; })()")
+  Settle
+  $b9t = EvalJ "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Item B'; })[0]; var tl = HT.state().timeline[HT.todayKey()] || []; var e = tl.filter(function (x) { return x.stackId === g.id; }); var d = JSON.parse(HT.exportJSON()).stackDays; var it = d.items.filter(function (i) { return i.name === 'Item B'; })[0] || {}; return { n: e.length, dose: e[0] ? e[0].dose + ' ' + e[0].dose_unit : '', status: (d.days[HT.todayKey()] || []).filter(function (x) { return x.name === 'Item B'; }).map(function (x) { return x.status; }).join(','), added: it.added_on === HT.todayKey(), basis: it.added_basis }; })()"
+  Write-Host ("  Item B ticked: " + $b9t)
+  Check ($b9t -like '*"n":1,"dose":"2 capsule","status":"taken","added":true,"basis":"added"*') "R278 GATE B: and it can be TICKED -- taken today at 2 capsule, the backup saying taken, with its join date"
+  Shot 'stack-item-b'
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)

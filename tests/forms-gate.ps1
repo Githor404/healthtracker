@@ -297,6 +297,71 @@ HT.lookupBarcode('3017620422003', { fetchImpl: function () {
   Check (($a2v.source -eq 'scan') -and ($a2v.grams -eq 15) -and ($a2v.kcal -eq 75) -and ($a2v.served -eq 30)) "R198/3: a HALF of a scanned 30 g serving logs 15 g and 75 cal, with the 30 g served kept"
   Check ([Math]::Abs([double]$a2v.iron - 0.6) -lt 0.001) "and the LABEL micronutrients are halved with it -- 0.6 mg iron of the 1.2 on the serving"
 
+  # ---- R279: A SCAN SAYS IT WAS LOGGED; THE SAME PRODUCT AGAIN IN 10 MIN ASKS FIRST ----------
+  # Reported: one product scanned three times because nothing said it was logged.
+  # Pre-registered (DECISIONS R279): the confirmation names item, amount and time,
+  # visible without scrolling at 390 px, light and dark, with Undo; a second scan of
+  # the same product within 10 min shows the guard and logs only on "Log another".
+  $fshots = $null
+  if ($env:FORMS_SHOTS) { $fshots = Join-Path $env:TEMP 'forms-shots'; New-Item -ItemType Directory -Force $fshots | Out-Null }
+  function FShot([string]$name) { if (-not $fshots) { return }; $rv = Invoke-CDP 'Page.captureScreenshot' @{ format = 'png' }; [IO.File]::WriteAllBytes((Join-Path $fshots ($name + '.png')), [Convert]::FromBase64String($rv.result.data)) }
+  $lcJs = @'
+(function () {
+  var e = document.getElementById('logConfirm'); var r = e.getBoundingClientRect(); var cs = getComputedStyle(e);
+  var u = e.querySelector('.lcundo'); var ur = u ? u.getBoundingClientRect() : null;
+  var lum = function (c) { var m = c.match(/[\d.]+/g).map(Number); var f = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(m[0]) + 0.7152 * f(m[1]) + 0.0722 * f(m[2]); };
+  var a = lum(cs.color), b = lum(cs.backgroundColor); var cr = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+  var d = HT.state().days[HT.state().current] || { items: [] }; var it = d.items[d.items.length - 1] || {};
+  var top = document.elementFromPoint(r.left + 20, r.top + r.height / 2);
+  return { shown: !e.hidden && cs.display !== 'none', text: (e.querySelector('.lcword') || {}).textContent || '',
+           want: 'Logged: ' + it.name + ' ' + it.grams + ' g ' + String.fromCharCode(183) + ' ' + it.time,
+           inView: r.top >= 0 && r.bottom <= window.innerHeight && r.height > 0, onTop: !!top && e.contains(top),
+           undoH: ur ? Math.round(ur.height) : 0, undoW: ur ? Math.round(ur.width) : 0, px: parseFloat(cs.fontSize), cr: Math.round(cr * 10) / 10, bg: cs.backgroundColor,
+           wide: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+})()
+'@
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null
+  Settle
+  $lc1 = EvalJ $lcJs
+  Write-Host ("  confirmation, light: " + $lc1)
+  $lc1v = $lc1 | ConvertFrom-Json
+  Check ($lc1v.shown -and ($lc1v.text -eq $lc1v.want) -and ($lc1v.text -like 'Logged: Gate spread 15 g *') -and $lc1v.inView -and $lc1v.onTop -and ($lc1v.undoH -ge 44) -and ($lc1v.undoW -ge 44) -and ($lc1v.px -ge 16) -and ($lc1v.cr -ge 4.5) -and ($lc1v.wide -le 0)) "R279 GATE 1: A SCAN SHOWS THE CONFIRMATION -- 'Logged: <item> <amount> . <time>' with Undo (44 px), on top of the sheet and inside the 390 px screen without scrolling, contrast >= 4.5 (light)"
+  FShot 'scan-confirm-light'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'dark' }) } | Out-Null
+  Settle
+  $lc2 = EvalJ $lcJs
+  Write-Host ("  confirmation, dark: " + $lc2)
+  $lc2v = $lc2 | ConvertFrom-Json
+  Check ($lc2v.shown -and $lc2v.inView -and $lc2v.onTop -and ($lc2v.cr -ge 4.5) -and ($lc2v.bg -ne $lc1v.bg)) "R279 GATE 1: and in DARK -- on its own dark colours, contrast >= 4.5, still in view"
+  FShot 'scan-confirm-dark'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null
+  $cnt = "(function(){ var d = HT.state().days[HT.state().current] || { items: [] }; return d.items.filter(function (i) { return i.barcode === '3017620422003'; }).length; })()"
+  $g0 = [int](Eval $cnt)
+  [void](Eval "document.querySelector('#scanResult button[onclick^=addScanToDay]').click()")
+  Settle
+  $g1 = EvalJ ("(function(){ var g = document.querySelector('#scanResult .scanguard'); var d = HT.state().days[HT.state().current]; var it = d.items.filter(function (i) { return i.barcode === '3017620422003'; }).slice(-1)[0] || {}; var bs = g ? Array.prototype.map.call(g.querySelectorAll('button'), function (b) { return b.textContent + ':' + Math.round(b.getBoundingClientRect().height); }) : []; return { guard: g ? g.querySelector('.scanguardword').textContent : '', want: 'Already logged at ' + it.time, buttons: bs, add: !!document.querySelector('#scanResult button[onclick=\'addScanToDay()\']'), n: " + $cnt + " }; })()")
+  Write-Host ("  second scan within 10 min: " + $g1)
+  $g1v = $g1 | ConvertFrom-Json
+  Check (($g1v.guard -eq $g1v.want) -and ((@($g1v.buttons) -join ',') -eq 'Log another:44,Cancel:44') -and (-not $g1v.add) -and ($g1v.n -eq $g0)) "R279 GATE 2: A SECOND IDENTICAL SCAN WITHIN 10 MIN SHOWS THE GUARD -- 'Already logged at <time>', Log another and Cancel (44 px), and NOTHING is logged"
+  FShot 'scan-guard'
+  [void](Eval "Array.prototype.filter.call(document.querySelectorAll('#scanResult .scanguard button'), function (b) { return b.textContent === 'Cancel'; })[0].click()")
+  Settle
+  $g2 = EvalJ ("(function(){ return { guard: !!document.querySelector('#scanResult .scanguard'), add: !!document.querySelector('#scanResult button[onclick=\'addScanToDay()\']'), n: " + $cnt + " }; })()")
+  Check ($g2 -like ('*"guard":false,"add":true,"n":' + $g0 + '*')) ("R279 2: Cancel logs nothing and closes the guard (" + $g2 + ")")
+  [void](Eval "document.querySelector('#scanResult button[onclick^=addScanToDay]').click()")
+  Settle
+  [void](Eval "Array.prototype.filter.call(document.querySelectorAll('#scanResult .scanguard button'), function (b) { return b.textContent === 'Log another'; })[0].click()")
+  Settle
+  $g3 = EvalJ ("(function(){ var e = document.getElementById('logConfirm'); return { n: " + $cnt + ", shown: !e.hidden, text: (e.querySelector('.lcword') || {}).textContent || '' }; })()")
+  Write-Host ("  Log another: " + $g3)
+  $g3v = $g3 | ConvertFrom-Json
+  Check (($g3v.n -eq ($g0 + 1)) -and $g3v.shown -and ($g3v.text -like 'Logged: Gate spread 30 g *')) "R279 GATE 2: and it logs ONLY on 'Log another' -- one more entry, confirmed"
+  [void](Eval "document.querySelector('#logConfirm .lcundo').click()")
+  Settle
+  $g4 = EvalJ ("(function(){ var e = document.getElementById('logConfirm'); var t = document.getElementById('toast'); return { n: " + $cnt + ", shown: !e.hidden, toastUndo: !!(t.classList.contains('show') && t.querySelector('.tundo')) }; })()")
+  Write-Host ("  Undo: " + $g4)
+  Check ($g4 -like ('*"n":' + $g0 + ',"shown":false,"toastUndo":false*')) "R279 GATE 3: UNDO REMOVES THE ENTRY -- the one just logged is gone, the confirmation closes, and no second Undo is left on the toast"
+
   # ---- R199/2: editing and deleting a combo ---------------------------------------------
   $c0 = EvalJ @'
 (function () {
