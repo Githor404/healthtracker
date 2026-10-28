@@ -18924,3 +18924,16 @@ the type untouched) and gives the row its checkbox; ticked, it is taken at its u
 the user's taps, keeping two switch events and the join date. **Red first** on
 v0.111.0: the first three fail (no Switch on), the fourth as a consequence (the item
 never switched on); green with the fix.
+
+*Confirmed from the user's backup of 2026-10-27 (read in HTPrivate; R276, records
+only).* The item is switched off with **no switch events**; its switch history
+starts 2026-10-20, the day v0.109.0 first ran on the phone. Both backups of
+2026-10-18 have it switched on, at its earlier portion; it has since been edited to
+a larger one. In every build from 2026-10-18 to 2026-10-20 the only thing that
+switched an item off was the Settings "include" box (Edit kept the state; checked
+in those builds' code), and no backup it could have been restored from had it off.
+So it was switched off by a tap on that box between 2026-10-18 and 2026-10-20,
+before taps were recorded -- most likely during that edit, the box sitting beside
+Edit on the same row: **about 90 %**; the rest is what the data cannot show. No code
+switched it off. Its stored record is unchanged; v0.111.1's Switch on is the user's
+way back.
