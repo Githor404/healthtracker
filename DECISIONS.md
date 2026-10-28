@@ -1188,6 +1188,8 @@ Ate yesterday evening, look at it this evening: **20–22 hours, and the lane is
 
 **`EAT_GAP_MAX_FRAC = 0.5`.** A negative-space arc (`open`, `fast`) draws only while it is **under half the lane**. The boundary is **figure and ground**: past half, the eye stops reading the arc as the gap and starts reading the **remainder** as the mark — so an oversized gap arc says the opposite of what it means. Under half it reads as a gap and is genuinely useful, which is why it is kept rather than removed outright.
 
+> **Exemption (R273, 2026-10-27):** the **running orange fasting span** (`ra-open`, R265.1) is exempt from this half-the-lane limit and is drawn at full length (up to R11.1's 48 h line); every other span keeps it. `ring-size-gate` enforces both. See R273.
+
 **The information never depended on the arc.** `rhythmCenterHTML` states the gap in words unconditionally — *"22h since last logged food"*, or a date past 48 h — whether or not anything is drawn. Gated at every point in the sweep.
 
 **Positive arcs are exempt, deliberately.** An eating window that really did span 14 h is two real meal times with **ticks at both ends**; shortening it would be the lie. A gap has no such endpoints — its far edge is just *now*. The full-lane rule (`EAT_FULL_FRAC`) still applies to any arc of any kind, and the union rule still guards arcs that are each under their own limit yet together tile the lane.
@@ -18731,3 +18733,97 @@ at 390 px before the suite.
 
 **Cost.** App: about 110 lines; no schema change, no new store, nothing sent
 anywhere. Tests: 12 harness assertions, 3 close-gate checks (seconds).
+
+## R273 -- THE RUNNING FAST IS EXEMPT FROM R18.2; LICENCES RULED; COMMERCIAL BLOCKERS (2026-10-27, folded into v0.111.0)
+
+*The user's rulings of 27 Oct, after R271's suite run came back 63 of 64 with
+`ring-size-gate` red. The red was R265.1's, not R271's: the gate passes on
+v0.110.0's `app.js` (eat lane 3.3 % drawn) and fails on R269's (91.7 %, one arc
+88.3 %), because R265.1 draws the running fast orange while R18.2 (D43) caps a gap
+arc at half the lane. The ring part serves **track**; the licence rulings bind the
+R266 work (**evaluate**) before any of it is built.*
+
+**1. The ring -- option A.** The **running orange fasting span** (`ra-open`) is
+exempt from R18.2's half-the-lane limit (noted at D43); every other span keeps it.
+`ring-size-gate`: R18.2's limits (lane total < 60 %, no single arc past 50 %) are
+measured over every eat-lane span **except** `ra-open`, which is measured apart and
+must be drawn, orange; on the 21 h fixture: other spans 3.3 %, the running span
+88.3 %, orange. New case: an **18 h running fast** (one meal at 18:00, clock 12:00
+the next day) is drawn orange at **full length -- 75.0 % of the lane** (want 75 +-
+1.5). Gate PASS.
+
+*Named, not resolved -- for the user:* a **closed** fast is drawn past half the lane
+today. Measured: last meal 20:00, next 12:00, clock 13:00 -> one `ra-fasting` arc of
+**66.7 %**. R265.1's code note says the figure-and-ground rules have "nothing left to
+guard" for any orange arc; R273 keeps R18.2 for every span but the running one. The
+gate's fixtures hold no closed fast, so it passes; a closed-fast case would fail
+until either closed fasts are capped or exempted too. Not built either way.
+
+**2. Licences -- ruled** (the databases are used until the user decides to
+commercialise). Verified 2026-10-27 against each source's own page (notes in the
+session's R266 verification).
+
+- **Reactome** -- data CC0 (illustrations and branding CC BY 4.0; software Apache
+  2.0): **use freely**. Cite per reactome.org/cite (Ragueneau E et al., "The
+  Reactome Knowledgebase 2026", NAR, doi:10.1093/nar/gkaf1223).
+- **Live-microbe classification** -- Marco ML, Hutkins R, Hill C, Fulgoni VL,
+  Cifelli CJ, Gahche J, Slavin J, Merenstein D, Tancredi DJ, Sanders ME, J Nutr
+  2022;152(7):1729-1736, doi:10.1093/jn/nxac074; **CC BY-NC 4.0**; three tiers (Lo
+  < 10^4, Med 10^4-10^7, Hi > 10^7 CFU/g). **Approved for use, including in the public
+  app while it is non-commercial**, with attribution shown in the source / provenance
+  detail.
+- **Phenol-Explorer 3.6** -- no named licence: "a freely available resource";
+  commercial use or redistribution "requires explicit permission of the authors".
+  **Private use only** (HTPrivate, PC-side computation). **Its values are never
+  shipped in the public repo or site**, commercial or not, without the authors'
+  permission. Citation: Rothwell JA, Perez-Jimenez J, Neveu V, et al., Database 2013,
+  doi:10.1093/database/bat070.
+- **MetaCyc** -- dropped (data files need a licence and a paid subscription).
+- **KEGG** -- not used until its terms on citing KEGG identifiers are confirmed
+  (kegg.jp/kegg/legal.html does not say; academic web use is free, non-academic use
+  needs a commercial licence).
+- **The two microbial pathways with no Reactome pathway** (microbial fermentation of
+  fibre; microbial metabolism of polyphenols) -- marked **"no reference pathway ID --
+  literature-sourced"**.
+- **"30 plants a week"** -- never shown as a threshold or a target. McDonald D et al.,
+  mSystems 2018;3(3):e00031-18 (CC BY 4.0) compares people eating more than 30 plant
+  types a week with those eating 10 or fewer and sets no threshold; the app may show
+  the user's own count and that comparison as published.
+- **Canadian Nutrient File 2026** -- exists beside CNF 2015 (both Open Government
+  Licence - Canada). Noted; **no switch from 2015 without the user's approval**.
+
+*Phenol-Explorer permission request -- draft only; the user sends it, not the agent.*
+What it needs to say: who is asking (the copyright holder, still to be confirmed,
+R269) and what HealthTracker is (a free, client-side personal nutrition app, no
+accounts, no server, all data on the user's device, public source repository);
+**exactly what would be redistributed** (which tables of version 3.6 -- e.g.
+polyphenol content per food, by class or compound, mean values only -- and in what
+form: a derived per-food table compiled into a file the app downloads); **how it is
+attributed** (the database name, version, URL and the 2013 Database citation in every
+value's source detail, and in the README); **non-commercial now**, and a separate
+question whether a future commercial version would be permitted and on what terms;
+and an offer to send the derived file and the attribution text for their review
+before anything is published. Ask for the answer in writing.
+
+**3. COMMERCIAL BLOCKERS** -- every source that would need replacing, a licence or a
+permission before any commercial use. Kept here and extended whenever a source is
+added; nothing commercial ships while an entry is open.
+
+| source | used for | licence | what would clear it |
+|---|---|---|---|
+| Live-microbe classification (Marco et al. 2022, J Nutr) | fermented foods with live microbes (R266 Phase 1) | CC BY-NC 4.0 | a commercial licence from the rights holder (OUP / the authors), or replacing it with an openly licensed classification |
+| Phenol-Explorer 3.6 | polyphenol content of foods (R266 Phase 1; private use only) | no named licence; redistribution and commercial use need the authors' permission | written permission from the authors for commercial redistribution, or an openly licensed polyphenol source |
+| KEGG (not used) | -- | copyright Kanehisa Laboratories; non-academic use needs a commercial licence | a KEGG commercial licence, or staying on Reactome / WikiPathways (CC0) |
+
+*Checked and not blockers:* Reactome (CC0 data), Gene Ontology (CC BY 4.0, with
+attribution), WikiPathways (CC0), Canadian Nutrient File (Open Government Licence -
+Canada, with attribution), USDA FoodData Central (US public domain), American Gut
+paper (CC BY 4.0, with attribution). *Not yet assessed:* OpenFoodFacts (its database licence and any share-alike
+terms not verified in this ruling; to be checked before any commercial use) and Open Prices -- listed so the
+table is not read as complete.
+
+**4. Release** -- per R271 Part 6 once the ring gate passes. **5. R266 report** --
+not started; its timing is the user's call.
+
+**Gates.** `ring-size-gate`: the R18.2 measure excludes `ra-open` and asserts it is
+drawn orange; new 18 h running-fast case (full length, 75.0 %). No app change.

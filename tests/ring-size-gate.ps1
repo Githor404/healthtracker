@@ -378,18 +378,34 @@ $measureEat = "(function(){" +
   "var svg=document.querySelector('#dayView .rring');if(!svg)return JSON.stringify({err:'no-ring'});" +
   "var track=svg.querySelector('circle.rtrack[data-lane=eat]');if(!track)return JSON.stringify({err:'no-eat-track'});" +
   "var r=parseFloat(track.getAttribute('r'))||0;var circ=2*Math.PI*r;" +
-  "var paths=[].slice.call(svg.querySelectorAll('path[data-lane=eat]'));" +
-  "var lens=paths.map(function(e){try{return e.getTotalLength();}catch(err){return 0;}});" +
-  "var sum=lens.reduce(function(a,b){return a+b;},0);" +
+  # R273: the RUNNING orange fasting span (class ra-open) is exempt from R18.2 and
+  # measured on its own; every other span on the lane keeps R18.2's limits.
+  "var all=[].slice.call(svg.querySelectorAll('path[data-lane=eat]'));" +
+  "var run=all.filter(function(e){return e.classList.contains('ra-open');});" +
+  "var paths=all.filter(function(e){return !e.classList.contains('ra-open');});" +
+  "var L=function(e){try{return e.getTotalLength();}catch(err){return 0;}};" +
+  "var lens=paths.map(L);var rlens=run.map(L);" +
+  "var sum=lens.reduce(function(a,b){return a+b;},0);var rsum=rlens.reduce(function(a,b){return a+b;},0);" +
   "var dots=svg.querySelectorAll('circle.rdot[data-lane=eat]').length;" +
   "return JSON.stringify({paths:paths.length,dots:dots,circ:Math.round(circ*10)/10," +
-  "sumPct:circ?Math.round(sum/circ*1000)/10:0,maxPct:circ?Math.round(Math.max.apply(null,lens.concat([0]))/circ*1000)/10:0});})()"
+  "sumPct:circ?Math.round(sum/circ*1000)/10:0,maxPct:circ?Math.round(Math.max.apply(null,lens.concat([0]))/circ*1000)/10:0," +
+  "runN:run.length,runPct:circ?Math.round(rsum/circ*1000)/10:0," +
+  "runOrange:run.length>0&&run.every(function(e){return /--lane-fasting/.test(e.getAttribute('style')||'');})});})()"
 
-function Measure-Sparse([int]$w, [int]$h) {
+# R273: A LONG RUNNING FAST, DRAWN AT FULL LENGTH. One meal at 18:00 yesterday and
+# the clock at 12:00 today: an 18 h running fast, which must draw orange over 18/24
+# of the lane (75 %) -- the exemption R273 ruled, measured rather than assumed.
+$seedLongFast = "(function(){try{localStorage.clear();" +
+  "HT.setClock(function(){return new Date(2026,8,3,12,0,0).getTime();});HT.boot();" +
+  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600)],water_l:0};" +
+  "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
+
+function Measure-Sparse([int]$w, [int]$h, [string]$seedJs = $seedSparse) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $true } | Out-Null
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   Start-Sleep -Milliseconds 1500
-  $sr = Eval $seedSparse
+  $sr = Eval $seedJs
   if ($sr -notlike 'ok*') { Write-Host "  sparse seed failed: $sr" }
   Start-Sleep -Milliseconds 300
   return (Eval $measureEat | ConvertFrom-Json)
@@ -547,7 +563,12 @@ try {
     if (-not ($nv.shown -and ($nv.h -le 80) -and ($nv.headH -le 30) -and ($nv.rows0 -eq 0) -and ($nv.ringBottom -le $nv.vh) -and ($nv.rowsOpen -ge 3) -and ($nv.expanded -eq 'true') -and ($nv.rowsClosed -eq 0))) { $N_ok = $false }
   }
   # A mostly-empty meals lane must not read as a ring: the dots carry the day.
-  $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.maxPct -lt $EAT_MAX_ONE_PCT) -and ($E.dots -ge 2)
+  # R273: R18.2 holds for every span but the running orange fasting span (ra-open),
+  # which this seed (21 h since the last meal) draws and must still draw.
+  $E_ok = ($E.paths -ge 0) -and ($E.sumPct -lt $EAT_MAX_PCT) -and ($E.maxPct -lt $EAT_MAX_ONE_PCT) -and ($E.dots -ge 2) -and ($E.runN -ge 1) -and $E.runOrange
+  # R273: an 18 h running fast is drawn orange at FULL length -- 75 % of the lane, +-1.5.
+  $F = Measure-Sparse 390 745 $seedLongFast
+  $F_ok = ($F.runN -ge 1) -and $F.runOrange -and ([math]::Abs($F.runPct - 75) -le 1.5) -and ($F.sumPct -lt $EAT_MAX_PCT) -and ($F.maxPct -lt $EAT_MAX_ONE_PCT)
 
   Write-Host "rhythm-ring centerpiece scale (real index.html, seeded, CDP):"
   Write-Host ("  phone 390x745 : ring={0}px band={1}-{2}px cells-above={3} ink-crossing-arc={4} (worst {5}px, r={6}) planted-caught={7} -> {8}" -f `
@@ -573,7 +594,10 @@ try {
   Write-Host ("  thresholds    : ring >= {0}px (the 70%-of-viewport floor is RETIRED, superseded by ruling); arc bands >= {1}/{2}% of the ring at every width (the absolute 11/13px pair is RETIRED with the 70% floor); checklist, + Log and goal cells above the fold; desktop capped; ZERO ink inside the disc may cross the arc; and the now-hand crosses the centre text at ZERO of the day-s 1440 minutes" -f $MIN_RING_PX, $MIN_BAND_PCT, $MIN_BAND_MAX_PCT)
   Write-Host ("  sparse meals  : eat-lane paths={0} dots={1} drawn={2}% of the lane (largest {3}%) -> {4}" -f `
     $E.paths, $E.dots, $E.sumPct, $E.maxPct, $E_ok)
-  Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference, no single arc past {1}%, and keeps its meal dots" -f $EAT_MAX_PCT, $EAT_MAX_ONE_PCT)
+  Write-Host ("                  running fast (exempt, R273): spans={0} orange={1} drawn={2}%" -f $E.runN, $E.runOrange, $E.runPct)
+  Write-Host ("  thresholds    : a mostly-empty meals lane draws < {0}% of its circumference, no single arc past {1}%, and keeps its meal dots -- every span but the running orange fasting span (R273)" -f $EAT_MAX_PCT, $EAT_MAX_ONE_PCT)
+  Write-Host ("  18 h fast     : running spans={0} orange={1} drawn={2}% of the lane (want 75 +-1.5); other spans {3}% (largest {4}%) -> {5}" -f `
+    $F.runN, $F.runOrange, $F.runPct, $F.sumPct, $F.maxPct, $F_ok)
   Write-Host "-----------------------------------------"
 
   Write-Host ("  mini grid     : {0} rings at {1}px, {2}/row, overlaps={3} spill={4} detached-labels={5} -> {6}" -f `
@@ -586,7 +610,7 @@ try {
   Write-Host ("  what's new    : 390 h={0}px head={9}px ringBottom={1}/{2} open={3} rows | 360 h={4}px ringBottom={5}/{6} open={7} rows -> {8}" -f `
     $N1.h, $N1.ringBottom, $N1.vh, $N1.rowsOpen, $N2.h, $N2.ringBottom, $N2.vh, $N2.rowsOpen, $N_ok, $N1.headH)
   Write-Host ("                  R242/5: shown after an update from v0.90.0, the notice is ONE line (its head one text line, <= 30px; the whole notice <= 80px: one 44px tap target plus the card's padding -- a second line of text would pass that), the ring stays on the first screen, 'what's new' opens the notes and 'hide' closes them")
-  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok -and $N_ok) {
+  if ($P_ok -and $S_ok -and $D_ok -and $G_ok -and $C_ok -and $E_ok -and $F_ok -and $N_ok) {
     Write-Host "RING GATE: PASS (centerpiece scale + mini-grid density + arc contrast in both themes + the now-hand clear of the centre text at every minute of the day)"
     Cleanup; exit 0
   }
