@@ -11434,16 +11434,69 @@ function fastUnitOf(dk, idx) {
   const it = items[idx];
   if (!it) return [];
   if (!it.comboId) return [{ it: it, idx: idx }];
-  const out = [];
-  items.forEach(function (x, i) { if (x && x.comboId === it.comboId && x.time === it.time) out.push({ it: x, idx: i }); });
+  return (fastDayCached(dk).groups[it.comboId + '@' + it.time] || [idx]).map(function (i) { return { it: items[i], idx: i }; });
+}
+// R289: EACH DAY'S RESULTS ARE WORKED OUT ONCE AND REUSED until something they read
+// changes. R287 judged every item on every redraw (precedence, the combo's parts found
+// by scanning the day for each part): a redraw of a year of days went from 41-42 ms to
+// 58-62 ms and past perf-gate's budget. The key is a FINGERPRINT of everything the
+// judgement reads -- each item's time, macros, source, row, suggestion, mark and combo,
+// the limits, the combos' own marks, the drink-alcohol answers -- so any change, by the
+// app or by anything else that edits the log, is a new key and the next read recomputes.
+// The rule itself is unchanged. Held per day OBJECT (a WeakMap), so a replaced day or a
+// restored log simply misses.
+let FAST_DAY_CACHE = new WeakMap();
+function fastGlobalSig() {
+  const l = fastKeepLimits();
+  const cs = (APP_STATE.settings.combos || []).filter(function (c) { return c && c.fast_override; })
+    .map(function (c) { const o = normalizeFastOverride(c.fast_override); const e = o[o.length - 1]; return c.id + ':' + (e ? e.v + e.at : ''); }).join(',');
+  let da = '';
+  try { da = JSON.stringify((APP_STATE.settings && APP_STATE.settings.drinkAlcohol) || {}); } catch (e) { da = ''; }
+  return l.netCarb + '/' + l.protein + '|' + cs + '|' + da;
+}
+function fastItemSig(it) {
+  if (!it) return '-';
+  const r = it.ref, v = (r && r.v) || {};
+  const fo = Array.isArray(it.fast_override) ? it.fast_override : [];
+  const last = fo[fo.length - 1];
+  return [it.time, it.name, it.meal, it.source, it.comboId, it.grams, it.kcal, it.protein_g, it.carb_g, it.fiber_g, it.fat_g,
+          it.unresolved, it.provisional, it.kcal_on_label, it.basis, it.autoLegacy,
+          Array.isArray(it.adjusted) ? it.adjusted.join('+') : '', it.orig ? Object.keys(it.orig).join('+') : '',
+          r ? r.ns + ':' + r.id + ':' + r.g + ':' + v['208'] + ':' + v['203'] + ':' + v['205'] + ':' + v['291'] + ':' + v['221'] : '',
+          it.suggested ? it.suggested.id + ':' + it.suggested.g : '',
+          fo.length + (last ? last.v + last.at : '')].join('\u0001');
+}
+function fastDayCached(dk, gsig) {
+  const day = (APP_STATE.days || {})[dk];
+  if (!day) return { judges: [], groups: {} };
+  const items = day.items || [];
+  const g = gsig != null ? gsig : fastGlobalSig();
+  let fp = g + '#' + items.length;
+  for (let i = 0; i < items.length; i++) fp += '\u0002' + fastItemSig(items[i]);
+  const hit = FAST_DAY_CACHE.get(day);
+  if (hit && hit.fp === fp) return hit;
+  // the combo parts, grouped ONCE for the day
+  const groups = {};
+  items.forEach(function (x, i) { if (x && x.comboId) (groups[x.comboId + '@' + x.time] = groups[x.comboId + '@' + x.time] || []).push(i); });
+  const judges = new Array(items.length);
+  const lim = fastKeepLimits();
+  items.forEach(function (x, i) {
+    if (judges[i] !== undefined || !x) return;
+    const idxs = x.comboId ? groups[x.comboId + '@' + x.time] : [i];
+    const j = fastJudgeUnit(idxs.map(function (k) { return items[k]; }), lim);
+    idxs.forEach(function (k) { judges[k] = j; });
+  });
+  const out = { fp: fp, judges: judges, groups: groups };
+  FAST_DAY_CACHE.set(day, out);
   return out;
 }
 // The judgement for one logged unit: { keeps, why, by, netCarb, protein }.
 function fastJudge(dk, idx) {
-  const unit = fastUnitOf(dk, idx);
-  if (!unit.length) return null;
-  const lim = fastKeepLimits();
-  const its = unit.map(function (u) { return u.it; });
+  const j = fastDayCached(dk).judges[idx];
+  return j === undefined ? null : j;
+}
+function fastJudgeUnit(its, lim) {
+  if (!its.length || !its[0]) return null;
   const combo = its[0].comboId ? ((APP_STATE.settings.combos || []).filter(function (c) { return c.id === its[0].comboId; })[0] || null) : null;
   if (its.some(function (x) { return drinkHasAlcohol(x) === true; }))
     return { keeps: false, by: 'alcohol', why: 'alcohol always ends a fast' };
@@ -11463,13 +11516,15 @@ function fastJudge(dk, idx) {
 }
 function fastEvents() {
   const evs = [];
+  const g = fastGlobalSig();                       // R289: once per call, not per day
   Object.keys(APP_STATE.days).forEach((d) => {
+    const J = fastDayCached(d, g).judges;
     (APP_STATE.days[d].items || []).forEach((it, idx) => {
       // R31 / R269: an item whose composition is unknown is food that was eaten -- it
       // ends a fast. R287: and a known one ends it unless it is within the rule (or the
       // user's override says it keeps the fast). Only a timed, non-legacy item is an event.
       if (isLegacyAuto(it) || !/^\d{2}:\d{2}$/.test(String(it.time))) return;
-      const j = fastJudge(d, idx);
+      const j = J[idx];
       if (!j || !j.keeps) evs.push(d + 'T' + it.time);
     });
   });

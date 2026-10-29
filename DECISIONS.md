@@ -19880,3 +19880,51 @@ of 59 gates passed alone.
   same tree, so check-sw-hash fails before the harness runs. The official runner and
   every pass recorded here use the session's Git Bash, where the harness passes. The
   same symptom in the R286 pass had the same cause.
+
+## R289 -- THE FAST RESULTS, WORKED OUT ONCE PER DAY (2026-10-29, folded into v0.113.1)
+
+*The user's go of 29 Oct after R287's official run came back red: `perf-gate` at 3.16
+reference workloads against a budget of 3.0. That was an app regression, measured alone:
+v0.113.0 2.18-2.31 (41-42 ms), R287 3.17-3.32 (58-62 ms). The rule does not change.
+This run is the one retry.*
+
+**Built.**
+- **One cached result per day.** `fastDayCached` works out each day's judgements once
+  and keeps them on the day object (a `WeakMap`). The key is a fingerprint of
+  everything the judgement reads:
+  - each item's time, name, meal, source, combo, grams, macros, flags (unresolved,
+    provisional, label, basis, legacy), user-set fields, row (namespace, id, basis,
+    and the five slots the rule reads), suggestion, and mark;
+  - the two limits, the combos' own marks, and the drink-alcohol answers.
+
+  Any change, made by the app or by anything else that edits the log, is a new key,
+  and the next read recomputes. A replaced or restored day simply misses.
+- **Combo parts grouped once per day.** `fastUnitOf` reads that grouping; it used to
+  scan the day for every part.
+- **`fastEvents`** computes the global part of the key once per call. `fastJudge`
+  reads from the cache.
+
+**Gates.** Four checks are added to `fastrule-gate`, each made through the app's own
+control, with the next redraw's fasts read after each change (all PASS, 10 checks in
+all):
+- clearing a mark ("Back to the rule"): 12 h becomes 16 h;
+- editing the entry in its Edit (protein typed to 10 g): 16 h becomes 12 h, and back
+  at 0.8 g it is 16 h again;
+- changing a limit in Settings (net carbs up to 0.5 g): 12 h, and back to the default
+  16 h;
+- setting a mark again ("Breaks my fast"): 12 h.
+
+One gate flaw was fixed on the way: a tap to open an item that was already open closed
+it.
+
+**Redraw of a year of days, measured alone, 3 runs each:**
+
+| build | median | reference workloads (budget 3.0) |
+|---|---|---|
+| v0.113.0 | 41-42 ms | 2.18-2.31 |
+| R287 uncached | 58-62 ms | 3.17-3.32 |
+| **R289** | **48-49 ms** | **2.42-2.60** |
+
+The 7 ms left over v0.113.0 is the fingerprint itself, built over every item on each
+redraw; the judgements are reused. It is under budget, and it is said rather than
+hidden.

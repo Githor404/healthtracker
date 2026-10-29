@@ -204,6 +204,41 @@ try {
   $ov = Eval "JSON.stringify(HT.state().days[HT.todayKey()].items.filter(function (x) { return x.name === 'Item coffee with cream'; })[0].fast_override)"
   Write-Host ("  marked: " + $c2 + " fasts " + $h1 + " record " + $ov)
   Check (($c2 -like '*Fast: ends it*you marked it*breaks my fast*') -and ($h1 -eq '[12]') -and ($c2 -like '*Back to the rule*') -and ($ov -like '*"v":"breaks","at":"20*')) "R287 FAST GATE 1: ONE TAP MARKS IT 'BREAKS MY FAST' -- the fast is now 12 h, the tap is kept with its time, and 'Back to the rule' is offered"
+  # ---- R289: THE STORED RESULTS ARE DROPPED WHEN WHAT THEY READ CHANGES -------------------------------
+  # Each change is made through the app's own control, then the NEXT REDRAW's fasts are read: the
+  # results are worked out once per day and reused, so a change that did not reach them would show
+  # here as the old fast.
+  $idxOf = "(function(n){ return HT.state().days[HT.todayKey()].items.map(function (x) { return x.name; }).indexOf(n); })"
+  # clearing the mark: "Back to the rule"
+  [void](Eval ("(function(){ var r = " + $rowOf + "('Item coffee with cream'); var b = Array.prototype.filter.call(r.querySelectorAll('.mfastbtn'), function (x) { return x.textContent === 'Back to the rule'; })[0]; if (b) b.setAttribute('data-gate-rule', '1'); return 1; })()"))
+  [void](TapSel '[data-gate-rule="1"]')
+  $v1 = Eval $hrs
+  # editing the entry: its protein typed to 10 g in the item's Edit and saved -- it now ends the fast
+  [void](Eval ("(function(){ HT.openItemEdit(" + $idxOf + "('Item coffee with cream')); return 1; })()")); WaitQuiet 'editor'
+  [void](Eval "(function(){ var p = document.getElementById('ie_protein_g'); p.value = '10'; return 1; })()")
+  [void](Eval ("(function(){ HT.saveItemEdit(" + $idxOf + "('Item coffee with cream')); return 1; })()")); WaitQuiet 'saved'
+  $v2 = Eval $hrs
+  [void](Eval ("(function(){ HT.openItemEdit(" + $idxOf + "('Item coffee with cream')); return 1; })()")); WaitQuiet 'editor'
+  [void](Eval "(function(){ var p = document.getElementById('ie_protein_g'); p.value = '0.8'; return 1; })()")
+  [void](Eval ("(function(){ HT.saveItemEdit(" + $idxOf + "('Item coffee with cream')); return 1; })()")); WaitQuiet 'saved back'
+  $v3 = Eval $hrs
+  # changing a limit in Settings: net carbs up to 0.5 g -- the coffee's 1 g now ends the fast
+  [void](Eval "HT.openSettings(); var d = document.querySelector('[data-setting=fasting] details'); if (d) d.open = true"); WaitQuiet 'settings'
+  [void](Eval "(function(){ var p = document.getElementById('fastNetCarb'); p.value = '0.5'; p.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()"); WaitQuiet 'limit'
+  $v4 = Eval $hrs
+  [void](Eval "(function(){ var p = document.getElementById('fastNetCarb'); p.value = ''; p.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()"); WaitQuiet 'limit back'
+  $v5 = Eval $hrs
+  [void](Eval "HT.closeSettings()"); WaitQuiet 'settings closed'
+  # setting the mark again, through the opened entry (opened only if it is not open already: a tap toggles)
+  if ((Eval ("(function(){ var r = " + $rowOf + "('Item coffee with cream'); return !!(r && r.querySelector('.mfast')); })()")) -ne $true) { OpenItem 'Item coffee with cream' }
+  [void](Eval ("(function(){ var r = " + $rowOf + "('Item coffee with cream'); var b = Array.prototype.filter.call(r.querySelectorAll('.mfastbtn'), function (x) { return x.textContent === 'Breaks my fast'; })[0]; if (b) b.setAttribute('data-gate-mark', '1'); return 1; })()"))
+  [void](TapSel '[data-gate-mark="1"]')
+  $v6 = Eval $hrs
+  Write-Host ("  next redraw after: mark cleared " + $v1 + "; protein 10 g " + $v2 + "; back to 0.8 g " + $v3 + "; net-carb limit 0.5 g " + $v4 + "; limit back " + $v5 + "; marked again " + $v6)
+  Check ($v1 -eq '[16]') "R289 GATE: CLEARING A MARK ('Back to the rule') is seen by the next redraw -- the coffee keeps the fast again, one 16 h fast"
+  Check (($v2 -eq '[12]') -and ($v3 -eq '[16]')) "R289 GATE: EDITING AN ENTRY is seen by the next redraw -- its protein typed to 10 g ends the fast (12 h), typed back to 0.8 g keeps it (16 h)"
+  Check (($v4 -eq '[12]') -and ($v5 -eq '[16]')) "R289 GATE: CHANGING A LIMIT is seen by the next redraw -- net carbs up to 0.5 g makes the coffee's 1 g end the fast; the default restores it"
+  Check ($v6 -eq '[12]') "R289 GATE: SETTING A MARK is seen by the next redraw -- 'Breaks my fast' ends it again (12 h)"
   # ---- GATE 2: the item editor carries the same line and taps -----------------------------------------
   [void](Eval "(function(){ var i = HT.state().days[HT.todayKey()].items.map(function (x) { return x.name; }).indexOf('Item lunch'); HT.openItemEdit(i); return 1; })()"); WaitQuiet 'editor'
   $e2 = EvalJ "(function(){ var im = document.getElementById('ieMsg'); var m = im && im.parentElement ? im.parentElement.querySelector('.mfast') : null; return m ? { line: m.querySelector('.mfastline').textContent, btn: (m.querySelector('.mfastbtn') || {}).textContent } : { line: '' }; })()"
