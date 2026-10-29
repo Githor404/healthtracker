@@ -94,18 +94,28 @@
   // IndexedDB READS: a request is in flight until it succeeds or fails. Writes (put, add,
   // delete, clear) are not counted: the app's cache fill writes thousands of rows in the
   // background (measured: 3,583 in forms-gate) and no screen waits for them.
-  var req = function (r) {
+  // A read is also over when its TRANSACTION completes or aborts -- no read outlives its
+  // transaction -- so the count cannot leak on a path where a request's own event is missed.
+  var idbLive = {}, idbSeq = 0;
+  var req = function (r, label) {
     if (!r || !r.addEventListener) return r;
+    var key = ++idbSeq;
+    idbLive[key] = label;
     inc('idb');
-    var done = false, end = function () { if (!done) { done = true; dec('idb'); } };
+    var done = false, end = function () { if (!done) { done = true; delete idbLive[key]; dec('idb'); } };
     r.addEventListener('success', end); r.addEventListener('error', end); r.addEventListener('blocked', end);
+    try { var tx = r.transaction; if (tx && tx.addEventListener) { tx.addEventListener('complete', end); tx.addEventListener('abort', end); tx.addEventListener('error', end); } } catch (e) {}
     return r;
   };
   var wrapReq = function (proto, names) {
     if (!proto) return;
     names.forEach(function (k) {
       var o = proto[k];
-      if (typeof o === 'function') proto[k] = function () { return req(o.apply(this, arguments)); };
+      if (typeof o === 'function') proto[k] = function () {
+        var r = o.apply(this, arguments);
+        var where = ''; try { where = (this.name || (this.objectStore && this.objectStore.name) || '') + '.' + k; } catch (e) { where = k; }
+        return req(r, where);
+      };
     });
   };
   if (window.IDBFactory) wrapReq(IDBFactory.prototype, ['open', 'deleteDatabase']);
@@ -133,6 +143,7 @@
   var why = function () {
     var b = []; for (var k in kinds) if (kinds[k]) b.push(kinds[k] + ' ' + k);
     var src = []; for (var t in live) src.push(live[t]); if (src.length) b.push('timer set at ' + src.slice(0, 2).join(' | '));
+    var ir = []; for (var q in idbLive) ir.push(idbLive[q]); if (ir.length) b.push('idb: ' + ir.slice(0, 4).join(', '));
     var m = moving(); if (m) b.push(m + ' animation(s) running');
     b.push('last DOM change ' + (frame - lastChange) + ' frame(s) ago');
     return b.join(', ');

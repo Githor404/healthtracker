@@ -2340,7 +2340,10 @@ function toast(m) {
   if (!e) return;
   e.classList.remove('tline');
   e.textContent = m; e.classList.add('show');
-  clearTimeout(_toastT);
+  // R284: ONE bar, so one hide timer. An Undo bar's 7 s timer still pending would hide
+  // this message early (and the reverse is handled in offerUndo) -- found when the gates
+  // stopped waiting long enough for the first timer to run out.
+  clearTimeout(_toastT); clearTimeout(_undoT);
   _toastT = setTimeout(function () { e.classList.remove('show'); }, 1900);
 }
 
@@ -2371,7 +2374,7 @@ function offerUndo(label, fn, ms, cls) {
     if (cls !== 'tline' || e.scrollWidth <= e.clientWidth + 1) break;
   }
   e.classList.add('show');
-  clearTimeout(_undoT);
+  clearTimeout(_undoT); clearTimeout(_toastT);   // R284: a plain message's 1.9 s timer must not hide this bar
   _undoT = setTimeout(function () { e.classList.remove('show'); e.textContent = ''; _undoFn = null; },
                       (Number(ms) > 0) ? Number(ms) : 7000);
 }
@@ -16137,7 +16140,7 @@ const VERSION_LOG = [
   { v: '0.111.0', d: '2026-10-21', note: 'The day ring now draws eating in green and fasting in orange. From your last food, or from when you tapped Stopped eating, the ring turns orange; food within 12 hours turns that gap green, and 12 hours or more with no food is a fast, up to 48 hours; longer with nothing logged is a gap, not a fast. Only something the food database or a label says has no calories keeps a fast going; a food with unknown calories ends it. A food logged with no numbers now says “not counted” instead of 0 cal, and one you have matched before (white wine, say) is suggested from your own earlier choice. The app no longer asks Fasted or Ate, didn’t log. New: a weekly review, from This week under the 7-day row: meal responses against your previous 28 days, fasts, alcohol-free days and sleep, Monday to Sunday. The low-glucose note now quotes the Dexcom G7 user guide. Closing Find nutrients while its database is loading now keeps it closed.' },
   { v: '0.111.1', d: '2026-10-27', note: 'An item switched off in your daily stack now has a Switch on button in + Log, today, so it can be switched back on where you log it; each switch is still recorded with its time. Its type (supplement, medication or food) is changed under Settings, Daily stack, Edit.' },
   { v: '0.111.2', d: '2026-10-28', note: 'A scan or photo log now says so at the top of the screen, naming the item, amount and time, with Undo. Scanning the same product again within 10 minutes asks first: Already logged at <time>, Log another or Cancel. In your daily stack, + Log has Switch off and Switch on, and + Add to stack for a new item; in Settings each row has Edit only, with On and Off inside Edit.' },
-  { v: '0.111.3', d: '2026-10-28', note: 'A day now closes by itself at 04:00 the next morning, so your past days count in the averages without a tap; closing a day by hand is optional. You can still add, change or delete entries on a closed day, and everything recomputes. A closed day that looks incomplete (no food, no glucose readings, or calories under half your usual) says so behind its info button, and each average says how many days it includes and how many are flagged. The blood pressure chart in Trends can be zoomed in (up to 8 times wider) and scrolled sideways, with the mmHg axis kept in view.' },
+  { v: '0.111.3', d: '2026-10-28', note: 'An Undo bar shown just after another message no longer disappears early. A day now closes by itself at 04:00 the next morning, so your past days count in the averages without a tap; closing a day by hand is optional. You can still add, change or delete entries on a closed day, and everything recomputes. A closed day that looks incomplete (no food, no glucose readings, or calories under half your usual) says so behind its info button, and each average says how many days it includes and how many are flagged. The blood pressure chart in Trends can be zoomed in (up to 8 times wider) and scrolled sideways, with the mmHg axis kept in view.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

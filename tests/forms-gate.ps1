@@ -475,11 +475,35 @@ HT.lookupBarcode('3017620422003', { fetchImpl: function () {
   Check ($c4v.edit -eq $false) "and with no combos left the heading and its Edit link are not drawn over nothing (D146)"
   Check (($c4v.items -eq 3) -and (($n0 | ConvertFrom-Json).items -eq 3) -and ($c4v.same -eq $true)) "THE HISTORY IS INTACT -- all three items logged with it are still on the day, the first two byte for byte"
   Check (($c4v.undo -eq $true) -and ($c4v.toast -like 'Deleted Gate bowl two*')) "the deletion is confirmed, with Undo"
+
   [void](Eval "document.querySelector('#toast .tundo').click()")
   Settle
   $c5 = EvalJ "(function(){ var c = (HT.state().settings.combos || [])[0] || {}; var r = document.querySelector('#sheetRoot .srcombo'); return { name: c.name || '', id: c.id || '', row: r ? r.innerText : '' }; })()"
   Write-Host ("  undone: " + $c5)
   Check ($c5 -like '*"name":"Gate bowl two"*"id":"gc1"*Gate bowl two*') "and Undo brings it back, on screen"
+  # ---- R284: ONE BAR, ONE HIDE TIMER (an app bug the R283 waits exposed) ----------------
+  # An Undo bar shown within 1.9 s of a plain message was hidden by that message's timer
+  # (and a message after an Undo bar by the bar's 7 s timer). Timed on the PAGE's clock:
+  # how long each bar stays up, waited for as a condition (15 s, then the check fails).
+  $bars = EvalA @'
+(async function () {
+  var t = document.getElementById('toast');
+  var life = function () { return new Promise(function (res) {
+    var t0 = performance.now(), mo = new MutationObserver(function () {
+      if (!t.classList.contains('show')) { mo.disconnect(); res(Math.round(performance.now() - t0)); } });
+    mo.observe(t, { attributes: true, attributeFilter: ['class'] });
+    setTimeout(function () { mo.disconnect(); res(-1); }, 15000); }); };
+  toast('Gate message'); offerUndo('Gate undo', function () {});
+  var undoUp = await life();
+  offerUndo('Gate undo two', function () {}); toast('Gate message two');
+  var msgUp = await life();
+  return { undoUp: undoUp, msgUp: msgUp };
+})()
+'@
+  Write-Host ("  bar lives: " + $bars)
+  $bv = $bars | ConvertFrom-Json
+  Check (($bv.undoUp -ge 6500) -and ($bv.undoUp -le 7600)) ("R284 GATE: an Undo bar shown right after a plain message stays up its full 7 s (" + $bv.undoUp + " ms) -- the message's 1.9 s timer no longer hides it")
+  Check (($bv.msgUp -ge 1800) -and ($bv.msgUp -le 2600)) ("R284: and a plain message after an Undo bar lives its own 1.9 s (" + $bv.msgUp + " ms) -- the bar's 7 s timer no longer cuts it or keeps it")
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)

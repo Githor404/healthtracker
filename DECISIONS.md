@@ -19207,3 +19207,18 @@ WaitStill); `check-ps-case` passes. `tests/lib/quiet.js` counts reading a picked
 it. backup-gate's waits reviewed by hand: the three in-page waits after the backup button are
 right (each waits for what the app does after the tap, a stub share reading its file
 included), and the file-input check now waits for the app's own read of the file.
+
+
+**R284 pre-run finding -- an APP BUG (fixed in v0.111.3).** Running every gate alone under the
+new rule, forms-gate failed 3 times in 4 on "the deletion is confirmed, with Undo": the bar
+read "Deleted Gate bowl two Undo" but had already lost its `show` class. Cause, in app.js:
+`toast()` and `offerUndo()` share ONE bar but kept TWO hide timers, and neither cleared the
+other's. An Undo bar shown within 1.9 s of a plain message was hidden by that message's
+timer -- the user's Undo gone after under 2 s instead of 7 (and a message after an Undo bar
+could be cut by the bar's 7 s timer). The old fixed sleeps had let the first timer run out
+before the next step, which is how it hid. Fix: each clears the other's timer. *Gate:*
+forms-gate +2, timed on the page's clock and waited for as a condition: an Undo bar right
+after a message stays up 7,003 ms (red first on v0.111.2's code: 1,901 ms), a message right
+after an Undo bar 1,906 ms. Also in this pass: IndexedDB reads are now also ended by their
+transaction's complete/abort, so the count cannot leak (forms-gate had shown 16 "in flight"
+on an idle page), and each pending read is named in a failure.
