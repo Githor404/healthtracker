@@ -19865,3 +19865,18 @@ v0.113.0 against v0.113.1, by restoring the backup in a browser.
 
 **Later (not now), as ruled:** a breath-ketone n-of-1 -- readings before and 1-2 h
 after a fat coffee during a fast.
+
+**R287 pre-run pass (R284).** The 10 code checks and the harness (3439) passed, and 58
+of 59 gates passed alone.
+- **`ring-size-gate` failed, on its fixtures.** Its `mk()` made "food" of 100 kcal
+  with zero carbs and zero protein, which is fat-only and keeps a fast under R287, so
+  the eating arcs it measures were no longer there. Its four fixtures now carry 20 g of
+  carbs. That is a gate fixture meeting a new rule, not an app bug. It now passes.
+- **`drinkfree-gate` and `noauto-gate`** use the same fixture shape and pass alone,
+  since none of their checks depends on what ends a fast. They are left as they are.
+- **A harness run started from PowerShell reported `GATE: FAIL` with no summary.** The
+  cause is the shell, not the code: PowerShell's `bash`
+  (`C:\Program Files\Git\usr\bin\bash.exe`) computes a different shell hash from the
+  same tree, so check-sw-hash fails before the harness runs. The official runner and
+  every pass recorded here use the session's Git Bash, where the harness passes. The
+  same symptom in the R286 pass had the same cause.

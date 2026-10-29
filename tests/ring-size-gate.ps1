@@ -157,7 +157,7 @@ $seed = "(function(){try{localStorage.clear();" +
   "HT.state().settings.presets.push({id:'p1',name:'Lunch',meal:'lunch',kcal:500,soluble_fiber_g:0});" +
   "HT.addRegimenFromJSON(JSON.stringify({name:'P',window:{start:'12:00',end:'20:00'},entries:[" +
   "{kind:'medication',time:'08:00',name:'Med'},{kind:'food',time:'12:00',presetId:'p1'}]}));" +
-  "var td=HT.state().current;var mk=function(n,t,k){return {name:n,meal:'snack',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "var td=HT.state().current;var mk=function(n,t,k){return {name:n,meal:'snack',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:20,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
   "HT.state().days[td].items.push(mk('a','08:00',300),mk('b','19:00',600));" +
   "HT.state().timeline[td]=[{time:'06:30',kind:'event',type:'walk',value:40,unit:'min',source:'manual',notes:''}];" +
   "HT.setGoal('protein_g',120,'min');HT.setGoal('weight',80,'max','kg');" +
@@ -381,7 +381,7 @@ $seedSparse = "(function(){try{localStorage.clear();" +
   "HT.setClock(function(){return new Date(2026,8,3,16,0,0).getTime();});HT.boot();" +
   # 16:00, so the last meal is ~21 h back: the shape that was STILL drawing a
   # ring with a notch after 0.16.2, and the reason this seed is not milder.
-  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:20,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
     "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600),mk('b','18:48',300)],water_l:0};" +
   # DATE-PINNED, and it must not expire at midnight. This scene is only the
   # reported shape when the day on screen is the day the seeded clock stands on.
@@ -424,7 +424,7 @@ $measureEat = "(function(){" +
 # at 12:00 today, the clock at 13:00: a 16 h closed fast, 16/24 of the lane (66.7 %).
 $seedClosedFast = "(function(){try{localStorage.clear();" +
   "HT.setClock(function(){return new Date(2026,8,3,13,0,0).getTime();});HT.boot();" +
-  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:20,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
   "HT.state().days['2026-09-02']={status:'open',items:[mk('a','20:00',600)],water_l:0};" +
   "HT.state().days['2026-09-03']={status:'open',items:[mk('b','12:00',600)],water_l:0};" +
   "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
@@ -443,7 +443,7 @@ $plantEat = "(function(){var svg=document.querySelector('#dayView .rring');var t
 # of the lane (75 %) -- the exemption R273 ruled, measured rather than assumed.
 $seedLongFast = "(function(){try{localStorage.clear();" +
   "HT.setClock(function(){return new Date(2026,8,3,12,0,0).getTime();});HT.boot();" +
-  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:0,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
+  "var mk=function(n,t,k){return {name:n,meal:'dinner',time:t,kcal:k,protein_g:0,fat_g:0,carb_g:20,fiber_g:0,soluble_fiber_g:0,confidence:'eyeballed',notes:'',source:'manual'};};" +
   "HT.state().days['2026-09-02']={status:'open',items:[mk('a','18:00',600)],water_l:0};" +
   "HT.refresh();return 'ok';}catch(e){return 'ERR '+e;}})()"
 
