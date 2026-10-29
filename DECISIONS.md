@@ -19455,3 +19455,98 @@ of 844, beside Save (536), fields kept, nothing written; GATE 4 2 capsules x 15 
 **R231 (asked after this release).** Counted on the 29 Oct backup before the build:
 82 usable, **34 clean** (>= 32), re-check run -- does not beat carbs-only (row in the
 R231 table).
+
+## R286 -- THE R266 BUILD: PRE-REGISTERED, STEPS a-c (2026-10-29; record before the build)
+
+**GOAL (the user, 29 Oct).** *Break everything the user ingests into its macro- and
+micronutrients; map those to metabolic pathways to show which are supported and which
+are held back; align that with the user's experts' guidance; and validate against
+outcomes -- future blood panels, Oura (arriving in about a week) and Viome.
+HealthTracker predicts; the outside results check.* Serves **evaluate**, toward
+**predict**.
+
+**The user's rulings on the R266 report -- all seven approved.**
+1. **Taxonomy:** the 14 groups and 73 records are the back-end library. The phone shows
+   the 14 groups; record detail behind an ⓘ. Plain sentences stay `reviewed_by_me: null`
+   until the user reviews them. Each record carries two layers: **supply** (its
+   cofactors and nutrients against reference intakes -- "raw materials present":
+   necessary, not sufficient, never shown as pathway activity) and **modulation**
+   (evidence claims that a food, nutrient or habit pushes the pathway up or down, each
+   with its probability and GRADE, R260 -- where "supported / held back" lives). Pathway
+   activity is never claimed as measured; proxies only.
+2. **Items without a row:** (a) a reviewed name lexicon shipped in the pack, every match
+   marked provisional with its source; plus, from now on, a database row suggested at
+   logging time for one-tap confirmation, so the linked share (23 %) climbs. No
+   tap-per-item backlog. The linked share is reported in every weekly report.
+3. **Omega-3 slots:** EPA (629), ALA (831), n-3 / n-6 totals, with their own gate.
+4. **Phenol-Explorer values in a pack on the user's own phone: allowed** (private use);
+   never in the public repo or site (R273), enforced by the schema checker.
+5. **Plants:** mushrooms, seaweed, coffee, wine and herbs counted but listed apart from
+   the core plant count, so the McDonald 2018 comparison stays faithful.
+6. **Fermented:** a `fermented` attribute on every food (lexicon + Marco tier + database
+   category), yes / no / unknown with its source; live microbes shown as published on
+   two lines, fermented and raw produce.
+7. **Experts:** the three the user follows are recorded in the private `experts.json`
+   (the user reviews; curators keep everything, R259). Names are not written here (R204
+   is about the stack; the experts are kept private with the rest of the evidence store
+   all the same).
+
+**Build order (each step pre-registered first):** a git, b tools, c taxonomy + supply
+(this record); d lexicon + fermented + row suggestion (an app release); e omega-3 slots;
+f curators -- only in sessions the user starts (R263), asked first. Report only: Oura
+import.
+
+**Named, not resolved.** *R267.1 (the strain HMM) and R268 (the honesty layer)* are
+cited by the ruling's cost declaration but are **not recorded** anywhere in this file or
+in HTPrivate; they are carried as the user's labels. *The phone side* -- a pack store,
+the 14 groups on screen, ⓘ detail, the fermented attribute on a food -- is implied by
+rulings 1, 2 and 6 and is not a lettered step; it is pre-registered with step d, which
+needs it. *The supply layer's reference group:* no sex or age is stored; the relays say
+"he", so the men's Health Canada DRIs are used, **age band 31-50 assumed and labelled**
+until the user gives it (51-70 differs only in B6, fibre, linoleic acid, chromium,
+chloride).
+
+**The Marco difference (433 vs 434) -- traced.** The paper's text gives one tier count:
+"Out of the 9388 food codes ... 8954 were estimated to contain low numbers" (Results,
+fetched from Europe PMC today); it never states Med or Hi -- **434 was the report's
+subtraction**. The supplement's Table 2 assigns **8,955 Lo, 330 Med, 103 Hi** to 9,388
+unique codes, every line parsed with one category, none mis-split (checked: no category
+word inside a description, no duplicate code). The gap is between the paper's sentence
+and its own supplement; nothing published says which code. Probability the parse is not
+at fault: **95 %**. The supplement -- the classification itself -- is what is used.
+
+**Pre-registered checks.**
+- **a. git.** HTPrivate is a git repository with **no remote** (`git remote -v` empty).
+  `.gitignore` keeps out: backups (`healthtracker-backup-*.json`), `export.xml`,
+  `export.json`, `glucose*.csv`, `slice_*.xml`, PDFs, `corpus-src/`, the raw third-party
+  downloads under `sources/` (their parse scripts, parsed tables and licence notes are
+  tracked), `__pycache__/`. **Check:** `git ls-files` lists no backup, export, CSV,
+  slice or zip.
+- **b. tools** (`tools/`, Python, no network): `check_schema.py`, `build_pack.py`,
+  `review_list.py`, and `tools/tests/`. The checker's rules, each with a test that plants
+  the violation and sees it caught: (1) every Reactome ID resolves in the saved release;
+  (2) every probability version has `p` in [0, 1], an `of` that begins "that", a kind
+  (general | personal) and a producer; (3) every quote has a source in `sources.json` and
+  a locator, and every summary says `verified: false`; (4) every claim's pathway topic
+  resolves to the taxonomy and every taxonomy claim link resolves to a claim file;
+  (5) `reviewed_by_me` is null or a date everywhere; (6) **nothing from the user's stack
+  and no Phenol-Explorer value is in any file tracked by the public repo** (stack names
+  from the newest backup; Phenol-Explorer values fingerprinted from its composition
+  table); (7) a built pack holds only reviewed claims, its sha256 matches, and it is
+  never written inside the public repo. **Check:** the tests pass, and the checker passes
+  on the store as it stands -- or every failure it finds is reported, not waived.
+  `build_pack.py` writes `packs/pack-vNNN.json` + `.sha256` + a line in `CHANGES.md`;
+  `review_list.py` prints one line per unreviewed entry and writes `reviewed_by_me` with
+  the date **only for ids the user names**.
+- **c. taxonomy + supply.** `evidence/pathways.json` becomes the approved taxonomy (14
+  groups, 73 records); the seven R241 topics map onto records (`legacy_topics`), so
+  existing claims stay linked. `evidence/reference_intakes.json`: the Health Canada DRIs
+  (RDA or AI, cited, page dated 2025-11-19) for the nutrients the records name. Each
+  record's supply layer lists its cofactors with the tracked key where one exists, and
+  says "not tracked" where none does. The weekly report (`make_pathway_report.py`) gains:
+  **the linked share** (items with a database row, of all food items, this week and
+  cumulative) and **a supply section** -- per group, each tracked cofactor's week mean
+  against its reference intake, with its coverage ("from N of M items"), worded as raw
+  materials, never as activity. **Check:** the report runs on the newest backup; the
+  linked share it prints equals a direct count; no supply line uses "active",
+  "activity", "supported" or "held back" (those belong to modulation).
