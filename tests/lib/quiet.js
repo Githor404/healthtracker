@@ -118,6 +118,23 @@
       };
     });
   };
+  // R284 follow-up: a WRITE TRANSACTION is one unit of work in flight until it completes
+  // or aborts -- not each of its thousands of puts (the corpus install), and not nothing:
+  // a read queued behind an install waits for it, so the page is not settled while one
+  // runs. Counted only when the app's own code opened it.
+  if (window.IDBDatabase) {
+    var _tx = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function (names, mode) {
+      var tx = _tx.apply(this, arguments);
+      if (mode === 'readwrite' && ours() && tx && tx.addEventListener) {
+        var key = ++idbSeq; idbLive[key] = 'write transaction (' + [].concat(names).join(', ') + ')';
+        inc('idb');
+        var done = false, end = function () { if (!done) { done = true; delete idbLive[key]; dec('idb'); } };
+        tx.addEventListener('complete', end); tx.addEventListener('abort', end); tx.addEventListener('error', end);
+      }
+      return tx;
+    };
+  }
   if (window.IDBFactory) wrapReq(IDBFactory.prototype, ['open', 'deleteDatabase']);
   if (window.IDBObjectStore) wrapReq(IDBObjectStore.prototype, ['get', 'getAll', 'getAllKeys', 'getKey', 'count', 'openCursor', 'openKeyCursor']);
   if (window.IDBIndex) wrapReq(IDBIndex.prototype, ['get', 'getAll', 'getAllKeys', 'getKey', 'count', 'openCursor', 'openKeyCursor']);

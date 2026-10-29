@@ -19322,3 +19322,12 @@ All five parts as pre-registered (fdeb1b1). Measured:
 
 *Gates:* `stackscan-gate` (new; 390 px, real taps; Health Canada answered in the page by the gate --
 no network): 11 checks. Harness +18 (3411). The pre-registration's checks are the gate's, unchanged.
+
+
+**R284 follow-up -- a GATE FLAW (found in R281's pre-run pass).** forms-gate alone stalled on
+one IndexedDB read, `meta.get`, with the page otherwise idle. Not an app hang: on a fresh
+profile the app installs the food database at boot in ONE large write transaction, and a later
+read of `meta` queues behind it. `quiet.js` counted no writes (after the 3,583-put finding), so it
+called the page settled mid-install, and the queued read then outlasted the next step's 10 s.
+Now each app write TRANSACTION is one unit of work until it completes or aborts -- not each put,
+and not nothing. forms-gate: three runs, all PASS, no slow settle.
