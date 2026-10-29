@@ -19222,3 +19222,68 @@ after a message stays up 7,003 ms (red first on v0.111.2's code: 1,901 ms), a me
 after an Undo bar 1,906 ms. Also in this pass: IndexedDB reads are now also ended by their
 transaction's complete/abort, so the count cannot leak (forms-gate had shown 16 "in flight"
 on an idle page), and each pending read is named in a failure.
+
+
+## R281 -- PRE-REGISTRATION (2026-10-28, before any code; ships as v0.112.0)
+
+*The user's rulings of 28 Oct on the R278 / R279 questions. Written and committed BEFORE the
+build: the checks below are fixed now, and the build is measured against them. Serves
+**track** (what the stack delivers) and **evaluate** (cited ingredients and forms for the
+evidence records).*
+
+**1. Empty stack.** + Log's root shows, today, a "Daily stack" section holding only
+"+ Add to stack" when the stack is empty -- D146 superseded for this entry point only (no
+count, no Took all, nothing else drawn over an empty stack). *Gate:* empty stack -> + Log ->
++ Add to stack -> a placeholder item saved from + Log is listed and can be ticked.
+
+**2. Join date.** "In your stack since" (a date field, today by default, no future date) in the
+add form and in Edit. A new item given a past date joins on it, by the new rule `stated` ("the
+date you gave"). Changing it in Edit sets it and appends an event to the item's `join_edits`
+(`{from, to, at, tzo, stated}`), kept and exported beside the switch history; a future date is
+refused in words. *Gate:* an item added with a date 5 days back shows that date in Settings,
+reads "not taken" (never "not in stack yet") 3 days back, and an Edit to another date records
+one join edit with its time.
+
+**3. AI label read -- database numbers first.** A photo of a supplement label goes to the
+user's own provider (BYOK, a new capture kind, its own template asking for the NPN, the
+product name and the ingredients). If it reads an NPN and Health Canada's database has it, the
+DATABASE's numbers are used and the model's are discarded. Only when there is no NPN or no
+match are the model's ingredients shown -- marked provisional, "read from your photo by your
+AI provider, not from a database" -- and stored NOT counting toward any nutrient until the
+user taps "These numbers are right"; then they count, with that provenance shown. *Gate:* a
+reply carrying a matching NPN yields the database's amounts (the reply's differ, and are not
+used); a reply with no NPN yields provisional ingredients that add nothing to the day until
+confirmed, and add after.
+
+**4. Multi-nutrient items.** A stack item may count toward several nutrients: `nutrients.micros`
+holds one amount per nutrient for the dose taken, and a new `nutrients.detail` keeps, per
+nutrient, the amount per unit, its unit, its form and its source (`lnhpd`, `typed`,
+`label-photo`). The editor gains "+ another nutrient" rows (nutrient, amount, unit) beside the
+existing "counts toward". The day's total and the upper-limit check already sum each nutrient
+across every dose taken (`stackDoseMicros`, `dayIntakeFlags`); this makes several keys per item
+reach them. *Gate:* two placeholder items, A' with 200 mg magnesium and B' with 200 mg magnesium
++ 10 mg zinc, both ticked: the day's magnesium from the stack is 400 mg, zinc 10 mg; neither
+item alone carries a flag, and the day's supplemental-magnesium flag (Health Canada, 350 mg)
+reads 400 mg.
+
+**5. Supplement scanning, the NPN route** (per the R279 Part 2 report). In the add form, for a
+supplement: "Health Canada NPN" (8 digits) with Look up, and "Photo of the label" when a key is
+set. Look up asks Health Canada's Licensed Natural Health Products Database
+(health-products.canada.ca, Open Government Licence - Canada, no key, CORS open), on that tap
+only: the licence (the primary-name row), its medicinal ingredients (name, amount PER DOSAGE
+UNIT, unit, source material = the FORM), and its label dose. A proposal shows the product, the
+company, the licence status (a non-active licence is shown as such, never hidden), each
+ingredient with its form, the label dose, and "units you take" (the label's, changeable). Save
+writes one item: its name, `kind` supplement, `dose` = units and `dose_unit` = the dosage form
+(capsule, tablet, ...), `product` = {ns 'lnhpd', npn, id, name, company, status, dosage_form,
+ingredients, label_dose, at, attribution, how} frozen at the tap, and `nutrients` for each
+ingredient whose name IS a tracked nutrient (Magnesium, Zinc, Iron, Calcium, Potassium, Vitamin
+A/C/D/B12, Folate) in a unit the app can carry (mg, mcg); every other ingredient is kept, cited,
+not counted. NPN not found -> "No product with that NPN in Health Canada's database", nothing
+written. Barcode sources (NIH DSLD, OpenFoodFacts) are NOT built: secondary, and both stay on
+the commercial-blockers list. **Target: <= 6 taps from + Log to a saved item** -- + Log, Daily
+stack, + Add to stack, (8 digits typed), Look up, Add to my stack = 5. *Gate:* `stackscan-gate`
+(new; Health Canada stubbed in the page by the gate, no network): the 5 taps counted from the
+home screen; the saved item carries the NPN, the citation and each ingredient's form; ticked,
+its magnesium reaches the day; an unknown NPN writes nothing; a non-active licence says so;
+the photo route as in 3. The egress census declares the new host.
