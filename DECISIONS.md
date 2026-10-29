@@ -19550,3 +19550,139 @@ at fault: **95 %**. The supplement -- the classification itself -- is what is us
   materials, never as activity. **Check:** the report runs on the newest backup; the
   linked share it prints equals a direct count; no supply line uses "active",
   "activity", "supported" or "held back" (those belong to modulation).
+
+## R286 -- STEPS a-c BUILT; STEPS d AND e PRE-REGISTERED (2026-10-29)
+
+**a-c, built (private, HTPrivate -- a local git repository, no remote).**
+- **a.** `.gitignore` keeps backups, exports, CSVs, PDFs, zips and raw downloads out;
+  checked: none tracked, 0 remotes.
+- **b.** `tools/check_schema.py` (7 rules), `build_pack.py` (refuses unless the checker
+  passes), `review_list.py` (writes `reviewed_by_me` only for ids the user names).
+  21 tests, each planting a violation; all pass.
+- **First run of the checker.** Rules 1, 2, 4 and 5 passed. Rule 3 found 18 quotes
+  citing PubMed IDs that `sources.json` did not hold: the R250 interaction records
+  list their sources inside each record. The 15 sources were copied into the table
+  as the records state them, with the title left empty and labelled.
+- **Rule 6 found a real R204 slip in this repo.** Two of the user's stack item names,
+  each a generic ingredient name, sit in tracked files:
+  - in `tests/data-layer.test.html` (since R208, 12 Oct) and `tests/stackscan-gate.ps1`
+    (R281), as test strings and a stub's ingredient form;
+  - in `app.js`, as the IU table's substance name and a code comment.
+  They are replaced in step d's release. They stay in the public git history, which
+  is not rewritten. Until then the pack builder refuses to build, as designed.
+- **c.** `evidence/pathways.json` is the approved taxonomy. It carries a supply layer
+  per record: 77 cofactor lines map to a counted nutrient, and 24 are said to be "not
+  tracked".
+- **Reference intakes.** `reference_intakes.json` holds Health Canada's DRIs for
+  **men 51-70** (the user's answer), with copper converted from the database's mg and
+  notes where folate (total vs DFE) and niacin (preformed vs NE) differ.
+- **The weekly report** now prints the linked share and a raw-materials table.
+  Checked:
+  - the linked share it prints equals a direct count (20 of 46 that week; 65 of 308
+    overall);
+  - the table uses none of "active", "activity", "supported" or "held back".
+- **Experts.** The two further experts are recorded privately, with credentials as
+  stated and commercial interests as fact, each from a primary page.
+- **Oura.** Its import report is written (private).
+
+**The user's answers (29 Oct).**
+1. **The row suggestion goes on the day view, not at capture.** It shows the top 3
+   rows, calories beside each, and the measured accuracy. Nothing counts until a tap.
+   Unlinked items are listed as one batch in the weekly review.
+   - *D141 stands for capture.* There, the matcher's first pick was right 16 of 38
+     times at the lowest-attention moment.
+   - *What is new:* this offer is made on an item the user has opened, after saving.
+     It never pre-selects.
+2. **Reference intakes: men 51-70.**
+
+### d -- pre-registered (an app release, v0.113.0)
+
+**d1. "Link a database row?" on an opened day item.**
+- **Which items:** a food item with no linked row (`ref`), not legacy, not a stack
+  item, and not already carrying the user's own-past suggestion (R237's "suggested --
+  tap to confirm" keeps its place).
+- **The rows:** the **top 3 rows of the find-nutrients ranking**, the panel's own:
+  `matchCandidates`, then D125's `resolveRank`, then D133's memory. Each row is a
+  44 px button: the row's name and its calories per 100 g, beside the item's own
+  "yours: N per 100 g" (D122's pair) when the item has grams and calories.
+- **The tap** links through the panel's own pick path, so D127's state question still
+  asks when the row's state differs. "None of these -- find nutrients" opens the full
+  panel.
+- **Nothing counts until a tap.** No `suggested` and no `provisional` is written, and
+  the day's totals are byte-identical before and after the block is drawn.
+- **The accuracy -- R260, calculated, on the device, from the user's own data.**
+  - Of the user's own past picks from this list, how often the row they chose was
+    the ranking's first today, and how often it was among its first three.
+  - Shown as "calculated from N of your own picks", or "not enough of your own picks
+    to say yet (n of 5)" below 5 (R261/1).
+  - No figure from this repo's records is shipped. D141's 16 of 38 was one user's
+    photos, and the multi-user rule forbids a personal calibration in code.
+
+**d2. The weekly review lists the week's unlinked items as one batch.**
+- A card shows "Not linked to a database row: N of M food items", then each item
+  (name, day) as a button to its find-nutrients panel, plus the linked share.
+- No backlog beyond the week shown, and nothing written by viewing it.
+
+**d3. A pack on the phone.**
+- **Import:** Settings, "Import a pathway pack", through a file input. It accepts
+  only `format: healthtracker-pack` and checks its sha256 against the file (the
+  `.sha256` line pasted, or the pack's own stated hash). The pack is stored in its own
+  key, read-only, and **outside the backup and export** (it is rebuilt from the PC,
+  not user data); the import says so.
+- **Trends gains "Pathways":**
+  - the 14 groups, each opening to its records;
+  - each record behind an ⓘ: technical names and Reactome IDs, supply (cofactors with
+    the reference intake), what the app can see (direct / proxy / not), and its
+    reviewed claims with probability and GRADE;
+  - the plain sentence only once reviewed, otherwise "not reviewed yet".
+- **Words never used:** "active", "activity" and "measured" are never used about a
+  pathway (proxies only).
+- **Not in this slice:** the supply comparison on the phone. The PC report carries it.
+
+**d4. Lexicon and fermented attribute.**
+- **The lexicon** (`evidence/lexicon.json`, private) is the R266 coverage rules
+  rewritten as reviewable records. Each rule has a pattern, plants (core or apart --
+  mushrooms, seaweed, coffee, wine, herbs, R286/5), a Phenol-Explorer food, a Marco
+  code and tier, `fermented` (yes / no / unknown) with its source, and
+  `reviewed_by_me: null`.
+- **The pack carries reviewed rules only.** So no rule reaches the phone until the user
+  reviews it.
+- **On the phone,** an opened food item shows "Fermented: yes / no / unknown -- <source>"
+  from, in order:
+  1. a reviewed lexicon rule;
+  2. its linked row's name holding a fermented word (yogurt, kefir, kimchi, sauerkraut,
+     miso, tempeh, natto, "fermented"), "from the database row's name";
+  3. otherwise "unknown".
+  Every lexicon match is marked "provisional -- from your lexicon".
+- **Live microbes** are shown as published (Marco 2022) on two lines, fermented and raw
+  produce, in the PC weekly report.
+
+**d5. The R204 fix.** The two names leave every tracked file, replaced by placeholders
+that test the same thing (e.g. "Form A"; "Vitamin D2 drops" still tests the
+digit-after-the-letter rule). The checker's rule 6 then passes.
+
+### e -- pre-registered (folded into the same release)
+
+- **The corpus gains** EPA (USDA 629), ALA (USDA 851; CNF id 831) and the n-3 / n-6
+  totals (CNF ids 868 / 869), with the build's own slot table.
+- **`check-slots` checks them.** Each new slot is present in the slot table and the
+  shipped files, with the source's own value for a named control row (a salmon row's
+  EPA and DHA, a canola oil row's ALA), and absent stays absent: never 0.
+
+**Gates (red first where the code is new).**
+- `link-gate` (new):
+  - d1's block on an opened unlinked item: 3 rows, 44 px, calories beside "yours";
+  - one tap links, and D127's question appears for a state mismatch;
+  - nothing changes before the tap;
+  - the accuracy line under and over n 5;
+  - none on a linked item, a memory-suggested item or a stack item.
+- `weekly-gate` + d2: the batch card lists exactly the week's unlinked items.
+- `pack-gate` (new):
+  - a pack built by `build_pack.py` from a fixture store imports;
+  - a tampered one is refused in words;
+  - the 14 groups draw, and an ⓘ opens a record;
+  - an unreviewed sentence reads "not reviewed yet";
+  - the backup does not carry the pack.
+- Harness for the fermented resolution order, and for the accuracy calculation on a
+  fixture.
+- The checker's rule 6 passes on the release tree.
