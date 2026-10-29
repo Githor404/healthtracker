@@ -17568,6 +17568,7 @@ carbs-only AND a 95 % interval of the difference excluding zero.
 | date | backup | usable | clean | carbs-only MAE | stage-1 MAE | 95 % CI of diff | verdict |
 |---|---|---|---|---|---|---|---|
 | 2026-10-18 | 2026-10-18 v16 | 48 | 17 | 1.201 | 1.187 (λ 20) | [−0.10, +0.14] | does not beat |
+| 2026-10-29 | 2026-10-29 v17 | 82 | 34 | 1.164 | 1.128 (λ 5) | [−0.05, +0.14] | does not beat |
 
 ## R239 — A STOPPED RUN LEAVES NOTHING BEHIND (2026-10-18, tests only)
 
@@ -19331,3 +19332,26 @@ read of `meta` queues behind it. `quiet.js` counted no writes (after the 3,583-p
 called the page settled mid-install, and the queued read then outlasted the next step's 10 s.
 Now each app write TRANSACTION is one unit of work until it completes or aborts -- not each put,
 and not nothing. forms-gate: three runs, all PASS, no slow settle.
+
+## R266 -- THE REPORT DELIVERED (2026-10-29; record only, nothing built)
+
+*On the user's word of 29 Oct. Serves **evaluate**. The report is private
+(HTPrivate `reports\r266-report.md`) because its Part B measures the user's own log (R204).*
+
+- **A. Taxonomy (proposed):** 14 groups -- the ruling's six plus eight added, each with
+  its reason -- and 73 pathway records carrying 91 Reactome IDs, every one checked by
+  script against Reactome **release 98** (human event hierarchy fetched 2026-10-29); 4
+  records are "no reference pathway ID -- literature-sourced". Of the 73, 1 is observable
+  directly, 28 through a proxy, 44 not at all.
+- **B. Phase 1 features:** sources and licences as R273 ruled; coverage measured on the
+  newest backup by a name lexicon written for the report (every match a proposal, listed
+  for review). The limit found: most logged items carry no database row, so features that
+  read a row see few items. The app's corpus does not ship EPA (CNF 629), ALA (831) or the
+  n-3 / n-6 totals; Phase 1 omega-3 would need a slot change.
+- **C. Back end:** layout and pipeline proposed; HTPrivate is not yet a git repository.
+  The third-party downloads (Reactome 98, Phenol-Explorer 3.6, Marco 2022 Table 2) are in
+  HTPrivate `sources\` only -- nothing of them is in this repo (R273).
+- **D. Costs:** the PC-side scripts measured at seconds and tens of MB; curator and
+  synthesis runs estimated at 0.6-1.4 M tokens for a first pass of three experts, in
+  sessions the user starts (R263); no licence costs money; no new commercial blocker.
+- **Seven questions** are with the user; nothing in Part C starts before the answers.
