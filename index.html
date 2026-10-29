@@ -1919,7 +1919,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <summary>Fasting</summary>
         <div class="note">The day ring draws eating in green and fasting in orange. From your last food &mdash; or from the time you tapped &ldquo;Stopped eating&rdquo; after it &mdash; the ring turns orange. Food logged within 12 hours turns that gap green, part of the eating window; 12 hours or more with no food is a fast, up to 48 hours; 48 hours or more with nothing logged is a gap in the log, not a fast. Nothing is asked.</div>
         <div class="note" id="fastRuleNote"></div>
-        <div class="note">Something whose carbs or protein are not known ends a fast. Any logged item, or a combo, can be marked &ldquo;keeps my fast&rdquo; or &ldquo;breaks my fast&rdquo; from the item itself; your mark wins over the rule, except for alcohol.</div>
+        <div class="note">Something whose net carbs or protein are not known ends a fast. Any logged item, or a combo, can be marked &ldquo;keeps my fast&rdquo; or &ldquo;breaks my fast&rdquo; from the item itself; your mark wins over the rule, except for alcohol.</div>
         <div class="rerow">
           <div><label for="fastNetCarb">Net carbs up to (g)</label><input id="fastNetCarb" type="number" inputmode="decimal" min="0" onchange="setFastKeepLimits()"></div>
           <div><label for="fastProtein">Protein up to (g)</label><input id="fastProtein" type="number" inputmode="decimal" min="0" onchange="setFastKeepLimits()"></div>

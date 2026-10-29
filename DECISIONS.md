@@ -19928,3 +19928,59 @@ it.
 The 7 ms left over v0.113.0 is the fingerprint itself, built over every item on each
 redraw; the judgements are reused. It is under budget, and it is said rather than
 hidden.
+
+## R288.1 -- RULINGS ON R287, R286 AND THE BACKLOG (2026-10-29; replaces R288; item 1b in v0.113.2)
+
+*The user's rulings of 29 Oct.*
+
+**1a. Alcohol beats the user's "keeps my fast" mark -- confirmed.** Alcohol always ends
+a fast. The mark wins over the rule in every other case. This is R287's reading,
+now ruled. The entry offers no mark on a drink with alcohol.
+
+**1b. The rule counts net carbs, and every word about it now says so.** Built in
+v0.113.2. The phrase "carbs" became "net carbs" in five places:
+- the rule's sentence (`FAST_RULE_WORDS`, and its form for limits the user changed);
+- the Settings > Fasting note;
+- the weekly review's fasting ⓘ;
+- the opened entry's "not known" reason.
+
+The ruled sentence is now: "Fast: no food; items with ≤ 5 g net carbs and ≤ 5 g
+protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast." The
+harness now checks that every "carbs" in the rule's words and in the weekly review is
+"net carbs". Past VERSION_LOG lines stay as they were written.
+
+**2. The R204 slip: public git history left as it is -- ruled.** The two names were
+generic ingredient names, and there is no rewrite. The checker's rule 6 (HTPrivate
+`tools/check_schema.py`) stays and blocks a recurrence: it runs against every file
+the public repo tracks, and the pack builder refuses to build while it fails.
+
+**3. Oura -- ruled.**
+- **Route:** the Membership Hub export file, imported like the Apple Health export.
+- **Storage limit:** the user reads the API agreement's §3(m) as covering API data
+  only, not their own export.
+- **When:** the import is built when the ring arrives, and is pre-registered first.
+- **Fields:** as in the import report (HTPrivate `reports/r286-oura-import.md`).
+- **Naming:** the HRV series is named as Oura names it (`average_hrv`, the mean of
+  5-minute samples during sleep), not "RMSSD".
+
+**4. Curators (R286 step f): on hold** until the user says so. The review backlog comes
+first.
+
+**5. R267.1 (the strain HMM) and R268 (the honesty layer): parked** until Oura data is
+imported. Nothing is done now. Both are still the user's labels, not recorded rulings.
+
+**6. The review backlog as one file.** HTPrivate
+`reports/review-backlog-2026-10-29.md`, made by `tools/review_export.py` from the
+store itself. It holds **170 entries**:
+
+| group | entries |
+|---|---|
+| (a) lexicon rules | 57 |
+| (b) plain pathway sentences | 73 |
+| (c) claims | 28 |
+| (c) interactions | 12 |
+
+Each entry has its id, what it says, its source and a blank Approve / Change / Reject
+line. Decisions come back in batches and are applied with `review_list.py --approve`,
+only for the ids named. Nothing reaches the phone unreviewed. The file stays private
+(R204).

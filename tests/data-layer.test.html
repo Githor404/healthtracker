@@ -11959,8 +11959,11 @@ window.setLS({});
                                                             fk({ name: 'Item lunch', kcal: 500, fat_g: 20, carb_g: 50, protein_g: 30, time: '12:00' })] } };
   var qF = HT.fastsClosed().map(function (g) { return g.hours; });
   res(qF.length === 1 && qF[0] === 16, 'R287 GATE: a cream coffee inside a fast does not end it -- dinner 20:00 to lunch 12:00 is ONE 16 h fast', JSON.stringify(qF));
-  res(HT.FAST_RULE_WORDS === 'Fast: no food; items with ≤ 5 g carbs and ≤ 5 g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.'
-      && HT.fastRuleWords() === HT.FAST_RULE_WORDS && !/ketosis|autophagy/i.test(HT.FAST_RULE_WORDS),
+  res(HT.FAST_RULE_WORDS === 'Fast: no food; items with ≤ 5 g net carbs and ≤ 5 g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.'
+      && HT.fastRuleWords() === HT.FAST_RULE_WORDS && !/ketosis|autophagy/i.test(HT.FAST_RULE_WORDS)
+      // R288.1/1b: the rule uses NET carbs, and every word about it says so
+      && (HT.FAST_RULE_WORDS.match(/carbs/g) || []).length === (HT.FAST_RULE_WORDS.match(/net carbs/g) || []).length
+      && (HT.weekReviewHTML(HT.weekMonday('2026-10-23')).match(/carbs/g) || []).length === (HT.weekReviewHTML(HT.weekMonday('2026-10-23')).match(/net carbs/g) || []).length,
       'R287: the rule is said in the ruling\'s own words, and nothing about ketosis or autophagy');
   HT.state().days = _fkDays; HT.state().settings = _fkSet;
   // ---- R286: the link offer's eligibility, fermented without a pack, the weekly batch --

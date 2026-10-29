@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.113.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.113.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -11506,7 +11506,7 @@ function fastJudgeUnit(its, lim) {
   const ov = ent ? (ent.v !== 'rule' ? ent.v : null) : (combo ? fastOverrideNow(combo.fast_override) : null);
   if (ov) return { keeps: ov === 'keeps', by: 'yours', why: 'you marked it “' + (ov === 'keeps' ? 'keeps my fast' : 'breaks my fast') + '”' };
   if (its.some(function (x) { return !itemMacrosKnown(x); }))
-    return { keeps: false, by: 'unknown', why: 'its carbs or protein are not known, and unknown is not zero' };
+    return { keeps: false, by: 'unknown', why: 'its net carbs or protein are not known, and unknown is not zero' };
   const nc = its.reduce(function (s, x) { return s + itemNetCarb(x); }, 0);
   const pr = its.reduce(function (s, x) { return s + num(x.protein_g); }, 0);
   const keeps = nc <= lim.netCarb && pr <= lim.protein;
@@ -11594,11 +11594,11 @@ function renderFastSettings() {
   if (pr) pr.value = rDisp(l.protein);
   if (n) n.textContent = fastRuleWords();
 }
-const FAST_RULE_WORDS ='Fast: no food; items with ≤ 5 g carbs and ≤ 5 g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.';
+const FAST_RULE_WORDS ='Fast: no food; items with ≤ 5 g net carbs and ≤ 5 g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.';
 function fastRuleWords() {
   const l = fastKeepLimits();
   if (l.netCarb === FAST_KEEP_DEFAULT.netCarb && l.protein === FAST_KEEP_DEFAULT.protein) return FAST_RULE_WORDS;
-  return 'Fast: no food; items with ≤ ' + rDisp(l.netCarb) + ' g carbs and ≤ ' + rDisp(l.protein) + ' g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.';
+  return 'Fast: no food; items with ≤ ' + rDisp(l.netCarb) + ' g net carbs and ≤ ' + rDisp(l.protein) + ' g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.';
 }
 // A candidate = the span between two CONSECUTIVE events >= minHours (bounded on
 // both ends; the trailing open gap is never a candidate — it's an in-progress
@@ -17154,6 +17154,7 @@ const VERSION_LOG = [
   { v: '0.112.1', d: '2026-10-29', note: 'A supplement taken as tablets, capsules or another unit now asks How many? beside the unit, and counts each nutrient as the amount in each unit times how many you take -- 1 tablet of a product with 50 mg zinc in each is 50 mg, 2 is 100. Items you added before keep their amount as they were. If an item cannot be saved, the reason now shows beside the button you tapped, and what you entered stays in the form.' },
   { v: '0.113.0', d: '2026-10-29', note: 'Open a logged food that has no database row and it now offers the three closest rows, calories beside each and beside yours, with how often your own past picks were the first row. Nothing counts until you tap one. The weekly review lists the week’s foods without a database row in one place. Trends has a Pathways section, filled from a pathway pack built on your computer and imported in Settings; it is kept on this phone and not in your backup. An opened food says whether it is fermented, and where that comes from. The food database now carries omega-3 (EPA, ALA) and omega-3 and omega-6 totals where its sources do.' },
   { v: '0.113.1', d: '2026-10-29', note: 'A new rule for what keeps a fast: no food, but something with 5 g of carbs or less and 5 g of protein or less is allowed -- coffee with cream, butter or coconut oil in coffee, a spoon of olive oil -- whatever its calories. A combo is judged as a whole. Alcohol always ends a fast, and something whose carbs or protein are not known ends it too. Open a logged item to see what it does to a fast, and mark it keeps my fast or breaks my fast if you know better; a combo can be marked in its Edit. Both limits can be changed in Settings, under Fasting. Your past fasts are read again under the new rule; nothing you logged changes.' },
+  { v: '0.113.2', d: '2026-10-29', note: 'The fasting rule now says net carbs wherever it is explained -- in Settings, the weekly review and on a logged item -- because that is what it counts: carbs minus fibre. Nothing else changes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -22103,7 +22104,7 @@ function weekFastCardHTML(R) {
     'A fast runs from your last logged food — or from a “Stopped eating” you tapped after it — to the next food you logged, '
     + 'and counts when it lasts 12 h or more and under 48 h; 48 h or more with nothing logged is a gap in the log, not a fast. '
     + 'Shorter gaps are part of the eating window. ' + fastRuleWords() + ' '
-    + 'Something whose carbs or protein are not known ends a fast; an item or combo you marked “keeps my fast” or “breaks my fast” follows your mark. '
+    + 'Something whose net carbs or protein are not known ends a fast; an item or combo you marked “keeps my fast” or “breaks my fast” follows your mark. '
     + 'Measured from your log: a meal you didn’t log makes a fast look longer than it was. '
     + 'The ring is the share of the week so far spent in those fasts. Nothing is asked.');
   return h + '</div>';
