@@ -317,6 +317,23 @@
   .uncbtn{min-height:44px;font-size:16px;color:var(--warn);text-align:left}
   .unclist{display:flex;flex-direction:column;gap:6px;margin-top:4px}
   .uncitem{min-height:44px;font-size:16px;text-align:left}
+  /* R286/2: "Link a database row?" on an opened day item -- three rows, nothing counts until a tap */
+  .mlink{display:flex;flex-direction:column;gap:6px;margin:4px 0 8px}
+  .mlinkhead{font-size:16px}
+  .mlinkrow{display:block;width:100%;min-height:44px;font-size:16px;text-align:left}
+  .mlinkyours,.mlinkacc{font-size:16px;color:var(--muted)}
+  .mlinkfind{min-height:44px;font-size:16px;text-align:left}
+  .wklinklist{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+  .wklinkitem{min-height:44px;font-size:16px;text-align:left}
+  /* R286/d3 + d4: the pathway library, and fermented on an opened item */
+  .pwgroup>summary{min-height:44px;font-size:16px;display:flex;align-items:center}
+  .pwrec{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:16px;padding:4px 0 4px 12px}
+  .pwinfo>summary{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;list-style:none;cursor:pointer;color:var(--accent)}
+  .pwinfo>summary::-webkit-details-marker{display:none}
+  .pwinfo[open]{flex-basis:100%}
+  .pwtech,.pwline{font-size:16px;color:var(--muted);margin:4px 0;overflow-wrap:anywhere}
+  .packrm{min-height:44px;font-size:16px}
+  .mferm{font-size:16px;color:var(--muted);margin:4px 0;overflow-wrap:anywhere}
   /* D35 addendum: the ring is the centerpiece, so it renders at centerpiece
      scale -- ~80% of viewport width, capped so desktop stays sane. Both ring
      SVGs carry a viewBox, so arcs, labels and the now-hand scale with it. */
@@ -1557,6 +1574,12 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <div id="labTrends"></div>
       </details>
     </div>
+    <div class="card" data-card="pathways">
+      <details>
+        <summary>Pathways</summary>
+        <div id="pathways" style="margin-top:10px"></div>
+      </details>
+    </div>
     <div class="card">
       <h2>Averages</h2>
       <div id="averages"></div>
@@ -1936,6 +1959,14 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         Readings merge by timestamp, so re-importing the same export adds nothing. Held
         as a cache Apple Health can re-supply, so glucose is <b>not in your export</b>.
         A stopgap: the durable route is the native shell reading HealthKit directly.</div>
+    </div>
+    <div class="card" data-setting="pack">
+      <h2>Pathway pack</h2>
+      <div class="note">A read-only library of pathways and reviewed evidence, built on your computer. It stays on this phone and is not in your backup.</div>
+      <label class="note" for="packFile" style="display:block;margin:8px 0 4px">Import a pathway pack:</label>
+      <input type="file" id="packFile" accept="application/json,.json" onchange="packFilePicked(this)">
+      <div id="packMsg"></div>
+      <div class="note" id="packNow"></div>
     </div>
     <div class="card" data-setting="import">
       <h2>Import · restore <span style="color:var(--bad)">(replaces everything)</span></h2>

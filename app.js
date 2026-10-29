@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.112.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.113.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -786,7 +786,7 @@ function recordKindWord(r) {
 const IU_TO_UG = {
   vitamin_d_ug: {
     ug_per_iu: 0.025,                       // 40 IU = 1 microgram
-    substance: 'cholecalciferol (vitamin D3)',
+    substance: 'cholecalciferol',
     org: 'definitional',
     cite: '1 IU vitamin D = 0.025 micrograms cholecalciferol',
     // NO `version` and NO `jurisdiction`, and their absence is the point: a
@@ -3106,13 +3106,22 @@ function resolveOpen(dateKey, idx, queryOverride) {
   const opened = RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'loading', name: it.name,
                    query: queryOverride != null ? queryOverride : it.name };
   renderResolve();
+  return resolveCompute(dateKey, idx, it, queryOverride, function () { return RESOLVE_VIEW === opened; }).then(function (view) {
+    if (RESOLVE_VIEW !== opened) return { ok: false, why: 'closed' };   // R271
+    RESOLVE_VIEW = view;
+    renderResolve();
+    return view.phase === 'none' && view.why === 'no-corpus' ? { ok: false, why: 'no-corpus' } : { ok: true, phase: view.phase };
+  });
+}
+// R286/2: THE ONE RANKING, for the find-nutrients panel and for the day view's "Link a
+// database row?" offer alike, so the two can never disagree. Pure: it renders nothing
+// and writes nothing; `alive` lets a caller abandon it.
+function resolveCompute(dateKey, idx, it, queryOverride, alive) {
   return corpusEnsure().then(function () {
-    if (RESOLVE_VIEW !== opened) return { ok: false, why: 'closed' };
+    if (alive && !alive()) return { phase: 'closed' };
     const m = CORPUS_MEM;
     if (!m || !m.index) {
-      RESOLVE_VIEW = { date: dateKey, idx: idx, phase: 'none', why: 'no-corpus', name: it.name };
-      renderResolve();
-      return { ok: false, why: 'no-corpus' };
+      return { date: dateKey, idx: idx, phase: 'none', why: 'no-corpus', name: it.name };
     }
     const q = (queryOverride != null && String(queryOverride).trim() !== '')
       ? String(queryOverride) : it.name;
@@ -3138,7 +3147,7 @@ function resolveOpen(dateKey, idx, queryOverride) {
                  state: foodState(c.name) };
       });
     })).then(function (rows) {
-      if (RESOLVE_VIEW !== opened) return { ok: false, why: 'closed' };   // R271
+      if (alive && !alive()) return { phase: 'closed' };
       const byId = {};
       rows.forEach(function (r) { byId[r.id] = r; });
       const rich = cands.map(function (c) {
@@ -3155,11 +3164,9 @@ function resolveOpen(dateKey, idx, queryOverride) {
       const remembered = (plan.phase === 'pick') ? rememberedRow(it.name) : null;
       const withMem = resolveWithMemory(plan.candidates, remembered);
       if (remembered) { plan.candidates = withMem.candidates; plan.proposed = withMem.proposed; }
-      RESOLVE_VIEW = Object.assign({ date: dateKey, idx: idx, name: it.name, query: q,
-                                     want: want, wantSrc: wantSrc,
-                                     mine: vec ? vec[208] : null }, plan);
-      renderResolve();
-      return { ok: true, phase: plan.phase };
+      return Object.assign({ date: dateKey, idx: idx, name: it.name, query: q,
+                             want: want, wantSrc: wantSrc,
+                             mine: vec ? vec[208] : null }, plan);
     });
   });
 }
@@ -3688,6 +3695,261 @@ function itemCountStateHTML(dk, idx, it) {
       + esc(dk) + '\',' + idx + ')">Not counted \u2014 pick a food for \u201c' + esc(String(it.name || '')) + '\u201d</button></div>';
   }
   return '';
+}
+// ---- R286/d3: THE PATHWAY PACK --------------------------------------------------
+// Built on the user's computer (HTPrivate tools/build_pack.py), imported here, READ-ONLY.
+// It is kept in its own key and is NOT in the backup or the export: it is rebuilt from
+// the PC, and it is not the user's log. The file is a wrapper {format, version, sha256,
+// body}; `sha256` is the hash of `body`'s own bytes, so what is checked is exactly what
+// arrived. Nothing here says a pathway is working: the phone sees pathways only through
+// proxies (R266, R286/1).
+const PACK_KEY = 'healthtracker-pack';
+let PACK_MEM = null;
+let PACK_STORED = false;
+function packLoad() {
+  if (PACK_MEM) return PACK_MEM;
+  try {
+    const raw = localStorage.getItem(PACK_KEY);
+    if (raw) { const w = JSON.parse(raw); PACK_MEM = Object.assign(JSON.parse(w.body), { _version: w.version }); PACK_STORED = true; }
+  } catch (e) { PACK_MEM = null; }
+  return PACK_MEM;
+}
+function packSha256(text) {
+  if (!(window.crypto && crypto.subtle && window.TextEncoder)) return Promise.resolve(null);
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(text))).then(function (b) {
+    return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+  });
+}
+function packImportText(text) {
+  let w = null;
+  try { w = JSON.parse(String(text == null ? '' : text)); } catch (e) { w = null; }
+  if (!w || w.format !== 'healthtracker-pack' || typeof w.body !== 'string' || !/^[0-9a-f]{64}$/.test(String(w.sha256 || '')))
+    return Promise.resolve({ ok: false, error: 'This is not a pathway pack. A pack is the pack-vNNN.json file your computer builds.' });
+  return packSha256(w.body).then(function (h) {
+    if (h == null) return { ok: false, error: 'This browser cannot check the pack’s fingerprint, so it was not imported.' };
+    if (h !== w.sha256) return { ok: false, error: 'The pack does not match its own fingerprint — it was changed or damaged after it was built. Nothing was imported.' };
+    let body = null;
+    try { body = JSON.parse(w.body); } catch (e) { body = null; }
+    if (!body || body.format !== 'healthtracker-pack' || !Array.isArray(body.groups) || !Array.isArray(body.records))
+      return { ok: false, error: 'The pack’s contents could not be read. Nothing was imported.' };
+    let stored = true;
+    try { localStorage.setItem(PACK_KEY, JSON.stringify(w)); } catch (e) { stored = false; }
+    PACK_MEM = Object.assign(body, { _version: w.version });
+    PACK_STORED = stored;
+    try { renderPathways(); renderPackSetting(); } catch (e) {}
+    return { ok: true, version: w.version, groups: body.groups.length, records: body.records.length, stored: stored };
+  });
+}
+function packFilePicked(input) {
+  const f = input && input.files && input.files[0];
+  const msg = document.getElementById('packMsg');
+  if (!f) return Promise.resolve({ ok: false });
+  return f.text().then(packImportText).then(function (r) {
+    if (msg) msg.innerHTML = r.ok
+      ? '<div class="note">Pathway pack v' + esc(String(r.version)) + ' imported: ' + r.groups + ' groups, ' + r.records + ' records. '
+        + (r.stored ? 'Kept on this phone only; it is not in your backup.' : 'Kept until the app closes: this phone did not store it.') + '</div>'
+      : '<div class="warn">' + esc(r.error) + '</div>';
+    try { input.value = ''; } catch (e) {}
+    return r;
+  });
+}
+function packRemove() {
+  try { localStorage.removeItem(PACK_KEY); } catch (e) {}
+  PACK_MEM = null; PACK_STORED = false;
+  renderPathways(); renderPackSetting();
+  return { ok: true };
+}
+function renderPackSetting() {
+  const el = document.getElementById('packNow');
+  if (!el) return;
+  const P = packLoad();
+  el.innerHTML = P
+    ? 'On this phone: pathway pack v' + esc(String(P._version)) + ', built ' + esc(String(P.built_at || '').slice(0, 10)) + ' · '
+      + '<button type="button" class="linklike packrm" onclick="packRemove()">Remove it</button>'
+    : 'No pathway pack on this phone.';
+}
+const PW_SEE = { 'direct': 'directly', 'proxy': 'through a proxy', 'not observable': 'not at all' };
+function pathwayRecordHTML(P, r) {
+  const ri = (P.reference_intakes && P.reference_intakes.values) || {};
+  const ids = (r.backbone || []).filter(function (b) { return b && b.id; }).map(function (b) { return b.id; });
+  const sup = (r.supply || []).filter(function (s) { return s.dri && ri[s.dri]; }).map(function (s) {
+    const v = ri[s.dri];
+    return esc(v.label) + ' — ' + esc(rDisp(v.value)) + ' ' + esc(v.unit) + ' a day (' + esc(v.kind) + ')';
+  });
+  const notc = (r.supply || []).filter(function (s) { return !s.dri || !ri[s.dri] || !s.tracked; }).map(function (s) { return esc(s.cofactor); });
+  const claims = (P.claims || []).filter(function (c) { return (r.claims || []).indexOf(c.id) >= 0; });
+  let b = '<div class="pwtech">' + esc(r.technical_name || '') + '</div>'
+    + '<div class="pwline">' + (ids.length ? 'Reactome ' + esc(ids.join(', ')) + ' (release ' + esc(String(P.reactome_version || '')) + ')' : 'No reference pathway ID — literature-sourced') + '</div>'
+    + '<div class="pwline">' + (r.sentence ? esc(r.sentence) : 'Plain description: not reviewed yet.') + '</div>'
+    + '<div class="pwline">What this phone can see: ' + esc(PW_SEE[r.observable] || r.observable || '') + (r.observable_how ? ' — ' + esc(r.observable_how) : '') + '</div>';
+  if (sup.length) b += '<div class="pwline">Raw materials (necessary, not sufficient), against ' + esc((P.reference_intakes || {}).source || '') + ', ' + esc((P.reference_intakes || {}).group || '') + ': ' + sup.join('; ') + '</div>';
+  if (notc.length) b += '<div class="pwline">Listed but not counted by the log: ' + notc.join(', ') + '</div>';
+  b += '<div class="pwline">' + (claims.length ? 'Reviewed claims: ' + claims.map(function (c) {
+    const pv = c.probability && c.probability.versions && c.probability.versions[c.probability.versions.length - 1];
+    return esc(c.claim) + (pv ? ' — ' + Math.round(100 * pv.p) + ' % ' + esc(pv.of) : '') + ((c.evidence && c.evidence.grade) ? ' · GRADE ' + esc(c.evidence.grade) : '');
+  }).join('; ') : 'No reviewed claims yet.') + '</div>';
+  return '<div class="pwrec"><span class="pwname">' + esc(r.plain_name) + '</span>'
+    + '<details class="pwinfo"><summary aria-label="about ' + esc(r.plain_name) + '">ⓘ</summary>' + b + '</details></div>';
+}
+function renderPathways() {
+  const el = document.getElementById('pathways');
+  if (!el) return;
+  const P = packLoad();
+  if (!P) { el.innerHTML = '<div class="note">No pathway pack on this phone. A pack is built on your computer and imported in Settings, under Pathway pack.</div>'; return; }
+  el.innerHTML = '<div class="note">' + esc(P.groups.length + ' groups, ' + P.records.length + ' pathways (pack v' + P._version + '). '
+      + 'This phone never reads a pathway itself: what it can see is shown with each one, mostly through proxies.') + '</div>'
+    + P.groups.map(function (g) {
+      const recs = P.records.filter(function (r) { return r.group === g.id; });
+      return '<details class="pwgroup"><summary>' + esc(g.name) + ' · ' + recs.length + '</summary>'
+        + recs.map(function (r) { return pathwayRecordHTML(P, r); }).join('') + '</details>';
+    }).join('');
+}
+// R286/d4 + 6: FERMENTED -- yes / no / unknown, and where that comes from: a lexicon rule
+// the user has reviewed (in the pack), else the linked row's own name, else unknown. A
+// rule's answer is provisional and names the rule; Marco's tier is cited as published.
+const FERMENT_WORDS = /\b(yogh?urt|kefir|kimchi|sauerkraut|miso|tempeh|natto|fermented|kombucha)\b/i;
+function itemFermented(it) {
+  if (!it) return null;
+  const P = packLoad();
+  const rules = (P && P.lexicon && P.lexicon.rules) || [];
+  const name = String(it.name || '').toLowerCase();
+  for (let i = 0; i < rules.length; i++) {
+    let rx = null;
+    try { rx = new RegExp(rules[i].pattern, 'i'); } catch (e) { rx = null; }
+    if (rx && rx.test(name)) {
+      const m = rules[i].marco;
+      return { value: rules[i].fermented, src: 'provisional — your lexicon rule ' + rules[i].id + ': ' + (rules[i].fermented_why || ''),
+               marco: m ? m.tier + ' live microbes for “' + m.desc + '” (Marco et al. 2022, J Nutr; CC BY-NC 4.0)' : '' };
+    }
+  }
+  const rn = it.ref && it.ref.name ? String(it.ref.name) : '';
+  if (rn && FERMENT_WORDS.test(rn)) return { value: 'yes', src: 'from the database row’s name, “' + rn + '”', marco: '' };
+  return { value: 'unknown', src: P ? 'no reviewed lexicon rule and no database row says' : 'no pathway pack, and no database row says', marco: '' };
+}
+function itemFermentedHTML(it) {
+  if (!it || isLegacyAuto(it) || it.meal === 'supplement' || it.source === 'supplement' || it.stackId) return '';
+  const f = itemFermented(it);
+  return '<div class="mferm">Fermented: ' + esc(f.value) + ' — ' + esc(f.src) + (f.marco ? '<br>' + esc(f.marco) : '') + '</div>';
+}
+// ---- R286/2: "LINK A DATABASE ROW?" ON AN OPENED DAY ITEM --------------------------
+// The user's answer (29 Oct): offered on the DAY VIEW, never at capture -- D141 stands
+// for capture, where the matcher's first pick was right 16 of 38 times at the
+// lowest-attention moment. Here the item has been opened on purpose. The top THREE rows
+// of the one ranking (resolveCompute, the panel's own), calories beside each and beside
+// the item's own, and how often the user's own past picks were first / among the three
+// -- calculated on this device (R260), never a figure from anyone else's log. NOTHING
+// COUNTS UNTIL A TAP: the block writes nothing, and a tap links through the panel's own
+// pick path, so D127's state question still asks when the row's state differs.
+const LINK_ROWS = 3;
+const LINK_MIN_N = 5;                          // R261/1: no personal figure under n 5
+let LINK_VIEW = {};                            // 'dk|idx' -> { phase, name, rows, view }
+let LINK_ACC = null;                           // { sig, n, first, three }
+function linkEligible(it) {
+  if (!it || isLegacyAuto(it)) return false;
+  if (it.ref && it.ref.ns) return false;                       // linked already
+  if (it.suggested) return false;                              // R237's own-past suggestion keeps its place
+  if (it.meal === 'supplement' || it.source === 'supplement' || it.stackId) return false;
+  return num(it.grams) > 0;                                    // a row needs grams to be scaled to (D112)
+}
+function linkPrepare(dk, idx) {
+  const day = APP_STATE.days[dk];
+  const it = day && day.items && day.items[idx];
+  if (!linkEligible(it)) return Promise.resolve({ ok: false, why: 'not-eligible' });
+  const key = dk + '|' + idx;
+  const have = LINK_VIEW[key];
+  if (have && have.name === it.name && have.phase !== 'loading') return Promise.resolve({ ok: true, phase: have.phase });
+  if (have && have.phase === 'loading' && have.name === it.name) return have.p;
+  const p = resolveCompute(dk, idx, it, null, null).then(function (view) {
+    const rows = (view.candidates || []).slice(0, LINK_ROWS);
+    LINK_VIEW[key] = { phase: rows.length ? 'ready' : 'none', name: it.name, rows: rows, view: view };
+    if (itemOpen(dk, idx)) renderDay();
+    return { ok: true, phase: LINK_VIEW[key].phase, rows: rows.length };
+  });
+  LINK_VIEW[key] = { phase: 'loading', name: it.name, p: p };
+  return p;
+}
+// How often the user's OWN past picks were the ranking's first row, and among its first
+// three, for the same food name -- distinct names, the database ranking alone (memory
+// is the user's own answer and is not the matcher being right). Calculated, on device.
+function linkAccuracy() {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) return null;
+  const picked = [];
+  Object.keys(APP_STATE.days || {}).filter(isDayKey).sort().forEach(function (dk) {
+    ((APP_STATE.days[dk] || {}).items || []).forEach(function (it) {
+      const r = it && it.ref;
+      if (!r || r.ns !== m.ns || ['picked', 'proposed', 'confirmed despite state mismatch'].indexOf(r.how) < 0) return;
+      if (isLegacyAuto(it) || it.stackId) return;
+      picked.push(it);
+    });
+  });
+  const sig = m.ns + ':' + picked.length;
+  if (LINK_ACC && LINK_ACC.sig === sig) return LINK_ACC;
+  const seen = {};
+  let n = 0, first = 0, three = 0;
+  picked.forEach(function (it) {
+    const k = matchKey(String(it.name || ''));
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    const pos = linkRanking(it).map(function (c) { return String(c.id); }).indexOf(String(it.ref.id));
+    n++;
+    if (pos === 0) first++;
+    if (pos >= 0 && pos < LINK_ROWS) three++;
+  });
+  LINK_ACC = { sig: sig, n: n, first: first, three: three };
+  return LINK_ACC;
+}
+// The database's own order for an item's name: resolveCompute's first two steps
+// (matchCandidates, then D125's reorder for a STATED state), before memory.
+function linkRanking(it) {
+  const want = itemState(it), src = itemStateSrc(it);
+  return resolveRank(matchCandidates(it && it.name, MATCH_CANDIDATES), src === 'name' ? want : null);
+}
+function linkAccuracyWords(a) {
+  if (!a) return '';
+  if (a.n < LINK_MIN_N) return 'Not enough of your own picks yet to say how often the first row is the right one (' + a.n + ' of ' + LINK_MIN_N + ').';
+  return 'Calculated from ' + a.n + ' foods you linked before: the row you chose was first here for '
+    + a.first + ' of ' + a.n + ' (' + Math.round(100 * a.first / a.n) + ' %), and among these three for '
+    + a.three + ' of ' + a.n + ' (' + Math.round(100 * a.three / a.n) + ' %).';
+}
+function itemLinkHTML(dk, idx, it) {
+  if (!linkEligible(it)) return '';
+  const v = LINK_VIEW[dk + '|' + idx];
+  if (!v || v.name !== it.name) {
+    // opened before this build, or the item at this place changed: one button asks
+    return '<div class="mlink"><button type="button" class="linklike mlinkfind" onclick="event.stopPropagation();linkPrepare(\''
+      + esc(dk) + '\',' + idx + ')">Link a database row?</button></div>';
+  }
+  if (v.phase === 'loading') return '<div class="mlink"><div class="note">Looking for database rows…</div></div>';
+  const findBtn = '<button type="button" class="linklike mlinkfind" onclick="event.stopPropagation();resolveOpen(\''
+    + esc(dk) + '\',' + idx + ')">None of these — find nutrients</button>';
+  if (v.phase !== 'ready') return '<div class="mlink"><div class="note">No database row matches “' + esc(String(it.name || '')) + '”.</div>' + findBtn + '</div>';
+  const prop = v.view && v.view.proposed ? String(v.view.proposed.id) : null;
+  const mine = v.view && v.view.mine != null && v.view.mine === v.view.mine ? Number(v.view.mine) : null;
+  let h = '<div class="mlink"><div class="mlinkhead">Link a database row? Nothing counts until you tap one.</div>';
+  h += v.rows.map(function (c, i) {
+    const kc = (c.kcal != null && c.kcal === c.kcal) ? '<span class="rkcal">' + esc(kcalDisp(c.kcal)) + ' cal per 100 g</span>' : '<span class="rkcal">calories not in this row</span>';
+    const why = (prop !== null && String(c.id) === prop) ? '<span class="rwhy">' + proposedWhy(v.view.proposed) + '</span>' : '';
+    return '<button type="button" class="btn mlinkrow" onclick="event.stopPropagation();linkPick(\'' + esc(dk) + '\',' + idx + ',' + i + ')">'
+      + esc(c.name) + kc + why + '</button>';
+  }).join('');
+  if (mine != null) h += '<div class="mlinkyours">Yours: ' + esc(kcalDisp(mine)) + ' cal per 100 g</div>';
+  h += '<div class="note mlinkacc">' + esc(linkAccuracyWords(linkAccuracy())) + '</div>';
+  return h + findBtn + '</div>';
+}
+function linkPick(dk, idx, i) {
+  const v = LINK_VIEW[dk + '|' + idx];
+  const c = v && v.rows && v.rows[i];
+  const day = APP_STATE.days[dk];
+  const it = day && day.items && day.items[idx];
+  if (!c || !it || it.name !== v.name) return Promise.resolve({ ok: false, why: 'stale' });
+  // the panel's own view, so its pick path (and D127's question) is the one that runs
+  RESOLVE_VIEW = Object.assign({}, v.view);
+  const isProp = v.view.proposed && String(v.view.proposed.id) === String(c.id);
+  return resolvePick(c.id, c.name, null, isProp ? 'proposed' : 'picked').then(function (r) {
+    if (r && r.ok) { delete LINK_VIEW[dk + '|' + idx]; LINK_ACC = null; }
+    return r;
+  });
 }
 // R237/B: a recounted item says so where its details are, with what it was.
 function itemRecountHTML(it) {
@@ -4415,8 +4677,8 @@ function corpusAssetURL(ns, ext) { return './corpus/dist/' + ns + '.' + ext; }
 // assets by tests/check-slots.sh so it cannot go stale. Stamping it is the price
 // of not spending 300 KB of meta on every boot to ask "is mine current?".
 const CORPUS_ASSET_HASH = {
-  fdc: 'd58a7b97b334',
-  cnf: 'e734f60ccac4',
+  fdc: '532be98aec31',
+  cnf: '43a9ac60cd15',
 };
 
 // R189: declared per namespace, and ONLY for a namespace whose source publishes a
@@ -5797,7 +6059,7 @@ function stackSuggestMicro(name) {
   for (let i = 0; i < MICRO_SPEC.length; i++) {
     const lab = String(MICRO_SPEC[i].label || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     if (!lab || lab.length < 4) continue;
-    // "vitamin d" also answers "vitamin d3"; a mineral must appear as a whole word
+    // "vitamin d" also answers "vitamin d2"; a mineral must appear as a whole word
     if (n.indexOf(' ' + lab + ' ') >= 0 || (/^vitamin [a-z]$/.test(lab) && new RegExp(' ' + lab + '[0-9]{0,2} ').test(n))) return MICRO_SPEC[i].key;
   }
   return '';
@@ -7227,6 +7489,9 @@ function itemOpen(dk, idx) { return ITEM_OPEN[itemOpenKey(dk, idx)] === true; }
 function itemToggle(dk, idx) {
   const k = itemOpenKey(dk, idx);
   if (ITEM_OPEN[k]) delete ITEM_OPEN[k]; else ITEM_OPEN[k] = true;
+  // R286/2: the rows are looked for when the user OPENS an item -- the one moment
+  // they asked to see it -- never from inside a render.
+  if (ITEM_OPEN[k]) { try { linkPrepare(dk, idx); } catch (e) {} }
   renderDay();
   return { ok: true, open: itemOpen(dk, idx) };
 }
@@ -7447,7 +7712,7 @@ function renderDayInner() {
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
-        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${legacyHTML}${ateHTML}${itemRecountHTML(it)}
+        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${itemLinkHTML(dk, idx, it)}${legacyHTML}${ateHTML}${itemRecountHTML(it)}${itemFermentedHTML(it)}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${isLegacyAuto(it) ? '' : sittingLinkHTML(dk, sittingOfItem(dk, idx))}
@@ -16477,7 +16742,7 @@ function renderDataStatus() {
 // R215: the sleep auto-close that ran here at the head of every render is GONE.
 // It wrote a record nobody tapped for (R202: nothing is logged without a tap).
 function refresh() {
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderPathways(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -16673,6 +16938,7 @@ const VERSION_LOG = [
   { v: '0.111.3', d: '2026-10-28', note: 'An Undo bar shown just after another message no longer disappears early. A day now closes by itself at 04:00 the next morning, so your past days count in the averages without a tap; closing a day by hand is optional. You can still add, change or delete entries on a closed day, and everything recomputes. A closed day that looks incomplete (no food, no glucose readings, or calories under half your usual) says so behind its info button, and each average says how many days it includes and how many are flagged. The blood pressure chart in Trends can be zoomed in (up to 8 times wider) and scrolled sideways, with the mmHg axis kept in view.' },
   { v: '0.112.0', d: '2026-10-28', note: 'Add a supplement from its Health Canada NPN: type the 8 digits from the label in + Add to stack and tap Look up -- the product, each ingredient with its amount and form, and its licence come from Health Canada’s database. A photo of the label works too with your own AI key; numbers read from a photo count only after you confirm them. An item can count toward more than one nutrient, and the day adds them up across your stack. You can say when an item joined your stack, and + Add to stack is there even when your stack is empty.' },
   { v: '0.112.1', d: '2026-10-29', note: 'A supplement taken as tablets, capsules or another unit now asks How many? beside the unit, and counts each nutrient as the amount in each unit times how many you take -- 1 tablet of a product with 50 mg zinc in each is 50 mg, 2 is 100. Items you added before keep their amount as they were. If an item cannot be saved, the reason now shows beside the button you tapped, and what you entered stays in the form.' },
+  { v: '0.113.0', d: '2026-10-29', note: 'Open a logged food that has no database row and it now offers the three closest rows, calories beside each and beside yours, with how often your own past picks were the first row. Nothing counts until you tap one. The weekly review lists the week’s foods without a database row in one place. Trends has a Pathways section, filled from a pathway pack built on your computer and imported in Settings; it is kept on this phone and not in your backup. An opened food says whether it is fermented, and where that comes from. The food database now carries omega-3 (EPA, ALA) and omega-3 and omega-6 totals where its sources do.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -21646,6 +21912,41 @@ function weekSleepCardHTML(R) {
     + weekInfo('about sleep', 'A night counts when a sleep is logged on that day. The median is of each night’s total.')
     + '</div>';
 }
+// R286/2: THE WEEK'S UNLINKED ITEMS, ONE BATCH (the user's answer, 29 Oct) -- food
+// items with no database row, each a way to its find-nutrients panel, and the linked
+// share. Only the week on screen: no backlog. Viewing it writes nothing.
+function weekLinkItems(R) {
+  const out = [];
+  let food = 0;
+  R.soFar.forEach(function (dk) {
+    (((APP_STATE.days || {})[dk] || {}).items || []).forEach(function (it, idx) {
+      if (!it || isLegacyAuto(it) || it.meal === 'supplement' || it.source === 'supplement' || it.stackId) return;
+      food++;
+      if (!(it.ref && it.ref.ns)) out.push({ dk: dk, idx: idx, it: it });
+    });
+  });
+  return { items: out, food: food };
+}
+function weekLinkCardHTML(R) {
+  const L = weekLinkItems(R);
+  if (!L.food) return '';
+  const linked = L.food - L.items.length;
+  let h = '<div class="wkcard" data-card="link"><h3>Database rows</h3>'
+    + '<div class="wkline">' + esc(linked + ' of ' + L.food + ' food items linked to a database row (' + Math.round(100 * linked / L.food) + ' %)') + '</div>';
+  if (L.items.length) {
+    h += '<div class="wkline">Not linked to a database row: ' + esc(String(L.items.length)) + '</div><div class="wklinklist">'
+      + L.items.map(function (x) {
+        return '<button type="button" class="btn wklinkitem" onclick="weekLinkOpen(\'' + esc(x.dk) + '\',' + x.idx + ')">'
+          + esc(String(x.it.name || 'item')) + ' · ' + esc(fmtDateSmart(x.dk, false)) + '</button>';
+      }).join('') + '</div>';
+  }
+  return h + weekInfo('about database rows', 'A food linked to a row in the food database is counted from that row, and its vitamins and minerals are known. '
+    + 'Each item here opens its own list of rows; nothing is linked until you pick one.') + '</div>';
+}
+function weekLinkOpen(dk, idx) {
+  closeWeek();
+  return resolveOpen(dk, idx);
+}
 function weekReviewHTML(mon) {
   const R = weekReview(mon);
   const curMon = weekMonday(todayKey());
@@ -21671,6 +21972,7 @@ function weekReviewHTML(mon) {
     + '<div class="wkcov">' + esc('food logged ' + R.coverage.food + ' of ' + R.n + ' days · glucose ' + R.coverage.glucose + ' of ' + R.n
       + (S.show ? ' · sleep ' + R.coverage.sleep + ' of ' + R.n : '')) + '</div>'
     + weekMealCardHTML(R) + weekFastCardHTML(R) + weekAfCardHTML(R) + (S.show ? weekSleepCardHTML(R) : '')
+    + weekLinkCardHTML(R)
     + '<p class="wkfoot">Your own data, computed on this phone. No scores.</p>';
   return h;
 }
@@ -21956,6 +22258,7 @@ function openSettings() {
   renderMyFoods();
   renderBackupLast();
   renderAfRewardsForm();          // R226: a restore can switch it, so it is read when the panel opens
+  renderPackSetting();            // R286/d3
   if (p) p.style.display = 'flex';
   if (s) s.style.display = 'block';
   overlaySync();
@@ -26348,7 +26651,8 @@ window.HT = {
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor, openLabelCapture,
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, lnhpdLookup, lnhpdGet, setLnhpdFetch, stackNpnLookup, suppLabelReply, stackConfirmToggle, stackFormExtraAdd, stackFormExtraRemove, stackMultiNutrients, suppKeyFor, suppUnit, normalizeStackProduct, normalizeNutrientDetail, normalizeJoinEdits, stackDoseMicros, dayIntakeFlags, STACK_SUPP_KEYS, SUPP_TEMPLATE, stackFormKind, stackFormSearch, stackFormPick,
-  stackFormSave, stackFormUnit, stackCountUnit, STACK_COUNT_UNITS, lnhpdDoseUnit, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
+  stackFormSave, stackFormUnit, stackCountUnit, STACK_COUNT_UNITS, lnhpdDoseUnit,
+  packImportText, packLoad, packRemove, renderPathways, PACK_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,

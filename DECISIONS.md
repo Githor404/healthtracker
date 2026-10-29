@@ -19686,3 +19686,81 @@ digit-after-the-letter rule). The checker's rule 6 then passes.
 - Harness for the fermented resolution order, and for the accuracy calculation on a
   fixture.
 - The checker's rule 6 passes on the release tree.
+
+## R286 -- STEPS d AND e BUILT (2026-10-29, v0.113.0)
+
+*As pre-registered (1f022f0). Serves **evaluate**.*
+
+**d1 -- "Link a database row?"**
+- **The ranking.** `resolveOpen`'s ranking is now one function, `resolveCompute`. It is
+  pure (it renders and writes nothing), and the panel and the day offer both call it,
+  so they cannot disagree. `resolveOpen` behaves as before; the harness is unchanged.
+- **The offer** draws the top three rows inside an opened, eligible day item, with
+  calories per 100 g and "Yours". Eligible means grams, no row, no own-past suggestion,
+  not a stack or legacy item.
+- **The lookup starts when the user opens the item** (`itemToggle`), never from inside
+  a render. The first version scheduled it from the render, and the harness caught it
+  taking a scripted network reply meant for a photo capture (R21.5-discard). That was
+  an app bug, fixed before any commit.
+- **A tap** goes through `resolvePick`, with `RESOLVE_VIEW` set to the computed view.
+- **Accuracy** is computed by `linkAccuracy`. For each distinct food name the user
+  linked themselves (`how` picked / proposed / confirmed), it finds the chosen row's
+  place in `linkRanking`: the database's order after D125's reorder, before memory.
+  It is calculated on the device, with an n 5 floor.
+
+**d2.** The weekly review's "Database rows" card: the linked share, then each unlinked
+food item of the week as a 44 px button to its panel (closing the review first).
+
+**d3 -- the pack on the phone.**
+- **The file.** A wrapper `{format, version, sha256, body}`. `build_pack.py` and
+  checker rule 7 were changed to match, with one more test.
+- **Import** checks the body with `crypto.subtle` and stores the pack in its own key,
+  `healthtracker-pack`, outside the export.
+- **Removal** is offered in Settings.
+- **Trends gains a "Pathways" card.** The detail behind each ⓘ follows d3 as registered.
+
+**d4 -- fermented.** `itemFermented` follows the registered order: a reviewed lexicon
+rule from the pack (provisional, naming the rule, Marco's tier with its licence), then
+the linked row's name, then unknown. The private `evidence/lexicon.json` holds 57
+rules: 8 fermented yes, 7 unknown, 21 with a Marco tier read from Table 2. **None is
+reviewed, so the pack carries none yet.**
+
+**d5 -- the R204 fix.** The user's two stack names, and the zinc product's "citrate"
+form, are replaced in the tests and in two places in `app.js`. **The checker's rule 6
+passes on this tree.**
+
+**e -- the omega slots.**
+- **The slots added:** `corpus/slots.json` gains 629 (EPA), 851 (ALA; CNF 831 merged
+  into it), 868 (n-3 total) and 869 (n-6 total). They are judged additions, each with
+  its measured coverage:
+
+  | slot | SR | CNF |
+  |---|---|---|
+  | 629 (EPA) | 74.4 % | 77.0 % |
+  | 851 (ALA) | 25.2 % | 83.2 % |
+  | 868, 869 (totals) | absent | about 35 % |
+
+- **The corpus** is re-encoded: 51 columns, and both binaries grow. `CORPUS_ASSET_HASH`
+  is re-stamped, so every device fetches the new corpus.
+- **`check-slots` leg 10:** 9 control values against CNF 2015 (farmed salmon EPA 0.862
+  / DHA 1.104 / ALA 0.148 / n-3 2.49 / n-6 1.02; canola ALA 9.137 / n-3 9.13 / n-6 19),
+  plus cheese soufflé's missing n-3 total, read as NaN, never 0. PASS.
+- **Rows linked before this release** carry no new slot (their values were frozen at
+  link time), so the PC report's ALA line reads "0 of 46 items". That is said, not
+  filled in.
+
+**Gates.**
+- **`link-gate` (new):** 8 checks, all PASS. Red first on HEAD: the boot check fails
+  there, because the functions are absent. Two of my own gate flaws were fixed on the
+  way: the day's meal groups start collapsed, and the fixture first ranked without
+  D125's reorder. The D127 leg found its own example by search: "cooked spinach", where
+  the first row is "Spinach, raw" and the question asked.
+- **`pack-gate` (new):** 8 checks, all PASS.
+- **d2** is checked inside `link-gate` rather than `weekly-gate`, so its fixture is
+  the one it needs.
+- **Harness:** +8, 3427.
+- **The pack-gate's pack** is a placeholder built in the builder's own wrapper format.
+  The builder itself is tested in HTPrivate (25 tests).
+
+**R267.1 / R268** stay unrecorded labels. **f, the curators:** not started. The first
+run waits for the user's go, in a session they start (R263).

@@ -172,13 +172,13 @@ try {
     if (m && m[1] === 'productlicence' && m[2] === '80000005') body = JSON.stringify([
       { lnhpd_id: 79, licence_number: m[2], product_name: 'Gate zinc', flag_primary_name: 1, flag_product_status: 1, dosage_form: 'Tablet', company_name: 'Gate Co' }]);
     if (m && m[1] === 'medicinalingredient' && m[2] === '79') body = JSON.stringify([
-      { ingredient_name: 'Zinc', quantity: 50, quantity_unit_of_measure: 'milligrams', source_material: 'Zinc citrate' }]);
+      { ingredient_name: 'Zinc', quantity: 50, quantity_unit_of_measure: 'milligrams', source_material: 'Form B' }]);
     if (m && m[1] === 'productdose' && m[2] === '79') body = JSON.stringify([{ quantity_dose: 1, uom_type_desc_quantity_dose: 'Tablet', frequency: 1, uom_type_desc_frequency: 'daily' }]);
     if (m && m[1] === 'productlicence' && (m[2] === '80000003' || m[2] === '80000004')) body = JSON.stringify([
       { lnhpd_id: m[2] === '80000003' ? 77 : 78, licence_number: m[2], product_name: m[2] === '80000003' ? 'Gate magnesium' : 'Gate old product',
         flag_primary_name: 1, flag_product_status: m[2] === '80000003' ? 1 : 2, dosage_form: 'Capsule', company_name: 'Gate Co' }]);
     if (m && m[1] === 'medicinalingredient' && (m[2] === '77' || m[2] === '78')) body = JSON.stringify({ metadata: {}, data: [
-      { ingredient_name: 'Magnesium', quantity: 150, quantity_unit_of_measure: 'milligrams', source_material: 'Magnesium citrate' },
+      { ingredient_name: 'Magnesium', quantity: 150, quantity_unit_of_measure: 'milligrams', source_material: 'Form A' },
       { ingredient_name: 'Gate herb', quantity: 500, quantity_unit_of_measure: 'milligrams', source_material: 'root' }] });
     if (m && m[1] === 'productdose' && (m[2] === '77' || m[2] === '78')) body = JSON.stringify([{ quantity_dose: 2, uom_type_desc_quantity_dose: 'Capsule', frequency: 1, uom_type_desc_frequency: 'daily' }]);
     return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }));
@@ -228,7 +228,7 @@ try {
   $s5 = EvalJ $stk
   Write-Host ("  taps " + $taps + "; stack: " + $s5)
   $pvv = $pv | ConvertFrom-Json
-  Check (($pvv.card -like '*Gate magnesium*Gate Co*NPN 80000003*licence active*Capsule*label dose 2*Magnesium*150 milligrams per unit*as Magnesium citrate*counts toward Magnesium*Gate herb*kept, not a nutrient this app totals*Open Government*') -and ($pvv.name -eq 'Gate magnesium') -and ($pvv.dose -eq '2') -and ($pvv.unit -eq 'capsule') -and ($pvv.wide -le 0)) "R281 GATE 5: THE NPN LOOKS UP HEALTH CANADA -- the proposal shows the product, its licence, each ingredient with its amount and FORM, what counts and what is kept, and the source; units from the label dose"
+  Check (($pvv.card -like '*Gate magnesium*Gate Co*NPN 80000003*licence active*Capsule*label dose 2*Magnesium*150 milligrams per unit*as Form A*counts toward Magnesium*Gate herb*kept, not a nutrient this app totals*Open Government*') -and ($pvv.name -eq 'Gate magnesium') -and ($pvv.dose -eq '2') -and ($pvv.unit -eq 'capsule') -and ($pvv.wide -le 0)) "R281 GATE 5: THE NPN LOOKS UP HEALTH CANADA -- the proposal shows the product, its licence, each ingredient with its amount and FORM, what counts and what is kept, and the source; units from the label dose"
   Check (($taps -eq 5) -and ($s5 -like '*"name":"Gate magnesium","npn":"80000003","mg":300*')) ("R281 GATE 5: SAVED IN " + $taps + " TAPS from the home screen (+ Log, Daily stack, + Add to stack, Look up, Add to my stack; target <= 6) -- the item carries the NPN, and 2 capsules x 150 mg = 300 mg magnesium")
   $hc = Eval "window.__hc.length + '|' + window.__hc.every(function (u) { return u.indexOf('https://health-products.canada.ca/api/natural-licences/') === 0; })"
   Check ($hc -eq '3|true') ("R281 5: the lookup asked Health Canada only, three requests, on the tap (" + $hc + ")")

@@ -854,14 +854,14 @@ window.setLS({});
       && HT.normalizeSignal({ kind: 'medication', name: 'X' }).micros === undefined,
       'R208: the map survives the record boundary on a DOSE, coerced; a reading cannot carry one; and absent stays absent');
   // the editor suggests and never sets
-  res(HT.stackSuggestMicro('Magnesium citrate') === 'magnesium_mg' && HT.stackSuggestMicro('Vitamin D3 drops') === 'vitamin_d_ug'
+  res(HT.stackSuggestMicro('Magnesium form A') === 'magnesium_mg' && HT.stackSuggestMicro('Vitamin D2 drops') === 'vitamin_d_ug'
       && HT.stackSuggestMicro('vitamin d') === 'vitamin_d_ug' && HT.stackSuggestMicro('Zinc') === 'zinc_mg',
       'R208 GATE: a nutrient-s own name inside the item-s name is SUGGESTED');
   res(HT.stackSuggestMicro('Herbal blend') === '' && HT.stackSuggestMicro('Ironwood extract') === '' && HT.stackSuggestMicro('Vitamin K2') === '' && HT.stackSuggestMicro('') === '',
       'R208 GATE: CONTROL -- a name that holds no tracked nutrient suggests nothing, and a word that merely contains one ("Ironwood") does not either');
   if (!document.getElementById('stackEditor')) { var r8ed = document.createElement('div'); r8ed.id = 'stackEditor'; document.body.appendChild(r8ed); }
   HT.stackFormOpen();
-  document.getElementById('stkName').value = 'Magnesium citrate'; HT.stackSuggestHTML();
+  document.getElementById('stkName').value = 'Magnesium form A'; HT.stackSuggestHTML();
   res(document.getElementById('stkMicro').value === '' && HT.stackSuggestHTML().indexOf('Count it toward Magnesium?') > 0,
       'R208 GATE: with the name typed the list still reads NOTHING -- the suggestion is a button beside it, not a selection');
   HT.stackSuggestAccept('magnesium_mg');
@@ -3889,12 +3889,45 @@ window.setLS({});
     sePending = false;
     // R21: the call-path cases are asynchronous. They run here, in the same
     // deferred slot as the iframe, so the suite still finishes exactly once.
-    runByokAsync().then(runR281Async).then(finish, function (e) {
+    runByokAsync().then(runR281Async).then(runR286Async).then(finish, function (e) {
       res(false, 'R21: the async cases threw', String(e && e.message));
       finish();
     });
   };
 
+  // R286/d3 + d4: a pathway pack -- imported only when its body matches its own
+  // fingerprint, never in the export, and its reviewed lexicon rule answers "fermented".
+  function runR286Async() {
+    var body = JSON.stringify({ format: 'healthtracker-pack', schema: 1, groups: [{ id: 'g1', name: 'Group A' }],
+      records: [{ id: 'pw-001', plain_name: 'Path A', group: 'g1', backbone: [], supply: [], sentence: null, claims: [] }],
+      claims: [], reference_intakes: { values: {} },
+      lexicon: { rules: [{ id: 'lx-900', pattern: 'kimchi', fermented: 'yes', fermented_why: 'placeholder reason',
+                           marco: { tier: 'Hi', desc: 'Kimchi' }, reviewed_by_me: '2026-10-29' }] } });
+    var sha = function (t) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)).then(function (b) {
+        return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      });
+    };
+    var before = HT.exportJSON();
+    return sha(body).then(function (h) {
+      var bad = JSON.stringify({ format: 'healthtracker-pack', version: 9, sha256: h, body: body.replace('Group A', 'Group B') });
+      return HT.packImportText(bad).then(function (r0) {
+        res(!r0.ok && /does not match its own fingerprint/.test(r0.error) && !HT.packLoad(),
+            'R286 PACK: a pack whose body does not match its fingerprint is REFUSED in words, and nothing is kept', r0.error);
+        return HT.packImportText(JSON.stringify({ format: 'healthtracker-pack', version: 9, sha256: h, body: body }));
+      }).then(function (r1) {
+        var f = HT.itemFermented({ name: 'Spicy kimchi', meal: 'lunch' });
+        res(r1.ok && r1.groups === 1 && r1.records === 1 && HT.packLoad().groups[0].name === 'Group A',
+            'R286 PACK: a pack that matches its fingerprint imports -- its groups and records read back', JSON.stringify(r1));
+        res(f.value === 'yes' && /provisional/.test(f.src) && /lx-900/.test(f.src) && /Marco et al\. 2022/.test(f.marco) && /CC BY-NC/.test(f.marco),
+            'R286 FERMENTED: a reviewed lexicon rule answers first -- provisional, naming its rule, Marco\'s tier cited with its licence', JSON.stringify(f));
+        res(HT.exportJSON() === before && HT.exportJSON().indexOf('healthtracker-pack') < 0,
+            'R286 PACK: the pack is NOT in the backup -- the export is byte-identical with it imported');
+        HT.packRemove();
+        res(!HT.packLoad(), 'R286 PACK: removed, it is gone');
+      });
+    }).catch(function (e) { HT.packRemove(); res(false, 'R286 async threw', String(e && e.message)); });
+  }
   // R281/5 + 3: Health Canada answered by a stub -- the lookup chain and the photo route
   function runR281Async() {
     var calls = [];
@@ -3906,7 +3939,7 @@ window.setLS({});
         { lnhpd_id: 77, licence_number: '80000003', product_name: 'Gate alt name', flag_primary_name: 0, flag_product_status: 1, dosage_form: 'Capsule', company_name: 'Gate Co' },
         { lnhpd_id: 77, licence_number: '80000003', product_name: 'Gate magnesium', flag_primary_name: 1, flag_product_status: 1, dosage_form: 'Capsule', company_name: 'Gate Co' }]);
       if (m && m[1] === 'medicinalingredient' && m[2] === '77') body = JSON.stringify({ metadata: {}, data: [
-        { ingredient_name: 'Magnesium', quantity: 150, quantity_unit_of_measure: 'milligrams', source_material: 'Magnesium citrate', potency_amount: 0 }] });
+        { ingredient_name: 'Magnesium', quantity: 150, quantity_unit_of_measure: 'milligrams', source_material: 'Form A', potency_amount: 0 }] });
       if (m && m[1] === 'productdose' && m[2] === '77') body = JSON.stringify([{ quantity_dose: 2, uom_type_desc_quantity_dose: 'Capsule', frequency: 1, uom_type_desc_frequency: 'daily' }]);
       return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }));
     };
@@ -3914,7 +3947,7 @@ window.setLS({});
     return HT.lnhpdLookup('80000003').then(function (r) {
       var p = r.product || {};
       res(r.ok && p.name === 'Gate magnesium' && p.npn === '80000003' && p.status === 'active' && p.ingredients.length === 1
-          && p.ingredients[0].form === 'Magnesium citrate' && p.ingredients[0].unit === 'milligrams' && p.label_dose.qty === 2 && /Open Government/.test(p.attribution)
+          && p.ingredients[0].form === 'Form A' && p.ingredients[0].unit === 'milligrams' && p.label_dose.qty === 2 && /Open Government/.test(p.attribution)
           && calls.length === 3 && calls.every(function (u) { return u.indexOf('https://health-products.canada.ca/api/natural-licences/') === 0; }),
           'R281 GATE 5: AN NPN LOOKS UP HEALTH CANADA -- the primary-name row, each ingredient with its amount and FORM, the label dose, cited (3 requests, one host)', JSON.stringify(p) + ' ' + calls.length);
       return HT.lnhpdLookup('80000099');
@@ -11828,10 +11861,10 @@ window.setLS({});
       'R281 GATE 4: the upper-limit check sums across items -- neither 200 mg item alone is over, the day\'s 400 mg is', JSON.stringify(qF || null));
   // 5. a product: database ingredients x units taken
   var qP = { ns: 'lnhpd', npn: '80000002', id: '9', name: 'Gate product', company: 'Gate Co', status: 'active', dosage_form: 'Capsule',
-             ingredients: [{ name: 'Magnesium', amount: 150, unit: 'milligrams', form: 'Magnesium citrate' }, { name: 'Gate herb', amount: 500, unit: 'milligrams', form: 'root' }],
+             ingredients: [{ name: 'Magnesium', amount: 150, unit: 'milligrams', form: 'Form A' }, { name: 'Gate herb', amount: 500, unit: 'milligrams', form: 'root' }],
              label_dose: { qty: 2, unit: 'Capsule', freq: '1 daily' }, at: '2026-10-20', attribution: 'test', how: 'typed' };
   var qPr = HT.stackUpsert({ name: 'Gate product', kind: 'supplement', dose: 2, dose_unit: 'capsule', product: qP });
-  res(qPr.ok && qPr.item.nutrients.micros.magnesium_mg === 300 && qPr.item.nutrients.detail.magnesium_mg.form === 'Magnesium citrate'
+  res(qPr.ok && qPr.item.nutrients.micros.magnesium_mg === 300 && qPr.item.nutrients.detail.magnesium_mg.form === 'Form A'
       && qPr.item.nutrients.detail.magnesium_mg.source === 'lnhpd' && qPr.item.nutrients.detail.magnesium_mg.per === 'unit'
       && !qPr.item.nutrients.micros.gate && qPr.item.product.npn === '80000002' && qPr.item.product.ingredients.length === 2,
       'R281 5: a database product counts each TRACKED ingredient x units taken (150 mg x 2 = 300, as citrate); the other ingredient is kept, not counted', JSON.stringify(qPr.item.nutrients));
@@ -11849,7 +11882,7 @@ window.setLS({});
       'R281 GATE 3: confirmed by the user, they count -- with their provenance and the time it was confirmed', JSON.stringify(qV2.item.nutrients));
   // ---- R285: a dose in units -------------------------------------------------------------
   var qZp = { ns: 'lnhpd', npn: '80000005', id: '79', name: 'Gate zinc', status: 'active', dosage_form: 'Tablet',
-              ingredients: [{ name: 'Zinc', amount: 50, unit: 'milligrams', form: 'Zinc citrate' }], label_dose: { qty: 1, unit: 'Tablet' }, at: '2026-10-20', attribution: 'test', how: 'typed' };
+              ingredients: [{ name: 'Zinc', amount: 50, unit: 'milligrams', form: 'Form B' }], label_dose: { qty: 1, unit: 'Tablet' }, at: '2026-10-20', attribution: 'test', how: 'typed' };
   var qZ1 = HT.stackUpsert({ name: 'Gate zinc', kind: 'supplement', dose: 1, dose_unit: 'tablet', product: qZp });
   var qZ2 = HT.stackUpsert({ name: 'Gate zinc 2', kind: 'supplement', dose: 2, dose_unit: 'tablet', product: qZp });
   res(qZ1.ok && qZ1.item.nutrients.micros.zinc_mg === 50 && qZ2.ok && qZ2.item.nutrients.micros.zinc_mg === 100,
@@ -11875,6 +11908,23 @@ window.setLS({});
   var qZx = HT.stackUpsert({ name: 'Gate zinc 6', kind: 'supplement', dose: 1, dose_unit: 'tablet', product: qZp, extra: [{ key: 'zinc_mg', amount: 10, unit: 'mg', per: 'unit' }] });
   res(!qZx.ok && /already counted/.test(qZx.error) && /once/.test(qZx.error),
       'R285 GATE 3: zinc from the product AND a typed zinc row is refused, and the words say where it is already counted', qZx.error);
+  // ---- R286: the link offer's eligibility, fermented without a pack, the weekly batch --
+  var qL = function (o) { return Object.assign({ name: 'Item L', meal: 'lunch', source: 'ai-paste', grams: 100, kcal: 100 }, o || {}); };
+  res(HT.linkEligible(qL()) && !HT.linkEligible(qL({ ref: { ns: 'cnf', id: '1' } })) && !HT.linkEligible(qL({ suggested: { id: '1' } }))
+      && !HT.linkEligible(qL({ stackId: 's1' })) && !HT.linkEligible(qL({ grams: null })) && !HT.linkEligible(qL({ autoLegacy: true }))
+      && !HT.linkEligible(qL({ meal: 'supplement', source: 'supplement' })),
+      'R286 LINK: offered only on an item with grams and no row -- never on a linked item, one with the user\'s own-past suggestion, a stack item, a legacy item, or one with no grams');
+  res(HT.itemFermented({ name: 'Item Y', ref: { ns: 'cnf', name: 'Yogurt, plain, 2% M.F.' } }).value === 'yes'
+      && /database row/.test(HT.itemFermented({ name: 'Item Y', ref: { ns: 'cnf', name: 'Yogurt, plain, 2% M.F.' } }).src)
+      && HT.itemFermented({ name: 'kimchi' }).value === 'unknown' && HT.itemFermented({ name: 'Item Z', ref: { ns: 'cnf', name: 'Cheese, cheddar' } }).value === 'unknown',
+      'R286 FERMENTED: with no pack, a linked row whose own name says so is "yes" (from the row\'s name); otherwise "unknown" -- never a guess');
+  var _wkDays = HT.state().days;
+  HT.state().days = Object.assign({}, _wkDays, { '2026-10-21': { status: 'in_progress', water_l: 0, items: [
+    qL({ name: 'Item W1' }), qL({ name: 'Item W2', ref: { ns: 'cnf', id: '9', name: 'Row' } }), qL({ name: 'Item W3', stackId: 's9', meal: 'supplement' }) ] } });
+  var qW = HT.weekLinkItems({ soFar: ['2026-10-21'] });
+  res(qW.food === 2 && qW.items.length === 1 && qW.items[0].it.name === 'Item W1' && HT.weekLinkCardHTML({ soFar: ['2026-10-21'] }).indexOf('1 of 2 food items linked') > 0,
+      'R286 WEEKLY: the batch lists exactly the week\'s unlinked food items -- a stack item is not food here -- with the linked share', JSON.stringify({ food: qW.food, n: qW.items.length }));
+  HT.state().days = _wkDays;
   // the allowlist
   var qN = HT.normalizeStackItem({ name: 'Z', product: { ns: 'evil', name: 'x' }, join_edits: [{ to: 'nope' }], nutrients: { detail: { foo_mg: {}, zinc_mg: { amount: 1, unit: 'mg', source: 'made-up' } } } });
   res(!qN.product && !qN.join_edits && !qN.nutrients,

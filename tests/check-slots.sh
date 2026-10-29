@@ -356,6 +356,38 @@ if src:
         groups_line = 'groups hashes: ' + (', '.join('%s=%s' % (n, shipped_g[n]) for n in sorted(shipped_g))
                                            or 'none shipped, none declared')
 
+# 10. R286/3: THE OMEGA SLOTS CARRY THE SOURCE'S OWN VALUES, AND ABSENT STAYS ABSENT.
+#     Control rows read straight from the shipped .bin, at the column the spec gives
+#     the slot, against Canadian Nutrient File 2015's NUTRIENT AMOUNT (read 2026-10-29):
+#     farmed Atlantic salmon (3182) EPA 0.862 / DHA 1.104 / ALA 0.148 / n-3 2.49 /
+#     n-6 1.02 g; canola oil (451) ALA 9.137 / n-3 9.13 / n-6 19 g; and cheese souffle
+#     (2), which has EPA and ALA but NO total n-3 -- its 868 must be NaN, never 0.
+omega_line = 'omega controls: NOT CHECKED (cnf asset not loaded)'
+if 'cnf' in metas:
+    _m = metas['cnf']
+    _ids = [r[0] for r in _m.get('index') or []]
+    _blob = io.open(os.path.join(repo, 'corpus', 'dist', 'cnf.bin'), 'rb').read()
+    def _val(fid, slot):
+        if fid not in _ids or slot not in spec_order:
+            return 'missing'
+        off = (_ids.index(fid) * _m['cols'] + spec_order.index(slot)) * 4
+        return struct.unpack('<f', _blob[off:off + 4])[0]
+    _want = [('3182', 629, 0.862), ('3182', 621, 1.104), ('3182', 851, 0.148), ('3182', 868, 2.49), ('3182', 869, 1.02),
+             ('451', 851, 9.137), ('451', 868, 9.13), ('451', 869, 19.0)]
+    _ok = 0
+    for fid, slot, want in _want:
+        got = _val(fid, slot)
+        if got == 'missing' or got != got or abs(got - want) > 1e-3:
+            bad.append('omega control: CNF %s slot %s is %r, the source says %s' % (fid, slot, got, want))
+        else:
+            _ok += 1
+    _abs = _val('2', 868)
+    if _abs == 'missing' or _abs == _abs:
+        bad.append('omega control: CNF 2 (cheese souffle) has no total n-3 in the source, but slot 868 reads %r -- absent must stay NaN, never 0' % (_abs,))
+    else:
+        _ok += 1
+    omega_line = 'omega controls: %d of %d (EPA, DHA, ALA, n-3, n-6 against CNF 2015; absent stays NaN)' % (_ok, len(_want) + 1)
+
 if bad:
     print('SLOTS CHECK: FAIL')
     for b in bad[:14]:
@@ -369,6 +401,7 @@ print('  assets agree with the spec: ' + (', '.join(asset_line) if asset_line el
 print('  ' + hash_line)
 print('  ' + refuse_line)
 print('  ' + groups_line)
+print('  ' + omega_line)
 print('GATE: PASS')
 PY
 rc=$?

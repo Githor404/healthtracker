@@ -42,6 +42,9 @@ MERGES = [
     {'slot': 328, 'from_cnf': 339,
      'why': 'Vitamin D (D2+D3). The sources use entirely different numbers -- FDC 328, CNF 339 '
             '-- for the same quantity in the same unit.'},
+    {'slot': 851, 'from_cnf': 831,
+     'why': 'R286/3: alpha-linolenic acid (18:3 c,c,c n-3). FDC SR 851 and CNF id 831 (its code '
+            'is 851) are the same quantity in the same unit (g).'},
 ]
 
 # ADDITIONS: nutrients the app already stores (MICRO_SPEC) that fall below the
@@ -68,6 +71,20 @@ ADDITIONS = [
             'foods will carry NO fructose value, and every surface that reports it '
             'must say how much of the day it could see. FDC 212 and CNF 212 agree, so '
             'no merge is needed.'},
+    # R286/3 (ruled 2026-10-29): THE OMEGA-3 / OMEGA-6 SLOTS, for the R266 Phase 1 food
+    # feature. Admitted by ruling, below the bar, coverage measured and said.
+    {'slot': 629, 'key': 'epa_g', 'label': 'EPA (20:5 n-3)', 'unit': 'g',
+     'why': 'R286/3: omega-3 EPA. MEASURED: 74.4% in SR Legacy, 77.0% in CNF -- below the bar in both. '
+            'FDC 629 and CNF 629 agree, so no merge is needed.'},
+    {'slot': 851, 'key': 'ala_g', 'label': 'ALA (18:3 n-3)', 'unit': 'g',
+     'why': 'R286/3: omega-3 alpha-linolenic acid. MEASURED: 25.2% in SR Legacy (851; most SR rows give '
+            'only 619, 18:3 undifferentiated), 83.2% in CNF (id 831). Merged.'},
+    {'slot': 868, 'key': 'n3_total_g', 'label': 'Omega-3, total', 'unit': 'g',
+     'why': 'R286/3: total omega-3. CNF only (id 868), MEASURED 34.7%; SR Legacy has no total, and FDC '
+            'uses no nutrient number 868, so the CNF id is the slot without a collision.'},
+    {'slot': 869, 'key': 'n6_total_g', 'label': 'Omega-6, total', 'unit': 'g',
+     'why': 'R286/3: total omega-6. CNF only (id 869), MEASURED 34.8%; SR Legacy has no total, and FDC '
+            'uses no nutrient number 869.'},
 ]
 
 # The app's existing keys, mapped onto their slots so the corpus can hold what
