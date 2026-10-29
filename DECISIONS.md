@@ -19184,3 +19184,26 @@ printed -- it was the gate's own 0.8 s.
 
 *Checked:* every gate run on its own after the change, 55 of 55 PASS (three passes, fixing
 what each found). Not loosened: every assertion reads as before.
+
+
+## R284 -- BEFORE EVERY OFFICIAL FULL RUN: ALL CODE CHECKS AND EVERY GATE ALONE (2026-10-28; standing rule)
+
+*The user's ruling of 28 Oct, after R283's official run came back 64 of 66: `check-ps-case.sh`
+(the helper's `$r` beside `$R` in 14 gates -- PowerShell folds case; the static checks had not
+been run before the official run) and `backup-gate` (a picked file's read was not counted as
+work in progress, so under suite load the check ran before the read finished).*
+
+**STANDING RULE.** Before every official full run (`bash tests/run-all-gates.sh`), run, first:
+(1) all 10 code checks -- the runner's STATIC_CHECKS: check-guidance, check-slots,
+check-precache, check-allowlist, check-eol, check-ps-encoding, check-egress, check-engagement,
+check-dupes, check-ps-case -- and the harness; (2) every gate on its own. Start the full run
+only when all of those pass. The push rule is unchanged: one uninterrupted green full run ->
+push -> verify; a red run stops and is reported, with each failure classed as an app bug or a
+gate flaw.
+
+**The two fixes.** The helper's variable is `$qr` in all 55 gates (and overlay-gate's
+WaitStill); `check-ps-case` passes. `tests/lib/quiet.js` counts reading a picked file
+(`Blob.text`, `Blob.arrayBuffer`, `FileReader` reads) as work in progress when the app starts
+it. backup-gate's waits reviewed by hand: the three in-page waits after the backup button are
+right (each waits for what the app does after the tap, a stub share reading its file
+included), and the file-input check now waits for the app's own read of the file.

@@ -15,7 +15,7 @@
 // in the service worker's shell).
 (function () {
   if (window.__htQuiet) return;
-  var kinds = { timer: 0, fetch: 0, body: 0, idb: 0, bitmap: 0 };
+  var kinds = { timer: 0, fetch: 0, body: 0, idb: 0, bitmap: 0, file: 0 };
   var lastChange = 0, frame = 0;
   var SHORT_MS = 1000;
   var total = function () { var n = 0; for (var k in kinds) n += kinds[k]; return n; };
@@ -67,6 +67,25 @@
   if (window.Response) ['arrayBuffer', 'json', 'text', 'blob'].forEach(function (k) {
     var o = Response.prototype[k];
     if (o) Response.prototype[k] = function () { return track(o.apply(this, arguments), 'body'); };
+  });
+  // R284: reading a picked file is work in progress too (a backup chosen through the
+  // file input is read asynchronously before anything is drawn from it).
+  if (window.Blob) ['text', 'arrayBuffer'].forEach(function (k) {
+    var o = Blob.prototype[k];
+    if (o) Blob.prototype[k] = function () { return track(o.apply(this, arguments), 'file'); };
+  });
+  if (window.FileReader) ['readAsText', 'readAsArrayBuffer', 'readAsDataURL', 'readAsBinaryString'].forEach(function (k) {
+    var o = FileReader.prototype[k];
+    if (!o) return;
+    FileReader.prototype[k] = function () {
+      var fr = this;
+      if (ours()) {
+        inc('file');
+        var done = false, end = function () { if (!done) { done = true; dec('file'); } };
+        fr.addEventListener('loadend', end);
+      }
+      return o.apply(fr, arguments);
+    };
   });
   if (window.createImageBitmap) {
     var _cib = window.createImageBitmap;

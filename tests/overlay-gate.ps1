@@ -66,8 +66,8 @@ function Invoke-CDP([string]$mv, [hashtable]$p) {
 $HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
 function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
 function WaitQuiet([string]$why) {
-  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
-  $v = $r.result.result.value
+  $qr = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $qr.result.result.value
   if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
   $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
   if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
@@ -208,8 +208,8 @@ try {
   # R283: a swipe, a tap and a park are followed by waiting for the page to STOP -- the
   # scroll position unchanged across three frames and nothing in flight -- not by 220-420 ms.
   function WaitStill {
-    $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "new Promise(function (res) { var last = -1, same = 0, t0 = performance.now(); (function f() { var y = Math.round(window.scrollY); same = (y === last) ? same + 1 : 0; last = y; if (same >= 3) return res('still'); if (performance.now() - t0 > 10000) return res('still moving after 10 s'); requestAnimationFrame(f); })(); })"; awaitPromise = $true; returnByValue = $true }
-    if ($r.result.result.value -ne 'still') { WaitFail ('the page did not stop scrolling: ' + $r.result.result.value) }
+    $qr = Invoke-CDP 'Runtime.evaluate' @{ expression = "new Promise(function (res) { var last = -1, same = 0, t0 = performance.now(); (function f() { var y = Math.round(window.scrollY); same = (y === last) ? same + 1 : 0; last = y; if (same >= 3) return res('still'); if (performance.now() - t0 > 10000) return res('still moving after 10 s'); requestAnimationFrame(f); })(); })"; awaitPromise = $true; returnByValue = $true }
+    if ($qr.result.result.value -ne 'still') { WaitFail ('the page did not stop scrolling: ' + $qr.result.result.value) }
     WaitQuiet 'after a scroll' }
   function Park([int]$y) { Eval "window.scrollTo(0, $y); 1" | Out-Null; WaitStill }
   function ScrollY { return [int](Eval 'Math.round(window.scrollY)') }
