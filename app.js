@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.112.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.112.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -882,6 +882,11 @@ function normalizeJoinEdits(v) {
 }
 const STACK_NUTRIENT_SOURCES = ['lnhpd', 'typed', 'label-photo'];
 const STACK_NUTRIENT_UNITS = ['mg', 'mcg', 'g', 'IU'];
+// R285: a dose in UNITS -- a count of something with its own amount in each one. With
+// one of these the form asks "How many?", and a nutrient is the amount in each unit
+// times the units; with a mass unit (STACK_NUTRIENT_UNITS) the amount IS the dose.
+const STACK_COUNT_UNITS = ['tablet', 'capsule', 'softgel', 'scoop', 'drop', 'mL', 'puff', 'unit'];
+function stackCountUnit(u) { return STACK_COUNT_UNITS.indexOf(String(u == null ? '' : u)) >= 0; }
 function normalizeNutrientDetail(v) {
   const out = {};
   if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
@@ -5344,6 +5349,9 @@ function stackUpsert(raw) {
       const spec = MICRO_LABEL[key];
       if (!spec) return { ok: false, error: 'That nutrient is not one this app tracks.' };
       if (!hasDose) return { ok: false, error: 'Enter an amount to count toward ' + spec.label + '.' };
+      // R285: a count of tablets is not an amount of zinc -- the R281 cause, said in words
+      if (stackCountUnit(r.dose_unit)) return { ok: false, error: spec.label + ' is counted from the amount in each ' + doseUnitWord(r.dose_unit)
+        + ', not from how many you take. Add it as “' + spec.label + ' in each ' + doseUnitWord(r.dose_unit) + '”.' };
       const v = doseToMicro(key, r.dose, r.dose_unit);
       if (v == null) {
         return { ok: false, error: doseUnitWord(r.dose_unit) + ' cannot be counted toward ' + spec.label
@@ -5387,8 +5395,9 @@ function stackUpsert(raw) {
   const norm = normalizeStackItem(item);
   if (!norm) return { ok: false, error: 'Nothing savable in that.' };
   if (at >= 0) list[at] = norm; else list.push(norm);
-  Store.saveState(APP_STATE);
-  return { ok: true, item: norm, edited: at >= 0 };
+  // R285/3: a write the device refuses is said, never assumed (D1's memory tier)
+  const stored = Store.saveState(APP_STATE) !== false;
+  return { ok: true, item: norm, edited: at >= 0, stored: stored };
 }
 // R281/4: WHAT AN ITEM COUNTS TOWARD, from three sources kept apart in `detail`:
 //   a database product (each ingredient that IS a tracked nutrient, its amount per
@@ -5424,6 +5433,17 @@ function stackMultiNutrients(r, item) {
     const base = (item.nutrients && item.nutrients.micros) || {};
     Object.keys(base).forEach(function (k) { micros[k] = base[k]; });
   }
+  // R285/1: amounts IN EACH UNIT need a count of units -- never assumed, never read as mg
+  const counted = prod && productCounts(prod) && prod.ingredients.some(function (g) {
+    const k = suppKeyFor(g.name), u = suppUnit(g.unit);
+    return k && u && g.amount != null && doseToMicro(k, g.amount, u) != null;
+  });
+  const perUnitRows = rows.some(function (x) { return x.per === 'unit'; });
+  if (counted || perUnitRows) {
+    if (item.dose_unit && !stackCountUnit(item.dose_unit))
+      return { error: 'These amounts are for each tablet, capsule or other unit. Choose that unit and how many you take, not ' + doseUnitWord(item.dose_unit) + '.' };
+    if (!(num(item.dose) > 0)) return { error: 'Enter how many you take.' };
+  }
   if (prod) {
     const units = num(item.dose) > 0 ? num(item.dose) : 1;
     if (productCounts(prod)) {
@@ -5449,10 +5469,13 @@ function stackMultiNutrients(r, item) {
     const u = suppUnit(x.unit);
     const v = u ? doseToMicro(k, x.amount, u) : null;
     if (v == null) return { error: doseUnitWord(x.unit) + ' cannot be counted toward ' + MICRO_LABEL[k].label + ', which is measured in ' + MICRO_LABEL[k].unit + '.' };
-    if (micros[k] != null) return { error: 'Count each nutrient once.' };
-    const d = { amount: num(x.amount), unit: u, per: 'dose', source: 'typed' };
+    if (micros[k] != null) return { error: MICRO_LABEL[k].label + ' is already counted' + (detail[k] && detail[k].source === 'lnhpd' ? ' from Health Canada’s record' : '') + '. Count each nutrient once.' };
+    // R285/1: a row typed IN EACH UNIT counts that amount times the units taken; one
+    // without `per` is R281's amount for the whole dose, read as it always was
+    const each = x.per === 'unit';
+    const d = { amount: num(x.amount), unit: u, per: each ? 'unit' : 'dose', source: 'typed' };
     if (x.form) d.form = String(x.form);
-    micros[k] = v; detail[k] = d;
+    micros[k] = each ? v * num(item.dose) : v; detail[k] = d;
   }
   if (!Object.keys(detail).length) return { product: prod || undefined, micros: Object.keys(micros).length ? micros : null, detail: {} , clear: true };
   return { micros: micros, detail: detail, product: prod || undefined };
@@ -5535,9 +5558,12 @@ function lnhpdGet(resource, id) {
 }
 function lnhpdDoseUnit(form) {
   const f = String(form == null ? '' : form).toLowerCase();
-  if (/capsule|softgel|gelcap/.test(f)) return 'capsule';
+  if (/softgel|soft gel/.test(f)) return 'softgel';                           // R285
+  if (/capsule|gelcap/.test(f)) return 'capsule';
   if (/tablet|caplet|lozenge/.test(f)) return 'tablet';
+  if (/scoop/.test(f)) return 'scoop';
   if (/drop/.test(f)) return 'drop';
+  if (/^ml$|millilit/.test(f)) return 'mL';
   return 'unit';
 }
 function lnhpdLookup(npn) {
@@ -5588,8 +5614,10 @@ function stackNpnLookup(how) {
 function stackProposalApply(st, prod) {
   st.npn = { phase: 'found', npn: prod.npn || '', product: prod };
   const units = (prod.label_dose && num(prod.label_dose.qty) > 0) ? num(prod.label_dose.qty) : 1;
+  // R285: the unit the label's serving names, else the dosage form's
+  const lu = prod.label_dose ? lnhpdDoseUnit(prod.label_dose.unit) : 'unit';
   st.seed = Object.assign({}, st.seed || {}, { name: prod.name || (st.seed && st.seed.name) || '', dose: units,
-    dose_unit: lnhpdDoseUnit(prod.dosage_form), microKey: '', extra: [] });
+    dose_unit: lu !== 'unit' ? lu : lnhpdDoseUnit(prod.dosage_form), microKey: '', extra: [] });
   st.kind = 'supplement';
 }
 // R281/3: the photo route. The user's own provider reads the label; an NPN it reads is
@@ -5688,16 +5716,32 @@ function stackProductHTML(prod, proposing) {
       + (confirmed ? '\u2713 These numbers are right' : 'These numbers are right') + '</button>';
   }
   h += '<div class="note stkcite">' + esc(prod.attribution || '') + (prod.at ? ' \u00b7 retrieved ' + esc(fmtDateSmart(prod.at)) : '') + '</div>';
-  if (proposing) h += '<div class="note">Units you take: the Amount below.</div>';
+  if (proposing) h += '<div class="note">How many you take: below.</div>';
   return h + '</div>';
 }
-function stackFormExtraAdd() {
+function stackFormExtraAdd(key) {
   const st = STACK_FORM; if (!st) return { ok: false };
   st.seed = Object.assign({}, st.seed || {}, stackFormRead());
-  st.seed.extra = (st.seed.extra || []).concat([{ key: '', amount: '', unit: 'mg' }]);
+  // R285: a new row has no `per` of its own -- it is read by the unit at save (in each
+  // unit for a count); only a row already stored keeps the reading it was saved with
+  const row = { key: (key && STACK_SUPP_KEYS.indexOf(String(key)) >= 0) ? String(key) : '', amount: '', unit: 'mg' };
+  st.seed.extra = (st.seed.extra || []).concat([row]);
   renderStackEditor();
+  if (row.key) { const a = document.getElementById('stkX' + (st.seed.extra.length - 1) + 'A'); if (a && a.focus) a.focus(); }
   return { ok: true, rows: st.seed.extra.length };
 }
+// R285: the unit decides the form's words -- "How many?" and "in each" for a count,
+// "Amount" and "Counts toward" for a mass. What is typed is kept across the redraw.
+function stackFormUnit() {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  const each = stackCountUnit(st.seed.dose_unit);
+  if (each) st.seed.microKey = '';            // a count is not an amount of a nutrient
+  renderStackEditor();
+  return { ok: true, count: each };
+}
+// R285: what a row means, said beside its amount
+function stackRowPer(x, each) { return x.per || (each ? 'unit' : 'dose'); }
 function stackFormExtraRemove(i) {
   const st = STACK_FORM; if (!st) return { ok: false };
   st.seed = Object.assign({}, st.seed || {}, stackFormRead());
@@ -5714,7 +5758,7 @@ function stackFormOpen(id, host) {
   if (seed0) {
     const det = (seed0.nutrients && seed0.nutrients.detail) || {};
     seed0.extra = Object.keys(det).filter(function (k) { return det[k].source === 'typed'; })
-      .map(function (k) { return { key: k, amount: det[k].amount, unit: det[k].unit }; });
+      .map(function (k) { return { key: k, amount: det[k].amount, unit: det[k].unit, per: det[k].per }; });
     const single = Object.keys((seed0.nutrients && seed0.nutrients.micros) || {}).filter(function (k) { return !det[k]; });
     seed0.microKey = single[0] || '';
   }
@@ -5760,11 +5804,34 @@ function stackSuggestMicro(name) {
 }
 function stackSuggestHTML() {
   const nm = document.getElementById('stkName'), sel = document.getElementById('stkMicro');
-  if (!nm || !sel || sel.value) return '';
+  if (!nm) return '';
   const k = stackSuggestMicro(nm.value);
   if (!k || !MICRO_LABEL[k]) return '';
-  return '<button type="button" class="linklike stksug" onclick="stackSuggestAccept(\'' + esc(k) + '\')">'
-    + 'Count it toward ' + esc(MICRO_LABEL[k].label) + '?</button>';
+  const ue = document.getElementById('stkUnit');
+  const unit = ue ? ue.value : '';
+  if (!stackCountUnit(unit)) {
+    if (!sel || sel.value) return '';
+    return '<button type="button" class="linklike stksug" onclick="stackSuggestAccept(\'' + esc(k) + '\')">'
+      + 'Count it toward ' + esc(MICRO_LABEL[k].label) + '?</button>';
+  }
+  // R285: with a count unit the suggestion is a row IN EACH unit, and only for a
+  // nutrient the item does not already count -- the R281 product counted zinc, and
+  // "Count it toward Zinc?" under it was the path that refused the save.
+  if (STACK_SUPP_KEYS.indexOf(k) < 0 || stackFormNames(k)) return '';
+  return '<button type="button" class="linklike stksug" onclick="stackFormExtraAdd(\'' + esc(k) + '\')">'
+    + 'Add ' + esc(MICRO_LABEL[k].label) + ' in each ' + esc(doseUnitWord(unit)) + '?</button>';
+}
+// Does the form already name this nutrient -- a product's ingredient, or a row?
+function stackFormNames(k) {
+  const st = STACK_FORM;
+  const prod = st ? ((st.npn && st.npn.phase === 'found') ? st.npn.product : (st.seed && st.seed.product)) : null;
+  if (prod && (prod.ingredients || []).some(function (g) { return suppKeyFor(g.name) === k; })) return true;
+  for (let i = 0; i < 12; i++) {
+    const el = document.getElementById('stkX' + i + 'K');
+    if (!el) break;
+    if (el.value === k) return true;
+  }
+  return false;
 }
 function stackSuggestRender() {
   const el = document.getElementById('stkSuggest');
@@ -5781,8 +5848,12 @@ function stackFormRead() {
   const g = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
   const extra = [];
   for (let i = 0; i < 12; i++) {
-    if (!document.getElementById('stkX' + i + 'K')) break;
-    extra.push({ key: g('stkX' + i + 'K'), amount: g('stkX' + i + 'A'), unit: g('stkX' + i + 'U') });
+    const ke = document.getElementById('stkX' + i + 'K');
+    if (!ke) break;
+    const row = { key: g('stkX' + i + 'K'), amount: g('stkX' + i + 'A'), unit: g('stkX' + i + 'U') };
+    const per = ke.getAttribute('data-per');                 // R285: in each unit, or the whole dose
+    if (per === 'unit' || per === 'dose') row.per = per;
+    extra.push(row);
   }
   const out = { name: g('stkName'), dose: g('stkDose'), dose_unit: g('stkUnit'), note: g('stkNote'),
                 microKey: g('stkMicro'), grams: g('stkGrams'), added_on: g('stkSince'), npn: g('stkNpn') };
@@ -5840,7 +5911,24 @@ function stackFormPickMine(id) {
   const g = document.getElementById('stkGrams'); if (g && g.focus) g.focus();
   return { ok: true, name: f.name };
 }
+// R285/3: A SAVE THAT CANNOT COMPLETE SAYS WHY, ON SCREEN, AND KEEPS THE INPUT. The
+// form is not redrawn on a refusal, so every field stays as entered; the reason goes
+// beside Save and is scrolled into view; anything thrown is caught and said.
+function stackFormWarn(text) {
+  const warn = document.getElementById('stkWarn');
+  if (!warn) { toast(text); return; }
+  warn.innerHTML = '<div class="warn">' + esc(text) + '</div>';
+  try { warn.scrollIntoView({ block: 'center' }); } catch (e) {}
+}
 function stackFormSave() {
+  let r;
+  try { r = stackFormSave_(); } catch (e) {
+    r = { ok: false, error: 'Could not save (' + String((e && e.message) || e) + '). What you entered is still here.' };
+  }
+  if (r && !r.ok && r.error) stackFormWarn(r.error);
+  return r;
+}
+function stackFormSave_() {
   const st = STACK_FORM; if (!st) return { ok: false };
   const f = stackFormRead();
   // R278/A: Save never switches an item. Its on/off state is the stored one, which
@@ -5857,6 +5945,9 @@ function stackFormSave() {
     raw.dose = f.dose; raw.dose_unit = f.dose_unit; raw.microKey = f.microKey;
     if (!f.microKey && st.seed && st.seed.nutrients && !(st.seed.nutrients.micros && Object.keys(st.seed.nutrients.micros).length === 1)) raw.nutrients = st.seed.nutrients;
     raw.extra = f.extra || (st.seed && st.seed.extra) || [];
+    // R285: a new row with a count unit is the amount in each unit
+    if (stackCountUnit(f.dose_unit)) raw.extra = raw.extra.map(function (x) { return x.per ? x : Object.assign({}, x, { per: 'unit' }); });
+    if (stackCountUnit(f.dose_unit)) raw.microKey = '';
     // R281/5: the product proposed now, or the one the item already carries
     const prod = (st.npn && st.npn.phase === 'found') ? st.npn.product : (st.seed && st.seed.product) || null;
     if (prod) {
@@ -5866,11 +5957,11 @@ function stackFormSave() {
   }
   raw.added_on = f.added_on;
   const r = stackUpsert(raw);
-  const warn = document.getElementById('stkWarn');
-  if (!r.ok) { if (warn) warn.innerHTML = '<div class="warn">' + esc(r.error || 'Could not save.') + '</div>'; return r; }
+  if (!r.ok) { if (!r.error) r.error = 'Could not save. What you entered is still here.'; return r; }
   STACK_FORM = null;
   renderStackEditor(); renderSheetRoot();
-  toast((r.edited ? 'Saved ' : 'Added ') + r.item.name);
+  toast((r.edited ? 'Saved ' : 'Added ') + r.item.name
+    + (r.stored === false ? ' — on this screen only: this device did not store it' : ''));
   return r;
 }
 // R255: since when, and by which rule -- the user asked to be told per item.
@@ -5918,7 +6009,7 @@ function stackFormHTML() {
   const sd = st.seed || {};
   const v = function (x) { return x == null ? '' : String(x); };
   const mk = sd.microKey != null ? sd.microKey : Object.keys((sd.nutrients && sd.nutrients.micros) || {})[0] || '';
-  h += '<div class="stkform"><div class="srhead">' + (st.editId ? 'Edit item' : 'New item') + '</div><div id="stkWarn"></div>'
+  h += '<div class="stkform"><div class="srhead">' + (st.editId ? 'Edit item' : 'New item') + '</div>'
     + '<div class="primsel stkkinds">'
     + STACK_KINDS.map(function (k) {
         return '<button type="button" class="' + (st.kind === k ? 'on' : '') + '"' + (st.kind === k ? ' aria-pressed="true"' : '')
@@ -5947,24 +6038,33 @@ function stackFormHTML() {
   }
   if (st.kind !== 'food' && sd.product && st.editId) h += stackProductHTML(sd.product, false);
   if (st.kind !== 'food') {
+    // R285/1: a count unit asks "How many?"; its nutrients are amounts IN EACH unit, and
+    // the single "Counts toward" (an amount of the nutrient itself) is not offered.
+    const unitNow = sd.dose_unit || 'mg';
+    const each = stackCountUnit(unitNow);
+    const uw = doseUnitWord(unitNow);
     h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" oninput="stackSuggestRender()" value="' + esc(v(sd.name)) + '">'
-      + '<div class="row"><div><label for="stkDose">Amount</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
-      + '<div><label for="stkUnit">Unit</label><select id="stkUnit">'
-      + MED_DOSE_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === (sd.dose_unit || 'mg') ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>'; }).join('')
+      + '<div class="row"><div><label for="stkDose">' + (each ? 'How many?' : 'Amount') + '</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
+      + '<div><label for="stkUnit">Unit</label><select id="stkUnit" onchange="stackFormUnit()">'
+      + MED_DOSE_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === unitNow ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>'; }).join('')
       + '</select></div></div>'
-      + '<label for="stkMicro">Counts toward (optional)</label><select id="stkMicro" onchange="stackSuggestRender()"><option value="">nothing</option>'
-      + MICRO_SPEC.map(function (m) { return '<option value="' + esc(m.key) + '"' + (m.key === mk ? ' selected' : '') + '>' + esc(m.label) + '</option>'; }).join('')
-      + '</select><div id="stkSuggest"></div>'
-      // R281/4: more than one nutrient -- each row an amount for the whole dose
+      + (each ? ''
+        : '<label for="stkMicro">Counts toward (optional)</label><select id="stkMicro" onchange="stackSuggestRender()"><option value="">nothing</option>'
+          + MICRO_SPEC.map(function (m) { return '<option value="' + esc(m.key) + '"' + (m.key === mk ? ' selected' : '') + '>' + esc(m.label) + '</option>'; }).join('')
+          + '</select>')
+      + '<div id="stkSuggest"></div>'
+      // R281/4: more than one nutrient. R285: each row says what its amount is -- in each
+      // unit, or (a row saved before, or with a mass unit) for the whole dose.
       + (sd.extra || []).map(function (x, i) {
-          return '<div class="row stkxrow"><div><label for="stkX' + i + 'K">Also counts toward</label><select id="stkX' + i + 'K"><option value="">choose</option>'
+          const per = stackRowPer(x, each);
+          return '<div class="row stkxrow"><div><label for="stkX' + i + 'K">' + (each ? 'Counts toward' : 'Also counts toward') + '</label><select id="stkX' + i + 'K"' + (x.per ? ' data-per="' + esc(x.per) + '"' : '') + '><option value="">choose</option>'
             + STACK_SUPP_KEYS.map(function (k) { return '<option value="' + esc(k) + '"' + (k === x.key ? ' selected' : '') + '>' + esc(MICRO_LABEL[k].label) + '</option>'; }).join('')
-            + '</select></div><div><label for="stkX' + i + 'A">Amount</label><input id="stkX' + i + 'A" type="number" inputmode="decimal" min="0" value="' + esc(v(x.amount)) + '"></div>'
+            + '</select></div><div><label for="stkX' + i + 'A">' + (per === 'unit' ? 'In each ' + esc(uw) : (each ? 'For the whole dose' : 'Amount')) + '</label><input id="stkX' + i + 'A" type="number" inputmode="decimal" min="0" value="' + esc(v(x.amount)) + '"></div>'
             + '<div><label for="stkX' + i + 'U">Unit</label><select id="stkX' + i + 'U">'
             + STACK_NUTRIENT_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === (x.unit || 'mg') ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>'; }).join('')
             + '</select></div><button type="button" class="linklike stkxrm" aria-label="remove this nutrient" onclick="stackFormExtraRemove(' + i + ')">\u00d7</button></div>';
         }).join('')
-      + '<button type="button" class="linklike stkxadd" id="stkXadd" onclick="stackFormExtraAdd()">+ another nutrient</button>';
+      + '<button type="button" class="linklike stkxadd" id="stkXadd" onclick="stackFormExtraAdd()">' + (each ? '+ a nutrient in each ' + esc(uw) : '+ another nutrient') + '</button>';
   } else {
     const picked = st.pick ? st.pick.name : (st.kept ? ((st.kept.ref && st.kept.ref.name) || st.kept.name) : '');
     const pickedMine = (st.pick && st.pick.mine) ? st.pick.mine.basis : ((st.kept && st.kept.basis) || '');
@@ -5982,6 +6082,9 @@ function stackFormHTML() {
   const sinceV = sd.added_on != null && sd.added_on !== '' ? sd.added_on : todayKey();
   h += '<label for="stkSince">In your stack since</label><input id="stkSince" type="date" max="' + esc(todayKey()) + '" value="' + esc(sinceV) + '">';
   h += '<label for="stkNote">Form or note (optional)</label><input id="stkNote" type="text" autocomplete="off" value="' + esc(v(sd.note)) + '">'
+    // R285/3: why a save did not complete is said HERE, beside the button that was
+    // tapped -- it was at the form's top, drawn 465 px above the screen
+    + '<div id="stkWarn" role="alert" aria-live="assertive"></div>'
     + '<button type="button" class="btn primary stksave" onclick="stackFormSave()">' + (st.editId ? 'Save changes' : 'Add to my stack') + '</button>'
     + '<button type="button" class="linklike stkcancel" onclick="stackFormCancel()">Cancel</button></div>';
   return h;
@@ -8991,7 +9094,7 @@ const SIGNAL_KINDS = ['biometric', 'event', 'medication'];   // D20 addendum: me
 const SIGNAL_ADAPTERS = ['manual', 'lab', 'quick', 'stack'];   // R168: the stack is an adapter (D19)
 // Medication closed enums (name is open-ended free text; these drive form controls,
 // no cross-wiring — MICRO_SPEC/M1 discipline).
-const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'drop', 'puff', 'unit'];
+const MED_DOSE_UNITS = ['mg', 'mcg', 'g', 'mL', 'IU', 'tablet', 'capsule', 'softgel', 'scoop', 'drop', 'puff', 'unit'];   // R285: + softgel, scoop
 const MED_FORMS  = ['tablet', 'capsule', 'liquid', 'injection', 'topical', 'inhaler', 'patch', 'drops', 'other'];
 const MED_ROUTES = ['oral', 'sublingual', 'topical', 'inhaled', 'injected', 'nasal', 'other'];
 
@@ -16569,6 +16672,7 @@ const VERSION_LOG = [
   { v: '0.111.2', d: '2026-10-28', note: 'A scan or photo log now says so at the top of the screen, naming the item, amount and time, with Undo. Scanning the same product again within 10 minutes asks first: Already logged at <time>, Log another or Cancel. In your daily stack, + Log has Switch off and Switch on, and + Add to stack for a new item; in Settings each row has Edit only, with On and Off inside Edit.' },
   { v: '0.111.3', d: '2026-10-28', note: 'An Undo bar shown just after another message no longer disappears early. A day now closes by itself at 04:00 the next morning, so your past days count in the averages without a tap; closing a day by hand is optional. You can still add, change or delete entries on a closed day, and everything recomputes. A closed day that looks incomplete (no food, no glucose readings, or calories under half your usual) says so behind its info button, and each average says how many days it includes and how many are flagged. The blood pressure chart in Trends can be zoomed in (up to 8 times wider) and scrolled sideways, with the mmHg axis kept in view.' },
   { v: '0.112.0', d: '2026-10-28', note: 'Add a supplement from its Health Canada NPN: type the 8 digits from the label in + Add to stack and tap Look up -- the product, each ingredient with its amount and form, and its licence come from Health Canada’s database. A photo of the label works too with your own AI key; numbers read from a photo count only after you confirm them. An item can count toward more than one nutrient, and the day adds them up across your stack. You can say when an item joined your stack, and + Add to stack is there even when your stack is empty.' },
+  { v: '0.112.1', d: '2026-10-29', note: 'A supplement taken as tablets, capsules or another unit now asks How many? beside the unit, and counts each nutrient as the amount in each unit times how many you take -- 1 tablet of a product with 50 mg zinc in each is 50 mg, 2 is 100. Items you added before keep their amount as they were. If an item cannot be saved, the reason now shows beside the button you tapped, and what you entered stays in the form.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -26244,7 +26348,7 @@ window.HT = {
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor, openLabelCapture,
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, lnhpdLookup, lnhpdGet, setLnhpdFetch, stackNpnLookup, suppLabelReply, stackConfirmToggle, stackFormExtraAdd, stackFormExtraRemove, stackMultiNutrients, suppKeyFor, suppUnit, normalizeStackProduct, normalizeNutrientDetail, normalizeJoinEdits, stackDoseMicros, dayIntakeFlags, STACK_SUPP_KEYS, SUPP_TEMPLATE, stackFormKind, stackFormSearch, stackFormPick,
-  stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
+  stackFormSave, stackFormUnit, stackCountUnit, STACK_COUNT_UNITS, lnhpdDoseUnit, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,

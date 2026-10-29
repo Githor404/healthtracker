@@ -11847,6 +11847,34 @@ window.setLS({});
                             product: Object.assign({}, qV1.item.product, { confirmed: { at: '2026-10-20T09:40:00' } }) });
   res(qV2.ok && qV2.item.nutrients.micros.zinc_mg === 15 && qV2.item.nutrients.detail.zinc_mg.source === 'label-photo' && qV2.item.product.confirmed.at === '2026-10-20T09:40:00',
       'R281 GATE 3: confirmed by the user, they count -- with their provenance and the time it was confirmed', JSON.stringify(qV2.item.nutrients));
+  // ---- R285: a dose in units -------------------------------------------------------------
+  var qZp = { ns: 'lnhpd', npn: '80000005', id: '79', name: 'Gate zinc', status: 'active', dosage_form: 'Tablet',
+              ingredients: [{ name: 'Zinc', amount: 50, unit: 'milligrams', form: 'Zinc citrate' }], label_dose: { qty: 1, unit: 'Tablet' }, at: '2026-10-20', attribution: 'test', how: 'typed' };
+  var qZ1 = HT.stackUpsert({ name: 'Gate zinc', kind: 'supplement', dose: 1, dose_unit: 'tablet', product: qZp });
+  var qZ2 = HT.stackUpsert({ name: 'Gate zinc 2', kind: 'supplement', dose: 2, dose_unit: 'tablet', product: qZp });
+  res(qZ1.ok && qZ1.item.nutrients.micros.zinc_mg === 50 && qZ2.ok && qZ2.item.nutrients.micros.zinc_mg === 100,
+      'R285 GATE 1/2: 50 mg zinc in each tablet -- 1 tablet counts 50 mg, 2 tablets 100 mg', JSON.stringify([qZ1.item && qZ1.item.nutrients, qZ2.item && qZ2.item.nutrients]));
+  var qZk = HT.stackUpsert({ name: 'Gate zinc 3', kind: 'supplement', dose: 1, dose_unit: 'tablet', microKey: 'zinc_mg' });
+  res(!qZk.ok && /in each tablet/.test(qZk.error) && /not from how many/.test(qZk.error),
+      'R285: the reported cause -- a tablet COUNT set to count toward zinc -- is refused IN WORDS that say what to do', qZk.error);
+  var qZh = HT.stackUpsert({ name: 'Item E', kind: 'supplement', dose: 2, dose_unit: 'capsule', extra: [{ key: 'zinc_mg', amount: 15, unit: 'mg', per: 'unit' }] });
+  res(qZh.ok && qZh.item.nutrients.micros.zinc_mg === 30 && qZh.item.nutrients.detail.zinc_mg.per === 'unit' && qZh.item.nutrients.detail.zinc_mg.amount === 15,
+      'R285 GATE 4: typed by hand IN EACH capsule -- 15 mg x 2 capsules = 30 mg; the 15 per capsule is what is stored', JSON.stringify(qZh.item && qZh.item.nutrients));
+  var qZd = HT.stackUpsert({ name: 'Item F', kind: 'supplement', dose: 2, dose_unit: 'capsule', extra: [{ key: 'zinc_mg', amount: 10, unit: 'mg' }] });
+  res(qZd.ok && qZd.item.nutrients.micros.zinc_mg === 10 && qZd.item.nutrients.detail.zinc_mg.per === 'dose',
+      'R285/2: a row with no per-unit reading is R281\'s amount for the whole dose, read as before (10, not 20)', JSON.stringify(qZd.item && qZd.item.nutrients));
+  var qZm = HT.stackUpsert({ name: 'Gate zinc 4', kind: 'supplement', dose: 50, dose_unit: 'mg', product: qZp });
+  res(!qZm.ok && /each tablet, capsule/.test(qZm.error),
+      'R285: a product\'s per-unit amounts with a MASS unit chosen are refused in words -- never 50 mg read as 50 tablets', qZm.error);
+  var qZe = HT.stackUpsert({ name: 'Gate zinc 5', kind: 'supplement', dose: '', dose_unit: 'tablet', product: qZp });
+  res(!qZe.ok && qZe.error === 'Enter how many you take.',
+      'R285: per-unit amounts with no count are refused in words, not assumed to be 1', qZe.error);
+  res(HT.lnhpdDoseUnit('Softgel') === 'softgel' && HT.lnhpdDoseUnit('Tablet') === 'tablet' && HT.lnhpdDoseUnit('Capsule, hard') === 'capsule'
+      && HT.normalizeStackItem({ name: 'S', dose: 1, dose_unit: 'softgel' }).dose_unit === 'softgel' && HT.stackCountUnit('scoop') && !HT.stackCountUnit('mg'),
+      'R285: softgel and scoop are units (kept by the boundary); a record\'s dosage form names the unit; mg is not a count');
+  var qZx = HT.stackUpsert({ name: 'Gate zinc 6', kind: 'supplement', dose: 1, dose_unit: 'tablet', product: qZp, extra: [{ key: 'zinc_mg', amount: 10, unit: 'mg', per: 'unit' }] });
+  res(!qZx.ok && /already counted/.test(qZx.error) && /once/.test(qZx.error),
+      'R285 GATE 3: zinc from the product AND a typed zinc row is refused, and the words say where it is already counted', qZx.error);
   // the allowlist
   var qN = HT.normalizeStackItem({ name: 'Z', product: { ns: 'evil', name: 'x' }, join_edits: [{ to: 'nope' }], nutrients: { detail: { foo_mg: {}, zinc_mg: { amount: 1, unit: 'mg', source: 'made-up' } } } });
   res(!qN.product && !qN.join_edits && !qN.nutrients,

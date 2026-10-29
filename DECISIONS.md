@@ -19419,3 +19419,39 @@ Legacy rows typed for the whole dose stay `per: 'dose'` when edited.
 - Harness: the core (`stackUpsert`) cases for the above.
 
 Release v0.112.1 under the standing pre-run rule (R284), then suite -> push -> verify.
+
+## R285 -- BUILT (2026-10-29, v0.112.1)
+
+*As pre-registered (13af9f7). Serves **track**.*
+
+**The app.** `STACK_COUNT_UNITS` (tablet, capsule, softgel, scoop, drop, mL, puff,
+unit); `MED_DOSE_UNITS` gains softgel and scoop. With a count unit the stack form
+reads **"How many?"**, its nutrient rows read "In each <unit>" and are stored
+`per: 'unit'` (amount in each x units = the day's figure), and the R208 single
+"Counts toward" is not drawn; changing the unit redraws the form with what was typed
+(`stackFormUnit`). The name's suggestion, with a count unit, adds a row "in each" --
+and only for a nutrient no product ingredient or row already names, so the R281 path
+("Count it toward Zinc?" under a zinc product) is gone. The core refuses, in words:
+a count unit set to count toward a nutrient ("... counted from the amount in each
+tablet, not from how many you take"); a product's per-unit amounts with a mass unit;
+per-unit amounts with no count ("Enter how many you take." -- no longer assumed 1);
+a nutrient counted twice ("Zinc is already counted from Health Canada's record.
+Count each nutrient once."). A record's label serving names the unit first, its
+dosage form second (softgel, scoop, mL now recognised). **No silent save:**
+`#stkWarn` moved from the form's top to beside Save, `role="alert"`, scrolled into
+view; `stackFormSave` catches anything thrown and says it; a write the device
+refuses is said in the toast ("on this screen only"). A row stored before R285
+keeps `per: 'dose'` and reads "For the whole dose" under a count unit; a row with no
+`per` given to the core is R281's whole-dose amount, unchanged.
+
+**Gates.** `stackscan-gate` R285 section, red first on HEAD (GATE 1, 3, 4 failed;
+2 and 5 passed -- the per-tablet arithmetic for products and the legacy path were
+already right), then PASS: GATE 1 "How many?" 1 tablet, no Counts toward, no zinc
+suggestion, 5 taps, +50 mg; GATE 2 +100 mg both ways; GATE 3 the reason at 470-524 px
+of 844, beside Save (536), fields kept, nothing written; GATE 4 2 capsules x 15 mg
+= +30 mg; GATE 5 an existing mg item unchanged byte for byte (keys sorted). Harness
++8 (3419). Screens read at 390 px.
+
+**R231 (asked after this release).** Counted on the 29 Oct backup before the build:
+82 usable, **34 clean** (>= 32), re-check run -- does not beat carbs-only (row in the
+R231 table).

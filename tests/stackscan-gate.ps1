@@ -168,6 +168,12 @@ try {
   HT.setLnhpdFetch(function (url) {
     window.__hc.push(url);
     var m = /natural-licences\/(\w+)\/.*[?&]id=(\d+)/.exec(url), body = '[]';
+    // R285: NPN 80000005 -- a placeholder tablet, zinc 50 mg in each, label dose 1 tablet
+    if (m && m[1] === 'productlicence' && m[2] === '80000005') body = JSON.stringify([
+      { lnhpd_id: 79, licence_number: m[2], product_name: 'Gate zinc', flag_primary_name: 1, flag_product_status: 1, dosage_form: 'Tablet', company_name: 'Gate Co' }]);
+    if (m && m[1] === 'medicinalingredient' && m[2] === '79') body = JSON.stringify([
+      { ingredient_name: 'Zinc', quantity: 50, quantity_unit_of_measure: 'milligrams', source_material: 'Zinc citrate' }]);
+    if (m && m[1] === 'productdose' && m[2] === '79') body = JSON.stringify([{ quantity_dose: 1, uom_type_desc_quantity_dose: 'Tablet', frequency: 1, uom_type_desc_frequency: 'daily' }]);
     if (m && m[1] === 'productlicence' && (m[2] === '80000003' || m[2] === '80000004')) body = JSON.stringify([
       { lnhpd_id: m[2] === '80000003' ? 77 : 78, licence_number: m[2], product_name: m[2] === '80000003' ? 'Gate magnesium' : 'Gate old product',
         flag_primary_name: 1, flag_product_status: m[2] === '80000003' ? 1 : 2, dosage_form: 'Capsule', company_name: 'Gate Co' }]);
@@ -301,6 +307,103 @@ try {
   Write-Host ("  photo: " + $p3 + " saved " + $p3a + " confirmed " + $p3b)
   Check (($p3 -like '*Provisional*read from your photo by your AI provider, not from a database*count toward nothing until you confirm*Zinc*15 mg per unit*as zinc gluconate*') -and ($p3 -like '*"btnH":4[4-9]*' -or $p3 -like '*"btnH":[5-9][0-9]*') -and ($p3a -like '*"zn":0,"prov":"label-photo"*')) "R281 GATE 3: A PHOTO WITH NO NPN IS PROVISIONAL -- said so, with its provenance and a 44 px confirm; saved unconfirmed, it counts toward nothing"
   Check ($p3b -like '*"zn":15,"src":"label-photo","conf":true*') ("R281 GATE 3: confirmed by the user in Edit, it counts -- 15 mg zinc, its source kept (" + $p3b + ")")
+  [void](Eval "HT.stackFormCancel(); HT.closeSettings()"); WaitQuiet 'settings closed'
+
+  # ---- R285: a dose in units, and no silent save (pre-registered in DECISIONS, R285) ---------------
+  # Zinc is read as a DIFFERENCE from what the day already holds, so the sections above stay as they are.
+  $znDay = "(function(){ var m = HT.stackDoseMicros(HT.todayKey()); return m.zinc_mg ? m.zinc_mg.amount : 0; })()"
+  $formNow = "(function(){ var l = document.querySelector('label[for=stkDose]'); var w = document.getElementById('stkWarn'); var r = w ? w.getBoundingClientRect() : null; var sv = document.querySelector('#sheetRoot .stklogform .stksave'); var q = sv ? sv.getBoundingClientRect() : null; var x = document.querySelector('label[for=stkX0A]'); return { label: l ? l.textContent : '', dose: (document.getElementById('stkDose') || {}).value, unit: (document.getElementById('stkUnit') || {}).value, micro: !!document.getElementById('stkMicro'), sug: (document.getElementById('stkSuggest') || {}).textContent || '', name: (document.getElementById('stkName') || {}).value, xk: (document.getElementById('stkX0K') || {}).value, xa: (document.getElementById('stkX0A') || {}).value, xlab: x ? x.textContent : '', warn: w ? w.textContent : '', wtop: r ? Math.round(r.top) : -1, wbot: r ? Math.round(r.bottom) : -1, stop: q ? Math.round(q.top) : -1, vh: window.innerHeight, n: HT.state().settings.stack.length }; })()"
+  function TickByName([string]$nm) {
+    [void](Eval ("(function(){ var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.querySelector('.stkname') && x.querySelector('.stkname').textContent === " + (ConvertTo-Json $nm) + "; })[0]; if (!r) return 0; r.querySelector('input[type=checkbox]').click(); return 1; })()"))
+    WaitQuiet 'ticked'
+  }
+  # GATE 1: the reported case, by taps from the home screen
+  [void](Eval "HT.closeSheet()"); WaitQuiet 'sheet closed'
+  $z0 = [double](Eval $znDay)
+  $zt = 0
+  if ((TapSel '#fab').ok) { $zt++ }
+  if ((TapSel '#sheetRoot .stkopen').ok) { $zt++ }
+  if ((TapSel '#sheetRoot .stkaddlog').ok) { $zt++ }
+  [void](Eval "document.getElementById('stkNpn').focus()"); TypeText '80000005'
+  if ((TapSel '#sheetRoot .stknpnlook').ok) { $zt++ }
+  $zf = EvalJ $formNow
+  Shot 'r285-how-many'
+  if ((TapSel '#sheetRoot .stklogform .stksave').ok) { $zt++ }
+  $zs = EvalJ "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Gate zinc'; }); var r = Array.prototype.filter.call(document.querySelectorAll('#sheetRoot .stkrow'), function (x) { return x.querySelector('.stkname') && x.querySelector('.stkname').textContent === 'Gate zinc'; })[0]; return { n: g.length, dose: g[0] ? g[0].dose : null, unit: g[0] ? g[0].dose_unit : '', zn: g[0] && g[0].nutrients && g[0].nutrients.micros ? g[0].nutrients.micros.zinc_mg : null, per: g[0] && g[0].nutrients && g[0].nutrients.detail && g[0].nutrients.detail.zinc_mg ? g[0].nutrients.detail.zinc_mg.per : '', row: !!r, box: r ? r.querySelectorAll('input[type=checkbox]').length : 0 }; })()"
+  TickByName 'Gate zinc'
+  $z1 = [double](Eval $znDay)
+  Write-Host ("  R285 form: " + $zf); Write-Host ("  R285 saved: " + $zs + " taps " + $zt + "; zinc " + $z0 + " -> " + $z1)
+  $zfv = $zf | ConvertFrom-Json
+  Check (($zfv.label -like 'How many*') -and ($zfv.dose -eq '1') -and ($zfv.unit -eq 'tablet') -and (-not $zfv.micro) -and ($zfv.sug -eq '') -and ($zt -eq 5) -and ($zs -like '*"n":1,"dose":1,"unit":"tablet","zn":50,"per":"unit","row":true,"box":1*') -and (($z1 - $z0) -eq 50)) ("R285 GATE 1: AN NPN PRODUCT, 50 mg ZINC PER TABLET, DOSE 1 TABLET -- the form asks 'How many?' beside 'tablet' (1, the label's serving), offers no 'Counts toward' and no zinc suggestion; saved in 5 taps, shown in + Log's Daily stack, ticked: +" + ($z1 - $z0) + " mg zinc")
+  # GATE 2: two tablets -- the taken dose edited, and an item saved at 2
+  $zid = Eval "HT.state().settings.stack.filter(function (x) { return x.name === 'Gate zinc'; })[0].id"
+  [void](Eval ("HT.stackSaveDose('" + $zid + "', '2', 'tablet')")); WaitQuiet 'dose edited'
+  $z2 = [double](Eval $znDay)
+  [void](Eval "HT.stackUncheck('$zid')"); WaitQuiet 'unticked'
+  [void](TapSel '#sheetRoot .stkaddlog')
+  [void](Eval "document.getElementById('stkNpn').focus()"); TypeText '80000005'
+  [void](TapSel '#sheetRoot .stknpnlook')
+  [void](Eval "(function(){ var d = document.getElementById('stkDose'); d.focus(); d.select(); return 1; })()"); TypeText '2'
+  [void](Eval "(function(){ var n = document.getElementById('stkName'); n.focus(); n.select(); return 1; })()"); TypeText 'Gate zinc two'
+  [void](TapSel '#sheetRoot .stklogform .stksave')
+  $zb = [double](Eval $znDay)
+  TickByName 'Gate zinc two'
+  $z3 = [double](Eval $znDay)
+  Write-Host ("  R285 two tablets: edited " + ($z2 - $z0) + "; saved at 2 and ticked +" + ($z3 - $zb))
+  Check ((($z2 - $z0) -eq 100) -and (($z3 - $zb) -eq 100)) ("R285 GATE 2: TWO TABLETS ADD 100 mg -- a taken dose edited from 1 to 2 tablets reads +" + ($z2 - $z0) + ", an item saved at 2 and ticked adds +" + ($z3 - $zb))
+  # GATE 3: a save that cannot complete says why, beside Save, and keeps what was entered
+  [void](TapSel '#sheetRoot .stkaddlog')
+  [void](Eval "document.getElementById('stkNpn').focus()"); TypeText '80000005'
+  [void](TapSel '#sheetRoot .stknpnlook')
+  [void](TapSel '#sheetRoot .stkxadd')
+  [void](Eval "(function(){ var k = document.getElementById('stkX0K'); k.value = 'zinc_mg'; return 1; })()")
+  [void](Eval "(function(){ var a = document.getElementById('stkX0A'); a.focus(); return 1; })()"); TypeText '10'
+  $zn0 = [int](Eval "HT.state().settings.stack.length")
+  [void](TapSel '#sheetRoot .stklogform .stksave')
+  $zw = EvalJ $formNow
+  Shot 'r285-refused'
+  Write-Host ("  R285 refused: " + $zw)
+  $zwv = $zw | ConvertFrom-Json
+  Check (($zwv.warn -like '*once*') -and ($zwv.wtop -ge 0) -and ($zwv.wbot -le $zwv.vh) -and ([Math]::Abs($zwv.stop - $zwv.wbot) -le 120) -and ($zwv.name -eq 'Gate zinc') -and ($zwv.dose -eq '1') -and ($zwv.xk -eq 'zinc_mg') -and ($zwv.xa -eq '10') -and ($zwv.n -eq $zn0)) ("R285 GATE 3: A SAVE THAT CANNOT COMPLETE SAYS WHY ON SCREEN -- '" + $zwv.warn + "' at " + $zwv.wtop + "-" + $zwv.wbot + " px of " + $zwv.vh + ", beside Save (" + $zwv.stop + "); every field kept as entered; nothing written")
+  [void](Eval "HT.stackFormCancel()"); WaitQuiet 'cancelled'
+  # GATE 4: by hand, no NPN -- 2 capsules, 15 mg zinc in each
+  [void](TapSel '#sheetRoot .stkaddlog')
+  [void](Eval "document.getElementById('stkName').focus()"); TypeText 'Item E'
+  [void](Eval "(function(){ var u = document.getElementById('stkUnit'); u.value = 'capsule'; u.dispatchEvent(new Event('change', { bubbles: true })); return 1; })()"); WaitQuiet 'unit'
+  [void](Eval "(function(){ var d = document.getElementById('stkDose'); d.focus(); d.select(); return 1; })()"); TypeText '2'
+  [void](TapSel '#sheetRoot .stkxadd')
+  [void](Eval "(function(){ var k = document.getElementById('stkX0K'); k.value = 'zinc_mg'; return 1; })()")
+  [void](Eval "(function(){ var a = document.getElementById('stkX0A'); a.focus(); return 1; })()"); TypeText '15'
+  $zh = EvalJ $formNow
+  [void](TapSel '#sheetRoot .stklogform .stksave')
+  $zc = [double](Eval $znDay)
+  TickByName 'Item E'
+  $zd = [double](Eval $znDay)
+  Write-Host ("  R285 by hand: " + $zh + " ticked +" + ($zd - $zc))
+  $zhv = $zh | ConvertFrom-Json
+  Check (($zhv.label -like 'How many*') -and ($zhv.xlab -like '*each capsule*') -and (($zd - $zc) -eq 30)) ("R285 GATE 4: BY HAND, NO NPN -- 'How many?' 2 capsules, zinc 15 mg 'in each capsule'; ticked, +" + ($zd - $zc) + " mg")
+  # GATE 5: an existing item with no per-unit data keeps its amount entry and is saved unchanged
+  $leg = @'
+(function () {
+  var S = HT.state();
+  S.settings.stack.push({ id: 'r285legacy', name: 'Item L', kind: 'supplement', enabled: true, dose: 600, dose_unit: 'mg', nutrients: { micros: { magnesium_mg: 600 } }, added_on: HT.shiftDate(HT.todayKey(), -10), added_basis: 'added' });
+  HT.resave();
+  window.__canon = function (v) { return JSON.stringify(v, function (k, x) { return (x && typeof x === 'object' && !Array.isArray(x)) ? Object.keys(x).sort().reduce(function (o, kk) { o[kk] = x[kk]; return o; }, {}) : x; }); };
+  var before = window.__canon(S.settings.stack.filter(function (x) { return x.id === 'r285legacy'; })[0]);
+  HT.closeSheet(); HT.openSettings(); var sd = document.getElementById('stackDetails'); if (sd) sd.open = true;
+  HT.stackFormOpen('r285legacy');
+  var l = document.querySelector('label[for=stkDose]');
+  var o = { label: l ? l.textContent : '', micro: (document.getElementById('stkMicro') || {}).value, before: before };
+  return o;
+})()
+'@
+  $zl = EvalJ $leg
+  WaitQuiet 'legacy edit'
+  [void](TapSel '#stackEditor .stksave')
+  $zla = Eval "window.__canon(HT.state().settings.stack.filter(function (x) { return x.id === 'r285legacy'; })[0])"
+  $zlv = $zl | ConvertFrom-Json
+  Write-Host ("  R285 existing item: " + $zlv.label + " / " + $zlv.micro + "; unchanged: " + ($zlv.before -eq $zla))
+  Check (($zlv.label -eq 'Amount') -and ($zlv.micro -eq 'magnesium_mg') -and ($zlv.before -eq $zla)) "R285 GATE 5: AN EXISTING ITEM WITH NO PER-UNIT DATA keeps its 'Amount' and 'Counts toward Magnesium', and Save leaves its stored record unchanged"
   [void](Eval "HT.closeSettings(); HT.setLnhpdFetch(null)")
 
 } catch {
