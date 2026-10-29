@@ -19764,3 +19764,27 @@ passes on this tree.**
 
 **R267.1 / R268** stay unrecorded labels. **f, the curators:** not started. The first
 run waits for the user's go, in a session they start (R263).
+
+**R286 pre-run pass (R284): four gates failed alone, each classified and fixed before
+any official run.** The 10 code checks and the harness (3427) passed; 54 of 58 gates
+passed alone.
+- **`fdc-gate` -- an app bug (mine).** `FDC_SLOTS`, the slot list USDA API rows are read
+  under, must equal the shipped corpus's own columns. It was not given the four new
+  slots. It now lists all 51, in the corpus's order.
+- **`flow-gate` J4 -- a latent app bug, exposed by the offer.** Opening an item now loads
+  the database for the offer, and a find-nutrients tap right after called `corpusEnsure`
+  a second time. `corpusAcquire` answers a concurrent caller "in-flight", which
+  `corpusEnsure` read as "no corpus" (measured: `none/no-corpus`, 0 rows). Every caller
+  now shares one in-flight `corpusEnsure`.
+- **`resolve-gate` -- two app flaws in the offer.**
+  - It borrowed the panel's class names (`.rwhy`, `.rkcal`), so the panel's provenance
+    line could be found in the wrong place. It now uses its own (`mlinkwhy`,
+    `mlinkkcal`).
+  - When its rows arrived it redrew the whole day, which detached the chip being tapped
+    and pushed "find nutrients" about 300 px down after the item had opened. That is
+    content moving under the thumb, D125's own lesson.
+  - The offer now sits **last** in the opened item, and only its own box is redrawn when
+    the rows arrive. `link-gate` passes unchanged.
+- **`potential-gate` -- a gate assumption.** It pinned the installed corpus at 47
+  columns. It now compares with the shipped file's own width and checks fructose (212)
+  is among the slots, which was the check's intent.

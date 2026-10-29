@@ -3540,8 +3540,20 @@ function corpusIsCurrent(m) {
   if (wantGroups && ((m.groups && m.groups.hash) || '') !== wantGroups) return false;
   return true;
 }
+// R286: ONE ENSURE AT A TIME, SHARED. A second caller while the first was still
+// loading met corpusAcquire's 'in-flight' refusal and read it as "no corpus" -- latent
+// until R286's link offer began loading on an item's opening, so a find-nutrients tap
+// right after found nothing (flow-gate J4, 'none/no-corpus'). Every caller now waits on
+// the same answer.
+let CORPUS_ENSURE_P = null;
 function corpusEnsure() {
   if (corpusIsCurrent(CORPUS_MEM)) return Promise.resolve({ ok: true, why: 'ready' });
+  if (CORPUS_ENSURE_P) return CORPUS_ENSURE_P;
+  const done = function (r) { CORPUS_ENSURE_P = null; return r; };
+  CORPUS_ENSURE_P = corpusEnsureOnce().then(done, function (e) { CORPUS_ENSURE_P = null; throw e; });
+  return CORPUS_ENSURE_P;
+}
+function corpusEnsureOnce() {
   const fromStore = CORPUS_MEM ? Promise.resolve(CORPUS_MEM) : corpusHydrate();
   return fromStore.then(function () {
     if (corpusIsCurrent(CORPUS_MEM)) return { ok: true, why: 'stored' };
@@ -3862,7 +3874,11 @@ function linkPrepare(dk, idx) {
   const p = resolveCompute(dk, idx, it, null, null).then(function (view) {
     const rows = (view.candidates || []).slice(0, LINK_ROWS);
     LINK_VIEW[key] = { phase: rows.length ? 'ready' : 'none', name: it.name, rows: rows, view: view };
-    if (itemOpen(dk, idx)) renderDay();
+    // only the offer's own box is redrawn: rows arriving must not rebuild the day under
+    // the user's thumb (D125's lesson) -- and it is the LAST thing in the opened item, so
+    // nothing above it moves
+    const box = document.getElementById(linkBoxId(dk, idx));
+    if (box && itemOpen(dk, idx)) box.outerHTML = itemLinkHTML(dk, idx, it);
     return { ok: true, phase: LINK_VIEW[key].phase, rows: rows.length };
   });
   LINK_VIEW[key] = { phase: 'loading', name: it.name, p: p };
@@ -3912,24 +3928,26 @@ function linkAccuracyWords(a) {
     + a.first + ' of ' + a.n + ' (' + Math.round(100 * a.first / a.n) + ' %), and among these three for '
     + a.three + ' of ' + a.n + ' (' + Math.round(100 * a.three / a.n) + ' %).';
 }
+function linkBoxId(dk, idx) { return 'mlink_' + String(dk).replace(/[^0-9]/g, '') + '_' + idx; }
 function itemLinkHTML(dk, idx, it) {
   if (!linkEligible(it)) return '';
+  const bid = linkBoxId(dk, idx);
   const v = LINK_VIEW[dk + '|' + idx];
   if (!v || v.name !== it.name) {
     // opened before this build, or the item at this place changed: one button asks
-    return '<div class="mlink"><button type="button" class="linklike mlinkfind" onclick="event.stopPropagation();linkPrepare(\''
+    return '<div class="mlink" id="' + bid + '"><button type="button" class="linklike mlinkfind" onclick="event.stopPropagation();linkPrepare(\''
       + esc(dk) + '\',' + idx + ')">Link a database row?</button></div>';
   }
-  if (v.phase === 'loading') return '<div class="mlink"><div class="note">Looking for database rows…</div></div>';
+  if (v.phase === 'loading') return '<div class="mlink" id="' + bid + '"><div class="note">Looking for database rows…</div></div>';
   const findBtn = '<button type="button" class="linklike mlinkfind" onclick="event.stopPropagation();resolveOpen(\''
     + esc(dk) + '\',' + idx + ')">None of these — find nutrients</button>';
-  if (v.phase !== 'ready') return '<div class="mlink"><div class="note">No database row matches “' + esc(String(it.name || '')) + '”.</div>' + findBtn + '</div>';
+  if (v.phase !== 'ready') return '<div class="mlink" id="' + bid + '"><div class="note">No database row matches “' + esc(String(it.name || '')) + '”.</div>' + findBtn + '</div>';
   const prop = v.view && v.view.proposed ? String(v.view.proposed.id) : null;
   const mine = v.view && v.view.mine != null && v.view.mine === v.view.mine ? Number(v.view.mine) : null;
-  let h = '<div class="mlink"><div class="mlinkhead">Link a database row? Nothing counts until you tap one.</div>';
+  let h = '<div class="mlink" id="' + bid + '"><div class="mlinkhead">Link a database row? Nothing counts until you tap one.</div>';
   h += v.rows.map(function (c, i) {
-    const kc = (c.kcal != null && c.kcal === c.kcal) ? '<span class="rkcal">' + esc(kcalDisp(c.kcal)) + ' cal per 100 g</span>' : '<span class="rkcal">calories not in this row</span>';
-    const why = (prop !== null && String(c.id) === prop) ? '<span class="rwhy">' + proposedWhy(v.view.proposed) + '</span>' : '';
+    const kc = (c.kcal != null && c.kcal === c.kcal) ? '<span class="mlinkkcal">' + esc(kcalDisp(c.kcal)) + ' cal per 100 g</span>' : '<span class="mlinkkcal">calories not in this row</span>';
+    const why = (prop !== null && String(c.id) === prop) ? '<span class="mlinkwhy">' + proposedWhy(v.view.proposed) + '</span>' : '';
     return '<button type="button" class="btn mlinkrow" onclick="event.stopPropagation();linkPick(\'' + esc(dk) + '\',' + idx + ',' + i + ')">'
       + esc(c.name) + kc + why + '</button>';
   }).join('');
@@ -7712,11 +7730,12 @@ function renderDayInner() {
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
-        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${itemLinkHTML(dk, idx, it)}${legacyHTML}${ateHTML}${itemRecountHTML(it)}${itemFermentedHTML(it)}
+        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${legacyHTML}${ateHTML}${itemRecountHTML(it)}${itemFermentedHTML(it)}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${isLegacyAuto(it) ? '' : sittingLinkHTML(dk, sittingOfItem(dk, idx))}
           <button type="button" class="linklike medit" onclick="openItemEdit(${idx})">Edit this item</button>
+          ${itemLinkHTML(dk, idx, it)}
         </div>` : ''}</div>`;
     });
     html += `</div></div>`;
@@ -23333,9 +23352,9 @@ const FDC_TERMS_MAX = 3;        // names searched per tap, at most (each is one 
 const FDC_TIMEOUT_MS = 15000;
 // The corpus slot list, held here so a search works before the corpus has arrived;
 // fdc-gate holds it equal to the shipped files' own list.
-const FDC_SLOTS = [203, 204, 205, 207, 208, 212, 221, 255, 262, 263, 268, 269, 291, 301, 303, 304, 305, 306,
-  307, 309, 312, 318, 319, 320, 328, 401, 404, 405, 406, 409, 415, 417, 418, 431, 601, 606, 617, 618, 621,
-  631, 645, 646, 806, 815, 832, 854, 861];
+const FDC_SLOTS = [203, 204, 205, 207, 208, 212, 221, 255, 262, 263, 268, 269, 291, 301, 303, 304, 305, 306, 307, 309,
+  312, 318, 319, 320, 328, 401, 404, 405, 406, 409, 415, 417, 418, 431, 601, 606, 617, 618, 621, 629,
+  631, 645, 646, 806, 815, 832, 851, 854, 861, 868, 869];
 
 // The key: write-only, as the AI key is. Its own entry in this device's storage,
 // outside the log, so no export or backup can carry it; only the mask is shown.

@@ -210,6 +210,10 @@ window.__stage = 'start';
   await HT.corpusEnsure(); HT.matchIndexBuild(); await window.__htQuiet(10000);
   O.ns = HT.corpusNamespace();
   O.cols = HT.corpusState().cols;
+  // R286/3: the shipped spec's own width, read from the shipped file -- the corpus grew
+  // past 47 by ruling, and a pinned number would fail every future slot for no reason
+  const shippedMeta = await (await fetch('corpus/dist/' + O.ns + '.json')).json();
+  O.shippedCols = shippedMeta.cols; O.has212 = (shippedMeta.slots || []).indexOf(212) >= 0;
 
   // ---- the API exists at all (a missing symbol must not abort the probe) ----
   stage('api');
@@ -460,7 +464,7 @@ window.__stage = 'start';
 
   # --- the fixture itself must be real, or every assertion below is vacuous ---
   Chk ($R.ns -eq 'cnf') "the Canadian namespace was not driven (ns=$($R.ns))"
-  Chk ($R.cols -eq 47) "the installed corpus has $($R.cols) columns, not the 47 that include fructose -- the slot shipped but the device did not take it"
+  Chk (($R.cols -eq $R.shippedCols) -and $R.has212) "the installed corpus has $($R.cols) columns, not the shipped $($R.shippedCols) that include fructose (212: $($R.has212)) -- the slot shipped but the device did not take it"
   Chk ($R.refsWritten -eq 4) "$($R.refsWritten) of 4 fixture items resolved against the real corpus -- without all four, the fructose and water cases are not exercised"
 
   # --- the API exists -------------------------------------------------------
