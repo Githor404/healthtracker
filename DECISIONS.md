@@ -19984,3 +19984,23 @@ Each entry has its id, what it says, its source and a blank Approve / Change / R
 line. Decisions come back in batches and are applied with `review_list.py --approve`,
 only for the ids named. Nothing reaches the phone unreviewed. The file stays private
 (R204).
+
+## R294 -- WHAT AN APPROVAL MEANS (2026-10-29; the evidence store, private)
+
+*The user's ruling of 29 Oct, recorded here because it binds every review batch.*
+
+**An approval says the record is faithful, not that it is true.** Approving an entry
+(`reviewed_by_me`) means it faithfully states the claim, its source and its evidence.
+It is not an endorsement of the claim.
+
+**No curation (R259).** A claim the evidence does not support is kept, carrying a low
+probability. It is not rejected for being unlikely. A reject is for a record that
+misstates its claim, source or evidence.
+
+**General probabilities in the review.** The probabilities added in this batch were
+authored by the advisor (Claude, claude-opus-5-5, 2026-10-29), approved by the user,
+and logged in the private calibration store (R260/R261).
+
+The store and the pack stay in HTPrivate (R204). The lexicon (R290.1, R291, R292) and
+this batch of claims and interactions were reviewed on 29 Oct. Every entry, its
+decision and its source are recorded there, not here.
