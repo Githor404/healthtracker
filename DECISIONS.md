@@ -19788,3 +19788,80 @@ passed alone.
 - **`potential-gate` -- a gate assumption.** It pinned the installed corpus at 47
   columns. It now compares with the shipped file's own width and checks fructose (212)
   is among the slots, which was the check's intent.
+
+## R287 -- WHAT KEEPS A FAST (2026-10-29, v0.113.1; supersedes R269 #4)
+
+*The user's ruling of 29 Oct: a fast is "mostly zero calorie"; fat-only additions keep
+it, real food breaks it. Serves **track**. Released as v0.113.1, not v0.112.2 as the
+relay said: v0.113.0 (R286) was already live, and versions only go up. Placeholders
+only in the repo (R204).*
+
+**Built.**
+- **The rule, in one place.** `fastJudge` decides for each logged unit: an item, or
+  every item of one combo logged at one time. `fastEvents`, the one detector the ring,
+  the weekly review and Trends read, now asks it. In order:
+  1. Alcohol (`drinkHasAlcohol`) always ends a fast.
+  2. The user's mark, if any: the entry's newest tap across the unit, else the combo's.
+  3. Unknown carbs or protein end a fast. Known means the R237 precedence says whose
+     the numbers are (a linked row, the user's own, a label's printed figure, the
+     user's own food). An AI estimate with no row, an unconfirmed suggestion and an
+     unmeasured zero are unknown.
+  4. Otherwise: net carbs (carbs minus fibre) <= 5 g AND protein <= 5 g for the unit.
+- **Limits.** `settings.fasting.keepNetCarbMax` / `keepProteinMax`, default 5 / 5,
+  set in Settings > Fasting. An invalid value is refused in words; an empty one
+  returns to the default.
+- **The mark.** `fast_override` holds every tap with its time (`keeps` / `breaks` /
+  `rule`); the last one is in force. It survives the item and combo boundaries, and a
+  combo edit keeps it. It is set from the opened entry, from the item's editor, and
+  from a combo's Edit.
+- **The words.** Settings and the weekly review's fasting ⓘ state the rule in the
+  ruling's words: "Fast: no food; items with ≤ 5 g carbs and ≤ 5 g protein (e.g.
+  coffee with cream, oils) are allowed. Alcohol always ends a fast." Nothing about
+  ketosis or autophagy.
+
+**Read on my side, said here.**
+- **Alcohol over the user's mark.** The ruling says both "the override wins over the
+  rule" and "alcohol always ends a fast". The stronger word is kept: a "keeps my fast"
+  mark on a drink with alcohol does not keep a fast, and the entry offers no mark there.
+- **"Net carbs" vs "carbs".** Ruling 1 says "net carbs"; ruling 3's sentence says
+  "carbs". The rule computes net carbs (fibre subtracted when known), and the sentence
+  is shown exactly as ruled.
+
+**Retroactive, measured on the newest backup** (29 Oct). The app's own code was run,
+v0.113.0 against v0.113.1, by restoring the backup in a browser.
+- **Closed fasts:** 25 before, **31 after**. 17 are unchanged, **8 are longer** and
+  **6 are newly counted**: a morning item had split each of those gaps below 12 h.
+- **Total fasting time:** 479.6 h before, 584.1 h after.
+- **The 48 h ceiling still applies.** Gaps of 48 h or more are 7 before and 7 after;
+  none crossed the line. The longest fast is 46.2 h (it was 45.2 h).
+- **Stored data:** none changes.
+
+**Gates.**
+- **Harness, +12 (3439),** the ruling's cases, all PASS:
+  - cream coffee keeps a fast;
+  - butter + coconut-oil coffee (a combo, about 220 kcal) keeps it;
+  - a tablespoon of oil keeps it;
+  - a 30 g protein item ends it;
+  - wine ends it whatever its macros;
+  - an AI estimate with no row, and an unresolved item, end it;
+  - a two-part combo is judged whole (6 g protein ends it);
+  - a mark flips it each way, with its time kept; "back to the rule" works; a combo's
+    mark applies;
+  - the limits are adjustable;
+  - the mark survives the boundary;
+  - one 16 h fast holds across a cream coffee;
+  - the words are as ruled.
+- **Harness fixtures changed.** Two existing fixtures modelled "food" as 100 kcal with
+  zero carbs and zero protein, which is fat-only under the new rule. They now carry
+  carbs (the ring tests' `rrFood`, and the R269 unlogged-gap case). That is a fixture
+  meeting a new rule, not an app bug.
+- **New `fastrule-gate`** (6 checks, PASS), at 390 px:
+  - the line on an opened entry and its 44 px taps;
+  - one tap marks the coffee "breaks my fast" (16 h becomes 12 h; the tap is kept
+    with its time);
+  - the item editor carries the same line;
+  - Settings shows the rule's words and limits, and a limit can be changed;
+  - the weekly note matches word for word.
+
+**Later (not now), as ruled:** a breath-ketone n-of-1 -- readings before and 1-2 h
+after a fat coffee during a fast.

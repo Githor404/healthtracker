@@ -5923,8 +5923,8 @@ window.setLS({});
   res(HT.dayTotals(HT.state().days[td]).kcal === 500, 'SE-invariants 1: events/biometrics never enter food totals');
   res(HT.completeDaysInWindow(7).indexOf(td) < 0, 'SE-invariants 2: averages are complete-days-only (in-progress excluded)');
   setLS({}); HT.boot();
-  HT.state().days['2026-06-01'] = { status:'complete', items:[{ name:'a', meal:'snack', time:'08:00', kcal:100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
-  HT.state().days['2026-06-03'] = { status:'complete', items:[{ name:'b', meal:'snack', time:'20:00', kcal:100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
+  HT.state().days['2026-06-01'] = { status:'complete', items:[{ name:'a', meal:'snack', time:'08:00', kcal:100, protein_g:0, fat_g:0, carb_g:25, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
+  HT.state().days['2026-06-03'] = { status:'complete', items:[{ name:'b', meal:'snack', time:'20:00', kcal:100, protein_g:0, fat_g:0, carb_g:25, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }], water_l:0 };
   res(HT.confirmedFasts().length === 0 && HT.fastGaps(null)[0].unlogged === true && HT.dayTotals(HT.state().days['2026-06-01']).kcal === 100 && HT.dayTotals(HT.state().days['2026-06-03']).kcal === 100,
       'R269 SE-invariants 3: 60 h with nothing logged is an UNLOGGED GAP, not a fast (no fast is longer than 48 h), and never touches a food total');
   HT.state().days['2026-06-03'].items[0].time = '07:00';
@@ -6191,7 +6191,7 @@ window.setLS({});
   function fixClock(){ HT.setClock(function(){ return FIXED; }); }
   function freeClock(){ HT.setClock(null); }
   function rrDay(d, items){ HT.state().days[d] = { status:'in_progress', items: items||[], water_l:0 }; }
-  function rrFood(name, time, kcal){ return { name:name, meal:'snack', time:time, kcal:kcal||100, protein_g:0, fat_g:0, carb_g:0, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }; }
+  function rrFood(name, time, kcal){ return { name:name, meal:'snack', time:time, kcal:kcal||100, protein_g:0, fat_g:0, carb_g:20, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }; }
 
   // RR-derived: the model traces to the same records as the timeline.
   setLS({}); HT.boot(); fixClock();
@@ -11908,6 +11908,61 @@ window.setLS({});
   var qZx = HT.stackUpsert({ name: 'Gate zinc 6', kind: 'supplement', dose: 1, dose_unit: 'tablet', product: qZp, extra: [{ key: 'zinc_mg', amount: 10, unit: 'mg', per: 'unit' }] });
   res(!qZx.ok && /already counted/.test(qZx.error) && /once/.test(qZx.error),
       'R285 GATE 3: zinc from the product AND a typed zinc row is refused, and the words say where it is already counted', qZx.error);
+  // ---- R287: what keeps a fast -- net carbs <= 5 g and protein <= 5 g, alcohol always ends --
+  var _fkDays = HT.state().days, _fkSet = JSON.parse(JSON.stringify(HT.state().settings));
+  var fk = function (o) { return Object.assign({ meal: 'snack', time: '08:00', confidence: 'eyeballed', source: 'manual', notes: '', soluble_fiber_g: 0, fiber_g: 0 }, o); };
+  HT.state().settings.combos = [{ id: 'cbFat', name: 'Item fat coffee', parts: [{ name: 'Part A', grams: 14, kcal: 100 }] }];
+  HT.state().days = { '2026-10-21': { status: 'complete', water_l: 0, items: [
+    fk({ name: 'Item coffee with cream', kcal: 60, fat_g: 6, carb_g: 1, protein_g: 0.8 }),                                   // 0
+    fk({ name: 'Part A', kcal: 100, fat_g: 11.4, carb_g: 0, protein_g: 0.1, comboId: 'cbFat', time: '09:00' }),               // 1
+    fk({ name: 'Part B', kcal: 120, fat_g: 14, carb_g: 0, protein_g: 0, comboId: 'cbFat', time: '09:00' }),                  // 2
+    fk({ name: 'Item oil, one tablespoon', kcal: 119, fat_g: 13.5, carb_g: 0, protein_g: 0, time: '10:00' }),                 // 3
+    fk({ name: 'Item protein shake', kcal: 160, fat_g: 2, carb_g: 4, protein_g: 30, time: '11:00' }),                         // 4
+    fk({ name: 'Item wine', meal: 'drink', kcal: 120, fat_g: 0, carb_g: 4, protein_g: 0, time: '12:00', source: 'corpus',
+         grams: 150, ref: { ns: 'cnf', id: '2852', name: 'Wine', at: '2026-10-21', hash: 'x', attribution: 'x', how: 'picked', when: 'later', g: 150, v: { '208': 120, '203': 0, '204': 0, '205': 4, '221': 15 } } }), // 5
+    fk({ name: 'Item photo stew', source: 'ai-paste', kcal: 40, fat_g: 1, carb_g: 2, protein_g: 1, time: '13:00' }),          // 6
+    fk({ name: 'Item mystery', source: 'ai-paste', unresolved: true, time: '14:00' }),                                       // 7
+    fk({ name: 'Part C', kcal: 30, fat_g: 1, carb_g: 1, protein_g: 3, comboId: 'cbTwo', time: '15:00' }),                     // 8
+    fk({ name: 'Part D', kcal: 30, fat_g: 1, carb_g: 1, protein_g: 3, comboId: 'cbTwo', time: '15:00' }) ] } };               // 9
+  var J = function (i) { return HT.fastJudge('2026-10-21', i); };
+  res(J(0).keeps && J(1).keeps && J(2).keeps && J(3).keeps,
+      'R287 GATE: cream coffee KEEPS a fast; butter + coconut oil coffee (~220 kcal, ~0 carbs and protein, a combo) keeps it; a tablespoon of oil keeps it -- fat and calories do not end it', JSON.stringify([J(0), J(1), J(3)]));
+  res(!J(4).keeps && J(4).by === 'rule', 'R287 GATE: a 30 g protein item ENDS a fast', JSON.stringify(J(4)));
+  res(!J(5).keeps && J(5).by === 'alcohol', 'R287 GATE: wine ENDS a fast whatever its macros (4 g carbs, 0 protein) -- alcohol always', JSON.stringify(J(5)));
+  res(!J(6).keeps && J(6).by === 'unknown' && !J(7).keeps && J(7).by === 'unknown',
+      'R287 GATE: an item whose carbs or protein nobody confirmed ENDS a fast -- an AI estimate with no row, and an unresolved item (absent is not zero)', JSON.stringify([J(6), J(7)]));
+  res(!J(8).keeps && J(8).protein === 6 && !J(9).keeps,
+      'R287: a combo logged together is judged AS A WHOLE -- two parts of 3 g protein are 6 g, over 5, and both parts end the fast together', JSON.stringify(J(8)));
+  HT.fastOverrideSet('2026-10-21', 4, 'keeps'); HT.fastOverrideSet('2026-10-21', 0, 'breaks'); HT.fastOverrideSet('2026-10-21', 5, 'keeps');
+  var qO = HT.state().days['2026-10-21'].items[4].fast_override;
+  res(J(4).keeps && J(4).by === 'yours' && !J(0).keeps && J(0).by === 'yours' && !J(5).keeps && J(5).by === 'alcohol'
+      && qO.length === 1 && qO[0].v === 'keeps' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(qO[0].at),
+      'R287 GATE: THE USER\'S OVERRIDE FLIPS EACH WAY -- the protein item marked "keeps my fast" keeps it, the cream coffee marked "breaks my fast" ends it, each tap kept with its time; wine marked "keeps" still ends it (alcohol always)', JSON.stringify(qO));
+  HT.fastOverrideSet('2026-10-21', 4, 'rule');
+  res(!J(4).keeps && J(4).by === 'rule' && HT.state().days['2026-10-21'].items[4].fast_override.length === 2,
+      'R287: "Back to the rule" returns the item to the rule, and both taps stay on record');
+  HT.comboFastOverrideSet('cbFat', 'breaks');
+  res(!J(1).keeps && J(1).by === 'yours' && HT.fastOverrideNow(HT.state().settings.combos[0].fast_override) === 'breaks',
+      'R287: a COMBO\'s own mark applies to its logged entries -- the fat coffee marked "breaks my fast" ends it');
+  HT.comboFastOverrideSet('cbFat', 'rule');
+  HT.state().settings.fasting = Object.assign({}, HT.state().settings.fasting || {}, { keepProteinMax: 10 });
+  res(J(8).keeps && !J(4).keeps && HT.fastKeepLimits().protein === 10 && HT.fastKeepLimits().netCarb === 5,
+      'R287: the limits are the user\'s -- protein up to 10 g lets the 6 g combo keep a fast; the 30 g shake still ends it');
+  delete HT.state().settings.fasting.keepProteinMax;
+  var qN2 = HT.normalizeItem({ name: 'X', kcal: 1, fast_override: [{ v: 'keeps', at: '2026-10-21T08:00' }, { v: 'nonsense', at: 'x' }] });
+  res(qN2.fast_override.length === 1 && qN2.fast_override[0].v === 'keeps',
+      'R287: the override survives the item boundary (restore, import); a malformed one is dropped, never repaired');
+  // the whole fast: dinner 20:00, cream coffee 08:00, lunch 12:00 -> one 16 h fast, not 12 h + 4 h
+  HT.state().days = {
+    '2026-10-22': { status: 'complete', water_l: 0, items: [fk({ name: 'Item dinner', kcal: 600, fat_g: 20, carb_g: 60, protein_g: 40, time: '20:00' })] },
+    '2026-10-23': { status: 'complete', water_l: 0, items: [fk({ name: 'Item coffee with cream', kcal: 60, fat_g: 6, carb_g: 1, protein_g: 0.8, time: '08:00' }),
+                                                            fk({ name: 'Item lunch', kcal: 500, fat_g: 20, carb_g: 50, protein_g: 30, time: '12:00' })] } };
+  var qF = HT.fastsClosed().map(function (g) { return g.hours; });
+  res(qF.length === 1 && qF[0] === 16, 'R287 GATE: a cream coffee inside a fast does not end it -- dinner 20:00 to lunch 12:00 is ONE 16 h fast', JSON.stringify(qF));
+  res(HT.FAST_RULE_WORDS === 'Fast: no food; items with ≤ 5 g carbs and ≤ 5 g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.'
+      && HT.fastRuleWords() === HT.FAST_RULE_WORDS && !/ketosis|autophagy/i.test(HT.FAST_RULE_WORDS),
+      'R287: the rule is said in the ruling\'s own words, and nothing about ketosis or autophagy');
+  HT.state().days = _fkDays; HT.state().settings = _fkSet;
   // ---- R286: the link offer's eligibility, fermented without a pack, the weekly batch --
   var qL = function (o) { return Object.assign({ name: 'Item L', meal: 'lunch', source: 'ai-paste', grams: 100, kcal: 100 }, o || {}); };
   res(HT.linkEligible(qL()) && !HT.linkEligible(qL({ ref: { ns: 'cnf', id: '1' } })) && !HT.linkEligible(qL({ suggested: { id: '1' } }))

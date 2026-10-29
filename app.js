@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.113.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.113.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -604,6 +604,8 @@ function normalizeItem(it, clampMacros) {
   // occasion into one row -- and it is a LINK, not a merge: the item's numbers are
   // its own, which is the whole point of not being a composite.
   if (it.comboId != null && String(it.comboId) !== '') out.comboId = String(it.comboId);
+  const fov = normalizeFastOverride(it.fast_override);                        // R287: the user's own taps, with their times
+  if (fov.length) out.fast_override = fov;
   // ...and the third provenance (ruling 2). Carried on the ITEM, not only on the
   // combo, because the citation has to travel with the values it describes -- an
   // item whose source lived only in settings would lose it the moment the combo
@@ -1141,6 +1143,8 @@ function normalizeCombo(raw) {
   const out = { id: String(r.id == null ? '' : r.id) || newComboId(), name: name, parts: parts };
   if (num(r.mult) > 0) out.mult = num(r.mult);          // a remembered default multiplier
   if (r.place != null && String(r.place).trim() !== '') out.place = String(r.place).trim();
+  const fov = normalizeFastOverride(r.fast_override);                         // R287
+  if (fov.length) out.fast_override = fov;
   return out;
 }
 function normalizeCombos(raw) {
@@ -7730,7 +7734,7 @@ function renderDayInner() {
             ${isDrink ? '<span class="mgiflag">drink</span>' : ''}
             ${headSlot}
           </div>${rm}
-        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${legacyHTML}${ateHTML}${itemRecountHTML(it)}${itemFermentedHTML(it)}
+        </div>${servedHTML}${isOpen ? `<div class="mbody">${stateHTML}${legacyHTML}${ateHTML}${itemRecountHTML(it)}${itemFastHTML(dk, idx, it)}${itemFermentedHTML(it)}
           <div class="mmeta">${it.grams != null ? esc(rDisp(it.grams)) + ' g \u00b7 ' : ''}<span class="dot ${dot}"></span>${esc(confWord(it.confidence))} \u00b7 ${macroMeta} \u00b7 <span class="src">${esc(itemSourceWord(it))}</span>${edited}</div>
           ${bodyKcal}${chip}${refline}${bodyChip}
           ${isLegacyAuto(it) ? '' : sittingLinkHTML(dk, sittingOfItem(dk, idx))}
@@ -8292,6 +8296,7 @@ function itemEditHTML(it, idx, focus) {
     <div class="rerow" style="flex-wrap:wrap">${macros}</div>
     <label>Notes</label><input id="ieNotes" value="${esc(it.notes || '')}">
     <div id="ieMsg"></div>${unresNote}${origNote}${aiNote}
+    ${itemFastHTML(APP_STATE.current, idx, it)}
     <div class="rerow" style="margin-top:8px">
       <button class="btn primary" onclick="saveItemEdit(${esc(String(idx))})">Save</button>
       <button class="btn" onclick="closeItemEdit()">Cancel</button>
@@ -11386,24 +11391,159 @@ function averageOver(dateKeys) {
 // supplement (Fork 1b: kcal>0 is a protocol stance; the ~5 kcal _auto daily
 // supplement is exempt). Events are (date + time) across ALL days, chronological
 // — fasting is cross-day (dinner -> next-day lunch spans two date keys).
+// ---- R287: WHAT KEEPS A FAST (supersedes R269 #4's "only a known 0 kcal") ----------
+// The user's rule (29 Oct): a fast is "mostly zero calorie" -- fat-only additions keep
+// it (cream in coffee, butter or coconut oil in coffee, olive oil, seed oils); real food
+// breaks it. A logged item KEEPS a fast when, for the portion logged, net carbs <= 5 g
+// AND protein <= 5 g, whatever its fat or calories. A combo logged together is judged
+// as the whole combo. Alcohol always ends a fast. Numbers nobody confirmed -- an AI
+// estimate with no row, a suggestion not yet taken, a zero nobody measured -- are
+// UNKNOWN, and unknown ends a fast (absent is not zero, R269). The user's own
+// override, an item's or a combo's, wins over the rule -- except over alcohol, which
+// the ruling says ends a fast always. Read on read: nothing stored changes.
+const FAST_KEEP_DEFAULT = { netCarb: 5, protein: 5 };
+const FAST_OVERRIDES = ['keeps', 'breaks', 'rule'];
+function fastKeepLimits() {
+  const f = (APP_STATE && APP_STATE.settings && APP_STATE.settings.fasting) || {};
+  const g = function (v, d) { return (v != null && v !== '' && isFinite(Number(v)) && Number(v) >= 0) ? Number(v) : d; };
+  return { netCarb: g(f.keepNetCarbMax, FAST_KEEP_DEFAULT.netCarb), protein: g(f.keepProteinMax, FAST_KEEP_DEFAULT.protein) };
+}
+// Every override is the user's tap, kept with its time; the last one is in force, and
+// 'rule' hands the item back to the rule.
+function normalizeFastOverride(v) {
+  if (!Array.isArray(v)) return [];
+  return v.filter(function (e) { return e && FAST_OVERRIDES.indexOf(e.v) >= 0 && STACK_SWITCH_AT.test(String(e.at)); })
+    .map(function (e) { const o = { v: e.v, at: String(e.at) }; const tz = normalizeTzo(e.tzo); if (tz !== undefined) o.tzo = tz; return o; });
+}
+function fastOverrideNow(list) {
+  const l = normalizeFastOverride(list);
+  const last = l[l.length - 1];
+  return last && last.v !== 'rule' ? last.v : null;
+}
+// The numbers are KNOWN when the precedence rule (R237) says whose they are: a linked
+// row, the user's own, a label's printed figure, or the user's own food.
+function itemMacrosKnown(it) {
+  if (!it || !itemHasMacros(it)) return false;
+  if (it.kcal_on_label === true || MYFOOD_BASES.indexOf(it.basis) >= 0) return true;
+  return ['row', 'row+yours', 'yours'].indexOf(precedenceOf(it).from) >= 0;
+}
+function itemNetCarb(it) { return Math.max(0, num(it.carb_g) - num(it.fiber_g)); }
+// One logged unit: an item, or every item of one combo logged at one time.
+function fastUnitOf(dk, idx) {
+  const items = (((APP_STATE.days || {})[dk] || {}).items) || [];
+  const it = items[idx];
+  if (!it) return [];
+  if (!it.comboId) return [{ it: it, idx: idx }];
+  const out = [];
+  items.forEach(function (x, i) { if (x && x.comboId === it.comboId && x.time === it.time) out.push({ it: x, idx: i }); });
+  return out;
+}
+// The judgement for one logged unit: { keeps, why, by, netCarb, protein }.
+function fastJudge(dk, idx) {
+  const unit = fastUnitOf(dk, idx);
+  if (!unit.length) return null;
+  const lim = fastKeepLimits();
+  const its = unit.map(function (u) { return u.it; });
+  const combo = its[0].comboId ? ((APP_STATE.settings.combos || []).filter(function (c) { return c.id === its[0].comboId; })[0] || null) : null;
+  if (its.some(function (x) { return drinkHasAlcohol(x) === true; }))
+    return { keeps: false, by: 'alcohol', why: 'alcohol always ends a fast' };
+  // the entry's own override first (the newest tap across the unit), then the combo's
+  let ent = null;
+  its.forEach(function (x) { const l = normalizeFastOverride(x.fast_override); const e = l[l.length - 1]; if (e && (!ent || e.at > ent.at)) ent = e; });
+  const ov = ent ? (ent.v !== 'rule' ? ent.v : null) : (combo ? fastOverrideNow(combo.fast_override) : null);
+  if (ov) return { keeps: ov === 'keeps', by: 'yours', why: 'you marked it “' + (ov === 'keeps' ? 'keeps my fast' : 'breaks my fast') + '”' };
+  if (its.some(function (x) { return !itemMacrosKnown(x); }))
+    return { keeps: false, by: 'unknown', why: 'its carbs or protein are not known, and unknown is not zero' };
+  const nc = its.reduce(function (s, x) { return s + itemNetCarb(x); }, 0);
+  const pr = its.reduce(function (s, x) { return s + num(x.protein_g); }, 0);
+  const keeps = nc <= lim.netCarb && pr <= lim.protein;
+  return { keeps: keeps, by: 'rule', netCarb: nc, protein: pr,
+           why: rDisp(nc) + ' g net carbs and ' + rDisp(pr) + ' g protein' + (its.length > 1 ? ' for the whole combo' : '')
+             + (keeps ? ' — within ' : ' — over ') + rDisp(lim.netCarb) + ' g / ' + rDisp(lim.protein) + ' g' };
+}
 function fastEvents() {
   const evs = [];
   Object.keys(APP_STATE.days).forEach((d) => {
-    (APP_STATE.days[d].items || []).forEach((it) => {
-      // R31: an UNRESOLVED item is food that was eaten whose composition is unknown.
-      // Read through `num(it.kcal) > 0` alone it scores 0 and does NOT break a fast --
-      // absence-as-zero again, in the one consumer where it invents a fast that did
-      // not happen rather than merely understating a total. Unknown calories are not
-      // no calories, so the item counts as a food event on the strength of having
-      // been eaten at a time, which is all this detector ever needed from it.
-      // R269: and a zero nobody measured (itemZeroUnknown) is unknown too. Only a
-      // known zero -- a linked row or a label that says 0 -- leaves a fast intact.
-      const isFoodEvent = num(it.kcal) > 0 || !itemHasMacros(it);
-      if (isFoodEvent && !isLegacyAuto(it) && /^\d{2}:\d{2}$/.test(String(it.time)))
-        evs.push(d + 'T' + it.time);
+    (APP_STATE.days[d].items || []).forEach((it, idx) => {
+      // R31 / R269: an item whose composition is unknown is food that was eaten -- it
+      // ends a fast. R287: and a known one ends it unless it is within the rule (or the
+      // user's override says it keeps the fast). Only a timed, non-legacy item is an event.
+      if (isLegacyAuto(it) || !/^\d{2}:\d{2}$/.test(String(it.time))) return;
+      const j = fastJudge(d, idx);
+      if (!j || !j.keeps) evs.push(d + 'T' + it.time);
     });
   });
   return evs.sort();
+}
+// R287: the user's tap -- on a logged entry (and with it every item of its logged
+// combo), or on a combo itself. Kept with its time; never inferred.
+function fastOverrideSet(dk, idx, v) {
+  if (FAST_OVERRIDES.indexOf(v) < 0) return { ok: false };
+  const unit = fastUnitOf(dk, idx);
+  if (!unit.length) return { ok: false };
+  const ev = { v: v, at: stackStampNow() };
+  const tz = normalizeTzo(nowTZO()); if (tz !== undefined) ev.tzo = tz;
+  unit.forEach(function (u) { u.it.fast_override = normalizeFastOverride(u.it.fast_override).concat([ev]); });
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, n: unit.length, judge: fastJudge(dk, idx) };
+}
+function comboFastOverrideSet(id, v) {
+  if (FAST_OVERRIDES.indexOf(v) < 0) return { ok: false };
+  const c = (APP_STATE.settings.combos || []).filter(function (x) { return x.id === String(id); })[0];
+  if (!c) return { ok: false };
+  const ev = { v: v, at: stackStampNow() };
+  const tz = normalizeTzo(nowTZO()); if (tz !== undefined) ev.tzo = tz;
+  c.fast_override = normalizeFastOverride(c.fast_override).concat([ev]);
+  Store.saveState(APP_STATE); refresh();
+  return { ok: true, now: fastOverrideNow(c.fast_override) };
+}
+// The line and the two taps, on an opened entry and in its editor.
+function itemFastHTML(dk, idx, it) {
+  if (!it || isLegacyAuto(it)) return '';
+  const j = fastJudge(dk, idx);
+  if (!j) return '';
+  const unit = fastUnitOf(dk, idx);
+  const mine = unit.some(function (u) { return fastOverrideNow(u.it.fast_override); });
+  const b = function (v, label) {
+    return '<button type="button" class="btn mfastbtn" onclick="event.stopPropagation();fastOverrideSet(\'' + esc(dk) + '\',' + idx + ',\'' + v + '\')">' + esc(label) + '</button>';
+  };
+  return '<div class="mfast"><div class="mfastline">Fast: ' + (j.keeps ? 'keeps it' : 'ends it') + ' — ' + esc(j.why)
+    + (unit.length > 1 ? ' (this combo, as logged together)' : '') + '</div>'
+    + '<div class="mfastbtns">' + (j.keeps && j.by !== 'alcohol' ? b('breaks', 'Breaks my fast') : '') + (!j.keeps && j.by !== 'alcohol' ? b('keeps', 'Keeps my fast') : '')
+    + (mine ? b('rule', 'Back to the rule') : '') + '</div></div>';
+}
+// Settings: the two limits (default 5 g / 5 g). A value that is not a number >= 0 is
+// refused in words and the field is put back; an empty field returns to the default.
+function setFastKeepLimits() {
+  const nc = document.getElementById('fastNetCarb'), pr = document.getElementById('fastProtein');
+  const msg = document.getElementById('fastLimMsg');
+  const read = function (el) { const v = el ? String(el.value).trim() : ''; return v === '' ? null : Number(v); };
+  const a = read(nc), b = read(pr);
+  if ((a != null && !(a >= 0)) || (b != null && !(b >= 0))) {
+    if (msg) msg.innerHTML = '<div class="warn">Each limit is a number of grams, 0 or more.</div>';
+    renderFastSettings();
+    return { ok: false };
+  }
+  const f = APP_STATE.settings.fasting || (APP_STATE.settings.fasting = {});
+  if (a == null) delete f.keepNetCarbMax; else f.keepNetCarbMax = a;
+  if (b == null) delete f.keepProteinMax; else f.keepProteinMax = b;
+  Store.saveState(APP_STATE); refresh();
+  if (msg) msg.innerHTML = '';
+  renderFastSettings();
+  return { ok: true, limits: fastKeepLimits() };
+}
+function renderFastSettings() {
+  const l = fastKeepLimits();
+  const nc = document.getElementById('fastNetCarb'), pr = document.getElementById('fastProtein'), n = document.getElementById('fastRuleNote');
+  if (nc) nc.value = rDisp(l.netCarb);
+  if (pr) pr.value = rDisp(l.protein);
+  if (n) n.textContent = fastRuleWords();
+}
+const FAST_RULE_WORDS ='Fast: no food; items with ≤ 5 g carbs and ≤ 5 g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.';
+function fastRuleWords() {
+  const l = fastKeepLimits();
+  if (l.netCarb === FAST_KEEP_DEFAULT.netCarb && l.protein === FAST_KEEP_DEFAULT.protein) return FAST_RULE_WORDS;
+  return 'Fast: no food; items with ≤ ' + rDisp(l.netCarb) + ' g carbs and ≤ ' + rDisp(l.protein) + ' g protein (e.g. coffee with cream, oils) are allowed. Alcohol always ends a fast.';
 }
 // A candidate = the span between two CONSECUTIVE events >= minHours (bounded on
 // both ends; the trailing open gap is never a candidate — it's an in-progress
@@ -16958,6 +17098,7 @@ const VERSION_LOG = [
   { v: '0.112.0', d: '2026-10-28', note: 'Add a supplement from its Health Canada NPN: type the 8 digits from the label in + Add to stack and tap Look up -- the product, each ingredient with its amount and form, and its licence come from Health Canada’s database. A photo of the label works too with your own AI key; numbers read from a photo count only after you confirm them. An item can count toward more than one nutrient, and the day adds them up across your stack. You can say when an item joined your stack, and + Add to stack is there even when your stack is empty.' },
   { v: '0.112.1', d: '2026-10-29', note: 'A supplement taken as tablets, capsules or another unit now asks How many? beside the unit, and counts each nutrient as the amount in each unit times how many you take -- 1 tablet of a product with 50 mg zinc in each is 50 mg, 2 is 100. Items you added before keep their amount as they were. If an item cannot be saved, the reason now shows beside the button you tapped, and what you entered stays in the form.' },
   { v: '0.113.0', d: '2026-10-29', note: 'Open a logged food that has no database row and it now offers the three closest rows, calories beside each and beside yours, with how often your own past picks were the first row. Nothing counts until you tap one. The weekly review lists the week’s foods without a database row in one place. Trends has a Pathways section, filled from a pathway pack built on your computer and imported in Settings; it is kept on this phone and not in your backup. An opened food says whether it is fermented, and where that comes from. The food database now carries omega-3 (EPA, ALA) and omega-3 and omega-6 totals where its sources do.' },
+  { v: '0.113.1', d: '2026-10-29', note: 'A new rule for what keeps a fast: no food, but something with 5 g of carbs or less and 5 g of protein or less is allowed -- coffee with cream, butter or coconut oil in coffee, a spoon of olive oil -- whatever its calories. A combo is judged as a whole. Alcohol always ends a fast, and something whose carbs or protein are not known ends it too. Open a logged item to see what it does to a fast, and mark it keeps my fast or breaks my fast if you know better; a combo can be marked in its Edit. Both limits can be changed in Settings, under Fasting. Your past fasts are read again under the new rule; nothing you logged changes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -21906,8 +22047,8 @@ function weekFastCardHTML(R) {
   h += weekInfo('about fasting',
     'A fast runs from your last logged food — or from a “Stopped eating” you tapped after it — to the next food you logged, '
     + 'and counts when it lasts 12 h or more and under 48 h; 48 h or more with nothing logged is a gap in the log, not a fast. '
-    + 'Shorter gaps are part of the eating window. Food is anything logged, unless its source says it has no calories '
-    + '(water, black coffee or plain tea from the food database, or a label that says 0); a food with its calories unknown ends a fast. '
+    + 'Shorter gaps are part of the eating window. ' + fastRuleWords() + ' '
+    + 'Something whose carbs or protein are not known ends a fast; an item or combo you marked “keeps my fast” or “breaks my fast” follows your mark. '
     + 'Measured from your log: a meal you didn’t log makes a fast look longer than it was. '
     + 'The ring is the share of the week so far spent in those fasts. Nothing is asked.');
   return h + '</div>';
@@ -22278,6 +22419,7 @@ function openSettings() {
   renderBackupLast();
   renderAfRewardsForm();          // R226: a restore can switch it, so it is read when the panel opens
   renderPackSetting();            // R286/d3
+  renderFastSettings();           // R287
   if (p) p.style.display = 'flex';
   if (s) s.style.display = 'block';
   overlaySync();
@@ -24224,7 +24366,24 @@ function renderComboNew() {
     + '<input id="cnQuery" type="text" class="cnin" placeholder="search the food database"'
     + ' aria-label="search for a part" autocomplete="off" oninput="comboNewType(this.value)">'
     + '<div id="cnRows"></div><div id="cnFood"></div>'
-    + '<div id="cnTotal">' + comboNewTotalHTML() + '</div>';
+    + '<div id="cnTotal">' + comboNewTotalHTML() + '</div>'
+    + '<div id="cnFast">' + comboFastHTML(COMBO_NEW.editId) + '</div>';
+}
+// R287: a combo's own mark -- "keeps my fast" / "breaks my fast" -- applies to every time it is
+// logged, unless that logged entry has its own. One tap, kept with its time, written at once.
+function comboFastHTML(id) {
+  if (!id) return '';
+  const c = (APP_STATE.settings.combos || []).filter(function (x) { return x.id === String(id); })[0];
+  if (!c) return '';
+  const now = fastOverrideNow(c.fast_override);
+  const b = function (v, label) { return '<button type="button" class="btn mfastbtn' + (now === v ? ' on' : '') + '"' + (now === v ? ' aria-pressed="true"' : '') + ' onclick="comboFastTap(\'' + esc(c.id) + '\',\'' + v + '\')">' + esc(label) + '</button>'; };
+  return '<div class="mfast"><div class="mfastline">Fast: ' + (now ? 'you marked this combo “' + (now === 'keeps' ? 'keeps my fast' : 'breaks my fast') + '”' : 'by the rule, judged as the whole combo') + '</div>'
+    + '<div class="mfastbtns">' + b('keeps', 'Keeps my fast') + b('breaks', 'Breaks my fast') + (now ? b('rule', 'Back to the rule') : '') + '</div></div>';
+}
+function comboFastTap(id, v) {
+  const r = comboFastOverrideSet(id, v);
+  const e = document.getElementById('cnFast'); if (e) e.innerHTML = comboFastHTML(id);
+  return r;
 }
 function comboNewPaint(which) {
   const put = function (id, html) { const e = document.getElementById(id); if (e) e.innerHTML = html; };
@@ -24429,6 +24588,7 @@ function comboNewSave() {
     if (at < 0) return { ok: false, error: 'That combo is no longer there.' };
     const before = JSON.parse(JSON.stringify(list[at]));
     const next = normalizeCombo({ id: before.id, name: st.name, mult: before.mult, place: before.place,
+                                  fast_override: before.fast_override,          // R287: the user's tap is kept
                                   parts: st.parts.map(comboNewPartNumbers) });
     if (!next) return { ok: false, error: 'Nothing savable in that.' };
     list[at] = next;
@@ -26671,7 +26831,7 @@ window.HT = {
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, lnhpdLookup, lnhpdGet, setLnhpdFetch, stackNpnLookup, suppLabelReply, stackConfirmToggle, stackFormExtraAdd, stackFormExtraRemove, stackMultiNutrients, suppKeyFor, suppUnit, normalizeStackProduct, normalizeNutrientDetail, normalizeJoinEdits, stackDoseMicros, dayIntakeFlags, STACK_SUPP_KEYS, SUPP_TEMPLATE, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormUnit, stackCountUnit, STACK_COUNT_UNITS, lnhpdDoseUnit,
-  packImportText, packLoad, packRemove, renderPathways, PACK_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
+  fastJudge, fastKeepLimits, fastOverrideSet, comboFastOverrideSet, fastOverrideNow, itemMacrosKnown, setFastKeepLimits, fastRuleWords, FAST_RULE_WORDS, fastEvents, comboFastHTML, packImportText, packLoad, packRemove, renderPathways, PACK_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,

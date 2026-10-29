@@ -43,6 +43,7 @@ chip-layout-gate.ps1
 close-gate.ps1
 cold-start-gate.ps1
 dayclose-gate.ps1
+fastrule-gate.ps1
 perf-gate.ps1
 stackscan-gate.ps1
 collapse-gate.ps1
@@ -581,7 +582,7 @@ echo "-----------------------------------------"
 # which entry the suggestion came from; a user's confirm stores that one. A scanned
 # label that prints 0 kcal is a known 0 ("Diet drink A": counted, a fast kept); a
 # label with no energy figure is not (control), and the flag round-trips.
-EXPECTED_ASSERTIONS=3427
+EXPECTED_ASSERTIONS=3439
 TOTAL=$(printf '%s\n' "$OUT" | grep -oE 'SUMMARY [0-9]+/[0-9]+' | head -1 | sed -E 's#.*/##')
 AUTHORED=$(grep -cE '(^|[^A-Za-z_.])res\(' "$HTML")
 echo "assertions: executed ${TOTAL:-0} · pinned $EXPECTED_ASSERTIONS · authored-lines(static lower bound) $AUTHORED"
