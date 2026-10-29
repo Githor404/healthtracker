@@ -69,6 +69,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   # REPORT THE EXCEPTION. Discarding exceptionDetails here meant a probe with a
@@ -125,7 +148,7 @@ $fails = @()
 function Chk([bool]$ok, [string]$msg) { if (-not $ok) { $script:fails += $msg } }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chromeArgs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$Dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $chromeArgs -PassThru
@@ -143,10 +166,12 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -170,7 +195,7 @@ window.__stage = 'start';
   // does not exist until its group is tapped. This gate sweeps those rows, so it
   // opens them -- once, with the sticky seam, which keeps later seeding swept too.
   if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
-  await sleep(250);
+  await window.__htQuiet(10000);
 
   // ---- GLUCOSE, seeded through the REAL ingest path -----------------------
   // A ramp helper so each case's shape is stated as a list of (minute, value)
@@ -253,7 +278,7 @@ window.__stage = 'start';
   S.current = D1;
   HT.Store.saveState(S);
   HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
 
   // ---- THE EVENT MERGE (ruled: a meal is items merged by mealId) ----------
   stage('merge-events');
@@ -319,7 +344,7 @@ window.__stage = 'start';
   const qa = HT.quickEvent('moved');
   const qb = HT.quickEvent('woke');
   const qc = HT.quickEvent('drink', 'wine');
-  await sleep(200);
+  await window.__htQuiet(10000);
   const tl = HT.state().timeline[TODAY] || [];
   O.quick.added = tl.length - before;
   O.quick.ok = [qa, qb, qc].every(r => r && r.ok === true);
@@ -345,7 +370,7 @@ window.__stage = 'start';
   window.__confirm = true;
   HT.restore(exp);
   window.confirm = realConfirm;
-  await sleep(200);
+  await window.__htQuiet(10000);
   const tl2 = (HT.state().timeline[TODAY] || []).filter(e => e.type === 'alcohol')[0];
   O.quick.variantSurvivesRestore = tl2 ? tl2.variant : '';
 
@@ -353,11 +378,11 @@ window.__stage = 'start';
   stage('test-tagging');
   HT.toggleMealTest(D1, 'm1');
   HT.toggleMealTest(D2, 'm2');
-  await sleep(150);
+  await window.__htQuiet(10000);
   O.tests.taggedD1 = (HT.state().days[D1].items || []).every(i => i.test === true);
   const before1 = JSON.stringify(HT.mealResponse(D1, 'm1'));
   HT.boot();                                   // a reload
-  await sleep(300);
+  await window.__htQuiet(10000);
   O.tests.survivesReload = (HT.state().days[D1].items || []).every(i => i.test === true);
   O.tests.recomputed = (JSON.stringify(HT.mealResponse(D1, 'm1')) === before1);
   // and the response numbers are NOT stored on the item
@@ -377,7 +402,7 @@ window.__stage = 'start';
     time: '18:00', mealId: 'm3', test: true, ref: mkref('222', 'Oats, instant, dry') }) ] };
   HT.Store.saveState(St);
   HT.refresh();
-  await sleep(200);
+  await window.__htQuiet(10000);
   const groups = HT.testGroups();
   O.tests.groupCount = groups.length;
   O.tests.groups = groups.map(g => ({ key: g.key, keyKind: g.keyKind, n: g.n,
@@ -389,11 +414,11 @@ window.__stage = 'start';
   St2.current = D1;
   HT.Store.saveState(St2);
   HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
   // open every row, because the response lives in the disclosure body (fork D)
   const heads = Array.prototype.slice.call(document.querySelectorAll('.mhead'));
   for (let i = 0; i < heads.length; i++) { heads[i].click(); await sleep(40); }
-  await sleep(200);
+  await window.__htQuiet(10000);
   const resp = document.querySelector('.resp');
   O.surface.respRendered = !!resp;
   O.surface.respVisible = !!(resp && resp.offsetParent !== null);
@@ -413,10 +438,10 @@ window.__stage = 'start';
   stage('surface-bounded');
   HT.state().current = D2;
   HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
   const h2 = Array.prototype.slice.call(document.querySelectorAll('.mhead'));
   for (let i = 0; i < h2.length; i++) { h2[i].click(); await sleep(40); }
-  await sleep(200);
+  await window.__htQuiet(10000);
   const r2el = document.querySelector('.resp');
   const r2t = r2el ? (r2el.textContent || '').replace(/\s+/g, ' ') : '';
   O.surface.boundedSaysNotObserved = /not observed/i.test(r2t);
@@ -434,7 +459,7 @@ window.__stage = 'start';
   // day keeps none of it. Measured where it now lives, opened as a user opens it.
   HT.openSheet('signal');
   Array.prototype.slice.call(document.querySelectorAll('#entrySheet details')).forEach(function (d) { d.open = true; });
-  await sleep(250);
+  await window.__htQuiet(10000);
   O.surface.pageQuick = Array.prototype.slice.call(document.querySelectorAll('.qbtn')).filter(function (b) { return !b.closest('#entrySheet') && !b.closest('#nights'); }).length;
   // R223: Sleep is the big button that leads the pane now, not a chip in the row --
   // counted with the row, so a missing sleep control still fails here.

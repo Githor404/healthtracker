@@ -19137,3 +19137,50 @@ worst post-fix figure (2.58) and below R280 before its fix, which it fails. Meas
 load (three other gates running): 2.35 and 2.6, PASS; red first on the pre-fix build: 3.15,
 FAIL, on a machine slow enough that day to triple both raw timings (297 ms against 94 ms).
 `PERF_REPO=<dir>` measures another build.
+
+
+## R283 -- NO FIXED SLEEP STANDS FOR "LONG ENOUGH" IN ANY GATE (2026-10-28, v0.111.3)
+
+*The user's ruling of 28 Oct, after the one retry R282 allowed failed on offline-gate
+("test server did not start": a fixed 0.8 s, then ONE request). Sweep every gate and the
+runner; convert each fixed sleep or single-shot check used as a wait into a wait on a
+condition; no check loosened, no timeout raised as the fix; list every change.*
+
+**The condition.** `tests/lib/quiet.js`, installed in every page by every gate
+(`Page.addScriptToEvaluateOnNewDocument`) before the app runs. It counts the app's own async
+work in flight -- timers of 1 s or less, fetches and their bodies, IndexedDB reads,
+createImageBitmap, each counted only when a frame of the app's own origin started it -- and
+`__htQuiet()` resolves when none is in flight, no finite CSS transition or animation is
+running, and the DOM has been still for two frames; after 10 s it FAILS, naming what was in
+flight and where it was set. Around it, in every gate: `WaitQuiet`, `WaitBoot` (the old page
+marked, then the new one's app up, then quiet), `WaitServer` (the test server polled every
+100 ms, 30 s), `WaitLoaded` (a non-app page).
+
+**Found while building it (measured, not assumed):** the antivirus on this machine injects a
+script into every page (`gc.kis.v2.scr.kaspersky-labs.com/.../main.js`) that keeps a short
+timer going for seconds -- the first version counted it and waited ~8 s, long enough for an
+Undo bar to expire before its check. And the app's corpus cache fill writes thousands of
+IndexedDB rows in the background (3,583 in forms-gate), which no screen waits for. Hence
+"the app's own work" and "reads".
+
+**The changes** -- every one listed in `tests/WAITS-R283.md` (gate, line, old wait, new
+condition): 234 in-page fixed sleeps and 80 fixed sleeps after a step (and the 23 `Settle`
+helpers) -> WaitQuiet; 73 sleeps after a navigate or reload -> WaitBoot; 55 server warm-ups
+(the nine "0.8 s + one request" among them) -> WaitServer; 5 waits for the resolve arm ->
+WaitQuiet (which waits for that 600 ms timer itself); 14 by hand where "quiet" is the wrong
+condition: a download held paused on purpose (close-gate) and a shield that must still be up
+(resolve-gate) -> two drawn frames; a capture that hangs on purpose -> the pending screen
+counting seconds (capture-outcome-gate); the Undo bar's 6.5 s -> until the bar is gone
+(entry-gate); a forced browser stop -> until no process remains (cold-start-gate); scroll
+helpers -> until the scroll position is still for three frames (overlay-gate); four in-page
+timer promises; and the two 3 s pauses in stop-cleanup-check.ps1 (not in the suite). KEPT and
+listed: 44 poll intervals inside loops that already wait on a condition, and the pacing
+between keystrokes and between touch events, which is part of the input.
+
+**The runner, reviewed.** `run-all-gates.sh` and `gate-launch.ps1` already wait on conditions
+(a free worker, memory headroom, the gate's ports free -- polled, with a named failure); no
+change. The offline-gate failure was not the runner: its ports were free and no note was
+printed -- it was the gate's own 0.8 s.
+
+*Checked:* every gate run on its own after the change, 55 of 55 PASS (three passes, fixing
+what each found). Not loosened: every assertion reads as before.

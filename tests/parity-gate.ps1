@@ -80,6 +80,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   # Report the exception rather than returning an empty string: a probe with a
@@ -133,7 +156,7 @@ $fails = @()
 function Chk([bool]$ok, [string]$msg) { if (-not $ok) { $script:fails += $msg } }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chromeArgs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$Dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $chromeArgs -PassThru
@@ -151,6 +174,7 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 360; height = 740; deviceScaleFactor = 2; mobile = $true } | Out-Null
   # The device is Canadian and the two gated rows were measured in CNF, so the
@@ -158,8 +182,9 @@ try {
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -180,8 +205,8 @@ window.__stage = 'start';
   const vis = (el) => !!(el && el.offsetParent !== null);
   try {
   HT.setClock(function () { return Date.parse('2026-10-07T12:00:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
-  await HT.corpusEnsure(); HT.matchIndexBuild(); await sleep(250);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
+  await HT.corpusEnsure(); HT.matchIndexBuild(); await window.__htQuiet(10000);
   O.ns = HT.corpusNamespace();
 
   // THE STUBBED REPLY. It smuggles micros and a confidence number: the contract
@@ -213,16 +238,16 @@ window.__stage = 'start';
     per100: { kcal: kcal, protein_g: 5, fat_g: 5, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } });
   HT.openPhotoDraft(JSON.stringify({ meal: 'lunch', items: [
     mk('unidentified item', 150, 120), mk('a second thing', 90, 100)] }));
-  await sleep(500);
+  await window.__htQuiet(10000);
 
   // ---- B: the offer renders when the search is empty, WITH NO KEY --------
   stage('empty-no-key');
   O.empty.configured0 = HT.byokConfigured();
   const lists = all('.pmalts');
   lists[0].querySelector('.pmsomething').click();
-  await sleep(200);
+  await window.__htQuiet(10000);
   await HT.photoSearchRun(0, 'sui qxv');   // R233.1: the lookup is Manual's now and 'sui mai' finds two partial rows; this gate needs the EMPTY case
-  await sleep(500);
+  await window.__htQuiet(10000);
   O.empty.rows = all('.pmsrow').length;
   const ask0 = document.querySelector('.pmsask');
   O.empty.askPresentNoKey = !!ask0;
@@ -242,7 +267,7 @@ window.__stage = 'start';
   stage('empty-with-key');
   HT.byokSave('grok', 'xai-GATEFIXTURE0000000000000', 5);
   await HT.photoSearchRun(0, 'sui qxv');   // R233.1: the lookup is Manual's now and 'sui mai' finds two partial rows; this gate needs the EMPTY case
-  await sleep(400);
+  await window.__htQuiet(10000);
   const ask1 = document.querySelector('.pmsask');
   O.empty.askVisibleWithKey = vis(ask1);
   O.empty.askTextWithKey = txt(ask1).trim();
@@ -254,7 +279,7 @@ window.__stage = 'start';
   stage('r238');
   O.r238 = {};
   const calls238 = O.asked.requests.length;
-  await HT.photoSearchRun(0, 'sui mai'); await sleep(400);
+  await HT.photoSearchRun(0, 'sui mai'); await window.__htQuiet(10000);
   const pr238 = all('.pmsrow');
   O.r238.suiRows = pr238.length;
   O.r238.suiNames = pr238.map((r) => txt(r.querySelector('.pmsnm')));
@@ -263,7 +288,7 @@ window.__stage = 'start';
   const a238 = document.querySelector('.pmsask');
   O.r238.suiAsk = vis(a238);
   O.r238.suiAskBelowRows = !!a238 && pr238.length > 0 && a238.getBoundingClientRect().top > pr238[pr238.length - 1].getBoundingClientRect().top;
-  await HT.photoSearchRun(0, 'coffee'); await sleep(400);
+  await HT.photoSearchRun(0, 'coffee'); await window.__htQuiet(10000);
   const cr238 = all('.pmsrow');
   O.r238.coffeeRows = cr238.length;
   O.r238.coffeeFull = cr238.filter((r) => !/partial match/.test(txt(r))).length;
@@ -273,7 +298,7 @@ window.__stage = 'start';
   // ---- D: five search terms, each run LOCALLY -------------------------
   stage('ask-model');
   const res = await HT.photoSearchAskModel(0);
-  await sleep(600);
+  await window.__htQuiet(10000);
   O.asked.ok = !!(res && res.ok);
   O.asked.names = (res && res.names) || [];
   O.asked.searchedFor = String((res && res.searchedFor) || '');

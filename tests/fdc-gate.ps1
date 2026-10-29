@@ -60,6 +60,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   return $rv.result.result.value
@@ -121,7 +144,7 @@ function Cleanup {
 
 $fails = @()
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $cargs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $cargs -PassThru
@@ -139,13 +162,15 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
 
   # ---- stage 1: the slots, no key, the key, the offer, the tap, the rows -------
@@ -158,8 +183,8 @@ try {
   const all = (s) => Array.prototype.slice.call(document.querySelectorAll(s));
   window.__sleep = sleep;
   try {
-    localStorage.clear(); HT.boot(); await sleep(300);
-    await HT.corpusEnsure(); await sleep(200);
+    localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
+    await HT.corpusEnsure(); await window.__htQuiet(10000);
     const realFetch = window.fetch;
     window.__realFetch = realFetch;
     // THE CORPUS SLOTS ARE FDC's: the list held in app.js must be the shipped files' own.
@@ -199,8 +224,8 @@ try {
     // -- no key: the Search pane says so and offers no button --
     HT.openSheet();
     all('#sheetRoot .srbtn').forEach(function (b) { if (b.textContent === 'Search') b.click(); });
-    await sleep(200);
-    const type = async (q) => { const f = $('#fqQuery'); f.value = q; f.dispatchEvent(new Event('input', { bubbles: true })); await sleep(700); };
+    await window.__htQuiet(10000);
+    const type = async (q) => { const f = $('#fqQuery'); f.value = q; f.dispatchEvent(new Event('input', { bubbles: true })); await window.__htQuiet(10000); };
     await type('gate stew');
     const r0 = String(($('#fqRows') || {}).innerHTML || '');
     ok(r0.indexOf('needs your own free key') > 0 && !$('#fqRows .fdcgo') && G.calls.length === 0,
@@ -211,7 +236,7 @@ try {
     const K = 'GATEKEY0123456789abcdefGATEKEY0123456789';
     $('#fdcKeyIn').value = K;
     all('#fdcKeyBox button').filter(function (b) { return b.textContent === 'Save'; })[0].click();
-    await sleep(150);
+    await window.__htQuiet(10000);
     const box = String($('#fdcKeyBox').innerHTML);
     ok(HT.fdcConfigured() && box.indexOf(K) < 0 && box.indexOf('saved:') > 0 && $('#fdcKeyIn').value === ''
        && String(localStorage.getItem(HT.FDC_LS)).indexOf(K) > 0,
@@ -223,14 +248,14 @@ try {
     // -- with a key: OFFERED, and typing never calls --
     HT.openSheet();
     all('#sheetRoot .srbtn').forEach(function (b) { if (b.textContent === 'Search') b.click(); });
-    await sleep(200);
+    await window.__htQuiet(10000);
     await type('gate'); await type('gate stew');
     const go = $('#fqRows .fdcgo');
     ok(!!go && String(go.textContent).indexOf('Search USDA FoodData Central for \u201cgate stew\u201d') === 0 && G.calls.length === 0,
        'OFFERED: one button naming the words it will search -- and typing has sent NOTHING', go ? go.textContent : '(no button)');
     const before = nItems();
     go.click();
-    await sleep(500);
+    await window.__htQuiet(10000);
     const c0 = G.calls[0] || {};
     ok(G.calls.length === 1 && c0.method === 'POST' && c0.url.indexOf('api_key=' + K) > 0 && c0.query === 'gate stew'
        && JSON.stringify(c0.types) === JSON.stringify(['Branded', 'Survey (FNDDS)']),
@@ -253,7 +278,7 @@ try {
 '@
   $r1 = EvalAsyncB64 $js1
   if ($r1 -like 'EXCEPTION*') { $fails += "stage 1: $r1" }
-  Start-Sleep -Milliseconds 300
+  WaitQuiet 'after a step'
   Shot 'search-rows'
 
   # ---- stage 2: pick in Search, the amount, the log ---------------------------
@@ -265,13 +290,13 @@ try {
   try {
     const dk = window.__dk;
     document.querySelectorAll('#fqRows .fdcrow')[0].click();
-    await sleep(200);
+    await window.__htQuiet(10000);
     const step = String(($('#searchBox') || {}).textContent || '');
     ok(step.indexOf('Typical recipe (Survey, FNDDS)') >= 0 && step.indexOf('Source: U.S. Department of Agriculture') >= 0
        && step.indexOf('retrieved') > 0 && step.indexOf('USDA FoodData Central, per 100 g') >= 0,
        'PICKED: the amount step names the kind of row and carries the citation with its retrieval date', step.slice(0, 300));
     const g = $('#fqGrams'); g.value = '200'; g.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep(150);
+    await window.__htQuiet(10000);
     window.__shotStep = 1;
   } catch (e) { ok(false, 'stage 2 threw', e && e.stack); }
   return { n: G.checks.length };
@@ -288,7 +313,7 @@ try {
   try {
     const dk = window.__dk;
     $('#searchBox .fqlog').click();
-    await sleep(300);
+    await window.__htQuiet(10000);
     const items = (HT.state().days[dk] || {}).items || [];
     const it = items[items.length - 1] || {};
     ok(items.length === window.__rowsBefore + 1 && it.source === 'corpus' && it.ref && it.ref.ns === HT.FDC_NS && it.ref.id === '9200001'
@@ -298,10 +323,10 @@ try {
     // -- an error is said, and writes nothing --
     HT.openSheet();
     Array.prototype.slice.call(document.querySelectorAll('#sheetRoot .srbtn')).forEach(function (b) { if (b.textContent === 'Search') b.click(); });
-    await sleep(200);
-    const f = $('#fqQuery'); f.value = 'limitme'; f.dispatchEvent(new Event('input', { bubbles: true })); await sleep(700);
+    await window.__htQuiet(10000);
+    const f = $('#fqQuery'); f.value = 'limitme'; f.dispatchEvent(new Event('input', { bubbles: true })); await window.__htQuiet(10000);
     const n0 = items.length;
-    $('#fqRows .fdcgo').click(); await sleep(400);
+    $('#fqRows .fdcgo').click(); await window.__htQuiet(10000);
     const er = String(($('#fqRows') || {}).textContent || '');
     ok(er.indexOf('hourly limit') > 0 && !!$('#fqRows .fdcgo') && ((HT.state().days[dk] || {}).items || []).length === n0,
        'REFUSED: the hourly limit is SAID, the search can be tried again, and nothing was written', er.slice(-160));
@@ -328,17 +353,17 @@ try {
     const idx = day.items.length - 1;
     window.__ridx = idx;
     const calls0 = G.calls.length;
-    await HT.resolveOpen(dk, idx); await sleep(300);
+    await HT.resolveOpen(dk, idx); await window.__htQuiet(10000);
     const go = $('#resolveBox .fdcgo');
     ok(!!go && String(go.textContent).indexOf('\u201cgate stew\u201d') > 0 && G.calls.length === calls0,
        'NOT COUNTED: the picker offers FoodData Central for the item\u2019s name -- and has sent nothing');
-    go.click(); await sleep(400);
+    go.click(); await window.__htQuiet(10000);
     ok(G.calls.length === calls0 && document.querySelectorAll('#resolveBox .fdcrow').length === 2,
        'the same words searched again this session are answered from memory -- no second call');
-    $('#resolveBox .fdcnone').click(); await sleep(150);
+    $('#resolveBox .fdcnone').click(); await window.__htQuiet(10000);
     ok(!document.querySelector('#resolveBox .fdcrow') && !!$('#resolveBox .fdcgo') && HT.dayUncounted(dk).length >= 1,
        '"None of these fits" closes the rows, offers the search again, and leaves the item not counted');
-    $('#resolveBox .fdcgo').click(); await sleep(300);
+    $('#resolveBox .fdcgo').click(); await window.__htQuiet(10000);
     document.querySelectorAll('#resolveBox .fdcrow')[0].scrollIntoView({ block: 'center' });
   } catch (e) { ok(false, 'stage 4 threw', e && e.stack); }
   return { n: G.checks.length };
@@ -354,7 +379,7 @@ try {
   try {
     const dk = window.__dk, idx = window.__ridx;
     const un0 = HT.dayUncounted(dk).length;
-    document.querySelectorAll('#resolveBox .fdcrow')[1].click(); await sleep(300);
+    document.querySelectorAll('#resolveBox .fdcrow')[1].click(); await window.__htQuiet(10000);
     const it = HT.state().days[dk].items[idx];
     ok(it.ref && it.ref.ns === HT.FDC_NS && it.ref.id === '9200002' && Math.abs(it.kcal - 375) < 1e-6
        && it.ref.v['205'] === undefined && HT.dayUncounted(dk).length === un0 - 1,
@@ -376,17 +401,17 @@ try {
     HT.byokSave('grok', 'xai-GATEFIXTURE0000000000000', 5);
     HT.openPhotoDraft(JSON.stringify({ meal: 'lunch', items: [{ name: 'creamy fish thing on a cracker', grams: 80, notes: 'from the photo',
       alts: [{ name: 'creamy fish thing on a cracker', p: 0.5 }], per100: { kcal: 230, protein_g: 15, fat_g: 18, carb_g: 2, fiber_g: 0, soluble_fiber_g: 0 } }] }));
-    await sleep(300);
+    await window.__htQuiet(10000);
     HT.photoSearchOpen(0);
-    await HT.photoSearchRun(0, 'gate qxvz'); await sleep(200);
+    await HT.photoSearchRun(0, 'gate qxvz'); await window.__htQuiet(10000);
     const go0 = $('.pmsearch .fdcgo');
     ok(!!go0 && String(go0.textContent).indexOf('\u201cgate qxvz\u201d') > 0, 'PHOTO: with nothing found locally, FoodData Central is offered for the typed words');
-    await HT.photoSearchAskModel(0); await sleep(400);
+    await HT.photoSearchAskModel(0); await window.__htQuiet(10000);
     const go = $('.pmsearch .fdcgo');
     const want = '\u201cgate fish spread, smoked fish, fish pate\u201d';
     ok(!!go && String(go.textContent).indexOf(want) > 0, 'PHOTO (R245): after your AI suggested names, FoodData Central is fed its SHORT names -- at most three', go ? go.textContent : '(none)');
     const calls0 = G.calls.length;
-    go.click(); await sleep(500);
+    go.click(); await window.__htQuiet(10000);
     const qs = G.calls.slice(calls0).map(function (c) { return c.query; });
     ok(JSON.stringify(qs) === JSON.stringify(['gate fish spread', 'smoked fish', 'fish pate']),
        'PHOTO: one call per name, three names, in the AI\u2019s order', JSON.stringify(qs));
@@ -408,7 +433,7 @@ try {
   const G = window.__G, sleep = window.__sleep;
   const ok = (c, m, d) => G.checks.push({ ok: !!c, m: m, d: d === undefined ? '' : String(d).slice(0, 300) });
   try {
-    document.querySelectorAll('.pmsearch .fdcrow')[1].click(); await sleep(300);
+    document.querySelectorAll('.pmsearch .fdcrow')[1].click(); await window.__htQuiet(10000);
     const it = HT.photoDraft().items[0];
     ok(it.ref && it.ref.ns === HT.FDC_NS && it.name === 'GATE SMOKED FISH SPREAD' && Math.abs(it.ref.v['208'] - 200) < 1e-6
        && Math.abs(it.per100.kcal - 250) < 1e-6 && !HT.photoSearchState(),
@@ -432,10 +457,10 @@ try {
   try {
     HT.openPhotoDraft(JSON.stringify({ meal: 'lunch', items: [{ name: 'creamy fish thing', grams: 80, notes: 'from the photo',
       alts: [{ name: 'creamy fish thing', p: 0.5 }], per100: { kcal: 230, protein_g: 15, fat_g: 18, carb_g: 2, fiber_g: 0, soluble_fiber_g: 0 } }] }));
-    await sleep(300);
+    await window.__htQuiet(10000);
     HT.photoSearchOpen(0);
-    await HT.photoSearchRun(0, 'gate qxvz'); await sleep(200);
-    await HT.photoSearchAskModel(0); await sleep(400);
+    await HT.photoSearchRun(0, 'gate qxvz'); await window.__htQuiet(10000);
+    await HT.photoSearchAskModel(0); await window.__htQuiet(10000);
     const st = HT.photoSearchState() || {};
     const keep = $('.pmsearch .pmskeep');
     const kt = String((keep && keep.textContent) || '');
@@ -445,7 +470,7 @@ try {
        'R253/1 GATE: after "Ask my AI for other names" the keep button names what YOU typed, not the AI\u2019s last name', kt);
     ok(String(($('#pmsQuery') || {}).value) === 'gate qxvz',
        'R253/1: the field still holds what you typed');
-    keep.click(); await sleep(200);
+    keep.click(); await window.__htQuiet(10000);
     const it = HT.photoDraft().items[0];
     ok(it.name === 'gate qxvz' && it.unres === true && !it.ref,
        'R253/1 GATE: tapping it keeps YOUR words as the name, not counted', JSON.stringify({ name: it.name, unres: it.unres }));

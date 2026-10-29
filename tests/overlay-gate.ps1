@@ -58,6 +58,29 @@ function Invoke-CDP([string]$mv, [hashtable]$p) {
   $gv = 0
   while ($true) { if (++$gv -gt 3000) { throw "no response for $mv" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -100,7 +123,7 @@ function Cleanup {
 
 $fails = @()
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -113,6 +136,7 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
@@ -121,8 +145,9 @@ try {
   # move document.activeElement, and the focus assertion below would be a null
   # from a dead instrument -- exactly like synthesizeScrollGesture.
   Invoke-CDP 'Emulation.setFocusEmulationEnabled' @{ enabled = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -132,7 +157,7 @@ try {
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   HT.setClock(function () { return Date.parse('2026-09-26T12:00:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   // Fixture-synthetic forever: a day long enough that the page really scrolls,
   // or every assertion below is about a page that could not move anyway.
   const DK = '2026-09-26'; const S = HT.state();
@@ -141,7 +166,7 @@ try {
     fat_g: 4, carb_g: 18, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed',
     source: 'ai-paste', notes: '' });
   S.days[DK] = { status: 'in_progress', water_l: 0, items: items };
-  S.current = DK; HT.refresh(); await sleep(500);
+  S.current = DK; HT.refresh(); await window.__htQuiet(10000);
   return { pageH: document.scrollingElement.scrollHeight, vh: window.innerHeight,
            overlays: document.querySelectorAll('[data-overlay]').length };
 })()
@@ -174,18 +199,24 @@ try {
         touchPoints = @(@{ x = $x; y = ($y + [int]($dy * $iv / $steps)) }) } | Out-Null
       Start-Sleep -Milliseconds 14 }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-    Start-Sleep -Milliseconds 420 }
+    WaitStill }
   function Tap([int]$x, [int]$y) {
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
     Start-Sleep -Milliseconds 40
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-    Start-Sleep -Milliseconds 220 }
-  function Park([int]$y) { Eval "window.scrollTo(0, $y); 1" | Out-Null; Start-Sleep -Milliseconds 280 }
+    WaitStill }
+  # R283: a swipe, a tap and a park are followed by waiting for the page to STOP -- the
+  # scroll position unchanged across three frames and nothing in flight -- not by 220-420 ms.
+  function WaitStill {
+    $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "new Promise(function (res) { var last = -1, same = 0, t0 = performance.now(); (function f() { var y = Math.round(window.scrollY); same = (y === last) ? same + 1 : 0; last = y; if (same >= 3) return res('still'); if (performance.now() - t0 > 10000) return res('still moving after 10 s'); requestAnimationFrame(f); })(); })"; awaitPromise = $true; returnByValue = $true }
+    if ($r.result.result.value -ne 'still') { WaitFail ('the page did not stop scrolling: ' + $r.result.result.value) }
+    WaitQuiet 'after a scroll' }
+  function Park([int]$y) { Eval "window.scrollTo(0, $y); 1" | Out-Null; WaitStill }
   function ScrollY { return [int](Eval 'Math.round(window.scrollY)') }
 
   # ---- THE CONTROL, and it blocks -----------------------------------------
   Eval 'HT.closeSheet(); HT.closeSettings(); 1' | Out-Null
-  Start-Sleep -Milliseconds 400
+  WaitQuiet 'after a step'
   Park 320
   $cb = ScrollY
   Swipe 195 500 -260
@@ -216,7 +247,7 @@ try {
     Park 320
     $parked = ScrollY
     Eval ($fv.o + ' 1') | Out-Null
-    Start-Sleep -Milliseconds 620
+    WaitQuiet 'after a step'
 
     # 1. THE MECHANISM: locked, offset by the parked amount, page layer inert.
     $mv = Eval ("JSON.stringify((function(){var b=document.body;var cs=getComputedStyle(b);var e=document.querySelector('" + $fv.s + "');var inert=document.querySelectorAll('[data-overlay-inert]').length;var pageInert=true;var k=document.body.children;for(var i=0;i<k.length;i++){var c=k[i];if(c.hasAttribute&&c.hasAttribute('data-overlay'))continue;var t=c.tagName;if(t==='SCRIPT'||t==='NOSCRIPT'||t==='TEMPLATE'||t==='STYLE')continue;if(!c.hasAttribute('inert'))pageInert=false;}var sb=e&&e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');return {pos:cs.position,top:cs.top,overflow:cs.overflow,inertCount:inert,pageInert:pageInert,found:!!e,chain:sb?getComputedStyle(sb).overscrollBehaviorY:null};})())")
@@ -242,7 +273,7 @@ try {
     Swipe 195 $G.y -260
     if ((ScrollY) -ne $before) { $fails += "$($fv.n): a swipe inside the sheet SCROLLED THE PAGE ($before -> $(ScrollY)) -- the reported defect" }
     Eval ("(function(){var e=document.querySelector('" + $fv.s + "');var b=e&&e.querySelector('.sheetbody, .obody, .wrap, .rvbox, .askbox');if(b)b.scrollTop=b.scrollHeight;return 1;})()") | Out-Null
-    Start-Sleep -Milliseconds 250
+    WaitQuiet 'after a step'
     $atEnd = ScrollY
     Swipe 195 $G.y -260
     if ((ScrollY) -ne $atEnd) { $fails += "$($fv.n): a swipe at the END of the sheet's own scroller CHAINED to the page ($atEnd -> $(ScrollY))" }
@@ -255,7 +286,7 @@ try {
 
     # 4. CLOSING RESTORES EXACTLY.
     Eval ($fv.c + ' 1') | Out-Null
-    Start-Sleep -Milliseconds 450
+    WaitQuiet 'after a step'
     $after = ScrollY
     if ($after -ne $parked) { $fails += "$($fv.n): closing restored the page to $after, not $parked -- 'exactly where it was' is the ruling" }
     $un = Eval "JSON.stringify({ pos: getComputedStyle(document.body).position, inert: document.querySelectorAll('[data-overlay-inert]').length })"
@@ -272,7 +303,7 @@ try {
   Park 320
   $fparked = ScrollY
   Eval "HT.openSheet(); HT.setSheetMode('manual'); 1" | Out-Null
-  Start-Sleep -Milliseconds 650
+  WaitQuiet 'after a step'
   $fp = EvalA @'
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -290,12 +321,12 @@ try {
   if (!vis.length) return { err: 'no focusable on-screen input in the Manual sheet' };
   const t = vis[0];
   t.focus();
-  await sleep(250);
+  await window.__htQuiet(10000);
   const o = { name: String(t.id || t.tagName), focused: (document.activeElement === t),
               top: getComputedStyle(document.body).top, pos: getComputedStyle(document.body).position,
               y: Math.round(window.scrollY), sheetTop: Math.round(sheet.getBoundingClientRect().top) };
   t.scrollIntoView({ block: 'center' });
-  await sleep(250);
+  await window.__htQuiet(10000);
   o.topAfterReveal = getComputedStyle(document.body).top;
   o.yAfterReveal = Math.round(window.scrollY);
   o.sheetTopAfterReveal = Math.round(sheet.getBoundingClientRect().top);
@@ -320,7 +351,7 @@ try {
     }
   }
   Eval 'HT.closeSheet(); 1' | Out-Null
-  Start-Sleep -Milliseconds 450
+  WaitQuiet 'after a step'
   if ((ScrollY) -ne $fparked) { $fails += "focus: after a focus and a close the page restored to $(ScrollY), not $fparked" }
 
   if ($fails.Count) {

@@ -72,6 +72,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   if ($r.result.exceptionDetails) {
@@ -122,7 +145,7 @@ $fails = @()
 function Chk([bool]$ok, [string]$msg) { if (-not $ok) { $script:fails += $msg } }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chromeArgs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$Dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $chromeArgs -PassThru
@@ -140,13 +163,15 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 360; height = 740; deviceScaleFactor = 2; mobile = $true } | Out-Null
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -170,8 +195,8 @@ window.__stage = 'start';
   try {
   stage('boot');
   HT.setClock(function () { return Date.parse('2026-10-09T14:30:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
-  await HT.corpusEnsure(); HT.matchIndexBuild(); await sleep(300);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
+  await HT.corpusEnsure(); HT.matchIndexBuild(); await window.__htQuiet(10000);
 
   ['mealKindGroups', 'emptyMealKinds', 'foodFrequency', 'quickSheetOpen',
    'quickPick', 'quickStep', 'quickAddLog', 'mealByTimeOfDay', 'dayGroupToggle',
@@ -257,7 +282,7 @@ window.__stage = 'start';
   HT.glucoseIngest(gl);
   HT.Store.saveState(S);
   HT.refresh();
-  await sleep(400);
+  await window.__htQuiet(10000);
 
   // ---- 1. GROUPS: only the meals that HAVE items get headers ---------------
   stage('groups');
@@ -306,7 +331,7 @@ window.__stage = 'start';
   stage('expand');
   if (typeof HT.dayGroupToggle === 'function') HT.dayGroupToggle('lunch');
   HT.refresh();
-  await sleep(350);
+  await window.__htQuiet(10000);
   O.groups.openBodies = all('#dayView .mgbody').length;
   O.groups.openKinds = all('#dayView .mgrp').filter(function (g2) {
     return !!g2.querySelector('.mgbody'); }).map(function (g2) {
@@ -348,7 +373,7 @@ window.__stage = 'start';
 
   // ---- 7. THE SHEET: the row names the spellings behind its count --------
   stage('sheet');
-  if (typeof HT.quickSheetOpen === 'function') { HT.quickSheetOpen(); await sleep(350); }
+  if (typeof HT.quickSheetOpen === 'function') { HT.quickSheetOpen(); await window.__htQuiet(10000); }
   O.sheet.rows = all('.qfrow').length;
   O.sheet.namesShown = all('.qfrow .qnames').length;
   O.sheet.coleRow = (all('.qfrow').filter(function (r) { return /coleslaw/i.test(txt(r)); })[0] || {});
@@ -360,7 +385,7 @@ window.__stage = 'start';
   stage('step');
   const coleKey = (typeof HT.foodFrequency === 'function')
     ? ((HT.foodFrequency().filter(function (x) { return /coleslaw/.test(x.key); })[0] || {}).key || '') : '';
-  if (typeof HT.quickPick === 'function' && coleKey) { HT.quickPick(coleKey); await sleep(300); }
+  if (typeof HT.quickPick === 'function' && coleKey) { HT.quickPick(coleKey); await window.__htQuiet(10000); }
   O.step.shown = all('.qstep').length;
   O.step.n = txt(document.querySelector('.qn')).trim();
   O.step.lastLabel = txt(document.querySelector('.qlast')).replace(/\s+/g, ' ').trim();
@@ -368,7 +393,7 @@ window.__stage = 'start';
   O.step.logBtn = txt(document.querySelector('.qlog')).replace(/\s+/g, ' ').trim();
   O.step.mealLine = txt(document.querySelector('.qmeal')).replace(/\s+/g, ' ').trim();
   O.step.changeLink = all('.qchange').length;
-  if (typeof HT.quickStep === 'function') { HT.quickStep(1); await sleep(200); }
+  if (typeof HT.quickStep === 'function') { HT.quickStep(1); await window.__htQuiet(10000); }
   O.step.afterPlus = txt(document.querySelector('.qn')).trim();
   O.step.logAfterPlus = txt(document.querySelector('.qlog')).replace(/\s+/g, ' ').trim();
 
@@ -399,8 +424,8 @@ window.__stage = 'start';
   const salKey = (typeof HT.foodFrequency === 'function')
     ? ((HT.foodFrequency().filter(function (x) { return /salmon/.test(x.key); })[0] || {}).key || '') : '';
   if (salKey && typeof HT.quickPick === 'function') {
-    HT.quickPick(salKey); await sleep(150);
-    HT.quickStep(1); await sleep(150);
+    HT.quickPick(salKey); await window.__htQuiet(10000);
+    HT.quickStep(1); await window.__htQuiet(10000);
     const r2 = await Promise.resolve(HT.quickAddLog());
     O.logged.salResult = JSON.stringify(r2).slice(0, 160);
     const its2 = HT.state().days[D].items || [];
@@ -461,7 +486,7 @@ window.__stage = 'start';
   stage('ink');
   HT.setClock(function () { return Date.parse('2026-10-09T14:30:00-04:00'); });
   HT.boot(); HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
   const de = document.documentElement;
   O.ink.scrollW = de.scrollWidth;
   O.ink.clientW = de.clientWidth;

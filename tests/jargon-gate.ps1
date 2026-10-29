@@ -64,6 +64,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   return $rv.result.result.value
@@ -124,7 +147,7 @@ function Cleanup {
 
 $fails = @()
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $cargs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $cargs -PassThru
@@ -142,13 +165,15 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -220,7 +245,7 @@ try {
   // does not exist until its group is tapped. This gate sweeps those rows, so it
   // opens them -- once, with the sticky seam, which keeps later seeding swept too.
   if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
-  await sleep(400);
+  await window.__htQuiet(10000);
   sweep('first run');
 
   // ---- a SYNTHETIC day that renders every vocabulary site -----------------
@@ -273,7 +298,7 @@ try {
   ];
   S.current = DK;
   HT.refresh();
-  await sleep(500);
+  await window.__htQuiet(10000);
   // D144: THE WORDS MOVED BEHIND A TAP. The collapse put confidence, source and
   // the citation in a body that renders only when the row is expanded, so this
   // sweep would pass over a surface that no longer prints them -- a sweep that
@@ -287,9 +312,9 @@ try {
   for (let r = 0; r < rowN; r++) {
     const h = document.querySelectorAll('.mitem')[r];
     const hh = h && h.querySelector('.mhead');
-    if (hh) { hh.click(); await sleep(40); }
+    if (hh) { hh.click(); await window.__htQuiet(10000); }
   }
-  await sleep(250);
+  await window.__htQuiet(10000);
   OUT.rowsSeen = rowN;
   OUT.expandedRows = document.querySelectorAll('.mitem.mopen').length;
   sweep('day view');
@@ -304,11 +329,11 @@ try {
     OUT.closedHasRect = rect.height > 0;          // the trap: geometry says visible
     OUT.closedReportedHidden = !visible(body);    // the instrument says otherwise
     cite.open = true;
-    await sleep(150);
+    await window.__htQuiet(10000);
     OUT.openReportedVisible = visible(body);
     OUT.citeText = (body.textContent || '').trim().slice(0, 120);
     cite.open = false;
-    await sleep(100);
+    await window.__htQuiet(10000);
   }
 
   // an unfinished PAST day carries the status label
@@ -316,40 +341,40 @@ try {
   S.days[PAST] = { status: 'in_progress', water_l: 0, items: [mk({ name: 'old lunch' })] };
   S.current = PAST;
   HT.refresh();
-  await sleep(350);
+  await window.__htQuiet(10000);
   sweep('past unfinished day');
   S.current = DK;
   HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
 
   // ---- every pane one tap behind -----------------------------------------
   const MODES = ['scan', 'quick', 'photo', 'manual', 'signal', 'med', 'lab'];
   for (let i = 0; i < MODES.length; i++) {
     HT.openSheet(); HT.setSheetMode(MODES[i]);
-    await sleep(320);
+    await window.__htQuiet(10000);
     sweep('sheet:' + MODES[i]);
   }
   HT.closeSheet();
-  await sleep(200);
+  await window.__htQuiet(10000);
 
   // the resolve surface, through the real corpus
   await HT.corpusEnsure();
   await HT.resolveOpen(DK, 1);
-  await sleep(600);
+  await window.__htQuiet(10000);
   sweep('resolve sheet');
   OUT.resolveRows = document.querySelectorAll('.rcandbtn').length;
   HT.resolveClose();
-  await sleep(200);
+  await window.__htQuiet(10000);
 
   // the micronutrient panel, expanded -- where the citation line lives
   const mps = Array.prototype.slice.call(document.querySelectorAll('details.mpanel'));
   const mp = mps[0];
-  if (mp) { mp.open = true; HT.panelToggle(true); await sleep(450); sweep('micronutrient panel'); }
+  if (mp) { mp.open = true; HT.panelToggle(true); await window.__htQuiet(10000); sweep('micronutrient panel'); }
   // H24's panel, same shape and so the same deliberate open. A banned-word list
   // that never visits a surface is green over it, and this one carries the whole
   // 'delivered, never activated' vocabulary.
   const pp = mps[1];
-  if (pp) { pp.open = true; HT.potentialToggle(true); HT.refresh(); await sleep(450);
+  if (pp) { pp.open = true; HT.potentialToggle(true); HT.refresh(); await window.__htQuiet(10000);
             sweep('potential panel'); }
   OUT.potentialSwept = !!pp;
 
@@ -373,17 +398,17 @@ try {
   const dr = HT.openPhotoDraft(draftReply);
   OUT.draftOpened = !!(dr && dr.ok);
   HT.refresh();
-  await sleep(500);
+  await window.__htQuiet(10000);
   OUT.draftAlts = document.querySelectorAll('.pmalts .pmalt').length;
   sweep('photo draft identity');
   HT.photoDiscard();
-  await sleep(200);
+  await window.__htQuiet(10000);
 
   HT.openSettings();
-  await sleep(450);
+  await window.__htQuiet(10000);
   sweep('settings');
   HT.closeSettings();
-  await sleep(200);
+  await window.__htQuiet(10000);
   return OUT;
 })()
 '@

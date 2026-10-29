@@ -69,6 +69,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true; awaitPromise = $true }
   return $r.result.result.value
@@ -149,8 +172,9 @@ $capture = @'
 function Go([int]$w, [int]$h, [bool]$mobile) {
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 1; mobile = $mobile } | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $mobile; maxTouchPoints = 5 } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 1500
+  WaitBoot
   Eval $install | Out-Null
 }
 function Measure-Success([int]$items) {
@@ -169,7 +193,9 @@ function Measure-Pending {
   Eval 'HT.setByokCallTimeout(120000)' | Out-Null
   Eval '(function(){ HT.photoDiscard(); HT.byokBusyClear(); __g.key();
         __g.file().then(function(f){ window.__p = HT.byokCapture(f); }); return 1; })()' | Out-Null
-  Start-Sleep -Milliseconds 1600
+  # R283: the call hangs on purpose, so the page is never quiet here: wait FOR the pending
+  # screen, counting seconds (was a fixed 1.6 s). Polled; 15 s, then the checks below decide.
+  for ($k = 0; $k -lt 150; $k++) { if ((Eval "HT.captureOutcomeState() === 'pending' && /\d+s/.test((document.getElementById('outcomeMsg') || {}).textContent || '')") -eq $true) { break }; Start-Sleep -Milliseconds 100 }
   $r = Eval '(function(){ return JSON.stringify(__g.snap()); })()' | ConvertFrom-Json
   Eval '(function(){ HT.byokCancel(); return 1; })()' | Out-Null
   return $r
@@ -212,9 +238,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 800
-  try { Invoke-WebRequest "$origin/index.html" -UseBasicParsing -TimeoutSec 5 | Out-Null }
-  catch { Write-Host "ERROR: test server did not start"; Cleanup; exit 2 }
+  WaitServer "$origin/index.html"
 
   $args = @('--headless=new', '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-default-apps', '--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion', '--mute-audio', '--disable-gpu', '--no-sandbox', "--user-data-dir=$udd",
             "--remote-debugging-port=$dbg", '--remote-allow-origins=*', 'about:blank')
@@ -234,6 +258,7 @@ try {
   $ws = New-Object System.Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null    | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
 
   $results = @()

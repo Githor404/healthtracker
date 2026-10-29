@@ -83,6 +83,29 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$ev) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $ev; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -100,7 +123,7 @@ function Tap([int]$x, [int]$y) {
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
   Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-  Start-Sleep -Milliseconds 450
+  WaitQuiet 'after a step'
 }
 
 $browser = Find-Browser
@@ -137,7 +160,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -154,12 +177,14 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -212,7 +237,7 @@ try {
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   HT.setClock(function () { return Date.parse('2026-09-26T10:35:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
   // does not exist until its group is tapped. This gate sweeps those rows, so it
   // opens them -- once, with the sticky seam, which keeps later seeding swept too.
@@ -226,7 +251,7 @@ try {
   S.timeline[DK] = [
     { time: '05:10', kind: 'event', type: 'walk', source: 'manual', notes: '', unit: 'min', value: 30 }];
   S.current = DK;
-  HT.refresh(); await sleep(300);
+  HT.refresh(); await window.__htQuiet(10000);
   return { hasIngest: typeof HT.glucoseIngest === 'function',
            hasClear:  typeof HT.glucoseClear === 'function',
            hasChart:  typeof HT.timeChart === 'function',
@@ -256,7 +281,7 @@ try {
 
   # ===================== [M] THE COLLAPSED DAY ROW =========================
   $m = Eval ("JSON.stringify(($fixture)(1.59, true, false))")
-  Start-Sleep -Milliseconds 500
+  WaitQuiet 'after a step'
   $M0 = $m | ConvertFrom-Json
   Chk 'M' ([bool]$M0.ok) "the measured-cadence fixture did not ingest ($($M0.stored) of $($M0.asked))"
 
@@ -338,7 +363,7 @@ try {
     # ---- ONE TAP OPENS THE CHART IN PLACE --------------------------------
     if ($R1.tap) {
       Eval "window.scrollTo(0, Math.max(0, document.querySelector('#dayView .grow').getBoundingClientRect().top + window.scrollY - 260)); 1" | Out-Null
-      Start-Sleep -Milliseconds 250
+      WaitQuiet 'after a step'
       $t = (Eval $rowProbe) | ConvertFrom-Json
       $hBefore = $t.h
       Tap $t.tap.x $t.tap.y
@@ -440,7 +465,7 @@ try {
       Start-Sleep -Milliseconds 25
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-    Start-Sleep -Milliseconds 400
+    WaitQuiet 'after a step'
     $winAfter = Eval "JSON.stringify(HT.chartWindow())"
     $pageAfterH = Eval "Math.round(window.scrollY)"
     $axAfter = Eval "JSON.stringify(Array.prototype.slice.call(document.querySelectorAll('#dayView .grow .taxis text')).map(function(t){return (t.textContent||'').trim()+'@'+Math.round(t.getBoundingClientRect().top);}))"
@@ -457,7 +482,7 @@ try {
       Start-Sleep -Milliseconds 25
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-    Start-Sleep -Milliseconds 400
+    WaitQuiet 'after a step'
     Chk 'M' ((Eval "Math.round(window.scrollY)") -ne $pageB2) "a VERTICAL drag on the chart did not scroll the page -- G ruled the thumb is never trapped"
     Chk 'M' ((Eval "JSON.stringify(HT.chartWindow())") -eq $winB2) "a vertical drag also panned the window -- the axis lock is not holding"
 
@@ -474,10 +499,10 @@ try {
     foreach ($s in 40, 25, 12) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(
         @{ x = ($G.x - $s); y = $G.y; id = 1 }, @{ x = ($G.x + $s); y = $G.y; id = 2 }) } | Out-Null
-      Start-Sleep -Milliseconds 30
+      WaitQuiet 'after a step'
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-    Start-Sleep -Milliseconds 400
+    WaitQuiet 'after a step'
     Chk 'M' ($spanB -ne (Eval "(function(){var w=HT.chartWindow();return Math.round((w.to-w.from)/1000);})()")) "a two-finger pinch did not change the window span (was $spanB s)"
   } else {
     $fails += "[M] the chart svg has no box, so no gesture could be aimed at it"
@@ -485,7 +510,7 @@ try {
 
   # ---- INK and the floor at 360 -------------------------------------------
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 360; height = 800; deviceScaleFactor = 2; mobile = $true } | Out-Null
-  Start-Sleep -Milliseconds 700
+  WaitQuiet 'after a step'
   $inkv = Eval @'
 (function () {
   const row = document.querySelector('#dayView .grow');
@@ -563,13 +588,13 @@ try {
   Chk 'M' ($INK.pageOver -le 3) "at 360: the page overflows horizontally by $($INK.pageOver)px with the chart open; the measured baseline WITHOUT any glucose is 3px (from .ttrail/.tleg in Trends), so anything beyond that is the chart's"
   Chk 'M' ($INK.boxW -ge 255 -and $INK.boxW -le 315) "at 360 the chart box is $($INK.boxW)px; measured ~298"
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
-  Start-Sleep -Milliseconds 400
+  WaitQuiet 'after a step'
 
   # ---- E: TWO UNITS REFUSE ONE LINE ---------------------------------------
   Eval ("JSON.stringify(($fixture)(0.5, false, true))") | Out-Null
-  Start-Sleep -Milliseconds 500
+  WaitQuiet 'after a step'
   Eval "(function(){var r=document.querySelector('#dayView .grow');if(r && !r.classList.contains('gopen')) HT.glucoseToggle('2026-09-26');return 1;})()" | Out-Null
-  Start-Sleep -Milliseconds 400
+  WaitQuiet 'after a step'
   $mix = Eval "JSON.stringify((function(){var r=document.querySelector('#dayView .grow');return {text:r?(r.textContent||'').replace(/\s+/g,' ').trim():'',runs:r?r.querySelectorAll('polyline.tseries').length:-1,refused:!!(r&&r.querySelector('.tunitrefuse'))};})())"
   $MX = $mix | ConvertFrom-Json
   Chk 'M' ([bool]$MX.refused) "a series carrying two units drew anyway -- E ruled it REFUSES one line and says why"
@@ -577,16 +602,16 @@ try {
 
   # ===================== [I] INVENTED CADENCE ==============================
   $i = Eval ("JSON.stringify(($fixture)(11, true, false))")
-  Start-Sleep -Milliseconds 900
+  WaitQuiet 'after a step'
   $I0 = $i | ConvertFrom-Json
   Chk 'I' ([bool]$I0.ok) "the invented-cadence fixture did not ingest ($($I0.stored) of $($I0.asked))"
   Eval "(function(){var r=document.querySelector('#dayView .grow');if(r && !r.classList.contains('gopen')) HT.glucoseToggle('2026-09-26');return 1;})()" | Out-Null
-  Start-Sleep -Milliseconds 500
+  WaitQuiet 'after a step'
 
   foreach ($preset in @(@('3 days', 259200), @('10 days', 864000))) {
     $label = $preset[0]; $secs = [int]$preset[1]
     Eval "JSON.stringify(HT.chartPreset('$label'))" | Out-Null
-    Start-Sleep -Milliseconds 500
+    WaitQuiet 'after a step'
     $got = Eval "(function(){var w=HT.chartWindow();return Math.round((w.to-w.from)/1000);})()"
     Chk 'I' ([Math]::Abs([int]$got - $secs) -le [int]($secs * 0.03)) "the '$label' preset set a $got s window, expected about $secs s"
     $red = Eval @'
@@ -674,7 +699,7 @@ try {
   const OLD = '2026-09-24';          // the day the row is opened FROM
   const NEW = '2026-09-26';          // the globally newest readings live here
   HT.setClock(function () { return Date.parse('2026-09-26T10:35:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(200);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   const S = HT.state();
   S.days[OLD] = { status: 'in_progress', water_l: 0, items: [
     { name: 'lentil stew', meal: 'lunch', time: '12:30', grams: 200, kcal: 420,
@@ -702,9 +727,9 @@ try {
   };
   HT.glucoseIngest(mk(OLD, 288, true), { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
   HT.glucoseIngest(mk(NEW, 40, false), { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
-  HT.refresh(); await sleep(300);
+  HT.refresh(); await window.__htQuiet(10000);
   if (!HT.glucoseIsOpen(OLD)) HT.glucoseToggle(OLD);
-  await sleep(400);
+  await window.__htQuiet(10000);
   const q = function (sel) { return document.querySelector('#dayView .grow ' + sel); };
   const box = function (el) { const b = el.getBBox();
     return { x: b.x, y: b.y, r: b.x + b.width, b: b.y + b.height }; };
@@ -718,13 +743,13 @@ try {
   // TICK COMPARISON FIRST, because it has to change the preset and every other
   // measurement below must describe ONE state. Capturing geometry and then
   // changing the window reported two charts as though they were one.
-  HT.chartPreset('6 h'); HT.glucoseRedraw(); await sleep(150);
+  HT.chartPreset('6 h'); HT.glucoseRedraw(); await window.__htQuiet(10000);
   const ticks6 = tickText();
-  HT.chartPreset('24 h'); HT.glucoseRedraw(); await sleep(150);
+  HT.chartPreset('24 h'); HT.glucoseRedraw(); await window.__htQuiet(10000);
   const ticks24 = tickText();
 
   // ONE STATE, set deliberately, and everything after this reads it.
-  HT.chartPreset('24 h'); HT.glucoseRedraw(); await sleep(250);
+  HT.chartPreset('24 h'); HT.glucoseRedraw(); await window.__htQuiet(10000);
   const svg = q('svg.tchart');
   const labels = svg ? Array.prototype.slice.call(svg.querySelectorAll('.taxis text')) : [];
   const clips = svg ? Array.prototype.slice.call(svg.querySelectorAll('.tclip')) : [];
@@ -810,7 +835,7 @@ try {
   # this build and a synthetic click would not exercise the movement threshold
   # that separates a tap from a pan.
   Eval "(function(){var r=document.querySelector('#dayView .grow');if(r)window.scrollTo(0,Math.max(0,r.getBoundingClientRect().top+window.scrollY-200));return 1;})()" | Out-Null
-  Start-Sleep -Milliseconds 300
+  WaitQuiet 'after a step'
   # Coordinates AFTER the scroll. Before it they address a page that has moved.
   $g23 = (Eval "JSON.stringify((function(){var s=document.querySelector('#dayView .grow svg.tchart');if(!s)return null;var b=s.getBoundingClientRect();return {x:Math.round(b.left+b.width*0.5),y:Math.round(b.top+b.height*0.5),xlate:Math.round(b.left+b.width*0.965),w:Math.round(b.width),left:Math.round(b.left)};})())") | ConvertFrom-Json
   if ($null -eq $g23) {
@@ -818,13 +843,13 @@ try {
   } else {
     # --- the WIDE preset first: a column there holds many readings -----------
     Eval "HT.chartPreset('10 days'); HT.glucoseRedraw(); 1" | Out-Null
-    Start-Sleep -Milliseconds 250
+    WaitQuiet 'after a step'
     Eval "(function(){var e=document.querySelector('#dayView .grow .treadout');if(e)e.remove();return 1;})()" | Out-Null
     # At 10 days a window anchored to the VIEWED day reaches back ten days,
     # and only its final day holds readings -- so the centre is empty and a
     # centre tap would exercise the nearest-reading fallback, never a range.
     Tap $g23.xlate $g23.y
-    Start-Sleep -Milliseconds 250
+    WaitQuiet 'after a step'
     $r10 = (Eval "JSON.stringify((function(){var e=document.querySelector('#dayView .grow .treadout');return {n:document.querySelectorAll('#dayView .grow .treadout').length,cross:document.querySelectorAll('#dayView .grow .tcross').length,txt:e?(e.textContent||'').replace(/\s+/g,' ').trim():null};})())") | ConvertFrom-Json
     Chk 'I' ($r10.n -eq 1) "H23-tap: a real tap at the 10-day preset produced $($r10.n) readout element(s), expected exactly 1"
     Chk 'I' ($r10.cross -ge 1) "H23-tap: no .tcross crosshair was placed by a real tap"
@@ -842,7 +867,7 @@ try {
     # current zoom, so this is the ruling tested literally rather than two
     # separate taps that happen to differ.
     Eval "HT.chartPreset('6 h'); HT.glucoseRedraw(); 1" | Out-Null
-    Start-Sleep -Milliseconds 300
+    WaitQuiet 'after a step'
     $r6 = (Eval "JSON.stringify((function(){var e=document.querySelector('#dayView .grow .treadout');return {n:document.querySelectorAll('#dayView .grow .treadout').length,txt:e?(e.textContent||'').replace(/\s+/g,' ').trim():null};})())") | ConvertFrom-Json
     Chk 'M' ($r6.n -eq 1) "H23-tap: after zooming to 6 h a tap produced $($r6.n) readout element(s), expected exactly 1 -- one line, one owner"
     if ($r6.txt) {
@@ -858,7 +883,7 @@ try {
     # CHART_PICK set, so the pan's own redraw re-rendered the readout from it and
     # the assertion below blamed the swipe for something the previous tap owned.
     Eval "HT.chartPickSet(null); 1" | Out-Null
-    Start-Sleep -Milliseconds 150
+    WaitQuiet 'after a step'
     $w0 = Eval "JSON.stringify(HT.chartWindow())"
     $sx = $g23.x
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $sx; y = $g23.y }) } | Out-Null
@@ -867,7 +892,7 @@ try {
       Start-Sleep -Milliseconds 30
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-    Start-Sleep -Milliseconds 300
+    WaitQuiet 'after a step'
     $w1 = Eval "JSON.stringify(HT.chartWindow())"
     $sw = (Eval "JSON.stringify({n:document.querySelectorAll('#dayView .grow .treadout').length})") | ConvertFrom-Json
     Chk 'M' ($w0 -ne $w1) "H23-swipe: a real horizontal swipe did not move the window ($w0 -> $w1), so the pan the tap must be distinguished FROM is not happening"
@@ -889,13 +914,13 @@ try {
   const OLD = '2026-09-24';
   HT.state().current = OLD;
   HT.chartPickSet(null);
-  HT.chartPreset('24 h'); HT.glucoseRedraw(); await sleep(200);
+  HT.chartPreset('24 h'); HT.glucoseRedraw(); await window.__htQuiet(10000);
   const q = function (sel) { return document.querySelector('#dayView .grow ' + sel); };
   const line0 = (q('.twindow') || {}).textContent || '';
   const back0 = document.querySelectorAll('#dayView .grow .tback').length;
 
   // Pan forward by two days: the opened day leaves the window entirely.
-  HT.chartPanMs(2 * 86400000); HT.glucoseRedraw(); await sleep(200);
+  HT.chartPanMs(2 * 86400000); HT.glucoseRedraw(); await window.__htQuiet(10000);
   const line1 = (q('.twindow') || {}).textContent || '';
   const back1 = document.querySelectorAll('#dayView .grow .tback').length;
   const backEl = q('.tback');
@@ -904,16 +929,16 @@ try {
 
   // The one tap back.
   if (typeof HT.chartBackToDay === 'function') HT.chartBackToDay();
-  await sleep(250);
+  await window.__htQuiet(10000);
   const line2 = (q('.twindow') || {}).textContent || '';
   const back2 = document.querySelectorAll('#dayView .grow .tback').length;
   const w2 = HT.chartWindow();
 
   // And a PRESET tap re-anchors on its own, from a panned-away window.
-  HT.chartPanMs(3 * 86400000); HT.glucoseRedraw(); await sleep(150);
+  HT.chartPanMs(3 * 86400000); HT.glucoseRedraw(); await window.__htQuiet(10000);
   const backAway = document.querySelectorAll('#dayView .grow .tback').length;
   const wAway = HT.chartWindow();
-  HT.chartPreset('6 h'); await sleep(200);
+  HT.chartPreset('6 h'); await window.__htQuiet(10000);
   const back3 = document.querySelectorAll('#dayView .grow .tback').length;
   const w3 = HT.chartWindow();
 
@@ -968,7 +993,7 @@ try {
   HT.glucoseIngest([{ t: DK + 'T11:15:00-04:00', v: 5.6, unit: 'mmol/L' }],
                    { rawUnit: 'mmol<180.1558800000541>/L', source: 'Dexcom G7' });
   HT.state().current = DK;
-  HT.refresh(); await sleep(300);
+  HT.refresh(); await window.__htQuiet(10000);
   const row = document.querySelector('#dayView .grow');
   return { age: row ? ((row.querySelector('.gage') || {}).textContent || '') : null,
            words: HT.ageWords(-2400000) };

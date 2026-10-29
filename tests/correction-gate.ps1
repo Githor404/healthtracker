@@ -78,6 +78,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   if ($r.result.exceptionDetails) {
@@ -128,7 +151,7 @@ $fails = @()
 function Chk([bool]$ok, [string]$msg) { if (-not $ok) { $script:fails += $msg } }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chromeArgs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$Dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $chromeArgs -PassThru
@@ -146,13 +169,15 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 360; height = 740; deviceScaleFactor = 2; mobile = $true } | Out-Null
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -176,8 +201,8 @@ window.__stage = 'start';
   try {
   stage('boot');
   HT.setClock(function () { return Date.parse('2026-10-09T19:00:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
-  await HT.corpusEnsure(); HT.matchIndexBuild(); await sleep(300);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
+  await HT.corpusEnsure(); HT.matchIndexBuild(); await window.__htQuiet(10000);
   O.ns = HT.corpusNamespace();
 
   ['correctionsAll', 'correctionLead', 'correctionHistory', 'correctionAltRank',
@@ -214,7 +239,7 @@ window.__stage = 'start';
   corr('2026-10-03', 'green smoothie', 'kale and apple juice blend', null, null);
   S.current = '2026-10-08';
   HT.Store.saveState(S);
-  await sleep(200);
+  await window.__htQuiet(10000);
 
   // ---- the scan, read as data before it is read as pixels -------------------
   stage('scan');
@@ -310,7 +335,7 @@ window.__stage = 'start';
   const S2 = HT.state();
   Object.keys(S2.days).forEach(function (d) { delete S2.days[d]; });
   HT.Store.saveState(S2);
-  await sleep(150);
+  await window.__htQuiet(10000);
   O.hint.emptyText = (typeof HT.correctionHintText === 'function')
     ? String(HT.correctionHintText() || '') : 'MISSING';
   O.hint.parityHolds = (O.hint.emptyText === '');
@@ -322,7 +347,7 @@ window.__stage = 'start';
   Object.keys(SNAP.days).forEach(function (d) { live.days[d] = SNAP.days[d]; });
   live.current = SNAP.current;
   HT.Store.saveState(live);
-  await sleep(150);
+  await window.__htQuiet(10000);
   O.hint.restored = HT.correctionsAll ? HT.correctionsAll().length : 0;
 
   // ---- THE SURFACE: a first row, named, never applied ----------------------
@@ -341,7 +366,7 @@ window.__stage = 'start';
   const op = HT.openPhotoDraft(reply);
   O.surface.draftSet = JSON.stringify(op).slice(0, 160);
   HT.refresh();
-  await sleep(350);
+  await window.__htQuiet(10000);
   const host = document.getElementById('photoDraft');
   const opts = host ? host.querySelector('.pmalts') : null;
   O.surface.mounted = !!opts;
@@ -380,7 +405,7 @@ window.__stage = 'start';
   } ] });
   HT.openPhotoDraft(reply2);
   HT.refresh();
-  await sleep(350);
+  await window.__htQuiet(10000);
   const host3 = document.getElementById('photoDraft');
   const opts3 = host3 ? host3.querySelector('.pmalts') : null;
   const btns3 = opts3 ? Array.prototype.slice.call(opts3.querySelectorAll('button')) : [];
@@ -397,7 +422,7 @@ window.__stage = 'start';
   HT.photoDiscard();
   HT.openPhotoDraft(reply);
   HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
   const d0 = HT.photoDraft();
   const i0 = d0 && d0.items && d0.items[0];
   O.apply.beforeRef = (i0 && i0.ref) ? 'HAS REF' : 'no ref';

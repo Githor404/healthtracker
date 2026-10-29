@@ -66,6 +66,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr) {
   $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; returnByValue = $true }
   return $rv.result.result.value
@@ -119,7 +142,7 @@ function Cleanup {
 
 $fails = @()
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $args = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $args -PassThru
@@ -137,6 +160,7 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Network.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
@@ -144,8 +168,9 @@ try {
   # Both reported cases came from `cnf`, so both are driven there.
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -204,21 +229,23 @@ try {
     mk('wood ear mushrooms', 28, 8), mk('ramen noodles', 270, 370)] };
   HT.state().current = DK;
   HT.refresh();
-  await sleep(200);
+  await window.__htQuiet(10000);
   await HT.corpusEnsure();
-  await sleep(400);
+  await window.__htQuiet(10000);
   out.ns = HT.corpusNamespace();
 
   // ---- FIXTURE 1: wood ear -- the correct rows must stay at the top --------
   const chip = chipFor(/wood ear/i);
   if (!chip) { out.err = 'no wood ear chip'; return JSON.stringify(out); }
   chip.scrollIntoView({ block: 'center' });
-  await sleep(200);
+  await window.__htQuiet(10000);
   const chipBox = chip.getBoundingClientRect();
   out.chipY = Math.round(chipBox.top + chipBox.height / 2);
   chip.click();
   for (let i = 0; i < 60 && !rows().length; i++) await sleep(25);
-  await sleep(30);
+  // R283: two drawn frames -- the rows are on screen, and the shield set with them is
+  // still up. (A quiet wait would also wait out the shield's own 600 ms timer.)
+  await new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(r); }); });
 
   const r1 = rows();
   out.woodRows = r1.slice(0, 4).map(b => (b.textContent || '').trim().slice(0, 46));
@@ -248,11 +275,11 @@ try {
   // a tap at that point must not resolve
   const before = !!(HT.state().days[DK].items[0].ref);
   if (covering) covering.click();
-  await sleep(250);
+  await window.__htQuiet(10000);
   out.resolvedByShieldedTap = !!(HT.state().days[DK].items[0].ref) && !before;
 
   // and the shield LIFTS -- nothing is permanently harder to reach
-  await sleep(HT.RESOLVE_ARM_MS + 400);
+  await window.__htQuiet(10000);
   const r2 = rows();
   out.liftedAfterWindow = r2.length > 0 && r2.every(b => !b.disabled);
 
@@ -263,17 +290,17 @@ try {
   // gate that throws here stops before the ramen fixture, the half the ruling
   // says must be judged with it.
   const want = r2.filter(b => /jew.s ear/i.test(b.textContent || ''))[0] || r2[0];
-  if (want) { want.click(); await sleep(400); }
+  if (want) { want.click(); await window.__htQuiet(10000); }
   else { out.noRowsToPick = true; }
   out.confirmShown = !!document.querySelector('.rconfirmbtn');
   out.confirmText = (document.querySelector('.rvwarn') || {}).textContent || '';
   out.confirmHidesList = !document.querySelector('.rcandbtn');
   // the answer buttons appear under the thumb too, so they are shielded like any
   // other control that lands there
-  await sleep(HT.RESOLVE_ARM_MS + 300);
+  await window.__htQuiet(10000);
   const useBtn = Array.prototype.slice.call(document.querySelectorAll('.rconfirmbtn'))
     .filter(b => /use anyway/i.test(b.textContent || ''))[0];
-  if (useBtn) { useBtn.click(); await sleep(900); }
+  if (useBtn) { useBtn.click(); await window.__htQuiet(10000); }
   const ref = HT.state().days[DK].items[0].ref;
   out.resolvedAfterLift = !!ref;
   out.refName = ref ? String(ref.name || '') : '';
@@ -283,26 +310,26 @@ try {
 
   // ---- FIXTURE 2: ramen -- D122's case must not regress --------------------
   HT.closeSheet();
-  await sleep(200);
+  await window.__htQuiet(10000);
   const chip2 = chipFor(/ramen/i);
   if (!chip2) { out.err2 = 'no ramen chip'; return JSON.stringify(out); }
   chip2.scrollIntoView({ block: 'center' });
-  await sleep(250);
+  await window.__htQuiet(10000);
   chip2.click();
   for (let i = 0; i < 60 && !rows().length; i++) await sleep(25);
-  await sleep(HT.RESOLVE_ARM_MS + 300);
+  await window.__htQuiet(10000);
   const r3 = rows();
   out.ramenRows = r3.slice(0, 4).map(b => (b.textContent || '').trim().slice(0, 46));
   // THE DEVICE'S EXACT SEQUENCE: the first row is dry, and it got tapped.
   out.ramenFirstIsDry = /dry/i.test((r3[0] || {}).textContent || '');
   const beforeRamen = !!(HT.state().days[DK].items[1].ref);
-  if (r3[0]) { r3[0].click(); await sleep(400); }
+  if (r3[0]) { r3[0].click(); await window.__htQuiet(10000); }
   out.ramenAsked = !!document.querySelector('.rconfirmbtn');
   out.ramenConfirmText = (document.querySelector('.rvwarn') || {}).textContent || '';
-  await sleep(HT.RESOLVE_ARM_MS + 300);
+  await window.__htQuiet(10000);
   const cancelBtn = Array.prototype.slice.call(document.querySelectorAll('.rconfirmbtn'))
     .filter(b => /cancel/i.test(b.textContent || ''))[0];
-  if (cancelBtn) { cancelBtn.click(); await sleep(400); }
+  if (cancelBtn) { cancelBtn.click(); await window.__htQuiet(10000); }
   out.ramenStillUnresolved = !(HT.state().days[DK].items[1].ref) && !beforeRamen;
   out.ramenListBack = !!document.querySelector('.rcandbtn');
   // and the escape is ABOVE the rows, on screen, with words that invite it
@@ -329,7 +356,7 @@ try {
   // it can merge two dishes that are not quite the same, which is the risk. The
   // confirm is the only moment that is catchable.
   HT.closeSheet();
-  await sleep(200);
+  await window.__htQuiet(10000);
   // BUILT HERE, NOT AT SETUP. The memory is global to the log, so a prior resolved
   // item participates in every later resolve: standing this fixture up before
   // fixture 2 turned its first-row DRY PICK into a cooked PROPOSAL and dismantled
@@ -348,16 +375,16 @@ try {
       attribution: 'Canadian Nutrient File, Health Canada, 2015', v: { '301': 1 } } })] };
   HT.state().days[DK].items.push(mk('cooked wheat ramen noodles', 170, 235));
   HT.refresh();
-  await sleep(300);
+  await window.__htQuiet(10000);
   out.memKeyMerges = HT.matchKey('ramen noodle soup') === HT.matchKey('cooked wheat ramen noodles');
   out.memKey = HT.matchKey('cooked wheat ramen noodles');
   const chip3 = chipFor(/cooked wheat ramen noodles/i);
   if (!chip3) { out.err3 = 'no reworded-noodle chip'; return JSON.stringify(out); }
   chip3.scrollIntoView({ block: 'center' });
-  await sleep(250);
+  await window.__htQuiet(10000);
   chip3.click();
   for (let i = 0; i < 60 && !rows().length; i++) await sleep(25);
-  await sleep(HT.RESOLVE_ARM_MS + 300);
+  await window.__htQuiet(10000);
   const r4 = rows();
   out.propRows = r4.slice(0, 3).map(b => (b.textContent || '').trim().slice(0, 60));
   out.propIsFirst = /spaghetti/i.test((r4[0] || {}).textContent || '');

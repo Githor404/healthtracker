@@ -77,6 +77,29 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -128,7 +151,7 @@ function Tap([int]$x, [int]$y) {
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
   Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-  Start-Sleep -Milliseconds 350
+  WaitQuiet 'after a step'
 }
 
 # ---------------- the fixtures, written at runtime ------------------------
@@ -249,7 +272,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "--js-flags=--expose-gc", "about:blank")
@@ -266,11 +289,13 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'DOM.enable' $null | Out-Null
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 745; deviceScaleFactor = 1; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   # WAIT ON A REAL SIGNAL, not a clock. A fixed sleep here reported
   # "HT is not defined" on the first run of this gate, which reads like a parse
@@ -325,7 +350,7 @@ try {
     const OW = window.WebSocket;
     if (OW) { window.WebSocket = function (u) { log('ws', u); return new OW(...arguments); }; }
   })();
-  localStorage.clear(); HT.boot(); await sleep(250);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   const DK = '2026-09-26'; const S = HT.state();
   S.days[DK] = { status: 'in_progress', water_l: 0, items: [
     { name: 'lentil stew', meal: 'lunch', time: '06:30', grams: 200, kcal: 420,
@@ -333,7 +358,7 @@ try {
       confidence: 'eyeballed', source: 'ai-paste', notes: '' }] };
   S.current = DK;
   if (typeof HT.glucoseClear === 'function') HT.glucoseClear();
-  HT.refresh(); await sleep(400);
+  HT.refresh(); await window.__htQuiet(10000);
   return {
     hasFile:    !!document.querySelector('#dayView input[type=file]'),
     hasEmpty:   !!document.querySelector('#dayView .gempty'),
@@ -505,7 +530,7 @@ JSON.stringify((function () {
   // Collect FIRST. Four imports have already run in this page, and without a
   // collection their garbage is counted as this import's growth -- measured,
   // that was the difference between 22MB and 41MB for the same work.
-  if (window.gc) { window.gc(); await sleep(60); window.gc(); await sleep(60); }
+  if (window.gc) { window.gc(); await window.__htQuiet(10000); window.gc(); await window.__htQuiet(10000); }
   return { before: performance.memory ? performance.memory.usedJSHeapSize : 0,
            gc: typeof window.gc === 'function' };
 })()
@@ -525,7 +550,7 @@ JSON.stringify((function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   let peak = performance.memory ? performance.memory.usedJSHeapSize : 0;
   for (let i = 0; i < 400; i++) {
-    await sleep(50);
+    await window.__htQuiet(10000);
     if (performance.memory) { const u = performance.memory.usedJSHeapSize; if (u > peak) peak = u; }
     const p = HT.glucoseImportProgress ? HT.glucoseImportProgress() : null;
     if (p && p.seq > window.__seq0 && p.done) break;
@@ -612,7 +637,7 @@ JSON.stringify((function () {
     $scPath = Join-Path $fixdir $(if ($scFile) { $scFile } else { 'glucose.json' })
     [IO.File]::WriteAllText($scPath, ('[' + $l1 + ',' + $l2 + ']'), (New-Object Text.UTF8Encoding $false))
     Eval "HT.glucoseClear();HT.refresh();1" | Out-Null
-    Start-Sleep -Milliseconds 300
+    WaitQuiet 'after a step'
     $s0 = Import-Seq
     Pick-File '#dayView input[type=file]' $scPath
     $pr = Wait-Import $s0

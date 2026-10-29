@@ -48,6 +48,29 @@ function Invoke-CDP([string]$m, [hashtable]$pv) {
   $gv = 0
   while ($true) { if (++$gv -gt 3000) { throw "no response for $m" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$ev) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $ev; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -90,7 +113,7 @@ function Cleanup {
 
 $fails = @()
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -103,12 +126,14 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -149,12 +174,12 @@ try {
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   HT.setClock(function () { return Date.parse('2026-09-26T12:00:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
   // does not exist until its group is tapped. This gate sweeps those rows, so it
   // opens them -- once, with the sticky seam, which keeps later seeding swept too.
   if (typeof HT.dayGroupsOpenAll === 'function') HT.dayGroupsOpenAll();
-  await HT.corpusEnsure(); await sleep(150);
+  await HT.corpusEnsure(); await window.__htQuiet(10000);
   return { ok: true };
 })()
 '@
@@ -267,9 +292,9 @@ try {
 '@
   function Probe([int]$w, [int]$hv) {
     Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $hv; deviceScaleFactor = 2; mobile = $true } | Out-Null
-    Start-Sleep -Milliseconds 700
+    WaitQuiet 'after a step'
     Eval 'window.scrollTo(0,0); 1' | Out-Null
-    Start-Sleep -Milliseconds 150
+    WaitQuiet 'after a step'
     $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $probe; returnByValue = $true }
     if ($rv.result.exceptionDetails) { throw "probe threw at ${w}: $($rv.result.exceptionDetails.text)" }
     return $rv.result.result.value
@@ -277,7 +302,7 @@ try {
 
   # =============== A2 + B1: the COLLAPSED day row ==========================
   Eval ("($fixture)('')") | Out-Null
-  Start-Sleep -Milliseconds 600
+  WaitQuiet 'after a step'
   $C390 = Probe 390 844
   $C360 = Probe 360 800
 
@@ -360,14 +385,14 @@ try {
   if (-not $H.txt) { $fails += "A2: no headline number found on a collapsed row" }
   elseif ($H.txt -notmatch 'cal') { $fails += "A2: with primaryNutrient unset the headline reads '$($H.txt)' -- the default is kcal, shown as 'cal' (D139)" }
   Eval ("($fixture)('protein_g')") | Out-Null
-  Start-Sleep -Milliseconds 600
+  WaitQuiet 'after a step'
   $hl2 = Eval "JSON.stringify((function(){var n=document.querySelector('.mitem .mnum, .mitem .mkcal');return {txt:n?(n.textContent||'').replace(/\s+/g,' ').trim():null};})())"
   $H2 = $hl2 | ConvertFrom-Json
   if (-not $H2.txt -or $H2.txt -eq $H.txt) {
     $fails += "A2: setting primaryNutrient to protein_g did not change the headline (still '$($H2.txt)') -- the row is supposed to agree with the ring, which is the whole reason A2 was chosen over plain kcal"
   }
   Eval ("($fixture)('')") | Out-Null
-  Start-Sleep -Milliseconds 500
+  WaitQuiet 'after a step'
 
   # ---- B1: tap EXPANDS in place; edit is one tap DEEPER -------------------
   # (the tap sequence is driven below with real taps rather than click(), so the
@@ -375,14 +400,14 @@ try {
   $geo = Eval "JSON.stringify((function(){var r=document.querySelector('.mitem');var b=r.getBoundingClientRect();return {x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height/2),h:Math.round(b.height),top:Math.round(b.top)};})())"
   $G = $geo | ConvertFrom-Json
   Eval "window.scrollTo(0, Math.max(0, $($G.top) + window.scrollY - 300)); 1" | Out-Null
-  Start-Sleep -Milliseconds 300
+  WaitQuiet 'after a step'
   $g2v = Eval "JSON.stringify((function(){var r=document.querySelector('.mitem');var b=r.getBoundingClientRect();return {x:Math.round(b.left+b.width/2),y:Math.round(b.top+Math.min(24,b.height/2)),h:Math.round(b.height)};})())"
   $G2 = $g2v | ConvertFrom-Json
   $editBefore = Eval 'JSON.stringify(!!HT.itemEditTarget())'
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $G2.x; y = $G2.y }) } | Out-Null
   Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
-  Start-Sleep -Milliseconds 500
+  WaitQuiet 'after a step'
   $after = Eval "JSON.stringify((function(){var r=document.querySelector('.mitem');return {h:Math.round(r.getBoundingClientRect().height),expanded:r.classList.contains('mopen'),edit:!!HT.itemEditTarget()};})())"
   $A = $after | ConvertFrom-Json
   if ($editBefore -eq 'true') { $fails += "B1: an editor was already open before any tap" }
@@ -416,7 +441,7 @@ try {
                     { name: 'something else entirely', p: 0.1 }],
              per100: { kcal: n[1], protein_g: 4, fat_g: 3, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0 } };
   }) }));
-  await sleep(700);
+  await window.__htQuiet(10000);
   function stats() {
     const rows = Array.prototype.slice.call(document.querySelectorAll('.pmrow'));
     return rows.map(function (r) {
@@ -459,7 +484,7 @@ try {
   // item 0 -- the LEAD item, which renders no row at all.
   if (rowIdx[0] !== null) (d.items || []).forEach(function (it, i) { if (i !== rowIdx[0]) it.idDone = true; });
   HT.renderPhotoDraft();
-  await sleep(450);
+  await window.__htQuiet(10000);
   O.mixed = stats();
   O.sumUnsettled = O.unsettled.reduce(function (a, r) { return a + r.h; }, 0);
   O.sumMixed = O.mixed.reduce(function (a, r) { return a + r.h; }, 0);

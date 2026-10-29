@@ -56,6 +56,29 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -98,7 +121,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -115,11 +138,13 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 745; deviceScaleFactor = 1; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 2500
+  WaitBoot
 
   # A FULL page: every section that can render, so nothing escapes by being empty.
   # Trends in particular only draws its trail and legend once there is a series to
@@ -128,7 +153,7 @@ try {
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   HT.setClock(function () { return Date.parse('2026-09-26T10:35:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(250);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   const S = HT.state();
   const mk = function (n, t, kcal) { return { name: n, meal: 'lunch', time: t, grams: 150,
     kcal: kcal, protein_g: 20, fat_g: 9, carb_g: 30, fiber_g: 6, soluble_fiber_g: 2,
@@ -156,11 +181,11 @@ try {
     HT.glucoseClear();
     HT.glucoseIngest(rows, { source: 'Dexcom G7', rawUnit: 'mmol<180.1558800000541>/L' });
   }
-  HT.refresh(); await sleep(500);
+  HT.refresh(); await window.__htQuiet(10000);
   // open every disclosure, because a section that never renders never overflows
   Array.prototype.slice.call(document.querySelectorAll('.wrap details')).forEach(function (d) { d.open = true; });
   if (typeof HT.glucoseToggle === 'function') HT.glucoseToggle('2026-09-26');
-  HT.refresh(); await sleep(600);
+  HT.refresh(); await window.__htQuiet(10000);
   return { days: Object.keys(S.days).length,
            details: document.querySelectorAll('.wrap details[open]').length,
            glucoseRow: document.querySelectorAll('#dayView .grow').length };
@@ -214,7 +239,7 @@ try {
   function Probe-Widths([string]$label) {
     foreach ($wh in @(@(390, 745), @(360, 690))) {
       Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $wh[0]; height = $wh[1]; deviceScaleFactor = 1; mobile = $true } | Out-Null
-      Start-Sleep -Milliseconds 900
+      WaitQuiet 'after a step'
       $R = (Eval $probe) | ConvertFrom-Json
       $w = $wh[0]
       Write-Host ("  [{0}] {1}x{2}: clientWidth={3} scrollWidth={4} overflow={5}px, {6} element(s) past the edge (clipped ones are not overflow)" -f `
@@ -235,7 +260,7 @@ try {
 (async function () {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   localStorage.clear();
-  HT.boot(); HT.refresh(); await sleep(600);
+  HT.boot(); HT.refresh(); await window.__htQuiet(10000);
   return { ok: true };
 })()
 '@

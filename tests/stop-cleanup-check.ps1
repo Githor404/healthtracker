@@ -63,7 +63,7 @@ $left = Leftovers $tag
 Check $clean ("A: RUNNER KILLED mid-gate -> no gate script, launcher or gate browser remains (" + $left.Count + " left)")
 try { Stop-Process -Id $cmd.Id -Force -ErrorAction SilentlyContinue } catch { }
 $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Seconds 3
+[void](WaitFor { -not (Get-Process -Id $cmd.Id -ErrorAction SilentlyContinue) } 20)   # R283: was a fixed 3 s
 
 # ---- B. the runner's CALLER killed, mid-gate ---------------------------------
 $cmd = StartRun
@@ -75,7 +75,7 @@ $left = Leftovers $tag
 Check $clean ("B: the runner's CALLER killed mid-gate (the reaper's shape) -> nothing remains (" + $left.Count + " left)")
 $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'bash.exe' -and $_.CommandLine -like '*run-all-gates.sh*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Seconds 3
+[void](WaitFor { @(Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'bash.exe' -and $_.CommandLine -like '*run-all-gates.sh*' }).Count -eq 0 } 20)   # R283: was a fixed 3 s
 
 # ---- C. the start-of-run sweep removes a leftover, and says so ---------------
 $orphan = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $repo ('tests\' + $gate))) -WindowStyle Hidden -PassThru

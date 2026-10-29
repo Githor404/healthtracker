@@ -44,6 +44,29 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
   $g = 0
   while ($true) { if (++$g -gt 3000) { throw "no response for $m" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 # Multi-line JS goes over base64 so no quoting survives to be mangled; the result
 # is stringified INSIDE the page (CDP: await the promise -- a JSON.stringify of an
@@ -67,7 +90,7 @@ function TypeText([string]$t) {
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
     Start-Sleep -Milliseconds 70 } }
-function Settle { [void](EvalA "new Promise(function (r) { setTimeout(function () { r(1); }, 400); })") }
+function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # Set STACKCHECK_SHOTS=1 to save 390px screenshots to %TEMP%\stackcheck-shots.
 $shots = $null
@@ -114,7 +137,7 @@ function Check([bool]$ok, [string]$name) {
   if ($ok) { Write-Host ("  PASS  " + $name) } else { Write-Host ("  FAIL  " + $name); $script:fails += $name } }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -127,12 +150,14 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -157,8 +182,9 @@ try {
   return 1;
 })()
 '@)
+  MarkOld
   Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
-  Start-Sleep -Milliseconds 2500
+  WaitBoot
   for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
   $state = "(function(){ var S = HT.state(), t = HT.todayKey(); var tl = (S.timeline[t] || []).filter(function (r) { return r.kind === 'medication'; }); var it = (S.days[t] || { items: [] }).items; return { doses: tl.map(function (r) { return r.name + '|' + r.dose + '|' + r.dose_unit + '|' + r.time + '|' + r.stackId + '|' + (r.stated || []).join('+'); }), foods: it.map(function (i) { return i.name + '|' + i.grams + '|' + i.time + '|' + i.stackId; }), now: (function () { var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); })(), head: ((document.querySelector('#sheetRoot .stkopen') || {}).textContent || '') }; })()"
 
@@ -226,8 +252,9 @@ try {
   $t3 = EvalJ $state
   Write-Host ("  edited: " + $t3)
   Check ($t3 -like '*"Gate D|2000|IU|07:45|g1|dose+time"*') "R246 GATE: AN EDIT IS THE RECORD -- 2000 IU at 07:45, both STATED BY THE USER"
+  MarkOld
   Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
-  Start-Sleep -Milliseconds 2500
+  WaitBoot
   for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
   [void](Eval "(function(){ document.getElementById('fab').click(); document.querySelector('#sheetRoot .stkopen').click(); return 1; })()")
   Settle
@@ -278,8 +305,9 @@ try {
   return r.ok;
 })()
 '@)
+  MarkOld
   Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
-  Start-Sleep -Milliseconds 2500
+  WaitBoot
   for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
   $a0 = EvalJ "(function(){ var t = HT.todayKey(); var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Gate new'; })[0] || {}; var s = Array.prototype.map.call(document.querySelectorAll('#stackEditor .stksince'), function (e) { return e.textContent; }); return { added: g.added_on === t, basis: g.added_basis, since: s }; })()"
   Write-Host ("  added: " + $a0)
@@ -324,8 +352,9 @@ try {
   return 1;
 })()
 '@)
+  MarkOld
   Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
-  Start-Sleep -Milliseconds 2500
+  WaitBoot
   for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
   $w0 = EvalJ "(function(){ var g = HT.state().settings.stack.filter(function (x) { return x.name === 'Gate capsule'; })[0] || {}; var t = HT.todayKey(); return { ev: (g.switches || []).map(function (e) { return (e.on ? 'on' : 'off') + '@' + (e.at.slice(0, 10) === t ? 'today' : 'earlier') + e.at.slice(10) + (e.stated ? '/stated' : '') + (typeof e.tzo === 'number' ? '/tzo' : ''); }), on: g.enabled }; })()"
   Write-Host ("  switches, after a reload: " + $w0)
@@ -379,8 +408,9 @@ try {
   return 1;
 })()
 '@)
+  MarkOld
   Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
-  Start-Sleep -Milliseconds 2500
+  WaitBoot
   for ($bw = 0; $bw -lt 60; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { break }; Start-Sleep -Milliseconds 500 }
   [void](Eval ($nav + "(0)"))
   [void](Eval "document.getElementById('fab').click()")

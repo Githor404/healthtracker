@@ -42,6 +42,29 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
   $g = 0
   while ($true) { if (++$g -gt 3000) { throw "no response for $m" }
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg } } }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -53,7 +76,7 @@ function TypeText([string]$t) {
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
     Start-Sleep -Milliseconds 70 } }
-function Settle { [void](EvalA "new Promise(function (r) { setTimeout(function () { r(1); }, 500); })") }
+function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 500 ms
 function Focus([string]$id) { [void](Eval "(function(){ var e = document.getElementById('$id'); e.focus(); if (e.select) e.select(); return 1; })()") }
 
 $browser = Find-Browser
@@ -92,7 +115,7 @@ function Check([bool]$ok, [string]$name) {
   if ($ok) { Write-Host ("  PASS  " + $name) } else { Write-Host ("  FAIL  " + $name); $script:fails += $name } }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -105,12 +128,14 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Input.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -126,14 +151,14 @@ try {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   HT.setClock(function () { return Date.parse('2026-10-16T17:20:00-04:00'); });
   localStorage.clear(); HT.boot();
-  await HT.corpusEnsure(); HT.matchIndexBuild(); await sleep(200);
+  await HT.corpusEnsure(); HT.matchIndexBuild(); await window.__htQuiet(10000);
   window.__ns = HT.corpusNamespace();
   const juice = { name: 'apple juice', grams: 180, notes: 'pale yellow, slightly cloudy', alts: [{ name: 'apple juice', p: 0.6 }, { name: 'white wine', p: 0.2 }, { name: 'lemonade', p: 0.2 }],
                   per100: { kcal: 46, protein_g: 0.1, fat_g: 0.1, carb_g: 11.3, fiber_g: 0.2, soluble_fiber_g: 0.1 } };
   window.__juice = juice;
   HT.openPhotoDraft(JSON.stringify({ meal: 'drink', items: [juice] }));
-  await sleep(500);
-  HT.photoSearchOpen(0); await sleep(250);
+  await window.__htQuiet(10000);
+  HT.photoSearchOpen(0); await window.__htQuiet(10000);
   const f = document.getElementById('pmsQuery'); f.focus();
   return { ns: window.__ns, field: !!f };
 })()
@@ -141,7 +166,7 @@ try {
   Write-Host ("  draft: " + $o1)
   Focus 'pmsQuery'
   TypeText 'wine'
-  [void](EvalA "new Promise(function (r) { setTimeout(function () { r(1); }, 1200); })")
+  WaitQuiet 'the typed search answered'   # R283: was a fixed 1.2 s
   $o2 = EvalA @'
 (async function () {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -152,11 +177,11 @@ try {
               cal: rows.length ? /cal/.test(rows[0].textContent) : false };
   const white = rows.filter((b) => /wine/i.test(b.textContent) && /white/i.test(b.textContent))[0];
   o.white = white ? (white.querySelector('.pmsnm') || white).textContent : '';
-  if (white) { white.click(); await sleep(700); }
+  if (white) { white.click(); await window.__htQuiet(10000); }
   // the state guard may ask; a drink is a drink either way, so use it
   const use = Array.prototype.filter.call(document.querySelectorAll('.pmsconfirmbtn'), (b) => /Use anyway/.test(b.textContent))[0];
-  if (use) { use.click(); await sleep(600); }
-  const sr = HT.photoSave(); await sleep(900);
+  if (use) { use.click(); await window.__htQuiet(10000); }
+  const sr = HT.photoSave(); await window.__htQuiet(10000);
   const day = HT.state().days[HT.state().current] || { items: [] };
   const it = day.items.filter((x) => x.ref && /wine/i.test(String(x.ref.name || '')))[0];
   o.saved = !!(sr && sr.ok) && !!it;
@@ -186,10 +211,10 @@ try {
   const ri = day.items.length - 1;
   await HT.resolveItem(dk, ri, w.ref.id, w.ref.name, null, 'picked');
   o.resolve = HT.state().days[dk].items[ri].kcal;
-  const rp = HT.logRepeat(dk, wi); await sleep(100);
+  const rp = HT.logRepeat(dk, wi); await window.__htQuiet(10000);
   o.repeat = rp && rp.item ? rp.item.kcal : null;
   window.__confirm = true; window.confirm = function () { return true; };
-  const ex = HT.exportJSON(); HT.restore(ex); await sleep(100);
+  const ex = HT.exportJSON(); HT.restore(ex); await window.__htQuiet(10000);
   o.restore = HT.state().days[dk].items[wi].kcal;
   // leave the day as the next steps expect: only the captured wine
   const d2 = HT.state().days[dk]; d2.items = [d2.items[wi]]; HT.resave(); HT.refresh();
@@ -206,23 +231,23 @@ try {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const op = HT.openPhotoDraft(JSON.stringify({ meal: 'drink', items: [window.__juice, { name: 'grandmas secret sauce', grams: 40, notes: '', alts: [{ name: 'grandmas secret sauce', p: 1 }],
                                                                    per100: { kcal: 60, protein_g: 1, fat_g: 3, carb_g: 7, fiber_g: 0, soluble_fiber_g: 0 } }] }));
-  await sleep(600);
+  await window.__htQuiet(10000);
   if (!op || !op.ok) return { err: 'second draft did not open: ' + JSON.stringify(op) };
   const alts = document.querySelector('.pmalts');
   const firstAlt = alts ? alts.querySelector('.pmalt') : null;
   const o = { lead: firstAlt ? firstAlt.textContent : '' };
   // the sauce: say what it is, pick nothing, keep the name
-  HT.photoSearchOpen(1); await sleep(200);
-  await HT.photoSearchRun(1, 'zzqqxv wibblefrotz'); await sleep(200);
+  HT.photoSearchOpen(1); await window.__htQuiet(10000);
+  await HT.photoSearchRun(1, 'zzqqxv wibblefrotz'); await window.__htQuiet(10000);
   const keep = document.querySelector('.pmskeep');
   o.keepText = keep ? keep.textContent : '';
-  if (keep) { keep.click(); await sleep(300); }
+  if (keep) { keep.click(); await window.__htQuiet(10000); }
   // the juice: keep it under its own name, unpicked -- the past should suggest
-  HT.photoSearchOpen(0); await sleep(200);
-  await HT.photoSearchRun(0, 'qqxxzz wibblejuice'); await sleep(200);
+  HT.photoSearchOpen(0); await window.__htQuiet(10000);
+  await HT.photoSearchRun(0, 'qqxxzz wibblejuice'); await window.__htQuiet(10000);
   const k0 = document.querySelector('.pmskeep');
-  if (k0) { k0.click(); await sleep(300); }
-  HT.photoSave(); await sleep(900);
+  if (k0) { k0.click(); await window.__htQuiet(10000); }
+  HT.photoSave(); await window.__htQuiet(10000);
   HT.refresh(); window.scrollTo(0, 0);
   const day = HT.state().days[HT.state().current];
   const sauce = day.items.filter((x) => /zzqqxv wibblefrotz/.test(x.name))[0];
@@ -247,28 +272,28 @@ try {
   const o = {};
   const line = document.querySelector('#dayView .uncbtn');
   o.line = line ? line.textContent : '';
-  if (line) { line.click(); await sleep(200); }
+  if (line) { line.click(); await window.__htQuiet(10000); }
   const items = Array.prototype.slice.call(document.querySelectorAll('#dayView .uncitem'));
   o.list = items.map((b) => b.textContent);
-  if (items[0]) { items[0].click(); await sleep(600); }
+  if (items[0]) { items[0].click(); await window.__htQuiet(10000); }
   o.picker = !!(HT.resolveView && HT.resolveView());
-  HT.resolveClose && HT.resolveClose(); await sleep(200);
+  HT.resolveClose && HT.resolveClose(); await window.__htQuiet(10000);
   HT.refresh();
   // open the provisional row and confirm it
   const day = HT.state().days[HT.state().current];
   const pi = day.items.findIndex((x) => x.provisional === true);
-  HT.dayGroupsOpenAll(true); HT.refresh(); await sleep(150);
+  HT.dayGroupsOpenAll(true); HT.refresh(); await window.__htQuiet(10000);
   o.headTag = '';
   const rowHead = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), (r) => !!r.querySelector('.msuggnum'))[0];
-  if (rowHead) { o.headTag = ((rowHead.querySelector('.msuggnum') || {}).getAttribute || function () { return ''; }).call(rowHead.querySelector('.msuggnum'), 'title') || ''; rowHead.querySelector('.mhead').click(); await sleep(300); }
+  if (rowHead) { o.headTag = ((rowHead.querySelector('.msuggnum') || {}).getAttribute || function () { return ''; }).call(rowHead.querySelector('.msuggnum'), 'title') || ''; rowHead.querySelector('.mhead').click(); await window.__htQuiet(10000); }
   const conf = document.querySelector('#dayView .msuggbtn');
   o.confText = conf ? conf.textContent : '';
   const k0 = day.items[pi].kcal;
-  if (conf) { conf.click(); await sleep(300); }
+  if (conf) { conf.click(); await window.__htQuiet(10000); }
   const it = HT.state().days[HT.state().current].items[pi];
   o.confirmed = !!it.ref && !it.provisional && it.kcal === k0;
   const undo = document.querySelector('#toast .tundo');
-  if (undo) { undo.click(); await sleep(300); }
+  if (undo) { undo.click(); await window.__htQuiet(10000); }
   const it2 = HT.state().days[HT.state().current].items[pi];
   o.undone = !!it2 && it2.provisional === true && !it2.ref;
   return o;
@@ -295,14 +320,14 @@ try {
     { name: 'oats', meal: 'breakfast', time: '08:00', grams: 40, kcal: 150, protein_g: 5, fat_g: 3, carb_g: 27, fiber_g: 4, soluble_fiber_g: 2, confidence: 'weighed', source: 'manual', notes: '', ref: row, adjusted: ['kcal'] }] };
   localStorage.clear();
   localStorage.setItem('healthtracker-log', JSON.stringify(v16));
-  const b = HT.boot(); HT.refresh(); await sleep(200);
+  const b = HT.boot(); HT.refresh(); await window.__htQuiet(10000);
   const its = HT.state().days[dk].items;
   const o = { source: b.source, v: HT.state().version, k0: its[0].kcal, k1: its[1].kcal, oats: its[2].kcal, rec0: its[0].recomputed ? its[0].recomputed.was.kcal : null,
               kept: !!localStorage.getItem(HT.PREMIGRATION_V16_KEY) };
   // the row says it, where its details are
-  HT.dayGroupsOpenAll && HT.dayGroupsOpenAll(true); HT.refresh(); await sleep(150);
+  HT.dayGroupsOpenAll && HT.dayGroupsOpenAll(true); HT.refresh(); await window.__htQuiet(10000);
   const row0 = Array.prototype.filter.call(document.querySelectorAll('#dayView .mitem'), (r) => /17:18/.test(r.textContent))[0];
-  if (row0) { row0.querySelector('.mhead').click(); await sleep(200); }
+  if (row0) { row0.querySelector('.mhead').click(); await window.__htQuiet(10000); }
   const rc = document.querySelector('#dayView .mrecount');
   o.says = rc ? rc.textContent : '';
   return o;

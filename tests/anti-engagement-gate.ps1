@@ -70,6 +70,29 @@ function Invoke-CDP([string]$m, [hashtable]$p) {
     $msg = Receive-One; if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalA([string]$js) {
   $enc = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($js -replace "`r`n", "`n")))
@@ -112,7 +135,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $chrome = Start-Process -FilePath $browser -PassThru -ArgumentList @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio",
     "--remote-debugging-port=$Dbg", "--user-data-dir=$udd", "--no-first-run",
     "--no-default-browser-check", "--disable-gpu", "about:blank")
@@ -129,8 +152,10 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 1; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
   $ready = $false
   for ($i = 0; $i -lt 100; $i++) {
@@ -186,7 +211,7 @@ try {
   }
 
   HT.setClock(function () { return Date.parse('2026-09-26T14:00:00-04:00'); });
-  localStorage.clear(); HT.boot(); await sleep(400);
+  localStorage.clear(); HT.boot(); await window.__htQuiet(10000);
   // R159.1/A4: the day renders one COLLAPSED header per meal kind, so an item row
   // does not exist until its group is tapped. This gate sweeps those rows, so it
   // opens them -- once, with the sticky seam, which keeps later seeding swept too.
@@ -242,7 +267,7 @@ try {
   // n=0 of m=0 with twelve days "seeded", and the assertion's own evidence line is
   // what made that visible instead of sending me back to read typicalWindow.
   HT.Store.saveState(S);
-  HT.refresh(); await sleep(300);
+  HT.refresh(); await window.__htQuiet(10000);
   // THE KEYS COME FROM THE APP, not from my idea of its format. fastLog is keyed
   // by the candidate's START timestamp and matched by matchResolution; keying it
   // by a date string left every candidate 'pending' and the streak at 0, which
@@ -260,45 +285,45 @@ try {
   OUT.behaviour.fastsResolved = Object.keys(S.fastLog).length;
   OUT.behaviour.streak = (typeof HT.fastingStats === 'function')
     ? (HT.fastingStats(HT.state().days) || {}).streak : null;
-  HT.refresh(); await sleep(400);
+  HT.refresh(); await window.__htQuiet(10000);
   const rowN = document.querySelectorAll('.mitem').length;
   for (let r = 0; r < rowN; r++) {
     const h = document.querySelectorAll('.mitem')[r];
     const hh = h && h.querySelector('.mhead');
-    if (hh) { hh.click(); await sleep(40); }
+    if (hh) { hh.click(); await window.__htQuiet(10000); }
   }
-  await sleep(200);
+  await window.__htQuiet(10000);
   sweep('day view');
 
   // ---- THE OFFER, AND THAT IT NEVER COMES BACK ---------------------------
   if (typeof HT.resolveWalkStart === 'function') {
     HT.resolveWalkStart(DK, 'm1');
-    HT.refresh(); await sleep(250);
+    HT.refresh(); await window.__htQuiet(10000);
     OUT.behaviour.offerShown = document.querySelectorAll('.rwalk').length;
     sweep('day view with a pending offer');
     if (typeof HT.resolveWalkDismiss === 'function') {
       HT.resolveWalkDismiss();
-      await sleep(200);
+      await window.__htQuiet(10000);
       OUT.behaviour.afterDismiss = document.querySelectorAll('.rwalk').length;
-      HT.refresh(); await sleep(200);
+      HT.refresh(); await window.__htQuiet(10000);
       OUT.behaviour.afterRerender = document.querySelectorAll('.rwalk').length;
-      HT.boot(); await sleep(300);
+      HT.boot(); await window.__htQuiet(10000);
       OUT.behaviour.afterBoot = document.querySelectorAll('.rwalk').length;
     } else { OUT.behaviour.noDismissFn = true; }
   } else { OUT.behaviour.noWalkFn = true; }
 
   // ---- TRENDS, where the fasting streak lives ----------------------------
   HT.state().current = DK;
-  HT.refresh(); await sleep(200);
+  HT.refresh(); await window.__htQuiet(10000);
   let opened = false;
   const tabs = Array.prototype.slice.call(document.querySelectorAll('[onclick],[data-view],button,a'));
   for (const el of tabs) {
     const t = ((el.textContent || '') + ' ' + (el.getAttribute('aria-label') || '')).toLowerCase();
-    if (t.indexOf('trend') >= 0) { el.click(); opened = true; await sleep(400); break; }
+    if (t.indexOf('trend') >= 0) { el.click(); opened = true; await window.__htQuiet(10000); break; }
   }
   OUT.trendsOpened = opened;
   Array.prototype.slice.call(document.querySelectorAll('.wrap details')).forEach(function (d) { d.open = true; });
-  await sleep(250);
+  await window.__htQuiet(10000);
   // THE FLOORED SURFACE MUST BE POPULATED, or this sweep is reading an empty page
   // again -- one floor along from the one that hid the nudge.
   const tb = document.querySelector('.tbrow');

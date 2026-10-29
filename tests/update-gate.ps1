@@ -55,6 +55,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr, [bool]$awaitP = $false) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; awaitPromise = $awaitP; returnByValue = $true }
   return $r.result.result.value
@@ -116,9 +139,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 800
-  try { Invoke-WebRequest "$origin/index.html" -UseBasicParsing -TimeoutSec 5 | Out-Null }
-  catch { Write-Host "ERROR: test server did not start"; Cleanup; exit 2 }
+  WaitServer "$origin/index.html"
 
   $chromeArgs = @('--headless=new', '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-default-apps', '--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion', '--mute-audio', '--disable-gpu', '--no-sandbox', "--user-data-dir=$udd",
                   "--remote-debugging-port=$dbg", '--remote-allow-origins=*', 'about:blank')
@@ -138,12 +159,14 @@ try {
   $ws = New-Object System.Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null    | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
 
   # 1. v1 registers + activates (prod path forced so it isn't the localhost dev branch;
   #    swnow=1 zeroes the resume-check throttle -- a test seam like prod=1).
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1&swnow=1" } | Out-Null
-  Start-Sleep -Seconds 2
+  WaitBoot
   $v1state = Eval "navigator.serviceWorker.ready.then(function(){return navigator.serviceWorker.getRegistration()}).then(function(r){return JSON.stringify({active:!!r.active,waiting:!!r.waiting})}).catch(function(e){return '{}'})" $true
   $d1 = $v1state | ConvertFrom-Json
   $v1active = [bool]$d1.active
@@ -151,6 +174,7 @@ try {
   # 2. LOAD-applies: shell -> v2; re-navigate (a LOAD) with NO gesture -> new SW must
   #    AUTO-activate (skipWaiting+claim) and the new shell (token) go live.
   Set-Content -Path $marker -Value 'bump' -Encoding ascii
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1&swnow=1" } | Out-Null
   $loadApplied = $false
   for ($i = 0; $i -lt 20; $i++) {
@@ -186,7 +210,7 @@ try {
   #    note used to carry two literal middots itself, which is advice failing to
   #    take its own advice.
   Eval "if (typeof openSettings === 'function') openSettings()" | Out-Null
-  Start-Sleep -Milliseconds 200
+  WaitQuiet 'after a step'
   $vlJson = Eval "(function(){var p=document.getElementById('settingsPanel'),e=document.getElementById('settingsVersion');if(!p||!e)return JSON.stringify({found:false});var r=e.getBoundingClientRect();return JSON.stringify({found:true,inPanel:p.contains(e),text:e.textContent,w:Math.round(r.width),h:Math.round(r.height)});})()"
   $vl = $null; try { $vl = $vlJson | ConvertFrom-Json } catch {}
   $vlFound   = [bool]($vl -and $vl.found)

@@ -73,6 +73,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$e) { (Invoke-CDP 'Runtime.evaluate' @{ expression = $e; returnByValue = $true }).result.result.value }
 function EvalAsyncB64([string]$js) {
   $j = $js -replace "`r`n", "`n"
@@ -123,7 +146,7 @@ function Cleanup {
 
 $fails = @()
 try {
-  Start-Sleep -Milliseconds 600
+  WaitServer "$origin/index.html"
   $cargs = @("--headless=new", "--disable-extensions", "--disable-background-networking", "--disable-component-update", "--disable-sync", "--disable-default-apps", "--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion", "--mute-audio", "--remote-debugging-port=$Dbg", "--user-data-dir=$udd",
             "--no-first-run", "--no-default-browser-check", "--disable-gpu", "about:blank")
   $chrome = Start-Process -FilePath $browser -ArgumentList $cargs -PassThru
@@ -140,13 +163,15 @@ try {
   $ws = New-Object Net.WebSockets.ClientWebSocket
   [void]$ws.ConnectAsync([Uri]$tabUrl, $ct).GetAwaiter().GetResult()
   Invoke-CDP 'Page.enable' $null | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Network.enable' $null | Out-Null
   $ua0 = Eval 'navigator.userAgent'
   Invoke-CDP 'Network.setUserAgentOverride' @{ userAgent = $ua0; acceptLanguage = 'en-CA' } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
-  Start-Sleep -Milliseconds 3000
+  WaitBoot
   # R239: BOOT IS A SIGNAL, NOT ONLY A SLEEP. Under suite load 3 s was sometimes too
   # short and the gate reported 'the app did not boot' about the machine. Up to 30 s
   # more for HT and a loaded page; the gate's own boot check still decides.
@@ -162,7 +187,7 @@ try {
   HT.setClock(function () { return Date.parse('2026-09-26T12:00:00-04:00'); });
   localStorage.clear();
   HT.boot();
-  await sleep(250);
+  await window.__htQuiet(10000);
   await HT.corpusEnsure();
   HT.matchIndexBuild();
   // A PRIOR day whose resolved item is a REWORDING of a draft item: both
@@ -179,7 +204,7 @@ try {
              attribution: 'Canadian Nutrient File, Health Canada, 2015', v: { '301': 1 } } }] };
   S.current = '2026-09-26';
   HT.refresh();
-  await sleep(200);
+  await window.__htQuiet(10000);
   const NAMES = [
     ['spicy creamy ramen broth (tantan/miso-style)', 72, 340],
     ['cooked wheat ramen noodles', 138, 170],
@@ -195,7 +220,7 @@ try {
                        fiber_g: 1, soluble_fiber_g: 0 } };
   }) });
   const r = HT.openPhotoDraft(paste);
-  await sleep(600);
+  await window.__htQuiet(10000);
   // Force partial coverage so .pmcov renders on the draft total.
   //
   // H27: this used to click "None of these", which resolved an item to nothing on
@@ -206,7 +231,7 @@ try {
   HT.photoSearchOpen(lastI);
   HT.photoSearchType('zzqqxv wibblefrotz');
   HT.photoSearchKeep(lastI);
-  await sleep(350);
+  await window.__htQuiet(10000);
   return { ok: !!r.ok, error: r.error || null,
            rows: document.querySelectorAll('.pmrow').length,
            refState: refState };
@@ -331,7 +356,7 @@ try {
 '@
   function Probe([int]$w, [int]$h) {
     Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = $w; height = $h; deviceScaleFactor = 2; mobile = $true } | Out-Null
-    Start-Sleep -Milliseconds 800
+    WaitQuiet 'after a step'
     $rv = Invoke-CDP 'Runtime.evaluate' @{ expression = $probe; returnByValue = $true }
     if ($rv.result.exceptionDetails) { throw "probe threw at ${w}px: $($rv.result.exceptionDetails.text)" }
     return $rv.result.result.value
@@ -345,7 +370,7 @@ try {
   HT.setClock(function () { return Date.parse('2026-09-26T12:00:00-04:00'); });
   localStorage.clear();
   HT.boot();
-  await sleep(250);
+  await window.__htQuiet(10000);
   const NAMES = [
     ['spicy creamy ramen broth (tantan/miso-style)', 72, 340],
     ['cooked wheat ramen noodles', 138, 170],
@@ -358,7 +383,7 @@ try {
              per100: { kcal: n[1], protein_g: 4, fat_g: 3, carb_g: 20,
                        fiber_g: 1, soluble_fiber_g: 0 } };
   }) }));
-  await sleep(600);
+  await window.__htQuiet(10000);
   return { ok: !!r.ok, rows: document.querySelectorAll('.pmrow').length };
 })()
 '@
@@ -491,7 +516,7 @@ try {
   const opts = row ? Array.prototype.slice.call(row.querySelectorAll('.pmalts > button')) : [];
   if (!opts.length) return { err: 'no identity options on the memory row' };
   opts[0].click();
-  await sleep(400);
+  await window.__htQuiet(10000);
   const d1 = HT.photoDraft();
   const mem = (d1.items || []).filter(function (it) { return !!it.ref; })[0] || null;
   O.memSetRef = !!mem;
@@ -510,7 +535,7 @@ try {
   if (o2.length >= 2) {
     const want = (o2[o2.length - 2].textContent || '').replace(/\s+/g, ' ').trim();
     o2[o2.length - 2].click();
-    await sleep(400);
+    await window.__htQuiet(10000);
     const d2 = HT.photoDraft();
     const it2 = (d2.items || []).filter(function (it) {
       return String(it.name || '').indexOf('pork belly') >= 0 || /something else|plain/.test(String(it.name || '')); })[0] || null;
@@ -520,7 +545,7 @@ try {
   }
   // (c) and SAVED, the ref survives the write boundary with its own field
   const sr = HT.photoSave();
-  await sleep(600);
+  await window.__htQuiet(10000);
   O.saved = !!(sr && sr.ok);
   const day = HT.state().days[HT.state().current] || { items: [] };
   const withRef = (day.items || []).filter(function (it) { return it && it.ref; });
@@ -532,7 +557,7 @@ try {
 })()
 '@
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
-  Start-Sleep -Milliseconds 500
+  WaitQuiet 'after a step'
   $B = EvalAsyncB64 $behav
   if ($B -like 'EXCEPTION*') { $fails += "the behaviour phase threw: $B" }
   else {
@@ -581,7 +606,7 @@ try {
   });
   if (!btn) return { err: 'no memory option to take' };
   btn.click();
-  await sleep(500);
+  await window.__htQuiet(10000);
   const d = HT.photoDraft();
   const mi2 = rowIdx(/ramen noodle soup/);          // renamed by the pick
   if (mi2 < 0) return { err: 'the renamed item was not found' };
@@ -590,13 +615,13 @@ try {
   O.refV301 = Number(((d.items[mi2].ref || {}).v || {})['301']);
   // eat a THIRD of it
   HT.photoSetAte(mi2, 'fraction', 1 / 3);
-  await sleep(200);
+  await window.__htQuiet(10000);
   // photoSave() with NO ARGS passes all:true and ignores PHOTO_DRAFT.ate, so the
   // 1/3 never applied and this assertion was passing at a ratio of 1 -- vacuous
   // in exactly D96's sense. photoSaveSome() is the path that carries the
   // fractions, and it is the path the consumption question uses.
   const sr = HT.photoSaveSome();
-  await sleep(700);
+  await window.__htQuiet(10000);
   O.saved = !!(sr && sr.ok);
   const day = HT.state().days[HT.state().current] || { items: [] };
   const eaten = (day.items || []).filter(function (it) { return it && it.ref && /ramen noodle soup/.test(it.name || ''); })[0] || null;
@@ -621,7 +646,7 @@ try {
       return { kind: 'fraction', fraction: i === pi ? 0.5 : 0 }; });
     const r2 = HT.consumeFromPlate(pid, st2,
                                    { date: HT.state().current, mealId: 'gate-half' });
-    await sleep(400);
+    await window.__htQuiet(10000);
     O.half = !!(r2 && r2.ok !== false);
     O.r2ok = r2 ? String(r2.ok) : 'null';
     O.r2why = r2 ? String(r2.why || r2.error || '') : '';

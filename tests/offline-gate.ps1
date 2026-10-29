@@ -58,6 +58,29 @@ function Invoke-CDP([string]$method, [hashtable]$prms) {
     if (($null -ne $msg.id) -and ($msg.id -eq $script:cid)) { return $msg }   # skip events
   }
 }
+# ---- R283: every wait is a wait ON A CONDITION (tests/lib/quiet.js) -------------------
+# No fixed sleep stands for "long enough". The page counts its own async work in flight;
+# WaitQuiet returns when none is and the DOM has been still for two frames, WaitBoot when
+# the NEW page's app is up (the old page is marked first), WaitServer when the test
+# server answers. Each fails the gate, by name, if its condition never holds.
+$HT_QUIET_JS = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'lib\quiet.js'))
+function WaitFail([string]$why) { Write-Host ("  FAIL  " + $why); Write-Host "GATE: FAIL"; try { Cleanup } catch { }; exit 1 }
+function WaitQuiet([string]$why) {
+  $r = Invoke-CDP 'Runtime.evaluate' @{ expression = "(window.__htQuiet ? window.__htQuiet(10000).then(function () { return 'quiet'; }, function (e) { return String(e && e.message || e); }) : Promise.resolve('no quiet marker on this page'))"; awaitPromise = $true; returnByValue = $true }
+  $v = $r.result.result.value
+  if ($v -ne 'quiet') { WaitFail ("the page did not settle (" + $why + "): " + $v) }
+  $ms = (Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htQuietLastMs + " ms, waiting on: " + window.__htQuietWaitedOn'; returnByValue = $true }).result.result.value
+  if ([double]($ms -replace ' ms.*', '') -gt 3000) { Write-Host ("  NOTE  settling took " + $ms + " (" + $why + ")") } }
+function WaitServer([string]$url) {
+  for ($sw = 0; $sw -lt 300; $sw++) { try { $null = Invoke-WebRequest $url -UseBasicParsing -TimeoutSec 2; return } catch { Start-Sleep -Milliseconds 100 } }
+  Write-Host "ERROR: test server did not start within 30 s"; try { Cleanup } catch { }; exit 2 }
+function MarkOld { try { [void](Invoke-CDP 'Runtime.evaluate' @{ expression = 'window.__htOld = 1'; returnByValue = $true }) } catch { } }
+function WaitLoaded {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the page did not load within 30 s" }
+function WaitBoot {
+  for ($bw = 0; $bw -lt 300; $bw++) { $hb = $null; try { $hb = (Invoke-CDP 'Runtime.evaluate' @{ expression = "!window.__htOld && typeof HT === 'object' && document.readyState === 'complete'"; returnByValue = $true }).result.result.value } catch { }; if ($hb -eq $true) { WaitQuiet 'boot'; return }; Start-Sleep -Milliseconds 100 }
+  WaitFail "the app did not boot within 30 s" }
 function Eval([string]$expr, [bool]$awaitP = $false) {
   $r = Invoke-CDP 'Runtime.evaluate' @{ expression = $expr; awaitPromise = $awaitP; returnByValue = $true }
   return $r.result.result.value
@@ -101,9 +124,7 @@ function Cleanup {
 }
 
 try {
-  Start-Sleep -Milliseconds 800
-  try { Invoke-WebRequest "$origin/index.html" -UseBasicParsing -TimeoutSec 5 | Out-Null }
-  catch { Write-Host "ERROR: test server did not start"; Cleanup; exit 2 }
+  WaitServer "$origin/index.html"
 
   # launch Chrome with remote debugging (remote-allow-origins required on modern Chrome)
   $args = @('--headless=new', '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--disable-default-apps', '--disable-features=Translate,MediaRouter,OptimizationHints,SpareRendererForSitePerProcess,AutofillServerCommunication,CalculateNativeWinOcclusion', '--mute-audio', '--disable-gpu', '--no-sandbox', "--user-data-dir=$udd",
@@ -126,17 +147,20 @@ try {
   [void]$ws.ConnectAsync([Uri]$wsUrl, $ct).GetAwaiter().GetResult()
 
   Invoke-CDP 'Page.enable' $null    | Out-Null
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = $HT_QUIET_JS } | Out-Null   # R283
   Invoke-CDP 'Runtime.enable' $null | Out-Null
   Invoke-CDP 'Network.enable' $null | Out-Null
 
   # 1. seed legacy data (seed page runs no app.js, so it can't create the new key
   #    first -- D2 precedence would otherwise ignore the seed).
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/tests/seed-offline.html" } | Out-Null
-  Start-Sleep -Milliseconds 1500
+  WaitLoaded
 
   # 2. load the app under forced prod: boot migrates the seed and registers the SW
+  MarkOld
   Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1" } | Out-Null
-  Start-Sleep -Seconds 2
+  WaitBoot
 
   # 3. verify the SW is ready and the shell is actually precached. The cache name
   #    is content-derived (D6), so find any healthtracker-shell-* cache rather than
@@ -144,20 +168,22 @@ try {
   $precached = Eval "navigator.serviceWorker.ready.then(function(){return caches.keys()}).then(function(keys){var k=keys.filter(function(x){return x.indexOf('healthtracker-shell-')===0;})[0];return k?caches.open(k).then(function(c){return c.match('./index.html')}).then(function(m){return !!m}):false;}).catch(function(){return false})" $true
 
   # 4. reload online so the SW takes control and history renders
+  MarkOld
   Invoke-CDP 'Page.reload' $null | Out-Null
-  Start-Sleep -Milliseconds 1500
+  WaitBoot
 
   # 4b. Prime the ZXing runtime cache while ONLINE (D15): loadZXing() fetches the
   #     pinned CDN script; the SW caches it into healthtracker-runtime. This is the
   #     ONLY scanner path on iOS Safari / Firefox, so it must survive offline.
   $zxOnline = Eval "(window.HT&&HT.loadZXing?HT.loadZXing():Promise.reject()).then(function(){return typeof window.ZXing==='object'}).catch(function(){return false})" $true
   $zxCached = Eval "caches.open('healthtracker-runtime').then(function(c){return c.keys()}).then(function(k){return k.length>0}).catch(function(){return false})" $true
-  Start-Sleep -Milliseconds 300
+  WaitQuiet 'after a step'
 
   # 5. cut the network for real (CDP), then reload -- the SW must serve from cache
   Invoke-CDP 'Network.emulateNetworkConditions' @{ offline = $true; latency = 0; downloadThroughput = -1; uploadThroughput = -1 } | Out-Null
+  MarkOld
   Invoke-CDP 'Page.reload' $null | Out-Null
-  Start-Sleep -Seconds 2
+  WaitBoot
 
   $raw = Eval "JSON.stringify({hrows: document.querySelectorAll('.hrow').length, seeded: (document.body.innerHTML.indexOf('2026-07-08')>=0 || document.body.innerHTML.indexOf('Jul 8')>=0), badge: ((document.getElementById('storeBadge')||{}).textContent||'')})"
   $d = $raw | ConvertFrom-Json
