@@ -19355,3 +19355,67 @@ and not nothing. forms-gate: three runs, all PASS, no slow settle.
   synthesis runs estimated at 0.6-1.4 M tokens for a first pass of three experts, in
   sessions the user starts (R263); no licence costs money; no new commercial blocker.
 - **Seven questions** are with the user; nothing in Part C starts before the answers.
+
+## R285 -- PRE-REGISTERED: A STACK DOSE IN UNITS, AND NO SILENT SAVE (2026-10-29; record before the build)
+
+*Reported from real use (29 Oct): a zinc product found by its NPN never reached the
+user's stack. The lookup worked; the dose was entered as 1 tablet; the save failed with
+no message. Serves **track**. Placeholders only in the repo (R204).*
+
+**Cause -- reproduced in a browser at 390 x 844 (probability 85 %).** The NPN proposal
+(Health Canada: zinc 50 mg per tablet, label dose 1 tablet) fills "1 tablet" and, under
+the name, the app's own R208 suggestion **"Count it toward Zinc?"** -- the product
+name holds the nutrient's name. Tapping it (or choosing Zinc under "Counts toward")
+sets the single R208 key, which converts the **typed amount** to the nutrient and so
+refuses a count unit: *"tablet cannot be counted toward Zinc, which is measured in
+mg..."*. The refusal **was written -- into `#stkWarn` at the top of the form, 465 px
+above the top of the screen** while Save sat at 475 px (measured: warning top -465,
+bottom -387, viewport 844). Nothing on screen changed; the sheet stayed open with the
+input in it. The probe: as proposed, Save stores the item (1 tablet, zinc counted
+from the product); with the suggestion or the list choice, nothing is stored. The
+residual 15 %: another refusal the same off-screen box hid (no other refusal is
+reachable from this form with a product named and a date not in the future), or a
+real record shaped unlike the placeholder. **That the message was off screen is
+95 %**: every refusal in this form writes only there. The backup of 29 Oct holds no
+such item -- consistent with a refusal, not a lost write.
+
+**Ruled (R285).**
+1. **A dose in units.** A stack item keeps, per ingredient, the amount in EACH UNIT
+   (from the NPN record, or typed) and a unit name (tablet, capsule, softgel, scoop,
+   drop, mL, ...). The dose is a count of units; the day's nutrient = units x amount
+   per unit, per ingredient. The form asks **"How many?"** beside the unit name,
+   defaulting to the label's recommended serving when the record has one.
+2. **Existing items keep working.** An item with no per-unit data keeps its current
+   amount entry ("Amount", "Counts toward"), read as before; no stored data changes.
+3. **No silent save.** A save that cannot complete says why, on screen, in plain
+   words, next to the button that was tapped, and keeps what was entered.
+
+**Built as (planned).** With a count unit the form reads "How many?"; the R208 single
+"Counts toward" (an amount for the whole dose, in a mass unit) is not offered, and
+nutrient rows read "in each <unit>" (`per: 'unit'`); a product's ingredients count per
+unit as before. The name's suggestion is offered only for a nutrient the item does not
+already count, and adds a per-unit row. A product's per-unit amounts with a MASS unit
+chosen are refused in words (the units would be read as milligrams). A dose left empty
+with per-unit amounts is refused in words, not assumed. The unit list gains softgel and
+scoop. The warning moves beside Save, is announced (`role="alert"`) and is scrolled into
+view; an exception in the save is caught and said; a write the device refuses is said.
+Legacy rows typed for the whole dose stay `per: 'dose'` when edited.
+
+**Pre-registered checks** (`stackscan-gate`, a new R285 section; red first on HEAD):
+- **R285 GATE 1:** an NPN placeholder with 50 mg zinc per tablet, label dose 1: the form
+  asks "How many?" with "tablet", 1 filled; no "Counts toward" list and no zinc
+  suggestion; saved by the same 5 taps; shown in + Log's Daily stack; ticked, the day
+  gains **50 mg** zinc from the stack.
+- **R285 GATE 2:** the same product at **2 tablets adds 100 mg**; and a taken dose edited
+  from 1 to 2 tablets reads 100 mg.
+- **R285 GATE 3:** a save that cannot complete (zinc from the product and a typed zinc
+  row: counted twice) shows its reason **inside the viewport, beside Save**, and keeps
+  every field as entered; nothing is written.
+- **R285 GATE 4:** by hand, no NPN: 2 capsules with 15 mg zinc in each capsule, ticked,
+  adds **30 mg**.
+- **R285 GATE 5:** an existing item with no per-unit data (an amount in mg counting
+  toward magnesium) opens with "Amount" and its "Counts toward", and saves with its
+  stored record unchanged.
+- Harness: the core (`stackUpsert`) cases for the above.
+
+Release v0.112.1 under the standing pre-run rule (R284), then suite -> push -> verify.
