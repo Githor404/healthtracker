@@ -3889,11 +3889,56 @@ window.setLS({});
     sePending = false;
     // R21: the call-path cases are asynchronous. They run here, in the same
     // deferred slot as the iframe, so the suite still finishes exactly once.
-    runByokAsync().then(finish, function (e) {
+    runByokAsync().then(runR281Async).then(finish, function (e) {
       res(false, 'R21: the async cases threw', String(e && e.message));
       finish();
     });
   };
+
+  // R281/5 + 3: Health Canada answered by a stub -- the lookup chain and the photo route
+  function runR281Async() {
+    var calls = [];
+    var stub = function (url) {
+      calls.push(url);
+      var m = /natural-licences\/(\w+)\/.*[?&]id=(\d+)/.exec(url);
+      var body = '[]';
+      if (m && m[1] === 'productlicence' && m[2] === '80000003') body = JSON.stringify([
+        { lnhpd_id: 77, licence_number: '80000003', product_name: 'Gate alt name', flag_primary_name: 0, flag_product_status: 1, dosage_form: 'Capsule', company_name: 'Gate Co' },
+        { lnhpd_id: 77, licence_number: '80000003', product_name: 'Gate magnesium', flag_primary_name: 1, flag_product_status: 1, dosage_form: 'Capsule', company_name: 'Gate Co' }]);
+      if (m && m[1] === 'medicinalingredient' && m[2] === '77') body = JSON.stringify({ metadata: {}, data: [
+        { ingredient_name: 'Magnesium', quantity: 150, quantity_unit_of_measure: 'milligrams', source_material: 'Magnesium citrate', potency_amount: 0 }] });
+      if (m && m[1] === 'productdose' && m[2] === '77') body = JSON.stringify([{ quantity_dose: 2, uom_type_desc_quantity_dose: 'Capsule', frequency: 1, uom_type_desc_frequency: 'daily' }]);
+      return Promise.resolve(new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    };
+    HT.setLnhpdFetch(stub);
+    return HT.lnhpdLookup('80000003').then(function (r) {
+      var p = r.product || {};
+      res(r.ok && p.name === 'Gate magnesium' && p.npn === '80000003' && p.status === 'active' && p.ingredients.length === 1
+          && p.ingredients[0].form === 'Magnesium citrate' && p.ingredients[0].unit === 'milligrams' && p.label_dose.qty === 2 && /Open Government/.test(p.attribution)
+          && calls.length === 3 && calls.every(function (u) { return u.indexOf('https://health-products.canada.ca/api/natural-licences/') === 0; }),
+          'R281 GATE 5: AN NPN LOOKS UP HEALTH CANADA -- the primary-name row, each ingredient with its amount and FORM, the label dose, cited (3 requests, one host)', JSON.stringify(p) + ' ' + calls.length);
+      return HT.lnhpdLookup('80000099');
+    }).then(function (r) {
+      res(!r.ok && r.kind === 'none' && /No product with that NPN/.test(r.error), 'R281 5: an unknown NPN is "No product with that NPN", nothing found');
+      return HT.lnhpdLookup('1234');
+    }).then(function (r) {
+      res(!r.ok && r.kind === 'input', 'R281 5: anything but 8 digits is refused before any request');
+      // the photo route: an NPN that matches -> the DATABASE's numbers, not the model's
+      HT.stackFormOpen('', 'log');
+      var o = HT.suppLabelReply(JSON.stringify({ npn: '80000003', name: 'Gate magnesium', ingredients: [{ name: 'Magnesium', amount: 999, unit: 'mg' }] }));
+      return o.pending;
+    }).then(function () {
+      var npn = HT.stackFormHTML();
+      res(npn.indexOf('150 milligrams per unit') > 0 && npn.indexOf('999') < 0 && npn.indexOf('Provisional') < 0,
+          'R281 GATE 3: A PHOTO WHOSE NPN MATCHES uses the DATABASE\'S numbers -- 150 mg, not the model\'s 999', npn);
+      HT.stackFormCancel(); HT.stackFormOpen('', 'log');
+      var o2 = HT.suppLabelReply(JSON.stringify({ name: 'Gate photo two', ingredients: [{ name: 'Zinc', amount: 15, unit: 'mg', form: 'zinc gluconate' }] }));
+      var h2 = HT.stackFormHTML();
+      res(o2.ok && o2.provisional && h2.indexOf('Provisional') > 0 && h2.indexOf('not from a database') > 0 && h2.indexOf('These numbers are right') > 0,
+          'R281 GATE 3: with NO NPN, the model\'s ingredients are a PROVISIONAL proposal -- said so, with its provenance and the confirm button', h2);
+      HT.stackFormCancel(); HT.setLnhpdFetch(null);
+    }).catch(function (e) { HT.setLnhpdFetch(null); res(false, 'R281 async threw', String(e && e.message)); });
+  }
   function runByokAsync() {
     // HARNESS LIMITATION, recorded rather than hidden: createImageBitmap NEVER
     // settles under --virtual-time-budget -- neither resolve nor reject, while
@@ -11741,6 +11786,74 @@ window.setLS({});
   res(yS({ ref: { ns: 'cnf', id: '123' } }, '22:40') === 'Gate oats@22:35' && yS({ ref: { ns: 'fdc', id: '123' } }, '22:40') === '',
       'R279 2: the same linked database row counts as the same item; the same id in another database does not');
   HT.state().days = _yDays; HT.state().current = _yCur;
+
+  // ---- R281: JOIN DATE, MULTI-NUTRIENT ITEMS, PRODUCTS, THE EMPTY STACK ---------------------
+  // Placeholder items only (R204).
+  var _qDays = HT.state().days, _qCur = HT.state().current, _qTl = HT.state().timeline;
+  var _qSet = JSON.parse(JSON.stringify(HT.state().settings));
+  HT.setClock(function () { return new Date(2026, 9, 20, 9, 0, 0).getTime(); });
+  HT.state().days = { '2026-10-20': { status: 'in_progress', items: [], water_l: 0 } }; HT.state().timeline = {};
+  HT.state().current = '2026-10-20'; HT.state().settings.stack = [];
+  HT.stackOpen();
+  var qE = HT.stackSheetHTML('root');
+  res(qE.indexOf('+ Add to stack') > 0 && qE.indexOf('Took all') < 0 && HT.stackSheetHTML() === '',
+      'R281 GATE 1: AN EMPTY STACK still shows "+ Add to stack" on + Log\'s root -- nothing else; the Quick pane draws nothing (D146 there)', qE);
+  // 2. join date
+  var qD = HT.stackUpsert({ name: 'Item D', kind: 'supplement', dose: 1, dose_unit: 'capsule', added_on: '2026-10-15' });
+  res(qD.ok && qD.item.added_on === '2026-10-15' && qD.item.added_basis === 'stated' && HT.stackDayState(qD.item, '2026-10-17') === 'in',
+      'R281 GATE 2: an item given a past join date joins on it ("the date you gave") -- 3 days back it is in the stack, not "not in stack yet"');
+  res(!HT.stackUpsert({ name: 'Item X', kind: 'supplement', added_on: '2026-10-21' }).ok,
+      'R281 2: a future join date is refused in words');
+  HT.setClock(function () { return new Date(2026, 9, 20, 9, 30, 0).getTime(); });
+  var qD2 = HT.stackUpsert({ id: qD.item.id, name: 'Item D', kind: 'supplement', dose: 1, dose_unit: 'capsule', added_on: '2026-10-12' });
+  var qJ = qD2.item.join_edits || [];
+  res(qD2.ok && qD2.item.added_on === '2026-10-12' && qJ.length === 1 && qJ[0].from === '2026-10-15' && qJ[0].to === '2026-10-12'
+      && qJ[0].at === '2026-10-20T09:30:00' && qJ[0].stated === true,
+      'R281 GATE 2: changing it in Edit records ONE join edit -- from, to, the full time, the user\'s', JSON.stringify(qJ));
+  // 4. multi-nutrient: two items, one nutrient in both
+  var qA = HT.stackUpsert({ name: 'Item A2', kind: 'supplement', dose: 1, dose_unit: 'capsule', extra: [{ key: 'magnesium_mg', amount: 200, unit: 'mg' }] });
+  var qB = HT.stackUpsert({ name: 'Item B2', kind: 'supplement', dose: 1, dose_unit: 'capsule',
+                          extra: [{ key: 'magnesium_mg', amount: 200, unit: 'mg' }, { key: 'zinc_mg', amount: 10, unit: 'mg' }] });
+  res(qA.ok && qB.ok && JSON.stringify(qB.item.nutrients.micros) === '{"magnesium_mg":200,"zinc_mg":10}'
+      && qB.item.nutrients.detail.zinc_mg.source === 'typed' && qB.item.nutrients.detail.zinc_mg.per === 'dose',
+      'R281 4: an item counts toward TWO nutrients, each with its own amount and source', JSON.stringify(qB.item.nutrients));
+  res(!HT.stackUpsert({ name: 'Item Y', kind: 'supplement', extra: [{ key: 'zinc_mg', amount: 5, unit: 'mg' }, { key: 'zinc_mg', amount: 5, unit: 'mg' }] }).ok,
+      'R281 4: the same nutrient twice in one item is refused');
+  HT.stackCheck(qA.item.id); HT.stackCheck(qB.item.id);
+  var qM = HT.stackDoseMicros('2026-10-20');
+  var qF = HT.dayIntakeFlags('2026-10-20').filter(function (f) { return f.key === 'magnesium_mg'; })[0];
+  res(qM.magnesium_mg && qM.magnesium_mg.amount === 400 && qM.zinc_mg && qM.zinc_mg.amount === 10,
+      'R281 GATE 4: TWO ITEMS WITH THE SAME NUTRIENT SUM in the day -- 400 mg magnesium from the stack, 10 mg zinc', JSON.stringify(qM));
+  res(!!qF && qF.amount === 400 && HT.intakeFlag('magnesium_mg', 200) === null,
+      'R281 GATE 4: the upper-limit check sums across items -- neither 200 mg item alone is over, the day\'s 400 mg is', JSON.stringify(qF || null));
+  // 5. a product: database ingredients x units taken
+  var qP = { ns: 'lnhpd', npn: '80000002', id: '9', name: 'Gate product', company: 'Gate Co', status: 'active', dosage_form: 'Capsule',
+             ingredients: [{ name: 'Magnesium', amount: 150, unit: 'milligrams', form: 'Magnesium citrate' }, { name: 'Gate herb', amount: 500, unit: 'milligrams', form: 'root' }],
+             label_dose: { qty: 2, unit: 'Capsule', freq: '1 daily' }, at: '2026-10-20', attribution: 'test', how: 'typed' };
+  var qPr = HT.stackUpsert({ name: 'Gate product', kind: 'supplement', dose: 2, dose_unit: 'capsule', product: qP });
+  res(qPr.ok && qPr.item.nutrients.micros.magnesium_mg === 300 && qPr.item.nutrients.detail.magnesium_mg.form === 'Magnesium citrate'
+      && qPr.item.nutrients.detail.magnesium_mg.source === 'lnhpd' && qPr.item.nutrients.detail.magnesium_mg.per === 'unit'
+      && !qPr.item.nutrients.micros.gate && qPr.item.product.npn === '80000002' && qPr.item.product.ingredients.length === 2,
+      'R281 5: a database product counts each TRACKED ingredient x units taken (150 mg x 2 = 300, as citrate); the other ingredient is kept, not counted', JSON.stringify(qPr.item.nutrients));
+  var qPe = HT.stackUpsert({ id: qPr.item.id, name: 'Gate product', kind: 'supplement', dose: 3, dose_unit: 'capsule', product: qPr.item.product, nutrients: qPr.item.nutrients });
+  res(qPe.ok && qPe.item.nutrients.micros.magnesium_mg === 450,
+      'R281 5: an edit to the units recounts from the product -- 450, never 300 added twice', JSON.stringify(qPe.item.nutrients.micros));
+  // 3. provisional numbers count only once confirmed
+  var qV = { ns: 'label-photo', name: 'Gate photo', ingredients: [{ name: 'Zinc', amount: 15, unit: 'mg', provisional: true }], at: '2026-10-20', how: 'photo', attribution: 'photo' };
+  var qV1 = HT.stackUpsert({ name: 'Gate photo', kind: 'supplement', dose: 1, dose_unit: 'tablet', product: qV });
+  res(qV1.ok && !(qV1.item.nutrients && qV1.item.nutrients.micros && qV1.item.nutrients.micros.zinc_mg),
+      'R281 GATE 3: photo-read numbers are PROVISIONAL -- saved, and counted toward nothing until confirmed');
+  var qV2 = HT.stackUpsert({ id: qV1.item.id, name: 'Gate photo', kind: 'supplement', dose: 1, dose_unit: 'tablet',
+                            product: Object.assign({}, qV1.item.product, { confirmed: { at: '2026-10-20T09:40:00' } }) });
+  res(qV2.ok && qV2.item.nutrients.micros.zinc_mg === 15 && qV2.item.nutrients.detail.zinc_mg.source === 'label-photo' && qV2.item.product.confirmed.at === '2026-10-20T09:40:00',
+      'R281 GATE 3: confirmed by the user, they count -- with their provenance and the time it was confirmed', JSON.stringify(qV2.item.nutrients));
+  // the allowlist
+  var qN = HT.normalizeStackItem({ name: 'Z', product: { ns: 'evil', name: 'x' }, join_edits: [{ to: 'nope' }], nutrients: { detail: { foo_mg: {}, zinc_mg: { amount: 1, unit: 'mg', source: 'made-up' } } } });
+  res(!qN.product && !qN.join_edits && !qN.nutrients,
+      'R281: the boundary drops a product from an unknown source, a malformed join edit and a detail with no known source');
+  HT.setClock(null); HT.stackCancel();
+  HT.state().days = _qDays; HT.state().current = _qCur; HT.state().timeline = _qTl;
+  HT.state().settings = JSON.parse(JSON.stringify(_qSet));
 
   // ---- R280: A DAY CLOSES BY ITSELF AT 04:00; BACKFILL; GAPS FLAGGED -------------------
   var _zDays = HT.state().days, _zCur = HT.state().current;

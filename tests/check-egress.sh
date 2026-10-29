@@ -43,6 +43,7 @@ world.openfoodfacts.org|request|product lookup on the scan path, cache-first, wi
 api.x.ai|request|the BYOK provider base, on the USER'S OWN key, probe + chat/completions
 api.fda.gov|request|the FDA drug label, on a tap only -- never on load
 api.nal.usda.gov|request|R242/B: USDA FoodData Central search, on the USER'S OWN key, on a tap only -- never on load or while typing (POST; the key is a query parameter by the service's design)
+health-products.canada.ca|request|R281/5: Health Canada's Licensed Natural Health Products Database (OGL-Canada, no key), the NPN lookup -- on the Look up tap only, never on load or while typing
 cdn.jsdelivr.net|request|the lazily loaded ZXing fallback, the one external dependency the brief allows
 dailymed.nlm.nih.gov|link|"Search DailyMed yourself" and the label's own page -- the user navigates, the app does not request
 github.com|link|the Source link in the About line, and the repo URL inside the OFF User-Agent string
@@ -100,7 +101,7 @@ fi
 # app.js: the app's own calls. sw.js's are pass-through of the page's request
 # (fetch(req)) and introduce no host of their own, so they are pinned separately.
 # 6 -> 7 (v0.106.0, R242/B): the FoodData Central search, fdcFetchTerm.
-PIN_APP=7
+PIN_APP=8
 PIN_SW=5
 N_APP=$(grep -cF 'fetch(' app.js || true)
 N_SW=$(grep -cF 'fetch(' sw.js || true)

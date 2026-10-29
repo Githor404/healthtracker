@@ -19287,3 +19287,38 @@ stack, + Add to stack, (8 digits typed), Look up, Add to my stack = 5. *Gate:* `
 home screen; the saved item carries the NPN, the citation and each ingredient's form; ticked,
 its magnesium reaches the day; an unknown NPN writes nothing; a non-active licence says so;
 the photo route as in 3. The egress census declares the new host.
+
+
+## R281 -- BUILT, AGAINST THE PRE-REGISTRATION (2026-10-28, v0.112.0)
+
+All five parts as pre-registered (fdeb1b1). Measured:
+- **1.** An empty stack shows "Daily stack" with only "+ Add to stack" (44 px) on + Log's root; the
+  Quick pane still draws nothing. The first item is added from + Log and ticked.
+- **2.** "In your stack since" in the add form and in Edit (`max` = today; a future date refused in
+  words). A past date joins by the rule `stated` ("the date you gave"); a change in Edit appends one
+  `join_edits` event (from, to, at, tzo, stated), shown in Settings ("Join date changed by you N
+  times") and carried in the backup's `stackDays.items`.
+- **3.** A fourth capture kind, `supp`, set only by the stack form ("Photo of the label", shown when a
+  key is saved), sends its own template (NPN, name, ingredients per unit). A matching NPN -> the
+  database's numbers (the reply's 999 mg ignored; 150 mg used); no NPN or no match -> a dashed
+  "Provisional" proposal with its provenance and "These numbers are right" (44 px); saved
+  unconfirmed it counts toward nothing; confirmed (here or later in Edit, `product.confirmed.at`) it
+  counts, source `label-photo`.
+- **4.** `nutrients.detail` per nutrient {amount, unit, per 'unit'|'dose', form, source}; "+ another
+  nutrient" rows in the form; the same nutrient twice in one item refused; an edit recounts from the
+  product, never adding twice. Two placeholder items (200 mg magnesium; 200 mg magnesium + 10 mg
+  zinc) beside the 300 mg product: the day's magnesium from the stack 700 mg, zinc 10; the limit check
+  reads the sum; 200 mg alone flags nothing.
+- **5.** `lnhpdLookup`: productlicence (the primary-name row of the NPN) -> medicinalingredient (amount
+  per dosage unit, unit, source material as the form) + productdose; one fetch call site (egress pin
+  7 -> 8; `health-products.canada.ca` declared as a request host, on the tap only); a 20 s abort.
+  The proposal shows product, company, NPN, licence status (a non-active one shown), dosage form,
+  label dose, each ingredient with its form and whether it counts or is kept, and the citation
+  (OGL-Canada, retrieval date). Units default to the label dose; the dose unit from the dosage form.
+  **5 taps** from the home screen to a saved item (+ Log, Daily stack, + Add to stack, Look up, Add to
+  my stack; the 8 digits typed between), against the target of 6. Unknown NPN: "No product with that
+  NPN in Health Canada's database", nothing written; anything but 8 digits refused before any request.
+  DSLD and OpenFoodFacts not built (secondary; both stay on the commercial-blockers list).
+
+*Gates:* `stackscan-gate` (new; 390 px, real taps; Health Canada answered in the page by the gate --
+no network): 11 checks. Harness +18 (3411). The pre-registration's checks are the gate's, unchanged.

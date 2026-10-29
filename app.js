@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.111.3';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.112.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -855,7 +855,79 @@ function normalizeStackItem(raw) {
   const sw = normalizeStackSwitches(r.switches);
   if (sw.length) out.switches = sw;
   if (isDayKey(r.switches_from)) out.switches_from = String(r.switches_from);
+  // R281/2: every change of the join date, the user's, with its full time -- kept
+  // beside the switch history, never collapsed.
+  const je = normalizeJoinEdits(r.join_edits);
+  if (je.length) out.join_edits = je;
+  // R281/4: per nutrient, the amount it came from, its unit, its form and its source.
+  const det = normalizeNutrientDetail(r.nutrients && r.nutrients.detail);
+  if (Object.keys(det).length) { out.nutrients = out.nutrients || {}; out.nutrients.detail = det; }
+  // R281/5: the product a database (or a photo) named, frozen at the user's tap.
+  const prod = normalizeStackProduct(r.product);
+  if (prod) out.product = prod;
   return out;
+}
+function normalizeJoinEdits(v) {
+  if (!Array.isArray(v)) return [];
+  const out = [];
+  v.forEach(function (e) {
+    if (!e || typeof e !== 'object' || !isDayKey(e.to) || !STACK_SWITCH_AT.test(String(e.at))) return;
+    const o = { from: isDayKey(e.from) ? String(e.from) : null, to: String(e.to), at: String(e.at) };
+    const tz = normalizeTzo(e.tzo);
+    if (tz !== undefined) o.tzo = tz;
+    if (e.stated === true) o.stated = true;
+    out.push(o);
+  });
+  return out;
+}
+const STACK_NUTRIENT_SOURCES = ['lnhpd', 'typed', 'label-photo'];
+const STACK_NUTRIENT_UNITS = ['mg', 'mcg', 'g', 'IU'];
+function normalizeNutrientDetail(v) {
+  const out = {};
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return out;
+  Object.keys(v).forEach(function (k) {
+    const d = v[k];
+    if (!MICRO_LABEL[k] || !d || typeof d !== 'object') return;
+    if (STACK_NUTRIENT_SOURCES.indexOf(d.source) < 0 || STACK_NUTRIENT_UNITS.indexOf(d.unit) < 0) return;
+    const o = { amount: clampNonNeg(d.amount), unit: d.unit, per: d.per === 'unit' ? 'unit' : 'dose' };
+    if (d.form != null && String(d.form).trim() !== '') o.form = String(d.form).trim().slice(0, 160);
+    o.source = d.source;
+    out[k] = o;
+  });
+  return out;
+}
+const STACK_PRODUCT_NS = ['lnhpd', 'label-photo'];
+function normalizeStackProduct(p) {
+  if (!p || typeof p !== 'object' || STACK_PRODUCT_NS.indexOf(p.ns) < 0) return null;
+  const str = function (x, n) { return (x == null || String(x).trim() === '') ? undefined : String(x).trim().slice(0, n); };
+  const o = { ns: p.ns };
+  if (/^[0-9]{8}$/.test(String(p.npn || ''))) o.npn = String(p.npn);
+  ['id', 'name', 'company', 'status', 'dosage_form', 'attribution'].forEach(function (k) {
+    const v = str(p[k], k === 'attribution' || k === 'name' || k === 'company' ? 200 : 60);
+    if (v !== undefined) o[k] = v;
+  });
+  const ing = Array.isArray(p.ingredients) ? p.ingredients.slice(0, 40) : [];
+  o.ingredients = ing.map(function (g) {
+    if (!g || typeof g !== 'object') return null;
+    const name = str(g.name, 160); if (!name) return null;
+    const x = { name: name };
+    if (g.amount != null && isFinite(Number(g.amount))) x.amount = clampNonNeg(g.amount);
+    const u = str(g.unit, 20); if (u) x.unit = u;
+    const f = str(g.form, 160); if (f) x.form = f;
+    if (g.provisional === true) x.provisional = true;
+    return x;
+  }).filter(Boolean);
+  if (p.label_dose && typeof p.label_dose === 'object') {
+    const ld = {};
+    if (num(p.label_dose.qty) > 0) ld.qty = num(p.label_dose.qty);
+    const lu = str(p.label_dose.unit, 30); if (lu) ld.unit = lu;
+    const lf = str(p.label_dose.freq, 40); if (lf) ld.freq = lf;
+    if (Object.keys(ld).length) o.label_dose = ld;
+  }
+  if (isDayKey(p.at)) o.at = String(p.at);
+  if (p.how === 'typed' || p.how === 'photo') o.how = p.how;
+  if (p.confirmed && typeof p.confirmed === 'object' && STACK_SWITCH_AT.test(String(p.confirmed.at))) o.confirmed = { at: String(p.confirmed.at) };
+  return o;
 }
 // R256: one event per switch -- on or off, the full local time, the device's
 // offset (D29), and that the user said it. A malformed event is dropped, never
@@ -929,9 +1001,10 @@ function newStackId() { _stackSeq++; return 's' + Date.now().toString(36) + '_' 
 // A new item is `added`, today. An item with neither date is `unknown` and has no
 // `added_on`: it counts as in the stack from the start, exactly as before -- no
 // date is invented for it, and it is never re-dated by a later log.
-const STACK_ADDED_BASES = ['added', 'created', 'logged', 'auto', 'unknown'];
+const STACK_ADDED_BASES = ['added', 'created', 'logged', 'auto', 'unknown', 'stated'];
 const STACK_ADDED_WORDS = {
   added: 'the day it was added',
+  stated: 'the date you gave',                     // R281/2
   created: 'the day it was created in Settings',
   logged: 'the first day it was logged',
   auto: 'the first day the old Daily supplement setting added it',
@@ -5092,7 +5165,15 @@ function stackSheetHTML(where) {
   const off = all.filter(function (s) { return stackDayState(s, dk) === 'off' && !stackTaken(s, dk).length; });
   // D146: nothing configured draws NO row. An empty stack must not advertise
   // itself on a sheet the user opens to log food.
-  if (!counted.length && !notyet.length && !off.length) return '';
+  // R281/1: EXCEPT the way in. On + Log's root, today, an empty stack shows only
+  // "+ Add to stack" (D146 superseded for this entry point alone): no count, no
+  // Took all, nothing drawn over an empty stack.
+  if (!counted.length && !notyet.length && !off.length) {
+    if (where !== 'root' || dk !== todayKey() || (STACK_FORM && STACK_FORM.host !== 'log')) return '';
+    const addE = (STACK_FORM && STACK_FORM.host === 'log') ? '<div class="stklogform">' + stackFormHTML() + '</div>'
+      : '<button type="button" class="btn stkaddlog" onclick="stackFormOpen(\'\', \'log\')">+ Add to stack</button>';
+    return '<div class="qsheet stksec stkempty"><div class="srhead">Daily stack</div>' + addE + '</div>';
+  }
   const taken = counted.filter(function (s) { return stackTaken(s, dk).length > 0; }).length;
   const left = counted.length - taken;
   const none = (off.length && !notyet.length) ? 'switched off' : (notyet.length && !off.length) ? 'not in stack yet on this day' : 'nothing in it on this day';
@@ -5178,6 +5259,8 @@ function exportStackDays() {
     if (s.removed_on) o.removed_on = s.removed_on;
     o.switches_from = s.switches_from || null;
     o.switches = stackSwitchesSorted(s).map(function (e) { const x = { on: e.on, at: e.at }; if (e.tzo !== undefined) x.tzo = e.tzo; if (e.stated) x.stated = true; return x; });
+    if (s.join_edits && s.join_edits.length) o.join_edits = s.join_edits.slice();              // R281/2
+    if (s.product) o.product = { ns: s.product.ns, npn: s.product.npn, name: s.product.name };  // R281/5
     return o;
   });
   if (!all.length) return { v: STACK_EXPORT_VERSION, note: STACK_EXPORT_NOTE, items: items, days: days };
@@ -5274,16 +5357,105 @@ function stackUpsert(raw) {
   }
   if (!name) return { ok: false, error: 'Give it a name.' };
   item.name = name;
+  // R281/4 + 5: the nutrients a database product or typed rows count toward, one
+  // amount per nutrient for the dose taken, each with its own detail.
+  if (kind !== 'food') {
+    const mx = stackMultiNutrients(r, item);
+    if (mx.error) return { ok: false, error: mx.error };
+    if (mx.micros) item.nutrients = Object.assign({}, item.nutrients || {}, { micros: mx.micros, detail: mx.detail });
+    else if (mx.clear) { if (item.nutrients) { delete item.nutrients.micros; delete item.nutrients.detail; if (!Object.keys(item.nutrients).length) delete item.nutrients; } }
+    if (mx.product) item.product = mx.product;
+  }
   const list = APP_STATE.settings.stack || (APP_STATE.settings.stack = []);
   const at = (r.id != null && r.id !== '') ? list.map(function (x) { return x.id; }).indexOf(String(r.id)) : -1;
   // R255: an edit keeps when the item joined (and left); a new one joins today.
-  if (at >= 0) { ['added_on', 'added_basis', 'removed_on', 'switches', 'switches_from'].forEach(function (k) { if (list[at][k] != null) item[k] = list[at][k]; }); }
-  else { item.added_on = todayKey(); item.added_basis = 'added'; item.switches_from = todayKey(); }
+  // R281/2: or on the date the user gives -- never a future one.
+  const since = (r.added_on != null && String(r.added_on) !== '') ? String(r.added_on) : '';
+  if (since && (!isDayKey(since) || since > todayKey())) return { ok: false, error: 'The date it joined your stack cannot be in the future.' };
+  if (at >= 0) {
+    ['added_on', 'added_basis', 'removed_on', 'switches', 'switches_from', 'join_edits'].forEach(function (k) { if (list[at][k] != null) item[k] = list[at][k]; });
+    if (since && since !== list[at].added_on) {
+      const ev = { from: list[at].added_on || null, to: since, at: stackStampNow() };
+      const tz = normalizeTzo(nowTZO()); if (tz !== undefined) ev.tzo = tz;
+      ev.stated = true;
+      item.join_edits = (Array.isArray(item.join_edits) ? item.join_edits.slice() : []).concat([ev]);
+      item.added_on = since; item.added_basis = 'stated';
+    }
+  } else {
+    item.added_on = since || todayKey(); item.added_basis = (since && since !== todayKey()) ? 'stated' : 'added'; item.switches_from = todayKey();
+  }
   const norm = normalizeStackItem(item);
   if (!norm) return { ok: false, error: 'Nothing savable in that.' };
   if (at >= 0) list[at] = norm; else list.push(norm);
   Store.saveState(APP_STATE);
   return { ok: true, item: norm, edited: at >= 0 };
+}
+// R281/4: WHAT AN ITEM COUNTS TOWARD, from three sources kept apart in `detail`:
+//   a database product (each ingredient that IS a tracked nutrient, its amount per
+//   unit times the units taken), photo-read ingredients (only once confirmed), and
+//   typed rows (an amount for the whole dose). The single "counts toward" path of
+//   R208 is unchanged and stays in `micros` without a detail.
+const STACK_SUPP_KEYS = ['magnesium_mg', 'zinc_mg', 'iron_mg', 'calcium_mg', 'potassium_mg',
+                         'vitamin_a_ug', 'vitamin_c_mg', 'vitamin_d_ug', 'vitamin_b12_ug', 'folate_ug'];
+function suppKeyFor(name) {
+  const n = String(name == null ? '' : name).trim().toLowerCase();
+  for (let i = 0; i < STACK_SUPP_KEYS.length; i++) if (MICRO_LABEL[STACK_SUPP_KEYS[i]].label.toLowerCase() === n) return STACK_SUPP_KEYS[i];
+  return '';
+}
+function suppUnit(u) {
+  const x = String(u == null ? '' : u).trim().toLowerCase();
+  if (x === 'mg' || x === 'milligram' || x === 'milligrams') return 'mg';
+  if (x === 'mcg' || x === '\u00b5g' || x === 'ug' || x === 'microgram' || x === 'micrograms') return 'mcg';
+  if (x === 'g' || x === 'gram' || x === 'grams') return 'g';
+  if (x === 'iu' || x === 'international units' || x === 'international unit') return 'IU';
+  return '';
+}
+function productCounts(prod) {
+  return !!prod && (prod.ns === 'lnhpd' || !!prod.confirmed);
+}
+function stackMultiNutrients(r, item) {
+  const prod = normalizeStackProduct(r.product);
+  const rows = Array.isArray(r.extra) ? r.extra.filter(function (x) { return x && x.key; }) : [];
+  if (!prod && !rows.length) return {};                      // R208's single path, untouched
+  const micros = {}, detail = {};
+  // only the single R208 key the user set NOW -- never a map carried from before,
+  // which would already hold this product's amounts and count them twice
+  if (r.microKey) {
+    const base = (item.nutrients && item.nutrients.micros) || {};
+    Object.keys(base).forEach(function (k) { micros[k] = base[k]; });
+  }
+  if (prod) {
+    const units = num(item.dose) > 0 ? num(item.dose) : 1;
+    if (productCounts(prod)) {
+      prod.ingredients.forEach(function (g) {
+        const k = suppKeyFor(g.name), u = suppUnit(g.unit);
+        if (!k || !u || g.amount == null) return;
+        const per = doseToMicro(k, g.amount, u);
+        if (per == null) return;
+        if (micros[k] != null && !detail[k]) return;          // a typed single key already says it
+        micros[k] = (micros[k] || 0) + per * units;
+        const d = { amount: g.amount, unit: u, per: 'unit', source: prod.ns === 'lnhpd' ? 'lnhpd' : 'label-photo' };
+        if (g.form) d.form = g.form;
+        detail[k] = d;
+      });
+    }
+  }
+  for (let i = 0; i < rows.length; i++) {
+    const x = rows[i] || {};
+    const k = String(x.key || ''); if (!k) continue;
+    if (!MICRO_LABEL[k]) return { error: 'That nutrient is not one this app tracks.' };
+    if (x.amount == null || String(x.amount).trim() === '' || !isFinite(Number(x.amount)) || Number(x.amount) < 0)
+      return { error: 'Enter an amount for ' + MICRO_LABEL[k].label + '.' };
+    const u = suppUnit(x.unit);
+    const v = u ? doseToMicro(k, x.amount, u) : null;
+    if (v == null) return { error: doseUnitWord(x.unit) + ' cannot be counted toward ' + MICRO_LABEL[k].label + ', which is measured in ' + MICRO_LABEL[k].unit + '.' };
+    if (micros[k] != null) return { error: 'Count each nutrient once.' };
+    const d = { amount: num(x.amount), unit: u, per: 'dose', source: 'typed' };
+    if (x.form) d.form = String(x.form);
+    micros[k] = v; detail[k] = d;
+  }
+  if (!Object.keys(detail).length) return { product: prod || undefined, micros: Object.keys(micros).length ? micros : null, detail: {} , clear: true };
+  return { micros: micros, detail: detail, product: prod || undefined };
 }
 // R255: a removed item is KEPT with `removed_on`, so the days it was in the stack
 // still say so; it leaves the list and + Log. Only an item removed the day it
@@ -5330,13 +5502,225 @@ function stackItemEnable(id, on) {
   renderStackEditor(); stackRerender();                  // R276: + Log's rows and the Quick pane too
   return { ok: true, enabled: it.enabled };
 }
+// ---- R281/5: HEALTH CANADA'S LICENSED NATURAL HEALTH PRODUCTS DATABASE -------------------
+// The 8-digit NPN printed on a Canadian label -> the licence (its primary-name row), its
+// medicinal ingredients (amount PER DOSAGE UNIT, the source material = the FORM) and its
+// label dose. Asked on the Look up tap only; no key; the API sends CORS headers.
+// Licence: Open Government Licence - Canada (commercial use allowed, with attribution).
+const LNHPD_BASE = 'https://health-products.canada.ca/api/natural-licences/';
+const LNHPD_ATTRIBUTION = 'Licensed Natural Health Products Database, Health Canada (Open Government Licence \u2013 Canada)';
+const LNHPD_TIMEOUT_MS = 20000;
+let _lnhpdFetch = null;                    // test seam: the gate answers for Health Canada
+function setLnhpdFetch(fn) { _lnhpdFetch = (typeof fn === 'function') ? fn : null; }
+function lnhpdGet(resource, id) {
+  const url = LNHPD_BASE + resource + '/?lang=en&type=json&id=' + encodeURIComponent(String(id));
+  const ctl = (typeof AbortController === 'function') ? new AbortController() : null;
+  const timer = setTimeout(function () { if (ctl) ctl.abort(); }, LNHPD_TIMEOUT_MS);
+  const o = { signal: ctl ? ctl.signal : undefined };
+  return (_lnhpdFetch ? _lnhpdFetch(url, o) : fetch(url, o)).then(function (res) {
+    return res.text().then(function (raw) {
+      clearTimeout(timer);
+      if (!res.ok) return { ok: false, kind: 'http', error: 'Health Canada\u2019s database answered ' + res.status + '.' };
+      let j = null; try { j = JSON.parse(raw); } catch (e) { j = null; }
+      if (j == null) return { ok: false, kind: 'malformed', error: 'Health Canada\u2019s reply could not be read.' };
+      const rows = Array.isArray(j) ? j : (j && Array.isArray(j.data) ? j.data : (j && typeof j === 'object' ? [j] : []));
+      return { ok: true, rows: rows };
+    });
+  }).catch(function (e) {
+    clearTimeout(timer);
+    const off = (typeof navigator !== 'undefined' && navigator.onLine === false);
+    return { ok: false, kind: off ? 'offline' : 'network',
+             error: off ? 'You are offline, so Health Canada\u2019s database cannot be asked.' : 'Health Canada\u2019s database did not answer.' };
+  });
+}
+function lnhpdDoseUnit(form) {
+  const f = String(form == null ? '' : form).toLowerCase();
+  if (/capsule|softgel|gelcap/.test(f)) return 'capsule';
+  if (/tablet|caplet|lozenge/.test(f)) return 'tablet';
+  if (/drop/.test(f)) return 'drop';
+  return 'unit';
+}
+function lnhpdLookup(npn) {
+  const n = String(npn == null ? '' : npn).replace(/\s+/g, '');
+  if (!/^[0-9]{8}$/.test(n)) return Promise.resolve({ ok: false, kind: 'input', error: 'An NPN is 8 digits, printed on the label as \u201cNPN 8\u2026\u201d.' });
+  return lnhpdGet('productlicence', n).then(function (r) {
+    if (!r.ok) return r;
+    const mine = r.rows.filter(function (x) { return x && String(x.licence_number) === n; });
+    if (!mine.length) return { ok: false, kind: 'none', error: 'No product with that NPN in Health Canada\u2019s database.' };
+    const lic = mine.filter(function (x) { return Number(x.flag_primary_name) === 1; })[0] || mine[0];
+    return Promise.all([lnhpdGet('medicinalingredient', lic.lnhpd_id), lnhpdGet('productdose', lic.lnhpd_id)]).then(function (two) {
+      if (!two[0].ok) return two[0];
+      const ings = two[0].rows.map(function (g) {
+        const x = { name: g.ingredient_name };
+        if (g.quantity != null && isFinite(Number(g.quantity)) && Number(g.quantity) > 0) { x.amount = Number(g.quantity); x.unit = String(g.quantity_unit_of_measure || ''); }
+        else if (Number(g.potency_amount) > 0) { x.amount = Number(g.potency_amount); x.unit = String(g.potency_unit_of_measure || ''); }
+        if (g.source_material) x.form = g.source_material;
+        return x;
+      });
+      const d = (two[1].ok && two[1].rows[0]) || null;
+      const prod = normalizeStackProduct({
+        ns: 'lnhpd', npn: n, id: String(lic.lnhpd_id), name: lic.product_name, company: lic.company_name,
+        status: Number(lic.flag_product_status) === 1 ? 'active' : 'not active',
+        dosage_form: lic.dosage_form, ingredients: ings,
+        label_dose: d ? { qty: d.quantity_dose, unit: d.uom_type_desc_quantity_dose,
+                          freq: (num(d.frequency) > 0 ? rDisp(d.frequency) + ' ' : '') + String(d.uom_type_desc_frequency || '') } : null,
+        at: todayKey(), attribution: LNHPD_ATTRIBUTION, how: 'typed' });
+      return { ok: true, product: prod };
+    });
+  });
+}
+// The proposal, in the form: what the database said, shown before anything is written.
+function stackNpnLookup(how) {
+  const st = STACK_FORM; if (!st) return Promise.resolve({ ok: false });
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  const npn = String((st.seed.npn != null ? st.seed.npn : '')).replace(/\s+/g, '');
+  st.npn = { phase: 'loading', npn: npn };
+  renderStackEditor();
+  return lnhpdLookup(npn).then(function (r) {
+    if (STACK_FORM !== st) return r;
+    if (!r.ok) { st.npn = { phase: r.kind === 'none' ? 'none' : 'error', npn: npn, error: r.error }; renderStackEditor(); return r; }
+    if (how === 'photo') r.product.how = 'photo';
+    stackProposalApply(st, r.product);
+    renderStackEditor();
+    return r;
+  });
+}
+function stackProposalApply(st, prod) {
+  st.npn = { phase: 'found', npn: prod.npn || '', product: prod };
+  const units = (prod.label_dose && num(prod.label_dose.qty) > 0) ? num(prod.label_dose.qty) : 1;
+  st.seed = Object.assign({}, st.seed || {}, { name: prod.name || (st.seed && st.seed.name) || '', dose: units,
+    dose_unit: lnhpdDoseUnit(prod.dosage_form), microKey: '', extra: [] });
+  st.kind = 'supplement';
+}
+// R281/3: the photo route. The user's own provider reads the label; an NPN it reads is
+// looked up and the DATABASE's numbers are used, the model's discarded. With no NPN, or
+// none that matches, the model's ingredients are a PROVISIONAL proposal: shown with their
+// provenance, and counted only once the user says they are right.
+const SUPP_TEMPLATE_VERSION = 1;
+const SUPP_TEMPLATE =
+'You are reading a natural health product or supplement label from a photo.\n' +
+'Reply with JSON ONLY - no prose, no markdown, straight quotes only.\n\n' +
+'Format (every field is optional):\n' +
+'{"npn":"<the 8-digit NPN or DIN-HM, digits only>","name":"<the product name>",\n' +
+' "ingredients":[{"name":"<medicinal ingredient>","amount":<number>,"unit":"<mg|mcg|g|IU>","form":"<source or form as printed>"}],\n' +
+' "serving":"<the dose or serving as printed>"}\n\n' +
+'Rules:\n' +
+'- Copy every value EXACTLY as printed. Leave a field out if it is not printed or\n' +
+'  you cannot read it. Never guess one.\n' +
+'- "amount" is PER DOSAGE UNIT (per capsule, per tablet) as the label prints it.\n' +
+'- Do not add anything: no claim about what the product is for, no dose advice.\n\n' +
+'Nothing else. Your entire reply must start with { and end with }.';
+const SUPP_DIRECT_PREFIX = 'Supplement label template v' + SUPP_TEMPLATE_VERSION + '. Reply with the JSON object ONLY.\n\n';
+function suppLabelReply(text) {
+  let j = null;
+  try { j = JSON.parse(cleanJSON(String(text == null ? '' : text))); } catch (e) { j = null; }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return { ok: false, error: 'The reply could not be read as the label\u2019s JSON.' };
+  if (CAPTURE_KIND === 'supp') { try { setCaptureKind('meal'); } catch (e) {} }
+  if (!STACK_FORM) stackFormOpen('', 'log');
+  const st = STACK_FORM;
+  const npn = String(j.npn == null ? '' : j.npn).replace(/[^0-9]/g, '');
+  const provisional = function () {
+    const ings = (Array.isArray(j.ingredients) ? j.ingredients : []).map(function (g) {
+      return g && { name: g.name, amount: g.amount, unit: g.unit, form: g.form, provisional: true };
+    });
+    const prod = normalizeStackProduct({ ns: 'label-photo', name: j.name, ingredients: ings, at: todayKey(), how: 'photo',
+      attribution: 'Read from your photo by your AI provider, not from a database' });
+    stackProposalApply(st, prod);
+    if (npn) st.npn.notFound = npn;
+    renderStackEditor();
+    return { ok: true, provisional: true };
+  };
+  if (/^[0-9]{8}$/.test(npn)) {
+    st.seed = Object.assign({}, st.seed || {}, { npn: npn });
+    return { ok: true, pending: lnhpdLookup(npn).then(function (r) {
+      if (STACK_FORM !== st) return r;
+      if (r.ok) { r.product.how = 'photo'; stackProposalApply(st, r.product); renderStackEditor(); return { ok: true, database: true }; }
+      if (r.kind === 'none') return provisional();
+      st.npn = { phase: 'error', npn: npn, error: r.error }; renderStackEditor(); return r;
+    }) };
+  }
+  return provisional();
+}
+function stackSuppPhoto() {
+  setCaptureKind('supp');
+  const inp = document.getElementById('captureFile');
+  if (inp) { try { inp.click(); } catch (e) {} }
+  return { ok: !!inp };
+}
+// "These numbers are right" -- the user's confirmation of photo-read ingredients
+function stackConfirmToggle() {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  st.confirm = !st.confirm;
+  renderStackEditor();
+  return { ok: true, confirm: st.confirm };
+}
+function stackNpnHTML() {
+  const st = STACK_FORM; if (!st || !st.npn) return '';
+  const n = st.npn;
+  if (n.phase === 'loading') return '<div class="note stknpnmsg">Looking up NPN ' + esc(n.npn) + ' in Health Canada\u2019s database\u2026</div>';
+  if (n.phase === 'none' || n.phase === 'error') return '<div class="warn stknpnmsg">' + esc(n.error || 'Not found.') + '</div>';
+  return stackProductHTML(n.product, true);
+}
+function stackProductHTML(prod, proposing) {
+  if (!prod) return '';
+  const st = STACK_FORM;
+  const db = prod.ns === 'lnhpd';
+  const confirmed = !!prod.confirmed || !!(st && st.confirm);
+  const counts = db || confirmed;
+  let h = '<div class="stkprod' + (db ? '' : ' stkprov') + '">';
+  if (!db) h += '<div class="stkprovword"><b>Provisional</b> \u2014 read from your photo by your AI provider, not from a database'
+    + (st && st.npn && st.npn.notFound ? ' (NPN ' + esc(st.npn.notFound) + ' is not in Health Canada\u2019s database)' : '')
+    + '. ' + (confirmed ? 'You said these numbers are right; they count.' : 'They count toward nothing until you confirm them.') + '</div>';
+  h += '<div class="stkprodname"><b>' + esc(prod.name || 'Unnamed product') + '</b>' + (prod.company ? ' \u00b7 ' + esc(prod.company) : '') + '</div>';
+  if (db) h += '<div class="stksub">NPN ' + esc(prod.npn || '') + ' \u00b7 licence ' + esc(prod.status || '') + (prod.dosage_form ? ' \u00b7 ' + esc(prod.dosage_form) : '')
+    + (prod.label_dose ? ' \u00b7 label dose ' + esc(rDisp(prod.label_dose.qty || 0) + ' ' + (prod.label_dose.unit || '') + (prod.label_dose.freq ? ', ' + prod.label_dose.freq : '')) : '') + '</div>';
+  h += '<ul class="stkings">' + prod.ingredients.map(function (g) {
+    const k = suppKeyFor(g.name), u = suppUnit(g.unit);
+    const tail = (k && u && g.amount != null && doseToMicro(k, g.amount, u) != null)
+      ? (counts ? ' \u00b7 counts toward ' + MICRO_LABEL[k].label : ' \u00b7 would count toward ' + MICRO_LABEL[k].label)
+      : ' \u00b7 kept, not a nutrient this app totals';
+    return '<li>' + esc(g.name) + (g.amount != null ? ' \u2014 ' + esc(rDisp(g.amount) + ' ' + (g.unit || '')) + ' per unit' : '')
+      + (g.form ? ' \u00b7 as ' + esc(g.form) : '') + esc(tail) + '</li>';
+  }).join('') + '</ul>';
+  if (!db && proposing !== 'saved-confirmed') {
+    h += '<button type="button" class="btn stkconfirm" aria-pressed="' + (confirmed ? 'true' : 'false') + '" onclick="stackConfirmToggle()">'
+      + (confirmed ? '\u2713 These numbers are right' : 'These numbers are right') + '</button>';
+  }
+  h += '<div class="note stkcite">' + esc(prod.attribution || '') + (prod.at ? ' \u00b7 retrieved ' + esc(fmtDateSmart(prod.at)) : '') + '</div>';
+  if (proposing) h += '<div class="note">Units you take: the Amount below.</div>';
+  return h + '</div>';
+}
+function stackFormExtraAdd() {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  st.seed.extra = (st.seed.extra || []).concat([{ key: '', amount: '', unit: 'mg' }]);
+  renderStackEditor();
+  return { ok: true, rows: st.seed.extra.length };
+}
+function stackFormExtraRemove(i) {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  (st.seed.extra || []).splice(Number(i), 1);
+  renderStackEditor();
+  return { ok: true };
+}
 function stackFormOpen(id, host) {
   const list = (APP_STATE.settings && APP_STATE.settings.stack) || [];
   const it = (id == null || id === '') ? null : list.filter(function (x) { return x.id === String(id); })[0];
   if (id != null && id !== '' && !it) return { ok: false };
+  // R281/4: typed nutrient rows come back as rows; a product's own stays with it
+  const seed0 = it ? JSON.parse(JSON.stringify(it)) : null;
+  if (seed0) {
+    const det = (seed0.nutrients && seed0.nutrients.detail) || {};
+    seed0.extra = Object.keys(det).filter(function (k) { return det[k].source === 'typed'; })
+      .map(function (k) { return { key: k, amount: det[k].amount, unit: det[k].unit }; });
+    const single = Object.keys((seed0.nutrients && seed0.nutrients.micros) || {}).filter(function (k) { return !det[k]; });
+    seed0.microKey = single[0] || '';
+  }
   STACK_FORM = { editId: it ? it.id : '', kind: it ? stackKindOf(it.kind) : 'supplement', pick: null,
                  kept: (it && it.part) ? JSON.parse(JSON.stringify(it.part)) : null, rows: [], seq: 0,
-                 seed: it ? JSON.parse(JSON.stringify(it)) : null,
+                 seed: seed0, confirm: false, npn: null,
                  // R278/B: where the form is drawn -- Settings, or + Log's Daily stack
                  host: host === 'log' ? 'log' : 'settings' };
   if (STACK_FORM.host === 'log') STACK_OPEN = true;
@@ -5395,8 +5779,15 @@ function stackSuggestAccept(key) {
 }
 function stackFormRead() {
   const g = function (id) { const el = document.getElementById(id); return el ? el.value : ''; };
-  return { name: g('stkName'), dose: g('stkDose'), dose_unit: g('stkUnit'), note: g('stkNote'),
-           microKey: g('stkMicro'), grams: g('stkGrams') };
+  const extra = [];
+  for (let i = 0; i < 12; i++) {
+    if (!document.getElementById('stkX' + i + 'K')) break;
+    extra.push({ key: g('stkX' + i + 'K'), amount: g('stkX' + i + 'A'), unit: g('stkX' + i + 'U') });
+  }
+  const out = { name: g('stkName'), dose: g('stkDose'), dose_unit: g('stkUnit'), note: g('stkNote'),
+                microKey: g('stkMicro'), grams: g('stkGrams'), added_on: g('stkSince'), npn: g('stkNpn') };
+  if (document.getElementById('stkX0K') || document.getElementById('stkXadd')) out.extra = extra;
+  return out;
 }
 // Only the RESULT ROWS are redrawn while typing -- the fields are rendered once,
 // so the caret is never lost under the user (the caret rule).
@@ -5465,7 +5856,15 @@ function stackFormSave() {
   } else {
     raw.dose = f.dose; raw.dose_unit = f.dose_unit; raw.microKey = f.microKey;
     if (!f.microKey && st.seed && st.seed.nutrients && !(st.seed.nutrients.micros && Object.keys(st.seed.nutrients.micros).length === 1)) raw.nutrients = st.seed.nutrients;
+    raw.extra = f.extra || (st.seed && st.seed.extra) || [];
+    // R281/5: the product proposed now, or the one the item already carries
+    const prod = (st.npn && st.npn.phase === 'found') ? st.npn.product : (st.seed && st.seed.product) || null;
+    if (prod) {
+      raw.product = JSON.parse(JSON.stringify(prod));
+      if (prod.ns === 'label-photo' && st.confirm && !prod.confirmed) raw.product.confirmed = { at: stackStampNow() };
+    }
   }
+  raw.added_on = f.added_on;
   const r = stackUpsert(raw);
   const warn = document.getElementById('stkWarn');
   if (!r.ok) { if (warn) warn.innerHTML = '<div class="warn">' + esc(r.error || 'Could not save.') + '</div>'; return r; }
@@ -5499,6 +5898,10 @@ function stackEditorHTML() {
       + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>'
       + (s.enabled === false ? '<div class="stksub stkoffword">Switched off</div>' : '')
       + '<div class="stksub stksince">' + esc(stackSinceWords(s)) + '</div>'
+      + (s.join_edits && s.join_edits.length ? '<div class="stksub stksince">' + esc('Join date changed by you ' + s.join_edits.length + (s.join_edits.length === 1 ? ' time' : ' times') + ', last on ' + fmtDateSmart(s.join_edits[s.join_edits.length - 1].at.slice(0, 10))) + '</div>' : '')
+      + (s.product ? '<div class="stksub stkprodline">' + esc(s.product.ns === 'lnhpd'
+          ? 'NPN ' + (s.product.npn || '') + ' \u00b7 Health Canada' + (s.product.status && s.product.status !== 'active' ? ' \u00b7 licence ' + s.product.status : '')
+          : (s.product.confirmed ? 'Read from your photo; numbers confirmed by you' : 'Read from your photo; provisional, counted toward nothing')) + '</div>' : '')
       + (s.switches_from && (!s.added_on || s.switches_from > s.added_on)
         ? '<div class="stksub stksince">' + esc('Switching on and off recorded from ' + fmtDateSmart(s.switches_from) + '; none before') + '</div>' : '') + flag
       + '<div class="stkacts"><button type="button" class="linklike stkedit" onclick="stackFormOpen(\'' + id + '\')">Edit</button>'
@@ -5534,6 +5937,15 @@ function stackFormHTML() {
       + '<button type="button" class="' + (on ? '' : 'on') + '" aria-pressed="' + (on ? 'false' : 'true') + '" onclick="stackFormSwitch(false)">Off</button>'
       + '</div><div class="note">' + (on ? 'Shown in + Log each day.' : 'Switched off: not shown to tick, and its days read \u201cswitched off\u201d.') + '</div></div>';
   }
+  if (st.kind === 'supplement' && !(sd.product && st.editId)) {
+    // R281/5: the NPN route -- type the 8 digits from the label, or photograph it
+    h += '<label for="stkNpn">Health Canada NPN (8 digits, on the label)</label>'
+      + '<div class="row stknpnrow"><div><input id="stkNpn" type="text" inputmode="numeric" maxlength="8" autocomplete="off" value="' + esc(v(sd.npn)) + '"></div>'
+      + '<div><button type="button" class="btn stknpnlook" onclick="stackNpnLookup()">Look up</button></div></div>'
+      + ((typeof byokConfigured === 'function' && byokConfigured()) ? '<button type="button" class="linklike stksuppphoto" onclick="stackSuppPhoto()">Photo of the label</button>' : '')
+      + '<div id="stkNpnOut">' + stackNpnHTML() + '</div>';
+  }
+  if (st.kind !== 'food' && sd.product && st.editId) h += stackProductHTML(sd.product, false);
   if (st.kind !== 'food') {
     h += '<label for="stkName">Name</label><input id="stkName" type="text" autocomplete="off" oninput="stackSuggestRender()" value="' + esc(v(sd.name)) + '">'
       + '<div class="row"><div><label for="stkDose">Amount</label><input id="stkDose" type="number" inputmode="decimal" min="0" value="' + esc(v(sd.dose)) + '"></div>'
@@ -5542,7 +5954,17 @@ function stackFormHTML() {
       + '</select></div></div>'
       + '<label for="stkMicro">Counts toward (optional)</label><select id="stkMicro" onchange="stackSuggestRender()"><option value="">nothing</option>'
       + MICRO_SPEC.map(function (m) { return '<option value="' + esc(m.key) + '"' + (m.key === mk ? ' selected' : '') + '>' + esc(m.label) + '</option>'; }).join('')
-      + '</select><div id="stkSuggest"></div>';
+      + '</select><div id="stkSuggest"></div>'
+      // R281/4: more than one nutrient -- each row an amount for the whole dose
+      + (sd.extra || []).map(function (x, i) {
+          return '<div class="row stkxrow"><div><label for="stkX' + i + 'K">Also counts toward</label><select id="stkX' + i + 'K"><option value="">choose</option>'
+            + STACK_SUPP_KEYS.map(function (k) { return '<option value="' + esc(k) + '"' + (k === x.key ? ' selected' : '') + '>' + esc(MICRO_LABEL[k].label) + '</option>'; }).join('')
+            + '</select></div><div><label for="stkX' + i + 'A">Amount</label><input id="stkX' + i + 'A" type="number" inputmode="decimal" min="0" value="' + esc(v(x.amount)) + '"></div>'
+            + '<div><label for="stkX' + i + 'U">Unit</label><select id="stkX' + i + 'U">'
+            + STACK_NUTRIENT_UNITS.map(function (u) { return '<option value="' + esc(u) + '"' + (u === (x.unit || 'mg') ? ' selected' : '') + '>' + esc(doseUnitWord(u)) + '</option>'; }).join('')
+            + '</select></div><button type="button" class="linklike stkxrm" aria-label="remove this nutrient" onclick="stackFormExtraRemove(' + i + ')">\u00d7</button></div>';
+        }).join('')
+      + '<button type="button" class="linklike stkxadd" id="stkXadd" onclick="stackFormExtraAdd()">+ another nutrient</button>';
   } else {
     const picked = st.pick ? st.pick.name : (st.kept ? ((st.kept.ref && st.kept.ref.name) || st.kept.name) : '');
     const pickedMine = (st.pick && st.pick.mine) ? st.pick.mine.basis : ((st.kept && st.kept.basis) || '');
@@ -5556,6 +5978,9 @@ function stackFormHTML() {
       + esc(v(sd.grams != null ? sd.grams : (st.kept ? st.kept.grams : ''))) + '">'
       + '<label for="stkName">Name (optional)</label><input id="stkName" type="text" autocomplete="off" value="' + esc(v(sd.name)) + '">';
   }
+  // R281/2: when it joined -- today unless the user says otherwise; never a future day
+  const sinceV = sd.added_on != null && sd.added_on !== '' ? sd.added_on : todayKey();
+  h += '<label for="stkSince">In your stack since</label><input id="stkSince" type="date" max="' + esc(todayKey()) + '" value="' + esc(sinceV) + '">';
   h += '<label for="stkNote">Form or note (optional)</label><input id="stkNote" type="text" autocomplete="off" value="' + esc(v(sd.note)) + '">'
     + '<button type="button" class="btn primary stksave" onclick="stackFormSave()">' + (st.editId ? 'Save changes' : 'Add to my stack') + '</button>'
     + '<button type="button" class="linklike stkcancel" onclick="stackFormCancel()">Cancel</button></div>';
@@ -15488,10 +15913,12 @@ function byokCapture(file, source) {
   const capKind = CAPTURE_KIND;
   LAST_CAPTURE_KIND = capKind;
   const isLabel = capKind !== 'meal';
-  const callOpts = isLabel ? { text: LABEL_DIRECT_PREFIX + LABEL_TEMPLATE } : {};
-  const openDraft = isLabel
+  const callOpts = capKind === 'supp' ? { text: SUPP_DIRECT_PREFIX + SUPP_TEMPLATE }
+    : (isLabel ? { text: LABEL_DIRECT_PREFIX + LABEL_TEMPLATE } : {});
+  const openDraft = capKind === 'supp' ? suppLabelReply
+    : (isLabel
     ? function (t) { return openLabelDraft(t, { whose: capKind === 'label-other' ? 'other' : 'mine', source: 'label-photo' }); }
-    : openPhotoDraft;
+    : openPhotoDraft);
   const cap = byokCap();
   if (cap.exhausted) {
     byokBusy('error', 'Daily cap reached (' + cap.cap + '). Paste instead, or raise it in Settings.');
@@ -16141,6 +16568,7 @@ const VERSION_LOG = [
   { v: '0.111.1', d: '2026-10-27', note: 'An item switched off in your daily stack now has a Switch on button in + Log, today, so it can be switched back on where you log it; each switch is still recorded with its time. Its type (supplement, medication or food) is changed under Settings, Daily stack, Edit.' },
   { v: '0.111.2', d: '2026-10-28', note: 'A scan or photo log now says so at the top of the screen, naming the item, amount and time, with Undo. Scanning the same product again within 10 minutes asks first: Already logged at <time>, Log another or Cancel. In your daily stack, + Log has Switch off and Switch on, and + Add to stack for a new item; in Settings each row has Edit only, with On and Off inside Edit.' },
   { v: '0.111.3', d: '2026-10-28', note: 'An Undo bar shown just after another message no longer disappears early. A day now closes by itself at 04:00 the next morning, so your past days count in the averages without a tap; closing a day by hand is optional. You can still add, change or delete entries on a closed day, and everything recomputes. A closed day that looks incomplete (no food, no glucose readings, or calories under half your usual) says so behind its info button, and each average says how many days it includes and how many are flagged. The blood pressure chart in Trends can be zoomed in (up to 8 times wider) and scrolled sideways, with the mmHg axis kept in view.' },
+  { v: '0.112.0', d: '2026-10-28', note: 'Add a supplement from its Health Canada NPN: type the 8 digits from the label in + Add to stack and tap Look up -- the product, each ingredient with its amount and form, and its licence come from Health Canada’s database. A photo of the label works too with your own AI key; numbers read from a photo count only after you confirm them. An item can count toward more than one nutrient, and the day adds them up across your stack. You can say when an item joined your stack, and + Add to stack is there even when your stack is empty.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -24385,7 +24813,7 @@ function medResume(id) {
 }
 
 // ---- capture kind (I1): chosen by the user before sending, never guessed ----
-const CAPTURE_KINDS = ['meal', 'label-mine', 'label-other'];
+const CAPTURE_KINDS = ['meal', 'label-mine', 'label-other', 'supp'];   // R281/3: 'supp' is set by the stack form only
 let CAPTURE_KIND = 'meal';
 function setCaptureKind(k) {
   CAPTURE_KIND = CAPTURE_KINDS.indexOf(k) >= 0 ? k : 'meal';
@@ -25815,7 +26243,7 @@ window.HT = {
   isFirstRun, AI_PROMPT_TEMPLATE, AI_PROMPT_SAMPLE, AI_TEMPLATE_VERSION,
   renderPromptCard, copyPrompt, promptBoxes, promptBoxFor, openLabelCapture,
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
-  stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, stackFormKind, stackFormSearch, stackFormPick,
+  stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, lnhpdLookup, lnhpdGet, setLnhpdFetch, stackNpnLookup, suppLabelReply, stackConfirmToggle, stackFormExtraAdd, stackFormExtraRemove, stackMultiNutrients, suppKeyFor, suppUnit, normalizeStackProduct, normalizeNutrientDetail, normalizeJoinEdits, stackDoseMicros, dayIntakeFlags, STACK_SUPP_KEYS, SUPP_TEMPLATE, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
