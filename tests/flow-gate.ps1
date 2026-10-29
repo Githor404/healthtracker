@@ -441,7 +441,13 @@ try {
   const row4 = document.querySelector('#dayView .mitem .mhead');
   if (row4) { tap(row4, 'expand the row'); await until(() => seen(byText('.rchip, button', /find nutrients/i)), 'the row opened, find nutrients'); }
   tap(byText('.rchip, button', /find nutrients/i), 'find nutrients');
-  for (let w = 0; w < 40 && !document.querySelector('.rcandbtn'); w++) await sleep(500);   // unchanged: a condition already, the corpus answer
+  // R282: wait for the APP'S OWN answer -- resolveView().phase leaves 'loading' when the
+  // food database has answered -- not 40 x 500 ms. Under suite load the database took
+  // longer than 20 s to load and the count ran out first. No deadline of its own: the
+  // suite's per-gate limit bounds a hang, and an answer with no candidates fails below.
+  step = 'the food database to answer';
+  while (HT.resolveView() && HT.resolveView().phase === 'loading') await sleep(50);
+  await until(() => document.querySelector('.rcandbtn') || (HT.resolveView() && HT.resolveView().phase !== 'loading'), 'the answer drawn');
   const cands = document.querySelectorAll('.rcandbtn');
   out.j4 = { candidates: cands.length };
   if (cands.length) { tap(cands[0], 'pick'); await until(() => Array.prototype.slice.call(document.querySelectorAll('.nextmove .nmbtn')).filter(seen)[0], 'the offer after the pick (a visible one: earlier journeys leave theirs in hidden panes)'); }

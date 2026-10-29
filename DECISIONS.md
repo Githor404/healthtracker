@@ -19123,6 +19123,7 @@ itself -- every past day now counts, so Trends draws all of them.
 | 3 | sensor-gate | the bar is still up about four seconds | fixed sleeps of 3.0 + 2.4 s, assuming 0.8 s had passed | the bar's up and down stamped on the page's clock (MutationObserver); the gate waits for the down |
 | 4 | flow-gate | J4 and everything after it empty | fixed in-page sleeps of 120-900 ms between steps | every step waits for what the next needs (polled 25 ms); a thrown step names what it was waiting for. This found a gate defect: J4's offer was read from the first `.nextmove .nmbtn` in the page -- a hidden one left by J1 -- and is now the first VISIBLE one |
 | 5 | photo-lead-gate | 360 px: every measure blank | a fixed 1.4 s after each navigation | waits for the NEW page's app (the old page is marked first) |
+| 6 (after the fixes above) | flow-gate | J4: the resolve step offered nothing | a count of 40 x 500 ms for the food database to answer (20 s); under load it took longer | waits for the app's own marker -- `resolveView().phase` leaves 'loading' when the database has answered; no deadline of its own (the suite's per-gate limit bounds a hang); an answer with no candidates still fails |
 
 Every check reads as before; no assertion was loosened. The waits poll and go on the moment
 the condition holds; their deadlines (10 s per flow step, 15 s for the bar, 30 s for a boot)
