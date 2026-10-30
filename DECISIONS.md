@@ -20098,3 +20098,111 @@ has a judged response, so the glucose path really runs.
 |---|---|---|---|
 | v0.113.2 | 2.58 | 497.6 | FAIL |
 | v0.113.3 | 2.35 | 2.52 | PASS |
+
+## R298 step 2 -- THE CONTEXT STRIP, PRE-REGISTERED (2026-10-29; to be v0.114.0)
+
+*Pre-registered before any of it is built: what the user ruled on R297 (all agreed),
+the reading of the ruling where it had to be read, and the gate that will decide it.
+This applies the R297 principle: surface what relates to the last action, without the
+screen rearranging itself.*
+
+**What is built.** One strip at the top of the home screen, above the day card.
+- **Fixed height:** a header line and three lines, the same height in every state. It
+  never grows, shrinks or disappears, so nothing below it moves.
+- It shows what relates to the user's last action, in one of three kinds:
+  - **Food logged** (any path that writes eaten food).
+    - Header: the sitting, its item count and time.
+    - Line 1, the sitting's glucose, in the words the day already uses: the measured rise
+      and the time back, once judged; the rise so far while it runs; or that no glucose
+      covers it yet.
+    - Line 2, the fast status: the eating window, or when a fast would start.
+    - Line 3: the sitting's fermented items (reviewed lexicon rule, provisional, as
+      R286), and **"supplies N pathways ›"**.
+  - **Stack tick** (a tick, or Took all).
+    - Header: the item, its time, and N of M taken.
+    - One line per nutrient it counts toward, giving today's total with the stack's share,
+      at most two lines. Or, if it counts toward none, a line saying so.
+    - The upper-limit **Intake note**, collapsed and amber as R213 rules, when the day
+      has one.
+    - **"all totals ›"**, which opens the Micronutrients panel.
+  - **Food opened** (a logged food row opened on the day).
+    - Header: its name and amount.
+    - Line 1, the database row: its name, or "not linked" with **"Link a row? ›"**
+      (scrolls to the open item).
+    - Line 2: **Fermented** yes / no / unknown and where that comes from.
+    - Line 3: **"supplies N pathways ›"**.
+
+**Lifetime (ruled 1).** A strip stays for 3 h after its action, or until the next action
+of one of the three kinds replaces it, whichever comes first. The × beside it ends it at
+once.
+
+*Read here:* "the next action" means the next food log, stack tick or opened food, the
+three things the strip speaks for. A water tap or a sleep entry does not replace a food
+strip, because it says nothing about that food.
+
+**No recent action (ruled 2).** When nothing has happened, the strip keeps its height and
+shows:
+- the fast status (the running fast, or the time since the last food);
+- the current glucose (the newest reading, its unit, and how old it is in words, as the
+  chart already says), or "no glucose readings".
+
+Nothing in it is a should, a verdict, a streak or a count to keep up.
+
+**"Supplies" (ruled 3).** The pathways whose raw-material lines (the pack's `supply`: its
+key or its database slot) the food's own nutrients count toward:
+- through the item's own numbers (macros, labelled micros);
+- or through its linked row's figures (a slot above 0).
+
+The word is always "supplies", never "activates" (R286). With no pack on the phone, the
+line says so. The link opens the Pathways card at exactly those pathways: the card and
+each named pathway's group are opened, the first is scrolled to, and the named ones are
+marked. Other groups stay closed.
+
+**The note (ruled 4).** One small record on the phone, under its own key
+(`healthtracker-context`):
+- the kind, the time, the day, and what it points to (the sitting's item indexes, the
+  stack item's id, or the opened row);
+- it is not in the backup, and is like the "week seen" key;
+- it is written by the three kinds of action and by ×, and nothing else writes it.
+
+**Computed once (ruled).** The strip's contents are worked out when the note changes, kept,
+and only re-inserted by later redraws. They are worked out again when:
+- the glucose stream's stored text changes (the R298 step 1 build, so glucose arriving
+  updates the response);
+- the day that the note points into changes;
+- the 3 h runs out;
+- for the quiet state, the minute changes, since its ages are in minutes.
+
+**Gate: `strip-gate` (new).** Each of these must pass:
+1. Each strip kind (food, stack, opened, quiet) is drawn at 390 px in light and dark. Its
+   text is on its own lines, no line overflows the strip, and screenshots are kept.
+2. **No layout shift.** The strip's height and the day card's top are the same in all four
+   states, to the pixel, at 390 and 360. The ring stays on the first screen (ring-size-gate
+   still passes).
+3. **Lifetime.**
+   - At 3 h 1 min on the clock, a food strip has become the quiet state.
+   - A stack tick replaces a food strip.
+   - A water tap does not.
+   - × ends the strip, and the quiet state is shown.
+4. **The note is kept.** It survives a reboot and is not in the export.
+5. **Computed once.** After an action, 20 redraws do not recompute it (a counter on HT).
+   A glucose ingest does recompute it, and the response line changes.
+6. **Cost.** On the perf gate's year with CGM, a redraw with a food strip showing stays
+   within the 3.0 budget (median of 21 against the reference workload).
+7. **Links open the right place.**
+   - "supplies N pathways ›" opens the Pathways card with exactly the named pathways' groups
+     open and those pathways marked; N equals the pathways named.
+   - "all totals ›" opens the Micronutrients panel.
+   - "Link a row? ›" reaches the open item's link offer.
+8. **Words.** "supplies" appears and "activat" does not, in every state. Nothing in the
+   strip writes an entry (entry-gate's census still passes with the strip on the page).
+
+**Tap counts, to be confirmed by the gate's own run:**
+
+| what | today | with the strip |
+|---|---|---|
+| A meal's response after logging it | 0 (its block in the day) | 0 |
+| Fast status | 0 | 0 |
+| Pathways the meal supplies | not possible; the card is ~3 screens down | 1 tap |
+| Stack totals after a tick | 1 tap (Micronutrients) and a scroll | 0 |
+| An opened food's pathways | not possible | 1 tap |
