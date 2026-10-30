@@ -20004,3 +20004,28 @@ and logged in the private calibration store (R260/R261).
 The store and the pack stay in HTPrivate (R204). The lexicon (R290.1, R291, R292) and
 this batch of claims and interactions were reviewed on 29 Oct. Every entry, its
 decision and its source are recorded there, not here.
+
+## R297 -- SURFACE WHAT RELATES TO THE LAST INTERACTION (2026-10-29; standing UI principle)
+
+*The user's design principle of 29 Oct, recorded as a standing rule for every screen.*
+
+**Surface what relates to the last interaction; bury what doesn't.** After an action,
+what bears on that action is shown where the eye already is. Anything unrelated to it
+stays collapsed further down.
+
+**Without the screen rearranging itself.** The principle is met by what fills a fixed
+place, never by moving cards around. The home layout keeps its order; a card is never
+reordered, promoted or hidden because of the last action.
+
+**It binds with the rules already standing.**
+- It shows, it does not write: nothing is logged without a tap (R202/R203), and every
+  entry still goes through + Log (R215/R216).
+- What it surfaces follows R260/R261: no "should", no verdicts, and no inferred value
+  without its probability.
+- An intake flag stays a collapsed note (R213).
+
+**Nothing is built yet.** A design that applies it (one context strip at the top of
+the home screen) was proposed in the R297 report and awaits a ruling.
+
+**Corrected in the brief.** The brief said the pack fills "Trends -> Pathways".
+Pathways is its own card, collapsed, directly below Trends (R296).
