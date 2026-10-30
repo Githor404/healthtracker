@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.113.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.113.3';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1530,7 +1530,7 @@ function gapContext(gstore) {
   Object.keys(days).forEach(function (d) {
     if (isDayKey(d) && dayIsComplete(d, days[d]) && dayHasMacros(days[d])) kc[d] = num(dayTotals(days[d]).kcal);
   });
-  const g = gstore || glucoseRead();
+  const g = gstore || glucoseKept();
   const gk = Object.keys(g).filter(function (d) { return g[d] && g[d].t && g[d].t.length; }).sort();
   const gset = {};
   gk.forEach(function (d) { gset[d] = 1; });
@@ -12129,7 +12129,7 @@ function glucoseImportProgress() {
            skipped: p.skipped, done: p.done, error: p.error };
 }
 function glucoseCount() {
-  const s = glucoseRead();
+  const s = glucoseKept();
   let n = 0;
   Object.keys(s).forEach(function (k) { n += (s[k] && s[k].t ? s[k].t.length : 0); });
   return n;
@@ -12517,7 +12517,7 @@ function glucoseShortcutHTML() {
 // entirely empty, because a day with a gap inside a month of readings is not a
 // first run and must not be handed starting instructions.
 function glucoseEmptyHTML() {
-  if (Object.keys(glucoseRead()).length) return '';
+  if (Object.keys(glucoseKept()).length) return '';
   // RULED (H21): the Shortcut LEADS and the full export is the fallback. It was
   // the other way round, which told the user to do the one thing that had just
   // failed on their phone: export.zip arrives as an archive, and unzipping it
@@ -12552,7 +12552,7 @@ function glucoseMixed() { return GLUCOSE_MIXED ? GLUCOSE_MIXED.slice() : null; }
 // like a full day: the shortfall and the missing time are part of the summary,
 // not a footnote somewhere else ([[R31]]'s coverage rule, one surface over).
 function glucoseDaySummary(dk) {
-  const store = glucoseRead();
+  const store = glucoseKept();
   const d = store[dk];
   if (!d || !d.t.length) return null;
   const idx = d.t.map(function (t, i) { return i; }).sort(function (a, b) { return d.t[a] - d.t[b]; });
@@ -12587,8 +12587,50 @@ function dayKeyMs(dk) {
   const p = String(dk).split('-');
   return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 0, 0, 0, 0).getTime();
 }
+// R298: THE STREAM FLATTENED ONCE. Every glucoseSeries call used to read the whole
+// store back (parse, allowlist rebuild, every reading walked and sorted) -- several
+// times per meal and per night on every redraw: 60 % of a redraw on the user's log.
+// The flattened, time-sorted series is kept beside the stored text it was built
+// from and rebuilt when that text is not the same, so any write -- by the app or
+// anything else -- is a new build on the next read. The memory fallback (D1) reads
+// as before, uncached.
+let _glucoseFlat = null;                    // { raw, pts }
+function glucoseFlat() {
+  if (_glucoseMem) return null;
+  let raw = null;
+  try { raw = localStorage.getItem(GLUCOSE_KEY); } catch (e) { return null; }
+  if (_glucoseFlat && _glucoseFlat.raw === raw) return _glucoseFlat.pts;
+  let store = {};
+  try { const o = raw ? JSON.parse(raw) : null; store = (o && typeof o === 'object') ? normalizeGlucoseStore(o) : {}; } catch (e) { store = {}; }
+  const pts = [];
+  Object.keys(store).sort().forEach(function (dk) {
+    const base = dayKeyMs(dk), d = store[dk];
+    for (let i = 0; i < d.t.length; i++) pts.push({ t: base + d.t[i] * 60000, v: d.v[i], u: d.u });
+  });
+  pts.sort(function (a, b) { return a.t - b.t; });
+  _glucoseFlat = { raw: raw, pts: pts, store: store };
+  return pts;
+}
+// The kept store itself, for callers that only READ it (counts, extents, a day's
+// summary, the nights). Anything that changes a store or hands it out (ingest,
+// export) reads its own copy with glucoseRead, as before.
+function glucoseKept() {
+  return glucoseFlat() ? _glucoseFlat.store : glucoseRead();
+}
 // The series across day boundaries, as absolute milliseconds, for the chart.
+// The same points in the same order as the per-call build it replaces (a stable
+// sort, filtered), each a fresh object, so no caller can reach the kept series.
 function glucoseSeries(fromMs, toMs) {
+  const pts = glucoseFlat();
+  if (pts) {
+    let lo = 0, hi = pts.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (pts[mid].t < fromMs) lo = mid + 1; else hi = mid; }
+    const res = [];
+    for (let i = lo; i < pts.length && pts[i].t <= toMs; i++) {
+      if (pts[i].t >= fromMs) res.push({ t: pts[i].t, v: pts[i].v, u: pts[i].u });
+    }
+    return res;
+  }
   const store = glucoseRead();
   const out = [];
   Object.keys(store).sort().forEach(function (dk) {
@@ -13099,7 +13141,7 @@ function respUnitWord(r) { return (r && r.coverage && r.coverage.unit) ? String(
 // last import was. A meal whose readings stop part-way says where they stop and
 // that importing again will fill it. The technical reason is kept, one tap away.
 function glucoseExtent() {
-  const store = glucoseRead();
+  const store = glucoseKept();
   const ks = Object.keys(store).sort();
   if (!ks.length) return null;
   const f = store[ks[0]], l = store[ks[ks.length - 1]];
@@ -13609,9 +13651,25 @@ function nightSeries(eveningKey) {
 // Every night the stream actually covers, in order. A night needs more than a
 // couple of readings to be a night rather than a fragment.
 const NIGHT_MIN_READINGS = 6;
+// R298: what the nights panel reads is worked out once per stored stream and kept --
+// it was walked again for every night drawn (lowFlagState per night, each walking
+// every night). Kept beside the flattened series' build (glucoseFlat), so a write
+// to the stream is a new build on the next read; the memory fallback is not kept.
+// Each caller gets its own copy.
+let _nightMemo = { flat: null, keys: null, flag: null };
+function nightMemo() {
+  if (!glucoseFlat()) return null;
+  if (_nightMemo.flat !== _glucoseFlat) _nightMemo = { flat: _glucoseFlat, keys: null, flag: null };
+  return _nightMemo;
+}
 function nightKeys() {
+  const memo = nightMemo();
+  if (memo) { if (!memo.keys) memo.keys = nightKeysCompute(); return memo.keys.slice(); }
+  return nightKeysCompute();
+}
+function nightKeysCompute() {
   const seen = {};
-  const store = glucoseRead();
+  const store = glucoseKept();
   Object.keys(store).forEach(function (dk) {
     const base = dayKeyMs(dk), d = store[dk];
     for (let i = 0; i < d.t.length; i++) {
@@ -13691,6 +13749,15 @@ function nightLows(eveningKey) {
 //   recurrence  -- two or more nights carrying readings below 3.9
 // A single night with one sub-3.9 reading and nothing below 3.0 is NOT flagged.
 function lowFlagState() {
+  const memo = nightMemo();
+  if (memo) {
+    if (!memo.flag) memo.flag = lowFlagStateCompute();
+    const f = memo.flag;
+    return Object.assign({}, f, { nights: f.nights.slice(), nightsL1: f.nightsL1.slice() });
+  }
+  return lowFlagStateCompute();
+}
+function lowFlagStateCompute() {
   const keys = nightKeys();
   const l2 = [], l1 = [];
   keys.forEach(function (k) {
@@ -13910,7 +13977,7 @@ function renderNights() {
        : (nightKeys().length ? '<button type="button" class="linklike nightsumlink" onclick="openClinicianSummary()">Prepare this for a clinician</button>' : ''));
 }
 function glucoseLastMs() {
-  const store = glucoseRead();
+  const store = glucoseKept();
   const ks = Object.keys(store).sort();
   if (!ks.length) return null;
   const dk = ks[ks.length - 1], d = store[dk];
@@ -14192,7 +14259,7 @@ function chartPanMs(dt) {
   const w = chartWindow();
   const span = w.to - w.from;
   const hardTo = nowMs();
-  const store = glucoseRead();
+  const store = glucoseKept();
   const ks = Object.keys(store).sort();
   const hardFrom = ks.length ? dayKeyMs(ks[0]) - span : hardTo - span;
   let from = w.from + dt, to = w.to + dt;
@@ -14340,7 +14407,7 @@ function deleteAllPreview() {
     items += (((st.days[dk] || {}).items) || []).length;
   });
   let gdays = 0;
-  try { gdays = Object.keys(glucoseRead()).length; } catch (e) { gdays = 0; }
+  try { gdays = Object.keys(glucoseKept()).length; } catch (e) { gdays = 0; }
   const present = deleteAllKeys().filter(function (k) {
     try { return localStorage.getItem(k) !== null; } catch (e) { return false; }
   });
@@ -14453,7 +14520,7 @@ function glucoseUnitShown() {
   const dk = APP_STATE && APP_STATE.current;
   const sum = dk ? glucoseDaySummary(dk) : null;
   if (sum && sum.unit) return sum.unit;
-  const store = glucoseRead();
+  const store = glucoseKept();
   const ks = Object.keys(store);
   return ks.length ? (store[ks[0]].u || '') : '';
 }
@@ -14861,7 +14928,7 @@ function eliteChange(startMs) { ELITE_EDIT = num(startMs); renderDay(); return {
 // The channels the full model will read. Two are WIRED AND EMPTY and say so --
 // ruled: no stress badge or probability until they hold something.
 function eliteInputs() {
-  return { glucose: { wired: true, days: Object.keys(glucoseRead()).length },
+  return { glucose: { wired: true, days: Object.keys(glucoseKept()).length },
            food: { wired: true },
            steps: { wired: true, days: Object.keys(stepsRead()).length },
            heartRate: { wired: true, days: 0 },
@@ -17155,6 +17222,7 @@ const VERSION_LOG = [
   { v: '0.113.0', d: '2026-10-29', note: 'Open a logged food that has no database row and it now offers the three closest rows, calories beside each and beside yours, with how often your own past picks were the first row. Nothing counts until you tap one. The weekly review lists the week’s foods without a database row in one place. Trends has a Pathways section, filled from a pathway pack built on your computer and imported in Settings; it is kept on this phone and not in your backup. An opened food says whether it is fermented, and where that comes from. The food database now carries omega-3 (EPA, ALA) and omega-3 and omega-6 totals where its sources do.' },
   { v: '0.113.1', d: '2026-10-29', note: 'A new rule for what keeps a fast: no food, but something with 5 g of carbs or less and 5 g of protein or less is allowed -- coffee with cream, butter or coconut oil in coffee, a spoon of olive oil -- whatever its calories. A combo is judged as a whole. Alcohol always ends a fast, and something whose carbs or protein are not known ends it too. Open a logged item to see what it does to a fast, and mark it keeps my fast or breaks my fast if you know better; a combo can be marked in its Edit. Both limits can be changed in Settings, under Fasting. Your past fasts are read again under the new rule; nothing you logged changes.' },
   { v: '0.113.2', d: '2026-10-29', note: 'The fasting rule now says net carbs wherever it is explained -- in Settings, the weekly review and on a logged item -- because that is what it counts: carbs minus fibre. Nothing else changes.' },
+  { v: '0.113.3', d: '2026-10-29', note: 'Faster with glucose: the page no longer reads all your glucose readings again for every meal and every night it draws, so it redraws several times faster on a log with glucose (about 200 ms to about 26 ms on a recent backup). Nothing you see changes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

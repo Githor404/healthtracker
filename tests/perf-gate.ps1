@@ -6,6 +6,11 @@
 #   on the RATIO of their medians, so a busy machine -- which slows both -- does not
 #   fail it, and a slower redraw does. PERF_REPO=<dir> measures another build.
 #
+#   R298: then the SAME year again WITH CGM -- a reading every 5 minutes on every day,
+#   a rise after each day's lunch -- because the year without glucose could not see
+#   a redraw that read the whole glucose store back for every meal and night (10.45
+#   reference workloads on the user's own log). Both are judged on the same budget.
+#
 # Synthetic days only. Exit 0 PASS, 1 FAIL, 2 environment error.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -182,7 +187,7 @@ try {
   # Each round times ONE full redraw (HT.refresh) and ONE fixed reference workload, back to
   # back, so both see the same machine. The median of each is taken; the verdict is on
   # their RATIO, which a busy PC moves far less than it moves either number alone.
-  $m = EvalJ @'
+  $MEASURE_JS = @'
 (function () {
   var calib = function () { var a = []; for (var i = 0; i < 120000; i++) a.push((i * 7919) % 100003); a.sort(function (x, y) { return x - y; }); var d = document.createElement('div'); var h = ''; for (var k = 0; k < 400; k++) h += '<div class="trow"><span>' + a[k] + '</span><b>' + a[k + 1] + '</b></div>'; d.innerHTML = h; document.body.appendChild(d); var hh = d.getBoundingClientRect().height; d.remove(); return hh; };
   for (var w = 0; w < 3; w++) { HT.refresh(); calib(); }
@@ -198,12 +203,47 @@ try {
            spreadMs: Math.round(Math.max.apply(null, R) - Math.min.apply(null, R)), n: R.length, days: Object.keys(HT.state().days).length };
 })()
 '@
+  $m = EvalJ $MEASURE_JS
   Write-Host ("  " + $m)
   $mv = $m | ConvertFrom-Json
   $budget = [double]$env:PERF_BUDGET_RATIO
   if (-not ($budget -gt 0)) { $budget = $PERF_BUDGET }
   Check (($mv.days -ge 366) -and ($mv.n -eq 21)) "PRECONDITION: the year-of-days fixture loaded (366 days) and 21 redraws were timed"
   Check ($mv.ratio -le $budget) ("PERF GATE: one redraw of a year of days costs " + $mv.ratio + " reference workloads (median of 21: " + $mv.redrawMs + " ms against " + $mv.calibMs + " ms) -- budget " + $budget)
+
+  # ---- R298: the same year WITH CGM ------------------------------------------------------------
+  # Written straight into the glucose store (the shape glucoseIngest keeps: per day, a unit and
+  # parallel minute/value arrays), every day of the year at 5-minute steps: 5.0 mmol/L, rising
+  # 2 mmol/L over the 30 min after each day's 12:00 lunch and back by 90 min, so every sitting
+  # has a judged response and every night a series.
+  $g = EvalJ @'
+(function () {
+  var S = HT.state(), store = {};
+  Object.keys(S.days).forEach(function (dk) {
+    var t = [], v = [];
+    for (var m = 0; m < 1440; m += 5) {
+      var x = m - 720, val = 5.0;
+      if (x > 0 && x <= 30) val = 5.0 + 2 * x / 30; else if (x > 30 && x < 90) val = 5.0 + 2 * (90 - x) / 60;
+      t.push(m); v.push(Math.round(val * 100) / 100);
+    }
+    store[dk] = { u: 'mmol/L', t: t, v: v };
+  });
+  var ok = HT.glucoseWrite(store);
+  HT.refresh();
+  var dk1 = HT.shiftDate(HT.todayKey(), -10);
+  var ev = HT.mealEvents(dk1)[0];
+  var rv = ev ? HT.mealReview(dk1, ev.mealId) : null;
+  return { stored: ok, glucoseDays: Object.keys(HT.glucoseRead()).length, judged: !!(rv && rv.judged) };
+})()
+'@
+  Write-Host ("  CGM: " + $g)
+  $gv = $g | ConvertFrom-Json
+  Check (($gv.stored -eq $true) -and ($gv.glucoseDays -ge 366) -and ($gv.judged -eq $true)) "PRECONDITION (R298): a year of CGM is stored (a reading every 5 min on every day) and a past lunch has a judged response"
+  $m2 = EvalJ $MEASURE_JS
+  Write-Host ("  with CGM: " + $m2)
+  $mv2 = $m2 | ConvertFrom-Json
+  Check ($mv2.n -eq 21) "PRECONDITION (R298): 21 redraws of the year with CGM were timed"
+  Check ($mv2.ratio -le $budget) ("PERF GATE (R298): one redraw of a year of days WITH CGM costs " + $mv2.ratio + " reference workloads (median of 21: " + $mv2.redrawMs + " ms against " + $mv2.calibMs + " ms) -- budget " + $budget)
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
@@ -219,7 +259,7 @@ if ($fails.Count -gt 0) {
   Write-Host "GATE: FAIL"
   exit 1
 }
-Write-Host "PERF GATE: PASS -- a redraw of a year of days is inside its budget, measured as a"
+Write-Host "PERF GATE: PASS -- a redraw of a year of days, without and with CGM, is inside its budget, measured as a"
 Write-Host "  median of 21 against a reference workload timed beside it."
 Write-Host "GATE: PASS"
 exit 0

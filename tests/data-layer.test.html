@@ -12574,6 +12574,35 @@ window.setLS({});
   res(!!back19 && back19.n === 83,
       'H19-allowlist GATE: ...and the declared data survives it intact (82 plus the one just ingested)');
 
+  // R298: THE KEPT SERIES FOLLOWS THE STORE. The flattened series, the kept store and the
+  // nights are worked out once per stored text and reused; any write -- the app's own, or a
+  // direct one to storage -- is read on the next call, and nothing a caller does to what it
+  // was handed reaches what is kept.
+  var keep298 = localStorage.getItem('healthtracker-glucose');   // put back after, so the checks below see the store they expect
+  var g298 = function () { return HT.glucoseSeries(0, 1e15); };
+  var n298 = g298().length;
+  var r298 = JSON.parse(localStorage.getItem('healthtracker-glucose'));
+  r298['2026-09-26'].t.push(1439); r298['2026-09-26'].v.push(4.4);
+  localStorage.setItem('healthtracker-glucose', JSON.stringify(r298));
+  var after298 = g298();
+  res(after298.length === n298 + 1 && after298.filter(function (p) { return p.v === 4.4; }).length >= 1
+      && HT.glucoseDaySummary('2026-09-26').n === 84,
+      'R298 GATE: a write straight to storage is read on the next call -- the series and the day summary both see the added reading');
+  HT.glucoseIngest([{ t: new Date(G19END + 600000).toISOString(), v: 5.6, unit: 'mmol/L' }], {});
+  res(g298().length === n298 + 2, 'R298 GATE: an ingest is read on the next call (the kept series is rebuilt from the new text)');
+  var h298 = g298(); h298[0].v = 99; h298.pop();
+  var k298 = HT.nightKeys(); k298.push('2099-01-01');
+  var f298 = HT.lowFlagState(); f298.nightsL1.push('2099-01-01');
+  res(g298()[0].v !== 99 && g298().length === n298 + 2 && HT.nightKeys().indexOf('2099-01-01') < 0
+      && HT.lowFlagState().nightsL1.indexOf('2099-01-01') < 0,
+      'R298 GATE: what a caller is handed is its own copy -- changing it does not reach the kept series, nights or flag');
+  r298 = JSON.parse(localStorage.getItem('healthtracker-glucose'));
+  r298['2026-09-26'].t.pop(); r298['2026-09-26'].v.pop();
+  localStorage.setItem('healthtracker-glucose', JSON.stringify(r298));
+  res(g298().length === n298 + 1, 'R298: the reading taken out again is gone on the next call');
+  localStorage.setItem('healthtracker-glucose', keep298);
+  res(g298().length === n298, 'R298: the store put back is read back -- the checks below start from the store they were written for');
+
   // A REAL DATA-LOSS DEFECT, caught by the assertion above while it was looking at
   // something else: ingest ASSIGNED the day rather than merging it, so one new
   // reading for a day already holding 82 left the day holding one. Harmless for a

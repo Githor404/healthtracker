@@ -20029,3 +20029,72 @@ the home screen) was proposed in the R297 report and awaits a ruling.
 
 **Corrected in the brief.** The brief said the pack fills "Trends -> Pathways".
 Pathways is its own card, collapsed, directly below Trends (R296).
+
+## R298 -- THE GLUCOSE REDRAW, WORKED OUT ONCE (2026-10-29, v0.113.3)
+
+*The user's rulings on R297 of 29 Oct, step 1: the glucose redraw slowdown, measured on the
+user's own log, traced, fixed with behaviour unchanged, and put into the perf gate so it
+cannot be missed again.*
+
+**Measured.** One redraw (`HT.refresh` and the layout it forces), median of 21, against the
+perf gate's reference workload timed beside it. The user's newest backup (29 Oct: 72 days,
+27 of them with glucose) was restored into a headless browser on this PC; it was not
+copied anywhere else.
+
+| fixture | before (v0.113.2) | after (v0.113.3) |
+|---|---|---|
+| the user's backup (72 days, 27 with glucose) | 199.5 ms, 10.45 | 26.4 ms, 1.38 |
+| a year of days, no glucose (the perf gate's year) | 44 ms, 2.58 | 47 ms, 2.35 |
+| the same year **with CGM** (a reading every 5 min, every day) | 10,450 ms, 497.6 | 50 ms, 2.52 |
+
+The budget is 3.0 reference workloads. The perf gate could not see this, because its year
+of days had no glucose.
+
+**Cause (traced with a CPU profile; probability 0.95 that this is the whole of it on the
+user's log).** It is not the logged days being walked again. `glucoseSeries` read the whole
+glucose store back from storage on every call: it parsed the JSON, rebuilt the allowlist
+(D131) over every reading, then walked and sorted all of them. It was called several times
+per meal and per night drawn:
+- the Trends coverage line and the test-point ceiling (each meal's response);
+- the meal review;
+- the nights panel.
+
+On the user's log that was 60 % of a redraw. On a year of CGM a second cost showed:
+- `lowFlagState` was worked out again for every night drawn, and each time walked every
+  night;
+- `nightKeys` walked every reading through a `Date`.
+
+Together these are quadratic in nights.
+
+**Fixed, as in R289: worked out once, reused until anything it reads changes.**
+- **The flattened, time-sorted series** is kept beside the stored text it was built from.
+  It is rebuilt when that text is not the same, so any write to the stream is read on the
+  next call, whether it comes from the app or from anything else. `glucoseSeries` finds a
+  window by binary search and hands back fresh copies of the points.
+- **The night keys and the low-night flag** are kept with the same build, and each caller
+  gets its own copy.
+- **The normalised store itself** (`glucoseKept`) is shared by the callers that only read
+  it: counts, extents, a day's summary, the nights, the gap context, the chart's pan limits,
+  the unit shown and E-lite's inputs. Ingest and export still read their own copy with
+  `glucoseRead`.
+- The memory fallback (D1) reads as before, uncached.
+
+**Behaviour unchanged, shown three ways:**
+- **Series.** `glucoseSeries` was compared with the build it replaces, kept verbatim, over
+  2,206 windows on the user's log (random, empty, reversed, NaN, exact-minute edges): 0
+  differ.
+- **Page.** The whole page was drawn by v0.113.2 and by this build, with the clock fixed and
+  every section open. It is byte-identical on the user's backup, which has 26 nights and 7
+  of them low-flagged, and on the year with CGM.
+- **Harness, +5 checks.** A direct write to storage and an ingest are each read on the next
+  call. A caller changing what it was handed does not reach the kept series, nights or flag.
+  The store is put back afterwards.
+
+**The perf gate (R282) now times the same year twice:** without glucose, as before, and
+with a year of CGM written into the glucose store. A precondition checks that a past lunch
+has a judged response, so the glucose path really runs.
+
+| build | without glucose | with a year of CGM | gate |
+|---|---|---|---|
+| v0.113.2 | 2.58 | 497.6 | FAIL |
+| v0.113.3 | 2.35 | 2.52 | PASS |
