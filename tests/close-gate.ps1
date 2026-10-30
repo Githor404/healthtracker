@@ -313,6 +313,11 @@ try {
   $n9 = MeasureOn 'Log confirmation (R279)'
   Shot 'log-confirm'
   [void](Eval "HT.logConfirmHide()"); Settle
+  # R298: the context strip's x, on the strip as an action leaves it (an opened item)
+  [void](Eval "(function(){ var S = HT.state(), dk = HT.state().current; S.days[dk] = S.days[dk] || { status: 'in_progress', water_l: 0, items: [] }; S.days[dk].items.push({ name: 'Gate strip', meal: 'lunch', time: '12:00', kcal: 100, protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }); HT.resave(); HT.ctxNoteSet({ kind: 'open', dk: dk, item: { i: S.days[dk].items.length - 1, name: 'Gate strip', time: '12:00' } }); HT.refresh(); window.scrollTo(0, 0); return 1; })()"); Settle
+  $n10 = MeasureOn 'Context strip (R298)'
+  Shot 'context-strip'
+  [void](Eval "HT.ctxDismiss()"); Settle
 
   # ---- 2. the verdicts -------------------------------------------------------------------
   $small = @($script:measured | Where-Object { ($_.w -lt 44) -or ($_.h -lt 44) })

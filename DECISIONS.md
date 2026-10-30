@@ -20206,3 +20206,73 @@ and only re-inserted by later redraws. They are worked out again when:
 | Pathways the meal supplies | not possible; the card is ~3 screens down | 1 tap |
 | Stack totals after a tick | 1 tap (Micronutrients) and a scroll | 0 |
 | An opened food's pathways | not possible | 1 tap |
+
+## R298 step 2 -- THE CONTEXT STRIP, BUILT (2026-10-29, v0.114.0 and v0.114.1)
+
+*Built as pre-registered above.*
+
+**What is built.** The strip sits at the top of the home screen, 112 px high in every
+state. It shows one of four kinds: food logged, a stack tick (or Took all), a food
+opened, and the quiet state (the fast status and the latest glucose).
+- **The note** is kept under its own key (`healthtracker-context`) and is not in the
+  backup. It is written by:
+  - the nine food write paths (manual, scan, plate/photo/search, combo, repeat, quick add,
+    search's earlier foods and My foods, preset);
+  - a stack tick and Took all;
+  - opening a day item;
+  - the x.
+- **Kept contents.** The contents are kept once they are worked out. A redraw only puts
+  them back, at 0.1 ms.
+- **"Supplies"** is worked out from the pack's supply key or slot against the food's own
+  numbers and its linked row. The link opens the Pathways card with exactly those groups
+  open and those records marked.
+
+**Read where the ruling needed reading:**
+- **The next action** is the next of the three kinds: a water tap does not replace a food
+  strip.
+- **Right after a log,** before the running span has any length, the fast line is taken
+  from the item just logged: "No food since 12:52 · a fast from 00:52".
+- **On a narrow screen** the "supplies" link comes first on its line, so the line cuts
+  the fermented names, never the link.
+- **The user opening the intake note** inside the strip is the one thing that lets it
+  grow, because that is the user's own tap.
+
+**Changed from the pre-registration, and why:**
+- **strip-gate's cost check** first measured the year with CGM on top of the gate's own
+  earlier steps (opened panels, the pack, the stack). That measured the gate's leftovers,
+  not the strip, and once read 3.02. It now starts from the perf gate's own fixture with
+  one food logged, as the pre-registration said ("the perf gate's year with CGM").
+- **close-gate** measures the strip's x as one more surface. Its source census found the
+  new close control, as it is meant to.
+- **The margin itself (v0.114.1).** The year with CGM sat at 2.5-2.75 against 3.0, too
+  thin for a timing gate (R282). Inside one redraw, a day's sittings and a meal's response
+  are now worked out once and handed back again; the memo is dropped when the redraw ends.
+  No caller changes what it is handed (checked in the source).
+
+**Page unchanged by v0.114.1.** The whole page, set against v0.113.3 with the clock fixed
+and every section open, is identical on the user's backup and on the CGM year, apart from
+the strip, its comment and whitespace.
+
+**Redraw (median of 21, reference workloads):**
+
+| fixture | v0.113.3 | v0.114.1 |
+|---|---|---|
+| the user's backup | 1.39 | 0.88 |
+| the year, no glucose | 2.35 | 2.01 |
+| the year with CGM | 2.52 | 1.53 |
+| the year with CGM and a food strip showing (strip-gate) | -- | 1.96 |
+
+**strip-gate:** 25 checks, all pass. The screenshots of each kind, at 390 px in light and
+dark, are kept in %TEMP%\strip-shots.
+
+**Tap counts:**
+
+| what | before | now |
+|---|---|---|
+| A meal's response after logging it | 0 (its block in the day) | 0, at the top |
+| Fast status | 0 | 0 |
+| Pathways a meal supplies | not possible | 1 tap |
+| Stack totals after a tick | 1 tap and a scroll | 0 |
+| The intake note after a tick | 1 tap and a scroll | 1 tap, at the top |
+| An opened food's pathways | not possible | 1 tap |
+| The link offer, from the strip | -- | 1 tap |

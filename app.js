@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.114.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.114.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -12926,7 +12926,19 @@ function respGapMin() { return (GLUCOSE_STEP_S / 60) * 3; }
 // holds every id an item could have been addressed by before (its mealId, or
 // '_solo' + its index), so findMealEvent resolves an old id to its sitting.
 const SITTING_JOIN_MIN = 30;
+// R298: ONE REDRAW, ONE ANSWER. A redraw asks for the same day's sittings and the same
+// meal's response many times over -- the day, the Trends coverage line, the test-point
+// ceiling, the review -- and the log cannot change in the middle of one. So inside
+// refresh() each is worked out once and handed back again; the memo is dropped when
+// the redraw ends, so nothing outlives the redraw it was worked out in.
+let REDRAW_MEMO = null;                       // { ev: {dk: sittings}, resp: {dk|id: response} } during refresh()
 function mealEvents(dateKey) {
+  if (!REDRAW_MEMO) return mealEventsCompute(dateKey);
+  const k = String(dateKey);
+  if (!Object.prototype.hasOwnProperty.call(REDRAW_MEMO.ev, k)) REDRAW_MEMO.ev[k] = mealEventsCompute(dateKey);
+  return REDRAW_MEMO.ev[k];
+}
+function mealEventsCompute(dateKey) {
   const day = APP_STATE.days && APP_STATE.days[dateKey];
   if (!day) return [];
   // AS BUILT (a conflict inside R229, named in its record): "all items of one meal
@@ -13014,6 +13026,12 @@ function hhmmToMin(t) {
 // climbing when the data stops is not a peak anybody observed, and inventing a
 // minimum rise would be a number nobody ruled.
 function mealResponse(dateKey, mealId) {
+  if (!REDRAW_MEMO) return mealResponseCompute(dateKey, mealId);
+  const k = String(dateKey) + '|' + String(mealId);
+  if (!Object.prototype.hasOwnProperty.call(REDRAW_MEMO.resp, k)) REDRAW_MEMO.resp[k] = mealResponseCompute(dateKey, mealId);
+  return REDRAW_MEMO.resp[k];
+}
+function mealResponseCompute(dateKey, mealId) {
   const evs = mealEvents(dateKey);
   const ev = findMealEvent(dateKey, mealId);     // R229: any id, to its sitting
   if (!ev) return { phase: 'none', why: 'no such meal' };
@@ -17266,7 +17284,11 @@ function renderDataStatus() {
 // R215: the sleep auto-close that ran here at the head of every render is GONE.
 // It wrote a record nobody tapped for (R202: nothing is logged without a tap).
 function refresh() {
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderCtxStrip(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderPathways(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  REDRAW_MEMO = { ev: {}, resp: {} };
+  try {
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderCtxStrip(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderPathways(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll();
+  } finally { REDRAW_MEMO = null; }
+}
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -17467,6 +17489,7 @@ const VERSION_LOG = [
   { v: '0.113.2', d: '2026-10-29', note: 'The fasting rule now says net carbs wherever it is explained -- in Settings, the weekly review and on a logged item -- because that is what it counts: carbs minus fibre. Nothing else changes.' },
   { v: '0.113.3', d: '2026-10-29', note: 'Faster with glucose: the page no longer reads all your glucose readings again for every meal and every night it draws, so it redraws several times faster on a log with glucose (about 200 ms to about 26 ms on a recent backup). Nothing you see changes.' },
   { v: '0.114.0', d: '2026-10-29', note: 'A strip at the top of the home screen now shows what goes with the last thing you did: after logging food, that meal’s glucose, your fast status, which of its foods are fermented and the pathways it supplies (one tap opens them); after a stack tick, today’s totals of what it counts toward, with any intake note; after opening a food, its database row, fermented, and its pathways. It stays 3 hours or until your next of those, and × ends it. With nothing recent it shows your fast status and your latest glucose. It is always the same height, so nothing on the page moves.' },
+  { v: '0.114.1', d: '2026-10-29', note: 'Faster again: each meal’s glucose response is now worked out once per redraw instead of once for every panel that shows it, so the page redraws in about two thirds of the time (about 26 ms to about 17 ms on a recent backup). Nothing you see changes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
