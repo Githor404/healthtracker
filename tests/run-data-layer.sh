@@ -88,6 +88,7 @@ sensor-gate.ps1
 served-gate.ps1
 stackcheck-gate.ps1
 stacktotals-gate.ps1
+strip-gate.ps1
 update-gate.ps1
 weekly-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two

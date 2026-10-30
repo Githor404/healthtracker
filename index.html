@@ -1529,6 +1529,22 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
 .trash .trow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .tmain{flex:1;min-width:0;font-size:16px}
 .tmain small{display:block;color:var(--muted)}
+/* R298: THE CONTEXT STRIP. A fixed height in every state (R297: the screen never
+   rearranges itself). Lines are one text line each, cut with an ellipsis; a link's tap
+   area reaches past its line without changing the line's height. Only the user opening
+   the intake note inside it lets it grow. */
+#ctxStrip{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;background:var(--panel);padding:6px 12px;margin:0 0 12px;height:112px;box-sizing:border-box;font-size:16px;line-height:24px;color:var(--txt)}
+#ctxStrip[data-kind="quiet"]{border-left-color:var(--line)}
+#ctxStrip:has(details[open]){height:auto}
+#ctxStrip .ctxh{display:flex;justify-content:space-between;align-items:center;height:26px;color:var(--muted)}
+#ctxStrip .ctxhead{white-space:nowrap;overflow-x:clip;text-overflow:ellipsis;min-width:0}
+#ctxStrip .ctxx{background:none;border:0;color:var(--muted);font-size:20px;width:44px;height:44px;margin:-9px -12px -9px 0;padding:0;flex:none;cursor:pointer}
+#ctxStrip .ctxl{height:24px;white-space:nowrap;overflow-x:clip;text-overflow:ellipsis}
+#ctxStrip .ctxl:has(details[open]){height:auto;white-space:normal}
+#ctxStrip .ctxlink{font-size:16px;line-height:24px;padding:10px 0;margin:-10px 0;vertical-align:top}
+#ctxStrip .iflag{display:inline-block;margin:0 10px 0 0;vertical-align:top}
+#ctxStrip .iflag>summary.iflagsum{margin:-10px 0}
+.pwrec.pwmark{border-left:3px solid var(--accent);padding-left:6px}
 </style>
 </head>
 <body>
@@ -1537,6 +1553,9 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
   <div class="wrap">
     <div id="versionNotice" class="card vnotice" style="display:none"></div>
     <div id="onboarding" class="card" style="display:none"></div>
+    <!-- R298: the context strip -- what relates to the last action, at a FIXED height so
+         nothing below it moves (R297). renderCtxStrip owns it. -->
+    <div id="ctxStrip"></div>
     <div class="card">
       <div id="regimenChecklist"></div>
       <div id="dayView"></div>

@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.113.3';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.114.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3804,7 +3804,7 @@ function pathwayRecordHTML(P, r) {
     const pv = c.probability && c.probability.versions && c.probability.versions[c.probability.versions.length - 1];
     return esc(c.claim) + (pv ? ' — ' + Math.round(100 * pv.p) + ' % ' + esc(pv.of) : '') + ((c.evidence && c.evidence.grade) ? ' · GRADE ' + esc(c.evidence.grade) : '');
   }).join('; ') : 'No reviewed claims yet.') + '</div>';
-  return '<div class="pwrec"><span class="pwname">' + esc(r.plain_name) + '</span>'
+  return '<div class="pwrec" data-pw="' + esc(r.id) + '"><span class="pwname">' + esc(r.plain_name) + '</span>'
     + '<details class="pwinfo"><summary aria-label="about ' + esc(r.plain_name) + '">ⓘ</summary>' + b + '</details></div>';
 }
 function renderPathways() {
@@ -3816,9 +3816,243 @@ function renderPathways() {
       + 'This phone never reads a pathway itself: what it can see is shown with each one, mostly through proxies.') + '</div>'
     + P.groups.map(function (g) {
       const recs = P.records.filter(function (r) { return r.group === g.id; });
-      return '<details class="pwgroup"><summary>' + esc(g.name) + ' · ' + recs.length + '</summary>'
+      return '<details class="pwgroup" data-group="' + esc(g.id) + '"><summary>' + esc(g.name) + ' · ' + recs.length + '</summary>'
         + recs.map(function (r) { return pathwayRecordHTML(P, r); }).join('') + '</details>';
     }).join('');
+}
+// ---- R298 step 2: THE CONTEXT STRIP (R297: surface what relates to the last action) ----
+// One strip at the top of the home screen, the SAME HEIGHT in every state, so nothing
+// below it moves. It speaks for the user's last action of three kinds -- food logged, a
+// stack tick, a food opened -- for 3 h or until the next of them; otherwise it shows the
+// fast status and the current glucose. What drives it is one small note on the phone
+// (`healthtracker-context`, not in the backup), written by those actions and by its ×.
+// Its contents are worked out ONCE per note (and again when the glucose stream, the
+// note's day or the pack changes, when the 3 h run out, or -- quiet -- each minute) and
+// kept; a redraw only puts the kept HTML back. It shows; it never writes an entry.
+const CTX_KEY = 'healthtracker-context';
+const CTX_LIFE_MS = 3 * 3600000;
+const CTX_KINDS = ['food', 'stack', 'open', 'none'];
+let CTX_KEPT = null;                    // { key, html, pw: [record ids] }
+let CTX_COMPUTES = 0;                   // how many times the contents were worked out (strip-gate)
+function ctxNote() {
+  let n = null;
+  try { const raw = localStorage.getItem(CTX_KEY); n = raw ? JSON.parse(raw) : null; } catch (e) { n = null; }
+  if (!n || typeof n !== 'object' || CTX_KINDS.indexOf(n.kind) < 0 || !(num(n.at) > 0)) return null;
+  if (n.kind !== 'none' && !isDayKey(n.dk)) return null;
+  return n;
+}
+function ctxNoteSet(n) {
+  try { localStorage.setItem(CTX_KEY, JSON.stringify(Object.assign({ at: nowMs() }, n))); } catch (e) {}
+  CTX_KEPT = null;
+}
+function ctxFoodLogged(dk, items) {
+  const day = APP_STATE.days && APP_STATE.days[dk];
+  if (!day || !items || !items.length) return;
+  ctxNoteSet({ kind: 'food', dk: String(dk), items: items.map(function (it) {
+    return { i: day.items.indexOf(it), name: String(it.name || ''), time: String(it.time || '') };
+  }) });
+}
+function ctxDismiss() { ctxNoteSet({ kind: 'none' }); renderCtxStrip(); return { ok: true }; }
+// An item the note points to: at its index if it is still the same one, else found by
+// name and time; null once it is gone (undone or deleted) -- the strip then goes quiet.
+function ctxItemAt(dk, ref) {
+  const items = ((APP_STATE.days || {})[dk] || {}).items || [];
+  const same = function (it) { return it && String(it.name || '') === ref.name && String(it.time || '') === ref.time; };
+  if (same(items[ref.i])) return ref.i;
+  for (let i = 0; i < items.length; i++) if (same(items[i])) return i;
+  return -1;
+}
+// "SUPPLIES" (ruled R298/3): the pathways whose raw-material lines -- the pack's supply
+// key or database slot -- the food's own nutrients count toward: its own numbers (macros,
+// labelled micros) or its linked row's figures. Never "activates" (R286).
+function ctxSupplies(items) {
+  const P = packLoad();
+  if (!P) return null;
+  const keys = {}, slots = {};
+  items.forEach(function (it) {
+    if (!it) return;
+    ['protein_g', 'fat_g', 'carb_g', 'fiber_g'].forEach(function (k) { if (num(it[k]) > 0) keys[k] = 1; });
+    Object.keys(it.micros || {}).forEach(function (k) { if (num(it.micros[k]) > 0) keys[k] = 1; });
+    const v = it.ref && it.ref.v;
+    if (v) Object.keys(v).forEach(function (sl) { if (num(v[sl]) > 0) slots[String(sl)] = 1; });
+  });
+  return (P.records || []).filter(function (r) {
+    return (r.supply || []).some(function (s) { return s && ((s.key && keys[s.key]) || (s.slot && slots[String(s.slot)])); });
+  }).map(function (r) { return r.id; });
+}
+function ctxSuppliesHTML(ids) {
+  if (ids == null) return 'No pathway pack on this phone';
+  if (!ids.length) return 'Supplies no pathway in your pack';
+  return '<button type="button" class="linklike ctxlink" onclick="ctxShowPathways()">supplies ' + ids.length + ' pathway' + (ids.length === 1 ? '' : 's') + ' ›</button>';
+}
+function ctxFastWords() {
+  const g = fastOpenNow();
+  if (!g) return 'No food logged yet';
+  const w = openFastLabel(g.a1 - g.a0, absIso(g.a0).slice(0, 10), g.stop);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+}
+function ctxGlucoseWords() {
+  const ms = glucoseLastMs();
+  if (ms == null) return 'No glucose readings';
+  const p = glucoseSeries(ms, ms);
+  const last = p.length ? p[p.length - 1] : null;
+  return 'Glucose ' + (last ? rDisp(last.v) + ' ' + last.u : '') + ' · ' + ageWords(nowMs() - ms);
+}
+// The sitting's glucose in the strip's width: R225's measured rise and the time back,
+// the words the day's own line uses, shortened.
+function ctxRespWords(dk, mealId) {
+  const r = mealResponse(dk, mealId);
+  if (!r || r.phase === 'none' || r.phase === 'declined' || r.rise == null) return '';
+  return 'Glucose rose ' + (r.phase === 'bounded' ? '≥ ' : '') + rDisp(r.rise) + ' ' + respUnitWord(r)
+    + ' · ' + (r.tToBaseline != null ? 'back in ' + hoursLabel(r.tToBaseline) : 'not back yet');
+}
+function ctxLine(html) { return '<div class="ctxl">' + (html || '&nbsp;') + '</div>'; }
+function ctxFoodHTML(n) {
+  const day = (APP_STATE.days || {})[n.dk];
+  const idxs = (n.items || []).map(function (r) { return ctxItemAt(n.dk, r); }).filter(function (i) { return i >= 0; });
+  if (!day || !idxs.length) return null;
+  const items = idxs.map(function (i) { return day.items[i]; });
+  const ev = sittingOfItem(n.dk, idxs[0]);
+  const t = ev && ev.time ? ev.time : (items[0].time || '');
+  const head = 'Just logged · ' + (ev ? sittingName(ev) + ', ' + ev.items.length + ' item' + (ev.items.length === 1 ? '' : 's') : String(items[0].name || ''))
+    + (t ? ' · ' + t : '');
+  const resp = ev ? ctxRespWords(n.dk, ev.mealId) : '';
+  const l1 = resp || (glucoseLastMs() == null ? 'No glucose readings' : 'No glucose for this meal yet');
+  // The fast status: from the running span, or -- logged this very minute, before any span
+  // has length -- from the newest item just logged; 12 h after it is when a fast would begin.
+  const g = fastOpenNow();
+  let l2;
+  if (g && g.a1 - g.a0 >= FAST_MIN_H * 60) l2 = ctxFastWords();
+  else {
+    const lastMin = g ? null : Math.max.apply(null, items.map(function (it) { const m = hhmmToMin(it.time); return m == null ? -1 : m; }));
+    const from = g ? absHHMM(g.a0) : (lastMin >= 0 ? minutesToHHMM(lastMin) : '');
+    const fast = g ? absHHMM(g.a0 + FAST_MIN_H * 60) : (lastMin >= 0 ? minutesToHHMM((lastMin + FAST_MIN_H * 60) % 1440) : '');
+    l2 = from ? 'No food since ' + from + ' · a fast from ' + fast : ctxFastWords();
+  }
+  const all = ev ? ev.items : items;
+  const ferm = all.filter(function (it) { return itemFermentedHTML(it) && itemFermented(it).value === 'yes'; })
+    .map(function (it) { return String(it.name || ''); });
+  const pw = ctxSupplies(all);
+  // the link first, so a narrow screen cuts the names, never the link
+  const l3 = ctxSuppliesHTML(pw) + (ferm.length ? ' · ' + esc(ferm.slice(0, 2).join(', ')) + ' fermented' : '');
+  return { head: head, lines: [esc(l1), esc(l2), l3], pw: pw || [] };
+}
+function ctxStackHTML(n) {
+  const dk = n.dk;
+  const ids = (n.ids || []).filter(function (id) { const s = stackById(id); return s && stackTaken(s, dk).length; });
+  if (!ids.length) return null;
+  const inStack = stackEnabled().filter(function (s) { return stackDayState(s, dk) === 'in'; });
+  const taken = inStack.filter(function (s) { return stackTaken(s, dk).length; }).length;
+  const first = stackById(ids[0]);
+  const last = stackLatest(first, dk);
+  const t = last && last.rec && last.rec.time ? String(last.rec.time) : '';
+  const head = (n.all ? 'Took all' : 'Just ticked · ' + first.name) + (t ? ' · ' + t : '') + ' · ' + taken + ' of ' + inStack.length;
+  const keys = [];
+  ids.forEach(function (id) { const s = stackById(id); Object.keys((s.nutrients && s.nutrients.micros) || {}).forEach(function (k) { if (keys.indexOf(k) < 0) keys.push(k); }); });
+  const lines = keys.slice(0, 2).map(function (k) {
+    const p = dayIntakeParts(dk, k);
+    const spec = MICRO_LABEL[k] || { label: k, unit: '' };
+    const total = p.food + p.reference + p.supplement + p.stack;
+    return esc(spec.label + ' today ' + rDisp(total) + ' ' + spec.unit + ' (stack ' + rDisp(p.stack) + ')');
+  });
+  if (!lines.length) lines.push(esc('Counts toward no tracked nutrient'));
+  while (lines.length < 2) lines.push('');
+  const flags = dayIntakeFlags(dk);
+  const note = flags.length ? intakeNoteHTML(dayIntakeFlagText(flags[0]), 'ctxflag') : '';
+  lines.push(note + '<button type="button" class="linklike ctxlink" onclick="revealPanel()">all totals ›</button>');
+  return { head: head, lines: lines, pw: [] };
+}
+function ctxOpenHTML(n) {
+  const day = (APP_STATE.days || {})[n.dk];
+  const i = n.item ? ctxItemAt(n.dk, n.item) : -1;
+  if (!day || i < 0) return null;
+  const it = day.items[i];
+  const head = 'Opened · ' + String(it.name || '') + (num(it.grams) > 0 ? ' · ' + rDisp(num(it.grams)) + ' g' : '');
+  let l1;
+  if (it.ref && it.ref.ns) l1 = esc('Database row: ' + String(it.ref.name || it.ref.id || ''));
+  else if (linkEligible(it)) l1 = 'Not linked · <button type="button" class="linklike ctxlink" onclick="ctxRevealLink()">Link a row? ›</button>';
+  else l1 = esc(num(it.grams) > 0 ? 'No database row' : 'No database row (no grams to scale one to)');
+  let l2 = '';
+  if (itemFermentedHTML(it)) {
+    const f = itemFermented(it);
+    const from = /lexicon rule (lx-\d+)/.exec(f.src);
+    l2 = 'Fermented: ' + f.value + (from ? ' · your rule ' + from[1] : (f.value === 'yes' ? ' · the row’s name' : ''));
+  }
+  const pw = ctxSupplies([it]);
+  return { head: head, lines: [l1, esc(l2), ctxSuppliesHTML(pw)], pw: pw || [] };
+}
+function ctxQuietHTML(n) {
+  const head = (n && n.kind !== 'none') ? 'Nothing new in 3 h' : 'Now';
+  return { head: head + ' · ' + minutesToHHMM(nowMinutes()), lines: [esc(ctxFastWords()), esc(ctxGlucoseWords()), ''], pw: [], quiet: true };
+}
+// What the kept contents depend on. Anything here changing works them out again; the
+// glucose stream is compared by its kept build (glucoseFlat), so readings arriving do too.
+function ctxKey(n, live) {
+  const P = packLoad();
+  const parts = [n, live, P ? P._version : null];
+  if (live) {
+    const day = (APP_STATE.days || {})[n.dk];
+    parts.push(day ? JSON.stringify(day.items) : '', JSON.stringify((APP_STATE.timeline || {})[n.dk] || []));
+    if (n.kind === 'stack') parts.push(JSON.stringify((APP_STATE.settings || {}).stack || []));
+  }
+  if (!live || _glucoseMem) parts.push(Math.floor(nowMs() / 60000), APP_STATE.current);
+  return JSON.stringify(parts);
+}
+function ctxStripCompute() {
+  const n = ctxNote();
+  const live = !!(n && n.kind !== 'none' && nowMs() - num(n.at) < CTX_LIFE_MS && nowMs() >= num(n.at) - 60000);
+  const key = ctxKey(n, live);
+  glucoseFlat();
+  if (CTX_KEPT && CTX_KEPT.key === key && CTX_KEPT.gflat === _glucoseFlat) return CTX_KEPT;
+  CTX_COMPUTES++;
+  let c = null;
+  if (live) c = n.kind === 'food' ? ctxFoodHTML(n) : n.kind === 'stack' ? ctxStackHTML(n) : ctxOpenHTML(n);
+  const kind = c ? n.kind : 'quiet';
+  if (!c) c = ctxQuietHTML(n);
+  const x = c.quiet ? '' : '<button type="button" class="ctxx" onclick="ctxDismiss()" aria-label="Done with this">×</button>';
+  CTX_KEPT = { key: key, gflat: _glucoseFlat, kind: kind, pw: c.pw || [], n: n,
+    html: '<div class="ctxh"><span class="ctxhead">' + esc(c.head) + '</span>' + x + '</div>' + c.lines.slice(0, 3).map(ctxLine).join('') };
+  return CTX_KEPT;
+}
+function renderCtxStrip() {
+  const el = document.getElementById('ctxStrip');
+  if (!el) return;
+  const k = ctxStripCompute();
+  if (el.getAttribute('data-kind') !== k.kind) el.setAttribute('data-kind', k.kind);
+  if (el._ctxHtml !== k.html) { el.innerHTML = k.html; el._ctxHtml = k.html; }
+}
+// "supplies N pathways ›": the Pathways card, opened at exactly those pathways -- their
+// groups open, the others closed, each named one marked, the first scrolled to.
+function ctxShowPathways(ids) {
+  const want = (ids || (CTX_KEPT && CTX_KEPT.pw) || []).map(String);
+  renderPathways();
+  const card = document.querySelector('[data-card="pathways"] > details');
+  if (card) card.open = true;
+  let first = null;
+  Array.prototype.slice.call(document.querySelectorAll('#pathways details.pwgroup')).forEach(function (g) {
+    const recs = Array.prototype.slice.call(g.querySelectorAll('.pwrec'));
+    const hit = recs.filter(function (r) { return want.indexOf(r.getAttribute('data-pw')) >= 0; });
+    g.open = hit.length > 0;
+    hit.forEach(function (r) { r.classList.add('pwmark'); if (!first) first = r; });
+  });
+  if (first) flashEl(first);
+  return { ok: !!card, shown: want.length };
+}
+// "Link a row? ›": the opened item's own offer, on the day.
+function ctxRevealLink() {
+  const n = CTX_KEPT && CTX_KEPT.n;
+  if (!n || n.kind !== 'open') return { ok: false };
+  const i = ctxItemAt(n.dk, n.item);
+  if (i < 0) return { ok: false };
+  if (APP_STATE.current !== n.dk) dayJump(n.dk);
+  // its meal group opened too: the item may have been opened and its group closed since
+  const grp = mealKindGroups(n.dk).filter(function (g) { return (g.rows || []).some(function (r) { return r.idx === i; }); })[0];
+  if (grp && !dayGroupIsOpen(grp.key)) DAY_GROUP_OPEN[grp.key] = true;
+  if (!itemOpen(n.dk, i)) { ITEM_OPEN[itemOpenKey(n.dk, i)] = true; try { linkPrepare(n.dk, i); } catch (e) {} }
+  renderDay();
+  const el = document.getElementById(linkBoxId(n.dk, i));
+  flashEl(el);
+  return { ok: !!el };
 }
 // R286/d4 + 6: FERMENTED -- yes / no / unknown, and where that comes from: a lexicon rule
 // the user has reviewed (in the pack), else the linked row's own name, else unknown. A
@@ -5296,6 +5530,7 @@ function stackCheck(id) {
   if (!w.item && !w.record) return { ok: false, why: 'not-written' };
   if (w.item && day.status === 'complete') day.status = 'in_progress';
   STACK_EDIT = null;
+  ctxNoteSet({ kind: 'stack', dk: String(dk), ids: [String(s.id)] });   // R298: the strip's note
   Store.saveState(APP_STATE); refresh(); stackRerender();
   offerUndo('Took ' + s.name + (time ? ' at ' + time : ''), function () {
     stackRemoveEntries(dk, [w.item ? { where: 'day', rec: w.item } : { where: 'tl', rec: w.record }]);
@@ -5344,6 +5579,10 @@ function stackTookAll() {
   const r = logStack(skip);
   if (!r.ok) { toast(r.error === 'Nothing ticked.' ? 'Everything is already checked.' : (r.error || 'Nothing to log.')); return r; }
   STACK_EDIT = null;
+  // R298: the strip's note -- every item this Took all wrote
+  const tookIds = r.items.concat(r.records).map(function (x) { return x && x.stackId != null ? String(x.stackId) : null; }).filter(Boolean);
+  ctxNoteSet({ kind: 'stack', dk: String(r.date), all: true, ids: tookIds.filter(function (x, i) { return tookIds.indexOf(x) === i; }) });
+  renderCtxStrip();
   const n = r.items.length + r.records.length;
   offerUndo('Took ' + n + ' item' + (n === 1 ? '' : 's') + (r.time ? ' at ' + r.time : ''), function () {
     const day = APP_STATE.days[r.date];
@@ -6582,6 +6821,7 @@ function logCombo(id, mult) {
   });
   if (!written.length) return { ok: false, error: 'This combo has no parts.' };
   if (day.status === 'complete') day.status = 'in_progress';
+  ctxFoodLogged(APP_STATE.current, written);   // R298: the strip's note
   Store.saveState(APP_STATE); refresh();
   offerUndo('Logged ' + c.name + ' · ' + written.length + ' item'
             + (written.length === 1 ? '' : 's'), undoRemove(day.items, written));
@@ -7514,7 +7754,10 @@ function itemToggle(dk, idx) {
   // R286/2: the rows are looked for when the user OPENS an item -- the one moment
   // they asked to see it -- never from inside a render.
   if (ITEM_OPEN[k]) { try { linkPrepare(dk, idx); } catch (e) {} }
-  renderDay();
+  // R298: opening a logged food is an action the strip speaks for
+  const oit = ITEM_OPEN[k] && APP_STATE.days[dk] ? APP_STATE.days[dk].items[idx] : null;
+  if (oit) ctxNoteSet({ kind: 'open', dk: String(dk), item: { i: Number(idx), name: String(oit.name || ''), time: String(oit.time || '') } });
+  renderDay(); renderCtxStrip();
   return { ok: true, open: itemOpen(dk, idx) };
 }
 function itemCollapseAll() { ITEM_OPEN = {}; return { ok: true }; }
@@ -8058,7 +8301,7 @@ function logRepeat(dateKey, idx) {
                                { date: dateKey, name: src.name });
   const day = dayForWrite(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE); refresh();
   offerFoodUndo(APP_STATE.current, item);
   return { ok: true, item: item };
@@ -8530,7 +8773,7 @@ function addManualEntry(raw) {
                                                      source: (raw.source === 'corpus' && raw.ref) ? 'corpus' : 'manual', tzo: nowTZO() }), true);   // D29 (stamped)
   const day = dayForWrite(); if (!day) return { ok: false, error: 'No current day' };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (D9 / D8-1)
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE); refresh();
   return { ok: true, warnings: warnings, item: item };
 }
@@ -8598,7 +8841,7 @@ function logPreset(id) {
   const item = buildPresetItem(p, stampTime(APP_STATE.current));
   const day = dayForWrite(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE); refresh();
   offerFoodUndo(APP_STATE.current, item);
   return { ok: true, item: item };
@@ -8773,7 +9016,7 @@ function logScanItem(rec, mode, customGrams, meal) {
   const item = buildScanItem(rec, mode, customGrams, meal, APP_STATE.current);
   const day = dayForWrite(); if (!day) return { ok: false };
   if (day.status === 'complete') day.status = 'in_progress';   // reopen (same rule as manual/ingest)
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE); refresh();
   return { ok: true, item: item };
 }
@@ -17023,7 +17266,7 @@ function renderDataStatus() {
 // R215: the sleep auto-close that ran here at the head of every render is GONE.
 // It wrote a record nobody tapped for (R202: nothing is logged without a tap).
 function refresh() {
-  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderPathways(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
+  renderBadge(); renderSleepAsk(); renderOnboarding(); renderRegimenChecklist(); renderDay(); renderCtxStrip(); renderPanel(); renderPotential(); renderResolve(); renderSignalChips(); renderQuickEvents(); renderNights(); renderQuickChips(); renderLabTrends(); renderRhythmGrid(); renderFastCandidates(); renderTimelineOverlay(); renderTrends(); renderPathways(); renderAverages(); renderPresets(); renderRegimenAuthor(); renderScanButton(); renderScan(); renderHistory(); renderDataStatus(); renderByok(); renderFdcKey(); renderMeds(); renderCaptureBtn(); renderCaptureOutcome(); renderDeleteAll(); }
 
 // D16: ask the browser to make storage persistent (resist eviction). Best-effort
 // and SILENT by contract: feature-detected, fire-and-forget (never awaited),
@@ -17223,6 +17466,7 @@ const VERSION_LOG = [
   { v: '0.113.1', d: '2026-10-29', note: 'A new rule for what keeps a fast: no food, but something with 5 g of carbs or less and 5 g of protein or less is allowed -- coffee with cream, butter or coconut oil in coffee, a spoon of olive oil -- whatever its calories. A combo is judged as a whole. Alcohol always ends a fast, and something whose carbs or protein are not known ends it too. Open a logged item to see what it does to a fast, and mark it keeps my fast or breaks my fast if you know better; a combo can be marked in its Edit. Both limits can be changed in Settings, under Fasting. Your past fasts are read again under the new rule; nothing you logged changes.' },
   { v: '0.113.2', d: '2026-10-29', note: 'The fasting rule now says net carbs wherever it is explained -- in Settings, the weekly review and on a logged item -- because that is what it counts: carbs minus fibre. Nothing else changes.' },
   { v: '0.113.3', d: '2026-10-29', note: 'Faster with glucose: the page no longer reads all your glucose readings again for every meal and every night it draws, so it redraws several times faster on a log with glucose (about 200 ms to about 26 ms on a recent backup). Nothing you see changes.' },
+  { v: '0.114.0', d: '2026-10-29', note: 'A strip at the top of the home screen now shows what goes with the last thing you did: after logging food, that meal’s glucose, your fast status, which of its foods are fermented and the pathways it supplies (one tap opens them); after a stack tick, today’s totals of what it counts toward, with any intake note; after opening a food, its database row, fermented, and its pathways. It stays 3 hours or until your next of those, and × ends it. With nothing recent it shows your fast status and your latest glucose. It is always the same height, so nothing on the page moves.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -20988,7 +21232,7 @@ function consumeFromPlate(plateId, statements, opts) {
   });
   if (!written.length) return { ok: false, error: 'Nothing was recorded as eaten.' };
   if (day.status === 'complete') day.status = 'in_progress';
-  written.forEach((x) => day.items.push(x));
+  written.forEach((x) => day.items.push(x)); ctxFoodLogged(dk, written);   // R298: the strip's note
   Store.saveState(APP_STATE); refresh();
   offerUndo('Logged ' + written.length + ' item' + (written.length === 1 ? '' : 's'), function () {
     APP_STATE.days[dk].items = priorCopy;
@@ -22799,7 +23043,7 @@ function quickAddLog() {
   const day = dayForWrite();
   if (!day) return { ok: false, why: 'no-day' };
   if (day.status === 'complete') day.status = 'in_progress';
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE);
   QUICK_PICK = null;
   closeSheet();
@@ -24163,7 +24407,7 @@ function searchWriteEarlier(st, e, grams) {
   if (!item) return { ok: false, why: 'no-item' };
   item.meal = (st.asDrink || src.meal === 'drink') ? 'drink' : mealAtCreation('', time || nowTime());
   if (day.status === 'complete') day.status = 'in_progress';
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE);
   FOOD_SEARCH = null;
   DRINK_PICKING = false;
@@ -24230,7 +24474,7 @@ function searchLogMine() {
   const item = normalizeItem(raw, true);
   applyPrecedence(item);
   if (day.status === 'complete') day.status = 'in_progress';
-  day.items.push(item);
+  day.items.push(item); ctxFoodLogged(APP_STATE.current, [item]);   // R298: the strip's note
   Store.saveState(APP_STATE);
   FOOD_SEARCH = null;
   DRINK_PICKING = false;
@@ -26955,7 +27199,7 @@ window.HT = {
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, lnhpdLookup, lnhpdGet, setLnhpdFetch, stackNpnLookup, suppLabelReply, stackConfirmToggle, stackFormExtraAdd, stackFormExtraRemove, stackMultiNutrients, suppKeyFor, suppUnit, normalizeStackProduct, normalizeNutrientDetail, normalizeJoinEdits, stackDoseMicros, dayIntakeFlags, STACK_SUPP_KEYS, SUPP_TEMPLATE, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormUnit, stackCountUnit, STACK_COUNT_UNITS, lnhpdDoseUnit,
-  fastJudge, fastKeepLimits, fastOverrideSet, comboFastOverrideSet, fastOverrideNow, itemMacrosKnown, setFastKeepLimits, fastRuleWords, FAST_RULE_WORDS, fastEvents, comboFastHTML, packImportText, packLoad, packRemove, renderPathways, PACK_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
+  fastJudge, fastKeepLimits, fastOverrideSet, comboFastOverrideSet, fastOverrideNow, itemMacrosKnown, setFastKeepLimits, fastRuleWords, FAST_RULE_WORDS, fastEvents, comboFastHTML, packImportText, packLoad, packRemove, renderPathways, PACK_KEY, ctxNote, ctxNoteSet, ctxStripCompute, renderCtxStrip, ctxShowPathways, ctxRevealLink, ctxDismiss, ctxSupplies, ctxComputes: () => CTX_COMPUTES, ctxKept: () => CTX_KEPT, CTX_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,
