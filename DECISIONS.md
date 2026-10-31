@@ -20641,3 +20641,105 @@ on every flagged rise under v0.116.0 and v0.117.0. The backup has 37 nights.
   23.5 h long. Read as filed, it runs from 06:48 on 5 Oct to 06:20 on 6 Oct, so rises
   through 5 Oct now read "asleep". It looks like a sleep left open. It is reported to the
   user and not changed (the user's data is not repaired by the agent).
+
+## R304 -- PRE-REGISTERED (2026-10-31; to be v0.118.0): the landing page
+
+*The user's rulings on the R300.1 mock-ups. Written before any of it is built.*
+
+**1. Meal rings, in place of the meal list.**
+- **Layout:** a 2x2 grid, breakfast, lunch, dinner, snack. A meal not logged yet is a
+  faint dashed ring saying "not logged", so the layout never moves.
+- **What each ring shows:** its segments are the meal's carbs, protein, fat and fibre in
+  grams. The centre shows the meal's calories. Under it: its name, its time or time
+  range, its item count, and the four gram figures.
+- **Size:** at most 150 px. At 360 px the rings shrink to fit their half of the row (about
+  125 px). Nothing scrolls sideways.
+- **Tap a ring** to open its foods in a full-width list under that ring's row. Tap again
+  to close it.
+  - The list is the existing group, one per sitting, with its header (time, the
+    meal-response line) and its rows with every control.
+  - A meal kind with two sittings (two lunches three hours apart) lists both, each with
+    its own time.
+  - One ring is open at a time.
+- **What stays as it was:** the Daily stack and Biometrics groups stay as lists below the
+  rings, and so does the "time order" toggle. The "No Snack logged" line goes, because the
+  faint ring says it.
+- **Colours:** the segment colours are new tokens for light and dark (amber, blue, purple,
+  brown), none of them a verdict colour.
+
+**2. Fasting time just under the date.**
+- On today, the running span's words ("9.2h since last logged food", "fasting 13h so
+  far") move from the line under the ring to a line under the date.
+- The line under the ring keeps everything else it carries: an open sleep or practice
+  ("sleeping 3h"), the summoned lane control, and the pending-fast tap.
+- The context strip's quiet state shows the latest glucose only, and nothing else.
+
+**3. The day ring 50 % larger and centred:** 225 px instead of 150. The day's macro
+figures move under the "Ring key" button, centred.
+
+**4. Declutter.**
+- **a.** The "Micronutrients -- labeled intake only" table leaves the ring card. The day's
+  micronutrients appear only in the Micronutrients section further down, which the
+  strip's "all totals" opens.
+- **b. One glucose summary.** The Biometrics group stops repeating the glucose average
+  (its summary and its "all day glucose" line). The day's Glucose section, with range,
+  count, latest reading and chart, is the one place. A day whose only biometric is
+  glucose draws no Biometrics group (D146).
+- **c.** "Close this day now (optional)" becomes a small text link. Its reopen state stays
+  as it is.
+- **d. "Clear this day":** proposed, as the safer of the two, to stay on the day, as a small
+  text link.
+  - It already asks to confirm with the date named, offers Undo, and sends every cleared
+    item to the trash (D134).
+  - In Settings it would need a way to choose which day, a second way to clear the wrong
+    one.
+  - Built that way unless the user rules otherwise.
+- **e. The strip is shorter when it shows little.** The quiet state (one line of glucose)
+  draws at its own smaller height. The three action states keep the fixed 112 px between
+  them.
+  - This amends R298's "fixed height in every state" for the quiet state only, as ruled.
+    So a first action after a quiet stretch moves the page below it once, by the
+    difference.
+  - strip-gate's layout check becomes: no shift among the three action kinds, and the
+    quiet state at its own fixed height, the same at 390 and 360.
+
+**5. "AHEAD of the clock", reported.**
+- **In the mock-ups:** it was the frozen clock, 21:30 on 28 Oct against a backup whose
+  readings run to the next morning.
+- **With real data**, two ways:
+  - A reader whose clock runs ahead of the phone's. The label is right to say so.
+  - **A time-zone change.** A day stored without `z` (R303) is read as wall-clock minutes
+    in the phone's current zone. After travel west, every stored reading reads hours late
+    and the newest "AHEAD of the clock". That is a defect.
+- **Fix:**
+  - At ingest every day keeps its offset. `z` may now be one number, for a day whose
+    readings share one offset: every day ingested from now on. It stays an array when they
+    differ.
+  - `glucoseMs` reads both forms. A day stored before this has none, and reads as before.
+  - v0.116.0/v0.117.0 restoring a new backup: a numeric `z` is dropped by v0.116.0, so the
+    readings read as wall time there, as they always did. v0.117.0 drops a `z` that is
+    not an array, so the same. No reading is lost on either.
+- **Gate (dst-gate):** a day ingested in America/Toronto and read in America/Vancouver
+  keeps every reading at its real moment, the newest is not "AHEAD", and the 37-moment
+  clock-change checks still hold.
+
+**Gates:**
+- **The new `rings-gate`:**
+  - the 2x2 grid at 390 and 360 px in light and dark, with screenshots; rings within their
+    cells; no sideways scroll; ring diameter <= 150 px, and about 125 px at 360;
+  - a meal not logged is a faint ring and the layout is the same before and after it is
+    logged;
+  - a real tap opens the list full width under that ring's row, the foods are the
+    meal's, and a second tap closes it;
+  - segments by grams, matching the meal's eaten totals;
+  - no micronutrient table above the meals;
+  - one glucose summary on the day;
+  - the fast line under the date and not under the ring;
+  - the strip's quiet state shows glucose only, at its shorter height;
+  - "Close this day" and "Clear this day" are text links, and Clear still asks first.
+- **Existing gates** that opened meal groups by their headers open the ring first. Their
+  assertions are unchanged.
+- **The perf gate** holds its budget.
+- **Reported:** how far up the meals moved (px) against today, on the user's backup at
+  390 px.
+- **Release** under the standing pre-run rule.
