@@ -66,6 +66,7 @@ jargon-gate.ps1
 lab-form-gate.ps1
 landing-gate.ps1
 lookup-gate.ps1
+micro-gate.ps1
 link-gate.ps1
 pack-gate.ps1
 myfood-gate.ps1

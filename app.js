@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.120.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.121.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4569,8 +4569,14 @@ function panelRowHTML(slot, e, depth, prevailing) {
   // D140/2: the panel states its coverage ONCE, at the top. A row repeats it
   // only when that row's coverage DIFFERS from the rest -- which is the only
   // case where repeating it says anything (H18's density rule).
-  const covAll = panelCoverageLine(e);
-  const cov = (covAll && covAll !== prevailing) ? covAll : '';
+  // R306: coverage by weight replaces "from N of M items"
+  const C = PANEL_COV;
+  const share = (C && C.total > 0) ? (num(C.slots[slot]) / C.total) : null;
+  const known = (share != null && depth === 0) ? Math.round(100 * share) + ' % of the day\u2019s food known' : '';
+  const partial = share != null && total != null && share < PANEL_PARTIAL_BELOW && share > 0;
+  const ri = PANEL_RI && PANEL_RI[String(slot)];
+  const riTxt = ri ? (ri.kind + ' ' + rDisp(ri.value) + ' ' + unit) : '';   // a reference figure, at its own precision
+  const cov = [known, partial ? 'partial' : '', riTxt].filter(Boolean).join(' \u00b7 ');
   const alts = (PANEL_ALT[slot] || []).map(function (a) {
     const ae = PANEL_ROLL_FOR_ALT ? PANEL_ROLL_FOR_ALT[a] : null;
     if (!ae) return '';
@@ -4581,7 +4587,7 @@ function panelRowHTML(slot, e, depth, prevailing) {
   }).filter(Boolean);
   const eq = panelIsEquivalent(slot)
     ? ' <span class="peq" title="a computed equivalent, derived from the rows beside it">equiv</span>' : '';
-  return '<div class="prow pd' + depth + (st === 'absent' ? ' pabs' : '') + '">'
+  return '<div class="prow pd' + depth + (st === 'absent' ? ' pabs' : '') + (partial ? ' ppart' : '') + '" data-slot="' + esc(String(slot)) + '">'
     + '<div class="pline">'
     + '<span class="pname">' + esc(panelSlotLabel(slot)) + eq + '</span>'
     + '<span class="pval">' + esc(txt) + (st === 'absent' ? '' : ' <small>' + esc(unit) + '</small>') + '</span>'
@@ -4599,17 +4605,93 @@ function panelRowHTML(slot, e, depth, prevailing) {
 // and set on every render so it can never be stale.
 let PANEL_ROLL_FOR_ALT = null;
 let PANEL_FLAGS = null;
+// ---- R306: COVERAGE BY WEIGHT, per nutrient, per day ------------------------------------
+// The grams of the day's FOOD that carry a value for a nutrient -- a label value, or a
+// linked row that has it -- out of the grams of all the day's food with a weight. A stack
+// dose is not food: it is in the total (labelled), not in the share. An item with no
+// weight cannot be in a share by weight and is never counted as covered.
+const PANEL_PARTIAL_BELOW = 0.6;
+let PANEL_COV = null;                  // { total, n, noWeight, slots: {slot: grams} }
+let PANEL_RI = null;                   // { slot: { kind, value, unit } } from the pack, or null
+let PANEL_LINKS_OPEN = false;
+function panelFoodItem(it) { return !!it && !isLegacyAuto(it) && it.meal !== 'supplement' && it.source !== 'supplement' && !it.stackId; }
+function panelWeightCoverage(day) {
+  const out = { total: 0, n: 0, noWeight: 0, slots: {} };
+  ((day && day.items) || []).forEach(function (it) {
+    if (!panelFoodItem(it)) return;
+    const g = num(it.grams);
+    if (!(g > 0)) { out.noWeight++; return; }
+    out.total += g; out.n++;
+    const have = {};
+    Object.keys(it.micros || {}).forEach(function (k) { const sl = PANEL_KEY_SLOT[k]; if (sl && it.micros[k] != null) have[sl] = 1; });
+    const rv = it.ref && it.ref.v;
+    if (rv) Object.keys(rv).forEach(function (n) { if (rv[n] != null && rv[n] === rv[n]) have[n | 0] = 1; });
+    Object.keys(have).forEach(function (sl) { out.slots[sl] = (out.slots[sl] || 0) + g; });
+  });
+  return out;
+}
+// The pack's reference intakes (Health Canada, the user's own group), by panel slot, in the
+// row's unit. No pack, or no figure: nothing -- never a target without a citation.
+function panelReferenceIntakes() {
+  const P = packLoad();
+  const ri = P && P.reference_intakes;
+  if (!ri || !ri.values) return null;
+  const out = {};
+  Object.keys(ri.values).forEach(function (k) {
+    const v = ri.values[k];
+    if (!v || v.slot == null || !(num(v.value) > 0)) return;
+    const f = num(v.slot_factor) > 0 ? num(v.slot_factor) : 1;
+    out[String(v.slot)] = { kind: String(v.kind || ''), value: num(v.value) / f };
+  });
+  out._source = String(ri.source || ''); out._group = String(ri.group || '');
+  return out;
+}
+// The day's foods that carry no nutrient data and could be linked (R286's linkEligible).
+function panelUnlinked(dk) {
+  const day = APP_STATE.days[dk];
+  const out = [];
+  ((day && day.items) || []).forEach(function (it, idx) {
+    if (linkEligible(it) && !Object.keys(it.micros || {}).length) out.push({ it: it, idx: idx });
+  });
+  return out;
+}
+function panelLinksToggle() {
+  PANEL_LINKS_OPEN = !PANEL_LINKS_OPEN;
+  const dk = APP_STATE.current;
+  if (PANEL_LINKS_OPEN) panelUnlinked(dk).forEach(function (x) {
+    const pr = linkPrepare(dk, x.idx);
+    if (pr && pr.then) pr.then(function () { renderPanel(); });
+  });
+  renderPanel();
+  return { ok: true, open: PANEL_LINKS_OPEN };
+}
+function panelLinksHTML(dk) {
+  const un = panelUnlinked(dk);
+  if (!un.length) return '';
+  let h = '<div class="plinks"><button type="button" class="linklike plinkbtn" aria-expanded="' + (PANEL_LINKS_OPEN ? 'true' : 'false') + '" onclick="panelLinksToggle()">'
+    + esc(un.length + ' food' + (un.length === 1 ? ' has' : 's have') + ' no nutrient data — link ' + (un.length === 1 ? 'it' : 'them')) + ' ›</button>';
+  if (PANEL_LINKS_OPEN) h += un.map(function (x) {
+    return '<div class="plinkitem" data-idx="' + x.idx + '"><div class="plinkname">' + esc(String(x.it.name || '')) + ' <small>'
+      + esc(rDisp(num(x.it.grams)) + ' g' + (x.it.time ? ' · ' + x.it.time : '')) + '</small></div>' + itemLinkHTML(dk, x.idx, x.it) + '</div>';
+  }).join('');
+  return h + '</div>';
+}
 function panelHTML(day, dateKey) {
   const dk = (dateKey == null) ? '' : String(dateKey);
   const roll = panelRollup(day, dk ? stackDoseMicros(dk) : null);
   PANEL_ROLL_FOR_ALT = roll;
   PANEL_FLAGS = {};
   if (dk) dayIntakeFlags(dk).forEach(function (f) { PANEL_FLAGS[f.key] = f; });
+  PANEL_COV = panelWeightCoverage(day);
+  PANEL_RI = panelReferenceIntakes();
+  // R306: the shortcut first, then one line for what cannot be in a share by weight
+  const top = (dk ? panelLinksHTML(dk) : '')
+    + (PANEL_COV.noWeight ? '<div class="pcovall">' + esc(PANEL_COV.noWeight + ' item' + (PANEL_COV.noWeight === 1 ? ' has' : 's have') + ' no weight, so ' + (PANEL_COV.noWeight === 1 ? 'it is' : 'they are') + ' not in the % known.') + '</div>' : '');
   const items = (day && day.items) || [];
   const anyRef = items.some(function (it) { return it && it.ref; });
   const anyVal = Object.keys(roll).length > 0;
   if (!anyVal)
-    return '<div class="note" style="margin:0">Nothing measured yet on this day. '
+    return top + '<div class="note" style="margin:0">Nothing measured yet on this day. '
       + 'Scanned products carry what their label states; anything else can be matched '
       + 'to the reference database from its row.</div>';
 
@@ -4629,12 +4711,11 @@ function panelHTML(day, dateKey) {
       });
     });
   });
-  let prevailing = '', best = 0;
-  Object.keys(covCount).forEach(function (c) { if (covCount[c] > best) { best = covCount[c]; prevailing = c; } });
-  // One row sharing a line with nothing else is not a "rest" to differ from.
-  if (best < 2) prevailing = '';
-  if (prevailing)
-    html += '<div class="pcovall">Everything below is ' + esc(prevailing) + '.</div>';
+  // R306: coverage is per row now, by weight; no "Everything below is ..." line
+  const prevailing = '';
+  html += top;
+  if (PANEL_RI) html += '<div class="pcovall">' + esc('Reference intakes: ' + PANEL_RI._source + (PANEL_RI._group ? ', ' + PANEL_RI._group : '') + ' (from your pathway pack). A total under ' + Math.round(100 * PANEL_PARTIAL_BELOW) + ' % of the day\u2019s food known is marked partial.') + '</div>';
+  else html += '<div class="pcovall">' + esc('A total under ' + Math.round(100 * PANEL_PARTIAL_BELOW) + ' % of the day\u2019s food known is marked partial.') + '</div>';
   // Protein is a ROW, in General -- not a section of one line.
   const general = PANEL_GROUPS[0];
   PANEL_GROUPS.forEach(function (g) {
@@ -4674,7 +4755,7 @@ function panelHTML(day, dateKey) {
   else if (anyRef)
     html += '<div class="pcite">These numbers come from the food database, not from a package label.</div>';
   html += '<div class="pcite">\u2013 not measured \u00b7 0.00 measured zero \u00b7 &lt;step present but below the shown step. '
-    + 'No percentages are shown: the app has no cited intake targets, and a target without a citation is a claim. '
+    + (PANEL_RI ? 'Reference intakes are cited above; ' : 'No reference intakes without a pathway pack: a target without a citation is a claim. ')
     + 'Where a cited upper level is exceeded, the row says so and names its source.</div>';
   return html;
 }
@@ -17833,6 +17914,7 @@ const VERSION_LOG = [
   { v: '0.118.0', d: '2026-10-31', note: 'A calmer home screen. Your meals are now four rings -- breakfast, lunch, dinner and snack -- each showing that meal’s carbs, protein, fat and fibre in grams, with the calories in the middle; a meal you have not logged yet is a faint ring. Tap a ring to see its foods underneath, tap again to close. The day ring is bigger and centred, with your macros under Ring key, and how long since you last ate is right under the date. The micronutrient table and the second glucose average are gone from the top -- the Micronutrients and Glucose sections further down have them. Close this day is a small link now, and the box at the top is shorter when it only has your latest glucose to show. And a fix: glucose read after you change time zone stays at the real time it was taken.' },
   { v: '0.119.0', d: '2026-10-31', note: 'Your stack items now show the claims linked to them, from the pathway pack you approved. An item with no nutrients reads “supplies no nutrients · linked to N claims”; tap it to see each claim with its probability, its GRADE and its source. Items that do count toward nutrients show their linked claims under them. After you tick an item the box at the top can take you straight there, and a pathway group can carry a claim about the group as a whole behind its ⓘ. Only claims you have reviewed are ever shown.' },
   { v: '0.120.0', d: '2026-10-31', note: 'The box at the top only appears when it has something worth saying. When nothing has happened recently it can show, in this order: how long you have been fasting, once it is 12 hours or more; a measurement you usually take that is later than usual (blood pressure, weight, breath ketones or a sleep entry -- later than one and a half times your own usual gap, and only once you have five of them); and your glucose, only if the reading is under half an hour old. At most two lines; if none of these apply, the box is not there. Your latest glucose reading and how old it is are now in the Glucose section, beside the day’s average.' },
+  { v: '0.121.0', d: '2026-10-31', note: 'The Micronutrients section now tracks your day: each nutrient shows one total, how much of the day’s food (by weight) has a value for it -- “82 % of the day’s food known” -- and, if you have the pathway pack, your reference intake beside it. Under 60 % known the total is dimmed and marked partial; a nutrient nothing has a value for shows a dash, never zero. Your stack is included and says how much came from it. At the top, “N foods have no nutrient data -- link them” opens the three closest database rows for each; nothing counts until you tap one.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -27705,7 +27787,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

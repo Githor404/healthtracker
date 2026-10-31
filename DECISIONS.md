@@ -20959,3 +20959,31 @@ the last 14 days), and how much it would rise if the week's unlinked foods were 
 their first suggested row (an estimate, labelled as one).
 
 **Release** under the standing pre-run rule.
+
+## R306 -- BUILT (v0.121.0), against its pre-registration
+
+**Built as pre-registered.** Two details changed:
+- The reference intake reads at its own precision ("RDA 8 mg", not "RDA 8.00 mg").
+- A row's % known is shown on top-level rows; child rows inherit their parent's line.
+
+**micro-gate:** 11 checks, all pass. The links come from the real (US, test default)
+corpus: a real tap on the shortcut opens three rows for each of the two unlinked foods, and
+a real tap on a row links one. The iron row changes, and the shortcut counts one fewer.
+
+**Harness re-pointed** (claims kept, wording moved to R306):
+- H1 reads "% of the day's food known".
+- D140-cov's "once, at the top" becomes every row stating its own coverage by weight (25 %
+  partial / 100 % plain on a fixture).
+- D120-panel's "no percentages anywhere" becomes "no percentage of a TARGET": the only % is
+  coverage.
+- The count is unchanged (3444).
+
+**Reported on the user's backup** (31 Oct, Canadian Nutrient File, as on his phone):
+- **A typical day** (the median of 17-31 Oct) has **46 %** of the day's food by weight known,
+  for every nutrient alike. The known share is almost all linked database rows, which carry
+  nearly every nutrient.
+- **The last 7 days: 38 % known now.** 49 foods (5.5 kg) are unlinked. Linking each to its
+  FIRST suggested row would take the week's median to about 100 % for most nutrients
+  (folate 99, vitamin A 95, B12 91, vitamin D 85). This is an estimate: it assumes the
+  first row is the right food, which the user's own pick history puts at the figure the
+  link offer shows. 3 of the 49 have no matching row.

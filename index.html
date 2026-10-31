@@ -1017,6 +1017,12 @@
   .pname{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
   .pval{flex:0 0 auto;font-variant-numeric:tabular-nums;white-space:nowrap}
   .pcov{display:block;font-size:16px;color:var(--muted)}
+  /* R306: a total under 60 % of the day's food known -- dimmed (the muted colour), never a verdict colour */
+  .ppart .pval{color:var(--muted)}
+  .plinks{margin:0 0 8px}
+  .plinkbtn{min-height:44px;text-align:left}
+  .plinkitem{border-top:1px solid var(--line);padding:6px 0}
+  .plinkname{font-size:16px}
   .pcovall{font-size:16px;color:var(--muted);padding:4px 0 6px}
   .palt{display:block}
   .palt>summary{font-size:16px;color:var(--muted);cursor:pointer}

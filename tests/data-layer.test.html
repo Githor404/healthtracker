@@ -587,8 +587,8 @@ window.setLS({});
   // R304/4a: the day's micronutrients are shown in ONE place now, the Micronutrients
   // section; its coverage line is the honesty statement there (D140/2).
   HT.panelToggle(true); HT.refresh();
-  res(/from \d+ of \d+ item/.test((document.getElementById('microPanel') || {}).textContent || '') && document.getElementById('dayView').innerHTML.indexOf('labeled intake only') < 0,
-      'H1 (re-pointed R304): the day\'s micronutrients, shown only in the Micronutrients section, carry their coverage there -- and the old table is gone from the top');
+  res(/\d+ % of the day\u2019s food known/.test((document.getElementById('microPanel') || {}).textContent || '') && document.getElementById('dayView').innerHTML.indexOf('labeled intake only') < 0,
+      'H1 (re-pointed R304, R306): the day\'s micronutrients, shown only in the Micronutrients section, carry their coverage there, by weight -- and the old table is gone from the top');
   HT.panelToggle(false);
   res(document.getElementById('averages').innerHTML.indexOf('labeled intake only') >= 0, 'H1: averages micro block carries the honesty label');
 
@@ -13015,12 +13015,18 @@ window.setLS({});
   var sameAll = HT.panelCoverageLine(covE);
   res(sameAll.indexOf('1 from the reference database') >= 0,
       'D140-cov fixture: the row really does have a coverage line to suppress, or the assertions below prove nothing (D96)');
-  var rowSame = HT.panelRowHTML(203, covE, 0, sameAll);
-  res(rowSame.indexOf('pcov') < 0,
-      'D140-cov GATE: a row whose coverage matches the rest does NOT repeat it -- the panel says it once, at the top');
-  var rowDiff = HT.panelRowHTML(203, covE, 0, 'from 2 of 3 items');
-  res(rowDiff.indexOf('pcov') > 0 && rowDiff.indexOf('1 from the reference database') > 0,
-      'D140-cov GATE: and a row whose coverage DIFFERS still states its own -- repeating it there is the only case where it says anything');
+  // R306 supersedes D140's "once, at the top": coverage is now BY WEIGHT and differs per
+  // nutrient, so every row states its own, and none repeats a shared item count.
+  var covDay = { status: 'in_progress', water_l: 0, items: [
+    { name: 'a', grams: 100, kcal: 1, ref: { ns: 'cnf', id: '1', name: 'a', v: { 303: 2, 301: 50 } } },
+    { name: 'b', grams: 300, kcal: 1, ref: { ns: 'cnf', id: '2', name: 'b', v: { 301: 100 } } }] };
+  var covH = HT.panelHTML(covDay, '');
+  var covRow = function (slot) { var d = document.createElement('div'); d.innerHTML = covH; var r = d.querySelector('.prow[data-slot="' + slot + '"]'); return r ? r.textContent : ''; };
+  res(covRow(303).indexOf('25 % of the day\u2019s food known') >= 0 && covRow(303).indexOf('partial') >= 0 && covH.indexOf('from 1 of 2 items') < 0,
+      'D140-cov (re-pointed R306): a row states its OWN coverage by weight -- iron carried by 100 of 400 g is 25 % known, and partial -- and no shared item count is repeated');
+  res(covRow(301).indexOf('100 % of the day\u2019s food known') >= 0 && covRow(301).indexOf('partial') < 0,
+      'D140-cov (re-pointed R306): and a nutrient every food carries reads 100 % known, plain');
+  var rowDiff = HT.panelRowHTML(203, covE, 0, '');   // a row with a coverage line, for the structure checks below
   var rowNone = HT.panelRowHTML(203, covE, 0, '');
   res(rowNone.indexOf('pcov') > 0,
       'D140-cov GATE: with no prevailing line, every row states its own -- suppression needs something to have been said');
@@ -13876,8 +13882,8 @@ window.setLS({});
 
   // ---- the panel says what it does not do --------------------------------
   var H120 = HT.panelHTML(DAY120);
-  res(H120.indexOf('%') < 0,
-      'D120-panel GATE: NO percentages anywhere -- the app has no cited intake targets, and D32 makes an uncited target a claim');
+  res(H120.replace(/\d+ % of the day\u2019s food known/g, '').replace(/A total under \d+ % of the day\u2019s food known is marked partial/g, '').indexOf('%') < 0,
+      'D120-panel GATE (re-pointed R306): NO percentage of a TARGET anywhere -- the only % is how much of the day\u2019s food is known (coverage), and D32 makes an uncited target a claim');
   res(H120.indexOf('Health Canada') >= 0,
       'D120-panel GATE: the CNF attribution travels with the values shown');
   res(H120.indexOf('not measured') >= 0 && H120.indexOf('measured zero') >= 0,
