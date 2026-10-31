@@ -178,6 +178,12 @@ try {
     sig(dk, { type: 'bp_diastolic', kind: 'biometric', time: '08:10', value: 78 + (i % 4), unit: 'mmHg', source: 'manual' });
     S.days[dk] = { status: 'complete', water_l: 0, items: [{ name: 'Gate meal', meal: 'dinner', time: '18:00', kcal: 1800 + i * 20, protein_g: 90, fat_g: 70, carb_g: 180, fiber_g: 25, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }] };
   }
+  // BP over 28 days, the span of the user's own chart, where the dates crowded (the 31 Oct report)
+  for (var j = 28; j > 14; j--) {
+    var dj = HT.shiftDate('2026-10-28', -j);
+    sig(dj, { type: 'bp_systolic', kind: 'biometric', time: '08:10', value: 124, unit: 'mmHg', source: 'manual' });
+    sig(dj, { type: 'bp_diastolic', kind: 'biometric', time: '08:10', value: 80, unit: 'mmHg', source: 'manual' });
+  }
   var rows = [], g0 = new Date('2026-10-28T00:00:00').getTime();
   for (var m = 0; m < 19 * 60; m += 5) rows.push({ t: new Date(g0 + m * 60000).toISOString(), v: 5.2 + (m % 120) / 100, unit: 'mmol/L' });
   HT.glucoseIngest(rows, { source: 'gate' });
@@ -194,6 +200,25 @@ try {
   $keys = (EvalJ "(function(){ return Array.prototype.map.call(document.querySelectorAll('#trends .tchartwrap'), function (w) { return w.getAttribute('data-key'); }); })()") | ConvertFrom-Json
   Write-Host ("  Trends charts: " + ($keys -join ', '))
   Check ((@($keys).Count -ge 4) -and ($keys -contains 'weight') -and ($keys -contains 'sleep_hours') -and ($keys -contains 'bm') -and ($keys -contains 'kcal')) "R309: the Trends charts drawn here are weight, sleep, bowel type and calories ($(@($keys).Count))"
+  # ---- the dates under each chart never run into each other (the user, 31 Oct: "fix the BP date crowding") ----
+  $cr = EvalJ @'
+(function () {
+  var out = {};
+  Array.prototype.forEach.call(document.querySelectorAll('#bpChart svg.bpchart, #trends svg.trendchart'), function (svg, i) {
+    var name = svg.closest('#bpChart') ? 'bp' : (svg.closest('.tchartwrap') || {}).getAttribute ? svg.closest('.tchartwrap').getAttribute('data-key') : 'chart' + i;
+    var boxes = Array.prototype.map.call(svg.querySelectorAll('.txaxis text'), function (t) { return t.getBoundingClientRect(); });
+    var overlaps = 0;
+    for (var k = 1; k < boxes.length; k++) if (boxes[k].left < boxes[k - 1].right + 2) overlaps++;
+    out[name] = { labels: boxes.length, overlaps: overlaps, ticks: svg.querySelectorAll('.txaxis line').length };
+  });
+  return out;
+})()
+'@
+  Write-Host ("  date labels: " + $cr)
+  $crv = $cr | ConvertFrom-Json
+  $bad = @($crv.PSObject.Properties | Where-Object { $_.Value.overlaps -gt 0 -or $_.Value.labels -lt 2 })
+  Check (($crv.bp.labels -ge 2) -and ($crv.bp.ticks -ge $crv.bp.labels) -and ($bad.Count -eq 0)) "at the whole-window view no two dates under the BP chart or any Trends chart overlap, each still has at least two dates, and every tick mark stays ($(($bad | ForEach-Object { $_.Name }) -join ','))"
+
   foreach ($k in @($keys) + @('bp')) {
     $wrapSel = if ($k -eq 'bp') { '#bpWrap' } else { "#trends .tchartwrap[data-key=$k]" }
     $btnSel = if ($k -eq 'bp') { '#bpChart .zin' } else { "#trends .tzoomrow[data-key=$k] .zin" }

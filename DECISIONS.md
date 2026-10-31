@@ -21080,3 +21080,21 @@ the series too. The count is unchanged (3444).
 
 **Seen on the user's real data at 390 px and left as is:** the BP chart's date labels
 crowd each other at the whole-window view, as they did before R309.
+
+## The BP chart's dates no longer crowd (2026-10-31, v0.122.1)
+
+*The user: "fix the BP date crowding". On his chart, 23 days at the whole-window view, the
+dates read "10/610/1110/16".*
+
+**Fixed:**
+- Every tick mark is still drawn. A tick's date is written only when it clears the last date
+  written by its own width (16 px text) and a gap (`axisLabelSpacer`).
+- This applies to the BP chart and to every Trends chart, which share the axis code.
+- On the user's real chart the dates now read 10/6, 10/16, 10/26.
+
+**Gate:** graphs-gate gains a check. At the whole-window view no two dates under the BP
+chart or any Trends chart overlap, each keeps at least two dates, and every tick mark
+stays.
+- Its fixture's BP readings were stretched to 28 days, the span of the user's own chart.
+- With 14 days the check could not tell the builds apart: it passed on v0.122.0 too.
+- Now v0.122.0 fails it (5 dates, 3 overlapping) and this build passes (3 dates, 5 ticks).

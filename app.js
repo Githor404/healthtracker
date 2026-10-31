@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.122.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.122.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -12598,13 +12598,14 @@ function trendChartHTML(key, points, o) {
     return '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
       + (zoomed ? '' : '<text x="' + (padL - 4) + '" y="' + r1(y + 5.5) + '" text-anchor="end">' + esc(ylab(v)) + '</text>');
   }).join('') + '</g>';
+  const fits = axisLabelSpacer();
   const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to, z).map(function (tk) {
     const x = r1(xOf(tk.t));
     if (x < padL + 16 || x > W - padR - 16) return '';
     const d = new Date(tk.t);
     const lab = tk.step >= 86400000 ? (d.getMonth() + 1) + '/' + d.getDate() : hhmm(tk.t);
     return '<line x1="' + x + '" y1="' + (padT + plotH) + '" x2="' + x + '" y2="' + (padT + plotH + 3) + '"/>'
-      + '<text x="' + x + '" y="' + (padT + plotH + 18) + '">' + esc(lab) + '</text>';
+      + (fits(x, lab) ? '<text x="' + x + '" y="' + (padT + plotH + 18) + '">' + esc(lab) + '</text>' : '');
   }).join('') + '</g>';
   const ref = o.ref != null ? '<line class="tref" x1="' + padL + '" y1="' + r1(yOf(o.ref)) + '" x2="' + (W - padR) + '" y2="' + r1(yOf(o.ref)) + '"/>' : '';
   const body = o.dots
@@ -14907,6 +14908,18 @@ const CHART_PAD = { L: 38, R: 6, T: 8, B: 24 };
 // window wins, so the axis gets denser as you zoom in without being told to.
 const CHART_TICK_MS = [3600000, 2 * 3600000, 3 * 3600000, 6 * 3600000,
                        12 * 3600000, 86400000, 2 * 86400000, 5 * 86400000];
+// The user (31 Oct): the BP chart's dates crowded each other at the whole-window view
+// ("10/610/1110/16"). A tick's LINE is always drawn; its LABEL only when it clears the last
+// label drawn by its own width (16 px text, ~9 px a character) and a gap.
+function axisLabelSpacer() {
+  let lastRight = -Infinity;
+  return function (x, lab) {
+    const half = String(lab).length * 4.5;
+    if (x - half < lastRight + 8) return false;
+    lastRight = x + half;
+    return true;
+  };
+}
 function chartTimeTicks(from, to, screens) {
   const span = to - from;
   if (!(span > 0)) return [];
@@ -16320,6 +16333,7 @@ function bpChartSVG(pts, W, noYLabels) {
     return '<line data-ref="' + r[1] + '" x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
       + '<text data-ref="' + r[1] + '" x="' + (W - padR + 4) + '" y="' + r1(y + 5.5) + '" text-anchor="start">' + r[1] + ' ref</text>';
   }).join('') + '</g>';
+  const fits = axisLabelSpacer();
   const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to, BP_ZOOM).map(function (tk) {
     const x = r1(xOf(tk.t));
     if (x < padL + 18 || x > W - padR - 18) return '';
@@ -16327,7 +16341,7 @@ function bpChartSVG(pts, W, noYLabels) {
     // zoomed to hours, a midnight tick names its day, so the scrolled axis says which
     const lab = (tk.step >= 86400000 || (d.getHours() === 0 && d.getMinutes() === 0)) ? (d.getMonth() + 1) + '/' + d.getDate() : hhmm(tk.t);
     return '<line x1="' + x + '" y1="' + (padT + plotH) + '" x2="' + x + '" y2="' + (padT + plotH + 3) + '"/>'
-      + '<text x="' + x + '" y="' + (padT + plotH + 19) + '">' + esc(lab) + '</text>';
+      + (fits(x, lab) ? '<text x="' + x + '" y="' + (padT + plotH + 19) + '">' + esc(lab) + '</text>' : '');
   }).join('') + '</g>';
   // runs, cut on the gap; within a run, a line per series and the band between
   const runs = []; let cur = [];
@@ -18106,6 +18120,7 @@ const VERSION_LOG = [
   { v: '0.120.0', d: '2026-10-31', note: 'The box at the top only appears when it has something worth saying. When nothing has happened recently it can show, in this order: how long you have been fasting, once it is 12 hours or more; a measurement you usually take that is later than usual (blood pressure, weight, breath ketones or a sleep entry -- later than one and a half times your own usual gap, and only once you have five of them); and your glucose, only if the reading is under half an hour old. At most two lines; if none of these apply, the box is not there. Your latest glucose reading and how old it is are now in the Glucose section, beside the day’s average.' },
   { v: '0.121.0', d: '2026-10-31', note: 'The Micronutrients section now tracks your day: each nutrient shows one total, how much of the day’s food (by weight) has a value for it -- “82 % of the day’s food known” -- and, if you have the pathway pack, your reference intake beside it. Under 60 % known the total is dimmed and marked partial; a nutrient nothing has a value for shows a dash, never zero. Your stack is included and says how much came from it. At the top, “N foods have no nutrient data -- link them” opens the three closest database rows for each; nothing counts until you tap one.' },
   { v: '0.122.0', d: '2026-10-31', note: 'Every graph in Trends now zooms like the blood-pressure chart: tap + for 2, 4 or 8 times wider and scroll sideways, with the numbers held at the left; the readings sit at their real times, so a week without one looks like a week. The glucose chart keeps its own zoom and the arrows to move along. And your own goal lines: in Settings, Goals, Lines on graphs, set one number or a band (low to high) for any graph; it is drawn as a plain dashed line with its value -- no colours, no verdicts. Remove it and the line goes. Your goals are in your backup.' },
+  { v: '0.122.1', d: '2026-10-31', note: 'The dates under the blood-pressure chart no longer run into each other: when there is not room for every date, every tick mark stays and only the dates that fit are written. The same for the Trends graphs.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
