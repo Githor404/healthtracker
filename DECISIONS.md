@@ -21098,3 +21098,76 @@ stays.
 - Its fixture's BP readings were stretched to 28 days, the span of the user's own chart.
 - With 14 days the check could not tell the builds apart: it passed on v0.122.0 too.
 - Now v0.122.0 fails it (5 dates, 3 overlapping) and this build passes (3 dates, 5 ticks).
+
+## v0.123.0 -- PRE-REGISTERED (2026-10-31): claims match by licensed ingredient; an NPN ingredient listed in two units counts once; R310
+
+*Written before any of it is built.*
+
+### 1. Claims match a stack item by its licensed ingredient
+
+**Found on the user's 31 Oct backup (afternoon).** An item edited through an NPN lookup
+takes the licensed product's name, so four approved claims stopped matching their renamed
+items. The user will look items up by NPN from now on.
+
+**The change:**
+- A pack claim may carry `subject.match`: the names its compound goes by (common,
+  botanical, chemical). It is written in HTPrivate; pack v008 carries them.
+- A stack item's claims are those whose `stack_item` equals its name (as before), or one
+  of whose `match` terms appears as whole words in the item's name or in one of its
+  licensed ingredient names, ignoring case.
+- Reviewed claims only, as before.
+
+### 2. An ingredient listed twice in two units counts once
+
+**Found:** a licensed product on the user's backup lists one vitamin twice -- once in mcg
+and once as the same amount in IU. The lookup summed both rows, so the item's stored total
+is double its real amount.
+
+**The change:** within one product, a second row for the same ingredient name whose
+converted amount equals one already counted (within 2 %) is that amount restated, and is
+not counted again. Rows with different amounts still add up (a product listing two parts
+of one plant).
+
+**The user's stored item:** it keeps its doubled total until he re-saves it. The agent does
+not change stored data; he is told.
+
+### 3. R310 -- the save line, and a backup line in the resting box
+
+**The save line** ("✓ saved in this browser") is not shown while saving works. It is shown,
+in plain words with what to do, when:
+- a save fails;
+- the browser keeps the data in memory only (private mode, storage blocked);
+- the browser says storage is not persistent (`navigator.storage.persisted()` false);
+- storage is over 90 % full (`estimate()`).
+
+Its text stays in the page while hidden (two gates read it as the sign that real storage
+is in use).
+
+**The backup line** joins the resting box's priorities (R308.1), in group (b) with the
+measurements, most overdue first:
+- **Wording:** "Backup · last one N days ago ›". It states the fact only, and one tap opens
+  Settings at Export backup.
+- **When it shows:** when the time since the last exported backup exceeds 1.5 x the median
+  gap between the user's own exports, from at least 5 exports; with fewer, 7 days.
+- **The export history:** each export's date is kept on the phone from now on (an auxiliary
+  key beside "last backup", not in the backup).
+- **Never exported:** the line shows once the first logged day is 7 days old, as "Backup ·
+  none made yet ›".
+
+### Gates
+
+- **Harness:**
+  - a placeholder product stating one vitamin as 25 mcg and again as 1,000 IU counts it
+    once (4 units: 100 ug, not 200);
+  - a product with two rows of the same ingredient at different amounts still sums them.
+- **claims-gate:**
+  - an item named for its product ("Product X"), whose licensed ingredient is a claim's
+    match term, shows that claim;
+  - a match term never matches inside another word (placeholder terms only).
+- **strip-gate** (R310):
+  - no save line while saves succeed;
+  - a forced save failure shows it in plain words;
+  - the backup line appears when overdue (7 days with fewer than 5 exports; 1.5 x the
+    median with 5), not before;
+  - its tap opens Settings at Export backup.
+- **Release** under the standing pre-run rule.
