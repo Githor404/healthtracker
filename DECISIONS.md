@@ -20863,3 +20863,42 @@ pre-registered label and is allowed.
 
 **On the user's real pack and backup**, in a local browser only: the five stack items
 with no nutrient value show 3, 1, 2, 1 and 3 linked claims.
+
+## R308.1 -- THE RESTING STATE: only what is pertinent (2026-10-31, v0.120.0)
+
+*Amends R298 and R304's resting state. The user: "Glucose 7.1 mmol/L · 5 h 16 min ago"
+at rest is not useful; keep the box when it is informative, as a channel for pertinent
+information through the day.*
+
+**Built:**
+- **Glucose:** the latest reading's value moved into the day's Glucose section, beside its
+  age: "last reading this day -- 6.4 mmol/L · 1 h 35 min ago".
+- **At rest** (no food log, stack tick or opened food in the last 3 h), the box has no head
+  line and **at most two lines**, by priority:
+  - **(a)** a running fast of 12 h or more: "Fasting 14 h 20 min", in real time (R301);
+  - **(b)** a measurement past its usual interval, most overdue first. It covers BP,
+    weight, breath ketones and a sleep entry (a night is timed by when it ended). It is
+    overdue when the time since its last entry exceeds 1.5 x the user's own median gap,
+    from at least 5 entries; with fewer it is never shown. The words are "BP · last
+    reading 3 days ago", facts only, with no "should" and no verdict colour;
+  - **(c)** glucose, only when the newest reading is under 30 min old;
+  - **(d)** nothing pertinent: **no box at all**.
+- **After an action**, the action strip replaces it as before (3 h or the next action, 112
+  px).
+- **Cache:** the resting lines are worked out once per minute, and again when a
+  measurement or a food is added. The food count joins the key, which strip-gate's own
+  case found missing.
+
+**Gates:**
+- **strip-gate**, a new R308.1 block (each priority case on a controlled fixture):
+  - a 16.5 h fast with an overdue weight and a fresh glucose shows the first two only;
+  - with no fast: the weight, then the glucose;
+  - after a weight entry: the glucose alone;
+  - glucose 50 min old: no box;
+  - BP with 4 entries, however late, never shows;
+  - no "should".
+- **Re-pointed:** the old resting-state checks in strip-gate and rings-gate. strip-gate also
+  measures the day card on the page, since a box with no display has no top.
+- **rings-gate:** checks the Glucose section line.
+
+**On the user's 31 Oct data at 12:30:** nothing is pertinent, so the box is not shown.

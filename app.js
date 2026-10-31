@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.119.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.120.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4004,10 +4004,58 @@ function ctxOpenHTML(n) {
   const pw = ctxSupplies([it]);
   return { head: head, lines: [l1, esc(l2), ctxSuppliesHTML(pw)], pw: pw || [] };
 }
+// ---- R308.1: THE RESTING STATE -- only what is pertinent, at most two lines -----------
+// Priority: (a) a running fast of 12 h or more; (b) a measurement past its usual
+// interval -- the time since its last entry over 1.5 x the user's OWN median gap, from at
+// least 5 entries (fewer: never); (c) glucose only when the newest reading is under
+// 30 min old. Nothing pertinent: no box. Facts only -- no "should", no verdict colour.
+const CTX_OVERDUE = [
+  { label: 'BP', types: ['bp_systolic'], word: 'last reading' },
+  { label: 'Weight', types: ['weight'], word: 'last reading' },
+  { label: 'Breath ketones', types: ['breath_ketones'], word: 'last reading' },
+  { label: 'Sleep', types: ['sleep'], word: 'last entry' }];
+const CTX_OVERDUE_MIN_N = 5, CTX_OVERDUE_FACTOR = 1.5, CTX_GLUCOSE_FRESH_MS = 30 * 60000;
+function measureMoments(types) {
+  const tl = (APP_STATE && APP_STATE.timeline) || {};
+  const out = [];
+  Object.keys(tl).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    (tl[dk] || []).forEach(function (r) {
+      if (!r || types.indexOf(r.type) < 0) return;
+      if (r.type === 'sleep') { const sp = sleepSpan(r, dk); if (sp) out.push(sp.to); return; }   // a night: when it ended
+      const m = hhmmToMin(r.time);
+      if (m != null) out.push(wallMs(dk, m));
+    });
+  });
+  return out.sort(function (a, b) { return a - b; }).filter(function (t, i, l) { return i === 0 || t !== l[i - 1]; });
+}
+function measureOverdue(now) {
+  const out = [];
+  CTX_OVERDUE.forEach(function (m) {
+    const t = measureMoments(m.types).filter(function (x) { return x <= now; });
+    if (t.length < CTX_OVERDUE_MIN_N) return;
+    const gaps = []; for (let i = 1; i < t.length; i++) gaps.push(t[i] - t[i - 1]);
+    gaps.sort(function (a, b) { return a - b; });
+    const med = gaps.length % 2 ? gaps[(gaps.length - 1) / 2] : (gaps[gaps.length / 2 - 1] + gaps[gaps.length / 2]) / 2;
+    const since = now - t[t.length - 1];
+    if (med > 0 && since > CTX_OVERDUE_FACTOR * med) out.push({ label: m.label, text: m.label + ' \u00b7 ' + m.word + ' ' + ageWords(since), ratio: since / med, n: t.length, median: med });
+  });
+  return out.sort(function (a, b) { return b.ratio - a.ratio; });
+}
+function ctxRestingLines() {
+  const now = nowMs(), lines = [];
+  const g = fastOpenNow();
+  if (g && g.fast) lines.push('Fasting ' + Math.floor(g.mins / 60) + ' h ' + (g.mins % 60) + ' min');
+  measureOverdue(now).forEach(function (o) { lines.push(o.text); });
+  const gms = glucoseLastMs();
+  if (gms != null && now - gms < CTX_GLUCOSE_FRESH_MS && now - gms >= -60000) lines.push(ctxGlucoseWords());
+  return lines.slice(0, 2);
+}
 function ctxQuietHTML(n) {
   const head = (n && n.kind !== 'none') ? 'Nothing new in 3 h' : 'Now';
-  // R304: the latest glucose only (the fast line is under the date now), at a shorter height
-  return { head: head + ' · ' + minutesToHHMM(nowMinutes()), lines: [esc(ctxGlucoseWords())], pw: [], quiet: true };
+  // R308.1: only what is pertinent (the latest glucose moved to the Glucose section);
+  // no lines -> no box.
+  return { head: head, lines: ctxRestingLines().map(esc), pw: [], quiet: true };
 }
 // What the kept contents depend on. Anything here changing works them out again; the
 // glucose stream is compared by its kept build (glucoseFlat), so readings arriving do too.
@@ -4019,7 +4067,13 @@ function ctxKey(n, live) {
     parts.push(day ? JSON.stringify(day.items) : '', JSON.stringify((APP_STATE.timeline || {})[n.dk] || []));
     if (n.kind === 'stack') parts.push(JSON.stringify((APP_STATE.settings || {}).stack || []));
   }
-  if (!live || _glucoseMem) parts.push(Math.floor(nowMs() / 60000), APP_STATE.current);
+  if (!live || _glucoseMem) {
+    // R308.1: at rest the lines read the timeline (a measurement) and the food (a fast)
+    let nRec = 0, nIt = 0; const tl = APP_STATE.timeline || {}, dy = APP_STATE.days || {};
+    Object.keys(tl).forEach(function (d) { nRec += (tl[d] || []).length; });
+    Object.keys(dy).forEach(function (d) { nIt += ((dy[d] || {}).items || []).length; });
+    parts.push(Math.floor(nowMs() / 60000), APP_STATE.current, nRec, nIt);
+  }
   return JSON.stringify(parts);
 }
 function ctxStripCompute() {
@@ -4031,11 +4085,13 @@ function ctxStripCompute() {
   CTX_COMPUTES++;
   let c = null;
   if (live) c = n.kind === 'food' ? ctxFoodHTML(n) : n.kind === 'stack' ? ctxStackHTML(n) : ctxOpenHTML(n);
-  const kind = c ? n.kind : 'quiet';
+  let kind = c ? n.kind : 'quiet';
   if (!c) c = ctxQuietHTML(n);
   const x = c.quiet ? '' : '<button type="button" class="ctxx" onclick="ctxDismiss()" aria-label="Done with this">×</button>';
+  // R308.1: at rest, no head line -- the pertinent lines only; none -> no box at all
+  if (c.quiet && !c.lines.length) kind = 'none';
   CTX_KEPT = { key: key, gflat: _glucoseFlat, kind: kind, pw: c.pw || [], n: n,
-    html: '<div class="ctxh"><span class="ctxhead">' + esc(c.head) + '</span>' + x + '</div>' + c.lines.slice(0, 3).map(ctxLine).join('') };
+    html: kind === 'none' ? '' : (c.quiet ? '' : '<div class="ctxh"><span class="ctxhead">' + esc(c.head) + '</span>' + x + '</div>') + c.lines.slice(0, 3).map(ctxLine).join('') };
   return CTX_KEPT;
 }
 function renderCtxStrip() {
@@ -15199,10 +15255,17 @@ function glucoseRowHTML(dk) {
     + '</div> '
     + '<div class="gsub"><span class="gcov">from ' + sum.n + ' reading' + (sum.n === 1 ? '' : 's')
     + esc(miss) + esc(short) + '</span> '
-    + '<span class="gage">last reading this day \u2014 ' + esc(ageWords(sum.lastAgeMs))
+    + '<span class="gage">last reading this day \u2014 ' + esc(glucoseLastWords(sum)) + esc(ageWords(sum.lastAgeMs))
     + '</span></div>'
     + (open ? '<div class="gbody">' + glucoseChartHTML(dk) + eliteHTML(dk) + glucoseImportFootHTML('row') + '</div>' : '')
     + '</div>';
+}
+// R308.1: the day's last reading, its value, beside its age (moved here from the strip)
+function glucoseLastWords(sum) {
+  if (!sum || sum.lastMs == null) return '';
+  const p = glucoseSeries(sum.lastMs, sum.lastMs);
+  const last = p.length ? p[p.length - 1] : null;
+  return last ? (gFix(last.v) + ' ' + last.u + ' \u00b7 ') : '';
 }
 // ===========================================================================
 // E-LITE -- GLUCOSE RISES WITH NO FOOD LOGGED BEFORE THEM (R194, R197)
@@ -17769,6 +17832,7 @@ const VERSION_LOG = [
   { v: '0.117.0', d: '2026-10-31', note: 'Glucose on the night the clocks go back: the hour from 1:00 to 2:00 happens twice, and both hours of readings are now kept, each at its real moment, where before the second sat on top of the first. Importing the same night again adds nothing twice. Your other days are stored exactly as before. And a fix: when a glucose rise asks whether you were asleep, it now reads a night the way the rest of the app files it, under the morning it ended.' },
   { v: '0.118.0', d: '2026-10-31', note: 'A calmer home screen. Your meals are now four rings -- breakfast, lunch, dinner and snack -- each showing that meal’s carbs, protein, fat and fibre in grams, with the calories in the middle; a meal you have not logged yet is a faint ring. Tap a ring to see its foods underneath, tap again to close. The day ring is bigger and centred, with your macros under Ring key, and how long since you last ate is right under the date. The micronutrient table and the second glucose average are gone from the top -- the Micronutrients and Glucose sections further down have them. Close this day is a small link now, and the box at the top is shorter when it only has your latest glucose to show. And a fix: glucose read after you change time zone stays at the real time it was taken.' },
   { v: '0.119.0', d: '2026-10-31', note: 'Your stack items now show the claims linked to them, from the pathway pack you approved. An item with no nutrients reads “supplies no nutrients · linked to N claims”; tap it to see each claim with its probability, its GRADE and its source. Items that do count toward nutrients show their linked claims under them. After you tick an item the box at the top can take you straight there, and a pathway group can carry a claim about the group as a whole behind its ⓘ. Only claims you have reviewed are ever shown.' },
+  { v: '0.120.0', d: '2026-10-31', note: 'The box at the top only appears when it has something worth saying. When nothing has happened recently it can show, in this order: how long you have been fasting, once it is 12 hours or more; a measurement you usually take that is later than usual (blood pressure, weight, breath ketones or a sleep entry -- later than one and a half times your own usual gap, and only once you have five of them); and your glucose, only if the reading is under half an hour old. At most two lines; if none of these apply, the box is not there. Your latest glucose reading and how old it is are now in the Glucose section, beside the day’s average.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -27641,7 +27705,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

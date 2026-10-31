@@ -1578,7 +1578,8 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
    area reaches past its line without changing the line's height. Only the user opening
    the intake note inside it lets it grow. */
 #ctxStrip{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;background:var(--panel);padding:6px 12px;margin:0 0 12px;height:112px;box-sizing:border-box;font-size:16px;line-height:24px;color:var(--txt)}
-#ctxStrip[data-kind="quiet"]{border-left-color:var(--line);height:64px}   /* R304/4e: one line of glucose, shorter */
+#ctxStrip[data-kind="quiet"]{border-left-color:var(--line);height:auto}   /* R308.1: at rest, only the pertinent lines (one or two) */
+#ctxStrip[data-kind="none"]{display:none}   /* R308.1: nothing pertinent -- no box */
 #ctxStrip:has(details[open]){height:auto}
 #ctxStrip .ctxh{display:flex;justify-content:space-between;align-items:center;height:26px;color:var(--muted)}
 #ctxStrip .ctxhead{white-space:nowrap;overflow-x:clip;text-overflow:ellipsis;min-width:0}

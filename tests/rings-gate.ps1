@@ -311,7 +311,7 @@ try {
   return { labeledTable: html.indexOf('labeled intake only') >= 0, microAbove: microAbove,
            bio: bio ? bio.textContent : '', glucoseAvgs: glu,
            fast: fl ? fl.textContent : '', fastUnderDate: !!(nav && fl && nav.nextElementSibling === fl), fastUnderRing: under,
-           strip: cs.getAttribute('data-kind'), stripH: cs.offsetHeight, stripText: cs.textContent,
+           strip: cs.getAttribute('data-kind'), stripH: cs.offsetHeight, stripText: cs.textContent, gage: (dv.querySelector('.gage') || {}).textContent || '',
            closeLink: !!close && close.classList.contains('linklike') && !close.classList.contains('btn'), clearLink: !!clr && getComputedStyle(clr).textDecorationLine.indexOf('underline') >= 0,
            asked: window.__asked, itemsAfter: HT.state().days['2026-10-28'].items.length };
 })()
@@ -321,7 +321,9 @@ try {
   Check (($d.labeledTable -eq $false) -and ($d.microAbove -eq $false)) "R304/4a: no micronutrient table above the meals"
   Check (($d.glucoseAvgs -eq 1) -and (-not ($d.bio -match 'glucose')) -and ($d.bio -like '*weight 80 kg*')) "R304/4b: ONE glucose summary on the day; Biometrics keeps the weight and no longer repeats glucose ($($d.bio))"
   Check (($d.fastUnderDate -eq $true) -and ($d.fast -like '*since last logged food*') -and ($d.fastUnderRing -eq $false)) "R304/2: the fast line sits just under the date ('$($d.fast)') and not under the ring"
-  Check (($d.strip -eq 'quiet') -and ($d.stripH -eq 64) -and ($d.stripText -like '*Glucose*') -and (-not ($d.stripText -match 'logged food|fast'))) "R304/2+4e: the strip at rest shows the latest glucose only, at its shorter height ($($d.stripH) px)"
+  # R308.1 (re-pointed): the latest glucose moved to the Glucose section; at rest the box shows only what is pertinent --
+  # here a 2.5 h gap since food, a reading 1 h 35 min old, one weight: nothing, so no box
+  Check (($d.strip -eq 'none') -and ($d.stripH -eq 0) -and ($d.gage -like ('last reading this day ' + [char]0x2014 + ' 6.4 mmol/L ' + [char]0x00B7 + ' 1 h 35 min ago'))) "R308.1: the Glucose section carries the last reading with its age ('$($d.gage)'), and with nothing pertinent the box at the top is not shown"
   Check (($d.closeLink -eq $true) -and ($d.clearLink -eq $true) -and ($d.asked -eq 1) -and ($d.itemsAfter -eq 5)) "R304/4c-d: 'Close this day' and 'Clear this day' are text links, and Clear still asks first (declined: nothing cleared)"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)

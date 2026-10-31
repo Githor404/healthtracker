@@ -283,7 +283,7 @@ try {
   Write-Host ("  other: " + $ot)
   $o = $ot | ConvertFrom-Json
   Check (($o.c359 -eq $false) -and ($o.c400 -eq $true) -and ($o.closeAt -eq '4:00') -and ($o.closeAfterMidnightH -eq 5)) "the day of 31 Oct closes at 04:00 LOCAL on 1 Nov -- open at 03:59, closed at 04:00 -- which is 5 real hours after midnight that night"
-  Check (($o.s179 -eq 'food') -and ($o.s181 -eq 'quiet')) "the strip's 3 h are real time: a food logged at 23:30 on 31 Oct still shows at 2 h 59 ($($o.s179wall) on the wall) and is gone at 3 h 01"
+  Check (($o.s179 -eq 'food') -and (@('quiet', 'none') -contains $o.s181)) "the strip's 3 h are real time: a food logged at 23:30 on 31 Oct still shows at 2 h 59 ($($o.s179wall) on the wall) and is gone at 3 h 01"
   Check (($o.g03 -eq $true) -and ($o.g0to3h -eq 4) -and ($o.mealWin -eq 4)) "a glucose reading at 03:00 on 1 Nov sits at its real moment, 4 real hours after midnight; a window measured on the wall clock there is real time too"
   # R301 reported the repeated hour here; R303 fixed it and the checks below hold it.
 

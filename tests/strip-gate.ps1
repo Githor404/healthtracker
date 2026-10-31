@@ -250,7 +250,7 @@ try {
   var links = Array.prototype.slice.call(e.querySelectorAll('button, summary')).map(function (b) {
     var q = b.getBoundingClientRect(), line = b.closest('.ctxl'), l = line ? line.getBoundingClientRect() : r;
     return { t: b.textContent.trim().slice(0, 24), h: Math.round(q.height), w: Math.round(q.width), inside: q.left >= r.left - 0.5 && q.right <= r.right + 0.5 && q.right <= l.right + 0.5 }; });
-  return { kind: e.getAttribute('data-kind'), h: Math.round(r.height * 10) / 10, next: Math.round((nx.top - r.top) * 10) / 10, top: Math.round(r.top + scrollY),
+  return { kind: e.getAttribute('data-kind'), h: Math.round(r.height * 10) / 10, next: Math.round((nx.top - r.top) * 10) / 10, nextAbs: Math.round((nx.top + scrollY) * 10) / 10, top: Math.round(r.top + scrollY),   // R308.1: a box with no display has no top, so the card is also read on the page
            head: (e.querySelector('.ctxhead') || {}).textContent || '',
            lines: Array.prototype.slice.call(e.querySelectorAll('.ctxl')).map(function (l) { return l.textContent; }),
            links: links, text: e.textContent, computes: HT.ctxComputes(), note: localStorage.getItem(HT.CTX_KEY) };
@@ -264,7 +264,7 @@ try {
   $q0 = Strip; $words += $q0.text
   Write-Host ("  quiet: " + $q0.head + " | " + ($q0.lines -join ' | '))
   # R304 (pre-registered): at rest the strip shows the latest glucose ONLY -- the fast line is under the date -- at its own, shorter height
-  Check (($q0.kind -eq 'quiet') -and ($q0.lines[0] -like 'Glucose *mmol/L*ago*') -and (-not ($q0.text -match 'since last logged food|fasting')) -and ($q0.h -eq 64)) "R298/R304 STRIP 1: with no recent action the strip shows the current glucose (value, unit, age) and nothing else, at 64 px -- the fast status and the current glucose (value, unit, age), not an empty box"
+  Check (($q0.kind -eq 'quiet') -and (@($q0.lines | Where-Object { $_ }).Count -eq 1) -and ($q0.lines[0] -like 'Glucose *mmol/L*2 min ago*') -and (-not $q0.head) -and ($q0.h -gt 0) -and ($q0.h -lt 112)) "R308.1 STRIP 1 (re-pointed): at rest the box shows only what is pertinent -- here one line, the glucose reading 2 min old (under 30 min), no head line, shorter than an action strip ($($q0.h) px)"
   Shots 'strip-quiet'
 
   # ---- 2. FOOD LOGGED: Kimchi again, one tap, joins today's lunch sitting ----
@@ -369,7 +369,7 @@ try {
   Check ((@($allLinks | Where-Object { -not $_.inside }).Count -eq 0) -and (@($allLinks | Where-Object { $_.h -lt 44 }).Count -eq 0)) ("R298 STRIP: every control in every state is a 44 px target and sits wholly inside its line and the strip (" + $allLinks.Count + " controls)")
   $x9 = TapSel '#ctxStrip .ctxx'
   $d9 = Strip
-  Check ($x9.ok -and ($d9.kind -eq 'quiet') -and ($d9.note -like '*"kind":"none"*') -and ($d9.h -eq $q0.h)) "R298 STRIP LIFETIME: the x ends the strip at once; the quiet state shows, same height"
+  Check ($x9.ok -and (@('quiet', 'none') -contains $d9.kind) -and ($d9.note -like '*"kind":"none"*')) "R298 STRIP LIFETIME: the x ends the strip at once; the resting state (R308.1) shows"
 
   # ---- 9. 3 h, whichever first ----
   SetClock '15:00' 0
@@ -377,7 +377,7 @@ try {
   SetClock '17:59' 0; [void](Eval "HT.refresh(); 1"); $e1 = Strip
   SetClock '18:01' 0; [void](Eval "HT.refresh(); 1"); $e2 = Strip; $words += $e2.text
   Write-Host ("  at 2 h 59: " + $e1.kind + "; at 3 h 1: " + $e2.kind + " -- " + $e2.head)
-  Check (($e1.kind -eq 'food') -and ($e2.kind -eq 'quiet') -and ($e2.head -like 'Nothing new in 3 h*') -and ($e2.h -eq $q0.h)) "R298 STRIP LIFETIME: a food strip still shows at 2 h 59 and has become the quiet state at 3 h 1"
+  Check (($e1.kind -eq 'food') -and (@('quiet', 'none') -contains $e2.kind)) "R298 STRIP LIFETIME: a food strip still shows at 2 h 59 and has given way to the resting state (R308.1) at 3 h 1 ($($e2.kind))"
   Shots 'strip-quiet-after'
 
   # ---- 10. 360 px: no shift there either ----
@@ -386,7 +386,7 @@ try {
   $a10 = Strip
   [void](Eval ("HT.logRepeat(HT.shiftDate(HT.state().current, -1), " + $kim + ").ok")); WaitQuiet 'food at 360'
   $b10 = Strip
-  Check (($a10.kind -eq 'quiet') -and ($b10.kind -eq 'food') -and ($a10.h -eq $q0.h) -and ($b10.h -eq $f1.h) -and (($b10.next - $a10.next) -eq ($b10.h - $a10.h)) -and (@($b10.links | Where-Object { -not $_.inside }).Count -eq 0)) ("R298/R304 STRIP at 360 px: quiet and food at the same heights as at 390 (" + $a10.h + "/" + $b10.h + "), the page moving by exactly the difference, the link inside the strip")
+  Check ((@('quiet', 'none') -contains $a10.kind) -and ($b10.kind -eq 'food') -and ($b10.h -eq $f1.h) -and ((($b10.next - $a10.next) -eq ($b10.h - $a10.h)) -or (($a10.kind -eq 'none') -and (($b10.nextAbs - $a10.nextAbs) -eq ($b10.h + 12)))) -and (@($b10.links | Where-Object { -not $_.inside }).Count -eq 0)) ("R298/R308.1 STRIP at 360 px: the food strip at its 390 height (" + $a10.h + "/" + $b10.h + "), the page moving by exactly the difference from the resting state, the link inside the strip")
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   WaitQuiet '390'
 
@@ -432,6 +432,48 @@ try {
   Write-Host ("  cost: " + $m13)
   $mv = $m13 | ConvertFrom-Json
   Check (($mv.days -ge 366) -and ($mv.glucoseDays -ge 366) -and ($mv.kind -eq 'food') -and ($mv.recomputed -eq 0) -and ($mv.ratio -le 3.0)) ("R298 STRIP COST: on a year of days with a year of CGM and a food strip showing, a redraw costs " + $mv.ratio + " reference workloads (budget 3.0) and works the strip out 0 times")
+
+  # ---- R308.1: THE RESTING STATE -- each priority case, at most two lines, none -> no box ----
+  $rs = EvalJ @'
+(function () {
+  localStorage.clear(); HT.boot();
+  var D = '2026-10-20', at = function (dk, hm) { return new Date(dk + 'T' + hm + ':00').getTime(); };
+  var T = at('2026-10-21', '00:30'); HT.setClock(function () { return T; });
+  var S = HT.state();
+  var sig = function (dk, rec) { (S.timeline[dk] = S.timeline[dk] || []).push(HT.normalizeSignal(rec)); };
+  var food = function (dk, time) { S.days[dk] = S.days[dk] || { status: 'in_progress', water_l: 0, items: [] };
+    S.days[dk].items.push({ name: 'Gate toast', meal: 'snack', time: time, kcal: 200, carb_g: 30, protein_g: 6, fat_g: 4, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }); };
+  food(D, '08:00');
+  // weight: 5 entries a day apart, the last on 18 Oct -- 2 d 17 h before the clock, over 1.5 x 1 day
+  ['2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-18'].forEach(function (dk) { sig(dk, { type: 'weight', kind: 'biometric', time: '07:30', value: 80, unit: 'kg', source: 'manual' }); });
+  // BP: only FOUR entries, long overdue on their own gap -- never shown
+  ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'].forEach(function (dk) { sig(dk, { type: 'bp_systolic', kind: 'biometric', time: '08:00', value: 120, unit: 'mmHg', source: 'manual' }); });
+  HT.glucoseIngest([{ t: new Date(T - 10 * 60000).toISOString(), v: 5.8, unit: 'mmol/L' }], { source: 'gate' });
+  HT.resave(); HT.ctxDismiss();
+  var read = function () { HT.refresh(); HT.renderCtxStrip(); var el = document.getElementById('ctxStrip');
+    return { kind: el.getAttribute('data-kind'), lines: Array.prototype.map.call(el.querySelectorAll('.ctxl'), function (l) { return l.textContent; }).filter(Boolean),
+             h: el.offsetHeight, shown: getComputedStyle(el).display !== 'none', head: !!el.querySelector('.ctxh') }; };
+  var out = {};
+  out.s1 = read();                                   // fast 16 h 30 min, weight overdue, glucose 10 min old -> the first two
+  food('2026-10-21', '00:25'); HT.resave();
+  out.s2 = read();                                   // no fast now -> weight, then glucose
+  sig('2026-10-21', { type: 'weight', kind: 'biometric', time: '00:26', value: 80, unit: 'kg', source: 'manual' }); HT.resave();
+  out.s3 = read();                                   // weight just taken -> glucose only
+  T = at('2026-10-21', '01:10');
+  out.s4 = read();                                   // glucose now 50 min old -> nothing pertinent
+  out.overdue = HT.measureOverdue(T).map(function (o) { return o.label + ':' + o.n; });
+  HT.setClock(null);
+  return out;
+})()
+'@
+  Write-Host ("  resting: " + $rs)
+  $r = $rs | ConvertFrom-Json
+  $mid = [char]0x00B7
+  Check ((($r.s1.lines) -join '|') -eq ('Fasting 16 h 30 min|Weight ' + $mid + ' last reading 2 days ago')) "R308.1 (a)+(b): a running fast of 12 h or more leads ('Fasting 16 h 30 min', real time), then the overdue measurement -- and the box holds at most TWO lines, so the fresh glucose waits"
+  Check ((($r.s2.lines) -join '|') -like ('Weight ' + $mid + ' last reading 2 days ago|Glucose 5.8 mmol/L ' + $mid + ' 10 min ago')) "R308.1 (b)+(c): with no fast, the overdue weight and then the glucose under 30 min old ($(($r.s2.lines) -join ' | '))"
+  Check ((($r.s3.lines) -join '|') -like ('Glucose 5.8 mmol/L ' + $mid + ' 10 min ago')) "R308.1 (c): the weight just taken is no longer overdue; the fresh glucose alone"
+  Check (($r.s4.kind -eq 'none') -and ($r.s4.shown -eq $false) -and ($r.s4.h -eq 0) -and (@($r.s4.lines).Count -eq 0)) "R308.1 (d): glucose 50 min old is stale and nothing else is pertinent -- the box is not shown at all"
+  Check ((-not ((($r.s1.lines + $r.s2.lines + $r.s3.lines) -join ' ') -match 'BP|should')) -and ($r.overdue -notcontains 'BP:4') -and ($r.s1.head -eq $false)) "R308.1: BP with only 4 entries never shows as overdue, however late; no 'should' anywhere; no head line at rest"
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
