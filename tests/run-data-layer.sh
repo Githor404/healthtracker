@@ -34,6 +34,7 @@ HTML="$DIR/data-layer.test.html"
 GATE_SCRIPTS="backup-gate.ps1
 bpchart-gate.ps1
 bm-slider-gate.ps1
+claims-gate.ps1
 capture-gate.ps1
 capture-outcome-gate.ps1
 anti-engagement-gate.ps1

@@ -729,6 +729,12 @@
     background:var(--panel);color:var(--txt);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.15);
     text-align:center;white-space:nowrap;pointer-events:none}
   .ptr[hidden]{display:none}
+  /* R305/3: linked claims on a stack item (and a pathway group's own i) */
+  .stkclaims{margin:4px 0 0}
+  .stkclaims>summary{min-height:44px;display:flex;align-items:center;color:var(--accent);font-size:16px;cursor:pointer}
+  .clmline{padding:6px 0;border-top:1px solid var(--line)}
+  .clmsays{font-size:16px;color:var(--txt)}
+  .clmmeta,.clmsrc{font-size:16px;color:var(--muted);overflow-wrap:anywhere}
   .plleft{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   /* R299.1: End meal -- one tap beside each leftovers reminder, 44px. */
   .plwrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}

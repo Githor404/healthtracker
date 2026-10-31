@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.118.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.119.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3827,8 +3827,13 @@ function renderPathways() {
       + 'This phone never reads a pathway itself: what it can see is shown with each one, mostly through proxies.') + '</div>'
     + P.groups.map(function (g) {
       const recs = P.records.filter(function (r) { return r.group === g.id; });
+      // R305/2a: claims about the GROUP as a whole, behind the group's own i
+      const gcl = (P.claims || []).filter(function (c) { return (g.claims || []).indexOf(c.id) >= 0 && /^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || '')); });
+      const ginfo = gcl.length ? '<div class="pwrec pwgrouprec"><span class="pwname">About the group as a whole</span>'
+        + '<details class="pwinfo"><summary aria-label="about ' + esc(g.name) + '">ⓘ</summary><div class="pwline">Reviewed claims: </div>'
+        + gcl.map(function (c) { return claimLineHTML(P, c); }).join('') + '</details></div>' : '';
       return '<details class="pwgroup" data-group="' + esc(g.id) + '"><summary>' + esc(g.name) + ' · ' + recs.length + '</summary>'
-        + recs.map(function (r) { return pathwayRecordHTML(P, r); }).join('') + '</details>';
+        + ginfo + recs.map(function (r) { return pathwayRecordHTML(P, r); }).join('') + '</details>';
     }).join('');
 }
 // ---- R298 step 2: THE CONTEXT STRIP (R297: surface what relates to the last action) ----
@@ -3966,7 +3971,14 @@ function ctxStackHTML(n) {
     const total = p.food + p.reference + p.supplement + p.stack;
     return esc(spec.label + ' today ' + rDisp(total) + ' ' + spec.unit + ' (stack ' + rDisp(p.stack) + ')');
   });
-  if (!lines.length) lines.push(esc('Counts toward no tracked nutrient'));
+  if (!lines.length) {
+    // R305/3: an item with no nutrient value but linked claims says so, with the way to them
+    const cl = ids.length === 1 ? stackClaims(first) : [];
+    lines.push(cl.length
+      ? esc('Supplies no nutrients \u00b7 ') + '<button type="button" class="linklike ctxlink" onclick="stackClaimsShow(\'' + esc(String(first.id)) + '\')">linked to '
+        + esc(cl.length + ' claim' + (cl.length === 1 ? '' : 's')) + ' \u203a</button>'
+      : esc('Counts toward no tracked nutrient'));
+  }
   while (lines.length < 2) lines.push('');
   const flags = dayIntakeFlags(dk);
   const note = flags.length ? intakeNoteHTML(dayIntakeFlagText(flags[0]), 'ctxflag') : '';
@@ -5412,6 +5424,59 @@ function intakeFlagText(f) {
     + (f.lab === 'vit_d_25oh' ? ' A 25-OH vitamin D reading is what would show where you actually are — you can record one under Labs.' : '');
 }
 
+// ---- R305/3: LINKED CLAIMS ON THE STACK ITEM ------------------------------------------
+// A pack claim may name a stack item (`subject.stack_item`). The item shows the claims
+// that name it -- REVIEWED ones only, checked here as well as by the pack builder --
+// in the words "linked claims", never "effects": a claim is a sourced statement with its
+// probability and GRADE, not something the item is said to do for you.
+let STACK_CLAIMS_OPEN = null;      // the item whose claims the strip's link asked to open
+function stackClaims(s) {
+  const P = packLoad();
+  const nm = String((s && s.name) || '').trim().toLowerCase();
+  if (!P || !nm) return [];
+  return (P.claims || []).filter(function (c) {
+    return c && /^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || ''))
+      && c.subject && String(c.subject.stack_item || '').trim().toLowerCase() === nm;
+  });
+}
+function stackHasNutrients(s) {
+  return !!s && (s.kind === 'food' || Object.keys((s.nutrients && s.nutrients.micros) || {}).length > 0);
+}
+function claimSourceWords(P, c) {
+  const id = ((c.attributions || [])[0] || {}).source;
+  const src = ((P && P.sources) || []).filter(function (x) { return x && x.id === id; })[0];
+  return src ? [src.authors, src.venue, src.year].filter(Boolean).join(', ') : '';
+}
+function claimLineHTML(P, c) {
+  const pv = c.probability && c.probability.versions && c.probability.versions[c.probability.versions.length - 1];
+  const ev = c.evidence || {};
+  const src = claimSourceWords(P, c);
+  return '<div class="clmline"><div class="clmsays">' + esc(c.claim) + '</div>'
+    + '<div class="clmmeta">' + (pv ? esc(Math.round(100 * pv.p) + ' % ' + pv.of) : 'no probability yet')
+    + (ev.grade ? ' · GRADE ' + esc(ev.grade) : '')
+    + (ev.human === false ? ' · <b>animal and cell work, not people</b>' : '') + '</div>'
+    + (src ? '<div class="clmsrc">' + esc(src) + '</div>' : '') + '</div>';
+}
+function stackClaimsHTML(s) {
+  const cl = stackClaims(s);
+  if (!cl.length) return '';
+  const P = packLoad();
+  const n = cl.length + ' claim' + (cl.length === 1 ? '' : 's');
+  const head = stackHasNutrients(s) ? 'linked claims · ' + cl.length : 'supplies no nutrients · linked to ' + n;
+  const open = STACK_CLAIMS_OPEN != null && String(STACK_CLAIMS_OPEN) === String(s.id);
+  return '<details class="stkclaims"' + (open ? ' open' : '') + ' data-stack="' + esc(String(s.id)) + '"><summary>' + esc(head) + '</summary>'
+    + cl.map(function (c) { return claimLineHTML(P, c); }).join('') + '</details>';
+}
+// The strip's link: + Log's Daily stack, that item's claims open.
+function stackClaimsShow(id) {
+  openSheet('root');                 // + Log opens with the stack collapsed (R246) ...
+  STACK_OPEN = true; STACK_EDIT = null;   // ... so the stack is opened after it, at the item
+  STACK_CLAIMS_OPEN = String(id);
+  stackRerender();
+  const el = document.querySelector('#sheetRoot .stkclaims[data-stack="' + String(id).replace(/["\\]/g, '') + '"]');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+  return { ok: !!el };
+}
 // What a row says it will deliver, as a phrase. Doses only -- never a pathway.
 function stackRowSub(s) {
   const bits = [stackKindWord(s.kind)];
@@ -5772,7 +5837,7 @@ function stackSheetHTML(where) {
       + '<label class="stktick"><input type="checkbox"' + (e ? ' checked' : '')
       + ' onchange="stackCheck(\'' + sid + '\')"'
       + ' aria-label="' + esc(s.name) + '"><span class="stkname">' + esc(s.name) + '</span></label>'
-      + what + stackSwitchInfoHTML(s, dk) + swOff + stackEditorHTML_(s, e) + flag + '</div>';
+      + what + stackSwitchInfoHTML(s, dk) + swOff + stackEditorHTML_(s, e) + flag + stackClaimsHTML(s) + '</div>';
   }).join('');
   // R278/B: "+ Add to stack" -- the ONE DOOR for a new item, today, on the root. A
   // Settings form being typed in is never replaced from here.
@@ -6522,6 +6587,7 @@ function stackEditorHTML() {
     return '<div class="stkrow stked' + (s.enabled === false ? ' stkoff' : '') + '">'
       + '<div class="stkname">' + esc(s.name) + '</div>'
       + '<div class="stksub">' + esc(stackRowSub(s)) + '</div>'
+      + stackClaimsHTML(s)
       + (s.enabled === false ? '<div class="stksub stkoffword">Switched off</div>' : '')
       + '<div class="stksub stksince">' + esc(stackSinceWords(s)) + '</div>'
       + (s.join_edits && s.join_edits.length ? '<div class="stksub stksince">' + esc('Join date changed by you ' + s.join_edits.length + (s.join_edits.length === 1 ? ' time' : ' times') + ', last on ' + fmtDateSmart(s.join_edits[s.join_edits.length - 1].at.slice(0, 10))) + '</div>' : '')
@@ -17702,6 +17768,7 @@ const VERSION_LOG = [
   { v: '0.116.0', d: '2026-10-31', note: 'Pull down to update: at the top of the home screen, pull down and let go to check for a new version of the app. If there is one it loads straight away, without closing the app; if not, the page redraws and says Up to date with the version you have.' },
   { v: '0.117.0', d: '2026-10-31', note: 'Glucose on the night the clocks go back: the hour from 1:00 to 2:00 happens twice, and both hours of readings are now kept, each at its real moment, where before the second sat on top of the first. Importing the same night again adds nothing twice. Your other days are stored exactly as before. And a fix: when a glucose rise asks whether you were asleep, it now reads a night the way the rest of the app files it, under the morning it ended.' },
   { v: '0.118.0', d: '2026-10-31', note: 'A calmer home screen. Your meals are now four rings -- breakfast, lunch, dinner and snack -- each showing that meal’s carbs, protein, fat and fibre in grams, with the calories in the middle; a meal you have not logged yet is a faint ring. Tap a ring to see its foods underneath, tap again to close. The day ring is bigger and centred, with your macros under Ring key, and how long since you last ate is right under the date. The micronutrient table and the second glucose average are gone from the top -- the Micronutrients and Glucose sections further down have them. Close this day is a small link now, and the box at the top is shorter when it only has your latest glucose to show. And a fix: glucose read after you change time zone stays at the real time it was taken.' },
+  { v: '0.119.0', d: '2026-10-31', note: 'Your stack items now show the claims linked to them, from the pathway pack you approved. An item with no nutrients reads “supplies no nutrients · linked to N claims”; tap it to see each claim with its probability, its GRADE and its source. Items that do count toward nutrients show their linked claims under them. After you tick an item the box at the top can take you straight there, and a pathway group can carry a claim about the group as a whole behind its ⓘ. Only claims you have reviewed are ever shown.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -23004,7 +23071,7 @@ function openSheet(mode) {
   if (scrim) scrim.style.display = 'block';
   overlaySync();
   // R246: every + Log opens with the stack collapsed -- its count and Took all.
-  STACK_OPEN = false; STACK_EDIT = null;
+  STACK_OPEN = false; STACK_EDIT = null; STACK_CLAIMS_OPEN = null;   // R305/3: only the strip's link opens an item's claims
   if (STACK_FORM && STACK_FORM.host === 'log') STACK_FORM = null;   // R278/B: a closed sheet's add form is not kept
   // RULED: the default is ROOT, not scan. The device finding was that '+ Log'
   // opened the camera-and-barcode path while the stack, the combos and the top 10
@@ -27574,7 +27641,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

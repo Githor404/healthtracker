@@ -20832,3 +20832,34 @@ in HTPrivate and is not in this repo (R204).*
 - every control is 44 px at 390, with no sideways scroll.
 
 **Release** under the standing pre-run rule.
+
+## R305 -- BUILT (v0.119.0), against its pre-registration
+
+**HTPrivate (not in this repo, R204):**
+- **Approvals:** the 11 R302 drafts are approved by the user (reviewed_by_me 2026-10-31) at
+  the proposed general probabilities, authored "advisor (Claude, claude-opus-5-5),
+  2026-10-31". They are written by `review_list.py --approve`, ids only. 11 entries were
+  added to the calibration store.
+- **The liver claim** is linked to the Liver fuel handling group as a whole
+  (`groups: ['liver']`).
+- **The thyroid pathway is pw-074** in Control systems: Reactome **R-HSA-209968**
+  "Thyroxine biosynthesis", verified in release 98's event hierarchy. It carries the
+  user's sentence as written, tyrosine as a counted raw material (through protein) and
+  iodine as listed but not counted (no reference intake). The T4 claim links to it.
+- **The pack builder** now links a claim to a record through the claim's own `pathways`
+  as well as its file, and to a group through `groups`.
+- **Pack v007** has 14 groups, 74 records, 38 claims and 13 interactions. It holds no
+  unreviewed claim.
+- The R302 draft builder refuses to run over approved records.
+
+**App, as pre-registered.** One fix was found by claims-gate before release: + Log opens
+with the stack collapsed (R246), so the strip's link must open the stack after the sheet,
+not before. "Item X's claims open" is cleared whenever + Log opens, so only the link sets
+it.
+
+**claims-gate:** 8 checks, all pass, on a placeholder pack. Its words check bans
+"effects" and "works", the ruling's words. "Animal and cell work, not people" is the
+pre-registered label and is allowed.
+
+**On the user's real pack and backup**, in a local browser only: the five stack items
+with no nutrient value show 3, 1, 2, 1 and 3 linked claims.
