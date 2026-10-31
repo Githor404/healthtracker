@@ -20987,3 +20987,56 @@ a real tap on a row links one. The iron row changes, and the shortcut counts one
   (folate 99, vitamin A 95, B12 91, vitamin D 85). This is an estimate: it assumes the
   first row is the right food, which the user's own pick history puts at the figure the
   link offer shows. 3 of the 49 have no matching row.
+
+## R309 -- PRE-REGISTERED (2026-10-31; to be v0.122.0): scrollable graphs, and the user's own goal lines
+
+*The user's direction, recorded as "later" in R300.1, now go. Written before any of it is
+built.*
+
+**1. The graphs, inventoried in the code.**
+- **The Trends charts** (`sparklineSVG`, three call sites): one per biometric series with
+  enough points. That covers weight, resting HR, HRV, manual glucose readings, breath
+  ketones, sleep (hours), sleep (bed to wake), steps, bowel movement (dots: ordinal),
+  mood, energy /5, and Energy (calories, complete days).
+  - They become one chart, `trendChartHTML`, with the BP chart's zoom: whole window, 2x,
+    4x, 8x wide in a frame that scrolls sideways.
+  - The value axis is pinned on the left as its own narrow SVG. The scroll is kept across
+    redraws, and the zoom row's buttons are 44 px.
+  - **x is real time**, not the index: a sparkline spaced readings evenly, so a gap of a
+    week looked like a day. The ordinal series stays dots (D52).
+- **The BP chart:** unchanged; it is the model.
+- **The glucose chart** keeps its own zoom: time windows down to 3 h and pan buttons, finer
+  than 8x of a day, with the axis pinned by redraw. It gains goal lines (2).
+- **No graph exists** for fasting (Trends shows its figures as text) or for steps from
+  Apple Health (only manual steps in Trends). None is invented here. That is reported.
+- **Not time series, left as they are:** the weekly review's 2 h meal curve and the rings.
+
+**2. Goal lines, the user's own.**
+- **Where:** Settings -> Goals gains "Lines on graphs". Empty by default, with nothing
+  pre-filled.
+- **What:** per graph, a single value or a band (low-high), in that graph's unit. It is
+  stored as `settings.graphGoals[key] = { low, high, unit }`, declared in
+  `normalizeSettings` (D131), and so carried in the backup.
+- **Keys:** a Trends series' type, `kcal` for Energy, `bp` for the BP chart, and `glucose`
+  for both glucose charts (converted by unit).
+- **Drawn:**
+  - a NEUTRAL dashed line (the muted colour), labelled with its value ("goal 80 kg"); a
+    band is two such lines with a faint neutral fill between, labelled "goal 70-80 kg";
+  - the value axis is widened to include it, so a goal outside the data is still seen;
+  - no verdict colour, no red or green, and no "on track" or other words about the data
+    against it (flags, not nudges).
+- **Removing a goal** removes the line.
+- **What is kept:** the older per-signal target text (settings.goals, "target >= X") is
+  left as it is, and the new lines do not use it.
+
+**Gates: the new `graphs-gate`:**
+- at 390 px, every Trends chart and the BP chart zoom to 8x and scroll sideways with the
+  axis pinned, and the glucose chart pans;
+- a set goal draws as a neutral dashed line (its stroke the muted colour, no red or green)
+  labelled with its value, and a band as two lines;
+- no goal, no line; removing a goal removes it;
+- goals survive export and restore byte-identically;
+- the Settings form saves and removes, 44 px;
+- the perf gate holds its budget.
+
+**Release** under the standing pre-run rule.
