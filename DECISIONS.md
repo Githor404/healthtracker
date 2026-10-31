@@ -21040,3 +21040,43 @@ built.*
 - the perf gate holds its budget.
 
 **Release** under the standing pre-run rule.
+
+## R309 -- BUILT (v0.122.0), against its pre-registration
+
+*The user, mid-build: "depending on the type of graph feel free to build either the
+glucose style or the BP style". As pre-registered: BP style for the Trends charts, glucose
+style kept for the glucose chart.*
+
+**Graphs changed:**
+- **Every Trends chart** is now `trendChartHTML`, BP style: whole window, 2x, 4x, 8x, a
+  sideways-scrolling frame, the value axis pinned, the scroll kept, and x on real time.
+  That covers weight, resting HR, HRV, manual glucose, breath ketones, sleep (hours),
+  sleep (bed to wake), steps, bowel movement (dots), mood, energy /5 and Energy
+  (calories).
+- **The BP chart** gains goal lines and is otherwise unchanged.
+- **The glucose chart** gains goal lines and keeps its own time-window zoom and drag pan.
+- No fasting or Apple Health steps graph exists, and none was invented.
+
+**One defect found and fixed while building:** the new axis labelled the bowel-movement
+(ordinal) chart at its midpoint, "3.5", the number D52 forbids. The harness's R20-snap
+check caught it. Dot charts now label whole scale values only.
+
+**Goals:**
+- They are stored through the normaliser, so a restore writes back exactly what was set.
+  graphs-gate found that the field order differed before it was fixed.
+- The zoom buttons carry `zin` / `zout` classes, so the gates tap them by name.
+
+**graphs-gate: 13 checks, all pass**, on a fixture of two weeks:
+- weight, sleep, bowel type, calories and BP each zoom to 8x by real taps and scroll with
+  the axis pinned, and the scroll is kept across a redraw;
+- the glucose chart pans by a real drag;
+- the goals draw neutral: one line, a band of two, the BP and glucose charts alike;
+- no goal, no line; removing a goal removes it; no verdict words;
+- the backup round trip is byte-identical;
+- the Settings form works by real taps, 44 px.
+
+**Harness:** R20-snap reads the row from its heading, since the chart's own label names
+the series too. The count is unchanged (3444).
+
+**Seen on the user's real data at 390 px and left as is:** the BP chart's date labels
+crowd each other at the whole-window view, as they did before R309.

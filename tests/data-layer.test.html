@@ -8083,7 +8083,7 @@ window.setLS({});
   HT.setTrendWindow('all');
   HT.renderTrends();
   var tHTML = document.getElementById('trends').innerHTML;
-  var bmRow = tHTML.split('Bowel movement')[1] || '';
+  var bmRow = tHTML.split('<div class="thead">Bowel movement')[1] || '';   // R309: the chart's own label names the series too
   bmRow = bmRow.split('</div></div>')[0] || bmRow;
   res(tHTML.indexOf('Bowel movement') >= 0, 'R20-snap-render: the bm series renders a trend row');
   res(bmRow.indexOf('3.5') < 0 && tHTML.indexOf('3.5') < 0,

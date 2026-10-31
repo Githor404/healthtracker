@@ -730,6 +730,16 @@
     text-align:center;white-space:nowrap;pointer-events:none}
   .ptr[hidden]{display:none}
   /* R305/3: linked claims on a stack item (and a pathway group's own i) */
+  /* R309: the user's own goal lines -- neutral (the muted colour), dashed, labelled; a band a faint neutral fill */
+  .tgoalline{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:6 4;fill:none}
+  .tgoalband{fill:var(--muted);opacity:.12}
+  .tgoallab{fill:var(--muted);font-size:16px}
+  .trendchart .tseries{fill:none;stroke:var(--accent);stroke-width:2}
+  .trendchart .tdot{fill:var(--accent)}
+  .graphgoals{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+  .gghead{font-weight:700;font-size:16px}
+  .ggrow{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:16px;padding:4px 0}
+  .ggrm,.ggset{width:auto;min-height:44px}
   .stkclaims{margin:4px 0 0}
   .stkclaims>summary{min-height:44px;display:flex;align-items:center;color:var(--accent);font-size:16px;cursor:pointer}
   .clmline{padding:6px 0;border-top:1px solid var(--line)}
@@ -1951,6 +1961,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
         <label style="margin-top:12px">Primary nutrient <span class="thint">(the goal other screens rank by)</span></label>
         <select id="primaryNutrient" onchange="setPrimaryNutrientFromForm()"></select>
+        <div id="graphGoals" class="graphgoals"></div>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
       </details>
     </div>

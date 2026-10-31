@@ -61,6 +61,7 @@ fdc-gate.ps1
 flow-gate.ps1
 font-floor-gate.ps1
 forms-gate.ps1
+graphs-gate.ps1
 identity-search-gate.ps1
 jargon-gate.ps1
 lab-form-gate.ps1

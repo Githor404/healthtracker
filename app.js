@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.121.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.122.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1425,7 +1425,25 @@ function normalizeSettings(s) {
      s.alcoholFreeRewards === true ? { alcoholFreeRewards: true } : {},
      // R232: "Does this drink contain alcohol?" -- the user's answer, remembered
      // per drink (its match key). Present only once something has been answered.
-     normalizeDrinkAlcohol(s.drinkAlcohol));
+     normalizeDrinkAlcohol(s.drinkAlcohol),
+     // R309: the user's own goal lines on graphs. Present only once one is set.
+     (function () { const g = normalizeGraphGoals(s.graphGoals); return Object.keys(g).length ? { graphGoals: g } : {}; })());
+}
+// R309: { key: { low, high?, unit } }. A value that is not a finite number drops the
+// goal; a high below its low drops the high. Keys are the graph's own.
+function normalizeGraphGoals(o) {
+  const out = {};
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
+  Object.keys(o).forEach(function (k) {
+    const g = o[k];
+    if (!/^[a-z0-9_]{1,40}$/.test(k) || !g || typeof g !== 'object') return;
+    const lo = Number(g.low);
+    if (!(typeof g.low === 'number' && isFinite(lo))) return;
+    const e = { low: lo, unit: String(g.unit == null ? '' : g.unit).slice(0, 12) };
+    if (typeof g.high === 'number' && isFinite(g.high) && g.high > lo) e.high = g.high;
+    out[k] = e;
+  });
+  return out;
 }
 function normalizeDrinkAlcohol(m) {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return {};
@@ -12494,6 +12512,176 @@ function sparklineSVG(points, refVal, opts) {
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">${ref}<polyline points="${pts}"/>${dot}</svg>`;
 }
 
+// ---- R309: THE USER'S OWN GOAL LINES ----------------------------------------------
+// A NEUTRAL dashed line (the muted colour), labelled with its value; a band is two lines
+// with a faint neutral fill. No verdict colour, and no words about the data against it.
+function graphGoal(key, unit, type) {
+  const g = ((APP_STATE && APP_STATE.settings && APP_STATE.settings.graphGoals) || {})[key];
+  if (!g) return null;
+  const cv = function (v) {
+    if (!g.unit || !unit || g.unit === unit) return v;
+    const c = convertUnit(type || key, v, g.unit, unit);
+    return c == null ? null : c;
+  };
+  const lo = cv(g.low), hi = g.high != null ? cv(g.high) : null;
+  if (lo == null) return null;
+  return { low: lo, high: hi, label: 'goal ' + rDisp(lo) + (hi != null ? '\u2013' + rDisp(hi) : '') + (unit ? ' ' + unit : '') };
+}
+function goalLinesSVG(goal, yOf, x1, x2) {
+  if (!goal) return '';
+  const r1 = function (x) { return Math.round(x * 10) / 10; };
+  const yl = r1(yOf(goal.low)), yh = goal.high != null ? r1(yOf(goal.high)) : null;
+  let h = '<g class="tgoal" data-goal="' + esc(goal.label) + '">';
+  if (yh != null) h += '<rect class="tgoalband" x="' + x1 + '" y="' + Math.min(yl, yh) + '" width="' + Math.max(0, x2 - x1) + '" height="' + Math.abs(yl - yh) + '"/>';
+  h += '<line class="tgoalline" x1="' + x1 + '" y1="' + yl + '" x2="' + x2 + '" y2="' + yl + '"/>';
+  if (yh != null) h += '<line class="tgoalline" x1="' + x1 + '" y1="' + yh + '" x2="' + x2 + '" y2="' + yh + '"/>';
+  const ty = (yh != null ? Math.min(yl, yh) : yl) - 4;
+  h += '<text class="tgoallab" x="' + (x2 - 2) + '" y="' + r1(Math.max(14, ty)) + '" text-anchor="end">' + esc(goal.label) + '</text>';
+  return h + '</g>';
+}
+// ---- R309: THE TRENDS CHART -- the BP chart's zoom, on a real time axis -------------
+// Whole window, 2x, 4x, 8x wide in a frame that scrolls sideways; the value axis pinned
+// on the left; the scroll kept across redraws. A reading's x is its TIME: the sparkline
+// spaced readings evenly, so a week's gap looked like a day's.
+const TREND_ZOOMS = [1, 2, 4, 8];
+let TREND_ZOOM = {}, TREND_CENTRE = {};
+function trendPtMs(p) {
+  const t = String(p.t || '');
+  if (t.length <= 10) return dayKeyMs(t) + 12 * 3600000;               // a day's figure, at its midday
+  const m = hhmmToMin(t.slice(11, 16));
+  return wallMs(t.slice(0, 10), m == null ? 0 : m);
+}
+function trendZoom(key, dir) {
+  const z = TREND_ZOOM[key] || 1, i = TREND_ZOOMS.indexOf(z);
+  const n = TREND_ZOOMS[Math.max(0, Math.min(TREND_ZOOMS.length - 1, i + dir))];
+  TREND_ZOOM[key] = n;
+  if (TREND_CENTRE[key] == null) TREND_CENTRE[key] = 1;              // opened at the newest
+  renderTrends();
+  return { ok: true, zoom: n };
+}
+function trendScrolled(w) {
+  const max = w.scrollWidth - w.clientWidth;
+  if (max > 0) TREND_CENTRE[w.getAttribute('data-key')] = w.scrollLeft / max;
+}
+function trendPlaceScroll() {
+  Array.prototype.forEach.call(document.querySelectorAll('.tchartwrap.bpscroll'), function (w) {
+    const max = w.scrollWidth - w.clientWidth, c = TREND_CENTRE[w.getAttribute('data-key')];
+    if (max > 0) w.scrollLeft = Math.round((c == null ? 1 : c) * max);
+  });
+}
+function trendChartHTML(key, points, o) {
+  o = o || {};
+  if (!points.length) return '';
+  const el = document.getElementById('trends');
+  const W0 = Math.max(260, Math.min(640, Math.round((el && el.clientWidth) || 328)));
+  const z = TREND_ZOOM[key] || 1, zoomed = z > 1, W = Math.round(W0 * z);
+  const H = 130, padL = 44, padR = 10, padT = 18, padB = 24, plotW = W - padL - padR, plotH = H - padT - padB;
+  const r1 = function (x) { return Math.round(x * 10) / 10; };
+  const pts = points.map(function (p) { return { t: trendPtMs(p), v: p.v }; }).sort(function (a, b) { return a.t - b.t; });
+  const goal = graphGoal(key, o.unit || '', o.type);
+  let mn = Math.min.apply(null, pts.map(function (p) { return p.v; })), mx = Math.max.apply(null, pts.map(function (p) { return p.v; }));
+  if (o.ref != null) { mn = Math.min(mn, o.ref); mx = Math.max(mx, o.ref); }
+  if (goal) { mn = Math.min(mn, goal.low); mx = Math.max(mx, goal.high != null ? goal.high : goal.low); }
+  if (mx === mn) { mn -= 1; mx += 1; }
+  const padV = (mx - mn) * 0.08; mn -= padV; mx += padV;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const edge = Math.max(3600000, (t1 - t0) * 0.03), from = t0 - edge, to = t1 + edge, span = to - from;
+  const xOf = function (t) { return padL + ((t - from) / span) * plotW; };
+  const yOf = function (v) { return padT + (1 - (v - mn) / (mx - mn)) * plotH; };
+  // D52: an ORDINAL scale is labelled at its own whole values only -- a midpoint label
+  // would print a number the scale does not define (3.5 between type 3 and type 4).
+  let ticks = [mn + padV, (mn + mx) / 2, mx - padV];
+  if (o.dots) { ticks = []; for (let v = Math.ceil(mn); v <= Math.floor(mx); v++) ticks.push(v); }
+  const ylab = function (v) { return rDisp(Math.round(v * 10) / 10); };
+  let grid = '<g class="bpgrid">' + ticks.map(function (v) {
+    const y = r1(yOf(v));
+    return '<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '"/>'
+      + (zoomed ? '' : '<text x="' + (padL - 4) + '" y="' + r1(y + 5.5) + '" text-anchor="end">' + esc(ylab(v)) + '</text>');
+  }).join('') + '</g>';
+  const xaxis = '<g class="txaxis">' + chartTimeTicks(from, to, z).map(function (tk) {
+    const x = r1(xOf(tk.t));
+    if (x < padL + 16 || x > W - padR - 16) return '';
+    const d = new Date(tk.t);
+    const lab = tk.step >= 86400000 ? (d.getMonth() + 1) + '/' + d.getDate() : hhmm(tk.t);
+    return '<line x1="' + x + '" y1="' + (padT + plotH) + '" x2="' + x + '" y2="' + (padT + plotH + 3) + '"/>'
+      + '<text x="' + x + '" y="' + (padT + plotH + 18) + '">' + esc(lab) + '</text>';
+  }).join('') + '</g>';
+  const ref = o.ref != null ? '<line class="tref" x1="' + padL + '" y1="' + r1(yOf(o.ref)) + '" x2="' + (W - padR) + '" y2="' + r1(yOf(o.ref)) + '"/>' : '';
+  const body = o.dots
+    ? pts.map(function (p) { return '<circle class="tdot" cx="' + r1(xOf(p.t)) + '" cy="' + r1(yOf(p.v)) + '" r="3"/>'; }).join('')
+    : '<polyline class="tseries" points="' + pts.map(function (p) { return r1(xOf(p.t)) + ',' + r1(yOf(p.v)); }).join(' ') + '"/>'
+      + (pts.length === 1 ? '<circle class="tdot" cx="' + r1(xOf(pts[0].t)) + '" cy="' + r1(yOf(pts[0].v)) + '" r="3"/>' : '');
+  const svg = '<svg class="bpchart trendchart' + (o.dots ? ' sparkdots' : '') + '" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="' + esc(o.label || key) + '">'
+    + grid + goalLinesSVG(goal, yOf, padL, W - padR) + ref + body + xaxis + '</svg>';
+  let yaxis = '';
+  if (zoomed) {
+    yaxis = '<svg class="bpyaxis" viewBox="0 0 ' + padL + ' ' + H + '" width="' + padL + '" height="' + H + '" aria-hidden="true"><rect x="0" y="0" width="' + padL + '" height="' + H + '"/>'
+      + ticks.map(function (v) { return '<text x="' + (padL - 4) + '" y="' + r1(yOf(v) + 5.5) + '" text-anchor="end">' + esc(ylab(v)) + '</text>'; }).join('') + '</svg>';
+  }
+  const zi = TREND_ZOOMS.indexOf(z), k = esc(key);
+  return '<div class="bpzoomrow tzoomrow" data-key="' + k + '"><button type="button" class="btn bpzoom zout" aria-label="zoom out" onclick="trendZoom(\'' + k + '\',-1)"' + (zi <= 0 ? ' disabled' : '') + '>\u2212</button>'
+    + '<span class="bpzoomlab">' + (zoomed ? esc(z + '\u00d7 wide \u00b7 scroll sideways') : 'Whole window') + '</span>'
+    + '<button type="button" class="btn bpzoom zin" aria-label="zoom in" onclick="trendZoom(\'' + k + '\',1)"' + (zi >= TREND_ZOOMS.length - 1 ? ' disabled' : '') + '>+</button></div>'
+    + '<div class="bpwrap tchartwrap' + (zoomed ? ' bpscroll' : '') + '" data-key="' + k + '"' + (zoomed ? ' onscroll="trendScrolled(this)"' : '') + '>' + yaxis + svg + '</div>';
+}
+// ---- R309: Settings -> Goals -> "Lines on graphs" -----------------------------------
+function graphGoalKeys() {
+  const out = [];
+  SIGNAL_SPEC.forEach(function (sp) {
+    if (sp.kind !== 'biometric' || sp.type === 'bp_diastolic') return;
+    if (sp.type === 'bp_systolic') { out.push({ key: 'bp', label: 'Blood pressure', unit: 'mmHg' }); return; }
+    const u = (APP_STATE.settings.signalUnits && APP_STATE.settings.signalUnits[sp.type]) || sp.unit;
+    out.push({ key: sp.type, label: sp.label, unit: sp.type === 'glucose' ? glucoseUnitShown() || u : u, type: sp.type });
+  });
+  out.push({ key: 'kcal', label: 'Energy (calories)', unit: 'cal' });
+  return out;
+}
+function graphGoalSet(key, low, high) {
+  const k = graphGoalKeys().filter(function (x) { return x.key === key; })[0];
+  const lo = Number(String(low == null ? '' : low).trim()), hiS = String(high == null ? '' : high).trim(), hi = Number(hiS);
+  if (!k) return { ok: false, error: 'Choose a graph.' };
+  if (String(low == null ? '' : low).trim() === '' || !isFinite(lo)) return { ok: false, error: 'The goal is a number.' };
+  if (hiS !== '' && (!isFinite(hi) || hi <= lo)) return { ok: false, error: 'For a band, the high end is a number above the low end.' };
+  const gg = APP_STATE.settings.graphGoals = APP_STATE.settings.graphGoals || {};
+  // through the normaliser, so what is stored is what a restore writes back, byte for byte
+  const one = {}; one[key] = hiS !== '' ? { low: lo, high: hi, unit: k.unit } : { low: lo, unit: k.unit };
+  gg[key] = normalizeGraphGoals(one)[key];
+  Store.saveState(APP_STATE); refresh(); renderGraphGoals();
+  return { ok: true, goal: gg[key] };
+}
+function graphGoalRemove(key) {
+  const gg = APP_STATE.settings.graphGoals || {};
+  if (!gg[key]) return { ok: false };
+  delete gg[key];
+  if (!Object.keys(gg).length) delete APP_STATE.settings.graphGoals;
+  Store.saveState(APP_STATE); refresh(); renderGraphGoals();
+  return { ok: true };
+}
+function graphGoalFromForm() {
+  const v = function (id) { const e = document.getElementById(id); return e ? e.value : ''; };
+  const r = graphGoalSet(v('ggKey'), v('ggLow'), v('ggHigh'));
+  const m = document.getElementById('ggMsg');
+  if (m) m.textContent = r.ok ? '' : r.error;
+  return r;
+}
+function renderGraphGoals() {
+  const el = document.getElementById('graphGoals');
+  if (!el || !APP_STATE) return;
+  const keys = graphGoalKeys(), gg = APP_STATE.settings.graphGoals || {};
+  const set = keys.filter(function (k) { return gg[k.key]; });
+  el.innerHTML = '<div class="gghead">Lines on graphs</div>'
+    + '<div class="note">Your own goal on a graph, drawn as a plain dashed line with its value \u2014 one number, or a band from low to high. Nothing is set until you set it.</div>'
+    + (set.length ? set.map(function (k) {
+        const g = gg[k.key];
+        return '<div class="ggrow" data-key="' + esc(k.key) + '"><span>' + esc(k.label + ': ' + rDisp(g.low) + (g.high != null ? '\u2013' + rDisp(g.high) : '') + ' ' + (g.unit || '')) + '</span>'
+          + '<button type="button" class="btn ggrm" onclick="graphGoalRemove(\'' + esc(k.key) + '\')">Remove</button></div>';
+      }).join('') : '')
+    + '<div class="row"><div style="flex:1.4"><label for="ggKey">Graph</label><select id="ggKey">'
+    + keys.map(function (k) { return '<option value="' + esc(k.key) + '">' + esc(k.label + ' (' + k.unit + ')') + '</option>'; }).join('') + '</select></div>'
+    + '<div><label for="ggLow">Goal, or low end</label><input id="ggLow" type="number" inputmode="decimal"></div>'
+    + '<div><label for="ggHigh">High end <span class="thint">(a band; optional)</span></label><input id="ggHigh" type="number" inputmode="decimal"></div></div>'
+    + '<button type="button" class="btn ggset" onclick="graphGoalFromForm()">Set the line</button><div id="ggMsg" class="warn ggmsg" aria-live="polite"></div>';
+}
 // ---- H19: GLUCOSE, AND A GENERIC TIME CHART --------------------------------
 //
 // MEASURED on a real Apple Health export before any of this was designed (the
@@ -14870,7 +15058,7 @@ function timeChart(opts) {
 
   const series = polys.map(function (p) { return '<polyline class="tseries" points="' + p + '"/>'; }).join('');
   return '<svg class="tchart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H
-    + '" preserveAspectRatio="none" role="img">' + axis + xaxis + marks + series + clips + pick + '</svg>';
+    + '" preserveAspectRatio="none" role="img">' + axis + xaxis + goalLinesSVG(o.goal || null, yOf, padL, W - padR) + marks + series + clips + pick + '</svg>';
 }
 
 // ---- H19: THE WINDOW, THE GESTURES, AND THE DAY ROW -----------------------
@@ -15274,6 +15462,7 @@ function glucoseChartHTML(dk) {
     // (H23/5). An option nothing reads is a promise the next caller believes.
     marks: glucoseMarks(w.from, w.to),
     pick: CHART_PICK,
+    goal: graphGoal('glucose', glucoseUnitShown(), 'glucose'),     // R309
     width: GLUCOSE_CHART_W, height: 150,
     gapMs: GLUCOSE_STEP_S * 3 * 1000,
   });
@@ -16173,7 +16362,7 @@ function bpChartSVG(pts, W, noYLabels) {
   const hit = '<rect class="bphit" x="' + padL + '" y="0" width="' + plotW + '" height="' + (padT + plotH) + '" onclick="bpTap(event)"/>';
   return '<svg class="bpchart" viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img" aria-label="Blood pressure, systolic and diastolic, mmHg"'
     + ' data-from="' + from + '" data-to="' + to + '" data-padl="' + padL + '" data-plotw="' + plotW + '">'
-    + grid + refs + band + sysL + diaL + marks + xaxis + cross + hit + '</svg>';
+    + grid + refs + goalLinesSVG(graphGoal('bp', 'mmHg'), yOf, padL, W - padR) + band + sysL + diaL + marks + xaxis + cross + hit + '</svg>';
 }
 function bpChartHTML(days) {
   const r = bpReadings(days);
@@ -16201,9 +16390,9 @@ function bpChartHTML(days) {
     + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><line class="bpldia" x1="1" y1="7" x2="33" y2="7"/><rect class="bplmd" x="13.5" y="3.5" width="7" height="7"/></svg><span class="bpleglab">Diastolic</span></span>'
     + '<span class="bpleg"><svg class="bplegsvg" width="34" height="14" viewBox="0 0 34 14" aria-hidden="true"><rect class="bplband" x="1" y="1" width="32" height="12"/></svg><span class="bpleglab">pulse pressure</span></span>'
     + '</div>'
-    + '<div class="bpzoomrow"><button type="button" class="btn bpzoom" aria-label="zoom out" onclick="bpZoom(-1)"' + (zi <= 0 ? ' disabled' : '') + '>\u2212</button>'
+    + '<div class="bpzoomrow"><button type="button" class="btn bpzoom zout" aria-label="zoom out" onclick="bpZoom(-1)"' + (zi <= 0 ? ' disabled' : '') + '>\u2212</button>'
     + '<span class="bpzoomlab">' + (zoomed ? esc(BP_ZOOM + '\u00d7 wide \u00b7 scroll sideways') : 'Whole window') + '</span>'
-    + '<button type="button" class="btn bpzoom" aria-label="zoom in" onclick="bpZoom(1)"' + (zi >= BP_ZOOMS.length - 1 ? ' disabled' : '') + '>+</button></div>'
+    + '<button type="button" class="btn bpzoom zin" aria-label="zoom in" onclick="bpZoom(1)"' + (zi >= BP_ZOOMS.length - 1 ? ' disabled' : '') + '>+</button></div>'
     + '<div class="bpwrap' + (zoomed ? ' bpscroll' : '') + '" id="bpWrap"' + (zoomed ? ' onscroll="bpScrolled(this)"' : '') + '>'
     + (zoomed ? bpYAxisSVG() : '') + bpChartSVG(pts, W, zoomed) + '</div>'
     // Found by bpchart-gate: over a week at 390 px, readings hours apart on one day
@@ -16341,7 +16530,7 @@ function renderTrends() {
         ? ('most often type ' + rDisp(os.modes[0]))
         : ('most often types ' + os.modes.map(rDisp).join(' and '));
       bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(ORDINAL_SCALES[sp.type].label)}</small>${cov}</div>`
-        + sparklineSVG(plot, null, { dots: true })
+        + trendChartHTML(sp.type, plot, { dots: true, unit: '', type: sp.type, label: s.label })
         + `<div class="tsum">latest type ${esc(rDisp(os.latest))} · median type ${esc(rDisp(os.median))} · ${esc(modeStr)}`
         + ` · range ${esc(rDisp(os.min))}–${esc(rDisp(os.max))} · n=${esc(os.n)}</div>`
         + `<div class="tsum"><small>${esc(ordinalDescriptor(sp.type, os.median))} at the median</small></div>`
@@ -16356,7 +16545,7 @@ function renderTrends() {
       if (gv == null) goalStr = ` <small class="tcov">target set in ${esc(goal.unit || '?')} — not comparable to ${esc(s.unit)}</small>`;
       else { refVal = gv; goalStr = ` <small class="tgoal">target ${goal.direction === 'max' ? '&le;' : '&ge;'} ${esc(rDisp(gv))} ${esc(s.unit)}</small>`; }
     }
-    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}${goalStr}</div>${sparklineSVG(plot, refVal)}`
+    bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}${goalStr}</div>${trendChartHTML(sp.type, plot, { ref: refVal, unit: s.unit, type: sp.type, label: s.label })}`
       + `<div class="tsum">latest ${esc(rDisp(sm.latest))} · avg ${esc(rDisp(sm.avg))} · ${esc(rDisp(sm.min))}–${esc(rDisp(sm.max))} · &Delta; ${sm.delta >= 0 ? '+' : ''}${esc(rDisp(sm.delta))} · n=${esc(sm.n)}`
       + (sm.unconverted > 0 ? ` <small class="tcov">avg over ${esc(sm.n)} of ${esc(sm.n + sm.unconverted)} readings (${esc(sm.unconverted)} unconverted, shown as entered)</small>` : '')
       + `</div></div>`;
@@ -16386,7 +16575,7 @@ function renderTrends() {
     if (ms.omitted > 0) why.push(`${omitWord(ms.omitted)} \u2014 nutrition incomplete`);
     if (ms.empty > 0) why.push(`${omitWord(ms.empty)} — nothing logged`);
     const omit = why.length ? ` <small class="tcov">${why.join(' · ')}</small>` : '';
-    html += `<div class="trow"><div class="thead">Energy <small>Calories · complete days only</small></div>${sparklineSVG(ms.points)}`
+    html += `<div class="trow"><div class="thead">Energy <small>Calories · complete days only</small></div>${trendChartHTML('kcal', ms.points, { unit: 'cal', label: 'Energy' })}`
       + `<div class="tsum">avg ${esc(avg)} · ${esc(Math.min.apply(null, mv))}–${esc(Math.max.apply(null, mv))} · n=${esc(ms.points.length)}${omit}</div></div>`;
   }
   // H7 (Fork A1): a row of its own on Trends. It is deliberately NOT gated on the
@@ -16401,6 +16590,7 @@ function renderTrends() {
     html += `<div class="note" style="margin:10px 0 0">Your own data over ${esc(winLabel)} — figures only, no interpretation.</div>`;
   el.innerHTML = html;
   bpPlaceScroll();                          // a zoomed BP chart keeps where it was scrolled to
+  trendPlaceScroll();                       // R309: and so does every zoomed Trends chart
 }
 
 // ---- Regimen (D27): a named timeline template for a repeating day ------------
@@ -17915,6 +18105,7 @@ const VERSION_LOG = [
   { v: '0.119.0', d: '2026-10-31', note: 'Your stack items now show the claims linked to them, from the pathway pack you approved. An item with no nutrients reads “supplies no nutrients · linked to N claims”; tap it to see each claim with its probability, its GRADE and its source. Items that do count toward nutrients show their linked claims under them. After you tick an item the box at the top can take you straight there, and a pathway group can carry a claim about the group as a whole behind its ⓘ. Only claims you have reviewed are ever shown.' },
   { v: '0.120.0', d: '2026-10-31', note: 'The box at the top only appears when it has something worth saying. When nothing has happened recently it can show, in this order: how long you have been fasting, once it is 12 hours or more; a measurement you usually take that is later than usual (blood pressure, weight, breath ketones or a sleep entry -- later than one and a half times your own usual gap, and only once you have five of them); and your glucose, only if the reading is under half an hour old. At most two lines; if none of these apply, the box is not there. Your latest glucose reading and how old it is are now in the Glucose section, beside the day’s average.' },
   { v: '0.121.0', d: '2026-10-31', note: 'The Micronutrients section now tracks your day: each nutrient shows one total, how much of the day’s food (by weight) has a value for it -- “82 % of the day’s food known” -- and, if you have the pathway pack, your reference intake beside it. Under 60 % known the total is dimmed and marked partial; a nutrient nothing has a value for shows a dash, never zero. Your stack is included and says how much came from it. At the top, “N foods have no nutrient data -- link them” opens the three closest database rows for each; nothing counts until you tap one.' },
+  { v: '0.122.0', d: '2026-10-31', note: 'Every graph in Trends now zooms like the blood-pressure chart: tap + for 2, 4 or 8 times wider and scroll sideways, with the numbers held at the left; the readings sit at their real times, so a week without one looks like a week. The glucose chart keeps its own zoom and the arrows to move along. And your own goal lines: in Settings, Goals, Lines on graphs, set one number or a band (low to high) for any graph; it is drawn as a plain dashed line with its value -- no colours, no verdicts. Remove it and the line goes. Your goals are in your backup.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -27468,6 +27659,7 @@ function main() {
   renderPrimaryNutrientForm();
   renderLabForm();
   onGoalTypeChange();
+  renderGraphGoals();                 // R309: Settings -> Goals -> Lines on graphs
   renderRegimenTemplate();
   renderVersionLine();
   wireChipStripWheel();
@@ -27787,7 +27979,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
