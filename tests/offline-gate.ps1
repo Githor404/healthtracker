@@ -185,7 +185,7 @@ try {
   Invoke-CDP 'Page.reload' $null | Out-Null
   WaitBoot
 
-  $raw = Eval "JSON.stringify({hrows: document.querySelectorAll('.hrow').length, seeded: (document.body.innerHTML.indexOf('2026-07-08')>=0 || document.body.innerHTML.indexOf('Jul 8')>=0), badge: ((document.getElementById('storeBadge')||{}).textContent||'')})"
+  $raw = Eval "JSON.stringify({hrows: document.querySelectorAll('.hrow').length, seeded: (document.body.innerHTML.indexOf('2026-07-08')>=0 || document.body.innerHTML.indexOf('Jul 8')>=0), badge: (window.HT && HT.Store ? HT.Store.status().message : '')})"
   $d = $raw | ConvertFrom-Json
 
   # 6. ZXing must still load OFFLINE from healthtracker-runtime (D15): the fresh

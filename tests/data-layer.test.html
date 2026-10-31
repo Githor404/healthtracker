@@ -13009,6 +13009,16 @@ window.setLS({});
           return (g.slots || []).indexOf(Number(p)) >= 0 || Number(p) === HT.PANEL_PROTEIN_SLOT; }); }),
       'D140-list GATE: every alternate hangs off a row that IS shown -- an alternate attached to a hidden primary is unreachable (existence is not availability)');
 
+  // v0.123.0: a licensed product stating ONE amount in two units counts it once
+  var vd123 = HT.stackMultiNutrients({ product: { ns: 'lnhpd', npn: '80000001', id: '1', name: 'Gate D', dosage_form: 'Tablet', status: 'active',
+    ingredients: [{ name: 'Vitamin D', amount: 25, unit: 'mcg' }, { name: 'Vitamin D', amount: 1000, unit: 'IU' }] } }, { dose: 4, dose_unit: 'tablet' });
+  res(vd123.micros && vd123.micros.vitamin_d_ug === 100,
+      'v0.123.0 GATE: a vitamin stated as 25 mcg AND 1000 IU is one amount -- 4 units count 100 ug, not 200', JSON.stringify(vd123.micros));
+  var mg123 = HT.stackMultiNutrients({ product: { ns: 'lnhpd', npn: '80000002', id: '2', name: 'Gate Mg', dosage_form: 'Capsule', status: 'active',
+    ingredients: [{ name: 'Magnesium', amount: 100, unit: 'mg' }, { name: 'Magnesium', amount: 50, unit: 'mg' }] } }, { dose: 1, dose_unit: 'capsule' });
+  res(mg123.micros && mg123.micros.magnesium_mg === 150,
+      'v0.123.0 CONTROL: two rows of one ingredient at DIFFERENT amounts still add up (150 mg) -- only a restated amount is dropped', JSON.stringify(mg123.micros));
+
   // ---- the coverage line: once, and again only when it differs ----------
   // MEASURED on the device: the same nine words on all 46 rows.
   var covE = { labelled: 0, labelledN: 0, reference: 5, referenceN: 1, m: 1 };

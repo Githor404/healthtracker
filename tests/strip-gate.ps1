@@ -264,7 +264,8 @@ try {
   $q0 = Strip; $words += $q0.text
   Write-Host ("  quiet: " + $q0.head + " | " + ($q0.lines -join ' | '))
   # R304 (pre-registered): at rest the strip shows the latest glucose ONLY -- the fast line is under the date -- at its own, shorter height
-  Check (($q0.kind -eq 'quiet') -and (@($q0.lines | Where-Object { $_ }).Count -eq 1) -and ($q0.lines[0] -like 'Glucose *mmol/L*2 min ago*') -and (-not $q0.head) -and ($q0.h -gt 0) -and ($q0.h -lt 112)) "R308.1 STRIP 1 (re-pointed): at rest the box shows only what is pertinent -- here one line, the glucose reading 2 min old (under 30 min), no head line, shorter than an action strip ($($q0.h) px)"
+  # R310: a log with days and no backup yet also says so; glucose 2 min old is still the line it was
+  Check (($q0.kind -eq 'quiet') -and (@($q0.lines | Where-Object { $_ }).Count -le 2) -and (@($q0.lines | Where-Object { $_ -like 'Glucose *mmol/L*2 min ago*' }).Count -eq 1) -and (@($q0.lines | Where-Object { $_ -and -not ($_ -like 'Glucose *') -and -not ($_ -like 'Backup *') }).Count -eq 0) -and (-not $q0.head) -and ($q0.h -gt 0) -and ($q0.h -lt 112)) "R308.1/R310 STRIP 1 (re-pointed): at rest the box shows only what is pertinent -- the glucose reading 2 min old, and (R310) that no backup has been made -- no head line, shorter than an action strip ($($q0.h) px)"
   Shots 'strip-quiet'
 
   # ---- 2. FOOD LOGGED: Kimchi again, one tap, joins today's lunch sitting ----
@@ -474,6 +475,72 @@ try {
   Check ((($r.s3.lines) -join '|') -like ('Glucose 5.8 mmol/L ' + $mid + ' 10 min ago')) "R308.1 (c): the weight just taken is no longer overdue; the fresh glucose alone"
   Check (($r.s4.kind -eq 'none') -and ($r.s4.shown -eq $false) -and ($r.s4.h -eq 0) -and (@($r.s4.lines).Count -eq 0)) "R308.1 (d): glucose 50 min old is stale and nothing else is pertinent -- the box is not shown at all"
   Check ((-not ((($r.s1.lines + $r.s2.lines + $r.s3.lines) -join ' ') -match 'BP|should')) -and ($r.overdue -notcontains 'BP:4') -and ($r.s1.head -eq $false)) "R308.1: BP with only 4 entries never shows as overdue, however late; no 'should' anywhere; no head line at rest"
+
+  # ---- R310: the save line only when saving is at risk ----------------------------------------
+  $sv = EvalJ @'
+(function () {
+  var b = function () { var e = document.getElementById('storeBadge'); return { shown: !e.hidden && getComputedStyle(e).display !== 'none' && e.offsetHeight > 0, text: e.textContent }; };
+  var out = {};
+  HT.storageRiskSet({ persisted: true, full: 0.1 }); HT.resave(); HT.refresh();
+  out.ok = b();
+  HT.storageRiskSet({ persisted: false }); out.notPersistent = b();
+  HT.storageRiskSet({ persisted: true, full: 0.95 }); out.full = b();
+  HT.storageRiskSet({ persisted: true, full: 0.1 }); out.again = b();
+  // LAST: after a failed save the app keeps the session in memory (it never trusts the
+  // storage again silently), so nothing after this reads the all-well state
+  HT.Store.forceWriteFailure(true); HT.resave(); HT.refresh();
+  out.failed = b();
+  HT.Store.forceWriteFailure(false);
+  return out;
+})()
+'@
+  Write-Host ("  save line: " + $sv)
+  $s = $sv | ConvertFrom-Json
+  Check (($s.ok.shown -eq $false) -and ($s.again.shown -eq $false) -and ($s.ok.text -like '*saved in this browser*')) "R310: no save line while saves succeed and storage is safe (its text kept in the page, hidden)"
+  Check (($s.failed.shown -eq $true) -and ($s.failed.text -like 'Not saved:*Export a backup now*')) "R310: a forced save failure shows the line, in plain words with what to do ($($s.failed.text))"
+  Check (($s.notPersistent.shown -eq $true) -and ($s.notPersistent.text -like '*may delete your data*Export backups regularly*') -and ($s.full.shown -eq $true) -and ($s.full.text -like 'Storage is 95 % full*Export a backup now*')) "R310: storage that is not persistent, or 95 % full, shows its own plain line"
+
+  # ---- R310: the backup line in the resting box ----------------------------------------------------
+  $bk = EvalJ @'
+(function () {
+  localStorage.clear(); HT.boot();
+  var at = function (s) { return new Date(s).getTime(); };
+  var T = at('2026-10-28T12:00:00'); HT.setClock(function () { return T; });
+  var S = HT.state();
+  S.days['2026-10-10'] = { status: 'complete', water_l: 0, items: [{ name: 'Gate toast', meal: 'snack', time: '18:00', kcal: 100, carb_g: 10, protein_g: 6, fat_g: 4, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }] };
+  S.days['2026-10-28'] = { status: 'in_progress', water_l: 0, items: [{ name: 'Gate toast', meal: 'snack', time: '11:00', kcal: 100, carb_g: 10, protein_g: 6, fat_g: 4, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }] };
+  HT.resave(); HT.ctxDismiss();
+  var words = function () { HT.refresh(); return HT.ctxRestingWords().join(' | '); };
+  var setLog = function (list) {
+    localStorage.setItem('healthtracker-backup-log', JSON.stringify(list.map(function (d) { return new Date(d).toISOString(); })));
+    localStorage.setItem('healthtracker-last-backup', JSON.stringify({ at: new Date(list[list.length - 1]).toISOString(), date: list[list.length - 1].slice(0, 10), name: 'x', how: 'share' }));
+  };
+  var out = {};
+  out.never = words();                                                   // never exported, first day 18 days ago
+  setLog(['2026-10-22T20:00:00', '2026-10-24T20:00:00', '2026-10-26T20:00:00']);   // 3 exports: the 7-day rule
+  out.three = words();
+  T = at('2026-11-03T21:00:00'); out.threeLate = words();               // 8 days after the last
+  setLog(['2026-10-13T20:00:00', '2026-10-16T20:00:00', '2026-10-19T20:00:00', '2026-10-22T20:00:00', '2026-10-25T20:00:00']);   // 5 exports, 3 days apart
+  T = at('2026-10-29T12:00:00'); out.fiveEarly = words();              // 3 d 16 h: under 1.5 x 3 days
+  T = at('2026-10-30T22:00:00'); out.fiveLate = words();               // 5 d 2 h: past 4.5 days
+  HT.renderCtxStrip();
+  var link = document.querySelector('#ctxStrip .ctxbackup');
+  out.link = link ? link.textContent : '';
+  HT.setClock(null);
+  return out;
+})()
+'@
+  Write-Host ("  backup line: " + $bk)
+  $k = $bk | ConvertFrom-Json
+  $mid = [char]0x00B7
+  Check ($k.never -like ('*Backup ' + $mid + ' none made yet*')) "R310: never exported, with a log 18 days old, the resting box says so ('$($k.never)')"
+  Check ((-not ($k.three -match 'Backup')) -and ($k.threeLate -like ('*Backup ' + $mid + ' last one 8 days ago*'))) "R310: with fewer than 5 exports the 7-day rule: not at 2 days, shown at 8 ('$($k.threeLate)')"
+  Check ((-not ($k.fiveEarly -match 'Backup')) -and ($k.fiveLate -like ('*Backup ' + $mid + ' last one 5 days ago*'))) "R310: with 5 exports 3 days apart, 1.5 x the median: not at 3 d 16 h, shown at 5 d 2 h ('$($k.fiveLate)')"
+  $t1 = TapSel '#ctxStrip .ctxbackup'
+  $op = EvalJ "(function(){ var p = document.getElementById('settingsPanel'); var c = document.querySelector('[data-setting=export]'); var r = c ? c.getBoundingClientRect() : null; return { open: !!p && getComputedStyle(p).display !== 'none', visible: !!r && r.top >= 0 && r.top < window.innerHeight, focus: document.activeElement && document.activeElement.id }; })()"
+  Write-Host ("  after the tap: " + $op)
+  Check ($t1 -and ($k.link -like ('Backup ' + $mid + ' last one 5 days ago*')) -and ($op -like '*"open":true*') -and ($op -like '*"visible":true*')) "R310: one real tap on the backup line opens Settings at Export backup"
+  [void](Eval "HT.closeSettings(); 1")
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)

@@ -242,7 +242,7 @@ navigator.serviceWorker.ready.then(function () { return caches.keys(); }).then(f
   var up = typeof HT === 'object' && !!HT.state;
   return { up: up, version: up ? HT.APP_VERSION : '', online: navigator.onLine,
            controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller),
-           badge: ((document.getElementById('storeBadge') || {}).textContent || ''),
+           badge: (window.HT && HT.Store ? HT.Store.status().message : ''),   // R310: the tier's own message; the line on the page is hidden while all is well
            shown: document.body.textContent.indexOf('Cold start oats') >= 0,
            memory: up ? HT.corpusState().ready : null };
 })()

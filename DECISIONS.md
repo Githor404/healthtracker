@@ -21171,3 +21171,50 @@ measurements, most overdue first:
     median with 5), not before;
   - its tap opens Settings at Export backup.
 - **Release** under the standing pre-run rule.
+
+
+## v0.123.0 -- BUILT, against its pre-registration
+
+*No product or item name of the user's appears here (R204). His items are named by role
+only.*
+
+**1. Claims match by licensed ingredient**, as pre-registered.
+- The match is whole words only, so a short term never matches inside a longer word.
+- **On the user's 31 Oct (afternoon) backup** with pack v008: the items renamed by their
+  NPN lookups show their claims again. That is all four claims that had been lost, and
+  the other items keep theirs.
+- **HTPrivate:**
+  - each supplement claim carries its compound's names (common, botanical, chemical);
+  - the R204 public-repo check now exempts a stack name only when it is exactly a
+    nutrient's label, the public word for that nutrient, which an NPN lookup can give a
+    single-nutrient product;
+  - every other name is still checked.
+- **The check found one name of the user's** in this build: a code comment quoted a
+  product row that equals one of his item names. It is reworded, and the check is clean
+  again before release. A read by hand then found what a name check cannot: his dose in
+  the first draft of these records and the harness, one of his items' short name as a gate
+  term, and two botanical names in the release note. All are placeholders now, and the
+  unpushed pre-registration commit was redone, so they never reached the public history.
+
+**2. A restated ingredient counts once**, as pre-registered.
+- Two harness checks: a placeholder vitamin stated as 25 mcg and again as 1,000 IU counts
+  100 ug for 4 units, not 200; two rows of one ingredient at different amounts still add up.
+- The count is re-pinned to 3446.
+- The user's stored item keeps its doubled total until he re-saves it.
+
+**3. R310**, as pre-registered.
+- A test seam (`storageRiskSet`) sets the browser's persistence and fullness answers, which
+  a headless browser does not give as a phone would.
+- **strip-gate:** no save line while saving works; not-persistent and 95 % full each show
+  their own line; a forced failure shows "Not saved: ... Export a backup now". The forced
+  failure is checked last, because after a failed save the app keeps the session in memory
+  and does not silently trust storage again.
+- **The backup line:** "none made yet" for a log 18 days old; with 3 exports the 7-day rule
+  (not at 2 days, shown at 8); with 5 exports 3 days apart, 1.5 x the median (not at
+  3 d 16 h, shown at 5 d 2 h). One real tap opens Settings at Export backup.
+- strip-gate's STRIP 1 now allows the backup line beside the fresh glucose.
+- **Gates alone, first pass: two gate flaws, no app bug.** cold-start-gate and
+  offline-gate read the save line's text as their sign that real storage is in use.
+  Headless Chrome answers `persisted()` with false, so the line now rightly shows its
+  "may delete your data" words there. Both gates now read the tier's own message
+  (`Store.status()`), the signal they meant; both pass. Every other gate passed alone.

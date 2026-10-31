@@ -176,6 +176,7 @@ try {
       { id: 'claim-a', claim: 'Placeholder claim A.', subject: { stack_item: 'Item A', compound: 'compound a' }, reviewed_by_me: '2026-10-31', evidence: { grade: 'low', human: true }, probability: P(0.6, 'that placeholder A holds'), attributions: [{ source: 'src-a', kind: 'quote' }] },
       { id: 'claim-b', claim: 'Unreviewed placeholder B.', subject: { stack_item: 'item a ' }, reviewed_by_me: null, evidence: { grade: 'low' }, probability: P(0.5, 'that B holds'), attributions: [] },
       { id: 'claim-c', claim: 'Placeholder claim C.', subject: { stack_item: 'Item C' }, reviewed_by_me: '2026-10-31', evidence: { grade: 'moderate', human: false }, probability: P(0.3, 'that placeholder C holds'), attributions: [{ source: 'src-a', kind: 'quote' }] },
+      { id: 'claim-q', claim: 'Placeholder claim Q.', subject: { stack_item: 'Item Q', match: ['compound q', 'ack'] }, reviewed_by_me: '2026-10-31', evidence: { grade: 'low', human: true }, probability: P(0.55, 'that placeholder Q holds'), attributions: [] },
       { id: 'claim-g', claim: 'Placeholder group claim G.', reviewed_by_me: '2026-10-31', evidence: { grade: 'low' }, probability: P(0.6, 'that placeholder G holds'), attributions: [] }],
     interactions: [], reference_intakes: { source: 'x', group: 'y', values: {} }, lexicon: { rules: [] },
     sources: [{ id: 'src-a', authors: 'Author A et al.', venue: 'Journal A', year: 2020 }] };
@@ -186,15 +187,22 @@ try {
   }).then(function (r) {
     HT.state().settings.stack = [
       { id: 'sa', name: 'Item A', kind: 'dose', enabled: true, dose: 600, dose_unit: 'mg', added_on: '2026-10-01', added_basis: 'added' },
-      { id: 'sc', name: 'Item C', kind: 'dose', enabled: true, dose: 100, dose_unit: 'mg', added_on: '2026-10-01', added_basis: 'added', nutrients: { micros: { magnesium_mg: 100 } } }];
+      { id: 'sc', name: 'Item C', kind: 'dose', enabled: true, dose: 100, dose_unit: 'mg', added_on: '2026-10-01', added_basis: 'added', nutrients: { micros: { magnesium_mg: 100 } } },
+      { id: 'sx', name: 'Product X Capsules', kind: 'dose', enabled: true, dose: 1, dose_unit: 'capsule', added_on: '2026-10-01', added_basis: 'added',
+        product: { ns: 'lnhpd', npn: '80000009', id: '9', name: 'Product X Capsules', status: 'active', dosage_form: 'Capsule', ingredients: [{ name: 'Compound Q', amount: 100, unit: 'mg' }] } },
+      { id: 'sn', name: 'Snack bar', kind: 'dose', enabled: true, dose: 1, dose_unit: 'mg', added_on: '2026-10-01', added_basis: 'added' }];
     HT.resave(); HT.refresh();
-    return { imported: r.ok, version: r.version, claimsA: HT.stackClaims(HT.state().settings.stack[0]).map(function (c) { return c.id; }) };
+    var st = HT.state().settings.stack;
+    return { imported: r.ok, version: r.version, claimsA: HT.stackClaims(st[0]).map(function (c) { return c.id; }),
+             claimsX: HT.stackClaims(st[2]).map(function (c) { return c.id; }), claimsN: HT.stackClaims(st[3]).map(function (c) { return c.id; }) };
   });
 })()
 '@
   Write-Host ("  fixture: " + $fx)
   if (-not ($fx -like '*"imported":true*')) { Write-Host "ERROR: the placeholder pack did not import"; Cleanup; exit 2 }
   Check ($fx.Contains('"claimsA":["claim-a"]')) "R305/3: an item's claims are the REVIEWED ones naming it -- the planted unreviewed claim naming the same item (other case, a trailing space) is not among them"
+
+  Check (($fx.Contains('"claimsX":["claim-q"]')) -and ($fx.Contains('"claimsN":[]'))) "v0.123.0: an item named for its product ('Product X Capsules') shows the claim whose match term is its LICENSED INGREDIENT ('Compound Q'); the term 'ack' does not match inside 'Snack bar'"
 
   # ---- + Log: the non-nutrient item and the item with nutrients ------------------------------
   $null = EvalJ "(function(){ HT.openSheet('root'); HT.stackOpen(); return 1; })()"

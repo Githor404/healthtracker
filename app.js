@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.122.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.123.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2359,8 +2359,16 @@ function backupLast() {
   if (!raw) return null;
   try { const o = JSON.parse(raw); return (o && typeof o.at === 'string') ? o : null; } catch (e) { return null; }
 }
+// R310: every export's moment, kept on the phone (not in the backup), for the median gap
+const BACKUP_LOG_KEY = 'healthtracker-backup-log';
+function backupLog() {
+  let a = [];
+  try { a = JSON.parse(Store.readRaw(BACKUP_LOG_KEY) || '[]'); } catch (e) { a = []; }
+  return Array.isArray(a) ? a.filter(function (x) { return typeof x === 'string' && Date.parse(x) > 0; }) : [];
+}
 function backupMark(name, how) {
   const rec = { at: nowDate().toISOString(), date: localDate(), name: String(name), how: String(how) };
+  Store.writeAux(BACKUP_LOG_KEY, JSON.stringify(backupLog().concat([rec.at]).slice(-60)));
   Store.writeAux(BACKUP_KEY, JSON.stringify(rec));
   renderBackupLast();
   return rec;
@@ -4060,20 +4068,56 @@ function measureOverdue(now) {
   });
   return out.sort(function (a, b) { return b.ratio - a.ratio; });
 }
+// R310: the backup, beside the measurements -- overdue past 1.5 x the user's own median gap
+// between exports (from 5 exports), else past 7 days; never exported: once the first
+// logged day is 7 days old. A fact, and one tap to Export backup.
+const BACKUP_DUE_FALLBACK_MS = 7 * 86400000;
+function backupOverdue(now) {
+  const last = backupLast();
+  const lastMs = last ? Date.parse(last.at) : null;
+  if (lastMs == null) {
+    const first = Object.keys(APP_STATE.days || {}).filter(isDayKey).sort()[0];
+    if (!first || now - dayKeyMs(first) < BACKUP_DUE_FALLBACK_MS) return null;
+    return { label: 'Backup', text: 'Backup \u00b7 none made yet', ratio: 1.5, backup: true };
+  }
+  const t = backupLog().map(Date.parse).sort(function (a, b) { return a - b; });
+  let limit = BACKUP_DUE_FALLBACK_MS, med = null;
+  if (t.length >= CTX_OVERDUE_MIN_N) {
+    const gaps = []; for (let i = 1; i < t.length; i++) gaps.push(t[i] - t[i - 1]);
+    gaps.sort(function (a, b) { return a - b; });
+    med = gaps.length % 2 ? gaps[(gaps.length - 1) / 2] : (gaps[gaps.length / 2 - 1] + gaps[gaps.length / 2]) / 2;
+    if (med > 0) limit = CTX_OVERDUE_FACTOR * med;
+  }
+  const since = now - lastMs;
+  if (!(since > limit)) return null;
+  return { label: 'Backup', text: 'Backup \u00b7 last one ' + ageWords(since), ratio: CTX_OVERDUE_FACTOR * since / limit, backup: true, median: med };
+}
+function openBackupExport() {
+  if (typeof openSettings === 'function') openSettings();
+  const c = document.querySelector('[data-setting="export"]');
+  if (c && c.scrollIntoView) c.scrollIntoView({ block: 'center' });
+  const b = document.getElementById('backupBtn'); if (b && b.focus) b.focus();
+  return { ok: !!c };
+}
 function ctxRestingLines() {
   const now = nowMs(), lines = [];
   const g = fastOpenNow();
   if (g && g.fast) lines.push('Fasting ' + Math.floor(g.mins / 60) + ' h ' + (g.mins % 60) + ' min');
-  measureOverdue(now).forEach(function (o) { lines.push(o.text); });
+  const due = measureOverdue(now), bk = backupOverdue(now);
+  if (bk) due.push(bk);
+  due.sort(function (a, b) { return b.ratio - a.ratio; }).forEach(function (o) {
+    lines.push(o.backup ? { text: o.text, html: '<button type="button" class="linklike ctxlink ctxbackup" onclick="openBackupExport()">' + esc(o.text) + ' \u203a</button>' } : o.text);
+  });
   const gms = glucoseLastMs();
   if (gms != null && now - gms < CTX_GLUCOSE_FRESH_MS && now - gms >= -60000) lines.push(ctxGlucoseWords());
   return lines.slice(0, 2);
 }
+function ctxRestingWords() { return ctxRestingLines().map(function (l) { return typeof l === 'string' ? l : l.text; }); }
 function ctxQuietHTML(n) {
   const head = (n && n.kind !== 'none') ? 'Nothing new in 3 h' : 'Now';
   // R308.1: only what is pertinent (the latest glucose moved to the Glucose section);
   // no lines -> no box.
-  return { head: head, lines: ctxRestingLines().map(esc), pw: [], quiet: true };
+  return { head: head, lines: ctxRestingLines().map(function (l) { return typeof l === 'string' ? esc(l) : l.html; }), pw: [], quiet: true };
 }
 // What the kept contents depend on. Anything here changing works them out again; the
 // glucose stream is compared by its kept build (glucoseFlat), so readings arriving do too.
@@ -5585,13 +5629,23 @@ function intakeFlagText(f) {
 // in the words "linked claims", never "effects": a claim is a sourced statement with its
 // probability and GRADE, not something the item is said to do for you.
 let STACK_CLAIMS_OPEN = null;      // the item whose claims the strip's link asked to open
+// v0.123.0: or by the compound's own names (`subject.match`), as whole words in the item's
+// name or a licensed ingredient's -- an NPN lookup renames an item to its product name.
+function claimTermIn(term, text) {
+  const t = String(term || '').trim().toLowerCase();
+  if (!t) return false;
+  const rx = new RegExp('(^|[^a-z0-9])' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z0-9])');
+  return rx.test(String(text || '').toLowerCase());
+}
 function stackClaims(s) {
   const P = packLoad();
   const nm = String((s && s.name) || '').trim().toLowerCase();
   if (!P || !nm) return [];
+  const names = [nm].concat(((s.product && s.product.ingredients) || []).map(function (g) { return String((g && g.name) || '').toLowerCase(); }));
   return (P.claims || []).filter(function (c) {
-    return c && /^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || ''))
-      && c.subject && String(c.subject.stack_item || '').trim().toLowerCase() === nm;
+    if (!c || !/^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || '')) || !c.subject) return false;
+    if (String(c.subject.stack_item || '').trim().toLowerCase() === nm) return true;
+    return (c.subject.match || []).some(function (t) { return names.some(function (x) { return claimTermIn(t, x); }); });
   });
 }
 function stackHasNutrients(s) {
@@ -6202,12 +6256,20 @@ function stackMultiNutrients(r, item) {
   if (prod) {
     const units = num(item.dose) > 0 ? num(item.dose) : 1;
     if (productCounts(prod)) {
+      // v0.123.0: a product may state ONE amount twice, in two units (a vitamin as 25
+      // mcg, and again as its equivalent in IU). A second row of the same ingredient whose amount
+      // converts to one already counted (within 2 %) is that amount restated, not more of
+      // it. Rows with different amounts still add up.
+      const seen = {};
       prod.ingredients.forEach(function (g) {
         const k = suppKeyFor(g.name), u = suppUnit(g.unit);
         if (!k || !u || g.amount == null) return;
         const per = doseToMicro(k, g.amount, u);
         if (per == null) return;
         if (micros[k] != null && !detail[k]) return;          // a typed single key already says it
+        const nm = String(g.name || '').trim().toLowerCase() + '|' + k;
+        if ((seen[nm] || []).some(function (q) { return Math.abs(q - per) <= 0.02 * Math.max(q, per); })) return;
+        (seen[nm] = seen[nm] || []).push(per);
         micros[k] = (micros[k] || 0) + per * units;
         const d = { amount: g.amount, unit: u, per: 'unit', source: prod.ns === 'lnhpd' ? 'lnhpd' : 'label-photo' };
         if (g.form) d.form = g.form;
@@ -17875,12 +17937,35 @@ function renderHistory() {
 }
 
 // ---- observation harness (minimal; not the real UI) -----------------------
+// R310: shown only when saving is at risk, in plain words with what to do. While all is
+// well it is hidden (its text stays, for the gates that read it as the storage signal).
+let STORE_PERSISTED = null, STORE_FULL = null;          // from navigator.storage, when it answers
+function storageRiskCheck() {
+  try {
+    const st = navigator.storage;
+    if (st && st.persisted) st.persisted().then(function (v) { STORE_PERSISTED = !!v; renderBadge(); }, function () {});
+    if (st && st.estimate) st.estimate().then(function (e) { STORE_FULL = (e && e.quota > 0) ? e.usage / e.quota : null; renderBadge(); }, function () {});
+  } catch (e) {}
+}
+// A test seam, in the manner of setClock: the browser's own answers, set by a gate.
+function storageRiskSet(o) { o = o || {}; if ('persisted' in o) STORE_PERSISTED = o.persisted; if ('full' in o) STORE_FULL = o.full; renderBadge(); return { persisted: STORE_PERSISTED, full: STORE_FULL }; }
+function storeRisk() {
+  const s = Store.status();
+  if (!s.ok) return s.tier === 'memory' && /private|blocked/.test(s.message)
+    ? 'Not saved: this browser is not keeping your data (private browsing, or storage blocked). Export a backup before you close the app.'
+    : 'Not saved: this browser refused to store your last change. Export a backup now (Settings, Backup).';
+  if (STORE_FULL != null && STORE_FULL > 0.9) return 'Storage is ' + Math.round(100 * STORE_FULL) + ' % full. Export a backup now (Settings, Backup).';
+  if (STORE_PERSISTED === false) return 'This browser may delete your data if the phone runs low on space. Export backups regularly; on iPhone, open the app from the Home Screen.';
+  return '';
+}
 function renderBadge() {
   const el = document.getElementById('storeBadge');
   if (!el) return;
   const s = Store.status();
-  el.textContent = s.message;
-  el.style.color = s.ok ? 'var(--good)' : 'var(--warn)';
+  const risk = storeRisk();
+  el.textContent = risk || s.message;
+  el.style.color = risk ? 'var(--warn)' : 'var(--good)';
+  el.hidden = !risk;
 }
 function renderDataStatus() {
   const el = document.getElementById('dataStatus');
@@ -18121,6 +18206,7 @@ const VERSION_LOG = [
   { v: '0.121.0', d: '2026-10-31', note: 'The Micronutrients section now tracks your day: each nutrient shows one total, how much of the day’s food (by weight) has a value for it -- “82 % of the day’s food known” -- and, if you have the pathway pack, your reference intake beside it. Under 60 % known the total is dimmed and marked partial; a nutrient nothing has a value for shows a dash, never zero. Your stack is included and says how much came from it. At the top, “N foods have no nutrient data -- link them” opens the three closest database rows for each; nothing counts until you tap one.' },
   { v: '0.122.0', d: '2026-10-31', note: 'Every graph in Trends now zooms like the blood-pressure chart: tap + for 2, 4 or 8 times wider and scroll sideways, with the numbers held at the left; the readings sit at their real times, so a week without one looks like a week. The glucose chart keeps its own zoom and the arrows to move along. And your own goal lines: in Settings, Goals, Lines on graphs, set one number or a band (low to high) for any graph; it is drawn as a plain dashed line with its value -- no colours, no verdicts. Remove it and the line goes. Your goals are in your backup.' },
   { v: '0.122.1', d: '2026-10-31', note: 'The dates under the blood-pressure chart no longer run into each other: when there is not room for every date, every tick mark stays and only the dates that fit are written. The same for the Trends graphs.' },
+  { v: '0.123.0', d: '2026-10-31', note: 'Three things. Claims stay with your stack items when you look them up by NPN: they now match the product’s licensed ingredient (its common, botanical or chemical name), not only the name you gave the item. A licensed product that states an amount twice in two units -- a vitamin in mcg and again in IU -- is now counted once; if you saved such an item before, open its Edit and Save it once to correct its total. And the line saying the app saved in this browser is gone while all is well; it only appears, in plain words, if saving fails or storage is at risk. When your last backup is later than your usual gap between backups (or 7 days, until you have five), the box at the top says so, and a tap takes you to Export backup.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -27659,6 +27745,7 @@ function ptrInstall() {
 function main() {
   boot();
   requestPersistentStorage();
+  storageRiskCheck();                // R310: the save line shows only when saving is at risk
   ptrInstall();                      // R300.1
   checkVersionNotice();
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
@@ -27994,7 +28081,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
