@@ -20427,3 +20427,38 @@ read real time.
   to match the old counting.
 - The wake time is read back through the real clock.
 - The count is unchanged (3444).
+
+## R300.1 part 1 -- PULL DOWN TO UPDATE (2026-10-31, v0.116.0)
+
+*Ruled: on the home screen, a pull down at the top checks for a new app version and
+reloads into it. With no new version it redraws and says "Up to date (vX.Y.Z)". It
+triggers only at the top, never fights normal scrolling, and works in the iPhone
+home-screen app.*
+
+**Built:**
+- **When it starts.** A touch counts as a pull only when the page is at the top and nothing
+  is open over it (the overlay count `overlayVisible`, the same count the scroll lock uses).
+  It stops counting once it moves more sideways than down, or moves up, or the page leaves
+  the top.
+- **The line.** At 70 px the line at the top changes from "Pull to check for updates" to
+  "Release to check for updates". Let go there, and it checks.
+- **The check.** It is the `reg.update()` an app-switcher resume already uses. A new
+  version installs and takes over (skipWaiting + claim), and the page reloads once through
+  index.html's `controllerchange` path. So the new version is picked up without closing
+  the app. With none, the page redraws and the bar says "Up to date (v0.116.0)". Offline,
+  it says it could not check.
+- **No fighting the scroll.** The listeners are passive and nothing is prevented, so the
+  page scrolls exactly as before.
+
+**Gate: `update-gate`, step 6** (real CDP touch events):
+- **a.** A pull at the top with nothing new makes one check. The page stays (no reload)
+  and says "Up to date (vX.Y.Z)".
+- **b.** A 40 px pull is not a pull. A pull that starts mid-page makes no check, and the
+  page scrolled normally (900 -> ~580).
+- **c.** A new shell on the server is not picked up without a pull (the control). One pull
+  at the top makes it live with no navigation.
+- **iPhone.** The home-screen app delivers the same touch events. How the pull feels on
+  the phone is for the user to sign off.
+
+The line was looked at in 390 px screenshots, light and dark. Its first text wrapped to
+two lines over the title, so it was shortened.

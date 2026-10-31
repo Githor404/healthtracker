@@ -698,6 +698,12 @@
   .plrow{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;width:100%;min-height:44px;align-items:center;
     padding:6px 8px;margin:4px 0 0;border:1px solid var(--line);border-radius:8px;background:var(--card);
     color:var(--fg);font-size:16px;font-family:inherit;text-align:left;cursor:pointer}
+  /* R300.1: pull down to update -- the line that says what a pull will do. */
+  .ptr{position:fixed;left:50%;transform:translateX(-50%);top:calc(env(safe-area-inset-top, 0px) + 8px);
+    z-index:60;max-width:calc(100% - 32px);padding:8px 14px;border-radius:18px;font-size:16px;
+    background:var(--panel);color:var(--txt);border:1px solid var(--line);box-shadow:0 2px 8px rgba(0,0,0,.15);
+    text-align:center;white-space:nowrap;pointer-events:none}
+  .ptr[hidden]{display:none}
   .plleft{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   /* R299.1: End meal -- one tap beside each leftovers reminder, 44px. */
   .plwrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
@@ -705,7 +711,7 @@
   .plitem{display:flex;gap:6px;align-items:stretch;margin:4px 0 0}
   .plitem .plrow{margin:0;flex:1 1 auto;min-width:0}
   .plend{flex:0 0 auto;width:auto;min-height:44px;padding:0 12px;font-size:16px;font-family:inherit;
-    border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);cursor:pointer}
+    border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt);cursor:pointer}
   .waterrow{display:flex;justify-content:space-between;align-items:center;font-size:16px;margin:8px 0}
   .wbtns{display:flex;gap:6px}
   .wbtns button{width:auto;font-size:16px;padding:6px 10px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--txt);font-weight:700;cursor:pointer}
@@ -2062,6 +2068,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
     </div>
     <div class="ofoot" id="outcomeFoot"></div>
   </div>
+  <div id="ptr" class="ptr" role="status" aria-live="polite" hidden></div>
   <div data-overlay="toast" class="toast" id="toast"></div>
   <div data-overlay="toast" class="logconfirm" id="logConfirm" role="status" aria-live="polite" hidden></div>
   <script src="app.js"></script>

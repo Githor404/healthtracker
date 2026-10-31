@@ -6,6 +6,12 @@
 #      page -- with NO gesture, NO SKIP_WAITING message -- must AUTOMATICALLY
 #      activate the new SW (skipWaiting + clients.claim) and serve the new shell
 #      (the token appears), while the client stayed open (not waiting for a close).
+#   3. R300.1: PULL DOWN TO UPDATE, by real CDP touch events at the top of the home
+#      screen. Nothing new: one check, the page stays, "Up to date (vX.Y.Z)". A 40 px
+#      pull and a pull that starts mid-page are not pulls (and the page still scrolls).
+#      A new shell on the server is NOT picked up until the pull (the control), and one
+#      pull makes it live with no navigation. iOS standalone delivers the same touch
+#      events; that it feels right on the phone is signed on the device.
 # The real "reopen -> Updated to vX notice, no force-quit" is signed on-device; it
 # is reliable because it applies on LOAD (a plain reopen), not on app-switcher resume.
 # Exit 0 PASS, 1 FAIL, 2 environment error.
@@ -112,7 +118,7 @@ $server = Start-Job -ArgumentList $repo, $port, $marker -ScriptBlock {
           $bytes += [System.Text.Encoding]::UTF8.GetBytes("`n// update-gate bump $level`n")
         } elseif ($rel -eq 'index.html' -and $level) {
           $txt = [System.IO.File]::ReadAllText($full)
-          $inject = if ($level -eq 'bump2') { '<!--UPDGATE-TOKEN--><!--UPDGATE-TOKEN2--></body>' } else { '<!--UPDGATE-TOKEN--></body>' }
+          $inject = if ($level -eq 'bump3') { '<!--UPDGATE-TOKEN--><!--UPDGATE-TOKEN2--><!--UPDGATE-TOKEN3--></body>' } elseif ($level -eq 'bump2') { '<!--UPDGATE-TOKEN--><!--UPDGATE-TOKEN2--></body>' } else { '<!--UPDGATE-TOKEN--></body>' }
           $txt = $txt.Replace('</body>', $inject)
           $bytes = [System.Text.Encoding]::UTF8.GetBytes($txt)
         } else {
@@ -195,6 +201,59 @@ try {
     if ([bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN2')>=0)")) { $resumeApplied = $true; break }
   }
 
+  # 6. R300.1 PULL DOWN TO UPDATE -- a REAL touch pull (CDP touch events, the path a
+  #    finger takes), at the top of the home screen.
+  #    a. nothing new on the server: the pull checks, the page stays (no reload) and says
+  #       "Up to date (vX.Y.Z)";
+  #    b. a pull that starts mid-page is a scroll, not a pull: no check;
+  #    c. a new shell (token3): one pull at the top and it is live, with NO navigation --
+  #       the app is not closed.
+  for ($bw = 0; $bw -lt 300; $bw++) { if ([bool](Eval "typeof HT === 'object' && typeof HT.ptrChecks === 'function' && document.readyState === 'complete'")) { break }; Start-Sleep -Milliseconds 100 }
+  WaitQuiet 'before the pulls'
+  Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
+  Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  function Pull([int]$x, [int]$y0, [int]$dy) {
+    Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y0 }) } | Out-Null
+    for ($k = 1; $k -le 8; $k++) {
+      Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(@{ x = $x; y = ($y0 + [int]($dy * $k / 8)) }) } | Out-Null }
+    Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null }
+  # a.
+  Eval "window.__ptrStay = 1; window.scrollTo(0, 0); 1" | Out-Null
+  $c0 = [int](Eval "HT.ptrChecks()")
+  Pull 195 200 140
+  $upToDate = $false; $toastText = ''
+  for ($i = 0; $i -lt 50; $i++) {
+    Start-Sleep -Milliseconds 100
+    $toastText = [string](Eval "(document.getElementById('toast') || {}).textContent || ''")
+    if ($toastText -like 'Up to date (v*') { $upToDate = $true; break } }
+  $ver = [string](Eval "'v' + HT.APP_VERSION")
+  $c1 = [int](Eval "HT.ptrChecks()")
+  $stayed = [bool](Eval "window.__ptrStay === 1")
+  $pullA = ($c1 -eq ($c0 + 1)) -and $upToDate -and ($toastText -eq ('Up to date (' + $ver + ')')) -and $stayed
+  # b. a short pull is not a pull either, and a pull that starts mid-page never checks
+  Pull 195 200 40
+  $c2 = [int](Eval "HT.ptrChecks()")
+  Eval "document.body.style.paddingBottom = '3000px'; window.scrollTo(0, 900); 1" | Out-Null
+  $midY = [int](Eval "Math.round(window.scrollY)")
+  Pull 195 300 140
+  Start-Sleep -Milliseconds 300
+  $c3 = [int](Eval "HT.ptrChecks()")
+  $midY2 = [int](Eval "Math.round(window.scrollY)")
+  Eval "document.body.style.paddingBottom = ''; window.scrollTo(0, 0); 1" | Out-Null
+  $pullB = ($c2 -eq $c1) -and ($midY -ge 800) -and ($c3 -eq $c1)
+  # c.
+  Set-Content -Path $marker -Value 'bump3' -Encoding ascii
+  # CONTROL: the new shell is on the server, and without the pull nothing picks it up
+  Start-Sleep -Milliseconds 2000
+  $before3 = [bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN3')>=0)")
+  Pull 195 200 140
+  $pullApplied = $false
+  for ($i = 0; $i -lt 30; $i++) {
+    Start-Sleep -Milliseconds 600
+    if ([bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN3')>=0)")) { $pullApplied = $true; break } }
+  $pullApplied = $pullApplied -and (-not $before3)
+  for ($bw = 0; $bw -lt 300; $bw++) { if ([bool](Eval "typeof HT === 'object' && document.readyState === 'complete'")) { break }; Start-Sleep -Milliseconds 100 }
+
   # 5. THE VERSION LINE IS WHERE IT IS CLAIMED TO BE (v0.22.1).
   #    v0.22.0 shipped a changelog line saying Settings shows the version, and it
   #    did not: the element sat on the page's OTHER .about line, a SIBLING of
@@ -226,11 +285,14 @@ try {
   Write-Host ("  2. shell change -> auto-applies on LOAD (token):      {0}  [force-and-notify]" -f $loadApplied)
   Write-Host ("  3. page controlled before resume:                     {0}" -f $controlled)
   Write-Host ("  4. shell change -> auto-applies on RESUME (token2):   {0}  [v0.5.1 visibilitychange, no navigation]" -f $resumeApplied)
+  Write-Host ("  6a. R300.1 pull at the top, nothing new: one check, stays, '{0}':  {1}" -f $toastText, $pullA)
+  Write-Host ("  6b. a 40 px pull, and a pull mid-page (scrollY {0} -> {1}): no check:  {2}" -f $midY, $midY2, $pullB)
+  Write-Host ("  6c. shell change -> not live without a pull ({1}); one pull at the top -> live (token3), no navigation:  {0}" -f $pullApplied, (-not $before3))
   Write-Host ("  5. version line INSIDE #settingsPanel, visible:       {0}  [text: '{1}']" -f $vlOk, $vlText)
   Write-Host ("     found={0} inPanel={1} shaped={2} honest={3} visible={4}" -f $vlFound, $vlInPanel, $vlShaped, $vlHonest, $vlVisible)
   Write-Host "-----------------------------------------"
-  if ($v1active -and $loadApplied -and $controlled -and $resumeApplied -and $vlOk) {
-    Write-Host "UPDATE GATE: PASS (auto-applies on both load and app-switcher resume; no gesture; version line is in Settings)"
+  if ($v1active -and $loadApplied -and $controlled -and $resumeApplied -and $vlOk -and $pullA -and $pullB -and $pullApplied) {
+    Write-Host "UPDATE GATE: PASS (auto-applies on load, on app-switcher resume and on a pull down at the top; a pull mid-page is a scroll; version line is in Settings)"
     Cleanup; exit 0
   }
   Write-Host "UPDATE GATE: FAIL"

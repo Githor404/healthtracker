@@ -142,6 +142,8 @@ Preconditions (https/localhost, getUserMedia support), the getUserMedia constrai
 - **So:** do not delete `priceLog` and do not plan work against it. If price capture is ever wanted it gets pre-registered then, like anything else. Nearby-prices-from-Open-Prices is **withdrawn** as a plan, not deferred: it was a v4 roadmap capability and v5 has no roadmap slot for it.
 - The privacy stance about location stands regardless: device location is used only when the user invokes a nearby-price comparison, is sent only as an Open Prices query parameter, and is never stored. Since no such call exists, the app currently sends location **nowhere**.
 
+**Pull down to update (R300.1, v0.116.0).** On the home screen, at the top and with nothing open over the page, a 70 px pull runs the service worker's update check (the resume path's `reg.update()`): a new version takes over and the page reloads once, without closing the app; none -- a redraw and "Up to date (vX.Y.Z)". Passive listeners; a pull mid-page is a scroll. Gated by `update-gate` (step 6).
+
 **Time (R301, v0.115.1).** Every duration is real elapsed time -- sleep, fasts and the 12 h / 48 h lines, glucose windows, the strip's 3 h -- and every time shown is the local wall clock; a night across the night the clocks go back is 9 h, not 8. A wall-clock time becomes a moment through `wallMs` (plain days keep the old arithmetic); the ring places things on the wall clock. *Known limits, reported for a ruling:* the glucose store keys a reading by its wall-clock minute, so the hour that happens twice is held once; and E-lite reads a night as starting on the day it is filed under, where the rest of the app files it under the day it ended. Gated by `dst-gate`.
 
 ## Architecture constraints (unchanged, restated)

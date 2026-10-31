@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.115.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.116.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -17575,6 +17575,7 @@ const VERSION_LOG = [
   { v: '0.114.1', d: '2026-10-29', note: 'Faster again: each meal’s glucose response is now worked out once per redraw instead of once for every panel that shows it, so the page redraws in about two thirds of the time (about 26 ms to about 17 ms on a recent backup). Nothing you see changes.' },
   { v: '0.115.0', d: '2026-10-31', note: 'End meal: when you ate only part of something, the reminder about the rest now has an End meal button. One tap and the rest is recorded as not eaten by you, with the time, and the reminder is gone. Only what you ate counts, as before; nothing you logged changes. It works on reminders that were already there too, on the day and in + Log under Leftovers.' },
   { v: '0.115.1', d: '2026-10-31', note: 'Times across a clock change are now measured in real hours. Tonight the clocks go back an hour: a night from 23:00 to 07:00 is 9 hours, and the app now says 9, not 8. The same goes for how long a fast has run, the 12-hour and 48-hour fasting rules, the 2-hour window after a meal and a night of glucose. Every time you see is still the clock on the wall.' },
+  { v: '0.116.0', d: '2026-10-31', note: 'Pull down to update: at the top of the home screen, pull down and let go to check for a new version of the app. If there is one it loads straight away, without closing the app; if not, the page redraws and says Up to date with the version you have.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -27039,9 +27040,73 @@ function renderDrugInfo() {
   el.innerHTML = `<div class="drugpanel">${head}${body}</div>`;
 }
 
+// R300.1: PULL DOWN TO UPDATE. On the home screen, scrolled to the top and with
+// nothing open over the page, a pull of PTR_PULL_PX asks the browser to check sw.js
+// again -- the same reg.update() a resume uses. A new version installs, takes over
+// (skipWaiting + claim) and the page reloads once through index.html's
+// controllerchange path, so the app picks it up without being closed. No new
+// version: the page redraws and says "Up to date (vX.Y.Z)".
+// It never fights a scroll: the listeners are passive and nothing is prevented; a
+// pull that starts below the top, or moves more sideways than down, is not a pull.
+const PTR_PULL_PX = 70;
+let PTR = null;            // { y0, x0, armed } while a touch that may be a pull is down
+let PTR_CHECKS = 0;        // a counter for the gate: how many checks a pull started
+function ptrChecks() { return PTR_CHECKS; }
+function ptrAtTop() { return (window.scrollY || document.documentElement.scrollTop || 0) <= 0; }
+function ptrShow(text) {
+  const el = document.getElementById('ptr');
+  if (!el) return;
+  if (!text) { el.hidden = true; el.textContent = ''; return; }
+  el.textContent = text; el.hidden = false;
+}
+function ptrStart(e) {
+  PTR = null;
+  if (!e.touches || e.touches.length !== 1) return;
+  if (!ptrAtTop() || overlayVisible() > 0) return;
+  PTR = { y0: e.touches[0].clientY, x0: e.touches[0].clientX, armed: false };
+}
+function ptrMove(e) {
+  if (!PTR || !e.touches || !e.touches.length) return;
+  const dy = e.touches[0].clientY - PTR.y0, dx = Math.abs(e.touches[0].clientX - PTR.x0);
+  if (dy < 0 || dx > dy || !ptrAtTop()) { PTR = null; ptrShow(''); return; }
+  PTR.armed = dy >= PTR_PULL_PX;
+  if (dy > 12) ptrShow(PTR.armed ? 'Release to check for updates' : 'Pull to check for updates');
+}
+function ptrEnd() {
+  const p = PTR; PTR = null;
+  if (!p || !p.armed) { ptrShow(''); return; }
+  appUpdateCheck();
+}
+function appUpdateCheck() {
+  PTR_CHECKS++;
+  ptrShow('Checking for updates…');
+  const upToDate = function () {
+    ptrShow(''); refresh(); toast('Up to date (v' + APP_VERSION + ')');
+    return { found: false };
+  };
+  if (!('serviceWorker' in navigator) || !navigator.serviceWorker.getRegistration) return Promise.resolve(upToDate());
+  return navigator.serviceWorker.getRegistration().then(function (reg) {
+    if (!reg || !reg.update) return upToDate();
+    return Promise.resolve(reg.update()).then(function () {
+      if (reg.installing || reg.waiting) { ptrShow('Updating…'); return { found: true }; }
+      return upToDate();
+    });
+  }).catch(function () {
+    ptrShow(''); refresh(); toast('Could not check for updates (offline?)');
+    return { found: false, error: true };
+  });
+}
+function ptrInstall() {
+  document.addEventListener('touchstart', ptrStart, { passive: true });
+  document.addEventListener('touchmove', ptrMove, { passive: true });
+  document.addEventListener('touchend', ptrEnd, { passive: true });
+  document.addEventListener('touchcancel', function () { PTR = null; ptrShow(''); }, { passive: true });
+}
+
 function main() {
   boot();
   requestPersistentStorage();
+  ptrInstall();                      // R300.1
   checkVersionNotice();
   renderMicroFields('maMicros', 'ma_micro_', 'maMicroCount');
   renderStackEditor();
@@ -27375,7 +27440,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, wallMs, dayEndMs, absRealMin, sleepSpan,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
