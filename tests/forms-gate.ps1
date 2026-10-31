@@ -244,6 +244,7 @@ try {
 (function () {
   // The day's meal groups open on a tap and the rows live inside them. Opened so
   // the row can be read; the ROW is not opened -- the line must show without that.
+  if (HT.dayGroupsOpenAll) HT.dayGroupsOpenAll(true);   // R304: the groups are drawn under their open meal ring
   Array.prototype.forEach.call(document.querySelectorAll('#dayView .mghead'), function (h) {
     if (h.className.indexOf('bghead') < 0 && h.getAttribute('aria-expanded') !== 'true') h.click(); });
   var d = HT.state().days[HT.state().current] || { items: [] };

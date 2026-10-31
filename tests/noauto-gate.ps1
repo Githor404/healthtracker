@@ -190,7 +190,7 @@ try {
   Invoke-CDP 'Page.reload' @{ ignoreCache = $false } | Out-Null
   WaitBoot
   [void](Eval "(function(){ window.__y = HT.shiftDate(HT.todayKey(), -1); return 1; })()")   # a reload clears the page's own variables
-  $open = "Array.prototype.forEach.call(document.querySelectorAll('#dayView .mghead'), function (h) { if (h.className.indexOf('bghead') < 0 && h.getAttribute('aria-expanded') !== 'true') h.click(); });"
+  $open = "if (HT.dayGroupsOpenAll) HT.dayGroupsOpenAll(true); Array.prototype.forEach.call(document.querySelectorAll('#dayView .mghead'), function (h) { if (h.className.indexOf('bghead') < 0 && h.getAttribute('aria-expanded') !== 'true') h.click(); });"
 
   # ---- 1. the migration ---------------------------------------------------------------
   $m = EvalJ @'
@@ -235,7 +235,7 @@ try {
   Check (($rv.anywhere -eq 0) -and ($rv.back -eq $true)) "and no other day gained one either"
 
   # ---- 3. the day's groups, on the reported day -------------------------------------------
-  [void](Eval "(function(){ HT.dayJump(window.__y); return 1; })()")
+  [void](Eval "(function(){ HT.dayJump(window.__y); HT.dayGroupsOpenAll(true); return 1; })()")   # R304: the headers are drawn under the open rings
   Settle
   $g = EvalJ @'
 (function () {
@@ -246,6 +246,7 @@ try {
            groups: document.querySelectorAll('#dayView .mgrp[data-kind]').length };
 })()
 '@
+  [void](Eval "(function(){ HT.dayGroupsOpenAll(false); return 1; })()")
   Write-Host ("  the reported day: " + $g)
   $gv = $g | ConvertFrom-Json
   Check (($gv.current -eq $true) -and (@($gv.snack).Count -eq 1) -and ($gv.snack[0] -like '3 items*23:02*') -and (-not ($gv.snack[0] -like '*02:16*')) -and ($gv.snackCal[0] -like '865*')) "R202 GATE: the snack header reads '865 cal . 3 items . 23:02' -- the food's own time. It read '4 items . 02:16'"

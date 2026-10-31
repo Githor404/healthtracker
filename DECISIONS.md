@@ -20743,3 +20743,43 @@ figures move under the "Ring key" button, centred.
 - **Reported:** how far up the meals moved (px) against today, on the user's backup at
   390 px.
 - **Release** under the standing pre-run rule.
+
+## R304 -- BUILT (v0.118.0), against its pre-registration
+
+**Built as pre-registered:** 1-4 and 5's fix.
+- **Two readings of the ruling:**
+  - "Clear this day" stays on the day as proposed. It already was a small underlined text
+    link (`.clrday`); its confirmation, Undo and trash are unchanged.
+  - "Close this day" became a text link in the app's accent link style, centred. It keeps
+    the bold accent so that "Clear" (muted, light) is not mistakable for it (R19).
+- **Sizes:** the rings are 149 px at 390 and 134 px at 360. The pre-registration said about
+  125. The ring is its half of the row, less the cell's padding, and 134 is what fits.
+
+**Moved up, on the user's backup (28 Oct, 21:30):**
+- The meals start at 788 px from the top, against 1,006 before at 390 px (-218 px) and
+  990 at 360 px (-202 px).
+- The day card starts 48 px higher, because the quiet strip is shorter.
+
+**Existing gates re-pointed** (the assertions keep their claims; only where they look
+changed):
+- **served, forms, noauto:** the groups open through the rings (the open-all seam) before
+  the header loop.
+- **review:** its "real tap on the meal" is a real tap on the meal's ring. The dinner
+  ring is re-opened after the snack's, one ring at a time.
+- **landing:** R159.1's "headers for meals with items, one muted line for the empties"
+  becomes rings for the meals with items and a faint ring per empty one, each a 44 px
+  target; header checks are read with the rings open. "Biometrics mentions glucose"
+  becomes R304/4b's one glucose summary: a glucose-only day draws no Biometrics group.
+- **weekly:** "the centre says fasting" reads the line under the date.
+- **strip:** the quiet state is glucose only at 64 px. The action kinds are 112 px with no
+  shift among them, and the page moves by exactly the difference when one appears.
+- **Harness:**
+  - H1 reads the coverage line in the Micronutrients section.
+  - R202 opens the snack ring.
+  - R19's "different chrome" accepts two text links that differ in colour and weight.
+  - The count is unchanged (3444).
+- **Also fixed:** the meal-ring labels started at 14 px and the H9 floor caught it. They
+  are 16 px.
+
+**5, verified:** dst-gate reads a Toronto-ingested day in America/Vancouver. Every
+reading is at its real moment, and the newest is "1 h 45 min ago", not hours AHEAD.

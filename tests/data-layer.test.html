@@ -584,7 +584,12 @@ window.setLS({});
   HT.state().days[td].items.push(mkItem({ name:'m', kcal:1, micros:{ iron_mg:2 } }));
   HT.state().days[dayOffset(-1)] = mkDay([ mkItem({ name:'m2', kcal:1, micros:{ iron_mg:2 } }) ]);
   HT.refresh();
-  res(document.getElementById('dayView').innerHTML.indexOf('labeled intake only') >= 0, 'H1: daily summary micro block carries the honesty label');
+  // R304/4a: the day's micronutrients are shown in ONE place now, the Micronutrients
+  // section; its coverage line is the honesty statement there (D140/2).
+  HT.panelToggle(true); HT.refresh();
+  res(/from \d+ of \d+ item/.test((document.getElementById('microPanel') || {}).textContent || '') && document.getElementById('dayView').innerHTML.indexOf('labeled intake only') < 0,
+      'H1 (re-pointed R304): the day\'s micronutrients, shown only in the Micronutrients section, carry their coverage there -- and the old table is gone from the top');
+  HT.panelToggle(false);
   res(document.getElementById('averages').innerHTML.indexOf('labeled intake only') >= 0, 'H1: averages micro block carries the honesty label');
 
   // ---- First-run + AI prompt template (D11) -----------------------------
@@ -1943,10 +1948,11 @@ window.setLS({});
   HT.state().current = gk; HT.dayGroupsOpenAll(false); HT.renderDay();
   HT.state().days[gk].items = [gIt('Cheese', 'snack', '16:00', 400), gIt('Late', 'snack', '23:02', 300)];
   HT.renderDay();
+  HT.mealRingTap('snack');   // R304: the groups are drawn under their ring when it is open
   var gHeads = Array.prototype.map.call(document.querySelectorAll('#dayView .mgrp[data-kind="snack"] .mgmeta'), function (e) { return e.textContent; });
   res(gHeads.length === 2 && gHeads[0].indexOf('16:00') > 0 && gHeads[1].indexOf('23:02') > 0 && gHeads[0].indexOf('23:02') < 0,
       'R202 GATE: RENDERED -- two snack headers on the day, each with its own time', JSON.stringify(gHeads));
-  HT.dayGroupToggle('snack#2');
+  HT.dayGroupToggle('snack');   // R304: the ring opened both sittings; close the earlier one by hand
   var gOpen = Array.prototype.map.call(document.querySelectorAll('#dayView .mgrp[data-kind="snack"] .mghead'), function (e) { return e.getAttribute('aria-expanded'); });
   res(gOpen.join(',') === 'false,true', 'R202: and they open separately -- opening the late one leaves the earlier one closed');
   HT.dayGroupToggle('snack#2');
@@ -3341,7 +3347,7 @@ window.setLS({});
     // of the affirmative one above it. Measured in the SHIPPED shell, laid out --
     // "it is a different class" is not the property that stops a mis-tap.
     var seClr = SEDOC.querySelector('.clrday');
-    var seDone = SEDOC.querySelector('#dayView .btn.big');
+    var seDone = SEDOC.querySelector('#dayView .dayclose, #dayView .btn.big');   // R304: "Close this day" is a text link now
     res(!!seClr && !!seDone, 'R19-demote: both the complete and the clear controls render on the day view');
     if (seClr && seDone) {
       var rc = seClr.getBoundingClientRect(), rd = seDone.getBoundingClientRect();
@@ -3359,8 +3365,12 @@ window.setLS({});
       // repair H4.1-distinct took when HEIGHT turned out to be the wrong proxy.
       res(parseFloat(sc.fontWeight) < parseFloat(sd.fontWeight),
           'R19-demote (re-pointed): LIGHTER than the action it sits under -- with a 16px floor, weight carries the demotion size no longer can');
-      res(sc.backgroundColor !== sd.backgroundColor || sc.borderStyle !== sd.borderStyle,
-          'R19-demote (re-pointed): and it carries different chrome, so the two do not read as one pair of buttons');
+      // R304: "Close this day" became a text link too, so neither is a button; what keeps them
+      // from reading as one pair is then colour AND weight, both asserted, not chrome.
+      var bothLinks = sd.backgroundColor === 'rgba(0, 0, 0, 0)' && sc.borderStyle === sd.borderStyle;
+      res(sc.backgroundColor !== sd.backgroundColor || sc.borderStyle !== sd.borderStyle
+          || (bothLinks && sc.color !== sd.color && parseFloat(sc.fontWeight) < parseFloat(sd.fontWeight)),
+          'R19-demote (re-pointed R304): the two do not read as one pair of buttons -- different chrome, or, both being text links, a different colour and a lighter weight');
       res(sc.color !== sd.color, 'R19-demote: and muted at rest rather than shouting in the destructive colour');
     }
     // RE-PINNED, ONE DOOR: the default was Scan, and that WAS the defect -- the

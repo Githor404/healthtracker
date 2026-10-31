@@ -83,6 +83,7 @@ rank-gate.ps1
 resolve-gate.ps1
 response-gate.ps1
 review-gate.ps1
+rings-gate.ps1
 ring-size-gate.ps1
 searchmine-gate.ps1
 sensor-gate.ps1

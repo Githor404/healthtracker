@@ -263,7 +263,8 @@ try {
   # ---- 1. QUIET: nothing has happened ----
   $q0 = Strip; $words += $q0.text
   Write-Host ("  quiet: " + $q0.head + " | " + ($q0.lines -join ' | '))
-  Check (($q0.kind -eq 'quiet') -and ($q0.lines[0] -like '*since last logged food*') -and ($q0.lines[1] -like 'Glucose *mmol/L*ago*')) "R298 STRIP 1: with no recent action the strip shows the fast status and the current glucose (value, unit, age), not an empty box"
+  # R304 (pre-registered): at rest the strip shows the latest glucose ONLY -- the fast line is under the date -- at its own, shorter height
+  Check (($q0.kind -eq 'quiet') -and ($q0.lines[0] -like 'Glucose *mmol/L*ago*') -and (-not ($q0.text -match 'since last logged food|fasting')) -and ($q0.h -eq 64)) "R298/R304 STRIP 1: with no recent action the strip shows the current glucose (value, unit, age) and nothing else, at 64 px -- the fast status and the current glucose (value, unit, age), not an empty box"
   Shots 'strip-quiet'
 
   # ---- 2. FOOD LOGGED: Kimchi again, one tap, joins today's lunch sitting ----
@@ -275,7 +276,8 @@ try {
   Write-Host ("  food: " + $f1.head + " | " + ($f1.lines -join ' | ') + "  pathways " + ($pw -join ','))
   Check (($f1.kind -eq 'food') -and ($f1.head -like 'Just logged*Lunch, 3 items*12:30*') -and ($f1.lines[1] -like '*a fast from 00:52*')) "R298 STRIP 2: after logging food the strip names the sitting (Lunch, 3 items, 12:30) and the fast status (a fast from 00:52 if nothing more)"
   Check (($f1.lines[2] -like ('supplies ' + $pw.Count + ' pathways*Kimchi fermented')) -and ($pw.Count -eq 2) -and ($pw -contains 'pw-002') -and ($pw -contains 'pw-003')) "R298 STRIP 2: Kimchi is fermented (the reviewed rule) and the sitting SUPPLIES the 2 pathways whose raw-material lines its nutrients count toward (protein, fibre) -- not the magnesium one, not the untracked one"
-  Check (($f1.h -eq $q0.h) -and ($f1.next -eq $q0.next)) ("R298 STRIP NO SHIFT: the food strip is the quiet strip's height and the day card starts at the same place (" + $f1.h + "/" + $q0.h + " px, " + $f1.next + "/" + $q0.next + ")")
+  # R304/4e: the quiet strip is shorter; an action strip is 112 px, and the page below moves ONCE, by exactly the difference
+  Check (($f1.h -eq 112) -and (($f1.next - $q0.next) -eq ($f1.h - $q0.h))) ("R298/R304 STRIP: the food strip is 112 px and the day card moves down by exactly the difference from the quiet strip, once (" + $f1.h + "/" + $q0.h + " px, " + $f1.next + "/" + $q0.next + ")")
   Shots 'strip-food'
 
   # ---- 3. COMPUTED ONCE ----
@@ -329,7 +331,7 @@ try {
   $s6 = Strip; $words += $s6.text
   Write-Host ("  stack: " + $s6.head + " | " + ($s6.lines -join ' | '))
   Check (($s6.kind -eq 'stack') -and ($s6.head -like 'Just ticked*Item A*14:40*1 of 2') -and ($s6.lines[0] -eq 'Magnesium today 200 mg (stack 200)') -and ($s6.lines[2] -like '*all totals*')) "R298 STRIP 3: a stack tick replaces the food strip: the item, its time, 1 of 2 taken, and today's magnesium total with the stack's share"
-  Check (($s6.h -eq $q0.h) -and ($s6.next -eq $q0.next)) "R298 STRIP NO SHIFT: the stack strip is the same height, the day card where it was"
+  Check (($s6.h -eq $f1.h) -and ($s6.next -eq $f1.next)) "R298 STRIP NO SHIFT: the stack strip is the food strip's height, the day card where it was (no shift among the action kinds)"
   Shots 'strip-stack'
   $t6 = TapSel '#ctxStrip .ctxl .ctxlink'
   $panel = Eval "(function(){ var d = document.querySelector('details.mpanel'); return !!(d && d.open); })()"
@@ -340,7 +342,7 @@ try {
   Write-Host ("  took all: " + $s7.head + " | " + ($s7.lines -join ' | '))
   $flagOpen = Eval "(function(){ var d = document.querySelector('#ctxStrip details.iflag'); return d ? (d.open ? 'open' : 'closed') : 'none'; })()"
   Check (($s7.kind -eq 'stack') -and ($s7.head -like 'Took all*2 of 2') -and ($s7.lines[0] -like 'Vitamin D today 125 mcg (stack 125)') -and ($s7.text -like '*Intake note*') -and ($flagOpen -eq 'closed')) "R298 STRIP 3: Took all names its items' totals, and the day's upper-limit flag is the R213 intake note, collapsed"
-  Check (($s7.h -eq $q0.h) -and ($s7.next -eq $q0.next)) "R298 STRIP NO SHIFT: with the intake note (closed) the strip is still the same height"
+  Check (($s7.h -eq $f1.h) -and ($s7.next -eq $f1.next)) "R298 STRIP NO SHIFT: with the intake note (closed) the strip is still the same height"
   $nt = TapSel '#ctxStrip details.iflag > summary'
   $grown = (Strip).h
   Check ($nt.ok -and ($nt.h -ge 44) -and ($grown -gt $q0.h)) "R298 STRIP: the user opening the intake note (a 44 px target) is the one thing that lets the strip grow"
@@ -353,7 +355,7 @@ try {
   $o8 = Strip; $words += $o8.text
   Write-Host ("  opened: " + $o8.head + " | " + ($o8.lines -join ' | '))
   Check (($o8.kind -eq 'open') -and ($o8.head -like 'Opened*Strip rice*150 g') -and ($o8.lines[0] -like 'Not linked*Link a row?*') -and ($o8.lines[1] -like 'Fermented: unknown*') -and ($o8.lines[2] -like 'supplies 2 pathways*')) "R298 STRIP 4: an opened food shows its database row (not linked, Link a row?), Fermented, and the pathways it supplies"
-  Check (($o8.h -eq $q0.h) -and ($o8.next -eq $q0.next)) "R298 STRIP NO SHIFT: the opened-food strip is the same height"
+  Check (($o8.h -eq $f1.h) -and ($o8.next -eq $f1.next)) "R298 STRIP NO SHIFT: the opened-food strip is the same height"
   Shots 'strip-open'
   $t8 = TapSel '#ctxStrip .ctxl .ctxlink'
   Write-Host ("  after Link a row?: mlink " + (Eval "document.querySelectorAll('.mlink').length") + ", mbody " + (Eval "document.querySelectorAll('.mbody').length") + ", kept " + (Eval "JSON.stringify((HT.ctxKept() || {}).n)"))
@@ -384,7 +386,7 @@ try {
   $a10 = Strip
   [void](Eval ("HT.logRepeat(HT.shiftDate(HT.state().current, -1), " + $kim + ").ok")); WaitQuiet 'food at 360'
   $b10 = Strip
-  Check (($a10.kind -eq 'quiet') -and ($b10.kind -eq 'food') -and ($a10.h -eq $b10.h) -and ($a10.next -eq $b10.next) -and (@($b10.links | Where-Object { -not $_.inside }).Count -eq 0)) ("R298 STRIP NO SHIFT at 360 px: quiet and food the same height (" + $a10.h + "/" + $b10.h + "), the day card where it was, the link inside the strip")
+  Check (($a10.kind -eq 'quiet') -and ($b10.kind -eq 'food') -and ($a10.h -eq $q0.h) -and ($b10.h -eq $f1.h) -and (($b10.next - $a10.next) -eq ($b10.h - $a10.h)) -and (@($b10.links | Where-Object { -not $_.inside }).Count -eq 0)) ("R298/R304 STRIP at 360 px: quiet and food at the same heights as at 390 (" + $a10.h + "/" + $b10.h + "), the page moving by exactly the difference, the link inside the strip")
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   WaitQuiet '390'
 

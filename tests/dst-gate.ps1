@@ -309,7 +309,7 @@ try {
   var p2 = span(); out.again = p2.length; out.againMoments = moments(p2);
   var st = HT.glucoseRead();
   out.zOn = (st['2026-11-01'] && st['2026-11-01'].z) ? st['2026-11-01'].z.filter(function (x, i, l) { return l.indexOf(x) === i; }).join(',') : '';
-  out.zOff = !!(st['2026-10-31'] && st['2026-10-31'].z);
+  out.zOff = (st['2026-10-31'] && st['2026-10-31'].z != null) ? JSON.stringify(st['2026-10-31'].z) : 'none';
   // a backup made now round-trips with the offsets
   var bk = HT.exportJSON();
   var bj = JSON.parse(bk);
@@ -335,9 +335,44 @@ try {
   Check (($g.sent -eq 37) -and ($g.kept -eq 37) -and ($g.moments -eq 37) -and ($g.exact -eq $true)) "R303: importing the clock-change night keeps all 37 readings as 37 moments, each at the moment it was taken"
   Check (($g.twoAt0130 -eq 2) -and ($g.apartMin -eq 60) -and ($g.wall -eq '01:30,01:30')) "both 01:30s are kept, an hour apart, and each still reads 01:30 on the wall"
   Check (($g.again -eq 37) -and ($g.againMoments -eq 37)) "importing the same night again adds no duplicates (37)"
-  Check (($g.zOn -eq '240,300') -and ($g.zOff -eq $false)) "only the clock-change day carries the offsets (240, 300); the day before is stored as it always was"
+  Check (($g.zOn -eq '240,300') -and ($g.zOff -eq '240')) "the clock-change day carries one offset per reading (240, 300); the day before carries its one offset as a single number (R304/5)"
   Check (($g.bkZ -eq $true) -and ($g.restored -eq 'True,37,37')) "a backup made now carries them and restores all 37 moments"
   Check ($g.oldRestore -eq 'True,True,37') "a PRE-CHANGE backup (no offsets, the repeated minutes as v0.116.0 wrote them) restores intact -- every day byte-identical"
+
+  # ---- R304/5: a time-zone change -- readings taken in Toronto, read in Vancouver ---------
+  $tz1 = EvalJ @'
+(function () {
+  var T = new Date('2026-10-20T12:00:00').getTime(); localStorage.clear(); HT.boot(); HT.setClock(function () { return T; });
+  var rows = [], g0 = new Date('2026-10-20T08:00:00').getTime();
+  for (var k = 0; k < 12; k++) rows.push({ t: new Date(g0 + k * 15 * 60000).toISOString(), v: 5.5, unit: 'mmol/L' });
+  HT.glucoseIngest(rows, { source: 'gate' });
+  window.localStorage.setItem('__tzrows', JSON.stringify(rows.map(function (r) { return Date.parse(r.t); })));
+  var d = HT.glucoseRead()['2026-10-20'];
+  return { z: d ? d.z : null, n: d ? d.t.length : 0 };
+})()
+'@
+  Write-Host ("  Toronto ingest: " + $tz1)
+  Invoke-CDP 'Emulation.setTimezoneOverride' @{ timezoneId = 'America/Vancouver' } | Out-Null
+  MarkOld
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/" } | Out-Null
+  WaitBoot
+  $tz2 = EvalJ @'
+(function () {
+  var want = JSON.parse(localStorage.getItem('__tzrows') || '[]');
+  // 12:30 in Toronto is 09:30 in Vancouver: the newest reading (10:45 Toronto) is 1 h 45 min old
+  var T = want[want.length - 1] + 105 * 60000; HT.setClock(function () { return T; });
+  var pts = HT.glucoseSeries(want[0] - 1, want[want.length - 1] + 1);
+  var last = HT.glucoseLastMs();
+  return { zone: Intl.DateTimeFormat().resolvedOptions().timeZone, n: pts.length,
+           exact: pts.length === want.length && pts.every(function (p, i) { return p.t === want[i]; }),
+           ageMin: last == null ? null : Math.round((T - last) / 60000) };
+})()
+'@
+  Write-Host ("  read in Vancouver: " + $tz2)
+  $z1 = $tz1 | ConvertFrom-Json; $z2 = $tz2 | ConvertFrom-Json
+  Check (($z1.z -eq 240) -and ($z1.n -eq 12)) "R304/5: a day ingested in Toronto keeps its offset as one number (240), its 12 readings as before"
+  Check (($z2.zone -eq 'America/Vancouver') -and ($z2.n -eq 12) -and ($z2.exact -eq $true) -and ($z2.ageMin -eq 105)) "read after moving to Vancouver, every reading sits at its real moment and the newest is 1 h 45 min old -- not '3 h AHEAD of the clock'"
+  Invoke-CDP 'Emulation.setTimezoneOverride' @{ timezoneId = 'America/Toronto' } | Out-Null
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)

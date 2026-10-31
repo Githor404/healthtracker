@@ -302,12 +302,19 @@ window.__stage = 'start';
   if (typeof HT.emptyMealKinds === 'function') O.none.kinds = HT.emptyMealKinds(D);
 
   const host = document.getElementById('dayView');
+  // R304: the meals are RINGS. A meal with items is a ring; the empties are FAINT rings
+  // (the ruled replacement for R159.1's one muted line), each its own tap target. The
+  // groups and their headers are drawn under an open ring, so they are read with the
+  // rings open (the open-all seam), then closed again for the expand step.
+  O.rings = { filled: all('#dayView .mrings > .mring:not(.mrempty)').map(function (r) { return r.getAttribute('data-kind'); }),
+              empty: all('#dayView .mrings > .mring.mrempty').map(function (r) { return r.getAttribute('data-kind'); }) };
+  HT.dayGroupsOpenAll(true); HT.refresh();
   O.groups.headers = all('#dayView .mghead').map(function (h) { return txt(h).replace(/\s+/g, ' ').trim(); });
   O.groups.count = all('#dayView .mgrp').length;
-  O.none.rows = all('#dayView .mgnone').length;
-  O.none.text = all('#dayView .mgnone').map(function (h) { return txt(h).replace(/\s+/g, ' ').trim(); }).join(' | ');
-  O.none.taps = all('#dayView .mgnone [onclick]').length;
-  O.none.tapTargets = all('#dayView .mgnone [onclick]').map(function (b) {
+  O.none.rows = all('#dayView .mring.mrempty').length;
+  O.none.text = all('#dayView .mring.mrempty').map(function (h) { return txt(h).replace(/\s+/g, ' ').trim(); }).join(' | ');
+  O.none.taps = all('#dayView .mring.mrempty[onclick]').length;
+  O.none.tapTargets = all('#dayView .mring.mrempty[onclick]').map(function (b) {
     const r = b.getBoundingClientRect();
     return Math.round(r.width) + 'x' + Math.round(r.height);
   });
@@ -326,6 +333,11 @@ window.__stage = 'start';
   // ---- 2. the drink stays inside its meal, flagged ------------------------
   stage('drink');
   O.groups.drinkChip = all('#dayView .mgdrink').map(function (c) { return txt(c).trim(); }).join(' | ');
+  // ---- 4 (read while open): the response line on the headers --------------
+  O.resp.onLunchHead = all('#dayView .mgrp[data-kind="lunch"] .mghead .mgresp').length;
+  O.resp.onDinnerHead = all('#dayView .mgrp[data-kind="dinner"] .mghead .mgresp').length;
+  O.resp.dinnerSaysHowMany = txt(document.querySelector('#dayView .mgrp[data-kind="dinner"] .mghead')).replace(/\s+/g, ' ');
+  HT.dayGroupsOpenAll(false); HT.refresh();
 
   // ---- 3. EXPAND: in place, chronological, others stay collapsed ----------
   stage('expand');
@@ -343,13 +355,11 @@ window.__stage = 'start';
 
   // ---- 4. the response line: one event may carry it, two may not ----------
   stage('resp');
-  O.resp.onLunchHead = all('#dayView .mgrp[data-kind="lunch"] .mghead .mgresp').length;
-  O.resp.onDinnerHead = all('#dayView .mgrp[data-kind="dinner"] .mghead .mgresp').length;
-  O.resp.dinnerSaysHowMany = txt(document.querySelector('#dayView .mgrp[data-kind="dinner"] .mghead')).replace(/\s+/g, ' ');
 
   // ---- 5. BIOMETRICS: its own group, with a one-line summary -------------
   stage('bio');
   O.bio.group = all('#dayView .bgrp').length;
+  O.bio.glucoseAvgs = (txt(host).match(/avg \d+(\.\d+)?/g) || []).length;
   O.bio.fnType = typeof HT.biometricSummary;
   O.bio.summary = all('#dayView .bgsum').map(function (b) { return txt(b).trim(); }).join(' | ');
   if (typeof HT.biometricSummary === 'function') O.bio.fn = JSON.stringify(HT.biometricSummary(D)).slice(0, 200);
@@ -522,7 +532,7 @@ window.__stage = 'start';
         + ' parent ' + Math.round(pr.left) + '..' + Math.round(pr.right)
         + ' text="' + String(x.el.textContent || '').trim().slice(0, 30) + '"';
     });
-  const taps = all('#dayView .mghead, #dayView .mgnone [onclick], #dayView .qa10, #dayView .dcam');
+  const taps = all('#dayView .mghead, #dayView .mgnone [onclick], #dayView .mring, #dayView .qa10, #dayView .dcam');   // R304: the rings are the meal targets now
   O.ink.tapCount = taps.length;
   O.ink.tooSmall = taps.filter(function (t) {
     const r = t.getBoundingClientRect();
@@ -553,7 +563,7 @@ window.__stage = 'start';
   # NAMED, never single capitals -- PowerShell folds variable case, and a later
   # foreach would silently destroy a capture, leaving $null to pass numerically.
   $API = $RES.api; $GRP = $RES.groups; $NONE = $RES.none; $RESP = $RES.resp
-  $BIO = $RES.bio; $FREQ = $RES.freq; $SHEET = $RES.sheet; $STEP = $RES.step
+  $BIO = $RES.bio; $FREQ = $RES.freq; $SHEET = $RES.sheet; $STEP = $RES.step; $RINGS = $RES.rings
   $LOG = $RES.logged; $ROLL = $RES.roll; $DRAFT = $RES.draft; $INK = $RES.ink
 
   foreach ($fname in @('mealKindGroups', 'emptyMealKinds', 'foodFrequency',
@@ -579,8 +589,9 @@ window.__stage = 'start';
   Chk ($GRP.qa10 -ge 1) "there is no top-10 quick-add button -- the ruled row REPLACES the badges, so their absence alone is not the slice"
   Chk ($GRP.cam -ge 1) "there is no camera button beside it"
 
-  # --- 2. the empties: ONE muted line, naming them, tappable --------------
-  Chk ($NONE.rows -eq 1) "$($NONE.rows) empty-meal row(s) -- ruled: ONE muted line for all of them, not a row each"
+  # --- 2. the empties (R304): a FAINT RING each, naming it, tappable to that meal ------
+  Chk ((($RINGS.filled) -join ',') -eq 'lunch,dinner') "the filled rings are '$(($RINGS.filled) -join ',')', not lunch and dinner (R304)"
+  Chk ($NONE.rows -eq 2) "$($NONE.rows) faint ring(s) -- R304: breakfast and snack are each a faint ring"
   Chk ($NONE.text -match '(?i)breakfast') "the empty line does not name breakfast ('$($NONE.text)')"
   Chk ($NONE.text -match '(?i)snack') "the empty line does not name snack ('$($NONE.text)')"
   Chk ($NONE.text -notmatch '(?i)lunch') "the empty line names LUNCH ('$($NONE.text)'), which has items"
@@ -607,14 +618,16 @@ window.__stage = 'start';
   Chk ($RESP.onDinnerHead -eq 0) "the DINNER header carries a single response line for TWO sittings -- one line summarising two different meals' glucose is an average nobody ate"
   Chk ($RESP.dinnerSaysHowMany -match '2') "the dinner header does not say it holds two events ('$($RESP.dinnerSaysHowMany)')"
 
-  # --- 6. biometrics: its own group, one-line summary -------------------
-  Chk ($BIO.group -ge 1) "biometrics has no group of its own"
+  # --- 6. biometrics (R304/4b): the day's Glucose section is the ONE glucose summary; a day
+  #      whose only biometric is glucose -- this fixture -- draws no Biometrics group ---------
+  Chk ($BIO.group -eq 0) "a Biometrics group was drawn ($($BIO.group)) for a day whose only biometric is glucose -- R304/4b: the Glucose section is the one summary"
+  Chk ($BIO.glucoseAvgs -eq 1) "the day shows $($BIO.glucoseAvgs) glucose averages, not ONE"
   # `$BIO.fn` was ABSENT, not empty, while the function did not exist -- and
   # `$null -ne ''` is true, so this check PASSED on an unbuilt feature. The type is
   # asserted separately and the content must be real.
   Chk ($BIO.fnType -eq 'function') "HT.biometricSummary is '$($BIO.fnType)', not a function -- asserted on the TYPE, because an absent property passes every -ne comparison"
-  Chk ($BIO.fn -and ([string]$BIO.fn).Length -gt 12) "biometricSummary() returned nothing usable for the fixture day ('$($BIO.fn)')"
-  Chk ($BIO.summary -match '(?i)glucose|mmol|mg/dL') "the biometrics group's one-line summary does not mention glucose ('$($BIO.summary)') -- ruled: glucose avg, weight, woke"
+  Chk ($BIO.fn -eq 'null') "biometricSummary() returned '$($BIO.fn)' for a glucose-only day -- R304/4b: nothing, so no group"
+  Chk (-not ($BIO.summary -match '(?i)glucose|mmol|mg/dL')) "a biometrics summary repeats glucose ('$($BIO.summary)') -- R304/4b"
 
   # --- 7. frequency counts by matchKey and NAMES what it counted -------
   Chk ($FREQ.coleN -eq 3) "the coleslaw count is $($FREQ.coleN), not 3 -- the fixture holds two spellings (2 + 1) and matchKey merges them, which is the only grouping that finds the repeat"
@@ -689,6 +702,6 @@ if ($fails.Count) {
   Write-Host "GATE: FAIL"
   exit 1
 }
-Write-Host "LANDING GATE: PASS -- only the meals with items get headers and the empties collapse into ONE muted line that names them and is tappable per meal; a drink stays inside its meal and is flagged; a group expands in place, chronologically, with the others collapsed; a two-sitting kind carries no single response line; biometrics has its own group and summary; the frequency count groups by matchKey, NAMES the spellings it counted, and takes its portion from the most recent item; the stepper starts at 1 with that portion labelled and the log button states its calories; logging lands in the meal for the time of day and either scales or says it lost the match; a resume on a new calendar day moves to today, idempotently; and a draft started before midnight lands on the day it was started, with its time"
+Write-Host "LANDING GATE: PASS -- the meals with items are rings and the empties FAINT rings, each named and tappable to its meal (R304); their headers, read under the open rings, carry the drink and the response line; a drink stays inside its meal and is flagged; a group expands in place, chronologically, with the others collapsed; a two-sitting kind carries no single response line; biometrics has its own group and summary; the frequency count groups by matchKey, NAMES the spellings it counted, and takes its portion from the most recent item; the stepper starts at 1 with that portion labelled and the log button states its calories; logging lands in the meal for the time of day and either scales or says it lost the match; a resume on a new calendar day moves to today, idempotently; and a draft started before midnight lands on the day it was started, with its time"
 Write-Host "GATE: PASS"
 exit 0

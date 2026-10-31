@@ -304,6 +304,7 @@ HT.corpusEnsure().then(function () {
   // so the row can be read -- what is asserted is that the ROW shows the served
   // figure without the row itself being opened.
   window.__open = function () {
+    if (HT.dayGroupsOpenAll) HT.dayGroupsOpenAll(true);   // R304: the groups are drawn under their open meal ring
     Array.prototype.forEach.call(document.querySelectorAll('#dayView .mghead'), function (h) {
       if (h.className.indexOf('bghead') < 0 && h.getAttribute('aria-expanded') !== 'true') h.click(); }); };
   window.__open();

@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.117.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.118.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3994,7 +3994,8 @@ function ctxOpenHTML(n) {
 }
 function ctxQuietHTML(n) {
   const head = (n && n.kind !== 'none') ? 'Nothing new in 3 h' : 'Now';
-  return { head: head + ' · ' + minutesToHHMM(nowMinutes()), lines: [esc(ctxFastWords()), esc(ctxGlucoseWords()), ''], pw: [], quiet: true };
+  // R304: the latest glucose only (the fast line is under the date now), at a shorter height
+  return { head: head + ' · ' + minutesToHHMM(nowMinutes()), lines: [esc(ctxGlucoseWords())], pw: [], quiet: true };
 }
 // What the kept contents depend on. Anything here changing works them out again; the
 // glucose stream is compared by its kept build (glucoseFlat), so readings arriving do too.
@@ -7293,7 +7294,6 @@ function renderGoalsHTML(t, day) {
       + `<div class="ringbox ringsm" onclick="ringTap()" role="button" tabindex="0"`
       + ` aria-label="${esc(laneOpenState('sleep').open ? 'Woke? End your sleep in + Log' : 'Going to sleep? In + Log')}">`
       + `${rhythmSVG(model, 180)}${calorieRingSVG(cb, 180)}${calorieCentreHTML(cb, t)}</div>`
-      + dayFiguresHTML(t, day, cb)
       + '</div>'
       + `<button type="button" class="linklike ringkeybtn" onclick="ringLegendToggle()" aria-expanded="${RING_LEGEND_OPEN ? 'true' : 'false'}">${RING_LEGEND_OPEN ? 'Hide the ring key' : 'Ring key'}</button>`
       // DEPTH ON DEMAND, ruled: the key, the time range ("last 24 h"), the view
@@ -7307,6 +7307,8 @@ function renderGoalsHTML(t, day) {
              + rhythmCaptionHTML(model)
              + '</div>')
           : '');
+    // R304: the macros under the ring key, centred
+    html += '<div class="dfigwrap">' + dayFiguresHTML(t, day, cb) + '</div>';
     // RULED: the typical-day line appears ONCE -- the short one beside the rings.
     // The long sentence that repeated it below is gone. The gap counter keeps its
     // own line, and the caption has moved behind the ring tap above.
@@ -7314,7 +7316,9 @@ function renderGoalsHTML(t, day) {
       + rhythmCenterHTML(model, true);
   }
   if (sw && goals[sw.key]) html += goalCellsHTML(t);   // swapped view still needs the selector
-  const micros = microRollup(day);
+  // R304/4a: the day's micronutrients are shown in ONE place, the Micronutrients section
+  // further down; this table between the ring and the meals is gone.
+  const micros = {};
   const mk = Object.keys(micros);
   if (mk.length) {
     // R195, REPORTED: this printed the STORAGE KEY -- cholesterol_mg,
@@ -7527,11 +7531,12 @@ function mealResponseLine(dateKey, mealId) {
 // returns null rather than an empty summary -- the group is absent, not blank.
 function biometricSummary(dateKey) {
   const dk = String(dateKey);
-  const g = glucoseDaySummary(dk);
+  // R304/4b: the day's Glucose section is the one glucose summary; Biometrics no longer
+  // repeats its average, and a day whose only biometric is glucose draws no group.
+  const g = null;
   const recs = (APP_STATE.timeline && APP_STATE.timeline[dk]) || [];
-  if (!g && !recs.length) return null;
+  if (!recs.length) return null;
   const bits = [];
-  if (g) bits.push('glucose avg ' + rDisp(g.avg) + ' ' + g.unit);
   const ws = recs.filter(function (r) { return r && r.type === 'weight' && r.value != null; });
   const w = ws.length ? ws[ws.length - 1] : null;
   if (w) bits.push('weight ' + rDisp(w.value) + (w.unit ? ' ' + w.unit : ''));
@@ -7839,6 +7844,8 @@ function renderDayInner() {
       <button class="navbtn" onclick="stepDay(1)" ${neighbourDay(dk, 1) ? '' : 'disabled'}>›</button>
     </div>`;
 
+  // R304: the running span's words, just under the date (today only).
+  if (dk === todayKey()) html += fastDateLineHTML();
   // RULED PAGE ORDER: date -> rings card -> the action row -> meal groups ->
   // Biometrics, and NOTHING above the rings card but the date. The leftovers list
   // used to sit here; it is one quiet line now, below the card with the actions.
@@ -7854,7 +7861,10 @@ function renderDayInner() {
   const kgroups = mealKindGroups(dk);
   html += dayOrderToggleHTML(kgroups.length);
   if (!DAY_TIME_ORDER) {
-  kgroups.forEach((g) => {
+  // R304: each group is drawn by one function; the meal kinds' groups are drawn under
+  // their ring when it is open, the Daily stack's as before.
+  const groupHTML = (g) => {
+    let html = '';
     const gopen = dayGroupIsOpen(g.key);
     // R31, unchanged: a group's kcal understates by exactly as much as the group
     // is incomplete, so the group says so where the number is.
@@ -7883,7 +7893,7 @@ function renderDayInner() {
       + (g.drinks ? `<span class="mgdrink">${esc(String(g.drinks))} drink${g.drinks === 1 ? '' : 's'}</span>` : '')
       + (gresp ? `<span class="mgresp">${esc(gresp)}</span>` : '')
       + `</button>`;
-    if (!gopen) { html += `</div>`; return; }
+    if (!gopen) { html += `</div>`; return html; }
     html += `<div class="mgbody">`
       + `<div class="mgmac">P ${esc(rDisp(gt.protein_g))} F ${esc(rDisp(gt.fat_g))}`
       + ` C ${esc(rDisp(gt.carb_g))} \u00b7 ${esc(rDisp(gt.fiber_g))} fib</div>`
@@ -8026,9 +8036,13 @@ function renderDayInner() {
         </div>` : ''}</div>`;
     });
     html += `</div></div>`;
-  });
-  // Ruled D: ONE muted line for every kind with nothing in it.
-  html += emptyMealsHTML(emptyMealKinds(dk));
+    return html;
+  };
+  // R304: THE MEALS AS RINGS -- a 2x2 grid, one ring per meal kind, a faint ring for a
+  // meal not logged (the layout never moves). An open ring's foods are its groups,
+  // drawn full width under its row. The "No snack logged" line is the faint ring now.
+  html += mealRingsHTML(dk, kgroups, groupHTML);
+  kgroups.filter(function (g) { return MEAL_KINDS.indexOf(g.kind) < 0; }).forEach(function (g) { html += groupHTML(g); });
   // Biometrics, its own group -- and D146: a day with no readings draws no row.
   html += biometricGroupHTML(dk);
   }
@@ -8089,7 +8103,7 @@ function renderDayInner() {
     // A day the rule has closed has nothing to reopen, so it shows the fact.
     html += autoClosed
       ? `<div class="note dayclosed">Closed by itself at 04:00 on ${esc(fmtDateSmart(shiftDate(dk, 1)))} \u00b7 counted in averages. You can still add, change or delete entries.</div>${dayGapHTML(dk)}`
-      : `<button class="btn big ${complete ? 'reopen' : 'close'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'Close this day now (optional)'}</button>`
+      : `<button class="${complete ? 'btn big reopen' : 'linklike dayclose'}" onclick="toggleDayStatus()">${complete ? '✓ Complete — tap to reopen' : 'Close this day now (optional)'}</button>`
         + (complete ? dayGapHTML(dk) : '');
     html += `<div class="dayclr"><button class="clrday" onclick="clearDay()">Clear this day</button></div>`;
   }
@@ -8207,6 +8221,79 @@ function dayActionsHTML() {
     + '<button type="button" class="dcam" onclick="openSheet(\'photo\')"'
     + ' aria-label="Photograph a meal">Camera</button>'
     + '</div>';
+}
+// ---- R304: MEAL RINGS ------------------------------------------------------------
+// One ring per meal kind, its segments the meal's carbs, protein, fat and fibre in
+// GRAMS (as eaten), its centre the calories. A ring is open when its groups are, so
+// everything that opens a group (a gate's open-all, the strip's "Link a row") opens
+// its ring too. One ring at a time when tapped.
+const MEAL_RING_PARTS = [['carb_g', 'carbs', 'mrc'], ['protein_g', 'protein', 'mrp'], ['fat_g', 'fat', 'mrf'], ['fiber_g', 'fibre', 'mrb']];
+function mealRingSVG(tot) {
+  const W = 150, sw = 18, r = (W - sw) / 2 - 2, c = W / 2, L = 2 * Math.PI * r;
+  let h = `<svg class="mrsvg" viewBox="0 0 ${W} ${W}" aria-hidden="true">`
+    + `<circle class="mrtrack${tot ? '' : ' mrfaint'}" cx="${c}" cy="${c}" r="${r.toFixed(2)}" fill="none" stroke-width="${sw}"/>`;
+  if (tot) {
+    const v = MEAL_RING_PARTS.map(function (x) { return [x[2], Math.max(0, num(tot[x[0]]))]; });
+    const sum = v.reduce(function (a, x) { return a + x[1]; }, 0);
+    let off = 0;
+    v.forEach(function (x) {
+      if (!(sum > 0) || !(x[1] > 0)) return;
+      const len = Math.max(0, L * x[1] / sum - 2);
+      h += `<circle class="mrseg ${x[0]}" cx="${c}" cy="${c}" r="${r.toFixed(2)}" fill="none" stroke-width="${sw}"`
+        + ` stroke-dasharray="${len.toFixed(2)} ${(L - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 ${c} ${c})"/>`;
+      off += L * x[1] / sum;
+    });
+    h += `<text class="mrkcal" x="${c}" y="${c + 6}" text-anchor="middle">${esc(kcalDisp(tot.kcal))}</text>`
+      + `<text class="mrunit" x="${c}" y="${c + 26}" text-anchor="middle">cal</text>`;
+  } else {
+    h += `<text class="mrunit" x="${c}" y="${c + 6}" text-anchor="middle">not logged</text>`;
+  }
+  return h + '</svg>';
+}
+function mealRingTap(kind) {
+  const dk = APP_STATE.current;
+  const all = mealKindGroups(dk);
+  const gs = all.filter(function (g) { return g.kind === kind; });
+  if (!gs.length) return { ok: false };
+  const open = gs.some(function (g) { return dayGroupIsOpen(g.key); });
+  all.forEach(function (g) { if (MEAL_KINDS.indexOf(g.kind) >= 0) delete DAY_GROUP_OPEN[g.key]; });
+  if (!open) gs.forEach(function (g) { DAY_GROUP_OPEN[g.key] = true; });
+  renderDay();
+  return { ok: true, open: !open };
+}
+function mealRingsHTML(dk, kgroups, groupHTML) {
+  let h = '<div class="mrings">';
+  [[0, 1], [2, 3]].forEach(function (row) {
+    const lists = [];
+    row.forEach(function (i) {
+      const k = MEAL_KINDS[i];
+      const name = k.charAt(0).toUpperCase() + k.slice(1);
+      const gs = kgroups.filter(function (g) { return g.kind === k; });
+      if (!gs.length) {
+        // a meal not logged: a faint ring; its tap opens + Log at that meal (it writes nothing)
+        h += `<button type="button" class="mring mrempty" data-kind="${esc(k)}" onclick="quickAddToMeal('${esc(k)}')" aria-label="${esc(name)}: not logged -- add in + Log">`
+          + mealRingSVG(null) + `<span class="mrcap"><b>${esc(name)}</b></span></button>`;
+        return;
+      }
+      const tot = dayTotals({ items: [].concat.apply([], gs.map(function (g) { return g.rows.map(function (r) { return r.it; }); })) });
+      const n = gs.reduce(function (a, g) { return a + g.n; }, 0);
+      const when = gs.map(function (g) { return g.timeLabel; }).filter(Boolean).join(', ');
+      const part = gs.filter(function (g) { return g.coverage.partial; }).map(function (g) { return coverageNote(g.coverage); });
+      const open = gs.some(function (g) { return dayGroupIsOpen(g.key); });
+      if (open) lists.push(gs);
+      h += `<button type="button" class="mring${open ? ' mropen' : ''}" data-kind="${esc(k)}" aria-expanded="${open ? 'true' : 'false'}" onclick="mealRingTap('${esc(k)}')">`
+        + mealRingSVG(tot)
+        + `<span class="mrcap"><b>${esc(name)}</b> <small>${esc(when)}${when ? ' · ' : ''}${esc(String(n))} item${n === 1 ? '' : 's'}</small>`
+        + (part.length ? ` <small class="mcov">${esc(part.join('; '))}</small>` : '')
+        + `<span class="mrg">` + MEAL_RING_PARTS.map(function (x) {
+            return `<span><i class="${x[2]}"></i>${esc(x[1])} ${esc(rDisp(Math.round(num(tot[x[0]]))))} g</span>`; }).join('') + `</span>`
+        + `</span></button>`;
+    });
+    lists.forEach(function (gs) {
+      h += `<div class="mrlist" data-kind="${esc(gs[0].kind)}">` + gs.map(groupHTML).join('') + '</div>';
+    });
+  });
+  return h + '</div>';
 }
 // The empty kinds, ONE muted line (ruling D), each named kind its own target.
 // "I eat in a window; four fixed headers would be mostly dashes."
@@ -12283,8 +12370,11 @@ function normalizeGlucoseDay(raw) {
   // `t`. Only a day whose readings carry more than one offset keeps it -- the night
   // the clocks change -- so every other day is what it always was. One bad entry and
   // the whole field goes: the day then reads as before, never half and half.
-  let z = Array.isArray(r.z) && r.z.length === t.length ? r.z : null;
-  if (z && !z.every(function (x) { return Number.isInteger(x) && x >= -840 && x <= 840; })) z = null;
+  // R304/5: `z` may also be ONE number -- the offset every reading of the day shares --
+  // so a day read after a time-zone change still reads at its real moments.
+  const zOk = function (x) { return Number.isInteger(x) && x >= -840 && x <= 840; };
+  let z = Array.isArray(r.z) && r.z.length === t.length ? r.z : (zOk(r.z) ? t.map(function () { return r.z; }) : null);
+  if (z && !z.every(zOk)) z = null;
   const zs = [];
   for (let i = 0; i < t.length; i++) {
     const mi = Math.round(num(t[i])), vv = num(v[i]);
@@ -12292,16 +12382,16 @@ function normalizeGlucoseDay(raw) {
     out.t.push(mi); out.v.push(Math.round(vv * 100) / 100);
     if (z) zs.push(z[i]);
   }
-  if (z && zs.some(function (x) { return x !== zs[0]; })) out.z = zs;
+  if (z && zs.length) out.z = zs.some(function (x) { return x !== zs[0]; }) ? zs : zs[0];
   return out.t.length ? out : null;
 }
 // R303: A READING'S REAL MOMENT. With `z` it is exact on any day (the day's UTC
 // midnight + the wall minute + the offset); without it, the wall-clock time's moment,
 // as it has always been read.
 function glucoseMs(dk, d, i) {
-  if (d.z) {
+  if (d.z != null) {
     const p = String(dk).split('-');
-    return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) + (d.t[i] + d.z[i]) * 60000;
+    return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) + (d.t[i] + (Array.isArray(d.z) ? d.z[i] : d.z)) * 60000;
   }
   return wallMs(dk, d.t[i]);
 }
@@ -12372,7 +12462,7 @@ function glucoseIngest(rows, opts) {
     const put = function (d) {
       for (let i = 0; i < d.t.length; i++) {
         if (!(num(d.v[i]) > 0)) continue;
-        const z = d.z ? d.z[i] : new Date(wallMs(dk, d.t[i])).getTimezoneOffset();
+        const z = Array.isArray(d.z) ? d.z[i] : (d.z != null ? d.z : new Date(wallMs(dk, d.t[i])).getTimezoneOffset());
         byMom[d.t[i] + z] = { t: d.t[i], v: d.v[i], z: z };
       }
     };
@@ -12872,7 +12962,7 @@ function glucoseDaySummary(dk) {
   // R303: in REAL minutes after midnight, so a clock-change night's gaps and span are true
   // Each moment worked out once; a day without `z` sorts by its minutes as it always did.
   const base = dayKeyMs(dk);
-  const mom = d.z ? d.t.map(function (t, i) { return (glucoseMs(dk, d, i) - base) / 60000; }) : null;
+  const mom = d.z != null ? d.t.map(function (t, i) { return (glucoseMs(dk, d, i) - base) / 60000; }) : null;
   const idx = d.t.map(function (t, i) { return i; }).sort(mom ? function (a, b) { return mom[a] - mom[b]; } : function (a, b) { return d.t[a] - d.t[b]; });
   const ts = mom ? idx.map(function (i) { return mom[i]; }) : idx.map(function (i) { return (wallMs(dk, d.t[i]) - base) / 60000; });
   const vs = idx.map(function (i) { return d.v[i]; });
@@ -17611,6 +17701,7 @@ const VERSION_LOG = [
   { v: '0.115.1', d: '2026-10-31', note: 'Times across a clock change are now measured in real hours. Tonight the clocks go back an hour: a night from 23:00 to 07:00 is 9 hours, and the app now says 9, not 8. The same goes for how long a fast has run, the 12-hour and 48-hour fasting rules, the 2-hour window after a meal and a night of glucose. Every time you see is still the clock on the wall.' },
   { v: '0.116.0', d: '2026-10-31', note: 'Pull down to update: at the top of the home screen, pull down and let go to check for a new version of the app. If there is one it loads straight away, without closing the app; if not, the page redraws and says Up to date with the version you have.' },
   { v: '0.117.0', d: '2026-10-31', note: 'Glucose on the night the clocks go back: the hour from 1:00 to 2:00 happens twice, and both hours of readings are now kept, each at its real moment, where before the second sat on top of the first. Importing the same night again adds nothing twice. Your other days are stored exactly as before. And a fix: when a glucose rise asks whether you were asleep, it now reads a night the way the rest of the app files it, under the morning it ended.' },
+  { v: '0.118.0', d: '2026-10-31', note: 'A calmer home screen. Your meals are now four rings -- breakfast, lunch, dinner and snack -- each showing that meal’s carbs, protein, fat and fibre in grams, with the calories in the middle; a meal you have not logged yet is a faint ring. Tap a ring to see its foods underneath, tap again to close. The day ring is bigger and centred, with your macros under Ring key, and how long since you last ate is right under the date. The micronutrient table and the second glucose average are gone from the top -- the Micronutrients and Glucose sections further down have them. Close this day is a small link now, and the box at the top is shorter when it only has your latest glucose to show. And a fix: glucose read after you change time zone stays at the real time it was taken.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -18143,6 +18234,12 @@ function openFastLabel(mins, sinceDate, stop) {
   return hoursLabel(mins) + (stop ? ' since Stopped eating' : ' since last logged food');
 }
 
+// R304: the fast line under the date -- the running span, in the ring's own words.
+function fastDateLineHTML() {
+  const g = fastOpenNow();
+  if (!g) return '';
+  return '<div class="dfast">' + esc(openFastLabel(g.mins, absIso(g.a0).slice(0, 10), g.stop)) + '</div>';
+}
 // The model IS the gate surface: every arc traces to a record, and every record of
 // an arc-bearing kind produces an arc. Rendering reads this and adds nothing.
 // ---- display-only date formatting (D35 amendment) --------------------------
@@ -22146,7 +22243,9 @@ function rhythmCenterHTML(model, below) {
   // CONTROL (the pending-fast tap) and the string jargon-gate pins as "gaps to
   // confirm" -- so it moves rather than goes.
   const cls = below ? 'rcline' : 'ringval rcenter';
-  if (!model || !model.openGap) return openLine ? `<div class="${cls}">${openLine}</div>` : '';
+  // R304: under the ring, the running span has moved up under the date; an open lane
+  // ("sleeping 3h") and the summoned control stay here.
+  if (below || !model || !model.openGap) return openLine ? `<div class="${cls}">${openLine}</div>` : '';
   // R265.1: the span running now, in the ring's words -- a time since the last
   // food or the stop; from 12 h a fast, and said so; past 48 h a date.
   const og = model.openGap, mins = num(og.sinceMin);
@@ -27475,7 +27574,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

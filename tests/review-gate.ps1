@@ -205,11 +205,11 @@ try {
   $c0 = Eval "(function(){ return document.querySelectorAll('#dayView .sitresp, #dayView .resprev, #dayView .respexp').length + '|' + /Expected|earlier meals/.test(document.getElementById('dayView').innerText); })()"
   Check ($c0 -eq '0|false') "R225: with no meal opened the day carries NO review -- nothing added to the day, no nudge ($c0)"
 
-  # ---- 2. open the breakfast by a real tap on its MEAL header ----------------------------
+  # ---- 2. open the breakfast by a real tap on its MEAL ring (R304: the meal's header lives under it) --
   $open = EvalA @'
 (function () {
-  var head = document.querySelector('#dayView .mgrp[data-kind="breakfast"] .mghead');
-  if (!head) return { err: 'no breakfast group' };
+  var head = document.querySelector('#dayView .mring[data-kind="breakfast"]');
+  if (!head) return { err: 'no breakfast ring' };
   head.click();
   var sit = document.querySelector('#dayView .mgrp[data-kind="breakfast"] .sitresp');
   var box = sit && sit.querySelector('.resprev');
@@ -240,7 +240,7 @@ try {
   # ---- 3. a single item eaten an hour before a snack: shown, not clean, not compared --
   $lunch = EvalA @'
 (function () {
-  document.querySelector('#dayView .mgrp[data-kind="lunch"] .mghead').click();
+  document.querySelector('#dayView .mring[data-kind="lunch"]').click();   // R304: its ring
   var sit = document.querySelector('#dayView .mgrp[data-kind="lunch"] .sitresp');
   var t = sit ? sit.textContent : '';
   // and the item row itself carries no review of its own, only the link to the meal's
@@ -263,7 +263,7 @@ try {
 (function () {
   var read = function (dk, kind) {
     HT.dayJump(dk); HT.dayGroupsOpenAll(false);
-    var head = document.querySelector('#dayView .mgrp[data-kind="' + kind + '"] .mghead');
+    var head = document.querySelector('#dayView .mring[data-kind="' + kind + '"]:not(.mrempty)');   // R304: its ring
     if (!head) return 'no group';
     head.click();
     var b = document.querySelector('#dayView .mgrp[data-kind="' + kind + '"] .sitresp');
@@ -282,19 +282,21 @@ try {
 (function () {
   var dk = window.__dd(5);
   HT.dayJump(dk); HT.dayGroupsOpenAll(false);
-  document.querySelector('#dayView .mgrp[data-kind="dinner"] .mghead').click();
+  document.querySelector('#dayView .mring[data-kind="dinner"]').click();   // R304: its ring
   var dg = document.querySelector('#dayView .mgrp[data-kind="dinner"]');
   var sits = dg.querySelectorAll('.sitresp');
   var sum = sits[0] ? (sits[0].querySelector('.sitsum') || {}).textContent : '';
   var txt = sits[0] ? sits[0].textContent : '';
   // the snack group: the dessert 15 min later joined the dinner; it links, it does not review
-  document.querySelector('#dayView .mgrp[data-kind="snack"] .mghead').click();
+  document.querySelector('#dayView .mring[data-kind="snack"]').click();   // R304: its ring (one ring at a time; the dinner was read above)
   var sg = document.querySelector('#dayView .mgrp[data-kind="snack"]');
   var link = sg.querySelector(':scope > .mgbody > .sitlink');
   var linkText = link ? link.textContent : '';
   var snackBlocks = sg.querySelectorAll('.sitresp').length;
   var snackBlockSum = snackBlocks ? (sg.querySelector('.sitresp .sitsum') || {}).textContent : '';
   // an item row of the dinner: the link, which opens the meal's block
+  document.querySelector('#dayView .mring[data-kind="dinner"]').click();   // R304: back to the dinner's ring (the snack's closed it)
+  dg = document.querySelector('#dayView .mgrp[data-kind="dinner"]');
   var udon = Array.prototype.filter.call(dg.querySelectorAll('.mhead'), function (h) { return /Gate udon/.test(h.textContent); })[0];
   udon.click();
   var dg2 = document.querySelector('#dayView .mgrp[data-kind="dinner"]');

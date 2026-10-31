@@ -296,12 +296,12 @@ try {
   var keys = Array.prototype.map.call(document.querySelectorAll('#dayView .rlkey'), function (k) { return { t: k.textContent.trim(), sw: getComputedStyle(k.querySelector('.rlswatch')).backgroundColor }; });
   var k = function (t) { return (keys.filter(function (x) { return x.t === t; })[0] || {}).sw || ''; };
   return { openDash: openDash, openOp: openOp, open: open ? getComputedStyle(open).stroke : '', fasting: hue('--lane-fasting'), eating: hue('--lane-eat'), kEat: k('eating'), kFast: k('fasting'),
-           centre: (document.querySelector('#dayView .rcline') || {}).textContent || '' };
+           centre: (document.querySelector('#dayView .dfast') || {}).textContent || '' };   // R304: the running span's words moved under the date
 })()
 '@
   Write-Host ("  day ring: " + $o5)
   $o5v = $o5 | ConvertFrom-Json
-  Check (($o5v.open -eq $o5v.fasting) -and ($o5v.openDash -eq 'none') -and ($o5v.openOp -eq '1') -and ($o5v.kFast -eq $o5v.fasting) -and ($o5v.kEat -eq $o5v.eating) -and ($o5v.fasting -ne $o5v.eating) -and ($o5v.centre -match 'fasting')) "R265.1 GATE: 14 h after the last food the running span is drawn SOLID ORANGE and the centre says fasting; the key names 'eating' in green and 'fasting' in orange"
+  Check (($o5v.open -eq $o5v.fasting) -and ($o5v.openDash -eq 'none') -and ($o5v.openOp -eq '1') -and ($o5v.kFast -eq $o5v.fasting) -and ($o5v.kEat -eq $o5v.eating) -and ($o5v.fasting -ne $o5v.eating) -and ($o5v.centre -match 'fasting')) "R265.1 GATE: 14 h after the last food the running span is drawn SOLID ORANGE and the line under the date says fasting (R304); the key names 'eating' in green and 'fasting' in orange"
   Shot 'day-ring'
   if ($shots) { Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null; Settle; Shot 'day-ring-light'; [void](Eval "HT.openWeek(HT.shiftDate(HT.weekMonday(HT.todayKey()), -7))"); Settle; Shot 'week-light' }
 
