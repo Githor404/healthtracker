@@ -20462,3 +20462,66 @@ home-screen app.*
 
 The line was looked at in 390 px screenshots, light and dark. Its first text wrapped to
 two lines over the title, so it was shortened.
+
+## R300.1 part 2 -- THE LANDING PAGE, MOCK-UPS ONLY (2026-10-31; nothing built)
+
+*The user's direction: declutter the landing page.*
+- (a) Fasting time just under the date.
+- (b) The day ring 50 % larger and centred, with the macros under the ring key.
+- (c) Meal rings in place of the meal list, one each for breakfast, lunch, dinner and
+  snack. Each shows that meal's carbs, protein, fat and fibre in grams, and the foods
+  appear only on a tap.
+
+**How a meal is decided today (report).** Each entry carries a stored `meal`.
+- If the user picked one, the pick is used.
+- Otherwise it is set once, at logging, from the time: breakfast 04:00-10:59, lunch
+  11:00-15:59, dinner 16:00-21:59, snack 22:00-03:59 (`mealByTimeOfDay`, B1).
+- A drink stays in the meal of its sitting, and stack items have a group of their own.
+- The day then shows one group per sitting: two lunches more than three hours apart are
+  two "Lunch" groups. A ring per meal would merge them, so the ring's foods list keeps
+  their times.
+
+**Made:** the newest backup, restored only in a local headless browser, with the page
+rewritten in place.
+- Kept in HTPrivate (`mockups-r300.1`) because they hold the user's real data: before and
+  after at 390 px in light and dark, 360 px, and side-by-side boards.
+- The boards: stacked vs 2x2 grid, faint empty ring vs hidden, segments by grams vs by
+  energy, and a ring tapped open to its foods.
+- Energy segments use net carbs x 4, protein x 4, fat x 9 and fibre x 2 cal/g, and say so
+  under the rings.
+- "The Rhythm ring" is read as the current day ring, 150 px.
+
+**How far the cards below move** (390 px; one screen = 844 px; the cards below the day
+card all move together):
+
+| variant | Rhythm, Nights, Trends, Pathways, Averages, All days |
+|---|---|
+| 2x2 grid, faint empty ring, grams | +186 px (0.22 screen) |
+| stacked (110 px rings), faint | +178 px (0.21) |
+| 2x2 grid, empty meal hidden | +240 px (0.28): the "No snack logged" line stays |
+| 2x2 grid, by energy | +234 px (0.28): its explanation wraps to two lines |
+| a ring tapped open (5 foods) | +542 px (0.64) |
+
+- The 50 % ring adds about 75 px of that; the rings cost about the list they replace.
+- Before and after, the meals start below the first screen: the day's micronutrient table
+  sits between the ring and the meals.
+
+**At 360 px:**
+- Nothing scrolls sideways in any variant.
+- The 2x2 grid's 150 px rings fill their half-width boxes edge to edge, so the grid would
+  need rings of about 125 px at that width.
+- Stacked fits as drawn. The cards move +79 px (grid) and +50 px (stacked), less than at
+  390 because the list it replaces wraps more there.
+
+**Fast status shown once.**
+- Today it is shown twice at rest: in the context strip's quiet state and on the line
+  under the ring.
+- The mock-ups move it: under the date, the line under the ring removed, and the strip's
+  quiet state showing the latest glucose alone.
+- A strip after an action keeps its own fast line, because that line is about the
+  action ("No food since 12:52 · a fast from 00:52").
+
+**For the record, LATER (not now):**
+- Every graph scrollable like the BP chart.
+- The user's own goals as neutral target lines on graphs, with no verdict colours, set by
+  the user per chart.
