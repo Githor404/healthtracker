@@ -20783,3 +20783,52 @@ changed):
 
 **5, verified:** dst-gate reads a Toronto-ingested day in America/Vancouver. Every
 reading is at its real moment, and the newest is "1 h 45 min ago", not hours AHEAD.
+
+## R305/3 -- PRE-REGISTERED (2026-10-31; to be v0.119.0): linked claims on the stack item
+
+*The user's ruling: show approved claims on the stack item itself. Written before any of
+it is built. The evidence-store work (approvals, the thyroid pathway, pack v007) is done
+in HTPrivate and is not in this repo (R204).*
+
+**Matching.**
+- A pack claim may carry `subject.stack_item`, a name. A stack item's claims are those whose
+  `stack_item` equals its name, ignoring case and surrounding spaces.
+- **Only a claim whose `reviewed_by_me` is a date is ever shown.** The pack builder already
+  takes reviewed claims only, and the phone checks again.
+- No pack, or no match: nothing changes on the item.
+
+**Where, and what it says.**
+- **Places:** on + Log's Daily stack rows (the checklist) and on the item's row in
+  Settings' stack list.
+- **Wording:**
+  - An item with no nutrient value (no `micros`, not a Food): "supplies no nutrients ·
+    linked to N claims" (one claim: "claim").
+  - An item with nutrients: "linked claims · N", below its nutrients.
+  - The words are "linked claims" and never "effects" or "works".
+- **Behaviour:** collapsed, a 44 px target. A tap opens the list.
+- **Each claim, opened:**
+  - its sentence;
+  - its approved general probability as "N % that ...";
+  - "GRADE x";
+  - its first source (authors, venue, year);
+  - "Animal and cell work, not people" where the evidence is not human.
+- **Context strip:** after a stack tick, an item with no nutrient value and N > 0 claims
+  reads "Supplies no nutrients · linked to N claims ›" (in place of "Counts toward no
+  tracked nutrient"). The link opens + Log's Daily stack with that item's claims open.
+- **Pathways card:** a group that carries group-level claims (`groups[].claims`, new and
+  optional in the pack) shows them behind an i at the top of the group, with the same
+  probability and GRADE. Old packs work unchanged.
+
+**Gate: the new `claims-gate`**, on a placeholder pack built in the page, with item names
+"Item A", "Item B", "Item C":
+- a non-nutrient item with one reviewed claim shows "supplies no nutrients · linked to 1
+  claim";
+- a real tap opens it, showing the claim, "60 % that ..." and "GRADE low";
+- a planted unreviewed claim naming the same item never shows, and is not counted;
+- an item with nutrients shows its claim below its nutrients;
+- the strip after a tick shows the count, and its link opens the item's claims;
+- a group-level claim shows on the group's i;
+- the words "effects" and "works" appear nowhere in these surfaces;
+- every control is 44 px at 390, with no sideways scroll.
+
+**Release** under the standing pre-run rule.
