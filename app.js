@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.114.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.115.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -387,6 +387,16 @@ function normalizePlate(raw) {
   // reading `openPlates` while building this. Absent means photographed, which
   // is what every plate written before this field was.
   if (r.kind === 'entry') out.kind = 'entry';
+  // R299.1: "End meal" -- the user's one tap saying the rest was not eaten by them.
+  // Kept with its time and what was left of each item at that moment; nothing eaten
+  // changes, and the plate stops offering. Declared here in the commit that writes it.
+  const en = r.ended;
+  if (en && typeof en === 'object' && STACK_SWITCH_AT.test(String(en.at))) {
+    const e = { at: String(en.at) };
+    const tz = normalizeTzo(en.tzo); if (tz !== undefined) e.tzo = tz;
+    if (Array.isArray(en.left_g)) e.left_g = en.left_g.map(clampNonNeg);
+    out.ended = e;
+  }
   return out;
 }
 // A plate with no life of its own. The second clause reads the plates Search
@@ -463,6 +473,7 @@ function openPlates(today) {
   const t = today || todayKey();
   return Object.keys(plates).map((k) => plates[k])
     .filter((pl) => {
+      if (pl.ended) return false;            // R299.1: the user ended the meal
       const gap = dayGap(pl.date, t);
       if (!(gap >= 0 && gap <= PLATE_RECALL_DAYS)) return false;
       // R198: an ENTRY plate with NOTHING eaten from it can only be left over from
@@ -7679,11 +7690,40 @@ function foodFrequency(limit) {
     .slice(0, cap);
 }
 function plateRecallCount() { return openPlates(APP_STATE.current).length; }
+// R299.1: ONE TAP ENDS A MEAL. A partly eaten plate offered its rest until the rest
+// was logged or the plate was PLATE_RECALL_DAYS old -- and on its own day, whenever
+// that day was looked at. "End meal" records the rest as not eaten by the user, with
+// the tap's time, and the plate stops offering. No food item is written or changed,
+// so every total stays as it was. No choices and no question; the bar's Undo is the
+// app's usual one.
+function endMeal(plateId) {
+  const pl = getPlate(plateId);
+  if (!pl) return { ok: false, error: 'No such plate.' };
+  if (pl.ended) return { ok: true, already: true };
+  const rem = plateRemainder(pl);
+  const ev = { at: stackStampNow(), left_g: rem.items.map(function (x) { return Math.round(x.left * 10) / 10; }) };
+  const tz = normalizeTzo(nowTZO()); if (tz !== undefined) ev.tzo = tz;
+  pl.ended = ev;
+  Store.saveState(APP_STATE); refresh(); renderSheetRoot();   // the + Log list drops it too
+  offerUndo('Meal ended', function () {
+    const p = getPlate(plateId); if (!p) return;
+    delete p.ended;
+    Store.saveState(APP_STATE); refresh(); renderSheetRoot();
+  });
+  return { ok: true, plateId: pl.id, ended: ev };
+}
+function plateEndBtnHTML(pl) {
+  return '<button type="button" class="plend" onclick="endMeal(\'' + esc(pl.id) + '\')">End meal</button>';
+}
 function plateRecallLineHTML() {
-  const n = plateRecallCount();
+  const open = openPlates(APP_STATE.current);
+  const n = open.length;
   if (!n) return '';
-  return '<button type="button" class="plline" onclick="openQuickAdd()">'
-    + esc(n) + ' leftover' + (n === 1 ? '' : 's') + '</button>';
+  // The line names the newest plate, because that is the one its End meal ends.
+  const names = open[0].items.map((x) => x.name).filter((x, i, l) => l.indexOf(x) === i).join(', ');
+  return '<div class="plwrap"><button type="button" class="plline" onclick="openQuickAdd()">'
+    + esc(n) + ' leftover' + (n === 1 ? '' : 's') + (n > 1 ? ' · newest' : '') + ': ' + esc(names)
+    + '</button>' + plateEndBtnHTML(open[0]) + '</div>';
 }
 // The full list, now rendered INSIDE the sheet rather than on the day.
 function plateRecallHTML() {
@@ -7693,10 +7733,10 @@ function plateRecallHTML() {
     const rem = plateRemainder(pl);
     const pct = rem.totalGrams > 0 ? Math.round(100 * rem.leftGrams / rem.totalGrams) : 0;
     const names = pl.items.map((x) => x.name).join(', ');
-    return `<button type="button" class="plrow" onclick="openPlateConsume('${esc(pl.id)}')">
+    return `<div class="plitem"><button type="button" class="plrow" onclick="openPlateConsume('${esc(pl.id)}')">
       <span class="plname">${esc(names)}</span>
       <span class="plleft">${esc(pct)}% left \u00b7 ${esc(fmtDateSmart(pl.date, true))}</span>
-    </button>`;
+    </button>${plateEndBtnHTML(pl)}</div>`;
   }).join('');
   return `<div class="plrecall"><div class="plhead">Food left from earlier \u2014 tap to log what you ate</div>${rows}</div>`;
 }
@@ -17490,6 +17530,7 @@ const VERSION_LOG = [
   { v: '0.113.3', d: '2026-10-29', note: 'Faster with glucose: the page no longer reads all your glucose readings again for every meal and every night it draws, so it redraws several times faster on a log with glucose (about 200 ms to about 26 ms on a recent backup). Nothing you see changes.' },
   { v: '0.114.0', d: '2026-10-29', note: 'A strip at the top of the home screen now shows what goes with the last thing you did: after logging food, that meal’s glucose, your fast status, which of its foods are fermented and the pathways it supplies (one tap opens them); after a stack tick, today’s totals of what it counts toward, with any intake note; after opening a food, its database row, fermented, and its pathways. It stays 3 hours or until your next of those, and × ends it. With nothing recent it shows your fast status and your latest glucose. It is always the same height, so nothing on the page moves.' },
   { v: '0.114.1', d: '2026-10-29', note: 'Faster again: each meal’s glucose response is now worked out once per redraw instead of once for every panel that shows it, so the page redraws in about two thirds of the time (about 26 ms to about 17 ms on a recent backup). Nothing you see changes.' },
+  { v: '0.115.0', d: '2026-10-31', note: 'End meal: when you ate only part of something, the reminder about the rest now has an End meal button. One tap and the rest is recorded as not eaten by you, with the time, and the reminder is gone. Only what you ate counts, as before; nothing you logged changes. It works on reminders that were already there too, on the day and in + Log under Leftovers.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -27052,7 +27093,7 @@ window.HT = {
   RESP_WINDOW_MIN, RESP_BASELINE_MIN, RESP_BASELINE_MIN_N, respGapMin,
   dayRollCheck, dayForWriteKey,
   calorieRingBasis, calorieRingWords, calorieRingSVG, calorieCentreHTML,
-  dayFiguresHTML, CAL_RING_R, CAL_RING_STROKE, nowHandInnerR, plateRecallCount, plateRecallLineHTML,
+  dayFiguresHTML, CAL_RING_R, CAL_RING_STROKE, nowHandInnerR, plateRecallCount, plateRecallLineHTML, endMeal,
   openQuickAdd, quickLeftoversHTML,
   MEAL_KINDS, mealByTimeOfDay, mealAtCreation, mealKindGroups, emptyMealKinds, mealResponseLine,
   biometricSummary, dayGroupToggle, dayGroupIsOpen, dayGroupsOpenAll,

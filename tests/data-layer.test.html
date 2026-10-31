@@ -904,19 +904,22 @@ window.setLS({});
   for (var n215 = 1; n215 <= 8; n215++)
     HT.addSignal({ type: 'sleep', time: '23:00', value: 7.5, unit: 'h', date: HT.shiftDate(td, -n215), wake_src: 'typed' });
   HT.laneOnAt('sleep', '20:00');
-  r215T = new Date(td + 'T21:00:00').getTime() + 10.5 * 3600000;       // 07:30 tomorrow
+  r215T = new Date(HT.shiftDate(td, 1) + 'T07:30:00').getTime();      // 07:30 tomorrow, on the wall (R299.1: not +10.5 h, which is 06:30 on a DST night)
   var u215 = HT.lanePickUsual('sleep');
   res(u215.hhmm === '06:30' && u215.n === 8,
       'R215: ending a sleep offers MY USUAL wake time, from the user’s own nights, with how many');
-  r215T = new Date(td + 'T21:00:00').getTime() + 9 * 3600000;          // 06:00: the usual has not come yet
+  r215T = new Date(HT.shiftDate(td, 1) + 'T06:00:00').getTime();      // 06:00: the usual has not come yet
   res(HT.lanePickUsual('sleep').hhmm === '',
       'R215 GATE: and does NOT offer it before it has happened -- a wake time nobody lived is not offered');
-  r215T = new Date(td + 'T21:00:00').getTime() + 10.5 * 3600000;
+  r215T = new Date(HT.shiftDate(td, 1) + 'T07:30:00').getTime();
   HT.lanePickOpen('sleep', 'end');
   var e215 = HT.lanePickSave('usual');
   res(e215.ok === true && e215.record && e215.record.wake_src === 'accepted' && HT.minutesToHHMM(HT.sleepWakeMin(e215.record)) === '06:30',
       'R215 GATE: taken, the usual time is the time STORED -- woke 06:30, though ended at 07:30 -- marked as the suggestion taken (accepted)');
-  res(HT.eliteWokeTimes().some(function (ms) { var d = new Date(ms); return d.getHours() === 6 && d.getMinutes() === 30 && HT.localDate(d) === HT.shiftDate(td, 1); }),
+  // R299.1: read back in the app's own convention -- the day's midnight plus the minutes
+  // after it, the convention the glucose stream it is matched against uses. Read through
+  // the real clock it was 05:30 on 1 Nov, the night the clocks go back.
+  res(HT.eliteWokeTimes().some(function (ms) { return ms === HT.dayKeyMs(HT.shiftDate(td, 1)) + 390 * 60000; }),
       'R215 GATE: a night ended in + Log SAYS WHEN THEY WOKE to whatever reads waking (the glucose-rise context) -- Woke and ending a sleep are one way, not two records');
   HT.addSignal({ type: 'sleep', time: '23:00', value: 9, unit: 'h', date: HT.shiftDate(td, -20), wake_src: 'inferred' });
   res(!HT.eliteWokeTimes().some(function (ms) { return HT.localDate(new Date(ms)) === HT.shiftDate(td, -20); }),
@@ -6189,6 +6192,10 @@ window.setLS({});
   // ==========================================================================
   var FIXED = new Date(td + 'T14:00:00').getTime();
   function fixClock(){ HT.setClock(function(){ return FIXED; }); }
+  // R299.1 finding: the app counts an open span in WALL-CLOCK minutes, so a fixture that
+  // moves the clock must move it on the wall too. Adding milliseconds failed three checks
+  // on 31 Oct, the eve of a DST change, when the span crossed 02:00 -> 01:00.
+  function wallPlus(ms, min){ var d = new Date(ms); d.setMinutes(d.getMinutes() + min); return d.getTime(); }
   function freeClock(){ HT.setClock(null); }
   function rrDay(d, items){ HT.state().days[d] = { status:'in_progress', items: items||[], water_l:0 }; }
   function rrFood(name, time, kcal){ return { name:name, meal:'snack', time:time, kcal:kcal||100, protein_g:0, fat_g:0, carb_g:20, fiber_g:0, soluble_fiber_g:0, confidence:'eyeballed', notes:'', source:'manual' }; }
@@ -6863,9 +6870,9 @@ window.setLS({});
   // R16-forgotten: past the threshold it becomes a pending CANDIDATE.
   setLS({}); HT.boot(); fixClock();
   HT.sleepOn();
-  FIXED += (HT.SLEEP_OPEN_MAX_MIN - 1) * 60000;
+  var fx16 = FIXED; FIXED = wallPlus(fx16, HT.SLEEP_OPEN_MAX_MIN - 1);
   res(HT.sleepOpenState().pending===false, 'R16-forgotten: just under the threshold it is simply open');
-  FIXED += 2 * 60000;
+  FIXED = wallPlus(fx16, HT.SLEEP_OPEN_MAX_MIN + 1);
   var pendSt = HT.sleepOpenState();
   res(pendSt.open===true && pendSt.pending===true,
       'R16-forgotten: past ~11 h it becomes a PENDING candidate — never auto-closed');

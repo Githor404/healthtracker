@@ -32,6 +32,8 @@
 #   8. the two corrections are separate: undoing one leaves the other
 #   9. every control 44px, every figure 16px, nothing scrolls sideways, at 390
 #      and 360
+#  10. R299.1: End meal -- one tap ends a partly eaten meal, totals unchanged, the tap
+#      kept with its time; an older reminder ends the same way
 #
 # THE CORPUS IS THE CANADIAN ONE, under a real en-CA override, because it is the
 # only one with a refuse table. If it does not hydrate WITH that table this is
@@ -526,6 +528,98 @@ HT.corpusEnsure().then(function () {
   Check ($gone -like '*"wasEntry":true*') "the searched banana's plate is an entry plate"
   Check (($gone -like '*"plateGone":true*') -and ($gone -like '*"offered":0*') -and ($gone -like '*"openDelta":0*')) "REMOVING the banana takes its plate with it, and NOTHING is offered back as leftovers -- v0.86.0 offered a deleted food back for two days"
   Check ($gone -like '*"back":true*') "a real click on Undo brings back the item and its plate together"
+
+  # ---- R299.1: END MEAL -- one tap ends a partly eaten meal ---------------------------
+  # PRE-REGISTERED (DECISIONS R299.1): a partial entry shows the reminder with End meal;
+  # one real tap clears it and the day's totals and items are unchanged; the tap is kept
+  # with its time and the rest not eaten; a reminder from older data (a plate stored
+  # before the field existed) is cleared the same way; the button is 44px.
+  $em = EvalJ @'
+(function () {
+  HT.closeSheet(); HT.refresh();
+  var st = HT.state(), cur = st.current, day = st.days[cur];
+  var snap = function () { return JSON.stringify({ t: HT.dayTotals(st.days[cur]), items: st.days[cur].items }); };
+  var out = {};
+  var line = document.querySelector('#dayView .plwrap');
+  var btn = line ? line.querySelector('.plend') : null;
+  out.n0 = HT.plateRecallCount();
+  out.line = line ? line.textContent : '';
+  out.btnText = btn ? btn.textContent : '';
+  out.btnH = btn ? btn.offsetHeight : 0;
+  out.buttons = line ? line.querySelectorAll('.plend').length : 0;
+  var open0 = HT.openPlates(cur).map(function (p) { return p.id; });
+  var before = snap();
+  if (btn) btn.click();
+  var open1 = HT.openPlates(cur).map(function (p) { return p.id; });
+  var ended = open0.filter(function (id) { return open1.indexOf(id) < 0; });
+  out.endedN = ended.length;
+  var pl = ended.length ? HT.getPlate(ended[0]) : null;
+  out.stamp = pl && pl.ended ? pl.ended.at : '';
+  out.leftG = pl && pl.ended ? pl.ended.left_g : null;
+  out.leftNow = pl ? HT.plateRemainder(pl).leftGrams : null;
+  out.same = snap() === before;
+  out.n1 = HT.plateRecallCount();
+  out.question = !!document.querySelector('.modal.show, #sheetRoot.show');
+  // + Log, the Leftovers section: the typed oats (200 g served, half eaten) ended there.
+  var oats = st.days[cur].items.filter(function (x) { return x.name === 'Gate oats'; })[0];
+  out.oatsOpen = !!oats && open1.indexOf(oats.plateId) >= 0;
+  HT.openQuickAdd();
+  var rowEnd = null;
+  Array.prototype.forEach.call(document.querySelectorAll('#sheetRoot .plitem'), function (x) {
+    if ((x.querySelector('.plname') || {}).textContent === 'Gate oats') rowEnd = x.querySelector('.plend'); });
+  out.sheetBtn = rowEnd ? rowEnd.textContent : '';
+  out.sheetBtnH = rowEnd ? rowEnd.offsetHeight : 0;
+  var before2 = snap();
+  if (rowEnd) rowEnd.click();
+  out.oatsEnded = !!oats && !!(HT.getPlate(oats.plateId) || {}).ended;
+  out.oatsLeft = oats && HT.getPlate(oats.plateId).ended ? HT.getPlate(oats.plateId).ended.left_g : null;
+  out.oatsGone = !Array.prototype.some.call(document.querySelectorAll('#sheetRoot .plitem .plname'), function (x) { return x.textContent === 'Gate oats'; });
+  out.same2 = snap() === before2;
+  out.oatsItem = oats ? [oats.grams, oats.kcal] : null;
+  HT.closeSheet();
+  // Undo puts the reminder back; the meal is ended again after it.
+  var u = document.querySelector('#toast .tundo'); if (u) u.click();
+  out.undone = !!oats && !HT.getPlate(oats.plateId).ended && HT.openPlates(cur).some(function (p) { return p.id === oats.plateId; });
+  if (oats) HT.endMeal(oats.plateId);
+  // AN OLDER REMINDER: a plate written before `ended` existed, as a restore brings it.
+  var d = new Date(cur + 'T12:00:00'); d.setDate(d.getDate() - 1);
+  var p2 = function (n) { return String(n).padStart(2, '0'); };
+  var y = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate());
+  var raw = JSON.parse(JSON.stringify({ id: 'r2991-old', date: y, meal: 'dinner', time: '19:00',
+    items: [{ name: 'Gate stew', grams: 300, per100: { kcal: 100, protein_g: 5, fat_g: 4, carb_g: 10, fiber_g: 1 }, notes: '' }] }));
+  st.plates['r2991-old'] = HT.normalizePlate(raw);
+  st.days[cur].items.push({ name: 'Gate stew', meal: 'dinner', time: '08:00', kcal: 100, protein_g: 5, fat_g: 4, carb_g: 10, fiber_g: 1,
+    soluble_fiber_g: 0, grams: 100, confidence: 'eyeballed', notes: '', source: 'ai-paste', plateId: 'r2991-old', plateIdx: 0 });
+  HT.resave(); HT.refresh();
+  out.oldOffered = HT.openPlates(cur).some(function (p) { return p.id === 'r2991-old'; });
+  var oline = document.querySelector('#dayView .plwrap');
+  out.oldLine = oline ? oline.textContent : '';
+  var before3 = snap();
+  var ob = oline ? oline.querySelector('.plend') : null;
+  if (ob) ob.click();
+  out.oldEnded = !!(HT.getPlate('r2991-old') || {}).ended;
+  out.oldLeft = HT.getPlate('r2991-old').ended ? HT.getPlate('r2991-old').ended.left_g : null;
+  out.same3 = snap() === before3;
+  out.oldGone = !HT.openPlates(cur).some(function (p) { return p.id === 'r2991-old'; });
+  // The tap survives the backup's round trip: the normaliser keeps it.
+  var rt = HT.normalizePlate(JSON.parse(JSON.stringify(HT.getPlate('r2991-old'))));
+  out.roundTrip = !!rt.ended && rt.ended.at === HT.getPlate('r2991-old').ended.at;
+  out.nEnd = HT.plateRecallCount();
+  return out;
+})()
+'@
+  Write-Host ("  end meal: " + $em)
+  $e = $em | ConvertFrom-Json
+  Check (($e.n0 -ge 1) -and ($e.line -like '*leftover*') -and ($e.btnText -eq 'End meal') -and ($e.buttons -eq 1)) "R299.1: a partly eaten meal's reminder on the day shows ONE button, 'End meal' ($($e.line))"
+  Check (($e.btnH -ge 44) -and ($e.sheetBtnH -ge 44)) "End meal is a 44px target on the day ($($e.btnH)) and in + Log ($($e.sheetBtnH))"
+  Check (($e.endedN -eq 1) -and ($e.n1 -eq ($e.n0 - 1)) -and ($e.question -eq $false)) "one real tap ends that meal and its reminder is gone -- no sheet or question opens"
+  Check ($e.same -eq $true) "the day's totals and every item are unchanged by the tap"
+  Check (($e.stamp -match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}') -and ($null -ne $e.leftG) -and ($e.leftNow -gt 1)) "the tap is kept with its time ($($e.stamp)) and the rest not eaten ($($e.leftG) g); the remainder itself is untouched arithmetic"
+  Check (($e.oatsOpen -eq $true) -and ($e.sheetBtn -eq 'End meal') -and ($e.oatsEnded -eq $true) -and ($e.oatsGone -eq $true) -and ($e.same2 -eq $true)) "in + Log's Leftovers, the typed oats (200 g, half eaten) end with one tap, leave the list, and the totals stay"
+  Check ((($e.oatsLeft -join ',') -eq '100') -and (($e.oatsItem -join ',') -eq '100,150')) "the oats' rest is recorded as 100 g not eaten, and the item still reads 100 g, 150 cal"
+  Check ($e.undone -eq $true) "the bar's Undo puts the reminder back"
+  Check (($e.oldOffered -eq $true) -and ($e.oldLine -like '*Gate stew*') -and ($e.oldEnded -eq $true) -and ($e.oldGone -eq $true) -and ($e.same3 -eq $true)) "a reminder from OLDER data (a plate stored before the field existed) shows End meal and is cleared the same way, totals unchanged"
+  Check ((($e.oldLeft -join ',') -eq '200') -and ($e.roundTrip -eq $true) -and ($e.nEnd -ge 0)) "its rest, 200 g, is recorded as not eaten, and the tap survives the backup's normaliser"
 
   # ---- 9. the opened row, measured at both widths ------------------------------------
   foreach ($w in @(390, 360)) {

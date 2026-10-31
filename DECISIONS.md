@@ -20276,3 +20276,74 @@ dark, are kept in %TEMP%\strip-shots.
 | The intake note after a tick | 1 tap and a scroll | 1 tap, at the top |
 | An opened food's pathways | not possible | 1 tap |
 | The link offer, from the strip | -- | 1 tap |
+
+## R299.1 -- END MEAL: one tap ends a partly eaten meal (2026-10-31, v0.115.0; *track*)
+
+*Replaces R299. The device finding (31 Oct): a food logged as partly eaten (served 120 g,
+ate 40 g) left its reminder on the landing page, and the user had no simple way to end it.*
+
+**How the reminder worked before (the report asked for):**
+- **What creates it.** A plate: a photographed meal, or a typed, scanned, searched or
+  repeated item the first time its "Ate:" share is set below all (an `entry` plate). The
+  plate keeps what was served; each eaten item is an event on it.
+- **What it expects.** The rest to be logged as eaten: the reminder ("N leftovers" on the
+  day, and a row under Leftovers in + Log) opens the plate to log another portion of it.
+- **What cleared it.** Only two things:
+  - the eaten events reaching the served (edible) weight, within 1 g;
+  - or the plate being more than PLATE_RECALL_DAYS (2) days older than **the day on
+    screen**, so it showed for three calendar days on today, and for ever on its own day
+    whenever that day was opened.
+- **Nothing said "I'm done".** Deleting the plate was refused while it had events (Fork I),
+  and a photographed plate stands when its events are deleted. So the reminder could not
+  be cleared without logging food that was not eaten.
+
+**What is built:**
+- **One button, "End meal",** beside the reminder on the day, and beside each row under
+  Leftovers in + Log.
+- **One tap ends the meal.** The plate gains `ended`:
+  - `at`: the time of the tap, with the device's offset;
+  - `left_g`: the rest of each item at that moment, which is what was not eaten by the
+    user.
+- **The plate stops offering.** Nothing else changes: no item is written or changed, so
+  every total is what it was.
+- **No choices and no question.** The bar's Undo is the app's usual one; it removes
+  `ended`.
+- **Older reminders** are plates without the field. They show the same button and end
+  the same way. No stored food amount changes.
+- The field is declared in `normalizePlate` in the same commit (D129/D131), so it survives
+  the backup's round trip. It is additive, with no schema bump.
+
+**Read where the ruling needed reading:**
+- **More than one meal left.** The day keeps its one quiet line (R159.1). It now names the
+  newest meal ("2 leftovers · newest: <name>"), and its End meal ends that one; the next
+  then takes its place. In + Log each meal has its own End meal.
+- **The rest "not eaten by Thor".** It is recorded as the grams left at the tap. The
+  remainder itself stays derived from the events, as Fork I rules.
+
+**Gate:** `served-gate`, 9 more checks:
+- the reminder on the day shows one button, End meal, 44 px;
+- one real tap ends that meal, with no sheet or question;
+- the day's totals and every item are unchanged;
+- the tap is kept with its time and the rest;
+- under Leftovers in + Log, the typed oats (200 g, half eaten) end with one tap, leave
+  the list and read 100 g not eaten, the item still reading 100 g, 150 cal;
+- Undo puts the reminder back;
+- a plate stored before the field existed shows End meal and is cleared the same way,
+  totals unchanged, and the tap survives the normaliser.
+
+Screenshots of the day and of + Log at 390 px, in light and dark, were looked at before
+the suite.
+
+**A harness finding on the way (gate flaw, not the app).** On 31 Oct, the eve of the
+clocks going back, the released build failed three harness checks. All three were
+sleep checks, and none of them involves plates.
+- The fixtures moved the clock by adding milliseconds, while the app counts an open span in
+  wall-clock minutes. Across 02:00 -> 01:00, "+10.5 h" was 06:30, not 07:30, and "+11 h"
+  was 10 h on the wall.
+- A wake time was read back through the real clock. The app's own convention for a moment
+  is the day's midnight plus the minutes after it, which the glucose stream it is matched
+  against shares.
+- Fixed in the harness: wall-clock steps (`wallPlus`), and the wake read back in the
+  app's convention. No assertion was removed, and the count is unchanged (3444).
+- What the app does on such a night is unchanged and stated here: a night of sleep across
+  the change is counted on the wall clock.
