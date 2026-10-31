@@ -16166,10 +16166,12 @@ window.setLS({});
   res(HT.eliteDay(elD)[0].offers.join(',') === 'sensor,asleep,waking,food,stress,other',
       'E-LITE GATE: a logged waking within the hour adds AROUND WAKING, after asleep and before food');
   HT.state().timeline[elD] = [];
-  HT.state().timeline[elP] = [HT.normalizeSignal({ type: 'sleep', kind: 'biometric', time: '23:00', value: 8, unit: 'h', source: 'manual' })];
+  // R303: a night is filed under the day it ENDED (the rest of the app's rule), so these
+  // two nights, which began at 23:00 the evening before, are filed under elD.
+  HT.state().timeline[elD] = [HT.normalizeSignal({ type: 'sleep', kind: 'biometric', time: '23:00', value: 8, unit: 'h', source: 'manual' })];
   res(HT.eliteDay(elD)[0].ctx.asleep === 'logged',
       'E-LITE GATE: with a logged sleep covering 03:00 it is DURING LOGGED SLEEP -- observed, not assumed');
-  HT.state().timeline[elP] = [HT.normalizeSignal({ type: 'sleep', kind: 'biometric', time: '23:00', value: 3, unit: 'h', source: 'manual' })];
+  HT.state().timeline[elD] = [HT.normalizeSignal({ type: 'sleep', kind: 'biometric', time: '23:00', value: 3, unit: 'h', source: 'manual' })];
   res(HT.eliteDay(elD)[0].ctx.asleep === '' && HT.eliteDay(elD)[0].offers.indexOf('asleep') < 0,
       'E-LITE GATE: and with a logged sleep that ENDED at 02:00, the user was awake at 03:00 by their own record -- asleep is neither assumed nor offered');
   HT.state().timeline = {};

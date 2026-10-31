@@ -13,7 +13,9 @@
 # PRE-REGISTERED (DECISIONS R301): a sleep and a fast spanning the change report the
 # real duration; the 12 h and 48 h lines read real time; the wake time and the ring stay
 # on the wall clock; the 04:00 close happens at local 04:00; the strip's 3 h are real;
-# a glucose reading sits at its real moment. Each figure is chosen so the old wall-clock
+# a glucose reading sits at its real moment. R303 (pre-registered): the clock-change
+# night's 37 readings are 37 moments, a re-import adds none, a backup carries the
+# offsets, and a pre-change backup restores byte-identical. Each figure is chosen so the old wall-clock
 # arithmetic gives a different answer.
 #
 # Exit 0 PASS, 1 FAIL, 2 environment error.
@@ -283,7 +285,59 @@ try {
   Check (($o.c359 -eq $false) -and ($o.c400 -eq $true) -and ($o.closeAt -eq '4:00') -and ($o.closeAfterMidnightH -eq 5)) "the day of 31 Oct closes at 04:00 LOCAL on 1 Nov -- open at 03:59, closed at 04:00 -- which is 5 real hours after midnight that night"
   Check (($o.s179 -eq 'food') -and ($o.s181 -eq 'quiet')) "the strip's 3 h are real time: a food logged at 23:30 on 31 Oct still shows at 2 h 59 ($($o.s179wall) on the wall) and is gone at 3 h 01"
   Check (($o.g03 -eq $true) -and ($o.g0to3h -eq 4) -and ($o.mealWin -eq 4)) "a glucose reading at 03:00 on 1 Nov sits at its real moment, 4 real hours after midnight; a window measured on the wall clock there is real time too"
-  Write-Host ("  REPORTED (storage, not changed here): " + $o.sent + " readings sent across the night; one import keeps " + $o.kept + " at " + $o.moments + " distinct moments, and importing the same night again keeps " + $o.kept2 + " -- the repeated 01:00-01:59 hour is stored by its wall-clock minute, so the second time round sits on, then replaces, the first")
+  # R301 reported the repeated hour here; R303 fixed it and the checks below hold it.
+
+  # ---- R303: the repeated hour is kept; backups both ways --------------------------------
+  $gz = EvalJ @'
+(function () {
+  var at = function (s) { return new Date(s).getTime(); };
+  var T = at('2026-11-01T12:00:00'); localStorage.clear(); HT.boot(); HT.setClock(function () { return T; });
+  window.confirm = function () { return true; }; window.__confirm = true;
+  var out = {};
+  var rows = [], g0 = at('2026-10-31T22:00:00'), g1 = at('2026-11-01T06:00:00');
+  for (var t = g0; t <= g1; t += 15 * 60000) rows.push({ t: new Date(t).toISOString(), v: 5 + (t - g0) / 3600000 / 10, unit: 'mmol/L' });
+  var span = function () { return HT.glucoseSeries(g0 - 1, g1 + 1); };
+  var moments = function (p) { return p.map(function (x) { return x.t; }).filter(function (x, i, l) { return l.indexOf(x) === i; }).length; };
+  HT.glucoseIngest(rows, { source: 'gate' });
+  var p1 = span();
+  out.sent = rows.length; out.kept = p1.length; out.moments = moments(p1);
+  out.exact = p1.every(function (x, i) { return x.t === Date.parse(rows[i].t); });
+  var both = p1.filter(function (x) { var d = new Date(x.t); return d.getDate() === 1 && d.getHours() === 1 && d.getMinutes() === 30; });
+  out.twoAt0130 = both.length; out.apartMin = both.length === 2 ? (both[1].t - both[0].t) / 60000 : null;
+  out.wall = both.map(function (x) { return HT.minutesToHHMM(new Date(x.t).getHours() * 60 + new Date(x.t).getMinutes()); }).join(',');
+  HT.glucoseIngest(rows, { source: 'gate' });
+  var p2 = span(); out.again = p2.length; out.againMoments = moments(p2);
+  var st = HT.glucoseRead();
+  out.zOn = (st['2026-11-01'] && st['2026-11-01'].z) ? st['2026-11-01'].z.filter(function (x, i, l) { return l.indexOf(x) === i; }).join(',') : '';
+  out.zOff = !!(st['2026-10-31'] && st['2026-10-31'].z);
+  // a backup made now round-trips with the offsets
+  var bk = HT.exportJSON();
+  var bj = JSON.parse(bk);
+  out.bkZ = !!(bj.streams && bj.streams.glucose && bj.streams.glucose['2026-11-01'] && bj.streams.glucose['2026-11-01'].z);
+  localStorage.clear(); HT.boot(); HT.setClock(function () { return T; });
+  var rr = HT.restore(bk);
+  var p3 = span(); out.restored = [rr && rr.ok, p3.length, moments(p3)].join(',');
+  // a PRE-CHANGE backup (no z -- the shape v0.116.0 writes, its repeated minutes and all)
+  var old = JSON.parse(bk);
+  Object.keys(old.streams.glucose).forEach(function (k) { delete old.streams.glucose[k].z; });
+  old.streams.glucose['2026-11-01'].t = old.streams.glucose['2026-11-01'].t.slice();
+  var oldTxt = JSON.stringify(old);
+  localStorage.clear(); HT.boot(); HT.setClock(function () { return T; });
+  var r4 = HT.restore(oldTxt);
+  var back = JSON.parse(HT.exportJSON()).streams.glucose;
+  out.oldRestore = (r4 && r4.ok) + ',' + (JSON.stringify(back) === JSON.stringify(old.streams.glucose)) + ',' + span().length;
+  HT.setClock(null);
+  return out;
+})()
+'@
+  Write-Host ("  glucose (R303): " + $gz)
+  $g = $gz | ConvertFrom-Json
+  Check (($g.sent -eq 37) -and ($g.kept -eq 37) -and ($g.moments -eq 37) -and ($g.exact -eq $true)) "R303: importing the clock-change night keeps all 37 readings as 37 moments, each at the moment it was taken"
+  Check (($g.twoAt0130 -eq 2) -and ($g.apartMin -eq 60) -and ($g.wall -eq '01:30,01:30')) "both 01:30s are kept, an hour apart, and each still reads 01:30 on the wall"
+  Check (($g.again -eq 37) -and ($g.againMoments -eq 37)) "importing the same night again adds no duplicates (37)"
+  Check (($g.zOn -eq '240,300') -and ($g.zOff -eq $false)) "only the clock-change day carries the offsets (240, 300); the day before is stored as it always was"
+  Check (($g.bkZ -eq $true) -and ($g.restored -eq 'True,37,37')) "a backup made now carries them and restores all 37 moments"
+  Check ($g.oldRestore -eq 'True,True,37') "a PRE-CHANGE backup (no offsets, the repeated minutes as v0.116.0 wrote them) restores intact -- every day byte-identical"
 
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)

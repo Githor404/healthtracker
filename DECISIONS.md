@@ -20596,3 +20596,48 @@ A night stays filed under the day it ENDED (closing a sleep, the ring, Trends).
 - **Reported:** how many past "were you asleep?" checks change on the user's newest
   backup, counted by running the same check under the old and the new build.
 - **Release** under the standing pre-run rule, carrying 6cffe81.
+
+## R303 -- BUILT (v0.117.0), against its pre-registration
+
+**1. Glucose, built as pre-registered:**
+- `z` is declared in `normalizeGlucoseDay` and kept only on a day with more than one
+  offset.
+- `glucoseMs` turns a reading into its moment, and every reader of the store goes
+  through it.
+- Ingest keys a reading by `t + z`. The batch is merged as it arrived, with each reading's
+  own offset: the normalised copy drops `z` when the batch alone has one offset, and
+  merging that copy would have read a batch of only the second 01:xx hour as the first.
+- Found while building, before any test.
+
+**dst-gate, 6 new checks, all pass:**
+- the clock-change night keeps 37 readings as 37 moments, each exact;
+- the two 01:30s are kept an hour apart, and each reads 01:30;
+- a second import keeps 37;
+- only that day carries `z` (240, 300);
+- a new backup carries it and restores 37 moments;
+- a pre-change backup restores byte-identical.
+
+**The previous version, tested on the real v0.116.0 build** (in America/Toronto):
+- A backup from this build restores there: ok, all 37 readings kept.
+- v0.116.0 drops `z`, so the repeated hour lies on itself again (33 moments), exactly as
+  that version always showed it. No reading is lost.
+- A backup re-exported from v0.116.0 has lost `z` and reads that way afterwards here too.
+- So **new backups restore on the previous version**. No "needs the new version" message
+  is needed.
+
+**2. Nights:** `eliteSleepSpans` reads a night through `sleepSpan`, filed under the day it
+ended. The harness's E-lite nights are re-filed under the day they ended. Its two checks
+(a night 23:00 + 8 h covers a 03:00 rise; one that ended at 02:00 does not) fail under
+the old reading and pass under the new.
+
+**The user's newest backup: 12 of 34 checks change**, counted by running the same check
+on every flagged rise under v0.116.0 and v0.117.0. The backup has 37 nights.
+- 8 rises now read "during logged sleep" where they read nothing or "assumed": night-time
+  rises, now matched to the night that ended that morning.
+- 2 rises lose a "logged" and read nothing, both daytime on 6 Oct.
+- 1 goes from "logged" to "assumed".
+- 1 night-time rise newly gets "logged".
+- **Five of the twelve come from one record:** a night filed under 6 Oct, bed 06:48,
+  23.5 h long. Read as filed, it runs from 06:48 on 5 Oct to 06:20 on 6 Oct, so rises
+  through 5 Oct now read "asleep". It looks like a sleep left open. It is reported to the
+  user and not changed (the user's data is not repaired by the agent).

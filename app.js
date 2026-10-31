@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.116.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.117.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -12279,12 +12279,31 @@ function normalizeGlucoseDay(raw) {
   const out = { u: unit, t: [], v: [] };
   if (typeof r.raw === 'string' && r.raw) out.raw = r.raw.slice(0, 80);
   if (typeof r.src === 'string' && r.src) out.src = r.src.slice(0, 60);
+  // R303: `z`, each reading's UTC offset in minutes (getTimezoneOffset), parallel to
+  // `t`. Only a day whose readings carry more than one offset keeps it -- the night
+  // the clocks change -- so every other day is what it always was. One bad entry and
+  // the whole field goes: the day then reads as before, never half and half.
+  let z = Array.isArray(r.z) && r.z.length === t.length ? r.z : null;
+  if (z && !z.every(function (x) { return Number.isInteger(x) && x >= -840 && x <= 840; })) z = null;
+  const zs = [];
   for (let i = 0; i < t.length; i++) {
     const mi = Math.round(num(t[i])), vv = num(v[i]);
     if (!(mi >= 0 && mi < 1440) || !(vv > 0)) continue;
     out.t.push(mi); out.v.push(Math.round(vv * 100) / 100);
+    if (z) zs.push(z[i]);
   }
+  if (z && zs.some(function (x) { return x !== zs[0]; })) out.z = zs;
   return out.t.length ? out : null;
+}
+// R303: A READING'S REAL MOMENT. With `z` it is exact on any day (the day's UTC
+// midnight + the wall minute + the offset); without it, the wall-clock time's moment,
+// as it has always been read.
+function glucoseMs(dk, d, i) {
+  if (d.z) {
+    const p = String(dk).split('-');
+    return Date.UTC(Number(p[0]), Number(p[1]) - 1, Number(p[2])) + (d.t[i] + d.z[i]) * 60000;
+  }
+  return wallMs(dk, d.t[i]);
 }
 function normalizeGlucoseStore(o) {
   const out = {};
@@ -12320,16 +12339,16 @@ function glucoseIngest(rows, opts) {
              + '-' + String(d.getDate()).padStart(2, '0');
     if (!isDayKey(dk)) { skipped++; continue; }
     const mi = d.getHours() * 60 + d.getMinutes();
-    if (!byDay[dk]) byDay[dk] = { u: unit, t: [], v: [], mixed: false };
+    if (!byDay[dk]) byDay[dk] = { u: unit, t: [], v: [], z: [], mixed: false };
     if (byDay[dk].u !== unit) byDay[dk].mixed = true;
-    byDay[dk].t.push(mi); byDay[dk].v.push(vv);
+    byDay[dk].t.push(mi); byDay[dk].v.push(vv); byDay[dk].z.push(d.getTimezoneOffset());   // R303
     stored++;
   }
   const mixedUnits = Object.keys(units).length > 1;
   let unitClash = false;              // a day arriving in a unit the store does not hold
   Object.keys(byDay).forEach(function (dk) {
     const b = byDay[dk];
-    const rec = { u: b.u, t: b.t, v: b.v };
+    const rec = { u: b.u, t: b.t, v: b.v, z: b.z };
     if (typeof o.rawUnit === 'string' && o.rawUnit) rec.raw = o.rawUnit;
     if (typeof o.source === 'string' && o.source) rec.src = o.source;
     const norm = normalizeGlucoseDay(rec);
@@ -12340,22 +12359,34 @@ function glucoseIngest(rows, opts) {
     // HealthKit incrementally and ingests the newest handful again and again.
     // A cache that empties itself when refreshed is worse than no cache.
     const prev = store[dk];
-    if (!prev) { store[dk] = norm; return; }
-    if (prev.u !== norm.u) {
+    if (prev && prev.u !== norm.u) {
       // E: two units never merge into one array. That is the silent conversion
       // the unit rule forbids, and after the merge it would be undetectable.
       unitClash = true;
       return;
     }
-    const byMin = {};
-    for (let i = 0; i < prev.t.length; i++) byMin[prev.t[i]] = prev.v[i];
+    // R303: KEYED BY THE REAL MOMENT, not the minute -- the two 01:30s of the night the
+    // clocks go back are two readings. A batch is merged with itself too, so the same
+    // moment sent twice is one reading.
+    const byMom = {};
+    const put = function (d) {
+      for (let i = 0; i < d.t.length; i++) {
+        if (!(num(d.v[i]) > 0)) continue;
+        const z = d.z ? d.z[i] : new Date(wallMs(dk, d.t[i])).getTimezoneOffset();
+        byMom[d.t[i] + z] = { t: d.t[i], v: d.v[i], z: z };
+      }
+    };
+    if (prev) put(prev);
     // the NEW value wins a collision: this is a cache, and the store it caches
     // is the authority. Keeping the old one would pin a stale reading forever.
-    for (let i = 0; i < norm.t.length; i++) byMin[norm.t[i]] = norm.v[i];
-    const mins = Object.keys(byMin).map(Number).sort(function (a, b) { return a - b; });
-    const merged = { u: norm.u, t: mins, v: mins.map(function (m) { return byMin[m]; }) };
-    if (norm.raw || prev.raw) merged.raw = norm.raw || prev.raw;
-    if (norm.src || prev.src) merged.src = norm.src || prev.src;
+    // The batch as it arrived, with every reading's own offset (the normalised copy
+    // drops `z` when the batch alone has one offset, which is not the day's answer).
+    put(rec);
+    const keys = Object.keys(byMom).map(Number).sort(function (a, b) { return a - b; });
+    const merged = { u: norm.u, t: keys.map(function (k) { return byMom[k].t; }), v: keys.map(function (k) { return byMom[k].v; }),
+                     z: keys.map(function (k) { return byMom[k].z; }) };
+    if (norm.raw || (prev && prev.raw)) merged.raw = norm.raw || prev.raw;
+    if (norm.src || (prev && prev.src)) merged.src = norm.src || prev.src;
     const out = normalizeGlucoseDay(merged);
     if (out) store[dk] = out;
   });
@@ -12838,8 +12869,12 @@ function glucoseDaySummary(dk) {
   const store = glucoseKept();
   const d = store[dk];
   if (!d || !d.t.length) return null;
-  const idx = d.t.map(function (t, i) { return i; }).sort(function (a, b) { return d.t[a] - d.t[b]; });
-  const ts = idx.map(function (i) { return d.t[i]; });
+  // R303: in REAL minutes after midnight, so a clock-change night's gaps and span are true
+  // Each moment worked out once; a day without `z` sorts by its minutes as it always did.
+  const base = dayKeyMs(dk);
+  const mom = d.z ? d.t.map(function (t, i) { return (glucoseMs(dk, d, i) - base) / 60000; }) : null;
+  const idx = d.t.map(function (t, i) { return i; }).sort(mom ? function (a, b) { return mom[a] - mom[b]; } : function (a, b) { return d.t[a] - d.t[b]; });
+  const ts = mom ? idx.map(function (i) { return mom[i]; }) : idx.map(function (i) { return (wallMs(dk, d.t[i]) - base) / 60000; });
   const vs = idx.map(function (i) { return d.v[i]; });
   let sum = 0, lo = vs[0], hi = vs[0];
   for (let i = 0; i < vs.length; i++) { sum += vs[i]; if (vs[i] < lo) lo = vs[i]; if (vs[i] > hi) hi = vs[i]; }
@@ -12852,14 +12887,14 @@ function glucoseDaySummary(dk) {
   }
   const spanMin = ts[ts.length - 1] - ts[0];
   const expected = Math.max(vs.length, Math.round(spanMin / stepMin) + 1);
-  const lastMs = wallMs(dk, ts[ts.length - 1]);
+  const lastMs = base + ts[ts.length - 1] * 60000;
   return {
     n: vs.length, expected: expected,
     avg: Math.round((sum / vs.length) * 10) / 10,
     lo: Math.round(lo * 10) / 10, hi: Math.round(hi * 10) / 10,
     unit: d.u, rawUnit: d.raw || '', source: d.src || '',
     gaps: gaps, gapMs: Math.round(gapMinutes * 60000),
-    firstMs: wallMs(dk, ts[0]), lastMs: lastMs,
+    firstMs: base + ts[0] * 60000, lastMs: lastMs,
     // NOT clamped at 0: a reading dated after the clock is a data error and
     // the row has to be able to say so. Flooring it here swallowed the flag
     // ageWords was built to raise (H23/4).
@@ -12932,7 +12967,7 @@ function glucoseFlat() {
   const pts = [];
   Object.keys(store).sort().forEach(function (dk) {
     const d = store[dk];
-    for (let i = 0; i < d.t.length; i++) pts.push({ t: wallMs(dk, d.t[i]), v: d.v[i], u: d.u });
+    for (let i = 0; i < d.t.length; i++) pts.push({ t: glucoseMs(dk, d, i), v: d.v[i], u: d.u });
   });
   pts.sort(function (a, b) { return a.t - b.t; });
   _glucoseFlat = { raw: raw, pts: pts, store: store };
@@ -12963,7 +12998,7 @@ function glucoseSeries(fromMs, toMs) {
   Object.keys(store).sort().forEach(function (dk) {
     const d = store[dk];
     for (let i = 0; i < d.t.length; i++) {
-      const ms = wallMs(dk, d.t[i]);
+      const ms = glucoseMs(dk, d, i);
       if (ms >= fromMs && ms <= toMs) out.push({ t: ms, v: d.v[i], u: d.u });
     }
   });
@@ -13489,7 +13524,8 @@ function glucoseExtent() {
   const ks = Object.keys(store).sort();
   if (!ks.length) return null;
   const f = store[ks[0]], l = store[ks[ks.length - 1]];
-  return { first: wallMs(ks[0], f.t[0]), last: wallMs(ks[ks.length - 1], l.t[l.t.length - 1]) };
+  const mom = function (dk, d) { let a = Infinity, b = -Infinity; for (let i = 0; i < d.t.length; i++) { const m = glucoseMs(dk, d, i); if (m < a) a = m; if (m > b) b = m; } return [a, b]; };
+  return { first: mom(ks[0], f)[0], last: mom(ks[ks.length - 1], l)[1] };
 }
 function whenWords(ms) {
   const d = new Date(ms);
@@ -14017,7 +14053,7 @@ function nightKeysCompute() {
   Object.keys(store).forEach(function (dk) {
     const d = store[dk];
     for (let i = 0; i < d.t.length; i++) {
-      const k = nightKeyFor(wallMs(dk, d.t[i]));
+      const k = nightKeyFor(glucoseMs(dk, d, i));
       if (k) seen[k] = (seen[k] || 0) + 1;
     }
   });
@@ -14326,8 +14362,8 @@ function glucoseLastMs() {
   if (!ks.length) return null;
   const dk = ks[ks.length - 1], d = store[dk];
   let mx = -1;
-  for (let i = 0; i < d.t.length; i++) if (d.t[i] > mx) mx = d.t[i];
-  return mx < 0 ? null : wallMs(dk, mx);
+  for (let i = 0; i < d.t.length; i++) { const m = glucoseMs(dk, d, i); if (m > mx) mx = m; }
+  return mx < 0 ? null : mx;
 }
 // How old the newest reading is, IN WORDS, and always the REAL age. Never the
 // three-hour nominal: measured, 3 h is a floor with a long tail, and quoting the
@@ -15133,12 +15169,10 @@ function eliteSleepSpans() {
     if (!isDayKey(dk)) return;
     (tl[dk] || []).forEach(function (r) {
       if (!r || r.type !== 'sleep' || !(num(r.value) > 0)) return;
-      const m = hhmmToMin(r.time);
-      if (m == null) return;
-      // R301: real hours from the bed moment. The night is read as starting on the day
-      // it is filed under -- this reader's own convention, kept (reported in R301).
-      const from = wallMs(dk, m);
-      out.push([from, from + num(r.value) * 3600000]);
+      // R303: a night is filed under the day it ENDED; one that ran past midnight
+      // started the day before. Read here as everywhere else (sleepSpan).
+      const sp = sleepSpan(r, dk);
+      if (sp) out.push([sp.from, sp.to]);
     });
   });
   return out;
@@ -17576,6 +17610,7 @@ const VERSION_LOG = [
   { v: '0.115.0', d: '2026-10-31', note: 'End meal: when you ate only part of something, the reminder about the rest now has an End meal button. One tap and the rest is recorded as not eaten by you, with the time, and the reminder is gone. Only what you ate counts, as before; nothing you logged changes. It works on reminders that were already there too, on the day and in + Log under Leftovers.' },
   { v: '0.115.1', d: '2026-10-31', note: 'Times across a clock change are now measured in real hours. Tonight the clocks go back an hour: a night from 23:00 to 07:00 is 9 hours, and the app now says 9, not 8. The same goes for how long a fast has run, the 12-hour and 48-hour fasting rules, the 2-hour window after a meal and a night of glucose. Every time you see is still the clock on the wall.' },
   { v: '0.116.0', d: '2026-10-31', note: 'Pull down to update: at the top of the home screen, pull down and let go to check for a new version of the app. If there is one it loads straight away, without closing the app; if not, the page redraws and says Up to date with the version you have.' },
+  { v: '0.117.0', d: '2026-10-31', note: 'Glucose on the night the clocks go back: the hour from 1:00 to 2:00 happens twice, and both hours of readings are now kept, each at its real moment, where before the second sat on top of the first. Importing the same night again adds nothing twice. Your other days are stored exactly as before. And a fix: when a glucose rise asks whether you were asleep, it now reads a night the way the rest of the app files it, under the morning it ended.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
