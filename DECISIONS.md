@@ -20525,3 +20525,74 @@ card all move together):
 - Every graph scrollable like the BP chart.
 - The user's own goals as neutral target lines on graphs, with no verdict colours, set by
   the user per chart.
+
+## R303 -- PRE-REGISTERED (2026-10-31; to be v0.117.0): the glucose store keeps the real moment; a night is read as filed
+
+*The user's rulings on the two R301 findings. This was written before any of it is built.*
+
+### 1. Glucose in the repeated hour: the format change
+
+**Today.** A day holds `{u, t[], v[]}` (+ `raw`, `src`), and `t` is the reading's
+wall-clock minute after that day's midnight. On the night the clocks go back,
+01:00-01:59 happens twice and has one set of minutes, so the second hour's readings sit
+on the first's (37 sent, 33 moments). A second import merges by minute, so the second
+replaces the first.
+
+**The change: one additive field, `z`.** It is the device's UTC offset for each reading,
+in minutes (`Date.getTimezoneOffset`: 240 for EDT, 300 for EST), parallel to `t`.
+- **The moment** is the day's UTC midnight + `t` + `z`, exact on any day. Display stays
+  the local wall clock.
+- **Written only where it is needed:** on a day whose readings carry more than one
+  offset, which means a clock-change day with readings on both sides. On every other
+  day it is left out, so 363 days a year are byte-identical to today's store and
+  today's backups.
+- **Declared in `normalizeGlucoseDay`** (D131). A `z` that is not one whole number per
+  reading within +-14 h is dropped whole, and the day then reads as before.
+- **Ingest and merge key a reading by its real moment** (`t + z`), not by its minute.
+  Both hours are kept, and importing the same night again adds nothing. A day already
+  stored without `z` takes each reading's offset from the clock (the first 01:xx, as
+  read today) when it is merged.
+- **Every reader turns a reading into a moment through one function** (`glucoseMs`),
+  instead of `wallMs(day, t)`. That covers the series, the day summary, the extent, the
+  nights and the newest reading.
+
+**Existing data:** converted on read, nothing rewritten.
+- A day without `z` reads exactly as today.
+- The second 01:00-01:59 of any night already imported cannot be recovered, because only
+  one hour's readings were kept. No stored night is affected: no clock change falls
+  inside the user's data.
+
+**Backups:**
+- **An old backup (no `z`)** restores intact under the new build. That is the same data
+  and the same reading.
+- **A new backup on the previous version (v0.116.0)** will be tested on the real previous
+  build, not assumed. Expected: the old normaliser drops `z` and keeps every reading
+  (it keeps repeated minutes), so the restore succeeds with every reading kept. Only the
+  clock-change night's two 01:xx hours are drawn on top of each other, as they are today.
+  If the test shows anything else, it is reported. No schema bump is planned, because the
+  field is additive.
+
+### 2. Night filing: read a night as filed
+
+A night stays filed under the day it ENDED (closing a sleep, the ring, Trends).
+- **The fix:** the glucose-rise "were you asleep?" reader (`eliteSleepSpans`) reads it
+  that way, through the shared `sleepSpan`. A night that ran past midnight started the
+  day before; its length is real hours.
+- **The harness fixtures** that filed a night under the day it started are re-filed
+  under the day it ended. The assertions are unchanged.
+
+### Gates
+
+- **`dst-gate`:**
+  - importing the clock-change night keeps all 37 readings as 37 distinct moments;
+  - importing it again adds none;
+  - the two 01:30s read 01:30 on the wall and are an hour apart;
+  - a backup made by the new build round-trips with `z`;
+  - a pre-change backup (no `z`, the shape v0.116.0 writes) restores intact, every day
+    byte-identical.
+- **`elite-gate`** (or the harness E-lite block): a normally logged night (filed under
+  the day it ended, 23:00 + 8 h) reads as asleep for a 03:00 rise on that day. A night
+  that ended at 02:00 does not.
+- **Reported:** how many past "were you asleep?" checks change on the user's newest
+  backup, counted by running the same check under the old and the new build.
+- **Release** under the standing pre-run rule, carrying 6cffe81.
