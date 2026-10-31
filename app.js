@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.115.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.115.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -7539,8 +7539,8 @@ function biometricSummary(dateKey) {
   let lastWoke = woke.length ? String(woke[woke.length - 1].time || '') : '';
   // R215: a night ended in + Log says when they woke through its own record.
   if (!lastWoke) {
-    const nights = recs.filter(function (r) { return r && r.type === 'sleep' && r.wake_src !== 'inferred' && sleepWakeMin(r) != null; });
-    if (nights.length) lastWoke = minutesToHHMM(sleepWakeMin(nights[nights.length - 1]));
+    const nights = recs.filter(function (r) { return r && r.type === 'sleep' && r.wake_src !== 'inferred' && sleepWakeMin(r, dk) != null; });
+    if (nights.length) lastWoke = minutesToHHMM(sleepWakeMin(nights[nights.length - 1], dk));
   }
   if (lastWoke) bits.push('woke ' + lastWoke);
   return {
@@ -10540,7 +10540,7 @@ function sensorLast(atMs) {
     (tl[dk] || []).forEach(function (e, i) {
       if (!e || e.type !== 'sensor') return;
       const m = /^(\d{2}):(\d{2})$/.exec(String(e.time || ''));
-      const ms = dayKeyMs(dk) + (m ? (Number(m[1]) * 60 + Number(m[2])) * 60000 : 0);
+      const ms = wallMs(dk, m ? (Number(m[1]) * 60 + Number(m[2])) : 0);
       if (ms > now + 60000) return;                    // a change logged for later is not in force yet
       if (!best || ms >= best.ms) best = { date: dk, idx: i, rec: e, ms: ms, timed: !!m };
     });
@@ -10787,7 +10787,7 @@ function renderTimelineOverlay() {
     // D113: a sleep row says when the night ENDED, and says so when that end was
     // inferred rather than answered.
     if (r.type === 'sleep')
-      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
+      return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r, APP_STATE.current))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
     const val = (r.value != null && !signalRowValueHidden(r)) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
     return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
@@ -12852,14 +12852,14 @@ function glucoseDaySummary(dk) {
   }
   const spanMin = ts[ts.length - 1] - ts[0];
   const expected = Math.max(vs.length, Math.round(spanMin / stepMin) + 1);
-  const lastMs = dayKeyMs(dk) + ts[ts.length - 1] * 60000;
+  const lastMs = wallMs(dk, ts[ts.length - 1]);
   return {
     n: vs.length, expected: expected,
     avg: Math.round((sum / vs.length) * 10) / 10,
     lo: Math.round(lo * 10) / 10, hi: Math.round(hi * 10) / 10,
     unit: d.u, rawUnit: d.raw || '', source: d.src || '',
     gaps: gaps, gapMs: Math.round(gapMinutes * 60000),
-    firstMs: dayKeyMs(dk) + ts[0] * 60000, lastMs: lastMs,
+    firstMs: wallMs(dk, ts[0]), lastMs: lastMs,
     // NOT clamped at 0: a reading dated after the clock is a data error and
     // the row has to be able to say so. Flooring it here swallowed the flag
     // ageWords was built to raise (H23/4).
@@ -12869,6 +12869,50 @@ function glucoseDaySummary(dk) {
 function dayKeyMs(dk) {
   const p = String(dk).split('-');
   return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 0, 0, 0, 0).getTime();
+}
+// R301: THE MOMENT A WALL-CLOCK TIME NAMES. "Midnight plus minutes" is right on 363
+// days a year; on the nights the clocks change the day is 23 or 25 hours long, and
+// every moment after the change came out an hour off -- so a 2 h meal window, a
+// night's readings or a wake time measured across 1 Nov was an hour long or short.
+// Times are still SHOWN on the wall clock; what is measured is real time. The plain
+// days keep the old arithmetic (the same number, and no Date built per reading).
+const _dayPlain = {};
+function dayIsPlain(dk) {
+  let v = _dayPlain[dk];
+  if (v === undefined) { v = dayKeyMs(shiftDate(dk, 1)) - dayKeyMs(dk) === 86400000; _dayPlain[dk] = v; }
+  return v;
+}
+function wallMs(dk, min) {
+  if (min >= 0 && min < MIN_PER_DAY && dayIsPlain(dk)) return dayKeyMs(dk) + min * 60000;
+  const p = String(dk).split('-');
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]), 0, min, 0, 0).getTime();
+}
+// The end of a day (exclusive): the next midnight, 23, 24 or 25 hours on.
+function dayEndMs(dk) { return dayKeyMs(shiftDate(dk, 1)); }
+// The wall-clock minute of a moment, for showing it.
+function msDayMin(ms) { const d = new Date(ms); return d.getHours() * 60 + d.getMinutes(); }
+// Real minutes between two points on the wall-clock minute axis (absMinutes). The
+// axis places things on the ring; a DURATION read off it is wall-clock, so every
+// length and every rule about length reads this instead.
+function absMs(abs) {
+  const di = Math.floor(abs / MIN_PER_DAY);
+  return wallMs(new Date(di * 86400000).toISOString().slice(0, 10), abs - di * MIN_PER_DAY);
+}
+function absRealMin(a, b) { return Math.round((absMs(b) - absMs(a)) / 60000); }
+// A sleep record is bedtime + REAL duration, keyed by the day it ended. Its start is
+// the day before when it ran past midnight; its wake is the wall-clock time of the
+// moment that many real hours after bed.
+function sleepSpan(rec, ownerDk) {
+  const bed = timeToMinutes(rec && rec.time);
+  const durMin = Math.round(num(rec && rec.value) * 60);
+  if (bed == null || !(durMin > 0) || !isDayKey(ownerDk)) return null;
+  const startDate = bed + durMin > MIN_PER_DAY ? shiftDate(ownerDk, -1) : ownerDk;
+  const from = wallMs(startDate, bed), to = from + durMin * 60000;
+  const e = new Date(to);
+  const endAbs = absMinutes(localDate(e), e.getHours() * 60 + e.getMinutes());
+  const startAbs = absMinutes(startDate, bed);
+  return { startDate: startDate, bed: bed, durMin: durMin, from: from, to: to,
+           startAbs: startAbs, endAbs: endAbs, wallMin: endAbs - startAbs, wakeMin: msDayMin(to) };
 }
 // R298: THE STREAM FLATTENED ONCE. Every glucoseSeries call used to read the whole
 // store back (parse, allowlist rebuild, every reading walked and sorted) -- several
@@ -12887,8 +12931,8 @@ function glucoseFlat() {
   try { const o = raw ? JSON.parse(raw) : null; store = (o && typeof o === 'object') ? normalizeGlucoseStore(o) : {}; } catch (e) { store = {}; }
   const pts = [];
   Object.keys(store).sort().forEach(function (dk) {
-    const base = dayKeyMs(dk), d = store[dk];
-    for (let i = 0; i < d.t.length; i++) pts.push({ t: base + d.t[i] * 60000, v: d.v[i], u: d.u });
+    const d = store[dk];
+    for (let i = 0; i < d.t.length; i++) pts.push({ t: wallMs(dk, d.t[i]), v: d.v[i], u: d.u });
   });
   pts.sort(function (a, b) { return a.t - b.t; });
   _glucoseFlat = { raw: raw, pts: pts, store: store };
@@ -12917,9 +12961,9 @@ function glucoseSeries(fromMs, toMs) {
   const store = glucoseRead();
   const out = [];
   Object.keys(store).sort().forEach(function (dk) {
-    const base = dayKeyMs(dk), d = store[dk];
+    const d = store[dk];
     for (let i = 0; i < d.t.length; i++) {
-      const ms = base + d.t[i] * 60000;
+      const ms = wallMs(dk, d.t[i]);
       if (ms >= fromMs && ms <= toMs) out.push({ t: ms, v: d.v[i], u: d.u });
     }
   });
@@ -13077,8 +13121,7 @@ function mealResponseCompute(dateKey, mealId) {
   if (!ev) return { phase: 'none', why: 'no such meal' };
   const t0 = hhmmToMin(ev.time);
   if (t0 == null) return { phase: 'none', why: 'the meal has no time' };
-  const base0 = dayKeyMs(dateKey);
-  const mealMs = base0 + t0 * 60000;
+  const mealMs = wallMs(dateKey, t0);
 
   // ---- the baseline: the mean of the 20 minutes BEFORE, with its n ------
   // Half-open [meal - 20, meal): the reading AT the meal minute is already the
@@ -13227,7 +13270,7 @@ function reviewPool() {
       if (m == null) return;
       const kcal = (ev.items || []).reduce(function (a, it) { return a + num(it.kcal); }, 0);
       if (!(kcal > 0)) return;
-      out.push({ dk: dk, ev: ev, ms: dayKeyMs(dk) + m * 60000, key: reviewEventKey(ev),
+      out.push({ dk: dk, ev: ev, ms: wallMs(dk, m), key: reviewEventKey(ev),
                  carbs: (ev.items || []).reduce(function (a, it) { return a + num(it.carb_g); }, 0),
                  carbsKnown: !(ev.items || []).some(function (it) { return !itemHasMacros(it); }) });
     });
@@ -13446,7 +13489,7 @@ function glucoseExtent() {
   const ks = Object.keys(store).sort();
   if (!ks.length) return null;
   const f = store[ks[0]], l = store[ks[ks.length - 1]];
-  return { first: dayKeyMs(ks[0]) + f.t[0] * 60000, last: dayKeyMs(ks[ks.length - 1]) + l.t[l.t.length - 1] * 60000 };
+  return { first: wallMs(ks[0], f.t[0]), last: wallMs(ks[ks.length - 1], l.t[l.t.length - 1]) };
 }
 function whenWords(ms) {
   const d = new Date(ms);
@@ -13467,7 +13510,7 @@ function mealResponseHTML(dateKey, mealId) {
   if (!r) return '';
   const ev = findMealEvent(dateKey, mealId);
   const t0 = ev ? hhmmToMin(ev.time) : null;
-  const mealMs = t0 != null ? dayKeyMs(dateKey) + t0 * 60000 : null;
+  const mealMs = t0 != null ? wallMs(dateKey, t0) : null;
   const ext = glucoseExtent();
   const head = '<div class="resp"><div class="resphead">After this meal</div>';
   // A meal whose 20 minutes before are already past the newest reading has no
@@ -13483,7 +13526,7 @@ function mealResponseHTML(dateKey, mealId) {
   }
   // The readings END inside this meal's window (not a gap with data after it).
   const endsHere = !!(ext && mealMs != null && ext.last < mealMs + RESP_WINDOW_MIN * 60000);
-  const stopWords = endsHere ? ('Glucose stops at ' + minutesToHHMM(Math.round((ext.last - dayKeyMs(dateKey)) / 60000)) + ' — import again.') : '';
+  const stopWords = endsHere ? ('Glucose stops at ' + minutesToHHMM(msDayMin(ext.last)) + ' — import again.') : '';
   const u = respUnitWord(r);
   const b = r.baseline || {};
   let html = head;
@@ -13945,8 +13988,8 @@ function nightKeyFor(ms) {
   return '';
 }
 function nightSeries(eveningKey) {
-  const from = dayKeyMs(eveningKey) + NIGHT_START_MIN * 60000;
-  const to = dayKeyMs(eveningKey) + (24 * 60 + NIGHT_END_MIN) * 60000;
+  const from = wallMs(eveningKey, NIGHT_START_MIN);
+  const to = wallMs(eveningKey, 24 * 60 + NIGHT_END_MIN);
   return glucoseSeries(from, to);
 }
 // Every night the stream actually covers, in order. A night needs more than a
@@ -13972,9 +14015,9 @@ function nightKeysCompute() {
   const seen = {};
   const store = glucoseKept();
   Object.keys(store).forEach(function (dk) {
-    const base = dayKeyMs(dk), d = store[dk];
+    const d = store[dk];
     for (let i = 0; i < d.t.length; i++) {
-      const k = nightKeyFor(base + d.t[i] * 60000);
+      const k = nightKeyFor(wallMs(dk, d.t[i]));
       if (k) seen[k] = (seen[k] || 0) + 1;
     }
   });
@@ -14284,7 +14327,7 @@ function glucoseLastMs() {
   const dk = ks[ks.length - 1], d = store[dk];
   let mx = -1;
   for (let i = 0; i < d.t.length; i++) if (d.t[i] > mx) mx = d.t[i];
-  return mx < 0 ? null : dayKeyMs(dk) + mx * 60000;
+  return mx < 0 ? null : wallMs(dk, mx);
 }
 // How old the newest reading is, IN WORDS, and always the REAL age. Never the
 // three-hour nominal: measured, 3 h is a floor with a long tail, and quoting the
@@ -14538,7 +14581,7 @@ function chartAnchorMs() {
   if (dk && isDayKey(dk)) {
     const sum = glucoseDaySummary(dk);
     if (sum && sum.lastMs != null) {
-      return Math.min(sum.lastMs, dayKeyMs(dk) + 86400000 - 1);
+      return Math.min(sum.lastMs, dayEndMs(dk) - 1);
     }
   }
   const g = glucoseLastMs();
@@ -14608,21 +14651,19 @@ function glucoseMarks(fromMs, toMs) {
   const tl = (APP_STATE && APP_STATE.timeline) || {};
   Object.keys(days).forEach(function (dk) {
     if (!isDayKey(dk)) return;
-    const base = dayKeyMs(dk);
     ((days[dk] || {}).items || []).forEach(function (it) {
       if (!it || !it.time || isLegacyAuto(it)) return;
       const p = String(it.time).split(':');
-      const ms = base + (Number(p[0]) * 60 + Number(p[1])) * 60000;
+      const ms = wallMs(dk, Number(p[0]) * 60 + Number(p[1]));
       if (ms >= fromMs && ms <= toMs) out.push({ t: ms, kind: 'meal', label: it.name || 'meal' });
     });
   });
   Object.keys(tl).forEach(function (dk) {
     if (!isDayKey(dk)) return;
-    const base = dayKeyMs(dk);
     (tl[dk] || []).forEach(function (e) {
       if (!e || !e.time) return;
       const p = String(e.time).split(':');
-      const ms = base + (Number(p[0]) * 60 + Number(p[1])) * 60000;
+      const ms = wallMs(dk, Number(p[0]) * 60 + Number(p[1]));
       // A stored answer about a rise is not a second event at that moment: the
       // rise itself is marked below, once, whether or not it has been answered.
       if (e.type === ELITE_TYPE) return;
@@ -14800,7 +14841,7 @@ function chartOpenedDaySpan() {
   const dk = APP_STATE && APP_STATE.current;
   if (!dk || !isDayKey(dk)) return null;
   const from = dayKeyMs(dk);
-  return { dk: dk, from: from, to: from + 86400000 };
+  return { dk: dk, from: from, to: dayEndMs(dk) };
 }
 function chartWindowHasOpenedDay() {
   const d = chartOpenedDaySpan();
@@ -15074,12 +15115,12 @@ function eliteFoodTimes(fromMs, toMs) {
   Object.keys(days).forEach(function (dk) {
     if (!isDayKey(dk)) return;
     const base = dayKeyMs(dk);
-    if (base > toMs || base + 86400000 < fromMs) return;
+    if (base > toMs || dayEndMs(dk) < fromMs) return;
     ((days[dk] || {}).items || []).forEach(function (it) {
       if (!it || isLegacyAuto(it)) return;
       const m = hhmmToMin(it.time);
       if (m == null) return;
-      const ms = base + m * 60000;
+      const ms = wallMs(dk, m);
       if (ms >= fromMs && ms <= toMs) out.push(ms);
     });
   });
@@ -15094,7 +15135,9 @@ function eliteSleepSpans() {
       if (!r || r.type !== 'sleep' || !(num(r.value) > 0)) return;
       const m = hhmmToMin(r.time);
       if (m == null) return;
-      const from = dayKeyMs(dk) + m * 60000;
+      // R301: real hours from the bed moment. The night is read as starting on the day
+      // it is filed under -- this reader's own convention, kept (reported in R301).
+      const from = wallMs(dk, m);
       out.push([from, from + num(r.value) * 3600000]);
     });
   });
@@ -15110,8 +15153,8 @@ function eliteWokeTimes() {
       // says when they woke through its own record (keyed by the day it ended)
       // rather than through a second one. An inferred end is no one's waking.
       const m = (r && r.type === 'woke') ? hhmmToMin(r.time)
-        : ((r && r.type === 'sleep' && r.wake_src !== 'inferred') ? sleepWakeMin(r) : null);
-      if (m != null) out.push(dayKeyMs(dk) + m * 60000);
+        : ((r && r.type === 'sleep' && r.wake_src !== 'inferred') ? sleepWakeMin(r, dk) : null);
+      if (m != null) out.push(wallMs(dk, m));
     });
   });
   return out;
@@ -15142,7 +15185,7 @@ function eliteContext(rise, series) {
   // than the list assumes, so it is offered lower -- never removed.
   let stoppedAt = null;
   eatStopsAbs().forEach(function (x) {
-    const ms = dayKeyMs(x.date) + (timeToMinutes(x.time) || 0) * 60000;
+    const ms = wallMs(x.date, timeToMinutes(x.time) || 0);
     if (ms > rise.start || rise.start - ms > ELITE_STOP_MS) return;
     if (lastFood != null && lastFood > ms) return;
     // the FIRST stop after the last food: the one the ring's fasted arc starts at
@@ -15175,7 +15218,7 @@ function eliteOffers(ctx) {
 }
 function eliteLabelFor(dateKey, startMs) {
   const recs = (APP_STATE.timeline && APP_STATE.timeline[dateKey]) || [];
-  const want = Math.round((startMs - dayKeyMs(dateKey)) / 60000);
+  const want = msDayMin(startMs);
   let best = null, bestGap = Infinity;
   recs.forEach(function (r, i) {
     if (!r || r.type !== ELITE_TYPE) return;
@@ -15188,7 +15231,7 @@ function eliteLabelFor(dateKey, startMs) {
 }
 // The day's flagged rises: those that START on it and have no food before them.
 function eliteDay(dateKey) {
-  const from = dayKeyMs(dateKey), to = from + 86400000 - 1;
+  const from = dayKeyMs(dateKey), to = dayEndMs(dateKey) - 1;
   const series = glucoseSeries(from - ELITE_DROP_MIN * 60000, to + ELITE_RISE_MIN * 60000);
   return eliteRises(series).filter(function (r) { return r.start >= from && r.start <= to; })
     .map(function (r) {
@@ -15380,11 +15423,11 @@ function stepsIn(fromMs, toMs) {
   let steps = 0, known = false;
   Object.keys(store).forEach(function (dk) {
     const base = dayKeyMs(dk);
-    if (base > toMs || base + 86400000 <= fromMs) return;
+    if (base > toMs || dayEndMs(dk) <= fromMs) return;
     known = true;
     const d = store[dk];
     for (let i = 0; i < d.t.length; i++) {
-      const ms = base + d.t[i] * 60000;
+      const ms = wallMs(dk, d.t[i]);
       if (ms + STEPS_BUCKET_MIN * 60000 > fromMs && ms <= toMs) steps += d.n[i];
     }
   });
@@ -17531,6 +17574,7 @@ const VERSION_LOG = [
   { v: '0.114.0', d: '2026-10-29', note: 'A strip at the top of the home screen now shows what goes with the last thing you did: after logging food, that meal’s glucose, your fast status, which of its foods are fermented and the pathways it supplies (one tap opens them); after a stack tick, today’s totals of what it counts toward, with any intake note; after opening a food, its database row, fermented, and its pathways. It stays 3 hours or until your next of those, and × ends it. With nothing recent it shows your fast status and your latest glucose. It is always the same height, so nothing on the page moves.' },
   { v: '0.114.1', d: '2026-10-29', note: 'Faster again: each meal’s glucose response is now worked out once per redraw instead of once for every panel that shows it, so the page redraws in about two thirds of the time (about 26 ms to about 17 ms on a recent backup). Nothing you see changes.' },
   { v: '0.115.0', d: '2026-10-31', note: 'End meal: when you ate only part of something, the reminder about the rest now has an End meal button. One tap and the rest is recorded as not eaten by you, with the time, and the reminder is gone. Only what you ate counts, as before; nothing you logged changes. It works on reminders that were already there too, on the day and in + Log under Leftovers.' },
+  { v: '0.115.1', d: '2026-10-31', note: 'Times across a clock change are now measured in real hours. Tonight the clocks go back an hour: a night from 23:00 to 07:00 is 9 hours, and the app now says 9, not 8. The same goes for how long a fast has run, the 12-hour and 48-hour fasting rules, the 2-hour window after a meal and a night of glucose. Every time you see is still the clock on the wall.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -18038,7 +18082,7 @@ function fastGaps(nowAbs) {
     if (hi == null || !(hi > prev.abs)) continue;
     const st = stops.filter((s) => s.abs >= prev.abs && s.abs < hi)[0] || null;
     const a0 = st ? st.abs : prev.abs;
-    const mins = hi - a0;
+    const mins = absRealMin(a0, hi);                // R301: real time, not the wall-clock difference
     const excluded = !!next && matchResolution(prev.iso, next.iso).state === 'ate_didnt_log';
     const unlogged = mins >= GAP_DATE_AFTER_MIN;
     out.push({ food: prev.abs, a0: a0, a1: hi, open: !next, stop: !!st, mins: mins,
@@ -18181,12 +18225,10 @@ function rhythmModel(dateKey, opts) {
     sleepOwners.forEach((owner) => {
       (tl[owner] || []).forEach((r, idx) => {
         if (r.type !== 'sleep') return;
-        const bed = timeToMinutes(r.time); const durMin = Math.round(num(r.value) * 60);
-        if (bed == null || !(durMin > 0)) return;
-        const crosses = bed + durMin > MIN_PER_DAY;
-        const startDate = crosses ? shiftDate(owner, -1) : owner;
-        addIntervalWin(arcs, win0, win1, absMinutes(startDate, bed), durMin, 'sleep',
-          'sleep ' + hoursLabel(durMin), { lane: 'sleep', cat: 'sleep', src: 'sig:' + owner + ':' + idx });
+        const sp = sleepSpan(r, owner);
+        if (!sp) return;
+        addIntervalWin(arcs, win0, win1, sp.startAbs, sp.wallMin, 'sleep',
+          'sleep ' + hoursLabel(sp.durMin), { lane: 'sleep', cat: 'sleep', src: 'sig:' + owner + ':' + idx });
       });
     });
     // R265.1: THE EAT LANE IS EATING (green) AND FASTING (orange), FROM ONE RULE.
@@ -21608,7 +21650,8 @@ function minutesToHHMM(m) {
   return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0');
 }
 // A sleep record is bedtime + duration, so the wake moment is derived, never stored.
-function sleepWakeMin(rec) {
+function sleepWakeMin(rec, ownerDk) {
+  if (ownerDk) { const sp = sleepSpan(rec, ownerDk); return sp ? sp.wakeMin : null; }
   const b = timeToMinutes(rec && rec.time);
   const h = num(rec && rec.value);
   if (b == null || !(h > 0)) return null;
@@ -21626,7 +21669,7 @@ function observedWakeMins(today) {
     (tl[d] || []).forEach(function (r) {
       if (!r || r.type !== 'sleep') return;
       if (r.wake_src === 'inferred') return;        // the closed loop, refused here
-      const w = sleepWakeMin(r);
+      const w = sleepWakeMin(r, d);
       if (w != null) out.push(w);
     });
   });
@@ -21651,7 +21694,7 @@ function laneOpenState(lane) {
   const dm = isoToDayMin(o.start);
   if (!dm) return { open: false, lane: lane };
   const startAbs = absMinutes(dm.date, dm.min);
-  const mins = Math.max(0, absMinutes(todayKey(), nowMinutes()) - startAbs);
+  const mins = Math.max(0, absRealMin(startAbs, absMinutes(todayKey(), nowMinutes())));   // R301: real time
   return { open: true, lane: lane, start: o.start, startAbs: startAbs, minutes: mins,
            pending: mins >= spec.maxOpenMin };
 }
@@ -21671,7 +21714,7 @@ function closeLaneSegment(lane, endAbs, endDateKey, src) {
   const spec = LANE_ACTIONS[lane];
   const st = laneOpenState(lane);
   if (!spec || !st.open) return { ok: false, error: 'No ' + lane + ' segment is open.' };
-  const mins = Math.max(0, endAbs - st.startAbs);
+  const mins = endAbs > st.startAbs ? Math.max(0, absRealMin(st.startAbs, endAbs)) : 0;   // R301: real time
   if (!(mins > 0)) {
     delete APP_STATE.settings.laneOpen[lane];
     Store.saveState(APP_STATE); refresh();
@@ -21924,8 +21967,8 @@ function sleepControlHTML(below) { return laneControlHTML('sleep', below); }
 // G1: THREE STATES STORED, TWO SHOWN. Typed and accepted both read plainly --
 // both are the person's answer on the surface -- while an inferred night says
 // so and wears a tilde. Storing more than is shown is the safe direction.
-function sleepRowLabel(rec) {
-  const w = sleepWakeMin(rec);
+function sleepRowLabel(rec, ownerDk) {
+  const w = sleepWakeMin(rec, ownerDk);
   if (w == null) return 'Sleep';
   const t = minutesToHHMM(w);
   return rec && rec.wake_src === 'inferred'
@@ -27332,7 +27375,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, wallMs, dayEndMs, absRealMin, sleepSpan,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

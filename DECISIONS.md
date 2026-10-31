@@ -20347,3 +20347,83 @@ sleep checks, and none of them involves plates.
   app's convention. No assertion was removed, and the count is unchanged (3444).
 - What the app does on such a night is unchanged and stated here: a night of sleep across
   the change is counted on the wall clock.
+
+
+## R301 -- DURATIONS ARE REAL TIME ACROSS A CLOCK CHANGE (2026-10-31, v0.115.1; *track*)
+
+*Ruled: a night from 23:00 to 07:00 across the night the clocks go back (1 Nov, 02:00 ->
+01:00) is 9 h, not 8. The same applies to fast lengths, the 12 h / 48 h fasting rules,
+glucose windows (the 2 h meal response), the strip's 3 h and the 04:00 close. Times are
+still shown on the wall clock. This corrects what R299.1 recorded ("counted on the wall
+clock").*
+
+**The report: what each used before, tested across 1 Nov (America/Toronto):**
+
+| | before | now |
+|---|---|---|
+| Sleep length (ended with Now or a typed time), the 11 h "forgot?" line | wall clock: 23:00 -> 07:00 = 8 h | real: 9 h |
+| Fast length, the 12 h rule, the 48 h line, the running fast | wall clock: 19:00 -> 08:00 = 13 h | real: 14 h |
+| Glucose and meal moments (the 2 h response window, the night, the chart) | midnight + minutes, so after 02:00 on 1 Nov every moment was an hour off | the real moment |
+| The strip's 3 h | real already (`nowMs`) | unchanged |
+| The 04:00 close | local 04:00 already | unchanged |
+
+**What changed:**
+- **One helper for a wall-clock time's moment** (`wallMs`). Plain days use the old
+  arithmetic, giving the same number with no Date built per reading. A day of 23 or 25
+  hours asks the clock.
+- **Every "midnight plus minutes" reads `wallMs`.** That covers the glucose series and its
+  extent, the night, a meal's moment and window, the review's events, the chart's marks,
+  the sensor change, steps and E-lite. The ends of a day read the next midnight (23, 24 or
+  25 hours on).
+- **Fasts.** A fast is measured in real minutes between its ends (`absRealMin`), so the
+  12 h and 48 h lines read real time. The ring still places it on the wall clock.
+- **Sleep.**
+  - Closing a sleep stores real hours.
+  - An open sleep counts real minutes.
+  - A night's wake time is the wall-clock time of the moment that many real hours after
+    bed (`sleepSpan`), and every caller passes the day the night is filed under.
+  - The ring draws the night from bed to wake on the wall, and labels it in real hours.
+- **Stored data:** no stored record changes. Past nights and fasts are re-read under the
+  same rule, but no clock change falls inside the user's data (it starts in September).
+
+**Found and reported, not changed here (each needs a ruling):**
+1. **Glucose in the repeated hour.** The store keeps a reading by its day and wall-clock
+   minute. So the 01:00-01:59 that happens twice on 1 Nov has one set of minutes.
+   - One import keeps both hours' readings, but at the same moments.
+   - Importing the same night again keeps only one hour: the second replaces the first.
+   - Measured in dst-gate: 37 readings sent, 33 distinct moments, 33 kept after a second
+     import.
+   - Fixing it changes the glucose store's format, which is a storage change to be ruled
+     first.
+2. **Which day a night is filed under, read two ways.**
+   - The app files a night under the day it ENDED (closing a sleep, the ring, Trends).
+   - The E-lite "were you asleep?" reader treats the filed day as the day it STARTED.
+   - So a night logged the usual way sits a day late for that reader. It already did, and
+     the clock change has nothing to do with it.
+   - Kept as it was (now in real hours), for a ruling.
+
+**Gate: `dst-gate` (new, 11 checks).**
+- It puts the page in America/Toronto with `Emulation.setTimezoneOverride` before the app
+  loads, so it checks the change on any machine and any day. If 1 Nov is not 25 hours long
+  in the page, the gate is an environment error, not a pass.
+- Every figure is chosen so the old wall-clock arithmetic gives a different answer.
+- The checks:
+  - sleep 23:00 -> 07:00 is 9 h, ended with Now and with a typed time;
+  - the wake still reads 07:00, and Trends reads 9;
+  - the ring draws midnight to 07:00, labelled 9h;
+  - an open sleep counts real minutes (659 / 661 around the 11 h line);
+  - a fast 19:00 -> 08:00 is 14 h;
+  - 21:00 -> 08:30 is a fast (12.5 h);
+  - 30 Oct 07:30 -> 1 Nov 07:00 is past the 48 h line;
+  - a running fast reads 12.5 h;
+  - the 04:00 close is local 04:00, 5 real hours after that midnight;
+  - the strip at 2 h 59 / 3 h 01;
+  - a glucose reading at 03:00 sits at its real moment.
+
+**Harness:** five checks had wall-clock expectations across tonight's change, and they now
+read real time.
+- R265.1's 800-minute fast is computed: 800, or 860 across this change.
+- The R16 and R215 fixtures step in real minutes again. R299.1 had moved them onto the wall
+  to match the old counting.
+- The wake time is read back through the real clock.
+- The count is unchanged (3444).

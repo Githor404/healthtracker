@@ -53,6 +53,7 @@ corpus-cache-gate.ps1
 corpus-gate.ps1
 dayroll-gate.ps1
 drinkfree-gate.ps1
+dst-gate.ps1
 elite-gate.ps1
 entry-gate.ps1
 fdc-gate.ps1
