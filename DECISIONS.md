@@ -20902,3 +20902,60 @@ information through the day.*
 - **rings-gate:** checks the Glucose section line.
 
 **On the user's 31 Oct data at 12:30:** nothing is pertinent, so the box is not shown.
+
+## R306 -- PRE-REGISTERED (2026-10-31; to be v0.121.0): the Micronutrients section, per day by weight
+
+*The user: figures like "X from 2 of 6 items" are not useful; he wants to track intake per
+day. Written before any of it is built.*
+
+**Per nutrient, per day: one total, with its coverage BY WEIGHT.**
+- **Coverage** = the grams of the day's food items that carry a value for this nutrient (a
+  label value, or a linked database row that has it), out of the grams of all the day's
+  food items that have a weight. It is shown as "82 % of today's food known".
+- **Items without a weight** (an AI estimate with no grams, a legacy item) cannot be in a
+  share by weight. One line under the shortcut says how many there are. They are never
+  counted as covered.
+- **The total sums known values only.** Nothing unknown is counted as zero (D8): a
+  nutrient no item carries reads "-" and "0 % known", never 0.
+- **Stack doses are included** in the total and labelled ("includes 200 mg from your
+  stack", R208). A dose is not food, so it is not in the share by weight.
+- **The two coverage forms go:** "from N of M items" and the "Everything below is ..."
+  line.
+
+**The threshold, proposed: 60 %.** A total under 60 % of the day's food known is dimmed
+and says "partial". At 60 % or more it is plain. There are no verdict colours: the dimming
+is the muted text colour.
+
+**The reference intake beside each total.** It comes from the pathway pack's
+`reference_intakes`, the user's own Health Canada table for his group (built in HTPrivate;
+the app ships no personal target). It shows as "RDA 8 mg" or "AI 4,700 mg", converted to
+the row's unit by the pack's `slot_factor`, and the section names its source and group
+once. With no pack, or no figure for that nutrient, nothing is shown: never a target
+without a citation. The footnote that said "no cited intake targets" is reworded to name
+the source when there is one.
+
+**The shortcut at the top:** "N foods have no nutrient data -- link them ›".
+- **Which foods count:** the day's food items that could be linked (with a weight, not
+  linked yet, not a stack item; R286's `linkEligible`) and carry no label value.
+- **A tap** opens, inside the section, one entry per such food (name, grams, time) with its
+  link offer: the top 3 database rows of the find-nutrients ranking, offered on a tap.
+- **Nothing counts until the user taps a row.** D141 still holds at capture, where nothing
+  is linked.
+
+**Gate: the new `micro-gate`:**
+- a day whose food is all covered shows plain totals at 100 %;
+- a partial day shows dimmed totals with "partial" and the % known;
+- unknown is never zero: a nutrient no item carries reads "-", and a partial total is the
+  sum of the known values only;
+- a stack dose is in the total and labelled;
+- the reference intake shows from a placeholder pack, and does not show without one;
+- the shortcut counts exactly the unlinked foods, and a tap opens a suggestion box for
+  exactly those;
+- a tap on a row links that food, and only then does its coverage count;
+- no verdict colour; 16 px; 44 px; nothing sideways.
+
+**Reported on the user's backup:** coverage per nutrient on a typical day (the median of
+the last 14 days), and how much it would rise if the week's unlinked foods were linked to
+their first suggested row (an estimate, labelled as one).
+
+**Release** under the standing pre-run rule.
