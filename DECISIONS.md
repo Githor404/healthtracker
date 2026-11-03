@@ -21437,3 +21437,71 @@ isopentenyl diphosphate) and triglycerides, then the three literature links and 
 Two wording faults found by looking and fixed in the data, not the app: two literature links
 said "from this pathway", wrong when read from the other end; pw-076's "what the phone can
 see" used the word "measured".
+
+## R316.1 -- INVESTIGATED (2026-11-03): "the eggs did not end my fast" -- no change, by ruling
+
+Reported: two boiled eggs (1 g carbs, 13 g protein) logged at about 11:00 during a running
+fast, and the app still showed fasting. Reproduced on the newest backup on the PC (31 Oct,
+v17) with a dinner the evening before, in a real browser at 390 px: by repeat, scan, manual
+entry, the quick-add and Search "logged before" write paths, every entry was judged "1 g net
+carbs and 13 g protein -- over 5 g / 5 g", the fast closed at the eggs, the line under the
+date read "N h since last logged food" and the top box dropped its "Fasting" line. Not the
+R289 cache, not a carbs-only test, not a mark (the backup holds none), not the combo rule,
+not the entry's time. **What still read as fasting was the ring:** under R265.1 the span from
+the last food is orange "as it runs", and the ring key names orange "fasting", so the eat
+lane shows one unbroken orange arc through the eggs. Offered changes (green or neutral until
+12 h; the fast counted from 2 h after the meal) -- **the user ruled: keep it as it was.**
+Found and NOT changed (offered to the user): `buildRepeatItem` copies the source entry's
+`fast_override`, so a repeat inherits an earlier "keeps my fast" tap.
+
+## R317 -- PRE-REGISTERED (2026-11-03; to be v0.126.0): a stack item added by the logging routes (*track*)
+
+*The user (3 Nov): "+ Add to stack" for a Food shows text fields only; he wants the food-
+logging routes. No product or item name of the user's appears here (R204).*
+
+**1. Food: four routes, reusing the logging paths, shown at the top of the Food form.**
+- **Scan barcode** opens + Log's own scanner (camera started at once where it is usable, the
+  manual barcode field beside it, the OpenFoodFacts lookup and its cache -- the scanner spec
+  unchanged). From Settings the form moves into + Log with what was typed kept. The found card
+  keeps the product head and the portion picker (serving / 100 g / custom) and its summary;
+  it has no meal, eaten-share or price controls; its button is **Add to my stack**, which
+  saves the item at once: name the product's, a part at the portion with the label's numbers
+  (`source: scan`, confidence measured, `barcode` and `kcal_on_label` kept), its labelled
+  micronutrients at label provenance (the honesty rule), joined today.
+- **Photo** (with the user's key): the meal photo template is sent; the model only NAMES the
+  food (D128) -- its numbers are discarded; up to three names are offered as searches and the
+  first is run; no row is picked for the user (D141). Without a key the button is not shown.
+- **Find the food**: the user's foods, the device database, then the USDA FoodData Central
+  offer (the shared block, R242/B) once the database has answered; a pick is a database row.
+- **Enter by hand**: the My foods form (from label / generic values), always visible -- not
+  only after typing a name.
+**2. Supplement:** the NPN and label-photo routes unchanged (R281). **Scan barcode** uses
+OpenFoodFacts, the only barcode source the app has (the licensed database has no barcode
+search). Found: the name, and -- only where OpenFoodFacts gives a serving size and a tracked
+nutrient -- one row per nutrient for one serving, filled in and editable, marked "from
+OpenFoodFacts -- check it against your label" (`detail.source: off`); nothing is saved until
+Add to my stack. Not found: said, with the NPN route beside it. The barcode is kept on the item.
+**3. The count (R237).** A scanned part counts its label's numbers, as a scanned log does; a
+row pick counts the row. Parts gain optional `barcode` and `kcal_on_label` (additive, no
+schema bump; combo parts too; `comboPartRaw` copies them), stack items an optional `barcode`.
+**4. R279 on this route.** After the scan add, the top banner says "Added to your stack:
+<name> <grams> g", with Undo (removes the item: added today, never logged). A product
+already in the stack (same barcode, not removed) is not added silently: "Already in your
+stack: <name>" with Add another / Cancel.
+**5. Taps** (from the day, counting the user's taps, not the phone's own camera screens):
++ Log, Daily stack, + Add to stack, Food, then -- scan: Scan barcode, Add to my stack (6);
+your food: its row, Add to my stack (6); database: its row, grams typed, Add (6); USDA:
+the offer, a row, Add (7); photo: Photo, the camera's own taps, a row, Add (7 + camera);
+by hand: Enter by hand, Save this food, Add (7). Supplement by barcode: + Log, Daily stack,
++ Add to stack, Scan barcode, Use these, Add to my stack (6).
+**6. Gate `stackadd-gate`** (new; real taps at 390 px, a placeholder product seeded into the
+product cache, placeholder names only): a food added by barcode is in the stack with the
+label's macros and micronutrients at the portion and its barcode, and a tick of it adds them
+to the day; the banner and its Undo; the duplicate guard; a food added by search carries its
+row; one added by hand (My foods) still saves; the photo reply's names become searches and
+nothing is picked; a supplement by barcode fills its name and rows, marked, and saves them;
+the tap counts above for scan, your food and database; every new control 44 px; nothing
+runs sideways. Harness: the part's `barcode` / `kcal_on_label` and the item's `barcode`
+survive normalisation and a round trip.
+
+**Release** under the standing pre-run rule.
