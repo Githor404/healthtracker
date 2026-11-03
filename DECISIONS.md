@@ -21524,3 +21524,15 @@ writing it: an empty fixture stack has no Daily stack row; a JSON array read thr
 ConvertFrom-Json; `[` as a wildcard in -like). Harness +2 (3453). Looked at, 390 px: the
 form, the scan card, the banner, the supplement form with its two marked rows, the photo's
 names. Every gate alone, then the full suite: 79 of 79.
+
+## R316.1 follow-up -- PRE-REGISTERED (2026-11-03; to be v0.126.1): a repeat does not inherit a fast mark
+
+The user (3 Nov): "fix the repeat mark defect". `buildRepeatItem` -- the write behind quick add,
+Search's "logged before" rows and the one-tap repeat -- copies the whole source entry, and with
+it `fast_override`: an earlier "keeps my fast" / "breaks my fast" tap on that entry would rule a
+NEW entry the user never marked (R287: the mark is the user's tap on an entry, kept with its
+time). **Fix:** the copy drops `fast_override`; the new entry is judged by the rule until the
+user marks it. The source entry keeps its own mark. No stored entry changes: a repeat already
+made keeps the mark it was given (none exists in the newest backup on the PC).
+**Harness** +1: a marked entry repeated -- the copy has no mark and ends a fast by the rule (13 g
+protein), the source still carries its mark. Release under the standing pre-run rule.
