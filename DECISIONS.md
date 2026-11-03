@@ -21408,3 +21408,32 @@ data work is in HTPrivate (R204).*
 - Look at a pathway's i at 390, light and dark, on the user's pack, before the suite.
 
 **Release** under the standing pre-run rule.
+
+## R313 part B -- BUILT (v0.125.0), against its pre-registration
+
+**HTPrivate (not in this repo):**
+- `connections.json`, from the cached Reactome 98 participants of the 72 records with an ID,
+  by the ruled rule: **359 links** (density 0.140), median 9 neighbours, at most 26; three
+  records have none (6 shown each). Pack v012 carries it with the literature links' quotes.
+- **pw-076 "Protein prenylation"** = R-HSA-8873719 "RAB geranylgeranylation", in Cell sensors
+  and maintenance. Its sentence waits for the user's review; the phone says "not reviewed
+  yet". By Reactome alone it connects to GLUT4 (RAB10, RAB11A, RAB13 ...) and vasopressin
+  (RAB11A).
+- **The three literature links**, each with two verbatim quotes from fetched abstracts:
+  SREBP -> the LDL receptor (Hua 1993; Miserez 2002); cholesterol
+  synthesis -> prenylation (Ostrowski 2007); cholesterol synthesis -> vitamin K2, MK-4
+  (Schumacher 2016). Worded so they read the same from either end.
+- **statin-hmgcr** drafted and staged: "Statins inhibit HMG-CoA reductase ...", proposed
+  99 %, GRADE high, four quotes (Istvan 2001, Holdgate 2003, the CTT meta-analysis, Baigent 2005). Not in any pack until
+  the user approves it.
+- The share-alike ruling and the conditional category are recorded above (R313 part B, 2).
+
+**App, as pre-registered.** connect-gate: 11 checks, all pass. pack-gate's word census reads
+the heading's "effect not measured" out first, as pre-registered. No harness change.
+
+**Looked at on the user's pack** (v011, then v012), 390 px light and dark: cholesterol
+synthesis lists PPAR-alpha, lipoproteins, beta-oxidation, FOXO, CoQ10 synthesis (farnesyl and
+isopentenyl diphosphate) and triglycerides, then the three literature links and "16 more".
+Two wording faults found by looking and fixed in the data, not the app: two literature links
+said "from this pathway", wrong when read from the other end; pw-076's "what the phone can
+see" used the word "measured".

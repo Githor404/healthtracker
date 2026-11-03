@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.124.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.125.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3840,12 +3840,62 @@ function pathwayRecordHTML(P, r) {
   if (sup.length) b += '<div class="pwline">Raw materials (necessary, not sufficient), against ' + esc((P.reference_intakes || {}).source || '') + ', ' + esc((P.reference_intakes || {}).group || '') + ': ' + sup.join('; ') + '</div>';
   if (nori.length) b += '<div class="pwline">Counted with no reference intake: ' + nori.join(', ') + '</div>';
   if (notc.length) b += '<div class="pwline">Listed but not counted by the log: ' + notc.join(', ') + '</div>';
-  b += '<div class="pwline">' + (claims.length ? 'Reviewed claims: ' + claims.map(function (c) {
+  // R313/B: two cards, never merged -- what shares a participant (no effect claimed), and what
+  // studies claim (each with its probability). A pack without connections has no first card.
+  b += pwConnHTML(P, r);
+  b += '<div class="pwcard pwclaims"><div class="pwcardh">Claims · effect with probability</div><div class="pwline">' + (claims.length ? 'Reviewed claims: ' + claims.map(function (c) {
     const pv = c.probability && c.probability.versions && c.probability.versions[c.probability.versions.length - 1];
     return esc(c.claim) + (pv ? ' — ' + Math.round(100 * pv.p) + ' % ' + esc(pv.of) : '') + ((c.evidence && c.evidence.grade) ? ' · GRADE ' + esc(c.evidence.grade) : '');
-  }).join('; ') : 'No reviewed claims yet.') + '</div>';
+  }).join('; ') : 'No reviewed claims yet.') + '</div></div>';
   return '<div class="pwrec" data-pw="' + esc(r.id) + '"><span class="pwname">' + esc(r.plain_name) + '</span>'
     + '<details class="pwinfo"><summary aria-label="about ' + esc(r.plain_name) + '">ⓘ</summary>' + b + '</details></div>';
+}
+// ---- R313/B: THE CONNECTIONS LAYER ------------------------------------------------------
+// From the pack (built on the PC from Reactome 98, CC0): for each pathway, the 6 others it
+// shares the most specific participants with -- a protein in at most 3 records, a molecule
+// in at most 5 -- and the literature-sourced links, each with its source. "Connected" never
+// says a change in one reaches the other; no probability is shown here (R260: there is none).
+function pwMolName(n) {
+  return String(n || '').replace(/\(\d?[+-]\)$/, '').replace(/^(\d+-(?:trans|cis),)*\d+-(?:trans|cis)-/, '').trim();
+}
+function pwSharesWords(x) {
+  const all = [];
+  (x.molecules || []).map(pwMolName).concat(x.proteins || []).forEach(function (n) { if (n && all.indexOf(n) < 0) all.push(n); });
+  return all.slice(0, 3).join(', ') + (all.length > 3 ? ' and ' + (all.length - 3) + ' more' : '');
+}
+function pwConnHTML(P, r) {
+  const C = P && P.connections;
+  if (!C || !C.records) return '';
+  const recs = {};
+  (P.records || []).forEach(function (x) { recs[x.id] = x; });
+  const e = C.records[r.id] || { n: 0, shown: [] };
+  const shown = (e.shown || []).filter(function (x) { return recs[x.id]; });
+  const lit = (C.literature || []).filter(function (l) { return (l.a === r.id && recs[l.b]) || (l.b === r.id && recs[l.a]); });
+  const row = function (id, via) {
+    return '<button type="button" class="pwconn" data-to="' + esc(id) + '" onclick="pwStep(\'' + esc(id) + '\')">'
+      + '<span class="pwconnname">' + esc(recs[id].plain_name) + ' ›</span><span class="pwconnvia">' + esc(via) + '</span></button>';
+  };
+  let h = '<div class="pwcard pwconnected"><div class="pwcardh">Connected · effect not measured</div>'
+    + '<div class="pwline pwdim">Shares a molecule or an enzyme in Reactome ' + esc(String(C.reactome_version || P.reactome_version || ''))
+    + ' (CC0), or a link from the literature. A connection does not say a change in one reaches the other.</div>';
+  shown.forEach(function (x) { h += row(x.id, 'shares ' + pwSharesWords(x)); });
+  lit.forEach(function (l) {
+    const o = l.a === r.id ? l.b : l.a;
+    const src = ((P.sources || []).filter(function (s) { return s && (l.sources || []).indexOf(s.id) >= 0; })[0]) || null;
+    h += row(o, 'literature: ' + l.says + (src ? ' — ' + [src.authors, src.venue, src.year].filter(Boolean).join(', ') : ''));
+  });
+  if (!shown.length && !lit.length) h += '<div class="pwline pwdim">No connection by the rule: nothing it shares is specific enough.</div>';
+  if (num(e.n) > shown.length) h += '<div class="pwline pwdim">' + esc(String(num(e.n) - shown.length)) + ' more connected, not shown: the ' + shown.length + ' sharing the most specific participants are.</div>';
+  return h + '</div>';
+}
+// A connection's tap: that pathway's group and i open, the pathway marked.
+function pwStep(id) {
+  const r = ctxShowPathways([String(id)]);
+  const el = document.querySelector('#pathways .pwrec[data-pw="' + String(id).replace(/["\\]/g, '') + '"]');
+  const info = el && el.querySelector('details.pwinfo');
+  if (info) info.open = true;
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+  return { ok: !!info, shown: r && r.shown };
 }
 function renderPathways() {
   const el = document.getElementById('pathways');
@@ -18406,6 +18456,7 @@ const VERSION_LOG = [
   { v: '0.122.1', d: '2026-10-31', note: 'The dates under the blood-pressure chart no longer run into each other: when there is not room for every date, every tick mark stays and only the dates that fit are written. The same for the Trends graphs.' },
   { v: '0.123.0', d: '2026-10-31', note: 'Three things. Claims stay with your stack items when you look them up by NPN: they now match the product’s licensed ingredient (its common, botanical or chemical name), not only the name you gave the item. A licensed product that states an amount twice in two units -- a vitamin in mcg and again in IU -- is now counted once; if you saved such an item before, open its Edit and Save it once to correct its total. And the line saying the app saved in this browser is gone while all is well; it only appears, in plain words, if saving fails or storage is at risk. When your last backup is later than your usual gap between backups (or 7 days, until you have five), the box at the top says so, and a tap takes you to Export backup.' },
   { v: '0.124.0', d: '2026-11-03', note: 'Each item in your daily stack now has “How this supports your pathways”, in + Log and in Settings. It shows two things, kept apart: what the item supplies -- each nutrient at your usual amount and the pathways it is a raw material for (a tap opens that pathway) -- and what studies say about it, each claim with its own probability and evidence grade, with safety entries and interactions under their own headings. An amount under 1 % of the reference intake per serving no longer counts as supplying a pathway, so a food is not said to supply a pathway through a trace of a mineral. Zinc now has a cited upper intake level (Institute of Medicine, 2001: 40 mg a day from food, water and supplements together), with the same collapsed intake note as vitamin D and magnesium.' },
+  { v: '0.125.0', d: '2026-11-03', note: 'Each pathway’s ⓘ in the Pathways card now has two cards, kept apart. “Connected · effect not measured” lists the pathways it shares the most specific molecules or enzymes with in Reactome (up to six, each saying what is shared), and links from the literature with their source; a tap opens that pathway. A connection does not say that a change in one reaches the other, so it carries no probability. “Claims · effect with probability” holds the reviewed claims, as before. The connections arrive with your next pathway pack.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -28280,7 +28331,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

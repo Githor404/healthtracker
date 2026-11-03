@@ -36,6 +36,7 @@ bpchart-gate.ps1
 bm-slider-gate.ps1
 claims-gate.ps1
 supports-gate.ps1
+connect-gate.ps1
 capture-gate.ps1
 capture-outcome-gate.ps1
 anti-engagement-gate.ps1
