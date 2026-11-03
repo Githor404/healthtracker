@@ -840,6 +840,30 @@ window.setLS({});
   res(r8f3.length === 1 && r8f3[0].key === 'magnesium_mg' && r8f3[0].amount === 360 && r8f3[0].parts.supplement === 360 && r8f3[0].parts.food === 400,
       'R208: a supplement logged as a day item is supplemental as well -- 360 against 350 -- and the food beside it is still not counted');
   HT.state().days[td].items.pop();
+  // R313/A P6: zinc's cited level is about TOTAL intake -- food and stack summed
+  HT.state().days[td].items.push(r8mi('Gate grain', 0, { zinc_mg: 15 }));
+  HT.state().timeline[td] = [{ kind: 'medication', name: 'Gate zinc', time: '08:00', micros: { zinc_mg: 30 } }];
+  var r13z = HT.dayIntakeFlags(td).filter(function (f) { return f.key === 'zinc_mg'; })[0];
+  res(!!r13z && r13z.amount === 45 && r13z.value === 40 && r13z.scope === 'total' && r13z.parts.food === 15 && r13z.parts.stack === 30,
+      'R313/A P6: ZINC IS FLAGGED ON THE TOTAL -- 15 mg from food plus 30 mg from the stack is 45 against the IOM 40; neither part alone is over', JSON.stringify(r13z || null));
+  var r13zt = r13z ? HT.dayIntakeFlagText(r13z) : '';
+  res(HT.intakeFlag('zinc_mg', 40) === null && r13zt.indexOf('Institute of Medicine') > 0 && r13zt.indexOf('(2001)') > 0
+      && r13zt.indexOf('food, water and supplements') > 0 && r13zt.indexOf('25-OH') < 0 && !/\b(should|reduce|stop|lower|avoid|too much|must)\b/i.test(r13zt),
+      'R313/A P6: 40 mg exactly is not flagged; the sentence names the IOM 2001 source and its total-intake scope, borrows no lab line, and holds no instruction');
+  HT.state().timeline[td] = [];
+  HT.state().days[td].items.pop();
+  // R313/A P5: THE SUPPLY FLOOR -- 1 % of the pack's reference intake per serving
+  var r13P = { reference_intakes: { values: { iron: { value: 8, unit: 'mg', slot_factor: 1 }, copper: { value: 900, unit: 'ug', slot_factor: 1000 } } } };
+  var r13Fe = { cofactor: 'iron', dri: 'iron', key: 'iron_mg', slot: '303', tracked: true };
+  res(!HT.supplyMeets(r13P, r13Fe, HT.supplyAmounts({ ref: { v: { '303': 0.0504 } } })) && HT.supplyMeets(r13P, r13Fe, HT.supplyAmounts({ ref: { v: { '303': 0.08 } } }))
+      && HT.supplyMeets(r13P, r13Fe, HT.supplyAmounts({ micros: { iron_mg: 0.08 } })) && !HT.supplyMeets(r13P, r13Fe, HT.supplyAmounts({ micros: { iron_mg: 0.079 } })),
+      'R313/A P5: 0.05 mg of iron (a spoon of oil) against an 8 mg intake supplies nothing; 0.08 mg, exactly 1 %, supplies -- from a database slot or a label figure alike');
+  res(HT.supplyMeets(r13P, { cofactor: 'copper', dri: 'copper', slot: '312', tracked: true }, HT.supplyAmounts({ ref: { v: { '312': 0.009 } } }))
+      && !HT.supplyMeets(r13P, { cofactor: 'copper', dri: 'copper', slot: '312', tracked: true }, HT.supplyAmounts({ ref: { v: { '312': 0.0089 } } })),
+      'R313/A P5: a slot in another unit is converted by the intake\'s slot_factor first -- 0.009 mg of copper is 9 ug, 1 % of 900 ug');
+  res(HT.supplyMeets(r13P, { cofactor: 'fat x', dri: null, slot: '617', tracked: true }, HT.supplyAmounts({ ref: { v: { '617': 0.0001 } } }))
+      && !HT.supplyMeets(r13P, { cofactor: 'fat x', dri: null, slot: '617', tracked: true }, HT.supplyAmounts({ ref: { v: { '617': 0 } } })),
+      'R313/A P5: a line with no reference intake has no floor to apply -- any amount above zero counts, and zero is nothing');
   // scope is a field, not an assumption
   var r8lim = HT.INTAKE_LIMITS.magnesium_mg, r8scope = r8lim.scope;
   res(HT.INTAKE_SCOPES.join(',') === 'total,supplemental' && Object.keys(HT.INTAKE_LIMITS).every(function (k) { return HT.INTAKE_SCOPES.indexOf(HT.INTAKE_LIMITS[k].scope) >= 0; })
@@ -1078,7 +1102,7 @@ window.setLS({});
   };
   // a curve by hand: baseline 5.0, up to 5.0 + rise at 30 min, back to 5.0 at 90, flat to 120
   var curve225 = function (dk, hhmm, rise, rows, opts) {
-    var t0 = HT.dayKeyMs(dk) + HT.hhmmToMin(hhmm) * 60000;
+    var t0 = HT.wallMs(dk, HT.hhmmToMin(hhmm));   // R301: the wall clock, so a fixture day the clocks change on (1 Nov 2026) is not an hour off
     for (var m = -20; m <= 125; m += 5) {
       if (opts && opts.gapFrom != null && m >= opts.gapFrom && m < opts.gapFrom + 30) continue;
       var v = 5.0;

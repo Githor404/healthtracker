@@ -740,11 +740,25 @@
   .gghead{font-weight:700;font-size:16px}
   .ggrow{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:16px;padding:4px 0}
   .ggrm,.ggset{width:auto;min-height:44px}
-  .stkclaims{margin:4px 0 0}
-  .stkclaims>summary{min-height:44px;display:flex;align-items:center;color:var(--accent);font-size:16px;cursor:pointer}
   .clmline{padding:6px 0;border-top:1px solid var(--line)}
   .clmsays{font-size:16px;color:var(--txt)}
   .clmmeta,.clmsrc{font-size:16px;color:var(--muted);overflow-wrap:anywhere}
+  /* R313/A: the stack row link, and the view (two cards, never merged) */
+  .stksupport{min-height:44px;display:flex;align-items:center;color:var(--accent);font-size:16px;font-weight:600;text-align:left;padding:0}
+  .suppanel{z-index:19}
+  .suppanel .wrap{overflow-y:auto;flex:1}
+  .supitem{margin:4px 0 10px}.supname{font-size:16px;font-weight:700;overflow-wrap:anywhere}
+  .supcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px 12px 10px;margin:0 0 12px}
+  .suph{font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 0 2px;font-weight:700}
+  .supwhat,.supdim{color:var(--muted);font-size:16px}
+  .suprow{padding:8px 0;border-top:1px solid var(--line);font-size:16px;overflow-wrap:anywhere}
+  .supnut{font-weight:600}
+  .pwchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .pwchip{min-height:44px;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:10px;padding:4px 10px;font:inherit;font-size:16px;text-align:left;cursor:pointer}
+  .supclm{border-top:1px solid var(--line)}.supclm .clmline{border-top:0}
+  .clmfiled{display:flex;flex-wrap:wrap;align-items:center;column-gap:6px;font-size:16px;color:var(--muted);padding:0 0 2px}
+  .clmpw{display:inline-flex;align-items:center;min-height:44px;color:var(--accent);font-size:16px;font-weight:600;text-align:left;padding:0}
+  .supsubh{font-size:16px;margin:10px 0 2px;color:var(--warn);font-weight:700}
   .plleft{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   /* R299.1: End meal -- one tap beside each leftovers reminder, 44px. */
   .plwrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
@@ -2104,6 +2118,14 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <button type="button" class="sheetx" onclick="closeWeek()" aria-label="Close">&times;</button>
     </div>
     <div class="wrap"><div id="weekBody"></div></div>
+  </div>
+  <!-- R313/A: how one stack item supports the pathways. Two cards, never merged; nothing on it writes. -->
+  <div data-overlay="panel" id="supportPanel" class="panel suppanel" style="display:none" role="dialog" aria-modal="true" aria-label="How this supports your pathways">
+    <div class="sheethead">
+      <div class="modes"><b style="font-size:16px">How this supports your pathways</b></div>
+      <button type="button" class="sheetx" onclick="closeStackSupport()" aria-label="Close">&times;</button>
+    </div>
+    <div class="wrap"><div id="supportBody"></div></div>
   </div>
   <div data-overlay="modal" id="captureOutcome" class="omodal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="outcomeTitle">
     <div class="sheethead">

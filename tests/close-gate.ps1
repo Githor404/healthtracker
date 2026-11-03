@@ -284,6 +284,11 @@ try {
   $n4 = MeasureOn 'Weekly review'
   [void](Eval "HT.closeWeek()"); Settle
 
+  # R313/A: the stack item's view, "How this supports your pathways" (a synthetic item)
+  [void](Eval "(function(){ var S = HT.state(); S.settings.stack.push({ id: 'gatestk', name: 'Gate item', kind: 'supplement', enabled: true, dose: 1, dose_unit: 'tablet', added_on: '2026-10-01', added_basis: 'added' }); HT.openStackSupport('gatestk'); return 1; })()"); Settle
+  $n4b = MeasureOn 'How this supports your pathways (R313)'
+  [void](Eval "(function(){ HT.closeStackSupport(); var S = HT.state(); S.settings.stack = S.settings.stack.filter(function (x) { return x.id !== 'gatestk'; }); return 1; })()"); Settle
+
   [void](Eval "HT.byokBusy('error', 'Gate: the provider did not answer')"); Settle
   $n5 = MeasureOn 'Capture outcome (failure)'
   Shot 'outcome'

@@ -1,4 +1,5 @@
-# R305/3 -- LINKED CLAIMS ON THE STACK ITEM.
+# R305/3 -- LINKED CLAIMS ON THE STACK ITEM (re-pointed by R313/A: the row's link opens the
+# item's view, "How this supports your pathways", where the claims now are).
 #
 # PRE-REGISTERED (DECISIONS R305/3), on a PLACEHOLDER pack built in the page (R204: item
 # names Item A / Item C): a non-nutrient item shows "supplies no nutrients . linked to 1
@@ -204,57 +205,59 @@ try {
 
   Check (($fx.Contains('"claimsX":["claim-q"]')) -and ($fx.Contains('"claimsN":[]'))) "v0.123.0: an item named for its product ('Product X Capsules') shows the claim whose match term is its LICENSED INGREDIENT ('Compound Q'); the term 'ack' does not match inside 'Snack bar'"
 
-  # ---- + Log: the non-nutrient item and the item with nutrients ------------------------------
+  # ---- + Log: the row's link opens the item's view (R313/A replaced R305's collapsed line) ----
   $null = EvalJ "(function(){ HT.openSheet('root'); HT.stackOpen(); return 1; })()"
   WaitQuiet 'the stack open'
   $l1 = EvalJ @'
 (function () {
-  var row = function (id) { var d = document.querySelector('#sheetRoot .stkclaims[data-stack="' + id + '"]'); return d; };
-  var a = row('sa'), c = row('sc');
-  return { aHead: a ? a.querySelector('summary').textContent : '', aOpen: a ? a.open : null, aH: a ? Math.round(a.querySelector('summary').getBoundingClientRect().height) : 0,
-           cHead: c ? c.querySelector('summary').textContent : '', unreviewed: document.body.textContent.indexOf('Unreviewed placeholder B') >= 0 };
+  var a = document.querySelector('#sheetRoot .stksupport[data-stack="sa"]'), c = document.querySelector('#sheetRoot .stksupport[data-stack="sc"]');
+  return { a: !!a, c: !!c, aH: a ? Math.round(a.getBoundingClientRect().height) : 0, old: document.querySelectorAll('.stkclaims').length,
+           unreviewed: document.body.textContent.indexOf('Unreviewed placeholder B') >= 0 };
 })()
 '@
   Write-Host ("  + Log rows: " + $l1)
   $a = $l1 | ConvertFrom-Json
-  Check (($a.aHead -eq ('supplies no nutrients ' + [char]0x00B7 + ' linked to 1 claim')) -and ($a.aOpen -eq $false) -and ($a.aH -ge 44)) "a non-nutrient item shows 'supplies no nutrients . linked to 1 claim', collapsed, a 44 px target ($($a.aHead))"
-  Check ($a.cHead -eq ('linked claims ' + [char]0x00B7 + ' 1')) "an item with nutrients shows 'linked claims . 1' ($($a.cHead))"
-  $t1 = TapSel '#sheetRoot .stkclaims[data-stack=\"sa\"] summary'
+  Check ($a.a -and $a.c -and ($a.aH -ge 44) -and ($a.old -eq 0)) "R313/A: each stack row carries the link to its view (44 px) where R305's collapsed linked-claims line was"
+  $t1 = TapSel '#sheetRoot .stksupport[data-stack=\"sa\"]'
   $o1 = EvalJ @'
 (function () {
-  var d = document.querySelector('#sheetRoot .stkclaims[data-stack="sa"]');
-  return { open: d.open, text: d.textContent, unreviewed: document.body.textContent.indexOf('Unreviewed placeholder B') >= 0 };
+  var p = document.getElementById('supportPanel'), c2 = p.querySelector('.supclaims');
+  return { open: getComputedStyle(p).display !== 'none', head: c2 ? c2.querySelector('.suph').textContent : '', text: c2 ? c2.textContent : '',
+           unreviewed: document.body.textContent.indexOf('Unreviewed placeholder B') >= 0 };
 })()
 '@
   Write-Host ("  opened: " + $o1)
   $o = $o1 | ConvertFrom-Json
-  Check ($t1 -and ($o.open -eq $true) -and ($o.text -like '*Placeholder claim A.*60 % that placeholder A holds*GRADE low*Author A et al., Journal A, 2020*')) "a real tap opens it: the claim, its probability (60 % that ...), its GRADE and its source"
+  Check ($t1 -and ($o.open -eq $true) -and ($o.head -eq ('Linked claims ' + [char]0x00B7 + ' 1')) -and ($o.text -like '*Placeholder claim A.*60 % that placeholder A holds*GRADE low*Author A et al., Journal A, 2020*')) "a real tap opens the item's view: 'Linked claims . 1', the claim, its probability (60 % that ...), its GRADE and its source"
   Check (($o.unreviewed -eq $false) -and ($a.unreviewed -eq $false)) "the unreviewed claim shows nowhere on the page"
+  $null = EvalJ "(function(){ HT.closeStackSupport(); return 1; })()"
 
-  # ---- Settings: the claims sit below the nutrients ----------------------------------------
+  # ---- Settings: the link sits below the nutrients ----------------------------------------
   $st = EvalJ @'
 (function () {
   HT.closeSheet(); HT.openSettings();
   var rows = Array.prototype.filter.call(document.querySelectorAll('#settingsPanel .stkrow.stked'), function (r) { return /Item C/.test(r.textContent); });
   var r = rows[0]; if (!r) return { err: 'no Settings row' };
   var kids = Array.prototype.slice.call(r.children);
-  var nut = kids.filter(function (k) { return /counts toward/.test(k.textContent); })[0], cl = r.querySelector('.stkclaims');
-  var out = { below: !!(nut && cl) && kids.indexOf(cl) > kids.indexOf(nut), head: cl ? cl.querySelector('summary').textContent : '' };
-  cl.open = true; out.animal = /animal and cell work, not people/.test(cl.textContent);
-  HT.closeSettings();
+  var nut = kids.filter(function (k) { return /counts toward/.test(k.textContent); })[0], cl = r.querySelector('.stksupport');
+  var out = { below: !!(nut && cl) && kids.indexOf(cl) > kids.indexOf(nut) };
+  HT.openStackSupport('sc');
+  var c2 = document.querySelector('#supportPanel .supclaims');
+  out.animal = /animal and cell work, not people/.test(c2 ? c2.textContent : '');
+  HT.closeStackSupport(); HT.closeSettings();
   return out;
 })()
 '@
   Write-Host ("  Settings: " + $st)
-  Check (($st -like '*"below":true*') -and ($st -like '*"animal":true*')) "in Settings the item's linked claims sit BELOW its nutrients, and a claim from animal or cell work says so"
+  Check (($st -like '*"below":true*') -and ($st -like '*"animal":true*')) "in Settings the item's link sits BELOW its nutrients, and in its view a claim from animal or cell work says so"
 
   # ---- the strip after a tick ---------------------------------------------------------------
-  $sp = EvalJ "(function(){ HT.closeSheet(); HT.stackCheck('sa'); HT.refresh(); var s = document.getElementById('ctxStrip'); var l = s.querySelector('.ctxlink[onclick*=stackClaimsShow]'); return { kind: s.getAttribute('data-kind'), text: s.textContent, link: l ? l.textContent : '' }; })()"
+  $sp = EvalJ "(function(){ HT.closeSheet(); HT.closeStackSupport(); HT.stackCheck('sa'); HT.refresh(); var s = document.getElementById('ctxStrip'); var l = s.querySelector('.ctxlink[onclick*=stackClaimsShow]'); return { kind: s.getAttribute('data-kind'), text: s.textContent, link: l ? l.textContent : '' }; })()"
   Write-Host ("  strip: " + $sp)
   $t2 = TapSel '#ctxStrip .ctxlink[onclick*=\"stackClaimsShow\"]'
-  $sv = EvalJ "(function(){ var d = document.querySelector('#sheetRoot .stkclaims[data-stack=sa]'); return { open: !!(d && d.open), sheet: getComputedStyle(document.getElementById('entrySheet')).display !== 'none' }; })()"
+  $sv = EvalJ "(function(){ var p = document.getElementById('supportPanel'); return { open: getComputedStyle(p).display !== 'none' && /Item A/.test(p.querySelector('.supitem').textContent), claim: /Placeholder claim A/.test(p.textContent) }; })()"
   Write-Host ("  after the link: " + $sv + " tapped=" + $t2)
-  Check (($sp -like '*"kind":"stack"*') -and ($sp -like ('*Supplies no nutrients ' + [char]0x00B7 + ' linked to 1 claim*')) -and $t2 -and ($sv -like '*"open":true*') -and ($sv -like '*"sheet":true*')) "after a tick the strip shows the count, and its link opens + Log at the item with its claims open"
+  Check (($sp -like '*"kind":"stack"*') -and ($sp -like ('*Supplies no nutrients ' + [char]0x00B7 + ' linked to 1 claim*')) -and $t2 -and ($sv -like '*"open":true*') -and ($sv -like '*"claim":true*')) "after a tick the strip shows the count, and its link opens the item's view with its claims"
 
   # ---- a group's own i --------------------------------------------------------------------------
   $gp = EvalJ @'
@@ -275,13 +278,15 @@ try {
   $wd = EvalJ @'
 (function () {
   HT.openSheet('root'); HT.stackOpen();
-  var t = Array.prototype.map.call(document.querySelectorAll('.stkclaims, .pwgrouprec, #ctxStrip'), function (e) { return e.textContent; }).join(' | ');
-  var small = Array.prototype.filter.call(document.querySelectorAll('.stkclaims summary'), function (e) { var r = e.getBoundingClientRect(); return r.height > 0 && r.height < 44; }).length;
+  var small = Array.prototype.filter.call(document.querySelectorAll('.stksupport'), function (e) { var r = e.getBoundingClientRect(); return r.height > 0 && r.height < 44; }).length;
+  HT.openStackSupport('sa');
+  var t = Array.prototype.map.call(document.querySelectorAll('#supportPanel, .pwgrouprec, #ctxStrip'), function (e) { return e.textContent; }).join(' | ');
+  HT.closeStackSupport();
   return { bad: (t.match(/\b(effects?|works)\b/gi) || []), small: small, page: document.documentElement.scrollWidth - window.innerWidth };
 })()
 '@
   Write-Host ("  words: " + $wd)
-  Check (($wd.Contains('"bad":[]')) -and ($wd -like '*"small":0*') -and ($wd -like '*"page":0*')) "the words 'effects' and 'works' appear nowhere in these surfaces; every summary is 44 px; nothing scrolls sideways at 390"
+  Check (($wd.Contains('"bad":[]')) -and ($wd -like '*"small":0*') -and ($wd -like '*"page":0*')) "the words 'effects' and 'works' appear nowhere in these surfaces; every row link is 44 px; nothing scrolls sideways at 390"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

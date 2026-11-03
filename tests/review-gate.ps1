@@ -159,7 +159,7 @@ try {
       + (o < 0 ? '-' : '+') + p(Math.floor(Math.abs(o) / 60)) + ':' + p(Math.abs(o) % 60); };
   var rows = [];
   var curve = function (dk, hhmm, rise, gapFrom) {
-    var t0 = HT.dayKeyMs(dk) + HT.hhmmToMin(hhmm) * 60000;
+    var t0 = HT.wallMs(dk, HT.hhmmToMin(hhmm));   // R301: the wall clock, so a fixture day the clocks change on is not an hour off
     for (var m = -15; m <= 125; m += 5) {
       if (gapFrom != null && m >= gapFrom && m < gapFrom + 30) continue;
       var v = 5.0;

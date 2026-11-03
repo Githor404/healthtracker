@@ -231,6 +231,9 @@ try {
            head: txt('#weekBody .wkhead'), cov: txt('#weekBody .wkcov'), prob: txt('#weekBody [data-card="meals"] .wkprob'),
            fastCard: txt('#weekBody [data-card="fasting"] .wkline'), fastItems: document.querySelectorAll('#weekBody .wkfasts li').length,
            unlogged: txt('#weekBody .wkunlogged'),
+           // R301: a noon-to-noon fast is real time -- 25 h across the night the clocks go back -- so the
+           // fixture's longest fast is read from the fixture week's own noons, not assumed to be 24 h
+           longH: Math.max.apply(null, [-1, 0, 1, 2, 3, 4, 5].map(function (i) { return Math.round((HT.wallMs(HT.shiftDate(mon, i + 1), 720) - HT.wallMs(HT.shiftDate(mon, i), 720)) / 3600000); })),
            runH: (Date.now() - new Date(HT.shiftDate(HT.weekMonday(HT.todayKey()), -1) + 'T12:00:00').getTime()) / 3600000,
            curves: [document.querySelectorAll('#weekBody .wkcurve .wkthis').length, document.querySelectorAll('#weekBody .wkcurve .wktyp').length],
            afStroke: (function () { var a = document.querySelector('#weekBody [data-ring="alcohol"] .wkarc'); return a ? getComputedStyle(a).stroke : ''; })(),
@@ -248,12 +251,12 @@ try {
   # 48 h it is the fast still running; from 48 h it is an UNLOGGED GAP, listed apart and
   # not counted -- which of the two depends on the day the gate runs, so both are checked.
   if ([double]$o2v.runH -lt 48) {
-    Check (($o2v.fast -eq '24h longest fast') -and ($o2v.fastCard -like '7 fasts of 12 h or more, and one still running*') -and ($o2v.fastItems -eq 8) -and (-not $o2v.unlogged)) "R265.1 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h, seven listed start to end plus the span still running (listed 'so far'), nothing asked ('$($o2v.fastCard)')"
+    Check (($o2v.fast -eq ([string]$o2v.longH + 'h longest fast')) -and ($o2v.fastCard -like '7 fasts of 12 h or more, and one still running*') -and ($o2v.fastItems -eq 8) -and (-not $o2v.unlogged)) "R265.1 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h (25 across a fall-back night), seven listed start to end plus the span still running (listed 'so far'), nothing asked ('$($o2v.fastCard)')"
   } else {
-    Check (($o2v.fast -eq '24h longest fast') -and ($o2v.fastCard -like '7 fasts of 12 h or more*') -and ($o2v.fastCard -notlike '*still running*') -and ($o2v.fastItems -eq 8) -and ($o2v.unlogged -like 'One gap of 48 h or more with no food logged*not counted as fasting.')) "R265.1 + R269 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h, seven fasts listed; the span since the last meal is past 48 h, so it is an UNLOGGED GAP, listed apart and not counted ('$($o2v.fastCard)' / '$($o2v.unlogged)')"
+    Check (($o2v.fast -eq ([string]$o2v.longH + 'h longest fast')) -and ($o2v.fastCard -like '7 fasts of 12 h or more*') -and ($o2v.fastCard -notlike '*still running*') -and ($o2v.fastItems -eq 8) -and ($o2v.unlogged -like 'One gap of 48 h or more with no food logged*not counted as fasting.')) "R265.1 + R269 GATE: fasting by the 12 h rule -- noon to noon, longest 24 h (25 across a fall-back night), seven fasts listed; the span since the last meal is past 48 h, so it is an UNLOGGED GAP, listed apart and not counted ('$($o2v.fastCard)' / '$($o2v.unlogged)')"
   }
   Check (($o2v.af -eq '2 days') -and ($o2v.afSub -eq '2 of 7 days') -and ($o2v.afStroke -ne $o2v.gold)) "R226/R262: alcohol-free 2 of 7 -- and with rewards OFF the ring is NOT gold and shows no run"
-  Check (($o2v.head -like '*: food logged 7 of 7 days, glucose 7 of 7; 7 meals with a measured rise; 2 alcohol-free days; longest fast 24 h.') -and ($o2v.cov -eq ('food logged 7 of 7 days ' + [char]0x00b7 + ' glucose 7 of 7')) -and ((@($o2v.curves) -join ',') -eq '1,1')) "R262: the headline and the coverage line are assembled from the numbers; the meal card draws this week solid and typical dashed"
+  Check (($o2v.head -like ('*: food logged 7 of 7 days, glucose 7 of 7; 7 meals with a measured rise; 2 alcohol-free days; longest fast ' + [string]$o2v.longH + ' h.')) -and ($o2v.cov -eq ('food logged 7 of 7 days ' + [char]0x00b7 + ' glucose 7 of 7')) -and ((@($o2v.curves) -join ',') -eq '1,1')) "R262: the headline and the coverage line are assembled from the numbers; the meal card draws this week solid and typical dashed"
   Check (($o2v.foot -eq 'Your own data, computed on this phone. No scores.') -and -not ($o2v.head + $o2v.prob + $o2v.fastCard -match '(?i)\bshould\b|\bgood\b|\bbad\b|well done|great')) "R260: no 'should', no verdict word; the footer says no scores"
   Shot 'week-last'
 

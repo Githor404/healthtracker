@@ -21294,3 +21294,49 @@ built from its fields; then "N % that ...", GRADE, first source.
 - Look at the view at 390 px, light and dark, before the suite.
 
 **Release** under the standing pre-run rule.
+
+## R313 part A -- BUILT (v0.124.0), against its pre-registration
+
+*No item or product name of the user's appears here (R204).*
+
+**HTPrivate (not in this repo):** the 13 drafts approved, reviewed_by_me 2026-11-03, their
+probabilities authored "claude-opus-5-5, 2026-11-01" and approved; 13 calibration entries.
+P1-P5 and P7 applied by one script that refuses to run twice; pw-075 verified in release
+98's hierarchy. **P5's oleic line departs from the brief's wording, stated:** Reactome 98
+lists linoleate as a participant of both pathways named (omega-3/6, PPAR-alpha), so linoleic
+acid joins both; it lists oleate in neither, so oleic acid joins the four records whose
+participants do include oleate (uncoupling, insulin release, gut hormones, fatty-acid
+receptors). **P6's source** is the IOM report's own text (National Academies Press,
+chapter 12), read 3 Nov; NCBI Bookshelf refused the fetch; NIH ODS's table agrees. Pack
+v009: 75 records, 51 claims, 13 interactions; no unreviewed entry.
+
+**App, as pre-registered.** One display fix found by looking at it before the gates: an
+amount under 10 kept rDisp's rounding and a trace of iron read "0 mg" (D8: never a bare 0);
+it keeps two significant digits in the view. Settings' stack list is a collapsed section, so
+supports-gate opens it with a real tap before tapping the row link, as the user does.
+
+**Gates.**
+- supports-gate: 16 checks, all pass, on a placeholder pack (the zinc fixture is a
+  placeholder amount and form, not the user's).
+- claims-gate: re-pointed as pre-registered, 9 checks, all pass.
+- close-gate: the new panel's close control joins its surface census (R269: every close
+  control the source holds is measured on a rendered surface); passes.
+- Harness +5 (re-pinned 3451): the floor (3) and zinc (2).
+- **Gates alone, first pass: three gate flaws, no app bug.** All three were the night the
+  clocks went back (1 Nov 2026), now inside the gates' relative-date fixtures, and all three
+  fail the same way on v0.123.0 today:
+  - the harness and review-gate built their R225 glucose curve with plain day arithmetic,
+    so on 1 Nov it sat an hour before the meal and one of three similar meals was lost;
+    both now place it with the app's `wallMs` (R301);
+  - weekly-gate hard-coded a 24 h noon-to-noon fast; across the fall-back night it is 25 h
+    of real time, and the app rightly says so; the gate now reads the fixture week's own
+    noons.
+- *Named, not resolved -- for the user:* the weekly review's fasting line reads "168h of the
+  week's 168h" on that week: the share is counted in wall-clock minutes, so a fall-back week
+  is 168 h, not its real 169 h. R301 says durations are real time. Not changed here.
+
+**On the user's real pack and backup**, in a local browser only (pack v009, 31 Oct backup),
+at 390 px light and dark and at 360: the view for each of the 12 items renders, nothing runs
+sideways; trace minerals in the stack's food fall under the floor and say so; the claim P1
+named and the approved interactions show on the items they match; an item over a cited
+upper level shows its intake note.

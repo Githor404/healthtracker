@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.123.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.124.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3829,13 +3829,16 @@ function pathwayRecordHTML(P, r) {
     const v = ri[s.dri];
     return esc(v.label) + ' — ' + esc(rDisp(v.value)) + ' ' + esc(v.unit) + ' a day (' + esc(v.kind) + ')';
   });
-  const notc = (r.supply || []).filter(function (s) { return !s.dri || !ri[s.dri] || !s.tracked; }).map(function (s) { return esc(s.cofactor); });
+  const notc = (r.supply || []).filter(function (s) { return !s.tracked; }).map(function (s) { return esc(s.cofactor); });
+  // R313/A P5: a counted line with no reference intake counts at any amount, and says so
+  const nori = (r.supply || []).filter(function (s) { return s.tracked && (!s.dri || !ri[s.dri]); }).map(function (s) { return esc(s.cofactor); });
   const claims = (P.claims || []).filter(function (c) { return (r.claims || []).indexOf(c.id) >= 0; });
   let b = '<div class="pwtech">' + esc(r.technical_name || '') + '</div>'
     + '<div class="pwline">' + (ids.length ? 'Reactome ' + esc(ids.join(', ')) + ' (release ' + esc(String(P.reactome_version || '')) + ')' : 'No reference pathway ID — literature-sourced') + '</div>'
     + '<div class="pwline">' + (r.sentence ? esc(r.sentence) : 'Plain description: not reviewed yet.') + '</div>'
     + '<div class="pwline">What this phone can see: ' + esc(PW_SEE[r.observable] || r.observable || '') + (r.observable_how ? ' — ' + esc(r.observable_how) : '') + '</div>';
   if (sup.length) b += '<div class="pwline">Raw materials (necessary, not sufficient), against ' + esc((P.reference_intakes || {}).source || '') + ', ' + esc((P.reference_intakes || {}).group || '') + ': ' + sup.join('; ') + '</div>';
+  if (nori.length) b += '<div class="pwline">Counted with no reference intake: ' + nori.join(', ') + '</div>';
   if (notc.length) b += '<div class="pwline">Listed but not counted by the log: ' + notc.join(', ') + '</div>';
   b += '<div class="pwline">' + (claims.length ? 'Reviewed claims: ' + claims.map(function (c) {
     const pv = c.probability && c.probability.versions && c.probability.versions[c.probability.versions.length - 1];
@@ -3910,16 +3913,10 @@ function ctxItemAt(dk, ref) {
 function ctxSupplies(items) {
   const P = packLoad();
   if (!P) return null;
-  const keys = {}, slots = {};
-  items.forEach(function (it) {
-    if (!it) return;
-    ['protein_g', 'fat_g', 'carb_g', 'fiber_g'].forEach(function (k) { if (num(it[k]) > 0) keys[k] = 1; });
-    Object.keys(it.micros || {}).forEach(function (k) { if (num(it.micros[k]) > 0) keys[k] = 1; });
-    const v = it.ref && it.ref.v;
-    if (v) Object.keys(v).forEach(function (sl) { if (num(v[sl]) > 0) slots[String(sl)] = 1; });
-  });
+  // R313/A P5: each item on its own, at its logged amount, against the 1 % floor
+  const ams = items.filter(Boolean).map(supplyAmounts);
   return (P.records || []).filter(function (r) {
-    return (r.supply || []).some(function (s) { return s && ((s.key && keys[s.key]) || (s.slot && slots[String(s.slot)])); });
+    return (r.supply || []).some(function (s) { return s && ams.some(function (am) { return supplyMeets(P, s, am); }); });
   }).map(function (r) { return r.id; });
 }
 function ctxSuppliesHTML(ids) {
@@ -5500,6 +5497,18 @@ const INTAKE_LIMITS = {
     applicability: 'a tolerable upper intake level for long-term daily intake, not a toxicity threshold for a single dose',
     lab: 'vit_d_25oh',
   },
+  // R313/A P6: the IOM's zinc figure is about TOTAL intake -- food, water and supplements.
+  zinc_mg: {
+    value: 40, unit: 'mg', direction: 'max', scope: 'total',
+    org: 'Institute of Medicine (now the National Academy of Medicine)',
+    cite: 'IOM Dietary Reference Intakes for Vitamin A, Vitamin K, Arsenic, Boron, Chromium, Copper, Iodine, Iron, Manganese, Molybdenum, Nickel, Silicon, Vanadium, and Zinc (2001), chapter 12, Zinc',
+    url: 'https://nap.nationalacademies.org/read/10026/chapter/14',
+    retrieved: '2026-11-03',
+    quote: 'The Tolerable Upper Intake Level (UL) for adults is 40 mg/day, a value based on reduction in erythrocyte copper-zinc superoxide dismutase activity.',
+    version: '2001',
+    population: 'adults 19 years and older',
+    applicability: 'it covers zinc from food, water and supplements together',
+  },
 };
 // Returns the flag, or null. Null when the amount is under the figure, when the
 // nutrient has no cited limit, OR when the citation is incomplete -- an uncited
@@ -5628,7 +5637,6 @@ function intakeFlagText(f) {
 // that name it -- REVIEWED ones only, checked here as well as by the pack builder --
 // in the words "linked claims", never "effects": a claim is a sourced statement with its
 // probability and GRADE, not something the item is said to do for you.
-let STACK_CLAIMS_OPEN = null;      // the item whose claims the strip's link asked to open
 // v0.123.0: or by the compound's own names (`subject.match`), as whole words in the item's
 // name or a licensed ingredient's -- an NPN lookup renames an item to its product name.
 function claimTermIn(term, text) {
@@ -5666,25 +5674,215 @@ function claimLineHTML(P, c) {
     + (ev.human === false ? ' · <b>animal and cell work, not people</b>' : '') + '</div>'
     + (src ? '<div class="clmsrc">' + esc(src) + '</div>' : '') + '</div>';
 }
+// R313/A: the row carries one link to the item's own view, which replaced R305's
+// collapsed "linked claims · N" -- shown whenever a pack is on the phone.
 function stackClaimsHTML(s) {
-  const cl = stackClaims(s);
-  if (!cl.length) return '';
-  const P = packLoad();
-  const n = cl.length + ' claim' + (cl.length === 1 ? '' : 's');
-  const head = stackHasNutrients(s) ? 'linked claims · ' + cl.length : 'supplies no nutrients · linked to ' + n;
-  const open = STACK_CLAIMS_OPEN != null && String(STACK_CLAIMS_OPEN) === String(s.id);
-  return '<details class="stkclaims"' + (open ? ' open' : '') + ' data-stack="' + esc(String(s.id)) + '"><summary>' + esc(head) + '</summary>'
-    + cl.map(function (c) { return claimLineHTML(P, c); }).join('') + '</details>';
+  if (!packLoad() || !s) return '';
+  return '<button type="button" class="linklike stksupport" data-stack="' + esc(String(s.id)) + '" onclick="openStackSupport(\''
+    + esc(String(s.id)) + '\')">How this supports your pathways ›</button>';
 }
-// The strip's link: + Log's Daily stack, that item's claims open.
-function stackClaimsShow(id) {
-  openSheet('root');                 // + Log opens with the stack collapsed (R246) ...
-  STACK_OPEN = true; STACK_EDIT = null;   // ... so the stack is opened after it, at the item
-  STACK_CLAIMS_OPEN = String(id);
-  stackRerender();
-  const el = document.querySelector('#sheetRoot .stkclaims[data-stack="' + String(id).replace(/["\\]/g, '') + '"]');
-  if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
-  return { ok: !!el };
+// The strip's link: the item's view.
+function stackClaimsShow(id) { return openStackSupport(id); }
+
+// ---- R313/A P5: THE SUPPLY FLOOR ------------------------------------------------------
+// An item supplies a pathway only if, for one of its raw-material lines, the item's amount
+// per serving is at least 1 % of the pack's reference intake for that line. A line with no
+// reference intake has no floor to apply: any amount above zero counts. Each item alone.
+const SUPPLY_FLOOR = 0.01;
+// What one item carries, per serving: nutrient keys (its own numbers) and database slots.
+function supplyAmounts(it) {
+  const keys = {}, slots = {};
+  if (!it) return { keys: keys, slots: slots };
+  ['protein_g', 'fat_g', 'carb_g', 'fiber_g'].forEach(function (k) { if (num(it[k]) > 0) keys[k] = num(it[k]); });
+  Object.keys(it.micros || {}).forEach(function (k) { if (num(it.micros[k]) > 0) keys[k] = num(it.micros[k]); });
+  const v = it.ref && it.ref.v;
+  if (v) Object.keys(v).forEach(function (sl) { if (num(v[sl]) > 0) slots[String(sl)] = num(v[sl]); });
+  return { keys: keys, slots: slots };
+}
+// A stack item at its usual amount: a dose's counted nutrients, or a Food's part.
+function stackSupplyAmounts(s) {
+  if (!s) return supplyAmounts(null);
+  if (s.kind === 'food') return supplyAmounts(s.part);
+  return supplyAmounts({ micros: (s.nutrients && s.nutrients.micros) || {} });
+}
+// The line's amount for these amounts: { a: in the intake's unit, shown, unit } or null.
+function supplyLineAmount(P, line, am) {
+  if (!line) return null;
+  const ri = (P && P.reference_intakes && P.reference_intakes.values) || {};
+  const v = line.dri ? ri[line.dri] : null;
+  if (line.key && am.keys[line.key] > 0) {
+    const k = line.key;
+    return { a: am.keys[k], shown: am.keys[k], unit: (MICRO_LABEL[k] && MICRO_LABEL[k].unit) || (/_g$/.test(k) ? 'g' : ''), v: v };
+  }
+  if (line.slot != null && am.slots[String(line.slot)] > 0) {
+    const x = am.slots[String(line.slot)];
+    return { a: x * (v && num(v.slot_factor) > 0 ? num(v.slot_factor) : 1), shown: x, unit: panelSlotUnit(Number(line.slot)), v: v };
+  }
+  return null;
+}
+function supplyMeets(P, line, am) {
+  const x = supplyLineAmount(P, line, am);
+  if (!x || !(x.a > 0)) return false;
+  if (!x.v || !(num(x.v.value) > 0)) return true;
+  return x.a >= SUPPLY_FLOOR * num(x.v.value);
+}
+
+// ---- R313/A P7: INTERACTIONS ON THE STACK ITEM ----------------------------------------
+// A reviewed pack interaction whose `match` terms name the item (the claims' rule), and
+// only with a probability (R260: none, not shown).
+function itemMatchNames(s) {
+  return [String((s && s.name) || '').trim().toLowerCase()].concat(((s && s.product && s.product.ingredients) || []).map(function (g) { return String((g && g.name) || '').toLowerCase(); }));
+}
+function latestP(c) {
+  const vs = c && c.probability && c.probability.versions;
+  const pv = vs && vs.length ? vs[vs.length - 1] : null;
+  return pv && typeof pv.p === 'number' && isFinite(pv.p) ? pv : null;
+}
+function stackInteractions(s) {
+  const P = packLoad();
+  if (!P || !s || !String(s.name || '').trim()) return [];
+  const names = itemMatchNames(s);
+  return (P.interactions || []).filter(function (c) {
+    if (!c || !/^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || '')) || !latestP(c)) return false;
+    return (c.match || []).some(function (t) { return names.some(function (x) { return claimTermIn(t, x); }); });
+  });
+}
+function interactionSentence(c) {
+  if (c.claim) return String(c.claim);
+  const m = String((c.modifier && c.modifier.name) || ''), sub = String((c.subject && c.subject.name) || '');
+  const w = (m + ' ' + String(c.direction || 'changes') + ' ' + sub).trim();
+  return w.charAt(0).toUpperCase() + w.slice(1) + '.';
+}
+
+// ---- R313/A: HOW THIS SUPPORTS YOUR PATHWAYS ------------------------------------------
+// One stack item, two cards that are never merged: what it SUPPLIES (raw materials its
+// numbers count toward, with no probability) and what studies CLAIM (each with its own
+// probability and GRADE; Safety and Interactions as their own sub-lists). Reads the pack
+// and the item; writes nothing.
+let STACK_SUPPORT_ID = null;
+// A small amount keeps two significant digits: 0.05 mg of iron is not "0 mg" (D8).
+function supAmt(x) { const v = num(x); return v > 0 && v < 10 ? String(Number(v.toPrecision(2))) : rDisp(v); }
+function stackSupplyRows(P, s) {
+  const am = stackSupplyAmounts(s);
+  const ri = (P.reference_intakes && P.reference_intakes.values) || {};
+  const byN = {}, order = [];
+  (P.records || []).forEach(function (r) {
+    (r.supply || []).forEach(function (line) {
+      const x = supplyLineAmount(P, line, am);
+      if (!x) return;
+      const id = line.dri || ('cof:' + String(line.cofactor || '').split(' (')[0].toLowerCase());
+      if (!byN[id]) {
+        const lab = line.dri && ri[line.dri] ? ri[line.dri].label : String(line.cofactor || '').split(' (')[0];
+        byN[id] = { label: lab.charAt(0).toUpperCase() + lab.slice(1), amt: x, key: line.key, recs: [], noRi: !(x.v && num(x.v.value) > 0) };
+        order.push(id);
+      }
+      if (supplyMeets(P, line, am) && byN[id].recs.indexOf(r) < 0) byN[id].recs.push(r);
+    });
+  });
+  const detail = (s.nutrients && s.nutrients.detail) || {};
+  return order.map(function (id) {
+    const n = byN[id], d = n.key ? detail[n.key] : null;
+    return { label: n.label, amount: n.amt.shown, unit: n.amt.unit, form: d && d.form ? String(d.form) : '', recs: n.recs, noRi: n.noRi };
+  });
+}
+// Licensed ingredients the rows above do not cover: named on an untracked raw-material line
+// (the log cannot count it), or not a nutrient at all.
+function stackIngredientRows(P, s, rows) {
+  const ings = (s.product && s.product.ingredients) || [];
+  const counted = rows.map(function (r) { return r.label.toLowerCase(); })
+    .concat(Object.keys((s.nutrients && s.nutrients.micros) || {}).map(function (k) { return String((MICRO_LABEL[k] || {}).label || '').toLowerCase(); }));
+  const forms = Object.keys((s.nutrients && s.nutrients.detail) || {}).map(function (k) { return String(s.nutrients.detail[k].form || '').toLowerCase(); });
+  const units = s.dose != null && num(s.dose) > 0 ? num(s.dose) : 1;
+  return ings.filter(function (g) {
+    const nm = String((g && g.name) || '').toLowerCase();
+    return nm && counted.indexOf(nm) < 0 && !(g.form && forms.indexOf(String(g.form).toLowerCase()) >= 0);
+  }).map(function (g) {
+    const nm = String(g.name);
+    const named = (P.records || []).filter(function (r) {
+      return (r.supply || []).some(function (l) { return !l.tracked && claimTermIn(String(l.cofactor || '').split(' (')[0], nm); });
+    });
+    const amt = num(g.amount) > 0 ? rDisp(num(g.amount) * units) + ' ' + doseUnitWord(g.unit || '') : '';
+    return { name: nm + (g.form ? ' (' + String(g.form).toLowerCase() + ')' : ''), amount: amt, named: named };
+  });
+}
+function stackSupportHTML(s) {
+  const P = packLoad();
+  if (!P || !s) return '<div class="note">No pathway pack on this phone.</div>';
+  const usual = stackUsualWords(s);
+  const head = [stackKindWord(s.kind), usual, (s.product && s.product.npn) ? 'NPN ' + s.product.npn : ''].filter(Boolean).join(' · ');
+  const rows = stackSupplyRows(P, s);
+  const met = rows.filter(function (r) { return r.recs.length; });
+  const under = rows.filter(function (r) { return !r.recs.length; });
+  const pwIds = [];
+  met.forEach(function (r) { r.recs.forEach(function (x) { if (pwIds.indexOf(x.id) < 0) pwIds.push(x.id); }); });
+  const chip = function (r) { return '<button type="button" class="pwchip" data-pw="' + esc(r.id) + '" onclick="stackSupportPathway(\'' + esc(r.id) + '\')">' + esc(r.plain_name) + ' ›</button>'; };
+  let c1 = '<section class="supcard supsupply"><h3 class="suph">Supplies · ' + pwIds.length + ' pathway' + (pwIds.length === 1 ? '' : 's') + '</h3>'
+    + '<div class="supwhat">Raw materials its numbers count toward. Supplying is not activating.</div>';
+  met.forEach(function (r) {
+    c1 += '<div class="suprow"><span class="supnut">' + esc(r.label + ' ' + supAmt(r.amount) + ' ' + doseUnitWord(r.unit)) + '</span>'
+      + (r.form ? ' <span class="supdim">(' + esc(r.form.toLowerCase()) + ')</span>' : '')
+      + (r.noRi ? ' <span class="supdim">· no reference intake</span>' : '')
+      + '<div class="pwchips">' + r.recs.map(chip).join('') + '</div></div>';
+  });
+  if (under.length) c1 += '<div class="suprow supdim supunder">' + esc(under.map(function (r) { return r.label + ' ' + supAmt(r.amount) + ' ' + doseUnitWord(r.unit); }).join(', '))
+    + ' — under 1 % of the reference intake per serving; not counted as supplying.</div>';
+  stackIngredientRows(P, s, rows).forEach(function (g) {
+    c1 += '<div class="suprow supdim supingr">' + esc(g.name + (g.amount ? ' ' + g.amount : '')) + ' — '
+      + (g.named.length ? esc('not counted: the log has no figure for it. Listed as a raw material by ' + g.named.map(function (r) { return r.plain_name; }).join(', ') + '.')
+        : 'not a nutrient; supplies no pathway.') + '</div>';
+  });
+  if (!rows.length && !(s.product && (s.product.ingredients || []).length)) c1 += '<div class="suprow supdim">Supplies no pathway in your pack.</div>';
+  const micros = (s.kind !== 'food' && s.nutrients && s.nutrients.micros) || {};
+  Object.keys(micros).forEach(function (k) {
+    const f = intakeFlag(k, micros[k]);
+    if (f) c1 += intakeNoteHTML(itemIntakeFlagText(f), 'stkflag');
+  });
+  c1 += '</section>';
+  const all = stackClaims(s);
+  const plain = all.filter(function (c) { return !c.safety; }), safety = all.filter(function (c) { return c.safety; });
+  const inter = stackInteractions(s);
+  const recName = function (id) { const r = (P.records || []).filter(function (x) { return x.id === id; })[0]; return r ? r : null; };
+  const filed = function (c) {
+    const rs = (c.pathways || []).map(recName).filter(Boolean);
+    return rs.length ? '<div class="clmfiled">filed under ' + rs.map(function (r) {
+      return '<button type="button" class="linklike clmpw" onclick="stackSupportPathway(\'' + esc(r.id) + '\')">' + esc(r.plain_name) + ' ›</button>';
+    }).join(', ') + '</div>' : '';
+  };
+  let c2 = '<section class="supcard supclaims"><h3 class="suph">Linked claims · ' + plain.length + '</h3>'
+    + (all.length || inter.length ? '<div class="supwhat">What studies say, each with its own probability. A claim is not a measurement of you.</div>'
+      : '<div class="supwhat">No reviewed claim names this item.</div>');
+  if (!plain.length && (safety.length || inter.length)) c2 += '<div class="supdim">No reviewed claim names this item.</div>';
+  plain.forEach(function (c) { c2 += '<div class="supclm">' + claimLineHTML(P, c) + filed(c) + '</div>'; });
+  if (safety.length) c2 += '<div class="supsub supsafety"><h4 class="supsubh">Safety · ' + safety.length + '</h4>'
+    + safety.map(function (c) { return '<div class="supclm">' + claimLineHTML(P, c) + filed(c) + '</div>'; }).join('') + '</div>';
+  if (inter.length) c2 += '<div class="supsub supinter"><h4 class="supsubh">Interactions · ' + inter.length + '</h4>'
+    + inter.map(function (c) { return '<div class="supclm">' + claimLineHTML(P, Object.assign({}, c, { claim: interactionSentence(c) })) + '</div>'; }).join('') + '</div>';
+  c2 += '</section>';
+  return '<div class="supitem"><div class="supname">' + esc(s.name) + '</div><div class="supdim">' + esc(head) + '</div></div>' + c1 + c2;
+}
+function openStackSupport(id) {
+  const s = ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (x) { return String(x.id) === String(id); })[0];
+  if (!s) return { ok: false };
+  STACK_SUPPORT_ID = String(id);
+  const b = document.getElementById('supportBody'), p = document.getElementById('supportPanel');
+  if (b) b.innerHTML = stackSupportHTML(s);
+  if (p) { p.style.display = 'flex'; const w = p.querySelector('.wrap'); if (w) w.scrollTop = 0; }
+  overlaySync();
+  return { ok: !!p };
+}
+function closeStackSupport() {
+  STACK_SUPPORT_ID = null;
+  const p = document.getElementById('supportPanel');
+  if (p) p.style.display = 'none';
+  overlaySync();
+  return { ok: true };
+}
+// A chip: everything over the page closes, and the Pathways card opens at that pathway.
+function stackSupportPathway(pw) {
+  closeStackSupport();
+  try { closeSheet(); } catch (e) {}
+  try { closeSettings(); } catch (e) {}
+  return ctxShowPathways([String(pw)]);
 }
 // What a row says it will deliver, as a phrase. Doses only -- never a pathway.
 function stackRowSub(s) {
@@ -18207,6 +18405,7 @@ const VERSION_LOG = [
   { v: '0.122.0', d: '2026-10-31', note: 'Every graph in Trends now zooms like the blood-pressure chart: tap + for 2, 4 or 8 times wider and scroll sideways, with the numbers held at the left; the readings sit at their real times, so a week without one looks like a week. The glucose chart keeps its own zoom and the arrows to move along. And your own goal lines: in Settings, Goals, Lines on graphs, set one number or a band (low to high) for any graph; it is drawn as a plain dashed line with its value -- no colours, no verdicts. Remove it and the line goes. Your goals are in your backup.' },
   { v: '0.122.1', d: '2026-10-31', note: 'The dates under the blood-pressure chart no longer run into each other: when there is not room for every date, every tick mark stays and only the dates that fit are written. The same for the Trends graphs.' },
   { v: '0.123.0', d: '2026-10-31', note: 'Three things. Claims stay with your stack items when you look them up by NPN: they now match the product’s licensed ingredient (its common, botanical or chemical name), not only the name you gave the item. A licensed product that states an amount twice in two units -- a vitamin in mcg and again in IU -- is now counted once; if you saved such an item before, open its Edit and Save it once to correct its total. And the line saying the app saved in this browser is gone while all is well; it only appears, in plain words, if saving fails or storage is at risk. When your last backup is later than your usual gap between backups (or 7 days, until you have five), the box at the top says so, and a tap takes you to Export backup.' },
+  { v: '0.124.0', d: '2026-11-03', note: 'Each item in your daily stack now has “How this supports your pathways”, in + Log and in Settings. It shows two things, kept apart: what the item supplies -- each nutrient at your usual amount and the pathways it is a raw material for (a tap opens that pathway) -- and what studies say about it, each claim with its own probability and evidence grade, with safety entries and interactions under their own headings. An amount under 1 % of the reference intake per serving no longer counts as supplying a pathway, so a food is not said to supply a pathway through a trace of a mineral. Zinc now has a cited upper intake level (Institute of Medicine, 2001: 40 mg a day from food, water and supplements together), with the same collapsed intake note as vitamin D and magnesium.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -23509,7 +23708,7 @@ function openSheet(mode) {
   if (scrim) scrim.style.display = 'block';
   overlaySync();
   // R246: every + Log opens with the stack collapsed -- its count and Took all.
-  STACK_OPEN = false; STACK_EDIT = null; STACK_CLAIMS_OPEN = null;   // R305/3: only the strip's link opens an item's claims
+  STACK_OPEN = false; STACK_EDIT = null;
   if (STACK_FORM && STACK_FORM.host === 'log') STACK_FORM = null;   // R278/B: a closed sheet's add form is not kept
   // RULED: the default is ROOT, not scan. The device finding was that '+ Log'
   // opened the camera-and-barcode path while the stack, the combos and the top 10
@@ -28081,7 +28280,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
