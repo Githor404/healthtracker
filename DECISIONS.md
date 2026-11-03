@@ -21536,3 +21536,10 @@ user marks it. The source entry keeps its own mark. No stored entry changes: a r
 made keeps the mark it was given (none exists in the newest backup on the PC).
 **Harness** +1: a marked entry repeated -- the copy has no mark and ends a fast by the rule (13 g
 protein), the source still carries its mark. Release under the standing pre-run rule.
+
+## R316.1 follow-up -- BUILT (v0.126.1), against its pre-registration
+
+As pre-registered: `buildRepeatItem` drops `fast_override` (one line), so quick add, Search's
+"logged before" rows and the one-tap repeat all start a new entry unmarked. Harness +1 (3454),
+which reads the judgement through `fastJudgeUnit` (now on HT, so the check is not vacuous).
+Every gate alone, then the full suite: 79 of 79.

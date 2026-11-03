@@ -12383,6 +12383,13 @@ window.setLS({});
     ref: { ns: 'cnf', id: '77', name: 'Oats, rolled', at: '2026-09-11', at_ms: 1,
            hash: 'h', attribution: 'CNF', how: 'picked', v: { '301': 40 } } };
   var RP = HT.buildRepeatItem(SRC130, '09:15', { date: '2026-09-10', name: 'Oats' });
+  // R316.1: a fast mark is the user's tap on that entry -- a repeat does not inherit it
+  var SRC316 = { name: 'Gate eggs', meal: 'snack', time: '11:00', kcal: 160, protein_g: 13, fat_g: 11, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0,
+    confidence: 'eyeballed', source: 'manual', notes: '', fast_override: [{ v: 'keeps', at: '2026-11-01T11:00:00.000Z' }] };
+  var RP316 = HT.buildRepeatItem(SRC316, '11:05', { date: '2026-11-01', name: 'Gate eggs' });
+  var J316 = HT.fastJudgeUnit([RP316], HT.fastKeepLimits());
+  res(RP316.fast_override === undefined && SRC316.fast_override.length === 1 && J316.keeps === false && J316.by === 'rule',
+      'R316.1: A REPEAT DOES NOT INHERIT A FAST MARK -- the source entry keeps its "keeps my fast"; the new entry has none and, at 13 g protein, ends a fast by the rule', JSON.stringify([RP316.fast_override, J316]));
   res(RP.source === 'scan',
       'D130-repeat GATE: a repeated SCAN is still a scan -- adding a \u201crepeat\u201d source would have erased the provenance, which is D111\u2019s failure');
   res(!!RP.repeated_from && RP.repeated_from.date === '2026-09-10',

@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.126.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.126.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -9150,6 +9150,7 @@ function buildRepeatItem(src, time, from, grams) {
   const c = JSON.parse(JSON.stringify(src));
   delete c.plateId; delete c.plateIdx; delete c.mealId; delete c.ate;   // this is not that plate
   delete c.orig; delete c.edited_at; delete c._auto;                    // nor that record's history
+  delete c.fast_override;                                              // R316.1: a fast mark is the user's tap on THAT entry
   delete c[R269_VIEW];                                                  // R271: a new entry, stored as made
   if (c.recomputed && c.recomputed.rule === 'R269') delete c.recomputed;
   c.time = time;
@@ -18716,6 +18717,7 @@ const VERSION_LOG = [
   { v: '0.124.0', d: '2026-11-03', note: 'Each item in your daily stack now has “How this supports your pathways”, in + Log and in Settings. It shows two things, kept apart: what the item supplies -- each nutrient at your usual amount and the pathways it is a raw material for (a tap opens that pathway) -- and what studies say about it, each claim with its own probability and evidence grade, with safety entries and interactions under their own headings. An amount under 1 % of the reference intake per serving no longer counts as supplying a pathway, so a food is not said to supply a pathway through a trace of a mineral. Zinc now has a cited upper intake level (Institute of Medicine, 2001: 40 mg a day from food, water and supplements together), with the same collapsed intake note as vitamin D and magnesium.' },
   { v: '0.125.0', d: '2026-11-03', note: 'Each pathway’s ⓘ in the Pathways card now has two cards, kept apart. “Connected · effect not measured” lists the pathways it shares the most specific molecules or enzymes with in Reactome (up to six, each saying what is shared), and links from the literature with their source; a tap opens that pathway. A connection does not say that a change in one reaches the other, so it carries no probability. “Claims · effect with probability” holds the reviewed claims, as before. The connections arrive with your next pathway pack.' },
   { v: '0.126.0', d: '2026-11-03', note: 'Adding a food to your daily stack now offers the ways you log food: Scan barcode (the + Log scanner; one tap on Add to my stack saves it with the label’s numbers for the portion you pick), Photo (with your own AI key: it names the food and you pick the database row; its numbers are not used), finding it in your foods, the food database or USDA FoodData Central, and Enter by hand from its label. A supplement can now be scanned too: OpenFoodFacts fills in its name and, where it lists a serving, the nutrients for one serving, for you to check against the label. After a scan the top of the screen says it was added, with Undo, and a product already in your stack asks before it is added again.' },
+  { v: '0.126.1', d: '2026-11-03', note: 'Logging a food again (quick add, the foods you logged before in Search, or a repeat) no longer carries over a “keeps my fast” or “breaks my fast” you tapped on the earlier entry: the new entry is judged by the fasting rule until you mark it yourself.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -28522,7 +28524,7 @@ window.HT = {
   legacyAutoItem, isLegacyAuto, LEGACY_AUTO_TIME, LEGACY_AUTO_SHORT, migrateV14toV15,
   stackUpsert, stackItemRemove, stackItemEnable, stackFormOpen, stackFormSwitch, stackFormHTML, lnhpdLookup, lnhpdGet, setLnhpdFetch, stackNpnLookup, suppLabelReply, stackConfirmToggle, stackFormExtraAdd, stackFormExtraRemove, stackMultiNutrients, suppKeyFor, suppUnit, normalizeStackProduct, normalizeNutrientDetail, normalizeJoinEdits, stackDoseMicros, dayIntakeFlags, STACK_SUPP_KEYS, SUPP_TEMPLATE, stackFormKind, stackFormSearch, stackFormPick,
   stackFormSave, stackFormUnit, stackCountUnit, STACK_COUNT_UNITS, lnhpdDoseUnit,
-  fastJudge, fastKeepLimits, fastOverrideSet, comboFastOverrideSet, fastOverrideNow, itemMacrosKnown, setFastKeepLimits, fastRuleWords, FAST_RULE_WORDS, fastEvents, comboFastHTML, packImportText, packLoad, packRemove, renderPathways, PACK_KEY, ctxNote, ctxNoteSet, ctxStripCompute, renderCtxStrip, ctxShowPathways, ctxRevealLink, ctxDismiss, ctxSupplies, ctxComputes: () => CTX_COMPUTES, ctxKept: () => CTX_KEPT, CTX_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
+  fastJudge, fastJudgeUnit, fastKeepLimits, fastOverrideSet, comboFastOverrideSet, fastOverrideNow, itemMacrosKnown, setFastKeepLimits, fastRuleWords, FAST_RULE_WORDS, fastEvents, comboFastHTML, packImportText, packLoad, packRemove, renderPathways, PACK_KEY, ctxNote, ctxNoteSet, ctxStripCompute, renderCtxStrip, ctxShowPathways, ctxRevealLink, ctxDismiss, ctxSupplies, ctxComputes: () => CTX_COMPUTES, ctxKept: () => CTX_KEPT, CTX_KEY, itemFermented, linkEligible, linkPrepare, linkAccuracy, linkAccuracyWords, linkRanking, linkPick, linkView: () => LINK_VIEW, resolveCompute, weekLinkItems, weekLinkCardHTML, stackFormCancel, stackEditorHTML, renderStackEditor, stackForm: () => STACK_FORM, comboPartRaw,
   stackSheetHTML, mealKindGroups, GROUP_SPLIT_MIN,
   stackDoseMicros, dayIntakeParts, dayIntakeFlags, dayIntakeFlagText, INTAKE_SCOPES, stackSuggestMicro, stackSuggestAccept, stackSuggestHTML,
   STACK_KINDS, stackKindOf, stackKindWord, recordKindWord, intakeNoteHTML, itemIntakeFlagText, INTAKE_NOTE_LABEL,
