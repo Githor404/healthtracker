@@ -864,6 +864,19 @@ window.setLS({});
   res(HT.supplyMeets(r13P, { cofactor: 'fat x', dri: null, slot: '617', tracked: true }, HT.supplyAmounts({ ref: { v: { '617': 0.0001 } } }))
       && !HT.supplyMeets(r13P, { cofactor: 'fat x', dri: null, slot: '617', tracked: true }, HT.supplyAmounts({ ref: { v: { '617': 0 } } })),
       'R313/A P5: a line with no reference intake has no floor to apply -- any amount above zero counts, and zero is nothing');
+  // R317: a scanned part keeps its barcode and kcal_on_label; a scanned supplement its barcode and 'off' rows
+  var r17p = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, fat_g: 15, source: 'scan', barcode: '00000017', kcal_on_label: true });
+  var r17bad = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, barcode: '12ab', kcal_on_label: 'yes' });
+  var r17raw = HT.comboPartRaw(r17p, 1, '08:00');
+  res(r17p.barcode === '00000017' && r17p.kcal_on_label === true && !('barcode' in r17bad) && !('kcal_on_label' in r17bad)
+      && r17raw.barcode === '00000017' && r17raw.kcal_on_label === true && JSON.stringify(HT.normalizeComboPart(r17p)) === JSON.stringify(r17p),
+      'R317: A SCANNED PART KEEPS ITS BARCODE AND kcal_on_label through normalisation, a round trip and the write a tick makes; a malformed barcode or a non-true flag is dropped', JSON.stringify([r17p, r17bad, r17raw]));
+  var r17s = HT.normalizeStackItem({ name: 'Gate capsule', kind: 'supplement', barcode: '00000024',
+    nutrients: { micros: { zinc_mg: 10 }, detail: { zinc_mg: { amount: 10, unit: 'mg', per: 'dose', source: 'off' } } } });
+  res(r17s.barcode === '00000024' && r17s.nutrients.detail.zinc_mg.source === 'off' && r17s.nutrients.micros.zinc_mg === 10
+      && JSON.stringify(HT.normalizeStackItem(JSON.parse(JSON.stringify(r17s)))) === JSON.stringify(r17s)
+      && !('barcode' in HT.normalizeStackItem({ name: 'Gate x', barcode: '1234' })),
+      'R317: A SUPPLEMENT SCANNED BY ITS BARCODE keeps the barcode and its OpenFoodFacts rows (source "off") through a round trip; a 4-digit barcode is dropped', JSON.stringify(r17s));
   // scope is a field, not an assumption
   var r8lim = HT.INTAKE_LIMITS.magnesium_mg, r8scope = r8lim.scope;
   res(HT.INTAKE_SCOPES.join(',') === 'total,supplemental' && Object.keys(HT.INTAKE_LIMITS).every(function (k) { return HT.INTAKE_SCOPES.indexOf(HT.INTAKE_LIMITS[k].scope) >= 0; })

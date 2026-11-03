@@ -21505,3 +21505,22 @@ runs sideways. Harness: the part's `barcode` / `kcal_on_label` and the item's `b
 survive normalisation and a round trip.
 
 **Release** under the standing pre-run rule.
+
+## R317 -- BUILT (v0.126.0), against its pre-registration
+
+As pre-registered. The Food form leads with **Scan barcode**, **Photo** (with a key) and
+**Enter by hand**, then "Or find the food" (your foods, the database, the USDA offer). The
+scan route reuses + Log's scanner, lookup and cache (`SCAN_FOR` changes only the found
+card, and ends when the scan pane is left); from Settings the form moves into + Log. The
+photo route sends the meal template under a capture kind of its own (`stackfood`) and reads
+only names; its progress and any failure are said in the form, and the capture kind returns
+to meal either way. The banner takes its own words ("Added to your stack: ..."); its Undo
+removes the item (added today, never logged, so deleted outright).
+**Measured taps:** scan 6, database search 6, supplement by barcode 6 (each with a stack
+already holding one item, so the Daily stack row is there to open); by hand 7, USDA 7,
+photo 7 plus the camera's own screens -- over the 6 target, as stated in the pre-registration.
+**Gate `stackadd-gate`:** 13 checks, all pass (three flaws in the gate itself fixed while
+writing it: an empty fixture stack has no Daily stack row; a JSON array read through
+ConvertFrom-Json; `[` as a wildcard in -like). Harness +2 (3453). Looked at, 390 px: the
+form, the scan card, the banner, the supplement form with its two marked rows, the photo's
+names. Every gate alone, then the full suite: 79 of 79.

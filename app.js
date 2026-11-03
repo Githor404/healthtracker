@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.125.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.126.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -878,6 +878,8 @@ function normalizeStackItem(raw) {
   // R281/5: the product a database (or a photo) named, frozen at the user's tap.
   const prod = normalizeStackProduct(r.product);
   if (prod) out.product = prod;
+  // R317: the barcode a supplement was scanned by (a food's is on its part)
+  if (/^\d{8,14}$/.test(String(r.barcode == null ? '' : r.barcode))) out.barcode = String(r.barcode);
   return out;
 }
 function normalizeJoinEdits(v) {
@@ -893,7 +895,7 @@ function normalizeJoinEdits(v) {
   });
   return out;
 }
-const STACK_NUTRIENT_SOURCES = ['lnhpd', 'typed', 'label-photo'];
+const STACK_NUTRIENT_SOURCES = ['lnhpd', 'typed', 'label-photo', 'off'];   // R317: 'off', a barcode's OpenFoodFacts serving
 const STACK_NUTRIENT_UNITS = ['mg', 'mcg', 'g', 'IU'];
 // R285: a dose in UNITS -- a count of something with its own amount in each one. With
 // one of these the form asks "How many?", and a nutrient is the amount in each unit
@@ -1140,6 +1142,10 @@ function normalizeComboPart(raw) {
   const pub = normalizePublished(r.published);
   if (pub) out.published = pub;
   if (MYFOOD_BASES.indexOf(r.basis) >= 0) out.basis = r.basis;                // R213
+  // R317: a part read from a scanned label keeps its barcode and whether the label
+  // printed the calories -- what a scanned log keeps (R271)
+  if (/^\d{8,14}$/.test(String(r.barcode == null ? '' : r.barcode))) out.barcode = String(r.barcode);
+  if (r.kcal_on_label === true) out.kcal_on_label = true;
   return out;
 }
 function normalizeCombo(raw) {
@@ -2521,16 +2527,17 @@ function logConfirmWords(items) {
   return 'Logged: ' + list.slice(0, 2).map(one).join(', ')
     + (list.length > 2 ? ' + ' + (list.length - 2) + ' more' : '') + t;
 }
-function logConfirmShow(items, undoFn) {
+function logConfirmShow(items, undoFn, words) {
   const e = document.getElementById('logConfirm'); if (!e) return { ok: false };
   _logConfirmFn = (typeof undoFn === 'function') ? undoFn : null;
-  e.innerHTML = '<span class="lcword">' + esc(logConfirmWords(items)) + '</span>'
+  const text = words || logConfirmWords(items);            // R317: an add to the stack says so in its own words
+  e.innerHTML = '<span class="lcword">' + esc(text) + '</span>'
     + (_logConfirmFn ? '<button type="button" class="lcundo" onclick="logConfirmUndo()">Undo</button>' : '')
     + '<button type="button" class="lcx" onclick="logConfirmHide()" aria-label="Close">&times;</button>';
   e.hidden = false;
   clearTimeout(_logConfirmT);
   _logConfirmT = setTimeout(logConfirmHide, LOG_CONFIRM_MS);
-  return { ok: true, text: logConfirmWords(items) };
+  return { ok: true, text: text };
 }
 function logConfirmHide() {
   clearTimeout(_logConfirmT); _logConfirmFn = null;
@@ -5488,6 +5495,8 @@ function comboPartRaw(p, m, time) {
   if (g != null) raw.grams = g;
   if (p.published) raw.published = p.published;
   if (p.basis) raw.basis = p.basis;
+  if (p.barcode) raw.barcode = p.barcode;                 // R317
+  if (p.kcal_on_label === true) raw.kcal_on_label = true;
   // The ref re-expressed at THIS part's new portion, or dropped if it has no
   // basis to re-express from. Never guessed.
   if (p.ref) {
@@ -6430,6 +6439,7 @@ function stackUpsert(raw) {
     if (mx.micros) item.nutrients = Object.assign({}, item.nutrients || {}, { micros: mx.micros, detail: mx.detail });
     else if (mx.clear) { if (item.nutrients) { delete item.nutrients.micros; delete item.nutrients.detail; if (!Object.keys(item.nutrients).length) delete item.nutrients; } }
     if (mx.product) item.product = mx.product;
+    if (r.barcode) item.barcode = r.barcode;                   // R317: scanned by it
   }
   const list = APP_STATE.settings.stack || (APP_STATE.settings.stack = []);
   const at = (r.id != null && r.id !== '') ? list.map(function (x) { return x.id; }).indexOf(String(r.id)) : -1;
@@ -6538,7 +6548,8 @@ function stackMultiNutrients(r, item) {
     // R285/1: a row typed IN EACH UNIT counts that amount times the units taken; one
     // without `per` is R281's amount for the whole dose, read as it always was
     const each = x.per === 'unit';
-    const d = { amount: num(x.amount), unit: u, per: each ? 'unit' : 'dose', source: 'typed' };
+    // R317: a row OpenFoodFacts filled in from a barcode says so, as long as it is kept
+    const d = { amount: num(x.amount), unit: u, per: each ? 'unit' : 'dose', source: x.src === 'off' ? 'off' : 'typed' };
     if (x.form) d.form = String(x.form);
     micros[k] = each ? v * num(item.dose) : v; detail[k] = d;
   }
@@ -6822,8 +6833,8 @@ function stackFormOpen(id, host) {
   const seed0 = it ? JSON.parse(JSON.stringify(it)) : null;
   if (seed0) {
     const det = (seed0.nutrients && seed0.nutrients.detail) || {};
-    seed0.extra = Object.keys(det).filter(function (k) { return det[k].source === 'typed'; })
-      .map(function (k) { return { key: k, amount: det[k].amount, unit: det[k].unit, per: det[k].per }; });
+    seed0.extra = Object.keys(det).filter(function (k) { return det[k].source === 'typed' || det[k].source === 'off'; })
+      .map(function (k) { const x = { key: k, amount: det[k].amount, unit: det[k].unit, per: det[k].per }; if (det[k].source === 'off') x.src = 'off'; return x; });
     const single = Object.keys((seed0.nutrients && seed0.nutrients.micros) || {}).filter(function (k) { return !det[k]; });
     seed0.microKey = single[0] || '';
   }
@@ -6918,6 +6929,7 @@ function stackFormRead() {
     const row = { key: g('stkX' + i + 'K'), amount: g('stkX' + i + 'A'), unit: g('stkX' + i + 'U') };
     const per = ke.getAttribute('data-per');                 // R285: in each unit, or the whole dose
     if (per === 'unit' || per === 'dose') row.per = per;
+    if (ke.getAttribute('data-src') === 'off') row.src = 'off';   // R317
     extra.push(row);
   }
   const out = { name: g('stkName'), dose: g('stkDose'), dose_unit: g('stkUnit'), note: g('stkNote'),
@@ -6930,10 +6942,11 @@ function stackFormRead() {
 function stackFormSearch(text) {
   const st = STACK_FORM; if (!st) return Promise.resolve({ phase: 'closed', rows: [] });
   const seq = ++st.seq;
+  if (String(text == null ? '' : text) !== st.q) st.fdc = null;      // R317: a new word, a new question
   st.q = String(text == null ? '' : text);
   return typeaheadRun(text).then(function (r) {
     if (STACK_FORM !== st || st.seq !== seq) return r;
-    st.rows = r.rows || [];
+    st.rows = r.rows || []; st.phase = r.phase;
     const el = document.getElementById('stkRows');
     if (el) el.innerHTML = stackFormRowsHTML(r.phase);
     return r;
@@ -6943,14 +6956,42 @@ function stackFormRowsHTML(phase) {
   const st = STACK_FORM; if (!st) return '';
   // R213: the user's own foods first, then the way to add one, then the database.
   const own = myFoodRowsHTML(st.q, 'stackFormPickMine', 'stackFoodFormOpen');
-  if (phase === 'no-corpus') return own + '<div class="note fqnote">The food database is not on this device yet. Open this once while online.</div>';
-  if (phase === 'none') return own + '<div class="note fqnote">Nothing in the food database matches that.</div>';
+  // R317/1: USDA FoodData Central, offered once the device's database has answered (R242/B)
+  const q = String(st.q || '').trim();
+  const fdc = (q.length >= TYPEAHEAD_MIN && phase !== 'loading')
+    ? fdcBlockHTML(st.fdc, [q], { run: 'stackFdcRun', pick: 'stackFdcPick', close: 'stackFdcClose' }, '') : '';
+  if (phase === 'no-corpus') return own + '<div class="note fqnote">The food database is not on this device yet. Open this once while online.</div>' + fdc;
+  if (phase === 'none') return own + '<div class="note fqnote">Nothing in the food database matches that.</div>' + fdc;
   return own + (st.rows || []).map(function (c, i) {
     const mac = photoSearchMacroWords({ kcal: c.kcal, protein: c.protein, fat: c.fat, carb: c.carb });
     return '<button type="button" class="btn fqrow" onclick="stackFormPick(' + i + ')">'
       + '<span class="fqname">' + esc(c.name) + '</span>'
       + (mac ? '<span class="fqmac">' + esc(mac) + '</span>' : '') + '</button>';
-  }).join('');
+  }).join('') + fdc;
+}
+function stackRowsPaint() {
+  const st = STACK_FORM; const el = document.getElementById('stkRows');
+  if (st && el) el.innerHTML = stackFormRowsHTML(st.phase);
+}
+function stackFdcRun() {
+  const st = STACK_FORM; if (!st) return Promise.resolve({ ok: false });
+  const q = String(st.q || '').trim();
+  if (!q) return Promise.resolve({ ok: false, why: 'no-terms' });
+  return fdcRunInto(st, 'fdc', [q], function () { if (STACK_FORM === st) stackRowsPaint(); });
+}
+function stackFdcClose() { if (STACK_FORM) { STACK_FORM.fdc = null; stackRowsPaint(); } return { ok: true }; }
+// A USDA row is a database row like any other: it carries its own meta and row, so
+// the save's corpusOwnNumbers builds the part and the citation the same way.
+function stackFdcPick(i) {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  const c = st.fdc && st.fdc.rows && st.fdc.rows[num(i)];
+  if (!c) return { ok: false, why: 'no-such-row' };
+  const keep = stackFormRead();
+  st.pick = c; st.kept = null; st.rows = []; st.fdc = null;
+  st.seed = Object.assign({}, st.seed || {}, keep);
+  renderStackEditor();
+  const g = document.getElementById('stkGrams'); if (g && g.focus) g.focus();
+  return { ok: true, id: c.id, name: c.name };
 }
 function stackFormPick(i) {
   const st = STACK_FORM; if (!st) return { ok: false };
@@ -6964,6 +7005,200 @@ function stackFormPick(i) {
   return { ok: true, name: c.name };
 }
 function stackFoodFormOpen() { return myFoodFormOpen('stack', STACK_FORM ? STACK_FORM.q : ''); }
+// ---- R317: THE STACK'S ROUTES ARE THE LOGGING ROUTES ----------------------------
+// A food (or a supplement's barcode) is found the way a food is logged: + Log's own
+// scanner, the user's own key for a photo, the search with USDA behind it, or the
+// food typed from its label. Nothing here is a second copy of those paths -- the
+// scanner, its lookup and its cache are the scan pane's; only the found card's last
+// step is the stack's.
+let SCAN_FOR = null;     // { kind } while the scanner is finding a product for the stack form
+function stackScanOpen() {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  if (st.host !== 'log') {
+    // from Settings: the form moves into + Log, with what was typed kept
+    closeSettings();
+    openSheet('root');
+    st.host = 'log'; STACK_FORM = st; STACK_OPEN = true;
+  }
+  SCAN = null;
+  setSheetMode('scan');
+  SCAN_FOR = { kind: st.kind };
+  renderScan();
+  if (cameraPrecondition() === 'ok') startScan();
+  return { ok: true, kind: st.kind };
+}
+function stackScanBack() {
+  SCAN = null;
+  setSheetMode('root');
+  renderStackEditor();
+  return { ok: true };
+}
+// The item a barcode is already in, if any: a food's part, or a supplement's own.
+function stackBarcodeHolder(bc) {
+  const b = String(bc == null ? '' : bc);
+  if (!b) return null;
+  return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (x) {
+    return x && !x.removed_on && ((x.part && x.part.barcode === b) || x.barcode === b);
+  })[0] || null;
+}
+// R317/2: a supplement's label, from OpenFoodFacts: one serving of each tracked
+// nutrient, and only where it gives a serving size -- per 100 g of a capsule
+// product is not a dose anyone takes.
+function stackOffRows(rec) {
+  if (!rec || !(num(rec.serving_g) > 0) || !rec.micros) return [];
+  const f = num(rec.serving_g) / 100, out = [];
+  STACK_SUPP_KEYS.forEach(function (k) {
+    const v = rec.micros[k];
+    if (v == null || !isFinite(Number(v)) || !(Number(v) > 0)) return;
+    out.push({ key: k, amount: Math.round(Number(v) * f * 1000) / 1000, unit: MICRO_LABEL[k].unit, per: 'dose', src: 'off' });
+  });
+  return out;
+}
+function stackScanCardHTML() {
+  const rec = SCAN.record, food = SCAN_FOR.kind === 'food';
+  let h = '<div class="stkscanfor">For your stack</div>'
+    + '<div class="scanhead"><b>' + esc(rec.name || ('Product ' + rec.barcode)) + '</b>'
+    + (rec.brands ? ' <span class="scanbrand">' + esc(rec.brands) + '</span>' : '')
+    + ' <small class="scansrc">' + esc(SCAN.source === 'cache' ? 'cached' : 'openfoodfacts') + '</small></div>';
+  if (food) {
+    const s = scalePortion(rec, SCAN.mode, SCAN.grams), hasServe = rec.serving_g > 0;
+    h += '<div class="primsel scanmodes">'
+      + '<button class="' + (SCAN.mode === 'per_serving' ? 'on' : '') + '" ' + (hasServe ? '' : 'disabled') + ' onclick="setScanMode(\'per_serving\')">serving' + (hasServe ? ' · ' + esc(rDisp(rec.serving_g)) + ' g' : '') + '</button>'
+      + '<button class="' + (SCAN.mode === 'per_100g' ? 'on' : '') + '" onclick="setScanMode(\'per_100g\')">100 g</button>'
+      + '<button class="' + (SCAN.mode === 'custom' ? 'on' : '') + '" onclick="setScanMode(\'custom\')">custom</button></div>';
+    if (SCAN.mode === 'custom')
+      h += '<label for="scanGrams">Grams each time</label><input id="scanGrams" type="number" inputmode="decimal" value="' + esc(SCAN.grams) + '" oninput="setScanGrams(this.value)">';
+    h += '<div class="summary" id="scanSummary">' + scanSummaryHTML(s) + '</div>';
+  } else {
+    const rows = stackOffRows(rec);
+    h += '<div class="note stkoffsum">' + (rows.length
+      ? 'Fills in its name and, for one serving (' + esc(rDisp(rec.serving_g)) + ' g): '
+        + esc(rows.map(function (x) { return MICRO_LABEL[x.key].label + ' ' + rDisp(x.amount) + ' ' + x.unit; }).join(', '))
+        + '. Check them against your label before you add it.'
+      : (num(rec.serving_g) > 0 ? 'OpenFoodFacts lists no nutrient this app tracks for it: this fills in its name only.'
+        : 'OpenFoodFacts gives no serving size for it: this fills in its name only.')) + '</div>';
+  }
+  if (SCAN.guard) {
+    h += '<div class="scanguard" role="group" aria-label="already in your stack"><div class="scanguardword">Already in your stack: ' + esc(SCAN.guard) + '</div>'
+      + '<button class="btn primary" onclick="' + (food ? 'stackAddFromScan' : 'stackScanUse') + '(true)">Add another</button>'
+      + '<button class="btn" onclick="scanGuardCancel()">Cancel</button></div>';
+  } else {
+    h += food ? '<button type="button" class="btn primary stkscanadd" onclick="stackAddFromScan()">Add to my stack</button>'
+      : '<button type="button" class="btn primary stkscanuse" onclick="stackScanUse()">Use these</button>';
+  }
+  if (SCAN.stackWarn) h += '<div class="warn">' + esc(SCAN.stackWarn) + '</div>';
+  return h + '<button type="button" class="linklike stkscanback" onclick="stackScanBack()">Back to the form</button>';
+}
+// A food, saved from the card at once: the label's numbers at the portion, as a
+// scanned log takes them (source scan, labelled micronutrients, the barcode kept).
+function stackAddFromScan(again) {
+  if (!SCAN || !SCAN.found || !SCAN_FOR || SCAN_FOR.kind !== 'food') return { ok: false };
+  const rec = SCAN.record;
+  if (again !== true) {
+    const dup = stackBarcodeHolder(rec.barcode);
+    if (dup) { SCAN.guard = dup.name; renderScan(); return { ok: false, guard: dup.name }; }
+  }
+  const sd = (STACK_FORM && STACK_FORM.seed) || {};
+  const s = scalePortion(rec, SCAN.mode, SCAN.grams);
+  const part = { name: rec.name || ('Product ' + rec.barcode), grams: s.grams, confidence: 'measured', source: 'scan',
+                 barcode: rec.barcode, kcal_on_label: rec.kcalOnLabel === true };
+  MACRO_KEYS.forEach(function (k) { if (s[k] != null) part[k] = s[k]; });
+  if (s.micros) part.micros = s.micros;
+  const r = stackUpsert({ kind: 'food', name: String(sd.name || '').trim() || part.name, part: part, note: sd.note,
+                          added_on: sd.added_on, enabled: true });
+  if (!r.ok) { SCAN.stackWarn = r.error || 'Could not add it.'; renderScan(); return r; }
+  SCAN = null; STACK_FORM = null; STACK_OPEN = true;
+  setSheetMode('root');
+  renderStackEditor();
+  const id = r.item.id;
+  logConfirmShow([r.item.part], function () { stackItemRemove(id); renderStackEditor(); renderSheetRoot(); },
+    'Added to your stack: ' + r.item.name + (num(r.item.part.grams) > 0 ? ' ' + rDisp(r.item.part.grams) + ' g' : ''));
+  return r;
+}
+// A supplement: the name and the serving's nutrients go into the form as rows the
+// user checks; nothing is saved until Add to my stack.
+function stackScanUse(again) {
+  if (!SCAN || !SCAN.found || !SCAN_FOR || SCAN_FOR.kind === 'food' || !STACK_FORM) return { ok: false };
+  const rec = SCAN.record, st = STACK_FORM;
+  if (again !== true) {
+    const dup = stackBarcodeHolder(rec.barcode);
+    if (dup) { SCAN.guard = dup.name; renderScan(); return { ok: false, guard: dup.name }; }
+  }
+  const rows = stackOffRows(rec);
+  const sd = st.seed || {};
+  const kept = (sd.extra || []).filter(function (x) { return x && x.key && x.src !== 'off' && !rows.some(function (y) { return y.key === x.key; }); });
+  st.seed = Object.assign({}, sd, { name: rec.name || sd.name || ('Product ' + rec.barcode), extra: kept.concat(rows), microKey: '' });
+  st.offScan = { barcode: rec.barcode, name: rec.name || '', rows: rows.length };
+  SCAN = null;
+  setSheetMode('root');
+  renderStackEditor();
+  return { ok: true, rows: rows.length };
+}
+function stackOffScanHTML() {
+  const o = STACK_FORM && STACK_FORM.offScan;
+  if (!o) return '';
+  return '<div class="note stkoffmsg">From OpenFoodFacts, barcode ' + esc(o.barcode) + (o.name ? ': <b>' + esc(o.name) + '</b>' : '')
+    + (o.rows ? '' : ' · no nutrient it lists is one this app tracks') + '</div>';
+}
+// R317/1: THE PHOTO NAMES THE FOOD; THE NUMBERS COME FROM SOURCES (D128). The meal
+// template is sent as for a meal photo; only the names are read from the reply, and
+// each becomes a search. No row is picked for the user (D141).
+const STACK_PHOTO_NAMES = 3;
+function stackFoodPhoto() {
+  const st = STACK_FORM; if (!st) return { ok: false };
+  st.seed = Object.assign({}, st.seed || {}, stackFormRead());
+  st.photo = null;
+  setCaptureKind('stackfood');
+  const inp = document.getElementById('captureFile');
+  if (inp) { try { inp.click(); } catch (e) {} }
+  return { ok: !!inp };
+}
+function stackFoodPhotoReply(text) {
+  let j = null;
+  try { j = JSON.parse(cleanJSON(String(text == null ? '' : text))); } catch (e) { j = null; }
+  const arr = Array.isArray(j) ? j : (j && Array.isArray(j.items) ? j.items : (j && j.name != null ? [j] : []));
+  const names = [];
+  arr.forEach(function (x) {
+    const n = x && x.name != null ? String(x.name).replace(/\s+/g, ' ').trim() : '';
+    if (n && names.indexOf(n) < 0 && names.length < STACK_PHOTO_NAMES) names.push(n);
+  });
+  if (!names.length) return { ok: false, error: 'The reply named no food.' };
+  if (CAPTURE_KIND === 'stackfood') { try { setCaptureKind('meal'); } catch (e) {} }
+  if (!STACK_FORM) stackFormOpen('', 'log');
+  const st = STACK_FORM;
+  st.kind = 'food';
+  st.photo = { phase: 'named', names: names };
+  st.q = names[0];
+  renderStackEditor();
+  return { ok: true, names: names, pending: stackFormSearch(names[0]) };
+}
+// The capture's progress, said in the form the photo was taken from.
+function stackPhotoBusy() {
+  if (CAPTURE_KIND !== 'stackfood' || !STACK_FORM || !BYOK_BUSY) return;
+  const err = BYOK_BUSY.phase === 'error';
+  STACK_FORM.photo = { phase: err ? 'error' : 'sending',
+    message: err ? 'The photo could not be read. Find the food by typing its name instead.' : (BYOK_BUSY.message || 'Reading the photo…') };
+  if (err) setCaptureKind('meal');
+  const el = document.getElementById('stkPhotoOut'); if (el) el.innerHTML = stackFoodPhotoHTML();
+}
+function stackFoodPhotoHTML() {
+  const p = STACK_FORM && STACK_FORM.photo;
+  if (!p) return '';
+  if (p.phase === 'sending') return '<div class="note stkphotomsg">' + esc(p.message) + '</div>';
+  if (p.phase === 'error') return '<div class="warn stkphotomsg">' + esc(p.message) + '</div>';
+  return '<div class="stkphotonames"><div class="note">Your AI provider named ' + (p.names.length === 1 ? 'this' : 'these')
+    + '. Its numbers are not used: pick a row below.</div>'
+    + p.names.map(function (n, i) { return '<button type="button" class="btn stkphotoname" onclick="stackFormPhotoName(' + i + ')">' + esc(n) + '</button>'; }).join('')
+    + '</div>';
+}
+function stackFormPhotoName(i) {
+  const st = STACK_FORM;
+  const n = st && st.photo && st.photo.names ? st.photo.names[num(i)] : null;
+  if (!n) return Promise.resolve({ ok: false });
+  const el = document.getElementById('stkQuery'); if (el) el.value = n;
+  return stackFormSearch(n);
+}
 function stackFormPickMine(id) {
   const st = STACK_FORM; if (!st) return { ok: false };
   const f = myFoods().filter(function (x) { return x.id === String(id); })[0];
@@ -7015,6 +7250,8 @@ function stackFormSave_() {
     if (stackCountUnit(f.dose_unit)) raw.microKey = '';
     // R281/5: the product proposed now, or the one the item already carries
     const prod = (st.npn && st.npn.phase === 'found') ? st.npn.product : (st.seed && st.seed.product) || null;
+    const bc = st.offScan ? st.offScan.barcode : (cur && cur.barcode);            // R317/2
+    if (bc) raw.barcode = bc;
     if (prod) {
       raw.product = JSON.parse(JSON.stringify(prod));
       if (prod.ns === 'label-photo' && st.confirm && !prod.confirmed) raw.product.confirmed = { at: stackStampNow() };
@@ -7100,6 +7337,9 @@ function stackFormHTML() {
       + '<div class="row stknpnrow"><div><input id="stkNpn" type="text" inputmode="numeric" maxlength="8" autocomplete="off" value="' + esc(v(sd.npn)) + '"></div>'
       + '<div><button type="button" class="btn stknpnlook" onclick="stackNpnLookup()">Look up</button></div></div>'
       + ((typeof byokConfigured === 'function' && byokConfigured()) ? '<button type="button" class="linklike stksuppphoto" onclick="stackSuppPhoto()">Photo of the label</button>' : '')
+      // R317/2: a barcode, through OpenFoodFacts -- the only barcode source there is
+      + '<button type="button" class="btn stkroute stkscan" onclick="stackScanOpen()">Scan barcode</button>'
+      + stackOffScanHTML()
       + '<div id="stkNpnOut">' + stackNpnHTML() + '</div>';
   }
   if (st.kind !== 'food' && sd.product && st.editId) h += stackProductHTML(sd.product, false);
@@ -7123,7 +7363,8 @@ function stackFormHTML() {
       // unit, or (a row saved before, or with a mass unit) for the whole dose.
       + (sd.extra || []).map(function (x, i) {
           const per = stackRowPer(x, each);
-          return '<div class="row stkxrow"><div><label for="stkX' + i + 'K">' + (each ? 'Counts toward' : 'Also counts toward') + '</label><select id="stkX' + i + 'K"' + (x.per ? ' data-per="' + esc(x.per) + '"' : '') + '><option value="">choose</option>'
+          return (x.src === 'off' ? '<div class="note stkoffnote">From OpenFoodFacts, one serving — check it against your label</div>' : '')
+            + '<div class="row stkxrow"><div><label for="stkX' + i + 'K">' + (each ? 'Counts toward' : 'Also counts toward') + '</label><select id="stkX' + i + 'K"' + (x.per ? ' data-per="' + esc(x.per) + '"' : '') + (x.src === 'off' ? ' data-src="off"' : '') + '><option value="">choose</option>'
             + STACK_SUPP_KEYS.map(function (k) { return '<option value="' + esc(k) + '"' + (k === x.key ? ' selected' : '') + '>' + esc(MICRO_LABEL[k].label) + '</option>'; }).join('')
             + '</select></div><div><label for="stkX' + i + 'A">' + (per === 'unit' ? 'In each ' + esc(uw) : (each ? 'For the whole dose' : 'Amount')) + '</label><input id="stkX' + i + 'A" type="number" inputmode="decimal" min="0" value="' + esc(v(x.amount)) + '"></div>'
             + '<div><label for="stkX' + i + 'U">Unit</label><select id="stkX' + i + 'U">'
@@ -7134,11 +7375,19 @@ function stackFormHTML() {
   } else {
     const picked = st.pick ? st.pick.name : (st.kept ? ((st.kept.ref && st.kept.ref.name) || st.kept.name) : '');
     const pickedMine = (st.pick && st.pick.mine) ? st.pick.mine.basis : ((st.kept && st.kept.basis) || '');
+    // R317/1: the logging routes, at the top -- a barcode, a photo (the user's own key;
+    // the model only names the food), the search, or the food typed in from its label
+    const photo = (typeof byokConfigured === 'function' && byokConfigured());
     h += (picked
         ? '<div class="stkpicked">' + (pickedMine ? ('Your food, ' + esc(MYFOOD_BASIS_WORD[pickedMine])) : 'Food database') + ': <b>' + esc(picked) + '</b></div>'
         : '')
-      + '<label for="stkQuery">' + (picked ? 'Change the food' : 'Find the food') + '</label>'
-      + '<input id="stkQuery" type="text" class="cnin" autocomplete="off" placeholder="search the food database" oninput="stackFormSearch(this.value)">'
+      + '<div class="stkroutes">'
+      + '<button type="button" class="btn stkroute stkscan" onclick="stackScanOpen()">Scan barcode</button>'
+      + (photo ? '<button type="button" class="btn stkroute stkphoto" onclick="stackFoodPhoto()">Photo</button>' : '')
+      + '<button type="button" class="btn stkroute stkhand" onclick="stackFoodFormOpen()">Enter by hand</button></div>'
+      + '<div id="stkPhotoOut">' + stackFoodPhotoHTML() + '</div>'
+      + '<label for="stkQuery">' + (picked ? 'Change the food' : 'Or find the food') + '</label>'
+      + '<input id="stkQuery" type="text" class="cnin" autocomplete="off" placeholder="your foods, the food database" value="' + esc(v(st.q)) + '" oninput="stackFormSearch(this.value)">'
       + '<div id="stkRows"></div><div id="stkFood"></div>'
       + '<label for="stkGrams">Grams each time</label><input id="stkGrams" type="number" inputmode="decimal" min="0" value="'
       + esc(v(sd.grams != null ? sd.grams : (st.kept ? st.kept.grams : ''))) + '">'
@@ -9821,6 +10070,13 @@ function scanSummaryHTML(s) {
 function renderScan() {
   const host = document.getElementById('scanResult'); if (!host) return;
   if (!SCAN) { host.innerHTML = ''; return; }
+  if (SCAN_FOR && !SCAN.found) {                       // R317: not found, for the stack form
+    host.innerHTML = '<div class="scanmsg"><div class="warn" style="padding:6px 0">' + esc(SCAN.error) + '</div>'
+      + (SCAN_FOR.kind === 'food' ? '' : '<div class="note">The NPN on the label finds it in Health Canada’s database.</div>')
+      + '<button type="button" class="linklike stkscanback" onclick="stackScanBack()">Back to the form</button></div>';
+    return;
+  }
+  if (SCAN_FOR) { host.innerHTML = stackScanCardHTML(); return; }
   if (!SCAN.found) {
     const valid = /^\d{8,14}$/.test(SCAN.barcode);
     let h = `<div class="scanmsg"><div class="warn" style="padding:6px 0">${esc(SCAN.error)}</div>` +
@@ -9901,7 +10157,7 @@ function addScanToDay(again) {
 }
 function scanGuardCancel() {
   if (!SCAN) return { ok: false };
-  SCAN.guard = null; renderScan();
+  SCAN.guard = null; SCAN.stackWarn = null; renderScan();
   return { ok: true };
 }
 function prefillManual(bc) {
@@ -17726,6 +17982,7 @@ function byokCancel() {
 }
 function byokBusy(phase, message) {
   BYOK_BUSY = phase ? { phase: phase, message: message || '' } : null;
+  try { stackPhotoBusy(); } catch (e) {}                      // R317
   try { renderPhotoDraft(); } catch (e) {}
   try { renderCaptureOutcome(); } catch (e) {}
   try { renderCaptureBtn(); } catch (e) {}
@@ -17753,10 +18010,11 @@ function byokCapture(file, source) {
   // template and lands in the label draft with the whose answer attached.
   const capKind = CAPTURE_KIND;
   LAST_CAPTURE_KIND = capKind;
-  const isLabel = capKind !== 'meal';
+  // R317: a stack food's photo is sent as a meal photo is; only its names are read
+  const isLabel = capKind !== 'meal' && capKind !== 'stackfood';
   const callOpts = capKind === 'supp' ? { text: SUPP_DIRECT_PREFIX + SUPP_TEMPLATE }
     : (isLabel ? { text: LABEL_DIRECT_PREFIX + LABEL_TEMPLATE } : {});
-  const openDraft = capKind === 'supp' ? suppLabelReply
+  const openDraft = capKind === 'stackfood' ? stackFoodPhotoReply : capKind === 'supp' ? suppLabelReply
     : (isLabel
     ? function (t) { return openLabelDraft(t, { whose: capKind === 'label-other' ? 'other' : 'mine', source: 'label-photo' }); }
     : openPhotoDraft);
@@ -18457,6 +18715,7 @@ const VERSION_LOG = [
   { v: '0.123.0', d: '2026-10-31', note: 'Three things. Claims stay with your stack items when you look them up by NPN: they now match the product’s licensed ingredient (its common, botanical or chemical name), not only the name you gave the item. A licensed product that states an amount twice in two units -- a vitamin in mcg and again in IU -- is now counted once; if you saved such an item before, open its Edit and Save it once to correct its total. And the line saying the app saved in this browser is gone while all is well; it only appears, in plain words, if saving fails or storage is at risk. When your last backup is later than your usual gap between backups (or 7 days, until you have five), the box at the top says so, and a tap takes you to Export backup.' },
   { v: '0.124.0', d: '2026-11-03', note: 'Each item in your daily stack now has “How this supports your pathways”, in + Log and in Settings. It shows two things, kept apart: what the item supplies -- each nutrient at your usual amount and the pathways it is a raw material for (a tap opens that pathway) -- and what studies say about it, each claim with its own probability and evidence grade, with safety entries and interactions under their own headings. An amount under 1 % of the reference intake per serving no longer counts as supplying a pathway, so a food is not said to supply a pathway through a trace of a mineral. Zinc now has a cited upper intake level (Institute of Medicine, 2001: 40 mg a day from food, water and supplements together), with the same collapsed intake note as vitamin D and magnesium.' },
   { v: '0.125.0', d: '2026-11-03', note: 'Each pathway’s ⓘ in the Pathways card now has two cards, kept apart. “Connected · effect not measured” lists the pathways it shares the most specific molecules or enzymes with in Reactome (up to six, each saying what is shared), and links from the literature with their source; a tap opens that pathway. A connection does not say that a change in one reaches the other, so it carries no probability. “Claims · effect with probability” holds the reviewed claims, as before. The connections arrive with your next pathway pack.' },
+  { v: '0.126.0', d: '2026-11-03', note: 'Adding a food to your daily stack now offers the ways you log food: Scan barcode (the + Log scanner; one tap on Add to my stack saves it with the label’s numbers for the portion you pick), Photo (with your own AI key: it names the food and you pick the database row; its numbers are not used), finding it in your foods, the food database or USDA FoodData Central, and Enter by hand from its label. A supplement can now be scanned too: OpenFoodFacts fills in its name and, where it lists a serving, the nutrients for one serving, for you to check against the label. After a scan the top of the screen says it was added, with Undo, and a product already in your stack asks before it is added again.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -23578,6 +23837,7 @@ let SHEET_MODE = 'scan';
 function setSheetMode(mode) {
   if (SHEET_MODES.indexOf(mode) < 0) return { ok: false };
   if (SHEET_MODE === 'scan' && mode !== 'scan') cancelScan();   // full teardown on leaving Scan (scanner spec)
+  if (mode !== 'scan') SCAN_FOR = null;                          // R317: the stack's scan ends with the pane
   SHEET_MODE = mode;
   SHEET_MODES.forEach((m) => {
     const pane = document.getElementById('pane-' + m);
@@ -26764,7 +27024,7 @@ function medResume(id) {
 }
 
 // ---- capture kind (I1): chosen by the user before sending, never guessed ----
-const CAPTURE_KINDS = ['meal', 'label-mine', 'label-other', 'supp'];   // R281/3: 'supp' is set by the stack form only
+const CAPTURE_KINDS = ['meal', 'label-mine', 'label-other', 'supp', 'stackfood'];   // R281/3, R317: 'supp' and 'stackfood' are set by the stack form only
 let CAPTURE_KIND = 'meal';
 function setCaptureKind(k) {
   CAPTURE_KIND = CAPTURE_KINDS.indexOf(k) >= 0 ? k : 'meal';
@@ -28141,7 +28401,7 @@ window.HT = {
   TYPEAHEAD_MIN, TYPEAHEAD_MAX, matchTypeaheadIn, matchTypeahead, matchTokensFold,
   TYPEAHEAD_POOL, refUseCounts, typeaheadMineFirst, SEARCH_ALIAS, searchWord, nameIsBranded,
   // R198/3 and R199/2 -- "Ate:" at save on the forms; editing and deleting combos
-  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay, scanGuardCancel, recentSameItem, bpZoom, bpScrolled, bpPlaceScroll, BP_ZOOMS, logConfirmShow, logConfirmHide, logConfirmUndo, logConfirmWords,
+  FORM_ATE, formAteHTML, formAteSet, renderFormAte, logAteApply, addScanToDay, scanGuardCancel, recentSameItem, stackScanOpen, stackScanBack, stackAddFromScan, stackScanUse, stackBarcodeHolder, stackOffRows, stackFoodPhoto, stackFoodPhotoReply, stackFormPhotoName, stackFdcRun, stackFdcPick, stackFdcClose, scanFor: () => SCAN_FOR, scanNow: () => SCAN, bpZoom, bpScrolled, bpPlaceScroll, BP_ZOOMS, logConfirmShow, logConfirmHide, logConfirmUndo, logConfirmWords,
   combosEditToggle, comboEditOpen, comboDeleteUndo, combosEditing: () => COMBOS_EDITING, typeaheadRun, typeaheadRowsHTML,
   CORPUS_OWN_MACROS, corpusOwnNumbers, sheetComboNewHTML,
   foodSearch: () => FOOD_SEARCH, renderSearchPane, searchType, searchPickAt, searchGrams, searchBack, searchLog,
