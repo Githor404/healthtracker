@@ -21340,3 +21340,71 @@ at 390 px light and dark and at 360: the view for each of the 12 items renders, 
 sideways; trace minerals in the stack's food fall under the floor and say so; the claim P1
 named and the approved interactions show on the items they match; an item over a cited
 upper level shows its intake note.
+
+## R313 part B -- PRE-REGISTERED (2026-11-03; to be v0.125.0): the connections layer in the Pathways view (*evaluate*)
+
+*The user's rulings on R312 (3 Nov), all agreed. Written before the app part is built. The
+data work is in HTPrivate (R204).*
+
+**Rulings recorded.**
+1. **The connections layer** uses R312's proposed rule: a protein found in at most 3
+   records, or a molecule found in at most 5, with ubiquitous molecules and metal ions left
+   out; ranked by specificity (the sum of 1/frequency of what is shared); 6 shown per
+   pathway. "Connected -- effect not measured" and "Claim -- effect with probability" stay
+   separate cards.
+2. **Share-alike is not a commercial blocker.** The R273 list gains a category,
+   **conditional**: attribution required; kept in separate files from the user's own data;
+   any derived layer that is distributed stays under the same licence. Reactome (CC0) and
+   openFDA (CC0) are used for drug data first; a share-alike source is added only for a drug
+   the user needs that they miss.
+
+   | source | used for | licence | category |
+   |---|---|---|---|
+   | IUPHAR/BPS Guide to Pharmacology (not used yet) | drug -> target | ODbL (database) / CC BY-SA 4.0 | conditional |
+   | ChEMBL (not used yet) | drug -> target, mechanism | CC BY-SA 3.0 | conditional |
+   | DrugBank (not used) | -- | commercial licence needed | blocker (as R312) |
+   | DailyMed | medication label text (capability 5, in use) | not confirmed (its page did not load, R312) | open: to be checked |
+
+3. **Prenylation / vitamin K2.** Reactome release 98 has **R-HSA-8873719 "RAB
+   geranylgeranylation"** (verified in the release's event hierarchy): it becomes pw-076
+   "Protein prenylation" in Cell sensors and maintenance. Its sentence is the agent's
+   proposal and waits for the user's review (so the phone shows "not reviewed yet").
+   **Literature-sourced links**, each with verbatim quotes from fetched abstracts:
+   SREBP -> LDL receptor (cholesterol synthesis <-> lipoproteins, as ruled); and the two
+   links Reactome cannot draw, because it files geranylgeranyl diphosphate under two ChEBI
+   charge forms and lists only the enzyme (GGPS1) in cholesterol synthesis: cholesterol
+   synthesis <-> protein prenylation, and cholesterol synthesis <-> vitamins E and K (MK-4).
+4. **A drug's action on its own target is a claim** with a probability (R260), no
+   exceptions. The first, "statins inhibit HMG-CoA reductase" (proposed 99 %, GRADE high,
+   four quoted sources), is drafted in HTPrivate and staged: it reaches the phone only once
+   the user approves it, and then through the claims card like any claim.
+
+**The app (5).** Inside each pathway's i, after its existing lines, two cards, never merged:
+- **"Connected · effect not measured"**: "Shares a molecule or an enzyme in Reactome 98
+  (CC0), or a link from the literature. A connection does not say a change in one reaches
+  the other." Then the pack's neighbours for that pathway, in the pack's order (most
+  specific first, at most 6), each a 44 px row: the pathway's name and "shares ..." -- the
+  shared participants in plain names (a molecule's charge and stereo locants dropped), at
+  most three and "N more"; then its literature links, "literature: <what it says> --
+  <first source>", shown on both of their pathways. "N more connected, not shown" when the
+  pathway has more. None: "No connection by the rule". A neighbour missing from the pack
+  is not drawn. **No probability or GRADE in this card.** A tap on a row opens that
+  pathway's group and its i, the pathway marked.
+- **"Claims · effect with probability"**: the reviewed claims as today, with probability
+  and GRADE; no connection row in it.
+- A pack with no `connections` shows no connected card (old packs unchanged).
+
+**Gates.**
+- **New `connect-gate`** (placeholder pack, R204): a real tap on a pathway's i shows the two
+  cards in order; the rows are the pack's own, in order, then the literature link; a
+  missing neighbour is not drawn; "shares" in plain names, three and "N more"; the
+  literature row names its source; "N more connected" stated; no probability or GRADE in the
+  connected card and no connection in the claims card; the literature link on both ends; a
+  pathway with none says so; a real tap on a row opens that pathway's group and i, marked;
+  44 px rows, nothing sideways at 390 and 360; the old pack shows no connected card.
+- **pack-gate**, one change: its census "no pathway is said to be active or measured"
+  reads the card's own heading "effect not measured" out first -- the negation the user
+  ruled. Every other use of "active", "activity", "measured" or "measures" still fails it.
+- Look at a pathway's i at 390, light and dark, on the user's pack, before the suite.
+
+**Release** under the standing pre-run rule.
