@@ -21218,3 +21218,79 @@ only.*
   Headless Chrome answers `persisted()` with false, so the line now rightly shows its
   "may delete your data" words there. Both gates now read the tier's own message
   (`Store.status()`), the signal they meant; both pass. Every other gate passed alone.
+
+## R313 part A -- PRE-REGISTERED (2026-11-03; to be v0.124.0): how a stack item supports the pathways (*evaluate*)
+
+*The user's rulings on R311 (3 Nov), all agreed. Written before any of it is built. The
+evidence-store work is done in HTPrivate and is not in this repo (R204); no item or product
+name of the user's appears here.*
+
+**HTPrivate, done first (recorded in the BUILT entry):** the 13 R311 drafts approved at the
+proposed probabilities (authored "claude-opus-5-5, 2026-11-01", approved 2026-11-03), each
+with a calibration entry; P1 a magnesium claim names its subject; P2 a new record pw-075
+"Cytokine signalling" (Reactome R-HSA-449147, release 98) with four claims refiled under it;
+P3 an interaction's exposure set to "taking"; P4 the vitamin D record gains its vitamin D
+line; P5 linoleic and oleic acid lines where Reactome 98 lists them; P7 each interaction
+names its compounds (`match`). Pack v009.
+
+**1. The supply floor (P5).** An item supplies a pathway only if, for at least one of the
+pathway's raw-material lines, its amount **per serving** -- a dose at its usual amount, a
+logged food at its logged grams -- is **at least 1 % of the pack's reference intake** for
+that line (`dri`; a database slot's amount times the intake's `slot_factor`). A line with
+no reference intake has no floor to apply: any amount above zero counts, and the pathway's
+i says "no reference intake" for it instead of "not counted". Each item is judged on its
+own. One rule (`supplyMeets`), used by the strip's "supplies N pathways" and by the new view.
+
+**2. A cited zinc upper level (P6).** `INTAKE_LIMITS.zinc_mg`: 40 mg a day, scope **total**
+(food, water and supplements), adults 19 and over, Institute of Medicine 2001 (Dietary
+Reference Intakes for Vitamin A, Vitamin K, Arsenic, Boron, Chromium, Copper, Iodine, Iron,
+Manganese, Molybdenum, Nickel, Silicon, Vanadium, and Zinc; chapter 12, Zinc), quoted from
+the National Academies Press text. R208 and R213 unchanged: a collapsed intake note, amber,
+the amount, the source and the scope, never an instruction.
+
+**3. Interactions on stack items (P7).** A pack interaction shows on a stack item when one of
+its `match` terms is a whole word in the item's name or a licensed ingredient (the claims'
+rule), it is reviewed, and its latest probability version has a number (R260: no
+probability, not shown). Its line: its own sentence, or "<modifier> <direction> <subject>."
+built from its fields; then "N % that ...", GRADE, first source.
+
+**4. The view, "How this supports your pathways"** (R311 section 4, as proposed).
+- **Opened from** a link "How this supports your pathways ›" on each stack row in + Log ->
+  Daily stack and in Settings, shown when a pack is on the phone. It **replaces** R305's
+  collapsed "linked claims · N" on those rows. A full-screen panel; it writes nothing.
+- **Head:** the item's name, kind, usual dose and NPN where it has one.
+- **Card 1, "Supplies · N pathways"**, the line "Supplying is not activating.":
+  one row per nutrient the item counts toward -- its amount at the usual dose, its form, and
+  the pathways it supplies as chips; a chip closes the view and opens the Pathways card at
+  that pathway (the strip's path). A nutrient under the floor: a dimmed row, "under 1 % of
+  the reference intake -- not counted as supplying". A licensed ingredient named on an
+  untracked raw-material line (the log cannot count it): a dimmed row naming the pathway.
+  An ingredient that is neither: "not a nutrient; supplies no pathway". The item's intake
+  note, collapsed, when one applies.
+- **Card 2, "Linked claims · N"** (N = claims that are not safety entries), the line "What
+  studies say, each with its own probability. A claim is not a measurement of you.": each
+  claim as R305 shows it, plus the pathway it is filed under as a link. Then **Safety · N**
+  (claims marked `safety`) and **Interactions · N**, each a sub-list with its heading in the
+  warn colour, never red. None: "No reviewed claim names this item."
+- **Never merged:** no probability in card 1; no supply chip in card 2.
+- **The strip** after a tick of an item with no nutrient value keeps "Supplies no nutrients
+  · linked to N claims ›"; its link now opens this view at that item.
+
+**Gates.**
+- **New `supports-gate`** (placeholder pack and items, R204): a real tap on the row link
+  opens the view, from + Log and from Settings, 44 px; card 1 shows amount, form and chips,
+  and a real tap on a chip opens the Pathways card at exactly that pathway; the floor (an
+  item at 0.5 % of the intake supplies nothing and its row says so, at 1 % it supplies; a
+  line with no intake counts any amount); a named-but-not-counted ingredient and a
+  non-nutrient ingredient each get their row; card 2 shows reviewed claims only, a Safety
+  sub-list and an Interactions sub-list; an unreviewed interaction and one with no
+  probability are not shown; no probability text in card 1 and no chip in card 2; the
+  intake note for a placeholder zinc amount above 40 mg cites 40 mg and the Institute of Medicine and is collapsed;
+  "effects" and "works" nowhere; nothing sideways at 360 and 390.
+- **claims-gate**, re-pointed: its row checks read the link and the claims inside the view;
+  the strip's link opens the view at the item; everything else as it stands.
+- **Harness:** the floor (under, at, no-intake line, strip through `ctxSupplies`); zinc
+  (an amount over 40 flags, total scope; 40 does not; food and stack summed).
+- Look at the view at 390 px, light and dark, before the suite.
+
+**Release** under the standing pre-run rule.
