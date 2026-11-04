@@ -207,7 +207,7 @@ try {
   $ht = Eval "(function(){ var d = document.getElementById('sigHowWaist'); return (d && d.open ? 'open|' : 'shut|') + (d ? d.textContent.replace(/\s+/g, ' ') : ''); })()"
   Write-Host ("  how: " + $ht)
   if ($shots) { Shot 'waist-form' }
-  Check ($hw.ok -and ($hw.h -ge 44) -and ($ht -like 'open|*At the navel, standing relaxed, after a normal breath out*snug but not pressing in*same time of day*before eating*')) "the i (a 44 px target) opens the method: at the navel, standing relaxed, after a breath out, snug, the same time of day"
+  Check ($hw.ok -and ($hw.h -ge 44) -and ($ht -like 'open|*method (NICE guideline NG246*Find the bottom of the ribs and the top of the hips*midway between these points*just above the belly button*breathe out naturally before taking the measurement*Tip: measure at the same time of day*') -and ($ht -notlike '*navel*')) "R323: the i (a 44 px target) opens NICE's method, quoted and cited (NG246): midway between the bottom of the ribs and the top of the hips, after breathing out naturally -- with the same time of day as a tip"
   $null = TapSel '#sigValue'
   TypeText '34.5'
   $l1 = TapSel '#pane-signal .btn.primary[onclick*=addSignalFromForm]'
@@ -264,7 +264,7 @@ try {
     WaitQuiet 'settings closed'
   }
   Check (($h1 -like '*"height_cm":177.8*') -and ($t3.whtr -like ('latest 34.5 in ' + $dot + ' waist-to-height 0.49*'))) "WITH A HEIGHT SET (70 in, kept as 177.8 cm) the latest waist carries its ratio: 'latest 34.5 in $dot waist-to-height 0.49'"
-  Check ($ib.ok -and ($ib.h -ge 44) -and ($ibt -like 'open|*NICE guideline NG246*1.9.10*0.5 as its reference point*at the navel*') -and ($ibt -notmatch '\b(healthy|increased|high|risk|should|good|bad)\b')) "its i (44 px) cites NICE NG246's 0.5 reference point and names both measuring methods -- and no verdict word"
+  Check ($ib.ok -and ($ib.h -ge 44) -and ($ibt -like 'open|*NICE guideline NG246*adults with a BMI below 35*keep their waist to less than half their height (so a waist-to-height ratio of under 0.5)*') -and ($ibt -notlike '*navel*') -and ($ibt -notmatch '\b(healthy|increased|high|risk|should|good|bad)\b')) "R323: its i (44 px) cites NICE NG246 -- the ratio for adults with a BMI below 35, NICE's own words on 0.5 quoted -- and no verdict word in the app's voice"
 
   # ---- the unit switched to cm: everything redraws in cm --------------------------------------
   $null = Eval "(function(){ HT.setWaistUnit('cm'); HT.renderTrends(); return 1; })()"

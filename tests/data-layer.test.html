@@ -910,8 +910,9 @@ window.setLS({});
   var r22h = HT.setHeight('70'), r22bad = HT.setHeight('7');
   var r22ratio = HT.waistToHeight(88), r22html = HT.waistRatioHTML(88).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
   res(r22noH && r22h.ok && r22h.height_cm === 177.8 && !r22bad.ok && r22ratio === 0.49 && /waist-to-height 0\.49/.test(r22html) && r22html.indexOf('NICE guideline NG246') >= 0
-      && /0\.5 as its reference point/.test(r22html) && /at the navel/.test(r22html) && !/\b(healthy|increased|high|risk|should|good|bad)\b/i.test(r22html),
-      'R322/4: THE WAIST-TO-HEIGHT RATIO SHOWS ONLY WITH A HEIGHT SET -- 70 in is stored as 177.8 cm; 88 cm over it is 0.49, with NICE NG246 and its 0.5 reference point cited, the two measuring methods named, and no verdict word', r22html);
+      && /BMI below 35/.test(r22html) && /less than half their height \(so a waist-to-height ratio of under 0\.5\)/.test(r22html) && !/navel/.test(r22html + HT.WAIST_HOW)
+      && /midway between these points/.test(HT.WAIST_HOW) && /same time of day/.test(HT.WAIST_HOW) && !/\b(healthy|increased|high|risk|should|good|bad)\b/i.test(r22html),
+      'R322/4: THE WAIST-TO-HEIGHT RATIO SHOWS ONLY WITH A HEIGHT SET -- 70 in is stored as 177.8 cm; 88 cm over it is 0.49, with NICE NG246 cited (the ratio for adults with a BMI below 35, its words on 0.5 quoted) and no verdict word; How to measure quotes NICE\'s method (R323)', r22html);
   var r22now = HT.wallMs(r22t, 12 * 60);
   var r22due = function (now) { return HT.measureOverdue(now).filter(function (m) { return m.label === 'Waist'; }).map(function (m) { return m.text; }).join('|'); };
   var r22d9 = (function () { HT.state().timeline = {}; HT.addSignal({ type: 'waist', value: 35, unit: 'in', date: HT.shiftDate(r22t, -9), time: '12:00' }); return r22due(r22now); })();

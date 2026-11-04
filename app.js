@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.129.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.129.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -11332,9 +11332,11 @@ function logBP(sys, dia, time, notes) {
 // The user's practical proxy for visceral fat. Stored in ONE unit (cm, to 0.01 so an inch
 // entry reads back exactly); shown in the unit chosen in Settings (inches unless cm).
 // Height (Settings, stored in cm) gives the waist-to-height ratio, a fact with its source.
-const WHTR_SOURCE = 'NICE guideline NG246, Overweight and obesity management (2025; recommendations 1.9.10 and 1.9.11),';
-const WAIST_HOW = 'At the navel, standing relaxed, after a normal breath out. The tape level all the way round, snug but not pressing in. '
-  + 'The same time of day each time (for example in the morning, before eating), so readings compare.';
+// R323: NICE's own method, quoted (the user checked both quotes against the NG246 page, 4 Nov)
+const WHTR_SOURCE = 'NICE guideline NG246, Overweight and obesity management (2025)';
+const WAIST_HOW = 'NICE’s method (' + WHTR_SOURCE + '): “Find the bottom of the ribs and the top of the hips. Wrap a tape measure around the waist '
+  + 'midway between these points (this will be just above the belly button)... breathe out naturally before taking the measurement.” '
+  + 'Tip: measure at the same time of day each time (for example in the morning, before eating), so readings compare.';
 function waistUnit() { return (APP_STATE && APP_STATE.settings && APP_STATE.settings.waistUnit === 'cm') ? 'cm' : 'in'; }
 function waistToCm(v, unit) {
   if (v == null || String(v).trim() === '' || !isFinite(Number(v))) return { value: v, unit: 'cm' };
@@ -11374,8 +11376,8 @@ function waistRatioHTML(cm) {
   return '<span class="whtr">waist-to-height ' + esc(r.toFixed(2)) + '</span>'
     + '<details class="wsinfo"><summary class="wsinfosum" aria-label="about waist-to-height">ⓘ</summary><div class="wsinfobody">'
     + esc('Your waist divided by your height, both in the same unit: ' + waistWords(cm) + ' over ' + rDisp(h.value) + ' ' + h.unit + ' (Settings). '
-      + WHTR_SOURCE + ' uses a waist-to-height ratio of 0.5 as its reference point for adults with a BMI below 35. '
-      + 'NICE measures the waist halfway between the lowest rib and the top of the hip bone; your method is at the navel, so the two can read differently.')
+      + WHTR_SOURCE + ' uses the waist-to-height ratio for adults with a BMI below 35. Its words on the 0.5 point: '
+      + '“keep their waist to less than half their height (so a waist-to-height ratio of under 0.5)”. The waist is measured by NICE’s method (How to measure, in + Log).')
     + '</div></details>';
 }
 // Trends: under the waist chart, the latest waist with its ratio -- only with a height set.
@@ -19313,6 +19315,7 @@ const VERSION_LOG = [
   { v: '0.128.0', d: '2026-11-03', note: 'Claims you approve as pulling against you (in your pathway pack) are now stated in the top box right after you tick a matching stack item or log a matching food, with the claim and its probability, at the threshold you set in Settings (30 % to start), and marked on the pathway wheel. Claims you approve as working for you are summed in the weekly review. Nothing shows until you approve the directions.' },
   { v: '0.128.1', d: '2026-11-04', note: 'A claim you approved as pulling against you now shows at most once a day for each stack item or food: the first time you tick or log it that day. Ticking or logging it again the same day shows the top box without it.' },
   { v: '0.129.0', d: '2026-11-04', note: 'You can log your waist in + Log, beside weight, in inches or cm (inches unless you choose cm in Settings, Goals). The form has a How to measure note. Trends draws a waist chart that zooms like the others, with your own goal line if you set one. With your height in Settings, the latest waist shows its waist-to-height ratio, with NICE’s 0.5 reference point behind the ⓘ. The top box notes when a waist measurement is overdue, and the weekly review has a Waist card. Also fixed: the flag threshold and the “Last week’s review is ready” switch now stay as you set them after the app restarts.' },
+  { v: '0.129.1', d: '2026-11-04', note: 'How to measure your waist now gives NICE’s method, quoted from its guideline: midway between the bottom of the ribs and the top of the hips, just above the belly button, after breathing out naturally. The waist-to-height ⓘ quotes NICE on the 0.5 point and says it uses the ratio for adults with a BMI below 35.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
