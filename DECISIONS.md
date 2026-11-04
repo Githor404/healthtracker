@@ -21752,3 +21752,72 @@ As pre-registered, with these stated:
 - Harness +3 (3459). Every gate alone (69 of 69), then the full suite: **81 of 81**.
 - **HTPrivate:** pack v014 = v013 + `connections.names` (503 proteins, UniProt CC BY 4.0, named
   in the pack's connection licence line).
+
+## R318 part 2 -- PRE-REGISTERED (2026-11-03; to be v0.128.0): the influence layer (*evaluate*)
+
+*No claim subject of the user's stack is named here (R204); the gate's pack and items are
+placeholders.*
+
+**1. A direction for the user, approved by id.** Every approved claim and interaction in the
+pack (51 claims, 13 interactions -- 64; the brief's "about 50" counted claims) gets a drafted
+direction FOR THE USER: negative, positive or neutral, with a short phrase for the flag. Drafted
+in HTPrivate (`evidence/directions.json`, 14 negative, 32 positive, 18 neutral), staged, and
+exported as one review file (`reports/review-r318-directions-2026-11-03.md`); the user approves
+by id. The pack carries an entry's `for_me` = {direction, short, reviewed_by_me} **only once
+approved**, and the phone checks the date again. **No approved direction -> no flag and no
+summary**: until the review, nothing in this part shows.
+
+**2. Negative influences, flagged promptly.**
+- **When:** right after a food is logged (any route that writes the context note) or a stack
+  item is ticked (one tick or Took all).
+- **What matches:** for a stack item, the claims and interactions its row already lists (R305 /
+  R313/A: `stack_item`, or a `match` term as a whole word in its name or a licensed ingredient);
+  for a food, the same whole-word rule on the food's name, and a claim tied to the food feature
+  **alcohol** when the food has alcohol (its linked row's alcohol figure above 0, or the user's
+  "contains alcohol" answer for the drink). No other food feature is detectable on the phone, so
+  none flags: fructose (the claim is about a high intake; the phone sees only that a food has
+  some), lectin-rich and the rest (not assigned to any food).
+- **The rule:** an approved NEGATIVE direction and a latest probability **at or above the
+  threshold** -- 30 % by default; Settings -> "Flag a negative claim from N %", 5 % steps
+  (`settings.influenceMin`, in the backup). A probability below it, a positive or neutral
+  direction, or no probability (R260) never flags.
+- **The top box states it right away**, as its first line: "<item> <amount> · claim: <short>
+  · N %" -- the amount as ticked or logged (a dose and its unit, or grams) -- with an ⓘ that
+  opens the basis (the claim's own sentence, "N % that ...", GRADE, its first source, general
+  or personal); several: the highest probability first and "+N more" in the ⓘ. **Amber accent**
+  (the warn colour; the box's edge turns amber while a flag shows), never red. **Facts only:**
+  no "stop", "avoid", "should", "try", "don't" -- the census below.
+- **The wheel:** each pathway a flagged claim is filed under gets a small **amber notch** at its
+  rim while the flag is current: an item **in the stack and switched on** that matches (an
+  ongoing one), or a food logged in the wheel's 28 days that matches. The segment's tooltip
+  names the claim. An interaction is filed under no pathway and makes no notch.
+- **The doctor list (R314): waiting.** No R314 and no doctor list exist in this repo or in
+  HTPrivate; the user ruled (3 Nov) that this waits for an R314 brief.
+
+**3. Positive influences, over the long term.** The weekly review gets a card **"Positive
+claims · from what you logged"**: each approved POSITIVE entry (any probability with a number)
+that matched this week's ticks or foods, with its short phrase, "N % that ...", the items it
+matched, and the days -- "N of 7 days this week · M of 28 in the last 4 weeks" (the 4-week
+figure is the monthly view: the 28 days ending with the week's Sunday, or today). Never a flag
+per meal; no colour; no verdict word. Its ⓘ says what was matched and how.
+
+**Gates.**
+- **New `influence-gate`** (placeholder pack and stack, R204): a real tick of an item matching a
+  negative claim at 80 % puts the flag in the top box at once, with the amount and the
+  percentage, amber, not red, and the box's edge amber; a negative claim at 29 % does not flag;
+  a positive claim never flags, after a tick or a food; a real food log of a drink with alcohol
+  flags the alcohol claim; a direction not approved does not flag; the threshold changed in
+  Settings to 25 % makes the 29 % one flag, at 85 % the 80 % one stops; the flag's words carry
+  no advice (/should|stop|avoid|don't|try|must|need to/); the ⓘ opens the basis (44 px); the
+  wheel's notch is on exactly the claim's pathways while the item is in the stack, and gone
+  once it is switched off; the weekly card lists the positive claim with its days; nothing
+  sideways at 390 and 360; the flag writes nothing beyond the context note.
+- **strip-gate**: unchanged, and must still pass (a flag line replaces nothing it checks when
+  no direction is approved).
+- **Harness:** the match (whole word, ingredient, alcohol feature), the threshold (at, below,
+  changed), the approval check (no date, no flag), positive never flags.
+- Look at the box with a flag, the Settings line, the weekly card and the notch at 390, light and
+  dark, before the suite.
+
+**Release** under the standing pre-run rule. The user approves the directions from the review
+file; that approval is data work (a new pack), not a release.
