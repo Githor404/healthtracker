@@ -21543,3 +21543,24 @@ As pre-registered: `buildRepeatItem` drops `fast_override` (one line), so quick 
 "logged before" rows and the one-tap repeat all start a new entry unmarked. Harness +1 (3454),
 which reads the judgement through `fastJudgeUnit` (now on HT, so the check is not vacuous).
 Every gate alone, then the full suite: 79 of 79.
+
+## R318 -- the user's rulings on R313 part C and related items (3 Nov)
+
+Order ruled: part 3, then 1, then 2; each released under the standing pre-run rule; names
+stay in HTPrivate (R204). Each part is pre-registered here before it is built. Cost declared
+by the user: this defers the strain engine (R267.1), the honesty layer (R268) and the n-of-1
+pipeline until the Oura import; the user reviews the claim directions (about 50); the
+wheel's shade stays low until more foods are linked.
+
+## R318 part 3 -- PRE-REGISTERED (2026-11-03; to be v0.126.2): small rulings
+
+- **pw-076's sentence** is approved as written (`reviewed_by_me` 2026-11-03), in HTPrivate;
+  the next pack carries it, so the phone stops saying "not reviewed yet" for it.
+- **statin-hmgcr: HOLD.** It stays staged and unapproved; no pack carries it.
+- **The weekly review in a clock-change week shows the real span (R301).** `weekFasts` counts
+  the week's span and its fasting minutes in real elapsed time (`absRealMin`), not wall-clock
+  minutes: the fall-back week of 26 Oct reads "... of the week's 169h", and the ring is the
+  share of 169 h. Every other week is unchanged (real time = wall time).
+  **Harness** +1: the fall-back week's span is the real time between its local midnights
+  (169 h where the zone falls back; the check is computed, not typed), and a fast across the
+  fall-back night counts its real 25 h toward the week.
