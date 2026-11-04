@@ -21564,3 +21564,100 @@ wheel's shade stays low until more foods are linked.
   **Harness** +1: the fall-back week's span is the real time between its local midnights
   (169 h where the zone falls back; the check is computed, not typed), and a fast across the
   fall-back night counts its real 25 h toward the week.
+
+## R318 part 1 -- PRE-REGISTERED (2026-11-03; to be v0.127.0): the pathway wheel (*evaluate*)
+
+*The user's rulings on R313 part C's five questions. No pathway or item name of the user's
+appears here (R204); the gate's pack is a placeholder.*
+
+**Where.** At the top of the Pathways card, above the group list, whenever a pack is on the
+phone. It is built only while the card is open (a closed card costs nothing); opening the
+card builds it. Nothing about it is stored; a selection is held in memory only.
+
+**1. Shade = known share (ruled: continuous, not the 60 % line).** For each pathway's
+raw-material line: the grams of the last 28 days' food (today and the 27 days before) that
+carry a figure for it, out of all those days' food with a weight. Food is R306's: no stack
+dose, no supplement entry, no legacy auto entry; an item with no weight is outside the share.
+A figure is a label value (`micros`), the item's own protein, fat, carbs or fibre for a macro
+line, or its linked row's value for a slot line. A line the log cannot count (`tracked`
+false) is never known (0). The pathway's share is the mean over its lines. A pathway with no
+lines has no share and is **hatched**. No food with a weight in 28 days: every share is 0 and
+the wheel's i says so. Drawn as one neutral ramp -- the text colour at 8 % + 72 % x share
+opacity -- never a verdict colour. Each segment's tooltip and its list button say "N % known".
+
+**2. Taps, two steps; the 44 px rule holds.**
+- The rim: 76 segments (the pack's records) in 14 group slices, the pack's order, a gap
+  between slices. **Each group's slice is at least 44 px along the rim** (its outer chord);
+  a group too small for that is widened and its segments shared equally inside it. Each
+  group's tap region runs from inside the group numbers to the rim, **at least 44 px deep**.
+- Step 1: a tap on a slice -- or on its button in the legend below (each 44 px) -- selects
+  the group: its slice outlined, and below the legend a list of its pathways as **44 px
+  buttons**, each with its known share. The same tap again closes it.
+- Step 2: a tap on a pathway's button selects it on the wheel (outlined), **draws its
+  connections and only its** -- one curve per connected pathway, solid where they share a
+  participant, dashed where only the literature links them; the connected segments
+  outlined -- and opens its **panel** below the list.
+
+**3. Group numbers at 12 px on the wheel, the legend below** (number, group name, count).
+**An exception to the 16 px floor (D100/D124) for this view only: the wheel's group
+numbers (`.pwgnum`) and nothing else.** Recorded here; enforced by the new gate, which
+fails on any other text under 16 px in the wheel. font-floor-gate imports no pack, so it
+never sees the wheel and is unchanged.
+
+**4. No raw-material lines: kept on the rim, hatched** (stripes in a token of their own,
+`--pwhatch`), the hatch **stronger in dark mode** so it reads apart from "none known": in
+both themes the hatch stripe and a "none known" segment differ by a contrast ratio of at
+least 1.5:1.
+
+**5. No "Show all connections" button.**
+
+**6. The panel.** Name and its ⓘ (the record's technical lines: technical name, Reactome
+ID, sentence, what the phone can see, raw materials, the claims card); its group; "Raw
+materials known: N % known · L lines (U the log cannot count)"; the count of reviewed
+claims; then the **Connected · effect not measured** card with **one row per connected
+pathway** -- the pack's neighbours in its order, then pathways linked only by the
+literature -- **merging its shared participants and its literature links** (a pathway that
+is both appears once: "shares ...; literature: ... -- source"). **Plain names first:** a
+protein by its UniProt name, carried in the pack (`connections.names`, built in HTPrivate
+from the cached Reactome 98 participant files), a molecule without its charge form; the
+technical IDs -- gene symbols, Reactome's molecule names, source IDs -- behind the card's
+own ⓘ. A row's tap selects that pathway on the wheel. **The same card, by the same
+function, replaces the one inside each pathway's i in the list** (there a row's tap still
+opens that pathway's group and i), so the panel and the i always match. A pack without
+`names` shows the gene symbol (old packs unchanged otherwise).
+- *Named, not done:* the brief's example "shares HMG-CoA reductase, **the statin target**"
+  would assert statin-hmgcr, which the user ruled HOLD (part 3). The row says "shares HMG-CoA
+  reductase" and nothing about statins until that claim is approved.
+
+**Gates.**
+- **New `wheel-gate`** (placeholder pack with 14 groups -- the smallest of 2 pathways -- one
+  pathway both structurally and literature-linked to another, pathways with no lines; a
+  fixture log over 30 days): the wheel draws one segment per record, and each segment's
+  shade equals the share computed from the fixture by hand (100 %, 30 %, 0 % for an
+  untracked line, a 2-line mean, food 29 days back and a stack dose left out); hatched
+  segments are exactly those with no lines; each group's slice is at least 44 px along the
+  rim and its tap region 44 px deep at 360 and 390; a real tap on the smallest group's slice
+  lists its pathways as 44 px buttons; a real tap on one draws exactly that pathway's
+  connections (one curve per row, endpoints its own) and opens its panel; the panel's rows
+  equal the rows in that pathway's i in the list, text for text; the merged pathway appears
+  once with both reasons; a protein is shown by its plain name, its gene symbol only in the
+  ⓘ; group numbers compute to 12 px and nothing else in the wheel under 16 px; no "Show all"
+  control; the hatch differs from "none known" by 1.5:1 in light and dark; nothing sideways
+  at 360 and 390, light and dark; taps write nothing (the export is unchanged); **perf**:
+  building the open wheel (shares over 28 days and the drawing) costs at most 0.5 and a
+  selection at most 0.25 of perf-gate's reference workload (median of 11, measured in the
+  same page).
+- **connect-gate, re-pointed:** one row per connected pathway (its literature link merged
+  into a structural neighbour's row when both exist); the rows' order; the source on the
+  literature part of the row; plain names in rows, symbols in the card's ⓘ. Everything else
+  as it stands.
+- **pack-gate:** its word census runs over the wheel's words too.
+- **Harness:** the known share (the line cases above, no lines -> null, no food -> 0) and
+  the merged rows (one per pathway, structural order first).
+- Look at the wheel at 390 and 360, light and dark, on the user's pack, before the suite.
+
+**HTPrivate:** pack v014 = v013 + `connections.names` (503 proteins, UniProt names via the
+cached Reactome 98 participants; UniProt is CC BY 4.0, cited in the pack's connection
+licence line).
+
+**Release** under the standing pre-run rule.
