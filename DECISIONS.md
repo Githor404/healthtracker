@@ -21966,3 +21966,21 @@ As pre-registered, with these stated:
   at the next start, and should switch it on again.
 - waist-gate: 18 checks, all pass. Harness +5 (3469). Every gate alone (71 of 71, chip-layout
   after its count), then the full suite: **83 of 83**. Pushed; verify-deploy passes.
+
+## R323 -- PRE-REGISTERED (2026-11-04; to be v0.129.1): NICE's waist method
+
+The user (4 Nov), having read the NG246 page: use NICE's method, not "at the navel".
+1. The form's **How to measure** i quotes NG246's method, cited: "Find the bottom of the ribs and
+   the top of the hips. Wrap a tape measure around the waist midway between these points (this
+   will be just above the belly button)... breathe out naturally before taking the measurement."
+   It keeps "the same time of day" as a tip, in the app's words.
+2. The ratio's i: NICE NG246 uses the ratio for adults with a BMI below 35, and its words on the
+   0.5 point are quoted -- "keep their waist to less than half their height (so a waist-to-height
+   ratio of under 0.5)" -- attributed to NICE, never in the app's voice. The sentence saying the
+   two methods differ is removed (they no longer do). **The citation is now confirmed by the user
+   against the page**; R322's "to be confirmed" is closed. The recommendation numbers (1.9.10,
+   1.9.11) came from search results and were not part of what the user checked, so the citation
+   names the guideline, not the numbers.
+3. No change to stored data. **Gates:** waist-gate's two i checks read the new text (the NICE
+   quote and its citation; "midway"; "same time of day"; BMI below 35; no "navel" method; no
+   verdict word). Harness: the ratio i's wording. Release under the standing pre-run rule.
