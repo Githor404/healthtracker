@@ -21843,3 +21843,30 @@ As pre-registered, with these stated:
   approved entry. **Nothing shows on the phone until the user approves them.**
 - The doctor list (R314): waiting, as ruled.
 - Harness +4 (3463). Every gate alone (70 of 70), then the full suite: **82 of 82**.
+
+## R321 -- PRE-REGISTERED (2026-11-04; to be v0.128.1): a negative flag at most once a day per item (*evaluate*)
+
+The user's decisions on the 64 directions (4 Nov), and one new rule.
+
+**Directions (data work, HTPrivate, not a release).** iron-coffee, iron-calcium, iron-vitc,
+fructose-low-gi and ashwagandha-thyroid changed to neutral, then approved (each keeps what was
+drafted, `drafted_direction`); garcinia-weight approved positive (the user's goal is weight loss,
+visceral fat in particular); every other entry approved as drafted; `reviewed_by_me` 2026-11-04.
+`tools/apply_r321.py`; pack v015 (64 of 64 carry `for_me`: 30 positive, 11 negative, 23 neutral;
+6 negative at 30 % or more).
+
+**The rule.** Each negative flag shows **at most once a day per item** (a stack item by its id, a
+food by its name), not on every tick or log. The first top box that shows an item's flag on a day
+owns it, and keeps it on every redraw for its 3 h; a later tick, Took all or log of the same item
+that day shows the box without that item's flag (a box whose every flag is spent reads as one
+with none). Remembered on the device in its own key (`healthtracker-flags`, today and the day
+before only), **not in the backup**, like the context note; it writes no entry. An undo does not
+give the flag back. A threshold change or a new pack does not reset it. The wheel's notch and the
+weekly card are unchanged.
+
+**Gates.** influence-gate gains: zinc-like item ticked, unticked and ticked again in one day ->
+the flag shows once (the first box), not on the second tick; the first box's redraws keep it; a
+second item's flag still shows; the next day it shows again. Harness: the rule (owned, redraw,
+spent, next day, per item).
+
+**Release** under the standing pre-run rule.
