@@ -21984,3 +21984,12 @@ The user (4 Nov), having read the NG246 page: use NICE's method, not "at the nav
 3. No change to stored data. **Gates:** waist-gate's two i checks read the new text (the NICE
    quote and its citation; "midway"; "same time of day"; BMI below 35; no "navel" method; no
    verdict word). Harness: the ratio i's wording. Release under the standing pre-run rule.
+
+## R323 -- BUILT (v0.129.1), against its pre-registration
+
+As pre-registered. How to measure quotes NG246's method with its citation and keeps the same
+time of day as a tip; the ratio's i says NICE uses the ratio for adults with a BMI below 35 and
+quotes its words on 0.5; the "methods differ" sentence is gone; the citation names the guideline,
+confirmed by the user, without the unverified recommendation numbers. No stored data changed.
+waist-gate 18 of 18; harness 3469; every gate alone (71 of 71), then the full suite: **83 of 83**.
+Pushed; verify-deploy passes.
