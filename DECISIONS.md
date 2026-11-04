@@ -21661,3 +21661,32 @@ cached Reactome 98 participants; UniProt is CC BY 4.0, cited in the pack's conne
 licence line).
 
 **Release** under the standing pre-run rule.
+
+## R320 -- PRE-REGISTERED (2026-11-03): every tap waits for its screen; a check that holds every gate to it; a diagnosable red run
+
+*The user (3 Nov), on v0.126.2's red run (78 of 79: stackadd-gate failed in the suite and passed
+alone, twice).* stackadd-gate was written after the R283 sweep and still tapped without waiting
+for the screen it taps. Ruled:
+
+1. **stackadd-gate:** every tap waits until its target is actually showing -- the element
+   exists, is laid out (non-zero size), is not covered at the tap point, and has stopped moving
+   (R283's condition waits: no fixed sleep) -- and the page settles after it (WaitQuiet). A
+   target that never shows fails the gate by name, saying which step.
+2. **A new code check, `check-gate-waits.sh`** (the eleventh static check, wired into the suite
+   runner): it fails, naming file and line, if any `*-gate.ps1`
+   - has a `Start-Sleep` that is not inside a polling loop -- a loop whose body leaves on a
+     condition (`break`, `return` or `exit`); a sleep that only paces or "gives time" fails;
+   - sends input (`Input.dispatchTouchEvent`, `dispatchMouseEvent`, `dispatchKeyEvent`,
+     `insertText`) from code that has not waited on a condition before it -- the call must sit
+     in a function whose body calls a `Wait*` before the dispatch;
+   - measures (a screenshot, or page code reading a size, position or computed style) after
+     changing the viewport or colour scheme (`Emulation.setDeviceMetricsOverride`,
+     `setEmulatedMedia`) without a `Wait*` between the two.
+   It is run against every existing gate and every finding is fixed; the BUILT entry lists them.
+3. **The suite keeps a red run's details.** A gate that fails has its whole output kept in
+   `tests/.suite-logs/<gate>.log` (ignored by git, replaced on the next run), and the runner
+   prints each failed check's name with the last step before it. The tap helpers print the step
+   (`STEP tap <target>`) as they go, so the failing step is named.
+
+Then, as ruled: every gate alone, one fresh full suite; green -> push v0.126.2, verify, report;
+red -> stop and report. R318 parts 1 and 2 continue after.
