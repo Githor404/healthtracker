@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.126.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.126.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -18718,6 +18718,7 @@ const VERSION_LOG = [
   { v: '0.125.0', d: '2026-11-03', note: 'Each pathway’s ⓘ in the Pathways card now has two cards, kept apart. “Connected · effect not measured” lists the pathways it shares the most specific molecules or enzymes with in Reactome (up to six, each saying what is shared), and links from the literature with their source; a tap opens that pathway. A connection does not say that a change in one reaches the other, so it carries no probability. “Claims · effect with probability” holds the reviewed claims, as before. The connections arrive with your next pathway pack.' },
   { v: '0.126.0', d: '2026-11-03', note: 'Adding a food to your daily stack now offers the ways you log food: Scan barcode (the + Log scanner; one tap on Add to my stack saves it with the label’s numbers for the portion you pick), Photo (with your own AI key: it names the food and you pick the database row; its numbers are not used), finding it in your foods, the food database or USDA FoodData Central, and Enter by hand from its label. A supplement can now be scanned too: OpenFoodFacts fills in its name and, where it lists a serving, the nutrients for one serving, for you to check against the label. After a scan the top of the screen says it was added, with Undo, and a product already in your stack asks before it is added again.' },
   { v: '0.126.1', d: '2026-11-03', note: 'Logging a food again (quick add, the foods you logged before in Search, or a repeat) no longer carries over a “keeps my fast” or “breaks my fast” you tapped on the earlier entry: the new entry is judged by the fasting rule until you mark it yourself.' },
+  { v: '0.126.2', d: '2026-11-03', note: 'The weekly review counts a week with a clock change in real time: the week the clocks went back is 169 hours, and its fasts are counted in real hours too.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -23534,15 +23535,16 @@ function weekFasts(dates, soFar) {
   const gaps = fastGaps(nowAbs).filter((g) => g.a1 > w0 && g.a0 < w1);
   const list = gaps.filter((g) => g.fast);
   const unlogged = gaps.filter((g) => g.unlogged);               // R269 #2: listed, never counted
+  // R318/3 (R301): the week and its fasts in real elapsed time -- a fall-back week is 169 h
   let mins = 0;
-  list.forEach((g) => { mins += Math.max(0, Math.min(g.a1, w1) - Math.max(g.a0, w0)); });
+  list.forEach((g) => { const a = Math.max(g.a0, w0), b = Math.min(g.a1, w1); if (b > a) mins += absRealMin(a, b); });
   const closed = list.filter((g) => !g.open);
   // "fasting now" belongs to the week that holds today; a past week lists the
   // span still running with "so far", and its centre is its longest closed fast.
   const running = (w1 === nowAbs) ? (list.filter((g) => g.open)[0] || null) : null;
   const longest = closed.length ? Math.max.apply(null, closed.map((g) => g.mins)) : 0;
   return { list: list, closed: closed, unlogged: unlogged, running: running, anyOpen: list.some((g) => g.open), longestMin: longest,
-           fastMin: mins, spanMin: Math.max(0, w1 - w0) };
+           fastMin: mins, spanMin: w1 > w0 ? absRealMin(w0, w1) : 0 };
 }
 function weekAfRun(endDk) {
   let d = endDk, n = 0;

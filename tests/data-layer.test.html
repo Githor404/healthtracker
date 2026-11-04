@@ -12195,6 +12195,22 @@ window.setLS({});
   var WR2 = HT.weekReview('2026-10-19');
   res(WR2.n === 3 && WR2.partial && /\(so far\)/.test(HT.weekHeadline(WR2)) && WR2.meals.used === 3 && WR2.meals.p === null && /No personal estimate yet/.test(HT.weekReviewHTML('2026-10-19')),
       'R262 GATE: mid-week is "so far" (3 days), and 3 meals give no personal estimate -- said, with the n');
+  // R318/3 (R301): the fall-back week of 26 Oct counts in real time -- its span is the
+  // real time between its local midnights (169 h where the zone falls back on 1 Nov)
+  setLS({}); HT.setClock(function () { return new Date(2026, 10, 3, 12, 0, 0).getTime(); }); HT.boot();
+  [['2026-10-31', '18:00'], ['2026-11-01', '18:00'], ['2026-11-02', '08:00']].forEach(function (p) {
+    var f = wkFood('Gate meal ' + p[0]); f.time = p[1];
+    HT.state().days[p[0]] = { status: 'complete', water_l: 0, items: [f] };
+  });
+  HT.resave();
+  var WF318 = HT.weekReview('2026-10-26').fasts;
+  var span318 = (new Date(2026, 10, 2).getTime() - new Date(2026, 9, 26).getTime()) / 60000;
+  var fast318 = (new Date(2026, 10, 2).getTime() - new Date(2026, 9, 31, 18, 0).getTime()) / 60000;
+  res(WF318.spanMin === span318 && WF318.fastMin === fast318 && WF318.closed.length === 2,
+      'R318/3: A CLOCK-CHANGE WEEK IN REAL TIME -- the week is ' + (span318 / 60) + ' h and its fasts (one across the fall-back night) count ' + (fast318 / 60) + ' h of it, not wall-clock minutes',
+      JSON.stringify([WF318.spanMin, WF318.fastMin, span318, fast318]));
+  res(HT.weekReviewHTML('2026-10-26').replace(/<[^>]*>/g, ' ').indexOf('of the week’s ' + (span318 / 60) + 'h') > 0,
+      'R318/3: and the fasting card says the week’s real span');
   HT.setClock(null);
   HT.glucoseWrite({});
 
