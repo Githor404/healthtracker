@@ -864,6 +864,34 @@ window.setLS({});
   res(HT.supplyMeets(r13P, { cofactor: 'fat x', dri: null, slot: '617', tracked: true }, HT.supplyAmounts({ ref: { v: { '617': 0.0001 } } }))
       && !HT.supplyMeets(r13P, { cofactor: 'fat x', dri: null, slot: '617', tracked: true }, HT.supplyAmounts({ ref: { v: { '617': 0 } } })),
       'R313/A P5: a line with no reference intake has no floor to apply -- any amount above zero counts, and zero is nothing');
+  // R318/1: THE WHEEL'S KNOWN SHARE -- per line, the grams of 28 days' food carrying a figure
+  // for it out of all those days' food with a weight; averaged over the pathway's lines
+  var r18days = HT.state().days, r18t = HT.todayKey();
+  var r18f = function (n, g, x) { return Object.assign({ name: n, meal: 'lunch', time: '12:00', grams: g, kcal: 100, confidence: 'eyeballed', source: 'manual', notes: '' }, x); };
+  HT.state().days = {};
+  HT.state().days[r18t] = { status: 'open', water_l: 0, items: [r18f('Gate A', 700, { protein_g: 5, micros: { iron_mg: 2 } }), r18f('Gate B', 300, { protein_g: 3, ref: { ns: 'cnf', id: '1', v: { '303': 1.2 } } }),
+    r18f('Gate dose', 100, { meal: 'supplement', stackId: 's1', micros: { iron_mg: 9 } }), r18f('Gate no weight', 0, { protein_g: 9 })] };
+  HT.state().days[HT.shiftDate(r18t, -10)] = { status: 'complete', water_l: 0, items: [r18f('Gate C', 1000, { protein_g: 20 })] };
+  HT.state().days[HT.shiftDate(r18t, -28)] = { status: 'complete', water_l: 0, items: [r18f('Gate old', 5000, { protein_g: 1, micros: { iron_mg: 1 } })] };
+  var r18L1 = { cofactor: 'protein', key: 'protein_g', tracked: true }, r18L2 = { cofactor: 'iron', key: 'iron_mg', slot: '303', tracked: true }, r18L3 = { cofactor: 'x', tracked: false };
+  var r18P = { records: [{ id: 'pw-1', supply: [r18L1] }, { id: 'pw-2', supply: [r18L1, r18L2] }, { id: 'pw-3', supply: [r18L2, r18L3] }, { id: 'pw-4', supply: [] }] };
+  var r18K = HT.pwKnownShares(r18P);
+  res(r18K.total === 2000 && r18K.byId['pw-1'] === 1 && r18K.byId['pw-2'] === 0.75 && r18K.byId['pw-3'] === 0.25 && r18K.byId['pw-4'] === null,
+      'R318/1: KNOWN SHARE -- protein carried by all 2,000 g is 100 %; iron by 1,000 g (a label value or a linked row) is 50 %, so a protein+iron pathway is 75 %; an untracked line is never known (iron + untracked = 25 %); no lines is no share. Food 28 days back, a stack dose and an item with no weight are outside it', JSON.stringify(r18K));
+  var r18N = HT.pwKnownShares(r18P, HT.shiftDate(r18t, -100));
+  res(r18N.total === 0 && r18N.byId['pw-1'] === 0 && r18N.byId['pw-4'] === null && HT.pwShadeOpacity(0) === 0.08 && HT.pwShadeOpacity(1) === 0.8 && HT.pwShadeOpacity(0.5) === 0.44,
+      'R318/1: no food with a weight in the 28 days -- every share is 0; the shade is one ramp, 8 % to 80 % opacity');
+  HT.state().days = r18days;
+  // R318/1.6: one row per connected pathway, the literature merged into a structural row
+  var r18C = { records: [{ id: 'pw-1', plain_name: 'One' }, { id: 'pw-2', plain_name: 'Two' }, { id: 'pw-3', plain_name: 'Three' }],
+    sources: [{ id: 's2', authors: 'Author A', venue: 'J', year: 1993 }],
+    connections: { records: { 'pw-1': { n: 9, shown: [{ id: 'pw-9', proteins: ['GONE'], molecules: [] }, { id: 'pw-2', proteins: ['SYM1'], molecules: ['thing(2-)'] }] } },
+      names: { proteins: { SYM1: { plain: 'Plain enzyme' } } },
+      literature: [{ a: 'pw-2', b: 'pw-1', says: 'two links one', sources: ['s2'] }, { a: 'pw-1', b: 'pw-3', says: 'one links three', sources: [] }] } };
+  var r18R = HT.pwConnRows(r18C, r18C.records[0]);
+  res(r18R.rows.map(function (x) { return x.id; }).join(',') === 'pw-2,pw-3' && r18R.rows[0].via === 'shares Plain enzyme, thing; literature: two links one — Author A, J, 1993'
+      && r18R.rows[1].via === 'literature: one links three' && r18R.rows[0].tech.proteins[0] === 'SYM1' && r18R.n === 9 && r18R.shown === 1,
+      'R318/1.6: ONE ROW PER CONNECTED PATHWAY -- a pathway both sharing a participant and linked by the literature appears once with both reasons; plain names (the pack\'s protein name, a molecule without its charge), the gene symbol kept apart; a neighbour missing from the pack is not drawn', JSON.stringify(r18R.rows));
   // R317: a scanned part keeps its barcode and kcal_on_label; a scanned supplement its barcode and 'off' rows
   var r17p = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, fat_g: 15, source: 'scan', barcode: '00000017', kcal_on_label: true });
   var r17bad = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, barcode: '12ab', kcal_on_label: 'yes' });

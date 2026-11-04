@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.126.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.127.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3829,7 +3829,9 @@ function renderPackSetting() {
     : 'No pathway pack on this phone.';
 }
 const PW_SEE = { 'direct': 'directly', 'proxy': 'through a proxy', 'not observable': 'not at all' };
-function pathwayRecordHTML(P, r) {
+// The record's i body (R318/1: also the wheel panel's i, without its connected card,
+// which the panel shows open).
+function pathwayRecordInfo(P, r, noConn) {
   const ri = (P.reference_intakes && P.reference_intakes.values) || {};
   const ids = (r.backbone || []).filter(function (b) { return b && b.id; }).map(function (b) { return b.id; });
   const sup = (r.supply || []).filter(function (s) { return s.dri && ri[s.dri]; }).map(function (s) {
@@ -3849,11 +3851,15 @@ function pathwayRecordHTML(P, r) {
   if (notc.length) b += '<div class="pwline">Listed but not counted by the log: ' + notc.join(', ') + '</div>';
   // R313/B: two cards, never merged -- what shares a participant (no effect claimed), and what
   // studies claim (each with its probability). A pack without connections has no first card.
-  b += pwConnHTML(P, r);
+  if (!noConn) b += pwConnHTML(P, r);
   b += '<div class="pwcard pwclaims"><div class="pwcardh">Claims · effect with probability</div><div class="pwline">' + (claims.length ? 'Reviewed claims: ' + claims.map(function (c) {
     const pv = c.probability && c.probability.versions && c.probability.versions[c.probability.versions.length - 1];
     return esc(c.claim) + (pv ? ' — ' + Math.round(100 * pv.p) + ' % ' + esc(pv.of) : '') + ((c.evidence && c.evidence.grade) ? ' · GRADE ' + esc(c.evidence.grade) : '');
   }).join('; ') : 'No reviewed claims yet.') + '</div></div>';
+  return b;
+}
+function pathwayRecordHTML(P, r) {
+  const b = pathwayRecordInfo(P, r);
   return '<div class="pwrec" data-pw="' + esc(r.id) + '"><span class="pwname">' + esc(r.plain_name) + '</span>'
     + '<details class="pwinfo"><summary aria-label="about ' + esc(r.plain_name) + '">ⓘ</summary>' + b + '</details></div>';
 }
@@ -3870,29 +3876,29 @@ function pwSharesWords(x) {
   (x.molecules || []).map(pwMolName).concat(x.proteins || []).forEach(function (n) { if (n && all.indexOf(n) < 0) all.push(n); });
   return all.slice(0, 3).join(', ') + (all.length > 3 ? ' and ' + (all.length - 3) + ' more' : '');
 }
-function pwConnHTML(P, r) {
+function pwConnHTML(P, r, onWheel) {
   const C = P && P.connections;
   if (!C || !C.records) return '';
-  const recs = {};
-  (P.records || []).forEach(function (x) { recs[x.id] = x; });
-  const e = C.records[r.id] || { n: 0, shown: [] };
-  const shown = (e.shown || []).filter(function (x) { return recs[x.id]; });
-  const lit = (C.literature || []).filter(function (l) { return (l.a === r.id && recs[l.b]) || (l.b === r.id && recs[l.a]); });
-  const row = function (id, via) {
-    return '<button type="button" class="pwconn" data-to="' + esc(id) + '" onclick="pwStep(\'' + esc(id) + '\')">'
-      + '<span class="pwconnname">' + esc(recs[id].plain_name) + ' ›</span><span class="pwconnvia">' + esc(via) + '</span></button>';
-  };
+  const R = pwConnRows(P, r);
+  const go = onWheel ? 'pwWheelPick' : 'pwStep';
   let h = '<div class="pwcard pwconnected"><div class="pwcardh">Connected · effect not measured</div>'
     + '<div class="pwline pwdim">Shares a molecule or an enzyme in Reactome ' + esc(String(C.reactome_version || P.reactome_version || ''))
     + ' (CC0), or a link from the literature. A connection does not say a change in one reaches the other.</div>';
-  shown.forEach(function (x) { h += row(x.id, 'shares ' + pwSharesWords(x)); });
-  lit.forEach(function (l) {
-    const o = l.a === r.id ? l.b : l.a;
-    const src = ((P.sources || []).filter(function (s) { return s && (l.sources || []).indexOf(s.id) >= 0; })[0]) || null;
-    h += row(o, 'literature: ' + l.says + (src ? ' — ' + [src.authors, src.venue, src.year].filter(Boolean).join(', ') : ''));
+  R.rows.forEach(function (x) {
+    h += '<button type="button" class="pwconn" data-to="' + esc(x.id) + '" onclick="' + go + '(\'' + esc(x.id) + '\')">'
+      + '<span class="pwconnname">' + esc(x.name) + ' ›</span><span class="pwconnvia">' + esc(x.via) + '</span></button>';
   });
-  if (!shown.length && !lit.length) h += '<div class="pwline pwdim">No connection by the rule: nothing it shares is specific enough.</div>';
-  if (num(e.n) > shown.length) h += '<div class="pwline pwdim">' + esc(String(num(e.n) - shown.length)) + ' more connected, not shown: the ' + shown.length + ' sharing the most specific participants are.</div>';
+  if (!R.rows.length) h += '<div class="pwline pwdim">No connection by the rule: nothing it shares is specific enough.</div>';
+  if (R.n > R.shown) h += '<div class="pwline pwdim">' + esc(String(R.n - R.shown)) + ' more connected, not shown: the ' + R.shown + ' sharing the most specific participants are.</div>';
+  // the technical IDs, behind the card's own i
+  const tech = R.rows.map(function (x) {
+    const t = [];
+    if (x.tech.proteins.length) t.push('proteins ' + x.tech.proteins.join(', '));
+    if (x.tech.molecules.length) t.push('molecules ' + x.tech.molecules.join(', '));
+    x.lit.forEach(function (l) { if (l.ids.length) t.push('literature ' + l.ids.join(', ')); });
+    return '<div class="pwline" data-to="' + esc(x.id) + '">' + esc(x.name + ': ' + t.join('; ')) + '</div>';
+  }).join('');
+  if (tech) h += '<details class="pwinfo pwtechids"><summary aria-label="technical IDs">ⓘ</summary><div class="pwline">Gene symbols, Reactome molecule names and source IDs:</div>' + tech + '</details>';
   return h + '</div>';
 }
 // A connection's tap: that pathway's group and i open, the pathway marked.
@@ -3904,12 +3910,257 @@ function pwStep(id) {
   if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
   return { ok: !!info, shown: r && r.shown };
 }
+// ---- R318/1: THE PATHWAY WHEEL (top of the Pathways card; *evaluate*) -----------------
+// Every pathway of the pack on one rim, in its group's slice. A segment's shade is its
+// KNOWN SHARE: for each of its raw-material lines, the share of the last 28 days' food (by
+// weight) that carries a figure for it, averaged over the pathway's lines -- a neutral ramp,
+// never a verdict colour. A tap is two steps: a group slice (each at least 44 px along the
+// rim), then one of its pathways from the list below, which draws that pathway's
+// connections across the wheel and opens its panel. Nothing here is stored or written.
+const PW_KNOWN_DAYS = 28;
+const PW_SHADE_MIN = 0.08, PW_SHADE_SPAN = 0.72;
+const PW_GROUP_MIN_PX = 44;
+let PW_WHEEL = { group: null, pw: null };
+// What one food item carries a figure for: its own macros and label values (keys), its
+// linked row's values (slots).
+function pwItemFigures(it) {
+  const keys = {}, slots = {};
+  ['protein_g', 'fat_g', 'carb_g', 'fiber_g'].forEach(function (k) { if (typeof it[k] === 'number' && isFinite(it[k])) keys[k] = 1; });
+  Object.keys(it.micros || {}).forEach(function (k) { if (it.micros[k] != null && isFinite(Number(it.micros[k]))) keys[k] = 1; });
+  const v = it.ref && it.ref.v;
+  if (v) Object.keys(v).forEach(function (sl) { if (v[sl] != null && v[sl] === v[sl]) slots[String(sl)] = 1; });
+  return { keys: keys, slots: slots };
+}
+function pwKnownShares(P, endDk) {
+  const end = endDk || todayKey();
+  const foods = [];
+  let total = 0;
+  for (let i = 0; i < PW_KNOWN_DAYS; i++) {
+    const day = (APP_STATE.days || {})[shiftDate(end, -i)];
+    ((day && day.items) || []).forEach(function (it) {
+      if (!panelFoodItem(it)) return;
+      const g = num(it.grams);
+      if (!(g > 0)) return;
+      total += g;
+      foods.push({ g: g, f: pwItemFigures(it) });
+    });
+  }
+  const lineShare = function (s) {
+    if (!s || !s.tracked || !(total > 0)) return 0;
+    let have = 0;
+    foods.forEach(function (x) {
+      if ((s.key && x.f.keys[s.key]) || (s.slot != null && x.f.slots[String(s.slot)])) have += x.g;
+    });
+    return have / total;
+  };
+  const byId = {};
+  (P.records || []).forEach(function (r) {
+    const lines = (r.supply || []).filter(Boolean);
+    if (!lines.length) { byId[r.id] = null; return; }
+    let sum = 0;
+    lines.forEach(function (s) { sum += lineShare(s); });
+    byId[r.id] = sum / lines.length;
+  });
+  return { byId: byId, total: total, n: foods.length, end: end, days: PW_KNOWN_DAYS };
+}
+function pwShadeOpacity(s) { return Math.round((PW_SHADE_MIN + PW_SHADE_SPAN * Math.max(0, Math.min(1, s))) * 1000) / 1000; }
+function pwSharePct(s) { return s == null ? 'no raw materials listed' : Math.round(100 * s) + ' % known'; }
+// The rim: each group a slice at least 44 px along the outer edge; the segments of one
+// group equal; a gap between slices.
+function pwWheelLayout(P, size) {
+  const c = size / 2, R = c - 2, r = R - 34;
+  const groups = (P.groups || []).map(function (g) {
+    return { id: g.id, name: g.name, recs: (P.records || []).filter(function (x) { return x.group === g.id; }) };
+  }).filter(function (g) { return g.recs.length; });
+  const GAP = 0.035;
+  const room = 2 * Math.PI - GAP * groups.length;
+  const m = 2 * Math.asin(Math.min(1, (PW_GROUP_MIN_PX + 2) / (2 * R)));
+  // spans: max(n*u, m), summing to the room -- solved for u by a few passes
+  let u = room / groups.reduce(function (a, g) { return a + g.recs.length; }, 0);
+  for (let k = 0; k < 8; k++) {
+    let fixed = 0, n = 0;
+    groups.forEach(function (g) { if (g.recs.length * u < m) fixed += m; else n += g.recs.length; });
+    if (n) u = (room - fixed) / n;
+  }
+  let a = 0;
+  const segs = [];
+  groups.forEach(function (g, gi) {
+    const span = Math.max(g.recs.length * u, m);
+    g.a0 = a; g.a1 = a + span; g.idx = gi + 1;
+    const per = span / g.recs.length;
+    g.recs.forEach(function (rec, i) { segs.push({ id: rec.id, group: g.id, a0: a + i * per, a1: a + (i + 1) * per, rec: rec }); });
+    a += span + GAP;
+  });
+  return { size: size, c: c, R: R, r: r, groups: groups, segs: segs };
+}
+function pwPt(L, rad, ang) { return [L.c + rad * Math.sin(ang), L.c - rad * Math.cos(ang)]; }
+function pwArc(L, r0, r1, a0, a1) {
+  const p0 = pwPt(L, r1, a0), p1 = pwPt(L, r1, a1), p2 = pwPt(L, r0, a1), p3 = pwPt(L, r0, a0), big = a1 - a0 > Math.PI ? 1 : 0;
+  const f = function (x) { return Math.round(x * 10) / 10; };
+  return 'M' + f(p0[0]) + ' ' + f(p0[1]) + 'A' + f(r1) + ' ' + f(r1) + ' 0 ' + big + ' 1 ' + f(p1[0]) + ' ' + f(p1[1])
+    + 'L' + f(p2[0]) + ' ' + f(p2[1]) + 'A' + f(r0) + ' ' + f(r0) + ' 0 ' + big + ' 0 ' + f(p3[0]) + ' ' + f(p3[1]) + 'Z';
+}
+// One row per connected pathway, the structural and the literature reasons merged: the
+// pack's neighbours in its order, then pathways linked by the literature only. Plain
+// names (a protein's UniProt name from the pack, a molecule without its charge form); the
+// technical IDs are kept apart for the card's i.
+function pwConnRows(P, r) {
+  const C = P && P.connections;
+  if (!C || !C.records || !r) return null;
+  const recs = {};
+  (P.records || []).forEach(function (x) { recs[x.id] = x; });
+  const pn = (C.names && C.names.proteins) || {};
+  const e = C.records[r.id] || { n: 0, shown: [] };
+  const rows = [], at = {};
+  (e.shown || []).forEach(function (x) {
+    if (!recs[x.id] || at[x.id] != null) return;
+    const plain = [];
+    (x.proteins || []).map(function (p) { return (pn[p] && pn[p].plain) || p; })
+      .concat((x.molecules || []).map(pwMolName)).forEach(function (n) { if (n && plain.indexOf(n) < 0) plain.push(n); });
+    at[x.id] = rows.length;
+    rows.push({ id: x.id, shares: plain, lit: [], tech: { proteins: (x.proteins || []).slice(), molecules: (x.molecules || []).slice() } });
+  });
+  (C.literature || []).forEach(function (l) {
+    const o = l.a === r.id ? l.b : (l.b === r.id ? l.a : null);
+    if (!o || !recs[o]) return;
+    const src = ((P.sources || []).filter(function (s) { return s && (l.sources || []).indexOf(s.id) >= 0; })[0]) || null;
+    const one = { says: String(l.says || ''), src: src ? [src.authors, src.venue, src.year].filter(Boolean).join(', ') : '', ids: (l.sources || []).slice() };
+    if (at[o] == null) { at[o] = rows.length; rows.push({ id: o, shares: [], lit: [], tech: { proteins: [], molecules: [] } }); }
+    rows[at[o]].lit.push(one);
+  });
+  rows.forEach(function (x) {
+    const w = [];
+    if (x.shares.length) w.push('shares ' + x.shares.slice(0, 3).join(', ') + (x.shares.length > 3 ? ' and ' + (x.shares.length - 3) + ' more' : ''));
+    x.lit.forEach(function (l) { w.push('literature: ' + l.says + (l.src ? ' — ' + l.src : '')); });
+    x.via = w.join('; ');
+    x.name = recs[x.id].plain_name;
+  });
+  return { rows: rows, n: num(e.n), shown: (e.shown || []).filter(function (x) { return recs[x.id]; }).length };
+}
+function pwWheelHTML(P, size) {
+  const L = pwWheelLayout(P, size);
+  const K = pwKnownShares(P);
+  const sel = PW_WHEEL.pw, grp = PW_WHEEL.group;
+  const selRec = sel ? (P.records || []).filter(function (x) { return x.id === sel; })[0] : null;
+  const conn = selRec ? pwConnRows(P, selRec) : null;
+  const linked = {};
+  ((conn && conn.rows) || []).forEach(function (x) { linked[x.id] = x; });
+  const ang = {};
+  L.segs.forEach(function (s) { ang[s.id] = (s.a0 + s.a1) / 2; });
+  let h = '<svg class="pwwheelsvg" width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="pathway wheel">'
+    + '<defs><pattern id="pwhatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
+    + '<rect width="3" height="6" class="pwhatchbar"></rect></pattern></defs>';
+  // the chords: the selected pathway's connections only, one per connected pathway
+  h += '<g class="pwchords">';
+  if (selRec) ((conn && conn.rows) || []).forEach(function (x) {
+    if (ang[x.id] == null) return;
+    const p0 = pwPt(L, L.r - 2, ang[sel]), p1 = pwPt(L, L.r - 2, ang[x.id]);
+    h += '<path class="pwchord' + (x.shares.length ? '' : ' pwlit') + '" data-a="' + esc(sel) + '" data-b="' + esc(x.id) + '" d="M' + p0[0].toFixed(1) + ' ' + p0[1].toFixed(1)
+      + 'Q' + L.c + ' ' + L.c + ' ' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + '"></path>';
+  });
+  h += '</g><g class="pwsegs">';
+  L.segs.forEach(function (s) {
+    const sh = K.byId[s.id];
+    const cls = 'pwseg' + (s.id === sel ? ' pwsel' : '') + (linked[s.id] ? ' pwnb' : '') + (sh == null ? ' pwhatched' : '');
+    h += '<path class="' + cls + '" data-pw="' + esc(s.id) + '" data-group="' + esc(s.group) + '" data-share="' + (sh == null ? '' : sh.toFixed(4)) + '"'
+      + (sh == null ? ' fill="url(#pwhatch)"' : ' fill-opacity="' + pwShadeOpacity(sh) + '"') + ' d="' + pwArc(L, L.r, L.R, s.a0, s.a1) + '">'
+      + '<title>' + esc(s.rec.plain_name + ' · ' + pwSharePct(sh)) + '</title></path>';
+    if ((s.rec.claims || []).length) {
+      const d = pwPt(L, L.r - 6, ang[s.id]);
+      h += '<circle class="pwdot" cx="' + d[0].toFixed(1) + '" cy="' + d[1].toFixed(1) + '" r="2.4"></circle>';
+    }
+  });
+  h += '</g><g class="pwgnums">';
+  L.groups.forEach(function (g) {
+    const p = pwPt(L, L.r - 17, (g.a0 + g.a1) / 2);
+    h += '<text class="pwgnum" x="' + p[0].toFixed(1) + '" y="' + p[1].toFixed(1) + '">' + g.idx + '</text>';
+  });
+  // the group hit regions, on top: a slice from inside the numbers to the rim
+  h += '</g><g class="pwhits">';
+  L.groups.forEach(function (g) {
+    h += '<path class="pwhit' + (g.id === grp ? ' pwon' : '') + '" data-group="' + esc(g.id) + '" data-a0="' + g.a0.toFixed(4) + '" data-a1="' + g.a1.toFixed(4)
+      + '" data-r0="' + (L.r - 30) + '" data-r1="' + L.R + '" d="' + pwArc(L, L.r - 30, L.R, g.a0, g.a1) + '" onclick="pwWheelGroup(\'' + esc(g.id) + '\')">'
+      + '<title>' + esc(g.idx + ' ' + g.name) + '</title></path>';
+  });
+  h += '</g></svg>';
+  // the shade key and the group legend (each a 44 px button: the slice's other door)
+  h += '<div class="pwkey"><span><span class="pwsw" style="opacity:' + pwShadeOpacity(0) + '"></span>none known</span>'
+    + '<span><span class="pwsw" style="opacity:' + pwShadeOpacity(0.5) + '"></span>half</span>'
+    + '<span><span class="pwsw" style="opacity:' + pwShadeOpacity(1) + '"></span>all</span>'
+    + '<span><span class="pwsw pwswhatch"></span>no raw materials listed</span></div>';
+  h += '<div class="pwlegend">' + L.groups.map(function (g) {
+    return '<button type="button" class="pwgbtn' + (g.id === grp ? ' pwon' : '') + '" data-group="' + esc(g.id) + '" aria-pressed="' + (g.id === grp ? 'true' : 'false')
+      + '" onclick="pwWheelGroup(\'' + esc(g.id) + '\')"><span class="pwgbn">' + g.idx + '</span> ' + esc(g.name) + ' · ' + g.recs.length + '</button>';
+  }).join('') + '</div>';
+  // step 2: the group's pathways
+  const G = grp ? L.groups.filter(function (g) { return g.id === grp; })[0] : null;
+  if (G) h += '<div class="pwglist" data-group="' + esc(G.id) + '"><div class="pwglisth">' + esc(G.idx + ' ' + G.name) + '</div>'
+    + G.recs.map(function (rec) {
+      return '<button type="button" class="pwpick' + (rec.id === sel ? ' pwon' : '') + '" data-pw="' + esc(rec.id) + '" aria-pressed="' + (rec.id === sel ? 'true' : 'false')
+        + '" onclick="pwWheelPick(\'' + esc(rec.id) + '\')"><span class="pwpickname">' + esc(rec.plain_name) + '</span><span class="pwpickshare">' + esc(pwSharePct(K.byId[rec.id])) + '</span></button>';
+    }).join('') + '</div>';
+  if (selRec) h += pwWheelPanelHTML(P, selRec, K);
+  return '<div class="pwwheel" data-total-g="' + Math.round(K.total) + '">'
+    + '<div class="pwwheelh">Known share · last ' + PW_KNOWN_DAYS + ' days'
+    + '<details class="pwinfo pwwheelinfo"><summary aria-label="about the wheel">ⓘ</summary><div class="pwline">'
+    + 'Each segment is one pathway, in its group’s numbered slice. Its shade is how much of your food, by weight, over the last ' + PW_KNOWN_DAYS
+    + ' days carries a figure for each of its raw-material lines — a label value, the food’s own protein, fat, carbs or fibre, or its linked database row — averaged over its lines. '
+    + 'A line the log cannot count is never known; stack doses are not food and are left out. A pale segment says little of your log carries those figures, not that the pathway is low. '
+    + 'Hatched: the pack lists no raw materials for it. A dot: it has reviewed claims. Tap a slice, then a pathway, to draw its connections.'
+    + (K.total > 0 ? '' : ' No food with a weight was logged in these days, so nothing is known.') + '</div></details></div>'
+    + h + '</div>';
+}
+function pwWheelPanelHTML(P, r, K) {
+  const g = (P.groups || []).filter(function (x) { return x.id === r.group; })[0];
+  const lines = (r.supply || []).filter(Boolean);
+  const untracked = lines.filter(function (s) { return !s.tracked; }).length;
+  const ncl = (r.claims || []).length;
+  return '<div class="pwpanel" data-pw="' + esc(r.id) + '"><div class="pwpanelh"><span class="pwname">' + esc(r.plain_name) + '</span>'
+    + '<details class="pwinfo"><summary aria-label="about ' + esc(r.plain_name) + '">ⓘ</summary>' + pathwayRecordInfo(P, r, true) + '</details></div>'
+    + '<div class="pwline">' + esc(g ? g.name : '') + '</div>'
+    + '<div class="pwline">Raw materials known: <b>' + esc(pwSharePct(K.byId[r.id])) + '</b>'
+    + (lines.length ? ' · ' + lines.length + ' line' + (lines.length === 1 ? '' : 's') + (untracked ? ', ' + untracked + ' the log cannot count' : '') : '') + '</div>'
+    + '<div class="pwline">Reviewed claims: ' + ncl + ' — in its ⓘ</div>'
+    + pwConnHTML(P, r, true) + '</div>';
+}
+// Only the wheel's slot is redrawn -- the list below keeps whatever the user opened.
+function pwWheelFill() {
+  const slot = document.getElementById('pwWheelSlot');
+  const P = packLoad();
+  if (!slot) return { ok: false };
+  const card = document.querySelector('[data-card="pathways"] > details');
+  const el = document.getElementById('pathways');
+  const wide = Math.floor((el && el.clientWidth) || 0);
+  slot.innerHTML = (P && card && card.open && wide > 0) ? pwWheelHTML(P, Math.min(360, wide)) : '';
+  return { ok: true, drawn: !!slot.firstChild };
+}
+function pwWheelGroup(gid) {
+  PW_WHEEL = PW_WHEEL.group === gid ? { group: null, pw: null } : { group: String(gid), pw: null };
+  pwWheelFill();
+  return { ok: true, group: PW_WHEEL.group };
+}
+function pwWheelPick(id) {
+  const P = packLoad();
+  const r = P && (P.records || []).filter(function (x) { return x.id === String(id); })[0];
+  if (!r) return { ok: false };
+  PW_WHEEL = { group: r.group, pw: r.id };
+  pwWheelFill();
+  return { ok: true, pw: r.id };
+}
+// The card's own toggle: opening it draws the wheel at the card's width.
+function pwCardToggle(d) {
+  const slot = document.getElementById('pwWheelSlot');
+  if (d && d.open && slot && !slot.firstChild) pwWheelFill();
+  return { ok: true };
+}
+function pwWheelState() { return { group: PW_WHEEL.group, pw: PW_WHEEL.pw }; }
 function renderPathways() {
   const el = document.getElementById('pathways');
   if (!el) return;
   const P = packLoad();
   if (!P) { el.innerHTML = '<div class="note">No pathway pack on this phone. A pack is built on your computer and imported in Settings, under Pathway pack.</div>'; return; }
-  el.innerHTML = '<div class="note">' + esc(P.groups.length + ' groups, ' + P.records.length + ' pathways (pack v' + P._version + '). '
+  // R318/1: the wheel has a slot of its own, filled only while the card is open
+  el.innerHTML = '<div id="pwWheelSlot"></div><div class="note">' + esc(P.groups.length + ' groups, ' + P.records.length + ' pathways (pack v' + P._version + '). '
       + 'This phone never reads a pathway itself: what it can see is shown with each one, mostly through proxies.') + '</div>'
     + P.groups.map(function (g) {
       const recs = P.records.filter(function (r) { return r.group === g.id; });
@@ -3921,6 +4172,7 @@ function renderPathways() {
       return '<details class="pwgroup" data-group="' + esc(g.id) + '"><summary>' + esc(g.name) + ' · ' + recs.length + '</summary>'
         + ginfo + recs.map(function (r) { return pathwayRecordHTML(P, r); }).join('') + '</details>';
     }).join('');
+  pwWheelFill();
 }
 // ---- R298 step 2: THE CONTEXT STRIP (R297: surface what relates to the last action) ----
 // One strip at the top of the home screen, the SAME HEIGHT in every state, so nothing
@@ -4224,6 +4476,9 @@ function ctxShowPathways(ids) {
   renderPathways();
   const card = document.querySelector('[data-card="pathways"] > details');
   if (card) card.open = true;
+  // R318/1: the wheel is drawn now, before the scroll -- drawn later by the card's toggle,
+  // it would push the marked pathway off the screen
+  pwWheelFill();
   let first = null;
   Array.prototype.slice.call(document.querySelectorAll('#pathways details.pwgroup')).forEach(function (g) {
     const recs = Array.prototype.slice.call(g.querySelectorAll('.pwrec'));
@@ -18719,6 +18974,7 @@ const VERSION_LOG = [
   { v: '0.126.0', d: '2026-11-03', note: 'Adding a food to your daily stack now offers the ways you log food: Scan barcode (the + Log scanner; one tap on Add to my stack saves it with the label’s numbers for the portion you pick), Photo (with your own AI key: it names the food and you pick the database row; its numbers are not used), finding it in your foods, the food database or USDA FoodData Central, and Enter by hand from its label. A supplement can now be scanned too: OpenFoodFacts fills in its name and, where it lists a serving, the nutrients for one serving, for you to check against the label. After a scan the top of the screen says it was added, with Undo, and a product already in your stack asks before it is added again.' },
   { v: '0.126.1', d: '2026-11-03', note: 'Logging a food again (quick add, the foods you logged before in Search, or a repeat) no longer carries over a “keeps my fast” or “breaks my fast” you tapped on the earlier entry: the new entry is judged by the fasting rule until you mark it yourself.' },
   { v: '0.126.2', d: '2026-11-03', note: 'The weekly review counts a week with a clock change in real time: the week the clocks went back is 169 hours, and its fasts are counted in real hours too.' },
+  { v: '0.127.0', d: '2026-11-03', note: 'The Pathways card opens with a wheel: every pathway in its group’s numbered slice, shaded by how much of your last 28 days of food carries a figure for its raw materials. Tap a slice, then a pathway, to draw its connections and open its panel, which lists each connected pathway once, by plain names; gene symbols and IDs are behind the ⓘ. A pathway’s ⓘ in the list shows the same rows.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -28595,7 +28851,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

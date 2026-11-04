@@ -130,6 +130,7 @@ EOF3
 # adds it has to say what it is for. `engagement` is not an available class.
 DECLARED="GAP_MEDIAN_DAYS=window:the 28 days ending on a closed day whose median calories a gap flag compares it with (R280); decides nothing about showing
 GLUCOSE_SC_DAYS=parameter:how many days the Shortcut recipe exports
+PW_KNOWN_DAYS=window:the 28 days of food the pathway wheel's known share reads (R318/1); a coverage window, decides nothing about showing
 PLATE_RECALL_DAYS=recall:how long a saved plate keeps offering itself; keyed on an ACTION, not on usage
 TRASH_MAX_AGE_DAYS=retention:how long a deleted record is recoverable
 TYPICAL_MIN_DAYS=sufficiency:a typical needs this many days to BE a typical (D95). SUPPRESSES output rather than producing it

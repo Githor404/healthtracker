@@ -182,7 +182,7 @@ window.__mkPack = function (withConn) {
     claims: [{ id: 'claim-a', claim: 'Placeholder claim A.', reviewed_by_me: rv, evidence: { grade: 'low', human: true }, probability: P(0.6, 'that placeholder A holds'), attributions: [{ source: 'src-a', kind: 'quote' }], pathways: ['pw-001'] }],
     interactions: [], reference_intakes: { source: 'x', group: 'y', values: {} }, lexicon: { rules: [] },
     sources: [{ id: 'src-a', authors: 'Author A et al.', venue: 'Journal A', year: 2020 }, { id: 'src-l', authors: 'Author L et al.', venue: 'Journal L', year: 2001 }] };
-  if (withConn) body.connections = { reactome_version: 98, licence: 'CC0', rule: 'r', records: {
+  if (withConn) body.connections = { reactome_version: 98, licence: 'CC0', rule: 'r', names: { proteins: { PROT1: { plain: 'Plain one' } } }, records: {
       'pw-001': { n: 8, shown: [
         { id: 'pw-099', score: 9, proteins: ['GONE'], molecules: [] },
         { id: 'pw-002', score: 4, proteins: [], molecules: ['2-trans,6-trans-farnesyl diphosphate(3-)'] },
@@ -191,7 +191,8 @@ window.__mkPack = function (withConn) {
         { id: 'pw-006', score: 1, proteins: [], molecules: ['m3'] },
         { id: 'pw-004', score: 0.5, proteins: [], molecules: ['m4(1-)'] }] },
       'pw-004': { n: 0, shown: [] } },
-    literature: [{ a: 'pw-001', b: 'pw-007', says: 'placeholder link L', ruled: 'x', sources: ['src-l'], quotes: [] }] };
+    literature: [{ a: 'pw-001', b: 'pw-007', says: 'placeholder link L', ruled: 'x', sources: ['src-l'], quotes: [] },
+                 { a: 'pw-005', b: 'pw-001', says: 'placeholder link M', ruled: 'x', sources: [], quotes: [] }] };
   var txt = JSON.stringify(body);
   return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (h) {
     var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
@@ -229,7 +230,10 @@ window.__mkPack = function (withConn) {
   $a = $a1 | ConvertFrom-Json
   Check ($t1 -and $a.open -and ((@($a.order) -join ',') -eq 'conn,claims') -and ($a.conn -like ('CONNECTED ' + [char]0x00B7 + ' EFFECT NOT MEASURED*Reactome 98 (CC0)*does not say a change in one reaches the other*')) -and ($a.claims -like ('CLAIMS ' + [char]0x00B7 + ' EFFECT WITH PROBABILITY*'))) "a real tap on a pathway's i shows two cards, in order: 'Connected . effect not measured' (Reactome 98, CC0, and what a connection does not say), then 'Claims . effect with probability'"
   Check (((@($a.to) -join ',') -eq 'pw-002,pw-003,pw-005,pw-006,pw-004,pw-007') -and ($a.conn -notlike '*GONE*')) "the connected rows are the pack's own, in its order (most specific first), then the literature link; a neighbour missing from the pack is not drawn ($(@($a.to) -join ','))"
-  Check (($a.via[0] -eq 'shares farnesyl diphosphate') -and ($a.via[1] -eq 'shares m1, m2, PROT1 and 1 more') -and ($a.via[5] -eq ('literature: placeholder link L ' + [char]0x2014 + ' Author L et al., Journal L, 2001'))) "each row says what is shared in plain names (charge and stereo locants dropped), at most three and 'N more'; a literature link says so and names its source"
+  Check (($a.via[0] -eq 'shares farnesyl diphosphate') -and ($a.via[1] -eq 'shares Plain one, PROT2, m1 and 1 more') -and ($a.via[5] -eq ('literature: placeholder link L ' + [char]0x2014 + ' Author L et al., Journal L, 2001'))) "each row says what is shared in plain names -- a protein by the pack's name (its symbol where the pack has none), a molecule without its charge and stereo locants -- at most three and 'N more'; a literature link says so and names its source"
+  Check (($a.via[2] -eq 'shares PROT3; literature: placeholder link M') -and ((@($a.to) | Where-Object { $_ -eq 'pw-005' }).Count -eq 1)) "R318/1.6: ONE ROW PER CONNECTED PATHWAY -- a neighbour also linked by the literature appears once, its literature reason merged into its row"
+  $tk = Eval "(function(){ var t = document.querySelector('#pathways .pwrec[data-pw=pw-001] .pwconnected .pwtechids'); return t ? t.textContent : ''; })()"
+  Check (($tk -like '*Path A3: proteins PROT1, PROT2; molecules m1(2-), m2*') -and -not (($a.via -join ' ') -like '*m1(2-)*')) "R318/1.6: the technical IDs -- gene symbols, Reactome's molecule names -- sit behind the connected card's own i, not in its rows"
   Check ($a.conn -like '*3 more connected, not shown: the 5 sharing the most specific participants are.*') "more neighbours than shown: the count not shown is stated"
   Check (($a.connProb -eq $false) -and ($a.claimsConn -eq $false) -and ($a.claims -like '*Placeholder claim A.*60 % that placeholder A holds*GRADE low*')) "the two cards never merge: no probability or GRADE in the connected card, no connection in the claims card, which keeps the claim with its probability"
 

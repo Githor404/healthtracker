@@ -27,6 +27,7 @@
     --txt:#232c38; --muted:#7d8796; --good:#54b97e; --warn:#d9a13e; --bad:#d96b6b; --accent:#2fb3a3;
     --mrc:#c98a1e; --mrp:#3f74c9; --mrf:#8e5fcf; --mrb:#8a6a48;   /* R304 meal-ring segments: carbs, protein, fat, fibre -- no verdict colour */
     --tbhi:#5b6b80; --tblo:#b3bdcb; --tbband:#e6eaf0;
+    --pwhatch:#9aa5b5;   /* R318/1: the wheel's hatch -- no raw materials listed */
   }
   @media (prefers-color-scheme: dark){
     :root{
@@ -38,6 +39,7 @@
       --txt:#e6ebf2; --muted:#8b95a4; --good:#5cc487; --warn:#e0ac52; --bad:#e08484; --accent:#3fbfae;
       --mrc:#e0a43c; --mrp:#6b9be6; --mrf:#ab84e6; --mrb:#b08e6a;
       --tbhi:#9fb2cc; --tblo:#57657a; --tbband:#2b3341;
+      --pwhatch:#8f9cb0;   /* stronger in dark, apart from 'none known' */
     }
   }
   *{box-sizing:border-box}
@@ -766,6 +768,35 @@
   .pwconn{display:flex;flex-direction:column;align-items:flex-start;width:100%;min-height:44px;background:none;border:0;border-top:1px solid var(--line);padding:6px 0;font:inherit;font-size:16px;color:var(--txt);text-align:left;cursor:pointer}
   .pwconnname{font-weight:600}
   .pwconnvia{color:var(--muted);overflow-wrap:anywhere}
+  /* R318/1: the pathway wheel -- a neutral ramp, never a verdict colour; 44 px targets */
+  .pwwheel{margin:0 0 10px}
+  .pwwheelh{display:flex;align-items:center;flex-wrap:wrap;gap:4px;font-size:16px;font-weight:700}
+  .pwwheelsvg{display:block;margin:6px auto 0;touch-action:manipulation;max-width:100%}
+  .pwseg{fill:var(--txt);stroke:var(--panel);stroke-width:.8}
+  .pwseg.pwhatched{fill:url(#pwhatch)}
+  .pwhatchbar{fill:var(--pwhatch)}
+  .pwseg.pwnb{stroke:var(--accent);stroke-width:2}
+  .pwseg.pwsel{stroke:var(--txt);stroke-width:2.5}
+  .pwdot{fill:var(--accent);pointer-events:none}
+  .pwgnum{font-size:12px;fill:var(--muted);text-anchor:middle;dominant-baseline:central;pointer-events:none}
+  .pwhit{fill:var(--txt);fill-opacity:0;stroke:none;cursor:pointer}
+  .pwhit.pwon{stroke:var(--txt);stroke-width:1.5;stroke-dasharray:4 3}
+  .pwchord{fill:none;stroke:var(--accent);stroke-width:2;opacity:.9;pointer-events:none}
+  .pwchord.pwlit{stroke-dasharray:5 4}
+  .pwkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;font-size:16px;color:var(--muted)}
+  .pwsw{display:inline-block;width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:4px;background:var(--txt)}
+  .pwsw.pwswhatch{background:repeating-linear-gradient(45deg,var(--pwhatch) 0 3px,transparent 3px 6px);border:1px solid var(--line)}
+  .pwlegend{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 0 0}
+  .pwgbtn{min-height:44px;min-width:44px;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:10px;padding:4px 8px;font:inherit;font-size:16px;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+  .pwgbtn.pwon,.pwpick.pwon{border-color:var(--txt);border-width:2px}
+  .pwgbn{font-weight:700}
+  .pwglist{display:flex;flex-direction:column;gap:6px;margin:10px 0 0}
+  .pwglisth{font-size:16px;font-weight:700}
+  .pwpick{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:44px;min-width:44px;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:10px;padding:4px 8px;font:inherit;font-size:16px;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+  .pwpickshare{color:var(--muted);white-space:nowrap}
+  .pwpanel{border:1px solid var(--line);border-radius:12px;padding:6px 10px 8px;margin:10px 0 0}
+  .pwpanelh{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:16px;font-weight:700}
+  .pwpanelh .pwinfo[open]{flex-basis:100%;font-weight:400}
   .plleft{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
   /* R299.1: End meal -- one tap beside each leftovers reminder, 44px. */
   .plwrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
@@ -1695,7 +1726,7 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       </details>
     </div>
     <div class="card" data-card="pathways">
-      <details>
+      <details ontoggle="pwCardToggle(this)">
         <summary>Pathways</summary>
         <div id="pathways" style="margin-top:10px"></div>
       </details>
