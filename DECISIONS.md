@@ -21870,3 +21870,21 @@ second item's flag still shows; the next day it shows again. Harness: the rule (
 spent, next day, per item).
 
 **Release** under the standing pre-run rule.
+
+## R321 -- BUILT (v0.128.1), against its pre-registration
+
+As pre-registered. `influenceFlagsFor(list, dk, at)` takes the top box's day and note time; an
+item already shown by an earlier box that day is left out, and a call without them (the harness,
+any other caller) reads as before. influence-gate: 15 checks, all pass, including the two new
+ones (a real untick and tick of the same item at 30 % shows the box without the flag; a redraw
+keeps the first box's flag). Harness +1 (3464). Every gate alone (70 of 70), then the full suite:
+**82 of 82**. Pushed; verify-deploy passes.
+
+**HTPrivate:** the directions applied (`tools/apply_r321.py`), pack **v015** built (64 of 64 with
+`for_me`; 6 negative at 30 % or more). **The hourly pathway report** runs again (scheduled task
+result 0). Its cause, checked against the clock change first: **not the clock change** -- the
+job ran each hour across 1 Nov 01:00-03:00. It failed from **31 Oct 13:00**, the first run after
+R305 (claims filed under a group only, with no pathways: `min()` of nothing), and from 3 Nov also
+on R313's oleic line (no reference intake, by design: a KeyError). Both handled in
+`reports/make_pathway_report.py`: the oleic line reads "no reference intake"; a group-only claim
+names its group, and four claims with neither say so (three bromelain, elderberry-cyanogenic).
