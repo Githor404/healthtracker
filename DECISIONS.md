@@ -21888,3 +21888,59 @@ R305 (claims filed under a group only, with no pathways: `min()` of nothing), an
 on R313's oleic line (no reference intake, by design: a KeyError). Both handled in
 `reports/make_pathway_report.py`: the oleic line reads "no reference intake"; a group-only claim
 names its group, and four claims with neither say so (three bromelain, elderberry-cyanogenic).
+
+## R322 -- PRE-REGISTERED (2026-11-04; to be v0.129.0): waist circumference (*track*, and the input *predict* will need)
+
+The user's goal is less visceral fat, for insulin sensitivity; waist is the practical proxy.
+
+**1. One door.** "Waist" is a biometric in `SIGNAL_SPEC` beside weight, logged through + Log
+(its chip after Bowel movement, so the chip ruled reachable without scrolling stays in the first
+six) and the same form. **Stored in one unit, cm** (the record's `unit` is always `cm`, the value
+to 0.01 cm, so an inch entry reads back exactly); the form offers in and cm, opening on the
+unit chosen in Settings (`settings.waistUnit`, **in** unless cm is chosen), and every display --
+the day's Biometrics row and summary, the time order, Trends, the weekly card, the top box --
+shows the chosen unit. Logging a waist does not change the chosen unit (weight's "last unit
+used" memory is not used for waist). Date and time as every entry; every entry deletable where
+it is listed (unchanged machinery).
+**2. ⓘ How to measure**, in the form when Waist is chosen, in the user's words: at the navel,
+standing relaxed, after a normal breath out, the tape level and snug but not compressing; the same
+time of day (for example in the morning, before eating) so readings compare.
+**3. Chart.** Trends draws it like every biometric (R309's zoom, scroll and pinned axis; three
+readings to draw), in the chosen unit; Settings -> Goals -> Lines on graphs offers Waist, a
+neutral dashed line, converted if the unit changes.
+**4. Waist-to-height ratio.** Settings gains Height (typed in the chosen unit, stored in cm,
+`settings.height_cm`). With a height set -- and only then -- the latest waist in Trends and in the
+weekly card carries "waist-to-height 0.NN", a fact; its ⓘ cites **NICE guideline NG246,
+Overweight and obesity management (2025), recommendations 1.9.10-1.9.11**, which uses 0.5 as its
+reference point for central adiposity in adults (BMI below 35), and says plainly that NICE
+measures the waist halfway between the lowest rib and the top of the hip bone, while the user's
+method is at the navel, so the two can differ. No verdict words: no "healthy", "increased",
+"high" or "risk" on the screen. The NICE page refuses automated reading (403); the reference is
+taken from search results quoting it and is to be confirmed by the user against the page.
+**5. The top box (R308.1).** "Waist · last measurement N days ago" when the time since the last
+one is over 1.5 x the user's own median gap (from 5 entries) -- or, with fewer than 5, **over 8
+days** (with none at all, no note).
+**6. Backup, weekly review, later analysis.** Waist rides in the timeline (backup, restore,
+unchanged); `waistUnit` and `height_cm` in settings. The weekly review gains a **Waist** card
+when any waist exists: the latest (value, date, the ratio with a height) and the 28 days ending
+with the week's last day so far -- first and latest reading in that window, the change between
+them, n. A series like any other for the pattern engine later (`signalSeries('waist')`).
+
+**A defect found while reading the settings boundary, fixed here (no data loss; it only keeps
+more):** `normalizeSettings` -- run on every boot and restore -- is an allowlist, and three keys
+written by their own setters are missing from it, so they are **dropped at the next app start**:
+R318's flag threshold (`influence`), and R262's "Last week's review is ready" switch
+(`weekNotice`) with its seen marker (`weekSeen`). A user who set either got the default back on
+the next launch, and a backup never carried them. All three are added, present only when set.
+
+**Gates.** New **waist-gate** (real taps): log a waist in inches and one in cm through + Log;
+both stored in cm, both shown in the chosen unit; switching Settings to cm redraws in cm; the ⓘ
+opens the method; Trends draws the chart, zoom works, a goal line set in Settings draws dashed
+and neutral; the ratio shows only once a height is set, with the NICE citation and no verdict
+word; the overdue note fires past 8 days with fewer than 5 entries and past 1.5 x the median with
+5; the weekly card; export -> restore keeps every waist, the unit and the height; deletable from
+the day; nothing sideways at 390 and 360. **Harness:** conversion and storage, display unit,
+ratio, the 8-day fallback, the weekly figures, and boot keeping `influence`, `weekNotice`,
+`weekSeen`, `waistUnit`, `height_cm`.
+
+**Release** under the standing pre-run rule.
