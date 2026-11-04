@@ -4049,6 +4049,22 @@ window.setLS({});
       var line = HT.influenceLineHTML(HT.influenceFlagsFor([{ x: { id: 's1', name: 'Gatezinc 50', kind: 'dose', dose: 50, dose_unit: 'mg' }, isStack: true }])).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
       res(/Gatezinc 50 50 mg · claim: gate negative · 80 %/.test(line) && !/\b(should|stop|avoid|don't|try|must|need to)\b/i.test(line),
           'R318/2: the line states item, amount, the claim and its probability -- and no advice', line);
+      // R321: at most once a day per item -- the first box owns it and keeps it on a redraw
+      var oneZ = function () { return [{ x: { id: 's1', name: 'Gatezinc 50', kind: 'dose' }, isStack: true }]; };
+      var t = HT.todayKey(), y = HT.shiftDate(t, -1);
+      try { localStorage.removeItem(HT.FLAGS_KEY); } catch (e) {}
+      var a1 = HT.influenceFlagsFor(oneZ(), t, 1000).length, a1again = HT.influenceFlagsFor(oneZ(), t, 1000).length;
+      var a2 = HT.influenceFlagsFor(oneZ(), t, 2000).length;
+      var other = HT.influenceFlagsFor([{ x: { id: 's2', name: 'Gatezinc 25', kind: 'dose' }, isStack: true }], t, 2000).length;
+      var food2 = HT.influenceFlagsFor([{ x: { name: 'Red wine', meal: 'drink', grams: 150, ref: { ns: 'cnf', id: '1', name: 'Wine, red', v: { '221': 10.6 } } }, isStack: false }], t, 3000).length
+        + HT.influenceFlagsFor([{ x: { name: 'red wine ', meal: 'drink', grams: 100, ref: { ns: 'cnf', id: '1', name: 'Wine, red', v: { '221': 10.6 } } }, isStack: false }], t, 4000).length;
+      var yday = HT.influenceFlagsFor(oneZ(), y, 5000).length;
+      var noNote = HT.influenceFlagsFor(oneZ()).length;
+      var kept = HT.influenceShown();
+      res(a1 === 1 && a1again === 1 && a2 === 0 && other === 1 && food2 === 1 && yday === 1 && noNote === 1 && kept[t] && kept[t]['s:s1'] === 1000,
+          'R321: A NEGATIVE FLAG SHOWS AT MOST ONCE A DAY PER ITEM -- the first box keeps it on a redraw, a second tick that day shows none, another item still flags, a food by its name (twice -> once), another day flags again; kept by item and box time',
+          [a1, a1again, a2, other, food2, yday, noNote].join(','));
+      try { localStorage.removeItem(HT.FLAGS_KEY); } catch (e) {}
       HT.packRemove();
     }).catch(function (e) { HT.packRemove(); res(false, 'R318 async threw', String(e && e.message)); });
   }

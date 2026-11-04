@@ -234,6 +234,9 @@ try {
   Check ($k1.ok -and ($a.neg -eq '1') -and ($a.first -like ('Gatezinc 50 50 mg ' + [char]0xB7 + ' claim: gate negative ' + [char]0xB7 + ' 80 %*'))) "a real tick of an item an approved NEGATIVE claim at 80 % names puts it in the top box at once, as the first line: item, amount, the claim, its probability"
   Check (($a.edge -eq $a.warn) -and ($a.mark -eq $a.warn) -and ($a.edge -ne $a.bad) -and ($a.sh -ge 44)) "amber, never red: the box's edge and the line's mark are the warn colour; its i is a 44 px target"
   Check (($a.all -notlike '*gate positive*') -and ($a.all -notmatch '\b(should|stop|avoid|don''t|try|must|need to)\b')) "a POSITIVE claim on the same item never flags; the words carry no advice"
+  $null = Eval "(function(){ HT.refresh(); return 1; })()"; WaitQuiet 'redraw'
+  $aR = Strip
+  Check (($aR.neg -eq '1') -and ($aR.first -eq $a.first)) "R321: the box that showed the flag keeps it on a redraw"
   $bt = TapSel '#ctxStrip .ctxneg > summary'
   Check ($bt.ok -and ($bt.h -ge 44)) "the flag's i is a real 44 px target of its own: tapped at its centre, nothing else is there"
   $b = Eval "(function(){ var d = document.querySelector('#ctxStrip .ctxneg'); return (d && d.open ? 'open|' : 'shut|') + (d ? d.textContent.replace(/\s+/g, ' ') : ''); })()"
@@ -256,6 +259,15 @@ try {
   Check (($c.neg -eq '0') -and ($c.all -notlike '*gate low*')) "a negative claim at 29 % does not flag at the default 30 %"
   Check (($c25.neg -eq '1') -and ($c25.first -like ('Gatelow tea 1 capsule ' + [char]0xB7 + ' claim: gate low ' + [char]0xB7 + ' 29 %*')) -and ($c85.neg -eq '0')) "THE THRESHOLD TAKES EFFECT: at 25 % the 29 % claim flags; at 85 % the 80 % one, ticked again, does not"
   Check (($u.neg -eq '0') -and ($u.all -notlike '*gate unapproved*')) "a direction the user has not approved never flags, even at 90 %"
+
+  # ---- R321: at most once a day per item -- the same item ticked again today shows no flag -------
+  $null = TickByTap 'Gatezinc 50'
+  $z0 = Strip
+  $z1t = TickByTap 'Gatezinc 50'
+  $z1 = Strip
+  $zn = Eval "(function(){ var tl = (HT.state().timeline || {})[HT.todayKey()] || []; return tl.filter(function (r) { return r.stackId === 'sz'; }).length + '|' + JSON.stringify(HT.influenceShown()[HT.todayKey()] || {}); })()"
+  Write-Host ("  zinc again, at 30 %: unticked " + $z0.neg + ' | ticked ' + $z1.neg + ' [' + $z1.first + '] | ' + $zn)
+  Check ($z1t.ok -and ($z1.kind -eq 'stack') -and ($z1.neg -eq '0') -and ($z1.all -notlike '*gate negative*') -and ($z1.all -like '*Gatezinc 50*') -and ($zn -like '1|*"s:sz"*')) "R321: THE SAME ITEM TICKED AGAIN THE SAME DAY (a real untick and tick, at 30 %) shows its box without the flag -- one flag a day per item"
 
   # ---- a real food log: a drink with alcohol flags the alcohol claim ---------------------------
   $null = TapSel '#fab'

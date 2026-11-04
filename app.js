@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.128.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.128.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4291,7 +4291,7 @@ function ctxFoodHTML(n) {
   const l3 = ctxSuppliesHTML(pw) + (ferm.length ? ' · ' + esc(ferm.slice(0, 2).join(', ')) + ' fermented' : '');
   // R318/2: a negative claim the food matches is stated first, on a full 44 px line of its own;
   // the fast status stays below it (the box keeps its height)
-  const neg = influenceLineHTML(influenceFlagsFor(items.map(function (it) { return { x: it, isStack: false }; })));
+  const neg = influenceLineHTML(influenceFlagsFor(items.map(function (it) { return { x: it, isStack: false }; }), n.dk, n.at));
   return { head: head, lines: neg ? [neg, esc(l2)] : [esc(l1), esc(l2), l3], pw: pw || [], neg: !!neg };
 }
 function ctxStackHTML(n) {
@@ -4325,7 +4325,7 @@ function ctxStackHTML(n) {
   const note = flags.length ? intakeNoteHTML(dayIntakeFlagText(flags[0]), 'ctxflag') : '';
   lines.push(note + '<button type="button" class="linklike ctxlink" onclick="revealPanel()">all totals ›</button>');
   // R318/2: a negative claim the ticked item matches is stated first
-  const neg = influenceLineHTML(influenceFlagsFor(ids.map(function (id) { const it = stackById(id), l = stackLatest(it, dk); return { x: it, isStack: true, rec: l && l.rec }; })));
+  const neg = influenceLineHTML(influenceFlagsFor(ids.map(function (id) { const it = stackById(id), l = stackLatest(it, dk); return { x: it, isStack: true, rec: l && l.rec }; }), dk, n.at));
   return { head: head, lines: neg ? [neg, lines[0]] : lines, pw: [], neg: !!neg };
 }
 function ctxOpenHTML(n) {
@@ -6169,13 +6169,35 @@ function influenceLineHTML(flags) {
   return '<details class="ctxneg"><summary class="ctxnegs"><span class="ctxnegmk" aria-hidden="true"></span>' + esc(head) + '</summary>'
     + '<div class="ctxnegb">' + body + '<div class="ctxnegl ctxdim">' + esc('Claims you marked as pulling against you, at ' + Math.round(100 * influenceMin()) + ' % or more (Settings). Each is a study claim with its probability, not a reading of you.') + '</div></div></details>';
 }
-function influenceFlagsFor(list) {
+// R321: a negative flag shows at most once a day per item (a stack item by its id, a food by its
+// name). The first top box to show an item's flag owns it -- by its note's time -- and keeps it on
+// every redraw; a later tick or log of that item the same day shows none. Kept on the device,
+// today and the day before only, not in the backup; it writes no entry.
+const FLAGS_KEY = 'healthtracker-flags';
+function influenceFlagKey(e) { return e.isStack ? 's:' + String(e.x.id) : 'f:' + String(e.x.name || '').trim().toLowerCase(); }
+function influenceShown() {
+  try { const m = JSON.parse(localStorage.getItem(FLAGS_KEY) || '{}'); return m && typeof m === 'object' ? m : {}; } catch (e) { return {}; }
+}
+function influenceFlagsFor(list, dk, at) {
+  const once = isDayKey(dk) && num(at) > 0;
+  const shown = once ? influenceShown() : {}, day = once ? (shown[dk] || {}) : {};
+  let owned = false;
   const out = [];
   list.forEach(function (e) {
-    influenceNegatives(e.x, e.isStack).forEach(function (m) {
+    const k = once ? influenceFlagKey(e) : '';
+    if (once && day[k] != null && day[k] !== num(at)) return;     // shown by an earlier box today
+    const ms = influenceNegatives(e.x, e.isStack);
+    if (once && ms.length && day[k] == null) { day[k] = num(at); owned = true; }
+    ms.forEach(function (m) {
       if (!out.some(function (o) { return o.m.c.id === m.c.id; })) out.push({ m: m, name: String(e.x.name || ''), amount: influenceAmount(e.x, e.isStack, e.rec) });
     });
   });
+  if (owned) {
+    const keep = {}, from = shiftDate(todayKey(), -1);
+    Object.keys(shown).forEach(function (d) { if (d >= from) keep[d] = shown[d]; });
+    keep[dk] = day;
+    try { localStorage.setItem(FLAGS_KEY, JSON.stringify(keep)); } catch (e) {}
+  }
   return out.sort(function (a, b) { return b.m.p.p - a.m.p.p; });
 }
 // The wheel's notch: the pathways a flagged claim is filed under, while it is current -- an
@@ -19147,6 +19169,7 @@ const VERSION_LOG = [
   { v: '0.126.2', d: '2026-11-03', note: 'The weekly review counts a week with a clock change in real time: the week the clocks went back is 169 hours, and its fasts are counted in real hours too.' },
   { v: '0.127.0', d: '2026-11-03', note: 'The Pathways card opens with a wheel: every pathway in its group’s numbered slice, shaded by how much of your last 28 days of food carries a figure for its raw materials. Tap a slice, then a pathway, to draw its connections and open its panel, which lists each connected pathway once, by plain names; gene symbols and IDs are behind the ⓘ. A pathway’s ⓘ in the list shows the same rows.' },
   { v: '0.128.0', d: '2026-11-03', note: 'Claims you approve as pulling against you (in your pathway pack) are now stated in the top box right after you tick a matching stack item or log a matching food, with the claim and its probability, at the threshold you set in Settings (30 % to start), and marked on the pathway wheel. Claims you approve as working for you are summed in the weekly review. Nothing shows until you approve the directions.' },
+  { v: '0.128.1', d: '2026-11-04', note: 'A claim you approved as pulling against you now shows at most once a day for each stack item or food: the first time you tick or log it that day. Ticking or logging it again the same day shows the top box without it.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -29023,7 +29046,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
