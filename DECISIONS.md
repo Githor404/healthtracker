@@ -21725,3 +21725,30 @@ was not pushed; see R320. After R320: every gate alone, then the full suite, 80 
    line before it. The tap helpers print `STEP tap <target>` (or the coordinates).
 
 Every gate alone (68 of 68), then one fresh full suite: **80 of 80** (1 harness + 11 static + 68).
+
+## R318 part 1 -- BUILT (v0.127.0), against its pre-registration
+
+As pre-registered, with these stated:
+- **The wheel has a slot of its own** (`#pwWheelSlot`), filled by `pwWheelFill` while the card is
+  open; the card's toggle, a group tap and a pathway tap redraw only the slot, so the list below
+  keeps what the user opened (a full redraw on the toggle would have closed the groups other
+  gates and the strip's link had just opened).
+- **An app bug found by the gates alone, fixed:** the strip's "supplies N pathways ›" opened the
+  card and scrolled to the first marked pathway, then the toggle drew the wheel above it and
+  pushed it off the screen (strip-gate). `ctxShowPathways` now draws the wheel before the scroll.
+- **Rows:** proteins before molecules in "shares ..." (the more specific participants first);
+  connect-gate re-pointed for that, for the merged row (a planted literature link to a
+  structural neighbour) and for the technical IDs behind the card's i.
+- Two static-check findings fixed before the gates: `.pwpick` had two rule blocks (class-dupes);
+  `PW_KNOWN_DAYS` declared as a window (engagement). wheel-gate was copied from pre-R320
+  boilerplate and the new check found its 6 unwaited inputs and measurements; fixed.
+- **wheel-gate:** 14 checks, all pass -- at 390 and 360 the smallest slice is 46 px along the rim
+  and 64 px deep; the hatch differs from "none known" by 2.15:1 (light) and 4.69:1 (dark);
+  building the open wheel costs 0.14 and a selection 0.13 of the reference workload.
+- **On the user's pack v014 and the 31 Oct backup** (local browser, 390 px, light and dark): 47
+  pathways with lines, median known share 45 % (4 at 0 %, the highest 97 %) -- higher than the
+  mock-up's 7 %, which used the 60 % per-day line the user replaced; cholesterol synthesis lists
+  8 connected pathways, Lipoproteins once with its shared proteins and the SREBP literature link.
+- Harness +3 (3459). Every gate alone (69 of 69), then the full suite: **81 of 81**.
+- **HTPrivate:** pack v014 = v013 + `connections.names` (503 proteins, UniProt CC BY 4.0, named
+  in the pack's connection licence line).
