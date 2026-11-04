@@ -21821,3 +21821,25 @@ per meal; no colour; no verdict word. Its ⓘ says what was matched and how.
 
 **Release** under the standing pre-run rule. The user approves the directions from the review
 file; that approval is data work (a new pack), not a release.
+
+## R318 part 2 -- BUILT (v0.128.0), against its pre-registration
+
+As pre-registered, with these stated:
+- **The flag's line is a full 44 px line of its own, and the box shows two lines while a flag is
+  there** (the flag, then the fast status after a food or the nutrient total after a tick),
+  not three: found by the gate's real tap -- the next line's link, whose 44 px target borrows
+  10 px above it, covered the lower half of the flag's i. The box keeps its fixed height.
+- **The notch's tooltip names each claim once** (a drink logged twice named it twice).
+- **influence-gate:** 13 checks, all pass. Written on R320's tap helper (stackadd's: present,
+  laid out, uncovered, still), which showed at once that the + Log sheet's close control is
+  `#entrySheet .sheetx`, not under `#sheetRoot` -- the older helper would have "tapped" nothing
+  and every later tap would have landed on the open sheet. One gate flaw fixed: the machine
+  runs in dark mode, so the warn colour is now read in the same moment as the notch it is
+  compared with.
+- **HTPrivate:** `tools/draft_r318_directions.py` drafted 64 directions (51 claims, 13
+  interactions: 14 negative, 32 positive, 18 neutral; 9 would flag at 30 %) into
+  `evidence/directions.json`, all unapproved, and the review file
+  `reports/review-r318-directions-2026-11-03.md`; `build_pack.py` carries `for_me` only for an
+  approved entry. **Nothing shows on the phone until the user approves them.**
+- The doctor list (R314): waiting, as ruled.
+- Harness +4 (3463). Every gate alone (70 of 70), then the full suite: **82 of 82**.
