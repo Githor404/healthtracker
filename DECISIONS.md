@@ -21944,3 +21944,25 @@ ratio, the 8-day fallback, the weekly figures, and boot keeping `influence`, `we
 `weekSeen`, `waistUnit`, `height_cm`.
 
 **Release** under the standing pre-run rule.
+
+## R322 -- BUILT (v0.129.0), against its pre-registration
+
+As pre-registered, with these stated:
+- **The entry's editor** (a logged reading's Value) shows and takes a waist in the chosen unit too,
+  and a value left as shown is no edit (87.63 cm shown as 87.6 is not rewritten as 87.6).
+- **The measuring methods differ, and the screen says so:** the user's method is at the navel;
+  NICE NG246 (and WHO) measure halfway between the lowest rib and the top of the hip bone, and
+  NICE's 0.5 is set on its own method. The ratio's i states both; the user's method is kept as
+  ruled. The NICE page refused automated reading (403); recommendations 1.9.10-1.9.11 and the
+  0.5 reference point are from search results quoting it -- for the user to confirm.
+- **The harness found a clock-change case in its own test, not in the code:** five readings two
+  days apart before 1 Nov and a "three days later" across the fall-back night is 73 real hours,
+  over 1.5 x 48 h -- R301 working. The case now reads a moment just under 72 h on any date.
+- **chip-layout-gate's pinned chip count 15 -> 16** (a decision, as its comment requires): Waist
+  sits after Bowel movement, which stays reachable without scrolling.
+- **The settings defect:** `influence`, `weekNotice` and `weekSeen` are now kept by
+  `normalizeSettings`; waist-gate proves the threshold survives export -> restore and a reload.
+  A user who switched on "Last week's review is ready" before this release had it switched off
+  at the next start, and should switch it on again.
+- waist-gate: 18 checks, all pass. Harness +5 (3469). Every gate alone (71 of 71, chip-layout
+  after its count), then the full suite: **83 of 83**. Pushed; verify-deploy passes.
