@@ -80,9 +80,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # Set BPCHART_SHOTS=1 to save 390px screenshots to %TEMP%\bpchart-shots.
@@ -293,9 +294,10 @@ try {
   # leave the page, so they cannot stand for a finger here; the frame's touch-action
   # is asserted instead -- pan-x is what lets a finger scroll it on the phone.)
   function Swipe([double]$x0, [double]$y0, [double]$dx) {
+    WaitQuiet 'before input'
     for ($rep = 0; $rep -lt 12; $rep++) {
       Invoke-CDP 'Input.dispatchMouseEvent' @{ type = 'mouseWheel'; x = $x0; y = $y0; deltaX = (-1 * $dx); deltaY = 0 } | Out-Null
-      Start-Sleep -Milliseconds 60 } }
+      WaitQuiet 'a wheel step' } }
   $ta = Eval "(function(){ var s = document.querySelector('#bpWrap svg.bpchart'); return getComputedStyle(s).touchAction + ' / ' + getComputedStyle(s.querySelector('.bphit')).touchAction; })()"
   Write-Host ("  touch-action: " + $ta)
   Check ($ta -like 'pan-x pan-y*') "BP SCROLL: zoomed, the chart lets a finger pan sideways (touch-action pan-x) as well as scroll the page"

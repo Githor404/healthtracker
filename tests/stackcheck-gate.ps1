@@ -87,9 +87,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # Set STACKCHECK_SHOTS=1 to save 390px screenshots to %TEMP%\stackcheck-shots.
@@ -424,7 +425,6 @@ try {
   Check ($a0v.listed -and ($a0v.line -eq ('Food ' + [char]0xB7 + ' switched off')) -and ($a0v.box -eq 0) -and ($a0v.btn -eq 'Switch on') -and ($a0v.h -ge 44) -and ($a0v.w -ge 44) -and ($a0v.px -ge 16)) "R276 GATE: a food item switched off is LISTED in + Log and REACHABLE -- 'Food . switched off' with a 'Switch on' button, 44 x 44 at 16px"
   Shot 'stack-item-off'
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $a0v.x; y = $a0v.y }) } | Out-Null
-  Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
   Settle
   $a1 = EvalJ ("(function(){ var r = " + $rowA + "; var g = HT.state().settings.stack.filter(function (x) { return x.id === 'gA'; })[0]; var ev = g.switches || []; var last = ev[ev.length - 1] || {}; return { box: r ? r.querySelectorAll('input[type=checkbox]').length : -1, sub: r && r.querySelector('.stksub') ? r.querySelector('.stksub').innerText : '', on: g.enabled, n: ev.length, lastOn: last.on, stated: last.stated === true, today: String(last.at || '').slice(0, 10) === HT.todayKey(), kind: g.kind }; })()")
@@ -456,10 +456,11 @@ try {
   # accident. Ruled: the row keeps name, type and Edit; switching is in + Log and
   # inside Edit; every switch is one recorded event. Placeholders only (R204).
   function TapSel([string]$sel) {
+    WaitQuiet 'before input'
+    Write-Host ('  STEP tap ' + $sel)
     $r = EvalJ ("(function(){ var b = document.querySelector(" + (ConvertTo-Json $sel) + "); if (!b) return { ok: false }; b.scrollIntoView({ block: 'center' }); var q = b.getBoundingClientRect(); return { ok: true, x: q.left + q.width / 2, y: q.top + q.height / 2, h: Math.round(q.height), w: Math.round(q.width) }; })()") | ConvertFrom-Json
     if (-not $r.ok) { return $r }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $r.x; y = $r.y }) } | Out-Null
-    Start-Sleep -Milliseconds 40
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     Settle
     return $r

@@ -81,9 +81,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # Set DAYCLOSE_SHOTS=1 to save 390px screenshots to %TEMP%\dayclose-shots.

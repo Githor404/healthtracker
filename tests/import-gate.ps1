@@ -148,8 +148,9 @@ function Wait-Import([int]$after, [int]$maxMs = 40000) {
   return $null
 }
 function Tap([int]$x, [int]$y) {
+  WaitQuiet 'before input'
+  Write-Host ('  STEP tap at ' + [int]$x + ',' + [int]$y)
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
-  Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
   WaitQuiet 'after a step'
 }

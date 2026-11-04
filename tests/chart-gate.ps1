@@ -120,8 +120,9 @@ function Chk([string]$tag, [bool]$cond, [string]$msg) {
   if (-not $cond) { $script:fails += "[$tag] $msg" }
 }
 function Tap([int]$x, [int]$y) {
+  WaitQuiet 'before input'
+  Write-Host ('  STEP tap at ' + [int]$x + ',' + [int]$y)
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
-  Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
   WaitQuiet 'after a step'
 }
@@ -462,7 +463,7 @@ try {
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $G.x; y = $G.y }) } | Out-Null
     foreach ($dx in 20, 45, 70, 95) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(@{ x = ($G.x - $dx); y = $G.y }) } | Out-Null
-      Start-Sleep -Milliseconds 25
+      WaitQuiet 'after a step'
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitQuiet 'after a step'
@@ -479,7 +480,7 @@ try {
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $G.x; y = $G.y }) } | Out-Null
     foreach ($dy in 20, 45, 70, 95) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(@{ x = $G.x; y = ($G.y - $dy) }) } | Out-Null
-      Start-Sleep -Milliseconds 25
+      WaitQuiet 'after a step'
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitQuiet 'after a step'
@@ -889,7 +890,7 @@ try {
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $sx; y = $g23.y }) } | Out-Null
     foreach ($dx in 14, 30, 48, 66) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(@{ x = ($sx - $dx); y = $g23.y }) } | Out-Null
-      Start-Sleep -Milliseconds 30
+      WaitQuiet 'after a step'
     }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitQuiet 'after a step'

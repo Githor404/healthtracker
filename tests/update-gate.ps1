@@ -213,6 +213,7 @@ try {
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
   function Pull([int]$x, [int]$y0, [int]$dy) {
+    WaitQuiet 'before input'
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y0 }) } | Out-Null
     for ($k = 1; $k -le 8; $k++) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove'; touchPoints = @(@{ x = $x; y = ($y0 + [int]($dy * $k / 8)) }) } | Out-Null }
@@ -236,15 +237,16 @@ try {
   Eval "document.body.style.paddingBottom = '3000px'; window.scrollTo(0, 900); 1" | Out-Null
   $midY = [int](Eval "Math.round(window.scrollY)")
   Pull 195 300 140
-  Start-Sleep -Milliseconds 300
+  WaitQuiet 'after the mid-page pull'   # R320: a check, had one started, is async work the page counts
   $c3 = [int](Eval "HT.ptrChecks()")
   $midY2 = [int](Eval "Math.round(window.scrollY)")
   Eval "document.body.style.paddingBottom = ''; window.scrollTo(0, 0); 1" | Out-Null
   $pullB = ($c2 -eq $c1) -and ($midY -ge 800) -and ($c3 -eq $c1)
   # c.
   Set-Content -Path $marker -Value 'bump3' -Encoding ascii
-  # CONTROL: the new shell is on the server, and without the pull nothing picks it up
-  Start-Sleep -Milliseconds 2000
+  # CONTROL: the new shell is on the server, and without the pull nothing picks it up --
+  # R320: read once the page has no work in flight (WaitQuiet), not after a fixed 2 s
+  WaitQuiet 'the control, before the pull'
   $before3 = [bool](Eval "(document.documentElement.outerHTML.indexOf('UPDGATE-TOKEN3')>=0)")
   Pull 195 200 140
   $pullApplied = $false

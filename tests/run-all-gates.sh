@@ -87,6 +87,9 @@ sweep_stale
 # ONLY_GATES="a-gate.ps1 b-gate.ps1": run just those gates, no harness and no static
 # checks -- for the stop-cleanup check. Says so, and is never a suite verdict.
 ONLY_GATES=${ONLY_GATES:-}
+# R320: a red gate's whole output is kept here (ignored by git), replaced on every run
+SUITE_LOGS="$DIR/.suite-logs"
+rm -rf "$SUITE_LOGS"
 
 FAILED=""
 PASSED=""
@@ -206,6 +209,10 @@ settle_for() {   # settle_for <gate.ps1> -- returns when its ports are free
 judge() {  # judge <name> <rc> <output>
   local name=$1 rc=$2 out=$3 verdict
   verdict=$(printf '%s\n' "$out" | grep -oE 'GATE: (PASS|FAIL)' | tail -1)
+  # R320: a red gate keeps its WHOLE output, so the next red run can be diagnosed
+  if [ "$verdict" != "GATE: PASS" ] || [ "$rc" -ne 0 ]; then
+    mkdir -p "$SUITE_LOGS" && printf '%s\n' "$out" > "$SUITE_LOGS/$name.log"
+  fi
 
   if [ "$rc" -eq 124 ]; then
     # Timed out: no verdict will ever arrive.
@@ -228,7 +235,10 @@ judge() {  # judge <name> <rc> <output>
       # print their findings as `  - <what went wrong>`, so a FAIL arrived with no
       # reason attached and the evidence had to be dug out of the raw output by
       # hand. Twice in one session. The findings are the point of a failure.
-      *.ps1) printf '%s\n' "$out" | grep -E '^\s+- |\->\s*False|FAIL' | tail -8 | sed 's/^/      /' ;;
+      *.ps1) printf '%s\n' "$out" | grep -E '^\s+- |\->\s*False|FAIL' | tail -8 | sed 's/^/      /'
+             # R320: each failed check, with the step (the last tap) printed before it
+             printf '%s\n' "$out" | awk '/STEP /{ st=$0; sub(/^[ \t]*/, "", st) } /^[ \t]+FAIL  /{ c=$0; sub(/^[ \t]+FAIL  /, "", c); print "      failed: " substr(c, 1, 140); print "        after: " (st == "" ? "(no step printed)" : st) }'
+             echo "      whole output: tests/.suite-logs/$name.log" ;;
       # A static check's output is short and its evidence is not on the FAIL
       # line (the missing path, the offending sentence), so show the output.
       *)     printf '%s\n' "$out" | grep -vE '^\s*(ok\s.*)?$|^GATE:' | tail -6 | sed 's/^/      /' ;;
@@ -284,7 +294,8 @@ check-ps-encoding.sh
 check-egress.sh
 check-engagement.sh
 check-dupes.sh
-check-ps-case.sh"
+check-ps-case.sh
+check-gate-waits.sh"
 IN_HARNESS="check-sw-hash.sh
 check-version.sh
 check-writesites.sh

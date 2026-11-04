@@ -405,7 +405,6 @@ try {
   $G2 = $g2v | ConvertFrom-Json
   $editBefore = Eval 'JSON.stringify(!!HT.itemEditTarget())'
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $G2.x; y = $G2.y }) } | Out-Null
-  Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
   WaitQuiet 'after a step'
   $after = Eval "JSON.stringify((function(){var r=document.querySelector('.mitem');return {h:Math.round(r.getBoundingClientRect().height),expanded:r.classList.contains('mopen'),edit:!!HT.itemEditTarget()};})())"

@@ -74,9 +74,10 @@ function EvalA([string]$js) {
   return $r.result.result.value }
 # REAL TYPING, one character at a time into whatever holds the focus.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 500 ms
 function Focus([string]$id) { [void](Eval "(function(){ var e = document.getElementById('$id'); e.focus(); if (e.select) e.select(); return 1; })()") }
 

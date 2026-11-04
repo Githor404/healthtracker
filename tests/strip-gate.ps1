@@ -85,9 +85,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # The strip's screenshots, each kind at 390 px in light and dark, always kept here (STRIP_SHOTS
@@ -167,10 +168,13 @@ try {
   $boot = Eval "typeof HT === 'object' && typeof HT.ctxStripCompute === 'function' && typeof HT.packImportText === 'function' && typeof HT.logRepeat === 'function'"
   if (-not $boot) { Write-Host "ERROR: the app did not boot, or the R298 strip functions are not on HT"; Cleanup; exit 2 }
   function TapSel([string]$sel) {
-    $r9 = EvalJ ("(function(){ var b = document.querySelector(" + (ConvertTo-Json $sel) + "); if (!b) return { ok: false }; b.scrollIntoView({ block: 'center' }); var q = b.getBoundingClientRect(); return { ok: q.width > 0 && q.height > 0, x: q.left + q.width / 2, y: q.top + q.height / 2, h: Math.round(q.height), w: Math.round(q.width) }; })()") | ConvertFrom-Json
-    if (-not $r9.ok) { return $r9 }
+    WaitQuiet 'before input'
+    Write-Host ('  STEP tap ' + $sel)
+    for ($tw = 0; $tw -lt 100; $tw++) {
+      $r9 = EvalJ ("(function(){ var b = document.querySelector(" + (ConvertTo-Json $sel) + "); if (!b) return { ok: false, why: 'absent' }; b.scrollIntoView({ block: 'center' }); var q = b.getBoundingClientRect(); if (!(q.width > 0 && q.height > 0)) return { ok: false, why: 'not laid out' }; var cx = q.left + q.width / 2, cy = q.top + q.height / 2, hit = document.elementFromPoint(cx, cy); if (!hit || !(hit === b || b.contains(hit) || hit.contains(b))) return { ok: false, why: 'covered' }; var k = [q.left, q.top, q.width, q.height].map(Math.round).join(','); var still = window.__tapRect === k; window.__tapRect = k; return { ok: still, why: still ? '' : 'moving', x: cx, y: cy, h: Math.round(q.height), w: Math.round(q.width) }; })()") | ConvertFrom-Json
+      if ($r9.ok) { break }; Start-Sleep -Milliseconds 100 }
+    if (-not $r9.ok) { Write-Host ('  STEP FAILED: ' + $sel + ' never showed (' + $r9.why + ')'); return $r9 }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $r9.x; y = $r9.y }) } | Out-Null
-    Start-Sleep -Milliseconds 40
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitQuiet 'after a tap'
     return $r9

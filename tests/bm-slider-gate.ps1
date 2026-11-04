@@ -145,6 +145,7 @@ function Snap { return (Eval '__b.snap()' | ConvertFrom-Json) }
 # A real tap through the real event pipeline. This is what proves the stop ZONE is
 # the touch target, rather than the handle being the only thing you may grab.
 function TapStop([int]$n) {
+  WaitQuiet 'before input'
   $p = Eval ("__b.tapPoint($n)") | ConvertFrom-Json
   Invoke-CDP 'Input.dispatchMouseEvent' @{ type='mousePressed';  x=$p.x; y=$p.y; button='left'; clickCount=1; buttons=1 } | Out-Null
   Invoke-CDP 'Input.dispatchMouseEvent' @{ type='mouseReleased'; x=$p.x; y=$p.y; button='left'; clickCount=1; buttons=0 } | Out-Null

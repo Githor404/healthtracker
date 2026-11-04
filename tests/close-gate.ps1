@@ -83,9 +83,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # Set CLOSE_SHOTS=1 to save 390px screenshots to %TEMP%\close-shots.
@@ -187,7 +188,6 @@ try {
   $pre271 = (EvalJ "(function(){ var v = HT.resolveView(); var b = document.querySelector('#resolveBox .rvbox .xclose'); if (b) b.scrollIntoView({ block: 'center' }); var r = b ? b.getBoundingClientRect() : null; return { phase: v ? v.phase : null, x: r ? r.left + r.width / 2 : -1, y: r ? r.top + r.height / 2 : -1 }; })()") | ConvertFrom-Json
   Check (($held -gt 0) -and ($pre271.phase -eq 'loading') -and ($pre271.x -ge 0)) "R271: the panel is open and LOADING -- the corpus download is held ($held request(s)), the close link is on screen"
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $pre271.x; y = $pre271.y }) } | Out-Null
-  Start-Sleep -Milliseconds 40
   Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
   # R283: the download is HELD here on purpose, so the page cannot be quiet; what the next
   # check needs is the tap drawn -- two frames.

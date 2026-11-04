@@ -84,9 +84,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 $browser = Find-Browser
@@ -157,10 +158,14 @@ try {
   if (-not $boot) { Write-Host "ERROR: the app did not boot, or the view is not on HT"; Cleanup; exit 2 }
   Invoke-CDP 'Emulation.setTouchEmulationEnabled' @{ enabled = $true; maxTouchPoints = 5 } | Out-Null
   function TapAt([double]$x, [double]$y) {
+    WaitQuiet 'before input'
+    Write-Host ('  STEP tap at ' + [int]$x + ',' + [int]$y)
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitQuiet 'after a tap' }
   function TapSel([string]$sel) {
+    WaitQuiet 'before input'
+    Write-Host ('  STEP tap ' + $sel)
     $p = EvalJ ("(function(){ var e = document.querySelector('" + $sel + "'); if (!e) return null; e.scrollIntoView({ block: 'center' }); var r = e.getBoundingClientRect(); return { x: r.left + Math.min(r.width / 2, 120), y: r.top + r.height / 2 }; })()")
     if ($p -eq 'null' -or -not $p) { return $false }
     $q = $p | ConvertFrom-Json; TapAt $q.x $q.y; return $true }

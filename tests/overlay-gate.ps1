@@ -192,17 +192,19 @@ try {
   }
 
   function Swipe([int]$x, [int]$y, [int]$dy) {
+    WaitQuiet 'before input'
     $steps = 12
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
     for ($iv = 1; $iv -le $steps; $iv++) {
       Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchMove';
         touchPoints = @(@{ x = $x; y = ($y + [int]($dy * $iv / $steps)) }) } | Out-Null
-      Start-Sleep -Milliseconds 14 }
+      WaitQuiet 'a swipe step' }
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitStill }
   function Tap([int]$x, [int]$y) {
+    WaitQuiet 'before input'
+    Write-Host ('  STEP tap at ' + [int]$x + ',' + [int]$y)
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $x; y = $y }) } | Out-Null
-    Start-Sleep -Milliseconds 40
     Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
     WaitStill }
   # R283: a swipe, a tap and a park are followed by waiting for the page to STOP -- the

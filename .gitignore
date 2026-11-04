@@ -39,3 +39,6 @@ corpus/slots_raw.json
 # would put a machine-specific, version-specific binary in a public tree.
 __pycache__/
 *.pyc
+
+# R320: a red suite run keeps each failed gate's whole output here (replaced every run).
+tests/.suite-logs/

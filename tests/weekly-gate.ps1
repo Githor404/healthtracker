@@ -83,9 +83,10 @@ function EvalA([string]$js) {
 # .value and calling the handler would prove the handler; it would not prove the
 # field survives being typed in, which is the whole of the caret rule.
 function TypeText([string]$t) {
+  WaitQuiet 'before input'
   foreach ($ch in $t.ToCharArray()) {
     Invoke-CDP 'Input.insertText' @{ text = [string]$ch } | Out-Null
-    Start-Sleep -Milliseconds 70 } }
+    WaitQuiet 'typing' } }
 function Settle { WaitQuiet 'after a step' }   # R283: was a fixed 400 ms
 
 # Set WEEKLY_SHOTS=1 to save 390px screenshots to %TEMP%\weekly-shots.
@@ -192,6 +193,8 @@ try {
 
   # A REAL TAP: scroll the element into view, press and release at its centre.
   function TapSel([string]$sel) {
+    WaitQuiet 'before input'
+    Write-Host ('  STEP tap ' + $sel)
     $p = EvalJ ("(function(){ var e = document.querySelector('" + $sel + "'); if (!e) return null; e.scrollIntoView({ block: 'center' }); var r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: Math.round(r.height), w: Math.round(r.width) }; })()")
     $pv = $p | ConvertFrom-Json
     if (-not $pv) { return $null }
