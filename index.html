@@ -778,6 +778,10 @@
   .pwseg.pwnb{stroke:var(--accent);stroke-width:2}
   .pwseg.pwsel{stroke:var(--txt);stroke-width:2.5}
   .pwdot{fill:var(--accent);pointer-events:none}
+  .pwnotch{fill:var(--warn);pointer-events:none}   /* R318/2: a flagged negative claim's pathway */
+  .infmin{min-height:44px;font-size:16px}
+  .wkpos{margin:6px 0;padding-left:18px;font-size:16px}
+  .wkpos li{margin:4px 0;overflow-wrap:anywhere}
   .pwgnum{font-size:12px;fill:var(--muted);text-anchor:middle;dominant-baseline:central;pointer-events:none}
   .pwhit{fill:var(--txt);fill-opacity:0;stroke:none;cursor:pointer}
   .pwhit.pwon{stroke:var(--txt);stroke-width:1.5;stroke-dasharray:4 3}
@@ -1660,6 +1664,14 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
 #ctxStrip{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:12px;background:var(--panel);padding:6px 12px;margin:0 0 12px;height:112px;box-sizing:border-box;font-size:16px;line-height:24px;color:var(--txt)}
 #ctxStrip[data-kind="quiet"]{border-left-color:var(--line);height:auto}   /* R308.1: at rest, only the pertinent lines (one or two) */
 #ctxStrip[data-kind="none"]{display:none}   /* R308.1: nothing pertinent -- no box */
+#ctxStrip[data-neg="1"]{border-left-color:var(--warn)}   /* R318/2: a negative claim flagged -- amber, never red */
+#ctxStrip .ctxl:has(.ctxneg){height:44px}   /* the flag's own 44 px line: no neighbour's link reaches into it */
+#ctxStrip .ctxneg>summary{list-style:none;cursor:pointer;white-space:nowrap;overflow-x:clip;text-overflow:ellipsis;padding:10px 0;line-height:24px}
+#ctxStrip .ctxneg>summary::-webkit-details-marker{display:none}
+#ctxStrip .ctxnegmk{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--warn);margin-right:6px;vertical-align:0}
+#ctxStrip .ctxnegb{white-space:normal;margin:4px 0}
+#ctxStrip .ctxnegl{font-size:16px;line-height:22px;margin:2px 0;overflow-wrap:anywhere}
+#ctxStrip .ctxdim{color:var(--muted)}
 #ctxStrip:has(details[open]){height:auto}
 #ctxStrip .ctxh{display:flex;justify-content:space-between;align-items:center;height:26px;color:var(--muted)}
 #ctxStrip .ctxhead{white-space:nowrap;overflow-x:clip;text-overflow:ellipsis;min-width:0}
@@ -2126,6 +2138,8 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <input type="file" id="packFile" accept="application/json,.json" onchange="packFilePicked(this)">
       <div id="packMsg"></div>
       <div class="note" id="packNow"></div>
+      <label class="note" for="influenceMin" style="display:block;margin:10px 0 4px">Flag a negative claim from (a claim you marked as pulling against you, shown in the top box after a matching tick or food):</label>
+      <select id="influenceMin" class="infmin" onchange="setInfluenceMin(this.value)"></select>
     </div>
     <div class="card" data-setting="import">
       <h2>Import · restore <span style="color:var(--bad)">(replaces everything)</span></h2>

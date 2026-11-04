@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.127.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.128.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -3820,6 +3820,7 @@ function packRemove() {
   return { ok: true };
 }
 function renderPackSetting() {
+  renderInfluenceSetting();
   const el = document.getElementById('packNow');
   if (!el) return;
   const P = packLoad();
@@ -4047,6 +4048,7 @@ function pwWheelHTML(P, size) {
   ((conn && conn.rows) || []).forEach(function (x) { linked[x.id] = x; });
   const ang = {};
   L.segs.forEach(function (s) { ang[s.id] = (s.a0 + s.a1) / 2; });
+  const notch = influenceNotches(P);           // R318/2: a flagged negative claim's pathways
   let h = '<svg class="pwwheelsvg" width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="pathway wheel">'
     + '<defs><pattern id="pwhatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
     + '<rect width="3" height="6" class="pwhatchbar"></rect></pattern></defs>';
@@ -4064,7 +4066,11 @@ function pwWheelHTML(P, size) {
     const cls = 'pwseg' + (s.id === sel ? ' pwsel' : '') + (linked[s.id] ? ' pwnb' : '') + (sh == null ? ' pwhatched' : '');
     h += '<path class="' + cls + '" data-pw="' + esc(s.id) + '" data-group="' + esc(s.group) + '" data-share="' + (sh == null ? '' : sh.toFixed(4)) + '"'
       + (sh == null ? ' fill="url(#pwhatch)"' : ' fill-opacity="' + pwShadeOpacity(sh) + '"') + ' d="' + pwArc(L, L.r, L.R, s.a0, s.a1) + '">'
-      + '<title>' + esc(s.rec.plain_name + ' · ' + pwSharePct(sh)) + '</title></path>';
+      + '<title>' + esc(s.rec.plain_name + ' · ' + pwSharePct(sh) + (notch[s.id] ? ' · claim: ' + notch[s.id].join('; ') : '')) + '</title></path>';
+    if (notch[s.id]) {
+      const d = 0.6 * (s.a1 - s.a0) / 2, q0 = pwPt(L, L.R, ang[s.id] - d), q1 = pwPt(L, L.R, ang[s.id] + d), q2 = pwPt(L, L.R - 9, ang[s.id]);
+      h += '<path class="pwnotch" data-pw="' + esc(s.id) + '" d="M' + q0[0].toFixed(1) + ' ' + q0[1].toFixed(1) + 'L' + q1[0].toFixed(1) + ' ' + q1[1].toFixed(1) + 'L' + q2[0].toFixed(1) + ' ' + q2[1].toFixed(1) + 'Z"></path>';
+    }
     if ((s.rec.claims || []).length) {
       const d = pwPt(L, L.r - 6, ang[s.id]);
       h += '<circle class="pwdot" cx="' + d[0].toFixed(1) + '" cy="' + d[1].toFixed(1) + '" r="2.4"></circle>';
@@ -4283,7 +4289,10 @@ function ctxFoodHTML(n) {
   const pw = ctxSupplies(all);
   // the link first, so a narrow screen cuts the names, never the link
   const l3 = ctxSuppliesHTML(pw) + (ferm.length ? ' · ' + esc(ferm.slice(0, 2).join(', ')) + ' fermented' : '');
-  return { head: head, lines: [esc(l1), esc(l2), l3], pw: pw || [] };
+  // R318/2: a negative claim the food matches is stated first, on a full 44 px line of its own;
+  // the fast status stays below it (the box keeps its height)
+  const neg = influenceLineHTML(influenceFlagsFor(items.map(function (it) { return { x: it, isStack: false }; })));
+  return { head: head, lines: neg ? [neg, esc(l2)] : [esc(l1), esc(l2), l3], pw: pw || [], neg: !!neg };
 }
 function ctxStackHTML(n) {
   const dk = n.dk;
@@ -4315,7 +4324,9 @@ function ctxStackHTML(n) {
   const flags = dayIntakeFlags(dk);
   const note = flags.length ? intakeNoteHTML(dayIntakeFlagText(flags[0]), 'ctxflag') : '';
   lines.push(note + '<button type="button" class="linklike ctxlink" onclick="revealPanel()">all totals ›</button>');
-  return { head: head, lines: lines, pw: [] };
+  // R318/2: a negative claim the ticked item matches is stated first
+  const neg = influenceLineHTML(influenceFlagsFor(ids.map(function (id) { const it = stackById(id), l = stackLatest(it, dk); return { x: it, isStack: true, rec: l && l.rec }; })));
+  return { head: head, lines: neg ? [neg, lines[0]] : lines, pw: [], neg: !!neg };
 }
 function ctxOpenHTML(n) {
   const day = (APP_STATE.days || {})[n.dk];
@@ -4429,7 +4440,7 @@ function ctxQuietHTML(n) {
 // glucose stream is compared by its kept build (glucoseFlat), so readings arriving do too.
 function ctxKey(n, live) {
   const P = packLoad();
-  const parts = [n, live, P ? P._version : null];
+  const parts = [n, live, P ? P._version : null, influenceMin(), JSON.stringify((APP_STATE.settings || {}).drinkAlcohol || {})];
   if (live) {
     const day = (APP_STATE.days || {})[n.dk];
     parts.push(day ? JSON.stringify(day.items) : '', JSON.stringify((APP_STATE.timeline || {})[n.dk] || []));
@@ -4458,7 +4469,7 @@ function ctxStripCompute() {
   const x = c.quiet ? '' : '<button type="button" class="ctxx" onclick="ctxDismiss()" aria-label="Done with this">×</button>';
   // R308.1: at rest, no head line -- the pertinent lines only; none -> no box at all
   if (c.quiet && !c.lines.length) kind = 'none';
-  CTX_KEPT = { key: key, gflat: _glucoseFlat, kind: kind, pw: c.pw || [], n: n,
+  CTX_KEPT = { key: key, gflat: _glucoseFlat, kind: kind, pw: c.pw || [], n: n, neg: !!c.neg,
     html: kind === 'none' ? '' : (c.quiet ? '' : '<div class="ctxh"><span class="ctxhead">' + esc(c.head) + '</span>' + x + '</div>') + c.lines.slice(0, 3).map(ctxLine).join('') };
   return CTX_KEPT;
 }
@@ -4467,6 +4478,7 @@ function renderCtxStrip() {
   if (!el) return;
   const k = ctxStripCompute();
   if (el.getAttribute('data-kind') !== k.kind) el.setAttribute('data-kind', k.kind);
+  if (el.getAttribute('data-neg') !== (k.neg ? '1' : '0')) el.setAttribute('data-neg', k.neg ? '1' : '0');
   if (el._ctxHtml !== k.html) { el.innerHTML = k.html; el._ctxHtml = k.html; }
 }
 // "supplies N pathways ›": the Pathways card, opened at exactly those pathways -- their
@@ -6066,6 +6078,165 @@ function interactionSentence(c) {
   const m = String((c.modifier && c.modifier.name) || ''), sub = String((c.subject && c.subject.name) || '');
   const w = (m + ' ' + String(c.direction || 'changes') + ' ' + sub).trim();
   return w.charAt(0).toUpperCase() + w.slice(1) + '.';
+}
+
+// ---- R318/2: THE INFLUENCE LAYER (*evaluate*) -----------------------------------------
+// Each approved claim and interaction may carry a direction FOR THE USER (`for_me`: negative /
+// positive / neutral), approved by id on the PC; the phone checks the date again. A NEGATIVE one
+// at or above the user's threshold is stated in the top box right after a matching tick or food,
+// as a fact with its probability -- amber, never red, never advice. A POSITIVE one is summed in
+// the weekly review, never flagged per meal. No approved direction: nothing here shows.
+const INFLUENCE_MIN_DEFAULT = 0.30;
+function influenceMin() {
+  const v = (APP_STATE && APP_STATE.settings && APP_STATE.settings.influence) ? Number(APP_STATE.settings.influence.negMin) : NaN;
+  return (isFinite(v) && v > 0 && v < 1) ? v : INFLUENCE_MIN_DEFAULT;
+}
+function setInfluenceMin(pct) {
+  const p = Math.round(Number(pct));
+  if (!(p >= 5 && p <= 95)) return { ok: false };
+  const s = APP_STATE.settings;
+  if (p === Math.round(INFLUENCE_MIN_DEFAULT * 100)) delete s.influence; else s.influence = { negMin: p / 100 };
+  Store.saveState(APP_STATE); refresh(); renderInfluenceSetting();
+  return { ok: true, negMin: influenceMin() };
+}
+function renderInfluenceSetting() {
+  const el = document.getElementById('influenceMin');
+  if (!el) return;
+  const cur = Math.round(influenceMin() * 100);
+  let o = '';
+  for (let p = 5; p <= 95; p += 5) o += '<option value="' + p + '"' + (p === cur ? ' selected' : '') + '>' + p + ' %</option>';
+  if (el.innerHTML !== o) el.innerHTML = o;
+}
+function forMe(c) {
+  const f = c && c.for_me;
+  if (!f || !/^\d{4}-\d{2}-\d{2}/.test(String(f.reviewed_by_me || ''))) return null;
+  if (['negative', 'positive', 'neutral'].indexOf(f.direction) < 0) return null;
+  return f;
+}
+// The approved claims and interactions a stack item or a food matches.
+function influenceMatches(x, isStack) {
+  const P = packLoad();
+  if (!P || !x) return [];
+  let out = [];
+  if (isStack) {
+    out = stackClaims(x).map(function (c) { return { c: c, kind: 'claim' }; })
+      .concat(stackInteractions(x).map(function (c) { return { c: c, kind: 'interaction' }; }));
+  } else {
+    const names = [String(x.name || '').toLowerCase()].concat(x.ref && x.ref.name ? [String(x.ref.name).toLowerCase()] : []);
+    const hit = function (terms) { return (terms || []).some(function (t) { return names.some(function (n) { return claimTermIn(t, n); }); }); };
+    const alcohol = drinkHasAlcohol(x) === true;
+    (P.claims || []).forEach(function (c) {
+      if (!c || !/^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || ''))) return;
+      if ((c.subject && hit(c.subject.match)) || (alcohol && (c.food_features || []).indexOf('alcohol') >= 0)) out.push({ c: c, kind: 'claim' });
+    });
+    (P.interactions || []).forEach(function (c) {
+      if (!c || !/^\d{4}-\d{2}-\d{2}/.test(String(c.reviewed_by_me || ''))) return;
+      if (hit(c.match)) out.push({ c: c, kind: 'interaction' });
+    });
+  }
+  return out.filter(function (m) { return forMe(m.c); });
+}
+// The negative ones that flag: approved negative, a probability at or above the threshold.
+function influenceNegatives(x, isStack) {
+  const min = influenceMin();
+  return influenceMatches(x, isStack).filter(function (m) {
+    const pv = latestP(m.c);
+    return forMe(m.c).direction === 'negative' && pv && pv.p >= min - 1e-9;
+  }).map(function (m) { return Object.assign({ p: latestP(m.c) }, m); })
+    .sort(function (a, b) { return b.p.p - a.p.p; });
+}
+function influenceAmount(x, isStack, rec) {
+  if (isStack) {
+    const st = rec && rec.stated;
+    const d = st && st.dose != null ? st.dose : x.dose, u = st && st.dose_unit ? st.dose_unit : x.dose_unit;
+    if (x.kind === 'food') return x.part && num(x.part.grams) > 0 ? rDisp(num(x.part.grams)) + ' g' : '';
+    return d != null && d !== '' ? rDisp(num(d)) + (u ? ' ' + u : '') : '';
+  }
+  return num(x.grams) > 0 ? rDisp(num(x.grams)) + ' g' : '';
+}
+// The top box's first line: the highest one, the rest counted; its i holds every basis.
+function influenceLineHTML(flags) {
+  if (!flags.length) return '';
+  const f = flags[0];
+  const head = f.name + (f.amount ? ' ' + f.amount : '') + ' · claim: ' + forMe(f.m.c).short + ' · ' + Math.round(100 * f.m.p.p) + ' %'
+    + (flags.length > 1 ? ' · +' + (flags.length - 1) + ' more' : '');
+  const P = packLoad();
+  const body = flags.map(function (g) {
+    const c = g.m.c, pv = g.m.p, src = claimSourceWords(P, c);
+    return '<div class="ctxnegl">' + esc(g.name + ': ' + (g.m.kind === 'interaction' ? interactionSentence(c) : c.claim) + ' ' + Math.round(100 * pv.p) + ' % ' + pv.of
+      + ((c.evidence && c.evidence.grade) ? ' · GRADE ' + c.evidence.grade : '') + (src ? ' · ' + src : '') + ' · ' + (pv.kind === 'personal' ? 'personal' : 'general, no personal data yet')) + '</div>';
+  }).join('');
+  return '<details class="ctxneg"><summary class="ctxnegs"><span class="ctxnegmk" aria-hidden="true"></span>' + esc(head) + '</summary>'
+    + '<div class="ctxnegb">' + body + '<div class="ctxnegl ctxdim">' + esc('Claims you marked as pulling against you, at ' + Math.round(100 * influenceMin()) + ' % or more (Settings). Each is a study claim with its probability, not a reading of you.') + '</div></div></details>';
+}
+function influenceFlagsFor(list) {
+  const out = [];
+  list.forEach(function (e) {
+    influenceNegatives(e.x, e.isStack).forEach(function (m) {
+      if (!out.some(function (o) { return o.m.c.id === m.c.id; })) out.push({ m: m, name: String(e.x.name || ''), amount: influenceAmount(e.x, e.isStack, e.rec) });
+    });
+  });
+  return out.sort(function (a, b) { return b.m.p.p - a.m.p.p; });
+}
+// The wheel's notch: the pathways a flagged claim is filed under, while it is current -- an
+// item in the stack and switched on, or a food in the wheel's 28 days. Interactions are filed
+// under no pathway.
+function influenceNotches(P) {
+  const ids = {};
+  const add = function (m) {
+    if (m.kind !== 'claim') return;
+    (P.records || []).forEach(function (r) { if ((r.claims || []).indexOf(m.c.id) < 0) return; const l = ids[r.id] = ids[r.id] || []; if (l.indexOf(forMe(m.c).short) < 0) l.push(forMe(m.c).short); });
+  };
+  stackEnabled().forEach(function (s) { if (stackDayState(s, todayKey()) === 'in') influenceNegatives(s, true).forEach(add); });
+  const t = todayKey();
+  for (let i = 0; i < PW_KNOWN_DAYS; i++) {
+    (((APP_STATE.days || {})[shiftDate(t, -i)] || {}).items || []).forEach(function (it) {
+      if (panelFoodItem(it)) influenceNegatives(it, false).forEach(add);
+    });
+  }
+  return ids;
+}
+// The weekly review: approved POSITIVE entries that matched the week's ticks or foods, and the
+// days -- this week, and the 28 days ending with the week's last day so far.
+function influencePositiveDays(dates) {
+  const by = {};
+  dates.forEach(function (dk) {
+    const seen = {};
+    stackListed().concat(((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (s) { return s && s.removed_on; })).forEach(function (s) {
+      if (!stackTaken(s, dk).length) return;
+      influenceMatches(s, true).forEach(function (m) { if (forMe(m.c).direction === 'positive' && latestP(m.c)) seen[m.c.id] = { m: m, from: s.name }; });
+    });
+    (((APP_STATE.days || {})[dk] || {}).items || []).forEach(function (it) {
+      if (!panelFoodItem(it)) return;
+      influenceMatches(it, false).forEach(function (m) { if (forMe(m.c).direction === 'positive' && latestP(m.c)) seen[m.c.id] = { m: m, from: it.name }; });
+    });
+    Object.keys(seen).forEach(function (id) {
+      const e = by[id] || (by[id] = { m: seen[id].m, days: 0, from: [] });
+      e.days++;
+      if (e.from.indexOf(seen[id].from) < 0) e.from.push(seen[id].from);
+    });
+  });
+  return by;
+}
+function weekInfluenceCardHTML(R) {
+  const P = packLoad();
+  if (!P || !(P.claims || []).concat(P.interactions || []).some(function (c) { return forMe(c) && forMe(c).direction === 'positive'; })) return '';
+  const end = R.soFar[R.soFar.length - 1] || R.dates[6];
+  const month = [];
+  for (let i = 27; i >= 0; i--) month.push(shiftDate(end, -i));
+  const wk = influencePositiveDays(R.soFar), mo = influencePositiveDays(month);
+  const ids = Object.keys(mo).sort(function (a, b) { return (wk[b] ? wk[b].days : 0) - (wk[a] ? wk[a].days : 0) || mo[b].days - mo[a].days; });
+  let h = '<div class="wkcard" data-card="positive"><h3>Positive claims · from what you logged</h3>';
+  if (!ids.length) h += '<div class="wkline">No claim you marked as working for you matched what you logged in these 4 weeks.</div>';
+  else h += '<ul class="wkpos">' + ids.map(function (id) {
+    const e = mo[id], pv = latestP(e.m.c);
+    return '<li data-claim="' + esc(id) + '">' + esc(forMe(e.m.c).short + ' · ' + Math.round(100 * pv.p) + ' % ' + pv.of) + '<br>'
+      + esc('from ' + e.from.slice(0, 3).join(', ') + ' · ' + (wk[id] ? wk[id].days : 0) + ' of ' + R.soFar.length + ' days this week · ' + e.days + ' of 28 in the last 4 weeks') + '</li>';
+  }).join('') + '</ul>';
+  h += weekInfo('about positive claims',
+    'The claims you approved as working for you, each matched to a stack item you ticked or a food you logged by the same rule as the claims on your stack items. '
+    + 'A day counts once per claim. Each line is a study claim with its probability, not a reading of you; nothing here is flagged per meal.');
+  return h + '</div>';
 }
 
 // ---- R313/A: HOW THIS SUPPORTS YOUR PATHWAYS ------------------------------------------
@@ -18975,6 +19146,7 @@ const VERSION_LOG = [
   { v: '0.126.1', d: '2026-11-03', note: 'Logging a food again (quick add, the foods you logged before in Search, or a repeat) no longer carries over a “keeps my fast” or “breaks my fast” you tapped on the earlier entry: the new entry is judged by the fasting rule until you mark it yourself.' },
   { v: '0.126.2', d: '2026-11-03', note: 'The weekly review counts a week with a clock change in real time: the week the clocks went back is 169 hours, and its fasts are counted in real hours too.' },
   { v: '0.127.0', d: '2026-11-03', note: 'The Pathways card opens with a wheel: every pathway in its group’s numbered slice, shaded by how much of your last 28 days of food carries a figure for its raw materials. Tap a slice, then a pathway, to draw its connections and open its panel, which lists each connected pathway once, by plain names; gene symbols and IDs are behind the ⓘ. A pathway’s ⓘ in the list shows the same rows.' },
+  { v: '0.128.0', d: '2026-11-03', note: 'Claims you approve as pulling against you (in your pathway pack) are now stated in the top box right after you tick a matching stack item or log a matching food, with the claim and its probability, at the threshold you set in Settings (30 % to start), and marked on the pathway wheel. Claims you approve as working for you are summed in the weekly review. Nothing shows until you approve the directions.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -24015,7 +24187,7 @@ function weekReviewHTML(mon) {
     + '</div>'
     + '<div class="wkcov">' + esc('food logged ' + R.coverage.food + ' of ' + R.n + ' days · glucose ' + R.coverage.glucose + ' of ' + R.n
       + (S.show ? ' · sleep ' + R.coverage.sleep + ' of ' + R.n : '')) + '</div>'
-    + weekMealCardHTML(R) + weekFastCardHTML(R) + weekAfCardHTML(R) + (S.show ? weekSleepCardHTML(R) : '')
+    + weekMealCardHTML(R) + weekFastCardHTML(R) + weekAfCardHTML(R) + (S.show ? weekSleepCardHTML(R) : '') + weekInfluenceCardHTML(R)
     + weekLinkCardHTML(R)
     + '<p class="wkfoot">Your own data, computed on this phone. No scores.</p>';
   return h;
@@ -28851,7 +29023,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

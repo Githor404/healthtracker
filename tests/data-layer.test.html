@@ -3968,7 +3968,7 @@ window.setLS({});
     sePending = false;
     // R21: the call-path cases are asynchronous. They run here, in the same
     // deferred slot as the iframe, so the suite still finishes exactly once.
-    runByokAsync().then(runR281Async).then(runR286Async).then(finish, function (e) {
+    runByokAsync().then(runR281Async).then(runR286Async).then(runR318Async).then(finish, function (e) {
       res(false, 'R21: the async cases threw', String(e && e.message));
       finish();
     });
@@ -4006,6 +4006,51 @@ window.setLS({});
         res(!HT.packLoad(), 'R286 PACK: removed, it is gone');
       });
     }).catch(function (e) { HT.packRemove(); res(false, 'R286 async threw', String(e && e.message)); });
+  }
+  // R318/2: THE INFLUENCE LAYER -- an approved direction, a threshold, and the match rule
+  function runR318Async() {
+    var rv = '2026-11-03';
+    var pr = function (p) { return { current_version: 1, versions: [{ version: 1, p: p, of: 'that x', kind: 'general' }] }; };
+    var dir = function (d, ok) { return { direction: d, short: 'gate ' + d, reviewed_by_me: ok === false ? null : rv }; };
+    var body = JSON.stringify({ format: 'healthtracker-pack', schema: 1, groups: [{ id: 'g1', name: 'Group A' }],
+      records: [{ id: 'pw-001', plain_name: 'Path A', group: 'g1', backbone: [], supply: [], claims: ['c-neg'] }],
+      claims: [
+        { id: 'c-neg', claim: 'Gate neg.', reviewed_by_me: rv, probability: pr(0.8), subject: { match: ['gatezinc'] }, for_me: dir('negative') },
+        { id: 'c-low', claim: 'Gate low.', reviewed_by_me: rv, probability: pr(0.29), subject: { match: ['gatezinc'] }, for_me: dir('negative') },
+        { id: 'c-pos', claim: 'Gate pos.', reviewed_by_me: rv, probability: pr(0.9), subject: { match: ['gatezinc'] }, for_me: dir('positive') },
+        { id: 'c-unapp', claim: 'Gate unapproved.', reviewed_by_me: rv, probability: pr(0.9), subject: { match: ['gatezinc'] }, for_me: dir('negative', false) },
+        { id: 'c-alc', claim: 'Gate alcohol.', reviewed_by_me: rv, probability: pr(0.8), food_features: ['alcohol'], for_me: dir('negative') }],
+      interactions: [{ id: 'i-neg', reviewed_by_me: rv, probability: pr(0.7), match: ['gateiron'], for_me: dir('negative') }],
+      reference_intakes: { values: {} }, lexicon: { rules: [] } });
+    var sha = function (t) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)).then(function (b) {
+        return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+      });
+    };
+    return sha(body).then(function (h) {
+      return HT.packImportText(JSON.stringify({ format: 'healthtracker-pack', version: 9, sha256: h, body: body }));
+    }).then(function (r) {
+      var ids = function (a) { return a.map(function (m) { return m.c.id; }).join(','); };
+      var stackIt = { id: 's1', name: 'Gatezinc 50', kind: 'dose', enabled: true };
+      var neg = HT.influenceNegatives(stackIt, true);
+      res(r.ok && ids(neg) === 'c-neg' && ids(HT.influenceMatches(stackIt, true)) === 'c-neg,c-low,c-pos',
+          'R318/2: A NEGATIVE CLAIM AT OR ABOVE 30 % FLAGS on the item it names (a whole word); one at 29 % does not; a positive one never flags; an unapproved direction is not even matched', ids(neg) + ' | ' + ids(HT.influenceMatches(stackIt, true)));
+      res(HT.influenceNegatives({ name: 'Gatezincs' }, true).length === 0 && ids(HT.influenceNegatives({ name: 'Red wine', meal: 'drink', grams: 150, ref: { ns: 'cnf', id: '1', name: 'Wine, red', v: { '221': 10.6 } } }, false)) === 'c-alc'
+          && HT.influenceNegatives({ name: 'Grape juice', meal: 'drink', grams: 150, ref: { ns: 'cnf', id: '2', name: 'Juice', v: { '221': 0 } } }, false).length === 0
+          && ids(HT.influenceNegatives({ name: 'Gateiron tablet', kind: 'dose' }, true)) === 'i-neg',
+          'R318/2: the match is a whole word ("gatezincs" is not "gatezinc"); a food with alcohol (its row\'s figure above 0) matches the alcohol claim, one with 0 does not; an interaction matches by its terms');
+      HT.setInfluenceMin(25);
+      var at25 = ids(HT.influenceNegatives(stackIt, true));
+      HT.setInfluenceMin(85);
+      var at85 = HT.influenceNegatives(stackIt, true).length;
+      HT.setInfluenceMin(30);
+      res(at25 === 'c-neg,c-low' && at85 === 0 && HT.influenceMin() === 0.3 && !('influence' in HT.state().settings),
+          'R318/2: THE THRESHOLD TAKES EFFECT -- at 25 % the 29 % claim flags too, at 85 % the 80 % one stops; back at the default nothing is stored', at25 + ' | ' + at85);
+      var line = HT.influenceLineHTML(HT.influenceFlagsFor([{ x: { id: 's1', name: 'Gatezinc 50', kind: 'dose', dose: 50, dose_unit: 'mg' }, isStack: true }])).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+      res(/Gatezinc 50 50 mg · claim: gate negative · 80 %/.test(line) && !/\b(should|stop|avoid|don't|try|must|need to)\b/i.test(line),
+          'R318/2: the line states item, amount, the claim and its probability -- and no advice', line);
+      HT.packRemove();
+    }).catch(function (e) { HT.packRemove(); res(false, 'R318 async threw', String(e && e.message)); });
   }
   // R281/5 + 3: Health Canada answered by a stub -- the lookup chain and the photo route
   function runR281Async() {
