@@ -296,6 +296,13 @@
   .wkfasts li{margin:3px 0}
   .wkfasts b{white-space:nowrap}
   .wkinfo{margin-top:6px}
+  /* R322: waist -- its i (44 px), the ratio beside the latest waist, the Settings block */
+  .wsinfo{display:inline-block;vertical-align:middle}
+  .wsinfosum{min-height:44px;min-width:44px;display:inline-flex;align-items:center;font-size:16px;color:var(--accent);cursor:pointer}
+  .wsinfo[open]{display:block}
+  .wsinfobody{font-size:16px;color:var(--muted);margin:2px 0 8px;line-height:1.4}
+  .whtr{white-space:nowrap}
+  .waistset{margin-top:12px}
   .wkinfosum{min-height:44px;display:flex;align-items:center;font-size:16px;color:var(--accent);cursor:pointer}
   .wkinfobody{font-size:16px;color:var(--muted)}
   .wkcurve{display:block;width:100%;height:auto;margin-top:6px}
@@ -1921,6 +1928,8 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
           <div id="sigDiaWrap" style="flex:1;display:none"><label>Diastolic</label><input id="sigDia" type="number" inputmode="decimal"></div>
           <div style="flex:0 0 90px" id="sigUnitWrap"><label>Unit</label><select id="sigUnit"></select></div>
         </div>
+        <!-- R322: waist's how-to-measure i, filled only while Waist is chosen -->
+        <div id="sigHow"></div>
         <!-- D52: the ordinal control. Two taps: the chip lands here, the thumb
              lands on the slider. step=1 over 7 stops means an intermediate
              position DOES NOT EXIST -- the snap is structural, not a validator.
@@ -2037,6 +2046,12 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <button class="btn" onclick="setGoalFromForm()">Set goal</button>
         <label style="margin-top:12px">Primary nutrient <span class="thint">(the goal other screens rank by)</span></label>
         <select id="primaryNutrient" onchange="setPrimaryNutrientFromForm()"></select>
+        <!-- R322: waist -- the unit shown, and a height for the waist-to-height ratio -->
+        <div id="waistSet" class="waistset"><div class="gghead">Waist</div>
+          <div class="row"><div><label for="waistUnit">Waist unit</label><select id="waistUnit" onchange="setWaistUnit(this.value)"><option value="in">inches</option><option value="cm">cm</option></select></div>
+          <div><label id="heightLab" for="heightIn">Height (in)</label><input id="heightIn" type="number" inputmode="decimal" onchange="setHeightFromForm()"></div></div>
+          <div class="note">Your height is used only for the waist-to-height ratio beside your latest waist. Left empty, no ratio is shown.</div>
+          <div id="heightMsg" class="warn" aria-live="polite"></div></div>
         <div id="graphGoals" class="graphgoals"></div>
         <div class="note">A floor (min) turns amber when you're under target; a ceiling (max) turns amber when you're over. Nutrient goals appear on the ring and strip above; biometric targets show as a line on their trend and float that signal to the front of the quick-log chips.</div>
       </details>

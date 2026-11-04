@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.128.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.129.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1433,7 +1433,15 @@ function normalizeSettings(s) {
      // per drink (its match key). Present only once something has been answered.
      normalizeDrinkAlcohol(s.drinkAlcohol),
      // R309: the user's own goal lines on graphs. Present only once one is set.
-     (function () { const g = normalizeGraphGoals(s.graphGoals); return Object.keys(g).length ? { graphGoals: g } : {}; })());
+     (function () { const g = normalizeGraphGoals(s.graphGoals); return Object.keys(g).length ? { graphGoals: g } : {}; })(),
+     // R322: found missing from this allowlist, so boot dropped them -- R318's flag threshold and
+     // R262's "review is ready" switch with its seen marker. Each present only when set.
+     (s.influence && typeof s.influence === 'object' && Number(s.influence.negMin) > 0 && Number(s.influence.negMin) < 1) ? { influence: { negMin: Number(s.influence.negMin) } } : {},
+     s.weekNotice === true ? { weekNotice: true } : {},
+     (s.weekNotice === true && isDayKey(s.weekSeen)) ? { weekSeen: s.weekSeen } : {},
+     // R322: waist -- the unit shown (absent = inches) and the height for the ratio, in cm
+     s.waistUnit === 'cm' ? { waistUnit: 'cm' } : {},
+     (Number(s.height_cm) >= 50 && Number(s.height_cm) <= 260) ? { height_cm: Math.round(Number(s.height_cm) * 100) / 100 } : {});
 }
 // R309: { key: { low, high?, unit } }. A value that is not a finite number drops the
 // goal; a high below its low drops the high. Keys are the graph's own.
@@ -4352,9 +4360,11 @@ function ctxOpenHTML(n) {
 // interval -- the time since its last entry over 1.5 x the user's OWN median gap, from at
 // least 5 entries (fewer: never); (c) glucose only when the newest reading is under
 // 30 min old. Nothing pertinent: no box. Facts only -- no "should", no verdict colour.
+const WAIST_DUE_FALLBACK_MS = 8 * 86400000;      // R322/5: the top box's interval below 5 entries
 const CTX_OVERDUE = [
   { label: 'BP', types: ['bp_systolic'], word: 'last reading' },
   { label: 'Weight', types: ['weight'], word: 'last reading' },
+  { label: 'Waist', types: ['waist'], word: 'last measurement', fallbackMs: WAIST_DUE_FALLBACK_MS },   // R322/5
   { label: 'Breath ketones', types: ['breath_ketones'], word: 'last reading' },
   { label: 'Sleep', types: ['sleep'], word: 'last entry' }];
 const CTX_OVERDUE_MIN_N = 5, CTX_OVERDUE_FACTOR = 1.5, CTX_GLUCOSE_FRESH_MS = 30 * 60000;
@@ -4376,7 +4386,12 @@ function measureOverdue(now) {
   const out = [];
   CTX_OVERDUE.forEach(function (m) {
     const t = measureMoments(m.types).filter(function (x) { return x <= now; });
-    if (t.length < CTX_OVERDUE_MIN_N) return;
+    if (t.length < CTX_OVERDUE_MIN_N) {
+      // R322/5: below 5 entries a measurement with its own fallback is due past that interval
+      const since0 = t.length ? now - t[t.length - 1] : 0;
+      if (m.fallbackMs && t.length && since0 > m.fallbackMs) out.push({ label: m.label, text: m.label + ' · ' + m.word + ' ' + ageWords(since0), ratio: since0 / m.fallbackMs * CTX_OVERDUE_FACTOR, n: t.length, median: null });
+      return;
+    }
     const gaps = []; for (let i = 1; i < t.length; i++) gaps.push(t[i] - t[i - 1]);
     gaps.sort(function (a, b) { return a - b; });
     const med = gaps.length % 2 ? gaps[(gaps.length - 1) / 2] : (gaps[gaps.length / 2 - 1] + gaps[gaps.length / 2]) / 2;
@@ -8768,6 +8783,8 @@ function biometricSummary(dateKey) {
   const ws = recs.filter(function (r) { return r && r.type === 'weight' && r.value != null; });
   const w = ws.length ? ws[ws.length - 1] : null;
   if (w) bits.push('weight ' + rDisp(w.value) + (w.unit ? ' ' + w.unit : ''));
+  const wa = recs.filter(function (r) { return r && r.type === 'waist' && r.value != null; });
+  if (wa.length) bits.push('waist ' + waistWords(waistCmOf(wa[wa.length - 1])));     // R322
   const woke = recs.filter(function (r) { return r && r.type === 'woke'; });
   let lastWoke = woke.length ? String(woke[woke.length - 1].time || '') : '';
   // R215: a night ended in + Log says when they woke through its own record.
@@ -10920,6 +10937,8 @@ function saveScanPrice() {
 // One SIGNAL_SPEC table drives forms, labels, units, warnings (like MICRO_SPEC).
 const SIGNAL_SPEC = [
   { type: 'weight',         kind: 'biometric', label: 'Weight',        unit: 'kg',    units: ['kg', 'lb'],        warn: 500 },
+  // R322: waist, STORED IN ONE UNIT (cm); shown in the unit chosen in Settings (in unless cm)
+  { type: 'waist',          kind: 'biometric', label: 'Waist',         unit: 'cm',    units: ['in', 'cm'],        warn: 250 },
   { type: 'resting_hr',     kind: 'biometric', label: 'Resting HR',    unit: 'bpm',   units: ['bpm'],             warn: 300 },
   { type: 'hrv',            kind: 'biometric', label: 'HRV',           unit: 'ms',    units: ['ms'],              warn: 500 },
   { type: 'glucose',        kind: 'biometric', label: 'Glucose',       unit: 'mg/dL', units: ['mg/dL', 'mmol/L'], warn: 1000 },
@@ -11290,12 +11309,13 @@ function addSignal(raw) {
   // untrusted data. (Ingest/restore never reach here; timeline is restore's job.)
   // D29: stamps the device offset unless the caller supplied one.
   const src = SIGNAL_ADAPTERS.indexOf(raw.source) >= 0 ? raw.source : 'manual';
+  if (raw.type === 'waist') raw = Object.assign({}, raw, waistToCm(raw.value, raw.unit));     // R322: stored in cm
   const rec = normalizeSignal(Object.assign({}, raw, { source: src, tzo: raw.tzo != null ? raw.tzo : nowTZO() }));
   if (!APP_STATE.timeline || typeof APP_STATE.timeline !== 'object') APP_STATE.timeline = {};
   (APP_STATE.timeline[date] = APP_STATE.timeline[date] || []).push(rec);
   if (!APP_STATE.settings.signalUnits) APP_STATE.settings.signalUnits = {};   // remember last-used unit
   if (rec.kind === 'medication') { if (rec.dose_unit) APP_STATE.settings.signalUnits.medication = rec.dose_unit; }
-  else if (rec.type && rec.unit) APP_STATE.settings.signalUnits[rec.type] = rec.unit;
+  else if (rec.type && rec.unit && rec.type !== 'waist') APP_STATE.settings.signalUnits[rec.type] = rec.unit;
   Store.saveState(APP_STATE); refresh();
   return { ok: true, record: rec, warnings: warnings };
 }
@@ -11306,6 +11326,117 @@ function logBP(sys, dia, time, notes) {
   const rs = addSignal({ type: 'bp_systolic', value: sys, unit: 'mmHg', time: t, notes: notes });
   const rd = addSignal({ type: 'bp_diastolic', value: dia, unit: 'mmHg', time: t, notes: notes });
   return { ok: !!(rs.ok && rd.ok), systolic: rs.record, diastolic: rd.record };
+}
+
+// ---- R322: WAIST CIRCUMFERENCE (*track*) -----------------------------------------------
+// The user's practical proxy for visceral fat. Stored in ONE unit (cm, to 0.01 so an inch
+// entry reads back exactly); shown in the unit chosen in Settings (inches unless cm).
+// Height (Settings, stored in cm) gives the waist-to-height ratio, a fact with its source.
+const WHTR_SOURCE = 'NICE guideline NG246, Overweight and obesity management (2025; recommendations 1.9.10 and 1.9.11),';
+const WAIST_HOW = 'At the navel, standing relaxed, after a normal breath out. The tape level all the way round, snug but not pressing in. '
+  + 'The same time of day each time (for example in the morning, before eating), so readings compare.';
+function waistUnit() { return (APP_STATE && APP_STATE.settings && APP_STATE.settings.waistUnit === 'cm') ? 'cm' : 'in'; }
+function waistToCm(v, unit) {
+  if (v == null || String(v).trim() === '' || !isFinite(Number(v))) return { value: v, unit: 'cm' };
+  const u = unit === 'in' || unit === 'cm' ? unit : waistUnit();
+  return { value: Math.round((u === 'in' ? Number(v) * 2.54 : Number(v)) * 100) / 100, unit: 'cm' };
+}
+function waistCmOf(r) { return r.unit === 'in' ? num(r.value) * 2.54 : num(r.value); }
+function waistShown(cm) {
+  const u = waistUnit();
+  return { value: Math.round((u === 'in' ? num(cm) / 2.54 : num(cm)) * 10) / 10, unit: u };
+}
+// A record's value and unit as shown: a waist in the chosen unit, anything else as stored.
+function signalShown(r) {
+  if (r && r.type === 'waist' && r.value != null && String(r.value) !== '') return waistShown(waistCmOf(r));
+  return { value: r ? r.value : null, unit: (r && r.unit) || '' };
+}
+function waistReadings() {
+  const tl = (APP_STATE && APP_STATE.timeline) || {}, out = [];
+  Object.keys(tl).forEach(function (dk) {
+    if (!isDayKey(dk)) return;
+    (tl[dk] || []).forEach(function (r) {
+      if (!r || r.type !== 'waist' || r.value == null || String(r.value) === '') return;
+      const m = hhmmToMin(r.time);
+      out.push({ dk: dk, ms: wallMs(dk, m == null ? 0 : m), cm: waistCmOf(r) });
+    });
+  });
+  return out.sort(function (a, b) { return a.ms - b.ms; });
+}
+function heightCm() { const h = APP_STATE && APP_STATE.settings ? Number(APP_STATE.settings.height_cm) : NaN; return h >= 50 && h <= 260 ? h : null; }
+function waistToHeight(cm) { const h = heightCm(); return h && cm > 0 ? Math.round(cm / h * 100) / 100 : null; }
+function waistWords(cm) { const w = waistShown(cm); return rDisp(w.value) + ' ' + w.unit; }
+// The ratio beside the latest waist: only with a height set; its basis behind the i.
+function waistRatioHTML(cm) {
+  const r = waistToHeight(cm);
+  if (r == null) return '';
+  const h = waistShown(heightCm());
+  return '<span class="whtr">waist-to-height ' + esc(r.toFixed(2)) + '</span>'
+    + '<details class="wsinfo"><summary class="wsinfosum" aria-label="about waist-to-height">ⓘ</summary><div class="wsinfobody">'
+    + esc('Your waist divided by your height, both in the same unit: ' + waistWords(cm) + ' over ' + rDisp(h.value) + ' ' + h.unit + ' (Settings). '
+      + WHTR_SOURCE + ' uses a waist-to-height ratio of 0.5 as its reference point for adults with a BMI below 35. '
+      + 'NICE measures the waist halfway between the lowest rib and the top of the hip bone; your method is at the navel, so the two can read differently.')
+    + '</div></details>';
+}
+// Trends: under the waist chart, the latest waist with its ratio -- only with a height set.
+function trendWaistRatioHTML() {
+  const last = waistReadings().slice(-1)[0];
+  const r = last ? waistRatioHTML(last.cm) : '';
+  return r ? '<div class="tsum twhtr">latest ' + esc(waistWords(last.cm)) + ' · ' + r + '</div>' : '';
+}
+function waistHowHTML() {
+  return '<details class="wsinfo" id="sigHowWaist"><summary class="wsinfosum" aria-label="how to measure your waist">ⓘ How to measure</summary>'
+    + '<div class="wsinfobody">' + esc(WAIST_HOW) + '</div></details>';
+}
+function setWaistUnit(u) {
+  if (u !== 'in' && u !== 'cm') return { ok: false };
+  if (u === 'cm') APP_STATE.settings.waistUnit = 'cm'; else delete APP_STATE.settings.waistUnit;
+  Store.saveState(APP_STATE); refresh(); renderWaistSetting(); renderGraphGoals();
+  return { ok: true, unit: waistUnit() };
+}
+// Height, typed in the chosen unit; empty removes it.
+function setHeight(v) {
+  const t = String(v == null ? '' : v).trim();
+  if (t === '') { delete APP_STATE.settings.height_cm; Store.saveState(APP_STATE); refresh(); renderWaistSetting(); return { ok: true, height_cm: null }; }
+  const cm = waistUnit() === 'in' ? Number(t) * 2.54 : Number(t);
+  if (!(cm >= 50 && cm <= 260)) return { ok: false, error: waistUnit() === 'in' ? 'Height in inches, between 20 and 102.' : 'Height in cm, between 50 and 260.' };
+  APP_STATE.settings.height_cm = Math.round(cm * 100) / 100;
+  Store.saveState(APP_STATE); refresh(); renderWaistSetting();
+  return { ok: true, height_cm: APP_STATE.settings.height_cm };
+}
+function setHeightFromForm() {
+  const e = document.getElementById('heightIn'), m = document.getElementById('heightMsg');
+  const r = setHeight(e ? e.value : '');
+  if (m) m.textContent = r.ok ? '' : r.error;
+  return r;
+}
+function renderWaistSetting() {
+  const u = document.getElementById('waistUnit'), h = document.getElementById('heightIn'), l = document.getElementById('heightLab');
+  if (u && u.value !== waistUnit()) u.value = waistUnit();
+  if (l) l.textContent = 'Height (' + waistUnit() + ')';
+  if (h && document.activeElement !== h) { const c = heightCm(); h.value = c ? String(waistShown(c).value) : ''; }
+}
+// The weekly review: the latest waist, and the 28 days ending with the week's last day so far.
+function weekWaistCardHTML(R) {
+  const all = waistReadings();
+  if (!all.length) return '';
+  const end = R.soFar[R.soFar.length - 1] || R.dates[6], from = shiftDate(end, -27);
+  const upto = all.filter(function (x) { return x.dk <= end; });
+  let h = '<div class="wkcard" data-card="waist"><h3>Waist</h3>';
+  if (!upto.length) return h + '<div class="wkline">No waist measured by the end of this week.</div></div>';
+  const last = upto[upto.length - 1], win = upto.filter(function (x) { return x.dk >= from; });
+  const ratio = waistRatioHTML(last.cm);
+  h += '<div class="wkline">Latest ' + esc(waistWords(last.cm) + ' · ' + fmtDateSmart(last.dk)) + (ratio ? ' · ' + ratio : '') + '</div>';
+  if (win.length >= 2) {
+    const d = Math.round((waistShown(win[win.length - 1].cm).value - waistShown(win[0].cm).value) * 10) / 10;
+    h += '<div class="wkline">' + esc('28 days to ' + fmtDateSmart(end) + ': ' + waistWords(win[0].cm) + ' → ' + waistWords(win[win.length - 1].cm)
+      + ' (' + (d > 0 ? '+' : d < 0 ? '−' : '±') + rDisp(Math.abs(d)) + ' ' + waistUnit() + ', ' + win.length + ' readings)') + '</div>';
+  } else {
+    h += '<div class="wkline">' + esc((win.length === 1 ? 'One reading' : 'No reading') + ' in the 28 days to ' + fmtDateSmart(end) + '.') + '</div>';
+  }
+  h += weekInfo('about the waist card', esc('The latest waist you logged by the end of this week, and the first and latest in the 28 days ending then, '
+    + 'in the unit chosen in Settings. A change between two readings, not a line fitted to them.'));
+  return h + '</div>';
 }
 
 // Overlay (read-only): a day's food items + timeline signals, merged + time-sorted.
@@ -11323,6 +11454,7 @@ function timelineForDay(date) {
 
 // ---- timeline DOM (signal entry + day overlay) ----------------------------
 function signalUnitDefault(type) {
+  if (type === 'waist') return waistUnit();                 // R322: the Settings choice, never the last unit typed
   const remembered = APP_STATE.settings && APP_STATE.settings.signalUnits && APP_STATE.settings.signalUnits[type];
   const spec = SIGNAL_BY_TYPE[type];
   return remembered || (spec ? spec.unit : '');
@@ -11368,6 +11500,7 @@ function onSignalTypeChange() {
   const diaWrap = document.getElementById('sigDiaWrap'); if (diaWrap) diaWrap.style.display = isBP ? '' : 'none';
   const notes = document.getElementById('sigNotes'); if (notes) notes.placeholder = (sel.value === 'other') ? 'what was it?' : 'notes (optional)';
   const tl = document.getElementById('sigTimeLabel'); if (tl) tl.textContent = signalTimeLabel(sel.value);
+  const how = document.getElementById('sigHow'); if (how) how.innerHTML = sel.value === 'waist' ? waistHowHTML() : '';   // R322
   // D52: an ordinal has no free numeric value and no unit to pick -- the SCALE is
   // the unit. The number box is hidden rather than left beside the slider, because
   // a typeable box next to a 7-stop control is an invitation to type 3.5.
@@ -11414,7 +11547,7 @@ function onBmSlide(v, type) {
 // scrolling row, so a chip appended at the end is off-screen until you scroll --
 // and this is the signal logged in a bathroom with the phone barely in hand. The
 // curation order is audience-tuned (D26); this is that tuning, not an accident.
-const CHIP_DEFAULT = ['weight', 'bm', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
+const CHIP_DEFAULT = ['weight', 'bm', 'waist', 'glucose', 'breath_ketones', 'hrv', 'resting_hr', 'sleep', 'steps', 'mood', 'energy', 'bp', 'sauna', 'cold_plunge', 'walk', 'workout'];
 // D35 conflict (iv): one stated mapping, not two sleep chips. A goal declared on
 // the legacy scalar type floats the interval chip, since that is where entry lives.
 const CHIP_GOAL_ALIAS = { sleep: 'sleep_hours' };
@@ -12111,7 +12244,7 @@ function renderTimelineOverlay() {
     // inferred rather than answered.
     if (r.type === 'sleep')
       return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc(sleepRowLabel(r, APP_STATE.current))} <small>${esc(rDisp(r.value))} h</small>${note}${edited}</span>${rm}</div>`;
-    const val = (r.value != null && !signalRowValueHidden(r)) ? ' ' + esc(rDisp(r.value)) + ' ' + esc(r.unit || '') : '';
+    const sv = signalShown(r), val = (r.value != null && !signalRowValueHidden(r)) ? ' ' + esc(rDisp(sv.value)) + ' ' + esc(sv.unit) : '';   // R322: waist in the chosen unit
     return `<div class="tlrow"><span class="tltime">${t}</span><span class="tltag ${esc(r.row)}">${esc(r.row)}</span><span class="tlmain"${openA}>${esc((spec || r.type === ELITE_TYPE) ? signalRowLabel(r) : r.type)}${val}${note}${edited}</span>${rm}</div>`;
   }).join('');
 }
@@ -12421,9 +12554,10 @@ function closeRecordEdit() { EDIT_TARGET = null; renderTimelineOverlay(); return
 // error message about it.
 function recordEditHTML(date, idx, r) {
   const med = r.kind === 'medication';
-  const numLabel = med ? ('Dose' + (r.dose_unit ? ' (' + esc(r.dose_unit) + ')' : '')) : 'Value';
+  const waist = !med && r.type === 'waist';           // R322: edited in the chosen unit, stored in cm
+  const numLabel = med ? ('Dose' + (r.dose_unit ? ' (' + esc(r.dose_unit) + ')' : '')) : waist ? 'Value (' + esc(waistUnit()) + ')' : 'Value';
   const numKey = med ? 'dose' : 'value';
-  const cur = r[numKey];
+  const cur = waist && r.value != null ? signalShown(r).value : r[numKey];
   // D52: an ordinal offers its STOPS, never a number box. The snap stays
   // STRUCTURAL on this surface too -- there is nowhere to type a half-type.
   const numCtl = (!med && isOrdinal(r.type))
@@ -12477,7 +12611,11 @@ function saveRecordEdit(date, idx) {
   const nt = g('reNotes'); if (nt !== undefined) patch.notes = nt;
   const numKey = rec.kind === 'medication' ? 'dose' : 'value';
   const nv = g('reVal');
-  if (nv !== undefined && String(nv).trim() !== '') patch[numKey] = nv;
+  if (nv !== undefined && String(nv).trim() !== '') {
+    // R322: a waist is typed in the chosen unit; a value left as shown is no edit
+    if (rec.type === 'waist') { if (String(nv).trim() !== String(signalShown(rec).value)) patch.value = waistToCm(nv, waistUnit()).value; }
+    else patch[numKey] = nv;
+  }
   // R186: "not recorded" is the empty option and is never sent -- leaving a type
   // unstated is not an edit, and a type once stated cannot be un-stated here.
   if (rec.type === 'sensor') {
@@ -13332,6 +13470,7 @@ let TREND_WINDOW = 90;                                      // UI state (non-per
 // DIFFERENT things and must never be force-converted).
 const UNIT_CONVERT = {
   weight:  { 'kg>lb': function (v) { return v * 2.2046226; }, 'lb>kg': function (v) { return v / 2.2046226; } },
+  waist:   { 'cm>in': function (v) { return v / 2.54; }, 'in>cm': function (v) { return v * 2.54; } },     // R322: exact by definition
   glucose: { 'mg/dL>mmol/L': function (v) { return v / 18.0182; }, 'mmol/L>mg/dL': function (v) { return v * 18.0182; } },
 };
 // CONTRACT (D34, changed): null means NOT CONVERTIBLE — the caller must DISPLAY
@@ -13647,7 +13786,7 @@ function graphGoalKeys() {
     if (sp.kind !== 'biometric' || sp.type === 'bp_diastolic') return;
     if (sp.type === 'bp_systolic') { out.push({ key: 'bp', label: 'Blood pressure', unit: 'mmHg' }); return; }
     const u = (APP_STATE.settings.signalUnits && APP_STATE.settings.signalUnits[sp.type]) || sp.unit;
-    out.push({ key: sp.type, label: sp.label, unit: sp.type === 'glucose' ? glucoseUnitShown() || u : u, type: sp.type });
+    out.push({ key: sp.type, label: sp.label, unit: sp.type === 'glucose' ? glucoseUnitShown() || u : sp.type === 'waist' ? waistUnit() : u, type: sp.type });
   });
   out.push({ key: 'kcal', label: 'Energy (calories)', unit: 'cal' });
   return out;
@@ -17577,7 +17716,10 @@ function renderTrends() {
     bio += `<div class="trow"><div class="thead">${esc(s.label)} <small>${esc(s.unit)}</small>${cov}${goalStr}</div>${trendChartHTML(sp.type, plot, { ref: refVal, unit: s.unit, type: sp.type, label: s.label })}`
       + `<div class="tsum">latest ${esc(rDisp(sm.latest))} · avg ${esc(rDisp(sm.avg))} · ${esc(rDisp(sm.min))}–${esc(rDisp(sm.max))} · &Delta; ${sm.delta >= 0 ? '+' : ''}${esc(rDisp(sm.delta))} · n=${esc(sm.n)}`
       + (sm.unconverted > 0 ? ` <small class="tcov">avg over ${esc(sm.n)} of ${esc(sm.n + sm.unconverted)} readings (${esc(sm.unconverted)} unconverted, shown as entered)</small>` : '')
-      + `</div></div>`;
+      + `</div>`
+      // R322/4: the ratio beside the latest waist, only with a height set
+      + (sp.type === 'waist' ? trendWaistRatioHTML() : '')
+      + `</div>`;
   });
   html += bio;
   const fs = fastingStats(win);
@@ -19170,6 +19312,7 @@ const VERSION_LOG = [
   { v: '0.127.0', d: '2026-11-03', note: 'The Pathways card opens with a wheel: every pathway in its group’s numbered slice, shaded by how much of your last 28 days of food carries a figure for its raw materials. Tap a slice, then a pathway, to draw its connections and open its panel, which lists each connected pathway once, by plain names; gene symbols and IDs are behind the ⓘ. A pathway’s ⓘ in the list shows the same rows.' },
   { v: '0.128.0', d: '2026-11-03', note: 'Claims you approve as pulling against you (in your pathway pack) are now stated in the top box right after you tick a matching stack item or log a matching food, with the claim and its probability, at the threshold you set in Settings (30 % to start), and marked on the pathway wheel. Claims you approve as working for you are summed in the weekly review. Nothing shows until you approve the directions.' },
   { v: '0.128.1', d: '2026-11-04', note: 'A claim you approved as pulling against you now shows at most once a day for each stack item or food: the first time you tick or log it that day. Ticking or logging it again the same day shows the top box without it.' },
+  { v: '0.129.0', d: '2026-11-04', note: 'You can log your waist in + Log, beside weight, in inches or cm (inches unless you choose cm in Settings, Goals). The form has a How to measure note. Trends draws a waist chart that zooms like the others, with your own goal line if you set one. With your height in Settings, the latest waist shows its waist-to-height ratio, with NICE’s 0.5 reference point behind the ⓘ. The top box notes when a waist measurement is overdue, and the weekly review has a Waist card. Also fixed: the flag threshold and the “Last week’s review is ready” switch now stay as you set them after the app restarts.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -24210,7 +24353,7 @@ function weekReviewHTML(mon) {
     + '</div>'
     + '<div class="wkcov">' + esc('food logged ' + R.coverage.food + ' of ' + R.n + ' days · glucose ' + R.coverage.glucose + ' of ' + R.n
       + (S.show ? ' · sleep ' + R.coverage.sleep + ' of ' + R.n : '')) + '</div>'
-    + weekMealCardHTML(R) + weekFastCardHTML(R) + weekAfCardHTML(R) + (S.show ? weekSleepCardHTML(R) : '') + weekInfluenceCardHTML(R)
+    + weekMealCardHTML(R) + weekFastCardHTML(R) + weekAfCardHTML(R) + (S.show ? weekSleepCardHTML(R) : '') + weekWaistCardHTML(R) + weekInfluenceCardHTML(R)
     + weekLinkCardHTML(R)
     + '<p class="wkfoot">Your own data, computed on this phone. No scores.</p>';
   return h;
@@ -24557,7 +24700,7 @@ function biometricGroupHTML(dateKey) {
   h += recs.map(function (x) {
     const r = x.r;
     const spec = SIGNAL_BY_TYPE[r.type];
-    const val = (r.value != null && !signalRowValueHidden(r)) ? (rDisp(r.value) + (r.unit ? ' ' + r.unit : '')) : '';
+    const sv = signalShown(r), val = (r.value != null && !signalRowValueHidden(r)) ? (rDisp(sv.value) + (sv.unit ? ' ' + sv.unit : '')) : '';   // R322
     // R221/2 + R203: EVERY ENTRY LISTED HERE IS DELETABLE HERE, with its Undo --
     // a water tap noticed as a mis-tap after its Undo bar has gone is fixed on
     // the row it shows up on, not by finding the time-order view.
@@ -28727,6 +28870,7 @@ function main() {
   renderLabForm();
   onGoalTypeChange();
   renderGraphGoals();                 // R309: Settings -> Goals -> Lines on graphs
+  renderWaistSetting();               // R322
   renderRegimenTemplate();
   renderVersionLine();
   wireChipStripWheel();
@@ -29046,7 +29190,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

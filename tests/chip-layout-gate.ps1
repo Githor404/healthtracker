@@ -108,7 +108,7 @@ function Measure-Strip([int]$w, [int]$h, [bool]$mobile, [bool]$touch) {
 # EXPECTED_ASSERTIONS: a chip that appears or vanishes must be a decision, not a
 # drift. Bumped 14 -> 15 by D52/R20, which adds `bm` in the first six -- the touch
 # strip is one scrolling row, so where a chip sits is the whole question.
-$EXPECT_CHIPS = 15
+$EXPECT_CHIPS = 16   # R322: Waist joined the strip
 
 $browser = Find-Browser
 if (-not $browser) { Write-Host "ERROR: no Chrome/Edge found"; exit 2 }
