@@ -21690,3 +21690,38 @@ for the screen it taps. Ruled:
 
 Then, as ruled: every gate alone, one fresh full suite; green -> push v0.126.2, verify, report;
 red -> stop and report. R318 parts 1 and 2 continue after.
+
+## R318 part 3 -- BUILT (v0.126.2), against its pre-registration
+
+As pre-registered. `weekFasts` counts the week and its fasts with `absRealMin`: the fall-back
+week of 26 Oct is 169 h. Harness +2, not +1 (the card's words are checked as well as the
+numbers): 3456. In HTPrivate: pw-076's sentence approved (`reviewed_by_me` 2026-11-03), pack
+v013; statin-hmgcr held and in no pack. The first full run was red (78 of 79, stackadd-gate) and
+was not pushed; see R320. After R320: every gate alone, then the full suite, 80 of 80.
+
+## R320 -- BUILT, against its pre-registration
+
+1. **stackadd-gate:** its selector tap polls (100 ms, up to 10 s, leaving on the condition) until
+   the target is present, laid out, not covered at the tap point and on the same rect two reads
+   running; a target that never shows prints `STEP FAILED: <target> never showed (<why>)`. The
+   same poll replaced the identical helper in fastrule, link, pack, stackscan and strip gates.
+2. **`check-gate-waits.sh`** (tests/gate_waits.py; static check 11, wired into the runner) reads
+   every gate with its strings and here-strings blanked, after a planted control that must give
+   exactly one finding of each kind. **First run: 167 findings** -- 104 input, 57 sleep, 6
+   measure -- **all fixed:**
+   - every input helper (TapSel, TapAt, Tap, TypeText, Swipe, Pull, TapStop) waits for the page
+     before sending anything (63 helpers in 42 files);
+   - the 40 ms between a touchStart and its touchEnd removed (13; a tap has no duration the app
+     reads -- its touch handlers use no time); typing waits for the page after each character,
+     not 70 ms (36); the drag and wheel steps in chart, overlay and bpchart gates wait for the
+     page after each step, as the pinch already did;
+   - update-gate's 300 ms and 2 s sleeps became waits for the page's work in flight;
+   - rings-gate measured right after switching back to 390 px and light: it now waits first;
+   - one rule of the check refined while running it: a loop whose head holds a condition beyond
+     its counter (close-gate's `-and $paused.Count -eq 0`) is a polling loop; a helper whose
+     body is a wait (`Settle`) counts as a wait.
+3. **The suite log:** a failed gate's whole output goes to `tests/.suite-logs/<gate>.log`
+   (ignored by git, cleared each run); the runner prints each failed check and the last `STEP`
+   line before it. The tap helpers print `STEP tap <target>` (or the coordinates).
+
+Every gate alone (68 of 68), then one fresh full suite: **80 of 80** (1 harness + 11 static + 68).
