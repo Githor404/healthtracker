@@ -21887,7 +21887,7 @@ job ran each hour across 1 Nov 01:00-03:00. It failed from **31 Oct 13:00**, the
 R305 (claims filed under a group only, with no pathways: `min()` of nothing), and from 3 Nov also
 on R313's oleic line (no reference intake, by design: a KeyError). Both handled in
 `reports/make_pathway_report.py`: the oleic line reads "no reference intake"; a group-only claim
-names its group, and four claims with neither say so (three bromelain, elderberry-cyanogenic).
+names its group, and four claims with neither say so (their ids are recorded in HTPrivate, R204).
 
 ## R322 -- PRE-REGISTERED (2026-11-04; to be v0.129.0): waist circumference (*track*, and the input *predict* will need)
 
