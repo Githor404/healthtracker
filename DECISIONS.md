@@ -22209,3 +22209,25 @@ of these, so the lines count any amount above zero (R313/A P5) and say so; the p
 them). Harness: the ten slots, their labels and units, shown under Protein / in General.
 micro-gate: a logged egg shows a Tryptophan row in g under Protein, and a placeholder pack line
 on tryptophan's slot is supplied by it. Release under the standing pre-run rule.
+
+## R327/5 and R327/4 -- BUILT (v0.132.0), against their pre-registration
+
+As pre-registered. 67 slots (ten judged additions, one merge: betaine from CNF id 863); both
+assets re-encoded (measured: CNF 516,636 -> 604,680 B, +88 KB; FDC 631,394 -> 745,297 B, +114 KB
+gzipped). **Coverage per amino acid (CNF 2015 / SR Legacy, share of rows with a value):**
+tryptophan 67.8 / 64.5 %, leucine 68.7 / 65.2, isoleucine 68.8 / 65.2, valine 68.8 / 65.2,
+methionine 68.9 / 65.4, cystine 67.6 / 63.3, tyrosine 68.2 / 64.8, arginine 68.5 / 65.1, glycine
+67.8 / 64.5; betaine 19.3 / 26.8. The nine sit under Protein, betaine in General (read at 390 px).
+check-slots: 15 of 15 source controls -- the egg's tryptophan, leucine and methionine from both
+assets (CNF 130: 0.196, 1.068, 0.391 g; SR 173424: 0.153, 1.08, 0.392 g), SR's egg betaine 0.6 mg,
+and CNF food 2020's betaine 228.1 mg for the merge (CNF's egg carries none); its unit-table
+parser now skips a // comment on any line (found: a second comment line broke it). Harness 3480;
+micro-gate: the egg's Tryptophan row in g under Protein, and a line on tryptophan's slot supplied.
+*Caught by the R204 guard while building:* a pre-registration sentence and two slot notes used
+words of the user's stack (an amino acid's common name, a pathway's name); reworded before any
+commit. Every gate alone (71 of 71), then the full suite: **83 of 83**. Pushed; verify-deploy
+passes. The pack (HTPrivate, v019, tools/apply_r327_54.py): the ten protein stand-in lines on
+their own amino acids (none left), pw-059 gains leucine, isoleucine and valine, betaine tracked.
+**The egg on the user's pack (CNF):** tryptophan 0.20, leucine 1.07, isoleucine 0.65, valine 0.81,
+methionine 0.39, cystine 0.28, tyrosine 0.50, arginine 0.78, glycine 0.41 g; betaine "-";
+"supplies 43 pathways" (unchanged: each of these was already supplied through protein).
