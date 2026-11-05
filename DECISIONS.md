@@ -21849,8 +21849,8 @@ As pre-registered, with these stated:
 The user's decisions on the 64 directions (4 Nov), and one new rule.
 
 **Directions (data work, HTPrivate, not a release).** iron-coffee, iron-calcium, iron-vitc,
-fructose-low-gi and ashwagandha-thyroid changed to neutral, then approved (each keeps what was
-drafted, `drafted_direction`); garcinia-weight approved positive (the user's goal is weight loss,
+fructose-low-gi and one entry whose id names a stack item (recorded in HTPrivate, R204) changed to neutral, then approved (each keeps what was
+drafted, `drafted_direction`); one entry approved positive (its id is recorded in HTPrivate, R204; the user's goal is weight loss,
 visceral fat in particular); every other entry approved as drafted; `reviewed_by_me` 2026-11-04.
 `tools/apply_r321.py`; pack v015 (64 of 64 carry `for_me`: 30 positive, 11 negative, 23 neutral;
 6 negative at 30 % or more).
@@ -22078,3 +22078,44 @@ pack (CNF):** choline 293.80 mg; "supplies 43 pathways" (was 40) -- Vagal (acety
 signalling, Choline, and Vitamins E and K added; the wheel's Choline and Vagal signalling go from
 0 % to 100 % known. *Found while building:* the R321 BUILT entry had named claim ids that carry a
 stack item's name; removed (172a39c); the private checker (rule 6) caught it at the pack build.
+
+## R329 -- the go for R327 items 2, 3, 5, 4, 6 and R328/1 (2026-11-05); the R204 guard
+
+**Order.** R327/2, /3, /5, /4, /6, then R328/1, each pre-registered here before it is built,
+released under the standing pre-run rule; then R314.1 (the doctor list) and R319 (the row
+offer's ranking), queued.
+**How the leaked name got past (asked).** The private check (HTPrivate check_schema, rule 6)
+matched only each stack item's WHOLE name from the newest backup, and ran only when a pack was
+built -- after the public commit had been pushed. A claim id or a sentence holding one word of a
+longer name (a compound in a product's name, an ingredient) passed it, and nothing ran before a
+commit or a push. **The fix (HTPrivate, private):** the check takes every word of 4+ letters of
+each stack item's name, product name, maker and ingredient names from EVERY backup there (a
+removed item still names the stack), less nutrient words and a reviewed list of generic words; a
+word the published food databases print is allowed in corpus/dist only. It runs as git hooks in
+this repo -- on the staged additions, on the commit message, and on every commit being pushed
+plus the tree -- and rule 6 uses the same terms. Run on the tree it found two more: a claim id
+in the R321 directions entry and a stack food used as a test fixture; both replaced here (the
+fixture by a placeholder). Earlier commits still hold three names; the user ruled (5 Nov) not to
+rewrite the history.
+
+## R327/2 -- PRE-REGISTERED (2026-11-05; to be v0.130.1): the omega fats shown, and their pathway lines (*track*, *evaluate*)
+
+**Micronutrients.** The Lipids group shows four slots the corpus already ships and the panel
+left out: **ALA 18:3 n-3 (851)** and **EPA 20:5 n-3 (629)** beside DHA and DPA, and the
+database's own totals **Omega-3, total (868)** and **Omega-6, total (869)**. Fat's parts are
+saturated, monounsaturated, polyunsaturated, omega-3 total and omega-6 total; each named fatty
+acid sits under its family's total (one nesting level is the renderer's limit, so the totals sit
+beside polyunsaturated, of which they are a part -- fructose's precedent). A total is the row's
+own figure, and its members need not sum to it (a row may carry the total and not each member).
+The totals are CNF's only (34.7 % of CNF 2015 rows; SR Legacy carries none), so on the US
+database they read "-", never 0, and R306's coverage by weight says how much of the day carried
+them. The Omega-3 heading then reads "5 of 5 carried".
+**A line made of two slots.** A pack supply line may name `slots` (a list) instead of one `slot`:
+its amount is the sum of the slots a food carries, and a food is known for it only when it
+carries every one. **The pack (HTPrivate):** pw-051 gains the line "EPA + DHA" (slots 629, 621);
+pw-025 gains EPA (629) and DHA (621) beside ALA. Health Canada sets no reference intake for EPA
+or DHA, so these lines count any amount above zero and say so (R313/A P5).
+**Gates.** Harness: the Lipids group lists the four slots under their totals with their unit
+words; a two-slot line sums and is known only with both. micro-gate: the gate fish's EPA and
+Omega-3 total rows read their values; a placeholder pack with an EPA + DHA line is supplied by
+the fish and not by a food carrying neither. Release under the standing pre-run rule.

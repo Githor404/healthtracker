@@ -717,12 +717,12 @@ window.setLS({});
       && HT.state().settings.stack[0].id === sk1.item.id && HT.state().settings.stack[0].note === undefined,
       'R203 GATE: an EDIT replaces the item in place under its own id');
   res(HT.stackUpsert({ kind: 'food', name: 'Oil' }).ok === false
-      && HT.stackUpsert({ kind: 'food', part: { name: 'Oil, olive', kcal: 119, source: 'corpus' } }).ok === false,
+      && HT.stackUpsert({ kind: 'food', part: { name: 'Stack food A', kcal: 119, source: 'corpus' } }).ok === false,
       'R203 GATE: a FOOD needs a food-database row AND grams -- with neither, or with no grams, it is refused. A spoonful has no weight this app will assume');
-  var skPart = { name: 'Oil, olive', grams: 14, kcal: 124, fat_g: 14, protein_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'corpus',
-                 ref: { ns: 'cnf', id: '407', name: 'Vegetable oil, olive', hash: 'h', attribution: 'CNF', g: 14, v: { '208': 124, '204': 14 } } };
+  var skPart = { name: 'Stack food A', grams: 14, kcal: 124, fat_g: 14, protein_g: 0, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'corpus',
+                 ref: { ns: 'cnf', id: '407', name: 'Placeholder row A', hash: 'h', attribution: 'CNF', g: 14, v: { '208': 124, '204': 14 } } };
   var sk5 = HT.stackUpsert({ kind: 'food', part: skPart, note: 'one spoon' });
-  res(sk5.ok === true && sk5.item.kind === 'food' && sk5.item.name === 'Oil, olive' && sk5.item.part.grams === 14 && !!sk5.item.part.ref && sk5.item.note === 'one spoon',
+  res(sk5.ok === true && sk5.item.kind === 'food' && sk5.item.name === 'Stack food A' && sk5.item.part.grams === 14 && !!sk5.item.part.ref && sk5.item.note === 'one spoon',
       'R203 GATE: a food is a food-database row at typed grams, stored in the combo part-s own shape with its citation');
   HT.stackItemEnable(sk5.item.id, false);
   res(HT.stackPlan().rows.length === 3 && HT.state().settings.stack.length === 4,
@@ -734,7 +734,7 @@ window.setLS({});
   res(skN === 4 && skLog.ok === true && skLog.items.length + skLog.records.length === 4 && skLog.items.length === 1 && skLog.records.length === 3,
       'R203 GATE: THE STACK TAP LOGS N -- four items, one into the day and three onto the timeline, at one time');
   var skFood = skLog.items[0];
-  res(skFood.name === 'Oil, olive' && skFood.grams === 14 && skFood.kcal === 124 && skFood.source === 'corpus' && skFood.meal === 'supplement' && !!skFood.ref && skFood.notes === 'one spoon' && skFood._auto === undefined,
+  res(skFood.name === 'Stack food A' && skFood.grams === 14 && skFood.kcal === 124 && skFood.source === 'corpus' && skFood.meal === 'supplement' && !!skFood.ref && skFood.notes === 'one spoon' && skFood._auto === undefined,
       'R203 GATE: the food arrives with the CORPUS-s numbers and its citation, filed as a supplement so the clock never places it under a meal');
   res(skLog.records.filter(function (r) { return r.name === 'Capsule A'; })[0].dose === 300 && skLog.records.every(function (r) { return r.source === 'stack'; }),
       'R203: the doses carry their amounts and declare the stack as their source');
@@ -748,7 +748,7 @@ window.setLS({});
   var skDel = HT.deleteItem(skAt);
   res(skDel.ok !== false && HT.state().days[td].items.indexOf(skFood) < 0, 'R203 GATE: a stack entry in the day is DELETABLE');
   HT.doUndo();
-  res(HT.state().days[td].items.filter(function (x) { return x.name === 'Oil, olive'; }).length === 2, 'R203 GATE: ...with Undo');
+  res(HT.state().days[td].items.filter(function (x) { return x.name === 'Stack food A'; }).length === 2, 'R203 GATE: ...with Undo');
   // Took all's own Undo takes back the whole act, day and timeline together (R246:
   // Took all is the old confirm's write, skipping what is already checked).
   var skKeepI = HT.state().days[td].items.slice(), skKeepT = (HT.state().timeline[td] || []).slice();
