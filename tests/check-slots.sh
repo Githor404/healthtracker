@@ -395,7 +395,12 @@ if 'cnf' in metas:
 #     SR Legacy 173424 choline 294 mg, selenium 30.8 ug, vitamin K 0.3 ug.
 six_line = 'new-slot controls: NOT CHECKED (assets not loaded)'
 _six = [('cnf', '130', 421, 293.8), ('cnf', '130', 317, 34.3), ('cnf', '130', 323, 2.45), ('cnf', '130', 410, 2.44),
-        ('fdc', '173424', 421, 294.0), ('fdc', '173424', 317, 30.8), ('fdc', '173424', 430, 0.3)]
+        ('fdc', '173424', 421, 294.0), ('fdc', '173424', 317, 30.8), ('fdc', '173424', 430, 0.3),
+        # R327/4 and R327/5 (read from the sources 2026-11-05): the egg's tryptophan, leucine and
+        # methionine in both; SR Legacy's egg betaine 0.6 mg; CNF's egg carries none, so CNF food
+        # 2020 (betaine 228.1 mg, its id 863) checks the merge into 454
+        ('cnf', '130', 501, 0.196), ('cnf', '130', 504, 1.068), ('cnf', '130', 506, 0.391), ('cnf', '2020', 454, 228.1),
+        ('fdc', '173424', 501, 0.153), ('fdc', '173424', 504, 1.08), ('fdc', '173424', 506, 0.392), ('fdc', '173424', 454, 0.6)]
 if 'cnf' in metas and 'fdc' in metas:
     _ok6 = 0
     for ns, fid, slot, want in _six:
@@ -410,7 +415,7 @@ if 'cnf' in metas and 'fdc' in metas:
             bad.append('new-slot control: %s %s slot %s is %r, the source says %s' % (ns, fid, slot, got, want))
         else:
             _ok6 += 1
-    six_line = 'new-slot controls: %d of %d (the hard-boiled egg: choline, selenium, E, B5, K in both assets)' % (_ok6, len(_six))
+    six_line = 'new-slot controls: %d of %d (the hard-boiled egg: choline, selenium, E, B5, K, tryptophan, leucine, methionine, betaine; CNF betaine on food 2020)' % (_ok6, len(_six))
 
 # 11. R327/0: EVERY SLOT'S UNIT WORD. app.js's PANEL_SLOT_UNIT names every slot in the
 #     spec with the spec's own unit (ug written mcg, kcal written cal) and nothing else.
@@ -420,7 +425,10 @@ if src:
     j = src.find('const PANEL_SLOT_UNIT = {')
     declared_u = {}
     if j >= 0:
-        for part in src[j + len('const PANEL_SLOT_UNIT = {'):src.find('};', j)].replace('\n', ' ').split(','):
+        # a // comment ends at its line (R327/4: a comment no longer has to be the table's last)
+        _tab = src[j + len('const PANEL_SLOT_UNIT = {'):src.find('};', j)]
+        _tab = '\n'.join(_ln.split('//')[0] for _ln in _tab.split('\n'))
+        for part in _tab.replace('\n', ' ').split(','):
             if ':' not in part:
                 continue
             k, v = part.split(':', 1)

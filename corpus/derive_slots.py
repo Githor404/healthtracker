@@ -48,6 +48,9 @@ MERGES = [
     {'slot': 421, 'from_cnf': 862,
      'why': 'R327/1: choline, total. FDC SR 421 and CNF id 862 (its code is 421) are the same '
             'quantity in the same unit (mg).'},
+    {'slot': 454, 'from_cnf': 863,
+     'why': 'R327/5: betaine. FDC SR 454 and CNF id 863 (its code is 454) are the same quantity in '
+            'the same unit (mg).'},
 ]
 
 # ADDITIONS: nutrients the app already stores (MICRO_SPEC) that fall below the
@@ -113,6 +116,36 @@ ADDITIONS = [
      'why': 'R327/1: a pathway raw material (vitamins E and K). MEASURED: 64.9% in SR Legacy, 55.8% in '
             'CNF. Phylloquinone (K1); menaquinones are in neither source at useful coverage. FDC 430 and '
             'CNF 430 agree.'},
+    {'slot': 454, 'key': None, 'label': 'Betaine', 'unit': 'mg',
+     'why': 'R327/5: the betaine line of methionine/homocysteine (pw-056). MEASURED, far below the bar: '
+            '26.8% in SR Legacy, 19.3% in CNF (id 863). Merged.'},
+    {'slot': 501, 'key': None, 'label': 'Tryptophan', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (serotonin and melatonin). '
+            'MEASURED: 64.5% in SR Legacy, 67.8% in CNF.'},
+    {'slot': 504, 'key': None, 'label': 'Leucine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (mTOR, branched-chain amino acids). '
+            'MEASURED: 65.2% in SR Legacy, 68.7% in CNF.'},
+    {'slot': 503, 'key': None, 'label': 'Isoleucine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (branched-chain amino acids). '
+            'MEASURED: 65.2% in SR Legacy, 68.8% in CNF.'},
+    {'slot': 510, 'key': None, 'label': 'Valine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (branched-chain amino acids). '
+            'MEASURED: 65.2% in SR Legacy, 68.8% in CNF.'},
+    {'slot': 506, 'key': None, 'label': 'Methionine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010). '
+            'MEASURED: 65.4% in SR Legacy, 68.9% in CNF.'},
+    {'slot': 507, 'key': None, 'label': 'Cystine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (glutathione; the form the databases give for the sulfur amino acid). '
+            'MEASURED: 63.3% in SR Legacy, 67.6% in CNF.'},
+    {'slot': 509, 'key': None, 'label': 'Tyrosine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (CoQ10 synthesis, thyroid hormone). '
+            'MEASURED: 64.8% in SR Legacy, 68.2% in CNF.'},
+    {'slot': 511, 'key': None, 'label': 'Arginine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010, nitric oxide). '
+            'MEASURED: 65.1% in SR Legacy, 68.5% in CNF.'},
+    {'slot': 516, 'key': None, 'label': 'Glycine', 'unit': 'g',
+     'why': 'R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010). '
+            'MEASURED: 64.5% in SR Legacy, 67.8% in CNF.'},
 ]
 
 # The app's existing keys, mapped onto their slots so the corpus can hold what

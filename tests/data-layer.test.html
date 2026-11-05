@@ -946,8 +946,8 @@ window.setLS({});
   var r27six = [[315, 'mg', 'Manganese'], [317, 'mcg', 'Selenium'], [323, 'mg', 'Vitamin E'], [410, 'mg', 'Pantothenic acid (B5)'], [421, 'mg', 'Choline'], [430, 'mcg', 'Vitamin K']];
   var r27shown = [].concat.apply([], HT.PANEL_GROUPS.map(function (g) { return g.slots.concat([].concat.apply([], Object.keys(g.kids || {}).map(function (k) { return g.kids[k]; }))); }));
   var r27bad = r27six.filter(function (x) { return HT.FDC_SLOTS.indexOf(x[0]) < 0 || HT.panelSlotUnit(x[0]) !== x[1] || HT.panelSlotLabel(x[0]) !== x[2] || r27shown.indexOf(x[0]) < 0; });
-  res(r27bad.length === 0 && HT.FDC_SLOTS.length === 57 && HT.FDC_SLOTS.join(',') === HT.FDC_SLOTS.slice().sort(function (a, b) { return a - b; }).join(','),
-      'R327/1: SIX NEW SLOTS -- manganese, selenium, vitamin E, B5, choline and vitamin K are shipped (57 slots, in slot order), each with its own unit word and name, each a row in the Micronutrients section', JSON.stringify(r27bad));
+  res(r27bad.length === 0 && HT.FDC_SLOTS.length === 67 && HT.FDC_SLOTS.join(',') === HT.FDC_SLOTS.slice().sort(function (a, b) { return a - b; }).join(','),
+      'R327/1: SIX NEW SLOTS -- manganese, selenium, vitamin E, B5, choline and vitamin K are shipped (57 slots then; 67 since R327/4, in slot order), each with its own unit word and name, each a row in the Micronutrients section', JSON.stringify(r27bad));
   // R327/2: the omega fats shown under their totals; a line of two slots sums and is known only with both
   var r272lip = HT.PANEL_GROUPS.filter(function (g) { return g.name === 'Lipids'; })[0];
   var r272w = [[851, 'ALA 18:3 n-3'], [629, 'EPA 20:5 n-3'], [868, 'Omega-3, total'], [869, 'Omega-6, total']].filter(function (x) { return HT.panelSlotLabel(x[0]) !== x[1] || HT.panelSlotUnit(x[0]) !== 'g'; });
@@ -970,6 +970,13 @@ window.setLS({});
   HT.state().days = r272days;
   res(r272K.byId['pw-g'] === 0.5,
       'R327/2: THE KNOWN SHARE OF A TWO-SLOT LINE -- a food carrying both slots is known (100 g of 200 g = 50 %); one carrying only DHA is not', JSON.stringify(r272K.byId));
+  // R327/4 and R327/5: nine amino acids under Protein, betaine in General
+  var r274gen = HT.PANEL_GROUPS[0];
+  var r274w = [[501, 'Tryptophan'], [504, 'Leucine'], [503, 'Isoleucine'], [510, 'Valine'], [506, 'Methionine'], [507, 'Cystine'], [509, 'Tyrosine'], [511, 'Arginine'], [516, 'Glycine']]
+    .filter(function (x) { return HT.panelSlotLabel(x[0]) !== x[1] || HT.panelSlotUnit(x[0]) !== 'g' || HT.FDC_SLOTS.indexOf(x[0]) < 0; });
+  res(r274w.length === 0 && r274gen.kids && r274gen.kids[203].join(',') === '501,504,503,510,506,507,509,511,516' && r274gen.slots.indexOf(454) >= 0
+      && HT.panelSlotLabel(454) === 'Betaine' && HT.panelSlotUnit(454) === 'mg' && HT.FDC_SLOTS.indexOf(454) >= 0,
+      'R327/4, R327/5: NINE AMINO ACIDS (g) are shipped and shown under Protein, a part of its whole; betaine (mg) in General', JSON.stringify(r274w));
   // R327/3: eleven more keys -- from a label (OFF), on their slots, and from a licensed product
   var r273keys = { thiamin_mg: 404, riboflavin_mg: 405, niacin_mg: 406, vitamin_b6_mg: 415, copper_mg: 312, selenium_ug: 317, choline_mg: 421, pantothenic_acid_mg: 410, vitamin_e_mg: 323, manganese_mg: 315, vitamin_k_ug: 430 };
   var r273spec = HT.MICRO_SPEC.map(function (m) { return m.key; });

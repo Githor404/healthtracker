@@ -90,6 +90,76 @@
    "slot": 430,
    "unit": "ug",
    "why": "R327/1: a pathway raw material (vitamins E and K). MEASURED: 64.9% in SR Legacy, 55.8% in CNF. Phylloquinone (K1); menaquinones are in neither source at useful coverage. FDC 430 and CNF 430 agree."
+  },
+  {
+   "key": null,
+   "label": "Betaine",
+   "slot": 454,
+   "unit": "mg",
+   "why": "R327/5: the betaine line of methionine/homocysteine (pw-056). MEASURED, far below the bar: 26.8% in SR Legacy, 19.3% in CNF (id 863). Merged."
+  },
+  {
+   "key": null,
+   "label": "Tryptophan",
+   "slot": 501,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (serotonin and melatonin). MEASURED: 64.5% in SR Legacy, 67.8% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Leucine",
+   "slot": 504,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (mTOR, branched-chain amino acids). MEASURED: 65.2% in SR Legacy, 68.7% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Isoleucine",
+   "slot": 503,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (branched-chain amino acids). MEASURED: 65.2% in SR Legacy, 68.8% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Valine",
+   "slot": 510,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (branched-chain amino acids). MEASURED: 65.2% in SR Legacy, 68.8% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Methionine",
+   "slot": 506,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010). MEASURED: 65.4% in SR Legacy, 68.9% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Cystine",
+   "slot": 507,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (glutathione; the form the databases give for the sulfur amino acid). MEASURED: 63.3% in SR Legacy, 67.6% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Tyrosine",
+   "slot": 509,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (CoQ10 synthesis, thyroid hormone). MEASURED: 64.8% in SR Legacy, 68.2% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Arginine",
+   "slot": 511,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010, nitric oxide). MEASURED: 65.1% in SR Legacy, 68.5% in CNF."
+  },
+  {
+   "key": null,
+   "label": "Glycine",
+   "slot": 516,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010). MEASURED: 64.5% in SR Legacy, 67.8% in CNF."
   }
  ],
  "bar": 0.9,
@@ -132,6 +202,15 @@
   "418": 418,
   "430": 430,
   "431": 431,
+  "501": 501,
+  "503": 503,
+  "504": 504,
+  "506": 506,
+  "507": 507,
+  "509": 509,
+  "510": 510,
+  "511": 511,
+  "516": 516,
   "601": 601,
   "606": 606,
   "617": 617,
@@ -149,14 +228,15 @@
   "854": 854,
   "861": 861,
   "862": 421,
+  "863": 454,
   "868": 868,
   "869": 869
  },
  "counts": {
   "derived": 44,
-  "judged_additions": 13,
-  "judged_merges": 4,
-  "total": 57
+  "judged_additions": 23,
+  "judged_merges": 5,
+  "total": 67
  },
  "fdc_number_to_slot": {
   "203": 203,
@@ -198,6 +278,16 @@
   "421": 421,
   "430": 430,
   "431": 431,
+  "454": 454,
+  "501": 501,
+  "503": 503,
+  "504": 504,
+  "506": 506,
+  "507": 507,
+  "509": 509,
+  "510": 510,
+  "511": 511,
+  "516": 516,
   "601": 601,
   "606": 606,
   "617": 617,
@@ -229,6 +319,11 @@
    "from_cnf": 862,
    "slot": 421,
    "why": "R327/1: choline, total. FDC SR 421 and CNF id 862 (its code is 421) are the same quantity in the same unit (mg)."
+  },
+  {
+   "from_cnf": 863,
+   "slot": 454,
+   "why": "R327/5: betaine. FDC SR 454 and CNF id 863 (its code is 454) are the same quantity in the same unit (mg)."
   }
  ],
  "slots": [
@@ -649,6 +744,126 @@
    "origin": "derived",
    "slot": 431,
    "unit": "\u00b5g"
+  },
+  {
+   "cnf_name": "BETAINE",
+   "cnf_pct": 19.3,
+   "fdc_name": "Betaine",
+   "fdc_pct": 26.8,
+   "key": null,
+   "label": "Betaine",
+   "origin": "judged",
+   "slot": 454,
+   "unit": "mg",
+   "why": "R327/5: the betaine line of methionine/homocysteine (pw-056). MEASURED, far below the bar: 26.8% in SR Legacy, 19.3% in CNF (id 863). Merged."
+  },
+  {
+   "cnf_name": "TRYPTOPHAN",
+   "cnf_pct": 67.8,
+   "fdc_name": "Tryptophan",
+   "fdc_pct": 64.5,
+   "key": null,
+   "label": "Tryptophan",
+   "origin": "judged",
+   "slot": 501,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (serotonin and melatonin). MEASURED: 64.5% in SR Legacy, 67.8% in CNF."
+  },
+  {
+   "cnf_name": "ISOLEUCINE",
+   "cnf_pct": 68.8,
+   "fdc_name": "Isoleucine",
+   "fdc_pct": 65.2,
+   "key": null,
+   "label": "Isoleucine",
+   "origin": "judged",
+   "slot": 503,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (branched-chain amino acids). MEASURED: 65.2% in SR Legacy, 68.8% in CNF."
+  },
+  {
+   "cnf_name": "LEUCINE",
+   "cnf_pct": 68.7,
+   "fdc_name": "Leucine",
+   "fdc_pct": 65.2,
+   "key": null,
+   "label": "Leucine",
+   "origin": "judged",
+   "slot": 504,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (mTOR, branched-chain amino acids). MEASURED: 65.2% in SR Legacy, 68.7% in CNF."
+  },
+  {
+   "cnf_name": "METHIONINE",
+   "cnf_pct": 68.9,
+   "fdc_name": "Methionine",
+   "fdc_pct": 65.4,
+   "key": null,
+   "label": "Methionine",
+   "origin": "judged",
+   "slot": 506,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010). MEASURED: 65.4% in SR Legacy, 68.9% in CNF."
+  },
+  {
+   "cnf_name": "CYSTINE",
+   "cnf_pct": 67.6,
+   "fdc_name": "Cystine",
+   "fdc_pct": 63.3,
+   "key": null,
+   "label": "Cystine",
+   "origin": "judged",
+   "slot": 507,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (glutathione; the form the databases give for the sulfur amino acid). MEASURED: 63.3% in SR Legacy, 67.6% in CNF."
+  },
+  {
+   "cnf_name": "TYROSINE",
+   "cnf_pct": 68.2,
+   "fdc_name": "Tyrosine",
+   "fdc_pct": 64.8,
+   "key": null,
+   "label": "Tyrosine",
+   "origin": "judged",
+   "slot": 509,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (CoQ10 synthesis, thyroid hormone). MEASURED: 64.8% in SR Legacy, 68.2% in CNF."
+  },
+  {
+   "cnf_name": "VALINE",
+   "cnf_pct": 68.8,
+   "fdc_name": "Valine",
+   "fdc_pct": 65.2,
+   "key": null,
+   "label": "Valine",
+   "origin": "judged",
+   "slot": 510,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (branched-chain amino acids). MEASURED: 65.2% in SR Legacy, 68.8% in CNF."
+  },
+  {
+   "cnf_name": "ARGININE",
+   "cnf_pct": 68.5,
+   "fdc_name": "Arginine",
+   "fdc_pct": 65.1,
+   "key": null,
+   "label": "Arginine",
+   "origin": "judged",
+   "slot": 511,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010, nitric oxide). MEASURED: 65.1% in SR Legacy, 68.5% in CNF."
+  },
+  {
+   "cnf_name": "GLYCINE",
+   "cnf_pct": 67.8,
+   "fdc_name": "Glycine",
+   "fdc_pct": 64.5,
+   "key": null,
+   "label": "Glycine",
+   "origin": "judged",
+   "slot": 516,
+   "unit": "g",
+   "why": "R327/4: an amino acid a pathway names, in place of the protein stand-in (pw-010). MEASURED: 64.5% in SR Legacy, 67.8% in CNF."
   },
   {
    "cnf_name": "CHOLESTEROL",

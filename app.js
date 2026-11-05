@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.131.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.132.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2767,7 +2767,9 @@ function panelRollup(day, doses) {
 const PANEL_ALT = { 208: [268], 320: [318] };
 const PANEL_OFF_SURFACE = [207];
 const PANEL_GROUPS = [
-  { name: 'General', slots: [208, 255, 221, 262, 263] },
+  // R327/4: the amino acids under Protein, parts of their whole; R327/5: betaine beside the
+  // other compounds a food carries that are not nutrients with an intake
+  { name: 'General', slots: [208, 255, 221, 262, 263, 454], kids: { 203: [501, 504, 503, 510, 506, 507, 509, 511, 516] } },
   // Fructose sits BESIDE sugars rather than under it. The panel nests exactly
   // one level and D118's rule is parts under their whole -- fructose is a part of
   // a part, so putting it where it belongs would need a second level the renderer
@@ -2803,6 +2805,8 @@ function panelSlotLabel(slot) {
     315: 'Manganese', 317: 'Selenium', 323: 'Vitamin E', 410: 'Pantothenic acid (B5)',
     421: 'Choline', 430: 'Vitamin K',
     851: 'ALA 18:3 n-3', 629: 'EPA 20:5 n-3', 868: 'Omega-3, total', 869: 'Omega-6, total',   // R327/2
+    454: 'Betaine', 501: 'Tryptophan', 503: 'Isoleucine', 504: 'Leucine', 506: 'Methionine', 507: 'Cystine',
+    509: 'Tyrosine', 510: 'Valine', 511: 'Arginine', 516: 'Glycine',   // R327/5, R327/4
   };
   return names[slot] || ('slot ' + slot);
 }
@@ -2819,6 +2823,7 @@ const PANEL_SLOT_UNIT = {
   631: 'g', 645: 'g', 646: 'g', 806: 'mcg', 815: 'mcg', 832: 'g', 851: 'g', 854: 'g', 861: 'g', 868: 'g',
   869: 'g',
   315: 'mg', 317: 'mcg', 323: 'mg', 410: 'mg', 421: 'mg', 430: 'mcg',   // R327/1
+  454: 'mg', 501: 'g', 503: 'g', 504: 'g', 506: 'g', 507: 'g', 509: 'g', 510: 'g', 511: 'g', 516: 'g',   // R327/5, R327/4
 };
 function panelSlotUnit(slot) { return PANEL_SLOT_UNIT[slot] || ''; }
 
@@ -5509,8 +5514,8 @@ function corpusAssetURL(ns, ext) { return './corpus/dist/' + ns + '.' + ext; }
 // assets by tests/check-slots.sh so it cannot go stale. Stamping it is the price
 // of not spending 300 KB of meta on every boot to ask "is mine current?".
 const CORPUS_ASSET_HASH = {
-  fdc: '14477e0ee357',
-  cnf: '97ed872d2e6a',
+  fdc: 'b4685afddbba',
+  cnf: '8341f773a2a7',
 };
 
 // R189: declared per namespace, and ONLY for a namespace whose source publishes a
@@ -19380,6 +19385,7 @@ const VERSION_LOG = [
   { v: '0.130.0', d: '2026-11-04', note: 'The food databases now give six more nutrients: choline, pantothenic acid (B5), selenium, vitamin E, vitamin K and manganese. They show in Micronutrients with how much of the day’s food carries a value for each -- fewer foods have choline or vitamin K figures than iron, so those rows will often say partial. The database downloads once more (about 60-80 KB). With your updated pathway pack, the pathways that use them can count them too.' },
   { v: '0.130.1', d: '2026-11-05', note: 'Micronutrients shows the omega fats the food database already carried: ALA and EPA beside DHA, and the omega-3 and omega-6 totals, each fatty acid under its total. The totals come from the Canadian database only, so on the US one they read -. With your updated pathway pack, EPA and DHA count toward the pathways that use them.' },
   { v: '0.131.0', d: '2026-11-05', note: 'A scanned label now brings thiamin, riboflavin, niacin, B6, pantothenic acid, choline, vitamins E and K, copper, selenium and manganese where it prints them, and the label form has a field for each. A supplement from Health Canada’s database counts those and sodium. Each shows in its Micronutrients row beside the food database’s figure.' },
+  { v: '0.132.0', d: '2026-11-05', note: 'The food databases now give nine amino acids -- tryptophan, leucine, isoleucine, valine, methionine, cystine, tyrosine, arginine and glycine -- shown under Protein, and betaine. About two thirds of foods carry the amino acids and fewer carry betaine, so their rows often say partial. The database downloads once more (about 90-115 KB). With your updated pathway pack, the pathways that named protein as a stand-in count their own amino acid instead.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -25784,9 +25790,10 @@ const FDC_TERMS_MAX = 3;        // names searched per tap, at most (each is one 
 const FDC_TIMEOUT_MS = 15000;
 // The corpus slot list, held here so a search works before the corpus has arrived;
 // fdc-gate holds it equal to the shipped files' own list.
-const FDC_SLOTS = [203, 204, 205, 207, 208, 212, 221, 255, 262, 263, 268, 269, 291, 301, 303, 304, 305, 306, 307, 309,
-  312, 315, 317, 318, 319, 320, 323, 328, 401, 404, 405, 406, 409, 410, 415, 417, 418, 421, 430, 431, 601, 606,
-  617, 618, 621, 629, 631, 645, 646, 806, 815, 832, 851, 854, 861, 868, 869];
+const FDC_SLOTS = [203, 204, 205, 207, 208, 212, 221, 255, 262, 263, 268, 269, 291, 301, 303, 304, 305, 306,
+  307, 309, 312, 315, 317, 318, 319, 320, 323, 328, 401, 404, 405, 406, 409, 410, 415, 417, 418, 421, 430,
+  431, 454, 501, 503, 504, 506, 507, 509, 510, 511, 516, 601, 606, 617, 618, 621, 629, 631, 645, 646, 806,
+  815, 832, 851, 854, 861, 868, 869];
 
 // The key: write-only, as the AI key is. Its own entry in this device's storage,
 // outside the log, so no export or backup can carry it; only the mask is shown.

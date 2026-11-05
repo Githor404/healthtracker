@@ -258,7 +258,8 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
     var body = { format: 'healthtracker-pack', schema: 1, groups: [{ id: 'g', name: 'Group A' }],
       records: [{ id: 'pw-g1', plain_name: 'Gate record with a choline line', group: 'g', supply: [{ cofactor: 'choline', dri: 'choline', key: null, slot: '421', tracked: true }] },
                 { id: 'pw-g2', plain_name: 'Gate record with an untracked line', group: 'g', supply: [{ cofactor: 'iodine', dri: null, key: null, slot: null, tracked: false }] },
-                { id: 'pw-g3', plain_name: 'Gate record with an EPA + DHA line', group: 'g', supply: [{ cofactor: 'EPA + DHA', dri: null, key: null, slots: ['629', '621'], tracked: true }] }],
+                { id: 'pw-g3', plain_name: 'Gate record with an EPA + DHA line', group: 'g', supply: [{ cofactor: 'EPA + DHA', dri: null, key: null, slots: ['629', '621'], tracked: true }] },
+                { id: 'pw-g4', plain_name: 'Gate record with a tryptophan line', group: 'g', supply: [{ cofactor: 'tryptophan', dri: null, key: null, slot: '501', tracked: true }] }],
       claims: [], interactions: [], lexicon: { rules: [] }, sources: [],
       reference_intakes: { source: 'Health Canada, Dietary Reference Intakes tables', group: 'Males 51-70', values: { choline: { label: 'Choline', value: 550, unit: 'mg', kind: 'AI', slot: '421', slot_factor: 1 } } } };
     var txt = JSON.stringify(body);
@@ -268,7 +269,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
     }).then(function (r) {
       HT.panelToggle(true); HT.refresh();
       var d27 = HT.state().days['2026-10-27'].items;
-      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), cu: window.__row(312), cuRef: it.ref && it.ref.v ? it.ref.v[312] : null, sup: HT.ctxSupplies([it]), pack: r.ok,
+      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), cu: window.__row(312), trp: window.__row(501), trpIndent: (function () { var r = document.querySelector('#microPanel .prow[data-slot="501"]'), p = document.querySelector('#microPanel .prow[data-slot="203"]'); return r && p ? Math.round(r.getBoundingClientRect().left - p.getBoundingClientRect().left) + '|' + (p.compareDocumentPosition(r) & 4 ? 'after' : 'before') : null; })(), cuRef: it.ref && it.ref.v ? it.ref.v[312] : null, sup: HT.ctxSupplies([it]), pack: r.ok,
                fish: HT.ctxSupplies([d27[0]]), greens: HT.ctxSupplies([d27[1]]) };
     });
   });
@@ -279,6 +280,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   Check (($e.logged -eq $true) -and ([double]$e.choline -gt 250) -and ($e.row.val -like '2*mg') -and ($e.row.text -like '*Choline*') -and ($e.row.text -like '*AI 550 mg*')) "R327/1: a hard-boiled egg logged through Search carries the database's choline ($($e.choline) mg per 100 g) and the Micronutrients section shows a Choline row in mg with its reference intake"
   Check (($e.pack -eq $true) -and (@($e.sup) -contains 'pw-g1') -and (-not (@($e.sup) -contains 'pw-g2'))) "R327/1: a pathway whose raw material is choline is supplied by the egg (the top box's 'supplies'); a record whose only line is untracked is not"
   Check (($null -ne $e.cu) -and ($e.cu.text -like '*Copper*') -and ([double]($e.cu.val -replace '[^0-9.]', '') -ge (0.3 + [double]$e.cuRef - 0.006)) -and ($e.cu.val -like '*mg')) "R327/3: a scanned label's copper (0.3 mg) is in the Copper row with the egg's database figure ($($e.cuRef) mg): $($e.cu.val)"
+  Check (($null -ne $e.trp) -and ($e.trp.text -like '*Tryptophan*') -and ($e.trp.val -like '0.[12]* g') -and ($e.trpIndent -like '*|after') -and ([int]($e.trpIndent -split '\|')[0] -ge 0) -and (@($e.sup) -contains 'pw-g4')) "R327/4: the egg shows a Tryptophan row in g ($($e.trp.val)) under Protein ($($e.trpIndent) px), and a pathway whose line is tryptophan's own slot is supplied by it"
   Check ((@($e.fish) -contains 'pw-g3') -and (-not (@($e.greens) -contains 'pw-g3'))) "R327/2: a record with an EPA + DHA line is supplied by the fish (EPA 0.5 + DHA 1.2 g) and not by greens carrying neither"
 
   # ---- the layout ----------------------------------------------------------------------------------------
