@@ -22119,3 +22119,48 @@ or DHA, so these lines count any amount above zero and say so (R313/A P5).
 words; a two-slot line sums and is known only with both. micro-gate: the gate fish's EPA and
 Omega-3 total rows read their values; a placeholder pack with an EPA + DHA line is supplied by
 the fish and not by a food carrying neither. Release under the standing pre-run rule.
+
+## R327/2 -- BUILT (v0.130.1), against its pre-registration
+
+As pre-registered. The Lipids group: fat's parts are saturated, monounsaturated,
+polyunsaturated, omega-3 total and omega-6 total, with ALA, EPA, DHA, DPA and 20:3 n-3 under the
+omega-3 total and LA, GLA and 20:3 n-6 under the omega-6 total; "Omega-3 -- 5 of 5 carried".
+A supply line may name `slots` (summed; known only with all). Harness 3474; micro-gate reads the
+gate fish's EPA 0.50 g and omega-3 total 2.10 g and sees an EPA + DHA line supplied by it and not
+by greens. Every gate alone (71 of 71), then the full suite: **83 of 83**. Pushed; verify-deploy
+passes. The pack (HTPrivate, v017, tools/apply_r327_2.py): pw-051 "EPA + DHA (omega-3)", pw-025
+EPA and DHA. **Measured on the user's pack (CNF, wild Atlantic salmon, raw, 100 g):** omega-3
+total 2.00 g -- ALA 0.29, EPA 0.32, DHA 1.12, DPA 0.29 g; omega-6 total 0.43 g, LA 0.17 g (the
+members need not sum to the total, as said); pw-051 and pw-025 both supplied.
+
+
+## R327/3 -- PRE-REGISTERED (2026-11-05; to be v0.131.0): labels and the stack count eleven more nutrients (*track*)
+
+**Keys.** Eleven app micro keys, each on its corpus slot: thiamin_mg (404), riboflavin_mg (405),
+niacin_mg (406), vitamin_b6_mg (415), copper_mg (312), selenium_ug (317), choline_mg (421),
+pantothenic_acid_mg (410), vitamin_e_mg (323), manganese_mg (315), vitamin_k_ug (430). Each is a
+row of MICRO_SPEC (label, unit, a sane-range warning), so a scanned label, the Manual form's
+label fields and a stack dose can carry it, and the Micronutrients row of its slot sums the
+labelled value with the database's (R306, D120: kept apart, the coverage counting both).
+slots.json is untouched (its keys stay the original fourteen; the mapping lives in app.js).
+**OpenFoodFacts.** OFF_MICRO_MAP reads vitamin-b1, vitamin-b2, vitamin-pp (niacin), vitamin-b6,
+copper, selenium, choline, pantothenic-acid, vitamin-e, manganese and vitamin-k, each from its
+`_100g` value and unit, converted to the key's unit; absent stays absent (never 0). Vitamin E
+on a label is taken as mg as printed (a label may state alpha-tocopherol equivalents, not
+alpha-tocopherol alone -- said in the row's basis, not converted).
+**The stack.** STACK_SUPP_KEYS gains the eleven and sodium. A licensed ingredient counts when
+its name is the nutrient's label or one of its stated names (thiamine / vitamin B1, riboflavin /
+vitamin B2, niacin / vitamin B3, vitamin B6, pantothenic acid / vitamin B5, sodium, copper,
+selenium, manganese, choline, vitamin E, vitamin K), in mg, mcg or g; IU is refused for all
+of them (only vitamin D has a cited factor). A salt form named as the ingredient (pyridoxine
+hydrochloride, niacinamide) is not matched: its mass is not the nutrient's. No upper level is
+added (none ruled); the existing three are unchanged.
+**The pack (HTPrivate).** Supply lines and reference intakes for these nutrients gain their key,
+so a label value or a stack dose counts toward the line beside the database's slot.
+**Gates.** Harness: an OFF product with each key maps to the eleven at the right unit and an
+absent one stays absent; the Manual form has a field per key; an LNHPD product with
+"Vitamin B1 10 mg" and "Sodium 50 mg" counts both, "Pyridoxine hydrochloride" counts nothing,
+"Vitamin E 100 IU" is refused; a labelled selenium value and a database one sum in the
+Selenium row with both counted in its coverage; backup round trip keeps the new keys. Gates:
+stackscan-gate's NPN path counts a B-vitamin ingredient (placeholder product); micro-gate shows a
+scanned label's copper. Release under the standing pre-run rule.
