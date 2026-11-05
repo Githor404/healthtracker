@@ -247,7 +247,8 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   # ---- R327/1: a hard-boiled egg, logged through Search, brings its choline -------------------------------
   $egg = EvalA @'
 (function () {
-  var S = HT.state(); S.days['2026-10-26'] = { status: 'in_progress', water_l: 0, items: [] }; S.current = '2026-10-26'; HT.resave(); HT.refresh();
+  var S = HT.state(); S.days['2026-10-26'] = { status: 'in_progress', water_l: 0, items: [
+    { name: 'Gate label', meal: 'lunch', time: '08:00', grams: 50, kcal: 100, protein_g: 2, fat_g: 1, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0, confidence: 'measured', source: 'scan', barcode: '00000327', notes: '', micros: { copper_mg: 0.3 } }] }; S.current = '2026-10-26'; HT.resave(); HT.refresh();
   return HT.searchType('egg hard boiled').then(function () {
     var rows = (HT.foodSearch() || {}).rows || [], pick = -1;
     for (var i = 0; i < rows.length; i++) if (/egg/i.test(rows[i].name) && /hard/i.test(rows[i].name)) { pick = i; break; }
@@ -267,7 +268,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
     }).then(function (r) {
       HT.panelToggle(true); HT.refresh();
       var d27 = HT.state().days['2026-10-27'].items;
-      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), sup: HT.ctxSupplies([it]), pack: r.ok,
+      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), cu: window.__row(312), cuRef: it.ref && it.ref.v ? it.ref.v[312] : null, sup: HT.ctxSupplies([it]), pack: r.ok,
                fish: HT.ctxSupplies([d27[0]]), greens: HT.ctxSupplies([d27[1]]) };
     });
   });
@@ -277,6 +278,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   $e = $egg | ConvertFrom-Json
   Check (($e.logged -eq $true) -and ([double]$e.choline -gt 250) -and ($e.row.val -like '2*mg') -and ($e.row.text -like '*Choline*') -and ($e.row.text -like '*AI 550 mg*')) "R327/1: a hard-boiled egg logged through Search carries the database's choline ($($e.choline) mg per 100 g) and the Micronutrients section shows a Choline row in mg with its reference intake"
   Check (($e.pack -eq $true) -and (@($e.sup) -contains 'pw-g1') -and (-not (@($e.sup) -contains 'pw-g2'))) "R327/1: a pathway whose raw material is choline is supplied by the egg (the top box's 'supplies'); a record whose only line is untracked is not"
+  Check (($null -ne $e.cu) -and ($e.cu.text -like '*Copper*') -and ([double]($e.cu.val -replace '[^0-9.]', '') -ge (0.3 + [double]$e.cuRef - 0.006)) -and ($e.cu.val -like '*mg')) "R327/3: a scanned label's copper (0.3 mg) is in the Copper row with the egg's database figure ($($e.cuRef) mg): $($e.cu.val)"
   Check ((@($e.fish) -contains 'pw-g3') -and (-not (@($e.greens) -contains 'pw-g3'))) "R327/2: a record with an EPA + DHA line is supplied by the fish (EPA 0.5 + DHA 1.2 g) and not by greens carrying neither"
 
   # ---- the layout ----------------------------------------------------------------------------------------

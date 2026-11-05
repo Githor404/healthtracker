@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.130.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.131.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2699,6 +2699,10 @@ const PANEL_SLOT_KEY = {
   306: 'potassium_mg', 307: 'sodium_mg', 309: 'zinc_mg', 320: 'vitamin_a_ug',
   328: 'vitamin_d_ug', 401: 'vitamin_c_mg', 417: 'folate_ug', 418: 'vitamin_b12_ug',
   601: 'cholesterol_mg', 606: 'saturated_fat_g',
+  // R327/3: eleven keys a label or a stack dose can carry, on their slots
+  404: 'thiamin_mg', 405: 'riboflavin_mg', 406: 'niacin_mg', 415: 'vitamin_b6_mg', 312: 'copper_mg',
+  317: 'selenium_ug', 421: 'choline_mg', 410: 'pantothenic_acid_mg', 323: 'vitamin_e_mg',
+  315: 'manganese_mg', 430: 'vitamin_k_ug',
 };
 const PANEL_KEY_SLOT = (function () {
   const o = {};
@@ -6954,10 +6958,22 @@ function stackUpsert(raw) {
 //   typed rows (an amount for the whole dose). The single "counts toward" path of
 //   R208 is unchanged and stays in `micros` without a detail.
 const STACK_SUPP_KEYS = ['magnesium_mg', 'zinc_mg', 'iron_mg', 'calcium_mg', 'potassium_mg',
-                         'vitamin_a_ug', 'vitamin_c_mg', 'vitamin_d_ug', 'vitamin_b12_ug', 'folate_ug'];
+                         'vitamin_a_ug', 'vitamin_c_mg', 'vitamin_d_ug', 'vitamin_b12_ug', 'folate_ug',
+                         // R327/3
+                         'sodium_mg', 'thiamin_mg', 'riboflavin_mg', 'niacin_mg', 'vitamin_b6_mg', 'pantothenic_acid_mg',
+                         'choline_mg', 'vitamin_e_mg', 'vitamin_k_ug', 'copper_mg', 'selenium_ug', 'manganese_mg'];
+// R327/3: the other names an ingredient goes by -- the nutrient itself, never a salt form
+// (pyridoxine hydrochloride, niacinamide), whose mass is not the nutrient's
+const STACK_SUPP_NAMES = {
+  thiamin_mg: ['thiamine', 'vitamin b1'], riboflavin_mg: ['vitamin b2'], niacin_mg: ['vitamin b3'],
+  vitamin_b6_mg: ['vitamin b6'], pantothenic_acid_mg: ['pantothenic acid', 'vitamin b5'],
+};
 function suppKeyFor(name) {
   const n = String(name == null ? '' : name).trim().toLowerCase();
-  for (let i = 0; i < STACK_SUPP_KEYS.length; i++) if (MICRO_LABEL[STACK_SUPP_KEYS[i]].label.toLowerCase() === n) return STACK_SUPP_KEYS[i];
+  for (let i = 0; i < STACK_SUPP_KEYS.length; i++) {
+    const k = STACK_SUPP_KEYS[i];
+    if (MICRO_LABEL[k].label.toLowerCase() === n || (STACK_SUPP_NAMES[k] || []).indexOf(n) >= 0) return k;
+  }
   return '';
 }
 function suppUnit(u) {
@@ -7356,7 +7372,8 @@ function stackSuggestMicro(name) {
     const lab = String(MICRO_SPEC[i].label || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
     if (!lab || lab.length < 4) continue;
     // "vitamin d" also answers "vitamin d2"; a mineral must appear as a whole word
-    if (n.indexOf(' ' + lab + ' ') >= 0 || (/^vitamin [a-z]$/.test(lab) && new RegExp(' ' + lab + '[0-9]{0,2} ').test(n))) return MICRO_SPEC[i].key;
+    // R327/3: but vitamin K2 (menaquinone) is not the K the databases give (phylloquinone)
+    if (n.indexOf(' ' + lab + ' ') >= 0 || (/^vitamin [a-z]$/.test(lab) && lab !== 'vitamin k' && new RegExp(' ' + lab + '[0-9]{0,2} ').test(n))) return MICRO_SPEC[i].key;
   }
   return '';
 }
@@ -10127,6 +10144,18 @@ const MICRO_SPEC = [
   { key: 'folate_ug', label: 'Folate', unit: 'mcg', warn: 2000 },
   { key: 'saturated_fat_g', label: 'Saturated fat', unit: 'g', warn: 200 },
   { key: 'sugars_g', label: 'Sugars', unit: 'g', warn: 500 },
+  // R327/3: the panel's own names; warn is a typo catch (about ten times a high dose), never a limit
+  { key: 'thiamin_mg', label: 'Thiamin', unit: 'mg', warn: 500 },
+  { key: 'riboflavin_mg', label: 'Riboflavin', unit: 'mg', warn: 500 },
+  { key: 'niacin_mg', label: 'Niacin', unit: 'mg', warn: 3000 },
+  { key: 'vitamin_b6_mg', label: 'Vitamin B-6', unit: 'mg', warn: 500 },
+  { key: 'pantothenic_acid_mg', label: 'Pantothenic acid (B5)', unit: 'mg', warn: 2000 },
+  { key: 'choline_mg', label: 'Choline', unit: 'mg', warn: 10000 },
+  { key: 'vitamin_e_mg', label: 'Vitamin E', unit: 'mg', warn: 2000 },
+  { key: 'vitamin_k_ug', label: 'Vitamin K', unit: 'mcg', warn: 10000 },
+  { key: 'copper_mg', label: 'Copper', unit: 'mg', warn: 50 },
+  { key: 'selenium_ug', label: 'Selenium', unit: 'mcg', warn: 2000 },
+  { key: 'manganese_mg', label: 'Manganese', unit: 'mg', warn: 100 },
 ];
 const MICRO_LABEL = MICRO_SPEC.reduce((m, s) => { m[s.key] = s; return m; }, {});
 const MACRO_WARN = { kcal: 10000, protein_g: 1000, fat_g: 1000, carb_g: 1000, fiber_g: 1000, soluble_fiber_g: 1000 };
@@ -10300,6 +10329,18 @@ const OFF_MICRO_MAP = [
   { off: 'vitamin-b9',    key: 'folate_ug',       unit: 'ug' },   // OFF calls folate vitamin-b9
   { off: 'saturated-fat', key: 'saturated_fat_g', unit: 'g'  },
   { off: 'sugars',        key: 'sugars_g',        unit: 'g'  },
+  // R327/3: OFF's taxonomy keys (niacin is vitamin-pp)
+  { off: 'vitamin-b1',       key: 'thiamin_mg',          unit: 'mg' },
+  { off: 'vitamin-b2',       key: 'riboflavin_mg',       unit: 'mg' },
+  { off: 'vitamin-pp',       key: 'niacin_mg',           unit: 'mg' },
+  { off: 'vitamin-b6',       key: 'vitamin_b6_mg',       unit: 'mg' },
+  { off: 'pantothenic-acid', key: 'pantothenic_acid_mg', unit: 'mg' },
+  { off: 'choline',          key: 'choline_mg',          unit: 'mg' },
+  { off: 'vitamin-e',        key: 'vitamin_e_mg',        unit: 'mg' },
+  { off: 'vitamin-k',        key: 'vitamin_k_ug',        unit: 'ug' },
+  { off: 'copper',           key: 'copper_mg',           unit: 'mg' },
+  { off: 'selenium',         key: 'selenium_ug',         unit: 'ug' },
+  { off: 'manganese',        key: 'manganese_mg',        unit: 'mg' },
 ];
 
 // Absence != zero: a micro is included ONLY when OFF returns its _100g key.
@@ -19338,6 +19379,7 @@ const VERSION_LOG = [
   { v: '0.129.2', d: '2026-11-04', note: 'Thiamin (B1), riboflavin (B2), niacin (B3), B6, caffeine and theobromine are now shown in mg, as the food databases give them. They were labelled g by mistake; the numbers themselves were right.' },
   { v: '0.130.0', d: '2026-11-04', note: 'The food databases now give six more nutrients: choline, pantothenic acid (B5), selenium, vitamin E, vitamin K and manganese. They show in Micronutrients with how much of the day’s food carries a value for each -- fewer foods have choline or vitamin K figures than iron, so those rows will often say partial. The database downloads once more (about 60-80 KB). With your updated pathway pack, the pathways that use them can count them too.' },
   { v: '0.130.1', d: '2026-11-05', note: 'Micronutrients shows the omega fats the food database already carried: ALA and EPA beside DHA, and the omega-3 and omega-6 totals, each fatty acid under its total. The totals come from the Canadian database only, so on the US one they read -. With your updated pathway pack, EPA and DHA count toward the pathways that use them.' },
+  { v: '0.131.0', d: '2026-11-05', note: 'A scanned label now brings thiamin, riboflavin, niacin, B6, pantothenic acid, choline, vitamins E and K, copper, selenium and manganese where it prints them, and the label form has a field for each. A supplement from Health Canada’s database counts those and sodium. Each shows in its Micronutrients row beside the food database’s figure.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -20376,7 +20418,7 @@ function newMealId() { return 'pm' + Date.now().toString(36) + '_' + Math.floor(
 // D8 / Fork H: the keys that must never arrive from a photo. `micros` is the
 // container; the rest are the canonical flat keys, in case a model volunteers them
 // at the top level of an item.
-const PHOTO_MICRO_KEYS = ['micros'].concat(MICRO_KEYS || []);
+const PHOTO_MICRO_KEYS = ['micros'].concat(MICRO_KEYS || []).concat(MICRO_SPEC.map(function (m) { return m.key; }).filter(function (k) { return (MICRO_KEYS || []).indexOf(k) < 0; }));   // R327/3
 function photoMicroHits(items) {
   let n = 0;
   (items || []).forEach((e) => {

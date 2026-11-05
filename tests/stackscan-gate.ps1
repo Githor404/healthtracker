@@ -174,6 +174,14 @@ try {
       { lnhpd_id: 79, licence_number: m[2], product_name: 'Gate zinc', flag_primary_name: 1, flag_product_status: 1, dosage_form: 'Tablet', company_name: 'Gate Co' }]);
     if (m && m[1] === 'medicinalingredient' && m[2] === '79') body = JSON.stringify([
       { ingredient_name: 'Zinc', quantity: 50, quantity_unit_of_measure: 'milligrams', source_material: 'Form B' }]);
+    // R327/3: NPN 80000006 -- a placeholder tablet: vitamin B1 10 mg, sodium 50 mg, and a salt form named as itself
+    if (m && m[1] === 'productlicence' && m[2] === '80000006') body = JSON.stringify([
+      { lnhpd_id: 80, licence_number: m[2], product_name: 'Gate B', flag_primary_name: 1, flag_product_status: 1, dosage_form: 'Tablet', company_name: 'Gate Co' }]);
+    if (m && m[1] === 'medicinalingredient' && m[2] === '80') body = JSON.stringify([
+      { ingredient_name: 'Vitamin B1', quantity: 10, quantity_unit_of_measure: 'milligrams', source_material: 'Form C' },
+      { ingredient_name: 'Sodium', quantity: 50, quantity_unit_of_measure: 'milligrams', source_material: 'Form D' },
+      { ingredient_name: 'Pyridoxine hydrochloride', quantity: 20, quantity_unit_of_measure: 'milligrams', source_material: 'Form E' }]);
+    if (m && m[1] === 'productdose' && m[2] === '80') body = JSON.stringify([{ quantity_dose: 1, uom_type_desc_quantity_dose: 'Tablet', frequency: 1, uom_type_desc_frequency: 'daily' }]);
     if (m && m[1] === 'productdose' && m[2] === '79') body = JSON.stringify([{ quantity_dose: 1, uom_type_desc_quantity_dose: 'Tablet', frequency: 1, uom_type_desc_frequency: 'daily' }]);
     if (m && m[1] === 'productlicence' && (m[2] === '80000003' || m[2] === '80000004')) body = JSON.stringify([
       { lnhpd_id: m[2] === '80000003' ? 77 : 78, licence_number: m[2], product_name: m[2] === '80000003' ? 'Gate magnesium' : 'Gate old product',
@@ -408,6 +416,20 @@ try {
   $zlv = $zl | ConvertFrom-Json
   Write-Host ("  R285 existing item: " + $zlv.label + " / " + $zlv.micro + "; unchanged: " + ($zlv.before -eq $zla))
   Check (($zlv.label -eq 'Amount') -and ($zlv.micro -eq 'magnesium_mg') -and ($zlv.before -eq $zla)) "R285 GATE 5: AN EXISTING ITEM WITH NO PER-UNIT DATA keeps its 'Amount' and 'Counts toward Magnesium', and Save leaves its stored record unchanged"
+
+  # ---- R327/3: a B vitamin and sodium from a licensed product count; a salt form does not ----
+  [void](Eval "(function(){ HT.closeSettings(); HT.closeSheet(); return 1; })()"); WaitQuiet 'closed'
+  $bDay = "(function(){ var m = HT.stackDoseMicros(HT.todayKey()); return JSON.stringify({ b1: m.thiamin_mg ? m.thiamin_mg.amount : 0, na: m.sodium_mg ? m.sodium_mg.amount : 0, b6: m.vitamin_b6_mg ? m.vitamin_b6_mg.amount : 0 }); })()"
+  $b0 = Eval $bDay
+  [void](TapSel '#fab'); [void](TapSel '#sheetRoot .stkopen'); [void](TapSel '#sheetRoot .stkaddlog')
+  [void](Eval "document.getElementById('stkNpn').focus()"); TypeText '80000006'
+  [void](TapSel '#sheetRoot .stknpnlook')
+  $bCard = Eval "(document.querySelector('#sheetRoot .stklogform') || {}).textContent || ''"
+  [void](TapSel '#sheetRoot .stklogform .stksave')
+  TickByName 'Gate B'
+  $b1 = Eval $bDay
+  Write-Host ("  R327/3 day from the stack: " + $b0 + " -> " + $b1)
+  Check (($b0 -like '*"b1":0,"na":0,"b6":0*') -and ($b1 -like '*"b1":10,"na":50,"b6":0*') -and ($bCard -like '*Vitamin B1*counts toward Thiamin*') -and ($bCard -like '*Pyridoxine hydrochloride*kept, not a nutrient this app totals*')) "R327/3: A LICENSED PRODUCT'S VITAMIN B1 (10 mg) AND SODIUM (50 mg) REACH THE DAY FROM THE STACK when ticked; the salt form 'Pyridoxine hydrochloride' is kept, not counted"
   [void](Eval "HT.closeSettings(); HT.setLnhpdFetch(null)")
 
 } catch {

@@ -970,6 +970,32 @@ window.setLS({});
   HT.state().days = r272days;
   res(r272K.byId['pw-g'] === 0.5,
       'R327/2: THE KNOWN SHARE OF A TWO-SLOT LINE -- a food carrying both slots is known (100 g of 200 g = 50 %); one carrying only DHA is not', JSON.stringify(r272K.byId));
+  // R327/3: eleven more keys -- from a label (OFF), on their slots, and from a licensed product
+  var r273keys = { thiamin_mg: 404, riboflavin_mg: 405, niacin_mg: 406, vitamin_b6_mg: 415, copper_mg: 312, selenium_ug: 317, choline_mg: 421, pantothenic_acid_mg: 410, vitamin_e_mg: 323, manganese_mg: 315, vitamin_k_ug: 430 };
+  var r273spec = HT.MICRO_SPEC.map(function (m) { return m.key; });
+  var r273bad = Object.keys(r273keys).filter(function (k) { return r273spec.indexOf(k) < 0 || HT.PANEL_KEY_SLOT[k] !== r273keys[k] || HT.panelSlotLabel(r273keys[k]) !== HT.MICRO_SPEC.filter(function (m) { return m.key === k; })[0].label || HT.STACK_SUPP_KEYS.indexOf(k) < 0; });
+  res(r273bad.length === 0 && HT.STACK_SUPP_KEYS.indexOf('sodium_mg') >= 0,
+      'R327/3: ELEVEN KEYS -- each a MICRO_SPEC row (so a label field and a dose can carry it), on its own slot with the panel\'s name, and countable from the stack; sodium countable too', JSON.stringify(r273bad));
+  var r273off = HT.mapOffMicros({ 'vitamin-b1_100g': 0.0011, 'vitamin-b1_unit': 'g', 'vitamin-pp_100g': 0.012, 'vitamin-pp_unit': 'g', 'selenium_100g': 0.0000254, 'selenium_unit': 'g',
+                                  'choline_100g': 0.25, 'choline_unit': 'g', 'vitamin-k_100g': 0.0000035, 'vitamin-k_unit': 'g', 'copper_100g': 0.0003, 'copper_unit': 'g', 'iron_100g': 0.002, 'iron_unit': 'g' });
+  var r273near = function (a, b) { return typeof a === 'number' && Math.abs(a - b) < 1e-6 * Math.max(1, b); };
+  res(r273near(r273off.thiamin_mg, 1.1) && r273near(r273off.niacin_mg, 12) && r273near(r273off.selenium_ug, 25.4) && r273near(r273off.choline_mg, 250) && r273near(r273off.vitamin_k_ug, 3.5) && r273near(r273off.copper_mg, 0.3)
+      && !('riboflavin_mg' in r273off) && !('vitamin_e_mg' in r273off) && r273near(r273off.iron_mg, 2),
+      'R327/3: AN OPENFOODFACTS LABEL maps thiamin (vitamin-b1), niacin (vitamin-pp), selenium, choline, vitamin K and copper at each key\'s unit; riboflavin and vitamin E, absent, stay ABSENT (never 0)', JSON.stringify(r273off));
+  var r273p = HT.stackMultiNutrients({ product: { ns: 'lnhpd', npn: '80000273', id: '273', name: 'Gate B', dosage_form: 'Tablet', status: 'active',
+    ingredients: [{ name: 'Vitamin B1', amount: 10, unit: 'mg' }, { name: 'Sodium', amount: 50, unit: 'mg' }, { name: 'Pyridoxine hydrochloride', amount: 20, unit: 'mg' }, { name: 'Selenium', amount: 55, unit: 'mcg' }] } }, { dose: 2, dose_unit: 'tablet' });
+  var r273e = HT.stackMultiNutrients({ product: { ns: 'lnhpd', npn: '80000274', id: '274', name: 'Gate E', dosage_form: 'Softgel', status: 'active',
+    ingredients: [{ name: 'Vitamin E', amount: 100, unit: 'IU' }] } }, { dose: 1, dose_unit: 'softgel' });
+  res(r273p.micros && r273p.micros.thiamin_mg === 20 && r273p.micros.sodium_mg === 100 && r273p.micros.selenium_ug === 110 && !('vitamin_b6_mg' in r273p.micros)
+      && !(r273e.micros && r273e.micros.vitamin_e_mg) && HT.suppKeyFor('Thiamine') === 'thiamin_mg' && HT.suppKeyFor('Niacinamide') === '',
+      'R327/3: A LICENSED PRODUCT counts "Vitamin B1" (10 mg x 2 = 20 mg thiamin), sodium (100 mg) and selenium (110 mcg); a salt form (pyridoxine hydrochloride) counts nothing; vitamin E in IU is not converted', JSON.stringify([r273p.micros, r273e.micros]));
+  var r273roll = HT.panelRollup({ items: [{ name: 'Gate label', grams: 30, micros: { selenium_ug: 12 } }, { name: 'Gate row', grams: 100, ref: { v: { '317': 30 } } }] }, {});
+  res(r273roll[317] && r273roll[317].labelled === 12 && r273roll[317].reference === 30 && r273roll[317].labelledN === 1 && r273roll[317].referenceN === 1,
+      'R327/3: A LABELLED SELENIUM VALUE AND A DATABASE ONE are both in the Selenium row, kept apart (12 labelled, 30 reference)', JSON.stringify(r273roll[317]));
+  var r273it = HT.normalizeItem({ name: 'Gate label', meal: 'lunch', time: '12:00', kcal: 100, protein_g: 1, fat_g: 1, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0, confidence: 'measured', source: 'scan', micros: { selenium_ug: 12, choline_mg: 40, vitamin_k_ug: 3 } }, true);
+  var r273rt = HT.normalizeItem(JSON.parse(JSON.stringify(r273it)), true);
+  res(r273rt.micros && r273rt.micros.selenium_ug === 12 && r273rt.micros.choline_mg === 40 && r273rt.micros.vitamin_k_ug === 3,
+      'R327/3: THE NEW KEYS SURVIVE the item boundary and a round trip through JSON (backup and restore read items through it)', JSON.stringify(r273rt.micros));
   // R317: a scanned part keeps its barcode and kcal_on_label; a scanned supplement its barcode and 'off' rows
   var r17p = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, fat_g: 15, source: 'scan', barcode: '00000017', kcal_on_label: true });
   var r17bad = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, barcode: '12ab', kcal_on_label: 'yes' });
