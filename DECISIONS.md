@@ -22231,3 +22231,32 @@ their own amino acids (none left), pw-059 gains leucine, isoleucine and valine, 
 **The egg on the user's pack (CNF):** tryptophan 0.20, leucine 1.07, isoleucine 0.65, valine 0.81,
 methionine 0.39, cystine 0.28, tyrosine 0.50, arginine 0.78, glycine 0.41 g; betaine "-";
 "supplies 43 pathways" (unchanged: each of these was already supplied through protein).
+
+## R327/6 -- PRE-REGISTERED (2026-11-05; to be v0.133.0): iodine from labels and the stack; polyphenols from the private pack (*track*, *evaluate*)
+
+**Iodine.** An app key, iodine_ug (MICRO_SPEC row "Iodine", mcg): OpenFoodFacts' `iodine`, a
+label field in Manual, and a licensed ingredient named "Iodine" in the stack. Labels and
+supplements only, as ruled: neither food database carries it at a usable share, so no corpus
+slot. The Micronutrients section shows an Iodine row under Minerals (on SR's nutrient number,
+314, which no shipped asset carries -- its unit word sits in its own table, outside the one
+check-slots holds equal to slots.json), with R306's coverage by weight, which will read low.
+**Its reference intake, cited (confirmed on the page, 2026-11-05):** Health Canada, Dietary
+reference intakes tables: Reference values for elements (page dated 2025-11-19), iodine, males
+51-70: **RDA 150 ug/day** (EAR 95, UL 1,100). The pack's reference intakes gain it; pw-074's
+iodine line becomes tracked on the key. No upper-level flag (none ruled).
+**Polyphenols, private only (R273, R286/4).** The pack (HTPrivate) gains, for each Phenol-
+Explorer 3.6 food a reviewed lexicon rule names, its total polyphenols per 100 g or 100 ml: the
+sum of the compound means measured by chromatography (Folin assay values left out -- the assay
+also reads other reducing compounds), with the number of compounds summed. The public code reads
+only what a pack carries, never a value: a logged food with grams that a reviewed rule matches
+counts grams x total / 100 (100 ml read as 100 g, said), **provisional**, naming the rule and
+the Phenol-Explorer food; derived at render, nothing stored. Shown in Micronutrients only when a
+pack carries the table: one "Polyphenols (from your pack)" line with the day's total, the share
+of the day's food matched, and its basis behind an i. pw-038's polyphenols line becomes tracked
+on it. No reference intake exists; any amount above zero counts.
+**Gates.** Harness: OFF iodine maps to ug, absent stays absent; a licensed "Iodine 150 mcg"
+counts; the Iodine row's unit and label; a placeholder pack table and rule give a matched food's
+polyphenols (grams x total / 100), an unmatched food none, no pack none. micro-gate: a scanned
+label's iodine shows in the Iodine row with "RDA 150 mcg" from a placeholder pack; the
+placeholder polyphenols line reads its total and share. check_schema (private) and the R204
+guard: no Phenol-Explorer value in any public file. Release under the standing pre-run rule.
