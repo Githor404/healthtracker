@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.133.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.134.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1441,7 +1441,112 @@ function normalizeSettings(s) {
      (s.weekNotice === true && isDayKey(s.weekSeen)) ? { weekSeen: s.weekSeen } : {},
      // R322: waist -- the unit shown (absent = inches) and the height for the ratio, in cm
      s.waistUnit === 'cm' ? { waistUnit: 'cm' } : {},
-     (Number(s.height_cm) >= 50 && Number(s.height_cm) <= 260) ? { height_cm: Math.round(Number(s.height_cm) * 100) / 100 } : {});
+     (Number(s.height_cm) >= 50 && Number(s.height_cm) <= 260) ? { height_cm: Math.round(Number(s.height_cm) * 100) / 100 } : {},
+     // R328/1a: the user's own health-history notes. Present only once one exists.
+     (function () { const h = normalizeHealthHistory(s.healthHistory); return h.length ? { healthHistory: h } : {}; })());
+}
+// R328/1a: HEALTH HISTORY -- the user's own notes, on this phone and in the backup. A note may
+// mark nutrients whose absorption may differ, and low stomach acid; each mark is a FLAG beside
+// the figure it concerns, never a number, never a change to a total.
+const HH_ABSORB = ['vitamin_b12_ug', 'iron_mg', 'calcium_mg', 'vitamin_a_ug', 'vitamin_d_ug', 'vitamin_e_mg', 'vitamin_k_ug'];
+const HH_MAX = 20, HH_TEXT_MAX = 500;
+function normalizeHealthHistory(a) {
+  if (!Array.isArray(a)) return [];
+  const out = [];
+  a.forEach(function (n) {
+    if (!n || typeof n !== 'object' || out.length >= HH_MAX) return;
+    const text = String(n.text == null ? '' : n.text).trim().slice(0, HH_TEXT_MAX);
+    if (!text || !isDayKey(n.added)) return;
+    const e = { id: /^[a-z0-9-]{1,40}$/.test(String(n.id || '')) ? String(n.id) : ('hh-' + out.length), text: text, added: n.added };
+    const ab = Array.isArray(n.absorption) ? HH_ABSORB.filter(function (k) { return n.absorption.indexOf(k) >= 0; }) : [];
+    if (ab.length) e.absorption = ab;
+    if (n.lowAcid === true) e.lowAcid = true;
+    out.push(e);
+  });
+  return out;
+}
+function healthHistory() { return (APP_STATE.settings && APP_STATE.settings.healthHistory) || []; }
+function hhAbsorbKeys() { const o = {}; healthHistory().forEach(function (n) { (n.absorption || []).forEach(function (k) { o[k] = 1; }); }); return o; }
+function hhLowAcid() { return healthHistory().some(function (n) { return n.lowAcid === true; }); }
+function hhFlagHTML(text) {
+  return '<details class="hhflag"><summary aria-label="your health history">Your health history ⓘ</summary><div class="note">' + esc(text) + '</div></details>';
+}
+function hhAbsorbFlagHTML(key) {
+  if (!hhAbsorbKeys()[key] || !MICRO_LABEL[key]) return '';
+  return hhFlagHTML('Your health history: absorption of ' + MICRO_LABEL[key].label + ' may differ from the population its reference intake was set for.');
+}
+function hhLowAcidFlagHTML() {
+  return hhLowAcid() ? hhFlagHTML('Your health history notes low stomach acid; how many of a food’s live microbes pass the stomach may differ.') : '';
+}
+function hhSave(raw) {
+  const r = raw || {};
+  const text = String(r.text == null ? '' : r.text).trim();
+  if (!text) return { ok: false, error: 'Write the note first.' };
+  if (text.length > HH_TEXT_MAX) return { ok: false, error: 'A note holds at most ' + HH_TEXT_MAX + ' characters.' };
+  const list = healthHistory().slice();
+  const at = r.id ? list.map(function (n) { return n.id; }).indexOf(String(r.id)) : -1;
+  if (at < 0 && list.length >= HH_MAX) return { ok: false, error: 'At most ' + HH_MAX + ' notes.' };
+  const e = { id: at >= 0 ? list[at].id : 'hh-' + Date.now().toString(36), text: text, added: at >= 0 ? list[at].added : todayKey(),
+              absorption: Array.isArray(r.absorption) ? r.absorption : [], lowAcid: r.lowAcid === true };
+  if (at >= 0) list[at] = e; else list.push(e);
+  const norm = normalizeHealthHistory(list);
+  if (norm.length) APP_STATE.settings.healthHistory = norm; else delete APP_STATE.settings.healthHistory;
+  Store.saveState(APP_STATE);
+  HH_FORM = null;
+  try { refresh(); } catch (e2) {}
+  renderHealthHistory();
+  return { ok: true, note: norm.filter(function (n) { return n.id === e.id; })[0] };
+}
+function hhRemove(id) {
+  const list = healthHistory().filter(function (n) { return n.id !== String(id); });
+  if (list.length) APP_STATE.settings.healthHistory = list; else delete APP_STATE.settings.healthHistory;
+  Store.saveState(APP_STATE);
+  HH_FORM = null;
+  try { refresh(); } catch (e) {}
+  renderHealthHistory();
+  return { ok: true, n: list.length };
+}
+let HH_FORM = null;   // null; { id: '' } a new note; { id } an edit; { remove: id } asking
+function hhOpen(id) { HH_FORM = { id: id ? String(id) : '' }; renderHealthHistory(); }
+function hhAskRemove(id) { HH_FORM = { remove: String(id) }; renderHealthHistory(); }
+function hhCancel() { HH_FORM = null; renderHealthHistory(); }
+function hhFormSave() {
+  const t = document.getElementById('hhText');
+  const ab = HH_ABSORB.filter(function (k) { const c = document.getElementById('hhAb_' + k); return c && c.checked; });
+  const la = document.getElementById('hhLowAcid');
+  const r = hhSave({ id: HH_FORM && HH_FORM.id, text: t ? t.value : '', absorption: ab, lowAcid: !!(la && la.checked) });
+  if (!r.ok) { const m = document.getElementById('hhMsg'); if (m) m.textContent = r.error; }
+  return r;
+}
+function healthHistoryHTML() {
+  const list = healthHistory();
+  let h = '';
+  list.forEach(function (n) {
+    const marks = (n.absorption || []).map(function (k) { return MICRO_LABEL[k].label; });
+    h += '<div class="hhnote" data-hh="' + esc(n.id) + '"><div class="hhtext">' + esc(n.text) + '</div>'
+      + '<div class="note">Added ' + esc(fmtDateSmart(n.added))
+      + (marks.length ? ' · absorption may differ: ' + esc(marks.join(', ')) : '') + (n.lowAcid ? ' · low stomach acid' : '') + '</div>';
+    if (HH_FORM && HH_FORM.remove === n.id)
+      h += '<div class="rerow"><button type="button" class="btn hhrmyes" onclick="hhRemove(\'' + esc(n.id) + '\')">Remove this note</button><button type="button" class="btn" onclick="hhCancel()">Keep it</button></div>';
+    else if (!HH_FORM)
+      h += '<div class="rerow"><button type="button" class="btn hhedit" onclick="hhOpen(\'' + esc(n.id) + '\')">Edit</button><button type="button" class="btn hhrm" onclick="hhAskRemove(\'' + esc(n.id) + '\')">Remove</button></div>';
+    h += '</div>';
+  });
+  if (HH_FORM && HH_FORM.remove == null) {
+    const cur = list.filter(function (n) { return n.id === HH_FORM.id; })[0] || {};
+    h += '<div class="hhform"><label for="hhText">Your note</label><textarea id="hhText" maxlength="' + HH_TEXT_MAX + '">' + esc(cur.text || '') + '</textarea>'
+      + '<div class="note">Absorption of these may differ (a note beside each in Micronutrients):</div>'
+      + HH_ABSORB.map(function (k) { return '<label class="checkline"><input type="checkbox" id="hhAb_' + esc(k) + '"' + ((cur.absorption || []).indexOf(k) >= 0 ? ' checked' : '') + '> ' + esc(MICRO_LABEL[k].label) + '</label>'; }).join('')
+      + '<label class="checkline"><input type="checkbox" id="hhLowAcid"' + (cur.lowAcid ? ' checked' : '') + '> Low stomach acid (a note beside Fermented on a food)</label>'
+      + '<div class="rerow"><button type="button" class="btn primary hhsave" onclick="hhFormSave()">Save note</button><button type="button" class="btn" onclick="hhCancel()">Cancel</button></div><div class="warn" id="hhMsg"></div></div>';
+  } else if (!HH_FORM) {
+    h += '<button type="button" class="btn hhadd" onclick="hhOpen(\'\')">+ Add a note</button>';
+  }
+  return h;
+}
+function renderHealthHistory() {
+  const el = document.getElementById('healthHistoryBox');
+  if (el) el.innerHTML = healthHistoryHTML();
 }
 // R309: { key: { low, high?, unit } }. A value that is not a finite number drops the
 // goal; a high below its low drops the high. Keys are the graph's own.
@@ -4626,7 +4731,7 @@ function panelPolyphenolsHTML(day, P) {
 function itemFermentedHTML(it) {
   if (!it || isLegacyAuto(it) || it.meal === 'supplement' || it.source === 'supplement' || it.stackId) return '';
   const f = itemFermented(it);
-  return '<div class="mferm">Fermented: ' + esc(f.value) + ' — ' + esc(f.src) + (f.marco ? '<br>' + esc(f.marco) : '') + '</div>';
+  return '<div class="mferm">Fermented: ' + esc(f.value) + ' — ' + esc(f.src) + (f.marco ? '<br>' + esc(f.marco) : '') + hhLowAcidFlagHTML() + '</div>';
 }
 // ---- R286/2: "LINK A DATABASE ROW?" ON AN OPENED DAY ITEM --------------------------
 // The user's answer (29 Oct): offered on the DAY VIEW, never at capture -- D141 stands
@@ -5060,6 +5165,7 @@ function panelRowHTML(slot, e, depth, prevailing) {
     + '<span class="pval">' + esc(txt) + (st === 'absent' ? '' : ' <small>' + esc(unit) + '</small>') + '</span>'
     + '</div>'
     + (cov ? '<div class="pcov">' + esc(cov) + '</div>' : '')
+    + (PANEL_SLOT_KEY[slot] ? hhAbsorbFlagHTML(PANEL_SLOT_KEY[slot]) : '')   // R328/1a
     + (stackLine ? '<div class="pcov pstack">' + esc(stackLine) + '</div>' : '')
     + (dflag ? intakeNoteHTML(dflag, 'pflag') : '')
     + (alts.length ? '<details class="palt"><summary>other units</summary>'
@@ -19440,6 +19546,7 @@ const VERSION_LOG = [
   { v: '0.131.0', d: '2026-11-05', note: 'A scanned label now brings thiamin, riboflavin, niacin, B6, pantothenic acid, choline, vitamins E and K, copper, selenium and manganese where it prints them, and the label form has a field for each. A supplement from Health Canada’s database counts those and sodium. Each shows in its Micronutrients row beside the food database’s figure.' },
   { v: '0.132.0', d: '2026-11-05', note: 'The food databases now give nine amino acids -- tryptophan, leucine, isoleucine, valine, methionine, cystine, tyrosine, arginine and glycine -- shown under Protein, and betaine. About two thirds of foods carry the amino acids and fewer carry betaine, so their rows often say partial. The database downloads once more (about 90-115 KB). With your updated pathway pack, the pathways that named protein as a stand-in count their own amino acid instead.' },
   { v: '0.133.0', d: '2026-11-05', note: 'Iodine: a scanned label or the label form can give it, and a supplement from Health Canada’s database counts it; Micronutrients shows it under Minerals, with Health Canada’s RDA from your pathway pack. The food databases have no iodine figures, so the row will usually say partial. With your updated pack, Micronutrients also shows polyphenols for foods your reviewed name rules match, marked provisional.' },
+  { v: '0.134.0', d: '2026-11-05', note: 'Settings has a Health history section for your own notes. A note can mark nutrients whose absorption may differ for you, and low stomach acid; each mark shows as a note beside that nutrient in Micronutrients, or beside Fermented on a food. Your notes stay on this phone and in your backup, and change no number.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -28999,6 +29106,7 @@ function main() {
   onGoalTypeChange();
   renderGraphGoals();                 // R309: Settings -> Goals -> Lines on graphs
   renderWaistSetting();               // R322
+  renderHealthHistory();              // R328/1a
   renderRegimenTemplate();
   renderVersionLine();
   wireChipStripWheel();
@@ -29318,7 +29426,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

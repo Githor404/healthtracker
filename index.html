@@ -341,6 +341,13 @@
   /* R286/d3 + d4: the pathway library, and fermented on an opened item */
   .pwgroup>summary{min-height:44px;font-size:16px;display:flex;align-items:center}
   .pwrec{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:16px;padding:4px 0 4px 12px}
+  /* R328/1a: a health-history note beside a figure -- neutral, collapsed, a 44 px target */
+  .hhflag>summary{min-height:44px;display:flex;align-items:center;list-style:none;cursor:pointer;color:var(--muted);font-size:16px}
+  .hhflag>summary::-webkit-details-marker{display:none}
+  .hhnote{border-top:1px solid var(--line);padding:8px 0}
+  .hhtext{white-space:pre-wrap;font-size:16px}
+  .hhform textarea{font-family:inherit}
+  .hhnote .btn,.hhform .btn,.hhadd,.hhform .checkline{min-height:44px}
   .pwinfo>summary{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;list-style:none;cursor:pointer;color:var(--accent)}
   .pwinfo>summary::-webkit-details-marker{display:none}
   .pwinfo[open]{flex-basis:100%}
@@ -2068,6 +2075,13 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <summary>My foods</summary>
         <div id="myFoodsList"></div>
         <div class="note">Foods you added from a label or with generic values, because they are not in the food database. They are found by name where a food is searched for in the stack or a combo.</div>
+      </details>
+    </div>
+    <div class="card" data-setting="healthhistory">
+      <details id="hhDetails">
+        <summary>Health history</summary>
+        <div id="healthHistoryBox"></div>
+        <div class="note">Your own notes, kept on this phone and in your backup. A note can mark nutrients whose absorption may differ for you, or low stomach acid; each mark shows as a note beside that figure. No number changes.</div>
       </details>
     </div>
     <div class="card" data-setting="byok">

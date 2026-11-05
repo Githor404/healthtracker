@@ -977,6 +977,36 @@ window.setLS({});
   res(r274w.length === 0 && r274gen.kids && r274gen.kids[203].join(',') === '501,504,503,510,506,507,509,511,516' && r274gen.slots.indexOf(454) >= 0
       && HT.panelSlotLabel(454) === 'Betaine' && HT.panelSlotUnit(454) === 'mg' && HT.FDC_SLOTS.indexOf(454) >= 0,
       'R327/4, R327/5: NINE AMINO ACIDS (g) are shipped and shown under Protein, a part of its whole; betaine (mg) in General', JSON.stringify(r274w));
+  // R328/1a: health history -- the user's own notes; flags beside figures, never a number
+  var r281ns = HT.normalizeSettings({ healthHistory: [
+    { id: 'hh-a', text: 'Placeholder note A', added: '2026-11-01', absorption: ['vitamin_b12_ug', 'iron_mg', 'sodium_mg'], lowAcid: true },
+    { id: 'hh-b', text: '   ', added: '2026-11-01' }, { id: 'hh-c', text: 'No date' }, 'junk',
+    { id: 'BAD ID!', text: 'Placeholder note D', added: '2026-11-02', lowAcid: 'yes' }] });
+  var r281none = HT.normalizeSettings({});
+  res(r281ns.healthHistory && r281ns.healthHistory.length === 2 && r281ns.healthHistory[0].id === 'hh-a' && r281ns.healthHistory[0].absorption.join(',') === 'vitamin_b12_ug,iron_mg'
+      && r281ns.healthHistory[0].lowAcid === true && r281ns.healthHistory[1].text === 'Placeholder note D' && !('lowAcid' in r281ns.healthHistory[1]) && /^hh-/.test(r281ns.healthHistory[1].id)
+      && !('healthHistory' in r281none) && JSON.stringify(HT.normalizeSettings(JSON.parse(JSON.stringify(r281ns))).healthHistory) === JSON.stringify(r281ns.healthHistory),
+      'R328/1a: THE SETTINGS BOUNDARY (boot and restore) KEEPS a valid note -- text, date, the marked nutrients it knows (sodium is not one), low stomach acid only as true -- drops an empty, undated or non-object one, is absent with no notes, and a round trip keeps it', JSON.stringify(r281ns.healthHistory));
+  var r281set = HT.state().settings, r281days = HT.state().days;
+  HT.state().settings = HT.normalizeSettings({});
+  var r281day = { status: 'open', water_l: 0, items: [{ name: 'Gate meat', meal: 'lunch', time: '12:00', grams: 100, kcal: 200, protein_g: 20, fat_g: 10, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'weighed', source: 'corpus', ref: { ns: 'cnf', id: '9', name: 'Gate meat', hash: 'h', attribution: 'CNF', g: 100, v: { '418': 2, '303': 3, '301': 10 } } }] };
+  var r281txt = function () { var d = document.createElement('div'); d.innerHTML = HT.panelHTML(r281day, '2026-01-20'); return d; };
+  var r281row = function (d, sl) { var r = d.querySelector('.prow[data-slot="' + sl + '"]'); return r ? r.textContent.replace(/\s+/g, ' ') : ''; };
+  var r281b0 = r281txt();
+  var r281s = HT.hhSave({ text: 'Placeholder note', absorption: ['vitamin_b12_ug', 'iron_mg'], lowAcid: true });
+  var r281b1 = r281txt();
+  var r281it = r281day.items[0];
+  var r281f = (function () { var d = document.createElement('div'); d.innerHTML = HT.itemFermentedHTML(r281it); return d.textContent; })();
+  res(r281s.ok && HT.healthHistory().length === 1 && /Your health history/.test(r281row(r281b1, 418)) && /absorption of Vitamin B12 may differ/.test(r281row(r281b1, 418))
+      && /absorption of Iron may differ/.test(r281row(r281b1, 303)) && !/health history/.test(r281row(r281b1, 301)) && !/health history/.test(r281row(r281b0, 418))
+      && r281b1.querySelector('.prow[data-slot="418"] .pval').textContent === r281b0.querySelector('.prow[data-slot="418"] .pval').textContent
+      && /low stomach acid/.test(r281f),
+      'R328/1a: A NOTE\'S MARKS ARE FLAGS beside exactly the marked rows (B12, iron; not calcium), none before the note; the B12 total is unchanged; low stomach acid shows on the Fermented line', r281row(r281b1, 418) + ' | ' + r281f);
+  var r281r = HT.hhRemove(r281s.note.id);
+  var r281b2 = r281txt();
+  res(r281r.ok && r281r.n === 0 && !('healthHistory' in HT.state().settings) && !/health history/.test(r281row(r281b2, 418)) && !/low stomach acid/.test(HT.itemFermentedHTML(r281it)) && HT.hhSave({ text: '  ' }).ok === false,
+      'R328/1a: REMOVED, the note and its flags are gone and the key is absent; an empty note is refused');
+  HT.state().settings = r281set; HT.state().days = r281days; HT.resave();
   // R327/6: iodine from labels and the stack; polyphenols from a pack only
   var r276off = HT.mapOffMicros({ 'iodine_100g': 0.00006, 'iodine_unit': 'g', 'iron_100g': 0.001, 'iron_unit': 'g' });
   var r276none = HT.mapOffMicros({ 'iron_100g': 0.001, 'iron_unit': 'g' });

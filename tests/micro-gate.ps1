@@ -298,6 +298,22 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
 '@
   Write-Host ("  layout: " + $ly)
   Check (($ly -like '*"small":0*') -and ($ly -like '*"tiny":0*') -and ($ly -like '*"red":0*') -and ($ly -like '*"page":0*')) "16 px text, 44 px controls, no verdict red, nothing sideways at 390"
+
+  # ---- R328/1a: a health-history note, by taps; kept across a reload; its flag beside B12 ------------------
+  [void](Eval "(function(){ HT.openSettings(); var d = document.getElementById('hhDetails'); if (d) d.open = true; return 1; })()"); WaitQuiet 'settings'
+  $h1 = TapSel '#healthHistoryBox .hhadd'
+  [void](Eval "document.getElementById('hhText').focus()"); TypeText 'Placeholder note'
+  $h2 = TapSel '#hhAb_vitamin_b12_ug'
+  $hf = EvalJ "(function(){ var b = Array.prototype.filter.call(document.querySelectorAll('#healthHistoryBox button, #healthHistoryBox label.checkline'), function (e) { var r = e.getBoundingClientRect(); return r.height > 0 && r.height < 44; }).length; return { tiny: b, wide: document.documentElement.scrollWidth - window.innerWidth }; })()"
+  $h3 = TapSel '#healthHistoryBox .hhsave'
+  $hs = Eval "JSON.stringify(HT.healthHistory())"
+  MarkOld
+  Invoke-CDP 'Page.reload' @{ ignoreCache = $false } | Out-Null
+  WaitBoot
+  $hr = EvalJ "(function(){ HT.closeSettings && HT.closeSettings(); var S = HT.state(); S.current = '2026-10-26'; HT.panelToggle(true); HT.refresh(); var r = document.querySelector('#microPanel .prow[data-slot=\x22418\x22]'), c = document.querySelector('#microPanel .prow[data-slot=\x22301\x22]'); return { n: HT.healthHistory().length, text: HT.healthHistory()[0] ? HT.healthHistory()[0].text : '', b12: r ? r.textContent.replace(/\s+/g, ' ') : '', ca: c ? c.textContent : '' }; })()"
+  Write-Host ("  R328/1a saved: " + $hs + " / after reload: " + $hr + " / form: " + $hf)
+  Check ($h1 -and $h2 -and $h3 -and ($hs -like '*"text":"Placeholder note"*"absorption":*"vitamin_b12_ug"*') -and ($hf -like '*"tiny":0,"wide":0*')) "R328/1a: a note typed in Settings -> Health history and B12 ticked is saved by a tap (44 px controls, nothing sideways)"
+  Check (($hr -like '*"n":1,"text":"Placeholder note"*') -and ($hr -like '*Your health history*') -and (-not ($hr -like '*"ca":"*health history*'))) "R328/1a: the note survives a reload, and its flag sits beside B12 in Micronutrients and not beside calcium"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup
