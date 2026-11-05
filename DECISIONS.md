@@ -22356,3 +22356,45 @@ every gate alone (71 of 71) and a fresh full run on the fixed tree: **83 of 83**
 verify-deploy passes. R328/1 is complete; the iron-direction revisit waits for a ferritin result
 (C2). Harness 3489 (each threshold on both sides, a dip inside a logged sleep, mg/dL, the week's
 share); review-gate reads the line on an opened high-carb breakfast. Weekly card read at 390 px.
+
+## R314.1 -- PRE-REGISTERED (2026-11-05; to be v0.136.0): "Discuss with your doctor", a list in Settings (*track*, *evaluate*)
+
+Each item states a fact and its source; never advice, never "you should" (R260). Nothing leaves
+the phone without the user's tap.
+**1. Gathered items, worked out when the list is opened:**
+- *Above a cited upper level:* a nutrient whose day total (food and stack, per the limit's own
+  scope, R208/R213) was above its cited upper level on any of the last 28 days -- how many days,
+  the highest amount, the level, its source and scope, and the lab test the limit names where it
+  names one.
+- *Negative claims:* an approved claim with a negative direction for the user at or above the
+  flag threshold (R318/R321), matched to an item in the stack and switched on -- the item, the
+  claim, its probability and what of, GRADE, the first source.
+- *Safety claims* and *interactions* matched to a stack item switched on (R305/R313), with the
+  same fields; an interaction only with a probability (R260).
+- *Tests:* tests a matched claim or interaction names in its own reviewed `tests` field (the pack's;
+  drafted on the PC and shown only once the user approved them, as directions are), with the
+  claim it comes from.
+- *Readings:* glucose lows as the night-low flag already states them (a night below 3.0 mmol/L,
+  or two or more below 3.9, ruled D); blood pressure readings in the last 28 days above the
+  user's reference lines (135/85, Hypertension Canada 2020, R251.2) -- how many of how many, with
+  the lines' citation and its own words that the threshold is for a mean of a series.
+- *From your computer:* items the private pack carries (`doctor_list`, prepared in HTPrivate),
+  shown as the user's own. **The R325.2 additions held for this (R328/3) reach the phone this way,
+  in the next pack -- nothing of them in this repo.**
+**Kept, never deleted.** `settings.doctorList` records, per item, when it was first and last
+gathered and its last words; an item no longer gathered moves to **"No longer applies"** with its
+last date. The user's own items are added by hand; any item can be removed by the user's tap,
+recorded with its time and listed under "Removed" (restorable). Each item can be marked
+**discussed** with a date and a free-text **doctor's answer**. All of it is in the backup
+(normalizeSettings, a reload check).
+**Share / print.** One plain page -- the current items grouped by kind, each with its source,
+then the discussed ones with their answers -- through the share sheet as text, or a printable view
+(print styles: the list only, black on white, fits A4 and Letter). Nothing is sent by the app.
+**Gates (a new doctor-gate).** Each item kind appears from a placeholder fixture (a placeholder
+stack item, placeholder claims, interactions and tests in a placeholder pack, a planted low night,
+three planted BP readings above the lines, a pack-carried item, a typed one); an item that stops
+applying moves to "No longer applies"; a removal is recorded and restorable; no item says
+should, must, recommend, avoid, stop or start; "discussed" with its date and answer survive a
+backup round trip and a reload; the printable view at A4 and Letter widths has nothing sideways,
+16 px text and no control in it; the share text holds every current item. Release under the
+standing pre-run rule. Names stay out of the repo (R204).
