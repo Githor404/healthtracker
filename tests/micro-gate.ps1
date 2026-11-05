@@ -174,7 +174,7 @@ HT.corpusEnsure().then(function () {
   var S = HT.state();
   var it = function (name, g, v, extra) { var o = { name: name, meal: 'lunch', time: '12:00', kcal: 100, protein_g: 5, fat_g: 2, carb_g: 15, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' };
     if (g != null) o.grams = g; if (v) o.ref = { ns: 'cnf', id: 'x' + name.length, name: name, v: v, attribution: 'Canadian Nutrient File, Health Canada, 2015' }; if (extra) for (var k in extra) o[k] = extra[k]; return o; };
-  S.days['2026-10-27'] = { status: 'in_progress', water_l: 0, items: [it('Gate fish', 100, { 303: 2, 301: 40, 405: 0.47 }), it('Gate greens', 200, { 303: 1, 301: 60 })] };
+  S.days['2026-10-27'] = { status: 'in_progress', water_l: 0, items: [it('Gate fish', 100, { 303: 2, 301: 40, 405: 0.47, 629: 0.5, 621: 1.2, 868: 2.1 }), it('Gate greens', 200, { 303: 1, 301: 60 })] };
   S.days['2026-10-28'] = { status: 'in_progress', water_l: 0, items: [it('Gate fish', 100, { 303: 2 }), it('Lentils', 150, null), it('White rice', 150, null), it('Gate soup', null, null, { source: 'ai-paste' })] };
   S.settings.stack = [{ id: 'ss', name: 'Item S', kind: 'dose', enabled: true, dose: 100, dose_unit: 'mg', added_on: '2026-10-01', added_basis: 'added', nutrients: { micros: { magnesium_mg: 100 } } }];
   S.current = '2026-10-28'; HT.resave(); HT.refresh();
@@ -195,11 +195,12 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   [void](EvalJ $RowJS)
 
   # ---- a full day, and a partial day ---------------------------------------------------------
-  $full = EvalJ "(function(){ HT.dayJump('2026-10-27'); HT.panelToggle(true); HT.refresh(); return { iron: window.__row(303), ca: window.__row(301), b2: window.__row(405) }; })()"
+  $full = EvalJ "(function(){ HT.dayJump('2026-10-27'); HT.panelToggle(true); HT.refresh(); return { iron: window.__row(303), ca: window.__row(301), b2: window.__row(405), epa: window.__row(629), n3: window.__row(868), ala: window.__row(851) }; })()"
   Write-Host ("  full day: " + $full)
   $f = $full | ConvertFrom-Json
   Check (($f.iron.val -like '3*') -and ($f.iron.text -like '*100 % of the day*food known*') -and ($f.iron.part -eq $false) -and ($f.ca.text -like '*100 % of the day*food known*')) "R306: a day whose food all carries a value shows PLAIN totals at 100 % known (iron 3 mg)"
   Check (($null -ne $f.b2) -and ($f.b2.val -eq '0.47 mg')) "R327/0: riboflavin, mg in the source, renders in mg (it read '0.47 g'): $($f.b2.val)"
+  Check (($f.epa.text -like '*EPA 20:5 n-3*') -and ($f.epa.val -like '0.5*g') -and ($f.n3.text -like '*Omega-3, total*') -and ($f.n3.val -like '2.1*g') -and (($null -eq $f.ala) -or ($f.ala.val -eq [string][char]0x2013) -or ($f.ala.abs -eq $true))) "R327/2: the fish's EPA ($($f.epa.val)) and omega-3 total ($($f.n3.val)) are rows in Micronutrients; ALA, which no food that day carries, reads '-'"
   $part = EvalJ "(function(){ HT.dayJump('2026-10-28'); HT.panelToggle(true); HT.refresh(); return { iron: window.__row(303), ca: window.__row(301), mg: window.__row(304), noW: (document.querySelector('#microPanel .pcovall') || {}).textContent || '' }; })()"
   Write-Host ("  partial day: " + $part)
   $p = $part | ConvertFrom-Json
@@ -255,7 +256,8 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
     var day = HT.state().days['2026-10-26'], it = day.items[day.items.length - 1];
     var body = { format: 'healthtracker-pack', schema: 1, groups: [{ id: 'g', name: 'Group A' }],
       records: [{ id: 'pw-g1', plain_name: 'Gate record with a choline line', group: 'g', supply: [{ cofactor: 'choline', dri: 'choline', key: null, slot: '421', tracked: true }] },
-                { id: 'pw-g2', plain_name: 'Gate record with an untracked line', group: 'g', supply: [{ cofactor: 'iodine', dri: null, key: null, slot: null, tracked: false }] }],
+                { id: 'pw-g2', plain_name: 'Gate record with an untracked line', group: 'g', supply: [{ cofactor: 'iodine', dri: null, key: null, slot: null, tracked: false }] },
+                { id: 'pw-g3', plain_name: 'Gate record with an EPA + DHA line', group: 'g', supply: [{ cofactor: 'EPA + DHA', dri: null, key: null, slots: ['629', '621'], tracked: true }] }],
       claims: [], interactions: [], lexicon: { rules: [] }, sources: [],
       reference_intakes: { source: 'Health Canada, Dietary Reference Intakes tables', group: 'Males 51-70', values: { choline: { label: 'Choline', value: 550, unit: 'mg', kind: 'AI', slot: '421', slot_factor: 1 } } } };
     var txt = JSON.stringify(body);
@@ -264,7 +266,9 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
       return HT.packImportText(JSON.stringify({ format: 'healthtracker-pack', version: 4, sha256: hex, body: txt }));
     }).then(function (r) {
       HT.panelToggle(true); HT.refresh();
-      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), sup: HT.ctxSupplies([it]), pack: r.ok };
+      var d27 = HT.state().days['2026-10-27'].items;
+      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), sup: HT.ctxSupplies([it]), pack: r.ok,
+               fish: HT.ctxSupplies([d27[0]]), greens: HT.ctxSupplies([d27[1]]) };
     });
   });
 })()
@@ -273,6 +277,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   $e = $egg | ConvertFrom-Json
   Check (($e.logged -eq $true) -and ([double]$e.choline -gt 250) -and ($e.row.val -like '2*mg') -and ($e.row.text -like '*Choline*') -and ($e.row.text -like '*AI 550 mg*')) "R327/1: a hard-boiled egg logged through Search carries the database's choline ($($e.choline) mg per 100 g) and the Micronutrients section shows a Choline row in mg with its reference intake"
   Check (($e.pack -eq $true) -and (@($e.sup) -contains 'pw-g1') -and (-not (@($e.sup) -contains 'pw-g2'))) "R327/1: a pathway whose raw material is choline is supplied by the egg (the top box's 'supplies'); a record whose only line is untracked is not"
+  Check ((@($e.fish) -contains 'pw-g3') -and (-not (@($e.greens) -contains 'pw-g3'))) "R327/2: a record with an EPA + DHA line is supplied by the fish (EPA 0.5 + DHA 1.2 g) and not by greens carrying neither"
 
   # ---- the layout ----------------------------------------------------------------------------------------
   $ly = EvalJ @'

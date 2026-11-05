@@ -948,6 +948,28 @@ window.setLS({});
   var r27bad = r27six.filter(function (x) { return HT.FDC_SLOTS.indexOf(x[0]) < 0 || HT.panelSlotUnit(x[0]) !== x[1] || HT.panelSlotLabel(x[0]) !== x[2] || r27shown.indexOf(x[0]) < 0; });
   res(r27bad.length === 0 && HT.FDC_SLOTS.length === 57 && HT.FDC_SLOTS.join(',') === HT.FDC_SLOTS.slice().sort(function (a, b) { return a - b; }).join(','),
       'R327/1: SIX NEW SLOTS -- manganese, selenium, vitamin E, B5, choline and vitamin K are shipped (57 slots, in slot order), each with its own unit word and name, each a row in the Micronutrients section', JSON.stringify(r27bad));
+  // R327/2: the omega fats shown under their totals; a line of two slots sums and is known only with both
+  var r272lip = HT.PANEL_GROUPS.filter(function (g) { return g.name === 'Lipids'; })[0];
+  var r272w = [[851, 'ALA 18:3 n-3'], [629, 'EPA 20:5 n-3'], [868, 'Omega-3, total'], [869, 'Omega-6, total']].filter(function (x) { return HT.panelSlotLabel(x[0]) !== x[1] || HT.panelSlotUnit(x[0]) !== 'g'; });
+  res(r272w.length === 0 && r272lip.kids[204].join(',') === '606,645,646,868,869' && r272lip.kids[868].join(',') === '851,629,621,631,861' && r272lip.kids[869].join(',') === '618,832,854' && !r272lip.kids[646],
+      'R327/2: THE OMEGA FATS -- ALA, EPA and the omega-3 and omega-6 totals are rows (g), each named fatty acid under its family\'s total, the totals beside polyunsaturated', JSON.stringify(r272w) + ' ' + JSON.stringify(r272lip.kids));
+  var r272P = { reference_intakes: { values: {} } }, r272L = { cofactor: 'EPA + DHA', slots: ['629', '621'], tracked: true };
+  var r272a = HT.supplyLineAmount(r272P, r272L, { keys: {}, slots: { '629': 0.5, '621': 1.2 } });
+  var r272one = HT.supplyLineAmount(r272P, r272L, { keys: {}, slots: { '621': 0.3 } });
+  var r272none = HT.supplyLineAmount(r272P, r272L, { keys: {}, slots: { '204': 9 } });
+  var r272fig = { keys: {}, slots: {} }, r272both = { g: 100, f: { keys: {}, slots: { '629': 1, '621': 1 } } };
+  res(r272a && Math.abs(r272a.a - 1.7) < 1e-9 && r272a.unit === 'g' && r272one && Math.abs(r272one.a - 0.3) < 1e-9 && r272none === null
+      && HT.supplyMeets(r272P, r272L, { keys: {}, slots: { '621': 0.001 } }) === true && HT.supplyMeets(r272P, r272L, { keys: {}, slots: {} }) === false,
+      'R327/2: A LINE OF TWO SLOTS (EPA + DHA) -- its amount is the sum of the slots a food carries (0.5 + 1.2 = 1.7 g); either alone counts; neither, none; with no reference intake any amount above zero supplies', JSON.stringify([r272a, r272one, r272none]));
+  // the known share: a food is known for the line only when it carries every slot
+  var r272dk = '2026-01-15', r272days = HT.state().days;
+  HT.state().days = {}; HT.state().days[r272dk] = { status: 'open', water_l: 0, items: [
+    { name: 'Gate fish', meal: 'lunch', grams: 100, kcal: 200, protein_g: 20, fat_g: 10, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'weighed', source: 'corpus', ref: { ns: 'cnf', id: '1', name: 'Gate fish', hash: 'h', attribution: 'CNF', g: 100, v: { '629': 0.5, '621': 1.2 } } },
+    { name: 'Gate seed', meal: 'lunch', grams: 100, kcal: 500, protein_g: 20, fat_g: 40, carb_g: 0, fiber_g: 0, soluble_fiber_g: 0, confidence: 'weighed', source: 'corpus', ref: { ns: 'cnf', id: '2', name: 'Gate seed', hash: 'h', attribution: 'CNF', g: 100, v: { '621': 0.1 } } }] };
+  var r272K = HT.pwKnownShares({ records: [{ id: 'pw-g', supply: [r272L] }] }, r272dk);
+  HT.state().days = r272days;
+  res(r272K.byId['pw-g'] === 0.5,
+      'R327/2: THE KNOWN SHARE OF A TWO-SLOT LINE -- a food carrying both slots is known (100 g of 200 g = 50 %); one carrying only DHA is not', JSON.stringify(r272K.byId));
   // R317: a scanned part keeps its barcode and kcal_on_label; a scanned supplement its barcode and 'off' rows
   var r17p = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, fat_g: 15, source: 'scan', barcode: '00000017', kcal_on_label: true });
   var r17bad = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, barcode: '12ab', kcal_on_label: 'yes' });

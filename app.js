@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.130.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.130.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2770,8 +2770,11 @@ const PANEL_GROUPS = [
   // has not got. Beside, with its own label, says less than the truth and nothing
   // false; nested wrongly would say something false.
   { name: 'Carbohydrates', slots: [205], kids: { 205: [269, 212, 291] } },
+  // R327/2: each named fatty acid under its family's total, the database's own figure (its
+  // members need not sum to it); the totals sit beside polyunsaturated, of which they are a
+  // part, because the renderer nests two levels (fructose's precedent).
   { name: 'Lipids', slots: [204, 601],
-    kids: { 204: [606, 645, 646], 645: [617], 646: [618, 621, 631, 832, 854, 861] } },
+    kids: { 204: [606, 645, 646, 868, 869], 645: [617], 868: [851, 629, 621, 631, 861], 869: [618, 832, 854] } },
   // R327/1: B5, choline, vitamin E and vitamin K join the vitamins (Health Canada's DRI
   // tables list choline with them); manganese and selenium the minerals.
   { name: 'Vitamins', slots: [320, 319, 328, 323, 430, 401, 404, 405, 406, 409, 410, 415, 417, 431, 806, 815, 418, 421] },
@@ -2795,6 +2798,7 @@ function panelSlotLabel(slot) {
     606: 'Saturated',
     315: 'Manganese', 317: 'Selenium', 323: 'Vitamin E', 410: 'Pantothenic acid (B5)',
     421: 'Choline', 430: 'Vitamin K',
+    851: 'ALA 18:3 n-3', 629: 'EPA 20:5 n-3', 868: 'Omega-3, total', 869: 'Omega-6, total',   // R327/2
   };
   return names[slot] || ('slot ' + slot);
 }
@@ -3966,7 +3970,8 @@ function pwKnownShares(P, endDk) {
     if (!s || !s.tracked || !(total > 0)) return 0;
     let have = 0;
     foods.forEach(function (x) {
-      if ((s.key && x.f.keys[s.key]) || (s.slot != null && x.f.slots[String(s.slot)])) have += x.g;
+      if ((s.key && x.f.keys[s.key]) || (s.slot != null && x.f.slots[String(s.slot)])
+        || (Array.isArray(s.slots) && s.slots.length && s.slots.every(function (sl) { return x.f.slots[String(sl)]; }))) have += x.g;
     });
     return have / total;
   };
@@ -5145,7 +5150,7 @@ function panelHTML(day, dateKey) {
       const slotList = corpusState().ready ? (CORPUS_MEM.slots || []) : [];
       ['Omega-3', 'Omega-6'].forEach(function (fn) {
         const f = panelFamily(fn, slotList.length ? slotList : PANEL_FAMILY[fn].members.filter(function (m) {
-          return [621, 631, 861, 618, 832, 854].indexOf(m) >= 0; }));
+          return [851, 629, 621, 631, 861, 618, 832, 854].indexOf(m) >= 0; }));
         if (f) fam += '<div class="pfam">' + esc(fn) + ' \u2014 ' + esc(f.label) + '</div>';
       });
     }
@@ -6066,6 +6071,12 @@ function supplyLineAmount(P, line, am) {
   if (line.slot != null && am.slots[String(line.slot)] > 0) {
     const x = am.slots[String(line.slot)];
     return { a: x * (v && num(v.slot_factor) > 0 ? num(v.slot_factor) : 1), shown: x, unit: panelSlotUnit(Number(line.slot)), v: v };
+  }
+  // R327/2: a line of several slots (EPA + DHA) is the sum of those the food carries
+  if (Array.isArray(line.slots) && line.slots.length) {
+    let x = 0;
+    line.slots.forEach(function (sl) { if (am.slots[String(sl)] > 0) x += am.slots[String(sl)]; });
+    if (x > 0) return { a: x * (v && num(v.slot_factor) > 0 ? num(v.slot_factor) : 1), shown: Math.round(x * 1000) / 1000, unit: panelSlotUnit(Number(line.slots[0])), v: v };
   }
   return null;
 }
@@ -19326,6 +19337,7 @@ const VERSION_LOG = [
   { v: '0.129.1', d: '2026-11-04', note: 'How to measure your waist now gives NICE’s method, quoted from its guideline: midway between the bottom of the ribs and the top of the hips, just above the belly button, after breathing out naturally. The waist-to-height ⓘ quotes NICE on the 0.5 point and says it uses the ratio for adults with a BMI below 35.' },
   { v: '0.129.2', d: '2026-11-04', note: 'Thiamin (B1), riboflavin (B2), niacin (B3), B6, caffeine and theobromine are now shown in mg, as the food databases give them. They were labelled g by mistake; the numbers themselves were right.' },
   { v: '0.130.0', d: '2026-11-04', note: 'The food databases now give six more nutrients: choline, pantothenic acid (B5), selenium, vitamin E, vitamin K and manganese. They show in Micronutrients with how much of the day’s food carries a value for each -- fewer foods have choline or vitamin K figures than iron, so those rows will often say partial. The database downloads once more (about 60-80 KB). With your updated pathway pack, the pathways that use them can count them too.' },
+  { v: '0.130.1', d: '2026-11-05', note: 'Micronutrients shows the omega fats the food database already carried: ALA and EPA beside DHA, and the omega-3 and omega-6 totals, each fatty acid under its total. The totals come from the Canadian database only, so on the US one they read -. With your updated pathway pack, EPA and DHA count toward the pathways that use them.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
