@@ -22398,3 +22398,18 @@ should, must, recommend, avoid, stop or start; "discussed" with its date and ans
 backup round trip and a reload; the printable view at A4 and Letter widths has nothing sideways,
 16 px text and no control in it; the share text holds every current item. Release under the
 standing pre-run rule. Names stay out of the repo (R204).
+
+## R330 -- PRE-REGISTERED (2026-11-05): strip-gate runs alone, in the suite's serial tail (a gate change; no app change)
+**Why.** v0.136.0's first full run was red at 83 of 84: strip-gate's redraw cost read 3.04
+reference workloads against its budget of 3.0, while the same build reads 2.64-2.80 alone (as
+v0.135.0 did). Under the suite's parallel workers the redraw slows more than the calibration
+workload does, so a timing check reads the machine's load rather than the app.
+**What changes.** `tests/run-all-gates.sh` gains a SERIAL TAIL: gates listed in `ALONE_GATES`
+(strip-gate.ps1 only) are held out of the workers and launched after every other gate has
+finished, one at a time, with nothing else running. The budget stays 3.0; the gate's script is
+unchanged; the count and the report order are unchanged. Then the pre-run (static checks, the
+harness, every gate alone) and one fresh full run; green -> push v0.136.0, verify.
+**Not held (R330, the user):** the creep itself -- 1.96 at R298 (v0.114.0) to 2.64-2.83 now --
+is investigated after v0.136.0 and before R319: strip-gate's figure bisected across releases,
+the costliest releases named, fixes proposed that bring it back toward 2.0 without changing
+behaviour. Reported first; the user decides.
