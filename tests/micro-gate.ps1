@@ -174,7 +174,7 @@ HT.corpusEnsure().then(function () {
   var S = HT.state();
   var it = function (name, g, v, extra) { var o = { name: name, meal: 'lunch', time: '12:00', kcal: 100, protein_g: 5, fat_g: 2, carb_g: 15, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' };
     if (g != null) o.grams = g; if (v) o.ref = { ns: 'cnf', id: 'x' + name.length, name: name, v: v, attribution: 'Canadian Nutrient File, Health Canada, 2015' }; if (extra) for (var k in extra) o[k] = extra[k]; return o; };
-  S.days['2026-10-27'] = { status: 'in_progress', water_l: 0, items: [it('Gate fish', 100, { 303: 2, 301: 40 }), it('Gate greens', 200, { 303: 1, 301: 60 })] };
+  S.days['2026-10-27'] = { status: 'in_progress', water_l: 0, items: [it('Gate fish', 100, { 303: 2, 301: 40, 405: 0.47 }), it('Gate greens', 200, { 303: 1, 301: 60 })] };
   S.days['2026-10-28'] = { status: 'in_progress', water_l: 0, items: [it('Gate fish', 100, { 303: 2 }), it('Lentils', 150, null), it('White rice', 150, null), it('Gate soup', null, null, { source: 'ai-paste' })] };
   S.settings.stack = [{ id: 'ss', name: 'Item S', kind: 'dose', enabled: true, dose: 100, dose_unit: 'mg', added_on: '2026-10-01', added_basis: 'added', nutrients: { micros: { magnesium_mg: 100 } } }];
   S.current = '2026-10-28'; HT.resave(); HT.refresh();
@@ -195,10 +195,11 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   [void](EvalJ $RowJS)
 
   # ---- a full day, and a partial day ---------------------------------------------------------
-  $full = EvalJ "(function(){ HT.dayJump('2026-10-27'); HT.panelToggle(true); HT.refresh(); return { iron: window.__row(303), ca: window.__row(301) }; })()"
+  $full = EvalJ "(function(){ HT.dayJump('2026-10-27'); HT.panelToggle(true); HT.refresh(); return { iron: window.__row(303), ca: window.__row(301), b2: window.__row(405) }; })()"
   Write-Host ("  full day: " + $full)
   $f = $full | ConvertFrom-Json
   Check (($f.iron.val -like '3*') -and ($f.iron.text -like '*100 % of the day*food known*') -and ($f.iron.part -eq $false) -and ($f.ca.text -like '*100 % of the day*food known*')) "R306: a day whose food all carries a value shows PLAIN totals at 100 % known (iron 3 mg)"
+  Check (($null -ne $f.b2) -and ($f.b2.val -eq '0.47 mg')) "R327/0: riboflavin, mg in the source, renders in mg (it read '0.47 g'): $($f.b2.val)"
   $part = EvalJ "(function(){ HT.dayJump('2026-10-28'); HT.panelToggle(true); HT.refresh(); return { iron: window.__row(303), ca: window.__row(301), mg: window.__row(304), noW: (document.querySelector('#microPanel .pcovall') || {}).textContent || '' }; })()"
   Write-Host ("  partial day: " + $part)
   $p = $part | ConvertFrom-Json

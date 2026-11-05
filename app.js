@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.129.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.129.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2794,17 +2794,20 @@ function panelSlotLabel(slot) {
   };
   return names[slot] || ('slot ' + slot);
 }
-function panelSlotUnit(slot) {
-  const k = PANEL_SLOT_KEY[slot];
-  if (k && MICRO_LABEL[k]) return MICRO_LABEL[k].unit;
-  if (slot === 208) return 'cal';
-  if (slot === 268) return 'kJ';
-  if (slot === 318) return 'IU';
-  if (slot === 409) return 'NE';
-  if ([319, 431, 806, 815].indexOf(slot) >= 0) return 'mcg';
-  if ([305, 312].indexOf(slot) >= 0) return 'mg';
-  return 'g';
-}
+// R327/0: EVERY SLOT'S UNIT, as corpus/slots.json states it (µg written mcg, kcal written
+// cal). The old function named a few and fell back to 'g', so caffeine, theobromine, B1,
+// B2, B3 and B6 -- mg in both sources -- read "0.47 g" beside "RDA 1.3 mg". No fallback
+// word now: tests/check-slots.sh holds this table equal to slots.json, so a new slot
+// cannot be added without its unit.
+const PANEL_SLOT_UNIT = {
+  203: 'g', 204: 'g', 205: 'g', 207: 'g', 208: 'cal', 212: 'g', 221: 'g', 255: 'g', 262: 'mg', 263: 'mg',
+  268: 'kJ', 269: 'g', 291: 'g', 301: 'mg', 303: 'mg', 304: 'mg', 305: 'mg', 306: 'mg', 307: 'mg', 309: 'mg',
+  312: 'mg', 318: 'IU', 319: 'mcg', 320: 'mcg', 328: 'mcg', 401: 'mg', 404: 'mg', 405: 'mg', 406: 'mg', 409: 'NE',
+  415: 'mg', 417: 'mcg', 418: 'mcg', 431: 'mcg', 601: 'mg', 606: 'g', 617: 'g', 618: 'g', 621: 'g', 629: 'g',
+  631: 'g', 645: 'g', 646: 'g', 806: 'mcg', 815: 'mcg', 832: 'g', 851: 'g', 854: 'g', 861: 'g', 868: 'g',
+  869: 'g',
+};
+function panelSlotUnit(slot) { return PANEL_SLOT_UNIT[slot] || ''; }
 
 function panelCoverageLine(e) {
   if (!e) return '';
@@ -19316,6 +19319,7 @@ const VERSION_LOG = [
   { v: '0.128.1', d: '2026-11-04', note: 'A claim you approved as pulling against you now shows at most once a day for each stack item or food: the first time you tick or log it that day. Ticking or logging it again the same day shows the top box without it.' },
   { v: '0.129.0', d: '2026-11-04', note: 'You can log your waist in + Log, beside weight, in inches or cm (inches unless you choose cm in Settings, Goals). The form has a How to measure note. Trends draws a waist chart that zooms like the others, with your own goal line if you set one. With your height in Settings, the latest waist shows its waist-to-height ratio, with NICE’s 0.5 reference point behind the ⓘ. The top box notes when a waist measurement is overdue, and the weekly review has a Waist card. Also fixed: the flag threshold and the “Last week’s review is ready” switch now stay as you set them after the app restarts.' },
   { v: '0.129.1', d: '2026-11-04', note: 'How to measure your waist now gives NICE’s method, quoted from its guideline: midway between the bottom of the ribs and the top of the hips, just above the belly button, after breathing out naturally. The waist-to-height ⓘ quotes NICE on the 0.5 point and says it uses the ratio for adults with a BMI below 35.' },
+  { v: '0.129.2', d: '2026-11-04', note: 'Thiamin (B1), riboflavin (B2), niacin (B3), B6, caffeine and theobromine are now shown in mg, as the food databases give them. They were labelled g by mistake; the numbers themselves were right.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

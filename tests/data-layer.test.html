@@ -937,6 +937,11 @@ window.setLS({});
       && !('influence' in r22nsBad) && !('weekSeen' in r22nsBad) && !('waistUnit' in r22nsBad) && !('height_cm' in r22nsBad),
       'R322: THE SETTINGS BOUNDARY (boot and restore) KEEPS the flag threshold, the weekly notice switch and its seen marker, the waist unit and the height -- each only when valid; before this, boot dropped the first three', JSON.stringify(r22ns));
   HT.state().timeline = r22tl; HT.state().settings = r22set; HT.resave();
+  // R327/0: every slot's unit word -- the six mg slots that read "g", and no slot without a word
+  var r27mg = [262, 263, 404, 405, 406, 415].map(function (s) { return s + ':' + HT.panelSlotUnit(s); });
+  var r27none = HT.FDC_SLOTS.filter(function (s) { return !HT.panelSlotUnit(s); });
+  res(r27mg.every(function (x) { return /:mg$/.test(x); }) && r27none.length === 0 && HT.panelSlotUnit(418) === 'mcg' && HT.panelSlotUnit(208) === 'cal' && HT.panelSlotUnit(203) === 'g',
+      'R327/0: EVERY SLOT HAS ITS OWN UNIT WORD -- caffeine, theobromine, B1, B2, B3 and B6 read mg (they read "g"); every shipped slot has a word; B12 mcg, energy cal, protein g', r27mg.join(' ') + ' | none: ' + r27none.join(','));
   // R317: a scanned part keeps its barcode and kcal_on_label; a scanned supplement its barcode and 'off' rows
   var r17p = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, fat_g: 15, source: 'scan', barcode: '00000017', kcal_on_label: true });
   var r17bad = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, barcode: '12ab', kcal_on_label: 'yes' });

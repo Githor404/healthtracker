@@ -388,6 +388,29 @@ if 'cnf' in metas:
         _ok += 1
     omega_line = 'omega controls: %d of %d (EPA, DHA, ALA, n-3, n-6 against CNF 2015; absent stays NaN)' % (_ok, len(_want) + 1)
 
+# 11. R327/0: EVERY SLOT'S UNIT WORD. app.js's PANEL_SLOT_UNIT names every slot in the
+#     spec with the spec's own unit (ug written mcg, kcal written cal) and nothing else.
+#     Its fallback was 'g', and six mg slots read "g" beside an mg reference intake.
+unit_line = 'unit words: NOT CHECKED (app.js unreadable)'
+if src:
+    j = src.find('const PANEL_SLOT_UNIT = {')
+    declared_u = {}
+    if j >= 0:
+        for part in src[j + len('const PANEL_SLOT_UNIT = {'):src.find('};', j)].replace('\n', ' ').split(','):
+            if ':' not in part:
+                continue
+            k, v = part.split(':', 1)
+            declared_u[k.strip()] = v.strip().strip("'").strip('"')
+    spoken = {'kcal': 'cal', 'ug': 'mcg', u'µg': 'mcg', u'μg': 'mcg'}
+    want_u = dict((str(s['slot']), spoken.get(s['unit'], s['unit'])) for s in slots)
+    if j < 0:
+        bad.append('app.js has no PANEL_SLOT_UNIT table')
+    for k in sorted(set(list(want_u) + list(declared_u)), key=int):
+        if declared_u.get(k) != want_u.get(k):
+            bad.append('PANEL_SLOT_UNIT[%s] is %r but slots.json says %r' % (k, declared_u.get(k), want_u.get(k)))
+    if not [b for b in bad if 'PANEL_SLOT_UNIT' in b]:
+        unit_line = 'unit words: %d of %d slots, each as slots.json states it' % (len(declared_u), len(want_u))
+
 if bad:
     print('SLOTS CHECK: FAIL')
     for b in bad[:14]:
@@ -402,6 +425,7 @@ print('  ' + hash_line)
 print('  ' + refuse_line)
 print('  ' + groups_line)
 print('  ' + omega_line)
+print('  ' + unit_line)
 print('GATE: PASS')
 PY
 rc=$?
