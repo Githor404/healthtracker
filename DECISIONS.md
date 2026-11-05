@@ -22164,3 +22164,48 @@ absent one stays absent; the Manual form has a field per key; an LNHPD product w
 Selenium row with both counted in its coverage; backup round trip keeps the new keys. Gates:
 stackscan-gate's NPN path counts a B-vitamin ingredient (placeholder product); micro-gate shows a
 scanned label's copper. Release under the standing pre-run rule.
+
+## R327/3 -- BUILT (v0.131.0), against its pre-registration
+
+As pre-registered. Eleven MICRO_SPEC rows on their slots (the label form gains eleven fields,
+inside its collapsed "Micronutrients (from label)"; read at 390 px, nothing sideways); OFF's
+vitamin-b1, vitamin-b2, vitamin-pp, vitamin-b6, pantothenic-acid, choline, vitamin-e, vitamin-k,
+copper, selenium and manganese; STACK_SUPP_KEYS with the eleven and sodium, a licensed ingredient
+matched by its label or stated names. *One more, found while building:* the name suggestion read
+"Vitamin K2" as vitamin K (the harness's control caught it); K2, menaquinone, is not the
+phylloquinone the databases give, so "vitamin k" no longer takes a digit. Harness 3479;
+stackscan-gate: a placeholder licensed tablet's vitamin B1 (10 mg) and sodium (50 mg) reach the
+day when ticked, its "Pyridoxine hydrochloride" kept and not counted; micro-gate: a scanned
+label's copper 0.3 mg and the egg's 0.013 mg read 0.31 mg in the Copper row. Every gate alone
+(71 of 71; the first run was stopped for memory after 70, wheel-gate run alone after the user
+freed memory), then the full suite: **83 of 83**. Pushed; verify-deploy passes. The pack
+(HTPrivate, v018, tools/apply_r327_3.py): 49 supply lines and 11 reference intakes gain their key.
+
+
+## R327/5 and R327/4 -- PRE-REGISTERED (2026-11-05; to be v0.132.0, one release): betaine, and nine amino acids for the protein stand-in (*track*, *evaluate*)
+
+One release, so phones fetch the corpus once, not twice.
+**Slots (judged additions, below the bar, coverage stated; CNF 2015 / SR Legacy, measured by
+derive_slots).** Betaine **454** (19.3 / 26.8 %; CNF files it as id 863 -- a merge) for pw-056's
+betaine line. Nine amino acids, all in g: tryptophan **501** (67.8 / 64.5), leucine **504**
+(68.7 / 65.2), isoleucine **503** (68.8 / 65.2), valine **510** (68.8 / 65.2), methionine **506**
+(68.9 / 65.4), cystine **507** (67.6 / 63.3), tyrosine **509** (68.2 / 64.8), arginine **511**
+(68.5 / 65.1), glycine **516** (67.8 / 64.5). Both assets re-encoded (67 slots); the size cost
+is measured at build and recorded.
+**Surfaces.** The amino acids sit under Protein in Micronutrients (parts of their whole), betaine
+in General beside caffeine and theobromine; each with R306's coverage by weight and "-" where
+nothing carries it. No app key (labels do not print them).
+**The pack (HTPrivate).** The ten lines that used protein as the stand-in take their own amino
+acid's slot: tyrosine (pw-006, pw-074), arginine (pw-010, pw-067), glycine and methionine
+(pw-010), leucine (pw-029, whose line "leucine and other amino acids" becomes "leucine"),
+tryptophan (pw-049), cystine (pw-061's sulfur amino acid line, read through the form the databases give,
+said in its basis). Branched-chain amino acids (pw-059) gains leucine, isoleucine and valine, its
+own substrates. Betaine on pw-056 becomes tracked. Health Canada's table sets no intake for any
+of these, so the lines count any amount above zero (R313/A P5) and say so; the protein line's
+1 % floor no longer applies to them.
+**Reported after release:** coverage per amino acid, and the egg case's supplies again.
+**Gates.** check-slots: append-only, assets agree, every unit word, source controls from both
+.bin files (the hard-boiled egg's tryptophan, leucine and betaine where each source carries
+them). Harness: the ten slots, their labels and units, shown under Protein / in General.
+micro-gate: a logged egg shows a Tryptophan row in g under Protein, and a placeholder pack line
+on tryptophan's slot is supplied by it. Release under the standing pre-run rule.
