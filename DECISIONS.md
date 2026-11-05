@@ -22063,3 +22063,18 @@ Harness: the six unit words. micro-gate: a hard-boiled egg logged through Search
 row from the database, and with a placeholder pack whose record lists choline, the top box's
 "supplies" includes it. After release, the egg case is run again on the user's pack and
 reported. Release under the standing pre-run rule.
+
+## R327/1 -- BUILT (v0.130.0), against its pre-registration
+
+As pre-registered. 57 slots (six judged additions, one merge); both assets re-encoded and their
+hashes re-stamped (CNF +58 KB, FDC +79 KB gzipped, as measured). The six show in Micronutrients
+with R306's coverage by weight. check-slots: append-only (51 committed slots unchanged), assets
+agree, 57 unit words, 7 of 7 egg controls from both assets. Harness 3471; micro-gate logs a
+hard-boiled egg through Search -- Choline 294.00 mg, AI 550 mg (placeholder pack), and a choline
+pathway supplied. Every gate alone (71 of 71), then the full suite: **83 of 83**. Pushed;
+verify-deploy passes. The pack (HTPrivate, v016): 15 supply lines made tracked
+(tools/apply_r327_1.py), the six reference intakes given their slots. **The egg on the user's
+pack (CNF):** choline 293.80 mg; "supplies 43 pathways" (was 40) -- Vagal (acetylcholine)
+signalling, Choline, and Vitamins E and K added; the wheel's Choline and Vagal signalling go from
+0 % to 100 % known. *Found while building:* the R321 BUILT entry had named claim ids that carry a
+stack item's name; removed (172a39c); the private checker (rule 6) caught it at the pack build.
