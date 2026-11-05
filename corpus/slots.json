@@ -48,6 +48,48 @@
    "slot": 869,
    "unit": "g",
    "why": "R286/3: total omega-6. CNF only (id 869), MEASURED 34.8%; SR Legacy has no total, and FDC uses no nutrient number 869."
+  },
+  {
+   "key": null,
+   "label": "Manganese",
+   "slot": 315,
+   "unit": "mg",
+   "why": "R327/1: a pathway raw material (clearing reactive oxygen). MEASURED: 83.3% in SR Legacy, 89.7% in CNF -- below the bar in both. FDC 315 and CNF 315 agree, so no merge is needed."
+  },
+  {
+   "key": null,
+   "label": "Selenium",
+   "slot": 317,
+   "unit": "ug",
+   "why": "R327/1: a pathway raw material (clearing reactive oxygen, glutathione). MEASURED: 88.1% in SR Legacy, 87.3% in CNF. FDC 317 and CNF 317 agree."
+  },
+  {
+   "key": null,
+   "label": "Vitamin E (alpha-tocopherol)",
+   "slot": 323,
+   "unit": "mg",
+   "why": "R327/1: a pathway raw material (vitamins E and K, clearing reactive oxygen). MEASURED: 71.6% in SR Legacy, 72.7% in CNF. Alpha-tocopherol, the form the reference intake is set in. FDC 323 and CNF 323 agree."
+  },
+  {
+   "key": null,
+   "label": "Pantothenic acid (B5)",
+   "slot": 410,
+   "unit": "mg",
+   "why": "R327/1: a pathway raw material on six records (the citric acid cycle among them). MEASURED: 81.8% in SR Legacy, 83.6% in CNF. FDC 410 and CNF 410 agree."
+  },
+  {
+   "key": null,
+   "label": "Choline",
+   "slot": 421,
+   "unit": "mg",
+   "why": "R327/1: the only raw-material line of Choline and of Vagal (acetylcholine) signalling, and one of methionine/homocysteine. MEASURED, far below the bar: 59.2% in SR Legacy, 50.6% in CNF (id 862). So many foods carry NO choline value, and every surface that reports it says how much of the day it could see. Merged."
+  },
+  {
+   "key": null,
+   "label": "Vitamin K (phylloquinone)",
+   "slot": 430,
+   "unit": "ug",
+   "why": "R327/1: a pathway raw material (vitamins E and K). MEASURED: 64.9% in SR Legacy, 55.8% in CNF. Phylloquinone (K1); menaquinones are in neither source at useful coverage. FDC 430 and CNF 430 agree."
   }
  ],
  "bar": 0.9,
@@ -74,16 +116,21 @@
   "307": 307,
   "309": 309,
   "312": 312,
+  "315": 315,
+  "317": 317,
   "319": 319,
+  "323": 323,
   "339": 328,
   "401": 401,
   "404": 404,
   "405": 405,
   "406": 406,
   "409": 409,
+  "410": 410,
   "415": 415,
   "417": 417,
   "418": 418,
+  "430": 430,
   "431": 431,
   "601": 601,
   "606": 606,
@@ -101,14 +148,15 @@
   "832": 832,
   "854": 854,
   "861": 861,
+  "862": 421,
   "868": 868,
   "869": 869
  },
  "counts": {
   "derived": 44,
-  "judged_additions": 7,
-  "judged_merges": 3,
-  "total": 51
+  "judged_additions": 13,
+  "judged_merges": 4,
+  "total": 57
  },
  "fdc_number_to_slot": {
   "203": 203,
@@ -132,17 +180,23 @@
   "307": 307,
   "309": 309,
   "312": 312,
+  "315": 315,
+  "317": 317,
   "318": 318,
   "319": 319,
   "320": 320,
+  "323": 323,
   "328": 328,
   "401": 401,
   "404": 404,
   "405": 405,
   "406": 406,
+  "410": 410,
   "415": 415,
   "417": 417,
   "418": 418,
+  "421": 421,
+  "430": 430,
   "431": 431,
   "601": 601,
   "606": 606,
@@ -170,6 +224,11 @@
    "from_cnf": 831,
    "slot": 851,
    "why": "R286/3: alpha-linolenic acid (18:3 c,c,c n-3). FDC SR 851 and CNF id 831 (its code is 851) are the same quantity in the same unit (g)."
+  },
+  {
+   "from_cnf": 862,
+   "slot": 421,
+   "why": "R327/1: choline, total. FDC SR 421 and CNF id 862 (its code is 421) are the same quantity in the same unit (mg)."
   }
  ],
  "slots": [
@@ -388,6 +447,30 @@
    "unit": "mg"
   },
   {
+   "cnf_name": "MANGANESE",
+   "cnf_pct": 89.7,
+   "fdc_name": "Manganese, Mn",
+   "fdc_pct": 83.3,
+   "key": null,
+   "label": "Manganese",
+   "origin": "judged",
+   "slot": 315,
+   "unit": "mg",
+   "why": "R327/1: a pathway raw material (clearing reactive oxygen). MEASURED: 83.3% in SR Legacy, 89.7% in CNF -- below the bar in both. FDC 315 and CNF 315 agree, so no merge is needed."
+  },
+  {
+   "cnf_name": "SELENIUM",
+   "cnf_pct": 87.3,
+   "fdc_name": "Selenium, Se",
+   "fdc_pct": 88.1,
+   "key": null,
+   "label": "Selenium",
+   "origin": "judged",
+   "slot": 317,
+   "unit": "ug",
+   "why": "R327/1: a pathway raw material (clearing reactive oxygen, glutathione). MEASURED: 88.1% in SR Legacy, 87.3% in CNF. FDC 317 and CNF 317 agree."
+  },
+  {
    "cnf_name": null,
    "cnf_pct": 0.0,
    "fdc_name": "Vitamin A, IU",
@@ -416,6 +499,18 @@
    "origin": "derived",
    "slot": 320,
    "unit": "\u00b5g"
+  },
+  {
+   "cnf_name": "ALPHA-TOCOPHEROL",
+   "cnf_pct": 72.7,
+   "fdc_name": "Vitamin E (alpha-tocopherol)",
+   "fdc_pct": 71.6,
+   "key": null,
+   "label": "Vitamin E (alpha-tocopherol)",
+   "origin": "judged",
+   "slot": 323,
+   "unit": "mg",
+   "why": "R327/1: a pathway raw material (vitamins E and K, clearing reactive oxygen). MEASURED: 71.6% in SR Legacy, 72.7% in CNF. Alpha-tocopherol, the form the reference intake is set in. FDC 323 and CNF 323 agree."
   },
   {
    "cnf_name": "VITAMIN D (D2 + D3)",
@@ -480,6 +575,18 @@
    "unit": "NE"
   },
   {
+   "cnf_name": "PANTOTHENIC ACID",
+   "cnf_pct": 83.6,
+   "fdc_name": "Pantothenic acid",
+   "fdc_pct": 81.8,
+   "key": null,
+   "label": "Pantothenic acid (B5)",
+   "origin": "judged",
+   "slot": 410,
+   "unit": "mg",
+   "why": "R327/1: a pathway raw material on six records (the citric acid cycle among them). MEASURED: 81.8% in SR Legacy, 83.6% in CNF. FDC 410 and CNF 410 agree."
+  },
+  {
    "cnf_name": "VITAMIN B-6",
    "cnf_pct": 93.0,
    "fdc_name": "Vitamin B-6",
@@ -508,6 +615,30 @@
    "origin": "derived",
    "slot": 418,
    "unit": "\u00b5g"
+  },
+  {
+   "cnf_name": "CHOLINE, TOTAL",
+   "cnf_pct": 50.6,
+   "fdc_name": "Choline, total",
+   "fdc_pct": 59.2,
+   "key": null,
+   "label": "Choline",
+   "origin": "judged",
+   "slot": 421,
+   "unit": "mg",
+   "why": "R327/1: the only raw-material line of Choline and of Vagal (acetylcholine) signalling, and one of methionine/homocysteine. MEASURED, far below the bar: 59.2% in SR Legacy, 50.6% in CNF (id 862). So many foods carry NO choline value, and every surface that reports it says how much of the day it could see. Merged."
+  },
+  {
+   "cnf_name": "VITAMIN K",
+   "cnf_pct": 55.8,
+   "fdc_name": "Vitamin K (phylloquinone)",
+   "fdc_pct": 64.9,
+   "key": null,
+   "label": "Vitamin K (phylloquinone)",
+   "origin": "judged",
+   "slot": 430,
+   "unit": "ug",
+   "why": "R327/1: a pathway raw material (vitamins E and K). MEASURED: 64.9% in SR Legacy, 55.8% in CNF. Phylloquinone (K1); menaquinones are in neither source at useful coverage. FDC 430 and CNF 430 agree."
   },
   {
    "cnf_name": "FOLIC ACID",

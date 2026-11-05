@@ -388,6 +388,30 @@ if 'cnf' in metas:
         _ok += 1
     omega_line = 'omega controls: %d of %d (EPA, DHA, ALA, n-3, n-6 against CNF 2015; absent stays NaN)' % (_ok, len(_want) + 1)
 
+# 12. R327/1: THE SIX NEW SLOTS CARRY THE SOURCES' OWN VALUES, in both shipped assets.
+#     The hard-boiled egg, read straight from each .bin at the column the spec gives the
+#     slot: CNF 2015 food 130 (NUTRIENT AMOUNT, read 2026-11-04) choline 293.8 mg (CNF
+#     id 862, merged into 421), selenium 34.3 ug, alpha-tocopherol 2.45 mg, B5 2.44 mg;
+#     SR Legacy 173424 choline 294 mg, selenium 30.8 ug, vitamin K 0.3 ug.
+six_line = 'new-slot controls: NOT CHECKED (assets not loaded)'
+_six = [('cnf', '130', 421, 293.8), ('cnf', '130', 317, 34.3), ('cnf', '130', 323, 2.45), ('cnf', '130', 410, 2.44),
+        ('fdc', '173424', 421, 294.0), ('fdc', '173424', 317, 30.8), ('fdc', '173424', 430, 0.3)]
+if 'cnf' in metas and 'fdc' in metas:
+    _ok6 = 0
+    for ns, fid, slot, want in _six:
+        _mm = metas[ns]
+        _ii = [r[0] for r in _mm.get('index') or []]
+        _bb = io.open(os.path.join(repo, 'corpus', 'dist', ns + '.bin'), 'rb').read()
+        if fid not in _ii or slot not in spec_order:
+            bad.append('new-slot control: %s %s slot %s is missing' % (ns, fid, slot)); continue
+        off = (_ii.index(fid) * _mm['cols'] + spec_order.index(slot)) * 4
+        got = struct.unpack('<f', _bb[off:off + 4])[0]
+        if got != got or abs(got - want) > 1e-3 * max(1.0, want):
+            bad.append('new-slot control: %s %s slot %s is %r, the source says %s' % (ns, fid, slot, got, want))
+        else:
+            _ok6 += 1
+    six_line = 'new-slot controls: %d of %d (the hard-boiled egg: choline, selenium, E, B5, K in both assets)' % (_ok6, len(_six))
+
 # 11. R327/0: EVERY SLOT'S UNIT WORD. app.js's PANEL_SLOT_UNIT names every slot in the
 #     spec with the spec's own unit (ug written mcg, kcal written cal) and nothing else.
 #     Its fallback was 'g', and six mg slots read "g" beside an mg reference intake.
@@ -426,6 +450,7 @@ print('  ' + refuse_line)
 print('  ' + groups_line)
 print('  ' + omega_line)
 print('  ' + unit_line)
+print('  ' + six_line)
 print('GATE: PASS')
 PY
 rc=$?

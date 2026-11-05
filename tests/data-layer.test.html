@@ -942,6 +942,12 @@ window.setLS({});
   var r27none = HT.FDC_SLOTS.filter(function (s) { return !HT.panelSlotUnit(s); });
   res(r27mg.every(function (x) { return /:mg$/.test(x); }) && r27none.length === 0 && HT.panelSlotUnit(418) === 'mcg' && HT.panelSlotUnit(208) === 'cal' && HT.panelSlotUnit(203) === 'g',
       'R327/0: EVERY SLOT HAS ITS OWN UNIT WORD -- caffeine, theobromine, B1, B2, B3 and B6 read mg (they read "g"); every shipped slot has a word; B12 mcg, energy cal, protein g', r27mg.join(' ') + ' | none: ' + r27none.join(','));
+  // R327/1: six slots the pathways need -- shipped, each with its unit and name, each shown in the panel
+  var r27six = [[315, 'mg', 'Manganese'], [317, 'mcg', 'Selenium'], [323, 'mg', 'Vitamin E'], [410, 'mg', 'Pantothenic acid (B5)'], [421, 'mg', 'Choline'], [430, 'mcg', 'Vitamin K']];
+  var r27shown = [].concat.apply([], HT.PANEL_GROUPS.map(function (g) { return g.slots.concat([].concat.apply([], Object.keys(g.kids || {}).map(function (k) { return g.kids[k]; }))); }));
+  var r27bad = r27six.filter(function (x) { return HT.FDC_SLOTS.indexOf(x[0]) < 0 || HT.panelSlotUnit(x[0]) !== x[1] || HT.panelSlotLabel(x[0]) !== x[2] || r27shown.indexOf(x[0]) < 0; });
+  res(r27bad.length === 0 && HT.FDC_SLOTS.length === 57 && HT.FDC_SLOTS.join(',') === HT.FDC_SLOTS.slice().sort(function (a, b) { return a - b; }).join(','),
+      'R327/1: SIX NEW SLOTS -- manganese, selenium, vitamin E, B5, choline and vitamin K are shipped (57 slots, in slot order), each with its own unit word and name, each a row in the Micronutrients section', JSON.stringify(r27bad));
   // R317: a scanned part keeps its barcode and kcal_on_label; a scanned supplement its barcode and 'off' rows
   var r17p = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, fat_g: 15, source: 'scan', barcode: '00000017', kcal_on_label: true });
   var r17bad = HT.normalizeComboPart({ name: 'Gate oil', grams: 15, barcode: '12ab', kcal_on_label: 'yes' });

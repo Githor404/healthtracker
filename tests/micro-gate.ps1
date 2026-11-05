@@ -243,6 +243,37 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   Check (($pre -like '*"ref":false*') -and ($post -like '*"ref":true*') -and ($post -like ('*"left":"1 food has no nutrient data ' + [char]0x2014 + ' link it*'))) "nothing counted until the tap; a real tap on a row links that food, and the shortcut counts one fewer"
   Check (-not ((($pre | ConvertFrom-Json).iron) -eq (($post | ConvertFrom-Json).iron))) "and the iron row changed with it (its coverage or total now includes the linked food)"
 
+  # ---- R327/1: a hard-boiled egg, logged through Search, brings its choline -------------------------------
+  $egg = EvalA @'
+(function () {
+  var S = HT.state(); S.days['2026-10-26'] = { status: 'in_progress', water_l: 0, items: [] }; S.current = '2026-10-26'; HT.resave(); HT.refresh();
+  return HT.searchType('egg hard boiled').then(function () {
+    var rows = (HT.foodSearch() || {}).rows || [], pick = -1;
+    for (var i = 0; i < rows.length; i++) if (/egg/i.test(rows[i].name) && /hard/i.test(rows[i].name)) { pick = i; break; }
+    if (pick < 0) return { why: 'no hard-boiled egg row' };
+    HT.searchPickAt(pick); HT.searchGrams(100); var L = HT.searchLog();
+    var day = HT.state().days['2026-10-26'], it = day.items[day.items.length - 1];
+    var body = { format: 'healthtracker-pack', schema: 1, groups: [{ id: 'g', name: 'Group A' }],
+      records: [{ id: 'pw-g1', plain_name: 'Gate record with a choline line', group: 'g', supply: [{ cofactor: 'choline', dri: 'choline', key: null, slot: '421', tracked: true }] },
+                { id: 'pw-g2', plain_name: 'Gate record with an untracked line', group: 'g', supply: [{ cofactor: 'iodine', dri: null, key: null, slot: null, tracked: false }] }],
+      claims: [], interactions: [], lexicon: { rules: [] }, sources: [],
+      reference_intakes: { source: 'Health Canada, Dietary Reference Intakes tables', group: 'Males 51-70', values: { choline: { label: 'Choline', value: 550, unit: 'mg', kind: 'AI', slot: '421', slot_factor: 1 } } } };
+    var txt = JSON.stringify(body);
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (h) {
+      var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      return HT.packImportText(JSON.stringify({ format: 'healthtracker-pack', version: 4, sha256: hex, body: txt }));
+    }).then(function (r) {
+      HT.panelToggle(true); HT.refresh();
+      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), sup: HT.ctxSupplies([it]), pack: r.ok };
+    });
+  });
+})()
+'@
+  Write-Host ("  egg: " + $egg)
+  $e = $egg | ConvertFrom-Json
+  Check (($e.logged -eq $true) -and ([double]$e.choline -gt 250) -and ($e.row.val -like '2*mg') -and ($e.row.text -like '*Choline*') -and ($e.row.text -like '*AI 550 mg*')) "R327/1: a hard-boiled egg logged through Search carries the database's choline ($($e.choline) mg per 100 g) and the Micronutrients section shows a Choline row in mg with its reference intake"
+  Check (($e.pack -eq $true) -and (@($e.sup) -contains 'pw-g1') -and (-not (@($e.sup) -contains 'pw-g2'))) "R327/1: a pathway whose raw material is choline is supplied by the egg (the top box's 'supplies'); a record whose only line is untracked is not"
+
   # ---- the layout ----------------------------------------------------------------------------------------
   $ly = EvalJ @'
 (function () {

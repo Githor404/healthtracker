@@ -45,6 +45,9 @@ MERGES = [
     {'slot': 851, 'from_cnf': 831,
      'why': 'R286/3: alpha-linolenic acid (18:3 c,c,c n-3). FDC SR 851 and CNF id 831 (its code '
             'is 851) are the same quantity in the same unit (g).'},
+    {'slot': 421, 'from_cnf': 862,
+     'why': 'R327/1: choline, total. FDC SR 421 and CNF id 862 (its code is 421) are the same '
+            'quantity in the same unit (mg).'},
 ]
 
 # ADDITIONS: nutrients the app already stores (MICRO_SPEC) that fall below the
@@ -85,6 +88,31 @@ ADDITIONS = [
     {'slot': 869, 'key': 'n6_total_g', 'label': 'Omega-6, total', 'unit': 'g',
      'why': 'R286/3: total omega-6. CNF only (id 869), MEASURED 34.8%; SR Legacy has no total, and FDC '
             'uses no nutrient number 869.'},
+    # R327/1 (ruled 2026-11-04, the user on the R326.1 audit): SIX SLOTS THE PATHWAYS NEED.
+    # Each is a raw-material line of a pathway record; each is below the bar, admitted by
+    # ruling, its coverage measured and said. CNF 2015 (the user ruled to stay on it).
+    {'slot': 315, 'key': None, 'label': 'Manganese', 'unit': 'mg',
+     'why': 'R327/1: a pathway raw material (clearing reactive oxygen). MEASURED: 83.3% in SR Legacy, '
+            '89.7% in CNF -- below the bar in both. FDC 315 and CNF 315 agree, so no merge is needed.'},
+    {'slot': 317, 'key': None, 'label': 'Selenium', 'unit': 'ug',
+     'why': 'R327/1: a pathway raw material (clearing reactive oxygen, glutathione). MEASURED: 88.1% in '
+            'SR Legacy, 87.3% in CNF. FDC 317 and CNF 317 agree.'},
+    {'slot': 323, 'key': None, 'label': 'Vitamin E (alpha-tocopherol)', 'unit': 'mg',
+     'why': 'R327/1: a pathway raw material (vitamins E and K, clearing reactive oxygen). MEASURED: 71.6% '
+            'in SR Legacy, 72.7% in CNF. Alpha-tocopherol, the form the reference intake is set in. '
+            'FDC 323 and CNF 323 agree.'},
+    {'slot': 410, 'key': None, 'label': 'Pantothenic acid (B5)', 'unit': 'mg',
+     'why': 'R327/1: a pathway raw material on six records (the citric acid cycle among them). MEASURED: '
+            '81.8% in SR Legacy, 83.6% in CNF. FDC 410 and CNF 410 agree.'},
+    {'slot': 421, 'key': None, 'label': 'Choline', 'unit': 'mg',
+     'why': 'R327/1: the only raw-material line of Choline and of Vagal (acetylcholine) signalling, and '
+            'one of methionine/homocysteine. MEASURED, far below the bar: 59.2% in SR Legacy, 50.6% in '
+            'CNF (id 862). So many foods carry NO choline value, and every surface that reports it says '
+            'how much of the day it could see. Merged.'},
+    {'slot': 430, 'key': None, 'label': 'Vitamin K (phylloquinone)', 'unit': 'ug',
+     'why': 'R327/1: a pathway raw material (vitamins E and K). MEASURED: 64.9% in SR Legacy, 55.8% in '
+            'CNF. Phylloquinone (K1); menaquinones are in neither source at useful coverage. FDC 430 and '
+            'CNF 430 agree.'},
 ]
 
 # The app's existing keys, mapped onto their slots so the corpus can hold what

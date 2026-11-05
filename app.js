@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.129.2';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.130.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2772,8 +2772,10 @@ const PANEL_GROUPS = [
   { name: 'Carbohydrates', slots: [205], kids: { 205: [269, 212, 291] } },
   { name: 'Lipids', slots: [204, 601],
     kids: { 204: [606, 645, 646], 645: [617], 646: [618, 621, 631, 832, 854, 861] } },
-  { name: 'Vitamins', slots: [320, 319, 328, 401, 404, 405, 406, 409, 415, 417, 431, 806, 815, 418] },
-  { name: 'Minerals', slots: [301, 303, 304, 305, 306, 307, 309, 312] },
+  // R327/1: B5, choline, vitamin E and vitamin K join the vitamins (Health Canada's DRI
+  // tables list choline with them); manganese and selenium the minerals.
+  { name: 'Vitamins', slots: [320, 319, 328, 323, 430, 401, 404, 405, 406, 409, 410, 415, 417, 431, 806, 815, 418, 421] },
+  { name: 'Minerals', slots: [301, 303, 304, 305, 306, 307, 309, 312, 315, 317] },
 ];
 // Protein is deliberately not a group: it is one row in General.
 const PANEL_PROTEIN_SLOT = 203;
@@ -2791,6 +2793,8 @@ function panelSlotLabel(slot) {
     645: 'Monounsaturated', 646: 'Polyunsaturated', 806: 'Folate, naturally occurring',
     815: 'Folate (DFE)', 832: 'GLA 18:3 n-6', 854: '20:3 n-6', 861: '20:3 n-3',
     606: 'Saturated',
+    315: 'Manganese', 317: 'Selenium', 323: 'Vitamin E', 410: 'Pantothenic acid (B5)',
+    421: 'Choline', 430: 'Vitamin K',
   };
   return names[slot] || ('slot ' + slot);
 }
@@ -2806,6 +2810,7 @@ const PANEL_SLOT_UNIT = {
   415: 'mg', 417: 'mcg', 418: 'mcg', 431: 'mcg', 601: 'mg', 606: 'g', 617: 'g', 618: 'g', 621: 'g', 629: 'g',
   631: 'g', 645: 'g', 646: 'g', 806: 'mcg', 815: 'mcg', 832: 'g', 851: 'g', 854: 'g', 861: 'g', 868: 'g',
   869: 'g',
+  315: 'mg', 317: 'mcg', 323: 'mg', 410: 'mg', 421: 'mg', 430: 'mcg',   // R327/1
 };
 function panelSlotUnit(slot) { return PANEL_SLOT_UNIT[slot] || ''; }
 
@@ -5495,8 +5500,8 @@ function corpusAssetURL(ns, ext) { return './corpus/dist/' + ns + '.' + ext; }
 // assets by tests/check-slots.sh so it cannot go stale. Stamping it is the price
 // of not spending 300 KB of meta on every boot to ask "is mine current?".
 const CORPUS_ASSET_HASH = {
-  fdc: '532be98aec31',
-  cnf: '43a9ac60cd15',
+  fdc: '14477e0ee357',
+  cnf: '97ed872d2e6a',
 };
 
 // R189: declared per namespace, and ONLY for a namespace whose source publishes a
@@ -19320,6 +19325,7 @@ const VERSION_LOG = [
   { v: '0.129.0', d: '2026-11-04', note: 'You can log your waist in + Log, beside weight, in inches or cm (inches unless you choose cm in Settings, Goals). The form has a How to measure note. Trends draws a waist chart that zooms like the others, with your own goal line if you set one. With your height in Settings, the latest waist shows its waist-to-height ratio, with NICE’s 0.5 reference point behind the ⓘ. The top box notes when a waist measurement is overdue, and the weekly review has a Waist card. Also fixed: the flag threshold and the “Last week’s review is ready” switch now stay as you set them after the app restarts.' },
   { v: '0.129.1', d: '2026-11-04', note: 'How to measure your waist now gives NICE’s method, quoted from its guideline: midway between the bottom of the ribs and the top of the hips, just above the belly button, after breathing out naturally. The waist-to-height ⓘ quotes NICE on the 0.5 point and says it uses the ratio for adults with a BMI below 35.' },
   { v: '0.129.2', d: '2026-11-04', note: 'Thiamin (B1), riboflavin (B2), niacin (B3), B6, caffeine and theobromine are now shown in mg, as the food databases give them. They were labelled g by mistake; the numbers themselves were right.' },
+  { v: '0.130.0', d: '2026-11-04', note: 'The food databases now give six more nutrients: choline, pantothenic acid (B5), selenium, vitamin E, vitamin K and manganese. They show in Micronutrients with how much of the day’s food carries a value for each -- fewer foods have choline or vitamin K figures than iron, so those rows will often say partial. The database downloads once more (about 60-80 KB). With your updated pathway pack, the pathways that use them can count them too.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -25725,8 +25731,8 @@ const FDC_TIMEOUT_MS = 15000;
 // The corpus slot list, held here so a search works before the corpus has arrived;
 // fdc-gate holds it equal to the shipped files' own list.
 const FDC_SLOTS = [203, 204, 205, 207, 208, 212, 221, 255, 262, 263, 268, 269, 291, 301, 303, 304, 305, 306, 307, 309,
-  312, 318, 319, 320, 328, 401, 404, 405, 406, 409, 415, 417, 418, 431, 601, 606, 617, 618, 621, 629,
-  631, 645, 646, 806, 815, 832, 851, 854, 861, 868, 869];
+  312, 315, 317, 318, 319, 320, 323, 328, 401, 404, 405, 406, 409, 410, 415, 417, 418, 421, 430, 431, 601, 606,
+  617, 618, 621, 629, 631, 645, 646, 806, 815, 832, 851, 854, 861, 868, 869];
 
 // The key: write-only, as the AI key is. Its own entry in this device's storage,
 // outside the log, so no export or backup can carry it; only the mask is shown.
