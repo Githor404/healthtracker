@@ -22336,3 +22336,23 @@ beside B12 and not calcium. Every gate alone (71 of 71), then the full suite: **
 (ba2f755). **GitHub Pages' own deploy step failed for that push** (its build and upload succeeded;
 the "Deploy to GitHub Pages" step reported failure at 19:42 UTC), so the site stayed on v0.133.0;
 this record's push starts a fresh deploy, and verify-deploy is run after it.
+
+## R328/1b -- BUILT (v0.135.0), against its pre-registration
+
+As pre-registered, on R328/2's definitions untouched (`spikeDip`; constants SD_*). Net carbs are
+carbs less fibre over the sitting's food items; the baseline the median of the readings in
+[start - 30 min, start); the rise the highest reading at or before 60 min less the baseline,
+qualifying at 2.8 mmol/L; a dip a run of readings below the baseline, none inside a logged sleep,
+no step over 15 min, spanning 15 min or more and starting within 180 min. A sitting whose
+readings stop before 165 min with no dip is "no dip while readings last (to N min)" and is not
+counted in the week. The meal review's line; the weekly meal card's "Rise then dip: k of n", the
+share shown from 5 (its own floor, SD_P_MIN_N -- the first build used the review's floor of 3,
+caught by the harness). **A red first full run (82 of 83):** strip-gate's redraw budget, 3.32
+reference workloads against 3.0 (alone it read 2.95; v0.130.0, v0.133.0 and v0.134.0 read 2.81,
+2.78 and 2.70 alone) -- an app cost, not a gate flaw: each meal review read every logged sleep on
+every redraw. Fixed: computed once per sitting per redraw (as mealResponse is) and the sleeps read
+only once a reading is below the baseline; alone again 2.72 and 2.83. Then harness, statics,
+every gate alone (71 of 71) and a fresh full run on the fixed tree: **83 of 83**. Pushed;
+verify-deploy passes. R328/1 is complete; the iron-direction revisit waits for a ferritin result
+(C2). Harness 3489 (each threshold on both sides, a dip inside a logged sleep, mg/dL, the week's
+share); review-gate reads the line on an opened high-carb breakfast. Weekly card read at 390 px.
