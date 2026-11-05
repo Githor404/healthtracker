@@ -22320,3 +22320,19 @@ min below baseline is no dip, 15 is; a dip at 181 min is outside; a dip inside a
 not counted; mg/dL converts; the weekly share shows only from n 5, labelled calculated; and a
 review-gate step draws the line on a placeholder day. Release each under the standing pre-run
 rule.
+
+## R328/1a -- BUILT (v0.134.0), against its pre-registration
+
+As pre-registered. `settings.healthHistory` (at most 20 notes of at most 500 characters; an id, a
+date, the marked nutrients from the seven, `lowAcid` only as true), in normalizeSettings and so in
+the backup; Settings -> Health history: add, edit, remove (remove asks once, inline). The
+absorption note is a collapsed "Your health history" beside each marked nutrient's Micronutrients
+row; the low-acid note sits on an opened food's Fermented line. *Found at 390 px by micro-gate's
+own measure:* the form's eight tick rows were under 44 px; now 44. Harness 3486: the boundary
+keeps a valid note and drops an empty, undated or non-object one, a round trip keeps it, the flags
+sit on exactly the marked rows and change no total, removal clears them. micro-gate: a note typed
+and B12 ticked in Settings by real taps, saved, the page reloaded, the note kept and its flag
+beside B12 and not calcium. Every gate alone (71 of 71), then the full suite: **83 of 83**. Pushed
+(ba2f755). **GitHub Pages' own deploy step failed for that push** (its build and upload succeeded;
+the "Deploy to GitHub Pages" step reported failure at 19:42 UTC), so the site stayed on v0.133.0;
+this record's push starts a fresh deploy, and verify-deploy is run after it.
