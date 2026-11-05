@@ -22016,3 +22016,50 @@ written mcg, kcal written cal); no fallback word -- a slot not in the table has 
 unit, and nothing else -- so the slots R327/1 adds cannot fall back to a wrong word.
 **Harness:** the six slots read mg; every shipped slot has a unit. **micro-gate:** a day item
 carrying thiamin renders its row in mg. No stored data changes.
+
+## R327/0 -- BUILT (v0.129.2), against its pre-registration
+
+As pre-registered. `PANEL_SLOT_UNIT` names all 51 slots in slots.json's units; caffeine,
+theobromine, B1, B2, B3 and B6 read mg. check-slots' new leg caught a planted 'g' on 415.
+Harness 3470; micro-gate renders riboflavin "0.47 mg"; every gate alone (71 of 71), then the
+full suite: **83 of 83**. Pushed; verify-deploy passes.
+
+## R327/8 -- MEASURED (2026-11-04): CNF 2026 against CNF 2015, and the user's ruling
+
+Canadian Nutrient File 2026 (Health Canada, Open Government Licence - Canada; published
+2026-05-14, downloaded 2026-11-04): 5,993 foods (2015: 5,690); 4,475 food ids shared, 1,215 of
+2015's gone, 1,518 new. Nutrients are keyed by their code (2015 by its own id). Coverage, 2015 ->
+2026: choline 50.6 -> 52.3 %, B5 83.6 -> 80.6, selenium 87.3 -> 88.2, vitamin E 72.7 -> 72.9,
+manganese 89.7 -> 90.2, vitamin K 55.8 -> 57.7; the shipped slots move by under 2 points, except
+that **2026 has no total omega-3 or omega-6** (868 / 869, R286/3). Of the user's 10 linked CNF
+rows, 8 are unchanged, 1 renamed, 1 gone. The measurement and its script are in HTPrivate
+(reports/r327-8-cnf2026-coverage.txt). **The user ruled (4 Nov): stay on CNF 2015 now**; a switch
+to 2026 would be its own slice (renumbering, the lost totals, linked rows that are gone).
+
+## R327/1 -- PRE-REGISTERED (2026-11-04; to be v0.130.0): six slots the pathways need (*track*, *evaluate*)
+
+**Slots.** Six **judged additions** to slots.json, each below the 90 % bar, each with its measured
+coverage as its stated reason (CNF 2015 / SR Legacy): manganese **315** (89.7 / 83.3 %),
+selenium **317** (87.3 / 88.1), vitamin E as alpha-tocopherol **323** (72.7 / 71.6), pantothenic
+acid (B5) **410** (83.6 / 81.8), choline, total **421** (50.6 / 59.2; CNF files it as id 862 --
+a merge, like vitamin D's), vitamin K as phylloquinone **430** (55.8 / 64.9). Admitted on the
+user's ruling: each is a raw-material line of a pathway record (R326.1). Append-only holds; the
+new columns sit in slot order, so both assets are re-encoded and their hashes change -- every
+phone fetches the corpus once more (measured: CNF +58 KB, FDC +77 KB gzipped). No key in
+slots.json: its keys are the original fourteen only, and a key could never be added later; the
+label mapping is R327/3's, in app.js.
+**Surfaces.** Each shows in the Micronutrients section (Vitamins: B5, choline, vitamin E,
+vitamin K; Minerals: manganese, selenium) with R306's coverage by weight on its row -- the
+measure of how much of the day it could see, which these low-coverage slots need (fructose's
+precedent) -- and "-" where nothing carries it, never 0; an opened food's panel the same.
+**The pack (HTPrivate).** Their supply lines become tracked with these slots (B5 on six
+records, choline on three, selenium two, vitamin E two -- with pw-032's "vitamins C and E" --
+manganese one, vitamin K one), the reference intakes gain their slots, and the pack is rebuilt;
+the wheel's known share and "supplies N pathways" then read them.
+**Gates.** check-slots: append-only, assets agree, every unit word, and source controls read
+from both shipped .bin files (the hard-boiled egg: CNF 130 choline 293.8 mg, selenium 34.3 ug;
+FDC 173424 choline 294 mg, selenium 30.8 ug); fdc-gate's slot list equal to the shipped one.
+Harness: the six unit words. micro-gate: a hard-boiled egg logged through Search shows a Choline
+row from the database, and with a placeholder pack whose record lists choline, the top box's
+"supplies" includes it. After release, the egg case is run again on the user's pack and
+reported. Release under the standing pre-run rule.
