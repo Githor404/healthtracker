@@ -248,7 +248,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   $egg = EvalA @'
 (function () {
   var S = HT.state(); S.days['2026-10-26'] = { status: 'in_progress', water_l: 0, items: [
-    { name: 'Gate label', meal: 'lunch', time: '08:00', grams: 50, kcal: 100, protein_g: 2, fat_g: 1, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0, confidence: 'measured', source: 'scan', barcode: '00000327', notes: '', micros: { copper_mg: 0.3 } }] }; S.current = '2026-10-26'; HT.resave(); HT.refresh();
+    { name: 'Gate label', meal: 'lunch', time: '08:00', grams: 50, kcal: 100, protein_g: 2, fat_g: 1, carb_g: 20, fiber_g: 1, soluble_fiber_g: 0, confidence: 'measured', source: 'scan', barcode: '00000327', notes: '', micros: { copper_mg: 0.3, iodine_ug: 50 } }] }; S.current = '2026-10-26'; HT.resave(); HT.refresh();
   return HT.searchType('egg hard boiled').then(function () {
     var rows = (HT.foodSearch() || {}).rows || [], pick = -1;
     for (var i = 0; i < rows.length; i++) if (/egg/i.test(rows[i].name) && /hard/i.test(rows[i].name)) { pick = i; break; }
@@ -260,8 +260,9 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
                 { id: 'pw-g2', plain_name: 'Gate record with an untracked line', group: 'g', supply: [{ cofactor: 'iodine', dri: null, key: null, slot: null, tracked: false }] },
                 { id: 'pw-g3', plain_name: 'Gate record with an EPA + DHA line', group: 'g', supply: [{ cofactor: 'EPA + DHA', dri: null, key: null, slots: ['629', '621'], tracked: true }] },
                 { id: 'pw-g4', plain_name: 'Gate record with a tryptophan line', group: 'g', supply: [{ cofactor: 'tryptophan', dri: null, key: null, slot: '501', tracked: true }] }],
-      claims: [], interactions: [], lexicon: { rules: [] }, sources: [],
-      reference_intakes: { source: 'Health Canada, Dietary Reference Intakes tables', group: 'Males 51-70', values: { choline: { label: 'Choline', value: 550, unit: 'mg', kind: 'AI', slot: '421', slot_factor: 1 } } } };
+      claims: [], interactions: [], lexicon: { rules: [{ id: 'lx-g1', pattern: '\\bgate label\\b', pe_food: 'Gate food', fermented: 'unknown' }] }, sources: [],
+      polyphenols: { source: 'Placeholder source', method: 'placeholder method', unit: 'mg', foods: { 'Gate food': { total: 100, n: 3, per: '100 g' } } },
+      reference_intakes: { source: 'Health Canada, Dietary Reference Intakes tables', group: 'Males 51-70', values: { choline: { label: 'Choline', value: 550, unit: 'mg', kind: 'AI', slot: '421', slot_factor: 1 }, iodine: { label: 'Iodine', value: 150, unit: 'ug', kind: 'RDA', key: 'iodine_ug', slot: '314', slot_factor: 1 } } } };
     var txt = JSON.stringify(body);
     return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (h) {
       var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
@@ -269,7 +270,7 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
     }).then(function (r) {
       HT.panelToggle(true); HT.refresh();
       var d27 = HT.state().days['2026-10-27'].items;
-      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), cu: window.__row(312), trp: window.__row(501), trpIndent: (function () { var r = document.querySelector('#microPanel .prow[data-slot="501"]'), p = document.querySelector('#microPanel .prow[data-slot="203"]'); return r && p ? Math.round(r.getBoundingClientRect().left - p.getBoundingClientRect().left) + '|' + (p.compareDocumentPosition(r) & 4 ? 'after' : 'before') : null; })(), cuRef: it.ref && it.ref.v ? it.ref.v[312] : null, sup: HT.ctxSupplies([it]), pack: r.ok,
+      return { logged: !!(L && L.ok), name: it.name, choline: it.ref && it.ref.v ? it.ref.v[421] : null, row: window.__row(421), cu: window.__row(312), io: window.__row(314), poly: (document.querySelector('#microPanel .ppoly') || {}).textContent || '', trp: window.__row(501), trpIndent: (function () { var r = document.querySelector('#microPanel .prow[data-slot="501"]'), p = document.querySelector('#microPanel .prow[data-slot="203"]'); return r && p ? Math.round(r.getBoundingClientRect().left - p.getBoundingClientRect().left) + '|' + (p.compareDocumentPosition(r) & 4 ? 'after' : 'before') : null; })(), cuRef: it.ref && it.ref.v ? it.ref.v[312] : null, sup: HT.ctxSupplies([it]), pack: r.ok,
                fish: HT.ctxSupplies([d27[0]]), greens: HT.ctxSupplies([d27[1]]) };
     });
   });
@@ -281,6 +282,8 @@ window.__row = function (slot) { var r = document.querySelector('#microPanel .pr
   Check (($e.pack -eq $true) -and (@($e.sup) -contains 'pw-g1') -and (-not (@($e.sup) -contains 'pw-g2'))) "R327/1: a pathway whose raw material is choline is supplied by the egg (the top box's 'supplies'); a record whose only line is untracked is not"
   Check (($null -ne $e.cu) -and ($e.cu.text -like '*Copper*') -and ([double]($e.cu.val -replace '[^0-9.]', '') -ge (0.3 + [double]$e.cuRef - 0.006)) -and ($e.cu.val -like '*mg')) "R327/3: a scanned label's copper (0.3 mg) is in the Copper row with the egg's database figure ($($e.cuRef) mg): $($e.cu.val)"
   Check (($null -ne $e.trp) -and ($e.trp.text -like '*Tryptophan*') -and ($e.trp.val -like '0.[12]* g') -and ($e.trpIndent -like '*|after') -and ([int]($e.trpIndent -split '\|')[0] -ge 0) -and (@($e.sup) -contains 'pw-g4')) "R327/4: the egg shows a Tryptophan row in g ($($e.trp.val)) under Protein ($($e.trpIndent) px), and a pathway whose line is tryptophan's own slot is supplied by it"
+  Check (($null -ne $e.io) -and ($e.io.text -like '*Iodine*') -and ($e.io.val -like '50*mcg') -and ($e.io.text -like '*RDA 150 mcg*')) "R327/6: a scanned label's iodine (50 mcg) is the Iodine row, with the RDA from the pack: $($e.io.text)"
+  Check (($e.poly -like '*Polyphenols, provisional*50 mg*') -and ($e.poly -like '*% of the day*food matched*')) "R327/6: with a pack table, the 50 g label food its rule matches gives 50 mg polyphenols, provisional, with the share matched: $($e.poly)"
   Check ((@($e.fish) -contains 'pw-g3') -and (-not (@($e.greens) -contains 'pw-g3'))) "R327/2: a record with an EPA + DHA line is supplied by the fish (EPA 0.5 + DHA 1.2 g) and not by greens carrying neither"
 
   # ---- the layout ----------------------------------------------------------------------------------------

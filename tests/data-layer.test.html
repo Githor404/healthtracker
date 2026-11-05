@@ -977,6 +977,27 @@ window.setLS({});
   res(r274w.length === 0 && r274gen.kids && r274gen.kids[203].join(',') === '501,504,503,510,506,507,509,511,516' && r274gen.slots.indexOf(454) >= 0
       && HT.panelSlotLabel(454) === 'Betaine' && HT.panelSlotUnit(454) === 'mg' && HT.FDC_SLOTS.indexOf(454) >= 0,
       'R327/4, R327/5: NINE AMINO ACIDS (g) are shipped and shown under Protein, a part of its whole; betaine (mg) in General', JSON.stringify(r274w));
+  // R327/6: iodine from labels and the stack; polyphenols from a pack only
+  var r276off = HT.mapOffMicros({ 'iodine_100g': 0.00006, 'iodine_unit': 'g', 'iron_100g': 0.001, 'iron_unit': 'g' });
+  var r276none = HT.mapOffMicros({ 'iron_100g': 0.001, 'iron_unit': 'g' });
+  var r276p = HT.stackMultiNutrients({ product: { ns: 'lnhpd', npn: '80000276', id: '276', name: 'Gate I', dosage_form: 'Tablet', status: 'active',
+    ingredients: [{ name: 'Iodine', amount: 150, unit: 'mcg' }] } }, { dose: 1, dose_unit: 'tablet' });
+  res(Math.abs(r276off.iodine_ug - 60) < 1e-6 && !('iodine_ug' in r276none) && r276p.micros && r276p.micros.iodine_ug === 150
+      && HT.PANEL_KEY_SLOT.iodine_ug === 314 && HT.panelSlotLabel(314) === 'Iodine' && HT.panelSlotUnit(314) === 'mcg' && HT.FDC_SLOTS.indexOf(314) < 0
+      && HT.PANEL_GROUPS.filter(function (g) { return g.name === 'Minerals'; })[0].slots.indexOf(314) >= 0,
+      'R327/6: IODINE -- an OFF label maps to 60 mcg (absent stays absent), a licensed "Iodine 150 mcg" counts, and it is a Minerals row in mcg on slot 314, which no shipped asset carries', JSON.stringify([r276off, r276p.micros]));
+  var r276P = { lexicon: { rules: [{ id: 'lx-g1', pattern: '\\bgate berr(y|ies)\\b', pe_food: 'Gate berry' }, { id: 'lx-g2', pattern: '\\bgate tea\\b', pe_food: null }] },
+                polyphenols: { source: 'Placeholder source', method: 'placeholder method', foods: { 'Gate berry': { total: 200, n: 5, per: '100 g' } } } };
+  var r276it = function (name, g) { return { name: name, meal: 'snack', time: '10:00', grams: g, kcal: 50, protein_g: 0, fat_g: 0, carb_g: 10, fiber_g: 1, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual' }; };
+  var r276a = HT.itemPolyphenols(r276it('Gate berries', 150), r276P), r276b = HT.itemPolyphenols(r276it('Gate tea', 200), r276P), r276c = HT.itemPolyphenols(r276it('Gate bread', 50), r276P);
+  var r276d = HT.itemPolyphenols(r276it('Gate berries', 150), { lexicon: r276P.lexicon }), r276e = HT.itemPolyphenols(r276it('Gate berries', null), r276P);
+  var r276h = (function () { var d = document.createElement('div'); d.innerHTML = HT.panelPolyphenolsHTML({ items: [r276it('Gate berries', 150), r276it('Gate bread', 50)] }, r276P); return d.textContent.replace(/\s+/g, ' '); })();
+  res(r276a && r276a.mg === 300 && r276a.rule === 'lx-g1' && r276b === null && r276c === null && r276d === null && r276e === null
+      && /Polyphenols, provisional ?300 mg/.test(r276h) && /75 % of the day.s food matched/.test(r276h) && HT.panelPolyphenolsHTML({ items: [] }, { lexicon: r276P.lexicon }) === '',
+      'R327/6: POLYPHENOLS FROM A PACK -- a food its first rule maps to a table food counts grams x total / 100 (150 g x 200 = 300 mg), provisional; a rule with no food, no rule, no grams or no table: none; the line shows the day total and the share matched (150 of 200 g)', JSON.stringify([r276a, r276h]));
+  var r276am = HT.supplyAmounts(r276it('Gate berries', 150));
+  res(!('polyphenols_mg' in r276am.keys),
+      'R327/6: with no pack on the phone, a food supplies no polyphenols line', JSON.stringify(r276am.keys));
   // R327/3: eleven more keys -- from a label (OFF), on their slots, and from a licensed product
   var r273keys = { thiamin_mg: 404, riboflavin_mg: 405, niacin_mg: 406, vitamin_b6_mg: 415, copper_mg: 312, selenium_ug: 317, choline_mg: 421, pantothenic_acid_mg: 410, vitamin_e_mg: 323, manganese_mg: 315, vitamin_k_ug: 430 };
   var r273spec = HT.MICRO_SPEC.map(function (m) { return m.key; });

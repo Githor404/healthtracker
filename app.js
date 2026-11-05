@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.132.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.133.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -2703,6 +2703,7 @@ const PANEL_SLOT_KEY = {
   404: 'thiamin_mg', 405: 'riboflavin_mg', 406: 'niacin_mg', 415: 'vitamin_b6_mg', 312: 'copper_mg',
   317: 'selenium_ug', 421: 'choline_mg', 410: 'pantothenic_acid_mg', 323: 'vitamin_e_mg',
   315: 'manganese_mg', 430: 'vitamin_k_ug',
+  314: 'iodine_ug',   // R327/6
 };
 const PANEL_KEY_SLOT = (function () {
   const o = {};
@@ -2784,7 +2785,7 @@ const PANEL_GROUPS = [
   // R327/1: B5, choline, vitamin E and vitamin K join the vitamins (Health Canada's DRI
   // tables list choline with them); manganese and selenium the minerals.
   { name: 'Vitamins', slots: [320, 319, 328, 323, 430, 401, 404, 405, 406, 409, 410, 415, 417, 431, 806, 815, 418, 421] },
-  { name: 'Minerals', slots: [301, 303, 304, 305, 306, 307, 309, 312, 315, 317] },
+  { name: 'Minerals', slots: [301, 303, 304, 305, 306, 307, 309, 312, 314, 315, 317] },   // R327/6: iodine (314), labels only
 ];
 // Protein is deliberately not a group: it is one row in General.
 const PANEL_PROTEIN_SLOT = 203;
@@ -2825,7 +2826,10 @@ const PANEL_SLOT_UNIT = {
   315: 'mg', 317: 'mcg', 323: 'mg', 410: 'mg', 421: 'mg', 430: 'mcg',   // R327/1
   454: 'mg', 501: 'g', 503: 'g', 504: 'g', 506: 'g', 507: 'g', 509: 'g', 510: 'g', 511: 'g', 516: 'g',   // R327/5, R327/4
 };
-function panelSlotUnit(slot) { return PANEL_SLOT_UNIT[slot] || ''; }
+// R327/6: a slot no shipped asset carries -- iodine, from labels and the stack only, on SR's
+// nutrient number. Kept apart from PANEL_SLOT_UNIT, which check-slots holds equal to slots.json.
+const PANEL_LABEL_SLOT_UNIT = { 314: 'mcg' };
+function panelSlotUnit(slot) { return PANEL_SLOT_UNIT[slot] || PANEL_LABEL_SLOT_UNIT[slot] || ''; }
 
 function panelCoverageLine(e) {
   if (!e) return '';
@@ -3957,6 +3961,7 @@ function pwItemFigures(it) {
   const keys = {}, slots = {};
   ['protein_g', 'fat_g', 'carb_g', 'fiber_g'].forEach(function (k) { if (typeof it[k] === 'number' && isFinite(it[k])) keys[k] = 1; });
   Object.keys(it.micros || {}).forEach(function (k) { if (it.micros[k] != null && isFinite(Number(it.micros[k]))) keys[k] = 1; });
+  if (itemPolyphenols(it)) keys.polyphenols_mg = 1;   // R327/6: from the pack, provisional
   const v = it.ref && it.ref.v;
   if (v) Object.keys(v).forEach(function (sl) { if (v[sl] != null && v[sl] === v[sl]) slots[String(sl)] = 1; });
   return { keys: keys, slots: slots };
@@ -4576,6 +4581,48 @@ function itemFermented(it) {
   if (rn && FERMENT_WORDS.test(rn)) return { value: 'yes', src: 'from the database row’s name, “' + rn + '”', marco: '' };
   return { value: 'unknown', src: P ? 'no reviewed lexicon rule and no database row says' : 'no pathway pack, and no database row says', marco: '' };
 }
+// R327/6: POLYPHENOLS, FROM THE PACK ONLY (R273, R286/4). The pack may carry, per Phenol-Explorer
+// food a reviewed lexicon rule names, a total per 100 g (or 100 ml, read as 100 g). A logged food
+// with grams that the FIRST matching rule maps to such a food counts grams x total / 100 --
+// provisional, naming the rule. The code holds no value; with no table, nothing shows.
+function itemPolyphenols(it, P) {
+  P = P || packLoad();
+  const T = P && P.polyphenols && P.polyphenols.foods;
+  if (!T || !it || !panelFoodItem(it)) return null;
+  const g = num(it.grams);
+  if (!(g > 0)) return null;
+  const rules = (P.lexicon && P.lexicon.rules) || [];
+  const name = String(it.name || '').toLowerCase();
+  for (let i = 0; i < rules.length; i++) {
+    let rx = null;
+    try { rx = new RegExp(rules[i].pattern, 'i'); } catch (e) { rx = null; }
+    if (!rx || !rx.test(name)) continue;
+    const f = rules[i].pe_food ? T[rules[i].pe_food] : null;
+    if (!f || !(num(f.total) >= 0)) return null;
+    return { mg: g * num(f.total) / 100, rule: rules[i].id, food: rules[i].pe_food, per: f.per || '100 g', n: f.n, g: g };
+  }
+  return null;
+}
+function panelPolyphenolsHTML(day, P) {
+  P = P || packLoad();
+  if (!(P && P.polyphenols && P.polyphenols.foods)) return '';
+  const items = ((day && day.items) || []).filter(panelFoodItem);
+  let tot = 0, gAll = 0, gHit = 0;
+  const hits = [];
+  items.forEach(function (it) {
+    const g = num(it.grams);
+    if (g > 0) gAll += g;
+    const x = itemPolyphenols(it, P);
+    if (x) { tot += x.mg; gHit += x.g; hits.push(esc(it.name) + ': ' + esc(x.food) + ' (rule ' + esc(x.rule) + ')'); }
+  });
+  const share = gAll > 0 ? Math.round(100 * gHit / gAll) : 0;
+  return '<div class="pgrp"><div class="phead">From your pack</div><div class="prow pd0 ppoly' + (share < Math.round(100 * PANEL_PARTIAL_BELOW) ? ' ppart' : '') + '" data-slot="poly">'
+    + '<div class="pline"><span class="pname">Polyphenols, provisional</span><span class="pval">' + (hits.length ? esc(String(Math.round(tot))) + ' <small>mg</small>' : '–') + '</span></div>'
+    + '<div class="pcov">' + esc(share + ' % of the day’s food matched') + '</div>'
+    + '<details class="pwinfo"><summary aria-label="about polyphenols">ⓘ</summary><div class="note">'
+    + esc(String(P.polyphenols.source || '') + '; ' + String(P.polyphenols.method || '') + '. Each food counts through the first of your reviewed name rules that matches it, so the figure is provisional; 100 ml is read as 100 g. No reference intake exists.')
+    + (hits.length ? '<br>' + hits.join('<br>') : '') + '</div></details></div></div>';
+}
 function itemFermentedHTML(it) {
   if (!it || isLegacyAuto(it) || it.meal === 'supplement' || it.source === 'supplement' || it.stackId) return '';
   const f = itemFermented(it);
@@ -5165,6 +5212,7 @@ function panelHTML(day, dateKey) {
     }
     html += '<div class="pgrp"><div class="phead">' + esc(g.name) + '</div>' + fam + body + '</div>';
   });
+  html += panelPolyphenolsHTML(day);   // R327/6
 
   // The licence requires the attribution to travel with any displayed value.
   const attr = {};
@@ -6058,6 +6106,8 @@ function supplyAmounts(it) {
   if (!it) return { keys: keys, slots: slots };
   ['protein_g', 'fat_g', 'carb_g', 'fiber_g'].forEach(function (k) { if (num(it[k]) > 0) keys[k] = num(it[k]); });
   Object.keys(it.micros || {}).forEach(function (k) { if (num(it.micros[k]) > 0) keys[k] = num(it.micros[k]); });
+  const pp = itemPolyphenols(it);   // R327/6
+  if (pp && pp.mg > 0) keys.polyphenols_mg = pp.mg;
   const v = it.ref && it.ref.v;
   if (v) Object.keys(v).forEach(function (sl) { if (num(v[sl]) > 0) slots[String(sl)] = num(v[sl]); });
   return { keys: keys, slots: slots };
@@ -6075,7 +6125,7 @@ function supplyLineAmount(P, line, am) {
   const v = line.dri ? ri[line.dri] : null;
   if (line.key && am.keys[line.key] > 0) {
     const k = line.key;
-    return { a: am.keys[k], shown: am.keys[k], unit: (MICRO_LABEL[k] && MICRO_LABEL[k].unit) || (/_g$/.test(k) ? 'g' : ''), v: v };
+    return { a: am.keys[k], shown: am.keys[k], unit: (MICRO_LABEL[k] && MICRO_LABEL[k].unit) || (/_g$/.test(k) ? 'g' : /_mg$/.test(k) ? 'mg' : ''), v: v };
   }
   if (line.slot != null && am.slots[String(line.slot)] > 0) {
     const x = am.slots[String(line.slot)];
@@ -6966,7 +7016,8 @@ const STACK_SUPP_KEYS = ['magnesium_mg', 'zinc_mg', 'iron_mg', 'calcium_mg', 'po
                          'vitamin_a_ug', 'vitamin_c_mg', 'vitamin_d_ug', 'vitamin_b12_ug', 'folate_ug',
                          // R327/3
                          'sodium_mg', 'thiamin_mg', 'riboflavin_mg', 'niacin_mg', 'vitamin_b6_mg', 'pantothenic_acid_mg',
-                         'choline_mg', 'vitamin_e_mg', 'vitamin_k_ug', 'copper_mg', 'selenium_ug', 'manganese_mg'];
+                         'choline_mg', 'vitamin_e_mg', 'vitamin_k_ug', 'copper_mg', 'selenium_ug', 'manganese_mg',
+                         'iodine_ug'];   // R327/6
 // R327/3: the other names an ingredient goes by -- the nutrient itself, never a salt form
 // (pyridoxine hydrochloride, niacinamide), whose mass is not the nutrient's
 const STACK_SUPP_NAMES = {
@@ -10161,6 +10212,7 @@ const MICRO_SPEC = [
   { key: 'copper_mg', label: 'Copper', unit: 'mg', warn: 50 },
   { key: 'selenium_ug', label: 'Selenium', unit: 'mcg', warn: 2000 },
   { key: 'manganese_mg', label: 'Manganese', unit: 'mg', warn: 100 },
+  { key: 'iodine_ug', label: 'Iodine', unit: 'mcg', warn: 5000 },   // R327/6
 ];
 const MICRO_LABEL = MICRO_SPEC.reduce((m, s) => { m[s.key] = s; return m; }, {});
 const MACRO_WARN = { kcal: 10000, protein_g: 1000, fat_g: 1000, carb_g: 1000, fiber_g: 1000, soluble_fiber_g: 1000 };
@@ -10346,6 +10398,7 @@ const OFF_MICRO_MAP = [
   { off: 'copper',           key: 'copper_mg',           unit: 'mg' },
   { off: 'selenium',         key: 'selenium_ug',         unit: 'ug' },
   { off: 'manganese',        key: 'manganese_mg',        unit: 'mg' },
+  { off: 'iodine',           key: 'iodine_ug',           unit: 'ug' },   // R327/6
 ];
 
 // Absence != zero: a micro is included ONLY when OFF returns its _100g key.
@@ -19386,6 +19439,7 @@ const VERSION_LOG = [
   { v: '0.130.1', d: '2026-11-05', note: 'Micronutrients shows the omega fats the food database already carried: ALA and EPA beside DHA, and the omega-3 and omega-6 totals, each fatty acid under its total. The totals come from the Canadian database only, so on the US one they read -. With your updated pathway pack, EPA and DHA count toward the pathways that use them.' },
   { v: '0.131.0', d: '2026-11-05', note: 'A scanned label now brings thiamin, riboflavin, niacin, B6, pantothenic acid, choline, vitamins E and K, copper, selenium and manganese where it prints them, and the label form has a field for each. A supplement from Health Canada’s database counts those and sodium. Each shows in its Micronutrients row beside the food database’s figure.' },
   { v: '0.132.0', d: '2026-11-05', note: 'The food databases now give nine amino acids -- tryptophan, leucine, isoleucine, valine, methionine, cystine, tyrosine, arginine and glycine -- shown under Protein, and betaine. About two thirds of foods carry the amino acids and fewer carry betaine, so their rows often say partial. The database downloads once more (about 90-115 KB). With your updated pathway pack, the pathways that named protein as a stand-in count their own amino acid instead.' },
+  { v: '0.133.0', d: '2026-11-05', note: 'Iodine: a scanned label or the label form can give it, and a supplement from Health Canada’s database counts it; Micronutrients shows it under Minerals, with Health Canada’s RDA from your pathway pack. The food databases have no iodine figures, so the row will usually say partial. With your updated pack, Micronutrients also shows polyphenols for foods your reviewed name rules match, marked provisional.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -29264,7 +29318,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
