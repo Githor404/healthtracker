@@ -224,11 +224,13 @@ try {
            lines: Array.prototype.map.call(exp.querySelectorAll('.respexpline, .respexpnote'), function (l) { return l.textContent; }),
            small: Array.prototype.filter.call(exp.querySelectorAll('div'), function (d) { return parseFloat(getComputedStyle(d).fontSize) < 16; }).length,
            inside: r.left >= 0 && r.right <= window.innerWidth,
-           blocks: document.querySelectorAll('#dayView .sitresp').length };
+           blocks: document.querySelectorAll('#dayView .sitresp').length,
+           sd: (box.querySelector('.sdline') || {}).textContent || '' };
 })()
 '@
   Write-Host ("  the breakfast, opened: " + $open)
   $o = $open | ConvertFrom-Json
+  Check ($o.sd -like 'High-carb (40 g net): rose 2 mmol/L in 60 min (under 2.8)*no dip below its baseline*') ("R328/1b: the opened high-carb breakfast says its rise in the first hour, that it is under the 2.8 mmol/L line, and that it did not dip below its baseline (" + $o.sd + ")")
   Check ($o.measured -eq ('2 h area above baseline 90 mmol/L' + [char]0x00B7 + 'min') -and $o.measuredBold) "R225 GATE: the 2 h area is MEASURED and shown plain and bold: 90 mmol/L.min -- the number computed by hand"
   Check (($o.expHead -eq 'Expected, from your own earlier meals') -and ($o.eStyle.style -eq 'italic') -and ($o.eStyle.border -eq 'dashed') -and ($o.mStyle.style -eq 'normal')) "R225 GATE: what is EXPECTED is visibly not a measurement -- its own dashed box, italic, headed 'Expected' -- while the measured line is plain"
   $l0 = [string]$o.lines[0]

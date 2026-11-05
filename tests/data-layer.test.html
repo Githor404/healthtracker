@@ -977,6 +977,50 @@ window.setLS({});
   res(r274w.length === 0 && r274gen.kids && r274gen.kids[203].join(',') === '501,504,503,510,506,507,509,511,516' && r274gen.slots.indexOf(454) >= 0
       && HT.panelSlotLabel(454) === 'Betaine' && HT.panelSlotUnit(454) === 'mg' && HT.FDC_SLOTS.indexOf(454) >= 0,
       'R327/4, R327/5: NINE AMINO ACIDS (g) are shipped and shown under Protein, a part of its whole; betaine (mg) in General', JSON.stringify(r274w));
+  // R328/1b: rise then dip, on R328/2's registered definitions -- each threshold on both sides
+  (function () {
+    var days0 = HT.state().days, tl0 = HT.state().timeline;
+    HT.glucoseClear();
+    HT.state().days = {}; HT.state().timeline = {};
+    var rows = [];
+    // a series every 5 min from 40 min before to 200 min after; f(min) -> value
+    var series = function (dk, hhmm, f, unit) {
+      var t0 = new Date(dk + 'T' + hhmm + ':00').getTime();
+      for (var m = -40; m <= 200; m += 5) { var v = f(m); if (v != null) rows.push({ t: new Date(t0 + m * 60000).toISOString(), v: v, unit: unit || 'mmol/L' }); }
+    };
+    // baseline 5.0 flat; a peak of 5 + rise at 45 min; back to 5.0 by 90; below at `dip` [from, to] min (value 4.5)
+    var shape = function (rise, dip, low) { return function (m) { if (m < 0) return 5; if (m <= 45) return 5 + rise * m / 45; if (m <= 90) return 5 + rise * (90 - m) / 45; if (dip && m >= dip[0] && m <= dip[1]) return low || 4.5; return 5; }; };
+    var meal = function (dk, hhmm, carb, fib) { HT.state().days[dk] = { status: 'complete', water_l: 0, items: [{ name: 'Gate meal', meal: 'lunch', time: hhmm, kcal: 400, protein_g: 10, fat_g: 10, carb_g: carb, fiber_g: fib, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '', mealId: 'sd' }] }; };
+    meal('2026-02-01', '08:00', 30, 1);   series('2026-02-01', '08:00', shape(3, [120, 140]));     // 29 g net: not high-carb
+    meal('2026-02-02', '08:00', 31, 1);   series('2026-02-02', '08:00', shape(2.8, [120, 135]));   // 30 g; rise 2.8; dip 15 min
+    meal('2026-02-03', '08:00', 40, 0);   series('2026-02-03', '08:00', shape(2.7, [120, 140]));   // rise 2.7: not qualifying
+    meal('2026-02-04', '08:00', 40, 0);   series('2026-02-04', '08:00', shape(3, [120, 130]));     // 10 min below: no dip
+    meal('2026-02-05', '08:00', 40, 0);   series('2026-02-05', '08:00', shape(3, [185, 200]));     // below only after 180 min
+    meal('2026-02-06', '20:00', 40, 0);   series('2026-02-06', '20:00', shape(3, [120, 150]));     // the dip is inside a logged sleep
+    HT.state().timeline['2026-02-07'] = [{ type: 'sleep', time: '21:30', value: 8, source: 'quick' }];
+    meal('2026-02-08', '08:00', 40, 0);   series('2026-02-08', '08:00', function (m) { var v = shape(3, [120, 140])(m); return Math.round(v * 18.016 * 10) / 10; }, 'mg/dL');
+    meal('2026-02-09', '08:00', 40, 0);   series('2026-02-09', '08:00', shape(3, [100, 130]));
+    meal('2026-02-10', '08:00', 40, 0);   series('2026-02-10', '08:00', shape(3, null));            // qualifies, no dip
+    meal('2026-02-11', '08:00', 40, 0);   series('2026-02-11', '08:00', shape(3, [150, 170]));
+    HT.resave();
+    HT.glucoseIngest(rows, { source: 'fixture' });
+    var d = {};
+    ['01', '02', '03', '04', '05', '06', '08', '09', '10', '11'].forEach(function (x) { d[x] = HT.spikeDip('2026-02-' + x, 'sd'); });
+    res(d['01'].high === false && d['01'].net === 29 && d['02'].high === true && d['02'].net === 30 && d['02'].qualifies === true && d['02'].rise === 2.8 && d['02'].base === 5
+        && d['03'].qualifies === false && !!d['02'].dip && d['02'].dip.min === 15 && d['02'].dip.fromMin === 120 && d['02'].dip.toMin === 135,
+        'R328/1b: THE REGISTERED THRESHOLDS -- 29 g net carbs is not high-carb, 30 g is; a rise of 2.7 does not qualify, 2.8 does (baseline the median of the 30 min before, 5.0); 15 min below baseline is a dip, from 120 to 135 min', JSON.stringify([d['01'], d['02'], d['03']]));
+    res(d['04'].dip === null && d['05'].dip === null && d['06'].dip === null && !!d['08'].dip && d['08'].qualifies === true && d['08'].rise === 3,
+        'R328/1b: 10 min below is no dip; below only after 180 min is outside; a dip inside a logged sleep is not counted; mg/dL converts (rise 3.0 mmol/L, a dip)', JSON.stringify([d['04'], d['05'], d['06'], d['08']]));
+    var line = (function () { var e = document.createElement('div'); e.innerHTML = HT.spikeDipLineHTML('2026-02-02', 'sd'); return e.textContent; })();
+    var w3 = HT.weekSpikeDip(['2026-02-02', '2026-02-03', '2026-02-08']);
+    var w5 = HT.weekSpikeDip(['2026-02-02', '2026-02-08', '2026-02-09', '2026-02-10', '2026-02-11']);
+    var h3 = (function () { var e = document.createElement('div'); e.innerHTML = HT.weekSpikeDipHTML({ soFar: ['2026-02-02', '2026-02-03', '2026-02-08'] }); return e.textContent; })();
+    var h5 = (function () { var e = document.createElement('div'); e.innerHTML = HT.weekSpikeDipHTML({ soFar: ['2026-02-02', '2026-02-08', '2026-02-09', '2026-02-10', '2026-02-11'] }); return e.textContent; })();
+    res(/rose 2\.8 mmol\/L in 60 min, then below its baseline for 15 min, from 120 to 135 min/.test(line) && w3.n === 2 && w3.k === 2 && w5.n === 5 && w5.k === 4
+        && /no personal estimate yet \(2 of 5\)/.test(h3) && /4 of 5 .*80%.*calculated; n 5/.test(h5),
+        'R328/1b: THE MEAL LINE says the rise and the dip with its minutes; the week counts high-carb meals with a qualifying rise (the 2.7 one is not counted) and shows the share as a CALCULATED probability only from 5 (4 of 5 = 80 %)', line + ' | ' + h3 + ' | ' + h5);
+    HT.glucoseClear(); HT.state().days = days0; HT.state().timeline = tl0; HT.resave();
+  })();
   // R328/1a: health history -- the user's own notes; flags beside figures, never a number
   var r281ns = HT.normalizeSettings({ healthHistory: [
     { id: 'hh-a', text: 'Placeholder note A', added: '2026-11-01', absorption: ['vitamin_b12_ug', 'iron_mg', 'sodium_mg'], lowAcid: true },

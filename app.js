@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.134.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.135.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -15263,6 +15263,105 @@ function mealReviewHTML(dateKey, mealId) {
   const inner = mealReviewInnerHTML(dateKey, mealId);
   return inner ? '<div class="resp resprev">' + inner + '</div>' : '';
 }
+// ---- R328/1b: RISE THEN DIP, on R328/2's definitions as registered (2026-11-04), not tuned ----
+// A high-carb sitting (30 g net carbs or more, carbs less fibre, as eaten); its baseline the
+// MEDIAN of the 30 min before its start; its rise the peak within 60 min less that baseline,
+// qualifying at 2.8 mmol/L; a dip glucose below the baseline for 15 consecutive minutes or more
+// within 180 min of the start. "Readings flagged as likely sensor compression (night,
+// sleep-side)" is made operational as: a reading inside a logged sleep is not counted toward a
+// dip (the app has no measured compression threshold). A gap over 15 min breaks a run. mg/dL
+// is compared after conversion. Derived at render; nothing stored.
+const SD_NET_CARB_MIN = 30, SD_BASE_MIN = 30, SD_RISE_WIN_MIN = 60, SD_RISE_MIN = 2.8;
+const SD_DIP_MIN = 15, SD_DIP_WIN_MIN = 180, SD_GAP_MIN = 15, SD_MGDL_PER_MMOL = 18.016;
+const SD_P_MIN_N = 5;   // R261: a personal estimate from 5
+function sdMmol(p) { return p.u === 'mg/dL' ? p.v / SD_MGDL_PER_MMOL : p.v; }
+// Once per redraw per sitting, as mealResponse is (R298: a redraw's cost is budgeted).
+function spikeDip(dateKey, mealId) {
+  if (!REDRAW_MEMO) return spikeDipCompute(dateKey, mealId);
+  if (!REDRAW_MEMO.sd) REDRAW_MEMO.sd = {};
+  const k = String(dateKey) + '|' + String(mealId);
+  if (!Object.prototype.hasOwnProperty.call(REDRAW_MEMO.sd, k)) REDRAW_MEMO.sd[k] = spikeDipCompute(dateKey, mealId);
+  return REDRAW_MEMO.sd[k];
+}
+function spikeDipCompute(dateKey, mealId) {
+  const ev = findMealEvent(dateKey, mealId);
+  if (!ev) return null;
+  const t0 = hhmmToMin(ev.time);
+  if (t0 == null) return null;
+  let net = 0;
+  ev.items.forEach(function (it) { if (panelFoodItem(it)) net += num(it.carb_g) - num(it.fiber_g); });
+  net = Math.round(net * 10) / 10;
+  if (!(net >= SD_NET_CARB_MIN)) return { high: false, net: net };
+  const ms = wallMs(dateKey, t0);
+  const pre = glucoseSeries(ms - SD_BASE_MIN * 60000, ms - 1).map(sdMmol).sort(function (a, b) { return a - b; });
+  if (!pre.length) return { high: true, net: net, phase: 'none', why: 'no readings in the 30 min before' };
+  const mid = pre.length >> 1;
+  const base = pre.length % 2 ? pre[mid] : (pre[mid - 1] + pre[mid]) / 2;
+  const win = glucoseSeries(ms, ms + SD_DIP_WIN_MIN * 60000).map(function (p) { return { t: p.t, v: sdMmol(p) }; });
+  if (!win.length) return { high: true, net: net, phase: 'none', why: 'no glucose covers it', base: base };
+  let peak = null;
+  win.forEach(function (p) { if (p.t - ms <= SD_RISE_WIN_MIN * 60000 && (peak == null || p.v > peak)) peak = p.v; });
+  if (peak == null) return { high: true, net: net, phase: 'none', why: 'no reading in the 60 min after', base: base };
+  const rise = peak - base;
+  const out = { high: true, net: net, base: Math.round(base * 10) / 10, rise: Math.round(rise * 10) / 10,
+                qualifies: rise >= SD_RISE_MIN - 1e-9, dip: null, phase: 'ok' };
+  // the logged sleeps are read only if some reading is below the baseline at all
+  let sleeps = null;
+  const asleep = function (t) { if (!sleeps) sleeps = eliteSleepSpans(); return sleeps.some(function (z) { return t >= z[0] && t <= z[1]; }); };
+  let run = null;
+  for (let i = 0; i < win.length && !out.dip; i++) {
+    const p = win[i];
+    const gapBreak = run && (p.t - run.last) / 60000 > SD_GAP_MIN;
+    if (p.v < base && !asleep(p.t) && !gapBreak) {
+      if (!run) run = { first: p.t, last: p.t }; else run.last = p.t;
+      if ((run.last - run.first) / 60000 >= SD_DIP_MIN) out.dip = run;
+    } else if (p.v < base && !asleep(p.t)) {
+      run = { first: p.t, last: p.t };
+    } else run = null;
+  }
+  if (out.dip) {
+    // the run goes on while it holds, for its length
+    let last = out.dip.last;
+    const k = win.map(function (p) { return p.t; }).indexOf(last);
+    for (let j = k + 1; j < win.length; j++) {
+      const p = win[j];
+      if (p.v < base && !asleep(p.t) && (p.t - last) / 60000 <= SD_GAP_MIN) last = p.t; else break;
+    }
+    out.dip = { fromMin: Math.round((out.dip.first - ms) / 60000), toMin: Math.round((last - ms) / 60000), min: Math.round((last - out.dip.first) / 60000) };
+  } else {
+    const lastMin = Math.round((win[win.length - 1].t - ms) / 60000);
+    if (lastMin < SD_DIP_WIN_MIN - SD_GAP_MIN) { out.phase = 'bounded'; out.stopsAt = lastMin; }
+  }
+  return out;
+}
+function spikeDipLineHTML(dateKey, mealId) {
+  const d = spikeDip(dateKey, mealId);
+  if (!d || !d.high || d.phase === 'none') return '';
+  let t = 'High-carb (' + rDisp(d.net) + ' g net): rose ' + rDisp(d.rise) + ' mmol/L in 60 min' + (d.qualifies ? '' : ' (under ' + SD_RISE_MIN + ')');
+  if (d.dip) t += ', then below its baseline for ' + d.dip.min + ' min, from ' + d.dip.fromMin + ' to ' + d.dip.toMin + ' min';
+  else if (d.phase === 'bounded') t += '; no dip below its baseline while readings last (to ' + d.stopsAt + ' min)';
+  else t += '; no dip below its baseline within 3 h';
+  return '<div class="respline sdline">' + esc(t + '.') + '</div>';
+}
+// The week: high-carb sittings with a qualifying rise, and how many dipped.
+function weekSpikeDip(days) {
+  let n = 0, k = 0;
+  (days || []).forEach(function (dk) {
+    mealEvents(dk).forEach(function (ev) {
+      const d = spikeDip(dk, ev.mealId);
+      if (!d || !d.high || !d.qualifies || d.phase === 'none' || (d.phase === 'bounded' && !d.dip)) return;
+      n++; if (d.dip) k++;
+    });
+  });
+  return { n: n, k: k };
+}
+function weekSpikeDipHTML(R) {
+  const w = weekSpikeDip(R.soFar || R.dates || []);
+  if (!w.n) return '<div class="wkline sdweek">Rise then dip: no high-carb meal with a rise of ' + SD_RISE_MIN + ' mmol/L or more this week.</div>';
+  return '<div class="wkline sdweek">Rise then dip: ' + esc(w.k + ' of ' + w.n) + ' high-carb meals with a qualifying rise dipped below their baseline'
+    + (w.n >= SD_P_MIN_N ? ' — <b>' + esc(String(Math.round(100 * w.k / w.n))) + '%</b> (calculated; n ' + esc(String(w.n)) + ')'
+      : ' — no personal estimate yet (' + esc(String(w.n)) + ' of ' + SD_P_MIN_N + ')') + '.</div>';
+}
 function mealReviewInnerHTML(dateKey, mealId) {
   const v = mealReview(dateKey, mealId);
   if (!v || !v.response || v.response.phase === 'none') return '';
@@ -15270,6 +15369,7 @@ function mealReviewInnerHTML(dateKey, mealId) {
   let h = '';
   if (v.response.iauc2h != null)
     h += '<div class="respline">2 h area above baseline <b>' + esc(String(v.response.iauc2h)) + ' ' + esc(u) + '·min</b></div>';
+  h += spikeDipLineHTML(dateKey, mealId);   // R328/1b
   if (!v.judged) return h + '<div class="respwarn">Not judged — ' + esc(v.notJudged) + '.</div>';
   if (!v.clean) {
     const w = (!v.cleanBefore && !v.cleanAfter) ? 'before and after it' : (!v.cleanBefore ? 'before it' : 'after it');
@@ -19547,6 +19647,7 @@ const VERSION_LOG = [
   { v: '0.132.0', d: '2026-11-05', note: 'The food databases now give nine amino acids -- tryptophan, leucine, isoleucine, valine, methionine, cystine, tyrosine, arginine and glycine -- shown under Protein, and betaine. About two thirds of foods carry the amino acids and fewer carry betaine, so their rows often say partial. The database downloads once more (about 90-115 KB). With your updated pathway pack, the pathways that named protein as a stand-in count their own amino acid instead.' },
   { v: '0.133.0', d: '2026-11-05', note: 'Iodine: a scanned label or the label form can give it, and a supplement from Health Canada’s database counts it; Micronutrients shows it under Minerals, with Health Canada’s RDA from your pathway pack. The food databases have no iodine figures, so the row will usually say partial. With your updated pack, Micronutrients also shows polyphenols for foods your reviewed name rules match, marked provisional.' },
   { v: '0.134.0', d: '2026-11-05', note: 'Settings has a Health history section for your own notes. A note can mark nutrients whose absorption may differ for you, and low stomach acid; each mark shows as a note beside that nutrient in Micronutrients, or beside Fermented on a food. Your notes stay on this phone and in your backup, and change no number.' },
+  { v: '0.135.0', d: '2026-11-05', note: 'A meal with 30 g of net carbs or more now says, in its review, how much glucose rose in the first hour and whether it then went below its starting level for 15 minutes or more within 3 hours. The weekly review counts how many such meals did. Readings during a logged sleep are left out of a dip.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -24466,6 +24567,7 @@ function weekMealCardHTML(R) {
   if (M.notClean) why.push(M.notClean + ' with other food within 2 h');
   if (M.otherUnit) why.push(M.otherUnit + ' in another glucose unit, not compared');
   if (why.length) h += '<div class="wkline wkmuted">Not compared: ' + esc(why.join('; ')) + '.</div>';
+  h += weekSpikeDipHTML(R);   // R328/1b
   h += weekInfo('about meal responses',
     'A meal’s rise is its highest reading in the 4 h after it minus the mean of the 20 min before (the meal review’s own measure). '
     + 'Only meals with that baseline and 2 h of readings with no gap, and with no other food within 2 h either side, are used. '
@@ -24474,7 +24576,10 @@ function weekMealCardHTML(R) {
     + 'and shown only with ' + WEEK_P_MIN_N + ' or more meals on each side. 60 % or more reads “higher than typical”, '
     + '40 % or less “lower than typical”, and in between “no clear change”. '
     + '<br>Main uncertainty: few meals, and meals differ in what was eaten — the comparison does not match meals by food or carbohydrate. '
-    + 'The curves are the median rise every 10 min, this week solid and the typical 28 days dashed, both from 0.');
+    + 'The curves are the median rise every 10 min, this week solid and the typical 28 days dashed, both from 0.'
+    + '<br>Rise then dip: a meal with ' + SD_NET_CARB_MIN + ' g net carbs or more whose highest reading in the 60 min after it is ' + SD_RISE_MIN + ' mmol/L or more above the median of the 30 min before, '
+    + 'and which then reads below that baseline for ' + SD_DIP_MIN + ' minutes in a row within 3 h of the start. Readings during a logged sleep are not counted toward a dip (lying on the sensor can read low). '
+    + 'The share is calculated from your own meals only, with no evidence grade, shown from ' + SD_P_MIN_N + ' meals. Main uncertainty: few meals, and logged carbs and times are as logged.');
   return h + '</div>';
 }
 function weekFastCardHTML(R) {
@@ -29426,7 +29531,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, spikeDip, spikeDipCompute, spikeDipLineHTML, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
