@@ -22260,3 +22260,63 @@ polyphenols (grams x total / 100), an unmatched food none, no pack none. micro-g
 label's iodine shows in the Iodine row with "RDA 150 mcg" from a placeholder pack; the
 placeholder polyphenols line reads its total and share. check_schema (private) and the R204
 guard: no Phenol-Explorer value in any public file. Release under the standing pre-run rule.
+
+## R327/6 -- BUILT (v0.133.0), against its pre-registration
+
+As pre-registered. Iodine: MICRO_SPEC "Iodine" (mcg), OFF `iodine`, a stack ingredient named
+Iodine; the Minerals row on 314 with its unit in its own table (PANEL_LABEL_SLOT_UNIT). Polyphenols:
+`itemPolyphenols` reads only a pack's `polyphenols.foods` through the first reviewed lexicon rule
+a food's name matches; "From your pack" in Micronutrients, with the share of the day's food
+matched and the basis behind an i; `polyphenols_mg` counts on a supply line. **The pack's table
+(HTPrivate, build_pack):** plain chromatography only -- chromatography after hydrolysis left out
+as well as Folin (the same compound again, as its aglycone) -- fresh weight and per 100 ml; 30 of
+the 38 Phenol-Explorer foods the reviewed rules name have such rows (the other 8: none, so no
+figure). *Found while looking at it at 390 px:* the polyphenols row ran its name into its value
+("provisional537 mg"); it now uses the panel's own row markup. Harness 3483; micro-gate: a
+scanned label's iodine 50 mcg with "RDA 150 mcg" from a placeholder pack, and a placeholder table's
+50 mg polyphenols with its share. Every gate alone (71 of 71), then the full suite: **83 of 83**.
+Pushed; verify-deploy passes. The pack (v020, tools/apply_r327_6.py): iodine's reference intake;
+pw-074's iodine and pw-038's polyphenols lines tracked. **On the user's pack (CNF):** brewed
+coffee, 250 g -- polyphenols 537 mg, provisional, through rule lx-001; pw-038 supplied; the Iodine
+row "-" with RDA 150 mcg. R327 is complete (item 7, carotenoids: not now, as ruled).
+
+
+## R328/1 -- PRE-REGISTERED (2026-11-05; two releases): a health-history field and its flags (to be v0.134.0), then the spike-then-dip detector (to be v0.135.0) (*track*, *evaluate*)
+
+Generic in code, tests and records (R204): nothing of any user's history is written here; the
+user's own notes live on the phone, in the backup and in HTPrivate.
+**1a. Health history (v0.134.0).** `settings.healthHistory`, empty by default: the user's own
+notes, each `{ id, text (at most 500 characters), added (a date), absorption?: [nutrient keys],
+lowAcid?: true }`. Entered, edited and removed in Settings -> Health history; carried in the
+backup with the settings; in normalizeSettings (with a reload check, so it is never dropped at a
+start). A note may mark "absorption of these may differ" for any of B12, iron, calcium and
+vitamins A, D, E and K, and "low stomach acid". **Flags only, never a number:** a marked
+nutrient's Micronutrients row carries a collapsed note -- "Your health history: absorption of
+<nutrient> may differ from the population its reference intake was set for." -- and an opened
+food's Fermented line, when a note marks low stomach acid, carries "Your health history notes low
+stomach acid; how many of a food's live microbes pass the stomach may differ." Neither changes a
+total, a known share or a supply. No probability is shown, so neither is advice (R260): each
+restates the user's own note beside the figure it concerns.
+**1b. The spike-then-dip detector (v0.135.0), on R328/2's definitions as registered (2026-11-04,
+before any C1 sitting was observed), not tuned:** a **high-carb sitting** has at least 30 g net
+carbs (carbs less fibre, as eaten) per R229 sitting; its **baseline** is the median glucose of
+the 30 min before the sitting's start; its **rise** is the peak within 60 min of the start less
+the baseline, qualifying at 2.8 mmol/L or more; a **dip** is glucose below the baseline for at
+least 15 consecutive minutes within 180 min of the start. **Sensor compression, made operational
+here:** the registered exclusion is "readings flagged as likely sensor compression (night,
+sleep-side)"; the app has no measured compression threshold (its night-low shape carries no
+label), so a reading inside a logged sleep is not counted toward a dip. Glucose in
+mg/dL is compared after conversion at 18.016. Gaps over 15 min break a run. **Shown:** in the
+meal review (R225), for a high-carb sitting with coverage, "Rose <r> mmol/L, then below its
+baseline for <n> min, from <a> to <b> min" or "no dip below its baseline within 3 h"; in the
+weekly review's meal card, "Rise then dip: k of n high-carb sittings with a qualifying rise"
+with the share as a **calculated** probability once n is 5 or more ("no personal estimate yet"
+below), its basis behind an i. Derived at render; nothing stored.
+**Gates.** 1a: normalizeSettings keeps a valid note and drops an invalid one; a reload keeps it;
+a backup round trip keeps it; the absorption note sits on exactly the marked rows; the
+low-acid note on the Fermented line only with the mark; no row's total changes. 1b (harness,
+synthetic series): 29 g net is not high-carb, 30 g is; a 2.7 rise does not qualify, 2.8 does; 14
+min below baseline is no dip, 15 is; a dip at 181 min is outside; a dip inside a logged sleep is
+not counted; mg/dL converts; the weekly share shows only from n 5, labelled calculated; and a
+review-gate step draws the line on a placeholder day. Release each under the standing pre-run
+rule.
