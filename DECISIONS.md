@@ -21993,3 +21993,26 @@ quotes its words on 0.5; the "methods differ" sentence is gone; the citation nam
 confirmed by the user, without the unverified recommendation numbers. No stored data changed.
 waist-gate 18 of 18; harness 3469; every gate alone (71 of 71), then the full suite: **83 of 83**.
 Pushed; verify-deploy passes.
+
+## R327 -- the user's rulings on the R326.1 nutrient audit (2026-11-04): the plan
+
+The user's order: **0, 8, 1, 2, 3, 5, 4, 6**, released in batches under the standing pre-run
+rule; carotenoids not now (7); chromium and biotin skipped. Each step is pre-registered on its
+own before it is built. Two holds are the user's: the Canadian slots wait for the CNF 2026
+measurement (8), and a switch of edition needs the user's approval; FDC proceeds. The egg case
+is reported again after item 1 (choline appears; Vagal signalling is supplied).
+
+## R327/0 -- PRE-REGISTERED (2026-11-04; to be v0.129.2): the unit word on every slot (*track*)
+
+**The defect (found by R326.1).** `panelSlotUnit` named a unit for the app's fourteen keyed
+slots and a few others, and fell back to **"g"** for the rest. Six slots are **mg** in both
+sources -- caffeine (262), theobromine (263), thiamin (404), riboflavin (405), niacin (406),
+vitamin B-6 (415) -- so they read e.g. "0.47 g" beside "RDA 1.3 mg". The number and every
+comparison were right; the word was wrong, by a factor of 1000 to a reader.
+
+**The fix.** One table, `PANEL_SLOT_UNIT`, every slot's unit **as slots.json states it** (µg
+written mcg, kcal written cal); no fallback word -- a slot not in the table has no unit word.
+**tests/check-slots.sh** gains a leg: the table names every slot in slots.json, with the same
+unit, and nothing else -- so the slots R327/1 adds cannot fall back to a wrong word.
+**Harness:** the six slots read mg; every shipped slot has a unit. **micro-gate:** a day item
+carrying thiamin renders its row in mg. No stored data changes.
