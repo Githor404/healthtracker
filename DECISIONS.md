@@ -22413,3 +22413,27 @@ harness, every gate alone) and one fresh full run; green -> push v0.136.0, verif
 is investigated after v0.136.0 and before R319: strip-gate's figure bisected across releases,
 the costliest releases named, fixes proposed that bring it back toward 2.0 without changing
 behaviour. Reported first; the user decides.
+
+## R330/2 -- PRE-REGISTERED (2026-11-05; to be v0.136.1): the fasting spans found once per redraw (a speed fix; nothing shown changes)
+**Correction to R330.** R330 said strip-gate read high under the suite's parallel workers. Both
+full runs that day started with under 5 GB free, so the suite ran every gate one at a time: no
+gate ran beside strip-gate in either. The red 3.04 was noise on a figure with little headroom.
+The serial tail stays as a guard for runs with 5 GB or more free, when gates do run together.
+**The creep, measured (the user: "fix the speed creep").** Each release's own strip-gate, run
+alone twice on 5 Nov (the step-13 ratio): v0.114.0 2.66/2.64; v0.114.1 1.99/1.94 (the 1.96 on
+record); v0.115.0 1.97/2.08; **v0.115.1 2.36/2.40** (R301, real elapsed time); v0.116.0-v0.117.0
+2.32-2.40; **v0.118.0 2.58/2.53** (R304, the landing page); v0.119.0-v0.136.0 2.40-2.63, flat.
+Two releases account for it; nothing since v0.118.0 adds a measurable cost.
+**The cause, profiled** (30 redraws, the step-13 fixture): 56 % of a redraw is `fastGaps`, which
+walks every food of the log to find each span between foods. The 7-day and month rings call it
+once per ring through `rhythmModel` (44 % of the redraw), and Trends, the averages, the date line
+and the strip call it again. R301 made each call dearer (real elapsed time per span).
+**The fix.** `fastGaps` is computed once per redraw for each moment it is asked at, through
+REDRAW_MEMO (as meal responses and rise-then-dip already are); outside a redraw it computes as
+before. Every caller only reads what it returns (checked: rhythmModel, weekFasts, fastsClosed,
+fastOpenNow and its four callers). **Nothing shown or stored changes.**
+**Gates.** Harness: during one redraw on a fixture with fasts, the spans are worked out at most
+once per moment asked, and every caller's result equals the unmemoised one. strip-gate's budget
+stays 3.0 (a lower budget is the user's decision, reported with the new figure). Released with
+v0.136.0 under the standing pre-run rule: static checks, the harness, every gate alone, one
+green full run, then push both.
