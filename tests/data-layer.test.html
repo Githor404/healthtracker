@@ -1066,6 +1066,21 @@ window.setLS({});
         'R328/1b: THE MEAL LINE says the rise and the dip with its minutes; the week counts high-carb meals with a qualifying rise (the 2.7 one is not counted) and shows the share as a CALCULATED probability only from 5 (4 of 5 = 80 %)', line + ' | ' + h3 + ' | ' + h5);
     HT.glucoseClear(); HT.state().days = days0; HT.state().timeline = tl0; HT.resave();
   })();
+  // R330/2: the fasting spans are worked out once per redraw for each moment asked; same answers
+  (function () {
+    var days0 = HT.state().days;
+    var food = function (hhmm) { return { name: 'Gate food', meal: 'lunch', time: hhmm, kcal: 300, protein_g: 10, fat_g: 10, carb_g: 30, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }; };
+    var t = HT.todayKey(), dd = {};
+    for (var n = 1; n <= 40; n++) dd[HT.shiftDate(t, -n)] = { status: 'complete', water_l: 0, items: n % 3 ? [food('08:00'), food('19:00')] : [food('12:00')] };
+    HT.state().days = dd;
+    var plain = JSON.stringify(HT.fastGapsCompute(null)), openA = HT.fastOpenNow(), closedA = HT.fastsClosed();
+    var c0 = HT.fastGapsComputes(); HT.refresh(); var per = HT.fastGapsComputes() - c0;
+    var c1 = HT.fastGapsComputes(); HT.fastGaps(null); HT.fastGaps(null); var outside = HT.fastGapsComputes() - c1;
+    res(per >= 1 && per <= 2 && outside === 2 && JSON.stringify(HT.fastGaps(null)) === plain && JSON.stringify(HT.fastOpenNow()) === JSON.stringify(openA)
+        && JSON.stringify(HT.fastsClosed()) === JSON.stringify(closedA) && closedA.length > 0,
+        'R330/2: ONE REDRAW works the fasting spans out at most once per moment asked (here ' + per + ', for the 7-day and month rings, Trends, the averages, the date line and the strip together); outside a redraw each call computes; the answers equal the unmemoised ones', per + ' / ' + outside + ' / ' + closedA.length);
+    HT.state().days = days0; HT.resave(); HT.refresh();
+  })();
   // R328/1a: health history -- the user's own notes; flags beside figures, never a number
   var r281ns = HT.normalizeSettings({ healthHistory: [
     { id: 'hh-a', text: 'Placeholder note A', added: '2026-11-01', absorption: ['vitamin_b12_ug', 'iron_mg', 'sodium_mg'], lowAcid: true },

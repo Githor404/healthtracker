@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.136.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.136.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -19923,6 +19923,7 @@ const VERSION_LOG = [
   { v: '0.134.0', d: '2026-11-05', note: 'Settings has a Health history section for your own notes. A note can mark nutrients whose absorption may differ for you, and low stomach acid; each mark shows as a note beside that nutrient in Micronutrients, or beside Fermented on a food. Your notes stay on this phone and in your backup, and change no number.' },
   { v: '0.135.0', d: '2026-11-05', note: 'A meal with 30 g of net carbs or more now says, in its review, how much glucose rose in the first hour and whether it then went below its starting level for 15 minutes or more within 3 hours. The weekly review counts how many such meals did. Readings during a logged sleep are left out of a dip.' },
   { v: '0.136.0', d: '2026-11-05', note: 'Settings has “Discuss with your doctor”: facts gathered from your log, your stack and your pathway pack, each with its source -- an intake above a cited upper level, claims and interactions for your stack items, glucose lows, blood pressure above your reference lines -- and items of your own. Mark one discussed with the date and the doctor’s answer; an item that stops applying moves to its own section, never deleted. Share it or print it as one plain page; nothing leaves the phone unless you do.' },
+  { v: '0.136.1', d: '2026-11-05', note: 'Faster: the home screen redraws in about half the time with a long log -- the fasting spans are now worked out once per redraw instead of once for each small ring. Nothing shown changes.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -20415,7 +20416,20 @@ function absIso(abs) {
   const d = new Date(Math.floor(abs / MIN_PER_DAY) * 86400000).toISOString().slice(0, 10);
   return d + 'T' + absHHMM(abs);
 }
+// R330/2: once per redraw for each moment asked (as mealResponse is): the 7-day and month
+// rings each ask through rhythmModel, and Trends, the averages, the date line and the strip
+// ask again -- unmemoised it was 56 % of a redraw on a year of days. Every caller only
+// reads what it gets.
+let FASTGAPS_COMPUTES = 0;
 function fastGaps(nowAbs) {
+  if (!REDRAW_MEMO) return fastGapsCompute(nowAbs);
+  if (!REDRAW_MEMO.fg) REDRAW_MEMO.fg = {};
+  const k = String(nowAbs);
+  if (!Object.prototype.hasOwnProperty.call(REDRAW_MEMO.fg, k)) REDRAW_MEMO.fg[k] = fastGapsCompute(nowAbs);
+  return REDRAW_MEMO.fg[k];
+}
+function fastGapsCompute(nowAbs) {
+  FASTGAPS_COMPUTES++;
   const foods = [];
   fastEvents().forEach((iso) => {
     const s = isoToDayMin(iso);
@@ -29806,7 +29820,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

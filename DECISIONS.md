@@ -22437,3 +22437,21 @@ once per moment asked, and every caller's result equals the unmemoised one. stri
 stays 3.0 (a lower budget is the user's decision, reported with the new figure). Released with
 v0.136.0 under the standing pre-run rule: static checks, the harness, every gate alone, one
 green full run, then push both.
+
+## R314.1 -- BUILT (v0.136.0), against its pre-registration
+Built as registered: the list in Settings ("Discuss with your doctor"), each gathered kind from a
+placeholder fixture (doctor-gate), "No longer applies" kept, removals recorded and restorable,
+discussed with date and answer through a backup round trip and a reload, the printable page at A4
+and Letter (close-gate measures it), no advice words. Harness +4 (3493). Its first full run was red
+at 83 of 84 (strip-gate's redraw cost 3.04 against 3.0, an unchanged figure near its line); see
+R330 and R330/2. Released with v0.136.1 after one green full run, 84 of 84. Names stay in
+HTPrivate (R204).
+
+## R330 and R330/2 -- BUILT (v0.136.1), against their pre-registrations
+The serial tail is in the runner (strip-gate alone, after the others); both full runs on 5 Nov ran
+one gate at a time anyway (under 5 GB free), so it guards only runs with more memory. `fastGaps`
+is memoised per redraw for each moment asked; the harness checks one redraw works it out at most
+once per moment and every answer equals the unmemoised one (+1, 3494). **strip-gate's figure:
+1.34, 1.38, 1.36 alone (was 2.45-2.6; 1.96 at v0.114.1).** Budget unchanged at 3.0; lowering it
+is the user's decision. Pre-run: static checks, harness, every gate alone (72 of 72); one full run
+84 of 84.
