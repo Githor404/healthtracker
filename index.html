@@ -348,6 +348,30 @@
   .hhtext{white-space:pre-wrap;font-size:16px}
   .hhform textarea{font-family:inherit}
   .hhnote .btn,.hhform .btn,.hhadd,.hhform .checkline{min-height:44px}
+  /* R314.1: the doctor list, and its one plain printable page */
+  .dlitem{border-top:1px solid var(--line);padding:8px 0}
+  .dltext{font-size:16px;white-space:pre-wrap}
+  .dlans{font-size:16px;margin-top:4px}
+  .dlhead{font-size:16px;margin:14px 0 4px}
+  .dlitem .btn,.dlform .btn,.dladd,.dlshare,.dlprint,.dlgone>summary,.dlremoved>summary{min-height:44px}
+  .dlgone>summary,.dlremoved>summary{display:flex;align-items:center;cursor:pointer;font-size:16px}
+  .dlform textarea{font-family:inherit}
+  .dlform input[type=date]{min-height:44px;font-size:16px}
+  .dlpage{font-size:16px;line-height:1.45;max-width:100%;overflow-wrap:anywhere}
+  .dlpage h2{font-size:20px;margin:0 0 4px}
+  .dlpage h3{font-size:17px;margin:16px 0 4px}
+  .dlpage ul{padding-left:20px;margin:0}
+  .dlpage li{margin:6px 0}
+  .dlpsrc,.dlpdate{font-size:16px;color:var(--muted)}
+  .dlpfoot{font-size:16px;color:var(--muted);margin-top:18px}
+  @media print {
+    @page{margin:15mm}
+    body > *:not(#doctorPrint){display:none !important}
+    #doctorPrint{display:block !important;position:static !important;background:#fff !important;color:#000 !important;inset:auto !important}
+    #doctorPrint .wrap{overflow:visible !important;padding:0 !important;max-height:none !important}
+    .dlnoprint{display:none !important}
+    .dlpage,.dlpage *{color:#000 !important;background:#fff !important}
+  }
   .pwinfo>summary{min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;list-style:none;cursor:pointer;color:var(--accent)}
   .pwinfo>summary::-webkit-details-marker{display:none}
   .pwinfo[open]{flex-basis:100%}
@@ -2084,6 +2108,12 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
         <div class="note">Your own notes, kept on this phone and in your backup. A note can mark nutrients whose absorption may differ for you, or low stomach acid; each mark shows as a note beside that figure. No number changes.</div>
       </details>
     </div>
+    <div class="card" data-setting="doctorlist">
+      <details id="dlDetails" ontoggle="doctorToggle(this)">
+        <summary>Discuss with your doctor</summary>
+        <div id="doctorListBox"></div>
+      </details>
+    </div>
     <div class="card" data-setting="byok">
       <details>
         <summary>Your own AI key</summary>
@@ -2219,6 +2249,13 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <button type="button" class="sheetx" onclick="closeStackSupport()" aria-label="Close">&times;</button>
     </div>
     <div class="wrap"><div id="supportBody"></div></div>
+  </div>
+  <div data-overlay="panel" id="doctorPrint" class="panel suppanel" style="display:none" role="dialog" aria-modal="true" aria-label="Discuss with your doctor, printable page">
+    <div class="sheethead dlnoprint">
+      <div class="modes"><button type="button" class="btn" onclick="window.print()">Print</button></div>
+      <button type="button" class="sheetx" onclick="doctorPrintClose()" aria-label="Close">&times;</button>
+    </div>
+    <div class="wrap"><div id="doctorPrintBody"></div></div>
   </div>
   <div data-overlay="modal" id="captureOutcome" class="omodal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="outcomeTitle">
     <div class="sheethead">

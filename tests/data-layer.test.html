@@ -977,6 +977,51 @@ window.setLS({});
   res(r274w.length === 0 && r274gen.kids && r274gen.kids[203].join(',') === '501,504,503,510,506,507,509,511,516' && r274gen.slots.indexOf(454) >= 0
       && HT.panelSlotLabel(454) === 'Betaine' && HT.panelSlotUnit(454) === 'mg' && HT.FDC_SLOTS.indexOf(454) >= 0,
       'R327/4, R327/5: NINE AMINO ACIDS (g) are shipped and shown under Protein, a part of its whole; betaine (mg) in General', JSON.stringify(r274w));
+  // R314.1: the doctor list -- gathered facts with sources, kept, never advice
+  (function () {
+    var set0 = HT.state().settings, tl0 = HT.state().timeline, days0 = HT.state().days;
+    var ns = HT.normalizeSettings({ doctorList: { seen: {
+      'limit:zinc_mg': { kind: 'limit', first: '2026-11-01', last: '2026-11-02', text: 'A', source: 'S', discussed: { date: '2026-11-02', answer: 'Placeholder answer' } },
+      'bad key': { kind: 'limit', first: '2026-11-01', last: '2026-11-01' }, 'own:x': { kind: 'nope', first: '2026-11-01', last: '2026-11-01' },
+      'reading:bp-above': { kind: 'reading', first: '2026-11-01', last: 'x' } }, own: [{ id: 'o-1', text: 'Mine', added: '2026-11-01' }, { id: 'BAD', text: 'x', added: '2026-11-01' }] } });
+    res(ns.doctorList && Object.keys(ns.doctorList.seen).join(',') === 'limit:zinc_mg' && ns.doctorList.seen['limit:zinc_mg'].discussed.answer === 'Placeholder answer'
+        && ns.doctorList.own.length === 1 && !('doctorList' in HT.normalizeSettings({})) && JSON.stringify(HT.normalizeSettings(JSON.parse(JSON.stringify(ns))).doctorList) === JSON.stringify(ns.doctorList),
+        'R314.1: THE SETTINGS BOUNDARY keeps a valid item with its "discussed" date and answer and a valid own item, drops a bad key, an unknown kind or an undated one; absent when unused; a round trip keeps it', JSON.stringify(ns.doctorList));
+    HT.state().settings = HT.normalizeSettings({}); HT.state().days = {}; HT.state().timeline = {};
+    var td = HT.todayKey();
+    // a stack dose above zinc's cited upper level today, and three BP readings above the lines
+    HT.state().timeline[td] = [{ type: 'dose', kind: 'medication', name: 'Gate item', time: '08:00', source: 'stack', micros: { zinc_mg: 50 } },
+      { type: 'bp_systolic', time: '07:00', value: 142, source: 'manual' }, { type: 'bp_diastolic', time: '07:00', value: 88, source: 'manual' },
+      { type: 'bp_systolic', time: '19:00', value: 128, source: 'manual' }, { type: 'bp_diastolic', time: '19:00', value: 80, source: 'manual' }];
+    HT.resave();
+    var g = HT.doctorGather();
+    var lim = g.filter(function (x) { return x.key === 'limit:zinc_mg'; })[0], bp = g.filter(function (x) { return x.key === 'reading:bp-above'; })[0];
+    var own = HT.doctorAddOwn('Placeholder own item');
+    var o1 = HT.doctorOpen();
+    var S1 = HT.doctorSections();
+    res(lim && /^Zinc: above the Institute of Medicine.*stated upper intake level of 40 mg \(total intake\) on 1 of the last 28 days; the highest 50 mg\./.test(lim.text) && !!lim.source
+        && bp && /^Blood pressure: 1 of 2 readings in the last 28 days above 135\/85 mmHg, the highest 142\/88\./.test(bp.text) && /mean of a series/.test(bp.source)
+        && own.ok && S1.live.indexOf('limit:zinc_mg') >= 0 && S1.live.indexOf('reading:bp-above') >= 0 && S1.live.indexOf(own.key) >= 0,
+        'R314.1: GATHERED -- an intake above a cited upper level (days, highest amount, the level and its scope, the source) and BP readings above the reference lines (n of m, the highest, the lines\' own caveat); an own item joins the list', JSON.stringify(g));
+    var advice = /\b(should|must|recommend\w*|avoid|stop|start|consider)\b/i;
+    res(!advice.test(HT.doctorPlainText()) && !advice.test((function () { var d = document.createElement('div'); d.innerHTML = HT.doctorListHTML(); return d.textContent.replace(/Mark discussed|Remove|Share|Printable page|\+ Add your own item/g, ''); })()),
+        'R314.1: NO ADVICE WORDING -- no should, must, recommend, avoid, stop, start or consider in the list or its plain page');
+    // the BP readings end (a later week): the item moves to "no longer applies", kept with its last date
+    HT.state().timeline[td] = HT.state().timeline[td].filter(function (r) { return !/^bp_/.test(r.type); }); HT.resave();
+    HT.doctorOpen();
+    var S2 = HT.doctorSections();
+    var rm = HT.doctorRemove('limit:zinc_mg'), S3 = HT.doctorSections();
+    var rs = HT.doctorRestore('limit:zinc_mg'), S4 = HT.doctorSections();
+    var dd = HT.doctorDiscussed(own.key, td, 'Placeholder answer'), bad = HT.doctorDiscussed(own.key, HT.shiftDate(td, 1), 'x');
+    var txt = HT.doctorPlainText();
+    res(S2.gone.indexOf('reading:bp-above') >= 0 && S2.live.indexOf('reading:bp-above') < 0 && rm.ok && S3.removed.indexOf('limit:zinc_mg') >= 0 && S3.live.indexOf('limit:zinc_mg') < 0
+        && !isNaN(Date.parse(S3.seen['limit:zinc_mg'].removed || 'x'))
+        && rs.ok && S4.live.indexOf('limit:zinc_mg') >= 0 && dd.ok && bad.ok === false
+        && HT.state().settings.doctorList.seen[own.key].discussed.answer === 'Placeholder answer'
+        && /Above a cited upper level\n- Zinc:/.test(txt) && /Your own\n- Placeholder own item/.test(txt) && /Discussed\n- Placeholder own item .*: Placeholder answer/.test(txt) && !/Blood pressure/.test(txt.split('Discussed')[0]),
+        'R314.1: KEPT, NEVER DELETED -- an item no longer gathered moves to "No longer applies"; a removal is recorded and restorable; "discussed" takes a date (never a future one) and the answer; the plain page lists the current items by kind with sources, then the discussed ones', txt);
+    HT.state().settings = set0; HT.state().timeline = tl0; HT.state().days = days0; HT.resave();
+  })();
   // R328/1b: rise then dip, on R328/2's registered definitions -- each threshold on both sides
   (function () {
     var days0 = HT.state().days, tl0 = HT.state().timeline;

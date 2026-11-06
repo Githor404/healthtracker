@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.135.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.136.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -1443,7 +1443,34 @@ function normalizeSettings(s) {
      s.waistUnit === 'cm' ? { waistUnit: 'cm' } : {},
      (Number(s.height_cm) >= 50 && Number(s.height_cm) <= 260) ? { height_cm: Math.round(Number(s.height_cm) * 100) / 100 } : {},
      // R328/1a: the user's own health-history notes. Present only once one exists.
-     (function () { const h = normalizeHealthHistory(s.healthHistory); return h.length ? { healthHistory: h } : {}; })());
+     (function () { const h = normalizeHealthHistory(s.healthHistory); return h.length ? { healthHistory: h } : {}; })(),
+     // R314.1: the doctor list's kept record and the user's own items. Present only once used.
+     (function () { const d = normalizeDoctorList(s.doctorList); return d ? { doctorList: d } : {}; })());
+}
+// R314.1: "DISCUSS WITH YOUR DOCTOR". seen: { key: { kind, first, last, text, source, removed?, discussed? } },
+// own: [{ id, text, added }]. Gathered items are facts with their sources, never advice.
+const DL_KINDS = ['limit', 'negative', 'safety', 'interaction', 'test', 'reading', 'pc', 'own'];
+const DL_TEXT_MAX = 600, DL_ANSWER_MAX = 1000, DL_OWN_MAX = 50;
+function normalizeDoctorList(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const seen = {}, own = [];
+  const src = (o.seen && typeof o.seen === 'object' && !Array.isArray(o.seen)) ? o.seen : {};
+  Object.keys(src).slice(0, 500).forEach(function (k) {
+    const e = src[k];
+    if (!/^[a-z]+:[^\s]{1,200}$/.test(k) || !e || typeof e !== 'object' || DL_KINDS.indexOf(e.kind) < 0 || !isDayKey(e.first) || !isDayKey(e.last)) return;
+    const x = { kind: e.kind, first: e.first, last: e.last, text: String(e.text == null ? '' : e.text).slice(0, DL_TEXT_MAX), source: String(e.source == null ? '' : e.source).slice(0, DL_TEXT_MAX) };
+    if (typeof e.removed === 'string' && !isNaN(Date.parse(e.removed))) x.removed = e.removed;
+    if (e.discussed && typeof e.discussed === 'object' && isDayKey(e.discussed.date))
+      x.discussed = { date: e.discussed.date, answer: String(e.discussed.answer == null ? '' : e.discussed.answer).slice(0, DL_ANSWER_MAX) };
+    seen[k] = x;
+  });
+  (Array.isArray(o.own) ? o.own : []).forEach(function (n) {
+    if (!n || typeof n !== 'object' || own.length >= DL_OWN_MAX) return;
+    const t = String(n.text == null ? '' : n.text).trim().slice(0, DL_TEXT_MAX);
+    if (!t || !isDayKey(n.added) || !/^[a-z0-9-]{1,40}$/.test(String(n.id || ''))) return;
+    own.push({ id: String(n.id), text: t, added: n.added });
+  });
+  return (Object.keys(seen).length || own.length) ? { seen: seen, own: own } : null;
 }
 // R328/1a: HEALTH HISTORY -- the user's own notes, on this phone and in the backup. A note may
 // mark nutrients whose absorption may differ, and low stomach acid; each mark is a FLAG beside
@@ -1547,6 +1574,253 @@ function healthHistoryHTML() {
 function renderHealthHistory() {
   const el = document.getElementById('healthHistoryBox');
   if (el) el.innerHTML = healthHistoryHTML();
+}
+
+// ---- R314.1: DISCUSS WITH YOUR DOCTOR --------------------------------------------------------
+const DL_DAYS = 28;
+const DL_HEAD = { limit: 'Above a cited upper level', negative: 'Claims marked against you, from your stack', safety: 'Safety, from your stack',
+                  interaction: 'Interactions, from your stack', test: 'Tests named by those claims', reading: 'Readings', pc: 'From your computer', own: 'Your own' };
+const DL_LOW_SOURCE = 'International Hypoglycaemia Study Group, Diabetes Care 2017;40:155-157 (level 1 below 3.9 mmol/L, level 2 below 3.0)';
+const DL_BP_SOURCE = 'Hypertension Canada 2020, home readings 135/85 mmHg (the lines on your BP chart); that threshold is for the mean of a series of readings';
+function doctorListState() {
+  const d = APP_STATE.settings && APP_STATE.settings.doctorList;
+  return { seen: (d && d.seen) || {}, own: (d && d.own) || [] };
+}
+function dlStackOn() {
+  return ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(function (x) { return x && x.enabled !== false && !x.removed_on; });
+}
+function dlClaimWords(P, c, pv) {
+  const ev = c.evidence || {}, src = claimSourceWords(P, c);
+  return { meta: (pv ? Math.round(100 * pv.p) + ' % ' + pv.of : 'no probability') + (ev.grade ? ' · GRADE ' + ev.grade : '') + (ev.human === false ? ' · animal and cell work, not people' : ''), src: src };
+}
+// What applies now: [{ key, kind, text, source }]. Read on opening the list; writes nothing.
+function doctorGather() {
+  const out = [], P = packLoad(), today = todayKey();
+  // 1. above a cited upper level, on any of the last 28 days
+  const lim = {};
+  for (let i = 0; i < DL_DAYS; i++) dayIntakeFlags(shiftDate(today, -i)).forEach(function (f) {
+    const e = lim[f.key] || (lim[f.key] = { n: 0, max: 0, f: f });
+    e.n++; if (f.amount > e.max) { e.max = f.amount; e.f = f; }
+  });
+  Object.keys(lim).forEach(function (k) {
+    const e = lim[k], f = e.f, u = f.unit === 'ug' ? 'µg' : f.unit, label = (MICRO_LABEL[k] && MICRO_LABEL[k].label) || k;
+    const labS = f.lab && LAB_BY_TYPE[f.lab] ? ' The limit names a lab reading: ' + LAB_BY_TYPE[f.lab].label + '.' : '';
+    out.push({ key: 'limit:' + k, kind: 'limit',
+      text: label + ': above ' + (/^(Institute|National|World)\b/.test(String(f.org)) ? 'the ' : '') + f.org + '’s stated upper intake level of ' + rDisp(f.value) + ' ' + u
+        + (f.scope === 'supplemental' ? ' (from supplements)' : ' (total intake)') + ' on ' + e.n + ' of the last ' + DL_DAYS + ' days; the highest ' + rDisp(e.max) + ' ' + u + '.' + labS,
+      source: String(f.cite || '') });
+  });
+  // 2-5. claims, safety, interactions and their tests, for each stack item switched on
+  const tests = {};
+  const addTests = function (c, from, itemName) {
+    (Array.isArray(c.tests) ? c.tests : []).forEach(function (t) {
+      if (!t || !String(t.name || '').trim() || !/^\d{4}-\d{2}-\d{2}/.test(String(t.reviewed_by_me || ''))) return;
+      const k = 'test:' + String(t.name).trim().toLowerCase().replace(/\s+/g, '-');
+      if (!tests[k]) tests[k] = { key: k, kind: 'test', text: String(t.name).trim() + (t.why ? ': ' + String(t.why) : '') + ' (named with ' + itemName + ': ' + from + ')', source: claimSourceWords(P, c) };
+    });
+  };
+  if (P) dlStackOn().forEach(function (st) {
+    influenceNegatives(st, true).forEach(function (m) {
+      const c = m.c, w = dlClaimWords(P, c, m.p);
+      out.push({ key: 'negative:' + c.id + ':' + st.id, kind: 'negative', text: st.name + ': ' + (m.kind === 'interaction' ? interactionSentence(c) : c.claim) + ' — ' + w.meta + '.', source: w.src });
+      addTests(c, forMe(c).short || c.id, st.name);
+    });
+    stackClaims(st).filter(function (c) { return c.safety; }).forEach(function (c) {
+      const w = dlClaimWords(P, c, latestP(c));
+      out.push({ key: 'safety:' + c.id + ':' + st.id, kind: 'safety', text: st.name + ': ' + c.claim + ' — ' + w.meta + '.', source: w.src });
+      addTests(c, c.id, st.name);
+    });
+    stackInteractions(st).forEach(function (c) {
+      const w = dlClaimWords(P, c, latestP(c));
+      out.push({ key: 'interaction:' + c.id + ':' + st.id, kind: 'interaction', text: st.name + ': ' + interactionSentence(c) + ' — ' + w.meta + '.', source: w.src });
+      addTests(c, c.id, st.name);
+    });
+  });
+  Object.keys(tests).forEach(function (k) { out.push(tests[k]); });
+  // 6. readings: the night-low flag as it states itself; BP above the user's reference lines
+  const lf = lowFlagState();
+  if (lf.flagged) out.push({ key: 'reading:glucose-low', kind: 'reading', text: 'Glucose: ' + lf.why + '.', source: DL_LOW_SOURCE });
+  const bp = bpReadings(DL_DAYS).points;
+  const over = bp.filter(function (x) { return (x.sys != null && x.sys > BP_REF.sys) || (x.dia != null && x.dia > BP_REF.dia); });
+  if (over.length) out.push({ key: 'reading:bp-above', kind: 'reading', source: DL_BP_SOURCE,
+    text: 'Blood pressure: ' + over.length + ' of ' + bp.length + ' readings in the last ' + DL_DAYS + ' days above ' + BP_REF.sys + '/' + BP_REF.dia + ' mmHg, the highest '
+      + over.map(function (x) { return (x.sys != null ? x.sys : '-') + '/' + (x.dia != null ? x.dia : '-'); }).sort(function (a, b) { return parseFloat(b) - parseFloat(a); })[0] + '.' });
+  // 7. prepared on the user's computer, carried by the private pack
+  ((P && Array.isArray(P.doctor_list)) ? P.doctor_list : []).forEach(function (x) {
+    if (x && /^[a-z0-9-]{1,60}$/.test(String(x.id || '')) && String(x.text || '').trim())
+      out.push({ key: 'pc:' + x.id, kind: 'pc', text: String(x.text).trim(), source: String(x.source || 'your notes on your computer') });
+  });
+  // 8. the user's own
+  doctorListState().own.forEach(function (n) { out.push({ key: 'own:' + n.id, kind: 'own', text: n.text, source: 'added by you ' + fmtDateSmart(n.added) }); });
+  return out;
+}
+// The kept record: first and last gathered, last words. Written when the list is opened (a tap).
+function doctorSync() {
+  const cur = doctorGather(), st = doctorListState(), today = todayKey();
+  const seen = Object.assign({}, st.seen);
+  let changed = false;
+  cur.forEach(function (x) {
+    const e = seen[x.key];
+    if (!e) { seen[x.key] = { kind: x.kind, first: today, last: today, text: x.text, source: x.source }; changed = true; }
+    else if (e.last !== today || e.text !== x.text || e.source !== x.source) { seen[x.key] = Object.assign({}, e, { last: today, text: x.text, source: x.source }); changed = true; }
+  });
+  if (changed) dlWrite(seen, st.own);
+  return { current: cur.map(function (x) { return x.key; }), n: cur.length };
+}
+function dlWrite(seen, own) {
+  const d = normalizeDoctorList({ seen: seen, own: own });
+  if (d) APP_STATE.settings.doctorList = d; else delete APP_STATE.settings.doctorList;
+  Store.saveState(APP_STATE);
+}
+let DL_CUR = null, DL_FORM = null;   // DL_FORM: { discuss: key } or { own: true }
+function doctorOpen() { DL_CUR = doctorSync().current; DL_FORM = null; renderDoctorList(); return { ok: true, n: DL_CUR.length }; }
+function doctorRemove(key) {
+  const st = doctorListState(), e = st.seen[key];
+  if (!e) return { ok: false };
+  const seen = Object.assign({}, st.seen); seen[key] = Object.assign({}, e, { removed: new Date(nowMs()).toISOString() });
+  dlWrite(seen, st.own); renderDoctorList(); return { ok: true };
+}
+function doctorRestore(key) {
+  const st = doctorListState(), e = st.seen[key];
+  if (!e) return { ok: false };
+  const seen = Object.assign({}, st.seen), x = Object.assign({}, e); delete x.removed; seen[key] = x;
+  dlWrite(seen, st.own); renderDoctorList(); return { ok: true };
+}
+function doctorDiscussed(key, date, answer) {
+  const st = doctorListState(), e = st.seen[key];
+  if (!e) return { ok: false, error: 'No such item.' };
+  if (!isDayKey(date) || date > todayKey()) return { ok: false, error: 'Give the day it was discussed (not a future one).' };
+  const seen = Object.assign({}, st.seen); seen[key] = Object.assign({}, e, { discussed: { date: date, answer: String(answer == null ? '' : answer).trim().slice(0, DL_ANSWER_MAX) } });
+  dlWrite(seen, st.own); DL_FORM = null; renderDoctorList(); return { ok: true };
+}
+function doctorAddOwn(text) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return { ok: false, error: 'Write the item first.' };
+  const st = doctorListState();
+  if (st.own.length >= DL_OWN_MAX) return { ok: false, error: 'At most ' + DL_OWN_MAX + ' items of your own.' };
+  const id = 'o-' + nowMs().toString(36), today = todayKey();
+  const own = st.own.concat([{ id: id, text: t.slice(0, DL_TEXT_MAX), added: today }]);
+  const seen = Object.assign({}, st.seen); seen['own:' + id] = { kind: 'own', first: today, last: today, text: t.slice(0, DL_TEXT_MAX), source: 'added by you ' + fmtDateSmart(today) };
+  dlWrite(seen, own); DL_CUR = (DL_CUR || []).concat(['own:' + id]); DL_FORM = null; renderDoctorList(); return { ok: true, key: 'own:' + id };
+}
+function dlFormOpen(f) { DL_FORM = f; renderDoctorList(); }
+function dlFormSaveDiscussed(key) {
+  const d = document.getElementById('dlDate'), a = document.getElementById('dlAnswer');
+  const r = doctorDiscussed(key, d ? d.value : '', a ? a.value : '');
+  if (!r.ok) { const m = document.getElementById('dlMsg'); if (m) m.textContent = r.error; }
+  return r;
+}
+function dlFormSaveOwn() {
+  const t = document.getElementById('dlOwnText');
+  const r = doctorAddOwn(t ? t.value : '');
+  if (!r.ok) { const m = document.getElementById('dlMsg'); if (m) m.textContent = r.error; }
+  return r;
+}
+// The three sections: current (by kind), no longer applies, removed.
+function doctorSections() {
+  const st = doctorListState(), cur = DL_CUR || [];
+  const keys = Object.keys(st.seen);
+  const live = keys.filter(function (k) { return cur.indexOf(k) >= 0 && !st.seen[k].removed; });
+  const gone = keys.filter(function (k) { return cur.indexOf(k) < 0 && !st.seen[k].removed; });
+  const removed = keys.filter(function (k) { return !!st.seen[k].removed; });
+  return { seen: st.seen, live: live, gone: gone, removed: removed };
+}
+function dlItemHTML(k, e, mode) {
+  let h = '<div class="dlitem" data-dl="' + esc(k) + '"><div class="dltext">' + esc(e.text) + '</div>'
+    + (e.source ? '<div class="note">Source: ' + esc(e.source) + '</div>' : '')
+    + '<div class="note">' + esc(mode === 'gone' ? 'No longer applies since ' + fmtDateSmart(e.last) : 'On your list since ' + fmtDateSmart(e.first)) + '</div>';
+  if (e.discussed) h += '<div class="dlans">Discussed ' + esc(fmtDateSmart(e.discussed.date)) + (e.discussed.answer ? ': ' + esc(e.discussed.answer) : '') + '</div>';
+  if (DL_FORM && DL_FORM.discuss === k) {
+    h += '<div class="dlform"><label for="dlDate">Discussed on</label><input type="date" id="dlDate" max="' + esc(todayKey()) + '" value="' + esc((e.discussed && e.discussed.date) || todayKey()) + '">'
+      + '<label for="dlAnswer">The doctor’s answer</label><textarea id="dlAnswer" maxlength="' + DL_ANSWER_MAX + '">' + esc((e.discussed && e.discussed.answer) || '') + '</textarea>'
+      + '<div class="rerow"><button type="button" class="btn primary dlsave" onclick="dlFormSaveDiscussed(\'' + esc(k) + '\')">Save</button><button type="button" class="btn" onclick="dlFormOpen(null)">Cancel</button></div><div class="warn" id="dlMsg"></div></div>';
+  } else if (mode === 'removed') {
+    h += '<div class="rerow"><button type="button" class="btn dlrestore" onclick="doctorRestore(\'' + esc(k) + '\')">Restore</button></div>';
+  } else if (!DL_FORM) {
+    h += '<div class="rerow"><button type="button" class="btn dldisc" onclick="dlFormOpen({ discuss: \'' + esc(k) + '\' })">' + (e.discussed ? 'Edit discussed' : 'Mark discussed') + '</button>'
+      + '<button type="button" class="btn dlrm" onclick="doctorRemove(\'' + esc(k) + '\')">Remove</button></div>';
+  }
+  return h + '</div>';
+}
+function doctorListHTML() {
+  const S = doctorSections();
+  let h = '<div class="note">Facts from your log, your stack and your pathway pack, each with its source, to take to an appointment. Nothing here is advice, and nothing is sent anywhere unless you share or print it.</div>';
+  if (!S.live.length) h += '<div class="note dlnone">Nothing on your list right now.</div>';
+  DL_KINDS.forEach(function (kind) {
+    const ks = S.live.filter(function (k) { return S.seen[k].kind === kind; });
+    if (!ks.length) return;
+    h += '<div class="dlgrp"><h3 class="dlhead">' + esc(DL_HEAD[kind]) + '</h3>' + ks.map(function (k) { return dlItemHTML(k, S.seen[k], 'live'); }).join('') + '</div>';
+  });
+  if (DL_FORM && DL_FORM.own) {
+    h += '<div class="dlform"><label for="dlOwnText">Your item</label><textarea id="dlOwnText" maxlength="' + DL_TEXT_MAX + '"></textarea>'
+      + '<div class="rerow"><button type="button" class="btn primary dlownsave" onclick="dlFormSaveOwn()">Add to the list</button><button type="button" class="btn" onclick="dlFormOpen(null)">Cancel</button></div><div class="warn" id="dlMsg"></div></div>';
+  } else if (!DL_FORM) {
+    h += '<div class="rerow"><button type="button" class="btn dladd" onclick="dlFormOpen({ own: true })">+ Add your own item</button></div>'
+      + '<div class="rerow"><button type="button" class="btn dlshare" onclick="doctorShare()">Share</button><button type="button" class="btn dlprint" onclick="doctorPrintOpen()">Printable page</button></div><div class="note" id="dlShareMsg"></div>';
+  }
+  if (S.gone.length) h += '<details class="dlgone"><summary>No longer applies · ' + S.gone.length + '</summary>' + S.gone.map(function (k) { return dlItemHTML(k, S.seen[k], 'gone'); }).join('') + '</details>';
+  if (S.removed.length) h += '<details class="dlremoved"><summary>Removed · ' + S.removed.length + '</summary>' + S.removed.map(function (k) { return dlItemHTML(k, S.seen[k], 'removed'); }).join('') + '</details>';
+  return h;
+}
+function renderDoctorList() {
+  const el = document.getElementById('doctorListBox');
+  if (el && DL_CUR) el.innerHTML = doctorListHTML();
+}
+function doctorToggle(d) { if (d && d.open) doctorOpen(); }
+// One plain page: the current items by kind with their sources, then what was discussed.
+function doctorPlainText() {
+  const S = doctorSections(), L = ['Discuss with your doctor — ' + fmtDateSmart(todayKey()), ''];
+  DL_KINDS.forEach(function (kind) {
+    const ks = S.live.filter(function (k) { return S.seen[k].kind === kind; });
+    if (!ks.length) return;
+    L.push(DL_HEAD[kind]);
+    ks.forEach(function (k) { const e = S.seen[k]; L.push('- ' + e.text + (e.source ? ' [Source: ' + e.source + ']' : '')); });
+    L.push('');
+  });
+  const disc = S.live.concat(S.gone).filter(function (k) { return S.seen[k].discussed; });
+  if (disc.length) {
+    L.push('Discussed');
+    disc.forEach(function (k) { const e = S.seen[k]; L.push('- ' + e.text + ' — ' + fmtDateSmart(e.discussed.date) + (e.discussed.answer ? ': ' + e.discussed.answer : '')); });
+    L.push('');
+  }
+  L.push('From HealthTracker, made on this phone. Facts from the log with their sources; not advice.');
+  return L.join('\n');
+}
+function doctorShare() {
+  if (!DL_CUR) doctorOpen();
+  const text = doctorPlainText(), m = document.getElementById('dlShareMsg');
+  if (navigator.share) {
+    return navigator.share({ title: 'Discuss with your doctor', text: text }).then(function () { return { ok: true, shared: true }; },
+      function () { return { ok: false, closed: true }; });
+  }
+  if (m) m.textContent = 'This browser has no share sheet. Use the printable page, or select the text there.';
+  return Promise.resolve({ ok: false, noShare: true });
+}
+function doctorPrintOpen() {
+  if (!DL_CUR) doctorOpen();
+  const p = document.getElementById('doctorPrint'), b = document.getElementById('doctorPrintBody');
+  if (b) b.innerHTML = doctorPrintHTML();
+  if (p) { p.style.display = 'flex'; const w = p.querySelector('.wrap'); if (w) w.scrollTop = 0; }
+  overlaySync();
+  return { ok: !!p };
+}
+function doctorPrintClose() {
+  const p = document.getElementById('doctorPrint');
+  if (p) p.style.display = 'none';
+  overlaySync();
+  return { ok: true };
+}
+function doctorPrintHTML() {
+  const S = doctorSections();
+  let h = '<div class="dlpage"><h2>Discuss with your doctor</h2><div class="dlpdate">' + esc(fmtDateSmart(todayKey())) + '</div>';
+  DL_KINDS.forEach(function (kind) {
+    const ks = S.live.filter(function (k) { return S.seen[k].kind === kind; });
+    if (!ks.length) return;
+    h += '<h3>' + esc(DL_HEAD[kind]) + '</h3><ul>' + ks.map(function (k) { const e = S.seen[k]; return '<li>' + esc(e.text) + (e.source ? '<div class="dlpsrc">Source: ' + esc(e.source) + '</div>' : '') + '</li>'; }).join('') + '</ul>';
+  });
+  const disc = S.live.concat(S.gone).filter(function (k) { return S.seen[k].discussed; });
+  if (disc.length) h += '<h3>Discussed</h3><ul>' + disc.map(function (k) { const e = S.seen[k]; return '<li>' + esc(e.text) + '<div class="dlpsrc">' + esc(fmtDateSmart(e.discussed.date) + (e.discussed.answer ? ': ' + e.discussed.answer : '')) + '</div></li>'; }).join('') + '</ul>';
+  return h + '<div class="dlpfoot">From HealthTracker, made on this phone. Facts from the log with their sources; not advice.</div></div>';
 }
 // R309: { key: { low, high?, unit } }. A value that is not a finite number drops the
 // goal; a high below its low drops the high. Keys are the graph's own.
@@ -19648,6 +19922,7 @@ const VERSION_LOG = [
   { v: '0.133.0', d: '2026-11-05', note: 'Iodine: a scanned label or the label form can give it, and a supplement from Health Canada’s database counts it; Micronutrients shows it under Minerals, with Health Canada’s RDA from your pathway pack. The food databases have no iodine figures, so the row will usually say partial. With your updated pack, Micronutrients also shows polyphenols for foods your reviewed name rules match, marked provisional.' },
   { v: '0.134.0', d: '2026-11-05', note: 'Settings has a Health history section for your own notes. A note can mark nutrients whose absorption may differ for you, and low stomach acid; each mark shows as a note beside that nutrient in Micronutrients, or beside Fermented on a food. Your notes stay on this phone and in your backup, and change no number.' },
   { v: '0.135.0', d: '2026-11-05', note: 'A meal with 30 g of net carbs or more now says, in its review, how much glucose rose in the first hour and whether it then went below its starting level for 15 minutes or more within 3 hours. The weekly review counts how many such meals did. Readings during a logged sleep are left out of a dip.' },
+  { v: '0.136.0', d: '2026-11-05', note: 'Settings has “Discuss with your doctor”: facts gathered from your log, your stack and your pathway pack, each with its source -- an intake above a cited upper level, claims and interactions for your stack items, glucose lows, blood pressure above your reference lines -- and items of your own. Mark one discussed with the date and the doctor’s answer; an item that stops applying moves to its own section, never deleted. Share it or print it as one plain page; nothing leaves the phone unless you do.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -29531,7 +29806,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, spikeDip, spikeDipCompute, spikeDipLineHTML, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

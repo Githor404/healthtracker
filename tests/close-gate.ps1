@@ -289,6 +289,11 @@ try {
   $n4b = MeasureOn 'How this supports your pathways (R313)'
   [void](Eval "(function(){ HT.closeStackSupport(); var S = HT.state(); S.settings.stack = S.settings.stack.filter(function (x) { return x.id !== 'gatestk'; }); return 1; })()"); Settle
 
+  # R314.1: the doctor list's printable page
+  [void](Eval "(function(){ HT.doctorPrintOpen(); return 1; })()"); Settle
+  $n4c = MeasureOn 'Discuss with your doctor, printable page (R314.1)'
+  [void](Eval "HT.doctorPrintClose()"); Settle
+
   [void](Eval "HT.byokBusy('error', 'Gate: the provider did not answer')"); Settle
   $n5 = MeasureOn 'Capture outcome (failure)'
   Shot 'outcome'
