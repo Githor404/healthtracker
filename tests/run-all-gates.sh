@@ -391,7 +391,22 @@ PACED=0
 RUN_PARENT=$PPID
 if [ -n "$ONLY_GATES" ]; then GATES=$(for x in $ONLY_GATES; do echo "$DIR/$x"; done)
 else GATES=$(ls "$DIR"/*-gate.ps1); fi
+# R330: THE SERIAL TAIL. A gate that MEASURES TIME against a calibration workload
+# reads the machine's load when other gates run beside it: strip-gate's redraw cost
+# read 3.04 (budget 3.0) in a full run and 2.64-2.80 alone on the same build. Such a
+# gate is held out of the workers and launched after every other gate has finished,
+# one at a time, with nothing else running. Its budget is unchanged; the count and
+# the report order are unchanged.
+ALONE_GATES=${ALONE_GATES:-"strip-gate.ps1"}
+is_alone() { case " $ALONE_GATES " in *" $(basename "$1") "*) return 0;; esac; return 1; }
+PAR_GATES=""; TAIL_GATES=""
 for g in $GATES; do
+  if is_alone "$g"; then TAIL_GATES="$TAIL_GATES $g"; else PAR_GATES="$PAR_GATES $g"; fi
+done
+[ -n "$TAIL_GATES" ] && echo "  serial tail (R330): $(for g in $TAIL_GATES; do basename "$g"; done | tr '\n' ' ')-- run alone after the others"
+launch_all() {   # launch_all <workers> <gate paths...>
+  local W=$1; shift
+for g in "$@"; do
   name=$(basename "$g")
   N_CDP=$((N_CDP + 1))
   if ! kill -0 "$RUN_PARENT" 2>/dev/null; then
@@ -401,7 +416,7 @@ for g in $GATES; do
     exit 3
   fi
   # a free worker
-  while [ "$(jobs -rp | wc -l)" -ge "$WORKERS" ]; do sleep 1; done
+  while [ "$(jobs -rp | wc -l)" -ge "$W" ]; do sleep 1; done
   # the memory pace: never launch into less than the headroom while others run
   while [ "$(jobs -rp | wc -l)" -gt 0 ]; do
     f=$(free_mb)
@@ -422,6 +437,9 @@ for g in $GATES; do
     echo $? > "$GTMP/$name.rc" ) &
 done
 wait
+}
+launch_all "$WORKERS" $PAR_GATES
+[ -n "$TAIL_GATES" ] && launch_all 1 $TAIL_GATES
 [ "$PACED" -gt 0 ] && echo "  pacing: waited for memory $PACED time(s) (3 s each) before a launch"
 for g in $GATES; do
   name=$(basename "$g")
