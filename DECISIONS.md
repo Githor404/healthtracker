@@ -22455,3 +22455,54 @@ once per moment and every answer equals the unmemoised one (+1, 3494). **strip-g
 1.34, 1.38, 1.36 alone (was 2.45-2.6; 1.96 at v0.114.1).** Budget unchanged at 3.0; lowering it
 is the user's decision. Pre-run: static checks, harness, every gate alone (72 of 72); one full run
 84 of 84.
+
+## R331.1 -- PRE-REGISTERED (2026-11-07; parts 1, 2, 5 to be v0.138.0, after R319; parts 3, 4 report first): the wheel's dots mean something the user did, with a balance (*evaluate*)
+**The user's direction (7 Nov; replaces R331):** the wheel shows a direction based on the science,
+reinforced -- or contradicted -- by the user's biometrics and blood panels.
+**Part 1 -- a dot is something logged (replaces R318/1's "has a linked claim" dot).** A dot is drawn
+on a pathway's segment only when something the user LOGGED in that pathway's window -- a food item
+eaten, or a stack tick -- matches an approved claim filed under that pathway, matched by the R318/2
+rule (the claims' whole-word terms against the food's name or the stack item's name and licensed
+ingredients; the food feature alcohol). "Approved" means a `for_me` direction of positive or
+negative the user approved by id; a neutral direction draws no dot; a claim with no approved
+direction draws nothing. Interactions are not filed under pathways and draw no dot. A pathway with
+claims but nothing logged that matches has no dot. The R318/2 amber notch is unchanged.
+**The window, until part 4 is chosen:** the wheel's own 28 days (PW_KNOWN_DAYS, R318/1), for every
+pathway, said beside the balance ("last 28 days"). Part 4's tiers replace it only once the user
+chooses.
+**Part 2 -- the balance.** Per pathway, over its window: each matching logged entry (each food
+item, each stack tick -- so a daily tick counts every day) adds the claim's approved general
+probability (0-1) for a POSITIVE direction and subtracts it for a NEGATIVE one; one entry matching
+two claims counts each. The dot's colour is the net direction: **green** for a positive net, the
+**R318 muted amber** for a negative one, the muted neutral for exactly 0 (the user's chosen colours,
+an exception scoped to these dots as R226's gold is to alcohol; never red, no verdict word). Its
+size is one of three fixed sizes by the net's magnitude: under 2, 2 to under 6, 6 or more (so
+three weeks of a daily 30 % negative reach the largest). **Conflict named:** R318/2's threshold
+(30 %) gates the top box's flag; the wheel's balance counts every approved non-neutral claim,
+weighted by its probability, so a 20 % claim adds 0.2 and is not hidden. The user may rule
+otherwise.
+**On tap** (the pathway's panel, R318/1's second tap): the balance with its sign and window, then
+each contributor -- the logged item (name, how many times, last date), the claim's short text, its
+direction, its approved probability and GRADE -- positives and negatives listed apart; and the
+words "from the science, weighted by probability -- not measured in you". No should, no advice.
+**Part 5 -- the known-share sentence.** On the wheel's i: "Known share: the share of the food you
+logged in the last 28 days that carries a figure for this pathway's raw materials. It measures
+coverage, not how well the pathway is supplied."
+**Gates (wheel-gate, extended; placeholder pack and synthetic log only, R204):** a pathway with a
+claim and nothing matching logged draws no dot; a matching food in the window draws one, the same
+food 29 days ago none; a neutral claim draws none; positive -> green, negative -> amber; a daily
+negative stack tick at 30 % steps the dot through the three sizes as days accrue (6, 7 and 20
+ticks); the tap lists the contributors with probability and GRADE, positives and negatives apart;
+no should / must / avoid / recommend; the i carries the known-share sentence; 390 px light and dark
+screenshots read before the suite. Released under the standing pre-run rule.
+**Parts 3 and 4 -- REPORT FIRST, nothing built.** (3) Dot styles by evidence level -- hollow
+(science only), filled (the user's biometrics moved as the claim predicts: n 5, held-out, a
+personal probability, R260), ringed (a blood-panel result), a distinct mark where the user's data
+CONTRADICTS a claim -- with which claims have a measurable proxy today and which never will; and
+connection lines (solid colour only where an approved claim covers the downstream effect, a faint
+dashed tint for a possible ripple, never a measured effect implied). (4) Each pathway assigned a
+fast (hours to days), medium (28 days) or slow (90+ days) tier with a cited physiological basis,
+window lengths proposed, and mock-ups of three concentric rings against one wheel with a switch.
+Both at 390 px, light and dark, with the user's real data (kept in HTPrivate; R204). The user
+chooses. **Cost declared:** until more of the user's own data exists (CGM weeks, Oura, a first
+panel), most dots would be hollow. The strain engine and the honesty layer stay deferred.
