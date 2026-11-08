@@ -22506,3 +22506,44 @@ window lengths proposed, and mock-ups of three concentric rings against one whee
 Both at 390 px, light and dark, with the user's real data (kept in HTPrivate; R204). The user
 chooses. **Cost declared:** until more of the user's own data exists (CGM weeks, Oura, a first
 panel), most dots would be hollow. The strain engine and the honesty layer stay deferred.
+
+## R319 -- PRE-REGISTERED (2026-11-07; to be v0.137.0): the row offer ranked by the user's own calories, cooking words and whole foods (*evaluate*)
+**The case (3 Nov, real use):** "boiled chicken egg 100 g" at 155 cal per 100 g was offered "Egg,
+white, cooked" (48), "Egg, whole, fried" (193) and "Egg, dried, whole" (605).
+**Measured before building (5-7 Nov, Canadian file).** The whole hard-boiled row ("Egg, chicken,
+whole, cooked, boiled in shell, hard-cooked", 141) is not among the 8 rows the matcher hands the
+offer: it is 20th for "boiled chicken egg" and 46th for "boiled egg". So re-ranking the 8 cannot
+fix it; the offer draws from a wider pool. **Past links, newest backup on the PC (31 Oct):** 70
+picks, 13 distinct names counted -- first row 11 of 13, among three 11 of 13. A link overwrites an
+AI item's own calories with the row's (R237), so only 7 of the 15 distinct linked names still carry
+the user's own figure (10 items through the v17 migration's `recomputed.was`, 2 typed); the kcal
+rule can be measured only on those. Re-measured on a newer backup when one reaches the PC.
+**The rule, on the "Link a database row?" offer only** (and on its accuracy figure, which reads the
+same order). Capture, the find-nutrients panel and Search are unchanged (D141).
+1. *Pool:* the matcher's first 60 rows (was 8), then D125's stated-state reorder, as before.
+2. *Words (stable sort; a demoted row keeps its order among the demoted):* a row is DEMOTED when
+   - it is a PART -- a segment "white"/"whites"/"yolk"/"yolks" after its first two, while another
+     pool row with the same first two segments has a "whole" segment -- and the name says none of
+     those words;
+   - it is a different FORM -- dried, dry, dehydrated, powder, powdered, flakes -- the name lacks;
+   - it is prepared differently: the name says a method and the row says only a different one, or
+     raw; or the name says raw and the row a method. **Equivalent:** boiled = hard-boiled =
+     hard-cooked = soft-boiled = boiled in shell; a row saying only "cooked" fits any method; fried
+     = pan-fried = deep-fried = stir-fried. Among the rest, a row saying the name's method (or its
+     equivalent) comes before one saying none.
+3. *The user's own calories per 100 g* (the item's own kcal at its grams; on a past link, the
+   figure stored at the link -- `ref.mine100`, new, additive, kept by normalizeRef -- else the
+   migration's `recomputed.was`, else a typed or scanned item's own; none for a search pick, whose
+   own numbers ARE the row): within each word tier, rows within +-25 % first, then within 2x (or
+   with no calorie figure), then beyond 2x.
+4. *Say so:* a row in the top three that is demoted or beyond 2x says why beside it -- "nothing
+   closer to yours -- 3.9x your calories", "part of the food (white)", "a different form (dried)",
+   "prepared differently (fried)".
+The memory's proposal (D133, the user's own earlier pick of the same name) still leads. Nothing
+counts until a tap.
+**Gates.** link-gate: the boiled-egg case on the shipped Canadian file puts the whole hard-boiled
+row FIRST and no white, yolk, dried or fried row in the three; a food whose only rows are beyond
+2x shows them and says so; a link stores `mine100`, kept through a backup round trip; the existing
+accuracy figures still read from the ranking itself. Harness: the word rules and tiers on synthetic
+rows. First-pick accuracy re-measured on the same backup after, reported beside the before.
+Released under the standing pre-run rule.
