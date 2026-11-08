@@ -22659,3 +22659,47 @@ not say one acts on the other); a coloured line needs a claim that names its fro
 pack field proposed, drafted on the PC. (4) a cited tier for 57 of 76 pathways (41 fast, 10 medium,
 6 slow; 19 with no cited time scale), windows proposed 7 / 28 / 90 days; mock-ups of three rings
 and of one wheel with a switch. Awaiting the user's choices.
+
+## R333 -- PRE-REGISTERED (2026-11-08; to be v0.140.0): the user's choices on R331.1 parts 3 and 4
+Serves *evaluate*. The user's choices, 8 Nov:
+1. **Evidence styles, as mocked.** Every dot, list dot and match marker takes an evidence level:
+   **hollow** (science only -- every mark today), **filled** (the user's own data agrees: n 5 or
+   more AND a held-out check), **ringed** (a blood panel agrees), **contradicts** (the user's data
+   or a panel disagrees: drawn struck through, shown, never hidden). The level comes from a pack
+   field on a claim, `measured_in_me` ({result: agrees | disagrees, by: own data | blood panel, n,
+   held_out, test, date, p?, reviewed_by_me}), worked out on the PC and carried only once the user
+   approved it by id; the phone checks the date again and refuses "own data" under n 5 or without
+   a held-out check (it then reads as science only). No claim carries one yet, so every mark stays
+   hollow. **Ruled here (the brief does not say), named:** a dot made of several matches shows
+   contradicts if any contributing claim is contradicted; else hollow if any is science only; else
+   ringed if every one is panel-agreed; else filled. The net (the dot's colour and size) is still
+   the general probabilities' sum; the level changes the style only. A match row says its level in
+   words ("science only: no measure of you yet"); a calculated probability, when carried, is
+   labelled "calculated" (R260).
+2. **Lines.** Every line stays "connected -- effect not measured" unless an approved claim carries
+   `link: {from, to, says, reviewed_by_me}` naming that pair of pathways: then the line is drawn
+   solid with an arrowhead at `to`, in the claim's for-me colour (green / amber; a neutral
+   direction a solid muted line), and its row reads "<from> acts on <to>: <says>", the claim, its
+   probability and GRADE. A link between two pathways with no structural or literature connection
+   adds its own row and line. The drafts are written on the PC, staged unapproved, and reported
+   for review; none reaches the phone until approved.
+3. **Time tiers, one wheel with a switch.** Fast · 7 d / Medium · 28 d / Slow · 90 d, three 44 px
+   buttons over the wheel, Medium on open. The pack carries each record's cited tier (the R331
+   table as reviewed, the Katan 1997 study duration 18 months), its basis and its references; 19
+   records with no cited time scale stay on 28 days, read with Medium, and their panel says
+   "timescale not cited". Each pathway's dot is worked out over its own tier's window; the switch
+   shows one tier, the others faded with no dot; picking a pathway (from the list or a line's Open)
+   moves the switch to its tier. The panel says the tier, the window, the basis and its source,
+   and the cautions the table names. The known share stays on 28 days.
+4. **Two glucose claims re-drafted** on the PC: their `testable` says fasting glucose is in the
+   data (overnight CGM) but they are taken daily, so there is nothing to compare. Staged for the
+   user's review; nothing changes on the phone until approved.
+5. **strip-gate's budget 3.0 -> 1.8** (it measures about 1.35).
+**Gates.** influence-gate: the four styles on placeholder claims (each level, the n 5 floor, no
+held-out check -> hollow, an unapproved result ignored, the mixed-dot rule), the same style on the
+wheel, list and panel; tiers: switch, faded segments carry no dot, a fast-tier pathway's dot counts
+7 days and a slow one's 90 (a match 20 days back counts on slow and medium and not fast), untiered
+on Medium with "timescale not cited", a pick moves the switch, 44 px, light and dark at 390.
+wheel-gate: an approved link colours exactly its line with an arrow and its row's words; an
+unapproved one changes nothing; a link-only pair gets its row. strip-gate: budget 1.8. Released
+under the standing pre-run rule.
