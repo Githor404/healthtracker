@@ -22588,3 +22588,40 @@ not a pathway, so the census now allows exactly "it measures coverage" beside "e
 measured" (found by connect-gate, which opens every i).
 Pre-run: static checks, harness (3495), every gate alone (72 of 72 after the census fix); one
 full run 84 of 84. Parts 3 and 4 (evidence-level styles, lines, time tiers) are report-first.
+
+## R332.1 -- PRE-REGISTERED (2026-11-07; to be v0.139.0): every mark on the wheel explained in the panel (*evaluate*)
+**The user (7 Nov; replaces R332):** the dots work, but the dots and lines do not relate to the
+pathway explanation. Every mark on the wheel is explained in the panel, and the colour scheme
+carries down to the individual pathways.
+1. **The group list** (after a slice): each pathway button carries the same dot as its segment --
+   colour by the net's sign, the same three sizes -- or none.
+2. **The pathway panel, in the order the wheel shows it:**
+   a. *Why this dot* -- the dot itself, "leans for you" / "leans against you" ("balanced" at exactly
+      0), the window ("last 28 days") and the net; then each match -- the logged item (times), the
+      claim, a direction marker (green / amber), probability and GRADE -- newest first. No dot:
+      "Nothing you logged in the last 28 days matches a claim for this pathway."
+   b. *Why these lines* -- one row per drawn line, in that line's colour and style (solid: shares a
+      participant; dashed: a literature link): the other pathway, what they share in plain words
+      ("both use ..."; the literature link's own words), and what the line means: "connected --
+      effect not measured" (until R331.1 part 3 colours lines; then its claimed effect and
+      probability).
+   c. Then the background: the reviewed plain sentence, the group, raw materials and known share,
+      the linked claims count.
+   **Tap-highlight both ways.** A row tap highlights its line (or the dot) on the wheel and the
+   row; a wheel tap -- with a pathway picked, on a slice holding the dot or a line's end --
+   highlights the nearest such mark in that slice and its row. A slice with no mark keeps its
+   R318/1 tap (the group). **Conflict named:** R318/1's panel row tap opened the connected pathway
+   (wheel-gate checks it); that moves to an "Open ›" button of its own on each row (44 px), and
+   the row's own tap highlights. The i in the list keeps its rows as they are.
+3. **Fills stay grayscale** (coverage only, R318/1): colour only on dots, the lines and their rows,
+   and match markers.
+4. **Shared markers.** One dot component and one line component used by the wheel, the list and
+   the panel, each taking an evidence level (today only "science"; hollow / filled / ringed /
+   contradicts come with R331.1 part 3) so a style applies everywhere at once.
+5. **Gates.** wheel-gate: every line on the wheel has its row, same style class, same order;
+   highlight row -> line and wheel -> row by real taps; "Open ›" opens the pathway; 44 px.
+   influence-gate: every dotted segment's list button carries the same dot (class and size);
+   the panel's dot equals the wheel's; "Why this dot" lists the matches newest first with markers;
+   tap-highlight both ways; no-dot words; light and dark at 390. strip-gate's perf budget holds
+   (the wheel is drawn only while its card is open). Released under the standing pre-run rule;
+   then R331.1's report-first part.
