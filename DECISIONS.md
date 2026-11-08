@@ -22570,3 +22570,21 @@ Canadian file, shown "calories not in this row"). A phone stays on one file; rec
 taps on the shipped Canadian file, mine100 through a backup round trip, a food whose rows are all
 beyond 2x saying so. Pre-run: static checks, harness, every gate alone (72 of 72); one full run
 84 of 84.
+
+## R331.1 parts 1, 2, 5 -- BUILT (v0.138.0), against their pre-registration
+Built as registered: a dot only where a food logged or a stack tick in the last 28 days matches a
+claim filed under the pathway with an approved positive or negative direction (R318/2's matching;
+neutral and interactions draw none; R318/1's "has a reviewed claim" dot is retired); the net of
+the claims' approved probabilities, green (--good) for a net for the user, the R318 amber (--warn)
+against, the muted colour at exactly 0; three sizes (under 2, 2 to under 6, 6 or more); the
+pathway's panel lists each match (item, times, last date, claim, probability, GRADE), "For you" and
+"Against you" apart, ending "effect not measured in you"; the key gains the two dot colours; the
+wheel's i carries the known-share sentence in the user's words. The R318/2 notch is unchanged.
+**Two deviations, named.** (1) The gate checks went into influence-gate (which already carries a
+pack with approved directions), not wheel-gate: +6 checks on a second placeholder pack and stack.
+(2) The R286 word census (connect-gate, pack-gate) bans "measures" on the Pathways card; the
+user's sentence "It measures coverage, not how well the pathway is supplied" is about the SHARE,
+not a pathway, so the census now allows exactly "it measures coverage" beside "effect not
+measured" (found by connect-gate, which opens every i).
+Pre-run: static checks, harness (3495), every gate alone (72 of 72 after the census fix); one
+full run 84 of 84. Parts 3 and 4 (evidence-level styles, lines, time tiers) are report-first.

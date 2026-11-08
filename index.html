@@ -815,7 +815,14 @@
   .pwhatchbar{fill:var(--pwhatch)}
   .pwseg.pwnb{stroke:var(--accent);stroke-width:2}
   .pwseg.pwsel{stroke:var(--txt);stroke-width:2.5}
-  .pwdot{fill:var(--accent);pointer-events:none}
+  .pwdot{pointer-events:none;stroke:var(--panel);stroke-width:1}   /* R331.1: what the user logged, its net */
+  .pwdot.pwdotpos{fill:var(--good)}.pwdot.pwdotneg{fill:var(--warn)}.pwdot.pwdotzero{fill:var(--muted)}
+  .pwdotsw{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:4px}
+  .pwdotsw.pwdotswpos{background:var(--good)}.pwdotsw.pwdotswneg{background:var(--warn)}
+  .pwbal{margin:8px 0;padding:8px 0;border-top:1px solid var(--line)}
+  .pwbalh{color:var(--txt);font-weight:600}
+  .pwballist{margin:2px 0 6px;padding-left:20px;font-size:16px;color:var(--txt)}
+  .pwballist li{margin:4px 0;overflow-wrap:anywhere}
   .pwnotch{fill:var(--warn);pointer-events:none}   /* R318/2: a flagged negative claim's pathway */
   .infmin{min-height:44px;font-size:16px}
   .wkpos{margin:6px 0;padding-left:18px;font-size:16px}

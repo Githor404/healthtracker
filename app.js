@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.137.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.138.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4459,6 +4459,69 @@ function pwConnRows(P, r) {
   });
   return { rows: rows, n: num(e.n), shown: (e.shown || []).filter(function (x) { return recs[x.id]; }).length };
 }
+// ---- R331.1: THE WHEEL'S DOTS -- WHAT THE USER LOGGED, AND ITS BALANCE -------------------
+// A dot is drawn on a pathway only when something LOGGED in its window -- a food eaten or a
+// stack tick -- matches a claim filed under it that the user approved as positive or negative
+// for them (R318/2's matching rule). Each match adds the claim's approved probability (positive)
+// or subtracts it (negative); a neutral direction counts nothing. The dot's colour is the net's
+// sign, its size one of three by the net's size. From the science, weighted by probability --
+// nothing here is read from the user's body. The window is the wheel's 28 days until the user
+// chooses tiers (R331.1 part 4).
+const PW_BAL_SIZES = [2, 6];                    // |net| under 2, 2 to under 6, 6 or more
+const PW_BAL_R = [0, 3, 4.5, 6.5];
+function pwBalance(P, endDk) {
+  const end = endDk || todayKey();
+  const byClaim = {};
+  (P.records || []).forEach(function (r) { (r.claims || []).forEach(function (id) { (byClaim[id] = byClaim[id] || []).push(r.id); }); });
+  const out = {};
+  const add = function (m, name, dk) {
+    if (m.kind !== 'claim') return;
+    const f = forMe(m.c), pv = latestP(m.c);
+    if (!f || f.direction === 'neutral' || !pv) return;
+    const sign = f.direction === 'positive' ? 1 : -1;
+    (byClaim[m.c.id] || []).forEach(function (pid) {
+      const b = out[pid] || (out[pid] = { net: 0, n: 0, rows: {} });
+      b.net += sign * pv.p; b.n++;
+      const k = m.c.id + '|' + name.toLowerCase();
+      const row = b.rows[k] || (b.rows[k] = { c: m.c, sign: sign, p: pv, name: name, times: 0, last: dk });
+      row.times++;
+      if (dk > row.last) row.last = dk;
+    });
+  };
+  const stack = ((APP_STATE.settings && APP_STATE.settings.stack) || []).filter(Boolean)
+    .map(function (s) { return { s: s, ms: influenceMatches(s, true) }; }).filter(function (x) { return x.ms.length; });
+  for (let i = 0; i < PW_KNOWN_DAYS; i++) {
+    const dk = shiftDate(end, -i);
+    stack.forEach(function (x) {
+      const n = stackTaken(x.s, dk).length;
+      for (let j = 0; j < n; j++) x.ms.forEach(function (m) { add(m, String(x.s.name || ''), dk); });
+    });
+    (((APP_STATE.days || {})[dk] || {}).items || []).forEach(function (it) {
+      if (!panelFoodItem(it)) return;
+      influenceMatches(it, false).forEach(function (m) { add(m, String(it.name || ''), dk); });
+    });
+  }
+  Object.keys(out).forEach(function (k) { out[k].net = Math.round(out[k].net * 100) / 100; });
+  return out;
+}
+function pwBalSize(net) { const a = Math.abs(net); return a < PW_BAL_SIZES[0] ? 1 : (a < PW_BAL_SIZES[1] ? 2 : 3); }
+function pwBalWords(net) { return (net > 0 ? '+' : (net < 0 ? '\u2212' : '')) + Math.abs(net).toFixed(1); }
+function pwBalanceHTML(B) {
+  const head = 'From what you logged \u00b7 last ' + PW_KNOWN_DAYS + ' days: ';
+  if (!B) return '<div class="pwbal" data-net=""><div class="pwline">' + esc(head + 'nothing matches a claim filed here that you approved as for you or against you.') + '</div></div>';
+  const rows = Object.keys(B.rows).map(function (k) { return B.rows[k]; })
+    .sort(function (a, b) { return b.p.p * b.times - a.p.p * a.times; });
+  const li = function (r) {
+    const c = r.c;
+    return '<li>' + esc(r.name + ' \u00d7' + r.times + ' (last ' + fmtDateSmart(r.last) + ') \u00b7 ' + forMe(c).short + ' \u00b7 '
+      + Math.round(100 * r.p.p) + ' % ' + r.p.of + (c.evidence && c.evidence.grade ? ' \u00b7 GRADE ' + c.evidence.grade : '')) + '</li>';
+  };
+  const pos = rows.filter(function (r) { return r.sign > 0; }), neg = rows.filter(function (r) { return r.sign < 0; });
+  return '<div class="pwbal" data-net="' + B.net + '"><div class="pwline">' + esc(head) + '<b>' + esc(pwBalWords(B.net)) + '</b></div>'
+    + (pos.length ? '<div class="pwline pwbalh">For you \u00b7 adds</div><ul class="pwballist pwbalpos">' + pos.map(li).join('') + '</ul>' : '')
+    + (neg.length ? '<div class="pwline pwbalh">Against you \u00b7 subtracts</div><ul class="pwballist pwbalneg">' + neg.map(li).join('') + '</ul>' : '')
+    + '<div class="pwline pwdim">' + esc('Each match adds or subtracts its claim\u2019s probability. From the science, weighted by probability \u2014 effect not measured in you.') + '</div></div>';
+}
 function pwWheelHTML(P, size) {
   const L = pwWheelLayout(P, size);
   const K = pwKnownShares(P);
@@ -4470,6 +4533,7 @@ function pwWheelHTML(P, size) {
   const ang = {};
   L.segs.forEach(function (s) { ang[s.id] = (s.a0 + s.a1) / 2; });
   const notch = influenceNotches(P);           // R318/2: a flagged negative claim's pathways
+  const bal = pwBalance(P);                     // R331.1: what the user logged, weighed
   let h = '<svg class="pwwheelsvg" width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" role="img" aria-label="pathway wheel">'
     + '<defs><pattern id="pwhatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
     + '<rect width="3" height="6" class="pwhatchbar"></rect></pattern></defs>';
@@ -4487,14 +4551,17 @@ function pwWheelHTML(P, size) {
     const cls = 'pwseg' + (s.id === sel ? ' pwsel' : '') + (linked[s.id] ? ' pwnb' : '') + (sh == null ? ' pwhatched' : '');
     h += '<path class="' + cls + '" data-pw="' + esc(s.id) + '" data-group="' + esc(s.group) + '" data-share="' + (sh == null ? '' : sh.toFixed(4)) + '"'
       + (sh == null ? ' fill="url(#pwhatch)"' : ' fill-opacity="' + pwShadeOpacity(sh) + '"') + ' d="' + pwArc(L, L.r, L.R, s.a0, s.a1) + '">'
-      + '<title>' + esc(s.rec.plain_name + ' · ' + pwSharePct(sh) + (notch[s.id] ? ' · claim: ' + notch[s.id].join('; ') : '')) + '</title></path>';
+      + '<title>' + esc(s.rec.plain_name + ' · ' + pwSharePct(sh) + (notch[s.id] ? ' · claim: ' + notch[s.id].join('; ') : '')
+      + (bal[s.id] ? ' · from what you logged: ' + pwBalWords(bal[s.id].net) : '')) + '</title></path>';
     if (notch[s.id]) {
       const d = 0.6 * (s.a1 - s.a0) / 2, q0 = pwPt(L, L.R, ang[s.id] - d), q1 = pwPt(L, L.R, ang[s.id] + d), q2 = pwPt(L, L.R - 9, ang[s.id]);
       h += '<path class="pwnotch" data-pw="' + esc(s.id) + '" d="M' + q0[0].toFixed(1) + ' ' + q0[1].toFixed(1) + 'L' + q1[0].toFixed(1) + ' ' + q1[1].toFixed(1) + 'L' + q2[0].toFixed(1) + ' ' + q2[1].toFixed(1) + 'Z"></path>';
     }
-    if ((s.rec.claims || []).length) {
-      const d = pwPt(L, L.r - 6, ang[s.id]);
-      h += '<circle class="pwdot" cx="' + d[0].toFixed(1) + '" cy="' + d[1].toFixed(1) + '" r="2.4"></circle>';
+    // R331.1: a dot only for what was logged (replaces R318/1's "has a reviewed claim")
+    const B = bal[s.id];
+    if (B) {
+      const d = pwPt(L, L.r - 8, ang[s.id]), sz = pwBalSize(B.net), dir = B.net > 0 ? 'pos' : (B.net < 0 ? 'neg' : 'zero');
+      h += '<circle class="pwdot pwdot' + dir + '" data-pw="' + esc(s.id) + '" data-net="' + B.net + '" data-size="' + sz + '" cx="' + d[0].toFixed(1) + '" cy="' + d[1].toFixed(1) + '" r="' + PW_BAL_R[sz] + '"></circle>';
     }
   });
   h += '</g><g class="pwgnums">';
@@ -4514,7 +4581,9 @@ function pwWheelHTML(P, size) {
   h += '<div class="pwkey"><span><span class="pwsw" style="opacity:' + pwShadeOpacity(0) + '"></span>none known</span>'
     + '<span><span class="pwsw" style="opacity:' + pwShadeOpacity(0.5) + '"></span>half</span>'
     + '<span><span class="pwsw" style="opacity:' + pwShadeOpacity(1) + '"></span>all</span>'
-    + '<span><span class="pwsw pwswhatch"></span>no raw materials listed</span></div>';
+    + '<span><span class="pwsw pwswhatch"></span>no raw materials listed</span>'
+    + '<span><span class="pwdotsw pwdotswpos"></span>logged, claims for you</span>'
+    + '<span><span class="pwdotsw pwdotswneg"></span>logged, claims against you</span></div>';
   h += '<div class="pwlegend">' + L.groups.map(function (g) {
     return '<button type="button" class="pwgbtn' + (g.id === grp ? ' pwon' : '') + '" data-group="' + esc(g.id) + '" aria-pressed="' + (g.id === grp ? 'true' : 'false')
       + '" onclick="pwWheelGroup(\'' + esc(g.id) + '\')"><span class="pwgbn">' + g.idx + '</span> ' + esc(g.name) + ' · ' + g.recs.length + '</button>';
@@ -4530,10 +4599,14 @@ function pwWheelHTML(P, size) {
   return '<div class="pwwheel" data-total-g="' + Math.round(K.total) + '">'
     + '<div class="pwwheelh">Known share · last ' + PW_KNOWN_DAYS + ' days'
     + '<details class="pwinfo pwwheelinfo"><summary aria-label="about the wheel">ⓘ</summary><div class="pwline">'
+    + 'Known share: the share of the food you logged in the last ' + PW_KNOWN_DAYS + ' days that carries a figure for this pathway’s raw materials. It measures coverage, not how well the pathway is supplied. '
     + 'Each segment is one pathway, in its group’s numbered slice. Its shade is how much of your food, by weight, over the last ' + PW_KNOWN_DAYS
     + ' days carries a figure for each of its raw-material lines — a label value, the food’s own protein, fat, carbs or fibre, or its linked database row — averaged over its lines. '
     + 'A line the log cannot count is never known; stack doses are not food and are left out. A pale segment says little of your log carries those figures, not that the pathway is low. '
-    + 'Hatched: the pack lists no raw materials for it. A dot: it has reviewed claims. Tap a slice, then a pathway, to draw its connections.'
+    + 'Hatched: the pack lists no raw materials for it. '
+    + 'A dot: something you logged in the last ' + PW_KNOWN_DAYS + ' days — a food, or a stack tick — matches a claim filed under that pathway that you approved as for you or against you. '
+    + 'Each match adds its claim’s probability (for you) or subtracts it (against you); green when the total is for you, amber when it is against you, and larger as more builds up (under 2, 2 to 6, 6 or more). '
+    + 'A claim you marked neutral draws nothing. From the science, weighted by probability; nothing here is read from you. Tap a slice, then a pathway, to see the matches and draw its connections.'
     + (K.total > 0 ? '' : ' No food with a weight was logged in these days, so nothing is known.') + '</div></details></div>'
     + h + '</div>';
 }
@@ -4548,6 +4621,7 @@ function pwWheelPanelHTML(P, r, K) {
     + '<div class="pwline">Raw materials known: <b>' + esc(pwSharePct(K.byId[r.id])) + '</b>'
     + (lines.length ? ' · ' + lines.length + ' line' + (lines.length === 1 ? '' : 's') + (untracked ? ', ' + untracked + ' the log cannot count' : '') : '') + '</div>'
     + '<div class="pwline">Reviewed claims: ' + ncl + ' — in its ⓘ</div>'
+    + pwBalanceHTML(pwBalance(P)[r.id])
     + pwConnHTML(P, r, true) + '</div>';
 }
 // Only the wheel's slot is redrawn -- the list below keeps whatever the user opened.
@@ -20069,6 +20143,7 @@ const VERSION_LOG = [
   { v: '0.136.0', d: '2026-11-05', note: 'Settings has “Discuss with your doctor”: facts gathered from your log, your stack and your pathway pack, each with its source -- an intake above a cited upper level, claims and interactions for your stack items, glucose lows, blood pressure above your reference lines -- and items of your own. Mark one discussed with the date and the doctor’s answer; an item that stops applying moves to its own section, never deleted. Share it or print it as one plain page; nothing leaves the phone unless you do.' },
   { v: '0.136.1', d: '2026-11-05', note: 'Faster: the home screen redraws in about half the time with a long log -- the fasting spans are now worked out once per redraw instead of once for each small ring. Nothing shown changes.' },
   { v: '0.137.0', d: '2026-11-07', note: 'Link a database row? now looks wider and puts first the rows closest to your own calories, cooked the way your food was, and the whole food rather than a part (an egg white) or another form (dried, fried). A row far from yours is shown only when nothing closer exists, and then it says so.' },
+  { v: '0.138.0', d: '2026-11-07', note: 'The pathway wheel’s dots now mean something you did: a dot appears only where a food you logged or a stack item you ticked in the last 28 days matches a claim you approved as for you or against you. Green when the claims for you weigh more, amber when those against do; it grows as matches build up, each weighted by its claim’s probability. Tap the pathway to see each match with its probability. The wheel’s ⓘ now also says what “known share” means.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -29965,7 +30040,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, linkOrder, linkWords, linkHeaded, linkAnswered, linkMine100, linkKcalFill, linkAccuracyLoad, LINK_POOL, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, pwBalance, pwBalSize, pwBalanceHTML, PW_BAL_SIZES, linkOrder, linkWords, linkHeaded, linkAnswered, linkMine100, linkKcalFill, linkAccuracyLoad, LINK_POOL, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

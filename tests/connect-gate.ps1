@@ -263,14 +263,14 @@ window.__mkPack = function (withConn) {
   var p = document.getElementById('pathways');
   var small = Array.prototype.filter.call(p.querySelectorAll('.pwconn'), function (e) { var r = e.getBoundingClientRect(); return r.height > 0 && r.height < 44; }).length;
   var wide = Array.prototype.filter.call(p.querySelectorAll('.pwcard, .pwcard *'), function (e) { var r = e.getBoundingClientRect(); return r.width > 0 && r.right > window.innerWidth + 0.5; }).length;
-  var t = p.innerText.replace(/effect not measured/gi, '');
+  var t = p.innerText.replace(/effect not measured|it measures coverage/gi, '');   // R331.1: the known-share sentence (the user's words) says what the SHARE measures
   return { w: window.innerWidth, small: small, wide: wide, page: document.documentElement.scrollWidth - window.innerWidth, words: (t.match(/\b(active|activity|measured|measures|activates?)\b/ig) || []) };
 })()
 '@
   }
   Write-Host ("  layout: " + ($lay -join ' '))
   Check (-not ($lay | Where-Object { -not (($_ -like '*"small":0*') -and ($_ -like '*"wide":0*') -and ($_ -like '*"page":0*')) })) "every connection row is a 44 px target and nothing runs sideways at 390 and 360"
-  Check (-not ($lay | Where-Object { -not ($_.Contains('"words":[]')) })) "no pathway is said to be active or measured: the one allowed phrase is the card's own 'effect not measured'"
+  Check (-not ($lay | Where-Object { -not ($_.Contains('"words":[]')) })) "no pathway is said to be active or measured: the allowed phrases are the card's own 'effect not measured' and the known share's 'it measures coverage' (R331.1)"
 
   # ---- an old pack, with no connections --------------------------------------------------------
   $old = EvalA "(function(){ return window.__mkPack(false).then(function (r) { HT.renderPathways(); document.querySelectorAll('#pathways details').forEach(function (d) { d.open = true; }); return { ok: r.ok, conn: document.querySelectorAll('#pathways .pwconnected').length, claims: document.querySelectorAll('#pathways .pwclaims').length }; }); })()"

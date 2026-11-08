@@ -304,6 +304,80 @@ try {
   $e1 = Eval "HT.exportJSON()"
   $null = TapSel '#ctxStrip .ctxneg > summary'
   Check ((Eval "HT.exportJSON()") -eq $e1) "opening a flag's basis writes nothing"
+
+  # ---- R331.1: the wheel's dots -- only what was logged, and its balance -----------------------
+  Invoke-CDP 'Emulation.setDeviceMetricsOverride' @{ width = 390; height = 844; deviceScaleFactor = 2; mobile = $true } | Out-Null
+  WaitQuiet '390'
+  $mk2 = @'
+(function () {
+  localStorage.clear(); HT.boot();
+  var rv = '2026-11-07';
+  var pr = function (p, of) { return { current_version: 1, versions: [{ version: 1, p: p, of: of, kind: 'general' }] }; };
+  var dir = function (d, sh) { return { direction: d, short: sh, reviewed_by_me: rv }; };
+  var rec = function (id, name, claims) { return { id: id, plain_name: name, technical_name: name, group: 'g1', backbone: [], supply: [], observable: 'not observable', observable_how: '', sentence: 'A sentence.', reviewed_by_me: rv, claims: claims }; };
+  var cl = function (id, p, m, d, sh) { return { id: id, claim: 'Gate ' + sh + ' claim.', reviewed_by_me: rv, evidence: { grade: 'low' }, probability: pr(p, 'that gate ' + sh + ' holds'), subject: { match: [m] }, for_me: dir(d, 'gate ' + sh) }; };
+  var body = { format: 'healthtracker-pack', schema: 1, built_at: '2026-11-07T10:00:00', private: true, reactome_version: 98,
+    groups: [{ id: 'g1', name: 'Gate group', claims: [] }],
+    records: [rec('pw-001', 'Gate path 1', ['c-neg']), rec('pw-002', 'Gate path 2', ['c-pos']), rec('pw-003', 'Gate path 3', ['c-neu']), rec('pw-004', 'Gate path 4', ['c-never']), rec('pw-005', 'Gate path 5', ['c-old'])],
+    claims: [cl('c-neg', 0.3, 'gatezinc', 'negative', 'negative'), cl('c-pos', 0.9, 'gatebean', 'positive', 'positive'), cl('c-neu', 0.8, 'gatezinc', 'neutral', 'neutral'),
+             cl('c-never', 0.8, 'gatenever', 'negative', 'never'), cl('c-old', 0.8, 'gateold', 'negative', 'old')],
+    interactions: [], reference_intakes: { source: 'x', group: 'y', values: {} }, lexicon: { rules: [] }, sources: [] };
+  var S = HT.state(), t = HT.todayKey();
+  S.settings.stack = HT.normalizeStack([{ id: 'sz', added_on: HT.shiftDate(t, -40), added_basis: 'created', name: 'Gatezinc 50', kind: 'supplement', dose: 50, dose_unit: 'mg' }]);
+  var food = function (n) { return { name: n, meal: 'lunch', time: '12:00', grams: 100, kcal: 100, protein_g: 5, fat_g: 1, carb_g: 10, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }; };
+  S.days[t] = { status: 'in_progress', water_l: 0, items: [food('Gatebean salad')] };
+  S.days[HT.shiftDate(t, -28)] = { status: 'complete', water_l: 0, items: [food('Gateold stew')] };   // the 29th day back: outside the 28
+  S.current = t;
+  window.__ticks = function (n) {
+    S.timeline = S.timeline || {};
+    for (var i = 0; i < 25; i++) { var dk = HT.shiftDate(t, -i); S.timeline[dk] = (S.timeline[dk] || []).filter(function (r) { return r.stackId !== 'sz'; });
+      if (i < n) S.timeline[dk].push({ kind: 'medication', stackId: 'sz', name: 'Gatezinc 50', time: '08:00', source: 'stack', value: 50, unit: 'mg' }); }
+    HT.resave(); HT.refresh(); return 1; };
+  var txt = JSON.stringify(body);
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (h) {
+    var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    return HT.packImportText(JSON.stringify({ format: 'healthtracker-pack', version: 16, sha256: hex, body: txt }));
+  }).then(function (r) { window.__ticks(6); return { imported: r.ok }; });
+})()
+'@
+  $fx2 = EvalA $mk2
+  Write-Host ("  R331.1 fixture: " + $fx2)
+  WaitQuiet 'balance fixture'
+  $open = Eval "document.querySelector('[data-card=\""pathways\""] > details').open"
+  if (-not $open) { $null = TapSel '[data-card="pathways"] > details > summary' }
+  $DOTS = "Array.prototype.map.call(document.querySelectorAll('#pathways .pwdot'), function (d) { return d.getAttribute('data-pw') + ':' + d.getAttribute('class').replace('pwdot ', '') + ':' + d.getAttribute('data-size') + ':' + d.getAttribute('data-net'); }).sort().join(',')"
+  $d6 = Eval $DOTS
+  $col = Eval "(function(){ var tok = function (n) { var d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; }; var f = function (s) { var e = document.querySelector('#pathways ' + s); return e ? getComputedStyle(e).fill : ''; }; return (f('.pwdotneg') === tok('--warn') ? 'neg=warn' : 'neg=' + f('.pwdotneg')) + '|' + (f('.pwdotpos') === tok('--good') ? 'pos=good' : 'pos=' + f('.pwdotpos')) + '|' + (f('.pwdotneg') !== tok('--bad') ? 'notred' : 'RED'); })()"
+  $null = Eval "window.__ticks(7)"; WaitQuiet '7 ticks'
+  $d7 = Eval $DOTS
+  $null = Eval "window.__ticks(20)"; WaitQuiet '20 ticks'
+  $d20 = Eval $DOTS
+  Write-Host ("  dots at 6 / 7 / 20 ticks: " + $d6 + ' / ' + $d7 + ' / ' + $d20 + ' (' + $col + ')')
+  Check (($fx2 -like '*"imported":true*') -and ($d6 -eq 'pw-001:pwdotneg:1:-1.8,pw-002:pwdotpos:1:0.9')) "R331.1 DOTS MEAN SOMETHING LOGGED: a stack item ticked 6 days against a negative claim at 30 % (-1.8) and a food eaten today matching a positive one at 90 % (+0.9) draw a dot each; a NEUTRAL claim's pathway, one whose claim nothing logged matches, and a food 29 days back draw none"
+  Check ($col -eq 'neg=warn|pos=good|notred') ("R331.1 COLOUR: the net for you is the green token, against you the R318 amber, never red (" + $col + ")")
+  Check (($d7 -like 'pw-001:pwdotneg:2:-2.1,*') -and ($d20 -like 'pw-001:pwdotneg:3:-6,*')) "R331.1 SIZE: repeated small negatives build up -- the 30 % daily tick steps the dot from the smallest (6 ticks, -1.8) to the middle (7, -2.1) to the largest (20, -6.0)"
+  $null = TapSel '#pathways .pwgbtn[data-group="g1"]'
+  $null = TapSel '#pathways .pwpick[data-pw="pw-001"]'
+  $p1 = Eval "(function(){ var b = document.querySelector('#pathways .pwpanel .pwbal'); return b ? b.textContent.replace(/\s+/g, ' ') + '|pos:' + !!b.querySelector('.pwbalpos') + '|neg:' + !!b.querySelector('.pwbalneg') : 'NONE'; })()"
+  [void](Eval "(function(){ var p = document.querySelector('#pathways .pwpanel'); if (p) p.scrollIntoView({ block: 'center' }); return 1; })()")
+  Shot 'balance-panel-light'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'dark' }) } | Out-Null; WaitQuiet 'dark'
+  Shot 'balance-panel-dark'
+  [void](Eval "(function(){ var w = document.querySelector('#pathways .pwwheel'); if (w) w.scrollIntoView({ block: 'start' }); return 1; })()")
+  Shot 'balance-wheel-dark'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null; WaitQuiet 'light'
+  Shot 'balance-wheel-light'
+  $null = TapSel '#pathways .pwpick[data-pw="pw-002"]'
+  $p2 = Eval "(function(){ var b = document.querySelector('#pathways .pwpanel .pwbal'); return b ? b.textContent.replace(/\s+/g, ' ') + '|pos:' + !!b.querySelector('.pwbalpos') + '|neg:' + !!b.querySelector('.pwbalneg') : 'NONE'; })()"
+  $null = TapSel '#pathways .pwpick[data-pw="pw-004"]'
+  $p4 = Eval "(function(){ var b = document.querySelector('#pathways .pwpanel .pwbal'); return b ? b.textContent.replace(/\s+/g, ' ') : 'NONE'; })()"
+  Write-Host ("  panels: " + $p1 + ' || ' + $p2 + ' || ' + $p4)
+  $m = [char]0x2212; $x = [char]0xD7
+  Check (($p1 -like ('*From what you logged*last 28 days: ' + $m + '6.0*Against you*Gatezinc 50 ' + $x + '20 (last *gate negative*30 % that gate negative holds*GRADE low*effect not measured in you*|pos:False|neg:True'))) "R331.1 ON TAP: the pathway's panel gives the balance with its sign and window, and each contributor -- the logged item, how many times, its last date, the claim, its probability and GRADE -- under 'Against you'"
+  Check (($p2 -like ('*last 28 days: +0.9*For you*Gatebean salad ' + $x + '1 (last *gate positive*90 % that gate positive holds*|pos:True|neg:False')) -and ($p4 -like '*nothing matches a claim filed here*')) "R331.1 ON TAP: a positive balance lists its matches under 'For you', apart from the negatives; a pathway whose claim nothing logged matches says so"
+  $all = Eval "document.getElementById('pathways').innerText.replace(/\s+/g, ' ')"
+  $info = Eval "(document.querySelector('#pathways .pwwheelinfo') || {}).textContent || ''"
+  Check (($all -notmatch '(?i)\b(should|must|avoid|recommend|stop|start)\b') -and ($info -like '*Known share: the share of the food you logged in the last 28 days that carries a figure for this pathway*s raw materials. It measures coverage, not how well the pathway is supplied.*')) "R331.1 WORDS: no should, must, avoid, recommend, stop or start anywhere on the Pathways card; the wheel's i says what the known share is and that it measures coverage, not how well the pathway is supplied"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup
