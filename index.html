@@ -816,13 +816,24 @@
   .pwseg.pwnb{stroke:var(--accent);stroke-width:2}
   .pwseg.pwsel{stroke:var(--txt);stroke-width:2.5}
   .pwdot{pointer-events:none;stroke:var(--panel);stroke-width:1}   /* R331.1: what the user logged, its net */
-  .pwdot.pwdotpos{fill:var(--good)}.pwdot.pwdotneg{fill:var(--warn)}.pwdot.pwdotzero{fill:var(--muted)}
+  .pwdotpos{fill:var(--good)}.pwdotneg{fill:var(--warn)}.pwdotzero{fill:var(--muted)}   /* R332.1: the wheel's dot and every copy of it */
+  .pwdot.pwhl{stroke:var(--txt);stroke-width:2.5}
   .pwdotsw{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:4px}
   .pwdotsw.pwdotswpos{background:var(--good)}.pwdotsw.pwdotswneg{background:var(--warn)}
-  .pwbal{margin:8px 0;padding:8px 0;border-top:1px solid var(--line)}
-  .pwbalh{color:var(--txt);font-weight:600}
-  .pwballist{margin:2px 0 6px;padding-left:20px;font-size:16px;color:var(--txt)}
-  .pwballist li{margin:4px 0;overflow-wrap:anywhere}
+  /* R332.1: the panel in the wheel's order; markers shared with the wheel; a neutral highlight */
+  .pwwhy,.pwbg{margin:8px 0;padding:8px 0 0;border-top:1px solid var(--line)}
+  .pwhlrow{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;background:none;border:0;border-radius:8px;padding:6px 4px;font:inherit;font-size:16px;color:var(--txt);text-align:left;cursor:pointer}
+  .pwhlrow.pwhl{background:var(--line)}
+  .pwdotmk,.pwlinemk{flex:0 0 auto}
+  .pwpickname{display:inline-flex;align-items:center;gap:6px}
+  .pwmatch .pwdotmk{margin-top:3px}
+  .pwmatches{list-style:none;margin:4px 0 6px;padding:0;font-size:16px;color:var(--txt)}
+  .pwmatch{display:flex;align-items:flex-start;gap:8px;margin:6px 0;overflow-wrap:anywhere}
+  .pwlinerowwrap{display:flex;align-items:stretch;gap:6px;border-top:1px solid var(--line)}
+  .pwlinerowwrap .pwlinerow{flex:1 1 auto;min-width:0}
+  .pwlinetext{display:flex;flex-direction:column;min-width:0}
+  .pwlinemean{color:var(--muted)}
+  .pwconn.pwopen{flex:0 0 auto;width:auto;min-width:72px;align-items:center;justify-content:center;border-top:0;color:var(--accent);font-weight:600}
   .pwnotch{fill:var(--warn);pointer-events:none}   /* R318/2: a flagged negative claim's pathway */
   .infmin{min-height:44px;font-size:16px}
   .wkpos{margin:6px 0;padding-left:18px;font-size:16px}
@@ -831,7 +842,9 @@
   .pwhit{fill:var(--txt);fill-opacity:0;stroke:none;cursor:pointer}
   .pwhit.pwon{stroke:var(--txt);stroke-width:1.5;stroke-dasharray:4 3}
   .pwchord{fill:none;stroke:var(--accent);stroke-width:2;opacity:.9;pointer-events:none}
-  .pwchord.pwlit{stroke-dasharray:5 4}
+  .pwchord.pwlit,.pwlinemkp.pwlit{stroke-dasharray:5 4}
+  .pwlinemkp{fill:none;stroke:var(--accent);stroke-width:2}
+  .pwchord.pwhl{stroke-width:4.5;opacity:1}
   .pwkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;font-size:16px;color:var(--muted)}
   .pwsw{display:inline-block;width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:4px;background:var(--txt)}
   .pwsw.pwswhatch{background:repeating-linear-gradient(45deg,var(--pwhatch) 0 3px,transparent 3px 6px);border:1px solid var(--line)}

@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.138.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.139.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -4310,7 +4310,9 @@ function pwConnHTML(P, r, onWheel) {
   });
   if (!R.rows.length) h += '<div class="pwline pwdim">No connection by the rule: nothing it shares is specific enough.</div>';
   if (R.n > R.shown) h += '<div class="pwline pwdim">' + esc(String(R.n - R.shown)) + ' more connected, not shown: the ' + R.shown + ' sharing the most specific participants are.</div>';
-  // the technical IDs, behind the card's own i
+  return h + pwConnTechHTML(R) + '</div>';
+}
+function pwConnTechHTML(R) {
   const tech = R.rows.map(function (x) {
     const t = [];
     if (x.tech.proteins.length) t.push('proteins ' + x.tech.proteins.join(', '));
@@ -4318,8 +4320,7 @@ function pwConnHTML(P, r, onWheel) {
     x.lit.forEach(function (l) { if (l.ids.length) t.push('literature ' + l.ids.join(', ')); });
     return '<div class="pwline" data-to="' + esc(x.id) + '">' + esc(x.name + ': ' + t.join('; ')) + '</div>';
   }).join('');
-  if (tech) h += '<details class="pwinfo pwtechids"><summary aria-label="technical IDs">ⓘ</summary><div class="pwline">Gene symbols, Reactome molecule names and source IDs:</div>' + tech + '</details>';
-  return h + '</div>';
+  return tech ? '<details class="pwinfo pwtechids"><summary aria-label="technical IDs">ⓘ</summary><div class="pwline">Gene symbols, Reactome molecule names and source IDs:</div>' + tech + '</details>' : '';
 }
 // A connection's tap: that pathway's group and i open, the pathway marked.
 function pwStep(id) {
@@ -4340,7 +4341,7 @@ function pwStep(id) {
 const PW_KNOWN_DAYS = 28;
 const PW_SHADE_MIN = 0.08, PW_SHADE_SPAN = 0.72;
 const PW_GROUP_MIN_PX = 44;
-let PW_WHEEL = { group: null, pw: null };
+let PW_WHEEL = { group: null, pw: null, hl: null };
 // What one food item carries a figure for: its own macros and label values (keys), its
 // linked row's values (slots).
 function pwItemFigures(it) {
@@ -4505,23 +4506,26 @@ function pwBalance(P, endDk) {
   return out;
 }
 function pwBalSize(net) { const a = Math.abs(net); return a < PW_BAL_SIZES[0] ? 1 : (a < PW_BAL_SIZES[1] ? 2 : 3); }
-function pwBalWords(net) { return (net > 0 ? '+' : (net < 0 ? '\u2212' : '')) + Math.abs(net).toFixed(1); }
-function pwBalanceHTML(B) {
-  const head = 'From what you logged \u00b7 last ' + PW_KNOWN_DAYS + ' days: ';
-  if (!B) return '<div class="pwbal" data-net=""><div class="pwline">' + esc(head + 'nothing matches a claim filed here that you approved as for you or against you.') + '</div></div>';
-  const rows = Object.keys(B.rows).map(function (k) { return B.rows[k]; })
-    .sort(function (a, b) { return b.p.p * b.times - a.p.p * a.times; });
-  const li = function (r) {
-    const c = r.c;
-    return '<li>' + esc(r.name + ' \u00d7' + r.times + ' (last ' + fmtDateSmart(r.last) + ') \u00b7 ' + forMe(c).short + ' \u00b7 '
-      + Math.round(100 * r.p.p) + ' % ' + r.p.of + (c.evidence && c.evidence.grade ? ' \u00b7 GRADE ' + c.evidence.grade : '')) + '</li>';
-  };
-  const pos = rows.filter(function (r) { return r.sign > 0; }), neg = rows.filter(function (r) { return r.sign < 0; });
-  return '<div class="pwbal" data-net="' + B.net + '"><div class="pwline">' + esc(head) + '<b>' + esc(pwBalWords(B.net)) + '</b></div>'
-    + (pos.length ? '<div class="pwline pwbalh">For you \u00b7 adds</div><ul class="pwballist pwbalpos">' + pos.map(li).join('') + '</ul>' : '')
-    + (neg.length ? '<div class="pwline pwbalh">Against you \u00b7 subtracts</div><ul class="pwballist pwbalneg">' + neg.map(li).join('') + '</ul>' : '')
-    + '<div class="pwline pwdim">' + esc('Each match adds or subtracts its claim\u2019s probability. From the science, weighted by probability \u2014 effect not measured in you.') + '</div></div>';
+// ---- R332.1: ONE DOT AND ONE LINE MARKER, everywhere a mark appears -------------------------
+// The wheel's dot, the list's and the panel's are drawn from pwDotStyle; the wheel's line and the
+// panel row's sample from pwLineStyle. Each takes an evidence level (R331.1 part 3: hollow /
+// filled / ringed / contradicts to come; today every mark is 'science'), so a style lands on every
+// copy at once. Wheel marks keep their element classes (.pwdot, .pwchord); copies use .pwdotmkc /
+// .pwlinemkp with the same style classes.
+function pwDotStyle(net, ev) {
+  const sz = pwBalSize(net);
+  return { cls: ' pwdot' + (net > 0 ? 'pos' : (net < 0 ? 'neg' : 'zero')) + ' pwev-' + (ev || 'science'), size: sz, r: PW_BAL_R[sz] };
 }
+function pwDotMarkHTML(net, ev, extra) {
+  const st = pwDotStyle(net, ev), w = 2 * PW_BAL_R[3] + 4, c = w / 2;
+  return '<svg class="pwdotmk' + (extra || '') + '" width="' + w + '" height="' + w + '" viewBox="0 0 ' + w + ' ' + w + '" aria-hidden="true">'
+    + '<circle class="pwdotmkc' + st.cls + '" data-size="' + st.size + '" cx="' + c + '" cy="' + c + '" r="' + st.r + '"></circle></svg>';
+}
+function pwLineStyle(x, ev) { return ((x && x.shares && x.shares.length) ? '' : ' pwlit') + ' pwev-' + (ev || 'science'); }
+function pwLineMarkHTML(x, ev) {
+  return '<svg class="pwlinemk" width="36" height="14" viewBox="0 0 36 14" aria-hidden="true"><path class="pwlinemkp' + pwLineStyle(x, ev) + '" d="M2 7L34 7"></path></svg>';
+}
+function pwBalWords(net) { return (net > 0 ? '+' : (net < 0 ? '\u2212' : '')) + Math.abs(net).toFixed(1); }
 function pwWheelHTML(P, size) {
   const L = pwWheelLayout(P, size);
   const K = pwKnownShares(P);
@@ -4542,7 +4546,7 @@ function pwWheelHTML(P, size) {
   if (selRec) ((conn && conn.rows) || []).forEach(function (x) {
     if (ang[x.id] == null) return;
     const p0 = pwPt(L, L.r - 2, ang[sel]), p1 = pwPt(L, L.r - 2, ang[x.id]);
-    h += '<path class="pwchord' + (x.shares.length ? '' : ' pwlit') + '" data-a="' + esc(sel) + '" data-b="' + esc(x.id) + '" d="M' + p0[0].toFixed(1) + ' ' + p0[1].toFixed(1)
+    h += '<path class="pwchord' + pwLineStyle(x) + (PW_WHEEL.hl === x.id ? ' pwhl' : '') + '" data-a="' + esc(sel) + '" data-b="' + esc(x.id) + '" d="M' + p0[0].toFixed(1) + ' ' + p0[1].toFixed(1)
       + 'Q' + L.c + ' ' + L.c + ' ' + p1[0].toFixed(1) + ' ' + p1[1].toFixed(1) + '"></path>';
   });
   h += '</g><g class="pwsegs">';
@@ -4560,8 +4564,8 @@ function pwWheelHTML(P, size) {
     // R331.1: a dot only for what was logged (replaces R318/1's "has a reviewed claim")
     const B = bal[s.id];
     if (B) {
-      const d = pwPt(L, L.r - 8, ang[s.id]), sz = pwBalSize(B.net), dir = B.net > 0 ? 'pos' : (B.net < 0 ? 'neg' : 'zero');
-      h += '<circle class="pwdot pwdot' + dir + '" data-pw="' + esc(s.id) + '" data-net="' + B.net + '" data-size="' + sz + '" cx="' + d[0].toFixed(1) + '" cy="' + d[1].toFixed(1) + '" r="' + PW_BAL_R[sz] + '"></circle>';
+      const d = pwPt(L, L.r - 8, ang[s.id]), st = pwDotStyle(B.net);
+      h += '<circle class="pwdot' + st.cls + (s.id === sel && PW_WHEEL.hl === 'dot' ? ' pwhl' : '') + '" data-pw="' + esc(s.id) + '" data-net="' + B.net + '" data-size="' + st.size + '" cx="' + d[0].toFixed(1) + '" cy="' + d[1].toFixed(1) + '" r="' + st.r + '"></circle>';
     }
   });
   h += '</g><g class="pwgnums">';
@@ -4573,7 +4577,7 @@ function pwWheelHTML(P, size) {
   h += '</g><g class="pwhits">';
   L.groups.forEach(function (g) {
     h += '<path class="pwhit' + (g.id === grp ? ' pwon' : '') + '" data-group="' + esc(g.id) + '" data-a0="' + g.a0.toFixed(4) + '" data-a1="' + g.a1.toFixed(4)
-      + '" data-r0="' + (L.r - 30) + '" data-r1="' + L.R + '" d="' + pwArc(L, L.r - 30, L.R, g.a0, g.a1) + '" onclick="pwWheelGroup(\'' + esc(g.id) + '\')">'
+      + '" data-r0="' + (L.r - 30) + '" data-r1="' + L.R + '" d="' + pwArc(L, L.r - 30, L.R, g.a0, g.a1) + '" onclick="pwWheelTap(event, \'' + esc(g.id) + '\')">'
       + '<title>' + esc(g.idx + ' ' + g.name) + '</title></path>';
   });
   h += '</g></svg>';
@@ -4593,9 +4597,9 @@ function pwWheelHTML(P, size) {
   if (G) h += '<div class="pwglist" data-group="' + esc(G.id) + '"><div class="pwglisth">' + esc(G.idx + ' ' + G.name) + '</div>'
     + G.recs.map(function (rec) {
       return '<button type="button" class="pwpick' + (rec.id === sel ? ' pwon' : '') + '" data-pw="' + esc(rec.id) + '" aria-pressed="' + (rec.id === sel ? 'true' : 'false')
-        + '" onclick="pwWheelPick(\'' + esc(rec.id) + '\')"><span class="pwpickname">' + esc(rec.plain_name) + '</span><span class="pwpickshare">' + esc(pwSharePct(K.byId[rec.id])) + '</span></button>';
+        + '" onclick="pwWheelPick(\'' + esc(rec.id) + '\')"><span class="pwpickname">' + (bal[rec.id] ? pwDotMarkHTML(bal[rec.id].net, null, ' pwpickdot') : '') + esc(rec.plain_name) + '</span><span class="pwpickshare">' + esc(pwSharePct(K.byId[rec.id])) + '</span></button>';
     }).join('') + '</div>';
-  if (selRec) h += pwWheelPanelHTML(P, selRec, K);
+  if (selRec) h += pwWheelPanelHTML(P, selRec, K, bal, conn);
   return '<div class="pwwheel" data-total-g="' + Math.round(K.total) + '">'
     + '<div class="pwwheelh">Known share · last ' + PW_KNOWN_DAYS + ' days'
     + '<details class="pwinfo pwwheelinfo"><summary aria-label="about the wheel">ⓘ</summary><div class="pwline">'
@@ -4610,19 +4614,93 @@ function pwWheelHTML(P, size) {
     + (K.total > 0 ? '' : ' No food with a weight was logged in these days, so nothing is known.') + '</div></details></div>'
     + h + '</div>';
 }
-function pwWheelPanelHTML(P, r, K) {
+// R332.1: the panel in the order of what the wheel shows -- why this dot, why these lines, then
+// the background. Each mark's row highlights it on the wheel, and a wheel tap highlights its row.
+function pwWhyDotHTML(B) {
+  let h = '<div class="pwwhy pwwhydot"><div class="pwcardh">Why this dot</div>';
+  if (!B) return h + '<div class="pwline">' + esc('Nothing you logged in the last ' + PW_KNOWN_DAYS + ' days matches a claim for this pathway.') + '</div></div>';
+  const lean = B.net > 0 ? 'Leans for you' : (B.net < 0 ? 'Leans against you' : 'Balanced');
+  h += '<button type="button" class="pwhlrow pwdotrow' + (PW_WHEEL.hl === 'dot' ? ' pwhl' : '') + '" data-hl="dot" aria-pressed="' + (PW_WHEEL.hl === 'dot' ? 'true' : 'false') + '" onclick="pwWheelHl(\'dot\')">'
+    + pwDotMarkHTML(B.net) + '<span>' + esc(lean + ' \u00b7 last ' + PW_KNOWN_DAYS + ' days \u00b7 ' + pwBalWords(B.net)) + '</span></button>';
+  const rows = Object.keys(B.rows).map(function (k) { return B.rows[k]; })
+    .sort(function (a, b) { return a.last < b.last ? 1 : (a.last > b.last ? -1 : b.p.p * b.times - a.p.p * a.times); });
+  h += '<ul class="pwmatches">' + rows.map(function (r) {
+    const c = r.c;
+    return '<li class="pwmatch" data-sign="' + (r.sign > 0 ? 'pos' : 'neg') + '">' + pwDotMarkHTML(r.sign, null, ' pwmatchmk') + '<span>'
+      + esc(r.name + ' \u00d7' + r.times + ' (last ' + fmtDateSmart(r.last) + ') \u00b7 ' + forMe(c).short + ' \u00b7 ' + (r.sign > 0 ? 'for you' : 'against you') + ' \u00b7 '
+      + Math.round(100 * r.p.p) + ' % ' + r.p.of + (c.evidence && c.evidence.grade ? ' \u00b7 GRADE ' + c.evidence.grade : '')) + '</span></li>';
+  }).join('') + '</ul>';
+  return h + '<div class="pwline pwdim">' + esc('Each match adds its claim\u2019s probability (for you) or subtracts it (against you). From the science, weighted by probability \u2014 effect not measured in you.') + '</div></div>';
+}
+function pwWhyLinesHTML(P, conn) {
+  let h = '<div class="pwwhy pwwhylines"><div class="pwcardh">Why these lines</div>';
+  const rows = (conn && conn.rows) || [];
+  if (!rows.length) return h + '<div class="pwline">No lines: nothing it shares is specific enough to draw one.</div></div>';
+  rows.forEach(function (x) {
+    const w = [];
+    if (x.shares.length) w.push('both use ' + x.shares.slice(0, 3).join(', ') + (x.shares.length > 3 ? ' and ' + (x.shares.length - 3) + ' more' : ''));
+    x.lit.forEach(function (l) { w.push('literature: ' + l.says + (l.src ? ' \u2014 ' + l.src : '')); });
+    const on = PW_WHEEL.hl === x.id;
+    h += '<div class="pwlinerowwrap" data-to="' + esc(x.id) + '">'
+      + '<button type="button" class="pwhlrow pwlinerow' + (on ? ' pwhl' : '') + '" data-hl="' + esc(x.id) + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="pwWheelHl(\'' + esc(x.id) + '\')">'
+      + pwLineMarkHTML(x) + '<span class="pwlinetext"><span class="pwconnname">' + esc(x.name) + '</span><span class="pwconnvia">' + esc(w.join('; ')) + '</span>'
+      + '<span class="pwlinemean">connected \u2014 effect not measured</span></span></button>'
+      + '<button type="button" class="pwconn pwopen" data-to="' + esc(x.id) + '" onclick="pwWheelPick(\'' + esc(x.id) + '\')">Open \u203a</button></div>';
+  });
+  if (conn.n > conn.shown) h += '<div class="pwline pwdim">' + esc(String(conn.n - conn.shown)) + ' more connected, not drawn: the ' + conn.shown + ' sharing the most specific participants are.</div>';
+  return h + pwConnTechHTML(conn) + '</div>';
+}
+function pwWheelPanelHTML(P, r, K, bal, conn) {
   const g = (P.groups || []).filter(function (x) { return x.id === r.group; })[0];
   const lines = (r.supply || []).filter(Boolean);
   const untracked = lines.filter(function (s) { return !s.tracked; }).length;
   const ncl = (r.claims || []).length;
+  const sentence = (r.sentence && /^\d{4}-\d{2}-\d{2}/.test(String(r.reviewed_by_me || ''))) ? '<div class="pwline">' + esc(r.sentence) + '</div>' : '';
   return '<div class="pwpanel" data-pw="' + esc(r.id) + '"><div class="pwpanelh"><span class="pwname">' + esc(r.plain_name) + '</span>'
     + '<details class="pwinfo"><summary aria-label="about ' + esc(r.plain_name) + '">ⓘ</summary>' + pathwayRecordInfo(P, r, true) + '</details></div>'
+    + pwWhyDotHTML((bal || {})[r.id])
+    + (P.connections && P.connections.records ? pwWhyLinesHTML(P, conn) : '')
+    + '<div class="pwbg"><div class="pwcardh">About this pathway</div>' + sentence
     + '<div class="pwline">' + esc(g ? g.name : '') + '</div>'
     + '<div class="pwline">Raw materials known: <b>' + esc(pwSharePct(K.byId[r.id])) + '</b>'
     + (lines.length ? ' · ' + lines.length + ' line' + (lines.length === 1 ? '' : 's') + (untracked ? ', ' + untracked + ' the log cannot count' : '') : '') + '</div>'
-    + '<div class="pwline">Reviewed claims: ' + ncl + ' — in its ⓘ</div>'
-    + pwBalanceHTML(pwBalance(P)[r.id])
-    + pwConnHTML(P, r, true) + '</div>';
+    + '<div class="pwline">Reviewed claims: ' + ncl + ' — in its ⓘ</div></div></div>';
+}
+// R332.1: a row's tap highlights its mark on the wheel (again: off).
+function pwWheelHl(k) {
+  PW_WHEEL.hl = PW_WHEEL.hl === String(k) ? null : String(k);
+  pwWheelFill();
+  return { ok: true, hl: PW_WHEEL.hl };
+}
+// R332.1: a slice's tap. With a pathway picked, on a slice that holds its dot or a line's end, it
+// highlights the nearest such mark and its row; otherwise it is R318/1's group tap.
+function pwWheelTap(ev, gid) {
+  const P = packLoad(), sel = PW_WHEEL.pw;
+  const svg = ev && ev.currentTarget && ev.currentTarget.ownerSVGElement;
+  if (!P || !sel || !svg) return pwWheelGroup(gid);
+  const size = Number(svg.getAttribute('width')), L = pwWheelLayout(P, size), b = svg.getBoundingClientRect(), k = b.width / size;
+  const x = (ev.clientX - b.left) / k - L.c, y = (ev.clientY - b.top) / k - L.c;
+  let a = Math.atan2(x, -y);
+  if (a < 0) a += 2 * Math.PI;
+  const selRec = (P.records || []).filter(function (r) { return r.id === sel; })[0];
+  const conn = selRec ? pwConnRows(P, selRec) : null, bal = pwBalance(P);
+  const ends = {};
+  ((conn && conn.rows) || []).forEach(function (r) { ends[r.id] = 1; });
+  const marks = [];
+  L.segs.forEach(function (sg) {
+    if (sg.group !== gid) return;
+    const mid = (sg.a0 + sg.a1) / 2;
+    if (sg.id === sel && bal[sel]) marks.push({ k: 'dot', a: mid });
+    else if (ends[sg.id]) marks.push({ k: sg.id, a: mid });
+  });
+  if (!marks.length) return pwWheelGroup(gid);
+  const dist = function (m) { const d = Math.abs(m.a - a) % (2 * Math.PI); return Math.min(d, 2 * Math.PI - d); };
+  marks.sort(function (p, q) { return dist(p) - dist(q); });
+  PW_WHEEL.hl = marks[0].k;
+  pwWheelFill();
+  const row = document.querySelector('#pathways .pwpanel .pwhlrow[data-hl="' + marks[0].k.replace(/["\\]/g, '') + '"]');
+  if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
+  return { ok: true, hl: PW_WHEEL.hl };
 }
 // Only the wheel's slot is redrawn -- the list below keeps whatever the user opened.
 function pwWheelFill() {
@@ -4636,7 +4714,7 @@ function pwWheelFill() {
   return { ok: true, drawn: !!slot.firstChild };
 }
 function pwWheelGroup(gid) {
-  PW_WHEEL = PW_WHEEL.group === gid ? { group: null, pw: null } : { group: String(gid), pw: null };
+  PW_WHEEL = PW_WHEEL.group === gid ? { group: null, pw: null, hl: null } : { group: String(gid), pw: null, hl: null };
   pwWheelFill();
   return { ok: true, group: PW_WHEEL.group };
 }
@@ -4644,7 +4722,7 @@ function pwWheelPick(id) {
   const P = packLoad();
   const r = P && (P.records || []).filter(function (x) { return x.id === String(id); })[0];
   if (!r) return { ok: false };
-  PW_WHEEL = { group: r.group, pw: r.id };
+  PW_WHEEL = { group: r.group, pw: r.id, hl: null };
   pwWheelFill();
   return { ok: true, pw: r.id };
 }
@@ -4654,7 +4732,7 @@ function pwCardToggle(d) {
   if (d && d.open && slot && !slot.firstChild) pwWheelFill();
   return { ok: true };
 }
-function pwWheelState() { return { group: PW_WHEEL.group, pw: PW_WHEEL.pw }; }
+function pwWheelState() { return { group: PW_WHEEL.group, pw: PW_WHEEL.pw, hl: PW_WHEEL.hl || null }; }
 function renderPathways() {
   const el = document.getElementById('pathways');
   if (!el) return;
@@ -20144,6 +20222,7 @@ const VERSION_LOG = [
   { v: '0.136.1', d: '2026-11-05', note: 'Faster: the home screen redraws in about half the time with a long log -- the fasting spans are now worked out once per redraw instead of once for each small ring. Nothing shown changes.' },
   { v: '0.137.0', d: '2026-11-07', note: 'Link a database row? now looks wider and puts first the rows closest to your own calories, cooked the way your food was, and the whole food rather than a part (an egg white) or another form (dried, fried). A row far from yours is shown only when nothing closer exists, and then it says so.' },
   { v: '0.138.0', d: '2026-11-07', note: 'The pathway wheel’s dots now mean something you did: a dot appears only where a food you logged or a stack item you ticked in the last 28 days matches a claim you approved as for you or against you. Green when the claims for you weigh more, amber when those against do; it grows as matches build up, each weighted by its claim’s probability. Tap the pathway to see each match with its probability. The wheel’s ⓘ now also says what “known share” means.' },
+  { v: '0.139.0', d: '2026-11-07', note: 'Every mark on the pathway wheel is now explained beside it. A pathway’s panel starts with “Why this dot” (which way it leans, and each thing you logged with its claim and probability, newest first) and “Why these lines” (one row per line, in the line’s own style, with what the two pathways share). Tap a row to highlight its mark on the wheel, or tap the mark to find its row. The group list shows each pathway’s dot too.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -30040,7 +30119,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, pwBalance, pwBalSize, pwBalanceHTML, PW_BAL_SIZES, linkOrder, linkWords, linkHeaded, linkAnswered, linkMine100, linkKcalFill, linkAccuracyLoad, LINK_POOL, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, pwBalance, pwBalSize, PW_BAL_SIZES, pwDotStyle, pwDotMarkHTML, pwLineStyle, pwLineMarkHTML, pwWheelHl, pwWheelTap, linkOrder, linkWords, linkHeaded, linkAnswered, linkMine100, linkKcalFill, linkAccuracyLoad, LINK_POOL, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,

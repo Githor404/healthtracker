@@ -22625,3 +22625,25 @@ carries down to the individual pathways.
    tap-highlight both ways; no-dot words; light and dark at 390. strip-gate's perf budget holds
    (the wheel is drawn only while its card is open). Released under the standing pre-run rule;
    then R331.1's report-first part.
+
+## R332.1 -- BUILT (v0.139.0), against its pre-registration
+Built as registered. The panel reads Why this dot (the wheel's own dot, leans for / against you or
+balanced, last 28 days, the net; each match newest first with its own green or amber marker, item
+and times, claim, for or against you, probability, GRADE; no dot -> "Nothing you logged in the last
+28 days matches a claim for this pathway."), Why these lines (one row per drawn line in the wheel's
+order, a sample in the line's own style, "both use ..." / the literature link's words, "connected
+-- effect not measured", and an Open › button of its own), then About this pathway (the reviewed
+sentence, group, raw materials known, reviewed claims). Row taps highlight their line or the dot;
+a wheel tap with a pathway picked, on a slice holding the dot or a line's end, highlights the
+nearest mark and its row. The list buttons carry the segment's dot. Shared markers: pwDotStyle /
+pwDotMarkHTML and pwLineStyle / pwLineMarkHTML, each with an evidence level (today 'science').
+Highlight is neutral (a thicker stroke, a grey row); fills stay grayscale.
+**Changed with it, named.** R331.1's panel listed "For you" and "Against you" apart; R332.1's
+"each match ... newest first" with a marker per match replaces the two lists (influence-gate's
+R331.1 panel checks rewritten to the new contract). R318/1's panel-row tap now highlights; Open ›
+opens the pathway (wheel-gate's check re-pointed). The old balance block (pwBalanceHTML) is gone.
+**Gates.** wheel-gate +4 (rows = lines, same order and style, 44 px; plain words; panel order;
+highlight both ways by real taps); influence-gate +4 on a sixth placeholder pathway (list dots =
+wheel dots; why-this-dot; newest first with both markers; highlight both ways), light and dark at
+390 read. The wheel's own perf check: 0.124 of the reference workload. Pre-run: static checks,
+harness (3495), every gate alone (72 of 72); one full run 84 of 84.

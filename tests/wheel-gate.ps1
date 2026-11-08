@@ -298,7 +298,7 @@ window.__mkWheel = function () {
 (function () {
   var ch = Array.prototype.slice.call(document.querySelectorAll('#pathways .pwchord'));
   var panel = document.querySelector('#pathways .pwpanel');
-  var rows = panel ? Array.prototype.slice.call(panel.querySelectorAll('.pwconnected .pwconn')) : [];
+  var rows = panel ? Array.prototype.slice.call(panel.querySelectorAll('.pwwhylines .pwconn')) : [];
   var nb = Array.prototype.map.call(document.querySelectorAll('#pathways .pwseg.pwnb'), function (s) { return s.getAttribute('data-pw'); }).sort();
   return { panel: panel ? panel.getAttribute('data-pw') : null, sel: Array.prototype.map.call(document.querySelectorAll('#pathways .pwseg.pwsel'), function (s) { return s.getAttribute('data-pw'); }),
     chordFrom: ch.every(function (c) { return c.getAttribute('data-a') === 'pw-010'; }), chordTo: ch.map(function (c) { return c.getAttribute('data-b'); }).sort(),
@@ -308,28 +308,52 @@ window.__mkWheel = function () {
   Write-Host ("  step 2: " + $s2)
   Check ($t2 -and $s2.Contains('"panel":"pw-010","sel":["pw-010"],"chordFrom":true,"chordTo":["pw-011","pw-040","pw-050","pw-075"],"rowTo":["pw-011","pw-040","pw-075","pw-050"],"nb":["pw-011","pw-040","pw-050","pw-075"],"dashed":["pw-050"]')) "STEP 2: a real tap on a pathway selects it, draws exactly its connections -- one curve per connected pathway, all from it, dashed only where the literature alone links them -- outlines those, and opens its panel"
 
-  # ---- the panel: one row per pathway, plain names, the same rows as the i in the list -------------
+  # ---- the panel: R332.1 -- why these lines, one row per drawn line; the same pathways as the i -------
   $p3 = EvalJ @'
 (function () {
   var panel = document.querySelector('#pathways .pwpanel');
-  var prow = Array.prototype.map.call(panel.querySelectorAll('.pwconnected .pwconn'), function (r) { return r.innerText.replace(/\s+/g, ' ').trim(); });
+  var rows = Array.prototype.slice.call(panel.querySelectorAll('.pwwhylines .pwlinerow'));
   var li = document.querySelector('#pathways .pwrec[data-pw="pw-010"] details.pwinfo');
-  var irow = Array.prototype.map.call(li.querySelectorAll('.pwconnected .pwconn'), function (r) { r = r.cloneNode(true); return r.textContent.replace(/\s+/g, ' ').trim(); });
-  var prowT = Array.prototype.map.call(panel.querySelectorAll('.pwconnected .pwconn'), function (r) { return r.textContent.replace(/\s+/g, ' ').trim(); });
+  var inames = Array.prototype.map.call(li.querySelectorAll('.pwconnected .pwconn .pwconnname'), function (r) { return r.textContent.replace(/\s*\u203a\s*$/, '').trim(); });
+  var pnames = rows.map(function (r) { return r.querySelector('.pwconnname').textContent.trim(); });
+  var ch = Array.prototype.slice.call(document.querySelectorAll('#pathways .pwchords .pwchord'));
+  var style = function (e) { return e.classList.contains('pwlit') ? 'dashed' : 'solid'; };
   var tech = panel.querySelector('.pwtechids');
-  return { same: JSON.stringify(prowT) === JSON.stringify(irow), rows: prow,
-    once: prow.filter(function (t) { return t.indexOf('Gate path 11') === 0; }).length,
-    plain: prowT.join(' ').indexOf('Plain enzyme A') >= 0 && prowT.join(' ').indexOf('SYMA') < 0,
+  return { same: JSON.stringify(pnames) === JSON.stringify(inames), order: rows.map(function (r) { return r.getAttribute('data-hl'); }).join(',') === ch.map(function (c) { return c.getAttribute('data-b'); }).join(','),
+    styles: rows.map(function (r) { return style(r.querySelector('.pwlinemkp')); }).join(',') === ch.map(style).join(','),
+    small: Array.prototype.filter.call(panel.querySelectorAll('.pwhlrow, .pwopen'), function (e) { var q = e.getBoundingClientRect(); return q.height < 44 || q.width < 44; }).length,
+    row11: rows.filter(function (r) { return r.getAttribute('data-hl') === 'pw-011'; }).map(function (r) { return r.innerText.replace(/\s+/g, ' ').trim(); })[0] || '',
+    plain: rows.map(function (r) { return r.textContent; }).join(' ').indexOf('SYMA') < 0,
     tech: tech ? tech.textContent.indexOf('SYMA') >= 0 && tech.textContent.indexOf('gate molecule(2-)') >= 0 : false,
-    head: panel.innerText.replace(/\s+/g, ' ').slice(0, 200) };
+    order2: Array.prototype.map.call(panel.querySelectorAll(':scope > .pwwhy > .pwcardh, :scope > .pwbg > .pwcardh'), function (e) { return e.textContent; }).join('|'),
+    head: panel.innerText.replace(/\s+/g, ' ').slice(0, 3000) };
 })()
 '@
   Write-Host ("  panel: " + $p3)
-  Check ($p3.Contains('"same":true') -and $p3.Contains('"once":1') -and $p3.Contains('Gate path 11 ' + [char]0x203A + ' shares Plain enzyme A, gate molecule; literature: eleven links ten ' + [char]0x2014 + ' Author L et al., Journal L, 2001')) "the panel's rows are the rows of that pathway's i in the list, text for text; a pathway both sharing a participant and linked by the literature appears ONCE, with both reasons"
-  Check ($p3.Contains('"plain":true,"tech":true') -and ($p3 -like '*Gate group 1*Raw materials known: no raw materials listed*Reviewed claims: 1*')) "plain names first (the pack's protein name, a molecule without its charge form); the gene symbol and Reactome's molecule name only behind the card's i; the panel names its group, its known share and its claim count"
+  $p3v = $p3 | ConvertFrom-Json
+  Check ($p3v.same -and $p3v.order -and $p3v.styles -and ($p3v.small -eq 0)) "R332.1 WHY THESE LINES: one row per line drawn on the wheel, in the wheel's order, each with a sample in its line's own style (solid or dashed), the same pathways as its i in the list; every row and its Open button 44 px"
+  Check (($p3v.row11 -like ('Gate path 11 both use Plain enzyme A, gate molecule; literature: eleven links ten ' + [char]0x2014 + ' Author L et al., Journal L, 2001 connected ' + [char]0x2014 + ' effect not measured*')) -and $p3v.plain -and $p3v.tech) "R332.1: a line's row says what the two share in plain words ('both use ...'), the literature link's own words, and what the line means -- connected, effect not measured; gene symbols only behind the i"
+  Check (($p3v.order2 -like 'Why this dot|Why these lines|*About this pathway') -and ($p3v.head -like '*Nothing you logged in the last 28 days matches a claim for this pathway*Gate group 1*Raw materials known: no raw materials listed*Reviewed claims: 1*')) "R332.1 ORDER: the panel reads in the order of the wheel -- why this dot (none here, and it says so), why these lines, then the background"
+  # ---- R332.1: tap-highlight both ways, by real taps --------------------------------------------------
+  $null = TapSel '#pathways .pwpanel .pwlinerow[data-hl=\"pw-050\"]'
+  $h1 = Eval "(function(){ var c = Array.prototype.filter.call(document.querySelectorAll('#pathways .pwchords .pwchord.pwhl'), function (x) { return true; }).map(function (x) { return x.getAttribute('data-b'); }).join(','); var r = document.querySelector('#pathways .pwpanel .pwlinerow[data-hl=\""pw-050\""]'); return c + '|' + (r ? r.getAttribute('aria-pressed') : ''); })()"
+  $pt2 = EvalJ @'
+(function () {
+  var c = document.querySelector('#pathways .pwchords .pwchord[data-b="pw-011"]'), svg = c.ownerSVGElement;
+  svg.scrollIntoView({ block: 'center' });
+  var m = c.getAttribute('d').match(/Q[^ ]+ [^ ]+ ([-\d.]+) ([-\d.]+)/), b = svg.getBoundingClientRect(), s = b.width / Number(svg.getAttribute('width'));
+  return { x: b.left + Number(m[1]) * s, y: b.top + Number(m[2]) * s };
+})()
+'@
+  $pv2 = $pt2 | ConvertFrom-Json
+  TapAt $pv2.x $pv2.y
+  $h2 = Eval "(function(){ var c = Array.prototype.map.call(document.querySelectorAll('#pathways .pwchords .pwchord.pwhl'), function (x) { return x.getAttribute('data-b'); }).join(','); var r = document.querySelector('#pathways .pwpanel .pwhlrow.pwhl'); return c + '|' + (r ? r.getAttribute('data-hl') : '') + '|' + (document.querySelector('#pathways .pwpanel') || {}).getAttribute('data-pw'); })()"
+  Shot 'wheel-hl'
+  Write-Host ("  highlight: row->line " + $h1 + ' ; wheel->row ' + $h2)
+  Check (($h1 -eq 'pw-050|true') -and ($h2 -eq 'pw-011|pw-011|pw-010')) "R332.1 TAP-HIGHLIGHT BOTH WAYS: a real tap on a line's row highlights that line on the wheel (and the row); a real tap on the wheel at a line's end highlights the line and its row, the pathway still picked"
   $t3 = TapSel '#pathways .pwpanel .pwconn[data-to=\"pw-040\"]'
   $s3 = Eval "(function(){ var p = document.querySelector('#pathways .pwpanel'); return (p ? p.getAttribute('data-pw') : '') + '|' + document.querySelectorAll('#pathways .pwchord').length; })()"
-  Check ($t3 -and ($s3 -eq 'pw-040|0')) "a real tap on a row in the panel selects that pathway on the wheel (${s3} -- it has no connections of its own, so nothing is drawn)"
+  Check ($t3 -and ($s3 -eq 'pw-040|0')) "a real tap on a row's Open button (R332.1; the row itself highlights) selects that pathway on the wheel (${s3} -- it has no connections of its own, so nothing is drawn)"
   Check ((Eval "HT.exportJSON()") -eq $exp0) "the taps wrote nothing: the export is unchanged"
   Check ((Eval "(function(){ return /show all/i.test(document.getElementById('pathways').innerText); })()") -eq $false) "there is no 'Show all connections' control"
 

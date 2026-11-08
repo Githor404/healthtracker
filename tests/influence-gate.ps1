@@ -318,15 +318,16 @@ try {
   var cl = function (id, p, m, d, sh) { return { id: id, claim: 'Gate ' + sh + ' claim.', reviewed_by_me: rv, evidence: { grade: 'low' }, probability: pr(p, 'that gate ' + sh + ' holds'), subject: { match: [m] }, for_me: dir(d, 'gate ' + sh) }; };
   var body = { format: 'healthtracker-pack', schema: 1, built_at: '2026-11-07T10:00:00', private: true, reactome_version: 98,
     groups: [{ id: 'g1', name: 'Gate group', claims: [] }],
-    records: [rec('pw-001', 'Gate path 1', ['c-neg']), rec('pw-002', 'Gate path 2', ['c-pos']), rec('pw-003', 'Gate path 3', ['c-neu']), rec('pw-004', 'Gate path 4', ['c-never']), rec('pw-005', 'Gate path 5', ['c-old'])],
+    records: [rec('pw-001', 'Gate path 1', ['c-neg']), rec('pw-002', 'Gate path 2', ['c-pos']), rec('pw-003', 'Gate path 3', ['c-neu']), rec('pw-004', 'Gate path 4', ['c-never']), rec('pw-005', 'Gate path 5', ['c-old']), rec('pw-006', 'Gate path 6', ['c-neg', 'c-older'])],
     claims: [cl('c-neg', 0.3, 'gatezinc', 'negative', 'negative'), cl('c-pos', 0.9, 'gatebean', 'positive', 'positive'), cl('c-neu', 0.8, 'gatezinc', 'neutral', 'neutral'),
-             cl('c-never', 0.8, 'gatenever', 'negative', 'never'), cl('c-old', 0.8, 'gateold', 'negative', 'old')],
+             cl('c-never', 0.8, 'gatenever', 'negative', 'never'), cl('c-old', 0.8, 'gateold', 'negative', 'old'), cl('c-older', 0.5, 'gateolder', 'positive', 'older')],
     interactions: [], reference_intakes: { source: 'x', group: 'y', values: {} }, lexicon: { rules: [] }, sources: [] };
   var S = HT.state(), t = HT.todayKey();
   S.settings.stack = HT.normalizeStack([{ id: 'sz', added_on: HT.shiftDate(t, -40), added_basis: 'created', name: 'Gatezinc 50', kind: 'supplement', dose: 50, dose_unit: 'mg' }]);
   var food = function (n) { return { name: n, meal: 'lunch', time: '12:00', grams: 100, kcal: 100, protein_g: 5, fat_g: 1, carb_g: 10, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }; };
   S.days[t] = { status: 'in_progress', water_l: 0, items: [food('Gatebean salad')] };
   S.days[HT.shiftDate(t, -28)] = { status: 'complete', water_l: 0, items: [food('Gateold stew')] };   // the 29th day back: outside the 28
+  S.days[HT.shiftDate(t, -10)] = { status: 'complete', water_l: 0, items: [food('Gateolder bread')] };  // R332.1: an older, positive match
   S.current = t;
   window.__ticks = function (n) {
     S.timeline = S.timeline || {};
@@ -345,7 +346,7 @@ try {
   WaitQuiet 'balance fixture'
   $open = Eval "document.querySelector('[data-card=\""pathways\""] > details').open"
   if (-not $open) { $null = TapSel '[data-card="pathways"] > details > summary' }
-  $DOTS = "Array.prototype.map.call(document.querySelectorAll('#pathways .pwdot'), function (d) { return d.getAttribute('data-pw') + ':' + d.getAttribute('class').replace('pwdot ', '') + ':' + d.getAttribute('data-size') + ':' + d.getAttribute('data-net'); }).sort().join(',')"
+  $DOTS = "Array.prototype.map.call(document.querySelectorAll('#pathways .pwdot'), function (d) { return d.getAttribute('data-pw') + ':' + ['pwdotpos', 'pwdotneg', 'pwdotzero'].filter(function (c) { return d.classList.contains(c); })[0] + ':' + d.getAttribute('data-size') + ':' + d.getAttribute('data-net'); }).sort().join(',')"
   $d6 = Eval $DOTS
   $col = Eval "(function(){ var tok = function (n) { var d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; }; var f = function (s) { var e = document.querySelector('#pathways ' + s); return e ? getComputedStyle(e).fill : ''; }; return (f('.pwdotneg') === tok('--warn') ? 'neg=warn' : 'neg=' + f('.pwdotneg')) + '|' + (f('.pwdotpos') === tok('--good') ? 'pos=good' : 'pos=' + f('.pwdotpos')) + '|' + (f('.pwdotneg') !== tok('--bad') ? 'notred' : 'RED'); })()"
   $null = Eval "window.__ticks(7)"; WaitQuiet '7 ticks'
@@ -353,12 +354,41 @@ try {
   $null = Eval "window.__ticks(20)"; WaitQuiet '20 ticks'
   $d20 = Eval $DOTS
   Write-Host ("  dots at 6 / 7 / 20 ticks: " + $d6 + ' / ' + $d7 + ' / ' + $d20 + ' (' + $col + ')')
-  Check (($fx2 -like '*"imported":true*') -and ($d6 -eq 'pw-001:pwdotneg:1:-1.8,pw-002:pwdotpos:1:0.9')) "R331.1 DOTS MEAN SOMETHING LOGGED: a stack item ticked 6 days against a negative claim at 30 % (-1.8) and a food eaten today matching a positive one at 90 % (+0.9) draw a dot each; a NEUTRAL claim's pathway, one whose claim nothing logged matches, and a food 29 days back draw none"
+  Check (($fx2 -like '*"imported":true*') -and ($d6 -eq 'pw-001:pwdotneg:1:-1.8,pw-002:pwdotpos:1:0.9,pw-006:pwdotneg:1:-1.3')) "R331.1 DOTS MEAN SOMETHING LOGGED: a stack item ticked 6 days against a negative claim at 30 % (-1.8) and a food eaten today matching a positive one at 90 % (+0.9) draw a dot each; a NEUTRAL claim's pathway, one whose claim nothing logged matches, and a food 29 days back draw none"
   Check ($col -eq 'neg=warn|pos=good|notred') ("R331.1 COLOUR: the net for you is the green token, against you the R318 amber, never red (" + $col + ")")
   Check (($d7 -like 'pw-001:pwdotneg:2:-2.1,*') -and ($d20 -like 'pw-001:pwdotneg:3:-6,*')) "R331.1 SIZE: repeated small negatives build up -- the 30 % daily tick steps the dot from the smallest (6 ticks, -1.8) to the middle (7, -2.1) to the largest (20, -6.0)"
+  # ---- R332.1: the list carries the same dots; the panel explains its dot ------------------------
   $null = TapSel '#pathways .pwgbtn[data-group="g1"]'
+  $ld = EvalJ @'
+(function () {
+  var dir = function (e) { return ['pwdotpos', 'pwdotneg', 'pwdotzero'].filter(function (c) { return e.classList.contains(c); })[0] + ':' + e.getAttribute('data-size'); };
+  var wheel = {}; Array.prototype.forEach.call(document.querySelectorAll('#pathways .pwdot'), function (d) { wheel[d.getAttribute('data-pw')] = dir(d); });
+  var bad = [];
+  Array.prototype.forEach.call(document.querySelectorAll('#pathways .pwglist .pwpick'), function (b) {
+    var m = b.querySelector('.pwdotmkc'), id = b.getAttribute('data-pw');
+    var got = m ? dir(m) : 'none', want = wheel[id] || 'none';
+    if (got !== want) bad.push(id + ' list ' + got + ' wheel ' + want);
+  });
+  return { n: Object.keys(wheel).length, bad: bad };
+})()
+'@
+  Write-Host ("  list dots: " + $ld)
+  Check ($ld -like '{"n":3,"bad":`[`]}') "R332.1 LIST: each pathway button in the group's list carries the same dot as its wheel segment -- direction and size -- and a pathway with no dot carries none"
   $null = TapSel '#pathways .pwpick[data-pw="pw-001"]'
-  $p1 = Eval "(function(){ var b = document.querySelector('#pathways .pwpanel .pwbal'); return b ? b.textContent.replace(/\s+/g, ' ') + '|pos:' + !!b.querySelector('.pwbalpos') + '|neg:' + !!b.querySelector('.pwbalneg') : 'NONE'; })()"
+  $whyJs = @'
+(function () {
+  var w = document.querySelector('#pathways .pwpanel .pwwhydot');
+  if (!w) return 'NONE';
+  var dir = function (e) { return ['pwdotpos', 'pwdotneg', 'pwdotzero'].filter(function (c) { return e.classList.contains(c); })[0] + ':' + e.getAttribute('data-size'); };
+  var pid = (document.querySelector('#pathways .pwpanel') || {}).getAttribute('data-pw');
+  var mk = w.querySelector('.pwdotrow .pwdotmkc'), wd = document.querySelector('#pathways .pwdot[data-pw="' + pid + '"]');
+  return w.innerText.replace(/\s+/g, ' ') + '|same:' + (mk && wd ? dir(mk) === dir(wd) : !mk && !wd)
+    + '|signs:' + Array.prototype.map.call(w.querySelectorAll('.pwmatch'), function (li) { return li.getAttribute('data-sign') + '/' + dir(li.querySelector('.pwdotmkc')).split(':')[0]; }).join(',');
+})()
+'@
+  $p1 = EvalJ $whyJs
+  $null = TapSel '#pathways .pwpanel .pwdotrow'
+  $hd = EvalJ "(function(){ var d = document.querySelector('#pathways .pwdot[data-pw=""pw-001""]'); return (d && d.classList.contains('pwhl')) + '|' + document.querySelector('#pathways .pwpanel .pwdotrow').getAttribute('aria-pressed'); })()"
   [void](Eval "(function(){ var p = document.querySelector('#pathways .pwpanel'); if (p) p.scrollIntoView({ block: 'center' }); return 1; })()")
   Shot 'balance-panel-light'
   Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'dark' }) } | Out-Null; WaitQuiet 'dark'
@@ -367,14 +397,24 @@ try {
   Shot 'balance-wheel-dark'
   Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null; WaitQuiet 'light'
   Shot 'balance-wheel-light'
+  $null = TapSel '#pathways .pwpanel .pwdotrow'
+  $pt = EvalJ "(function(){ var d = document.querySelector('#pathways .pwdot[data-pw=""pw-001""]'), svg = d.ownerSVGElement; svg.scrollIntoView({ block: 'center' }); var b = svg.getBoundingClientRect(), k = b.width / Number(svg.getAttribute('width')); return { x: b.left + Number(d.getAttribute('cx')) * k, y: b.top + Number(d.getAttribute('cy')) * k }; })()"
+  $ptv = $pt | ConvertFrom-Json
+  Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchStart'; touchPoints = @(@{ x = $ptv.x; y = $ptv.y }) } | Out-Null
+  Invoke-CDP 'Input.dispatchTouchEvent' @{ type = 'touchEnd'; touchPoints = @() } | Out-Null
+  WaitQuiet 'wheel tap'
+  $hw = EvalJ "(function(){ var r = document.querySelector('#pathways .pwpanel .pwhlrow.pwhl'), d = document.querySelector('#pathways .pwdot[data-pw=""pw-001""]'); return (r ? r.getAttribute('data-hl') : '') + '|' + (d && d.classList.contains('pwhl')) + '|' + (document.querySelector('#pathways .pwpanel') || {}).getAttribute('data-pw'); })()"
+  $null = TapSel '#pathways .pwpick[data-pw="pw-006"]'
+  $p6 = EvalJ $whyJs
   $null = TapSel '#pathways .pwpick[data-pw="pw-002"]'
-  $p2 = Eval "(function(){ var b = document.querySelector('#pathways .pwpanel .pwbal'); return b ? b.textContent.replace(/\s+/g, ' ') + '|pos:' + !!b.querySelector('.pwbalpos') + '|neg:' + !!b.querySelector('.pwbalneg') : 'NONE'; })()"
+  $p2 = EvalJ $whyJs
   $null = TapSel '#pathways .pwpick[data-pw="pw-004"]'
-  $p4 = Eval "(function(){ var b = document.querySelector('#pathways .pwpanel .pwbal'); return b ? b.textContent.replace(/\s+/g, ' ') : 'NONE'; })()"
-  Write-Host ("  panels: " + $p1 + ' || ' + $p2 + ' || ' + $p4)
-  $m = [char]0x2212; $x = [char]0xD7
-  Check (($p1 -like ('*From what you logged*last 28 days: ' + $m + '6.0*Against you*Gatezinc 50 ' + $x + '20 (last *gate negative*30 % that gate negative holds*GRADE low*effect not measured in you*|pos:False|neg:True'))) "R331.1 ON TAP: the pathway's panel gives the balance with its sign and window, and each contributor -- the logged item, how many times, its last date, the claim, its probability and GRADE -- under 'Against you'"
-  Check (($p2 -like ('*last 28 days: +0.9*For you*Gatebean salad ' + $x + '1 (last *gate positive*90 % that gate positive holds*|pos:True|neg:False')) -and ($p4 -like '*nothing matches a claim filed here*')) "R331.1 ON TAP: a positive balance lists its matches under 'For you', apart from the negatives; a pathway whose claim nothing logged matches says so"
+  $p4 = EvalJ $whyJs
+  Write-Host ("  why: " + $p1 + ' / ' + $p6 + ' / ' + $p2 + ' / ' + $p4 + ' / highlight ' + $hd + ' and ' + $hw)
+  $m = [char]0x2212; $x = [char]0xD7; $d = [char]0xB7
+  Check (($p1 -like ('*Leans against you ' + $d + ' last 28 days ' + $d + ' ' + $m + '6.0 Gatezinc 50 ' + $x + '20 (last *gate negative ' + $d + ' against you ' + $d + ' 30 % that gate negative holds ' + $d + ' GRADE low*effect not measured in you*|same:true|signs:neg/pwdotneg*')) -and ($p2 -like ('*Leans for you ' + $d + ' last 28 days ' + $d + ' +0.9 Gatebean salad ' + $x + '1 (last *gate positive ' + $d + ' for you ' + $d + ' 90 % that gate positive holds*|same:true|signs:pos/pwdotpos*'))) "R332.1 WHY THIS DOT: the panel opens with the wheel's own dot (same direction and size), which way it leans, the window and the net, then each match -- the item and times, the claim, a green or amber marker, for or against you, probability and GRADE"
+  Check (($p6 -like '*signs:neg/pwdotneg,pos/pwdotpos*') -and ($p6 -like '*Gatezinc 50*Gateolder bread*') -and ($p4 -like '*Nothing you logged in the last 28 days matches a claim for this pathway.*|same:true|signs:*')) "R332.1: matches of both directions are listed newest first, each with its own marker (today's tick before a food 10 days back); a pathway with no dot says nothing logged matches"
+  Check (($hd -like '*true|true*') -and ($hw -like '*dot|true|pw-001*')) "R332.1 TAP-HIGHLIGHT BOTH WAYS: a real tap on 'Why this dot' highlights the dot on the wheel; a real tap on the dot (its slice) highlights its row, the pathway still picked"
   $all = Eval "document.getElementById('pathways').innerText.replace(/\s+/g, ' ')"
   $info = Eval "(document.querySelector('#pathways .pwwheelinfo') || {}).textContent || ''"
   Check (($all -notmatch '(?i)\b(should|must|avoid|recommend|stop|start)\b') -and ($info -like '*Known share: the share of the food you logged in the last 28 days that carries a figure for this pathway*s raw materials. It measures coverage, not how well the pathway is supplied.*')) "R331.1 WORDS: no should, must, avoid, recommend, stop or start anywhere on the Pathways card; the wheel's i says what the known share is and that it measures coverage, not how well the pathway is supplied"
