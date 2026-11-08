@@ -348,7 +348,7 @@ try {
   if (-not $open) { $null = TapSel '[data-card="pathways"] > details > summary' }
   $DOTS = "Array.prototype.map.call(document.querySelectorAll('#pathways .pwdot'), function (d) { return d.getAttribute('data-pw') + ':' + ['pwdotpos', 'pwdotneg', 'pwdotzero'].filter(function (c) { return d.classList.contains(c); })[0] + ':' + d.getAttribute('data-size') + ':' + d.getAttribute('data-net'); }).sort().join(',')"
   $d6 = Eval $DOTS
-  $col = Eval "(function(){ var tok = function (n) { var d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; }; var f = function (s) { var e = document.querySelector('#pathways ' + s); return e ? getComputedStyle(e).fill : ''; }; return (f('.pwdotneg') === tok('--warn') ? 'neg=warn' : 'neg=' + f('.pwdotneg')) + '|' + (f('.pwdotpos') === tok('--good') ? 'pos=good' : 'pos=' + f('.pwdotpos')) + '|' + (f('.pwdotneg') !== tok('--bad') ? 'notred' : 'RED'); })()"
+  $col = Eval "(function(){ var tok = function (n) { var d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; }; var f = function (s) { var e = document.querySelector('#pathways .pwdot' + s); return e ? getComputedStyle(e).stroke : ''; }; return (f('.pwdotneg') === tok('--warn') ? 'neg=warn' : 'neg=' + f('.pwdotneg')) + '|' + (f('.pwdotpos') === tok('--good') ? 'pos=good' : 'pos=' + f('.pwdotpos')) + '|' + (f('.pwdotneg') !== tok('--bad') ? 'notred' : 'RED'); })()"
   $null = Eval "window.__ticks(7)"; WaitQuiet '7 ticks'
   $d7 = Eval $DOTS
   $null = Eval "window.__ticks(20)"; WaitQuiet '20 ticks'
@@ -418,6 +418,116 @@ try {
   $all = Eval "document.getElementById('pathways').innerText.replace(/\s+/g, ' ')"
   $info = Eval "(document.querySelector('#pathways .pwwheelinfo') || {}).textContent || ''"
   Check (($all -notmatch '(?i)\b(should|must|avoid|recommend|stop|start)\b') -and ($info -like '*Known share: the share of the food you logged in the last 28 days that carries a figure for this pathway*s raw materials. It measures coverage, not how well the pathway is supplied.*')) "R331.1 WORDS: no should, must, avoid, recommend, stop or start anywhere on the Pathways card; the wheel's i says what the known share is and that it measures coverage, not how well the pathway is supplied"
+
+  # ---- R333: evidence levels, time tiers with a switch, from -> to links ---------------------------
+  $mk3 = @'
+(function () {
+  localStorage.clear(); HT.boot();
+  var rv = '2026-11-08';
+  var pr = function (p, of) { return { current_version: 1, versions: [{ version: 1, p: p, of: of, kind: 'general' }] }; };
+  var dir = function (d, sh) { return { direction: d, short: sh, reviewed_by_me: rv }; };
+  var rec = function (id, claims) { return { id: id, plain_name: 'Gate path ' + Number(id.slice(3)), technical_name: id, group: 'g1', backbone: [], supply: [], observable: 'not observable', observable_how: '', sentence: 'A sentence.', reviewed_by_me: rv, claims: claims }; };
+  var cl = function (id, p, m, d, extra) { return Object.assign({ id: id, claim: 'Gate ' + id + ' claim.', reviewed_by_me: rv, evidence: { grade: 'low' }, probability: pr(p, 'that ' + id + ' holds'), subject: { match: [m] }, for_me: dir(d, 'gate ' + id) }, extra || {}); };
+  var own = function (res, n, ho, ok) { return { measured_in_me: { result: res, by: 'own data', n: n, held_out: ho, test: 'gate test', date: '2026-11-01', p: 0.72, reviewed_by_me: ok === false ? null : rv } }; };
+  var panel = function (res) { return { measured_in_me: { result: res, by: 'blood panel', test: 'gate marker', date: '2026-11-01', reviewed_by_me: rv } }; };
+  var body = { format: 'healthtracker-pack', schema: 1, built_at: '2026-11-08T10:00:00', private: true, reactome_version: 98,
+    groups: [{ id: 'g1', name: 'Gate group', claims: [] }],
+    records: [rec('pw-001', ['c-zinc']), rec('pw-002', ['c-bean']), rec('pw-003', ['c-bean2']), rec('pw-004', ['c-fill']), rec('pw-005', ['c-ring']), rec('pw-006', ['c-contra']),
+              rec('pw-007', ['c-n4']), rec('pw-008', ['c-noho']), rec('pw-009', ['c-unapp']), rec('pw-010', ['c-fill', 'c-ring']), rec('pw-011', ['c-fill', 'c-n4']), rec('pw-012', ['c-fill', 'c-contra'])],
+    claims: [cl('c-zinc', 0.3, 'gatezinc', 'negative'), cl('c-bean', 0.9, 'gatebean', 'positive'), cl('c-bean2', 0.5, 'gatebean', 'positive'),
+             cl('c-fill', 0.6, 'gatefill', 'positive', own('agrees', 6, true)), cl('c-ring', 0.6, 'gatefill', 'positive', panel('agrees')), cl('c-contra', 0.6, 'gatefill', 'positive', own('disagrees', 8, true)),
+             cl('c-n4', 0.6, 'gatefill', 'positive', own('agrees', 4, true)), cl('c-noho', 0.6, 'gatefill', 'positive', own('agrees', 9, false)), cl('c-unapp', 0.6, 'gatefill', 'positive', own('agrees', 9, true, false)),
+             cl('c-link', 0.7, 'gatenone', 'positive', { link: { from: 'pw-001', to: 'pw-003', says: 'gate link says', reviewed_by_me: rv } }),
+             cl('c-linkun', 0.7, 'gatenone', 'negative', { link: { from: 'pw-001', to: 'pw-002', says: 'gate unapproved link', reviewed_by_me: null } }),
+             cl('c-linkneu', 0.7, 'gatenone', 'neutral', { link: { from: 'pw-001', to: 'pw-004', says: 'gate neutral link', reviewed_by_me: rv } })],
+    tiers: { reviewed_by_me: rv, records: {}, references: { R1: { code: 'R1', citation: 'Gate A et al. A gate source. 2020. PMID 1' } } },
+    interactions: [], reference_intakes: { source: 'x', group: 'y', values: {} }, lexicon: { rules: [] }, sources: [] };
+  ['pw-001', 'pw-004', 'pw-005', 'pw-006', 'pw-007', 'pw-008', 'pw-009', 'pw-010', 'pw-011', 'pw-012'].forEach(function (id) { body.tiers.records[id] = { tier: 'fast', uncertain: false, qualifier: '', basis: 'Gate fast basis.', refs: ['R1'], verified: 'yes, abstract', kind: 'H' }; });
+  body.tiers.records['pw-002'] = { tier: 'slow', uncertain: true, qualifier: 'uncertain', basis: 'Gate slow basis.', refs: ['R1'], verified: 'time scale NOT in abstract', kind: 'R' };
+  var S = HT.state(), t = HT.todayKey();
+  S.settings.stack = HT.normalizeStack([{ id: 'sz', added_on: HT.shiftDate(t, -40), added_basis: 'created', name: 'Gatezinc 50', kind: 'supplement', dose: 50, dose_unit: 'mg' }]);
+  var food = function (n) { return { name: n, meal: 'lunch', time: '12:00', grams: 100, kcal: 100, protein_g: 5, fat_g: 1, carb_g: 10, fiber_g: 2, soluble_fiber_g: 0, confidence: 'eyeballed', source: 'manual', notes: '' }; };
+  S.days = {};
+  S.days[t] = { status: 'in_progress', water_l: 0, items: [food('Gatefill tonic')] };
+  S.days[HT.shiftDate(t, -20)] = { status: 'complete', water_l: 0, items: [food('Gatebean salad')] };   // in slow's 90 and medium's 28, not fast's 7
+  S.current = t;
+  S.timeline = {};
+  [0, 10].forEach(function (i) { S.timeline[HT.shiftDate(t, -i)] = [{ kind: 'medication', stackId: 'sz', name: 'Gatezinc 50', time: '08:00', source: 'stack', value: 50, unit: 'mg' }]; });
+  HT.resave();
+  var txt = JSON.stringify(body);
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(function (h) {
+    var hex = Array.prototype.map.call(new Uint8Array(h), function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+    return HT.packImportText(JSON.stringify({ format: 'healthtracker-pack', version: 22, sha256: hex, body: txt }));
+  }).then(function (r) { HT.refresh(); return { imported: r.ok }; });
+})()
+'@
+  $fx3 = EvalA $mk3
+  Write-Host ("  R333 fixture: " + $fx3)
+  WaitQuiet 'R333 fixture'
+  $open = Eval "document.querySelector('[data-card=\""pathways\""] > details').open"
+  if (-not $open) { $null = TapSel '[data-card="pathways"] > details > summary' }
+  $W3 = @'
+(function () {
+  var tok = function (n) { var d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; };
+  var dots = Array.prototype.map.call(document.querySelectorAll('#pathways .pwdot'), function (d) {
+    var cs = getComputedStyle(d);
+    return d.getAttribute('data-pw') + ':' + d.getAttribute('data-ev') + ':' + d.getAttribute('data-net') + ':' + d.getAttribute('data-days') + ':' + (cs.fill === 'none' ? 'hollow' : (cs.fill === tok('--good') || cs.fill === tok('--warn') ? 'solid' : cs.fill));
+  }).sort().join(',');
+  var btns = Array.prototype.map.call(document.querySelectorAll('#pathways .pwtierbtn'), function (b) { var r = b.getBoundingClientRect(); return b.getAttribute('data-tier') + ':' + b.getAttribute('aria-pressed') + ':' + (r.height >= 44 && r.width >= 44 ? 'ok' : Math.round(r.height) + 'x' + Math.round(r.width)); }).join(',');
+  var faded = document.querySelectorAll('#pathways .pwseg.pwfaded').length;
+  return { tier: HT.pwWheelState().tier, btns: btns, dots: dots, faded: faded, rings: document.querySelectorAll('#pathways .pwsegs .pwdotring').length, strikes: document.querySelectorAll('#pathways .pwsegs .pwdotstrike').length };
+})()
+'@
+  $tMed = EvalJ $W3
+  $null = TapSel '#pathways .pwtierbtn[data-tier="fast"]'
+  $tFast = EvalJ $W3
+  [void](Eval "(function(){ var w = document.querySelector('#pathways .pwwheel'); if (w) w.scrollIntoView({ block: 'start' }); return 1; })()")
+  Shot 'r333-fast-light'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'dark' }) } | Out-Null; WaitQuiet 'dark'
+  Shot 'r333-fast-dark'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null; WaitQuiet 'light'
+  $null = TapSel '#pathways .pwtierbtn[data-tier="slow"]'
+  $tSlow = EvalJ $W3
+  Write-Host ("  tiers: medium " + $tMed); Write-Host ("  fast " + $tFast); Write-Host ("  slow " + $tSlow)
+  Check (($fx3 -like '*"imported":true*') -and ($tMed -like '*"tier":"medium","btns":"fast:false:ok,medium:true:ok,slow:false:ok","dots":"pw-003:science:0.5:28:hollow","faded":11,*')) "R333 TIERS: the wheel opens on Medium (three 44 px buttons); only the pathway with no cited time scale reads with it -- its dot counts a food 20 days back over 28 days -- and the 11 tiered pathways are faded with no dot"
+  Check ($tFast -like '*"tier":"fast"*"dots":"pw-001:science:-0.3:7:hollow,pw-004:filled:0.6:7:solid,pw-005:ringed:0.6:7:solid,pw-006:contradicts:0.6:7:hollow,pw-007:science:0.6:7:hollow,pw-008:science:0.6:7:hollow,pw-009:science:0.6:7:hollow,pw-010:filled:1.2:7:solid,pw-011:science:1.2:7:hollow,pw-012:contradicts:1.2:7:hollow","faded":2,"rings":1,"strikes":2}') "R333 FAST + EVIDENCE LEVELS: Fast counts 7 days (today's tick, not the one 10 days back: -0.3); own data agreeing at n 6 with a held-out check is filled, a panel agreeing ringed, disagreeing struck; n 4, no held-out check or an unapproved check stay hollow; mixed dots: filled+ringed filled, filled+science hollow, filled+contradicted struck"
+  Check ($tSlow -like '*"tier":"slow"*"dots":"pw-002:science:0.9:90:hollow","faded":11,*') "R333 SLOW: Slow counts 90 days -- the food 20 days back draws its dot; the other pathways are faded with no dot"
+  # a pick moves the switch to the pathway's own tier; the panel says the time scale
+  # (the wheel's state outlives HT.boot: an earlier section may have left g1 open, and a tap would close it)
+  if ((Eval "HT.pwWheelState().group") -ne 'g1') { $null = TapSel '#pathways .pwgbtn[data-group="g1"]' }
+  $null = TapSel '#pathways .pwtierbtn[data-tier="fast"]'
+  $null = TapSel '#pathways .pwpick[data-pw="pw-002"]'
+  $TP = "(function(){ var p = document.querySelector('#pathways .pwpanel .pwwhydot'); return HT.pwWheelState().tier + '|' + (document.querySelector('#pathways .pwtierbtn[aria-pressed=""true""]') || {}).getAttribute('data-tier') + '|' + (p ? p.innerText.replace(/\s+/g, ' ') : 'NONE'); })()"
+  $pk2 = Eval $TP
+  $null = TapSel '#pathways .pwpick[data-pw="pw-003"]'
+  $pk3 = Eval $TP
+  $null = TapSel '#pathways .pwpick[data-pw="pw-004"]'
+  $pk4 = Eval $TP
+  $null = TapSel '#pathways .pwpanel .pwtierinfo > summary'
+  $ti = Eval "(document.querySelector('#pathways .pwpanel .pwtierinfo') || {}).innerText"
+  $ld3 = EvalJ "(function(){ var bad = []; Array.prototype.forEach.call(document.querySelectorAll('#pathways .pwglist .pwpick'), function (b) { var id = b.getAttribute('data-pw'), m = b.querySelector('.pwdotmkc'), w = document.querySelector('#pathways .pwdot[data-pw=""' + id + '""]'); var g = m ? m.getAttribute('data-ev') : 'none', x = w ? w.getAttribute('data-ev') : 'none'; if (g !== x) bad.push(id + ' ' + g + '/' + x); }); return bad; })()"
+  Write-Host ("  picks: " + $pk2 + ' / ' + $pk3 + ' / ' + $pk4 + ' / i ' + $ti + ' / list ' + $ld3)
+  $d = [char]0xB7
+  Check (($pk2 -like ('slow|slow|*Leans for you ' + $d + ' last 90 days ' + $d + ' +0.9*Timescale: slow (uncertain) ' + $d + ' its dot counts the last 90 days.*')) -and ($pk3 -like ('medium|medium|*Leans for you ' + $d + ' last 28 days*Timescale not cited ' + $d + ' its dot counts the last 28 days (Medium).*'))) "R333 PICK: picking a slow pathway while Fast is on moves the switch to Slow; the panel's dot counts 90 days and says 'Timescale: slow (uncertain)'; a pathway with no cited time scale moves it to Medium and says 'Timescale not cited'"
+  Check (($pk4 -like ('fast|fast|*your data agrees (n 6, held-out check, calculated 72 %: gate test)*Timescale: fast*')) -and ($ti -like '*Gate fast basis.*Gate A et al. A gate source. 2020. PMID 1*Checked: yes, abstract*') -and ($ld3 -eq '[]')) "R333 PANEL: a match says its level in words ('your data agrees (n 6, held-out check, calculated 72 %...)'); the timescale's i gives its basis, citation and how it was checked; the list's dots carry the wheel's level"
+  # lines: an approved from -> to link colours exactly its line, with an arrow; an unapproved one changes nothing
+  $null = TapSel '#pathways .pwpick[data-pw="pw-001"]'
+  $ln = EvalJ @'
+(function () {
+  var tok = function (n) { var d = document.createElement('div'); d.style.color = 'var(' + n + ')'; document.body.appendChild(d); var c = getComputedStyle(d).color; d.remove(); return c; };
+  var ch = Array.prototype.map.call(document.querySelectorAll('#pathways .pwchords .pwchord'), function (c) { var cs = getComputedStyle(c); return c.getAttribute('data-b') + ':' + (c.classList.contains('pwlinked') ? 'linked' : 'plain') + ':' + (cs.stroke === tok('--good') ? 'good' : cs.stroke) + ':' + cs.strokeDasharray; });
+  var ar = Array.prototype.map.call(document.querySelectorAll('#pathways .pwchords .pwarrow'), function (a) { return a.getAttribute('data-b') + ':' + (getComputedStyle(a).fill === tok('--good') ? 'good' : getComputedStyle(a).fill); });
+  var rows = Array.prototype.map.call(document.querySelectorAll('#pathways .pwpanel .pwlinerowwrap'), function (w) { return (w.getAttribute('data-link') || '-') + '=' + w.querySelector('.pwlinemean').innerText; });
+  return { chords: ch, arrows: ar, rows: rows, rowArrow: document.querySelectorAll('#pathways .pwpanel .pwlinemk .pwarrow').length };
+})()
+'@
+  Write-Host ("  links: " + $ln)
+  [void](Eval "(function(){ var w = document.querySelector('#pathways .pwwheel'); if (w) w.scrollIntoView({ block: 'start' }); return 1; })()")
+  Shot 'r333-link-light'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'dark' }) } | Out-Null; WaitQuiet 'dark'
+  Shot 'r333-link-dark'
+  Invoke-CDP 'Emulation.setEmulatedMedia' @{ features = @(@{ name = 'prefers-color-scheme'; value = 'light' }) } | Out-Null; WaitQuiet 'light'
+  Check ($ln -like ('{"chords":`["pw-003:linked:good:none"`],"arrows":`["pw-003:good"`],"rows":`["pw-001>pw-003=Gate path 1 acts on Gate path 3: gate link says ' + $d + ' claim: Gate c-link claim. ' + $d + ' for you ' + $d + ' 70 % that c-link holds ' + $d + ' GRADE low ' + $d + ' science only: no measure of you yet"`],"rowArrow":1}')) "R333 LINES: an approved claim naming 'Gate path 1 acts on Gate path 3' draws that line -- with no other connection -- solid in the claim's green, an arrow at its 'to' end, its row saying the direction, the claim, for you, probability and GRADE; a link not yet approved draws no line, nor does an approved link on a neutral claim (R335.1)"
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

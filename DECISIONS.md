@@ -22703,3 +22703,34 @@ on Medium with "timescale not cited", a pick moves the switch, 44 px, light and 
 wheel-gate: an approved link colours exactly its line with an arrow and its row's words; an
 unapproved one changes nothing; a link-only pair gets its row. strip-gate: budget 1.8. Released
 under the standing pre-run rule.
+
+## R335.1 -- RULED (2026-11-08; goes into v0.140.0): the user's review of the R333 drafts
+Replaces R335. **Rule: neutral claims draw neither dots nor lines.** This reverses R333 part 2's
+"a neutral direction a solid muted line": the phone draws a link only when its claim carries an
+approved for-me direction that is negative or positive (`pwLinks`), as the dots already did.
+influence-gate's fixture gains an approved link on a neutral claim, which must draw no line.
+On the PC (HTPrivate, private): four drafted links approved by id, one with its row text replaced
+by the user's own words; two declined (the neutral one, by this rule; one with no record standing
+for what it names, as recommended); the two re-drafted testable fields approved as written; the
+four generic words added to the R204 guard approved. Pack rebuilt as v023.
+
+## R333 -- BUILT (2026-11-08, v0.140.0), with R335.1
+As pre-registered, with these differences, named:
+- **The line checks are in influence-gate, not wheel-gate.** The fixture there already carries
+  approved claims, tiers and evidence levels; the checks are the ones pre-registered (an approved
+  link colours exactly its line with an arrow and its row's words, an unapproved one changes
+  nothing, a link-only pair gets its row) plus R335.1's (an approved link on a neutral claim draws
+  no line).
+- **A neutral claim draws no line** (R335.1), replacing part 2's "a solid muted line".
+- **The mixed-dot rule** is as ruled in the PRE entry (contradicts if any; else hollow if any is
+  science only; else ringed if all panel-agreed; else filled); influence-gate checks all three mixes.
+- **The tier table cites 45 PubMed-checked references, not 40** as the R331.1 report said (the
+  report is corrected in HTPrivate).
+- **The R204 guard's generic-word list gained four words** (approved by the user, R335.1); the
+  privacy check over the tree is clean.
+- Found by the pre-run: the 0.140.0 changelog entry sat above 0.139.0 (harness VN5, an app bug,
+  fixed); influence-gate's R333 section tapped a group an earlier section had left open, closing it
+  (a gate flaw: the wheel's state outlives HT.boot; the tap is now conditional).
+Pack v023 (HTPrivate) carries the four approved links, the two approved testable re-drafts and the
+tier table. Every evidence level is still hollow: no claim carries an approved check yet.
+Harness 3495/3495; every gate alone green; suite 84 of 84.

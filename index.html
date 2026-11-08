@@ -815,11 +815,27 @@
   .pwhatchbar{fill:var(--pwhatch)}
   .pwseg.pwnb{stroke:var(--accent);stroke-width:2}
   .pwseg.pwsel{stroke:var(--txt);stroke-width:2.5}
-  .pwdot{pointer-events:none;stroke:var(--panel);stroke-width:1}   /* R331.1: what the user logged, its net */
-  .pwdotpos{fill:var(--good)}.pwdotneg{fill:var(--warn)}.pwdotzero{fill:var(--muted)}   /* R332.1: the wheel's dot and every copy of it */
-  .pwdot.pwhl{stroke:var(--txt);stroke-width:2.5}
-  .pwdotsw{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:4px}
-  .pwdotsw.pwdotswpos{background:var(--good)}.pwdotsw.pwdotswneg{background:var(--warn)}
+  .pwdot,.pwarrow{pointer-events:none}   /* R331.1: what the user logged, its net */
+  .pwdotpos{fill:var(--good);stroke:var(--good)}.pwdotneg{fill:var(--warn);stroke:var(--warn)}.pwdotzero{fill:var(--muted);stroke:var(--muted)}   /* R332.1: the wheel's dot and every copy of it */
+  /* R333/1: how sure a mark is -- hollow (science only), filled, ringed, struck (contradicts) */
+  .pwev-science{fill:none;stroke-width:2.5}
+  .pwev-filled,.pwev-ringed{stroke:var(--panel);stroke-width:1}
+  .pwev-contradicts{fill:none;stroke-width:2.5;stroke:var(--muted)}
+  .pwdotring{fill:none;stroke-width:1.5;pointer-events:none}
+  .pwdotstrike{stroke:var(--txt);stroke-width:2;stroke-linecap:round;pointer-events:none}
+  .pwdothalo{fill:none;stroke:var(--txt);stroke-width:2;pointer-events:none}
+  .pwevkey .pwevk{display:inline-flex;align-items:center;gap:4px}
+  /* R333/3: the time-scale switch; the other tiers faded */
+  .pwtiers{display:flex;gap:6px;margin:8px 0 0}
+  .pwtierbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2;flex:1 1 0;min-height:44px;min-width:44px;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:10px;padding:4px 6px;font:inherit;font-size:16px;cursor:pointer}
+  .pwtierbtn.pwon{border-color:var(--txt);border-width:2px;font-weight:700}
+  .pwtierdays{color:var(--muted);font-weight:400}
+  .pwtierrow{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px}
+  .pwtierrow .pwtierline{flex:1 1 0;min-width:0}
+  .pwtierrow .pwinfo[open]{flex-basis:100%}
+  .pwseg.pwfaded{opacity:.15}
+  .pwdotsw{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-right:4px;box-sizing:border-box;border:2.5px solid var(--muted)}
+  .pwdotsw.pwdotswpos{border-color:var(--good)}.pwdotsw.pwdotswneg{border-color:var(--warn)}   /* R333/1: hollow, as the dots are */
   /* R332.1: the panel in the wheel's order; markers shared with the wheel; a neutral highlight */
   .pwwhy,.pwbg{margin:8px 0;padding:8px 0 0;border-top:1px solid var(--line)}
   .pwhlrow{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;background:none;border:0;border-radius:8px;padding:6px 4px;font:inherit;font-size:16px;color:var(--txt);text-align:left;cursor:pointer}
@@ -845,6 +861,10 @@
   .pwchord.pwlit,.pwlinemkp.pwlit{stroke-dasharray:5 4}
   .pwlinemkp{fill:none;stroke:var(--accent);stroke-width:2}
   .pwchord.pwhl{stroke-width:4.5;opacity:1}
+  /* R333/2: a line an approved claim names -- solid, the claim's colour, an arrow at its "to" end */
+  .pwchord.pwlinked,.pwlinemkp.pwlinked{stroke-dasharray:none;stroke-width:3;opacity:1}
+  .pwlinkpos.pwlinked{stroke:var(--good)}.pwlinkneg.pwlinked{stroke:var(--warn)}.pwlinkzero.pwlinked{stroke:var(--muted)}
+  .pwarrow.pwlinkpos{fill:var(--good)}.pwarrow.pwlinkneg{fill:var(--warn)}.pwarrow.pwlinkzero{fill:var(--muted)}
   .pwkey{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;font-size:16px;color:var(--muted)}
   .pwsw{display:inline-block;width:16px;height:16px;border-radius:4px;vertical-align:-3px;margin-right:4px;background:var(--txt)}
   .pwsw.pwswhatch{background:repeating-linear-gradient(45deg,var(--pwhatch) 0 3px,transparent 3px 6px);border:1px solid var(--line)}
@@ -854,8 +874,8 @@
   .pwgbn{font-weight:700}
   .pwglist{display:flex;flex-direction:column;gap:6px;margin:10px 0 0}
   .pwglisth{font-size:16px;font-weight:700}
-  .pwpick{display:flex;justify-content:space-between;gap:8px;width:100%;min-height:44px;min-width:44px;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:10px;padding:4px 8px;font:inherit;font-size:16px;text-align:left;cursor:pointer;overflow-wrap:anywhere}
-  .pwpickshare{color:var(--muted);white-space:nowrap}
+  .pwpick{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;width:100%;min-height:44px;min-width:44px;border:1px solid var(--line);background:var(--bg);color:var(--txt);border-radius:10px;padding:4px 8px;font:inherit;font-size:16px;text-align:left;cursor:pointer;overflow-wrap:anywhere}
+  .pwpickshare{color:var(--muted);white-space:nowrap;margin-left:auto}
   .pwpanel{border:1px solid var(--line);border-radius:12px;padding:6px 10px 8px;margin:10px 0 0}
   .pwpanelh{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:16px;font-weight:700}
   .pwpanelh .pwinfo[open]{flex-basis:100%;font-weight:400}

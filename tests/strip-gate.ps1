@@ -436,7 +436,7 @@ try {
 '@
   Write-Host ("  cost: " + $m13)
   $mv = $m13 | ConvertFrom-Json
-  Check (($mv.days -ge 366) -and ($mv.glucoseDays -ge 366) -and ($mv.kind -eq 'food') -and ($mv.recomputed -eq 0) -and ($mv.ratio -le 3.0)) ("R298 STRIP COST: on a year of days with a year of CGM and a food strip showing, a redraw costs " + $mv.ratio + " reference workloads (budget 3.0) and works the strip out 0 times")
+  Check (($mv.days -ge 366) -and ($mv.glucoseDays -ge 366) -and ($mv.kind -eq 'food') -and ($mv.recomputed -eq 0) -and ($mv.ratio -le 1.8)) ("R298 STRIP COST: on a year of days with a year of CGM and a food strip showing, a redraw costs " + $mv.ratio + " reference workloads (budget 1.8, R333) and works the strip out 0 times")
 
   # ---- R308.1: THE RESTING STATE -- each priority case, at most two lines, none -> no box ----
   $rs = EvalJ @'
