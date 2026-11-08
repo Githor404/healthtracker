@@ -284,6 +284,38 @@ try {
   Check ($wkv.card -and $namesOk -and ($wkv.h -ge 44) -and ($wkv.line -like '* food items linked to a database row*')) ("R286 WEEKLY (d2): THE WEEK'S UNLINKED FOOD ITEMS AS ONE BATCH -- exactly " + $wkw.n + " of " + $wkw.food + ", each a 44 px way to its rows, with the linked share")
   [void](Eval "HT.closeWeek()")
 
+  # ---- R319: the boiled-egg case on the shipped Canadian file, by real taps -----------------------
+  Invoke-CDP 'Page.addScriptToEvaluateOnNewDocument' @{ source = "Object.defineProperty(Navigator.prototype, 'language', { get: function () { return 'en-CA'; } });" } | Out-Null
+  MarkOld
+  Invoke-CDP 'Page.reload' @{ ignoreCache = $true } | Out-Null
+  WaitBoot
+  $cr2 = EvalA "HT.corpusEnsure().then(function (r) { return { ok: !!(r && r.ok), ns: (HT.corpusState() || {}).ns }; })"
+  Write-Host ("  corpus (en-CA): " + $cr2)
+  [void](Eval "(function(){ var S = HT.state(), t = HT.todayKey(); var f = function (n, g, k) { return { name: n, meal: 'breakfast', time: '08:00', confidence: 'eyeballed', source: 'ai-paste', grams: g, kcal: k, protein_g: 12, fat_g: 10, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0, notes: '' }; }; S.days[t] = { status: 'in_progress', water_l: 0, items: [f('boiled chicken egg', 100, 155), f('boiled chickpeas', 100, 900)] }; S.current = t; HT.resave(); HT.itemCollapseAll(); HT.dayGroupsOpenAll(true); HT.refresh(); return 1; })()")
+  WaitQuiet 'egg fixture'
+  OpenItem 'boiled chicken egg'
+  $egg = EvalJ ($blk + "('boiled chicken egg')")
+  [void](Eval "(function(){ var m = document.querySelector('.mlink'); if (m) m.scrollIntoView({ block: 'center' }); return 1; })()")
+  Shot 'link-egg'
+  Write-Host ("  egg offer: " + $egg)
+  $eggv = $egg | ConvertFrom-Json
+  $eggFirst = ($eggv.rows.Count -eq 3) -and ($eggv.rows[0].t -like 'Egg, chicken, whole, cooked, boiled in shell, hard-cooked*')
+  $eggNone = @($eggv.rows | Where-Object { ($_.t -split ' cal per')[0] -match '(?i)\b(white|yolk|dried|fried)\b' }).Count -eq 0
+  Check ((($cr2 | ConvertFrom-Json).ns -eq 'cnf') -and $eggFirst -and $eggNone) "R319 LINK: THE BOILED-EGG CASE -- 'boiled chicken egg' at 155 cal per 100 g is offered the whole hard-boiled egg FIRST on the Canadian file, and no white, yolk, dried or fried row among the three"
+  [void](Eval ("(function(){ var r = " + $rowOf + "('boiled chicken egg')[0]; var b = r && r.querySelectorAll('.mlinkrow')[0]; if (b) b.setAttribute('data-gate-egg', '1'); return 1; })()"))
+  [void](TapSel '[data-gate-egg="1"]')
+  $m1 = EvalJ "(function(){ var it = HT.state().days[HT.todayKey()].items.filter(function (x) { return x.name === 'boiled chicken egg'; })[0]; return { m: it.ref ? it.ref.mine100 : null, kcal: Math.round(it.kcal) }; })()"
+  $rt = EvalJ "(function(){ var raw = HT.exportJSON(); window.confirm = function () { return true; }; var r = HT.restore(raw); var it = HT.state().days[HT.todayKey()].items.filter(function (x) { return x.name === 'boiled chicken egg'; })[0]; return { ok: r && r.ok !== false, m: it && it.ref ? it.ref.mine100 : null }; })()"
+  Write-Host ("  egg linked: " + $m1 + "; after a round trip: " + $rt)
+  Check (($m1 -like '*"m":155*') -and ($m1 -like '*"kcal":141*') -and ($rt -like '*"ok":true*') -and ($rt -like '*"m":155*')) "R319 LINK: A LINK KEEPS THE USER'S OWN 155 cal per 100 g on its row (mine100) while the item takes the row's 141, and a backup round trip keeps it"
+  WaitQuiet 'restored'
+  [void](Eval "HT.itemCollapseAll(); HT.dayGroupsOpenAll(true); HT.refresh(); 1")
+  OpenItem 'boiled chickpeas'
+  $far = EvalJ ($blk + "('boiled chickpeas')")
+  Write-Host ("  far offer: " + $far)
+  $farv = $far | ConvertFrom-Json
+  Check (($farv.rows.Count -eq 3) -and (@($farv.rows | Where-Object { $_.t -notlike '*nothing closer to yours*your calories*' }).Count -eq 0)) "R319 LINK: WHEN EVERY ROW IS BEYOND 2x THE USER'S CALORIES, the three are shown and each says so ('nothing closer to yours -- N x your calories')"
+
 } catch {
   Write-Host ("ERROR: " + $_.Exception.Message)
   Cleanup

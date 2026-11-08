@@ -22547,3 +22547,26 @@ row FIRST and no white, yolk, dried or fried row in the three; a food whose only
 accuracy figures still read from the ranking itself. Harness: the word rules and tiers on synthetic
 rows. First-pick accuracy re-measured on the same backup after, reported beside the before.
 Released under the standing pre-run rule.
+
+## R319 -- BUILT (v0.137.0), against its pre-registration
+Built as registered, with two rules added after reading real offers on the Canadian file (named
+here, not silently): (a) within the rows not demoted, a row answering MORE of the name's words
+comes first (a method by any of its phrases), then one HEADED by the name's word (its first word,
+so "Coleslaw (cabbage salad)" is headed by coleslaw), then the calorie tiers -- calories alone put
+"Pasta, made with egg" second for the egg, "Chicken fried rice" first for fried eggs and Spanish
+rice first for white rice; (b) a row beyond 2x sits below EVERY closer row, so "nothing closer to
+yours -- N x your calories" is only said when true (a first draft said it with closer rows below).
+**Results.** "boiled chicken egg" at 155: the whole hard-boiled egg (141), then two omelets; no
+white, yolk, dried or fried row in the three. Accuracy on the 31 Oct backup, same 13 names: before
+11 of 13 first, 11 of 13 in three; after 11 of 13, 11 of 13 (a first draft of the head rule read
+10 -- the coleslaw pick fell to fourth -- and was corrected). Most past picks were made from the
+old offer's first row, so level is what this history can show; links from now on keep the user's
+own figure (`mine100`) for later re-measures. The calorie check runs out of `linkAccuracyLoad`
+(the IndexedDB rows), named so the egress census does not read it as a network call.
+**Found, not fixed (outside R319):** the memory proposal (D133) can propose a row remembered from
+the OTHER database after a switch between files (seen in link-gate: a US row offered on the
+Canadian file, shown "calories not in this row"). A phone stays on one file; recorded for later.
+**Gates.** Harness +1 (3495): the order on synthetic rows. link-gate +3: the egg case by real
+taps on the shipped Canadian file, mine100 through a backup round trip, a food whose rows are all
+beyond 2x saying so. Pre-run: static checks, harness, every gate alone (72 of 72); one full run
+84 of 84.

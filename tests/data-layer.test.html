@@ -1081,6 +1081,29 @@ window.setLS({});
         'R330/2: ONE REDRAW works the fasting spans out at most once per moment asked (here ' + per + ', for the 7-day and month rings, Trends, the averages, the date line and the strip together); outside a redraw each call computes; the answers equal the unmemoised ones', per + ' / ' + outside + ' / ' + closedA.length);
     HT.state().days = days0; HT.resave(); HT.refresh();
   })();
+  // R319: the link offer's order -- words, then the user's own calories
+  (function () {
+    var rows = [
+      { id: 'a', name: 'Food, alpha, white, cooked', kcal: 48 }, { id: 'b', name: 'Food, alpha, whole, cooked, fried', kcal: 193 },
+      { id: 'c', name: 'Food, alpha, dried, whole', kcal: 605 }, { id: 'd', name: 'Food, alpha, whole, raw', kcal: 145 },
+      { id: 'e', name: 'Food, alpha, whole, cooked, boiled in shell, hard-cooked', kcal: 141 }, { id: 'f', name: 'Pasta, with food, cooked', kcal: 150 },
+      { id: 'g', name: 'Food, alpha, whole, cooked', kcal: 300 }];
+    var o = HT.linkOrder(rows, 'boiled alpha food', 155), ids = o.map(function (c) { return c.id; }).join('');
+    var why = {}; o.forEach(function (c) { why[c.id] = c.why319; });
+    var rice = HT.linkOrder([{ id: 'r1', name: 'Rice, brown, cooked', kcal: 110 }, { id: 'r2', name: 'Rice, white, cooked', kcal: 130 }], 'rice', 130);
+    var far = HT.linkOrder([{ id: 'x', name: 'Gamma, cooked', kcal: 400 }, { id: 'y', name: 'Gamma, raw', kcal: 30 }], 'cooked gamma', 100);
+    var none = HT.linkOrder(rows, 'boiled alpha food', null).map(function (c) { return c.id; }).join('');
+    var nr = HT.normalizeRef({ ns: 'cnf', id: '1', name: 'x', at: '2026-11-07', v: { '208': 1 }, mine100: 155 });
+    var m1 = HT.linkMine100({ name: 'x', grams: 50, kcal: 78 }), m2 = HT.linkMine100({ name: 'x', grams: 50, kcal: 70, source: 'ai-paste', ref: { ns: 'cnf', id: '1', mine100: 160 } }),
+        m3 = HT.linkMine100({ name: 'x', grams: 50, kcal: 70, source: 'corpus', ref: { ns: 'cnf', id: '1' } });
+    res(ids.charAt(0) === 'e' && ids.indexOf('g') === 1 && /part of the food \(white\)/.test(why.a) && /a different form \(dried\)/.test(why.c) && /prepared differently \(fried\)/.test(why.b)
+        && /prepared differently \(raw\)/.test(why.d) && ids.slice(-4).split('').sort().join('') === 'abcd' && why.e === null
+        && rice.length === 2 && !rice[0].why319 && !rice[1].why319
+        && far.length === 2 && /nothing closer to yours .* your calories/.test(far[0].why319) && none.charAt(0) === 'e'
+        && nr.mine100 === 155 && Math.round(m1) === 156 && m2 === 160 && m3 === null,
+        'R319: THE OFFER ORDER -- for "boiled alpha food" at 155 cal per 100 g the whole hard-boiled row leads; a part (white), another form (dried) and another way of cooking (fried; raw) go below the rest, each saying why; a row only beside "white" in its NAME is not a part when no "whole" row shares its head (rice); a far row says "nothing closer" only when nothing closer is there; with no own figure the words still order; a link keeps mine100 through the restore boundary, and a search pick has no own figure',
+        ids + ' | ' + JSON.stringify(why) + ' | ' + JSON.stringify(rice) + ' | ' + JSON.stringify(far));
+  })();
   // R328/1a: health history -- the user's own notes; flags beside figures, never a number
   var r281ns = HT.normalizeSettings({ healthHistory: [
     { id: 'hh-a', text: 'Placeholder note A', added: '2026-11-01', absorption: ['vitamin_b12_ug', 'iron_mg', 'sodium_mg'], lowAcid: true },

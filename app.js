@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.136.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.137.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -525,6 +525,10 @@ function normalizeRef(r) {
   // say so, never guess the basis.
   const rg = Number(r.g);
   if (Number.isFinite(rg) && rg > 0) out.g = rg;
+  // R319: the item's OWN calories per 100 g when it was linked -- the link replaces them
+  // with the row's (R237), and the offer's accuracy is measured against them later.
+  const m100 = Number(r.mine100);
+  if (Number.isFinite(m100) && m100 > 0) out.mine100 = m100;
   // R237 found: Number(null) is 0, so a null distance came back from every restore
   // as 0 -- a forensic field silently rewritten, and no round trip byte-identical.
   const d = (r.d == null || r.d === '') ? NaN : Number(r.d);
@@ -3576,7 +3580,9 @@ function resolveOpen(dateKey, idx, queryOverride) {
 // R286/2: THE ONE RANKING, for the find-nutrients panel and for the day view's "Link a
 // database row?" offer alike, so the two can never disagree. Pure: it renders nothing
 // and writes nothing; `alive` lets a caller abandon it.
-function resolveCompute(dateKey, idx, it, queryOverride, alive) {
+// R319: `opts` (the link offer only) widens the pool and orders the rows once their calories
+// are known; capture and the panel pass none, so their rows are unchanged (D141).
+function resolveCompute(dateKey, idx, it, queryOverride, alive, opts) {
   return corpusEnsure().then(function () {
     if (alive && !alive()) return { phase: 'closed' };
     const m = CORPUS_MEM;
@@ -3585,7 +3591,7 @@ function resolveCompute(dateKey, idx, it, queryOverride, alive) {
     }
     const q = (queryOverride != null && String(queryOverride).trim() !== '')
       ? String(queryOverride) : it.name;
-    const cands0 = matchCandidates(q, MATCH_CANDIDATES);
+    const cands0 = matchCandidates(q, (opts && opts.pool) || MATCH_CANDIDATES);
     const vec = matchItemVector(it);
     const want = itemState(it);
     const wantSrc = itemStateSrc(it);
@@ -3610,11 +3616,12 @@ function resolveCompute(dateKey, idx, it, queryOverride, alive) {
       if (alive && !alive()) return { phase: 'closed' };
       const byId = {};
       rows.forEach(function (r) { byId[r.id] = r; });
-      const rich = cands.map(function (c) {
+      let rich = cands.map(function (c) {
         const r = byId[c.id] || {};
         return { id: c.id, name: c.name, kcal: r.kcal == null ? null : r.kcal,
                  state: r.state == null ? null : r.state };
       });
+      if (opts && typeof opts.order === 'function') rich = opts.order(rich);
       const scored = scorable
         ? matchScore(vec, rows.filter(function (r) { return r.row; }), m.slots)
         : null;
@@ -5020,6 +5027,132 @@ const LINK_ROWS = 3;
 const LINK_MIN_N = 5;                          // R261/1: no personal figure under n 5
 let LINK_VIEW = {};                            // 'dk|idx' -> { phase, name, rows, view }
 let LINK_ACC = null;                           // { sig, n, first, three }
+// ---- R319: THE OFFER RANKED BY THE USER'S OWN CALORIES, COOKING WORDS AND WHOLE FOODS ----
+// MEASURED (3 Nov): "boiled chicken egg" at 155 cal per 100 g was offered the white (48), a
+// fried egg (193) and dried egg (605); the whole hard-boiled row was 20th in the matcher's
+// order, outside the 8 the offer drew from. So the offer draws 60 rows and orders them:
+// a part, another form or another way of cooking goes below the rest (words); within that,
+// rows within 25 % of the user's own calories, then within 2x, then beyond. A row shown
+// in the three that is demoted or beyond 2x says why. Nothing counts until a tap.
+const LINK_POOL = 60;
+const LINK_NEAR = 0.25, LINK_FAR = 2;
+const LINK_PARTS = ['white', 'whites', 'yolk', 'yolks'];
+const LINK_FORMS = ['dried', 'dry', 'dehydrated', 'powder', 'powdered', 'flakes'];
+// a method and the phrases that say it; boiled = hard-boiled = hard-cooked (the user's words)
+const LINK_METHODS = {
+  boiled: ['boiled', 'hard boiled', 'hard cooked', 'soft boiled', 'boiled in shell'],
+  fried: ['fried', 'pan fried', 'deep fried', 'stir fried'],
+  poached: ['poached'], scrambled: ['scrambled'], baked: ['baked'], roasted: ['roasted'],
+  grilled: ['grilled'], steamed: ['steamed'], braised: ['braised'], stewed: ['stewed'],
+  simmered: ['simmered'], microwaved: ['microwaved'], toasted: ['toasted'],
+};
+let LINK_KCAL = {}, LINK_KCAL_NS = null;      // row id -> kcal per 100 g, filled as rows are read
+function linkLow(s) { return ' ' + String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]+/g, ' ') + ' '; }
+function linkHas(low, w) { return low.indexOf(' ' + w + ' ') >= 0; }
+function linkMethodsOf(low) {
+  return Object.keys(LINK_METHODS).filter(function (k) { return LINK_METHODS[k].some(function (p) { return linkHas(low, p); }); });
+}
+function linkSegs(name) { return String(name == null ? '' : name).toLowerCase().split(',').map(function (x) { return x.trim(); }); }
+// What the words say about one row for this name: a reason it is demoted (or null), and
+// whether it says the name's own way of cooking (fit 0) or not (fit 1).
+function linkWords(name, rowName, pool) {
+  const nl = linkLow(name), rl = linkLow(rowName), segs = linkSegs(rowName);
+  const part = segs.slice(2).filter(function (x) { return LINK_PARTS.indexOf(x) >= 0; })[0];
+  if (part && !LINK_PARTS.some(function (w) { return linkHas(nl, w); })
+      && (pool || []).some(function (o) { const q = linkSegs(o && o.name); return q[0] === segs[0] && q[1] === segs[1] && q.slice(2).indexOf('whole') >= 0; }))
+    return { demote: 'part of the food (' + part + ')', fit: 1 };
+  const form = LINK_FORMS.filter(function (w) { return linkHas(rl, w); })[0];
+  if (form && !LINK_FORMS.some(function (w) { return linkHas(nl, w); })) return { demote: 'a different form (' + form + ')', fit: 1 };
+  const nm = linkMethodsOf(nl), rm = linkMethodsOf(rl);
+  const rowRaw = linkHas(rl, 'raw'), rowCooked = linkHas(rl, 'cooked') || rm.length > 0;
+  if (nm.length) {
+    const same = rm.some(function (k) { return nm.indexOf(k) >= 0; });
+    if (rm.length && !same) return { demote: 'prepared differently (' + rm[0] + ')', fit: 1 };
+    if (!rm.length && rowRaw && !rowCooked) return { demote: 'prepared differently (raw)', fit: 1 };
+    return { demote: null, fit: same ? 0 : 1 };
+  }
+  if (linkHas(nl, 'cooked') && rowRaw && !rowCooked) return { demote: 'prepared differently (raw)', fit: 1 };
+  if (linkHas(nl, 'raw') && rowCooked) return { demote: 'prepared differently (' + (rm[0] || 'cooked') + ')', fit: 1 };
+  return { demote: null, fit: 1 };
+}
+// The user's own calories per 100 g for an item: unlinked, its own; linked, the figure kept
+// at the link, else the v17 migration's `was`, else a typed or scanned item's own. A search
+// pick's own numbers ARE its row, so it has none.
+function linkMine100(it) {
+  const g = num(it && it.grams);
+  if (!(g > 0)) return null;
+  const r = it.ref;
+  if (r && num(r.mine100) > 0) return num(r.mine100);
+  if (!r || !r.ns) return num(it.kcal) > 0 ? num(it.kcal) * 100 / g : null;
+  const was = it.recomputed && it.recomputed.was;
+  if (was && num(was.kcal) > 0) return num(was.kcal) * 100 / g;
+  if (['manual', 'scan', 'preset'].indexOf(it.source) >= 0 && num(it.kcal) > 0) return num(it.kcal) * 100 / g;
+  return null;
+}
+function linkRowKcal(c) {
+  if (c && c.kcal != null && c.kcal === c.kcal) return Number(c.kcal);
+  const k = LINK_KCAL[String(c && c.id)];
+  return (k != null && k === k) ? k : null;
+}
+// Found on the egg case: calories alone put "Pasta, made with egg" second. So within the
+// rows not demoted, one answering MORE of the name's words comes first (a method by any of
+// its phrases: "hard-cooked" answers "boiled"), then one HEADED by them ("Egg, ..." before
+// "Chicken fried rice, ... eggs"; plural or singular), then the calories. A row beyond 2x
+// stays below every closer one, so "nothing closer" is always true where it is said.
+function linkSing(w) { return w.length > 3 && w.charAt(w.length - 1) === 's' ? w.slice(0, -1) : w; }
+function linkAnswered(name, rowName) {
+  const rl = linkLow(rowName);
+  const rw = rl.trim().split(' ').map(linkSing).concat(linkMethodsOf(rl));
+  return linkLow(name).trim().split(' ').filter(function (w) { return w.length >= 3; }).map(linkSing)
+    .filter(function (w, i, a) { return a.indexOf(w) === i && rw.indexOf(w) >= 0; }).length;
+}
+function linkHeaded(name, rowName) {
+  const nw = linkLow(name).trim().split(' ').map(linkSing);
+  // the head's FIRST word: "Coleslaw (cabbage salad)" is headed by coleslaw (found on the
+  // user's own past pick, which an every-word test dropped to fourth)
+  const hw = linkLow(linkSegs(rowName)[0]).trim().split(' ').filter(Boolean).map(linkSing);
+  return hw.length > 0 && nw.indexOf(hw[0]) >= 0;
+}
+// The order, stable: demoted last; beyond 2x below every closer row; then words answered,
+// headed rows, within 25 %, the name's way of cooking, and the database's own order.
+function linkOrder(cands, name, mine100) {
+  const pool = cands || [];
+  return pool.map(function (c, i) {
+    const w = linkWords(name, c && c.name, pool), k = linkRowKcal(c);
+    let kt = 1, ratio = null;
+    if (mine100 > 0 && k > 0) {
+      ratio = k / mine100;
+      kt = Math.abs(ratio - 1) <= LINK_NEAR ? 0 : (ratio >= 1 / LINK_FAR && ratio <= LINK_FAR ? 1 : 2);
+    }
+    const why = w.demote || (kt === 2 ? 'nothing closer to yours \u2014 ' + (Math.round(ratio * 10) / 10) + '\u00d7 your calories' : null);
+    return { c: Object.assign({}, c, { why319: why }), i: i, d: w.demote ? 1 : 0, far: kt === 2 ? 1 : 0, a: linkAnswered(name, c && c.name),
+             h: linkHeaded(name, c && c.name) ? 0 : 1, kt: kt, fit: w.fit };
+  }).sort(function (x, y) { return x.d - y.d || x.far - y.far || y.a - x.a || x.h - y.h || x.kt - y.kt || x.fit - y.fit || x.i - y.i; })
+    .map(function (x) { return x.c; });
+}
+// Reads the calories of the rows the accuracy figure orders, so it can use them (the rows
+// are read asynchronously; the figure is worked out from what is known).
+function linkKcalFill(ids) {
+  const m = CORPUS_MEM;
+  if (!m) return Promise.resolve(0);
+  if (LINK_KCAL_NS !== m.ns) { LINK_KCAL = {}; LINK_KCAL_NS = m.ns; }
+  const need = (ids || []).map(String).filter(function (id) { return !Object.prototype.hasOwnProperty.call(LINK_KCAL, id); });
+  return Promise.all(need.map(function (id) {
+    return corpusLookup(id).then(function (row) { LINK_KCAL[id] = row ? corpusValueAt(row, m.slots, 208) : null; });
+  })).then(function () { if (need.length) LINK_ACC = null; return need.length; });
+}
+function linkAccuracyLoad() {
+  const m = CORPUS_MEM;
+  if (!m || !m.index) return Promise.resolve(0);
+  const ids = [];
+  Object.keys(APP_STATE.days || {}).filter(isDayKey).forEach(function (dk) {
+    ((APP_STATE.days[dk] || {}).items || []).forEach(function (it) {
+      if (!it || !it.ref || it.ref.ns !== m.ns || it.stackId || isLegacyAuto(it) || !(linkMine100(it) > 0)) return;
+      matchCandidates(it.name, LINK_POOL).forEach(function (c) { ids.push(c.id); });
+    });
+  });
+  return linkKcalFill(ids);
+}
 function linkEligible(it) {
   if (!it || isLegacyAuto(it)) return false;
   if (it.ref && it.ref.ns) return false;                       // linked already
@@ -5035,7 +5168,13 @@ function linkPrepare(dk, idx) {
   const have = LINK_VIEW[key];
   if (have && have.name === it.name && have.phase !== 'loading') return Promise.resolve({ ok: true, phase: have.phase });
   if (have && have.phase === 'loading' && have.name === it.name) return have.p;
-  const p = resolveCompute(dk, idx, it, null, null).then(function (view) {
+  const mine = linkMine100(it);
+  const p = Promise.all([resolveCompute(dk, idx, it, null, null, { pool: LINK_POOL, order: function (rich) {
+    if (CORPUS_MEM && LINK_KCAL_NS !== CORPUS_MEM.ns) { LINK_KCAL = {}; LINK_KCAL_NS = CORPUS_MEM.ns; }
+    rich.forEach(function (c) { LINK_KCAL[String(c.id)] = c.kcal; });
+    return linkOrder(rich, it.name, mine);
+  } }), linkAccuracyLoad()]).then(function (got) {
+    const view = got[0];
     const rows = (view.candidates || []).slice(0, LINK_ROWS);
     LINK_VIEW[key] = { phase: rows.length ? 'ready' : 'none', name: it.name, rows: rows, view: view };
     // only the offer's own box is redrawn: rows arriving must not rebuild the day under
@@ -5063,7 +5202,7 @@ function linkAccuracy() {
       picked.push(it);
     });
   });
-  const sig = m.ns + ':' + picked.length;
+  const sig = m.ns + ':' + picked.length + ':' + Object.keys(LINK_KCAL).length;
   if (LINK_ACC && LINK_ACC.sig === sig) return LINK_ACC;
   const seen = {};
   let n = 0, first = 0, three = 0;
@@ -5083,7 +5222,7 @@ function linkAccuracy() {
 // (matchCandidates, then D125's reorder for a STATED state), before memory.
 function linkRanking(it) {
   const want = itemState(it), src = itemStateSrc(it);
-  return resolveRank(matchCandidates(it && it.name, MATCH_CANDIDATES), src === 'name' ? want : null);
+  return linkOrder(resolveRank(matchCandidates(it && it.name, LINK_POOL), src === 'name' ? want : null), it && it.name, linkMine100(it));
 }
 function linkAccuracyWords(a) {
   if (!a) return '';
@@ -5111,7 +5250,8 @@ function itemLinkHTML(dk, idx, it) {
   let h = '<div class="mlink" id="' + bid + '"><div class="mlinkhead">Link a database row? Nothing counts until you tap one.</div>';
   h += v.rows.map(function (c, i) {
     const kc = (c.kcal != null && c.kcal === c.kcal) ? '<span class="mlinkkcal">' + esc(kcalDisp(c.kcal)) + ' cal per 100 g</span>' : '<span class="mlinkkcal">calories not in this row</span>';
-    const why = (prop !== null && String(c.id) === prop) ? '<span class="mlinkwhy">' + proposedWhy(v.view.proposed) + '</span>' : '';
+    const why = (prop !== null && String(c.id) === prop) ? '<span class="mlinkwhy">' + proposedWhy(v.view.proposed) + '</span>'
+      : (c.why319 ? '<span class="mlinkwhy mlinkfar">' + esc(c.why319) + '</span>' : '');
     return '<button type="button" class="btn mlinkrow" onclick="event.stopPropagation();linkPick(\'' + esc(dk) + '\',' + idx + ',' + i + ')">'
       + esc(c.name) + kc + why + '</button>';
   }).join('');
@@ -5128,8 +5268,12 @@ function linkPick(dk, idx, i) {
   // the panel's own view, so its pick path (and D127's question) is the one that runs
   RESOLVE_VIEW = Object.assign({}, v.view);
   const isProp = v.view.proposed && String(v.view.proposed.id) === String(c.id);
+  const mine = linkMine100(it);                  // R319: before the row's numbers replace them
   return resolvePick(c.id, c.name, null, isProp ? 'proposed' : 'picked').then(function (r) {
-    if (r && r.ok) { delete LINK_VIEW[dk + '|' + idx]; LINK_ACC = null; }
+    if (r && r.ok) {
+      delete LINK_VIEW[dk + '|' + idx]; LINK_ACC = null;
+      if (mine > 0 && it.ref) { it.ref.mine100 = Math.round(mine * 10) / 10; Store.saveState(APP_STATE); }
+    }
     return r;
   });
 }
@@ -19924,6 +20068,7 @@ const VERSION_LOG = [
   { v: '0.135.0', d: '2026-11-05', note: 'A meal with 30 g of net carbs or more now says, in its review, how much glucose rose in the first hour and whether it then went below its starting level for 15 minutes or more within 3 hours. The weekly review counts how many such meals did. Readings during a logged sleep are left out of a dip.' },
   { v: '0.136.0', d: '2026-11-05', note: 'Settings has “Discuss with your doctor”: facts gathered from your log, your stack and your pathway pack, each with its source -- an intake above a cited upper level, claims and interactions for your stack items, glucose lows, blood pressure above your reference lines -- and items of your own. Mark one discussed with the date and the doctor’s answer; an item that stops applying moves to its own section, never deleted. Share it or print it as one plain page; nothing leaves the phone unless you do.' },
   { v: '0.136.1', d: '2026-11-05', note: 'Faster: the home screen redraws in about half the time with a long log -- the fasting spans are now worked out once per redraw instead of once for each small ring. Nothing shown changes.' },
+  { v: '0.137.0', d: '2026-11-07', note: 'Link a database row? now looks wider and puts first the rows closest to your own calories, cooked the way your food was, and the whole food rather than a part (an egg white) or another form (dried, fried). A row far from yours is shown only when nothing closer exists, and then it says so.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -29820,7 +29965,7 @@ window.HT = {
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,
-  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
+  chartOpenedDaySpan, chartWindowHasOpenedDay, chartBackToDay, dayKeyMs, claimTermIn, storeRisk, storageRiskCheck, storageRiskSet, backupLog, backupOverdue, openBackupExport, ctxRestingWords, graphGoal, graphGoalSet, graphGoalRemove, graphGoalKeys, renderGraphGoals, trendZoom, TREND_ZOOMS, normalizeGraphGoals, panelWeightCoverage, panelUnlinked, panelLinksToggle, PANEL_PARTIAL_BELOW, ctxRestingLines, measureOverdue, stackClaims, stackClaimsHTML, stackClaimsShow, pwConnHTML, pwStep, pwMolName, pwSharesWords, pwConnRows, pwKnownShares, pwItemFigures, pwWheelHTML, pwWheelLayout, pwWheelGroup, pwWheelPick, pwCardToggle, pwWheelFill, pwWheelState, influenceMin, setInfluenceMin, forMe, influenceMatches, influenceNegatives, influenceFlagsFor, influenceShown, FLAGS_KEY, waistUnit, waistToCm, waistShown, signalShown, waistReadings, heightCm, waistToHeight, waistRatioHTML, waistHowHTML, setWaistUnit, setHeight, setHeightFromForm, renderWaistSetting, weekWaistCardHTML, WAIST_DUE_FALLBACK_MS, WHTR_SOURCE, WAIST_HOW, influenceLineHTML, influenceNotches, influencePositiveDays, weekInfluenceCardHTML, INFLUENCE_MIN_DEFAULT, pwShadeOpacity, PW_KNOWN_DAYS, PW_GROUP_MIN_PX, pathwayRecordInfo, openStackSupport, closeStackSupport, stackSupportPathway, stackSupportHTML, stackInteractions, interactionSentence, supplyMeets, supplyAmounts, stackSupplyAmounts, supplyLineAmount, SUPPLY_FLOOR, itemPolyphenols, panelPolyphenolsHTML, PANEL_LABEL_SLOT_UNIT, normalizeHealthHistory, healthHistory, itemFermentedHTML, normalizeDoctorList, doctorGather, doctorSync, doctorOpen, doctorRemove, doctorRestore, doctorDiscussed, doctorAddOwn, doctorSections, doctorListHTML, renderDoctorList, doctorPlainText, doctorShare, doctorPrintOpen, doctorPrintClose, doctorPrintHTML, DL_KINDS, spikeDip, spikeDipCompute, spikeDipLineHTML, fastGapsCompute, fastGapsComputes: () => FASTGAPS_COMPUTES, linkOrder, linkWords, linkHeaded, linkAnswered, linkMine100, linkKcalFill, linkAccuracyLoad, LINK_POOL, weekSpikeDip, weekSpikeDipHTML, hhSave, hhRemove, hhOpen, hhCancel, hhFormSave, hhAskRemove, hhAbsorbFlagHTML, hhLowAcidFlagHTML, renderHealthHistory, HH_ABSORB, mealRingTap, mealRingsHTML, wallMs, dayEndMs, absRealMin, sleepSpan, appUpdateCheck, ptrChecks, PTR_PULL_PX,
   deleteAllPreview, deleteAllExecute, deleteAllAsk, deleteAllCancel, deleteAllGo,
   deleteAllHTML, deleteAllKeys, glucoseRead,
   hhmm, CHART_PAD,
