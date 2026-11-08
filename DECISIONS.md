@@ -22647,3 +22647,15 @@ highlight both ways by real taps); influence-gate +4 on a sixth placeholder path
 wheel dots; why-this-dot; newest first with both markers; highlight both ways), light and dark at
 390 read. The wheel's own perf check: 0.124 of the reference workload. Pre-run: static checks,
 harness (3495), every gate alone (72 of 72); one full run 84 of 84.
+
+## R331.1 parts 3 and 4 -- REPORTED (2026-11-07), nothing built; the user chooses
+The report and its mock-ups (390 px, light and dark, drawn by the live app on the user's real pack
+and backup) are private, in HTPrivate (reports/r331-report.md). In short, with no names (R204):
+(3a) of the approved claims with a direction, 4 have a CGM proxy with a contrast today, 6 a proxy
+with nothing to compare, 3 need a night HRV stream, 7 a blood panel, about 18 never; every dot is
+hollow (science only) until then. (3b) colouring a line when one approved claim is filed under both
+its ends colours 15 lines on the real pack, mostly wrongly (a claim filed under two pathways does
+not say one acts on the other); a coloured line needs a claim that names its from and to -- a new
+pack field proposed, drafted on the PC. (4) a cited tier for 57 of 76 pathways (41 fast, 10 medium,
+6 slow; 19 with no cited time scale), windows proposed 7 / 28 / 90 days; mock-ups of three rings
+and of one wheel with a switch. Awaiting the user's choices.
