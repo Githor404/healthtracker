@@ -22734,3 +22734,34 @@ As pre-registered, with these differences, named:
 Pack v023 (HTPrivate) carries the four approved links, the two approved testable re-drafts and the
 tier table. Every evidence level is still hollow: no claim carries an approved check yet.
 Harness 3495/3495; every gate alone green; suite 84 of 84.
+
+## R339.1 step 1 -- PRE-REGISTERED (2026-11-08): can the phone read export.zip itself? A probe, reported before any build
+Replaces R336.2 (which asked for a PC route first). Serves *track*. Today the glucose import reads
+an unzipped export.xml in bounded slices (`glucoseImportApple`); the phone delivers export.zip,
+and "reading the .zip directly is not built yet". The user's export is about 24 MB zipped and
+about 520 MB of export.xml inside (plus a 200 MB export_cda.xml the app does not use). The full
+inventory of record types per source app, with counts and dates, is the user's health history
+and is kept in HTPrivate (R325.2); this record names only the kinds.
+**The probe.** One page, `probe/ah-stream.html`: outside the app's shell, not cached by the service
+worker, no network request of any kind, nothing written but its own progress note
+(`ahprobe-progress`, removed when the probe is retired). It:
+1. reads the zip's central directory from the end of the picked file (`File.slice`, no whole-file
+   read), Zip64 fields honoured, and finds `export.xml`'s compressed bytes;
+2. streams them `Blob.stream()` -> `DecompressionStream('deflate-raw')` -> `TextDecoderStream`, scans
+   each chunk for `<Record` opening tags by indexOf (no line split), keeps only the record types
+   the app has or will have a biometric for, and only records starting after a cutoff (the "last
+   import"; the page asks), and drops everything else as it goes;
+3. reports: whether it completed, elapsed time, compressed and text bytes read, records seen,
+   records kept per type and source app, the largest chunk and carry it held, the JS heap where
+   the browser exposes it (Safari does not: said so, not estimated), and the browser and mode
+   (Safari or standalone). A progress mark is saved every second, so a crash or reload still
+   says how far it got.
+**PC check first (headless Chrome, the real file):** the kept counts equal `ah_inventory.py`'s for
+the same types and cutoff, and the JS heap peak (CDP) stays flat as the file streams.
+**The phone test is the user's:** Safari, then standalone (the probe added to the Home Screen),
+on the real file. **Decision rule, as briefed:** completes in both -> step 2 builds streaming as
+the import route, on the same tap as today; fails in either -> the PC trimmer (HTPrivate). Time
+is reported, not thresholded; over 2 minutes, the user decides.
+**Found already, for step 3:** every date in the export carries one UTC offset, the one in force
+when it was exported, summer readings included. A reading's moment is right; its offset is not
+the one its wall clock showed. Step 3 must not store that offset as the reading's own (R301/R304).
