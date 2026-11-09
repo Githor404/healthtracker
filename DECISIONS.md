@@ -22765,3 +22765,15 @@ is reported, not thresholded; over 2 minutes, the user decides.
 **Found already, for step 3:** every date in the export carries one UTC offset, the one in force
 when it was exported, summer readings included. A reading's moment is right; its offset is not
 the one its wall clock showed. Step 3 must not store that offset as the reading's own (R301/R304).
+
+## R339.1 fix -- PRE-REGISTERED (2026-11-08; to be v0.140.1): the service worker served the app for every page
+Found by the user: the probe page (`probe/ah-stream.html`) opened as the app. `sw.js` answered every
+navigation inside its scope with the cached `index.html`, so no other page under the app's path
+could load once the app was installed. **Fix:** the shell answers only navigations to the scope
+root and `index.html` (any query string, so `/?prod=1` still loads offline, D6); any other
+navigation goes to the network untouched. **Gate:** offline-gate, on the forced production path
+with the service worker in control, opens the probe and finds the probe (its own title, no app),
+then goes on to the offline reload as before. It is run once against the current `sw.js` first,
+where it must fail. Released under the standing pre-run rule. On an installed phone the new
+worker takes over at the next update (pull down on the home screen, R300.1); only then does the
+probe load.
