@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Zip probe">
+<title>Export zip probe</title>
+<style>
+  :root{--bg:#fff;--panel:#f4f4f6;--txt:#1b1b1f;--muted:#5d5d66;--line:#d4d4da;--warn:#8a5a00}
+  @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121214;--panel:#1e1e22;--txt:#ececf0;--muted:#a3a3ad;--line:#3a3a42;--warn:#e0a63a}}
+  :root[data-theme="dark"]{--bg:#121214;--panel:#1e1e22;--txt:#ececf0;--muted:#a3a3ad;--line:#3a3a42;--warn:#e0a63a}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.45 -apple-system,system-ui,sans-serif;
+       padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+  h1{font-size:20px;margin:0 0 4px}
+  p{margin:8px 0}
+  .muted{color:var(--muted)}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0}
+  label{display:block;margin:8px 0 4px}
+  input[type=date]{font:inherit;min-height:44px;padding:0 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--txt)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;min-width:44px;padding:0 16px;margin:8px 8px 0 0;
+       border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--txt);font:inherit;cursor:pointer}
+  .file{position:relative;overflow:hidden}
+  .file input{position:absolute;inset:0;opacity:0;font-size:0;cursor:pointer}
+  .warn{color:var(--warn)}
+  pre{white-space:pre-wrap;word-break:break-word;font:13px/1.4 ui-monospace,Menlo,monospace;margin:0}
+  #prog{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<h1>Export zip probe</h1>
+<p class="muted">A test for HealthTracker (R339.1). It reads an Apple Health <b>export.zip</b> on this phone, piece by piece, and reports whether it finished and how long it took. It sends nothing anywhere and saves nothing but its own progress note.</p>
+<div class="box">
+  <div id="feat"></div>
+  <div id="prev" class="warn"></div>
+  <label for="cut">Keep only records starting after (the "last import"):</label>
+  <input type="date" id="cut">
+  <div>
+    <span class="btn file">Choose export.zip<input type="file" id="pick" accept=".zip,application/zip"></span>
+    <button class="btn" id="stop" type="button" disabled>Stop</button>
+  </div>
+  <p id="prog" aria-live="polite"></p>
+</div>
+<div class="box" id="outbox" hidden>
+  <pre id="out"></pre>
+  <button class="btn" id="copy" type="button">Copy the report</button>
+  <span id="copied" class="muted"></span>
+</div>
+<script>
+(function () {
+  'use strict';
+  var KEY = 'ahprobe-progress';
+  var KEEP = ['BloodGlucose', 'StepCount', 'HeartRate', 'RestingHeartRate', 'HeartRateVariabilitySDNN', 'RespiratoryRate',
+    'BodyTemperature', 'AppleSleepingWristTemperature', 'OxygenSaturation', 'BodyMass', 'BloodPressureSystolic',
+    'BloodPressureDiastolic', 'WaistCircumference', 'ActiveEnergyBurned', 'SleepAnalysis', 'MindfulSession'];
+  var KEEPSET = {};
+  KEEP.forEach(function (k) { KEEPSET['HKQuantityTypeIdentifier' + k] = k; KEEPSET['HKCategoryTypeIdentifier' + k] = k; });
+  var $ = function (id) { return document.getElementById(id); };
+  var stopped = false;
+
+  function mode() {
+    var sa = (window.navigator.standalone === true) || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    return sa ? 'standalone (Home Screen)' : 'browser tab';
+  }
+  function features() {
+    var f = { 'File.stream': !!(window.Blob && Blob.prototype.stream), 'TextDecoderStream': typeof TextDecoderStream === 'function', 'DecompressionStream deflate-raw': false };
+    try { new DecompressionStream('deflate-raw'); f['DecompressionStream deflate-raw'] = true; } catch (e) { }
+    return f;
+  }
+  function mb(n) { return (n / 1048576).toFixed(1) + ' MB'; }
+  function save(o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) { } }
+
+  // --- the zip's central directory, read from the end of the file -------------
+  function u64(dv, o) { return dv.getUint32(o, true) + dv.getUint32(o + 4, true) * 4294967296; }
+  async function bytes(file, a, b) { return new DataView(await file.slice(a, b).arrayBuffer()); }
+  async function findEntry(file, want) {
+    var tail = Math.min(file.size, 65557), base = file.size - tail;
+    var dv = await bytes(file, base, file.size), at = -1;
+    for (var i = tail - 22; i >= 0; i--) if (dv.getUint32(i, true) === 0x06054b50) { at = i; break; }
+    if (at < 0) throw new Error('not a zip file (no end-of-directory record)');
+    var cdSize = dv.getUint32(at + 12, true), cdOff = dv.getUint32(at + 16, true), zip64 = false;
+    if (cdOff === 0xFFFFFFFF || cdSize === 0xFFFFFFFF) {
+      zip64 = true;
+      if (at < 20 || dv.getUint32(at - 20, true) !== 0x07064b50) throw new Error('Zip64 locator missing');
+      var e64 = u64(dv, at - 20 + 8), d64 = await bytes(file, e64, e64 + 56);
+      if (d64.getUint32(0, true) !== 0x06064b50) throw new Error('Zip64 directory record missing');
+      cdSize = u64(d64, 40); cdOff = u64(d64, 48);
+    }
+    var cd = await bytes(file, cdOff, cdOff + cdSize), p = 0, names = [];
+    while (p + 46 <= cd.byteLength && cd.getUint32(p, true) === 0x02014b50) {
+      var method = cd.getUint16(p + 10, true), comp = cd.getUint32(p + 20, true), size = cd.getUint32(p + 24, true);
+      var nl = cd.getUint16(p + 28, true), xl = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true), loc = cd.getUint32(p + 42, true);
+      var name = new TextDecoder().decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nl));
+      var x = p + 46 + nl, xe = x + xl;
+      while (x + 4 <= xe) {
+        var id = cd.getUint16(x, true), len = cd.getUint16(x + 2, true), q = x + 4;
+        if (id === 0x0001) {
+          if (size === 0xFFFFFFFF) { size = u64(cd, q); q += 8; }
+          if (comp === 0xFFFFFFFF) { comp = u64(cd, q); q += 8; }
+          if (loc === 0xFFFFFFFF) { loc = u64(cd, q); q += 8; }
+          zip64 = true;
+        }
+        x += 4 + len;
+      }
+      names.push(name);
+      if (name === want || name.slice(-want.length - 1) === '/' + want) {
+        var lh = await bytes(file, loc, loc + 30);
+        if (lh.getUint32(0, true) !== 0x04034b50) throw new Error('local header missing for ' + name);
+        var start = loc + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+        return { name: name, method: method, comp: comp, size: size, start: start, zip64: zip64, entries: names.length };
+      }
+      p += 46 + nl + xl + cl;
+    }
+    throw new Error(want + ' not found among ' + names.length + ' entries');
+  }
+
+  // --- the scan: opening <Record tags only, kept types after the cutoff ------
+  var RE_ATTR = /(\w+)="([^"]*)"/g;
+  function appleMs(s) {
+    var m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2})(\d{2})$/.exec(s || '');
+    return m ? Date.parse(m[1] + 'T' + m[2] + m[3] + ':' + m[4]) : NaN;
+  }
+  function makeScanner(cutMs, st) {
+    var carry = '';
+    function tag(t) {
+      st.seen++;
+      var q = t.indexOf('type="');
+      if (q < 0) return;
+      var typ = t.slice(q + 6, t.indexOf('"', q + 6)), k = KEEPSET[typ];
+      if (!k) return;
+      var a = {}, m; RE_ATTR.lastIndex = 0;
+      while ((m = RE_ATTR.exec(t))) a[m[1]] = m[2];
+      var t0 = appleMs(a.startDate);
+      if (!(t0 > cutMs)) { st.older++; return; }
+      var src = a.sourceName || '(none)';
+      var key = k + ' | ' + src;
+      st.kept[key] = (st.kept[key] || 0) + 1;
+      st.rows.push([k, src, t0, appleMs(a.endDate), a.value, a.unit || '']);
+    }
+    return {
+      push: function (chunk) {
+        var buf = carry + chunk, pos = 0;
+        if (chunk.length > st.maxChunk) st.maxChunk = chunk.length;
+        st.text += chunk.length;
+        for (;;) {
+          var s = buf.indexOf('<Record ', pos);
+          if (s < 0) { pos = Math.max(pos, buf.length - 8); break; }
+          var e = buf.indexOf('>', s);
+          if (e < 0) { pos = s; break; }
+          tag(buf.slice(s, e + 1)); pos = e + 1;
+        }
+        carry = buf.slice(pos);
+        if (carry.length > 65536) carry = carry.slice(-8);   // no opening tag is this long
+        if (carry.length > st.maxCarry) st.maxCarry = carry.length;
+      },
+      end: function () { if (carry) this.push(''); }
+    };
+  }
+
+  async function run(file) {
+    stopped = false; $('stop').disabled = false; $('outbox').hidden = true;
+    var cutStr = $('cut').value, cutMs = cutStr ? Date.parse(cutStr + 'T23:59:59') : -Infinity;
+    var st = { seen: 0, older: 0, kept: {}, rows: [], text: 0, zip: 0, maxChunk: 0, maxCarry: 0, heap: 0 };
+    var t0 = performance.now(), started = new Date().toISOString(), lastMark = 0, report;
+    var heap = function () { if (performance.memory) st.heap = Math.max(st.heap, performance.memory.usedJSHeapSize); };
+    save({ started: started, done: false, phase: 'directory', zipBytes: 0, textBytes: 0, ms: 0, fileMB: mb(file.size) });
+    try {
+      var ent = await findEntry(file, 'export.xml');
+      var src = file.slice(ent.start, ent.start + ent.comp).stream();
+      var counted = src.pipeThrough(new TransformStream({ transform: function (c, ctl) { st.zip += c.byteLength; ctl.enqueue(c); } }));
+      var text = ent.method === 8 ? counted.pipeThrough(new DecompressionStream('deflate-raw')) : counted;
+      var rd = text.pipeThrough(new TextDecoderStream()).getReader();
+      var sc = makeScanner(cutMs, st);
+      for (;;) {
+        var r = await rd.read();
+        if (r.done) break;
+        sc.push(r.value);
+        var now = performance.now();
+        if (now - lastMark > 1000) {
+          lastMark = now; heap();
+          save({ started: started, done: false, phase: 'reading', zipBytes: st.zip, textBytes: st.text, ms: Math.round(now - t0), fileMB: mb(file.size) });
+          $('prog').textContent = 'Reading: ' + mb(st.zip) + ' of ' + mb(ent.comp) + ' zipped · ' + mb(st.text) + ' of text · ' + ((now - t0) / 1000).toFixed(0) + ' s';
+          await new Promise(function (res) { setTimeout(res, 0); });
+        }
+        if (stopped) { await rd.cancel(); throw new Error('stopped by you'); }
+      }
+      sc.end(); heap();
+      var ms = Math.round(performance.now() - t0);
+      save({ started: started, done: true, phase: 'done', zipBytes: st.zip, textBytes: st.text, ms: ms, fileMB: mb(file.size) });
+      report = lines(true, file, ent, st, ms, cutStr);
+    } catch (e) {
+      var ms2 = Math.round(performance.now() - t0);
+      save({ started: started, done: true, phase: 'failed: ' + (e && e.message), zipBytes: st.zip, textBytes: st.text, ms: ms2, fileMB: mb(file.size) });
+      report = lines(false, file, null, st, ms2, cutStr, e);
+    }
+    $('stop').disabled = true; $('prog').textContent = '';
+    $('out').textContent = report; $('outbox').hidden = false;
+  }
+  function lines(ok, file, ent, st, ms, cutStr, err) {
+    var L = [];
+    L.push('R339.1 probe report · ' + new Date().toISOString());
+    L.push('Result: ' + (ok ? 'COMPLETED' : 'DID NOT COMPLETE: ' + (err && err.message)));
+    L.push('Time: ' + (ms / 1000).toFixed(1) + ' s');
+    L.push('Browser: ' + navigator.userAgent);
+    L.push('Mode: ' + mode());
+    L.push('File: ' + mb(file.size) + (ent ? ' · ' + ent.name + ' ' + mb(ent.comp) + ' zipped -> ' + mb(ent.size) + (ent.zip64 ? ' · Zip64' : '') + ' · ' + ent.entries + ' entries read' : ''));
+    L.push('Read: ' + mb(st.zip) + ' zipped · ' + mb(st.text) + ' of text (characters)');
+    L.push('Held at most: one chunk ' + (st.maxChunk / 1024).toFixed(0) + ' K chars · carry ' + st.maxCarry + ' chars');
+    L.push('JS heap: ' + (st.heap ? mb(st.heap) + ' at most (sampled each second)' : 'not exposed by this browser'));
+    L.push('Records seen: ' + st.seen + ' · of kept types but on or before the cutoff: ' + st.older + ' · kept: ' + st.rows.length + ' (cutoff ' + (cutStr || 'none') + ')');
+    Object.keys(st.kept).sort().forEach(function (k) { L.push('  ' + k + ': ' + st.kept[k]); });
+    return L.join('\n');
+  }
+
+  var f = features(), fl = Object.keys(f).map(function (k) { return k + ': ' + (f[k] ? 'yes' : 'NO'); });
+  $('feat').textContent = 'This browser · ' + mode() + ' · ' + fl.join(' · ');
+  try {
+    var p = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (p && !p.done) $('prev').textContent = 'The last run (started ' + p.started + ', ' + p.fileMB + ') stopped without finishing, at ' + mb(p.zipBytes) + ' zipped / ' + mb(p.textBytes) + ' of text after ' + (p.ms / 1000).toFixed(0) + ' s. The page was reloaded or closed, which on a phone usually means it ran out of memory.';
+  } catch (e) { }
+  var d = new Date(Date.now() - 7 * 864e5);
+  $('cut').value = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  $('pick').addEventListener('change', function () { var fi = this.files && this.files[0]; if (fi) run(fi); this.value = ''; });
+  $('stop').addEventListener('click', function () { stopped = true; });
+  $('copy').addEventListener('click', function () {
+    var t = $('out').textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { $('copied').textContent = 'Copied.'; },
+      function () { var r = document.createRange(); r.selectNodeContents($('out')); var s = getSelection(); s.removeAllRanges(); s.addRange(r); $('copied').textContent = 'Selected: use Copy.'; });
+  });
+  window.__probe = { findEntry: findEntry, run: run, features: features };
+})();
+</script>
+</body>
+</html>
