@@ -179,6 +179,20 @@ try {
   $zxCached = Eval "caches.open('healthtracker-runtime').then(function(c){return c.keys()}).then(function(k){return k.length>0}).catch(function(){return false})" $true
   WaitQuiet 'after a step'
 
+  # 4c. R339.1 fix: with the SW in control, another page under its scope is that page, not the app.
+  #     Before the fix every navigation was answered with the cached index.html.
+  MarkOld
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/probe/ah-stream.html" } | Out-Null
+  WaitLoaded
+  $other = Eval "JSON.stringify({ controlled: !!(navigator.serviceWorker && navigator.serviceWorker.controller), title: document.title, probe: !!document.getElementById('pick'), shell: !!document.querySelector('script[src*=app]') })"
+  #     Not typeof HT: the cached index.html served at /probe/ loads ./app.js as /probe/app.js (404),
+  #     so HT is undefined even when the shell IS the page -- seen in the red run (R341).
+  $o = $other | ConvertFrom-Json
+  $otherOk = ($o.controlled -eq $true) -and ($o.title -eq 'Export zip probe') -and ($o.probe -eq $true) -and ($o.shell -eq $false)
+  MarkOld
+  Invoke-CDP 'Page.navigate' @{ url = "$origin/?prod=1" } | Out-Null
+  WaitBoot
+
   # 5. cut the network for real (CDP), then reload -- the SW must serve from cache
   Invoke-CDP 'Network.emulateNetworkConditions' @{ offline = $true; latency = 0; downloadThroughput = -1; uploadThroughput = -1 } | Out-Null
   MarkOld
@@ -193,6 +207,13 @@ try {
   #    serves it from the runtime cache with the network cut, SRI re-validates.
   $zxOffline = Eval "(window.HT&&HT.loadZXing?HT.loadZXing():Promise.reject()).then(function(){return typeof window.ZXing==='object'}).catch(function(){return false})" $true
 
+  # 7. R341: the R339.1 change touches navigations only; the shell's other files (app.js, the
+  #    manifest, the icons -- styles are inline in index.html) still come from the cache with the
+  #    network cut. Each is fetched by the page (not a navigation -> the asset branch).
+  $assetsRaw = Eval "Promise.all(['app.js','manifest.json','icons/icon-192.png','icons/icon-512.png','icons/apple-touch-icon.png'].map(function(p){return fetch(p).then(function(r){return p+':'+r.status}).catch(function(){return p+':err'})})).then(function(a){return JSON.stringify(a)})" $true
+  $assets = @($assetsRaw | ConvertFrom-Json | ForEach-Object { $_ })
+  $assetsOk = ($assets.Count -eq 5) -and (@($assets | Where-Object { $_ -notmatch ':200$' }).Count -eq 0)
+
   $hasHistory = $d.hrows -gt 0
   $hasSeeded = [bool]$d.seeded
   $appRan = $d.badge -match 'saved in this browser'
@@ -204,9 +225,11 @@ try {
   Write-Host ("  app.js ran (badge):                     {0} ('{1}')" -f $appRan, $d.badge)
   Write-Host ("  ZXing primed online + runtime-cached:   {0} / {1}" -f [bool]$zxOnline, [bool]$zxCached)
   Write-Host ("  ZXing loads OFFLINE from cache (D15):    {0}" -f [bool]$zxOffline)
+  Write-Host ("  another page under the scope is itself (R339.1): {0} ({1})" -f $otherOk, $other)
+  Write-Host ("  shell files fetched OFFLINE from cache (R341): {0} ({1})" -f $assetsOk, $assetsRaw)
   Write-Host "-----------------------------------------"
 
-  if ($precached -and $hasHistory -and $hasSeeded -and $appRan -and $zxOffline) {
+  if ($precached -and $hasHistory -and $hasSeeded -and $appRan -and $zxOffline -and $otherOk -and $assetsOk) {
     Write-Host "OFFLINE GATE: PASS (prod cache-first path served the shell + ZXing with the network cut)"
     Cleanup; exit 0
   }

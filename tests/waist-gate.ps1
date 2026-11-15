@@ -180,7 +180,12 @@ try {
 (function () {
   localStorage.clear(); HT.boot();
   var t = HT.todayKey();
-  [[-24, 92.2], [-17, 91.4], [-10, 90.9]].forEach(function (x) { HT.addSignal({ type: 'waist', value: x[1], unit: 'cm', date: HT.shiftDate(t, x[0]), time: '07:30' }); });
+  [[-24, 92.2], [-17, 91.4]].forEach(function (x) { HT.addSignal({ type: 'waist', value: x[1], unit: 'cm', date: HT.shiftDate(t, x[0]), time: '07:30' }); });
+  // The latest is 10 days 2 h before NOW, not day -10 at 07:30: the top box counts whole days
+  // elapsed, so a 07:30 entry read "9 days ago" in any run before 07:30 (red at 00:08, R341).
+  // The 2 h margin also covers a spring-forward night inside the 10 days.
+  var m = new Date(Date.now() - (240 + 2) * 3600000), p = function (n) { return (n < 10 ? '0' : '') + n; };
+  HT.addSignal({ type: 'waist', value: 90.9, unit: 'cm', date: m.getFullYear() + '-' + p(m.getMonth() + 1) + '-' + p(m.getDate()), time: p(m.getHours()) + ':' + p(m.getMinutes()) });
   HT.state().current = t; HT.resave(); HT.refresh();
   return Promise.resolve({ n: HT.waistReadings().length, unit: HT.waistUnit() });
 })()

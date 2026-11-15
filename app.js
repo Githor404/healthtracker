@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.140.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.140.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -20374,6 +20374,7 @@ const VERSION_LOG = [
   { v: '0.138.0', d: '2026-11-07', note: 'The pathway wheel’s dots now mean something you did: a dot appears only where a food you logged or a stack item you ticked in the last 28 days matches a claim you approved as for you or against you. Green when the claims for you weigh more, amber when those against do; it grows as matches build up, each weighted by its claim’s probability. Tap the pathway to see each match with its probability. The wheel’s ⓘ now also says what “known share” means.' },
   { v: '0.139.0', d: '2026-11-07', note: 'Every mark on the pathway wheel is now explained beside it. A pathway’s panel starts with “Why this dot” (which way it leans, and each thing you logged with its claim and probability, newest first) and “Why these lines” (one row per line, in the line’s own style, with what the two pathways share). Tap a row to highlight its mark on the wheel, or tap the mark to find its row. The group list shows each pathway’s dot too.' },
   { v: '0.140.0', d: '2026-11-08', note: 'The pathway wheel has a time-scale switch: Fast (7 days), Medium (28) and Slow (90). Each pathway counts what you logged over the time scale its cited research gives; the switch shows one at a time, and a pathway with no cited time scale counts 28 days and says so. Dots are hollow while they rest on the science alone; filled, ringed and struck styles are ready for when your own data or a blood panel checks a claim. A line stays “connected — effect not measured” unless a claim you approved names its direction; then it is drawn solid, with an arrow.' },
+  { v: '0.140.1', d: '2026-11-14', note: 'Other pages under the app’s address now open as themselves: the app used to answer every page with itself once installed, so the export.zip probe opened as the app. The app’s own page still opens offline as before.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 

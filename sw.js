@@ -9,7 +9,7 @@
 // Any shell change flips the hash -> new sw.js bytes -> the browser installs a
 // new SW -> force-and-notify activates it on load and the app shows the changelog
 // notice. No serve-time build; sw.js's own edits are self-detecting.
-const SHELL_HASH = '3956f83e627f';
+const SHELL_HASH = '446bbdcd0305';
 const SHELL_PREFIX = 'healthtracker-shell-';
 const SHELL_CACHE = SHELL_PREFIX + SHELL_HASH;
 
@@ -90,9 +90,12 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin !== self.location.origin) return;      // other cross-origin passthrough
 
-  // Navigations resolve to the shell's index regardless of query string, so
-  // '/', '/index.html' and '/?prod=1' all load offline.
+  // Navigations to the app's own page resolve to the shell's index regardless of
+  // query string, so '/', '/index.html' and '/?prod=1' all load offline. Any other
+  // page under the scope (the R339.1 probe) goes to the network untouched.
   if (req.mode === 'navigate') {
+    const root = new URL(self.registration.scope).pathname;
+    if (url.pathname !== root && url.pathname !== root + 'index.html') return;
     event.respondWith(
       IS_DEV
         ? fetch(req).catch(() => caches.match('./index.html'))

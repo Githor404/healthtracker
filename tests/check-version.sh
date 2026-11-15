@@ -22,8 +22,10 @@ set -uo pipefail
 
 DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$DIR"
-SHELL_FILES="index.html app.js manifest.json icons"
-SHELL_TEXT="index.html app.js manifest.json icons/icon.svg"
+# R341 (2026-11-14): sw.js counts. It is shipped code that changes what a device does
+# (R339.1: which pages it answers), so a change to it is a release and needs a bump.
+SHELL_FILES="index.html app.js manifest.json icons sw.js"
+SHELL_TEXT="index.html app.js manifest.json icons/icon.svg sw.js"
 SHELL_BIN="icons/icon-192.png icons/icon-512.png icons/apple-touch-icon.png"
 
 # Version metadata, removed so the REST of the shell can be compared. Matches the
@@ -41,16 +43,20 @@ strip_vmeta() {
     -e "/APP_VERSION[[:space:]]*=[[:space:]]*'[^']*'/d" \
     -e "/^[[:space:]]*\{[[:space:]]*v:[[:space:]]*'[0-9]+\.[0-9]+\.[0-9]+'/d"
 }
+# sw.js carries SHELL_HASH, a hash of app.js among others: a bump alone re-stamps it,
+# so it is stripped too -- else every hollow bump would look like a sw.js change (R341).
+strip_swhash() {
+  sed -E -e "/^const SHELL_HASH[[:space:]]*=[[:space:]]*'[^']*'/d"
+}
+strip_for() {
+  case "$1" in app.js) strip_vmeta ;; sw.js) strip_swhash ;; *) cat ;; esac
+}
 # Line endings normalized like check-sw-hash, so the fingerprint is platform-stable.
 subst_hash_work() {
-  for f in $SHELL_TEXT; do
-    if [ "$f" = app.js ]; then strip_vmeta < "$f"; else cat "$f"; fi
-  done | tr -d '\r' | sha256sum | cut -d' ' -f1
+  for f in $SHELL_TEXT; do strip_for "$f" < "$f"; done | tr -d '\r' | sha256sum | cut -d' ' -f1
 }
 subst_hash_head() {
-  for f in $SHELL_TEXT; do
-    if [ "$f" = app.js ]; then git show "HEAD:$f" | strip_vmeta; else git show "HEAD:$f"; fi
-  done | tr -d '\r' | sha256sum | cut -d' ' -f1
+  for f in $SHELL_TEXT; do git show "HEAD:$f" | strip_for "$f"; done | tr -d '\r' | sha256sum | cut -d' ' -f1
 }
 
 extract_appv() { grep -oE "APP_VERSION[[:space:]]*=[[:space:]]*'[^']*'" | head -1 | sed -E "s/.*'([^']*)'.*/\1/"; }

@@ -22777,3 +22777,58 @@ then goes on to the offline reload as before. It is run once against the current
 where it must fail. Released under the standing pre-run rule. On an installed phone the new
 worker takes over at the next update (pull down on the home screen, R300.1); only then does the
 probe load.
+
+## R339.1 fix -- BUILT (2026-11-14, v0.140.1), under R341
+R341 (the user, 2026-11-14) ruled the order: red against the old worker first, then green, then
+the bump, then one green run under the standing rule; R339.1 step 2 (the import route) is NOT
+started -- it waits on the phone probe's results.
+**Red, against the committed `sw.js`** (the new one saved first and put back after; its sha256
+`98e23ee1...` matched before and after the swap): offline-gate FAILED at 4c only, every other line
+true. First run: `{"controlled":true,"title":"HealthTracker","app":"undefined"}`.
+**A gate flaw found by that red run, fixed before it counted:** `app: typeof HT` was vacuous. The
+cached index.html, served at `/probe/`, loads `./app.js` as `/probe/app.js` (404), so `HT` is
+undefined even when the shell IS the page; only the title caught it. The check now asks positive
+marks: the probe's own file input present, no `app.js` script tag. Red again with them:
+`{"controlled":true,"title":"HealthTracker","probe":false,"shell":true}`.
+**Green, against the new `sw.js`:** `{"controlled":true,"title":"Export zip probe","probe":true,
+"shell":false}`, and the offline reload that follows passes as before (shell precached, history
+and the seeded day rendered, app.js ran, ZXing from the runtime cache).
+**Scope of the change, stated:** it applies to **navigation requests only** (`req.mode ===
+'navigate'`). A navigation to the scope root or `index.html` (any query string) is answered with
+the cached shell as before; any other navigation under the scope returns without
+`respondWith`, so the browser fetches it from the network (offline, such a page does not load --
+the probe needs no offline mode). Every non-navigation same-origin request takes the asset
+branch unchanged. **New offline-gate step 7 confirms it** with the network cut: `app.js`,
+`manifest.json`, `icons/icon-192.png`, `icons/icon-512.png` and `icons/apple-touch-icon.png`, each
+fetched by the page, all 200 -- from the cache, since there is no network. The app has no
+separate stylesheet: its styles are inline in index.html, which the offline reload already serves.
+**check-version.sh amended (R341, the user's choice; a D6 amendment).** `sw.js` was not part of
+the shell it fingerprints, so a release whose only change is `sw.js` failed the converse arm ("a
+notice with no update") -- this one. `sw.js` now counts: it is shipped code that changes what a
+device does. Its `SHELL_HASH` line is stripped from the fingerprint, because a bump alone
+re-stamps it (it hashes app.js); without the strip every hollow bump would pass. Checked in all
+three cases: sw.js changed and no bump -> FAIL (first arm); a bump with sw.js differing only by its
+re-stamped hash -> FAIL (converse arm); this release -> OK. From now on any `sw.js` change needs a
+bump and a changelog line.
+**Cache name: it changes.** It is content-derived (D6 amendment), not the version string:
+`SHELL_HASH` hashes the shell files, and the bump changes app.js, so `3956f83e627f` ->
+`446bbdcd0305` (`healthtracker-shell-446bbdcd0305`).
+**How an installed old worker is replaced:** the browser byte-compares `sw.js` at each update
+check -- a navigation to the app, `reg.update()` on resume, or the pull-down (R300.1). Different
+bytes install the new worker, which precaches the new shell into the new cache, `skipWaiting()`s,
+and on activate `clients.claim()`s and deletes every other `healthtracker-shell-*` cache (the
+ZXing runtime cache is kept); the page's `controllerchange` reloads once and shows the changelog
+note (force-and-notify, D6). Until that happens the old worker keeps answering every page with
+the app. Safari and a Home Screen web app keep separate copies of the site's storage, so each is
+updated on its own.
+**Changelog (0.140.1):** "Other pages under the app's address now open as themselves: the app used
+to answer every page with itself once installed, so the export.zip probe opened as the app. The
+app's own page still opens offline as before."
+**The first official run was red: 83 of 84, waist-gate** (finished 00:08, 15 Nov). A gate flaw,
+not an app bug and not this change: its fixture put the latest waist on day -10 at 07:30, and the
+top box counts whole days elapsed, so before 07:30 it truthfully read "9 days ago" and the check
+expected "10". It passed alone earlier the same evening. Fixed (the user's go): the latest waist
+is dated 10 days 2 h before now, as its local date and time -- the margin also covers a
+spring-forward night. Alone at 00:3x: red before, green after. Static checks and harness re-run
+green; one retry, as allowed.
+Harness 3495/3495; 11 static checks; every gate alone green; **suite 84 of 84**.
