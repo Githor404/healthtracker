@@ -661,7 +661,10 @@ JSON.stringify((function () {
   Write-Host ("  R342 note: " + $gw.note)
   Chk ($gw.card -notmatch 'not in your export') "R342: the Settings glucose card still says glucose is 'not in your export'"
   Chk ($gw.card -match 'in your backup') "R342: the Settings glucose card does not say the readings are in the backup"
-  Chk (($gw.card -match 'export\.zip') -and ($gw.card -match 'unzip')) "R342: the Settings glucose card does not say that a phone's export.zip has to be unzipped first"
+  # R344 (a): the zip is read as it is, so the card says so -- and no longer tells the
+  # user to unzip it (R342's check required the old statement, true until v0.142.0).
+  Chk (($gw.card -match 'export\.zip') -and ($gw.card -match 'as it is')) "R344: the Settings glucose card does not say the export.zip can be picked as it is"
+  Chk ($gw.card -notmatch '(?i)unzip it in Files first|not built yet') "R344: the Settings glucose card still says the export.zip has to be unzipped first, or that reading it is not built"
   Chk ($gw.note -match 'From Apple Health') "R342: the opened day's chart note did not render, so its wording is not checked (note: '$($gw.note)')"
   Chk ($gw.note -notmatch 'not in your export') "R342: the note under the glucose chart still says glucose is 'not in your export'"
   Chk ($gw.note -match 'in your backup') "R342: the note under the glucose chart does not say the readings are in the backup"
@@ -676,7 +679,7 @@ JSON.stringify((function () {
   if ($foreign.Count) {
     Write-Host "  ATTRIBUTED AND EXCLUDED: $($foreign.Count) cross-origin call(s) from code this app did not load -- $(@($foreignOrigins) -join ', ') -- a web-antivirus on this machine injects a script into every page and that script uses XMLHttpRequest. Their stacks name no file of this origin, and they were present before the first import, so neither instrument above attributes them to the app."
   }
-  Write-Host "  WHAT THIS GATE CANNOT SEE: its fixtures are synthetic, so it cannot tell whether these regexes match a real Apple export. Measured separately and outside this gate, the real 490.8MB export went through this route at 451 readings in 4.6s and a 48MB peak -- the same count an independent parser found. ATTESTED ON DEVICE (D150, iOS 27): the real 490MB export.xml imported from the Files app on the phone, the row and chart rendered, and pinch/swipe work -- so Safari does slice a 490MB Blob and iOS does hand a file that size to a web page. Headless Chrome is still not an iPhone, but it is no longer the only evidence. What this gate STILL cannot see: the .zip the export actually arrives in (H21, unbuilt), and the 3-day/10-day windows: the device holds 719 readings (D150), which at the measured 300s cadence is ~ 2.5 days -- short of even one full 3-day window, and nothing at all for 10 days."
+  Write-Host "  WHAT THIS GATE CANNOT SEE: its fixtures are synthetic, so it cannot tell whether these regexes match a real Apple export. Measured separately and outside this gate, the real 490.8MB export went through this route at 451 readings in 4.6s and a 48MB peak -- the same count an independent parser found. ATTESTED ON DEVICE (D150, iOS 27): the real 490MB export.xml imported from the Files app on the phone, the row and chart rendered, and pinch/swipe work -- so Safari does slice a 490MB Blob and iOS does hand a file that size to a web page. Headless Chrome is still not an iPhone, but it is no longer the only evidence. What this gate STILL cannot see: the .zip the export actually arrives in (read since R344 (a), gated by zip-gate, not here), and the 3-day/10-day windows: the device holds 719 readings (D150), which at the measured 300s cadence is ~ 2.5 days -- short of even one full 3-day window, and nothing at all for 10 days."
   Cleanup
   exit 0
 } catch {

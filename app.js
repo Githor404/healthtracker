@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.141.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.142.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -15014,7 +15014,7 @@ const GLUCOSE_CHUNK = 2 * 1024 * 1024;   // bytes per slice -- and the peak's bo
 const GLUCOSE_CARRY = 65536;             // carry cap when a slice holds no newline
 let _gSeq = 0;
 let _gImport = { seq: 0, active: false, name: '', format: '', bytes: 0, total: 0,
-                 readings: 0, added: 0, skipped: 0, done: false, error: '' };
+                 readings: 0, added: 0, skipped: 0, done: false, error: '', zip: false, summary: null };
 // `seq` is not decoration: `done` alone cannot distinguish THIS import's
 // completion from the previous one's, so a probe polling `done` can read a stale
 // result and call it a pass. It increments once per attempt.
@@ -15022,7 +15022,10 @@ function glucoseImportProgress() {
   const p = _gImport;
   return { seq: p.seq, active: p.active, name: p.name, format: p.format,
            bytes: p.bytes, total: p.total, readings: p.readings, added: p.added,
-           skipped: p.skipped, done: p.done, error: p.error };
+           skipped: p.skipped, done: p.done, error: p.error,
+           // R344 (a): the zip route's own figures, and the summary per source.
+           zip: !!p.zip, maxGapMs: p.maxGapMs || 0, heapPeak: p.heapPeak || 0,
+           summary: p.summary ? JSON.parse(JSON.stringify(p.summary)) : null };
 }
 function glucoseCount() {
   const s = glucoseKept();
@@ -15107,35 +15110,87 @@ function glucoseScanAppleText(text, rows, meta) {
       // it arrives whole on the next round, carried.
       if (iso && unit) {
         if (!meta.rawUnit) meta.rawUnit = rawUnit;
-        if (!meta.source) { const sn = RE_G_SRC.exec(ln); if (sn) meta.source = xmlUnesc(sn[1]); }
-        rows.push({ t: iso, v: v[1], unit: unit });
+        // R344 (a): each row keeps its source, for the summary per source app. The
+        // store still keeps one `src` per day, as before (glucoseIngest ignores this).
+        const sn = RE_G_SRC.exec(ln), src = sn ? xmlUnesc(sn[1]) : '';
+        if (!meta.source && src) meta.source = src;
+        rows.push({ t: iso, v: v[1], unit: unit, src: src });
       }
     }
     at = text.indexOf(GLUCOSE_TYPE, e0);
   }
 }
+// R344 (a): EVERY OTHER RECORD TYPE, COUNTED, NOT KEPT -- per type and source, for the
+// summary's "not imported in this version". Only opening `<Record type="` tags; a
+// Workout or an ActivitySummary is not a record and is not counted.
+const AH_REC = '<Record type="';
+// NO STRING PER RECORD where it can be helped: an export holds millions of records,
+// grouped by type and source, so the last type and source are reused when the text
+// still says them (measured, F13: slicing two strings a record was ~120 MB of garbage
+// on a 64 MB zip -- collected, but it is the peak the budget reads).
+let _ahLastTyp = '', _ahLastSrc = '';
+function ahSame(text, at, s) { return s !== '' && text.startsWith(s, at) && text.charCodeAt(at + s.length) === 34; }
+function ahTypesScan(text, types) {
+  let at = text.indexOf(AH_REC);
+  while (at >= 0) {
+    const ts = at + AH_REC.length;
+    let typ, te;
+    if (ahSame(text, ts, _ahLastTyp)) { typ = _ahLastTyp; te = ts + typ.length; }
+    else {
+      te = text.indexOf('"', ts);
+      if (te < 0) break;
+      typ = _ahLastTyp = text.slice(ts, te);
+    }
+    if (typ !== GLUCOSE_TYPE && typ !== STEPS_TYPE) {
+      const end = text.indexOf('>', te), q = text.indexOf(' sourceName="', te);
+      let src = '';
+      if (q >= 0 && (end < 0 || q < end)) {
+        const qs = q + 13;
+        if (ahSame(text, qs, _ahLastSrc)) src = _ahLastSrc;
+        else { const qe = text.indexOf('"', qs); if (qe >= 0) src = _ahLastSrc = text.slice(qs, qe); }
+      }
+      const t = types[typ] || (types[typ] = {});
+      t[src] = (t[src] || 0) + 1;
+    }
+    at = text.indexOf(AH_REC, te);
+  }
+}
+// ONE SCAN FOR BOTH ROUTES. The export.xml route and the zip route hand their text
+// here, so the two cannot read the same records differently.
+function ahAcc() { return { rows: [], meta: {}, steps: {}, types: {}, carry: '' }; }
+function ahScanText(text, acc) {
+  glucoseScanAppleText(text, acc.rows, acc.meta);
+  stepsScanAppleText(text, acc.steps);
+  ahTypesScan(text, acc.types);
+}
+function ahFeed(acc, chunk) {
+  const text = acc.carry + chunk;
+  const cut = text.lastIndexOf('\n');
+  if (cut < 0) {
+    // A FILE WRITTEN AS ONE LONG LINE still has to be bounded. Scan all but
+    // the tail and carry only the tail, so the carry cannot grow with the
+    // file. A record cut at that boundary arrives whole next round; its
+    // truncated half fails the attribute test above and is dropped.
+    const keep = Math.max(0, text.length - GLUCOSE_CARRY);
+    ahScanText(text.slice(0, keep), acc);
+    acc.carry = text.slice(keep);
+  } else {
+    ahScanText(text.slice(0, cut), acc);
+    acc.carry = text.slice(cut + 1);
+  }
+}
+function ahFinish(acc) {
+  if (acc.carry) ahScanText(acc.carry, acc);
+  acc.carry = '';
+  return { rows: acc.rows, meta: acc.meta, steps: acc.steps, types: acc.types };
+}
 async function glucoseImportApple(file) {
-  const rows = [], meta = {}, stepAcc = {};
+  const acc = ahAcc(), rows = acc.rows;
   const total = file.size || 0;
-  let carry = '', off = 0, lastPaint = 0;
+  let off = 0, lastPaint = 0;
   while (off < total) {
     const end = Math.min(off + GLUCOSE_CHUNK, total);
-    const text = carry + (await file.slice(off, end).text());
-    const cut = text.lastIndexOf('\n');
-    if (cut < 0) {
-      // A FILE WRITTEN AS ONE LONG LINE still has to be bounded. Scan all but
-      // the tail and carry only the tail, so the carry cannot grow with the
-      // file. A record cut at that boundary arrives whole next round; its
-      // truncated half fails the attribute test above and is dropped.
-      const keep = Math.max(0, text.length - GLUCOSE_CARRY);
-      glucoseScanAppleText(text.slice(0, keep), rows, meta);
-      stepsScanAppleText(text.slice(0, keep), stepAcc);
-      carry = text.slice(keep);
-    } else {
-      glucoseScanAppleText(text.slice(0, cut), rows, meta);
-      stepsScanAppleText(text.slice(0, cut), stepAcc);
-      carry = text.slice(cut + 1);
-    }
+    ahFeed(acc, await file.slice(off, end).text());
     off = end;
     _gImport.bytes = off; _gImport.readings = rows.length;
     const now = Date.now();
@@ -15147,9 +15202,218 @@ async function glucoseImportApple(file) {
       await new Promise(function (r) { setTimeout(r, 0); });
     }
   }
-  if (carry) { glucoseScanAppleText(carry, rows, meta); stepsScanAppleText(carry, stepAcc); }
+  const res = ahFinish(acc);
   _gImport.bytes = total; _gImport.readings = rows.length;
-  return { rows: rows, meta: meta, steps: stepAcc };
+  return res;
+}
+
+// ---------------------------------------------------------------------------
+// R344 (a): EXPORT.ZIP, READ AS IT IS (R339.1's probe, made the route).
+//
+// The probe read the user's real export in Safari and in the Home Screen app: 27.8 MB
+// zipped, 714.8 MB of text, 2.3 s, one chunk held at a time. The zip's central
+// directory is read from the end of the file (Zip64 included), then export.xml alone
+// is streamed: slice -> DecompressionStream('deflate-raw') -> TextDecoderStream, and
+// each batch goes to the SAME scan as the export.xml route (ahFeed).
+const ZIP_TEXT_BATCH = 64 * 1024;   // characters gathered before one scan
+const ZIP_YIELD_MS = 50;                  // the loop gives the page back at least this often
+function zipWhy(why) { const e = new Error(why); e.zipWhy = why; return e; }
+function glucoseZipReadable() {
+  return typeof DecompressionStream === 'function' && typeof TextDecoderStream === 'function'
+    && typeof Blob === 'function' && typeof Blob.prototype.stream === 'function';
+}
+function zipU64(dv, o) { return dv.getUint32(o, true) + dv.getUint32(o + 4, true) * 4294967296; }
+async function zipBytes(file, a, b) { return new DataView(await file.slice(a, b).arrayBuffer()); }
+// export.xml at the root, or one folder down (Apple writes apple_health_export/export.xml).
+function zipIsExport(name) { return name === 'export.xml' || /^[^/]+\/export\.xml$/.test(name); }
+async function zipFindExport(file) {
+  const tail = Math.min(file.size, 65557), base = file.size - tail;
+  const dv = await zipBytes(file, base, file.size);
+  let at = -1;
+  for (let i = tail - 22; i >= 0; i--) if (dv.getUint32(i, true) === 0x06054b50) { at = i; break; }
+  if (at < 0) throw zipWhy('is not a complete zip (its directory at the end is missing — perhaps it was cut short while being copied)');
+  let cdSize = dv.getUint32(at + 12, true), cdOff = dv.getUint32(at + 16, true);
+  if (cdOff === 0xFFFFFFFF || cdSize === 0xFFFFFFFF) {
+    if (at < 20 || dv.getUint32(at - 20, true) !== 0x07064b50) throw zipWhy('is a damaged zip (its Zip64 locator is missing)');
+    const e64 = zipU64(dv, at - 20 + 8), d64 = await zipBytes(file, e64, e64 + 56);
+    if (d64.byteLength < 56 || d64.getUint32(0, true) !== 0x06064b50) throw zipWhy('is a damaged zip (its Zip64 directory is missing)');
+    cdSize = zipU64(d64, 40); cdOff = zipU64(d64, 48);
+  }
+  if (!(cdOff >= 0 && cdOff + cdSize <= file.size)) throw zipWhy('is a damaged zip (its directory points outside the file)');
+  const cd = await zipBytes(file, cdOff, cdOff + cdSize);
+  let p = 0, n = 0;
+  while (p + 46 <= cd.byteLength && cd.getUint32(p, true) === 0x02014b50) {
+    const method = cd.getUint16(p + 10, true);
+    let comp = cd.getUint32(p + 20, true), size = cd.getUint32(p + 24, true), loc = cd.getUint32(p + 42, true);
+    const nl = cd.getUint16(p + 28, true), xl = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true);
+    const name = new TextDecoder().decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nl));
+    let x = p + 46 + nl;
+    const xe = x + xl;
+    while (x + 4 <= xe) {
+      const id = cd.getUint16(x, true), len = cd.getUint16(x + 2, true);
+      let q = x + 4;
+      if (id === 0x0001) {
+        if (size === 0xFFFFFFFF) { size = zipU64(cd, q); q += 8; }
+        if (comp === 0xFFFFFFFF) { comp = zipU64(cd, q); q += 8; }
+        if (loc === 0xFFFFFFFF) { loc = zipU64(cd, q); q += 8; }
+      }
+      x += 4 + len;
+    }
+    n++;
+    if (zipIsExport(name)) {
+      const lh = await zipBytes(file, loc, loc + 30);
+      if (lh.byteLength < 30 || lh.getUint32(0, true) !== 0x04034b50) throw zipWhy('is a damaged zip (export.xml’s entry is missing)');
+      const start = loc + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      if (start + comp > file.size) throw zipWhy('is not a complete zip (export.xml runs past the end of the file)');
+      return { name: name, method: method, comp: comp, size: size, start: start };
+    }
+    p += 46 + nl + xl + cl;
+  }
+  throw zipWhy('is a zip with no export.xml in it (' + n + ' file' + (n === 1 ? '' : 's') + ' inside). '
+    + 'Pick the export.zip that Health → your picture → Export All Health Data makes');
+}
+async function glucoseImportZip(file) {
+  if (!glucoseZipReadable()) {
+    return { rows: null, why: 'is a zip, and this browser cannot unzip it. Unzip it in Files and pick the export.xml inside' };
+  }
+  let ent;
+  try { ent = await zipFindExport(file); }
+  catch (e) { if (e && e.zipWhy) return { rows: null, why: e.zipWhy }; throw e; }
+  if (ent.method !== 0 && ent.method !== 8) {
+    return { rows: null, why: 'holds its export.xml compressed in a way this app cannot read (method '
+      + ent.method + '). Unzip it in Files and pick the export.xml inside' };
+  }
+  _gImport.total = ent.comp; _gImport.zip = true;
+  const acc = ahAcc();
+  let zipped = 0, pend = [], pendLen = 0, lastYield = performance.now();
+  const counted = file.slice(ent.start, ent.start + ent.comp).stream()
+    .pipeThrough(new TransformStream({ transform: function (c, ctl) { zipped += c.byteLength; ctl.enqueue(c); } }));
+  const raw = ent.method === 8 ? counted.pipeThrough(new DecompressionStream('deflate-raw')) : counted;
+  const rd = raw.pipeThrough(new TextDecoderStream()).getReader();
+  for (;;) {
+    const r = await rd.read();
+    if (r.done) break;
+    pend.push(r.value); pendLen += r.value.length;
+    if (pendLen >= ZIP_TEXT_BATCH) { ahFeed(acc, pend.join('')); pend = []; pendLen = 0; }
+    const now = performance.now();
+    if (now - lastYield > ZIP_YIELD_MS) {
+      // THE BUDGET'S INSTRUMENT (F13): the longest stretch of this loop's own work
+      // without giving the page back, and the heap where the browser reports it.
+      _gImport.maxGapMs = Math.max(_gImport.maxGapMs || 0, Math.round(now - lastYield));
+      if (performance.memory) _gImport.heapPeak = Math.max(_gImport.heapPeak || 0, performance.memory.usedJSHeapSize);
+      _gImport.bytes = zipped; _gImport.readings = acc.rows.length;
+      glucoseImportPaint();
+      await new Promise(function (res) { setTimeout(res, 0); });
+      lastYield = performance.now();
+    }
+  }
+  if (pendLen) ahFeed(acc, pend.join(''));
+  const res = ahFinish(acc);
+  if (performance.memory) _gImport.heapPeak = Math.max(_gImport.heapPeak || 0, performance.memory.usedJSHeapSize);
+  _gImport.bytes = zipped; _gImport.readings = acc.rows.length;
+  return res;
+}
+
+// R344 (a): THE SUMMARY, PER SOURCE APP. Worked out from the rows the file carried and
+// the store before and after the merge, so "new" is what the store gained, not a guess.
+// Held in memory with the import's progress; not stored (the Data sources page is (b)).
+const AH_TYPE_WORDS = {
+  HeartRate: 'Heart rate', HeartRateVariabilitySDNN: 'HRV (SDNN)', RestingHeartRate: 'Resting heart rate',
+  RespiratoryRate: 'Respiratory rate', ActiveEnergyBurned: 'Active energy', BasalEnergyBurned: 'Resting energy',
+  SleepAnalysis: 'Sleep', OxygenSaturation: 'Blood oxygen', WalkingHeartRateAverage: 'Walking heart rate',
+  DistanceWalkingRunning: 'Walking and running distance', FlightsClimbed: 'Flights climbed',
+  AppleExerciseTime: 'Exercise minutes', AppleStandTime: 'Stand minutes', AppleStandHour: 'Stand hours',
+  BodyMass: 'Weight', BodyTemperature: 'Body temperature', AppleSleepingWristTemperature: 'Wrist temperature'
+};
+function ahTypeWords(typ) {
+  const k = String(typ).replace(/^HK(Quantity|Category|Correlation|DataType)TypeIdentifier/, '');
+  return AH_TYPE_WORDS[k] || k.replace(/([a-z])([A-Z])/g, '$1 $2');
+}
+function glucoseMinuteSet() {
+  const s = glucoseRead(), out = new Set();
+  Object.keys(s).forEach(function (dk) {
+    const d = s[dk];
+    for (let i = 0; i < d.t.length; i++) out.add(Math.round(glucoseMs(dk, d, i) / 60000));
+  });
+  return out;
+}
+function ahSummary(res, before, after, stepsOut) {
+  const by = {};
+  const one = function (src) { return by[src] || (by[src] = { name: src, glucose: null, steps: null }); };
+  const seen = new Set();
+  (res.rows || []).forEach(function (r) {
+    const ms = Date.parse(r.t);
+    const g = one(r.src || '').glucose || (one(r.src || '').glucose = { n: 0, added: 0, held: 0, skipped: 0, first: null, last: null });
+    g.n++;
+    if (!(ms > 0) || !(num(r.v) > 0)) { g.skipped++; return; }
+    const key = Math.floor(ms / 60000), dk = localDate(new Date(ms));
+    if (!g.first || dk < g.first) g.first = dk;
+    if (!g.last || dk > g.last) g.last = dk;
+    if (seen.has(key)) { g.dup = (g.dup || 0) + 1; return; }     // the same moment twice in the file is one reading
+    seen.add(key);
+    if (before.has(key)) g.held++;
+    else if (after.has(key)) g.added++;
+    else g.skipped++;
+  });
+  const chosen = (stepsOut && stepsOut.chosen) || {};
+  Object.keys(res.steps || {}).forEach(function (dk) {
+    Object.keys(res.steps[dk]).forEach(function (src) {
+      const s = one(src).steps || (one(src).steps = { days: 0, kept: 0, first: null, last: null });
+      s.days++;
+      if (!s.first || dk < s.first) s.first = dk;
+      if (!s.last || dk > s.last) s.last = dk;
+    });
+  });
+  Object.keys(chosen).forEach(function (src) { if (by[src] && by[src].steps) by[src].steps.kept = chosen[src]; });
+  const sources = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) {
+    return ((b.glucose ? 1 : 0) - (a.glucose ? 1 : 0)) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  });
+  const other = Object.keys(res.types || {}).map(function (typ) {
+    const m = res.types[typ];
+    const bySrc = Object.keys(m).map(function (s) { return [xmlUnesc(s), m[s]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    return { type: typ, words: ahTypeWords(typ), total: bySrc.reduce(function (a, x) { return a + x[1]; }, 0), bySrc: bySrc };
+  }).sort(function (a, b) { return b.total - a.total; });
+  return { sources: sources, other: other };
+}
+let _gSumOpen = false;
+function glucoseSumToggle(el) { _gSumOpen = !!(el && el.open); }
+function ahN(n) { return Number(n || 0).toLocaleString('en-CA'); }
+function ahRange(a, b) { return a ? fmtRangeLabel(a === b ? [a] : [a, b]) : ''; }
+function glucoseSummaryHTML(sum) {
+  if (!sum || (!sum.sources.length && !sum.other.length)) return '';
+  const rows = sum.sources.map(function (s) {
+    const L = [];
+    if (s.glucose) {
+      const g = s.glucose;
+      L.push('<div>Glucose: ' + ahN(g.n) + ' reading' + (g.n === 1 ? '' : 's') + ' — ' + ahN(g.added) + ' new, '
+        + ahN(g.held) + ' already held' + (g.dup ? ', ' + ahN(g.dup) + ' repeated in the file' : '')
+        + (g.skipped ? ', ' + ahN(g.skipped) + ' not stored' : '')
+        + (g.first ? ' · ' + esc(ahRange(g.first, g.last)) : '') + '</div>');
+    }
+    if (s.steps) {
+      const t = s.steps;
+      L.push('<div>Steps: ' + ahN(t.days) + ' day' + (t.days === 1 ? '' : 's') + ' in the file'
+        + (t.first ? ' (' + esc(ahRange(t.first, t.last)) + ')' : '') + ', ' + ahN(t.kept) + ' kept</div>');
+    }
+    return '<div class="gsrc"><b>' + esc(s.name || 'Source not named') + '</b>' + L.join('') + '</div>';
+  });
+  const anySteps = sum.sources.some(function (s) { return !!s.steps; });
+  const not = sum.other.length
+    ? '<div class="gsrc gnot"><b>Not imported in this version</b>'
+      + '<div class="gsubtle">A later version reads these. Nothing of theirs was stored.</div>'
+      + sum.other.map(function (o) {
+          return '<div class="gtype">' + esc(o.words) + ' · ' + o.bySrc.length + ' source' + (o.bySrc.length === 1 ? '' : 's')
+            + ' · ' + ahN(o.total) + ' record' + (o.total === 1 ? '' : 's')
+            + '<div class="gsubtle">' + o.bySrc.map(function (x) { return esc(x[0] || 'Source not named') + ' ' + ahN(x[1]); }).join(' · ') + '</div></div>';
+        }).join('')
+      + '</div>'
+    : '';
+  const n = sum.sources.length;
+  return '<details class="gsum"' + (_gSumOpen ? ' open' : '') + ' ontoggle="glucoseSumToggle(this)">'
+    + '<summary>' + n + ' source' + (n === 1 ? '' : 's') + ' read · details ›</summary>'
+    + rows.join('')
+    + (anySteps ? '<div class="gsubtle">Steps are kept for the days glucose covers, from the source with the most steps that day.</div>' : '')
+    + not + '</details>';
 }
 function glucoseJSONArray(data) {
   if (Array.isArray(data)) return data;
@@ -15201,20 +15465,28 @@ async function glucoseImportFile(file) {
   if (!file) return { ok: false, error: 'No file.' };
   const name = String(file.name || 'that file');
   _gImport = { seq: ++_gSeq, active: true, name: name, format: '', bytes: 0,
-               total: file.size || 0, readings: 0, added: 0, skipped: 0, done: false, error: '' };
+               total: file.size || 0, readings: 0, added: 0, skipped: 0, done: false, error: '',
+               zip: false, summary: null, maxGapMs: 0, heapPeak: 0 };
+  _gSumOpen = false;
   glucoseImportPaint();
   try {
-    const head = await file.slice(0, 65536).text();
-    const fmt = glucoseSniff(head);
+    // R344 (a): A ZIP IS KNOWN BY ITS FIRST BYTES (PK 3 4, or PK 5 6 for an empty one),
+    // never by its name -- iOS renames files.
+    const b4 = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    const isZip = b4.length === 4 && b4[0] === 0x50 && b4[1] === 0x4b
+      && ((b4[2] === 3 && b4[3] === 4) || (b4[2] === 5 && b4[3] === 6));
+    const head = isZip ? '' : await file.slice(0, 65536).text();
+    const fmt = isZip ? 'zip' : glucoseSniff(head);
     if (!fmt) {
       return glucoseImportFail(name, 'is not an Apple Health export or a glucose file, '
         + 'so nothing was changed. Easiest fix: the Shortcut described where glucose starts '
-        + '\u2014 it writes a small ' + GLUCOSE_SC_FILE + '. Otherwise pick the export.xml from a '
-        + 'full Apple Health export.');
+        + '\u2014 it writes a small ' + GLUCOSE_SC_FILE + '. Otherwise pick the export.zip from a '
+        + 'full Apple Health export, as it is, or the export.xml inside it.');
     }
     _gImport.format = fmt;
-    const res = (fmt === 'apple') ? await glucoseImportApple(file)
-                                  : await glucoseImportShortcut(file);
+    const res = (fmt === 'zip') ? await glucoseImportZip(file)
+              : (fmt === 'apple') ? await glucoseImportApple(file)
+              : await glucoseImportShortcut(file);
     if (!res.rows || !res.rows.length) {
       return glucoseImportFail(name, (res.why || 'carries no blood-glucose records')
         + ', so nothing was changed.');
@@ -15223,6 +15495,7 @@ async function glucoseImportFile(file) {
     // collide into one slot, so a re-export every few days adds the new readings
     // and nothing else.
     const before = glucoseCount();
+    const heldBefore = (fmt === 'shortcut') ? null : glucoseMinuteSet();
     const out = glucoseIngest(res.rows, { rawUnit: res.meta.rawUnit, source: res.meta.source });
     _gImport.added = glucoseCount() - before;
     _gImport.skipped = out.skipped || 0;
@@ -15258,6 +15531,8 @@ async function glucoseImportFile(file) {
     // E-lite, ruled D: steps, for the days glucose now covers and no others. AFTER
     // the glucose ingest, because "the days glucose covers" is read from its store.
     if (res.steps) _gImport.steps = stepsIngest(res.steps);
+    // R344 (a): the summary per source app, for an Apple export by either route.
+    if (heldBefore) _gImport.summary = ahSummary(res, heldBefore, glucoseMinuteSet(), _gImport.steps);
     if (out && out.stored > 0) { APP_STATE.settings.glucoseImportedAt = new Date(nowMs()).toISOString(); Store.saveState(APP_STATE); }
     glucoseImportAfter();
     return { ok: true, read: res.rows.length, added: _gImport.added, ingest: out };
@@ -15294,7 +15569,7 @@ function glucoseImportNoteInner() {
     // in 491MB, measured -- so a readings-only counter sits at zero through most
     // of the run and reads as broken.
     return '<span class="gprog">Reading ' + esc(p.name) + ' \u2014 ' + esc(mbWords(p.bytes))
-      + (p.total ? ' of ' + esc(mbWords(p.total)) : '') + ' \u00b7 ' + p.readings
+      + (p.total ? ' of ' + esc(mbWords(p.total)) : '') + (p.zip ? ' zipped' : '') + ' \u00b7 ' + p.readings
       + ' reading' + (p.readings === 1 ? '' : 's') + ' found</span>';
   }
   if (p.done) {
@@ -15305,7 +15580,8 @@ function glucoseImportNoteInner() {
       // micro totals: a count that quietly excludes rows is a count that reads
       // as complete.
       + (p.skipped ? ', ' + p.skipped + ' unreadable and skipped' : '')
-      + ' \u00b7 ' + esc(mbWords(p.bytes)) + ' read</span>';
+      + ' \u00b7 ' + esc(mbWords(p.bytes)) + (p.zip ? ' of zip' : '') + ' read</span>'
+      + glucoseSummaryHTML(p.summary);
   }
   return '';
 }
@@ -15417,7 +15693,8 @@ function glucoseEmptyHTML() {
   // RULED (H21): the Shortcut LEADS and the full export is the fallback. It was
   // the other way round, which told the user to do the one thing that had just
   // failed on their phone: export.zip arrives as an archive, and unzipping it
-  // needs room for the zip plus ~490MB of XML.
+  // needs room for the zip plus ~490MB of XML. (R344 (a): the zip is now read as it
+  // is, so the room it needs is the zip's; the order is left as H21 ruled it.)
   return '<div class="gempty">'
     + '<div class="geline"><b>No glucose yet.</b> The quickest way in is a <b>Shortcut</b> that '
     + 'writes your recent <b>Apple Health</b> readings to a small file \u2014 about a minute to '
@@ -15426,9 +15703,9 @@ function glucoseEmptyHTML() {
     + glucoseShortcutHTML()
     + glucoseImportFootHTML('first')
     + '<div class="gefall">Or import a <b>full Apple Health export</b>: Profile \u2192 Export All '
-    + 'Health Data. On a phone that arrives as <b>export.zip</b> and has to be unzipped first, '
-    + 'which needs room for the archive <i>and</i> ~490MB of XML \u2014 if that fails for storage, '
-    + 'use the Shortcut. Reading the <b>.zip</b> directly is not built yet.</div>'
+    + 'Health Data, then pick the <b>export.zip</b> it makes, as it is \u2014 no unzipping. It is '
+    + 'large (tens of MB, read in a minute or so), so it needs room on the phone for the zip; '
+    + 'if there is no room, use the Shortcut.</div>'
     + '<div class="gestop">Both of these are file hand-offs, and deliberately a stopgap: the '
     + 'durable route is the native shell reading HealthKit directly, with no export and no '
     + 'file. Until that ships, this is the way in.</div>'
@@ -18122,8 +18399,11 @@ function stepsScanAppleText(text, acc) {
       const b = Math.floor((d.getHours() * 60 + d.getMinutes()) / STEPS_BUCKET_MIN) * STEPS_BUCKET_MIN;
       const src = sn ? xmlUnesc(sn[1]) : '';
       const day = acc[dk] || (acc[dk] = {});
-      const one = day[src] || (day[src] = {});
-      one[b] = (one[b] || 0) + c;
+      // R344 (a): ONE FIXED ARRAY PER DAY AND SOURCE (288 five-minute buckets). An
+      // object keyed by minute cost ~12 kB a day-source; a full history read from the
+      // zip is thousands of them, and the budget (F13) measured it.
+      const one = day[src] || (day[src] = new Float64Array(1440 / STEPS_BUCKET_MIN));
+      one[b / STEPS_BUCKET_MIN] += c;
     }
     at = text.indexOf(STEPS_TYPE, e0);
   }
@@ -18135,23 +18415,26 @@ function stepsIngest(acc) {
   const glucoseDays = Object.keys(glucoseRead());
   const store = stepsRead();
   let days = 0, total = 0, seen = 0;
+  const chosen = {};      // R344 (a): days kept, per source, for the summary
   Object.keys(acc || {}).forEach(function () { seen++; });
   glucoseDays.forEach(function (dk) {
     const day = acc && acc[dk];
     if (!day) return;
     let bestSrc = null, bestSum = -1;
     Object.keys(day).forEach(function (src) {
-      const sum = Object.keys(day[src]).reduce(function (a, b) { return a + day[src][b]; }, 0);
+      const sum = day[src].reduce(function (a, b) { return a + b; }, 0);
       if (sum > bestSum) { bestSum = sum; bestSrc = src; }
     });
     if (bestSrc == null) return;
-    const mins = Object.keys(day[bestSrc]).map(Number).sort(function (a, b) { return a - b; });
-    store[dk] = { t: mins, n: mins.map(function (m) { return day[bestSrc][m]; }), src: bestSrc };
+    const mins = [], ns = [];
+    day[bestSrc].forEach(function (n, i) { if (n > 0) { mins.push(i * STEPS_BUCKET_MIN); ns.push(n); } });
+    store[dk] = { t: mins, n: ns, src: bestSrc };
+    chosen[bestSrc] = (chosen[bestSrc] || 0) + 1;
     days++; total += bestSum;
   });
   const clean = normalizeStepsStore(store);
   stepsWrite(clean);
-  return { days: days, steps: total, daysInFile: seen };
+  return { days: days, steps: total, daysInFile: seen, chosen: chosen };
 }
 // Steps in a span, and WHETHER THEY ARE KNOWN: a day with no steps held is not
 // a day of standing still, and the two must never read the same.
@@ -20377,6 +20660,7 @@ const VERSION_LOG = [
   { v: '0.140.0', d: '2026-11-08', note: 'The pathway wheel has a time-scale switch: Fast (7 days), Medium (28) and Slow (90). Each pathway counts what you logged over the time scale its cited research gives; the switch shows one at a time, and a pathway with no cited time scale counts 28 days and says so. Dots are hollow while they rest on the science alone; filled, ringed and struck styles are ready for when your own data or a blood panel checks a claim. A line stays “connected — effect not measured” unless a claim you approved names its direction; then it is drawn solid, with an arrow.' },
   { v: '0.140.1', d: '2026-11-14', note: 'Other pages under the app’s address now open as themselves: the app used to answer every page with itself once installed, so the export.zip probe opened as the app. The app’s own page still opens offline as before.' },
   { v: '0.141.0', d: '2026-11-16', note: 'On a photo, tapping one of your AI’s other names for a food now opens the food search with that name already looked up, so you can pick its database row and get its numbers; the name you chose is marked. The glucose notes now say what is true: your readings are in your backup, and on a phone an Apple Health export.zip has to be unzipped before its export.xml can be imported.' },
+  { v: '0.142.0', d: '2026-11-16', note: 'Import readings now takes the export.zip from Apple Health as it is — no unzipping in Files first. After an import it lists what came from each source app: glucose readings new and already held, steps days kept, and the other kinds of data in the file (heart rate, HRV, sleep and more), which a later version will read.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -30296,7 +30580,8 @@ window.HT = {
   drugPickNeedsReview,
   drugSet,
   QUERY_DROP, QUERY_FIELDS,
-  glucoseImportFile, glucoseSniff, glucoseImportProgress, glucoseCanonUnit, glucoseCount,
+  glucoseImportFile, glucoseSniff, glucoseImportProgress, glucoseZipReadable, glucoseSumToggle,
+  ahAcc, ahFeed, ahFinish, ahTypesScan, ahSummary, zipIsExport, glucoseCanonUnit, glucoseCount,
   glucoseEmptyHTML, glucoseImportFootHTML, glucoseImportPick, onGlucoseFile, appleDateISO,
   glucoseJSONArray, mbWords, glucoseShortcutHTML,
   chartAnchorMs, chartTimeTicks, glucoseReadout, glucoseUnitShown, glucoseNearestMark,

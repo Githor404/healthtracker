@@ -23078,3 +23078,42 @@ the stored per-source view is (b)'s Data sources page.
   green full run, then push.
 **On the phone, after release:** the user picks export.zip as it is (Safari, then the Home Screen
 app) and reports the time and the summary. The probe page stays until then (F11).
+
+## R344 release (a) -- BUILT (2026-11-16, v0.142.0)
+As pre-registered, with one measure amended by the user (below). The control sniffs the first
+bytes (PK 3 4, or PK 5 6); `zipFindExport` reads the central directory from the end (Zip64
+included) and takes `export.xml` at the root or one folder down; the entry is streamed through
+`DecompressionStream('deflate-raw')` (or as stored) and `TextDecoderStream` in 64 K batches into
+`ahFeed`, the scan the export.xml route now uses too (glucose, steps, and `ahTypesScan` counting
+every other record type per source). Refused by name, nothing changed: no export.xml, a method
+other than 0 or 8, a truncated or damaged zip, a browser without the streams. The summary
+(`ahSummary`, from the store's moments before and after the merge) is held with the import's
+progress, not stored. The Settings card and the day's empty state say the zip is picked as it is.
+**Found and changed while building:**
+- Steps' accumulator holds one 288-bucket array per day and source (was an object keyed by minute).
+  Stored steps are unchanged; the harness's steps case passes as before.
+- `ahTypesScan` reuses the last type and source string while the text repeats them. The order was
+  measured on the user's 10 Oct export (counts only): 1,141,020 records in 27 runs of one type and
+  7,530 of one type and source.
+- The 64 MB budget fixture was first written with type and source random per record, an order no
+  export has; it now follows that measured order (types in blocks, the source changing every
+  ~150 records), with steps at 10 % of records (the real file ~5 %).
+**F13's measure, amended by the user (2026-11-16, asked before any change to the gate):** the
+pre-registered "heap growing under 64 MB" read the peak, and measured in headless Chrome the
+browser's own unzip-and-decode with no app code peaks at 172-262 MB of garbage not yet collected
+on the 64 MB zip; after a full collection the import holds ~30 MB. Ruled: the gate judges **what
+the import keeps** (heap after a full collection, under 64 MB) and the 200 ms stretch; the peak is
+printed beside the bare pipeline's in the same page, not judged. Measured: kept 28.4 MB, peak
++164.8 MB against the bare pipeline's +261.6 MB, longest stretch 89 ms, 5.6 s.
+**Red, then green** (the committed app.js and index.html swapped in; the built files restored
+byte-identical by sha256):
+- zip-gate (new): red -- every zip "not an Apple Health export", no summary, the refusals unnamed;
+  green -- three zips each leave the export.xml route's stores and summary byte for byte, the
+  re-import adds 0 (864 already held), the summary counts 4 sources and 5 types not imported at
+  390 px, four refusals by name, the budget as ruled.
+- import-gate's R342 card check, changed: red on the committed words ("unzip it in Files first",
+  "not built yet"); green.
+Harness 3495/3495; 11 static checks; every gate alone, 73 of 73; **suite 85 of 85**. Cache
+`healthtracker-shell-77e2764728a7`; the old worker is replaced as D6 rules (force and notify).
+**On the phone:** pull down to update; then Import readings -> export.zip as it is, in Safari and
+then in the Home Screen app. The probe page stays until the user confirms (F11).

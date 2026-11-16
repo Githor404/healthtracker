@@ -1697,6 +1697,12 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
   border:1px solid var(--line);border-radius:4px;padding:0 4px;overflow-wrap:anywhere}
 .scnote{font-size:16px;color:var(--muted);margin-top:8px;line-height:1.4}
 .gprog,.gok{color:var(--muted)}
+/* R344 (a): the summary per source app, under the import line. */
+.gsum{margin-top:6px}
+.gsum summary{min-height:44px;display:flex;align-items:center;cursor:pointer;color:var(--accent)}
+.gsrc{margin:8px 0 0;line-height:1.4}
+.gtype{margin-top:6px}
+.gsubtle{color:var(--muted)}
 .gerr{color:var(--bad)}
 .mline{display:flex;align-items:center;gap:8px;min-height:44px}
 .mhead{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;
@@ -2227,10 +2233,10 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <div class="gimportnote"></div>
       <div class="note">From a <b>Shortcut-produced glucose file</b> — the recommended
         route, and the recipe is shown in the day where glucose starts — or from a full
-        Apple Health export (Health → your profile → Export All Health Data). On a phone
-        that arrives as <code>export.zip</code>: unzip it in Files first, then pick the
-        <code>export.xml</code> inside. Reading the .zip directly is not built yet.
+        Apple Health export (Health → your profile → Export All Health Data): pick the
+        <code>export.zip</code> as it is, or the <code>export.xml</code> inside it.
         The control reads which file it was given, and refuses anything else by name.
+        After an import it lists what came from each source.
         Readings merge by timestamp, so re-importing the same export adds nothing. They
         are kept on this phone and are in your backup (Export backup), with where they
         came from.

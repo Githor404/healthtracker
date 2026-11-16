@@ -102,7 +102,8 @@ stackcheck-gate.ps1
 stacktotals-gate.ps1
 strip-gate.ps1
 update-gate.ps1
-weekly-gate.ps1"
+weekly-gate.ps1
+zip-gate.ps1"
 # DERIVED, not hand-maintained. This was a literal, read by nothing but two
 # echo strings -- the real bar is the manifest above versus the files on disk
 # (GS_MISSING / GS_EXTRA). Setting it to 21 with 22 gates present changed
