@@ -22995,3 +22995,30 @@ Screens read at 390 px before the suite: the prefilled search, and the marked na
 **Left as is, flagged in the pre-registration:** the chart note's "at least 3 hours" line. The
 export names the glucose source "Dexcom G7", so the line may be right for this user; not changed.
 Harness 3495/3495; 11 static checks; every gate alone green; **suite 84 of 84**.
+
+## R344 -- RULED (2026-11-16): the user's rulings on R343's forks
+**F1-F13 as proposed in R343, except:**
+- **F3: (a) and (i).** The Watch counts as worn on a day it recorded heart rate in at least 8
+  different hours; otherwise Oura's steps are the day's. A day with neither (Nov 2024 to Nov 2026)
+  shows **no chosen steps**; the iPhone's count is shown as a labelled cross-check, never chosen.
+- **F8: (c), replacing the proposal.** Oura's nights **fill the nights the user does not log, and
+  feed the analyses** (the eat ring, E-lite's "asleep?", the weekly review's sleep ring, anything
+  reading the user's nights). **Where the user logs a night, the user's night wins**, whole: an
+  Oura night overlapping a logged night is not used for it (kept as a cross-check, labelled), and
+  is never merged into it. A night that counts because Oura filled it says so wherever it is shown
+  ("from Oura"). The precedence rule (4f) is the reading: what the user stated wins.
+**So, as ruled (R343 + R344):** F1 IndexedDB `healthtracker-streams`, heart rate one value a minute,
+active energy and steps day totals per source (plus steps' 5-minute buckets on glucose days), the
+rest as recorded; F2 every stream in the backup, `STREAMS_VERSION` 2, an older build saying what it
+did not read; F4 resting HR the Watch's (Apple's measure), respiratory rate Oura (Watch
+cross-check), active energy steps' rule; F5 night = Oura's sleep window, else the Watch all day;
+F6 a 48 h look-back per source, merged by moment; F7 wall clock from the phone's zone rules, the
+travel limitation stated; F9 by device model or app name, checked on the real file before (b),
+falling back to the user labelling each source once; F10 `outcome_measure` on the claims; F11 the
+probe goes in the release after the user confirms the import; F12 three releases (a) zip read for
+glucose and steps with the per-source summary, (b) the new streams, precedence, calibration mark,
+Data sources page and F8, (c) F10 and F11; F13 the budget as proposed.
+**F8's consequence for (b), stated now:** the analyses that read nights today read the user's
+entries only; under (c) they read the user's entry for a night where one exists, else Oura's. Each
+gate that reads nights gets a fixture night from Oura alone and one where both exist (the user's
+must win). Release (a) is pre-registered next, before its build.
