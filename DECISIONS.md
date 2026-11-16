@@ -22832,3 +22832,42 @@ is dated 10 days 2 h before now, as its local date and time -- the margin also c
 spring-forward night. Alone at 00:3x: red before, green after. Static checks and harness re-run
 green; one retry, as allowed.
 Harness 3495/3495; 11 static checks; every gate alone green; **suite 84 of 84**.
+
+## R342 -- PRE-REGISTERED (2026-11-16; to be v0.141.0): an AI alternative opens the food search; the glucose lines tell the truth
+Two fixes, one release, ruled by the user (R342). Serves *track*.
+**1. Reported on the phone (2026-11-15):** a breakfast photo named "fried duck egg" and offered
+"fried chicken egg" among the AI's other names; tapping it seemed to do nothing. Reproduced
+headless, on the fixture and on the user's 8 Nov backup: the tap registers, but
+`photoPickCandidate` only renames the item and marks it unresolved (Fork E1's rule: a candidate is
+a name, never numbers). The list stays as it was with nothing marked, and the item reads "no
+nutrition yet", 0 cal. The cited row ("Egg, chicken, whole, cooked, fried") was reachable only
+through *Something else...* by typing.
+**Change.** A tap on one of the AI's other names (any candidate that is not simply the model's own
+answer, and is not one of the user's presets) still renames the item, unresolved, and records the
+pick as before; it then **opens that item's food search with the chosen name already in the
+field and run**: the same search as *Something else...*, the same rows, guards (D127/D135 state
+question), USDA offer and keep option. A line above the field says "You chose <name>", and its
+numbers come from the row the user taps. **Nothing is linked without that tap** (D141 stands).
+Cancelling ("leave it as it is") leaves the item renamed and unresolved, as today, and the list then
+**marks the chosen name** (pressed, with a tick). A row picked from that search keeps the record
+that the AI's candidate of rank r led there (`identity_pick` gains `via: 'alt', alt_rank: r`), so
+the calibration evidence is not overwritten.
+**2. Two lines claim glucose is "not in your export".** Since R227.1 (v0.101.0) the backup carries
+glucose and steps under `streams`, with their provenance. Both are rewritten: the Settings card
+(*Glucose readings*) and the note under the day's glucose chart. The Settings card also states the
+import route as it is: a Shortcut-produced file, or a full Apple Health export, where on a phone
+export.zip has to be unzipped first and its export.xml picked, since reading the .zip directly is
+not built (R339.1 step 2 waits on the phone probe).
+**Not changed, flagged:** the chart note's second line says Apple Health receives readings "at least
+3 hours after they are measured". That is one manufacturer's delay, and the user's sensor is
+not that one. Left for the user to rule.
+**Gates (red on the current code, then green):**
+- identity-search-gate, new section R342: on a draft whose AI answer is "fried duck egg" with
+  "fried chicken egg" and "poached egg" offered, a tap on "fried chicken egg" opens the search with
+  that name in the field, rows shown, the "You chose" line, and no row linked; tapping the fried
+  chicken egg row links it with `identity_pick.via === 'alt'` and `alt_rank === 1`; on a second
+  draft, cancelling after the tap leaves the item renamed and unresolved, with exactly one option
+  marked, the chosen one.
+- import-gate, new check R342: the Settings glucose card and the chart note no longer say "not in
+  your export", say the readings are in the backup, and the card names export.zip and unzipping.
+Standing pre-run rule; memory checked first.
