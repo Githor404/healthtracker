@@ -23022,3 +23022,59 @@ Data sources page and F8, (c) F10 and F11; F13 the budget as proposed.
 entries only; under (c) they read the user's entry for a night where one exists, else Oura's. Each
 gate that reads nights gets a fixture night from Oura alone and one where both exist (the user's
 must win). Release (a) is pre-registered next, before its build.
+
+## R344 release (a) -- PRE-REGISTERED (2026-11-16; to be v0.142.0): export.zip read on the same tap, for glucose and steps, with a summary per source
+Serves *track*. R343 F12 (a), under R344. **Nothing about what is stored changes in this release**:
+glucose and steps go through the merge and the steps rule they go through today (D146, D-steps);
+the steps rule's replacement, the new streams, the precedence, Oura's calibration mark, the Data
+sources page and F8 are release (b).
+**1. The zip is sniffed, not named.** The same control ("Import readings...", on the glucose row and
+the Settings card, no `accept` filter) reads the first bytes: `PK\x03\x04` is a zip. Its central
+directory is read from the end of the file (Zip64 included, the probe's reader), and the entry
+`export.xml` (at the root or one folder down, as Apple writes `apple_health_export/export.xml`) is
+streamed: `File.slice().stream()` -> `DecompressionStream('deflate-raw')` (method 8) or as stored
+(method 0) -> `TextDecoderStream`, one chunk held at a time, the carry bounded as on the xml route.
+Each chunk goes to the **same scanners** the xml route uses (`glucoseScanAppleText`,
+`stepsScanAppleText`), so the two routes cannot read the same records differently. Refused by name,
+nothing changed: a zip with no export.xml ("this zip holds no export.xml"), a compression method
+other than 0 or 8, a damaged directory, and a browser with no `DecompressionStream` or
+`TextDecoderStream` ("this browser cannot unzip it; unzip it in Files and pick the export.xml
+inside"). The export.xml route stays as it is.
+**2. Progress and responsiveness.** The line reads "Reading export.zip -- N MB of M MB zipped ·
+K readings found"; the loop yields at least every 200 ms of work.
+**3. The summary, per source app** (R343 #4, the part that applies to what (a) reads), shown under
+the import line, collapsed to one line ("2 sources updated · details ›"):
+- **Glucose**, per source: readings in the file, new, already held, first and last date, skipped.
+- **Steps**, per source: days in the file, and the days kept -- glucose's days only, the source with
+  more steps that day (today's rule, unchanged), each source's chosen days counted.
+- **Not imported in this version**: every other record type in the file, counted per type and
+  source ("Heart rate · 2 sources · 152,913 records"), saying they come in a later version. Nothing
+  of theirs is stored.
+Sources are shown as the export names them, on the phone only: that is the user's own data on the
+user's own screen. Nothing personal goes into the code, fixtures or records (R204); the fixtures
+use synthetic names. The summary is held in memory until the next import or reload, not stored --
+the stored per-source view is (b)'s Data sources page.
+**4. Words.** The Settings card and the chart note say export.zip can be picked as it is; the
+"has to be unzipped" sentence goes. R342's import-gate check is changed to the new statement.
+**5. Re-import adds nothing:** glucose merges by moment, steps' days are re-derived whole.
+**Gates (zip-gate, new; import-gate changed):**
+- A synthetic three-source export, made by a committed script (`tests/fixtures/make-ah-zip.py`,
+  synthetic names only): a "Dexcom"-style glucose source, Watch, iPhone and Oura steps, and heart
+  rate, HRV and sleep records as types not imported. Zipped three ways: deflate under a folder,
+  stored at the root, and Zip64. Picked through the real file input (CDP).
+- Each zip imports the same glucose readings, values, units and moments, and the same steps days,
+  as the export.xml route on the same text -- compared store to store.
+- Importing the same zip again: 0 new readings, the steps store byte-identical.
+- The summary: each source with its counts and dates; the not-imported types with their counts;
+  the collapsed line at 390 px read before the suite.
+- Refused by name, store unchanged: a zip with no export.xml, method 12, a truncated zip, a page
+  with `DecompressionStream` removed.
+- **Budget (F13):** a synthetic 64 MB zip (generated at gate time, not committed) imports with the
+  heap growing under 64 MB and no stretch of the import's own work over 200 ms between yields
+  (instrumented in the loop: the antivirus's injected scripts make long-task entries unattributable).
+- Red, then green: zip-gate red on the committed code (the zip refused as "not an Apple Health
+  export"), green on the build; import-gate's changed check red on the committed words.
+- The standing rule: memory >= 4 GB checked first; code checks, harness, every gate alone, one
+  green full run, then push.
+**On the phone, after release:** the user picks export.zip as it is (Safari, then the Home Screen
+app) and reports the time and the summary. The probe page stays until then (F11).
