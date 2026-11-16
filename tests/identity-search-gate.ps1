@@ -705,6 +705,82 @@ try {
   if ($R.presetPickedName -ne 'my protein shake') { $fails += "picking a preset from the search did not set its name (got '$($R.presetPickedName)')" }
   if ($R.presetPer100 -ne 67) { $fails += "the preset's numbers did not arrive scaled to per-100 g (got $($R.presetPer100), expected 67 from 220 kcal per 330 g)" }
   if (-not $R.presetSettled) { $fails += "a preset pick did not settle the identity" }
+
+  # --- R342: one of the AI's OTHER names opens the search, prefilled ------------
+  # Reported on the phone: "fried chicken egg" was offered under "fried duck egg" and a
+  # tap on it seemed to do nothing -- it renamed the item, left the list unmarked, and
+  # linked no row (0 cal). Every step here is a tap on the rendered page.
+  $p342 = @'
+(async function () {
+  const out = {};
+  const all = (sel) => Array.prototype.slice.call(document.querySelectorAll(sel));
+  const vis = (el) => !!(el && el.offsetParent !== null);
+  const txt = (el) => String((el && el.textContent) || '').replace(/\s+/g, ' ').trim();
+  const egg = () => JSON.stringify({ meal: 'breakfast', items: [{ name: 'fried duck egg', grams: 70, notes: 'one egg',
+    alts: [{ name: 'fried duck egg', p: 0.55 }, { name: 'fried chicken egg', p: 0.35 }, { name: 'poached egg', p: 0.1 }],
+    per100: { kcal: 200, protein_g: 13, fat_g: 15, carb_g: 1, fiber_g: 0, soluble_fiber_g: 0 } }] });
+  const opt = (re) => all('#photoDraft .pmalts > button').filter(b => vis(b) && re.test(txt(b)))[0];
+  try {
+  out.opened = !!(HT.openPhotoDraft(egg()) || {}).ok;
+  await window.__htQuiet(10000);
+  const b1 = opt(/^fried chicken egg/);
+  out.offered = !!b1;
+  if (b1) b1.click();
+  await window.__htQuiet(10000);
+  const q = document.getElementById('pmsQuery');
+  out.fieldValue = q && vis(q) ? q.value : null;
+  out.chose = txt(document.querySelector('#photoDraft .pmsfromalt'));
+  const rows = all('#photoDraft .pmsrow').filter(vis);
+  out.nRows = rows.length;
+  const it1 = HT.photoDraft().items[0];
+  out.noRefYet = !it1.ref;
+  const row = rows.filter(r => /^Egg, chicken, whole, cooked, fried/.test(txt(r)))[0];
+  out.rowFound = !!row;
+  if (row) row.click();
+  await window.__htQuiet(10000);
+  const it2 = HT.photoDraft().items[0];
+  out.refName = it2.ref ? String(it2.ref.name) : null;
+  out.kcal100 = it2.per100 ? Math.round(it2.per100.kcal) : null;
+  out.pick = it2.idPick || null;
+  out.searchClosed = !document.getElementById('pmsQuery');
+
+  // the cancel path, on a second draft
+  HT.openPhotoDraft(egg());
+  await window.__htQuiet(10000);
+  const b2 = opt(/^poached egg/);
+  if (b2) b2.click();
+  await window.__htQuiet(10000);
+  out.secondFieldValue = (document.getElementById('pmsQuery') || {}).value || null;
+  const cancel = document.querySelector('#photoDraft .pmscancel');
+  if (cancel) cancel.click();
+  await window.__htQuiet(10000);
+  const it3 = HT.photoDraft().items[0];
+  out.cancelName = String(it3.name);
+  out.cancelUnres = it3.unres === true;
+  out.cancelNoRef = !it3.ref;
+  const pressed = all('#photoDraft .pmalts > button').filter(b => vis(b) && (b.getAttribute('aria-pressed') === 'true' || /\bpmaltsel\b/.test(b.className)));
+  out.nPressed = pressed.length;
+  out.pressedText = pressed.map(txt).join(' | ');
+  } catch (e) { out.threw = String((e && e.message) || e); }
+  return JSON.stringify(out);
+})()
+'@
+  $rv342 = EvalAsync $p342
+  Write-Host ("  R342: " + $rv342)
+  $Q = if ($rv342 -like 'EXCEPTION*') { [pscustomobject]@{ threw = $rv342 } } else { $rv342 | ConvertFrom-Json }
+  if ($Q.threw) { $fails += "R342: the probe threw: $($Q.threw)" }
+  if (-not ($Q.opened -and $Q.offered)) { $fails += "R342 setup: the egg draft did not open, or 'fried chicken egg' was not offered" }
+  if ($Q.fieldValue -ne 'fried chicken egg') { $fails += "R342: a tap on the AI's other name 'fried chicken egg' did not open the search with that name in the field (field: '$($Q.fieldValue)')" }
+  if ($Q.chose -notmatch 'You chose fried chicken egg') { $fails += "R342: the search does not say which name was chosen ('$($Q.chose)')" }
+  if ([int]$Q.nRows -lt 1 -or -not $Q.rowFound) { $fails += "R342: the prefilled search showed no rows, or not 'Egg, chicken, whole, cooked, fried' ($($Q.nRows) rows)" }
+  if (-not $Q.noRefYet) { $fails += "R342: a row was linked before any row was tapped (D141)" }
+  if ($Q.refName -ne 'Egg, chicken, whole, cooked, fried') { $fails += "R342: tapping the row did not link it (ref '$($Q.refName)')" }
+  if (-not ($Q.kcal100 -gt 150)) { $fails += "R342: the linked row's numbers did not arrive (kcal/100 g $($Q.kcal100))" }
+  if (-not ($Q.pick -and $Q.pick.kind -eq 'search' -and $Q.pick.via -eq 'alt' -and [int]$Q.pick.alt_rank -eq 1)) { $fails += "R342: the pick does not record that the AI's candidate of rank 1 led to it ($($Q.pick | ConvertTo-Json -Compress))" }
+  if (-not $Q.searchClosed) { $fails += "R342: the search stayed open after the pick" }
+  if ($Q.secondFieldValue -ne 'poached egg') { $fails += "R342: on the second draft, 'poached egg' did not open the search with its name (field '$($Q.secondFieldValue)')" }
+  if (-not ($Q.cancelName -eq 'poached egg' -and $Q.cancelUnres -and $Q.cancelNoRef)) { $fails += "R342: after cancelling, the item is not 'poached egg', unresolved, with no row (name '$($Q.cancelName)')" }
+  if ([int]$Q.nPressed -ne 1 -or $Q.pressedText -notmatch 'poached egg$') { $fails += "R342: after cancelling, the list does not mark exactly the chosen name ($($Q.nPressed) marked: '$($Q.pressedText)')" }
 } catch {
   Write-Host "ERROR: $($_.Exception.Message)"
   Cleanup

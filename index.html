@@ -669,6 +669,9 @@
      food. 16px per D100's floor -- weight and colour carry the hierarchy. */
   .pmaltpromo{border-color:var(--accent)}
   .pmaltpromo small{color:var(--muted);font-size:16px}
+  /* R342: the name the user took from the list, after a cancelled search. Weight and
+     the accent edge mark it; never a verdict colour. */
+  .pmaltsel{border-color:var(--accent);font-weight:600}
   .pmunres{color:var(--muted);font-style:italic}
   .pmrowunres .pmhead b{color:var(--muted)}
   .pmcov{font-weight:400;color:var(--warn);font-variant-numeric:tabular-nums}
@@ -2224,10 +2227,13 @@ svg.tchart .tmark[data-kind="rise"]{stroke:var(--warn, #d9a441);stroke-dasharray
       <div class="gimportnote"></div>
       <div class="note">From a <b>Shortcut-produced glucose file</b> — the recommended
         route, and the recipe is shown in the day where glucose starts — or from a full
-        Apple Health <code>export.xml</code>. The control reads which, and refuses anything
-        else by name.
-        Readings merge by timestamp, so re-importing the same export adds nothing. Held
-        as a cache Apple Health can re-supply, so glucose is <b>not in your export</b>.
+        Apple Health export (Health → your profile → Export All Health Data). On a phone
+        that arrives as <code>export.zip</code>: unzip it in Files first, then pick the
+        <code>export.xml</code> inside. Reading the .zip directly is not built yet.
+        The control reads which file it was given, and refuses anything else by name.
+        Readings merge by timestamp, so re-importing the same export adds nothing. They
+        are kept on this phone and are in your backup (Export backup), with where they
+        came from.
         A stopgap: the durable route is the native shell reading HealthKit directly.</div>
     </div>
     <div class="card" data-setting="pack">

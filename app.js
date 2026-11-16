@@ -22,7 +22,7 @@ const PREMIGRATION_KEY = 'healthtracker-log-premigration';   // D7: retained v1 
 // D7 slot above is write-once and already holds a far older blob on any real device.
 const PREMIGRATION_V16_KEY = 'healthtracker-log-premigration-v16';
 const SCHEMA_VERSION   = 17;
-const APP_VERSION      = '0.140.1';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
+const APP_VERSION      = '0.141.0';                         // D14 OFF UA token + D6 update version (bumps every release; gated)
 
 const MEALS       = ['breakfast', 'lunch', 'dinner', 'snack', 'drink', 'supplement'];
 const CONFIDENCES = ['eyeballed', 'weighed', 'measured'];
@@ -17700,11 +17700,12 @@ let GLUCOSE_CHART_W = 328;            // MEASURED inside the day card at 390; re
 function glucoseNoteHTML(dk) {
   const sum = glucoseDaySummary(dk);
   const src = sum && sum.source ? sum.source : 'a sensor';
-  // A: the cache says it is a cache, WHERE GLUCOSE APPEARS. A cache the user
-  // cannot see is one they will assume is a backup.
-  return '<div class="tnote">From Apple Health (' + esc(src) + '). Held here as a cache that can '
-    + 'be re-acquired from Apple Health at any time, so it is <b>not in your export</b> \u2014 '
-    + 'the export carries what only this app knows.</div>'
+  // A: where the readings came from and where they are kept, WHERE GLUCOSE APPEARS.
+  // R342: since R227.1 (v0.101.0) the backup carries them under `streams`; this line
+  // said "not in your export" for months after it stopped being true.
+  return '<div class="tnote">From Apple Health (' + esc(src) + '). Kept on this phone and in '
+    + 'your backup (Export backup), with where they came from; importing again adds only '
+    + 'readings not already held.</div>'
     + '<div class="tnote">Apple Health receives these at least 3 hours after they are measured, '
     + 'so this is a look-back view: the newest point is already hours old.</div>';
 }
@@ -20375,6 +20376,7 @@ const VERSION_LOG = [
   { v: '0.139.0', d: '2026-11-07', note: 'Every mark on the pathway wheel is now explained beside it. A pathway’s panel starts with “Why this dot” (which way it leans, and each thing you logged with its claim and probability, newest first) and “Why these lines” (one row per line, in the line’s own style, with what the two pathways share). Tap a row to highlight its mark on the wheel, or tap the mark to find its row. The group list shows each pathway’s dot too.' },
   { v: '0.140.0', d: '2026-11-08', note: 'The pathway wheel has a time-scale switch: Fast (7 days), Medium (28) and Slow (90). Each pathway counts what you logged over the time scale its cited research gives; the switch shows one at a time, and a pathway with no cited time scale counts 28 days and says so. Dots are hollow while they rest on the science alone; filled, ringed and struck styles are ready for when your own data or a blood panel checks a claim. A line stays “connected — effect not measured” unless a claim you approved names its direction; then it is drawn solid, with an arrow.' },
   { v: '0.140.1', d: '2026-11-14', note: 'Other pages under the app’s address now open as themselves: the app used to answer every page with itself once installed, so the export.zip probe opened as the app. The app’s own page still opens offline as before.' },
+  { v: '0.141.0', d: '2026-11-16', note: 'On a photo, tapping one of your AI’s other names for a food now opens the food search with that name already looked up, so you can pick its database row and get its numbers; the name you chose is marked. The glucose notes now say what is true: your readings are in your backup, and on a phone an Apple Health export.zip has to be unzipped before its export.xml can be imported.' },
 ];
 const VERSION_KEY = 'healthtracker-version';
 
@@ -22495,11 +22497,16 @@ function identityOptionsHTML(idx, it) {
   // pick as rank 0 and say the model had been right.
   const order = alts.map(function (a, r) { return r; });
   if (promo) { order.splice(promo.rank, 1); order.unshift(promo.rank); }
+  // R342: the name the user took from this list stays marked (a cancelled search
+  // leaves it chosen and unresolved). Only a pick the user made -- never at open.
+  const chosenRank = (it && it.idPick && it.idPick.kind === 'alt') ? it.idPick.rank : null;
   const rows = order.map(function (r) {
     const a = alts[r];
+    const sel = (chosenRank === r);
     return '<button type="button" class="pmalt'
       + ((promo && promo.rank === r) ? ' pmaltpromo' : '')
-      + '" onclick="photoPickCandidate(' + idx + ', ' + r + ')">' + esc(a.name)
+      + (sel ? ' pmaltsel' : '') + '"' + (sel ? ' aria-pressed="true"' : '')
+      + ' onclick="photoPickCandidate(' + idx + ', ' + r + ')">' + (sel ? '✓ ' : '') + esc(a.name)
       + ((promo && promo.rank === r)
           ? '<small> \u00b7 you chose this before</small>' : '')
       + '</button>';
@@ -22602,7 +22609,13 @@ function photoPickCandidate(idx, rank) {
   }
   it.name = nm;
   it.unres = true;
-  return photoSettle(idx, { kind: 'alt', rank: r });
+  const settled = photoSettle(idx, { kind: 'alt', rank: r });
+  // R342: A NAME, AND THEN ITS NUMBERS. Reported: the tap renamed the item and
+  // nothing else visibly happened -- the list stood unmarked and the item read "no
+  // nutrition yet". The chosen name now opens this item's food search, already run;
+  // the numbers come from the row the user taps there, never from this tap (E1, D141).
+  photoSearchRun(idx, nm, { fromAlt: { name: nm, rank: r } });
+  return Object.assign({}, settled, { search: true });
 }
 // D141/G1: ONE TAP, BOTH ANSWERS. The name becomes the one the user has already
 // used for this food -- so a repeated food converges on a single name, which is
@@ -22768,7 +22781,10 @@ function photoSearchRun(idx, text, opts) {
   const keep = !!(opts && opts.keepNormalised);
   PHOTO_SEARCH = { idx: idx, text: q, phase: (opts && opts.typing && prev.rows && prev.rows.length) ? 'rows' : 'looking',
                    rows: (opts && opts.typing && prev.rows) ? prev.rows : [], proposed: (opts && opts.typing) ? prev.proposed : null,
-                   presets: photoSearchPresets(q) };
+                   presets: photoSearchPresets(q),
+                   // R342: which of the AI's names opened this search, kept while the
+                   // user types in it -- for the "You chose" line and the pick's record.
+                   fromAlt: (opts && opts.fromAlt) || (prev.idx === idx ? prev.fromAlt : null) || null };
   if (keep) {
     PHOTO_SEARCH.normalised = true;
     PHOTO_SEARCH.asked = prev.asked || [];
@@ -22926,8 +22942,9 @@ function photoSearchApply(idx, id, name, how) {
       delete it.unres;
       it.ref = ref;
       draftTakeRow(it, m, row);
+      const via = photoSearchVia(PHOTO_SEARCH);
       PHOTO_SEARCH = null;
-      photoSettle(idx, { kind: 'search', rank: null });
+      photoSettle(idx, Object.assign({ kind: 'search', rank: null }, via));
       return { ok: true, ref: ref, name: it.name };
     });
   });
@@ -22977,9 +22994,16 @@ function photoFdcApply(idx, c, how) {
   delete it.unres;
   it.ref = ref;
   draftTakeRow(it, c.meta, c.row);
+  const via = photoSearchVia(PHOTO_SEARCH);
   PHOTO_SEARCH = null;
-  photoSettle(idx, { kind: 'search', rank: null });
+  photoSettle(idx, Object.assign({ kind: 'search', rank: null }, via));
   return { ok: true, ref: ref, name: it.name };
+}
+// R342: a row reached through one of the AI's other names keeps that fact, so the
+// calibration record still says which of the model's candidates led to it.
+function photoSearchVia(st) {
+  const fa = st && st.fromAlt;
+  return (fa && fa.rank != null) ? { via: 'alt', alt_rank: fa.rank } : {};
 }
 // A preset is the user's OWN numbers, so it lands through the existing rail and
 // comes back with real macros rather than a corpus reference.
@@ -23295,7 +23319,12 @@ function photoSearchHTML(idx, it) {
   // ORDER, RULED: the input, then the OFFER directly under it, then what the app
   // searched, then the item's own estimate, then the rows, then the way out. The
   // offer used to sit last and the device finding is what that cost.
-  return '<div class="pmsearch"><div class="pmsq">What was it?</div>'
+  // R342: opened by a tap on one of the AI's other names -- say which, and where its
+  // numbers will come from.
+  const chose = (st.fromAlt && st.fromAlt.name)
+    ? '<div class="pmsub pmsfromalt">You chose <b>' + esc(st.fromAlt.name) + '</b>. Its numbers come from the row you tap below.</div>'
+    : '';
+  return '<div class="pmsearch">' + chose + '<div class="pmsq">What was it?</div>'
     // R238/2: with only PARTIAL rows, they come first and the offer sits beneath
     // them; with nothing at all it stays directly under the input (H30).
     + field + (partialOnly ? '' : ask) + searched + ours + failed + presets + body + (partialOnly ? ask : '') + fdc + keep

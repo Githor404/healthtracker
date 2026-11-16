@@ -26,8 +26,9 @@
 # across 328 columns = 8.8 per column, which is what makes the min/max envelope
 # necessary rather than tidy.
 #
-# RULED: A separate-key cache, out of the export by construction, and SAID so on
-#          the surface.
+# RULED: A separate-key store, and SAID so on the surface. (It was "out of the
+#          export by construction" until R227.1 put it in the backup; R342 made the
+#          surface say so.)
 #        B right edge = last reading, never "now"; the age stated is the REAL age,
 #          never the 3-hour nominal. A look-back instrument, never live.
 #        C min/max envelope per column, never bridging a gap. SMOOTHING REJECTED.
@@ -439,7 +440,10 @@ try {
       Chk 'M' ((@($P1.presets) -join '|') -match [Regex]::Escape($w)) "preset '$w' is missing (found: $(@($P1.presets) -join ', '))"
     }
     Chk 'M' ($P1.bodyText -match '(?i)apple health|healthkit') "the expanded body does not say where the readings came from"
-    Chk 'M' ($P1.bodyText -match '(?i)not in (your )?export|excluded from .*export|re-?acquir') "the body does not say this is a CACHE kept out of the export -- A ruled: say so where glucose appears"
+    # R342: A's "say so where glucose appears" stands; WHAT it says changed. Since R227.1
+    # (v0.101.0) the backup carries glucose, so the body says that, and never the old claim.
+    Chk 'M' ($P1.bodyText -match '(?i)in your backup') "the body does not say where the readings are kept (in the backup) -- A ruled: say so where glucose appears; R342: say it truly"
+    Chk 'M' ($P1.bodyText -notmatch '(?i)not in (your )?export|excluded from .*export') "the body still says glucose is kept out of the export -- untrue since R227.1 (R342)"
     Chk 'M' ($P1.clips -ge 2) "the fixture carries two values outside the declared 2-14 domain and $($P1.clips) clip marks were drawn -- D ruled clipped and MARKED, never rescaled"
     Chk 'M' (@($P1.marks).Count -ge 2) "only $(@($P1.marks).Count) mark(s) on the chart -- the fixture has a meal and an event and both belong on the same axis"
     $ax = (@($P1.axis) -join ' ')

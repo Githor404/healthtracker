@@ -652,6 +652,20 @@ JSON.stringify((function () {
     Chk ($scStored -eq 2) "after importing the recipe's own output the cache holds $scStored readings, expected 2"
   }
 
+  # ========== R342: THE GLUCOSE LINES TELL THE TRUTH ========================
+  # Since R227.1 (v0.101.0) the backup carries glucose under `streams`. Two lines still
+  # said it was "not in your export". Read as rendered: the Settings card, and the note
+  # under an opened day's chart (the recipe's day, 2026-09-26, imported just above).
+  $gw = Eval "(function(){ var c = document.querySelector('[data-setting=glucose-import]'); var card = c ? c.textContent.replace(/\s+/g, ' ') : ''; HT.state().current = '2026-09-26'; HT.refresh(); if (!HT.glucoseIsOpen('2026-09-26')) HT.glucoseToggle('2026-09-26'); var n = Array.prototype.slice.call(document.querySelectorAll('#dayView .tnote')).map(function (e) { return e.textContent.replace(/\s+/g, ' '); }).join(' | '); return JSON.stringify({ card: card, note: n }); })()" | ConvertFrom-Json
+  Write-Host ("  R342 card: " + $gw.card)
+  Write-Host ("  R342 note: " + $gw.note)
+  Chk ($gw.card -notmatch 'not in your export') "R342: the Settings glucose card still says glucose is 'not in your export'"
+  Chk ($gw.card -match 'in your backup') "R342: the Settings glucose card does not say the readings are in the backup"
+  Chk (($gw.card -match 'export\.zip') -and ($gw.card -match 'unzip')) "R342: the Settings glucose card does not say that a phone's export.zip has to be unzipped first"
+  Chk ($gw.note -match 'From Apple Health') "R342: the opened day's chart note did not render, so its wording is not checked (note: '$($gw.note)')"
+  Chk ($gw.note -notmatch 'not in your export') "R342: the note under the glucose chart still says glucose is 'not in your export'"
+  Chk ($gw.note -match 'in your backup') "R342: the note under the glucose chart does not say the readings are in the backup"
+
   if ($fails.Count) {
     Write-Host "IMPORT GATE: FAIL"
     foreach ($f in $fails) { Write-Host "  - $f" }

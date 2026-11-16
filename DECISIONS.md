@@ -22968,3 +22968,30 @@ replaced below.
   responsive); on the phone the user reports the time, and over 2 minutes for the full history the
   user decides, as for the probe.
 **Not built until F1-F13 are ruled.** R342 is finished first.
+
+## R342 -- BUILT (2026-11-16, v0.141.0)
+As pre-registered. **1.** A tap on one of the AI's other names (not the model's own answer, not a
+preset) renames the item, unresolved, records `{kind:'alt', rank}`, and runs that item's food
+search with the name in the field (`photoSearchRun(idx, name, {fromAlt})`); above the field, "You
+chose <name>. Its numbers come from the row you tap below." A row picked there records
+`{kind:'search', via:'alt', alt_rank}` (the photo row and the USDA row alike). Cancelling leaves the
+item renamed and unresolved, and the list marks that name (`pmaltsel`, `aria-pressed`, a tick, the
+accent edge); nothing is marked at open. **2.** The Settings glucose card and the note under the
+day's glucose chart say the readings are kept on the phone and are in the backup; the card states
+the route: a Shortcut file, or a full export, where on a phone export.zip is unzipped in Files and
+the export.xml inside picked, the .zip not read directly yet.
+**Red, then green** (the committed app.js, index.html and sw.js swapped in for red; the built files
+restored byte-identical by sha256):
+- identity-search-gate R342: red -- field empty, no "You chose", 0 rows, no ref, pick
+  `{"kind":"alt","rank":1}`, nothing marked; green -- field "fried chicken egg", 8 rows, the fried
+  egg row linked (193 kcal/100 g), pick `{"kind":"search","via":"alt","alt_rank":1}`, after a cancel
+  one option marked, "poached egg".
+- import-gate R342: red -- both lines "not in your export", no backup, no export.zip; green.
+- **chart-gate [M] changed**, found by the gates-alone pass (71 of 72): it required the chart note
+  to say glucose is kept out of the export (A, before R227.1). A's "say so where glucose appears"
+  stands; the check now requires "in your backup" and forbids the old claim. Red on the committed
+  code, green on the fix.
+Screens read at 390 px before the suite: the prefilled search, and the marked name after a cancel.
+**Left as is, flagged in the pre-registration:** the chart note's "at least 3 hours" line. The
+export names the glucose source "Dexcom G7", so the line may be right for this user; not changed.
+Harness 3495/3495; 11 static checks; every gate alone green; **suite 84 of 84**.
