@@ -22871,3 +22871,100 @@ not that one. Left for the user to rule.
 - import-gate, new check R342: the Settings glucose card and the chart note no longer say "not in
   your export", say the readings are in the backup, and the card names export.zip and unzipping.
 Standing pre-run rule; memory checked first.
+
+## R343 -- PRE-REGISTERED (2026-11-16), forks to rule before any build: export.zip IS the import route, and the Watch and Oura streams
+**The probe result (R339.1 step 1, reported by the user, 16 Nov):** COMPLETED in Safari and in
+standalone (Home Screen), 2.3 s each, iOS 18.7, the real export: 27.8 MB zipped, 714.8 MB of text,
+1,652,096 records, one chunk held at a time. **By the decision rule, step 2 is built: streaming the
+zip is the import route, on the same tap as today.** Serves *track* (streams, leg 1 of the roadmap)
+and prepares *evaluate* (night HRV for the claims that wait on it).
+**What the export holds now (the user's report; counts from the 9 Nov file in HTPrivate, R325.2):**
+Oura (sleep stages, heart rate, steps, active energy, respiratory rate; from 7 Nov 2026), the
+Apple Watch (heart rate, steps, active energy, respiratory rate, resting HR, HRV SDNN; 2020 to Nov
+2024, syncing again since Nov 2026), the iPhone (steps), Dexcom (glucose, none since 5 Nov: no
+sensor). On the 9 Nov file the Watch's four years were ~153 k heart-rate samples, ~548 k
+active-energy entries (one a minute), ~38 k step entries, ~2.8 k HRV, ~800 resting HR, ~6.3 k
+respiratory rate; Oura writes ~125 sleep-stage entries a night.
+**This changes R193 and D-steps (ruled D):** the wider import was parked "until a live heart-rate
+stream exists"; steps were "glucose's days only" and "the source with more steps wins". Both are
+replaced below.
+**The user's rulings (R343):**
+1. **One source per measure per day, never added together.** Sleep: Oura; the Watch kept as a
+   cross-check. Steps: the Watch on a day it was worn, else Oura; the iPhone only as a cross-check.
+   Heart rate: the Watch by day, Oura at night (its sleep window). HRV: the Watch's SDNN and (later)
+   Oura's own HRV stay **separate series**, labelled by source and measure, never mixed or averaged.
+   Glucose: Dexcom. Resting HR and respiratory rate: a rule proposed from the data (F4).
+2. **First import: the full history** (every year, the pre-2024 Watch years included); later
+   imports only what is new (F6). Re-importing adds nothing. A gap in a source (the Watch, Nov 2024
+   to Nov 2026) reads **"no data from this source"**, never zero.
+3. **Timestamps:** the export stamps every record with the offset in force when it was exported;
+   that offset is never stored as the reading's own (R301/R304, R339.1's note). See F7.
+4. **An import summary per source app** (measures updated, new readings, date range, chosen source
+   or cross-check, anything not imported), and a **Data sources** page with each source's latest
+   reading and "no new data since ...".
+5. **Oura's first 2 weeks are marked as its calibration period.**
+6. **The Watch's HRV (SDNN) feeds a claim waiting on night HRV only where the claim was studied
+   with SDNN**; each such claim states the measure it was studied with (F10).
+7. **The probe page is retired once the import is live** (F11).
+8. **Gates:** a fixture with all three sources imports into the right biometrics by the precedence
+   above; no double counting; full history, then incremental; a re-import adds nothing; the summary
+   and the sources page correct; a performance budget; the standing pre-run rule.
+
+**Forks, proposed, for the user to rule before any code:**
+- **F1 -- storage (a data-loss question, so ruled first).** The phone's localStorage (about 5 MB on
+  Safari) cannot hold years of samples: four years of the Watch's heart rate alone is ~1.2 MB in
+  the glucose store's compact form, and active energy raw would be ~4 MB more. *Proposed:* the new
+  streams live in **IndexedDB** (`healthtracker-streams`; the corpus already uses IndexedDB), with
+  D1's truthful badge if it is refused; heart rate kept as **one value a minute** (the median where
+  a workout records every few seconds); active energy and steps kept as **day totals per source**,
+  plus steps' existing 5-minute buckets for the days glucose covers (E-lite needs them); HRV,
+  resting HR, respiratory rate and sleep stages kept as recorded. Glucose and the existing steps
+  store stay where they are.
+- **F2 -- the backup.** R227.1 put glucose in the backup because the phone was the only place it
+  lived. *Proposed:* the same for every new stream, in `streams` with its provenance (the full
+  history adds roughly 2-3 MB to the file); `STREAMS_VERSION` 1 -> 2, and an older build restoring
+  a v2 file keeps glucose and steps and says what it did not read, never silently dropping it.
+- **F3 -- "the Watch was worn that day".** *Proposed:* the Watch recorded heart rate in at least 8
+  different hours of that day; otherwise Oura's steps are the day's. *And a day with neither* (Nov
+  2024 to Nov 2026 has only the iPhone): the day shows **no chosen steps** and the iPhone's count as
+  a cross-check, labelled -- or the user rules the iPhone the last resort.
+- **F4 -- resting HR, respiratory rate, active energy.** From the data: only the Watch writes resting
+  HR (Apple's own daily estimate), so it is the chosen series, labelled as Apple's measure; Oura's
+  lowest night heart rate is a different quantity and is not derived. Respiratory rate: both
+  devices measure it asleep; *proposed* Oura chosen, the Watch a cross-check -- sleep's rule.
+  Active energy: *proposed* steps' rule (Watch when worn, else Oura), as day totals.
+- **F5 -- heart rate's night.** *Proposed:* "night" is Oura's sleep window for that night (first to
+  last asleep stage); a night with no Oura sleep takes the Watch for the whole day. Oura's daytime
+  samples are kept as a cross-check, not chosen.
+- **F6 -- what "only new" means.** Apple Health files late arrivals under their own times (a ring
+  syncing hours later). *Proposed:* each later import reads each source's records from **48 h
+  before** its newest held reading; merging by moment keeps a re-import from adding anything.
+- **F7 -- the wall clock.** *Proposed:* a reading's wall-clock time is worked out from the phone's
+  own time zone rules at that moment, never the export's single offset. *Stated limitation:* a
+  reading taken while travelling in another time zone reads in the home zone.
+- **F8 -- sleep beside the user's own sleep entries.** Today a night is one record the user starts
+  and ends (R215/R223), and the eat ring, E-lite's "asleep?" and the weekly review read it.
+  *Proposed:* Oura's nights are their own series, shown beside the user's entries, labelled; every
+  analysis that reads the user's entries goes on reading them until a further ruling. The user's
+  statement wins where the two disagree, by the precedence rule (4f).
+- **F9 -- telling the sources apart.** Source names in the export are personal (a device carries its
+  owner's name). *Proposed:* a source is recognised by the export's device model (Watch, iPhone) or
+  its app name (Oura, Dexcom), never by its personal name; nothing personal is written to the code,
+  the fixtures or the records (R204). To be checked on the real file before build: the inventory
+  read no device models, so the attribute's shape is not yet seen.
+- **F10 -- the claims' measure.** No claim is evaluated against the user's HRV yet. *Proposed:* a
+  pack claim waiting on night HRV carries `outcome_measure` (`SDNN` or `RMSSD`), drafted on the PC
+  and approved like every pack field; the phone pairs a series with a claim only when they match,
+  and says "studied with RMSSD; your Watch measures SDNN" where they do not. Oura's own HRV
+  ("R338") is not recorded in this repository and does not reach Apple Health in the user's list;
+  out of this slice.
+- **F11 -- when the probe goes.** *Proposed:* in the release after the user has confirmed the import
+  on the phone, not in the release that introduces it.
+- **F12 -- the order of releases.** *Proposed:* **(a)** the zip read on the same tap, for what the
+  import reads today (glucose, steps), with the summary; **(b)** the new streams, the precedence,
+  the calibration mark and the Data sources page, behind F1-F9; **(c)** F10 and F11. Each gated.
+- **F13 -- the budget.** *Proposed:* on the PC, a synthetic export of three sources in a 64 MB zip
+  imports with the heap growing under 64 MB and no single task over 200 ms (the page stays
+  responsive); on the phone the user reports the time, and over 2 minutes for the full history the
+  user decides, as for the probe.
+**Not built until F1-F13 are ruled.** R342 is finished first.
